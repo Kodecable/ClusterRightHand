@@ -11,10 +11,7 @@ export interface KeyExport {
 	created_at: string;
 	master_key: string;
 	master_key_id: string;
-	/**
-	 * Decrypted server keys, so the export is usable even without the database. Keys have no names: they
-	 * are identified by fingerprint. An older export may still carry a `name` per key; restoring ignores it.
-	 */
+	/** Decrypted server keys, so the export is usable even without the database. Keys are identified by fingerprint. */
 	keys: { id: string; kind: string; created_at: string; value: string }[];
 }
 
@@ -69,18 +66,8 @@ export async function decryptKeyExport(file: string, passphrase: string): Promis
 	}
 	const key = new MasterKey(Buffer.from(data.master_key, "base64"));
 	if (key.id !== data.master_key_id) throw new KeyError("key export is inconsistent (master key id mismatch)");
-	// Older exports carried a `name` per key. It is not part of the format anymore, so drop it here:
-	// every consumer works with ids, kinds and values only.
 	const keys = Array.isArray(data.keys) ? data.keys : [];
-	return {
-		...data,
-		keys: keys.map((entry) => ({
-			id: entry.id,
-			kind: entry.kind,
-			created_at: entry.created_at,
-			value: entry.value,
-		})),
-	} as KeyExport;
+	return { ...data, keys } as KeyExport;
 }
 
 /**

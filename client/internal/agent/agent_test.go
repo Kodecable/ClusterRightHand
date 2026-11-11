@@ -112,7 +112,7 @@ func startFake(t *testing.T, serverKey noise.Keypair, cfg fakeConfig) *httptest.
 		resp := &protocol.HandshakeResponse{
 			ProtocolMajor: protocol.ProtocolMajor,
 			ProtocolMinor: protocol.ProtocolMinor,
-			Commands:      protocol.SupportedNames(),
+			Commands:      protocol.RequiredNames(),
 			ConnectionID:  "conn-1",
 			ServerTimeMS:  protocol.Int(time.Now().UnixMilli()),
 			NodeState:     cfg.nodeState,
@@ -141,7 +141,7 @@ func startFake(t *testing.T, serverKey noise.Keypair, cfg fakeConfig) *httptest.
 				return err
 			}
 			return ws.Write(ctx, websocket.MessageBinary, ct)
-		}, protocol.SupportedSet().Intersect(protocol.NewSet(init.Commands...)))
+		}, protocol.RequiredSet().Intersect(protocol.NewSet(init.Commands...)))
 		registerCore(peer)
 		cfg.setup(peer)
 		if cfg.run != nil {

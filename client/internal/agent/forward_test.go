@@ -496,7 +496,7 @@ func expectRemoteCode(t *testing.T, err error, code string) *protocol.RemoteErro
 // ------------------------------- tests -------------------------------
 
 // TestTrustSummaryNotForward covers the report of every mode that does not forward: crha advertises
-// M4 and answers its commands with privileged_unsupported.
+// the privilege commands and answers them with privileged_unsupported.
 func TestTrustSummaryNotForward(t *testing.T) {
 	for _, mode := range []string{config.ModeNative, config.ModeIgnore, config.ModeReject} {
 		t.Run(mode, func(t *testing.T) {

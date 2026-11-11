@@ -242,8 +242,6 @@ async function deleteExpiredAuthorizations(
 			db
 				.selectFrom("authorizations")
 				.select("id")
-				// Rows from before deadlines were mandatory (null) are left alone.
-				.where("deadline", "is not", null)
 				.where("deadline", "<", cutoff)
 				.orderBy("deadline")
 				.limit(limit)

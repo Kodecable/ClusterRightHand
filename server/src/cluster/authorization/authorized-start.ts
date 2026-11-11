@@ -13,7 +13,7 @@ import {
 	type TaskStart,
 } from "@crh/protocol";
 import type { Selectable } from "kysely";
-import type { BuiltAuthorization } from "../../privilege/payload.ts";
+import { authorizationDeadline, type BuiltAuthorization } from "../../privilege/payload.ts";
 import type { AuthorizationPath } from "../../privilege/planner.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../../storage/schema.ts";
 import { errorText } from "../../util/errors.ts";
@@ -149,8 +149,7 @@ export async function claimCrhs(
 				node_id: node.id,
 				task_id: id,
 				attempt: row.attempt,
-				deadline:
-					authorization.payload.deadlineMs === null ? null : new Date(authorization.payload.deadlineMs).toISOString(),
+				deadline: authorizationDeadline(authorization.payload.deadlineMs),
 				trust_digest: record.trustDigest,
 			},
 		});
@@ -347,7 +346,7 @@ async function storeAuthorization(
 			signatures: JSON.stringify(signatures.map(signatureToJson)),
 			issuer_user_id: null,
 			task_ids: taskIds === null ? null : JSON.stringify(taskIds),
-			deadline: deadlineMs === null ? null : new Date(deadlineMs).toISOString(),
+			deadline: authorizationDeadline(deadlineMs),
 			created_at: now(),
 		})
 		.execute();

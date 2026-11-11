@@ -69,7 +69,7 @@ func TestPersistenceAcrossRestart(t *testing.T) {
 	deadline := now.Add(5 * time.Minute).UnixMilli()
 	if err := s.AddUsed(Record{
 		TaskID: "t1", Attempt: 1, AuthorizationID: testIDHex(0x11),
-		IssuedAtMS: now.Add(-time.Minute).UnixMilli(), DeadlineMS: &deadline,
+		IssuedAtMS: now.Add(-time.Minute).UnixMilli(), DeadlineMS: deadline,
 		SpecSHA256: "ab", AcceptedAtMS: now.UnixMilli(),
 	}); err != nil {
 		t.Fatalf("AddUsed: %v", err)
@@ -135,8 +135,8 @@ func TestAddUsedIsAppendOnlyAndDurable(t *testing.T) {
 }
 
 // TestUsedRetention covers the cleanup rules: a record with an authorization lives until one
-// hour (at least) past its deadline, and a record without one (a local approval, or a legacy
-// authorization without a deadline) lives for 24 hours after it was accepted.
+// hour (at least) past its deadline, and a local approval lives for 24 hours after it was
+// accepted.
 func TestUsedRetention(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
 	clk := &clock{at: testNow()}
@@ -146,7 +146,7 @@ func TestUsedRetention(t *testing.T) {
 	deadline := clk.at.Add(10 * time.Minute).UnixMilli()
 	if err := s.AddUsed(Record{
 		TaskID: "with-deadline", AuthorizationID: testIDHex(0x11),
-		IssuedAtMS: clk.at.Add(-time.Minute).UnixMilli(), DeadlineMS: &deadline,
+		IssuedAtMS: clk.at.Add(-time.Minute).UnixMilli(), DeadlineMS: deadline,
 		AcceptedAtMS: clk.at.UnixMilli(),
 	}); err != nil {
 		t.Fatal(err)
@@ -154,20 +154,14 @@ func TestUsedRetention(t *testing.T) {
 	if err := s.AddUsed(Record{TaskID: "local", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddUsed(Record{
-		TaskID: "legacy-no-deadline", AuthorizationID: testIDHex(0x22),
-		AcceptedAtMS: clk.at.UnixMilli(),
-	}); err != nil {
-		t.Fatal(err)
-	}
 
 	// 30 minutes after the deadline: still inside the one-hour retention margin. A new
-	// record prunes first; all three survive.
+	// record prunes first; all two survive.
 	clk.at = testNow().Add(40 * time.Minute)
 	if err := s.AddUsed(Record{TaskID: "probe-1", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
 		t.Fatal(err)
 	}
-	for _, task := range []string{"with-deadline", "local", "legacy-no-deadline"} {
+	for _, task := range []string{"with-deadline", "local"} {
 		if !s.Executed(task) {
 			t.Fatalf("%s was dropped inside its retention window", task)
 		}
@@ -181,7 +175,7 @@ func TestUsedRetention(t *testing.T) {
 	if s.Executed("with-deadline") {
 		t.Fatal("an authorized record past deadline+1h was kept")
 	}
-	if !s.Executed("local") || !s.Executed("legacy-no-deadline") {
+	if !s.Executed("local") {
 		t.Fatal("a 24h record was dropped early")
 	}
 
@@ -190,7 +184,7 @@ func TestUsedRetention(t *testing.T) {
 	if err := s.AddUsed(Record{TaskID: "probe-3", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
 		t.Fatal(err)
 	}
-	if s.Executed("local") || s.Executed("legacy-no-deadline") {
+	if s.Executed("local") {
 		t.Fatal("a record older than 24h without an authorization was kept")
 	}
 }
@@ -207,7 +201,7 @@ func TestUsedRetentionWithLargeClockSkew(t *testing.T) {
 	deadline := clk.at.Add(10 * time.Minute).UnixMilli()
 	if err := s.AddUsed(Record{
 		TaskID: "skewed", AuthorizationID: testIDHex(0x11),
-		IssuedAtMS: clk.at.Add(-time.Second).UnixMilli(), DeadlineMS: &deadline,
+		IssuedAtMS: clk.at.Add(-time.Second).UnixMilli(), DeadlineMS: deadline,
 		AcceptedAtMS: clk.at.UnixMilli(),
 	}); err != nil {
 		t.Fatal(err)
@@ -247,10 +241,9 @@ func withRebuildFloor(t *testing.T, floor int) {
 
 // authorizedRecord builds a record whose authorization is acceptable at now.
 func authorizedRecord(taskID string, now time.Time, issuedAt time.Time, deadline time.Time) Record {
-	ms := deadline.UnixMilli()
 	return Record{
 		TaskID: taskID, AuthorizationID: testIDHex(0x11),
-		IssuedAtMS: issuedAt.UnixMilli(), DeadlineMS: &ms, AcceptedAtMS: now.UnixMilli(),
+		IssuedAtMS: issuedAt.UnixMilli(), DeadlineMS: deadline.UnixMilli(), AcceptedAtMS: now.UnixMilli(),
 	}
 }
 

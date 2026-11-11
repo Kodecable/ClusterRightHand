@@ -26,9 +26,9 @@ import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { openDb } from "../src/storage/db.ts";
 import { migrateToLatest } from "../src/storage/migrate.ts";
-import { backfillHandlers } from "../src/storage/migrations/0018_approval_handler.ts";
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
+import { backfillHandlers } from "./helpers/backfill-handlers.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
 

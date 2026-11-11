@@ -52,7 +52,9 @@ from the start means a second one needs no schema change ([User model](access-co
 ## Schema migrations
 
 Migrations are numbered TypeScript files, listed explicitly rather than discovered, so a source checkout
-and a bundled build run the same set. crhs runs pending migrations at startup, before serving.
+and a bundled build run the same set. crhs runs pending migrations at startup, before serving. The chain
+starts at one initial migration that creates the whole schema; from the first release, migrations are
+append-only.
 
 - Each migration runs on both dialects and is self-contained: helpers it needs are copied into it, so a
   later change in the application cannot change what an old migration does.

@@ -47,7 +47,7 @@ func fakeServer(t *testing.T, server noise.Keypair, allowed []byte, tamperChalle
 			ws.Close(websocket.StatusPolicyViolation, "bad init")
 			return
 		}
-		resp := activeHandshake(protocol.SupportedNames())
+		resp := activeHandshake(protocol.RequiredNames())
 		if response != nil {
 			resp = response()
 		}
@@ -66,7 +66,7 @@ func fakeServer(t *testing.T, server noise.Keypair, allowed []byte, tamperChalle
 				return err
 			}
 			return ws.Write(ctx, websocket.MessageBinary, ct)
-		}, protocol.SupportedSet().Intersect(protocol.NewSet(init.Commands...)))
+		}, protocol.RequiredSet().Intersect(protocol.NewSet(init.Commands...)))
 		peer.HandleRequest(protocol.CmdPing, func(_ context.Context, body cbor.RawMessage) (any, error) {
 			var p protocol.Ping
 			if err := protocol.Unmarshal(body, &p); err != nil {
@@ -141,7 +141,7 @@ func TestDialAndPing(t *testing.T) {
 	if c.Response.ConnectionID != "c1" || c.ClockOffset > time.Second || c.ClockOffset < -time.Second {
 		t.Fatalf("response = %v, offset = %v", c.Response, c.ClockOffset)
 	}
-	for _, name := range protocol.SupportedNames() {
+	for _, name := range protocol.RequiredNames() {
 		if !c.Negotiated.Has(name) {
 			t.Fatalf("negotiated set misses %q", name)
 		}
@@ -206,7 +206,7 @@ func TestDialWrongServerKey(t *testing.T) {
 func TestDialProtocolMajorMismatch(t *testing.T) {
 	client, server := keys(t)
 	srv := fakeServer(t, server, client.Public, false, func() *protocol.HandshakeResponse {
-		resp := activeHandshake(protocol.SupportedNames())
+		resp := activeHandshake(protocol.RequiredNames())
 		resp.ProtocolMajor = protocol.ProtocolMajor + 1
 		return resp
 	})
@@ -221,7 +221,7 @@ func TestDialProtocolMajorMismatch(t *testing.T) {
 func TestDialDifferentMinorAccepted(t *testing.T) {
 	client, server := keys(t)
 	srv := fakeServer(t, server, client.Public, false, func() *protocol.HandshakeResponse {
-		resp := activeHandshake(protocol.SupportedNames())
+		resp := activeHandshake(protocol.RequiredNames())
 		resp.ProtocolMinor = protocol.ProtocolMinor + 1
 		return resp
 	})
@@ -237,7 +237,7 @@ func TestDialMissingRequiredCommand(t *testing.T) {
 	client, server := keys(t)
 	srv := fakeServer(t, server, client.Public, false, func() *protocol.HandshakeResponse {
 		var commands []string
-		for _, name := range protocol.SupportedNames() {
+		for _, name := range protocol.RequiredNames() {
 			if name != protocol.CmdTaskStart {
 				commands = append(commands, name)
 			}

@@ -1,5 +1,5 @@
 import type { TransportCiphers } from "@crh/noise";
-import { CborError, ConnectionError, OPTIONAL_NAMES, Peer, ProtocolError, truncateUtf8 } from "@crh/protocol";
+import { CborError, ConnectionError, Peer, ProtocolError, truncateUtf8 } from "@crh/protocol";
 import type { WebSocket } from "ws";
 
 const EMPTY = new Uint8Array(0);
@@ -20,30 +20,17 @@ export class NodeConnection {
 	readonly nodeId: string;
 	/** The wire protocol peer; commands and events are registered on it. */
 	readonly peer: Peer;
-	/**
-	 * The optional M4 names the peer negotiated. Empty for a node that offers only the M3.5
-	 * names, which cannot take part in `forward` (doc/design/protocol.md "Handshake payloads").
-	 */
-	readonly optional: ReadonlySet<string>;
 	readonly #ws: WebSocket;
 	readonly #ciphers: TransportCiphers;
 	#onActivity: () => void = () => {};
 	#onClose: (reason: string) => void = () => {};
 	#closed = false;
 
-	constructor(
-		id: string,
-		nodeId: string,
-		ws: WebSocket,
-		ciphers: TransportCiphers,
-		negotiated: Iterable<string>,
-		optional: Iterable<string> = [],
-	) {
+	constructor(id: string, nodeId: string, ws: WebSocket, ciphers: TransportCiphers, negotiated: Iterable<string>) {
 		this.id = id;
 		this.nodeId = nodeId;
 		this.#ws = ws;
 		this.#ciphers = ciphers;
-		this.optional = new Set(optional);
 		this.peer = new Peer({
 			negotiated,
 			// Encrypt and hand to the socket synchronously, so nonce order equals wire order.
@@ -91,14 +78,6 @@ export class NodeConnection {
 
 	get closed(): boolean {
 		return this.#closed;
-	}
-
-	/**
-	 * Whether the peer implements every optional 1.1 name. Such a node can take part in `forward`;
-	 * one that only speaks 1.0 cannot, whatever its `privileged_mode` says.
-	 */
-	get supportsForward(): boolean {
-		return OPTIONAL_NAMES.every((name) => this.optional.has(name));
 	}
 
 	close(reason: string): void {

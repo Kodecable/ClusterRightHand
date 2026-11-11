@@ -1,5 +1,5 @@
-// Package protocol implements the CBOR-CORE-INT-v1 wire format shared by crhs and crha
-// (M3.5): handshake payloads, request/response/event frames, command and event bodies,
+// Package protocol implements the CBOR-CORE-INT-v1 wire format shared by crhs and crha:
+// handshake payloads, request/response/event frames, command and event bodies,
 // and a Peer that multiplexes requests, responses and events over one ordered message
 // stream. See doc/design/protocol.md for the authoritative schema and its "Encoding rules" for the
 // CBOR profile.
@@ -20,10 +20,7 @@ const (
 	// incompatible change bumps the major version and the Noise prologue, so a peer with another
 	// major fails the handshake itself (doc/design/protocol.md "Handshake payloads"). The minor version is
 	// additive: new commands and events are negotiated through the handshake's commands field.
-	// Protocol 3.0 removes the groups fact and renames TrustSummary.groups to aliases;
-	// 2.0 reads files by line range and adds task.exit.result; 1.1 was the M4 command set and 1.0
-	// the M3.5 one.
-	ProtocolMajor = 3
+	ProtocolMajor = 0
 	ProtocolMinor = 0
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440
@@ -43,7 +40,7 @@ func IsUUID(s string) bool {
 	return uuidRe.MatchString(s)
 }
 
-// Command names of the M3.5 command set.
+// Command names.
 const (
 	CmdHello      = "hello"
 	CmdPing       = "ping"
@@ -53,7 +50,7 @@ const (
 	CmdTaskQuery  = "task.query"
 )
 
-// Event names of the M3.5 command set.
+// Event names.
 const (
 	EventTaskOutput  = "task.output"
 	EventTaskExit    = "task.exit"
@@ -63,8 +60,7 @@ const (
 	EventTaskExitAck = "task.exit.ack"
 )
 
-// Command and event names added in M4 (doc/design/protocol.md "Privilege messages"). They are optional in the
-// handshake: a peer that does not offer them still connects.
+// Privilege command and event names (doc/design/protocol.md "Privilege messages").
 const (
 	CmdLocalRequest    = "local.request"
 	CmdLocalWithdraw   = "local.withdraw"
@@ -72,8 +68,8 @@ const (
 	EventLocalDecision = "local.decision"
 )
 
-// commandNames and eventNames are the M3.5 names: the set every peer must implement
-// and therefore the required set of a handshake.
+// commandNames and eventNames are every command and event name: the set every peer must
+// implement and therefore the set a handshake requires.
 var (
 	commandNames = []string{
 		CmdHello,
@@ -82,6 +78,8 @@ var (
 		CmdTaskInput,
 		CmdTaskCancel,
 		CmdTaskQuery,
+		CmdLocalRequest,
+		CmdLocalWithdraw,
 	}
 	eventNames = []string{
 		EventTaskOutput,
@@ -90,19 +88,6 @@ var (
 		EventNodeStatus,
 		EventOutputAck,
 		EventTaskExitAck,
-	}
-)
-
-// optionalCommandNames and optionalEventNames are the M4 names this package
-// knows the bodies of. crha advertises them in every privileged mode: non-forward modes
-// answer the commands with privileged_unsupported and report not_forward instead of a
-// trust summary (doc/design/protocol.md "Privilege messages").
-var (
-	optionalCommandNames = []string{
-		CmdLocalRequest,
-		CmdLocalWithdraw,
-	}
-	optionalEventNames = []string{
 		EventTrustSummary,
 		EventLocalDecision,
 	}
@@ -188,46 +173,17 @@ func validateEventBody(name string, raw cbor.RawMessage) error {
 	return UnmarshalBody(raw, newBody())
 }
 
-// SupportedCommands returns the command names this package advertises in a handshake,
-// including the optional M4 commands.
-func SupportedCommands() []string {
-	return slices.Concat(commandNames, optionalCommandNames)
-}
-
-// SupportedEvents returns the event names this package advertises in a handshake, including
-// the optional M4 events.
-func SupportedEvents() []string {
-	return slices.Concat(eventNames, optionalEventNames)
-}
-
-// SupportedNames returns every command and event name crha advertises in a handshake,
-// sorted. It is the list to put in a handshake's commands field. The M4 names are optional
-// for the peer: one that does not offer them still connects, and crha then only sends and
-// answers the M3.5 names.
-func SupportedNames() []string {
-	names := slices.Concat(SupportedCommands(), SupportedEvents())
-	slices.Sort(names)
-	return names
-}
-
-// SupportedSet returns SupportedNames as a Set.
-func SupportedSet() Set { return NewSet(SupportedNames()...) }
-
-// RequiredNames returns the M3.5 command and event names, sorted. A handshake
-// whose negotiated intersection lacks one of them is rejected (doc/design/protocol.md "Handshake payloads").
+// RequiredNames returns every command and event name, sorted. It is the list to put in a
+// handshake's commands field; a handshake whose intersection lacks one is rejected
+// (doc/design/protocol.md "Handshake payloads").
 func RequiredNames() []string {
 	names := append(slices.Clone(commandNames), eventNames...)
 	slices.Sort(names)
 	return names
 }
 
-// OptionalNames returns the M4 command and event names, sorted. They are optional in the
-// handshake: a peer that does not implement them still connects.
-func OptionalNames() []string {
-	names := append(slices.Clone(optionalCommandNames), optionalEventNames...)
-	slices.Sort(names)
-	return names
-}
+// RequiredSet returns RequiredNames as a Set.
+func RequiredSet() Set { return NewSet(RequiredNames()...) }
 
 // Set is a set of command and event names. The handshake intersects the two peers' sets;
 // only names in the intersection may be sent.

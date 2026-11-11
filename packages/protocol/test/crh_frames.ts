@@ -17,7 +17,7 @@ import {
 	type TaskStatus,
 } from "../src/messages.ts";
 import type { TrustSummary } from "../src/privileged.ts";
-import { SUPPORTED_NAMES } from "../src/registry.ts";
+import { REQUIRED_NAMES } from "../src/registry.ts";
 
 export interface FixtureCase {
 	id: string;
@@ -87,7 +87,7 @@ function factsEvent(body: ReadonlyMap<unknown, unknown>): Uint8Array {
 	return encodeCbor([2, "facts", body]);
 }
 
-const COMMANDS_TEXT = `commands=[${SUPPORTED_NAMES.join(",")}]`;
+const COMMANDS_TEXT = `commands=[${REQUIRED_NAMES.join(",")}]`;
 const AUTHORIZATION = bytesOf("00ff");
 const SHA_111 = new Uint8Array(32).fill(0x11);
 const SHA_222 = new Uint8Array(32).fill(0x22);
@@ -269,7 +269,7 @@ export function buildFixture(): CrhFramesFixture {
 	const initNoEnroll: HandshakeInit = {
 		protocolMajor: PROTOCOL_MAJOR,
 		protocolMinor: PROTOCOL_MINOR,
-		commands: [...SUPPORTED_NAMES],
+		commands: [...REQUIRED_NAMES],
 		crhaVersion: "0.1.0-test",
 		clientTimeMs: 1700000000000,
 		enroll: null,
@@ -295,7 +295,7 @@ export function buildFixture(): CrhFramesFixture {
 	const responseActive: HandshakeResponse = {
 		protocolMajor: PROTOCOL_MAJOR,
 		protocolMinor: PROTOCOL_MINOR,
-		commands: [...SUPPORTED_NAMES],
+		commands: [...REQUIRED_NAMES],
 		connectionId: "conn-1",
 		serverTimeMs: 1700000001234,
 		nodeState: "active",
@@ -509,7 +509,7 @@ export function buildFixture(): CrhFramesFixture {
 		error: { code: "internal_error", message: "boom" },
 	});
 
-	// M4 (optional) commands and events.
+	// Optional commands and events.
 	addFrame(
 		"request.local.request",
 		'request id=14 cmd=local.request body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", startLine=1, lineCount=100]], note="restart nginx", input_preview=bytes(0)]',

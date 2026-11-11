@@ -168,7 +168,6 @@ describe("cancelling a task before its task.start", () => {
 		const conn = {
 			nodeId: node.id,
 			closed: false,
-			supportsForward: true,
 			peer: {
 				request: async (name: string, body: unknown): Promise<unknown> => {
 					requests.push({ name, body });

@@ -212,26 +212,9 @@ export class SessionListHub {
 		const row = await this.#row(sessionId);
 		if (!row) return;
 		// A subagent's state is part of its tree's item: every change publishes the root (doc/design/webui.md "Session list API").
-		const root = row.parent_session_id === null ? row : await this.#row(await this.#rootOf(row));
+		const root = row.parent_session_id === null ? row : await this.#row(row.root_session_id);
 		if (!root || root.parent_session_id !== null) return;
 		this.#sendUpsert(root, await this.#visibleUserIds(root.id));
-	}
-
-	/** The root of a row that predates the root_session_id backfill (or a hand-built test row). */
-	async #rootOf(row: SessionListRow): Promise<string> {
-		if (row.root_session_id) return row.root_session_id;
-		let id = row.parent_session_id;
-		for (let depth = 0; id && depth <= 100; depth++) {
-			const parent = await this.#db
-				.selectFrom("sessions")
-				.select(["id", "parent_session_id"])
-				.where("id", "=", id)
-				.executeTakeFirst();
-			if (!parent) break;
-			if (parent.parent_session_id === null) return parent.id;
-			id = parent.parent_session_id;
-		}
-		return row.id;
 	}
 
 	/** The session row with its owner, whatever its parent; undefined when it is gone. */

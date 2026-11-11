@@ -85,7 +85,7 @@ function authorizationRecord(attempt: number, pending: boolean): TaskAuthorizati
 		payloadId: null,
 		attempt,
 		trustDigest: null,
-		pending: pending ? { payload: "AA==", id: "payload", deadline: null, taskIds: [], attempt } : null,
+		pending: pending ? { payload: "AA==", id: "payload", deadline: NOW, taskIds: [], attempt } : null,
 		local: null,
 		lastRejection: null,
 		updatedAt: NOW,

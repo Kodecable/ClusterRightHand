@@ -17,6 +17,7 @@ import type { SessionUser } from "../../auth/sessions.ts";
 import type { AuthzDecision, AuthzSignature } from "../../privilege/authz.ts";
 import { authzEntryFromTrust, decide, STEP } from "../../privilege/authz.ts";
 import { trustedSigningKey } from "../../privilege/key.ts";
+import { authorizationDeadline } from "../../privilege/payload.ts";
 import {
 	assertSubmittingUser,
 	encodeAuthorization,
@@ -180,9 +181,6 @@ export async function findReusableAuthorization(
 		} catch {
 			continue; // a damaged row is never usable (fail closed)
 		}
-		// Every authorization must carry a deadline; a stored row without one would be refused
-		// by the node (step 4) and is never reused.
-		if (payload.deadlineMs === null) continue;
 		if (payload.taskIds !== null) {
 			if (!payload.taskIds.includes(row.id)) continue;
 			if (payload.attempt !== row.attempt) continue;
@@ -592,7 +590,7 @@ async function insertOwnerAuthorization(
 			signatures: signaturesToJson(submitted.signatures),
 			issuer_user_id: user.userId,
 			task_ids: submitted.payload.taskIds === null ? null : JSON.stringify(submitted.payload.taskIds),
-			deadline: submitted.payload.deadlineMs === null ? null : new Date(submitted.payload.deadlineMs).toISOString(),
+			deadline: authorizationDeadline(submitted.payload.deadlineMs),
 			created_at: now(),
 		})
 		.execute();

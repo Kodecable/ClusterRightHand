@@ -126,8 +126,7 @@ export interface NodesTable {
 	id: string;
 	org_id: string;
 	name: string;
-	/** Lowercase form of `name`; the shared node/node-group namespace compares this. */
-	/** Required on insert: the column is nullable only because SQLite cannot add a NOT NULL column without a default. */
+	/** Lowercase form of `name`; the shared node/node-group namespace compares this. Required on insert. */
 	name_key: string;
 	transport: "client" | "ssh";
 	status: "pending" | "active";
@@ -302,8 +301,8 @@ export interface AuthorizationsTable {
 	issuer_user_id: string | null;
 	/** JSON string[] of one-shot task ids; null for a reusable authorization. */
 	task_ids: string | null;
-	/** ISO 8601 UTC; null only for a legacy row stored before deadlines were mandatory. */
-	deadline: string | null;
+	/** ISO 8601 UTC. */
+	deadline: string;
 	created_at: CreatedAt;
 }
 

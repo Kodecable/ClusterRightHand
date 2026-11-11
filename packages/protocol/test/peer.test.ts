@@ -3,7 +3,7 @@ import { encode as encodeCbor } from "../src/cbor.ts";
 import { decodeFrame, encodeFrame, type Frame, MAX_ERROR_MESSAGE_BYTES, ProtocolError } from "../src/frame.ts";
 import type { Facts, TaskStart, TaskStatus } from "../src/messages.ts";
 import { afterResponse, ConnectionError, Peer, RemoteError, RequestTimeoutError } from "../src/peer.ts";
-import { type CommandResponse, SUPPORTED_NAMES } from "../src/registry.ts";
+import { type CommandResponse, REQUIRED_NAMES } from "../src/registry.ts";
 
 const FACTS: Facts = {
 	hostname: "node-1",
@@ -41,7 +41,7 @@ interface Pair {
 }
 
 function makePair(
-	negotiatedA: readonly string[] = SUPPORTED_NAMES,
+	negotiatedA: readonly string[] = REQUIRED_NAMES,
 	negotiatedB?: readonly string[],
 	onErrorA?: (error: Error) => void,
 	onErrorB?: (error: Error) => void,
@@ -188,7 +188,7 @@ describe("Peer", () => {
 
 		const replies: Frame[] = [];
 		const peer = new Peer({
-			negotiated: SUPPORTED_NAMES,
+			negotiated: REQUIRED_NAMES,
 			send: (bytes) => {
 				replies.push(decodeFrame(bytes));
 			},
@@ -202,7 +202,7 @@ describe("Peer", () => {
 			error: { code: "unsupported_command" },
 		});
 
-		const restricted = makePair(SUPPORTED_NAMES, ["hello"]);
+		const restricted = makePair(REQUIRED_NAMES, ["hello"]);
 		restricted.b.onRequest("ping", (body) => body);
 		await expect(restricted.a.request("ping", { seq: 1 })).rejects.toMatchObject({
 			name: "RemoteError",
@@ -292,7 +292,7 @@ describe("Peer", () => {
 	});
 
 	it("rejects a negotiated event with no registered handler", () => {
-		const peer = new Peer({ negotiated: SUPPORTED_NAMES, send: () => {} });
+		const peer = new Peer({ negotiated: REQUIRED_NAMES, send: () => {} });
 		expect(() => peer.receive(encodeFrame({ kind: "event", name: "task.exit.ack", body: { taskId: "t-1" } }))).toThrow(
 			ProtocolError,
 		);
@@ -300,7 +300,7 @@ describe("Peer", () => {
 
 	it("reports a throwing event handler through onError", () => {
 		const errors: Error[] = [];
-		const { a, b } = makePair(SUPPORTED_NAMES, undefined, (error) => errors.push(error));
+		const { a, b } = makePair(REQUIRED_NAMES, undefined, (error) => errors.push(error));
 		a.onEvent("task.exit.ack", () => {
 			throw new Error("handler bug");
 		});
@@ -310,7 +310,7 @@ describe("Peer", () => {
 
 	it("reports a rejected event handler promise through onError", async () => {
 		const errors: Error[] = [];
-		const { a, b } = makePair(SUPPORTED_NAMES, undefined, (error) => errors.push(error));
+		const { a, b } = makePair(REQUIRED_NAMES, undefined, (error) => errors.push(error));
 		a.onEvent("task.exit.ack", async () => {
 			throw new Error("async handler bug");
 		});
@@ -323,7 +323,7 @@ describe("Peer", () => {
 		const errors: Error[] = [];
 		const logs = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
-			const { a, b } = makePair(SUPPORTED_NAMES, undefined, undefined, (error) => errors.push(error));
+			const { a, b } = makePair(REQUIRED_NAMES, undefined, undefined, (error) => errors.push(error));
 			b.onRequest("task.cancel", async () => {
 				throw new Error("boom");
 			});
@@ -342,7 +342,7 @@ describe("Peer", () => {
 	it("sends the success response before running an afterResponse hook", () => {
 		const order: string[] = [];
 		const peer = new Peer({
-			negotiated: SUPPORTED_NAMES,
+			negotiated: REQUIRED_NAMES,
 			send: (bytes) => {
 				order.push(`send:${decodeFrame(bytes).kind}`);
 			},
@@ -354,7 +354,7 @@ describe("Peer", () => {
 
 	it("reports a throwing afterResponse hook through onError", async () => {
 		const errors: Error[] = [];
-		const { a, b } = makePair(SUPPORTED_NAMES, undefined, undefined, (error) => errors.push(error));
+		const { a, b } = makePair(REQUIRED_NAMES, undefined, undefined, (error) => errors.push(error));
 		b.onRequest("ping", () =>
 			afterResponse({ seq: 1 }, () => {
 				throw new Error("sync hook bug");
@@ -366,7 +366,7 @@ describe("Peer", () => {
 
 	it("reports a throwing async afterResponse hook through onError", async () => {
 		const errors: Error[] = [];
-		const { a, b } = makePair(SUPPORTED_NAMES, undefined, undefined, (error) => errors.push(error));
+		const { a, b } = makePair(REQUIRED_NAMES, undefined, undefined, (error) => errors.push(error));
 		b.onRequest("ping", async () => {
 			await delay(1);
 			return afterResponse({ seq: 2 }, () => {
@@ -472,7 +472,7 @@ describe("Peer", () => {
 			release = resolve;
 		});
 		const peer = new Peer({
-			negotiated: SUPPORTED_NAMES,
+			negotiated: REQUIRED_NAMES,
 			send: async () => {
 				await gate;
 				order.push("sent");
@@ -489,7 +489,7 @@ describe("Peer", () => {
 	it("does not run an afterResponse hook when sending fails", async () => {
 		const afterCalls: string[] = [];
 		const throwing = new Peer({
-			negotiated: SUPPORTED_NAMES,
+			negotiated: REQUIRED_NAMES,
 			send: () => {
 				throw new Error("transport down");
 			},
@@ -500,7 +500,7 @@ describe("Peer", () => {
 		).not.toThrow();
 
 		const rejecting = new Peer({
-			negotiated: SUPPORTED_NAMES,
+			negotiated: REQUIRED_NAMES,
 			send: async () => {
 				throw new Error("transport down");
 			},
@@ -515,7 +515,7 @@ describe("Peer", () => {
 		const afterCalls: string[] = [];
 		let peer!: Peer;
 		peer = new Peer({
-			negotiated: SUPPORTED_NAMES,
+			negotiated: REQUIRED_NAMES,
 			send: () => {
 				throw new Error("must not send");
 			},
@@ -536,7 +536,7 @@ describe("Peer", () => {
 			try {
 				const sent: Frame[] = [];
 				const peer = new Peer({
-					negotiated: SUPPORTED_NAMES,
+					negotiated: REQUIRED_NAMES,
 					send: (bytes) => {
 						sent.push(decodeFrame(bytes));
 					},
@@ -569,7 +569,7 @@ describe("Peer", () => {
 		it("clears the timer when the response arrives first", async () => {
 			vi.useFakeTimers();
 			try {
-				const peer = new Peer({ negotiated: SUPPORTED_NAMES, send: () => {} });
+				const peer = new Peer({ negotiated: REQUIRED_NAMES, send: () => {} });
 				const pending = peer.request("ping", { seq: 1 }, { timeoutMs: 25 });
 				expect(vi.getTimerCount()).toBe(1);
 				peer.receive(encodeFrame({ kind: "response", id: 1, cmd: "ping", ok: true, body: { seq: 1 } }));
@@ -584,7 +584,7 @@ describe("Peer", () => {
 		it("clears timers on close and allows a per-request deadline of zero", async () => {
 			vi.useFakeTimers();
 			try {
-				const peer = new Peer({ negotiated: SUPPORTED_NAMES, send: () => {} });
+				const peer = new Peer({ negotiated: REQUIRED_NAMES, send: () => {} });
 				const noDeadline = peer.request("ping", { seq: 1 }, { timeoutMs: 0 });
 				expect(vi.getTimerCount()).toBe(0);
 				const pending = peer.request("ping", { seq: 2 });
@@ -606,7 +606,7 @@ describe("Peer", () => {
 		it("uses the constructor deadline for ordinary requests", async () => {
 			vi.useFakeTimers();
 			try {
-				const peer = new Peer({ negotiated: SUPPORTED_NAMES, send: () => {}, requestTimeoutMs: 40 });
+				const peer = new Peer({ negotiated: REQUIRED_NAMES, send: () => {}, requestTimeoutMs: 40 });
 				const pending = peer.request("ping", { seq: 1 });
 				const rejected = expect(pending).rejects.toBeInstanceOf(RequestTimeoutError);
 				await vi.advanceTimersByTimeAsync(40);
@@ -622,7 +622,7 @@ describe("Peer", () => {
 			const replies: Frame[] = [];
 			const resolvers: (() => void)[] = [];
 			const peer = new Peer({
-				negotiated: SUPPORTED_NAMES,
+				negotiated: REQUIRED_NAMES,
 				maxConcurrentRequests: 1,
 				send: (bytes) => {
 					replies.push(decodeFrame(bytes));
@@ -660,7 +660,7 @@ describe("Peer", () => {
 		it("releases the slot after a throwing handler", async () => {
 			const replies: Frame[] = [];
 			const peer = new Peer({
-				negotiated: SUPPORTED_NAMES,
+				negotiated: REQUIRED_NAMES,
 				maxConcurrentRequests: 1,
 				send: (bytes) => {
 					replies.push(decodeFrame(bytes));
@@ -680,7 +680,7 @@ describe("Peer", () => {
 		it("releases the slot when an async handler rejects", async () => {
 			const replies: Frame[] = [];
 			const peer = new Peer({
-				negotiated: SUPPORTED_NAMES,
+				negotiated: REQUIRED_NAMES,
 				maxConcurrentRequests: 1,
 				send: (bytes) => {
 					replies.push(decodeFrame(bytes));
@@ -704,7 +704,7 @@ describe("Peer", () => {
 		it("does not limit events", () => {
 			const seen: unknown[] = [];
 			const peer = new Peer({
-				negotiated: SUPPORTED_NAMES,
+				negotiated: REQUIRED_NAMES,
 				maxConcurrentRequests: 1,
 				send: () => {},
 			});

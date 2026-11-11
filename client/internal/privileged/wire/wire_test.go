@@ -574,7 +574,7 @@ func TestLocalHandshake(t *testing.T) {
 }
 
 // TestForwardHandshakeAdditions covers a full forward handshake with both peers advertising
-// every forward name, so the optional additions are negotiated too.
+// every forward name, so the extra names are negotiated too.
 func TestForwardHandshakeAdditions(t *testing.T) {
 	client, server := net.Pipe()
 	defer client.Close()

@@ -278,8 +278,7 @@ func encodeFixtureValue(value any) ([]byte, error) {
 // The hand-written expectations below are transcribed from doc/design/protocol.md and the
 // description of each fixture entry, independently of the TypeScript generator.
 
-// fixtureCommands is the handshake command list of the fixture, in its wire order: the
-// M3.5 names followed by the M4 additions.
+// fixtureCommands is the handshake command list of the fixture, in its wire order.
 func fixtureCommands() []string {
 	return []string{
 		CmdHello, CmdPing, CmdTaskStart, CmdTaskInput, CmdTaskCancel, CmdTaskQuery,

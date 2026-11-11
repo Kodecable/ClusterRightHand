@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import { type ConversationId, type Cursor, createRegistry, Harness, UsageDoc } from "@earendil-works/pi-durable";
+import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { clusterExtension } from "./extension.ts";
@@ -31,14 +31,7 @@ import {
 	watch,
 } from "./runtime-sessions.ts";
 import { endOrphanWaits, reconcileSessionStates, refreshState } from "./runtime-state.ts";
-import {
-	createSubagent,
-	enforceDepthToolLimits,
-	isDescendant,
-	startSubagent,
-	subagentSessions,
-	waitSubagent,
-} from "./runtime-subagents.ts";
+import { createSubagent, isDescendant, startSubagent, subagentSessions, waitSubagent } from "./runtime-subagents.ts";
 import {
 	type CompactTask,
 	compact,
@@ -49,7 +42,6 @@ import {
 } from "./runtime-submissions.ts";
 import { SessionListHub } from "./session-list-hub.ts";
 import type { SessionState } from "./session-state.ts";
-import { backfillUsageTokens } from "./usage-backfill.ts";
 import { wakePendingAgents } from "./wakes.ts";
 
 /**
@@ -65,7 +57,7 @@ import { wakePendingAgents } from "./wakes.ts";
  */
 
 export type { AgentRequestView, AgentRuntimeOptions, SessionEvent, SessionView } from "./runtime-core.ts";
-export { depthLimitedSessions, MAX_SUBAGENT_DEPTH } from "./runtime-subagents.ts";
+export { MAX_SUBAGENT_DEPTH } from "./runtime-subagents.ts";
 
 export class AgentRuntime {
 	readonly #host: RuntimeHost;
@@ -193,31 +185,6 @@ export class AgentRuntime {
 		await reconcileSessionStates(runtime.#host);
 		// Waits whose session's run is over (stopped or ended while crhs was down) can never be acted on.
 		await endOrphanWaits(runtime.#host);
-		// Sessions created before the per-conversation tool filter existed may still offer subagent at the limit.
-		await enforceDepthToolLimits(runtime.#host);
-		// A session that predates the statistics measures gets them from durable's persisted usage and history
-		// (doc/design/agent-runtime.md "Session statistics").
-		await backfillUsageTokens(
-			options.db,
-			async (conversationId) =>
-				runtime.#harness.snapshot(UsageDoc, Number(conversationId) as unknown as ConversationId, BACKGROUND_CONTEXT),
-			new Date(),
-			async (conversationId) => {
-				const conversation = await runtime.#harness.conversation(
-					Number(conversationId) as unknown as ConversationId,
-					BACKGROUND_CONTEXT,
-				);
-				if (!conversation) return [];
-				const kinds: { kind: string }[] = [];
-				let cursor: Cursor | undefined;
-				do {
-					const page = await conversation.entries({ order: "ascending" }, 500, cursor, BACKGROUND_CONTEXT);
-					for (const entry of page.items) kinds.push({ kind: entry.kind });
-					cursor = page.next;
-				} while (cursor);
-				return kinds;
-			},
-		);
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
 		await wakePendingAgents(runtime.#host);
 		return runtime;

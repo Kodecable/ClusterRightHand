@@ -27,6 +27,12 @@ export function authorizationId(payloadBytes: Uint8Array): Uint8Array {
 	return Uint8Array.from(createHash("sha256").update(payloadBytes).digest());
 }
 
+/** ISO 8601 deadline of a payload crhs stores; every stored authorization has one. */
+export function authorizationDeadline(deadlineMs: number | null): string {
+	if (deadlineMs === null) throw new Error("authorization has no deadline");
+	return new Date(deadlineMs).toISOString();
+}
+
 export interface BuiltAuthorization {
 	/** The decoded payload, for display and for the `authorizations` row. */
 	payload: AuthorizationPayload;

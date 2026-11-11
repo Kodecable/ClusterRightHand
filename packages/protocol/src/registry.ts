@@ -1,8 +1,7 @@
 /**
  * The command and event registries: every name this implementation knows, with
- * its request/response or body codec. The M3.5 names are required in the
- * handshake; the M4 names of doc/design/protocol.md "Privilege messages" are optional, so a peer
- * without them still connects (its commands are the intersection of the two lists).
+ * its request/response or body codec. Every name must be offered in the handshake; a peer
+ * missing one is refused (doc/design/protocol.md "Handshake payloads").
  */
 import {
 	emptyCodec,
@@ -35,7 +34,7 @@ export interface CommandDefinition<Q = unknown, R = unknown> {
 	readonly response: Codec<R>;
 }
 
-/** Every command, M3.5 and M4. */
+/** Every command. */
 export const COMMANDS = {
 	hello: { request: helloCodec, response: welcomeCodec },
 	ping: { request: pingCodec, response: pingCodec },
@@ -47,7 +46,7 @@ export const COMMANDS = {
 	"local.withdraw": { request: localWithdrawCodec, response: emptyCodec },
 } as const satisfies Record<string, CommandDefinition>;
 
-/** Every event, M3.5 and M4. */
+/** Every event. */
 export const EVENTS = {
 	"task.output": taskOutputCodec,
 	"task.exit": taskExitCodec,
@@ -65,7 +64,7 @@ export type CommandRequest<C extends CommandName> = Infer<(typeof COMMANDS)[C]["
 export type CommandResponse<C extends CommandName> = Infer<(typeof COMMANDS)[C]["response"]>;
 export type EventBody<E extends EventName> = Infer<(typeof EVENTS)[E]>;
 
-/** Every M3.5 command and event; a peer must implement all of them. */
+/** Every command and event, and the names a handshake must offer: a peer missing one is refused. */
 export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 	"hello",
 	"ping",
@@ -79,18 +78,8 @@ export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 	"node.status",
 	"task.output.ack",
 	"task.exit.ack",
-]);
-
-/**
- * Names added in M4 (doc/design/protocol.md "Privilege messages"). Optional in the handshake; a node
- * that does not offer them is treated as not supporting `forward`.
- */
-export const OPTIONAL_NAMES: readonly string[] = Object.freeze([
 	"local.request",
 	"local.withdraw",
 	"trust.summary",
 	"local.decision",
 ]);
-
-/** Every command and event name this implementation knows. */
-export const SUPPORTED_NAMES: readonly string[] = Object.freeze([...REQUIRED_NAMES, ...OPTIONAL_NAMES]);

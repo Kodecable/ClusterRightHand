@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
 	type AssistantMessage,
 	type AssistantMessageEventStream,
@@ -9,22 +6,18 @@ import {
 import type { Models } from "@earendil-works/pi-ai/models";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { GenerationTimings, MAX_PENDING_TIMINGS, stepTiming } from "../src/agent/latency.ts";
 import { meteredModels } from "../src/agent/metering.ts";
 import { ModelConfig } from "../src/agent/models.ts";
 import { budgetUsedTokens, chargeCall, sessionStats } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
-import { backfillUsageTokens, cacheReadTokensOf, historyCounts, promptTokensOf } from "../src/agent/usage-backfill.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
-import { openDb } from "../src/storage/db.ts";
-import { migrateToLatest } from "../src/storage/migrate.ts";
 import { createUser } from "../src/users/service.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
@@ -350,159 +343,4 @@ it("counts a step without timing when nothing could be measured", async () => {
 	// The token buckets grew even though the step had no timing; nothing is written to ancestors.
 	expect(stats.promptTokens).toBe(100);
 	expect(stats.cacheReadTokens).toBe(40);
-});
-
-it("reads the prompt and cache-read halves of durable's usage and counts history", () => {
-	const state = {
-		models: {
-			"faux/one": {
-				input: 100,
-				output: 20,
-				cacheRead: 5,
-				cacheWrite: 15,
-				totalTokens: 140,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-		},
-		tools: {
-			exec: {
-				input: 10,
-				output: 5,
-				cacheRead: 2,
-				cacheWrite: 0,
-				totalTokens: 17,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-		},
-	};
-	expect(promptTokensOf(state)).toBe(132);
-	expect(cacheReadTokensOf(state)).toBe(7);
-	expect(promptTokensOf(undefined)).toBe(0);
-	expect(cacheReadTokensOf(undefined)).toBe(0);
-
-	// user, assistant, tool result, assistant (one turn, two steps); a compaction summary is not user input.
-	expect(
-		historyCounts([
-			{ kind: "pi.user" },
-			{ kind: "pi.assistant" },
-			{ kind: "pi.tool-result" },
-			{ kind: "pi.assistant" },
-			{ kind: "pi.compaction" },
-			{ kind: "pi.user" },
-			{ kind: "pi.assistant" },
-		]),
-	).toEqual({ steps: 3, turns: 2 });
-	// An input the run never turned into a message is not a turn.
-	expect(historyCounts([{ kind: "pi.user" }, { kind: "pi.user" }, { kind: "pi.assistant" }])).toEqual({
-		steps: 1,
-		turns: 1,
-	});
-});
-
-it("backfills steps, turns and the prompt/cache tree buckets once", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "crh-session-stats-"));
-	const localDb = openDb({ driver: "sqlite", path: join(dir, "crhs.db") });
-	await migrateToLatest(localDb);
-	const user = await createUser(localDb, { username: "owner", kind: "member", password: "password-123" });
-	const localOwner: SessionUser = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
-	const audit = new Audit(localDb);
-	const cluster = new Cluster(localDb, { audit });
-	const models = new ModelConfig(localDb, MasterKey.generate());
-	models.addProvider(faux.provider);
-	await models.reload();
-	const options = {
-		db: localDb,
-		models,
-		cluster,
-		taskGroups: new TaskGroups(localDb, cluster, { audit }),
-		audit,
-	};
-	const first = await AgentRuntime.open({
-		...options,
-		storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
-	});
-	let second: AgentRuntime | undefined;
-	try {
-		const root = await first.createSession(localOwner, { model: model(), rulePreset: "yolo", title: "persisted" });
-		const child = await first.createSubagent(root.id, {
-			callKey: "stats-backfill-child",
-			task: "child work",
-			rules: { default: "inherit", rules: [] },
-			quota: null,
-		});
-		const usage = (input: number, output: number, cacheRead: number) => ({
-			input,
-			output,
-			cacheRead,
-			cacheWrite: 0,
-			totalTokens: input + output + cacheRead,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		});
-		faux.setResponses([
-			{
-				...fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "backfill-tool" })]),
-				stopReason: "toolUse",
-				usage: usage(50, 5, 10),
-			},
-			{ ...fauxAssistantMessage([fauxText("root answer")]), usage: usage(70, 20, 15) },
-		]);
-		const submission = await first.submit(root.id, localOwner, "go", "stats-backfill-1");
-		expect((await waitSubmission(first, root.id, submission)).status).toBe("done");
-		faux.setResponses([{ ...fauxAssistantMessage([fauxText("child answer")]), usage: usage(40, 10, 30) }]);
-		await first.startSubagent(child.id, "work", "stats-backfill-child-1");
-		expect(await first.waitSubagent(child.id)).toEqual({ status: "done", answer: "child answer" });
-
-		const expectedRoot = await first.getSession(root.id);
-		const expectedChild = await first.getSession(child.id);
-		if (!expectedRoot || !expectedChild) throw new Error("the sessions must exist");
-		expect(expectedRoot.stats.steps).toBe(2);
-		expect(expectedRoot.stats.turns).toBe(1);
-		// The provider stream timed both live steps, with no viewer.
-		expect(expectedRoot.stats.ttftSteps).toBe(2);
-		expect(expectedChild.stats.steps).toBe(1);
-		// Pretend the sessions predate the measures: every counter is 0 and the backfill has not run.
-		await localDb
-			.updateTable("sessions")
-			.set({
-				usage_tokens: 0,
-				prompt_tokens: 0,
-				cache_read_tokens: 0,
-				stat_steps: 0,
-				stat_turns: 0,
-				stat_ttft_ms: 0,
-				stat_ttft_steps: 0,
-				stat_decode_ms: 0,
-				stat_decode_tokens: 0,
-			})
-			.execute();
-		await localDb.deleteFrom("server_meta").where("key", "=", "session_stats_backfilled_at").execute();
-		await first.close();
-
-		// The next start reads durable's per-conversation usage and history; timing cannot be recovered.
-		second = await AgentRuntime.open({
-			...options,
-			storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
-		});
-		const backfilledRoot = await second.getSession(root.id);
-		const backfilledChild = await second.getSession(child.id);
-		if (!backfilledRoot || !backfilledChild) throw new Error("the sessions must exist after the backfill");
-		expect(backfilledRoot.stats.steps).toBe(expectedRoot.stats.steps);
-		expect(backfilledRoot.stats.turns).toBe(expectedRoot.stats.turns);
-		expect(backfilledRoot.stats.promptTokens).toBe(expectedRoot.stats.promptTokens);
-		expect(backfilledRoot.stats.cacheReadTokens).toBe(expectedRoot.stats.cacheReadTokens);
-		expect(backfilledRoot.usageTokens).toBe(expectedRoot.usageTokens);
-		expect(backfilledChild.stats.steps).toBe(expectedChild.stats.steps);
-		expect(backfilledChild.stats.promptTokens).toBe(expectedChild.stats.promptTokens);
-		expect(backfilledChild.stats.cacheReadTokens).toBe(expectedChild.stats.cacheReadTokens);
-		// Timing is left at 0: it is measured live and cannot be recovered from durable's history.
-		expect(backfilledRoot.stats.ttftSteps).toBe(0);
-		expect(backfilledRoot.stats.decodeMs).toBe(0);
-		// The flag is set: a second backfill does nothing.
-		expect(await backfillUsageTokens(localDb, async () => undefined)).toBe(0);
-	} finally {
-		await second?.close().catch(() => {});
-		await first.close().catch(() => {});
-		await localDb.destroy();
-		await rm(dir, { recursive: true, force: true });
-	}
 });

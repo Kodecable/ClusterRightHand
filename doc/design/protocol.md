@@ -64,7 +64,7 @@ A success response means the command succeeded, not that its work has finished. 
 
 ## Version negotiation
 
-The version is major 3, minor 0. The Noise prologue is `"crh/3"` followed by the server's challenge,
+The version is major 0, minor 0. The Noise prologue is `"crh/0"` followed by the server's challenge,
 so peers of different majors fail the Noise handshake before a payload is read; the payload's major is
 checked too.
 
@@ -72,10 +72,9 @@ checked too.
   majors: crhs, crha and its privileged mode are upgraded together.
 - Within a major only new names are added. A structure is never changed in place; a replacement gets
   a new name such as `task.start.v2`.
-- The minor is additive. New names are optional and negotiated through the `commands` intersection,
-  so a different minor never refuses a handshake.
-- The names in the command and event sets are required, and a missing one refuses the handshake with
-  its name. The privilege names are optional; without them a node does not support `forward`.
+- The minor is additive: a future minor may add names that are negotiated by intersection.
+- The names in the command and event sets are all required, and a missing one refuses the handshake
+  with its name.
 - A sender uses a name only when both sides advertised it; otherwise it falls back to an older name
   or gets `unsupported_command`. Frames carry no version field.
 
@@ -161,9 +160,9 @@ fit in one frame, so `file.list` stops at 32 KiB of entries and sets `truncated`
 
 ## Privilege messages
 
-The trust report and the local approval flow use names the handshake marks optional; without them a
-node does not support `forward`. crhs never queries trust: crha pushes it after `hello` and on every
-change, and a mode that is not `forward` reports `not_forward`.
+The trust report and the local approval flow are part of the required command set. crhs never queries
+trust: crha pushes it after `hello` and on every change, and a mode that is not `forward` reports
+`not_forward`.
 
 | Name | Direction | Purpose |
 |---|---|---|

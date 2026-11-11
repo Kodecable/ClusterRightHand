@@ -6,12 +6,10 @@ import {
 	factsToJson,
 	handshakeInitCodec,
 	MAX_FRAME_BYTES,
-	OPTIONAL_NAMES,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	REQUIRED_NAMES,
 	RemoteError,
-	SUPPORTED_NAMES,
 	type TaskStart,
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -199,7 +197,7 @@ describe("agent wire protocol", () => {
 		});
 
 		it("accepts a different protocol minor", async () => {
-			// The minor is additive: a peer that knows more optional names still connects.
+			// The minor is additive: a newer peer only adds names, negotiated by intersection.
 			const key = generateKeyPair();
 			const node = await addNode("minor-1", "active", key.publicKey);
 			const crha = await agents.connect(key, handshakeInit({ protocolMinor: PROTOCOL_MINOR + 1 }));
@@ -209,36 +207,19 @@ describe("agent wire protocol", () => {
 
 		it("rejects a missing required command with 1008", async () => {
 			const { ws, hs, closed } = await agents.prepare(generateKeyPair());
-			const commands = SUPPORTED_NAMES.filter((name) => name !== "task.query");
+			const commands = REQUIRED_NAMES.filter((name) => name !== "task.query");
 			ws.send(hs.writeMessage(encodeCbor(handshakeInitCodec.encode(handshakeInit({ commands })))));
 			await expect(closed).resolves.toEqual({ code: 1008, reason: "missing required command: task.query" });
 		});
 
-		it("accepts a peer that offers only the required names", async () => {
-			const key = generateKeyPair();
-			const node = await addNode("legacy-1", "active", key.publicKey);
-			const crha = await agents.connect(key, handshakeInit({ commands: [...REQUIRED_NAMES] }), REQUIRED_NAMES);
-			expect(crha.response).toMatchObject({ protocolMinor: PROTOCOL_MINOR, commands: [...SUPPORTED_NAMES] });
-			expect(await crha.peer.request("hello", HELLO)).toEqual({ acks: [] });
-			await waitFor("legacy link ready", () => cluster.isConnected(node.id));
-			expect(await crha.peer.request("ping", { seq: 3 })).toEqual({ seq: 3 });
-		});
-
-		it("negotiates only the 1.1 names both sides offer", () => {
+		it("negotiates the required names and reports the first missing one", () => {
 			expect(negotiateCommands(REQUIRED_NAMES)).toEqual({
 				missing: undefined,
 				negotiated: [...REQUIRED_NAMES],
-				optional: [],
 			});
-			expect(negotiateCommands(SUPPORTED_NAMES)).toEqual({
-				missing: undefined,
-				negotiated: [...SUPPORTED_NAMES],
-				optional: [...OPTIONAL_NAMES],
-			});
-			expect(negotiateCommands([...REQUIRED_NAMES.filter((n) => n !== "hello"), ...OPTIONAL_NAMES])).toEqual({
+			expect(negotiateCommands(REQUIRED_NAMES.filter((name) => name !== "hello"))).toEqual({
 				missing: "hello",
-				negotiated: SUPPORTED_NAMES.filter((name) => name !== "hello"),
-				optional: [...OPTIONAL_NAMES],
+				negotiated: REQUIRED_NAMES.filter((name) => name !== "hello"),
 			});
 		});
 
@@ -302,7 +283,7 @@ describe("agent wire protocol", () => {
 			protocolMinor: PROTOCOL_MINOR,
 			nodeState: "active",
 			nodeId: node.id,
-			commands: [...SUPPORTED_NAMES],
+			commands: [...REQUIRED_NAMES],
 		});
 		expect(await crha.peer.request("ping", { seq: 7 })).toEqual({ seq: 7 });
 	});

@@ -36,9 +36,7 @@ export async function recordTreeReply(
 		const other = await db
 			.selectFrom("sessions")
 			.select("id")
-			.where((eb) =>
-				eb.or([eb("root_session_id", "=", rootId), eb.and([eb("id", "=", rootId), eb("root_session_id", "is", null)])]),
-			)
+			.where("root_session_id", "=", rootId)
 			.where("id", "!=", sessionId)
 			.where("state", "=", "awaiting")
 			.executeTakeFirst();

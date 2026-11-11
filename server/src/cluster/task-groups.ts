@@ -737,7 +737,7 @@ export class TaskGroups {
 		const row = await this.#row(id);
 		if (row?.state !== "awaiting_approval" || !matchesHandler(row, expect)) return false;
 		const approved = decision.decision === "approved";
-		// Build the input before changing state: a legacy spec that cannot be read must fail the request
+		// Build the input before changing state: a spec that cannot be read must fail the request
 		// without leaving a group that is running but has no tasks.
 		const input = approved ? this.#inputFromRow(row) : undefined;
 		const record = mergeApproval<TaskGroupApprovalRecord>(row.approval, { decision });

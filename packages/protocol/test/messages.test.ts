@@ -52,15 +52,7 @@ import {
 	type Welcome,
 	welcomeCodec,
 } from "../src/messages.ts";
-import {
-	COMMANDS,
-	type CommandRequest,
-	type CommandResponse,
-	EVENTS,
-	OPTIONAL_NAMES,
-	REQUIRED_NAMES,
-	SUPPORTED_NAMES,
-} from "../src/registry.ts";
+import { COMMANDS, type CommandRequest, type CommandResponse, EVENTS, REQUIRED_NAMES } from "../src/registry.ts";
 import { type Codec, SchemaError } from "../src/schema.ts";
 
 const digest = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
@@ -159,7 +151,7 @@ const enrollment: Enrollment = { tokenSecret: "secret", hostname: "node-1", fact
 const handshakeInit: HandshakeInit = {
 	protocolMajor: PROTOCOL_MAJOR,
 	protocolMinor: PROTOCOL_MINOR,
-	commands: [...SUPPORTED_NAMES],
+	commands: [...REQUIRED_NAMES],
 	crhaVersion: "0.1.0",
 	clientTimeMs: 1_700_000_000_000,
 	enroll: enrollment,
@@ -167,7 +159,7 @@ const handshakeInit: HandshakeInit = {
 const handshakeResponse: HandshakeResponse = {
 	protocolMajor: PROTOCOL_MAJOR,
 	protocolMinor: PROTOCOL_MINOR,
-	commands: [...SUPPORTED_NAMES],
+	commands: [...REQUIRED_NAMES],
 	connectionId: "conn-1",
 	serverTimeMs: 1_700_000_000_000,
 	nodeState: "active",
@@ -354,12 +346,12 @@ describe("message codecs", () => {
 		expect(() => taskResultCodec.decode([5, []])).toThrow(SchemaError);
 		const unknown = { kind: "exec" } as unknown as TaskResult;
 		expect(() => taskResultCodec.encode(unknown)).toThrow("unknown tag");
-		// task.exit requires the result element; a 1.0-length body no longer decodes.
+		// task.exit requires the result element; a body without it does not decode.
 		expect(() => taskExitCodec.decode(["t-1", ["code", 0], false, false, 0, 0, ""])).toThrow(SchemaError);
 	});
 
-	it("uses protocol 3.0 and keeps the M3.5 names required", () => {
-		expect(PROTOCOL_MAJOR).toBe(3);
+	it("uses protocol 0.0 and requires every name", () => {
+		expect(PROTOCOL_MAJOR).toBe(0);
 		expect(PROTOCOL_MINOR).toBe(0);
 		expect(REQUIRED_NAMES).toEqual([
 			"hello",
@@ -374,14 +366,16 @@ describe("message codecs", () => {
 			"node.status",
 			"task.output.ack",
 			"task.exit.ack",
+			"local.request",
+			"local.withdraw",
+			"trust.summary",
+			"local.decision",
 		]);
-		expect(OPTIONAL_NAMES).toEqual(["local.request", "local.withdraw", "trust.summary", "local.decision"]);
-		expect(SUPPORTED_NAMES).toEqual([...REQUIRED_NAMES, ...OPTIONAL_NAMES]);
-		expect(SUPPORTED_NAMES).not.toContain("trust.query");
-		expect(SUPPORTED_NAMES).not.toContain("revocations.set");
+		expect(REQUIRED_NAMES).not.toContain("trust.query");
+		expect(REQUIRED_NAMES).not.toContain("revocations.set");
 	});
 
-	it("registers the 1.1 commands and events next to the 1.0 ones", () => {
+	it("registers every command and event", () => {
 		expect(Object.keys(COMMANDS).sort()).toEqual([
 			"hello",
 			"local.request",

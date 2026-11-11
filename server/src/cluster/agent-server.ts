@@ -11,12 +11,10 @@ import {
 	handshakeInitCodec,
 	handshakeResponseCodec,
 	NOISE_PROLOGUE_PREFIX,
-	OPTIONAL_NAMES,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	peekProtocolMajor,
 	REQUIRED_NAMES,
-	SUPPORTED_NAMES,
 } from "@crh/protocol";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Audit } from "../audit/audit.ts";
@@ -34,20 +32,17 @@ const HANDSHAKE_TIMEOUT_MS = 20_000;
 const MAX_NOISE_MESSAGE = 65535;
 
 /**
- * The commands and events both sides implement (doc/design/protocol.md "Handshake payloads"). The M3.5 names are
- * required; the M4 names are optional, so an older peer without them still connects. `missing` is
- * the first required name the peer does not offer.
+ * The commands and events both sides implement (doc/design/protocol.md "Handshake payloads"). Every name is
+ * required, so `negotiated` is the peer's offered names; `missing` is the first required name it does not offer.
  */
 export function negotiateCommands(offered: Iterable<string>): {
 	missing: string | undefined;
 	negotiated: string[];
-	optional: string[];
 } {
 	const have = new Set(offered);
 	const missing = REQUIRED_NAMES.find((name) => !have.has(name));
-	const negotiated = SUPPORTED_NAMES.filter((name) => have.has(name));
-	const optional = OPTIONAL_NAMES.filter((name) => have.has(name));
-	return { missing, negotiated, optional };
+	const negotiated = REQUIRED_NAMES.filter((name) => have.has(name));
+	return { missing, negotiated };
 }
 
 /**
@@ -152,9 +147,9 @@ export class AgentServer {
 		}
 		const clientKey = hs.remoteStaticKey as Uint8Array;
 
-		// Only names both sides implement may be sent; the M3.5 names are required, the M4 names
-		// optional. The minor version is not refused: it only adds optional names, negotiated here.
-		const { missing, negotiated, optional } = negotiateCommands(init.commands);
+		// Only names both sides implement may be sent; every required name must be present. The minor version is
+		// not refused: it may only add names, negotiated here by intersection.
+		const { missing, negotiated } = negotiateCommands(init.commands);
 		if (missing !== undefined) return reject(ws, `missing required command: ${missing}`);
 
 		let node = await findNodeByPublicKey(this.#db, clientKey);
@@ -189,14 +184,14 @@ export class AgentServer {
 		const response: HandshakeResponse = {
 			protocolMajor: PROTOCOL_MAJOR,
 			protocolMinor: PROTOCOL_MINOR,
-			commands: [...SUPPORTED_NAMES],
+			commands: [...REQUIRED_NAMES],
 			connectionId,
 			serverTimeMs: Date.now(),
 			nodeState: node.status === "active" ? "active" : "pending",
 			nodeId: node.id,
 		};
 		ws.send(hs.writeMessage(encodeCbor(handshakeResponseCodec.encode(response))));
-		const conn = new NodeConnection(connectionId, node.id, ws, hs.split(), negotiated, optional);
+		const conn = new NodeConnection(connectionId, node.id, ws, hs.split(), negotiated);
 		this.#cluster.attach(conn, node as NodeRow);
 	}
 }

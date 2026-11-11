@@ -5,9 +5,7 @@ import {
 	authorizationCodec,
 	decodeAuthorizationPayload,
 	decode as decodeCbor,
-	REQUIRED_NAMES,
 	RemoteError,
-	SUPPORTED_NAMES,
 	type TaskSpec,
 	type TrustEntry,
 	type TrustSummary,
@@ -139,15 +137,14 @@ describe("privileged forward dispatch", () => {
 		return (await db.selectFrom("nodes").selectAll().where("id", "=", id).executeTakeFirstOrThrow()) as NodeRow;
 	};
 
-	/** Connects a fake crha that reports `mode` in Hello and speaks the given protocol version. */
+	/** Connects a fake crha that reports `mode` in Hello. */
 	const connect = async (
 		name: string,
-		options: { mode?: string; commands?: readonly string[] } = {},
+		options: { mode?: string } = {},
 	): Promise<{ node: NodeRow; crha: FakeCrha; key: ReturnType<typeof generateKeyPair> }> => {
 		const key = generateKeyPair();
 		const node = await addNode(name, key.publicKey);
-		const commands = [...(options.commands ?? SUPPORTED_NAMES)];
-		const crha = await agents.connect(key, handshakeInit({ commands }), commands);
+		const crha = await agents.connect(key, handshakeInit());
 		expect(await crha.peer.request("hello", { ...START, privilegedMode: options.mode ?? "forward" })).toEqual({
 			acks: [],
 		});
@@ -647,20 +644,6 @@ describe("privileged forward dispatch", () => {
 			});
 			expect(failed.errorCode).toBe("privileged_unavailable");
 			expect(failed.errorMessage).toContain("has not reported a trust summary");
-			expect(crha.starts).toHaveLength(0);
-		});
-
-		it("fails on a crha without the M4 names with privileged_unsupported", async () => {
-			const { node, crha } = await connect("forward-7", { commands: REQUIRED_NAMES });
-			const created = await createPrivileged(node.id);
-			const failed = await waitFor("failed", async () => {
-				const view = await taskView(created.id);
-				return view.state === "failed" ? view : undefined;
-			});
-			expect(failed).toMatchObject({
-				errorCode: "privileged_unsupported",
-				errorMessage: "the node's crha does not support forward",
-			});
 			expect(crha.starts).toHaveLength(0);
 		});
 

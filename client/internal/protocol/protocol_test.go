@@ -5,10 +5,13 @@ import (
 	"testing"
 )
 
-func TestSupportedNames(t *testing.T) {
-	required := []string{
+func TestRequiredNames(t *testing.T) {
+	want := []string{
 		"facts",
 		"hello",
+		"local.decision",
+		"local.request",
+		"local.withdraw",
 		"node.status",
 		"ping",
 		"task.cancel",
@@ -19,39 +22,26 @@ func TestSupportedNames(t *testing.T) {
 		"task.output.ack",
 		"task.query",
 		"task.start",
+		"trust.summary",
 	}
-	// The M4 names are optional for the peer but advertised by crha in every
-	// privileged mode: non-forward modes answer the commands with privileged_unsupported.
-	optional := []string{"local.decision", "local.request", "local.withdraw", "trust.summary"}
-	want := slices.Concat(required, optional)
-	slices.Sort(want)
-	if got := SupportedNames(); !slices.Equal(got, want) {
-		t.Fatalf("SupportedNames() = %v, want %v", got, want)
+	if got := RequiredNames(); !slices.Equal(got, want) {
+		t.Fatalf("RequiredNames() = %v, want %v", got, want)
 	}
-	if got := len(SupportedSet()); got != len(want) {
-		t.Fatalf("SupportedSet has %d names, want %d", got, len(want))
+	if got := len(RequiredSet()); got != len(want) {
+		t.Fatalf("RequiredSet has %d names, want %d", got, len(want))
 	}
-	if got := RequiredNames(); !slices.Equal(got, required) {
-		t.Fatalf("RequiredNames() = %v, want %v", got, required)
-	}
-	if got := OptionalNames(); !slices.Equal(got, optional) {
-		t.Fatalf("OptionalNames() = %v, want %v", got, optional)
-	}
-	for _, name := range optional {
-		if !SupportedSet().Has(name) {
-			t.Fatalf("M4 name %q is not advertised", name)
-		}
-		if slices.Contains(RequiredNames(), name) {
-			t.Fatalf("M4 name %q is required", name)
+	for _, name := range want {
+		if !RequiredSet().Has(name) {
+			t.Fatalf("required name %q is not in the set", name)
 		}
 	}
 	// trust.query is crh-priv's own command; it is not part of the crhs <-> crha
 	// protocol at all.
-	if SupportedSet().Has("trust.query") {
+	if RequiredSet().Has("trust.query") {
 		t.Fatal("crh-priv name trust.query is declared in the crhs <-> crha handshake")
 	}
-	if Major := ProtocolMajor; Major != 3 {
-		t.Fatalf("ProtocolMajor = %d, want 3", Major)
+	if Major := ProtocolMajor; Major != 0 {
+		t.Fatalf("ProtocolMajor = %d, want 0", Major)
 	}
 	if Minor := ProtocolMinor; Minor != 0 {
 		t.Fatalf("ProtocolMinor = %d, want 0", Minor)

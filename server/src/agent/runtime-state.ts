@@ -378,10 +378,9 @@ export async function endSessionWork(
  * - an idle row with an unsettled input becomes running.
  * An idle row outside that set needs no check: `recordInput` writes `running` in the same statement that
  * advances `last_submission_id`, and `settleInput` writes `idle` only after the latest input settled (a new
- * session starts idle with no input at all), so "idle and settled" holds by construction. The `0029`
- * migration maps old `active`/`stopped` rows to `idle` without knowing which runs survived; those are
- * exactly the rows candidate 2 finds through their unsettled submission. The system is sized for far more
- * idle sessions than active ones (doc/design/webui.md: 100,000 sessions), so only candidates may cost a durable
+ * session starts idle with no input at all), so "idle and settled" holds by construction. An idle row whose
+ * input is still unsettled (a crash between input and settlement) is found through that submission. The
+ * system is sized for far more idle sessions than active ones (doc/design/webui.md: 100,000 sessions), so only candidates may cost a durable
  * read. Each correction is logged, not audited. The write is conditional on the row read, so a state write
  * by a resumed run wins the race instead of being clobbered.
  */

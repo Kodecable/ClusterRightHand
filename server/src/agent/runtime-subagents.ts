@@ -52,21 +52,6 @@ async function hideSubagentTool(host: RuntimeHost, conversation: Conversation): 
 }
 
 /**
- * Reconciles old conversations with the depth limit; new children are handled in createSubagent. Only a
- * session at the limit can be affected, so `depthLimitedSessions` walks up from the subagent rows and finds
- * exactly those, instead of loading every session's parent at startup (doc/design/webui.md: 100,000 sessions).
- */
-export async function enforceDepthToolLimits(host: RuntimeHost): Promise<void> {
-	const limited = await depthLimitedSessions().execute(host.db);
-	for (const row of limited.rows) {
-		const conversation = await conversationOf(host, row);
-		if (!conversation) continue;
-		const agent = await conversation.agent(host.context);
-		if (agent.tools.some((tool) => tool.name === "subagent")) await hideSubagentTool(host, conversation);
-	}
-}
-
-/**
  * Creates (or, on a rerun of the same tool call, finds) a subagent's session: its own conversation, rule set and
  * quota, below the parent's chain (doc/design/agent-runtime.md "Subagents"). The child is ownerless so that a parent's
  * earlier return or abort does not kill it; the runtime cancels it explicitly.
@@ -80,9 +65,6 @@ export async function createSubagent(
 	let depth = 0;
 	for await (const _ancestor of sessionAncestors(host.db, parent.parent_session_id)) depth++;
 	if (depth >= MAX_SUBAGENT_DEPTH) {
-		// Also fix a session created before the tool was removed at the limit.
-		const parentConversation = await conversationOf(host, parent);
-		if (parentConversation) await hideSubagentTool(host, parentConversation);
 		throw new UserError(`subagents nest at most ${MAX_SUBAGENT_DEPTH} levels deep`);
 	}
 
@@ -137,7 +119,7 @@ export async function createSubagent(
 				owner_user_id: parent.owner_user_id,
 				conversation_id: String(conversation.id),
 				parent_session_id: parent.id,
-				root_session_id: parent.root_session_id ?? parent.id,
+				root_session_id: parent.root_session_id,
 				title: input.task.slice(0, 80),
 				// A child's title is the start of its task; it never generates one.
 				title_pending: 0,
@@ -296,29 +278,4 @@ export async function isDescendant(host: RuntimeHost, sessionId: string, childId
 		select id from ancestors where id = ${sessionId} limit 1
 	`.execute(host.db);
 	return result.rows.length > 0;
-}
-
-/**
- * The sessions at the subagent depth limit, with the conversation that may still offer the subagent tool:
- * `enforceDepthToolLimits` fixes them at startup (a session created before the per-conversation filter may
- * still offer it). Walking up from the subagent rows costs one covering range scan of
- * `sessions_parent_updated_idx` for the seed, a primary-key lookup per ancestor, and one for each affected
- * session; roots and unrelated sessions are never read. A session deeper than the limit (data from an older
- * version) is reported once, at the limit, exactly like the old per-row walk.
- */
-export function depthLimitedSessions() {
-	return sql<{ id: string; conversation_id: string }>`
-		with recursive ancestry(id, ancestor_id, depth) as (
-			select id, parent_session_id, 1 from sessions where parent_session_id is not null
-			union all
-			select ancestry.id, parent.parent_session_id, ancestry.depth + 1
-			from ancestry
-			join sessions as parent on parent.id = ancestry.ancestor_id
-			where ancestry.depth < ${MAX_SUBAGENT_DEPTH} and parent.parent_session_id is not null
-		)
-		select sessions.id, sessions.conversation_id
-		from ancestry
-		join sessions on sessions.id = ancestry.id
-		where ancestry.depth >= ${MAX_SUBAGENT_DEPTH}
-	`;
 }

@@ -22,14 +22,11 @@ import {
 	union,
 } from "./schema.ts";
 
-export const PROTOCOL_MAJOR = 3;
+export const PROTOCOL_MAJOR = 0;
 /**
  * An incompatible change bumps the major version and the Noise prologue, so a peer with another
  * major is refused at the handshake (doc/design/protocol.md "Handshake payloads"). The minor version is additive:
- * new commands and events are negotiated through the handshake's `commands` field. Protocol 3.0
- * removes the `groups` fact and renames `TrustSummary.groups` to `aliases`; 2.0 reads files
- * by line range and gives `task.exit` an eighth element; 1.1 was the M4 command set and 1.0 the
- * M3.5 one.
+ * new commands and events are negotiated through the handshake's `commands` field.
  */
 export const PROTOCOL_MINOR = 0;
 

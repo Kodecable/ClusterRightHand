@@ -290,12 +290,10 @@ describe("user authorizations", () => {
 	const seedReusable = async (input: {
 		nodes: string[];
 		issuer?: string;
-		/** The payload's deadline; `null` stores a legacy authorization without one. */
-		deadlineMs?: number | null;
 		/** The command restriction; `EXEC` by default. */
 		command?: AuthorizationCommand;
 	}): Promise<string> => {
-		const deadlineMs = input.deadlineMs === undefined ? Date.now() + HOUR : input.deadlineMs;
+		const deadlineMs = Date.now() + HOUR;
 		const built = buildAuthorization({
 			nodes: input.nodes,
 			command: input.command ?? {
@@ -316,7 +314,7 @@ describe("user authorizations", () => {
 				signatures: JSON.stringify([{ kind: "sshsig", blob: Buffer.from(signature.blob).toString("base64") }]),
 				issuer_user_id: input.issuer ?? owner.userId,
 				task_ids: null,
-				deadline: deadlineMs === null ? null : new Date(deadlineMs).toISOString(),
+				deadline: new Date(deadlineMs).toISOString(),
 				created_at: new Date().toISOString(),
 			})
 			.execute();
@@ -917,15 +915,6 @@ describe("user authorizations", () => {
 		await seedReusable({ nodes: [node.id] });
 		const first = await createPrivileged(node.id);
 		await waitState(first.id, "awaiting_authorization");
-	});
-
-	it("does not reuse a stored authorization without a deadline", async () => {
-		const { node, crha } = await connect("reuse-no-deadline", (id) => summaryOf(id, [ownerEntry()]));
-		await seedReusable({ nodes: [node.id], deadlineMs: null });
-		const task = await createPrivileged(node.id);
-		await waitState(task.id, "awaiting_authorization");
-		expect(crha.starts).toHaveLength(0);
-		expect((await pendingFor(task.id)).authorization).not.toBeNull();
 	});
 
 	/** Every task.input chunk a fake crha received for a task, in order. */

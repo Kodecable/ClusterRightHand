@@ -446,9 +446,9 @@ func TestPeekMajor(t *testing.T) {
 	}
 	// A future major version may have a different payload shape after the first
 	// element; PeekMajor must not decode it.
-	future := append([]byte{0x86, 0x03, 0x00}, mustHex(t, "80")...)
+	future := append([]byte{0x86, 0x01, 0x00}, mustHex(t, "80")...)
 	major, err = PeekMajor(future)
-	if err != nil || major != 3 {
+	if err != nil || major != 1 {
 		t.Fatalf("future major = %d, err = %v", major, err)
 	}
 	for _, test := range []struct {
@@ -484,11 +484,11 @@ func TestPeekMajorArrayHeaders(t *testing.T) {
 		name string
 		hex  string
 	}{
-		{"length 6", "86030000"},
-		{"length 24", "9818030000"},
-		{"length 300", "99012c030000"},
-		{"length 70000", "9a00011170030000"},
-		{"later element is a float", "8203f93e00"},
+		{"length 6", "86000000"},
+		{"length 24", "9818000000"},
+		{"length 300", "99012c000000"},
+		{"length 70000", "9a00011170000000"},
+		{"later element is a float", "8200f93e00"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			major, err := PeekMajor(mustHex(t, test.hex))

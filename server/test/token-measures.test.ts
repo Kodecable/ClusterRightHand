@@ -1,9 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
-import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { budgetUsedTokens, contextTokens, usageTokens } from "../src/agent/quota.ts";
@@ -18,15 +14,12 @@ import {
 	RequestEstimates,
 	requestBytes,
 } from "../src/agent/tokens.ts";
-import { subtreeUsage, usageTokensOf } from "../src/agent/usage-backfill.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
-import { openDb } from "../src/storage/db.ts";
-import { migrateToLatest } from "../src/storage/migrate.ts";
 import { createUser } from "../src/users/service.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
@@ -204,100 +197,4 @@ it("usage accumulates up the tree, so a root shows its whole tree", async () => 
 	// The context fill is the session's own last main call, not a subagent's.
 	expect(await contextTokens(db, root.id)).toBeNull();
 	expect(await contextTokens(db, child.id)).toBe(childUsage - childBudget);
-});
-
-it("backfills a session that predates token measures from durable's persisted usage at the next start", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "crh-usage-backfill-"));
-	const localDb = openDb({ driver: "sqlite", path: join(dir, "crhs.db") });
-	await migrateToLatest(localDb);
-	const user = await createUser(localDb, { username: "owner", kind: "member", password: "password-123" });
-	const localOwner: SessionUser = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
-	const audit = new Audit(localDb);
-	const cluster = new Cluster(localDb, { audit });
-	const models = new ModelConfig(localDb, MasterKey.generate());
-	models.addProvider(faux.provider);
-	await models.reload();
-	const options = {
-		db: localDb,
-		models,
-		cluster,
-		taskGroups: new TaskGroups(localDb, cluster, { audit }),
-		audit,
-	};
-	const first = await AgentRuntime.open({
-		...options,
-		storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
-	});
-	let second: AgentRuntime | undefined;
-	try {
-		const root = await first.createSession(localOwner, { model: model(), rulePreset: "yolo", title: "persisted" });
-		const child = await first.createSubagent(root.id, {
-			callKey: "backfill-child",
-			task: "child work",
-			rules: { default: "inherit", rules: [] },
-			quota: null,
-		});
-		faux.setResponses([
-			{ ...fauxAssistantMessage([fauxText("root answer")]), usage: USAGE(100, 20) },
-			{ ...fauxAssistantMessage([fauxText("child answer")]), usage: USAGE(40, 10) },
-		]);
-		const submission = await first.submit(root.id, localOwner, "go", "backfill-1");
-		expect((await waitSubmission(first, root.id, submission)).status).toBe("done");
-		await first.startSubagent(child.id, "work", "backfill-child-1");
-		expect(await first.waitSubagent(child.id)).toEqual({ status: "done", answer: "child answer" });
-		const expectedRoot = await usageTokens(localDb, root.id);
-		const expectedChild = await usageTokens(localDb, child.id);
-		const budgetRoot = await budgetUsedTokens(localDb, root.id);
-		expect(expectedChild).toBeGreaterThan(0);
-		expect(expectedRoot).toBeGreaterThan(expectedChild);
-		// Pretend the session predates the measure: the column is 0 and the backfill has not run.
-		await localDb.updateTable("sessions").set({ usage_tokens: 0 }).execute();
-		await localDb.deleteFrom("server_meta").where("key", "=", "session_stats_backfilled_at").execute();
-		await first.close();
-
-		// The next start reads durable's per-conversation usage and raises each session to its subtree total.
-		second = await AgentRuntime.open({
-			...options,
-			storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
-		});
-		expect(await usageTokens(localDb, root.id)).toBe(expectedRoot);
-		expect(await usageTokens(localDb, child.id)).toBe(expectedChild);
-		// The backfilled value is the statistics measure only; the budget counted the calls live.
-		expect(await budgetUsedTokens(localDb, root.id)).toBe(budgetRoot);
-	} finally {
-		await second?.close().catch(() => {});
-		await first.close().catch(() => {});
-		await localDb.destroy();
-		await rm(dir, { recursive: true, force: true });
-	}
-});
-
-it("sums a conversation's persisted usage and a tree's subtree totals", () => {
-	const state = {
-		models: { "faux/one": USAGE(100, 20, 5, 15) },
-		tools: { exec: USAGE(10, 5) },
-	};
-	expect(usageTokensOf(state)).toBe(155);
-	expect(usageTokensOf(undefined)).toBe(0);
-	expect(usageTokensOf({ models: {}, tools: {} })).toBe(0);
-
-	const rows = [
-		{ id: "root", parentSessionId: null },
-		{ id: "child", parentSessionId: "root" },
-		{ id: "grandchild", parentSessionId: "child" },
-		{ id: "other", parentSessionId: null },
-	];
-	const own = new Map([
-		["root", 100],
-		["child", 20],
-		["grandchild", 3],
-	]);
-	expect(subtreeUsage(rows, own)).toEqual(
-		new Map([
-			["root", 123],
-			["child", 23],
-			["grandchild", 3],
-			["other", 0],
-		]),
-	);
 });

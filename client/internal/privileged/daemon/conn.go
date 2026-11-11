@@ -399,8 +399,7 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		record.AuthorizationID = hex.EncodeToString(decided.authorizationID[:])
 		record.IssuedAtMS = int64(decided.payload.IssuedAtMS)
 		if decided.payload.DeadlineMS != nil {
-			deadline := int64(*decided.payload.DeadlineMS)
-			record.DeadlineMS = &deadline
+			record.DeadlineMS = int64(*decided.payload.DeadlineMS)
 		}
 	}
 	if err := c.s.store.AddUsed(record); err != nil {

@@ -217,7 +217,7 @@ describeBackends("retention sweep", (backend) => {
 	const groupIds = async (): Promise<string[]> =>
 		(await db.selectFrom("task_groups").select("id").orderBy("id").execute()).map((row) => row.id);
 
-	const insertAuthorization = async (id: string, deadline: string | null): Promise<void> => {
+	const insertAuthorization = async (id: string, deadline: string): Promise<void> => {
 		await db
 			.insertInto("authorizations")
 			.values({
@@ -396,16 +396,15 @@ describeBackends("retention sweep", (backend) => {
 		]);
 	});
 
-	it("deletes authorizations by deadline and leaves null deadlines alone", async () => {
+	it("deletes authorizations by deadline", async () => {
 		await insertAuthorization("expired-old", OLD);
 		await insertAuthorization("expired-recent", RECENT);
 		await insertAuthorization("future", new Date(NOW_MS + 30 * DAY).toISOString());
-		await insertAuthorization("no-deadline", null);
 
 		const counts = await runRetention(db, RETENTION, NOW);
 
 		expect(counts.authorizations).toBe(1);
-		expect(await authorizationIds()).toEqual(["expired-recent", "future", "no-deadline"]);
+		expect(await authorizationIds()).toEqual(["expired-recent", "future"]);
 	});
 
 	it("deletes old audit events only below max(seq) - 16384", async () => {

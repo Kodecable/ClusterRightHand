@@ -556,7 +556,7 @@ func TestFactsMapKeys(t *testing.T) {
 // comparison is on the generic CBOR value, which keeps the unknown key (doc/design/protocol.md "Events").
 func TestFactsUnknownKeys(t *testing.T) {
 	// {"groups": ["wheel"], "hostname": "node-1", "future_fact": "x"}: groups is an old fact that
-	// protocol 3.0 dropped, so it is just another unknown text key now.
+	// It is just another unknown text key now.
 	data := mustHex(t, "a36667726f7570738165776865656c68686f73746e616d65666e6f64652d316b6675747572655f6661637461"+
 		"78")
 	var f Facts

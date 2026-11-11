@@ -46,7 +46,7 @@ export interface SessionItemRow {
 
 export interface SessionListRow extends SessionItemRow {
 	parent_session_id: string | null;
-	root_session_id: string | null;
+	root_session_id: string;
 	/** When the tree last left `running` for `idle`/`awaiting`; roots only (doc/design/webui.md "Sidebar list"). */
 	reply_at: string | null;
 	/** When the owner last opened the tree; roots only. */
@@ -66,21 +66,21 @@ export interface SessionListQueryRow extends SessionListRow {
 
 /**
  * Whether some session of the row's tree (`sessions`, the outer query's row) matches `condition`, a fixed SQL
- * fragment over the alias `tree`. See TREE_STATE for the second branch.
+ * fragment over the alias `tree`.
  */
 function treeHas(condition: RawBuilder<unknown>): RawBuilder<SqlBool> {
 	return sql<SqlBool>`exists (
 		select 1 from sessions as tree
-		where (tree.root_session_id = sessions.id or (tree.id = sessions.id and tree.root_session_id is null))
+		where tree.root_session_id = sessions.id
 			and ${condition}
 	)`;
 }
 
 /**
  * The tree's aggregate state, computed in SQL over `root_session_id` (doc/design/webui.md "API conventions"): any
- * awaiting session makes the tree awaiting, else any running one makes it running. The second branch of each
- * condition also counts a root whose own `root_session_id` was never backfilled, so such a row cannot vanish
- * from its own aggregate. One index lookup per branch (`sessions_root_state_idx`), no per-row query.
+ * awaiting session makes the tree awaiting, else any running one makes it running. A root's own
+ * `root_session_id` is its id, so its row is part of its own aggregate. One index lookup per condition
+ * (`sessions_root_state_idx`), no per-row query.
  */
 export const TREE_STATE = sql<SessionState>`case
 	when ${treeHas(sql`tree.state = 'awaiting'`)} then 'awaiting'

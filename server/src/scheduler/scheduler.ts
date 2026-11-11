@@ -680,18 +680,10 @@ export class Scheduler {
 		// status stays as it was (doc/design/scheduling.md "One instance at a time"). One query joins the schedule's finished
 		// runs with their session trees and keeps only a tree that still has a `running` / `awaiting` session
 		// (`schedule_runs` is never pruned, so per-run queries would grow without bound); an idle leftover
-		// costs no abort, and an already stopped one is not aborted again. The second join branch covers a
-		// root whose `root_session_id` was never backfilled.
+		// costs no abort, and an already stopped one is not aborted again.
 		const previous = await this.#db
 			.selectFrom("schedule_runs as r")
-			.innerJoin("sessions as s", (join) =>
-				join.on((eb) =>
-					eb.or([
-						eb("s.root_session_id", "=", eb.ref("r.session_id")),
-						eb.and([eb("s.id", "=", eb.ref("r.session_id")), eb("s.root_session_id", "is", null)]),
-					]),
-				),
-			)
+			.innerJoin("sessions as s", "s.root_session_id", "r.session_id")
 			.select(["r.id", "r.session_id"])
 			.distinct()
 			.where("r.schedule_id", "=", schedule.id)

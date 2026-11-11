@@ -28,7 +28,7 @@ import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { PgStorage } from "../src/storage/pg-durable/index.ts";
-import { advisoryKey, applyMigrations, createMigrations, createSchema } from "../src/storage/pg-durable/schema.ts";
+import { createMigrations, createSchema } from "../src/storage/pg-durable/schema.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { UserError } from "../src/util/errors.ts";
 import { newId } from "../src/util/id.ts";
@@ -653,49 +653,39 @@ describeBackends("session search", (backend) => {
 	}
 });
 
-describe.skipIf(!pgUrl)("pg-durable search schema upgrade", () => {
-	it("adds the function and generated column to an existing version-1 store, computing existing rows", async () => {
+describe.skipIf(!pgUrl)("pg-durable search schema", () => {
+	it("creates the search function and generated column and refuses a newer database", async () => {
 		const schema = `t_${randomBytes(6).toString("hex")}`;
 		const admin = new pg.Pool({ connectionString: pgUrl });
 		const pool = new pg.Pool({ connectionString: pgUrl, options: `-c search_path=${schema}`, max: 2 });
 		try {
 			const layout = createSchema(schema, "pi_");
-			const migrations = createMigrations(layout);
-			const first = migrations[0];
-			if (first === undefined) throw new Error("expected a version-1 migration");
-			// Create the store at version 1 under the same DDL lock openTestDb uses, so no Kysely
-			// migrator in a parallel test file introspects the schema mid-creation.
+			expect(createMigrations(layout)).toHaveLength(1);
+			// Create the schema under the same DDL lock openTestDb uses, so no Kysely migrator in a
+			// parallel test file introspects the schema mid-creation.
 			await withDdlLock(async () => {
 				await admin.query(`create schema "${schema}"`);
-				await applyMigrations(pool, layout, [first], advisoryKey("migrate", schema, "pi_"));
 			});
-			const legacy = JSON.stringify({
-				id: 1,
-				conversationId: 1,
-				kind: "pi.user",
-				model: [{ role: "user", content: "legacy hello", timestamp: AT }],
-			});
-			await pool.query(
-				`insert into ${layout.tables.entries} (id, conversation_id, head, commit_seq, record) values (1, 1, null, 1, $1)`,
-				[legacy],
-			);
-			const before = await pool.query(
-				`select 1 from information_schema.columns
-					where table_schema = $1 and table_name = 'pi_entries' and column_name = 'search_text'`,
-				[schema],
-			);
-			expect(before.rowCount).toBe(0);
-
 			const storage = await withDdlLockOn("postgres", () => PgStorage.open(pool, { prefix: "pi_" }));
 			try {
+				const record = JSON.stringify({
+					id: 1,
+					conversationId: 1,
+					kind: "pi.user",
+					model: [{ role: "user", content: "searchable hello", timestamp: AT }],
+				});
+				await pool.query(
+					`insert into ${layout.tables.entries} (id, conversation_id, head, commit_seq, record) values (1, 1, null, 1, $1)`,
+					[record],
+				);
 				const { rows } = await pool.query<{ search_text: string | null }>(
 					`select search_text from ${layout.tables.entries} where id = 1`,
 				);
-				expect(rows[0]?.search_text).toBe("legacy hello");
+				expect(rows[0]?.search_text).toBe("searchable hello");
 				const version = await pool.query<{ version: number }>(
 					`select version from ${layout.tables.durableSchema} where singleton = 1`,
 				);
-				expect(version.rows[0]?.version).toBe(2);
+				expect(version.rows[0]?.version).toBe(1);
 				const fn = await pool.query<{ text: string | null }>(`select ${layout.functions.entrySearchText}($1) as text`, [
 					JSON.stringify({
 						kind: "pi.assistant",
@@ -707,16 +697,11 @@ describe.skipIf(!pgUrl)("pg-durable search schema upgrade", () => {
 				await storage.close(BACKGROUND_CONTEXT);
 			}
 
-			// A second open finds version 2 and leaves it there.
-			const reopened = await withDdlLockOn("postgres", () => PgStorage.open(pool, { prefix: "pi_" }));
-			try {
-				const version = await pool.query<{ version: number }>(
-					`select version from ${layout.tables.durableSchema} where singleton = 1`,
-				);
-				expect(version.rows[0]?.version).toBe(2);
-			} finally {
-				await reopened.close(BACKGROUND_CONTEXT);
-			}
+			// A database newer than this binary is refused instead of being opened.
+			await pool.query(`update ${layout.tables.durableSchema} set version = 2 where singleton = 1`);
+			await expect(withDdlLockOn("postgres", () => PgStorage.open(pool, { prefix: "pi_" }))).rejects.toThrow(
+				/newer than supported version 1/,
+			);
 		} finally {
 			await pool.end();
 			await withDdlLock(async () => {

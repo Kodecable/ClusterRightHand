@@ -83,14 +83,15 @@ function parsePending(value: unknown): PendingPayloadView | null {
 		typeof pending.payload !== "string" ||
 		typeof pending.id !== "string" ||
 		!Array.isArray(pending.taskIds) ||
-		typeof pending.attempt !== "number"
+		typeof pending.attempt !== "number" ||
+		typeof pending.deadline !== "string"
 	) {
 		return null;
 	}
 	return {
 		payload: pending.payload,
 		id: pending.id,
-		deadline: typeof pending.deadline === "string" ? pending.deadline : null,
+		deadline: pending.deadline,
 		taskIds: pending.taskIds.filter((id): id is string => typeof id === "string"),
 		attempt: pending.attempt,
 	};

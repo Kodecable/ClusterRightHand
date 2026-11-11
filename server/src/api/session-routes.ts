@@ -260,7 +260,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.post("/sessions/:id/read", async (c) => {
 		const v = await requireSession(c, c.req.param("id"), "owner");
 		if (v instanceof Response) return v;
-		const rootId = (await rootSessionIdOf(db, v.session.id)) ?? v.session.id;
+		const rootId = await rootSessionIdOf(db, v.session.id);
+		if (!rootId) return c.body(null, 404);
 		await db
 			.updateTable("sessions")
 			.set({ owner_read_at: new Date().toISOString() })

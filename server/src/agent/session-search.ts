@@ -56,17 +56,17 @@ function titleMatches(pattern: string): RawBuilder<SqlBool> {
 
 /**
  * Whether some entry of the outer row's tree (`sessions`) carries the keyword in its generated search text:
- * the root's own conversation or a subagent's (`sessions.root_session_id`, or the root itself when that column
- * was never backfilled). One `exists`, no per-row query, like the list's TREE_STATE. The cast is on the sessions
- * side so the entries' (conversation_id, id) index narrows the scan to the tree's conversations; the CASE keeps a
- * non-numeric id (none in practice) from failing the cast.
+ * the root's own conversation or a subagent's (`sessions.root_session_id`; a root's id is its own). One
+ * `exists`, no per-row query, like the list's TREE_STATE. The cast is on the sessions side so the entries'
+ * (conversation_id, id) index narrows the scan to the tree's conversations; the CASE keeps a non-numeric id
+ * (none in practice) from failing the cast.
  */
 function treeEntryMatches(pattern: string): RawBuilder<SqlBool> {
 	return sql<SqlBool>`exists (
 		select 1
 		from ${sql.ref(ENTRIES_TABLE)} as search_entry
 		inner join sessions as search_session on search_entry.conversation_id = (case when search_session.conversation_id ~ '^[0-9]+$' then search_session.conversation_id::bigint end)
-		where (search_session.id = sessions.id or search_session.root_session_id = sessions.id)
+		where search_session.root_session_id = sessions.id
 			and search_entry.search_text is not null
 			and lower(search_entry.search_text) like lower(${pattern}) escape '\\'
 	)`;
@@ -119,12 +119,12 @@ async function searchDetails(
 				search_entry.id as entry_id,
 				search_session.id as session_id,
 				search_session.title as session_title,
-				coalesce(search_session.root_session_id, search_session.id) as root_id,
+				search_session.root_session_id as root_id,
 				search_entry.search_text as search_text,
 				search_entry.record as record
 			from ${sql.ref(ENTRIES_TABLE)} as search_entry
 			inner join sessions as search_session on search_entry.conversation_id = (case when search_session.conversation_id ~ '^[0-9]+$' then search_session.conversation_id::bigint end)
-			where (search_session.id in (${roots}) or search_session.root_session_id in (${roots}))
+			where search_session.root_session_id in (${roots})
 				and search_entry.search_text is not null
 		),
 		matched as (

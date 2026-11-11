@@ -28,7 +28,7 @@ export function withInputRef(spec: TaskSpec, ref: { size: number; sha256: Uint8A
 	}
 }
 
-/** A stored spec; migration 0019 may have left one unreadable, which is a client error on approval. */
+/** A stored spec; one that cannot be read is a client error on approval. */
 export function specFromRow(specJson: string | null, what: string): TaskSpec {
 	try {
 		return taskSpecFromJson(JSON.parse(specJson ?? "null"));

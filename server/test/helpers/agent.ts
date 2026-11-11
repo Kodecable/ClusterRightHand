@@ -15,7 +15,7 @@ import {
 	Peer,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
-	SUPPORTED_NAMES,
+	REQUIRED_NAMES,
 	type TaskExit,
 	type TaskStart,
 	type TrustReport,
@@ -152,7 +152,7 @@ export class TestAgentServer {
 	async connect(
 		staticKey: KeyPair,
 		init: HandshakeInit,
-		negotiated: readonly string[] = SUPPORTED_NAMES,
+		negotiated: readonly string[] = REQUIRED_NAMES,
 	): Promise<FakeCrha> {
 		const { ws, messages, hs, closed } = await this.prepare(staticKey);
 		ws.send(hs.writeMessage(encodeCbor(handshakeInitCodec.encode(init))));
@@ -185,9 +185,9 @@ export class TestAgentServer {
 }
 
 /**
- * A fake crha that speaks the M4 command set (doc/design/protocol.md "Privilege messages"). It records everything crhs sends to a
- * node and answers the optional commands like a node would; tests override `answerStart` (or register
- * their own handler) to script a rejection, and push trust summaries with `trust`.
+ * A fake crha that speaks every command of the CRH protocol (doc/design/protocol.md "Privilege messages"). It
+ * records everything crhs sends to a node and answers the privilege commands like a node would; tests override
+ * `answerStart` (or register their own handler) to script a rejection, and push trust summaries with `trust`.
  */
 export class FakeCrha {
 	readonly ws: WebSocket;
@@ -303,7 +303,7 @@ export function handshakeInit(overrides: Partial<HandshakeInit> = {}): Handshake
 	return {
 		protocolMajor: PROTOCOL_MAJOR,
 		protocolMinor: PROTOCOL_MINOR,
-		commands: [...SUPPORTED_NAMES],
+		commands: [...REQUIRED_NAMES],
 		crhaVersion: "test",
 		clientTimeMs: Date.now(),
 		enroll: null,

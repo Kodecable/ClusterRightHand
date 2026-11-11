@@ -6,7 +6,7 @@
 import type { TaskSpec } from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
 import { ownerCredentials } from "../../privilege/credentials.ts";
-import type { BuiltAuthorization } from "../../privilege/payload.ts";
+import { authorizationDeadline, type BuiltAuthorization } from "../../privilege/payload.ts";
 import {
 	buildTaskGroupAuthorization,
 	type PlannedLocalPath,
@@ -51,9 +51,9 @@ type PlanOutcome =
  *
  * The trust wait happens outside any turn; one short turn then re-reads the row, computes the
  * plan from it and writes the claim (or the park, or the failure); the task.start / local.request
- * that waits for an answer is sent after that turn. Pre-wait checks that need no trust (a group that
- * already ended, a crha without the forward names) are their own turn from a fresh read, so the failure
- * the second one writes cannot be based on a row another path already moved.
+ * that waits for an answer is sent after that turn. A pre-wait check that needs no trust (a group that
+ * already ended) is its own turn from a fresh read, so its outcome cannot be based on a row another
+ * path already moved.
  */
 export async function planPrivileged(
 	core: ClusterCore,
@@ -71,20 +71,6 @@ export async function planPrivileged(
 		if (!first || !from.includes(first.state)) return false;
 		// A member of a group that already ended (interrupted by a restart) never dispatches again.
 		if (await groupEnded(core, first.task_group_id)) return false;
-		if (!link.conn.supportsForward) {
-			// A crha without the M4 names cannot take part in forward whatever its reported mode says
-			// (doc/design/protocol.md "Handshake payloads").
-			await finishAuthorization(
-				core,
-				id,
-				first,
-				"failed",
-				"privileged_unsupported",
-				"the node's crha does not support forward",
-				null,
-			);
-			return false;
-		}
 		return true;
 	});
 	if (!usable) return;
@@ -431,8 +417,7 @@ function pendingOf(authorization: BuiltAuthorization): PendingPayloadView {
 	return {
 		payload: Buffer.from(authorization.bytes).toString("base64"),
 		id: authorization.id,
-		deadline:
-			authorization.payload.deadlineMs === null ? null : new Date(authorization.payload.deadlineMs).toISOString(),
+		deadline: authorizationDeadline(authorization.payload.deadlineMs),
 		taskIds: authorization.payload.taskIds ?? [],
 		attempt: authorization.payload.attempt ?? 0,
 	};

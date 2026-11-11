@@ -15,7 +15,7 @@ func benchOutput() *TaskOutput {
 // BenchmarkEmitTaskOutput measures encoding one 32 KiB task.output event, including the validation of
 // the outgoing body against the event schema.
 func BenchmarkEmitTaskOutput(b *testing.B) {
-	peer := NewPeer(func([]byte) error { return nil }, SupportedSet())
+	peer := NewPeer(func([]byte) error { return nil }, RequiredSet())
 	out := benchOutput()
 	b.SetBytes(32 << 10)
 	b.ReportAllocs()
@@ -33,7 +33,7 @@ func BenchmarkReceiveTaskOutput(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	peer := NewPeer(func([]byte) error { return nil }, SupportedSet())
+	peer := NewPeer(func([]byte) error { return nil }, RequiredSet())
 	peer.HandleEvent(EventTaskOutput, func(body cbor.RawMessage) error {
 		var out TaskOutput
 		return UnmarshalBody(body, &out)

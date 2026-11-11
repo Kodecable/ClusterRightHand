@@ -92,8 +92,9 @@ export function createSchema(schema: string, prefix: string): PgSchema {
 type Migration = { readonly version: number; readonly statements: readonly string[] };
 
 /**
- * Ordered schema history. Version 1 is the SQLite schema at pi-durable 1.4.0 (SQLite version 2) in PostgreSQL;
- * version 2 adds the generated `search_text` column (and the function that computes it) for session search.
+ * Ordered schema history. Version 1 is the SQLite schema at pi-durable 1.4.0 (SQLite version 2) in PostgreSQL,
+ * including the generated `search_text` column (and the function that computes it) for session search.
+ * Future changes append version 2, 3, …
  */
 export function createMigrations(schema: PgSchema): readonly Migration[] {
 	const { tables, indexes, functions } = schema;
@@ -242,10 +243,7 @@ export function createMigrations(schema: PgSchema): readonly Migration[] {
 		`ALTER TABLE ${tables.entries} ADD COLUMN search_text TEXT
 			GENERATED ALWAYS AS (${functions.entrySearchText}(record)) STORED`,
 	];
-	return [
-		{ version: 1, statements: initialSchema },
-		{ version: 2, statements: entrySearchText },
-	];
+	return [{ version: 1, statements: [...initialSchema, ...entrySearchText] }];
 }
 
 /** A signed 64-bit advisory lock key for one purpose on one (schema, prefix) pair. */

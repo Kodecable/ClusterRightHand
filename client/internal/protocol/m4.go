@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// M4 wire types: the authorization object, TrustSummary and local approval
+// Privilege wire types: the authorization object, TrustSummary and local approval
 // (doc/design/protocol.md "Privilege messages"). The crh-priv handshake types live with the crh-priv framing.
 //
 // Every type mirrors the corresponding codec in packages/protocol/src/privileged.ts:

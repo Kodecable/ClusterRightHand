@@ -35,8 +35,7 @@ import (
 
 const (
 	usedFileName = "used"
-	// localRetention is how long a record without an authorization is kept: a local approval
-	// (or a legacy record whose authorization has no deadline).
+	// localRetention is how long a record without an authorization is kept: a local approval.
 	localRetention = 24 * time.Hour
 	// minRetentionMargin is the least time a record with an authorization is kept past its
 	// deadline. A larger clock_skew extends it, so a one-shot authorization cannot be used
@@ -66,9 +65,9 @@ type Record struct {
 	// IssuedAtMS is the authorization's issued_at in Unix milliseconds. It is zero (and
 	// omitted) for a local approval, which has no authorization.
 	IssuedAtMS int64 `json:"issued_at_ms,omitempty"`
-	// DeadlineMS is the authorization's deadline in Unix milliseconds; nil means the
-	// authorization has no deadline (only a legacy record can).
-	DeadlineMS *int64 `json:"deadline_ms,omitempty"`
+	// DeadlineMS is the authorization's deadline in Unix milliseconds; zero for a local
+	// approval, which has no authorization.
+	DeadlineMS int64 `json:"deadline_ms,omitempty"`
 	// SpecSHA256 is the hex hash of the executed spec, for auditing and for correlating
 	// the record with the local log.
 	SpecSHA256 string `json:"spec_sha256,omitempty"`
@@ -212,12 +211,11 @@ func (s *Store) load() error {
 	return nil
 }
 
-// keep applies the retention rules: a record with an authorization and a deadline is kept
-// until deadline+max(1h, clock_skew); a local approval (and a legacy record without a
-// deadline) is kept 24h after it was accepted.
+// keep applies the retention rules: a record with an authorization is kept until
+// deadline+max(1h, clock_skew); a local approval is kept 24h after it was accepted.
 func (s *Store) keep(rec Record, now time.Time) bool {
-	if rec.AuthorizationID != "" && rec.DeadlineMS != nil {
-		return !now.After(time.UnixMilli(*rec.DeadlineMS).Add(s.retentionMargin()))
+	if rec.AuthorizationID != "" {
+		return !now.After(time.UnixMilli(rec.DeadlineMS).Add(s.retentionMargin()))
 	}
 	return !now.After(time.UnixMilli(rec.AcceptedAtMS).Add(localRetention))
 }
@@ -370,8 +368,8 @@ func (s *Store) makeRoom(now time.Time) {
 			return
 		}
 		e := front.Value.(*entry)
-		if e.rec.AuthorizationID != "" && e.rec.DeadlineMS != nil {
-			deadline := time.UnixMilli(*e.rec.DeadlineMS)
+		if e.rec.AuthorizationID != "" {
+			deadline := time.UnixMilli(e.rec.DeadlineMS)
 			if !now.After(deadline.Add(s.skew)) && e.rec.IssuedAtMS > s.markMS {
 				s.markMS = e.rec.IssuedAtMS
 			}

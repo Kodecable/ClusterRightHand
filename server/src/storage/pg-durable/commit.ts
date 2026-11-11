@@ -240,7 +240,7 @@ async function applyTableWrite(executor: Executor, schema: PgSchema, write: Stor
 			break;
 		case "entry":
 			await claimId(executor, schema, write.value.id, "entry");
-			// Explicit columns: `search_text` is a generated column (schema version 2) and must not be listed.
+			// Explicit columns: `search_text` is a generated column and must not be listed.
 			await run(
 				executor,
 				`INSERT INTO ${schema.tables.entries} (id, conversation_id, head, commit_seq, record) VALUES (?, ?, ?, ?, ?)`,

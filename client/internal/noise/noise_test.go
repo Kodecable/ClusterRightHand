@@ -106,8 +106,8 @@ func TestPrologueMismatchFailsHandshake(t *testing.T) {
 	client, server := pair(t)
 	ch := challenge()
 	// A peer from major 1 builds the old prologue; the handshake must fail before any payload.
-	legacy := append([]byte("crh/1"), ch...)
-	ini, err := newInitiatorPrologue(client, server.Public, legacy, nil)
+	other := append([]byte("crh/1"), ch...)
+	ini, err := newInitiatorPrologue(client, server.Public, other, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

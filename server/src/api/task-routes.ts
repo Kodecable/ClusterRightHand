@@ -238,7 +238,7 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 				throw new UserError("stdin too large");
 			}
 			const shell = optionalString(body, "shell") ?? "";
-			// An empty argv falls back to the shell, as the protobuf command did before M3.5.
+			// An empty argv falls back to the shell.
 			const command = (argv as string[] | undefined)?.length ? { argv: argv as string[] } : { shell };
 			return {
 				spec: {

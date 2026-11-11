@@ -211,7 +211,7 @@ export class Reviewer {
 	async #wanted(chain: RuleRef[] | null): Promise<ModelRef | null> {
 		const root = chain?.[0];
 		if (!root) return null;
-		// API tokens do not support Auto Review (doc/design/access-control.md "API tokens"); 0049 moved old ones to ask.
+		// API tokens do not support Auto Review (doc/design/access-control.md "API tokens").
 		if (root.type === "api_token") return null;
 		if ((await getRuleSet(this.#db, root))?.rulePreset !== "auto_review") return null;
 		return (await this.#modelFor(root)) ?? null;

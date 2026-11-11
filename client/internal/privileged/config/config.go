@@ -102,7 +102,7 @@ func Load(path string) (*Config, error) {
 }
 
 // checkOwner refuses a configuration file the privileged mode does not own or that any
-// other user could modify. In-host threats are outside the M4 threat model, but a
+// other user could modify. In-host threats are outside the privilege threat model, but a
 // group-writable trust file would let any member of the group grant themselves privileges.
 func checkOwner(fi os.FileInfo, euid uint32) error {
 	st, ok := fi.Sys().(*syscall.Stat_t)
@@ -121,11 +121,8 @@ func checkOwner(fi os.FileInfo, euid uint32) error {
 // rawConfig mirrors privileged.toml. Pointers distinguish "not set" from a zero value where
 // the default is part of the semantics.
 type rawConfig struct {
-	NodeID  string   `toml:"node_id"`
-	Aliases []string `toml:"aliases"`
-	// Groups is not a setting any more. It stays declared so a config written for the old
-	// version fails with the migration hint below instead of a generic "unknown key".
-	Groups          *[]string  `toml:"groups"`
+	NodeID          string     `toml:"node_id"`
+	Aliases         []string   `toml:"aliases"`
 	UnprivilegedUID *uint64    `toml:"unprivileged_uid"`
 	ClockSkew       string     `toml:"clock_skew"`
 	Socket          string     `toml:"socket"`
@@ -198,9 +195,6 @@ func build(raw *rawConfig) (*Config, error) {
 	}
 	if !protocol.IsUUID(c.NodeID) {
 		return nil, fmt.Errorf("node_id: %q is not a canonical lowercase UUID", c.NodeID)
-	}
-	if raw.Groups != nil {
-		return nil, errors.New(`groups is no longer supported; use aliases = ["<node group uuid>", ...] (the WebUI shows node group UUIDs)`)
 	}
 	aliases, err := buildAliases(raw.Aliases)
 	if err != nil {
