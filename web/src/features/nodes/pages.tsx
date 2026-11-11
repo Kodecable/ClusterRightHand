@@ -24,6 +24,7 @@ import { ClockWarning, clockWarningText } from "./clock-warning";
 import { osName } from "./commands";
 import { CrhsKeyPanel } from "./crhs-key-panel";
 import { DeleteNodeDialog } from "./delete-node-dialog";
+import { EditSshRouteDialog } from "./edit-ssh-route-dialog";
 import { canRunOn } from "./node-access";
 import { NodeGroupsDialog } from "./node-groups-dialog";
 import { NodeLastSeen } from "./node-last-seen";
@@ -219,6 +220,7 @@ export function NodeDetailPage() {
 	const trustSources = useTrustSources();
 	const admin = useAuth().user?.kind === "admin";
 	const [editingGroups, setEditingGroups] = useState(false);
+	const [editingRoute, setEditingRoute] = useState(false);
 	const [reenrolling, setReenrolling] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 	const details = node.data?.node;
@@ -273,6 +275,17 @@ export function NodeDetailPage() {
 								<Trans>Edit node groups</Trans>
 							</Button>
 							<RenameNodeButton node={details} />
+							{details.transport === "ssh" && (
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => setEditingRoute(true)}
+									data-testid="edit-ssh-route"
+								>
+									<Trans>Edit route</Trans>
+								</Button>
+							)}
 							{details.transport === "client" && (
 								<Button
 									type="button"
@@ -337,9 +350,12 @@ export function NodeDetailPage() {
 			)}
 
 			{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
+			{editingRoute && node.data?.ssh && (
+				<EditSshRouteDialog node={details} details={node.data.ssh} onClose={() => setEditingRoute(false)} />
+			)}
 			{reenrolling && <ReenrollNodeDialog node={details} onClose={() => setReenrolling(false)} />}
 			{deleting && <DeleteNodeDialog node={details} onClose={() => setDeleting(false)} />}
-			{/* The SSH route and its credential are administrator data; the server omits `ssh` otherwise. */}
+			{/* The SSH route and its per-hop credentials are administrator data; the server omits `ssh` otherwise. */}
 			{details.transport === "ssh" && node.data?.ssh && (
 				<SshNodeSection node={details} details={node.data.ssh} canRun={canRun} />
 			)}

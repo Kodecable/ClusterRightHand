@@ -76,6 +76,22 @@ export function closeSsh(core: ClusterCore): void {
 			.catch((err: unknown) => console.error("ssh session close failed:", err));
 }
 
+/**
+ * Closes one node's pooled session, e.g. after its route changed: the next task dials the new route.
+ * Running tasks fail through the session's close and become `unknown(connection_lost)`.
+ */
+export function closeSshNode(core: ClusterCore, nodeId: string): void {
+	const session = core.sshSessions.get(nodeId);
+	if (!session) return;
+	core.sshSessions.delete(nodeId);
+	void session
+		.then(
+			(x) => x.session.close(),
+			() => {},
+		)
+		.catch((err: unknown) => console.error("ssh session close failed:", err));
+}
+
 export async function runSsh(
 	core: ClusterCore,
 	id: string,

@@ -145,10 +145,11 @@ export interface NodesTable {
 	ssh_host: string | null;
 	ssh_port: number | null;
 	ssh_user: string | null;
-	/** Pinned host key fingerprint, "SHA256:…". */
-	ssh_host_key: string | null;
+	/** Pinned host fingerprint, "SHA256:…". */
+	ssh_host_fingerprint: string | null;
+	/** The target hop's credential. */
 	ssh_credential_id: string | null;
-	/** JSON [{ host, port, user, hostKey }], the jump hosts in order. */
+	/** JSON [{ host, port, user, hostFingerprint, credentialId }], the jump hosts in order. */
 	ssh_jumps: string | null;
 	/** JSON TrustReport of the last trust.summary event; null before the first one. */
 	trust_report: ColumnType<string | null, string | null | undefined, string | null>;

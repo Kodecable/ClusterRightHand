@@ -239,7 +239,7 @@ msgstr "获得访问权限的用户或用户组可以查看此节点组中的节
 msgid "A granted user or user group can see this node and run tasks on it."
 msgstr "获得访问权限的用户或用户组可以查看此节点并在其上执行任务。"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "A host is required."
 msgstr "必须填写主机。"
 
@@ -328,7 +328,7 @@ msgstr "用户组会为当前每个成员授予访问权限。"
 msgid "A user group is used for session shares and node access grants."
 msgstr "用户组用于会话分享和节点访问授权。"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "A user is required."
 msgstr "必须填写用户。"
 
@@ -424,9 +424,9 @@ msgstr "添加字段"
 msgid "Add header"
 msgstr "添加请求头"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Add jump host"
-msgstr "添加跳板机"
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Add hop"
+msgstr "添加一跳"
 
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
@@ -517,10 +517,6 @@ msgstr "全部审批"
 msgid "all built-in models"
 msgstr "全部内置模型"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "All host keys are confirmed."
-msgstr "所有主机密钥都已确认。"
-
 #: src/features/node-groups/pages.tsx
 msgid "All node groups"
 msgstr "全部节点组"
@@ -594,6 +590,10 @@ msgstr "节点组由管理员创建。"
 msgid "An administrator grants access to nodes."
 msgstr "节点访问权限由管理员授予。"
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "An SSH credential is required."
+msgstr "需要选择 SSH 凭据。"
+
 #: src/features/auth/api.ts
 msgid "Another sign-in from this address is already in progress. Try again."
 msgstr "该地址已有登录请求正在进行，请稍后再试。"
@@ -638,7 +638,6 @@ msgstr "API 令牌"
 msgid "API tokens"
 msgstr "API 令牌"
 
-#: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
 msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
 msgstr "继续之前，请把该密钥追加到每一跳（每个跳板机和目标）上目标用户的 <0>~/.ssh/authorized_keys</0>。"
@@ -848,6 +847,7 @@ msgstr "操作者"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
@@ -930,14 +930,6 @@ msgstr "Chat Completions"
 msgid "Check the highlighted fields."
 msgstr "请检查标出的字段。"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Check the next host key"
-msgstr "检查下一个主机密钥"
-
-#: src/features/nodes/add-ssh-node-dialog.tsx
-msgid "Choose a credential, describe the route (jump hosts, then the target), pin every host key, then create the node."
-msgstr "选择凭据，描述路由（先是跳板机，最后是目标），固定每个主机密钥，然后创建节点。"
-
 #: src/components/model-select.tsx
 msgid "Choose a model"
 msgstr "选择模型"
@@ -974,6 +966,10 @@ msgstr "选择一个用户组"
 msgid "Choose a user or user group"
 msgstr "选择一个用户或用户组"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose an SSH credential"
+msgstr "选择 SSH 凭据"
+
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Choose at least one target."
 msgstr "请至少选择一个目标。"
@@ -990,9 +986,9 @@ msgstr "选择节点"
 msgid "Choose nodes or node groups"
 msgstr "选择节点或节点组"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Choose or create a credential."
-msgstr "请选择或创建凭据。"
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose SSH credentials"
+msgstr "选择 SSH 凭据"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose user groups"
@@ -1075,7 +1071,7 @@ msgstr "压缩失败。"
 msgid "Compaction is not available before the session exists."
 msgstr "会话创建前不能压缩上下文。"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
 msgstr "请与那台主机上 <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> 的输出比对（服务器会选其中一把密钥，通常是 ED25519）。只有匹配时才确认。"
 
@@ -1104,8 +1100,8 @@ msgid "Confirm"
 msgstr "确认"
 
 #: src/features/nodes/ssh-wizard.tsx
-msgid "Confirm every host key first."
-msgstr "请先确认所有主机密钥。"
+msgid "Confirm every host fingerprint first."
+msgstr "请先确认所有主机指纹。"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Connect Claude Code with:"
@@ -1190,7 +1186,6 @@ msgstr "复制节点组 ID"
 msgid "Copy node group id of {0}"
 msgstr "复制节点组 {0} 的 ID"
 
-#: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy public key"
@@ -1243,6 +1238,10 @@ msgstr "创建令牌以连接 MCP 客户端。"
 msgid "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
 msgstr "创建注册令牌，然后在节点上以 crha 运行任务应使用的用户执行打印出的命令。"
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Create one on the SSH credentials page."
+msgstr "在 SSH 凭据页面创建一个。"
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create one to give crhs a key for SSH nodes and jump hosts."
 msgstr "创建一个，为 crhs 提供用于 SSH 节点和跳板机的密钥。"
@@ -1265,14 +1264,10 @@ msgstr "创建令牌"
 msgid "Created"
 msgstr "创建时间"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-node-section.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Credential"
 msgstr "凭据"
-
-#. placeholder {0}: details.credential.name ?? details.credential.id
-#: src/features/nodes/ssh-node-section.tsx
-msgid "Credential: {0}"
-msgstr "凭据：{0}"
 
 #: src/app/shell/nav.ts
 msgid "Credentials"
@@ -1506,6 +1501,10 @@ msgstr "已拒绝"
 msgid "Deny"
 msgstr "拒绝"
 
+#: src/features/nodes/add-ssh-node-dialog.tsx
+msgid "Describe the route (jump hosts, then the target), pick each hop's credential and pin its host fingerprint, then test the connection and create the node."
+msgstr "描述路由（先是跳板机，最后是目标），为每一跳选择凭据并固定其主机指纹，然后测试连接并创建节点。"
+
 #. placeholder {0}: event.seq
 #: src/features/audit/pages.tsx
 msgid "Detail of event {0}"
@@ -1539,10 +1538,6 @@ msgstr "禁用用户"
 msgid "Disabled"
 msgstr "已禁用"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Discard"
-msgstr "放弃"
-
 #: src/components/status-badge.tsx
 msgid "Dispatched"
 msgstr "已派发"
@@ -1557,10 +1552,6 @@ msgstr "显示名"
 #: src/features/sessions/tool-card.tsx
 msgid "Done"
 msgstr "完成"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Down"
-msgstr "下移"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
@@ -1611,6 +1602,14 @@ msgstr "编辑节点组"
 #: src/features/settings/provider-dialog.tsx
 msgid "Edit provider {0}"
 msgstr "编辑提供方 {0}"
+
+#: src/features/nodes/pages.tsx
+msgid "Edit route"
+msgstr "编辑路由"
+
+#: src/features/nodes/edit-ssh-route-dialog.tsx
+msgid "Edit SSH route"
+msgstr "编辑 SSH 路由"
 
 #: src/components/task-result.tsx
 msgid "Empty file."
@@ -1906,21 +1905,22 @@ msgid "High"
 msgstr "高"
 
 #: src/features/nodes/ssh-node-section.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Hop"
 msgstr "跳"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Host"
 msgstr "主机"
 
-#. placeholder {0}: hopName(i18n, hops, candidate.hop)
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Host key of the {0}:"
-msgstr "{0} 的主机密钥："
+#: src/features/nodes/ssh-node-section.tsx
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Host fingerprint"
+msgstr "主机指纹"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Host keys"
-msgstr "主机密钥"
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Host:"
+msgstr "主机："
 
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
@@ -1983,10 +1983,6 @@ msgstr "已签发"
 msgid "Issuer"
 msgstr "签发者"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "It matches, pin it"
-msgstr "匹配，固定它"
-
 #: src/features/node-groups/pages.tsx
 msgid "It may have been deleted."
 msgstr "它可能已被删除。"
@@ -2007,15 +2003,13 @@ msgstr "成员将失去这个节点组。引用它的规则和任务组会保留
 msgid "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 msgstr "它的模型会从模型列表中消失，保存的密钥也会删除。正在使用这些模型的现有会话会停止工作，直到你更换模型。"
 
-#. placeholder {0}: index + 1
 #. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Jump host {0}"
+msgid "Jump {0}"
 msgstr "跳板机 {0}"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Jump host {index}"
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Jump {index}"
 msgstr "跳板机 {index}"
 
 #: src/features/sessions/transcript.tsx
@@ -2182,6 +2176,10 @@ msgstr "映射"
 msgid "Matched rule"
 msgstr "匹配规则"
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Matches, pin it"
+msgstr "匹配，固定它"
+
 #: src/lib/thinking-level.ts
 msgid "Max"
 msgstr "最高"
@@ -2278,16 +2276,6 @@ msgstr "更多选项"
 msgid "More results — keep typing to narrow down"
 msgstr "更多结果——请继续输入以缩小范围"
 
-#. placeholder {0}: index + 1
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Move jump host {0} down"
-msgstr "下移跳板机 {0}"
-
-#. placeholder {0}: index + 1
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Move jump host {0} up"
-msgstr "上移跳板机 {0}"
-
 #: src/components/task-result.tsx
 #: src/features/credentials/pages.tsx
 #: src/features/node-groups/pages.tsx
@@ -2321,14 +2309,6 @@ msgstr "永不过期"
 #: src/components/status-badge.tsx
 msgid "Never run"
 msgstr "从未运行"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "New credential"
-msgstr "新建凭据"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "New credential name"
-msgstr "新凭据名称"
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -2567,6 +2547,10 @@ msgstr "还没有会话"
 msgid "No SSH credentials yet"
 msgstr "还没有 SSH 凭据"
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "No SSH credentials yet."
+msgstr "尚无 SSH 凭据。"
+
 #: src/features/sessions/children-bar.tsx
 msgid "No subagents"
 msgstr "没有子代理"
@@ -2651,6 +2635,7 @@ msgid "Node key fingerprint: <0>{0}</0>"
 msgstr "节点密钥指纹：<0>{0}</0>"
 
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Node name"
 msgstr "节点名称"
@@ -2693,9 +2678,9 @@ msgstr "规则无效：{error}"
 msgid "Not applicable"
 msgstr "不适用"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "not checked"
-msgstr "未检查"
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Not confirmed"
+msgstr "未确认"
 
 #: src/features/nodes/node-trust.tsx
 msgid "not reported"
@@ -2843,7 +2828,7 @@ msgstr "可选，覆盖默认提供方的端点。"
 msgid "Optional; at least 8 characters."
 msgstr "可选；至少 8 个字符。"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Optional; defaults to the target's host."
 msgstr "可选；默认使用目标主机。"
 
@@ -2993,11 +2978,12 @@ msgstr "Pi 内置"
 msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
 msgstr "Pi 内置提供方和自定义端点；密钥不会回显。"
 
-#: src/features/nodes/ssh-node-section.tsx
-msgid "Pinned host key"
-msgstr "已固定的主机密钥"
+#. placeholder {0}: hopName(i18n, hops, candidate.hop)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Pin the host fingerprint of the {0}?"
+msgstr "固定{0}的主机指纹？"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Port"
 msgstr "端口"
 
@@ -3036,6 +3022,10 @@ msgstr "privileged.toml"
 msgid "Privileges"
 msgstr "特权"
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Probe"
+msgstr "探测"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Prompt"
 msgstr "提示词"
@@ -3056,7 +3046,6 @@ msgstr "提供方 ID"
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/crhs-key-panel.tsx
 #: src/features/nodes/node-trust.tsx
-#: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Public key"
@@ -3089,6 +3078,10 @@ msgstr "重新注册节点"
 #: src/features/nodes/reenroll-node-dialog.tsx
 msgid "Re-enrollment command"
 msgstr "重新注册命令"
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Re-probe"
+msgstr "重新探测"
 
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Real client IP header"
@@ -3150,14 +3143,15 @@ msgid "Remaining budget tokens (empty = unlimited)"
 msgstr "剩余预算 token（留空 = 不限）"
 
 #: src/components/row-remove-button.tsx
-#: src/features/nodes/ssh-wizard.tsx
 #: src/features/users/pages.tsx
 #: src/features/users/user-group-page.tsx
 msgid "Remove"
 msgstr "移除"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
 #. placeholder {0}: option.primary
 #: src/components/entity-picker/entity-picker.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Remove {0}"
 msgstr "移除 {0}"
 
@@ -3200,11 +3194,6 @@ msgstr "从 {0} 移除"
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove header {0}"
 msgstr "删除请求头 {0}"
-
-#. placeholder {0}: index + 1
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Remove jump host {0}"
-msgstr "移除跳板机 {0}"
 
 #. placeholder {0}: row.original.index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -3361,6 +3350,7 @@ msgstr "已吊销"
 msgid "Role"
 msgstr "角色"
 
+#: src/features/nodes/ssh-route-editor.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Route"
 msgstr "路由"
@@ -3471,6 +3461,7 @@ msgid "Runtime settings for this crhs. A save applies without a restart and is r
 msgstr "此 crhs 的运行时设置。保存后无需重启即可生效，并会记入审计日志。"
 
 #: src/components/dialogs.tsx
+#: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/rename-node-button.tsx
 #: src/features/sessions/budget-dialog.tsx
 #: src/features/settings/model-presets.tsx
@@ -3509,6 +3500,10 @@ msgstr "保存规则"
 #: src/features/schedules/pages.tsx
 msgid "Save schedule"
 msgstr "保存计划任务"
+
+#: src/features/nodes/edit-ssh-route-dialog.tsx
+msgid "Saving closes the connection; tasks running on this node become unknown."
+msgstr "保存会关闭连接；在此节点上运行的任务将变为未知状态。"
 
 #: src/components/decision/evaluation.tsx
 #: src/features/tasks/pages.tsx
@@ -3567,6 +3562,10 @@ msgid "Search sessions…"
 msgstr "搜索会话…"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Search SSH credentials…"
+msgstr "搜索 SSH 凭据…"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Search user groups…"
 msgstr "搜索用户组…"
 
@@ -3585,10 +3584,6 @@ msgstr "正在搜索"
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
 msgstr "安全验证失败，请重试。"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Select…"
-msgstr "请选择…"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
@@ -3772,10 +3767,6 @@ msgstr "出错了"
 msgid "SSH"
 msgstr "SSH"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "SSH credential"
-msgstr "SSH 凭据"
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "SSH credential created"
 msgstr "SSH 凭据已创建"
@@ -3790,6 +3781,7 @@ msgid "SSH key"
 msgstr "SSH 密钥"
 
 #: src/features/nodes/ssh-node-section.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "SSH route"
 msgstr "SSH 路由"
 
@@ -3920,7 +3912,7 @@ msgstr "从该头的第一个值获取客户端地址。留空则使用连接的
 #: src/features/audit/pages.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-node-section.tsx
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Target"
 msgstr "目标"
 
@@ -4064,8 +4056,8 @@ msgid "The node has not reported its trust configuration"
 msgstr "节点尚未上报信任配置"
 
 #: src/features/nodes/ssh-wizard.tsx
-msgid "The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test first to check that the key is installed on every hop and the account can run commands."
-msgstr "节点创建后立即生效；每次连接都会强制校验已固定的主机密钥。建议先测试，确认密钥已安装到每一跳，且账号可以执行命令。"
+msgid "The node is active as soon as it is created; every hop is checked against its pinned host fingerprint on each connection. Test first to check that each hop's credential is installed and the account can run commands."
+msgstr "节点创建后即处于活动状态；每次连接都会按固定的主机指纹校验每一跳。请先测试，以确认每一跳的凭据已安装且该账户可以运行命令。"
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
@@ -4095,7 +4087,7 @@ msgstr "节点用新令牌注册后，旧密钥立即失效。如果密钥丢失
 msgid "The page you asked for does not exist."
 msgstr "你访问的页面不存在。"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "The port must be between 1 and 65535."
 msgstr "端口必须在 1 到 65535 之间。"
 
@@ -4399,10 +4391,6 @@ msgstr "非特权身份"
 msgid "Unread"
 msgstr "未读"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Up"
-msgstr "上移"
-
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx
 msgid "Updated"
@@ -4435,7 +4423,7 @@ msgstr "用于 crhs 返回的链接，例如在 MCP 结果中。留空则使用�
 
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 #: src/features/sessions/share-dialog.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/users/user-group-dialogs.tsx

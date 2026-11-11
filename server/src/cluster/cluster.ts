@@ -23,7 +23,7 @@ import type { NodeConnection } from "./connection.ts";
 import { ClusterCore } from "./core.ts";
 import * as links from "./links.ts";
 import type { NodeRow } from "./nodes.ts";
-import { closeSsh } from "./ssh-runner.ts";
+import { closeSsh, closeSshNode } from "./ssh-runner.ts";
 import * as tasks from "./task-state.ts";
 import type {
 	Actor,
@@ -125,6 +125,14 @@ export class Cluster {
 	 */
 	endWaits(): void {
 		this.#core.endWaits();
+	}
+
+	/**
+	 * Closes an SSH node's pooled connection, e.g. after its route changed: the next task dials the new
+	 * route, and tasks running on the old connection end as `unknown` through the session's close.
+	 */
+	closeSshNode(nodeId: string): void {
+		closeSshNode(this.#core, nodeId);
 	}
 
 	/** Called by AgentServer after a successful handshake. */

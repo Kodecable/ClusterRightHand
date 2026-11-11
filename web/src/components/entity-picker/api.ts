@@ -2,25 +2,28 @@ import type {
 	DirectoryResponse,
 	NodeGroupListResponse,
 	NodeListResponse,
+	SshCredential,
 	UserGroupListResponse,
 	UserListResponse,
 } from "@crh/api";
 import { plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react/macro";
+import { sha256 } from "@noble/hashes/sha2.js";
 import { useQuery } from "@tanstack/react-query";
 import { nodeStatusLabel } from "@/components/status-badge";
 import { http, queryString } from "@/lib/api/client";
 
 /**
  * The data half of EntityPicker: one search hook per entity kind (doc/design/webui.md "Entity search").
- * Every request goes through the existing list endpoints' `q` /
- * `limit` / `ids` parameters, so no picker ever downloads the whole directory.
+ * Most requests use the existing list endpoints' `q` / `limit` / `ids` parameters, so no picker ever
+ * downloads the whole directory. SSH credentials are a short, administrator-only list fetched whole and
+ * filtered here.
  */
 
-export type EntityKind = "user" | "userGroup" | "node" | "nodeGroup" | "directory" | "nodeTarget";
+export type EntityKind = "user" | "userGroup" | "node" | "nodeGroup" | "directory" | "nodeTarget" | "sshCredential";
 
 /** The concrete kind of one option; `directory` combines users and user groups. */
-export type EntityOptionKind = "user" | "userGroup" | "node" | "nodeGroup";
+export type EntityOptionKind = "user" | "userGroup" | "node" | "nodeGroup" | "sshCredential";
 
 export interface EntityOption {
 	id: string;
@@ -55,6 +58,8 @@ const ROOTS: Record<EntityKind, readonly string[]> = {
 	directory: ["users", "directory-picker"],
 	// Node and node-group mutations both invalidate `["nodes"]`, so one root refreshes both halves.
 	nodeTarget: ["nodes", "picker", "node-target"],
+	// The credential page invalidates `["ssh-credentials"]` on create and delete.
+	sshCredential: ["ssh-credentials", "picker"],
 };
 
 export const entityPickerKeys = {
@@ -130,6 +135,26 @@ function nodeTargetGroupOption(
 	};
 }
 
+/** The OpenSSH SHA256 fingerprint of an authorized_keys line, as OpenSSH prints it. */
+function publicKeyFingerprint(publicKey: string): string {
+	const encoded = publicKey.trim().split(/\s+/)[1] ?? "";
+	const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+	let binary = "";
+	for (const byte of sha256(bytes)) binary += String.fromCharCode(byte);
+	return `SHA256:${btoa(binary).replace(/=+$/, "")}`;
+}
+
+/** An SSH credential: its name (or fingerprint when unnamed) over the public key's fingerprint. */
+function sshCredentialOption(credential: SshCredential): EntityOption {
+	const fingerprint = publicKeyFingerprint(credential.publicKey);
+	return {
+		id: credential.id,
+		kind: "sshCredential",
+		primary: credential.name.trim() || fingerprint,
+		secondary: fingerprint,
+	};
+}
+
 /** Fetches one search page; the response mapping is shared with the label lookup. */
 async function fetchSearch(
 	kind: EntityKind,
@@ -201,6 +226,22 @@ async function fetchSearch(
 				more: nodes.more === true || groups.more === true,
 			};
 		}
+		case "sshCredential": {
+			// The endpoint returns the whole (administrator-only, short) list; filtering here keeps it tidy.
+			const body = await http.get<{ credentials: SshCredential[] }>("/ssh-credentials", { signal });
+			const needle = q.toLowerCase();
+			return {
+				options: body.credentials
+					.filter((credential) => {
+						const option = sshCredentialOption(credential);
+						return (
+							option.primary.toLowerCase().includes(needle) || (option.secondary ?? "").toLowerCase().includes(needle)
+						);
+					})
+					.map(sshCredentialOption),
+				more: false,
+			};
+		}
 	}
 }
 
@@ -268,6 +309,11 @@ async function fetchLabelsChunk(
 				...nodes.nodes.map((node) => nodeTargetNodeOption(node)),
 				...groups.groups.map((group) => nodeTargetGroupOption(group, i18n)),
 			];
+		}
+		case "sshCredential": {
+			const body = await http.get<{ credentials: SshCredential[] }>("/ssh-credentials", { signal });
+			const wanted = new Set(ids);
+			return body.credentials.filter((credential) => wanted.has(credential.id)).map(sshCredentialOption);
 		}
 	}
 }

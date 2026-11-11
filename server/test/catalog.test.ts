@@ -178,7 +178,7 @@ async function addNode(
 			ssh_host: transport === "ssh" ? "10.0.0.1" : null,
 			ssh_port: transport === "ssh" ? 22 : null,
 			ssh_user: transport === "ssh" ? "root" : null,
-			ssh_host_key: null,
+			ssh_host_fingerprint: null,
 			ssh_credential_id: null,
 			ssh_jumps: null,
 		})

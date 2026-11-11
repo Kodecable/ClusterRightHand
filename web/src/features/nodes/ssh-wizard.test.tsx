@@ -1,4 +1,4 @@
-import type { PublicNode } from "@crh/api";
+import type { PublicNode, SshTargetInput } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -26,9 +26,14 @@ const NODE: PublicNode = {
 	trustWarnings: [],
 };
 
+const CREDENTIAL = {
+	id: "cred-1",
+	name: "laptop",
+	publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+};
+
 function mockFetch(): { calls: { body: unknown; method: string; url: string }[] } {
 	const calls: { body: unknown; method: string; url: string }[] = [];
-	let probes = 0;
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -37,9 +42,12 @@ function mockFetch(): { calls: { body: unknown; method: string; url: string }[] 
 			calls.push({ url, method: init?.method ?? "GET", body });
 			let response: unknown = {};
 			if (url.startsWith("/api/ssh-credentials") && (init?.method ?? "GET") === "GET") {
-				response = { credentials: [{ id: "cred-1", name: "laptop", publicKey: "ssh-ed25519 AAAA" }] };
+				response = { credentials: [CREDENTIAL] };
 			} else if (url.startsWith("/api/ssh-nodes/probe")) {
-				response = { hop: probes, fingerprint: `SHA256:hop-${probes++}` };
+				const target = body as SshTargetInput;
+				const jumps = target.jumps ?? [];
+				const hop = jumps.findIndex((candidate) => !candidate.hostFingerprint);
+				response = { hop: hop >= 0 ? hop : jumps.length, fingerprint: `SHA256:hop-${hop >= 0 ? hop : jumps.length}` };
 			} else if (url.startsWith("/api/ssh-nodes") && (init?.method ?? "GET") === "POST") {
 				response = { node: NODE };
 			}
@@ -64,84 +72,66 @@ function renderWizard() {
 	return { ...result, onCreated, onCancel };
 }
 
+/** Picks the wizard's only credential for the row whose accessible name ends with `hop`. */
+async function pickCredential(user: ReturnType<typeof userEvent.setup>, hop: string): Promise<void> {
+	await user.click(screen.getByRole("combobox", { name: `Credential — ${hop}` }));
+	await user.click(await screen.findByRole("option", { name: /laptop/ }));
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
 describe("SshNodeWizard", () => {
-	test("validates each step before continuing", async () => {
+	test("validates the route, the credential and every fingerprint before continuing", async () => {
 		mockFetch();
 		renderWizard();
 		const user = userEvent.setup();
 
 		await user.click(screen.getByTestId("ssh-next"));
-		await screen.findByText("Choose or create a credential.");
-
-		const credential = await screen.findByLabelText("SSH credential");
-		await user.click(credential);
-		await user.click(await screen.findByRole("option", { name: "laptop" }));
-		await user.click(screen.getByTestId("ssh-next"));
-
-		// The route step starts with only the target and empty fields.
-		await screen.findByTestId("ssh-step-route");
-		await user.click(screen.getByTestId("ssh-next"));
 		await screen.findByText("Target: A host is required.");
 
-		const [host] = screen.getAllByLabelText("Host");
-		if (host === undefined) throw new Error("no host field");
-		await user.type(host, "target.example");
-		const [userField] = screen.getAllByLabelText("User");
-		if (userField === undefined) throw new Error("no user field");
-		await user.type(userField, "deploy");
-		const [port] = screen.getAllByLabelText("Port");
-		if (port === undefined) throw new Error("no port field");
-		await user.clear(port);
-		await user.type(port, "0");
+		await user.type(screen.getByLabelText("Host — Target"), "target.example");
+		await user.type(screen.getByLabelText("User — Target"), "deploy");
 		await user.click(screen.getByTestId("ssh-next"));
-		await screen.findByText("Target: The port must be between 1 and 65535.");
+		await screen.findByText("Target: An SSH credential is required.");
+
+		await pickCredential(user, "Target");
+		await user.click(screen.getByTestId("ssh-next"));
+		await screen.findByText("Confirm every host fingerprint first.");
+
+		await user.click(screen.getByRole("button", { name: "Probe — Target" }));
+		await user.click(await screen.findByRole("button", { name: "Matches, pin it" }));
+		await user.click(screen.getByTestId("ssh-next"));
+		await screen.findByTestId("ssh-step-create");
 	});
 
-	test("walks the steps, pins both host keys and posts the parsed route", async () => {
+	test("adds a hop at the end, pins both fingerprints and posts the parsed route", async () => {
 		const { calls } = mockFetch();
 		const { onCreated } = renderWizard();
 		const user = userEvent.setup();
 
-		const credential = await screen.findByLabelText("SSH credential");
-		await user.click(credential);
-		await user.click(await screen.findByRole("option", { name: "laptop" }));
+		// The first row is the target; fill it as a jump host, then append the real target.
+		await user.type(screen.getByLabelText("Host — Target"), "jump.example");
+		await user.type(screen.getByLabelText("User — Target"), "jump");
+		await pickCredential(user, "Target");
+		await user.click(screen.getByRole("button", { name: "Probe — Target" }));
+		await user.click(await screen.findByRole("button", { name: "Matches, pin it" }));
+		expect(screen.getByText("SHA256:hop-0")).toBeInTheDocument();
+
+		await user.click(screen.getByRole("button", { name: "Add hop" }));
+		expect(screen.getAllByLabelText(/^Host/)).toHaveLength(2);
+		expect(screen.getByText("Jump 1")).toBeInTheDocument();
+		// The previous target keeps its pin and becomes the jump; the new row is the target.
+		expect(screen.getByText("SHA256:hop-0")).toBeInTheDocument();
+		await user.type(screen.getByLabelText("Host — Target"), "target.example");
+		await user.type(screen.getByLabelText("User — Target"), "deploy");
+		await pickCredential(user, "Target");
+		await user.click(screen.getByRole("button", { name: "Probe — Target" }));
+		await user.click(await screen.findByRole("button", { name: "Matches, pin it" }));
+		expect(screen.getByText("SHA256:hop-1")).toBeInTheDocument();
+
 		await user.click(screen.getByTestId("ssh-next"));
-
-		await screen.findByTestId("ssh-step-route");
-		// The target first, then insert a jump host before it.
-		const [targetHost] = screen.getAllByLabelText("Host");
-		if (targetHost === undefined) throw new Error("no host field");
-		await user.type(targetHost, "target.example");
-		const [targetUser] = screen.getAllByLabelText("User");
-		if (targetUser === undefined) throw new Error("no user field");
-		await user.type(targetUser, "deploy");
-		await user.click(screen.getByRole("button", { name: "Add jump host" }));
-
-		const hosts = screen.getAllByLabelText("Host");
-		const jumpHost = hosts[0];
-		const finalHost = hosts[1];
-		if (jumpHost === undefined || finalHost === undefined) throw new Error("missing hop fields");
-		await user.type(jumpHost, "jump.example");
-		const users = screen.getAllByLabelText("User");
-		const jumpUser = users[0];
-		if (jumpUser === undefined) throw new Error("missing jump user");
-		// The new jump host inherits the target's user; replace it.
-		await user.clear(jumpUser);
-		await user.type(jumpUser, "jump");
-		await user.click(screen.getByTestId("ssh-next"));
-
-		await screen.findByTestId("ssh-step-host-keys");
-		await user.click(screen.getByRole("button", { name: "Check the next host key" }));
-		await user.click(await screen.findByRole("button", { name: "It matches, pin it" }));
-		await user.click(screen.getByRole("button", { name: "Check the next host key" }));
-		await user.click(await screen.findByRole("button", { name: "It matches, pin it" }));
-		await screen.findByText("All host keys are confirmed.");
-		await user.click(screen.getByTestId("ssh-next"));
-
 		await screen.findByTestId("ssh-step-create");
 		expect(screen.getByText(/jump@jump\.example:22/)).toBeInTheDocument();
 		expect(screen.getByText(/deploy@target\.example:22/)).toBeInTheDocument();
@@ -153,10 +143,18 @@ describe("SshNodeWizard", () => {
 			host: "target.example",
 			port: 22,
 			user: "deploy",
-			hostKey: "SHA256:hop-1",
-			jumps: [{ host: "jump.example", port: 22, user: "jump", hostKey: "SHA256:hop-0" }],
+			hostFingerprint: "SHA256:hop-1",
 			credentialId: "cred-1",
 			name: "",
+			jumps: [
+				{
+					host: "jump.example",
+					port: 22,
+					user: "jump",
+					hostFingerprint: "SHA256:hop-0",
+					credentialId: "cred-1",
+				},
+			],
 		});
 	});
 });

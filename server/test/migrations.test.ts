@@ -32,6 +32,7 @@ import { down as down0047, up as up0047 } from "../src/storage/migrations/0047_s
 import { down as down0048, up as up0048 } from "../src/storage/migrations/0048_task_rev.ts";
 import { up as up0049 } from "../src/storage/migrations/0049_api_token_rule_preset.ts";
 import { down as down0055, up as up0055 } from "../src/storage/migrations/0055_drop_secret_name.ts";
+import { down as down0056, up as up0056 } from "../src/storage/migrations/0056_ssh_hops.ts";
 import { createUser, defaultOrgId } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
@@ -2340,6 +2341,63 @@ describeBackends("0055 drop secret name", (backend) => {
 			select id, ciphertext from secrets where id = 'secret-1'
 		`.execute(db);
 		expect(rows.rows).toEqual([{ id: "secret-1", ciphertext: "ciphertext" }]);
+	});
+});
+
+describeBackends("0056 ssh hops", (backend) => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend);
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	// The shape stored before this migration: jumps call the pinned fingerprint `hostKey`.
+	const jump = { host: "jump.example", port: 2222, user: "jumper", hostKey: "SHA256:jump" };
+	const storedJumps = async (id = "node-1"): Promise<unknown> => {
+		const result = await sql<{ ssh_jumps: string }>`select ssh_jumps from nodes where id = ${id}`.execute(db);
+		return JSON.parse(result.rows[0]?.ssh_jumps ?? "null");
+	};
+
+	it("gives every stored jump the node's credential and renames the fingerprint field", async () => {
+		// The test database already ran 0056; roll it back to have the pre-migration shape.
+		await applyMigration(backend, db, down0056);
+		const orgId = await defaultOrgId(db);
+		await sql`
+			insert into nodes (id, org_id, name, name_key, transport, status, created_at, ssh_credential_id, ssh_host_key, ssh_jumps)
+			values ('node-1', ${orgId}, 'box', 'box', 'ssh', 'active', '2026-01-01T00:00:00.000Z',
+				'cred-1', 'SHA256:target', ${JSON.stringify([jump])})
+		`.execute(db);
+		// A node without jumps stays as it is.
+		await sql`
+			insert into nodes (id, org_id, name, name_key, transport, status, created_at, ssh_credential_id, ssh_host_key, ssh_jumps)
+			values ('node-2', ${orgId}, 'plain', 'plain', 'ssh', 'active', '2026-01-01T00:00:00.000Z',
+				'cred-2', null, null)
+		`.execute(db);
+
+		await applyMigration(backend, db, up0056);
+		const { hostKey, ...rest } = jump;
+		expect(await storedJumps()).toEqual([{ ...rest, hostFingerprint: hostKey, credentialId: "cred-1" }]);
+		expect(await storedJumps("node-2")).toBeNull();
+		// The column is renamed in place, keeping its value.
+		const columns = await tableColumns(backend, db, "nodes");
+		expect(columns).toContain("ssh_host_fingerprint");
+		expect(columns).not.toContain("ssh_host_key");
+		const fingerprints = await sql<{ ssh_host_fingerprint: string | null }>`
+			select ssh_host_fingerprint from nodes order by id
+		`.execute(db);
+		expect(fingerprints.rows).toEqual([{ ssh_host_fingerprint: "SHA256:target" }, { ssh_host_fingerprint: null }]);
+
+		await applyMigration(backend, db, down0056);
+		expect(await storedJumps()).toEqual([jump]);
+		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_key");
+		const restored = await sql<{ ssh_host_key: string | null }>`
+			select ssh_host_key from nodes order by id
+		`.execute(db);
+		expect(restored.rows).toEqual([{ ssh_host_key: "SHA256:target" }, { ssh_host_key: null }]);
 	});
 });
 

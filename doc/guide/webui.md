@@ -158,14 +158,16 @@ Before choosing **Approve**, compare the key fingerprint shown in the dialog wit
 
 ### Adding an SSH node
 
-**New SSH node** walks through four steps: choose or create an SSH credential and install its public key
-on every hop; enter the target and any jump hosts; check and pin each host key; then test the
+Create each credential on the **SSH credentials** page and install its public key on the hops that use
+it; each hop picks its own credential. **New SSH node** then takes the name and route (jump hosts first,
+the target last), with a credential for every row; pin each hop's host fingerprint, then test the
 connection and create the node. See [Add an SSH node](install.md#add-an-ssh-node).
 
 ### The node page
 
 The node page shows the node's facts, its access grants and its ten most recent tasks. Administrators
-can rename it, change its node groups, re-enroll it (crha nodes), and delete it.
+can rename it, change its node groups, edit an SSH node's route, re-enroll it (crha nodes), and delete
+it.
 
 **Last seen** reads **Now** while a crha node is connected.
 
@@ -318,5 +320,5 @@ for its details. Old events are removed after the retention period ([Retention a
 ## SSH credentials
 
 **SSH credentials** (administrators only) holds the keys crhs uses to reach SSH nodes. The private key
-never leaves crhs. A credential in use cannot be deleted, and a node's credential cannot be changed; to
-switch credentials, delete the node and add it again.
+never leaves crhs. A credential in use on any hop cannot be deleted; to change a hop's credential, use
+**Edit route** on the node page.

@@ -55,6 +55,7 @@ import * as m0052 from "./migrations/0052_secret_name.ts";
 import * as m0053 from "./migrations/0053_settings.ts";
 import * as m0054 from "./migrations/0054_reenrollment_tokens.ts";
 import * as m0055 from "./migrations/0055_drop_secret_name.ts";
+import * as m0056 from "./migrations/0056_ssh_hops.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -113,6 +114,7 @@ const migrations: Record<string, Migration> = {
 	"0053_settings": m0053,
 	"0054_reenrollment_tokens": m0054,
 	"0055_drop_secret_name": m0055,
+	"0056_ssh_hops": m0056,
 };
 
 /** Options shared by the migration entry points. */

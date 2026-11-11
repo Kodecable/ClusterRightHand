@@ -66,6 +66,8 @@ class FakeSession {
 	readonly commands: string[] = [];
 	/** What every task command writes to stdout (nothing by default). */
 	taskOutput: Buffer = OUTPUT;
+	/** Leaves task channels open, so a test can close the session while a task runs. */
+	holdTaskCommands = false;
 	#closed = false;
 	readonly #closeHandlers = new Set<() => void>();
 
@@ -78,7 +80,7 @@ class FakeSession {
 				channel.emit("data", Buffer.from(PROBE));
 				channel.emit("close", 0);
 			});
-		} else {
+		} else if (!this.holdTaskCommands) {
 			setImmediate(() => {
 				if (this.taskOutput.length > 0) channel.emit("data", this.taskOutput);
 				channel.emit("exit", 0);
@@ -121,8 +123,7 @@ describe("SSH tasks", () => {
 		cluster = new Cluster(db, {
 			// The route is never dialled: the module's connect is faked above.
 			sshRoute: async () => ({
-				hops: [{ host: "127.0.0.1", port: 22, user: "root", hostKey: "SHA256:fake" }],
-				privateKey: "fake-key",
+				hops: [{ host: "127.0.0.1", port: 22, user: "root", hostFingerprint: "SHA256:fake", privateKey: "fake-key" }],
 			}),
 		});
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -161,7 +162,7 @@ describe("SSH tasks", () => {
 				ssh_host: "127.0.0.1",
 				ssh_port: 22,
 				ssh_user: "root",
-				ssh_host_key: "SHA256:fake",
+				ssh_host_fingerprint: "SHA256:fake",
 				ssh_credential_id: null,
 				ssh_jumps: null,
 			})
@@ -266,5 +267,48 @@ describe("SSH tasks", () => {
 			return current.state === "exited" ? current : undefined;
 		});
 		expect(done).toMatchObject({ outputLines: 2, outputTail: "a\nb", outputTailLines: 2 });
+	});
+
+	it("closes one node's pooled connection, so the next task dials again", async () => {
+		const node = await addSshNode("ssh-close");
+		const first = new FakeSession();
+		let connects = 0;
+		fake.connect = async () => {
+			connects++;
+			return first;
+		};
+		const task = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("finished", async () => (await view(task.id)).state === "exited");
+		expect(connects).toBe(1);
+		expect(first.closed).toBe(false);
+
+		cluster.closeSshNode(node.id);
+		await waitFor("closed", async () => (first.closed ? true : undefined));
+		expect(first.closed).toBe(true);
+
+		const second = new FakeSession();
+		fake.connect = async () => {
+			connects++;
+			return second;
+		};
+		const next = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("finished", async () => (await view(next.id)).state === "exited");
+		expect(connects).toBe(2);
+	});
+
+	it("makes a task running on the closed connection unknown", async () => {
+		const node = await addSshNode("ssh-close-running");
+		const session = new FakeSession();
+		session.holdTaskCommands = true;
+		fake.connect = async () => session;
+		const task = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("running", async () => (await view(task.id)).state === "running");
+
+		cluster.closeSshNode(node.id);
+		const done = await waitFor("unknown", async () => {
+			const current = await view(task.id);
+			return current.state === "unknown" ? current : undefined;
+		});
+		expect(done.errorCode).toBe("connection_lost");
 	});
 });

@@ -1,15 +1,22 @@
 import { createHash } from "node:crypto";
 import type { Duplex } from "node:stream";
-import type { SshHop } from "@crh/api";
 import { Client, type ClientChannel, type ConnectConfig, type SFTPWrapper } from "ssh2";
 
-/** One SSH hop. The last hop of a route is the node itself. */
-export type { SshHop };
+/** One hop of a route. The last hop is the node itself. */
+export interface SshRouteHop {
+	host: string;
+	port: number;
+	user: string;
+	/** Pinned host fingerprint; "" for the hop a probe is about to confirm. */
+	hostFingerprint: string;
+	/** The credential that authenticates this hop. */
+	credentialId?: string;
+	/** The hop's private key; absent only for a hop that is probed without authenticating. */
+	privateKey?: string;
+}
 
 export interface SshRoute {
-	hops: SshHop[];
-	/** OpenSSH or PEM private key used for every hop. */
-	privateKey: string;
+	hops: SshRouteHop[];
 }
 
 export class SshError extends Error {
@@ -106,18 +113,20 @@ export class SshSession {
 	}
 }
 
-/** Connects hop by hop, each through the previous one, checking every pinned host key. */
+/** Connects hop by hop, each through the previous one, with its own key and pinned host fingerprint. */
 export async function connect(route: SshRoute): Promise<SshSession> {
 	const clients: Client[] = [];
 	try {
 		let sock: Duplex | undefined;
 		for (const [i, hop] of route.hops.entries()) {
-			if (!hop.hostKey) throw new SshError("host_key_mismatch", `hop ${i + 1} (${hop.host}) has no pinned host key`);
-			const client = await connectHop(hop, route.privateKey, sock, (key) => {
-				if (hostKeyFingerprint(key) === hop.hostKey) return true;
+			if (!hop.hostFingerprint)
+				throw new SshError("host_key_mismatch", `hop ${i + 1} (${hop.host}) has no pinned host fingerprint`);
+			if (!hop.privateKey) throw new SshError("connect_failed", `hop ${i + 1} (${hop.host}) has no credential`);
+			const client = await connectHop(hop, sock, (key) => {
+				if (hostKeyFingerprint(key) === hop.hostFingerprint) return true;
 				throw new SshError(
 					"host_key_mismatch",
-					`host key of ${hop.host}:${hop.port} is ${hostKeyFingerprint(key)}, pinned ${hop.hostKey}`,
+					`the host fingerprint of ${hop.host}:${hop.port} changed: ${hostKeyFingerprint(key)}, pinned ${hop.hostFingerprint}`,
 				);
 			});
 			clients.push(client);
@@ -161,20 +170,20 @@ export async function testRoute(route: SshRoute): Promise<void> {
 }
 
 /**
- * Reaches the first hop without a pinned key (all earlier hops must be pinned) and returns its host key
- * fingerprint, without authenticating to it. The user confirms it before the node is saved.
+ * Reaches the first hop without a pinned fingerprint (all earlier hops must be pinned) and returns that
+ * host's fingerprint, without authenticating to it. The user confirms it before the node is saved.
  */
-export async function probeHostKey(route: SshRoute): Promise<{ hop: number; fingerprint: string }> {
-	const index = route.hops.findIndex((h) => !h.hostKey);
+export async function probeHostFingerprint(route: SshRoute): Promise<{ hop: number; fingerprint: string }> {
+	const index = route.hops.findIndex((h) => !h.hostFingerprint);
 	if (index < 0) throw new Error("every hop is already pinned");
 	const pinned = route.hops.slice(0, index);
-	const session = pinned.length > 0 ? await connect({ ...route, hops: pinned }) : undefined;
+	const session = pinned.length > 0 ? await connect({ hops: pinned }) : undefined;
 	try {
-		const hop = route.hops[index] as SshHop;
+		const hop = route.hops[index] as SshRouteHop;
 		const sock = session ? await session.forwardTo(hop.host, hop.port) : undefined;
 		let seen: string | undefined;
 		try {
-			const c = await connectHop(hop, route.privateKey, sock, (key) => {
+			const c = await connectHop(hop, sock, (key) => {
 				seen = hostKeyFingerprint(key);
 				return false; // stop before authenticating
 			});
@@ -182,7 +191,7 @@ export async function probeHostKey(route: SshRoute): Promise<{ hop: number; fing
 		} catch (err) {
 			if (!seen) throw err;
 		}
-		if (!seen) throw new SshError("connect_failed", `no host key from ${hop.host}:${hop.port}`);
+		if (!seen) throw new SshError("connect_failed", `no host fingerprint from ${hop.host}:${hop.port}`);
 		return { hop: index, fingerprint: seen };
 	} finally {
 		session?.close();
@@ -195,12 +204,7 @@ function forward(client: Client, host: string, port: number): Promise<Duplex> {
 	});
 }
 
-function connectHop(
-	hop: SshHop,
-	privateKey: string,
-	sock: Duplex | undefined,
-	verify: (key: Buffer) => boolean,
-): Promise<Client> {
+function connectHop(hop: SshRouteHop, sock: Duplex | undefined, verify: (key: Buffer) => boolean): Promise<Client> {
 	return new Promise((resolve, reject) => {
 		const client = new Client();
 		let verifyError: unknown;
@@ -208,7 +212,7 @@ function connectHop(
 			host: hop.host,
 			port: hop.port,
 			username: hop.user,
-			privateKey,
+			...(hop.privateKey ? { privateKey: hop.privateKey } : {}),
 			readyTimeout: CONNECT_TIMEOUT_MS,
 			keepaliveInterval: KEEPALIVE_MS,
 			keepaliveCountMax: 3,

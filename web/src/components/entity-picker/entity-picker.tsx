@@ -17,6 +17,7 @@ const SEARCH_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Search node groups…`,
 	directory: msg`Search users and groups…`,
 	nodeTarget: msg`Search nodes and node groups…`,
+	sshCredential: msg`Search SSH credentials…`,
 };
 
 /** The default empty trigger text per kind and mode. */
@@ -27,6 +28,7 @@ const SINGLE_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Choose a node group`,
 	directory: msg`Choose a user or user group`,
 	nodeTarget: msg`Choose a node or node group`,
+	sshCredential: msg`Choose an SSH credential`,
 };
 
 const MULTI_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
@@ -36,6 +38,7 @@ const MULTI_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Choose node groups`,
 	directory: msg`Choose users or user groups`,
 	nodeTarget: msg`Choose nodes or node groups`,
+	sshCredential: msg`Choose SSH credentials`,
 };
 
 interface BaseProps {

@@ -54,7 +54,7 @@ describe("task routes: privileged (sqlite)", () => {
 				ssh_host: null,
 				ssh_port: null,
 				ssh_user: null,
-				ssh_host_key: null,
+				ssh_host_fingerprint: null,
 				ssh_credential_id: null,
 				ssh_jumps: null,
 			})

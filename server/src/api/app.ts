@@ -147,7 +147,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 		}),
 	);
 	app.route("/api", authorizationRoutes(db, { cluster, ...(taskGroups ? { taskGroups } : {}) }));
-	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
+	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey, cluster));
 	if (cluster && taskGroups) {
 		app.route("/api", taskRoutes(db, cluster, taskGroups));
 		app.route("/api", apiTokenRoutes(db, cluster, taskGroups, audit));

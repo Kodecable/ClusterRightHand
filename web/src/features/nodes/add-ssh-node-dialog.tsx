@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { SshNodeWizard } from "./ssh-wizard";
 
-/** The dialog around the four-step SSH wizard; a created node is opened at once. */
+/** The dialog around the two-step SSH wizard; a created node is opened at once. */
 export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 	const navigate = useNavigate();
 	return (
@@ -20,15 +20,15 @@ export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent className="sm:max-w-2xl">
+			<DialogContent className="sm:max-w-5xl">
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>New SSH node</Trans>
 					</DialogTitle>
 					<DialogDescription>
 						<Trans>
-							Choose a credential, describe the route (jump hosts, then the target), pin every host key, then create the
-							node.
+							Describe the route (jump hosts, then the target), pick each hop's credential and pin its host fingerprint,
+							then test the connection and create the node.
 						</Trans>
 					</DialogDescription>
 				</DialogHeader>

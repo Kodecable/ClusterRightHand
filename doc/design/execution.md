@@ -253,18 +253,25 @@ root execution.
 ### Jump hosts
 
 An SSH node can be reached through up to five jump hosts, like OpenSSH's `ProxyJump`. Every hop's host
-key is pinned separately; all hops currently use the same credential. A disconnect at any hop ends the
-whole route.
+fingerprint is pinned separately, and each hop authenticates with its own credential. A disconnect at
+any hop ends the whole route.
 
 ### Adding an SSH node
 
-1. crhs generates a key pair and stores the private key encrypted with the master key. The administrator
-   installs the public key on every hop. SSH credentials belong to the organization and only
-   administrators manage them.
-2. crhs probes each hop's host key without authenticating, and the administrator verifies and pins each
-   fingerprint.
-3. The node is created once every hop has a pinned key. A connection test, before or after creation,
-   catches a missing public key or an account that cannot run commands.
+1. An administrator creates SSH credentials on the SSH credentials page and installs each public key on
+   the hops that use it; each hop picks its own credential. crhs stores every private key encrypted with
+   the master key. SSH credentials belong to the organization and only administrators manage them.
+2. crhs probes each hop's host fingerprint without authenticating, and the administrator verifies and
+   pins each fingerprint.
+3. The node is created once every hop has a pinned fingerprint. A connection test, before or after
+   creation, catches a missing credential or an account that cannot run commands.
+
+Editing an SSH node's route uses the same probe and confirm flow. A hop whose host and port are
+unchanged keeps its pinned fingerprint; changed hops, new hops and re-probed hops need an
+administrator's confirmation. Saving replaces the route in place and closes the pooled connection, so
+tasks running on it become `unknown`; the node's id, groups, access grants and task history are kept.
+There is no trust-on-first-use: a changed route never goes live without an administrator confirming
+every fingerprint.
 
 An SSH node has no standing connection, so it is never shown as online or offline. Its last-seen time
 is the last task that reached it.

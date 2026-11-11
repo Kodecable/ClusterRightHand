@@ -157,7 +157,7 @@ export interface SshCredential {
 	name: string;
 	publicKey: string;
 	createdAt: string;
-	/** The nodes this credential authenticates; its key is used on every hop of their route. */
+	/** The nodes that use this credential on any hop of their route. */
 	usedBy: { id: string; name: string }[];
 }
 
@@ -166,28 +166,32 @@ export interface SshHop {
 	host: string;
 	port: number;
 	user: string;
-	/** Pinned host key fingerprint, "SHA256:<base64>" as OpenSSH prints it. Empty only while probing. */
-	hostKey: string;
+	/** Pinned host fingerprint, "SHA256:<base64>" as OpenSSH prints it. Empty only while probing. */
+	hostFingerprint: string;
+	/** The credential that authenticates this hop. */
+	credentialId: string;
+	/** The same credential with its display name, when it still exists. */
+	credential: { id: string; name: string | null };
 }
 
-/** One hop as the wizard submits it; `hostKey` is empty until the probe confirmed it. */
+/** One hop as the route editor submits it; `hostFingerprint` is empty until the probe confirmed it. */
 export interface SshHopInput {
 	host: string;
 	port?: number;
 	user: string;
-	hostKey?: string;
+	hostFingerprint?: string;
+	/** This hop's own credential. */
+	credentialId: string;
 }
 
 /** Body of `POST /api/ssh-nodes`, `/ssh-nodes/probe` and `/ssh-nodes/test`. */
 export interface SshTargetInput extends SshHopInput {
-	credentialId: string;
-	/** Jump hosts in order, then the node itself. */
+	/** Jump hosts in order, then the node itself. The top-level hop is the target. */
 	jumps?: SshHopInput[];
 }
 
 /** How crhs reaches an SSH node (administrators only). */
 export interface SshNodeDetails {
-	/** Jump hosts in order, then the node itself. */
+	/** Jump hosts in order, then the node itself; each carries its own credential. */
 	hops: SshHop[];
-	credential: { id: string; name: string | null };
 }

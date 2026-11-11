@@ -652,7 +652,9 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const ssh =
 				node.transport === "ssh"
 					? {
-							hops: [{ host: node.hostname ?? "target.example", port: 22, user: "deploy", hostKey: "SHA256:probe" }],
+							hops: [
+								{ host: node.hostname ?? "target.example", port: 22, user: "deploy", hostFingerprint: "SHA256:probe" },
+							],
 							credential: { id: "cred-1", name: "laptop" },
 						}
 					: null;
@@ -685,7 +687,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		}
 		if (path === "/api/ssh-nodes/test" && method === "POST") return json({ ok: true });
 		if (path === "/api/ssh-nodes" && method === "POST") {
-			const input = body as { host: string; port: number; user: string; name: string; hostKey: string };
+			const input = body as { host: string; port: number; user: string; name: string; hostFingerprint: string };
 			const node = nodeView({
 				id: `ssh-node-${state.nodes.length + 1}`,
 				name: input.name || input.host,

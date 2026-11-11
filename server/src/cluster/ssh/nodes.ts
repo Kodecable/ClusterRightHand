@@ -1,4 +1,4 @@
-import type { SshCredential, SshNodeDetails, SshTargetInput } from "@crh/api";
+import type { SshCredential, SshHop, SshHopInput, SshNodeDetails, SshTargetInput } from "@crh/api";
 import ssh2 from "ssh2";
 import { secretAad } from "../../keys/export.ts";
 import type { MasterKey } from "../../keys/master-key.ts";
@@ -8,13 +8,19 @@ import { NotFoundError, UserError } from "../../util/errors.ts";
 import { newId } from "../../util/id.ts";
 import { assertNameAvailable, availableGeneratedName, nameKey, validateName } from "../../util/names.ts";
 import type { NodeRow } from "../nodes.ts";
-import type { SshHop, SshRoute } from "./connection.ts";
+import type { SshRoute, SshRouteHop } from "./connection.ts";
 
 const SECRET_KIND = "ssh_private_key";
-const HOST_KEY = /^SHA256:[A-Za-z0-9+/]{43}$/;
+const HOST_FINGERPRINT = /^SHA256:[A-Za-z0-9+/]{43}$/;
 const MAX_JUMPS = 5;
 
 export type { SshCredential, SshNodeDetails, SshTargetInput };
+
+/** A jump as `nodes.ssh_jumps` stores it. */
+interface StoredJump extends SshHopInput {
+	port: number;
+	hostFingerprint: string;
+}
 
 export interface SshCredentialUser {
 	id: string;
@@ -70,18 +76,27 @@ export async function createSshCredential(db: Db, masterKey: MasterKey, name: st
 }
 
 /**
- * The nodes that use each credential, keyed by credential id: a node's `ssh_credential_id` authenticates
- * every hop of its route. One query over nodes, so listing every credential stays at two queries.
+ * The nodes that use each credential, keyed by credential id. A node counts as a user of every credential
+ * on its route: the target's `ssh_credential_id` and every jump's `credentialId`. One query over nodes, so
+ * listing every credential stays at two queries.
  */
 export async function sshCredentialUsage(db: Db, credentialId?: string): Promise<Map<string, SshCredentialUser[]>> {
-	const nodes = await db.selectFrom("nodes").select(["id", "name", "ssh_credential_id"]).orderBy("name").execute();
+	const nodes = await db
+		.selectFrom("nodes")
+		.select(["id", "name", "ssh_credential_id", "ssh_jumps"])
+		.orderBy("name")
+		.execute();
 	const usage = new Map<string, SshCredentialUser[]>();
 	for (const node of nodes) {
-		const id = node.ssh_credential_id;
-		if (!id || (credentialId !== undefined && id !== credentialId)) continue;
-		const users = usage.get(id) ?? [];
-		users.push({ id: node.id, name: node.name });
-		usage.set(id, users);
+		const ids = new Set<string>();
+		if (node.ssh_credential_id) ids.add(node.ssh_credential_id);
+		for (const jump of JSON.parse(node.ssh_jumps ?? "[]") as StoredJump[]) ids.add(jump.credentialId);
+		for (const id of ids) {
+			if (!id || (credentialId !== undefined && id !== credentialId)) continue;
+			const users = usage.get(id) ?? [];
+			users.push({ id: node.id, name: node.name });
+			usage.set(id, users);
+		}
 	}
 	return usage;
 }
@@ -108,39 +123,94 @@ async function credentialKey(db: Db, masterKey: MasterKey, credentialId: string)
 	return masterKey.decrypt(secret.ciphertext, secretAad(secret.id, secret.kind)).toString("utf8");
 }
 
-function hop(h: { host: string; port?: number; user: string; hostKey?: string }, what: string): SshHop {
+function hop(h: SshHopInput, what: string, requireCredential: boolean): SshRouteHop {
 	if (typeof h.host !== "string" || !/^[A-Za-z0-9.:_-]{1,253}$/.test(h.host))
 		throw new UserError(`${what}: invalid host`);
 	if (typeof h.user !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(h.user))
 		throw new UserError(`${what}: invalid user`);
 	const port = h.port ?? 22;
 	if (!Number.isInteger(port) || port < 1 || port > 65535) throw new UserError(`${what}: invalid port`);
-	const hostKey = h.hostKey ?? "";
-	if (hostKey !== "" && !HOST_KEY.test(hostKey))
-		throw new UserError(`${what}: host key must look like SHA256:<base64>`);
-	return { host: h.host, port, user: h.user, hostKey };
+	const hostFingerprint = h.hostFingerprint ?? "";
+	if (hostFingerprint !== "" && !HOST_FINGERPRINT.test(hostFingerprint))
+		throw new UserError(`${what}: host fingerprint must look like SHA256:<base64>`);
+	const credentialId = typeof h.credentialId === "string" && h.credentialId !== "" ? h.credentialId : undefined;
+	if (requireCredential && credentialId === undefined) throw new UserError(`${what}: a credential is required`);
+	return { host: h.host, port, user: h.user, hostFingerprint, ...(credentialId ? { credentialId } : {}) };
 }
 
-/** Validates user input into a route (unpinned hops allowed, for probing). */
+/** Validates a route's hops and loads each hop's own private key. */
 export async function routeFromInput(db: Db, masterKey: MasterKey, input: SshTargetInput): Promise<SshRoute> {
 	const jumps = input.jumps ?? [];
 	if (!Array.isArray(jumps) || jumps.length > MAX_JUMPS) throw new UserError(`at most ${MAX_JUMPS} jump hosts`);
+	return withKeys(db, masterKey, [...jumps.map((j, i) => hop(j, `jump ${i + 1}`, true)), hop(input, "target", true)]);
+}
+
+/**
+ * Validates a route for probing: the probed hop does not authenticate, so it needs no credential; the
+ * pinned hops before it do, because the probe connects through them.
+ */
+export async function probeRouteFromInput(db: Db, masterKey: MasterKey, input: SshTargetInput): Promise<SshRoute> {
+	const jumps = input.jumps ?? [];
+	if (!Array.isArray(jumps) || jumps.length > MAX_JUMPS) throw new UserError(`at most ${MAX_JUMPS} jump hosts`);
+	const values = [...jumps, input];
+	const probed = values.findIndex((value) => !value.hostFingerprint);
+	return withKeys(
+		db,
+		masterKey,
+		values.map((value, index) =>
+			hop(value, index === values.length - 1 ? "target" : `jump ${index + 1}`, probed < 0 || index < probed),
+		),
+	);
+}
+
+/** Attaches each hop's private key, loading a shared credential once. */
+async function withKeys(db: Db, masterKey: MasterKey, hops: SshRouteHop[]): Promise<SshRoute> {
+	const keys = new Map<string, string>();
+	for (const h of hops) {
+		if (!h.credentialId) continue;
+		let key = keys.get(h.credentialId);
+		if (key === undefined) {
+			key = await credentialKey(db, masterKey, h.credentialId);
+			keys.set(h.credentialId, key);
+		}
+		h.privateKey = key;
+	}
+	return { hops };
+}
+
+/** Validates a route input and requires every hop's host fingerprint to be pinned (confirmed after probing). */
+async function confirmedRoute(db: Db, masterKey: MasterKey, input: SshTargetInput): Promise<SshRoute> {
+	const route = await routeFromInput(db, masterKey, input);
+	if (route.hops.some((h) => !h.hostFingerprint)) throw new UserError("every hop needs a confirmed host fingerprint");
+	return route;
+}
+
+/** The credential of a hop of a confirmed route; `confirmedRoute` has required one on every hop. */
+function requiredCredential(h: SshRouteHop): string {
+	if (!h.credentialId) throw new UserError("every hop needs a credential");
+	return h.credentialId;
+}
+
+/** What `nodes.ssh_jumps` stores for one jump: the route fields and its own credential, never its private key. */
+function storedJump(h: SshRouteHop): StoredJump {
 	return {
-		hops: [...jumps.map((j, i) => hop(j, `jump ${i + 1}`)), hop(input, "target")],
-		privateKey: await credentialKey(db, masterKey, input.credentialId),
+		host: h.host,
+		port: h.port,
+		user: h.user,
+		hostFingerprint: h.hostFingerprint,
+		credentialId: requiredCredential(h),
 	};
 }
 
-/** Adds an SSH node; every hop's host key must be pinned (confirmed by the user after probing). */
+/** Adds an SSH node; every hop's credential is required and every host fingerprint pinned. */
 export async function createSshNode(
 	db: Db,
 	masterKey: MasterKey,
 	input: SshTargetInput & { name?: string },
 	approvedByUserId: string | null = null,
 ): Promise<NodeRow> {
-	const route = await routeFromInput(db, masterKey, input);
-	if (route.hops.some((h) => !h.hostKey)) throw new UserError("every hop needs a confirmed host key");
-	const target = route.hops[route.hops.length - 1] as SshHop;
+	const route = await confirmedRoute(db, masterKey, input);
+	const target = route.hops[route.hops.length - 1] as SshRouteHop;
 	const orgId = await defaultOrgId(db);
 	const now = new Date().toISOString();
 	if (input.name !== undefined && typeof input.name !== "string") throw new UserError("name must be a string");
@@ -168,9 +238,9 @@ export async function createSshNode(
 			ssh_host: target.host,
 			ssh_port: target.port,
 			ssh_user: target.user,
-			ssh_host_key: target.hostKey,
-			ssh_credential_id: input.credentialId,
-			ssh_jumps: JSON.stringify(route.hops.slice(0, -1)),
+			ssh_host_fingerprint: target.hostFingerprint,
+			ssh_credential_id: requiredCredential(target),
+			ssh_jumps: JSON.stringify(route.hops.slice(0, -1).map(storedJump)),
 			trust_report: null,
 			trust_digest: null,
 			trust_updated_at: null,
@@ -178,6 +248,27 @@ export async function createSshNode(
 		await trx.insertInto("nodes").values(node).execute();
 		return node;
 	});
+}
+
+/** Replaces an SSH node's route in place; id, name, node groups, grants and task history are untouched. */
+export async function updateSshNodeRoute(
+	db: Db,
+	masterKey: MasterKey,
+	node: NodeRow,
+	input: SshTargetInput,
+): Promise<NodeRow> {
+	const route = await confirmedRoute(db, masterKey, input);
+	const target = route.hops[route.hops.length - 1] as SshRouteHop;
+	const fields = {
+		ssh_host: target.host,
+		ssh_port: target.port,
+		ssh_user: target.user,
+		ssh_host_fingerprint: target.hostFingerprint,
+		ssh_credential_id: requiredCredential(target),
+		ssh_jumps: JSON.stringify(route.hops.slice(0, -1).map(storedJump)),
+	};
+	await db.updateTable("nodes").set(fields).where("id", "=", node.id).execute();
+	return { ...node, ...fields };
 }
 
 /** Deletes an unused credential and its private key; an in-use credential is refused by the route. */
@@ -194,41 +285,75 @@ export async function deleteSshCredential(db: Db, credentialId: string): Promise
 	});
 }
 
-/** How crhs reaches an SSH node, for administrators. */
+/** How crhs reaches an SSH node, for administrators; every hop names its own credential. */
 export async function sshNodeDetails(db: Db, node: NodeRow): Promise<SshNodeDetails | undefined> {
 	if (node.transport !== "ssh" || !node.ssh_host || !node.ssh_user || !node.ssh_credential_id) return undefined;
-	const cred = await db
-		.selectFrom("ssh_credentials")
-		.select("name")
-		.where("id", "=", node.ssh_credential_id)
-		.executeTakeFirst();
 	// Only the route fields are part of the response, whatever else a stored jump may carry.
-	const jumps = (JSON.parse(node.ssh_jumps ?? "[]") as SshHop[]).map(({ host, port, user, hostKey }) => ({
-		host,
-		port,
-		user,
-		hostKey,
-	}));
+	const jumps = (JSON.parse(node.ssh_jumps ?? "[]") as StoredJump[]).map(
+		({ host, port, user, hostFingerprint, credentialId }) => ({
+			host,
+			port,
+			user,
+			hostFingerprint,
+			credentialId,
+		}),
+	);
+	const credentialIds = [...new Set([...jumps.map((jump) => jump.credentialId), node.ssh_credential_id])];
+	const names = await db
+		.selectFrom("ssh_credentials")
+		.select(["id", "name"])
+		.where("id", "in", credentialIds)
+		.execute();
+	const nameById = new Map(names.map((credential) => [credential.id, credential.name]));
+	const credential = (id: string): SshHop["credential"] => ({ id, name: nameById.get(id) ?? null });
 	return {
 		hops: [
-			...jumps,
-			{ host: node.ssh_host, port: node.ssh_port ?? 22, user: node.ssh_user, hostKey: node.ssh_host_key ?? "" },
+			...jumps.map((jump) => ({
+				host: jump.host,
+				port: jump.port,
+				user: jump.user,
+				hostFingerprint: jump.hostFingerprint,
+				credentialId: jump.credentialId,
+				credential: credential(jump.credentialId),
+			})),
+			{
+				host: node.ssh_host,
+				port: node.ssh_port ?? 22,
+				user: node.ssh_user,
+				hostFingerprint: node.ssh_host_fingerprint ?? "",
+				credentialId: node.ssh_credential_id,
+				credential: credential(node.ssh_credential_id),
+			},
 		],
-		credential: { id: node.ssh_credential_id, name: cred?.name ?? null },
 	};
 }
 
-/** The connection route of an SSH node, for the transport. */
+/** The connection route of an SSH node, for the transport; each hop uses its own credential's key. */
 export async function nodeRoute(db: Db, masterKey: MasterKey, node: NodeRow): Promise<SshRoute> {
-	if (node.transport !== "ssh" || !node.ssh_host || !node.ssh_user || !node.ssh_credential_id || !node.ssh_host_key) {
+	if (
+		node.transport !== "ssh" ||
+		!node.ssh_host ||
+		!node.ssh_user ||
+		!node.ssh_credential_id ||
+		!node.ssh_host_fingerprint
+	) {
 		throw new Error(`node ${node.id} is not a complete SSH node`);
 	}
-	const jumps = JSON.parse(node.ssh_jumps ?? "[]") as SshHop[];
-	return {
-		hops: [
-			...jumps,
-			{ host: node.ssh_host, port: node.ssh_port ?? 22, user: node.ssh_user, hostKey: node.ssh_host_key },
-		],
-		privateKey: await credentialKey(db, masterKey, node.ssh_credential_id),
-	};
+	const jumps = JSON.parse(node.ssh_jumps ?? "[]") as StoredJump[];
+	return withKeys(db, masterKey, [
+		...jumps.map((jump) => ({
+			host: jump.host,
+			port: jump.port,
+			user: jump.user,
+			hostFingerprint: jump.hostFingerprint,
+			credentialId: jump.credentialId,
+		})),
+		{
+			host: node.ssh_host,
+			port: node.ssh_port ?? 22,
+			user: node.ssh_user,
+			hostFingerprint: node.ssh_host_fingerprint,
+			credentialId: node.ssh_credential_id,
+		},
+	]);
 }

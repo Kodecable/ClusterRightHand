@@ -146,6 +146,21 @@ export function useCreateSshNode() {
 	});
 }
 
+/**
+ * Replaces an existing SSH node's route. The server closes the node's pooled connection (tasks running on
+ * it become unknown), so the detail and list queries are invalidated.
+ */
+export function useUpdateSshNodeRoute() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, body }: { id: string; body: SshTargetInput }) =>
+			http.patch<{ node: PublicNode }>(`/nodes/${enc(id)}/ssh-route`, body).then((r) => r.node),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.all }),
+		// The dialog shows the server's refusal inline.
+		meta: { toast: false },
+	});
+}
+
 /** Tries the whole route before the node is created (the wizard's last step). */
 export function useTestSshRoute() {
 	// The TestConnection button reports success and failure inline.

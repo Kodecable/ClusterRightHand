@@ -94,8 +94,9 @@ on each write, so changes apply without a restart.
 ## Nodes
 
 A node row holds the node's registration state (pending or active), its Noise public key for crha nodes,
-its last reported facts and privilege mode, its cached trust report, and for SSH nodes the route and
-pinned host keys. Whether a node is online is never stored; it comes from the live connection.
+its last reported facts and privilege mode, its cached trust report, and for SSH nodes the route with
+each hop's credential and pinned host fingerprint. Whether a node is online is never stored; it comes
+from the live connection.
 
 - The cached trust report and its digest bind an authorization plan to the trust state it was made
   against ([Trust cache](privilege.md#trust-cache)).

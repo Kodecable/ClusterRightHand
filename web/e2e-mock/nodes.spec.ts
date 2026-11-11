@@ -43,7 +43,7 @@ test("add an SSH node through the wizard", async ({ page }) => {
 		host: "target.example",
 		port: 22,
 		user: "deploy",
-		hostKey: "SHA256:probe",
+		hostFingerprint: "SHA256:probe",
 		credentialId: "cred-1",
 		name: "edge",
 	});

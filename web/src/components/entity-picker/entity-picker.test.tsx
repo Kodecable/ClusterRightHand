@@ -1,10 +1,33 @@
-import type { User } from "@crh/api";
+import { createHash } from "node:crypto";
+import type { SshCredential, User } from "@crh/api";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithI18n } from "@/test/render";
 import { EntityPicker } from "./entity-picker";
+
+const CREDENTIAL_KEY = "AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
+
+/** The fingerprint OpenSSH prints for an authorized_keys line. */
+function fingerprint(publicKey: string): string {
+	const encoded = publicKey.trim().split(/\s+/)[1] ?? "";
+	return `SHA256:${createHash("sha256").update(Buffer.from(encoded, "base64")).digest("base64").replace(/=+$/, "")}`;
+}
+
+const CREDENTIAL: SshCredential = {
+	id: "cred-1",
+	name: "laptop",
+	publicKey: `ssh-ed25519 ${CREDENTIAL_KEY} crh:laptop`,
+	createdAt: "2026-01-01T00:00:00.000Z",
+	usedBy: [],
+};
+
+const UNNAMED_CREDENTIAL: SshCredential = {
+	...CREDENTIAL,
+	id: "cred-2",
+	name: "",
+};
 
 const ALICE: User = {
 	id: "u1",
@@ -93,6 +116,10 @@ function mockFetch(): { calls: Call[] } {
 					return json({ groups: wanted.has(NODE_GROUP.id) ? [NODE_GROUP] : [] });
 				}
 				return json({ groups: q === "zzz" ? [] : [NODE_GROUP] });
+			}
+			if (url.pathname === "/api/ssh-credentials") {
+				// The endpoint returns the whole list; the picker filters by name or fingerprint.
+				return json({ credentials: [CREDENTIAL, UNNAMED_CREDENTIAL] });
 			}
 			if (url.pathname !== "/api/users") return json({});
 			if (ids !== null) {
@@ -190,6 +217,21 @@ function NodeTargetHarness({
 			onChange={(id, option) => {
 				setValue(id);
 				onPick?.(id, option?.kind);
+			}}
+		/>
+	);
+}
+
+function SshCredentialHarness({ onPick }: { onPick?: (id: string | null) => void }) {
+	const [value, setValue] = useState<string | null>(null);
+	return (
+		<EntityPicker
+			kind="sshCredential"
+			label="Credential"
+			value={value}
+			onChange={(id) => {
+				setValue(id);
+				onPick?.(id);
 			}}
 		/>
 	);
@@ -337,6 +379,28 @@ describe("EntityPicker", () => {
 		await waitFor(() => expect(screen.getByRole("combobox", { name: "Target" })).toHaveTextContent("worker-02"));
 		expect(calls.some((call) => call.path === "/api/nodes" && call.ids === "n2")).toBe(true);
 		expect(calls.some((call) => call.path === "/api/node-groups" && call.ids === "n2")).toBe(true);
+	});
+
+	test("sshCredential lists names over key fingerprints and picks one", async () => {
+		const { calls } = mockFetch();
+		const onPick = vi.fn();
+		renderWithI18n(<SshCredentialHarness onPick={onPick} />);
+		const user = userEvent.setup();
+		await user.click(screen.getByRole("combobox", { name: "Credential" }));
+		expect(await screen.findByPlaceholderText("Search SSH credentials…")).toBeInTheDocument();
+		expect(calls.some((call) => call.path === "/api/ssh-credentials")).toBe(true);
+
+		const expected = fingerprint(CREDENTIAL.publicKey);
+		const laptop = await screen.findByRole("option", { name: /laptop/ });
+		expect(within(laptop).getByText(expected)).toBeInTheDocument();
+		// An unnamed credential is shown by its fingerprint.
+		const options = await screen.findAllByRole("option");
+		const unnamed = options.find((option) => option.textContent?.startsWith(expected));
+		expect(unnamed).toBeInTheDocument();
+
+		await user.click(laptop);
+		await waitFor(() => expect(onPick).toHaveBeenCalledWith("cred-1"));
+		expect(screen.getByRole("combobox", { name: "Credential" })).toHaveTextContent("laptop");
 	});
 
 	test("shows the more-results hint and the empty state", async () => {

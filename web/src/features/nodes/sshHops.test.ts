@@ -1,47 +1,59 @@
 import { expect, test } from "vitest";
 import {
-	addJump,
-	clearPinsFrom,
+	addHop,
 	editHop,
+	emptyHop,
 	firstUnpinned,
 	type Hop,
 	hopBodies,
-	moveJump,
 	pinHop,
-	removeJump,
+	removeHop,
 	validateHops,
 } from "./sshHops";
 
-const h = (host: string, hostKey = ""): Hop => ({ host, port: "22", user: "u", hostKey });
-const keys = (hops: Hop[]) => hops.map((x) => x.hostKey);
-
-test("clearPinsFrom clears the hop and later ones", () => {
-	expect(keys(clearPinsFrom([h("a", "A"), h("b", "B"), h("c", "C")], 1))).toEqual(["A", "", ""]);
+const h = (host: string, hostFingerprint = "", credentialId = "cred"): Hop => ({
+	host,
+	port: "22",
+	user: "u",
+	hostFingerprint,
+	credentialId,
 });
+const keys = (hops: Hop[]) => hops.map((x) => x.hostFingerprint);
 
-test("editHop clears pins only on a real change", () => {
+test("editHop clears only that hop's pin on a host or port change", () => {
 	const hops = [h("a", "A"), h("b", "B"), h("c", "C")];
 	expect(keys(editHop(hops, 1, { host: "b" }))).toEqual(["A", "B", "C"]);
 	const edited = editHop(hops, 1, { host: "x" });
 	expect(edited[1]?.host).toBe("x");
-	expect(keys(edited)).toEqual(["A", "", ""]);
-	expect(keys(editHop(hops, 0, { port: "2222" }))).toEqual(["", "", ""]);
+	// The pins of the other rows belong to their own addresses and stay.
+	expect(keys(edited)).toEqual(["A", "", "C"]);
+	expect(keys(editHop(hops, 0, { port: "2222" }))).toEqual(["", "B", "C"]);
 });
 
-test("add, remove and move jumps keep the target last", () => {
+test("editHop keeps every pin when the user or credential changes", () => {
+	const hops = [h("a", "A"), h("b", "B")];
+	expect(keys(editHop(hops, 0, { user: "other" }))).toEqual(["A", "B"]);
+	expect(keys(editHop(hops, 1, { credentialId: "other" }))).toEqual(["A", "B"]);
+});
+
+test("addHop appends the new target and removes the target in place", () => {
 	const hops = [h("j1", "1"), h("t", "T")];
-	const added = addJump(hops, h("j2"));
-	expect(added.map((x) => x.host)).toEqual(["j1", "j2", "t"]);
-	expect(keys(added)).toEqual(["1", "", ""]);
-	const removed = removeJump([h("j1", "1"), h("j2", "2"), h("t", "T")], 0);
-	expect(removed.map((x) => x.host)).toEqual(["j2", "t"]);
-	expect(keys(removed)).toEqual(["", ""]);
-	expect(removeJump(hops, 1)).toBe(hops);
-	const moved = moveJump([h("a", "A"), h("b", "B"), h("t", "T")], 1, -1);
-	expect(moved.map((x) => x.host)).toEqual(["b", "a", "t"]);
-	expect(keys(moved)).toEqual(["", "", ""]);
-	const same = [h("a"), h("t")];
-	expect(moveJump(same, 0, 1)).toBe(same);
+	const added = addHop(hops);
+	expect(added.map((x) => x.host)).toEqual(["j1", "t", ""]);
+	// The previous target keeps its pin and becomes a jump.
+	expect(keys(added)).toEqual(["1", "T", ""]);
+	expect(emptyHop()).toEqual({ host: "", port: "22", user: "", hostFingerprint: "", credentialId: "" });
+
+	const removedJump = removeHop([h("j1", "1"), h("j2", "2"), h("t", "T")], 0);
+	expect(removedJump.map((x) => x.host)).toEqual(["j2", "t"]);
+	expect(keys(removedJump)).toEqual(["2", "T"]);
+
+	// Removing the target makes the previous jump the target, with its own pin.
+	const removedTarget = removeHop([h("j1", "1"), h("t", "T")], 1);
+	expect(removedTarget.map((x) => x.host)).toEqual(["j1"]);
+	expect(keys(removedTarget)).toEqual(["1"]);
+	const only = [h("j1")];
+	expect(removeHop(only, 0)).toBe(only);
 });
 
 test("pinHop and firstUnpinned", () => {
@@ -56,11 +68,13 @@ test("validateHops and hopBodies", () => {
 	expect(validateHops([h("")])).toEqual({ hop: 0, code: "host-required" });
 	expect(validateHops([{ ...h("j"), user: " " }, h("t")])).toEqual({ hop: 0, code: "user-required" });
 	expect(validateHops([h("j"), { ...h("t"), port: "0" }])).toEqual({ hop: 1, code: "port-invalid" });
+	expect(validateHops([h("j"), { ...h("t"), credentialId: "" }])).toEqual({ hop: 1, code: "credential-required" });
 	expect(validateHops([h("j"), h("t")])).toBeUndefined();
-	expect(hopBodies([h("j", "K"), h("t")])).toEqual({
+	expect(hopBodies([h("j", "K", "cj"), h("t", "", "ct")])).toEqual({
 		host: "t",
 		port: 22,
 		user: "u",
-		jumps: [{ host: "j", port: 22, user: "u", hostKey: "K" }],
+		credentialId: "ct",
+		jumps: [{ host: "j", port: 22, user: "u", credentialId: "cj", hostFingerprint: "K" }],
 	});
 });

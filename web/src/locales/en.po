@@ -239,7 +239,7 @@ msgstr "A granted user or user group can see the nodes in this node group and ru
 msgid "A granted user or user group can see this node and run tasks on it."
 msgstr "A granted user or user group can see this node and run tasks on it."
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "A host is required."
 msgstr "A host is required."
 
@@ -328,7 +328,7 @@ msgstr "A user group grants access to every current member."
 msgid "A user group is used for session shares and node access grants."
 msgstr "A user group is used for session shares and node access grants."
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "A user is required."
 msgstr "A user is required."
 
@@ -424,9 +424,9 @@ msgstr "Add field"
 msgid "Add header"
 msgstr "Add header"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Add jump host"
-msgstr "Add jump host"
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Add hop"
+msgstr "Add hop"
 
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
@@ -517,10 +517,6 @@ msgstr "All approvals"
 msgid "all built-in models"
 msgstr "all built-in models"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "All host keys are confirmed."
-msgstr "All host keys are confirmed."
-
 #: src/features/node-groups/pages.tsx
 msgid "All node groups"
 msgstr "All node groups"
@@ -594,6 +590,10 @@ msgstr "An administrator creates node groups."
 msgid "An administrator grants access to nodes."
 msgstr "An administrator grants access to nodes."
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "An SSH credential is required."
+msgstr "An SSH credential is required."
+
 #: src/features/auth/api.ts
 msgid "Another sign-in from this address is already in progress. Try again."
 msgstr "Another sign-in from this address is already in progress. Try again."
@@ -638,7 +638,6 @@ msgstr "API token"
 msgid "API tokens"
 msgstr "API tokens"
 
-#: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
 msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
 msgstr "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
@@ -848,6 +847,7 @@ msgstr "By"
 
 #: src/components/dialogs.tsx
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
@@ -930,14 +930,6 @@ msgstr "Chat Completions"
 msgid "Check the highlighted fields."
 msgstr "Check the highlighted fields."
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Check the next host key"
-msgstr "Check the next host key"
-
-#: src/features/nodes/add-ssh-node-dialog.tsx
-msgid "Choose a credential, describe the route (jump hosts, then the target), pin every host key, then create the node."
-msgstr "Choose a credential, describe the route (jump hosts, then the target), pin every host key, then create the node."
-
 #: src/components/model-select.tsx
 msgid "Choose a model"
 msgstr "Choose a model"
@@ -974,6 +966,10 @@ msgstr "Choose a user group"
 msgid "Choose a user or user group"
 msgstr "Choose a user or user group"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose an SSH credential"
+msgstr "Choose an SSH credential"
+
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Choose at least one target."
 msgstr "Choose at least one target."
@@ -990,9 +986,9 @@ msgstr "Choose nodes"
 msgid "Choose nodes or node groups"
 msgstr "Choose nodes or node groups"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Choose or create a credential."
-msgstr "Choose or create a credential."
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose SSH credentials"
+msgstr "Choose SSH credentials"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose user groups"
@@ -1075,7 +1071,7 @@ msgstr "Compaction failed."
 msgid "Compaction is not available before the session exists."
 msgstr "Compaction is not available before the session exists."
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
 msgstr "Compare it with the output of <0>for f in /etc/ssh/ssh_host_*_key.pub; do ssh-keygen -lf $f; done</0> on that host (the server picks one of its keys, usually ED25519). Only confirm if one of them matches."
 
@@ -1104,8 +1100,8 @@ msgid "Confirm"
 msgstr "Confirm"
 
 #: src/features/nodes/ssh-wizard.tsx
-msgid "Confirm every host key first."
-msgstr "Confirm every host key first."
+msgid "Confirm every host fingerprint first."
+msgstr "Confirm every host fingerprint first."
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Connect Claude Code with:"
@@ -1190,7 +1186,6 @@ msgstr "Copy node group id"
 msgid "Copy node group id of {0}"
 msgstr "Copy node group id of {0}"
 
-#: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy public key"
@@ -1243,6 +1238,10 @@ msgstr "Create a token to connect an MCP client."
 msgid "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
 msgstr "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Create one on the SSH credentials page."
+msgstr "Create one on the SSH credentials page."
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create one to give crhs a key for SSH nodes and jump hosts."
 msgstr "Create one to give crhs a key for SSH nodes and jump hosts."
@@ -1265,14 +1264,10 @@ msgstr "Create token"
 msgid "Created"
 msgstr "Created"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-node-section.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Credential"
 msgstr "Credential"
-
-#. placeholder {0}: details.credential.name ?? details.credential.id
-#: src/features/nodes/ssh-node-section.tsx
-msgid "Credential: {0}"
-msgstr "Credential: {0}"
 
 #: src/app/shell/nav.ts
 msgid "Credentials"
@@ -1506,6 +1501,10 @@ msgstr "Denied"
 msgid "Deny"
 msgstr "Deny"
 
+#: src/features/nodes/add-ssh-node-dialog.tsx
+msgid "Describe the route (jump hosts, then the target), pick each hop's credential and pin its host fingerprint, then test the connection and create the node."
+msgstr "Describe the route (jump hosts, then the target), pick each hop's credential and pin its host fingerprint, then test the connection and create the node."
+
 #. placeholder {0}: event.seq
 #: src/features/audit/pages.tsx
 msgid "Detail of event {0}"
@@ -1539,10 +1538,6 @@ msgstr "Disable user"
 msgid "Disabled"
 msgstr "Disabled"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Discard"
-msgstr "Discard"
-
 #: src/components/status-badge.tsx
 msgid "Dispatched"
 msgstr "Dispatched"
@@ -1557,10 +1552,6 @@ msgstr "Display name"
 #: src/features/sessions/tool-card.tsx
 msgid "Done"
 msgstr "Done"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Down"
-msgstr "Down"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
@@ -1611,6 +1602,14 @@ msgstr "Edit node groups"
 #: src/features/settings/provider-dialog.tsx
 msgid "Edit provider {0}"
 msgstr "Edit provider {0}"
+
+#: src/features/nodes/pages.tsx
+msgid "Edit route"
+msgstr "Edit route"
+
+#: src/features/nodes/edit-ssh-route-dialog.tsx
+msgid "Edit SSH route"
+msgstr "Edit SSH route"
 
 #: src/components/task-result.tsx
 msgid "Empty file."
@@ -1906,21 +1905,22 @@ msgid "High"
 msgstr "High"
 
 #: src/features/nodes/ssh-node-section.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Hop"
 msgstr "Hop"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Host"
 msgstr "Host"
 
-#. placeholder {0}: hopName(i18n, hops, candidate.hop)
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Host key of the {0}:"
-msgstr "Host key of the {0}:"
+#: src/features/nodes/ssh-node-section.tsx
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Host fingerprint"
+msgstr "Host fingerprint"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Host keys"
-msgstr "Host keys"
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Host:"
+msgstr "Host:"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
@@ -1983,10 +1983,6 @@ msgstr "Issued"
 msgid "Issuer"
 msgstr "Issuer"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "It matches, pin it"
-msgstr "It matches, pin it"
-
 #: src/features/node-groups/pages.tsx
 msgid "It may have been deleted."
 msgstr "It may have been deleted."
@@ -2007,16 +2003,14 @@ msgstr "Its members lose this node group. Rules and task groups that reference i
 msgid "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 msgstr "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 
-#. placeholder {0}: index + 1
 #. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Jump host {0}"
-msgstr "Jump host {0}"
+msgid "Jump {0}"
+msgstr "Jump {0}"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Jump host {index}"
-msgstr "Jump host {index}"
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Jump {index}"
+msgstr "Jump {index}"
 
 #: src/features/sessions/transcript.tsx
 msgid "Jump to latest"
@@ -2182,6 +2176,10 @@ msgstr "Mapping"
 msgid "Matched rule"
 msgstr "Matched rule"
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Matches, pin it"
+msgstr "Matches, pin it"
+
 #: src/lib/thinking-level.ts
 msgid "Max"
 msgstr "Max"
@@ -2278,16 +2276,6 @@ msgstr "More options"
 msgid "More results — keep typing to narrow down"
 msgstr "More results — keep typing to narrow down"
 
-#. placeholder {0}: index + 1
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Move jump host {0} down"
-msgstr "Move jump host {0} down"
-
-#. placeholder {0}: index + 1
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Move jump host {0} up"
-msgstr "Move jump host {0} up"
-
 #: src/components/task-result.tsx
 #: src/features/credentials/pages.tsx
 #: src/features/node-groups/pages.tsx
@@ -2321,14 +2309,6 @@ msgstr "Never"
 #: src/components/status-badge.tsx
 msgid "Never run"
 msgstr "Never run"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "New credential"
-msgstr "New credential"
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "New credential name"
-msgstr "New credential name"
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -2567,6 +2547,10 @@ msgstr "No sessions yet"
 msgid "No SSH credentials yet"
 msgstr "No SSH credentials yet"
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "No SSH credentials yet."
+msgstr "No SSH credentials yet."
+
 #: src/features/sessions/children-bar.tsx
 msgid "No subagents"
 msgstr "No subagents"
@@ -2651,6 +2635,7 @@ msgid "Node key fingerprint: <0>{0}</0>"
 msgstr "Node key fingerprint: <0>{0}</0>"
 
 #: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Node name"
 msgstr "Node name"
@@ -2693,9 +2678,9 @@ msgstr "Not a valid rule: {error}"
 msgid "Not applicable"
 msgstr "Not applicable"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "not checked"
-msgstr "not checked"
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Not confirmed"
+msgstr "Not confirmed"
 
 #: src/features/nodes/node-trust.tsx
 msgid "not reported"
@@ -2843,7 +2828,7 @@ msgstr "Optional, overrides the provider's default endpoint."
 msgid "Optional; at least 8 characters."
 msgstr "Optional; at least 8 characters."
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Optional; defaults to the target's host."
 msgstr "Optional; defaults to the target's host."
 
@@ -2993,11 +2978,12 @@ msgstr "Pi built-in"
 msgid "Pi built-in providers and custom endpoints; their keys are never shown back."
 msgstr "Pi built-in providers and custom endpoints; their keys are never shown back."
 
-#: src/features/nodes/ssh-node-section.tsx
-msgid "Pinned host key"
-msgstr "Pinned host key"
+#. placeholder {0}: hopName(i18n, hops, candidate.hop)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Pin the host fingerprint of the {0}?"
+msgstr "Pin the host fingerprint of the {0}?"
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Port"
 msgstr "Port"
 
@@ -3036,6 +3022,10 @@ msgstr "privileged.toml"
 msgid "Privileges"
 msgstr "Privileges"
 
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Probe"
+msgstr "Probe"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Prompt"
 msgstr "Prompt"
@@ -3056,7 +3046,6 @@ msgstr "Provider id"
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/crhs-key-panel.tsx
 #: src/features/nodes/node-trust.tsx
-#: src/features/nodes/ssh-wizard.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Public key"
@@ -3089,6 +3078,10 @@ msgstr "Re-enroll node"
 #: src/features/nodes/reenroll-node-dialog.tsx
 msgid "Re-enrollment command"
 msgstr "Re-enrollment command"
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Re-probe"
+msgstr "Re-probe"
 
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Real client IP header"
@@ -3150,14 +3143,15 @@ msgid "Remaining budget tokens (empty = unlimited)"
 msgstr "Remaining budget tokens (empty = unlimited)"
 
 #: src/components/row-remove-button.tsx
-#: src/features/nodes/ssh-wizard.tsx
 #: src/features/users/pages.tsx
 #: src/features/users/user-group-page.tsx
 msgid "Remove"
 msgstr "Remove"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
 #. placeholder {0}: option.primary
 #: src/components/entity-picker/entity-picker.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Remove {0}"
 msgstr "Remove {0}"
 
@@ -3200,11 +3194,6 @@ msgstr "Remove from {0}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove header {0}"
 msgstr "Remove header {0}"
-
-#. placeholder {0}: index + 1
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Remove jump host {0}"
-msgstr "Remove jump host {0}"
 
 #. placeholder {0}: row.original.index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -3361,6 +3350,7 @@ msgstr "Revoked"
 msgid "Role"
 msgstr "Role"
 
+#: src/features/nodes/ssh-route-editor.tsx
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Route"
 msgstr "Route"
@@ -3471,6 +3461,7 @@ msgid "Runtime settings for this crhs. A save applies without a restart and is r
 msgstr "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
 
 #: src/components/dialogs.tsx
+#: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/rename-node-button.tsx
 #: src/features/sessions/budget-dialog.tsx
 #: src/features/settings/model-presets.tsx
@@ -3509,6 +3500,10 @@ msgstr "Save rules"
 #: src/features/schedules/pages.tsx
 msgid "Save schedule"
 msgstr "Save schedule"
+
+#: src/features/nodes/edit-ssh-route-dialog.tsx
+msgid "Saving closes the connection; tasks running on this node become unknown."
+msgstr "Saving closes the connection; tasks running on this node become unknown."
 
 #: src/components/decision/evaluation.tsx
 #: src/features/tasks/pages.tsx
@@ -3567,6 +3562,10 @@ msgid "Search sessions…"
 msgstr "Search sessions…"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Search SSH credentials…"
+msgstr "Search SSH credentials…"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Search user groups…"
 msgstr "Search user groups…"
 
@@ -3585,10 +3584,6 @@ msgstr "Searching"
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
 msgstr "Security verification failed. Try again."
-
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Select…"
-msgstr "Select…"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
@@ -3772,10 +3767,6 @@ msgstr "Something went wrong"
 msgid "SSH"
 msgstr "SSH"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "SSH credential"
-msgstr "SSH credential"
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "SSH credential created"
 msgstr "SSH credential created"
@@ -3790,6 +3781,7 @@ msgid "SSH key"
 msgstr "SSH key"
 
 #: src/features/nodes/ssh-node-section.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "SSH route"
 msgstr "SSH route"
 
@@ -3920,7 +3912,7 @@ msgstr "Take the client address from this header's first value. Empty uses the c
 #: src/features/audit/pages.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-node-section.tsx
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "Target"
 msgstr "Target"
 
@@ -4064,8 +4056,8 @@ msgid "The node has not reported its trust configuration"
 msgstr "The node has not reported its trust configuration"
 
 #: src/features/nodes/ssh-wizard.tsx
-msgid "The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test first to check that the key is installed on every hop and the account can run commands."
-msgstr "The node is active as soon as it is created; the pinned host keys are enforced on every connection. Test first to check that the key is installed on every hop and the account can run commands."
+msgid "The node is active as soon as it is created; every hop is checked against its pinned host fingerprint on each connection. Test first to check that each hop's credential is installed and the account can run commands."
+msgstr "The node is active as soon as it is created; every hop is checked against its pinned host fingerprint on each connection. Test first to check that each hop's credential is installed and the account can run commands."
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
@@ -4095,7 +4087,7 @@ msgstr "The old key stops working as soon as the node enrolls with the new token
 msgid "The page you asked for does not exist."
 msgstr "The page you asked for does not exist."
 
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 msgid "The port must be between 1 and 65535."
 msgstr "The port must be between 1 and 65535."
 
@@ -4399,10 +4391,6 @@ msgstr "Unprivileged identity"
 msgid "Unread"
 msgstr "Unread"
 
-#: src/features/nodes/ssh-wizard.tsx
-msgid "Up"
-msgstr "Up"
-
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx
 msgid "Updated"
@@ -4435,7 +4423,7 @@ msgstr "Used for links crhs returns, e.g. in MCP results. Empty uses the address
 
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
-#: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/ssh-route-editor.tsx
 #: src/features/sessions/share-dialog.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/users/user-group-dialogs.tsx

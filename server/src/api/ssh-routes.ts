@@ -1,29 +1,58 @@
 import { type Context, Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
 import { isAdmin } from "../auth/sessions.ts";
+import type { Cluster } from "../cluster/cluster.ts";
 import { nodeGroupsForNodes } from "../cluster/node-groups.ts";
-import { getNode, nodeAccess, toPublicNode } from "../cluster/nodes.ts";
-import { probeHostKey, testRoute } from "../cluster/ssh/connection.ts";
+import { getNode, type NodeRow, nodeAccess, toPublicNode } from "../cluster/nodes.ts";
+import { probeHostFingerprint, testRoute } from "../cluster/ssh/connection.ts";
 import {
 	createSshCredential,
 	createSshNode,
 	deleteSshCredential,
 	listSshCredentials,
 	nodeRoute,
+	probeRouteFromInput,
 	routeFromInput,
 	type SshTargetInput,
 	sshCredentialUsage,
+	updateSshNodeRoute,
 } from "../cluster/ssh/nodes.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 
+/** An SSH node's stored route, as the audit log keeps it; each hop names its own credential. */
+function routeDetail(node: NodeRow) {
+	const jumps = (
+		JSON.parse(node.ssh_jumps ?? "[]") as {
+			host: string;
+			port: number;
+			user: string;
+			hostFingerprint: string;
+			credentialId: string;
+		}[]
+	).map(({ host, port, user, hostFingerprint, credentialId }) => ({ host, port, user, hostFingerprint, credentialId }));
+	return {
+		hops: [
+			...jumps,
+			{
+				host: node.ssh_host,
+				port: node.ssh_port ?? 22,
+				user: node.ssh_user,
+				hostFingerprint: node.ssh_host_fingerprint,
+				credentialId: node.ssh_credential_id,
+			},
+		],
+	};
+}
+
 /**
- * Adding SSH nodes: crhs generates a key (the user installs its public half), probes each hop's host key
- * for the user to confirm, then saves the node with every key pinned. Expects requireUser to have run.
+ * Adding and editing SSH nodes: crhs probes each hop's host fingerprint for the user to confirm, then
+ * saves the node with every fingerprint pinned and each hop's own credential. Credentials are created on
+ * the SSH credentials page. Expects requireUser to have run.
  */
-export function sshRoutes(db: Db, masterKey: MasterKey) {
+export function sshRoutes(db: Db, masterKey: MasterKey, cluster?: Cluster) {
 	const app = new Hono<AppEnv>();
 
 	app.get("/ssh-credentials", requireAdmin, async (c) => {
@@ -59,17 +88,19 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 	app.post("/ssh-nodes/probe", requireAdmin, async (c) => {
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const route = await routeFromInput(db, masterKey, body as unknown as SshTargetInput);
-		if (route.hops.every((h) => h.hostKey)) return jsonError(c, 400, "every hop already has a host key");
-		return c.json(await probeHostKey(route));
+		const route = await probeRouteFromInput(db, masterKey, body as unknown as SshTargetInput);
+		if (route.hops.every((h) => h.hostFingerprint))
+			return jsonError(c, 400, "every hop already has a host fingerprint");
+		return c.json(await probeHostFingerprint(route));
 	});
 
-	// Before creating: does the key work on every hop, and can the account run commands?
+	// Before creating: does every hop's own key work, and can the target account run commands?
 	app.post("/ssh-nodes/test", requireAdmin, async (c) => {
 		const body = await readJsonObject(c);
 		if (!body) return jsonError(c, 400, "expected a JSON object");
 		const route = await routeFromInput(db, masterKey, body as unknown as SshTargetInput);
-		if (route.hops.some((h) => !h.hostKey)) return jsonError(c, 400, "every hop needs a confirmed host key");
+		if (route.hops.some((h) => !h.hostFingerprint))
+			return jsonError(c, 400, "every hop needs a confirmed host fingerprint");
 		await testRoute(route);
 		return c.json({ ok: true });
 	});
@@ -106,12 +137,39 @@ export function sshRoutes(db: Db, masterKey: MasterKey) {
 			target: { type: "node", id: node.id },
 			detail: {
 				name: node.name,
-				credential_id: input.credentialId,
 				route: [...(input.jumps ?? []), input].map((h) => `${h.user}@${h.host}:${h.port ?? 22}`),
+				credential_ids: [...(input.jumps ?? []), input].map((h) => h.credentialId),
 				node_groups: nodeGroups,
 			},
 		});
 		return c.json({ node: toPublicNode(node, "admin", nodeGroups) }, 201);
+	});
+
+	/**
+	 * Replaces an existing SSH node's route (target, jump hosts and each hop's credential) after the same
+	 * probe and confirm an add needs. Id, name, node groups, access grants and task history stay; the
+	 * pooled connection is closed, so tasks running on it become `unknown` (doc/design/execution.md "Adding an SSH node").
+	 */
+	app.patch("/nodes/:id/ssh-route", requireAdmin, async (c) => {
+		const id = c.req.param("id");
+		const r = await sshNode(c, id);
+		if (r.error) return r.error;
+		const body = await readJsonObject(c);
+		if (!body) return jsonError(c, 400, "expected a JSON object");
+		if (body.nodeGroups !== undefined) {
+			return jsonError(c, 400, "node groups are managed with the node-group endpoints, not when editing a route");
+		}
+		const before = r.node;
+		const node = await updateSshNodeRoute(db, masterKey, before, body as unknown as SshTargetInput);
+		cluster?.closeSshNode(id);
+		const nodeGroups = (await nodeGroupsForNodes(db, [id])).get(id) ?? [];
+		void c.get("audit").record({
+			actor: userActor(c.get("user")),
+			action: "node.ssh_route_changed",
+			target: { type: "node", id },
+			detail: { before: routeDetail(before), after: routeDetail(node) },
+		});
+		return c.json({ node: toPublicNode(node, "admin", nodeGroups) });
 	});
 
 	return app;

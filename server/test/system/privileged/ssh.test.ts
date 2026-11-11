@@ -40,10 +40,10 @@ describePodman("privileged system: SSH nodes", () => {
 		const target = { host: "127.0.0.1", port: sshPort, user: "root", credentialId };
 		const probe = await crhs.api("/api/ssh-nodes/probe", { body: target });
 		expect(probe.status).toBe(200);
-		const hostKey = probe.json.fingerprint as string;
-		expect(hostKey).toMatch(/^SHA256:/);
+		const hostFingerprint = probe.json.fingerprint as string;
+		expect(hostFingerprint).toMatch(/^SHA256:/);
 		const created = await crhs.api("/api/ssh-nodes", {
-			body: { name: "priv-sshd", ...target, hostKey },
+			body: { name: "priv-sshd", ...target, hostFingerprint },
 		});
 		expect(created.status).toBe(201);
 		sshNodeId = created.json.node.id as string;

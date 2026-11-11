@@ -273,12 +273,15 @@ signing key and can build trust entries for you. All fields are in the
 
 ## Add an SSH node
 
-1. Open **SSH credentials** and create a credential. Add the public key it shows to the target user's
-   `authorized_keys` on the target and on every jump host.
-2. On **Nodes**, choose **New SSH node**, select the credential, enter the route (jump hosts first, then
-   the target), and pin each hop's host key after checking its fingerprint on that host
+1. Open **SSH credentials** and create a credential for each account the route reaches (or reuse one).
+   Install its public key in the target user's `authorized_keys` on the hops that use it.
+2. On **Nodes**, choose **New SSH node**, enter the route (jump hosts first, then the target), pick
+   each hop's credential, and pin each hop's host fingerprint after checking it on that host
    (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`).
 3. Use **Test connection** on the node page to check the route.
+4. To change the route or a hop's credential later, use **Edit route** on the node page. Changed hops
+   must be probed and confirmed again; after a host is reinstalled (`host_key_mismatch`), use
+   **Re-probe** on that hop.
 
 The target account needs a POSIX login shell (bash, zsh, dash, ash or ksh) and the SFTP subsystem.
 Tasks run as that account; SSH nodes cannot run privileged tasks.
