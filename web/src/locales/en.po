@@ -1246,6 +1246,10 @@ msgstr "crha client"
 msgid "crha grant command"
 msgstr "crha grant command"
 
+#: src/features/nodes/delete-node-dialog.tsx
+msgid "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
+msgstr "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
+
 #: src/features/nodes/trust-warnings.tsx
 msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
 msgstr "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
@@ -1350,6 +1354,16 @@ msgstr "Delete {0}?"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
 msgstr "Delete credential"
+
+#: src/features/nodes/delete-node-dialog.tsx
+#: src/features/nodes/pages.tsx
+msgid "Delete node"
+msgstr "Delete node"
+
+#. placeholder {0}: node.name
+#: src/features/nodes/delete-node-dialog.tsx
+msgid "Delete node {0}?"
+msgstr "Delete node {0}?"
 
 #: src/features/node-groups/pages.tsx
 msgid "Delete node group"
@@ -1457,7 +1471,6 @@ msgstr "Disable {0}?"
 msgid "Disable user"
 msgstr "Disable user"
 
-#: src/components/status-badge.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/users/pages.tsx
@@ -2323,6 +2336,10 @@ msgstr "No budget limit · {usedText} spent"
 #: src/features/credentials/pages.tsx
 msgid "No credentials yet"
 msgstr "No credentials yet"
+
+#: src/features/nodes/delete-node-dialog.tsx
+msgid "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
+msgstr "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
 
 #: src/features/audit/pages.tsx
 msgid "No events"

@@ -81,7 +81,7 @@ func (n *nodeStatus) get() (protocol.NodeStatusState, string) {
 }
 
 // handle validates and records a node.status event. A rejection is returned as an error so that
-// Receive stops and the session ends immediately; active and disabled let the connection close.
+// Receive stops and the session ends immediately; active lets the connection close.
 func (n *nodeStatus) handle(body cbor.RawMessage) error {
 	var st protocol.NodeStatus
 	if err := protocol.UnmarshalBody(body, &st); err != nil {
@@ -298,8 +298,8 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 }
 
 // pendingSession waits for an administrator to approve the node. A restricted connection may only
-// send facts and ping; crhs pushes node.status and then closes. "active" reconnects immediately,
-// "disabled" backs off and "rejected" stops Run.
+// send facts and ping; crhs pushes node.status and then closes. "active" reconnects immediately and
+// "rejected" stops Run.
 func (a *Agent) pendingSession(ctx context.Context, conn *transport.Conn) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

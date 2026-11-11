@@ -77,7 +77,13 @@ export function useDeleteNode() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (id: string) => http.del<{ ok: true }>(`/nodes/${enc(id)}`),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: nodeKeys.all }),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: nodeKeys.all });
+			// The node's node-group memberships are gone with it.
+			void queryClient.invalidateQueries({ queryKey: nodeGroupKeys.all });
+		},
+		// The delete confirmation shows the failure inline; it does not also need a toast.
+		meta: { toast: false },
 	});
 }
 

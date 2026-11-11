@@ -1,7 +1,7 @@
 import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowLeftIcon, PlusIcon } from "lucide-react";
+import { ArrowLeftIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
@@ -23,6 +23,7 @@ import { useNode, useNodes } from "./api";
 import { ClockWarning, clockWarningText } from "./clock-warning";
 import { osName } from "./commands";
 import { CrhsKeyPanel } from "./crhs-key-panel";
+import { DeleteNodeDialog } from "./delete-node-dialog";
 import { canRunOn } from "./node-access";
 import { NodeGroupsDialog } from "./node-groups-dialog";
 import { NodeLastSeen } from "./node-last-seen";
@@ -217,6 +218,7 @@ export function NodeDetailPage() {
 	const trustSources = useTrustSources();
 	const admin = useAuth().user?.kind === "admin";
 	const [editingGroups, setEditingGroups] = useState(false);
+	const [deleting, setDeleting] = useState(false);
 	const details = node.data?.node;
 
 	if (node.isError) {
@@ -269,6 +271,10 @@ export function NodeDetailPage() {
 								<Trans>Edit node groups</Trans>
 							</Button>
 							<RenameNodeButton node={details} />
+							<Button type="button" variant="destructive" size="sm" onClick={() => setDeleting(true)}>
+								<Trash2Icon />
+								<Trans>Delete node</Trans>
+							</Button>
 						</>
 					) : undefined
 				}
@@ -318,6 +324,7 @@ export function NodeDetailPage() {
 			)}
 
 			{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
+			{deleting && <DeleteNodeDialog node={details} onClose={() => setDeleting(false)} />}
 			{/* The SSH route and its credential are administrator data; the server omits `ssh` otherwise. */}
 			{details.transport === "ssh" && node.data?.ssh && (
 				<SshNodeSection node={details} details={node.data.ssh} canRun={canRun} />

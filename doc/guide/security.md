@@ -232,9 +232,9 @@ protection](../design/protocol.md#handshake-and-replay-protection).
 
 ### Rotation and revocation
 
-- **Revoke a node** by deleting it through the API (`DELETE /api/nodes/<id>`) or by rejecting it
-  while it is pending. The WebUI has no delete action for an active node. Its public key is removed,
-  the next handshake fails, and an established connection is closed after `node.status{rejected}`.
+- **Revoke a node** by deleting it on its page in the WebUI (**Delete node**), or by rejecting it
+  while it is pending. Its public key is removed, the next handshake fails, and an established
+  connection is closed after `node.status{rejected}`.
 - **Replace a node key** by removing `identity.key` and `server.pub` from the node's state directory
   and enrolling again. `crha rotate-key` is present but does not change the key in this release. The
   procedure is in [Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys).
@@ -568,10 +568,9 @@ crhs keys import crhs-keys.age     # on the rebuilt deployment, with its databas
 - `crhs keys import` checks that the export belongs to the database and that every exported server
   key still has its row in `secrets`. A restore is a database backup plus the export; a node needs no
   export, because a lost node key means re-enrollment.
-- `crhs keys init` writes the key file and binds the database to its identifier. If the command fails
-  after binding (for example because the file already exists), the database can be left bound to a
-  key that was never saved; run it against a fresh database or recover the intended key file. This
-  ordering is a current defect, not a supported state.
+- `crhs keys init` writes the key file and only then binds the database to its identifier. A failure
+  to write (for example because the file already exists) leaves the database untouched, and a
+  database that already belongs to another key makes the command remove the file it just wrote.
 - There is **no online rotation** for the server identity key or the authorization signing key, and
   `crha rotate-key` does not change a node key. Node revocation is deletion plus re-enrollment;
   replacing a server key means rebuilding the deployment and re-enrolling its nodes. Plan for it; do

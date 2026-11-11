@@ -210,7 +210,7 @@ See [Ownership, access grants and sharing](access-control.md#ownership-access-gr
 
 ```text
 nodes              (id, org_id, name, name_key,
-                    transport[client|ssh], status[pending|active|disabled],
+                    transport[client|ssh], status[pending|active],
                     public_key unique nullable,      -- client node: base64 X25519 static key
                     hostname nullable,               -- enrollment hostname or SSH host
                     facts json nullable,             -- last Facts event

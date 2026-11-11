@@ -148,7 +148,7 @@ async function addNode(
 	input: {
 		name: string;
 		transport?: "client" | "ssh";
-		status?: "active" | "pending" | "disabled";
+		status?: "active" | "pending";
 		facts?: Record<string, unknown> | null;
 		clientVersion?: string | null;
 		lastSeenAt?: string | null;

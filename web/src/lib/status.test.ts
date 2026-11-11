@@ -14,7 +14,6 @@ describe("nodeStatusTone", () => {
 	test("maps node states", () => {
 		expect(nodeStatusTone("active")).toBe("ok");
 		expect(nodeStatusTone("pending")).toBe("warn");
-		expect(nodeStatusTone("disabled")).toBe("muted");
 		expect(nodeStatusTone("other")).toBe("muted");
 	});
 });

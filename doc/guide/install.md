@@ -167,10 +167,10 @@ The command writes `/etc/crhs/master.key` as 32 bytes of base64 with mode 0600 a
 created /etc/crhs/master.key; back it up with "crhs keys export"
 ```
 
-The key file must match the database. `keys init` records the key id in the database before it
-writes the file; if the file already exists, the command fails after the database has been bound to a
-key that was never saved. Do not retry with a new key in that situation: restore the file that
-matches the database, or start from a fresh database.
+The key file must match the database. `keys init` writes the file first and binds the database to its
+key id only after that; if the file already exists, the database is left untouched. If the database
+already belongs to another key, the command removes the file it just wrote and fails. Restore the
+file that matches the database, or start from a fresh database.
 
 Back up the key as soon as the server has created its own keys. Start crhs once (see [Start
 crhs](#start-crhs)), then export:
@@ -302,9 +302,11 @@ server {
 - **Cookies.** The `crh_session` cookie is `Secure` whenever the request's `Host` is not a loopback
   host, so a plain-HTTP public hostname cannot keep a login. Terminate TLS at the proxy and pass the
   public `Host` through.
-- **Links.** crhs builds absolute links, such as the approval and task links in MCP tool results,
-  from the request URL. Behind a TLS-terminating proxy those links use `http://<Host>`; keep the
-  HTTP-to-HTTPS redirect so they still resolve.
+- **Links.** Set `public_url` to the public base URL, such as `"https://crh.example.com"`, so that
+  absolute links such as the approval and task links in MCP tool results use the public scheme and
+  host. Without it crhs builds them from the request URL; behind a TLS-terminating proxy those links
+  use `http://<Host>`, so keep the HTTP-to-HTTPS redirect for that case. See
+  [`public_url`](reference/crhs-config.md#top-level-keys).
 - **Long waits.** Session event streams send a ping every 15 seconds, and crha heartbeats at least
   every 45 seconds. The timeouts above leave room for both.
 

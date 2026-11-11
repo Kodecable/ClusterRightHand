@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import {
 	buildKeyExport,
@@ -6,7 +9,8 @@ import {
 	secretAad,
 	verifyKeyExportAgainstDb,
 } from "../src/keys/export.ts";
-import { bindMasterKey, KeyError, MasterKey } from "../src/keys/master-key.ts";
+import { bindMasterKey, boundMasterKeyId, KeyError, MasterKey, readMasterKeyFile } from "../src/keys/master-key.ts";
+import { initMasterKey, restoreMasterKey } from "../src/keys/setup.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/users/service.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
@@ -66,5 +70,75 @@ describeBackends("key export", (backend) => {
 		} finally {
 			await other.destroy();
 		}
+	});
+});
+
+describeBackends("master key setup", (backend) => {
+	let db: Db;
+	let dir: string;
+	let path: string;
+
+	beforeEach(async () => {
+		db = await openTestDb(backend);
+		dir = await mkdtemp(join(tmpdir(), "crh-keys-"));
+		path = join(dir, "master.key");
+	});
+	afterEach(async () => {
+		await db.destroy();
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	it("init writes the file first and binds the database only after that", async () => {
+		const key = await initMasterKey(path, db);
+		expect((await stat(path)).mode & 0o777).toBe(0o600);
+		expect((await readMasterKeyFile(path)).id).toBe(key.id);
+		expect(await boundMasterKeyId(db)).toBe(key.id);
+	});
+
+	it("init leaves the database unbound and an existing file untouched", async () => {
+		const existing = "an existing key file that must not be replaced\n";
+		await writeFile(path, existing, { mode: 0o600 });
+
+		await expect(initMasterKey(path, db)).rejects.toThrow(/already exists/);
+		expect(await boundMasterKeyId(db)).toBeUndefined();
+		expect(await readFile(path, "utf8")).toBe(existing);
+	});
+
+	it("init removes the new file when the database belongs to another key", async () => {
+		const bound = MasterKey.generate();
+		await bindMasterKey(db, bound);
+
+		await expect(initMasterKey(path, db)).rejects.toThrow(KeyError);
+		expect(await boundMasterKeyId(db)).toBe(bound.id);
+		await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
+	it("import writes the file first and binds the database only after that", async () => {
+		const key = MasterKey.generate();
+		const restored = await restoreMasterKey(path, db, await buildKeyExport(db, key));
+		expect(restored.id).toBe(key.id);
+		expect((await readMasterKeyFile(path)).id).toBe(key.id);
+		expect(await boundMasterKeyId(db)).toBe(key.id);
+	});
+
+	it("import leaves the database unbound and an existing file untouched", async () => {
+		const key = MasterKey.generate();
+		const data = await buildKeyExport(db, key);
+		const existing = "an existing key file that must not be replaced\n";
+		await writeFile(path, existing, { mode: 0o600 });
+
+		await expect(restoreMasterKey(path, db, data)).rejects.toThrow(/already exists/);
+		expect(await boundMasterKeyId(db)).toBeUndefined();
+		expect(await readFile(path, "utf8")).toBe(existing);
+	});
+
+	it("import refuses an export from another key without writing a file", async () => {
+		const bound = MasterKey.generate();
+		await bindMasterKey(db, bound);
+		const data = await buildKeyExport(db, MasterKey.generate());
+
+		await expect(restoreMasterKey(path, db, data)).rejects.toThrow(/does not belong/);
+		expect(await boundMasterKeyId(db)).toBe(bound.id);
+		await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 	});
 });

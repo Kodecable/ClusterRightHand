@@ -46,6 +46,8 @@ export interface Config {
 	masterKeyFile: string;
 	/** Built WebUI (web/dist); served at /. */
 	webRoot: string;
+	/** Absolute public base URL for links crhs generates; null uses the request URL (doc/guide/reference/crhs-config.md). */
+	publicUrl: string | null;
 	/** Warn when a node's clock differs from crhs by more than this; 0 disables (doc/design/privilege.md "Clock"). */
 	clockWarnMs: number;
 	/** Passkey registration settings. */
@@ -111,6 +113,7 @@ export function parseConfig(text: string): Config {
 		"database",
 		"master_key_file",
 		"web_root",
+		"public_url",
 		"clock_warn",
 		"webauthn",
 		"retention",
@@ -148,6 +151,7 @@ export function parseConfig(text: string): Config {
 		database: db,
 		masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
 		webRoot: str(raw, "web_root", "web_root", fileURLToPath(new URL("../../web/dist", import.meta.url))),
+		publicUrl: parsePublicUrl(raw.public_url),
 		clockWarnMs: clockWarn,
 		webauthn: webauthnConfig(raw),
 		retention: retentionConfig(raw),
@@ -185,6 +189,30 @@ function headerName(value: unknown, name: string): string | null {
 		throw new Error(`${name} must be an HTTP header name such as "X-Forwarded-For"`);
 	}
 	return value;
+}
+
+/**
+ * The public base URL for links crhs generates (`public_url`), without a trailing slash; null when absent.
+ * It must be an absolute http(s) URL without a query or fragment; a path prefix is allowed.
+ */
+function parsePublicUrl(value: unknown): string | null {
+	if (value === undefined) return null;
+	if (typeof value !== "string" || value === "") {
+		throw new Error('public_url must be an absolute http(s) URL such as "https://crh.example.com"');
+	}
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`public_url: ${JSON.stringify(value)} is not an absolute URL`);
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new Error(`public_url must use http or https, got ${JSON.stringify(url.protocol.slice(0, -1))}`);
+	}
+	if (url.search !== "" || url.hash !== "" || /[?#]/.test(value)) {
+		throw new Error("public_url must not have a query or fragment");
+	}
+	return url.toString().replace(/\/+$/, "");
 }
 
 /** `[retention]`: a duration or "off" (null, keep forever); the default applies when the key is absent. */

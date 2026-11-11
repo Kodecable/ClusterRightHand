@@ -50,6 +50,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	clockWarnMs?: number;
 	/** Directory of the built WebUI; served for every path outside /api, /agent and /mcp. */
 	webRoot?: string;
+	/** Absolute public base URL for links crhs generates; unset uses the request URL. */
+	publicUrl?: string | null;
 	/** The audit log; one is created when omitted. */
 	audit?: Audit;
 	/** The agent runtime and its models; without them there are no sessions. */
@@ -178,7 +180,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 			);
 		}
 		// Bearer-token authenticated, outside /api's cookie sessions and CSRF guard.
-		app.route("/", mcpRoutes(db, { cluster, taskGroups, audit }));
+		app.route("/", mcpRoutes(db, { cluster, taskGroups, audit, publicUrl: options.publicUrl }));
 	}
 
 	if (options.webRoot) {

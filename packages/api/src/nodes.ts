@@ -98,7 +98,7 @@ export interface PublicNode {
 	id: string;
 	name: string;
 	transport: "client" | "ssh";
-	status: "pending" | "active" | "disabled";
+	status: "pending" | "active";
 	hostname: string | null;
 	clientVersion: string | null;
 	privilegedMode: string | null;

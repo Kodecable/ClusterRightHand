@@ -216,8 +216,8 @@ The shell is a shadcn `Sidebar` with a 48 px top bar and the routed page.
   with no border, background or dot, at the font size of its row. Every table, list, card and
   detail header uses it. `StatusDot` is reserved for the session sidebar (running, waiting,
   unread), and `StatusBadge` is only the tinted trust-warning chip.
-- Tones: ok (green), warn (amber), danger (red), info (blue), muted (grey). Node `pending` is warn,
-  `active` is ok and `disabled` is muted. Task `exited` is ok; `awaiting_approval`,
+- Tones: ok (green), warn (amber), danger (red), info (blue), muted (grey). Node `pending` is warn
+  and `active` is ok. Task `exited` is ok; `awaiting_approval`,
   `awaiting_authorization`, `running` and `dispatched` are info; `failed`, `denied`, `rejected` and
   `unknown` are danger; `cancelled` is muted. A task group reuses the task tones: `finished` is ok,
   `running` and waiting are info, `rejected` and `interrupted` are danger, `cancelled` is muted.
@@ -612,7 +612,7 @@ renaming and deletion happen only on the detail page.
 The nodes page lists every node the caller can see, with the columns Name (and an **SSH** badge),
 Status, Hostname, OS, Node groups and Last seen. Status folds enrollment and reachability into one
 `StatusText`: pending reads **Pending approval**, an active client reads **Connected** or
-**Offline**, an active SSH node reads **Active**, and a disabled node reads **Disabled**; the tooltip keeps the raw state and the
+**Offline**, and an active SSH node reads **Active**; the tooltip keeps the raw state and the
 connection detail. A measured clock warning shows a warning triangle and **clock** beside the
 status, with the full sentence in its tooltip. A trust-warning chip follows the same pattern. Last
 seen uses `NodeLastSeen`. An administrator sees Approve/Reject for pending nodes and two page
@@ -631,7 +631,8 @@ actions, **New SSH node** (outline) and **New node** (primary).
 
 A node's detail page (`/nodes/$nodeId`) has the name as its title, the status, an SSH badge for an
 SSH node and a clock warning below it, and **All nodes** as the back link. An administrator also
-gets **Edit node groups** and **Rename** in the header; trust-warning chips appear above the facts.
+gets **Edit node groups**, **Rename** and **Delete node** in the header; deleting asks for
+confirmation and returns to the node list. Trust-warning chips appear above the facts.
 
 - The facts are transport, hostname, OS, privileged mode (`ignored (SSH)` for an SSH node), node
   groups, and for a client node the client version, last seen and key fingerprint; the node's own

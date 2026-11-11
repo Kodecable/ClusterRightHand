@@ -466,7 +466,6 @@ enrollment and reachability into one label:
 | **Connected** | An active crha node with a live connection. |
 | **Offline** | An active crha node without one. |
 | **Active** | An active SSH node. It has no standing connection; its last seen time comes from the last task that reached it. |
-| **Disabled** | A node with the disabled status. No console action sets it in this release; rejecting a pending node deletes it instead. |
 
 A measured clock offset adds a warning triangle and **clock** beside the status, with the full
 sentence in its tooltip. A trust warning adds a small chip in the same place. **Last seen** shows
@@ -540,8 +539,8 @@ node uses it.
 ### The node page
 
 The back link is **All nodes**. The header shows the node's name, its status, the **SSH** badge for
-an SSH node and the clock warning. An administrator gets **Edit node groups** and **Rename**.
-Trust-warning chips, when present, sit above the facts.
+an SSH node and the clock warning. An administrator gets **Edit node groups**, **Rename** and
+**Delete node**. Trust-warning chips, when present, sit above the facts.
 
 The facts panel lists **Transport** (**crha client** or **SSH**), **Hostname**, **OS**, **Privileged
 mode** (the configured mode, or **ignored (SSH)**), **Node groups**, and for a client node the
@@ -613,6 +612,24 @@ omits them for other viewers.
 ([Granting node access](#granting-node-access)). **Recent tasks** lists the newest ten tasks on the
 node, with **View all tasks** at the right of the heading opening `/tasks?node=<nodeId>`. Tasks are
 started from the Tasks page, not from the node page; the node page has no run panel.
+
+#### Deleting a node
+
+An administrator deletes a node from its page with **Delete node** in the header. The confirmation
+names the node and explains the consequences:
+
+- A crha node is told it was removed; crha disconnects and stops. An SSH node's host is not
+  contacted, because no crha runs there.
+- Tasks waiting for the node end as `failed/node_deleted`; a task already running loses its
+  connection and ends as `unknown` ([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)).
+- Its access grants and node group memberships are removed. The node's record and public key are
+  gone, so the next handshake fails.
+- An SSH node's credential stays in **SSH credentials**.
+
+Deleting a record does not touch the host. To use a crha host again, create a new enrollment token
+and enroll it after removing `identity.key` and `server.pub`; to reuse its name, delete the old node
+first ([Rotate a node key](operations.md#rotating-and-revoking-node-keys)). A pending node keeps its
+**Approve**/**Reject** actions in the list; rejecting it is the same deletion.
 
 ## Node groups
 
@@ -944,7 +961,7 @@ The console has no general settings page. Settings are split by what they config
 **SSH credentials** is the organization's key store for SSH nodes. It shows **Name**, **Public key**,
 **Created** and **Used by**, with **New SSH credential**. The private key never leaves crhs. A
 credential that a node uses cannot be deleted, and an existing SSH node's credential cannot be
-changed; replacing one means deleting the node (through the API) and adding it again.
+changed; replacing one means deleting the node and adding it again.
 
 ## Themes and language
 

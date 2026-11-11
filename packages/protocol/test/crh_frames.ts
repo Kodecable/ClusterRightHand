@@ -705,11 +705,6 @@ export function buildFixture(): CrhFramesFixture {
 			body: { nodeId: "node-1", state: "rejected", message: "denied" },
 		},
 	);
-	addFrame("event.node.status.disabled", 'event node.status body=[node_id="node-1", state="disabled", message=""]', {
-		kind: "event",
-		name: "node.status",
-		body: { nodeId: "node-1", state: "disabled", message: "" },
-	});
 	addFrame("event.task.output.ack", 'event task.output.ack body=[task_id="t-exec-argv", offset=6]', {
 		kind: "event",
 		name: "task.output.ack",

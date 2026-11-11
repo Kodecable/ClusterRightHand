@@ -8,7 +8,7 @@
 
 export type StatusTone = "ok" | "warn" | "danger" | "info" | "muted";
 
-/** Node status: pending enrollment is a warning, disabled is muted. */
+/** Node status: pending enrollment is a warning, an active node is ok. */
 export function nodeStatusTone(status: string): StatusTone {
 	switch (status) {
 		case "active":

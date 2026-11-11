@@ -8,6 +8,7 @@ describe("parseConfig", () => {
 			database: { driver: "sqlite", path: "/var/lib/crhs/crhs.db" },
 			masterKeyFile: "/etc/crhs/master.key",
 			webRoot: expect.stringMatching(/web\/dist$/),
+			publicUrl: null,
 			clockWarnMs: 60_000,
 			webauthn: { rpId: null, rpName: "ClusterRightHand", origins: [] },
 			retention: {
@@ -69,6 +70,27 @@ describe("parseConfig", () => {
 		expect(() => parseConfig('[webauthn]\nrp_id = "crh.example.com"\norigins = ["https://x/a"]\n')).toThrow(
 			/webauthn.origins/,
 		);
+	});
+
+	it("reads public_url and normalizes its trailing slash", () => {
+		expect(parseConfig('public_url = "https://crh.example.com"\n').publicUrl).toBe("https://crh.example.com");
+		expect(parseConfig('public_url = "https://crh.example.com/"\n').publicUrl).toBe("https://crh.example.com");
+		expect(parseConfig('public_url = "https://crh.example.com/crh/"\n').publicUrl).toBe("https://crh.example.com/crh");
+		expect(parseConfig('public_url = "http://127.0.0.1:8080"\n').publicUrl).toBe("http://127.0.0.1:8080");
+	});
+
+	it("rejects invalid public_url values", () => {
+		for (const value of [
+			'"crh.example.com"',
+			'"/crh"',
+			'"ftp://crh.example.com"',
+			'"https://crh.example.com/?x=1"',
+			'"https://crh.example.com/#x"',
+			'""',
+			"1",
+		]) {
+			expect(() => parseConfig(`public_url = ${value}\n`)).toThrow(/public_url/);
+		}
 	});
 
 	it("reads the retention table with day units and off", () => {

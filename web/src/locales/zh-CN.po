@@ -1246,6 +1246,10 @@ msgstr "crha 客户端"
 msgid "crha grant command"
 msgstr "crha grant 命令"
 
+#: src/features/nodes/delete-node-dialog.tsx
+msgid "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
+msgstr "节点上的 crha 会被告知已被移除，随后断开连接并停止运行。等待该节点的任务会结束。该节点的访问授权和节点组成员关系会被移除。若要重新添加该主机，请先删除其 identity.key 和 server.pub，再用新令牌重新注册。"
+
 #: src/features/nodes/trust-warnings.tsx
 msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
 msgstr "crhs 不认识这个信任项的密钥；它既不是 crhs 的签名密钥，也不是任何已登记的用户凭据："
@@ -1350,6 +1354,16 @@ msgstr "删除 {0}？"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
 msgstr "删除凭据"
+
+#: src/features/nodes/delete-node-dialog.tsx
+#: src/features/nodes/pages.tsx
+msgid "Delete node"
+msgstr "删除节点"
+
+#. placeholder {0}: node.name
+#: src/features/nodes/delete-node-dialog.tsx
+msgid "Delete node {0}?"
+msgstr "删除节点 {0}？"
 
 #: src/features/node-groups/pages.tsx
 msgid "Delete node group"
@@ -1457,7 +1471,6 @@ msgstr "禁用 {0}？"
 msgid "Disable user"
 msgstr "禁用用户"
 
-#: src/components/status-badge.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/users/pages.tsx
@@ -2323,6 +2336,10 @@ msgstr "没有预算限制 · 已花 {usedText}"
 #: src/features/credentials/pages.tsx
 msgid "No credentials yet"
 msgstr "还没有凭据"
+
+#: src/features/nodes/delete-node-dialog.tsx
+msgid "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
+msgstr "该主机上不运行 crha，因此不会向其发送任何内容。等待该节点的任务会结束，其访问授权和节点组成员关系会被移除。其凭据仍保留在 SSH 凭据中。"
 
 #: src/features/audit/pages.tsx
 msgid "No events"

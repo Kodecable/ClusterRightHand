@@ -101,7 +101,6 @@ function statusLabel(i18n: I18n, labels: Record<string, MessageDescriptor>, valu
 const NODE_LABELS: Record<string, MessageDescriptor> = {
 	pending: msg`Pending approval`,
 	active: msg`Active`,
-	disabled: msg`Disabled`,
 };
 
 /** The node's status label: enrollment plus reachability, when it is known. */

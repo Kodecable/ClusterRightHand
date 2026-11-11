@@ -394,7 +394,7 @@ export type TaskOutput = Infer<typeof taskOutputCodec>;
 
 export const nodeStatusCodec = tuple([
 	["nodeId", text],
-	["state", enumOf("pending", "active", "rejected", "disabled")],
+	["state", enumOf("pending", "active", "rejected")],
 	["message", text],
 ]);
 export type NodeStatus = Infer<typeof nodeStatusCodec>;

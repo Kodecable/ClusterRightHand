@@ -174,7 +174,6 @@ export class AgentServer {
 			}
 		}
 		if (!node) return reject(ws, "unknown node");
-		if (node.status === "disabled") return reject(ws, "node disabled");
 
 		// The lookups above are async, so the client may have closed meanwhile. Attaching now would
 		// replace the same node's newer live connection with this already-dead one.

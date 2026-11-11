@@ -116,7 +116,7 @@ export interface NodesTable {
 	/** Required on insert: the column is nullable only because SQLite cannot add a NOT NULL column without a default. */
 	name_key: string;
 	transport: "client" | "ssh";
-	status: "pending" | "active" | "disabled";
+	status: "pending" | "active";
 	/** Base64 of the node's 32-byte X25519 static key. */
 	public_key: string | null;
 	hostname: string | null;

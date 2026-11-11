@@ -246,7 +246,7 @@ What the client sees while waiting depends on the tool:
 - **A task group** is approved once, as a group; one decision covers every node.
 
 The approval URL is `/approvals/tasks/<id>` or `/approvals/task-groups/<id>`, made absolute from
-the request's origin. The owner decides there
+`public_url` when it is set and from the request's origin otherwise. The owner decides there
 with the usual card: **Approve**, **Approve and always allow…** or **Reject** ([Approvals
 page](../design/webui.md#approvals-page)). An "always allow" decision appends the rule to this
 token's rule set, because the token is the root of this chain; a one-off approval writes no rule. A
@@ -307,11 +307,11 @@ change a rule or schedule a run. Those remain WebUI (or API) actions.
   decided later does not push anything to the client; the client polls with `task_wait`. Approval and
   signature waits themselves follow the server's rules (no deadline for an approval, 24 hours for a
   signature).
-- **Approval and task links use the request URL.** crhs builds them from `new URL(c.req.url).origin`
-  and does not read `X-Forwarded-Proto`. Behind a TLS-terminating proxy that forwards plain HTTP to
-  crhs, the links in a tool note therefore say `http://` even though the console is served over
-  HTTPS. They work when that origin redirects or is reachable, but the scheme can be wrong. This is
-  a known gap; see [Reverse proxy and TLS](install.md#reverse-proxy-and-tls).
+- **Links behind a reverse proxy need `public_url`.** crhs builds absolute links from `public_url`
+  when it is set and otherwise from `new URL(c.req.url).origin`; it does not read
+  `X-Forwarded-Proto`. Set `public_url` to the console's public base URL behind a TLS-terminating
+  proxy so the links in a tool note use `https://`. See
+  [Reverse proxy and TLS](install.md#reverse-proxy-and-tls).
 - **Request body and node caps.** A tool call body is limited to 89,544,024 bytes, and one task group
   is capped at 512 nodes. Larger inputs must be split; a larger target set is an error.
 - **Output is truncated at crhs.** The tool result carries a head or tail within the per-node and

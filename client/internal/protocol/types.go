@@ -606,12 +606,11 @@ const (
 	NodeStatusPending  NodeStatusState = "pending"
 	NodeStatusActive   NodeStatusState = "active"
 	NodeStatusRejected NodeStatusState = "rejected"
-	NodeStatusDisabled NodeStatusState = "disabled"
 )
 
 // nodeStatusStates is the node.status state enum.
 var nodeStatusStates = newEnum("node status state",
-	NodeStatusPending, NodeStatusActive, NodeStatusRejected, NodeStatusDisabled)
+	NodeStatusPending, NodeStatusActive, NodeStatusRejected)
 
 // MarshalCBOR encodes the enum, rejecting values outside the schema.
 func (s NodeStatusState) MarshalCBOR() ([]byte, error) { return nodeStatusStates.marshal(s) }

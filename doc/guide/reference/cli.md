@@ -119,20 +119,18 @@ error. The command prints `password updated for alice`.
 crhs keys init
 ```
 
-Generates a new 32-byte master key, records its id in the database and writes it to
-`master_key_file` as base64 with mode 0600. The file is created exclusively: if it already exists,
-the command fails with `<path> already exists` and does not overwrite it. The database must not
-already be bound to a different master key, otherwise the command fails with a master-key id
-mismatch. The command prints:
+Generates a new 32-byte master key, writes it to `master_key_file` as base64 with mode 0600 and then
+records its id in the database. The file is created exclusively: if it already exists, the command
+fails with `<path> already exists`, does not overwrite it and leaves the database untouched. The
+database must not already be bound to a different master key, otherwise the command fails with a
+master-key id mismatch and removes the file it just wrote. The command prints:
 
 ```text
 created /etc/crhs/master.key; back it up with "crhs keys export"
 ```
 
-The key id is recorded before the file is written. If writing fails (for example because the file
-already exists), the database is already bound to the generated key, which was never saved; a later
-`keys init` refuses with a master-key id mismatch. In that situation, restore the key file that
-matches the database, or start from a fresh database.
+A later `keys init` on the same database refuses with a master-key id mismatch. Restore the key file
+that matches the database, or start from a fresh database.
 
 **`crhs keys export`.**
 

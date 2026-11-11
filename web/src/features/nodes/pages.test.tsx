@@ -1,6 +1,6 @@
 import type { PublicNode, User } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { authStore } from "@/features/auth/session";
 import { formatDateTimeSeconds } from "@/lib/format";
@@ -49,16 +49,26 @@ function node(overrides: Partial<PublicNode> = {}): PublicNode {
 	};
 }
 
-function mockFetch(user: User, nodes: PublicNode[]): void {
+function mockFetch(
+	user: User,
+	nodes: PublicNode[],
+	options: { deleteError?: string } = {},
+): { calls: { url: string; method: string }[] } {
+	const calls: { url: string; method: string }[] = [];
 	vi.stubGlobal(
 		"fetch",
-		vi.fn(async (input: RequestInfo | URL) => {
+		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
 			const path = new URL(String(input), "http://localhost").pathname;
-			const json = (payload: unknown) =>
-				new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+			const method = init?.method ?? "GET";
+			calls.push({ url: path, method });
+			const json = (payload: unknown, status = 200) =>
+				new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
 			if (path === "/api/me") return json({ user });
 			if (path === "/api/nodes") return json({ nodes });
 			const detail = /^\/api\/nodes\/([^/]+)$/.exec(path);
+			if (detail && method === "DELETE") {
+				return options.deleteError === undefined ? json({ ok: true }) : json({ error: options.deleteError }, 400);
+			}
 			if (detail) {
 				return json({ node: nodes.find((candidate) => candidate.id === decodeURIComponent(detail[1] ?? "")) });
 			}
@@ -78,6 +88,7 @@ function mockFetch(user: User, nodes: PublicNode[]): void {
 			return json({});
 		}),
 	);
+	return { calls };
 }
 
 async function renderPage(user: User, nodes: PublicNode[]): Promise<void> {
@@ -89,6 +100,19 @@ async function renderPage(user: User, nodes: PublicNode[]): Promise<void> {
 			<NodesPage />
 		</QueryClientProvider>,
 	);
+}
+
+async function renderDetail(user: User, nodes: PublicNode[], options: { deleteError?: string } = {}) {
+	const { calls } = mockFetch(user, nodes, options);
+	route.params = { nodeId: nodes[0]?.id ?? "node-1" };
+	await authStore.load();
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	const rendered = await renderWithRouter(
+		<QueryClientProvider client={client}>
+			<NodeDetailPage />
+		</QueryClientProvider>,
+	);
+	return { calls, router: rendered.router };
 }
 
 afterEach(() => {
@@ -226,5 +250,64 @@ describe("NodeDetailPage", () => {
 
 		const now = await screen.findByText("Now");
 		expect(now).toHaveAttribute("title", `Connected since ${formatDateTimeSeconds(lastSeenAt, "en")}`);
+	});
+});
+
+describe("NodeDetailPage deletion", () => {
+	test("an administrator sees Delete node", async () => {
+		await renderDetail(ADMIN, [node()]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		expect(screen.getByRole("button", { name: "Delete node" })).toBeInTheDocument();
+	});
+
+	test("a member does not see Delete node", async () => {
+		await renderDetail(MEMBER, [node()]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		expect(screen.queryByRole("button", { name: "Delete node" })).not.toBeInTheDocument();
+	});
+
+	test("confirming deletes the node and returns to the node list", async () => {
+		const { calls, router } = await renderDetail(ADMIN, [node()]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		fireEvent.click(screen.getByRole("button", { name: "Delete node" }));
+		const dialog = screen.getByRole("dialog");
+		expect(within(dialog).getByText("Delete node worker-01?")).toBeInTheDocument();
+		fireEvent.click(within(dialog).getByRole("button", { name: "Delete node" }));
+		await waitFor(() =>
+			expect(calls.some((call) => call.url === "/api/nodes/node-1" && call.method === "DELETE")).toBe(true),
+		);
+		await waitFor(() => expect(router.state.location.pathname).toBe("/nodes"));
+	});
+
+	test("cancelling closes the dialog without a request", async () => {
+		const { calls, router } = await renderDetail(ADMIN, [node()]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		fireEvent.click(screen.getByRole("button", { name: "Delete node" }));
+		const dialog = screen.getByRole("dialog");
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+		expect(calls.some((call) => call.method === "DELETE")).toBe(false);
+		expect(router.state.location.pathname).toBe("/");
+	});
+
+	test("a failed delete stays in the dialog and shows the error", async () => {
+		const { router } = await renderDetail(ADMIN, [node()], { deleteError: "node is still connected" });
+		await screen.findByRole("heading", { name: "worker-01" });
+		fireEvent.click(screen.getByRole("button", { name: "Delete node" }));
+		const dialog = screen.getByRole("dialog");
+		fireEvent.click(within(dialog).getByRole("button", { name: "Delete node" }));
+		expect(await within(dialog).findByText("node is still connected")).toBeInTheDocument();
+		expect(screen.getByRole("dialog")).toBeInTheDocument();
+		expect(router.state.location.pathname).toBe("/");
+	});
+
+	test("an SSH node explains that no crha runs on the host", async () => {
+		await renderDetail(ADMIN, [node({ transport: "ssh", hostname: null, connected: false })]);
+		await screen.findByRole("heading", { name: "worker-01" });
+		fireEvent.click(screen.getByRole("button", { name: "Delete node" }));
+		const dialog = screen.getByRole("dialog");
+		expect(within(dialog).getByText(/No crha runs on the host/)).toBeInTheDocument();
+		expect(within(dialog).getByText(/credential stays in SSH credentials/)).toBeInTheDocument();
+		expect(within(dialog).queryByText(/identity\.key/)).not.toBeInTheDocument();
 	});
 });

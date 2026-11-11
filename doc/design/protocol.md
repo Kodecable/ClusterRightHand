@@ -303,7 +303,7 @@ InputRef   = [size: uint, sha256: bytes]          ; sha256 is exactly 32 bytes
 | `task.output` | C→S | `[task_id: text, offset: uint, data: bytes]` |
 | `task.exit` | C→S | `TaskExit` |
 | `facts` | C→S | `Facts` |
-| `node.status` | S→C | `[node_id: text, state: "pending" \| "active" \| "rejected" \| "disabled", message: text]` |
+| `node.status` | S→C | `[node_id: text, state: "pending" \| "active" \| "rejected", message: text]` |
 | `task.output.ack` | S→C | `OutputAck` |
 | `task.exit.ack` | S→C | `[task_id: text]` |
 
@@ -596,8 +596,6 @@ There is no command that queries the registration state; crhs pushes every chang
   place on the existing connection; the reconnect takes the same path as any other connection.
 - **Rejection**: crhs deletes the public key, pushes `node.status{rejected}` and closes. crha stops
   reconnecting, and `crha run` exits with a non-zero status and prints the reason.
-- **Disable**: crhs pushes `node.status{disabled}` and closes. crha backs off and retries, and the
-  next handshake is refused because the node is disabled.
 
 ## Transport security
 
@@ -705,9 +703,10 @@ A replay on another connection fails to decrypt the payload.
 A database backup contains only encrypted private keys. Without the master key it cannot be
 restored, so crhs provides key export and import:
 
-- `crhs keys init` generates the master key file (mode 0600) and records a non-secret identifier of
-  the key (an HMAC derivation) in the database. At startup crhs refuses a key file that does not
-  match the database, and also refuses a key file that is readable by the group or by other users.
+- `crhs keys init` generates the master key file (mode 0600, created exclusively) and then records a
+  non-secret identifier of the key (an HMAC derivation) in the database; if binding fails, the file
+  just written is removed. At startup crhs refuses a key file that does not match the database, and
+  also refuses a key file that is readable by the group or by other users.
 - `crhs keys export --out crhs-keys.age` exports the master key, the server identity private key and
   the authorization signing private key.
 - The file is in [age](https://age-encryption.org/) format with ASCII armor, encrypted with a

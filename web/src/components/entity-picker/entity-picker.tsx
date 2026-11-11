@@ -54,7 +54,7 @@ interface BaseProps {
 	testId?: string;
 	/** Ids to hide from the results, e.g. the group's current members. */
 	exclude?: readonly string[];
-	/** Whether pending/disabled nodes may be picked. Defaults to true; the batch page wants active nodes only. */
+	/** Whether pending nodes may be picked. Defaults to true; the batch page wants active nodes only. */
 	includeDisabled?: boolean;
 }
 

@@ -231,11 +231,6 @@
 			"hex": "83026b6e6f64652e73746174757383666e6f64652d316872656a65637465646664656e696564"
 		},
 		{
-			"id": "event.node.status.disabled",
-			"description": "event node.status body=[node_id=\"node-1\", state=\"disabled\", message=\"\"]",
-			"hex": "83026b6e6f64652e73746174757383666e6f64652d316864697361626c656460"
-		},
-		{
 			"id": "event.task.output.ack",
 			"description": "event task.output.ack body=[task_id=\"t-exec-argv\", offset=6]",
 			"hex": "83026f7461736b2e6f75747075742e61636b826b742d657865632d6172677606"

@@ -275,10 +275,10 @@ Two other cleanups happen on the nodes, not in crhs:
 
 ## Rotating and revoking node keys
 
-**Revoke a node.** Delete it in the WebUI. Its public key is removed, the next handshake fails, and
-an established connection is closed after `node.status{rejected}`. Tasks of that node that are still
-waiting end as `failed/node_deleted`; tasks already running lose their connection and end as
-`unknown`. The node's groups and access grants go with the node record.
+**Revoke a node.** Delete it on its page in the WebUI (**Delete node**). Its public key is removed,
+the next handshake fails, and an established connection is closed after `node.status{rejected}`.
+Tasks of that node that are still waiting end as `failed/node_deleted`; tasks already running lose
+their connection and end as `unknown`. The node's groups and access grants go with the node record.
 
 **Rotate a node key.** `crha rotate-key` is present in the command tree but is not implemented; it
 fails with `crha: not implemented`. There is no online rotation. Replace the key by re-enrolling:

@@ -45,8 +45,6 @@ describe("status family mappings", () => {
 		expect(screen.getByText("Active")).toBeInTheDocument();
 		rerender(<NodeStatusBadge status="pending" />);
 		expect(screen.getByText("Pending approval")).toBeInTheDocument();
-		rerender(<NodeStatusBadge status="disabled" />);
-		expect(screen.getByText("Disabled")).toBeInTheDocument();
 		// Reachability is merged into the same pill instead of a second badge.
 		rerender(<NodeStatusBadge status="active" connected />);
 		expect(screen.getByText("Connected")).toBeInTheDocument();

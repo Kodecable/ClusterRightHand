@@ -32,6 +32,9 @@ master_key_file = "/etc/crhs/master.key"
 # Built WebUI served at /. Default: the web/dist directory next to the server source.
 # web_root = "/usr/share/crhs/web"
 
+# Public base URL for absolute links, e.g. behind a TLS-terminating proxy. Unset: use the request URL.
+# public_url = "https://crh.example.com"
+
 # Warn when a node's clock differs from crhs by more than this; "0s" disables the warning.
 clock_warn = "60s"
 
@@ -62,9 +65,9 @@ argon2_queue = 32
 captcha = "cap"
 ```
 
-Only the eight top-level entries `listen`, `database`, `master_key_file`, `web_root`, `clock_warn`,
-`webauthn`, `retention` and `auth` exist. `master_key_file`, `web_root` and `clock_warn` are keys;
-the other five are tables.
+Only the nine top-level entries `listen`, `database`, `master_key_file`, `web_root`, `public_url`,
+`clock_warn`, `webauthn`, `retention` and `auth` exist. `master_key_file`, `web_root`, `public_url`
+and `clock_warn` are keys; the other five are tables.
 
 ## Top-level keys
 
@@ -72,6 +75,7 @@ the other five are tables.
 |---|---|---|---|
 | `master_key_file` | string, non-empty | `/etc/crhs/master.key` | File holding the master key that encrypts the `secrets` table. Created by `crhs keys init`, backed up with `crhs keys export`. The file must contain exactly 32 bytes of base64 and must not grant any permission to group or others (mode 0600); otherwise crhs refuses to use it. A file whose key id does not match the database is refused as well. |
 | `web_root` | string, non-empty | the `web/dist` directory next to the server source | Directory of the built WebUI. Its files are served at `/`; a request that is not under `/api/`, `/agent` or `/mcp` and does not name a file falls back to `index.html`, so client-side routes work. If the directory is missing, only the API, agent and MCP endpoints answer. |
+| `public_url` | absolute http(s) URL, no query or fragment | unset | Public base URL of the WebUI, for example `"https://crh.example.com"`. crhs uses it for the absolute links it returns, such as approval and task links in MCP tool results. A path prefix is allowed (`"https://example.com/crh"`); a trailing slash is ignored. Unset means the links are built from the request URL, which behind a TLS-terminating proxy can use `http://`. This is not used for security checks such as CSRF or WebAuthn origins. See [Reverse proxy and TLS](../install.md#reverse-proxy-and-tls). |
 | `clock_warn` | duration string | `"60s"` | Warn when a node reports a clock offset larger than this. `"0s"` disables the warning. The warning only writes a log line and shows a notice in the WebUI; it never refuses work. The measured offset is taken during the handshake, once per connection. This is not the authorization tolerance, which is `clock_skew` in [privileged.toml](privileged-config.md#top-level-keys). See [Clock](../../design/privilege.md#clock). |
 
 The value names both the file `crhs keys init` creates and the file every command that touches
@@ -217,6 +221,8 @@ The process prints one line, `crhs: <path>: <message>`, and exits with code 2. T
 | `[retention] tasks = "23h"` | `retention.tasks must be "off" or at least "1d": a shorter window could delete a task whose durable tool call reruns after a crash` |
 | `[webauthn]` with only `rp_id` | `webauthn.rp_id and webauthn.origins must be set together` |
 | `[webauthn] origins = ["https://crh.example.com/app"]` | `webauthn.origins: "https://crh.example.com/app" must be an origin (scheme://host[:port])` |
+| `public_url = "crh.example.com"` | `public_url: "crh.example.com" is not an absolute URL` |
+| `public_url = "https://crh.example.com/?x=1"` | `public_url must not have a query or fragment` |
 
 TOML syntax errors come from the TOML parser and are prefixed the same way, for example
 `crhs: /etc/crhs/crhs.toml: Invalid TOML document: ...`. A missing file produces the operating

@@ -13,6 +13,8 @@ export interface McpOptions {
 	cluster: Cluster;
 	taskGroups: TaskGroups;
 	audit?: Audit;
+	/** Absolute base URL for links; unset builds them from the request URL (`public_url`). */
+	publicUrl?: string | null;
 	/** Version reported to clients. */
 	version?: string;
 }
@@ -24,7 +26,7 @@ export interface McpOptions {
 export function mcpRoutes(db: Db, options: McpOptions): Hono {
 	const app = new Hono();
 	// The factory runs inside handler.fetch; it finds the request's identity by a per-request key.
-	const identities = new Map<string, TokenIdentity & { origin: string }>();
+	const identities = new Map<string, TokenIdentity & { baseUrl: string }>();
 	let requests = 0;
 
 	const handler = createMcpHandler(
@@ -48,7 +50,10 @@ export function mcpRoutes(db: Db, options: McpOptions): Hono {
 			});
 		}
 		const key = `${identity.tokenId}#${++requests}`;
-		identities.set(key, { ...identity, origin: new URL(c.req.url).origin });
+		// public_url is the console's public base behind a TLS-terminating proxy; without it, the request's
+		// origin is the best crhs can know (doc/guide/mcp.md "Limitations").
+		const baseUrl = options.publicUrl ?? new URL(c.req.url).origin;
+		identities.set(key, { ...identity, baseUrl });
 		try {
 			return await handler.fetch(c.req.raw, { authInfo: { token, clientId: key, scopes: [] } });
 		} finally {
@@ -58,7 +63,7 @@ export function mcpRoutes(db: Db, options: McpOptions): Hono {
 	return app;
 }
 
-function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: string }): McpServer {
+function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { baseUrl: string }): McpServer {
 	const server = new McpServer({ name: "clusterrighthand", version: options.version ?? "0.0.0" });
 	const baseCtx: ToolContext = {
 		db,
@@ -67,9 +72,9 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { origin: 
 		user: id.user,
 		actor: { type: "api_token", id: id.tokenId, onBehalfOfUserId: id.user.userId },
 		chain: [{ type: "api_token", id: id.tokenId }],
-		approvalUrl: (kind, taskId) => `${id.origin}/approvals/${kind === "task" ? "tasks" : "task-groups"}/${taskId}`,
-		taskUrl: (taskId) => `${id.origin}/tasks/${taskId}`,
-		taskGroupUrl: (taskGroupId) => `${id.origin}/task-groups/${taskGroupId}`,
+		approvalUrl: (kind, taskId) => `${id.baseUrl}/approvals/${kind === "task" ? "tasks" : "task-groups"}/${taskId}`,
+		taskUrl: (taskId) => `${id.baseUrl}/tasks/${taskId}`,
+		taskGroupUrl: (taskGroupId) => `${id.baseUrl}/task-groups/${taskGroupId}`,
 	};
 	for (const tool of TOOLS) {
 		server.registerTool(

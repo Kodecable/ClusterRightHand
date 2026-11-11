@@ -19,8 +19,9 @@ import { loadServerIdentity } from "./cluster/identity.ts";
 import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
-import { buildKeyExport, decryptKeyExport, encryptKeyExport, verifyKeyExportAgainstDb } from "./keys/export.ts";
-import { bindMasterKey, KeyError, MasterKey, readMasterKeyFile, writeMasterKeyFile } from "./keys/master-key.ts";
+import { buildKeyExport, decryptKeyExport, encryptKeyExport } from "./keys/export.ts";
+import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
+import { initMasterKey, restoreMasterKey } from "./keys/setup.ts";
 import { loadAuthorizationSigningKey } from "./privilege/key.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
@@ -128,9 +129,7 @@ async function changePassword(db: Db, username: string): Promise<void> {
 }
 
 async function initKeys(config: Config, db: Db): Promise<void> {
-	const key = MasterKey.generate();
-	await bindMasterKey(db, key); // fails if the database already belongs to another master key
-	await writeMasterKeyFile(config.masterKeyFile, key);
+	await initMasterKey(config.masterKeyFile, db); // fails if the database already belongs to another master key
 	console.log(`created ${config.masterKeyFile}; back it up with "crhs keys export"`);
 	await db.destroy();
 }
@@ -155,9 +154,7 @@ async function exportKeys(config: Config, db: Db, out: string): Promise<void> {
 
 async function importKeys(config: Config, db: Db, file: string): Promise<void> {
 	const data = await decryptKeyExport(await readFile(file, "utf8"), await readSecret("Export passphrase: "));
-	const key = await verifyKeyExportAgainstDb(db, data);
-	await bindMasterKey(db, key);
-	await writeMasterKeyFile(config.masterKeyFile, key);
+	const key = await restoreMasterKey(config.masterKeyFile, db, data);
 	console.log(`restored ${config.masterKeyFile} (master key id ${key.id})`);
 	await db.destroy();
 }
@@ -211,6 +208,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey): Promise<
 		webauthn: config.webauthn,
 		clockWarnMs: config.clockWarnMs,
 		webRoot: config.webRoot,
+		publicUrl: config.publicUrl,
 		audit,
 		agent: { runtime, models },
 		scheduler,

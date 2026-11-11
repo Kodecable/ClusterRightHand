@@ -364,7 +364,6 @@ var fixtureExpectedIDs = []string{
 	"event.node.status",
 	"event.node.status.pending",
 	"event.node.status.rejected",
-	"event.node.status.disabled",
 	"event.task.output.ack",
 	"event.task.exit.ack",
 	"request.local.request",
@@ -756,11 +755,6 @@ func expectedFixtureValue(id string) (any, bool) {
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventNodeStatus,
 			Body: NodeStatus{NodeID: "node-1", State: NodeStatusRejected, Message: "denied"},
-		}, true
-	case "event.node.status.disabled":
-		return fixtureFrame{
-			Kind: FrameEvent, Name: EventNodeStatus,
-			Body: NodeStatus{NodeID: "node-1", State: NodeStatusDisabled, Message: ""},
 		}, true
 	case "event.task.output.ack":
 		return fixtureFrame{
