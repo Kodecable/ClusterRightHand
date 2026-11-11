@@ -45,7 +45,8 @@ const QUOTA_APPROVALS: ApprovalList = {
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [
 		{
-			sessionId: "s1",
+			// A root no session test opens: the default badge counts these without dock panels.
+			sessionId: "quota-session-1",
 			levelId: "root",
 			title: "Nightly check",
 			since: "2026-01-01T00:00:00Z",
@@ -53,7 +54,7 @@ const QUOTA_APPROVALS: ApprovalList = {
 			budgetUsedTokens: 100,
 		},
 		{
-			sessionId: "s2",
+			sessionId: "quota-session-2",
 			levelId: "root",
 			title: "Deploy check",
 			since: "2026-01-01T00:00:00Z",
@@ -1093,6 +1094,18 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		const authorizationMatch = /^\/api\/(tasks|task-groups)\/([^/]+)\/authorization$/.exec(path);
 		if (authorizationMatch) {
 			return authorizationMatch[1] === "tasks" ? json({ authorization: null }) : json({ taskGroup: null });
+		}
+		const rejectionMatch = /^\/api\/(tasks|task-groups)\/([^/]+)\/authorization\/reject$/.exec(path);
+		if (rejectionMatch && method === "POST") {
+			const id = decodeURIComponent(rejectionMatch[2] as string);
+			state.approvals = {
+				...state.approvals,
+				authorizations: {
+					tasks: state.approvals.authorizations.tasks.filter((task) => task.id !== id),
+					taskGroups: state.approvals.authorizations.taskGroups.filter((group) => group.id !== id),
+				},
+			};
+			return json({ ok: true });
 		}
 		if (path === "/api/authorizations" && method === "POST") {
 			return json({ authorization: { id: "auth-1", dispatched: [] } });

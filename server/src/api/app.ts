@@ -132,7 +132,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.route("/api", nodeAccessRoutes(db));
 	app.route("/api", privilegeRoutes({ authorizationKey: options.authorizationKey }));
 	app.route("/api", credentialRoutes(db, { webauthn: options.webauthn }));
-	app.route("/api", authorizationRoutes(db, { cluster }));
+	app.route("/api", authorizationRoutes(db, { cluster, ...(taskGroups ? { taskGroups } : {}) }));
 	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey));
 	if (cluster && taskGroups) {
 		app.route("/api", taskRoutes(db, cluster, taskGroups));

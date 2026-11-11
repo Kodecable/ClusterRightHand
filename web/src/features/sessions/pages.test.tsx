@@ -1,4 +1,4 @@
-import type { ApprovalList, SessionListItem, SessionView } from "@crh/api";
+import type { ApprovalList, SessionListItem, SessionView, TaskView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -41,6 +41,31 @@ const APPROVALS: ApprovalList = {
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
 };
+
+/** One task waiting for approval in the session tree. */
+function approvalTask(overrides: Partial<TaskView> = {}): TaskView {
+	return {
+		id: "task-1",
+		nodeId: "node-1",
+		kind: "exec",
+		summary: "echo first",
+		operation: { method: "exec", target: "echo first" },
+		actorType: "user",
+		actorId: "u1",
+		onBehalfOfUserId: "u1",
+		state: "awaiting_approval",
+		privileged: false,
+		createdAt: "2026-01-01T00:00:00.000Z",
+		approval: null,
+		rootSessionId: "s1",
+		...overrides,
+	} as TaskView;
+}
+
+/** The approvals list a test answers; every other category stays empty. */
+function waitingApprovals(tasks: TaskView[], quotas: ApprovalList["quotas"] = []): ApprovalList {
+	return { tasks, taskGroups: [], authorizations: { tasks: [], taskGroups: [] }, quotas };
+}
 
 function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 	return {
@@ -149,6 +174,7 @@ async function renderSessionPage({
 	eventsStatus,
 	entry,
 	olderPage,
+	approvals,
 }: {
 	session: SessionView;
 	treeRow?: SessionListItem;
@@ -158,6 +184,8 @@ async function renderSessionPage({
 	entry?: number;
 	/** The page `GET /sessions/:id/entries?before=` answers; defaults to an empty, finished history. */
 	olderPage?: (before: string) => SessionEntriesPage;
+	/** The approvals list the test answers, read on every poll/refetch so a decision can settle it. */
+	approvals?: () => ApprovalList;
 }) {
 	const requests: URL[] = [];
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -186,10 +214,11 @@ async function renderSessionPage({
 			if (path === `/api/sessions/${session.id}/children/summary`)
 				return json({ total: 0, states: { idle: 0, running: 0, awaiting: 0 } });
 			if (path === "/api/models") return json({ models: [] });
-			if (path === "/api/approvals") return json(APPROVALS);
+			if (path === "/api/approvals") return json(approvals?.() ?? APPROVALS);
 			if (path === "/api/nodes") return json({ nodes: [] });
 			if (path === "/api/node-groups") return json({ groups: [] });
 			if (path === "/api/api-tokens") return json({ tokens: [] });
+			if (path === "/api/directory") return json({ users: [], userGroups: [] });
 			return json({});
 		}),
 	);
@@ -337,21 +366,24 @@ describe("SessionPage layout", () => {
 		await renderSessionPage({ session: sessionView() });
 		await screen.findByTestId("session-page");
 		expect(screen.queryByTestId("abort-session")).not.toBeInTheDocument();
-		expect(screen.queryByTestId("session-waits")).not.toBeInTheDocument();
+		// Nothing waits for this viewer, so the composer keeps its place.
+		expect(screen.getByTestId("composer-input")).toBeInTheDocument();
+		expect(screen.queryByTestId("session-decisions")).not.toBeInTheDocument();
 
 		// The tree is awaiting a subagent's approval while this session itself is idle: stopping the root stops
-		// the subtree, so Stop is there.
+		// the subtree, so Stop is there. There is no decision for this viewer, so the composer stays.
 		act(() => {
 			publishSessionListUpsert(item({ state: "awaiting", waitingKind: "approval" }));
 		});
-		await waitFor(() => expect(screen.getByTestId("session-waits")).toBeInTheDocument());
-		expect(screen.getByTestId("abort-session")).toBeEnabled();
+		await waitFor(() => expect(screen.getByTestId("abort-session")).toBeEnabled());
+		expect(screen.getByTestId("composer-input")).toBeInTheDocument();
+		expect(screen.queryByTestId("session-decisions")).not.toBeInTheDocument();
 
 		act(() => {
 			publishSessionListUpsert(item({ state: "running", waitingKind: null }));
 		});
-		await waitFor(() => expect(screen.queryByTestId("session-waits")).not.toBeInTheDocument());
-		expect(screen.getByTestId("abort-session")).toBeEnabled();
+		await waitFor(() => expect(screen.getByTestId("abort-session")).toBeEnabled());
+		expect(screen.getByTestId("composer-input")).toBeInTheDocument();
 	});
 
 	test("takes the root's aggregate from the loaded list on a fresh page", async () => {
@@ -375,15 +407,16 @@ describe("SessionPage layout", () => {
 		});
 		await screen.findByTestId("session-page");
 		const banner = await screen.findByTestId("waiting-reason");
-		const waits = screen.getByTestId("session-waits");
 		expect(banner).toHaveTextContent("The session is waiting for an approval.");
-		// The single-line banner sits under the header, before the waiting cards; the composer has no strip.
+		// The single-line banner sits under the header, before the composer; the composer has no strip.
 		const header = screen.getByTestId("session-header");
 		expect(header.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-		expect(banner.compareDocumentPosition(waits) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		const composer = document.querySelector<HTMLElement>('[data-slot="composer"]');
 		expect(composer).not.toBeNull();
+		expect(banner.compareDocumentPosition(composer as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 		expect(within(composer as HTMLElement).queryByTestId("waiting-reason")).toBeNull();
+		// Nothing is waiting for this viewer, so the dock is absent and the composer stays.
+		expect(screen.queryByTestId("session-decisions")).not.toBeInTheDocument();
 
 		const invalidate = vi.spyOn(client, "invalidateQueries");
 		act(() => {
@@ -391,6 +424,65 @@ describe("SessionPage layout", () => {
 		});
 		await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: approvalKeys.list() }));
 		expect(screen.getByTestId("waiting-reason")).toHaveTextContent("The session is waiting for a signature.");
+	});
+
+	test("the dock replaces the composer and shows only the first decision of the tree", async () => {
+		const quota = {
+			sessionId: "s1",
+			levelId: "s1",
+			title: "Deploy the cluster",
+			since: "2026-01-01T00:00:00Z",
+			budgetRemaining: 0,
+			budgetUsedTokens: 100,
+		};
+		await renderSessionPage({
+			session: sessionView({ state: "awaiting", waitingKind: "quota" }),
+			approvals: () =>
+				waitingApprovals(
+					[
+						approvalTask({ id: "task-later", summary: "echo later", createdAt: "2026-01-02T00:00:00.000Z" }),
+						approvalTask(),
+					],
+					[quota],
+				),
+		});
+		await screen.findByTestId("session-page");
+		const dock = await screen.findByTestId("session-decisions");
+		// The quota comes first, one item at a time; the approvals wait behind it.
+		expect(within(dock).getByRole("region", { name: "Token quota used up" })).toBeInTheDocument();
+		expect(within(dock).getByText("1 of 3")).toBeInTheDocument();
+		expect(within(dock).queryByText("echo first")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
+		// The dock has no Stop button of its own; the composer carries the only one.
+		expect(within(dock).queryByTestId("abort-session")).not.toBeInTheDocument();
+	});
+
+	test("shows only the first decision of the tree while more wait behind it", async () => {
+		await renderSessionPage({
+			session: sessionView({ state: "awaiting", waitingKind: "approval" }),
+			approvals: () =>
+				waitingApprovals([
+					approvalTask(),
+					approvalTask({ id: "task-2", summary: "echo second", createdAt: "2026-01-02T00:00:00.000Z" }),
+				]),
+		});
+		await screen.findByTestId("session-page");
+		const dock = await screen.findByTestId("session-decisions");
+		expect(within(dock).getByTestId("decision-operation")).toHaveTextContent("echo first");
+		expect(within(dock).getByText("1 of 2")).toBeInTheDocument();
+		expect(within(dock).queryByText("echo second")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
+	});
+
+	test("another session's decisions stay out of this session's dock", async () => {
+		await renderSessionPage({
+			session: sessionView({ state: "awaiting", waitingKind: "approval" }),
+			approvals: () => waitingApprovals([approvalTask({ rootSessionId: "s2" })]),
+		});
+		await screen.findByTestId("session-page");
+		await screen.findByTestId("waiting-reason");
+		expect(screen.queryByTestId("session-decisions")).not.toBeInTheDocument();
+		expect(screen.getByTestId("composer-input")).toBeInTheDocument();
 	});
 
 	test("refreshes approvals when a live tool reports that it waits", async () => {

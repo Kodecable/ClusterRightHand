@@ -66,9 +66,11 @@ with the cache hit rate, and how full the context is.
 
 ### Waiting for a decision
 
-When the session or one of its subagents needs you, cards appear above the messages: approvals,
-signature requests for privileged tasks, or a used-up token budget. They are the same cards as on the
-[Approvals](#approvals) page.
+When the session or one of its subagents needs you, a decision panel replaces the composer at the
+bottom of the session and the messages stay visible above it. It shows one request at a time — a rule
+approval, a signature request for a privileged task, or a used-up token budget — oldest waiting first,
+with a count while more wait. Answer it and the next one appears; the composer comes back when nothing
+is waiting for you. The same request is on the [Approvals](#approvals) page.
 
 ### Subagents
 
@@ -127,9 +129,9 @@ node, in the file listed under **Output file**; SSH nodes keep none.
 
 ## Task groups
 
-A task group page shows the group's state, one approval or signature card for the whole group, and a
-table with one row per node; each row opens that node's task. Nodes that never started are listed as
-skipped.
+A task group page shows the group's state, one decision for the whole group (approve it, or sign it
+when it is privileged), and a table with one row per node; each row opens that node's task. Nodes that
+never started are listed as skipped.
 
 ## Nodes
 
@@ -203,18 +205,18 @@ access ends without running.
 
 ## Approvals
 
-**Approvals** collects everything waiting for you:
+**Approvals** is one table of everything waiting for you, with its type, operation, target nodes and
+when it was requested. Click a row to open it:
 
-| Section | Your options |
+| Type | Your options |
 |---|---|
-| **Task approvals** | Approve, Approve and always allow, or Reject |
-| **Task-group approvals** | The same, once for the whole group |
-| **Waiting for your signature** | Sign the privileged task ([Signing](#signing-with-an-ssh-key-or-a-passkey)) |
-| **Token quota used up** | Add tokens or stop the run |
+| **Approval** | Approve, Always allow, or Reject |
+| **Signature** | Sign with a Passkey or `crha grant`, sign by hand with `ssh-keygen`, use a local `crha approve` when the node allows it, or Reject ([Signing](#signing-with-an-ssh-key-or-a-passkey)) |
+| **Quota** | Add tokens or stop the run; the row opens the session, where the decision panel shows it |
 
-**Approve and always allow** adds an allow rule, prefilled from the operation, to the session, schedule
-or token that asked. A plain approval adds no rule. Approvals never expire; signature requests expire
-after 24 hours.
+**Always allow** adds an allow rule, prefilled from the operation, to the session, schedule or token
+that asked. A plain approval adds no rule. Approvals never expire; signature requests expire after 24
+hours.
 
 ## Authorizations
 
@@ -224,14 +226,14 @@ revoked here. To withdraw a signer, change the node's trust configuration.
 
 ### Signing with an SSH key or a Passkey
 
-When a privileged task waits for your signature, its card offers:
+When a privileged task waits for your signature, its decision offers:
 
-- **Sign with Passkey**, if the node trusts one of your Passkeys for this command;
-- a `crha grant` command to run on your workstation, whose output you paste back with **Submit
-  authorization**;
-- an equivalent `ssh-keygen -Y sign` command.
-
-If the node allows local approval, the card also says that you can run `crha approve` on the node.
+- **Passkey**, if the node trusts one of your Passkeys for this command;
+- **crha grant**: copy the command, run it on your workstation, and paste its output back with
+  **Submit authorization**;
+- **ssh-keygen**: the same steps by hand, with the same paste box;
+- **Local approval**, if the node allows it: run the copied `crha approve` command on the node instead;
+- **Reject**, with an optional reason; the task ends rejected and the reason is shown on it.
 
 Register your SSH keys and Passkeys on **Credentials**. Each credential has a **Trust snippet** to add to
 a node's `privileged.toml`. Passkeys need the WebUI to be served over HTTPS with a hostname.

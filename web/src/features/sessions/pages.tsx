@@ -17,11 +17,10 @@ import {
 	useSessionTreeSync,
 } from "./api";
 import { ChildrenBar } from "./children-bar";
-import { Composer } from "./composer";
 import { SessionBanner } from "./session-banner";
+import { SessionFooter } from "./session-decisions";
 import { SessionHeader } from "./session-header";
 import { isCompacting, type LiveTool } from "./session-reducer";
-import { SessionWaits } from "./session-waits";
 import { Transcript } from "./transcript";
 import { transcript } from "./transcript-items";
 import { useSessionEvents } from "./use-session-events";
@@ -220,7 +219,6 @@ export function SessionPage() {
 				waitingKind={view.waitingKind}
 				queued={events.state.queued}
 			/>
-			{waiting && <SessionWaits session={view} />}
 
 			{events.state.ready ? (
 				<Transcript
@@ -243,7 +241,7 @@ export function SessionPage() {
 			)}
 
 			<ChildrenBar query={children} summary={childrenSummary.data} />
-			<Composer session={view} stoppable={events.state.running || busy || compacting} />
+			<SessionFooter session={view} rootId={rootId} stoppable={events.state.running || busy || compacting} />
 		</div>
 	);
 }

@@ -38,10 +38,14 @@ test("lists a task waiting for the user's signature on the approvals page", asyn
 	await crhs.db.updateTable("tasks").set({ state: "awaiting_authorization" }).where("id", "=", t.id).execute();
 
 	await page.goto("/approvals");
-	const section = page.getByRole("region", { name: "Waiting for your signature" });
-	await expect(section).toContainText("sign-me");
+	const row = page.getByRole("row").filter({ hasText: "sign-me" });
+	await expect(row).toContainText("Signature");
 	// The header counts approvals and signature waits together.
 	await expect(page.getByTestId("nav-approvals-badge")).toContainText("1");
-	await section.getByRole("link").first().click();
-	await expect(page).toHaveURL(new RegExp(`/tasks/${t.id}$`));
+	await row.getByRole("link", { name: /sign-me/ }).click();
+	await expect(page).toHaveURL(new RegExp(`/approvals/tasks/${t.id}$`));
+	// The deep link opens the signature variant; the payload endpoint answers nothing for this row.
+	const signature = page.getByRole("region", { name: "Sign to approve" });
+	await expect(signature).toContainText("sign-me");
+	await expect(signature).toContainText("Preparing the payload to sign…");
 });

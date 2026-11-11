@@ -128,6 +128,12 @@ export interface TaskGroupPending {
 	tasks: TaskGroupPendingTask[];
 }
 
+/** Body of `POST /tasks/:id/authorization/reject` and `POST /task-groups/:id/authorization/reject`. */
+export interface RejectAuthorizationBody {
+	/** Why the owner declined to sign; stored as the task's error message when it is not empty. */
+	reason?: string;
+}
+
 /** One stored authorization (doc/design/privilege.md "Authorizations"). */
 export interface AuthorizationSummary {
 	id: string;

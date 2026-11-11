@@ -89,12 +89,6 @@ msgstr "{0, plural, one {写入了 # 字节} other {写入了 # 字节}}"
 msgid "{0} gains the node access this user group grants."
 msgstr "{0} 会获得该用户组授予的节点访问权限。"
 
-#. placeholder {0}: item.task.kind
-#. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
-#: src/components/approval-card.tsx
-msgid "{0} on {1}"
-msgstr "在 {1} 上执行 {0}"
-
 #. placeholder {0}: formatTokenRate(rate, locale)
 #: src/features/sessions/composer-meta.tsx
 msgid "{0} tok/s"
@@ -106,7 +100,7 @@ msgid "{0} tokens left"
 msgstr "剩余 {0} 个 token"
 
 #. placeholder {0}: formatNumber(status.remaining, locale)
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "{0} tokens left · {usedText} spent"
 msgstr "剩余 {0} 个 token · 已花 {usedText}"
 
@@ -127,10 +121,6 @@ msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
 #: src/features/users/pages.tsx
 msgid "{count, plural, one {# member} other {# members}}"
 msgstr "{count, plural, one {# 名成员} other {# 名成员}}"
-
-#: src/features/approvals/pages.tsx
-msgid "{count, plural, one {# waiting} other {# waiting}}"
-msgstr "{count, plural, one {# 项等待中} other {# 项等待中}}"
 
 #: src/features/sessions/composer-meta.tsx
 msgid "{exact} tokens in total"
@@ -182,10 +172,6 @@ msgstr "{running} 个运行中"
 msgid "{steps, plural, one {# step} other {# steps}}"
 msgstr "{steps, plural, one {# 步} other {# 步}}"
 
-#: src/components/approval-card.tsx
-msgid "{taskGroupKind} on {taskGroupTargets}"
-msgstr "{taskGroupKind}，目标：{taskGroupTargets}"
-
 #: src/features/sessions/children-bar.tsx
 msgid "{total, plural, one {# subagent} other {# subagents}}"
 msgstr "{total, plural, one {# 个子会话} other {# 个子会话}}"
@@ -198,9 +184,10 @@ msgstr "{turns, plural, one {# 轮} other {# 轮}}"
 msgid "/{name}: {description} (not sent as a message)"
 msgstr "/{name}：{description}（不会作为消息发送）"
 
-#: src/components/authorization-card.tsx
-msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
-msgstr "`crha grant` 会解码载荷供你确认，用 `ssh-keygen -Y sign -n crh-auth-v1` 签名，并输出可粘贴到下方的授权。手工操作等价于："
+#. placeholder {0}: decisions.length
+#: src/features/sessions/session-decisions.tsx
+msgid "1 of {0}"
+msgstr "第 1 个，共 {0} 个"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "30 days"
@@ -386,7 +373,7 @@ msgstr "活跃 · 未连接"
 msgid "Actor type"
 msgstr "操作者类型"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/users/user-group-dialogs.tsx
 msgid "Add"
 msgstr "添加"
@@ -445,9 +432,9 @@ msgstr "添加 SSH 密钥"
 msgid "Add to user group"
 msgstr "加入用户组"
 
-#: src/features/approvals/pages.tsx
-msgid "Add tokens to the paused run or stop it."
-msgstr "给暂停的运行增加 token，或停止它。"
+#: src/components/decision/quota-decision.tsx
+msgid "Add tokens"
+msgstr "添加 token"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Added rules (JSON)"
@@ -534,7 +521,7 @@ msgstr "全部任务"
 msgid "All users"
 msgstr "全部用户"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
@@ -544,11 +531,6 @@ msgstr "允许"
 msgid "Already settled"
 msgstr "已处理"
 
-#. placeholder {0}: pending.tried.join(", ")
-#: src/components/authorization-card.tsx
-msgid "Already tried: {0}."
-msgstr "已尝试：{0}。"
-
 #: src/features/auth/change-password-dialog.tsx
 msgid "Also revoke all of my API tokens"
 msgstr "同时吊销我的全部 API 令牌"
@@ -557,7 +539,11 @@ msgstr "同时吊销我的全部 API 令牌"
 msgid "Also revoke all of this user's API tokens"
 msgstr "同时吊销该用户的全部 API 令牌"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
+msgid "Always allow"
+msgstr "始终允许"
+
+#: src/components/decision/approval-decision.tsx
 msgid "Always allow rule"
 msgstr "始终允许规则"
 
@@ -585,10 +571,6 @@ msgstr "任意操作者"
 msgid "any method and target"
 msgstr "任意方法和目标"
 
-#: src/components/authorization-card.tsx
-msgid "Any method and target"
-msgstr "任意方法与目标"
-
 #: src/features/tasks/pages.tsx
 msgid "Any node"
 msgstr "任意节点"
@@ -610,7 +592,7 @@ msgstr "使用该令牌的一切都会立即失效，且无法撤销。"
 msgid "API key"
 msgstr "API 密钥"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "API token"
@@ -627,6 +609,7 @@ msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on ev
 msgstr "继续之前，请把该密钥追加到每一跳（每个跳板机和目标）上目标用户的 <0>~/.ssh/authorized_keys</0>。"
 
 #: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Approval"
 msgstr "审批"
@@ -640,25 +623,21 @@ msgstr "审批决定"
 msgid "Approvals"
 msgstr "审批"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve"
 msgstr "批准"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Approve and always allow"
 msgstr "批准并始终允许"
-
-#: src/components/approval-card.tsx
-msgid "Approve and always allow…"
-msgstr "批准并始终允许…"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve node"
 msgstr "批准节点"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Approved"
 msgstr "已批准"
 
@@ -686,8 +665,8 @@ msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 msgstr "Ask：普通读取直接执行，其他操作（包括所有特权任务）都等待你审批。"
 
-#: src/components/approval-card.tsx
 #: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
 msgid "Asked by"
 msgstr "请求者"
 
@@ -700,7 +679,6 @@ msgstr "助手"
 msgid "At least 8 characters."
 msgstr "至少 8 个字符。"
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Attempt"
 msgstr "尝试"
@@ -726,19 +704,11 @@ msgstr "授权"
 msgid "Authorization clock tolerance"
 msgstr "授权时钟容差"
 
-#: src/components/authorization-card.tsx
-msgid "Authorization from `crha grant`"
-msgstr "`crha grant` 生成的授权"
-
-#: src/components/authorization-card.tsx
-msgid "Authorization id"
-msgstr "授权 ID"
-
 #: src/features/authorizations/pages.tsx
 msgid "Authorization payload"
 msgstr "授权载荷"
 
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Authorization submitted."
 msgstr "授权已提交。"
 
@@ -774,7 +744,6 @@ msgstr "平均首字时间：{0}"
 msgid "Awaiting"
 msgstr "等待中"
 
-#: src/components/approval-card.tsx
 #: src/components/status-badge.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Awaiting approval"
@@ -803,16 +772,12 @@ msgstr "Base URL"
 msgid "Body fields"
 msgstr "请求体字段"
 
-#: src/components/quota-card.tsx
-msgid "Budget"
-msgstr "预算"
-
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "Budget used up · {usedText} spent"
 msgstr "预算已用尽 · 已花 {usedText}"
 
 #. placeholder {0}: formatNumber(status.over, locale)
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "Budget used up ({0} over) · {usedText} spent"
 msgstr "预算已用尽（超出 {0}）· 已花 {usedText}"
 
@@ -1011,14 +976,9 @@ msgstr "集群"
 msgid "Collapse subagents"
 msgstr "收起子会话"
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Command"
 msgstr "命令"
-
-#: src/components/approval-card.tsx
-msgid "Command / path"
-msgstr "命令 / 路径"
 
 #: src/components/task-form-fields.tsx
 msgid "Command line (split into argv)"
@@ -1135,14 +1095,11 @@ msgstr "复制别名"
 msgid "Copy code"
 msgstr "复制代码"
 
+#: src/components/decision/signature-decision.tsx
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Copy command"
 msgstr "复制命令"
-
-#: src/components/authorization-card.tsx
-msgid "Copy crha grant command"
-msgstr "复制 crha grant 命令"
 
 #: src/features/node-groups/pages.tsx
 msgid "Copy node group id"
@@ -1157,10 +1114,6 @@ msgstr "复制节点组 {0} 的 ID"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Copy public key"
 msgstr "复制公钥"
-
-#: src/components/authorization-card.tsx
-msgid "Copy ssh-keygen recipe"
-msgstr "复制 ssh-keygen 命令"
 
 #: src/components/task-result.tsx
 msgid "Copy task id"
@@ -1242,10 +1195,6 @@ msgstr "凭据"
 msgid "crha client"
 msgstr "crha 客户端"
 
-#: src/components/authorization-card.tsx
-msgid "crha grant command"
-msgstr "crha grant 命令"
-
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
 msgstr "节点上的 crha 会被告知已被移除，随后断开连接并停止运行。等待该节点的任务会结束。该节点的访问授权和节点组成员关系会被移除。若要重新添加该主机，请先删除其 identity.key 和 server.pub，再用新令牌重新注册。"
@@ -1271,7 +1220,7 @@ msgstr "crhs 信任片段"
 msgid "Cron"
 msgstr "Cron"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Cumulative result"
 msgstr "累计结果"
 
@@ -1289,20 +1238,19 @@ msgstr "自定义"
 msgid "Dark"
 msgstr "深色"
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Deadline"
 msgstr "截止时间"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Decided at"
 msgstr "决定时间"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Decided by"
 msgstr "决定者"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Decision"
 msgstr "决定"
 
@@ -1311,7 +1259,7 @@ msgstr "决定"
 msgid "Decode speed: {0} tok/s"
 msgstr "解码速度：{0} tok/s"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Default"
 msgstr "默认"
 
@@ -1439,7 +1387,7 @@ msgstr "已删除的用户组"
 msgid "Denied"
 msgstr "已拒绝"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Deny"
@@ -1582,12 +1530,12 @@ msgstr "已完成，用时 {duration}"
 msgid "Enrollment command"
 msgstr "注册命令"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "请输入要添加的 token 数（正整数）。"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
@@ -1646,7 +1594,7 @@ msgstr "每个模型的最大输出至少为 1 个 token。"
 msgid "Every model needs an id."
 msgstr "每个模型都需要 ID。"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "exact"
 msgstr "精确匹配"
 
@@ -1828,6 +1776,15 @@ msgstr "主机密钥"
 msgid "Hostname"
 msgstr "主机名"
 
+#: src/components/decision/approval-decision.tsx
+#: src/components/decision/quota-decision.tsx
+msgid "How to decide"
+msgstr "如何决定"
+
+#: src/components/decision/signature-decision.tsx
+msgid "How to sign"
+msgstr "如何签名"
+
 #: src/features/authorizations/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -1851,7 +1808,7 @@ msgstr "图像"
 msgid "Image understanding"
 msgstr "图像理解"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Inherit"
 msgstr "继承"
 
@@ -1863,7 +1820,6 @@ msgstr "已中断"
 msgid "Invalid username or password."
 msgstr "用户名或密码错误。"
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Issued"
 msgstr "已签发"
@@ -1943,17 +1899,9 @@ msgstr "类型"
 msgid "Language"
 msgstr "语言"
 
-#: src/components/authorization-card.tsx
-msgid "Last rejection"
-msgstr "上次拒绝"
-
-#. placeholder {0}: pending.lastRejection.code
 #. placeholder {0}: record.lastRejection.code
-#. placeholder {1}: pending.lastRejection.attempt
 #. placeholder {1}: record.lastRejection.attempt
-#. placeholder {2}: pending.lastRejection.message
 #. placeholder {2}: record.lastRejection.message
-#: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
 msgid "Last rejection {0} (attempt {1}): {2}"
 msgstr "上次拒绝 {0}（第 {1} 次尝试）：{2}"
@@ -1982,7 +1930,7 @@ msgstr "留空以保留当前密钥"
 msgid "Leave empty to use the default prompt."
 msgstr "留空表示使用默认提示词。"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Level"
 msgstr "层"
 
@@ -2039,13 +1987,13 @@ msgstr "正在加载共享…"
 msgid "Loading task…"
 msgstr "正在加载任务…"
 
-#: src/features/sessions/session-waits.tsx
-msgid "Loading the waiting decisions…"
-msgstr "正在加载等待处理的决定…"
-
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Loading…"
 msgstr "正在加载…"
+
+#: src/components/decision/signature-decision.tsx
+msgid "Local approval"
+msgstr "本地批准"
 
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
@@ -2067,7 +2015,7 @@ msgstr "映射值"
 msgid "Mapping"
 msgstr "映射"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Matched rule"
 msgstr "匹配规则"
 
@@ -2258,7 +2206,8 @@ msgstr "新建计划任务"
 msgid "New session"
 msgstr "新会话"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
@@ -2308,7 +2257,6 @@ msgstr "下次运行"
 msgid "Nightly check"
 msgstr "夜间检查"
 
-#: src/components/approval-card.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "No"
 msgstr "否"
@@ -2329,7 +2277,7 @@ msgstr "还没有授权"
 msgid "No budget limit"
 msgstr "没有预算限制"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "No budget limit · {usedText} spent"
 msgstr "没有预算限制 · 已花 {usedText}"
 
@@ -2415,10 +2363,6 @@ msgstr "未保留任何输出。"
 msgid "No output yet"
 msgstr "还没有输出"
 
-#: src/components/authorization-card.tsx
-msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
-msgstr "此节点未信任你的任何 Passkey 用于此命令；请使用下方的 SSH 密钥签名。"
-
 #: src/features/sessions/tool-card.tsx
 msgid "No result"
 msgstr "无结果"
@@ -2474,7 +2418,6 @@ msgstr "还没有用户组"
 msgid "No users yet"
 msgstr "还没有用户"
 
-#: src/components/authorization-card.tsx
 #: src/components/entity-picker/entity-picker.tsx
 #: src/components/task-result.tsx
 #: src/features/node-groups/pages.tsx
@@ -2542,7 +2485,7 @@ msgid "Node tasks"
 msgstr "节点任务"
 
 #: src/app/shell/nav.ts
-#: src/components/authorization-card.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/node-groups/dialogs.tsx
 #: src/features/nodes/pages.tsx
@@ -2562,7 +2505,7 @@ msgstr "信任该凭据的节点会停止接受其签名。它已签发的授权
 msgid "None"
 msgstr "不支持"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Not a valid rule: {error}"
 msgstr "规则无效：{error}"
 
@@ -2591,7 +2534,6 @@ msgstr "未共享。"
 msgid "Not valid JSON: {0}"
 msgstr "JSON 无效：{0}"
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/schedules/run-history.tsx
 msgid "Note"
@@ -2649,10 +2591,6 @@ msgstr "代表"
 msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 msgstr "一行 authorized_keys 内容：ssh-ed25519、sk-ssh-ed25519@openssh.com、ecdsa-sha2-nistp256 或 sk-ecdsa-sha2-nistp256@openssh.com。"
 
-#: src/features/approvals/pages.tsx
-msgid "One decision applies to every node in the task group."
-msgstr "一个决定会应用到任务组内所有节点。"
-
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "One rule per line: method and a target prefix."
 msgstr "每行一条规则：方法和目标前缀。"
@@ -2700,14 +2638,13 @@ msgstr "打开任务"
 msgid "Open the task group"
 msgstr "打开任务组"
 
-#: src/features/sessions/session-waits.tsx
 #: src/features/sessions/tool-dialog.tsx
 msgid "Open the task group page"
 msgstr "打开任务组页"
 
-#: src/features/sessions/session-waits.tsx
-msgid "Open the task page"
-msgstr "打开任务页"
+#: src/features/approvals/pages.tsx
+msgid "Operation"
+msgstr "操作"
 
 #: src/app/shell/app-sidebar.tsx
 msgid "Ops console"
@@ -2737,11 +2674,6 @@ msgstr "可选；默认使用节点的主机名。"
 #: src/features/credentials/pages.tsx
 msgid "Optional; it names the trust entry."
 msgstr "可选；用于命名信任条目。"
-
-#. placeholder {0}: pending.taskIds[0] ?? ""
-#: src/components/authorization-card.tsx
-msgid "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
-msgstr "或者在节点上运行 <0>crha approve {0}</0>（该节点 `local` 信任条目中的用户）——任务随后会改用该批准运行。"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
@@ -2800,6 +2732,7 @@ msgstr "并发数必须是正整数。"
 msgid "Partly failed"
 msgstr "部分失败"
 
+#: src/components/decision/signature-decision.tsx
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Passkey"
@@ -2809,7 +2742,7 @@ msgstr "Passkey"
 msgid "Passkey registration was cancelled."
 msgstr "Passkey 注册已取消。"
 
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Passkey signing was cancelled."
 msgstr "Passkey 签名已取消。"
 
@@ -2872,15 +2805,15 @@ msgstr "端口"
 msgid "Preempted"
 msgstr "已被抢占"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "prefix"
 msgstr "前缀匹配"
 
-#: src/features/sessions/session-waits.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Preparing the payload to sign…"
 msgstr "正在准备待签名的载荷…"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/decision.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
 #: src/features/tasks/task-columns.tsx
@@ -2936,13 +2869,17 @@ msgstr "排队中"
 msgid "Queued"
 msgstr "排队中"
 
-#: src/components/approval-card.tsx
+#: src/features/approvals/pages.tsx
+msgid "Quota"
+msgstr "配额"
+
+#: src/components/decision/evaluation.tsx
 msgid "Reason"
 msgstr "原因"
 
-#: src/components/approval-card.tsx
-msgid "Reason (optional, used when rejecting)"
-msgstr "原因（可选，拒绝时使用）"
+#: src/components/decision/reject.tsx
+msgid "Reason (optional)"
+msgstr "原因（可选）"
 
 #: src/features/users/pages.tsx
 msgid "Recent sessions"
@@ -2961,7 +2898,9 @@ msgstr "正在重新连接…"
 msgid "Register Passkey"
 msgstr "注册 Passkey"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
+#: src/components/decision/reject.tsx
+#: src/components/decision/signature-decision.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject"
@@ -2975,7 +2914,7 @@ msgstr "拒绝并删除"
 msgid "Reject node"
 msgstr "拒绝节点"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/components/status-badge.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
@@ -3113,11 +3052,11 @@ msgstr "请求体覆盖必须是有效的 JSON。"
 msgid "Request body per level"
 msgstr "各档请求体"
 
-#: src/components/approval-card.tsx
+#: src/features/approvals/pages.tsx
 msgid "Requested"
 msgstr "请求时间"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Require approval"
 msgstr "需要审批"
 
@@ -3191,7 +3130,8 @@ msgstr "角色"
 msgid "Route"
 msgstr "路由"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
+#: src/components/decision/evaluation.tsx
 #: src/components/task-result.tsx
 msgid "Rule chain evaluation"
 msgstr "规则链评估"
@@ -3209,11 +3149,11 @@ msgstr "规则预设"
 msgid "Rule preset: {0}"
 msgstr "规则预设：{0}"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Rule result"
 msgstr "规则结果"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Rule to add to the caller's rule set"
 msgstr "添加到调用方规则集的规则"
 
@@ -3266,6 +3206,10 @@ msgstr "运行已开始。"
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Run task"
 msgstr "运行任务"
+
+#: src/components/decision/signature-decision.tsx
+msgid "Run this on the node as a user in its local trust entries; the task then runs with that approval instead."
+msgstr "在节点上以本地信任条目中的用户身份运行此命令；任务将改用该批准继续运行。"
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Run this on the node:"
@@ -3326,7 +3270,7 @@ msgstr "保存规则"
 msgid "Save schedule"
 msgstr "保存计划任务"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/tasks/pages.tsx
 msgid "Schedule"
 msgstr "计划任务"
@@ -3410,7 +3354,7 @@ msgstr "请选择…"
 msgid "Send"
 msgstr "发送"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-page.tsx
@@ -3507,16 +3451,16 @@ msgstr "登录"
 msgid "Sign in to the operations console."
 msgstr "登录运维控制台。"
 
-#: src/components/authorization-card.tsx
-msgid "Sign on your workstation"
-msgstr "在工作站上签名"
+#: src/components/decision/signature-decision.tsx
+msgid "Sign to approve"
+msgstr "需要你签名批准"
 
-#: src/components/authorization-card.tsx
-msgid "Sign the payload below with `crha grant` (or your Passkey). The signature is bound to this attempt: if the plan changes, this card shows a new payload."
-msgstr "用 `crha grant`（或你的 Passkey）签署下方的载荷。签名绑定本次尝试：如果计划发生变化，此卡片会显示新的载荷。"
+#: src/components/decision/signature-decision.tsx
+msgid "Sign with a Passkey this node trusts for this command."
+msgstr "使用此节点为该命令信任的 Passkey 签名。"
 
 #. placeholder {0}: passkey.name
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Sign with Passkey “{0}”"
 msgstr "使用 Passkey“{0}”签名"
 
@@ -3533,12 +3477,17 @@ msgstr "信号"
 msgid "Signal {0}"
 msgstr "信号 {0}"
 
+#: src/components/decision/signature-decision.tsx
+#: src/features/approvals/pages.tsx
+msgid "Signature"
+msgstr "签名"
+
 #: src/app/shell/user-menu.tsx
 msgid "Signed in as {name}"
 msgstr "已登录为 {name}"
 
 #. placeholder {0}: passkey.name
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Signed with Passkey \"{0}\"."
 msgstr "已使用 Passkey“{0}”签名。"
 
@@ -3549,10 +3498,6 @@ msgstr "签名凭据"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Signing key"
 msgstr "签名密钥"
-
-#: src/components/quota-card.tsx
-msgid "Since"
-msgstr "开始时间"
 
 #: src/components/task-result.tsx
 msgid "Size"
@@ -3573,10 +3518,6 @@ msgstr "有些规则引用了已删除的节点或节点组。保存前请移除
 #: src/components/error-state.tsx
 msgid "Something went wrong"
 msgstr "出错了"
-
-#: src/components/authorization-card.tsx
-msgid "Spec hash"
-msgstr "规范哈希"
 
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/ssh-node-section.tsx
@@ -3604,10 +3545,6 @@ msgstr "SSH 密钥"
 msgid "SSH route"
 msgstr "SSH 路由"
 
-#: src/components/authorization-card.tsx
-msgid "ssh-keygen recipe"
-msgstr "ssh-keygen 命令"
-
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Standard"
@@ -3625,7 +3562,6 @@ msgstr "新建一个，或等待计划任务运行。"
 msgid "State"
 msgstr "状态"
 
-#: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
@@ -3656,7 +3592,7 @@ msgstr "标准输入（可选）"
 msgid "Steps"
 msgstr "步骤"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/sessions/composer-footer.tsx
 msgid "Stop"
 msgstr "停止"
@@ -3668,6 +3604,10 @@ msgstr "停止它并立即运行"
 #: src/features/tasks/task-page.tsx
 msgid "Stop task"
 msgstr "停止任务"
+
+#: src/components/decision/quota-decision.tsx
+msgid "Stop the paused run instead of adding tokens."
+msgstr "停止已暂停的运行，而不是添加 token。"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "stopped by the next run"
@@ -3687,7 +3627,7 @@ msgstr "子会话：{0}"
 msgid "Subagents"
 msgstr "子会话"
 
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Submit authorization"
 msgstr "提交授权"
 
@@ -3731,40 +3671,26 @@ msgstr "目标 ID"
 msgid "Target type"
 msgstr "目标类型"
 
-#: src/components/approval-card.tsx
-#: src/components/authorization-card.tsx
+#: src/components/decision/summary.tsx
+msgid "Targets"
+msgstr "目标节点"
+
 #: src/components/task-result.tsx
-#: src/features/approvals/pages.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "Task"
 msgstr "任务"
 
-#: src/features/approvals/pages.tsx
-msgid "Task approvals"
-msgstr "任务审批"
-
+#: src/features/sessions/session-decisions.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task details"
 msgstr "任务详情"
 
-#: src/components/approval-card.tsx
-#: src/features/approvals/pages.tsx
-msgid "task group"
-msgstr "任务组"
-
-#: src/components/approval-card.tsx
-#: src/features/approvals/pages.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task group"
 msgstr "任务组"
 
-#: src/features/approvals/pages.tsx
-msgid "Task-group approvals"
-msgstr "任务组审批"
-
 #: src/app/shell/nav.ts
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/tasks/pages.tsx
 msgid "Tasks"
@@ -3779,10 +3705,6 @@ msgstr "此任务组中的任务"
 msgid "Tasks of {0}"
 msgstr "{0} 的任务"
 
-#: src/components/authorization-card.tsx
-msgid "Tasks waiting for authorization"
-msgstr "等待授权的任务"
-
 #: src/components/test-connection.tsx
 msgid "Test connection"
 msgstr "测试连接"
@@ -3791,7 +3713,7 @@ msgstr "测试连接"
 msgid "text"
 msgstr "文本"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
 msgid "That number is too large."
@@ -3903,10 +3825,6 @@ msgstr "起始行超出文件末尾。"
 msgid "The page you asked for does not exist."
 msgstr "你访问的页面不存在。"
 
-#: src/features/sessions/session-waits.tsx
-msgid "The pending payload is being prepared…"
-msgstr "待签名的载荷正在准备中…"
-
 #: src/features/nodes/ssh-wizard.tsx
 msgid "The port must be between 1 and 65535."
 msgstr "端口必须在 1 到 65535 之间。"
@@ -3983,14 +3901,6 @@ msgstr "Yolo 规则预设所有操作都不经询问或检查直接运行。"
 msgid "Theme"
 msgstr "主题"
 
-#: src/features/approvals/pages.tsx
-msgid "These passed their rules; they run once you sign them."
-msgstr "这些任务已通过规则检查；签名后就会运行。"
-
-#: src/features/approvals/pages.tsx
-msgid "These tasks were held back by a rule and run once you approve them."
-msgstr "这些任务被规则拦下，批准后就会运行。"
-
 #: src/features/users/pages.tsx
 msgid "They are signed out and cannot sign in again until you enable them."
 msgstr "该用户会被退出登录，在你重新启用之前无法再次登录。"
@@ -4048,10 +3958,6 @@ msgstr "这是 privileged.toml 的顶层键。请将它粘贴在第一个 `[[tru
 msgid "This request is no longer waiting for approval; it is"
 msgstr "此请求已不再等待审批；当前状态为"
 
-#: src/features/sessions/session-waits.tsx
-msgid "This session is waiting, but there is nothing for you to decide."
-msgstr "此会话正在等待，但没有需要你决定的事项。"
-
 #: src/features/schedules/schedule-actions.tsx
 msgid "This stops the current run. Its history will show it as preempted."
 msgstr "这会停止当前运行，运行历史会把它显示为被抢占。"
@@ -4106,19 +4012,15 @@ msgstr "切换侧边栏"
 msgid "Token budget"
 msgstr "token 预算"
 
-#: src/components/quota-card.tsx
-msgid "Token budget used up"
-msgstr "token 预算已用尽"
-
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Token created"
 msgstr "令牌已创建"
 
-#: src/features/approvals/pages.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "Token quota used up"
 msgstr "token 配额已用尽"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "Tokens to add"
 msgstr "要添加的 token 数"
 
@@ -4169,6 +4071,7 @@ msgid "Try again"
 msgstr "重试"
 
 #: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
 msgid "Type"
 msgstr "类型"
 
@@ -4320,38 +4223,22 @@ msgstr "等待审批"
 msgid "Waiting for approval. {approvalLink}"
 msgstr "等待审批。{approvalLink}"
 
-#: src/features/tasks/task-group-result.tsx
-msgid "Waiting for the owner's authorization; the payload is being prepared."
-msgstr "等待所有者授权；载荷正在准备中。"
-
 #: src/components/task-result.tsx
 msgid "Waiting for the owner's authorization."
 msgstr "等待所有者授权。"
 
-#: src/features/tasks/task-page.tsx
-msgid "Waiting for the payload to sign; the card appears when it is ready."
-msgstr "正在等待可签名的载荷；准备好后会显示卡片。"
+#: src/features/approvals/pages.tsx
+msgid "Waiting for you"
+msgstr "等待你处理"
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your approval."
 msgstr "正在等待你的批准。"
 
-#: src/components/authorization-card.tsx
-msgid "Waiting for your authorization"
-msgstr "等待你的授权"
-
-#: src/features/approvals/pages.tsx
-msgid "Waiting for your signature"
-msgstr "等待你签名"
-
 #: src/components/task-result.tsx
 #: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your signature."
 msgstr "等待你的签名。"
-
-#: src/components/approval-card.tsx
-msgid "What"
-msgstr "内容"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "What the new session should do"
@@ -4385,7 +4272,6 @@ msgstr "工作"
 msgid "Working directory (optional)"
 msgstr "工作目录（可选）"
 
-#: src/components/approval-card.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Yes"
 msgstr "是"
@@ -4417,3 +4303,7 @@ msgstr "不能停用自己的账号。"
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."
 msgstr "你拥有查看权限：所有者可以通过聊天共享让你发送消息。"
+
+#: src/components/decision/approval-decision.tsx
+msgid "Your approval is needed"
+msgstr "需要你的批准"

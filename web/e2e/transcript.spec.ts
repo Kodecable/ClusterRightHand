@@ -88,9 +88,10 @@ test("a faux-model session streams text, runs a tool call, waits for an inline a
 		)
 		.toBe("awaiting");
 
-	// The inline card (the same one the Approvals page shows) approves the task.
-	const wait = page.getByTestId("session-waits");
-	await expect(wait.getByRole("region", { name: /^Task / })).toBeVisible({ timeout: 15_000 });
+	// The docked decision panel (in place of the composer) approves the task.
+	const wait = page.getByTestId("session-decisions");
+	await expect(wait.getByRole("region", { name: "Your approval is needed" })).toBeVisible({ timeout: 15_000 });
+	await expect(page.getByTestId("composer-input")).toHaveCount(0);
 	await wait.getByRole("button", { name: "Approve", exact: true }).click();
 
 	// The run continues: the answer is streamed into a growing row, then the task's result arrives.

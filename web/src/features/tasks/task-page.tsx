@@ -4,7 +4,7 @@ import { ArrowLeftIcon, SquareIcon } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
 import { usePageTitle } from "@/app/shell/page-title";
-import { ApprovalCard, DecisionView } from "@/components/approval-card";
+import { ApprovalDecision, DecisionView } from "@/components/decision";
 import { ErrorState } from "@/components/error-state";
 import type { KeyValueItem } from "@/components/key-value";
 import { Page } from "@/components/page";
@@ -25,7 +25,7 @@ import { Button } from "@/components/ui/button";
 import { UserLink } from "@/components/user-link";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { useAuth } from "@/features/auth/session";
-import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
+import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
 import { isNotFound } from "@/lib/api/client";
@@ -44,7 +44,7 @@ function NodeLink({ nodeId, names }: { nodeId: string; names: Map<string, string
 	);
 }
 
-/** One task: header, one facts block, the approval or signature card, then the result (doc/design/webui.md "Task and task group pages"). */
+/** One task: header, one facts block, the approval or signature decision, then the result (doc/design/webui.md "Task and task group pages"). */
 export function TaskPage() {
 	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { taskId?: string };
@@ -181,15 +181,13 @@ export function TaskPage() {
 			</Panel>
 
 			{view.state === "awaiting_approval" && canAct && (
-				<ApprovalCard
+				<ApprovalDecision
 					item={{ kind: "task", task: view }}
 					nodeNames={looks.nodeNames}
 					refNames={looks.refNames}
 					tokenNames={looks.tokenNames}
 					busy={decide.isPending}
 					error={decide.error}
-					showFacts={false}
-					showHeading={false}
 					onDecide={(body) =>
 						decide.mutate(
 							{ kind: "task", id: view.id, body },
@@ -204,15 +202,12 @@ export function TaskPage() {
 			)}
 
 			{view.state === "awaiting_authorization" && canSign && (
-				<AuthorizationWait
+				<SignatureWait
 					kind="task"
 					id={view.id}
+					item={{ kind: "task", task: view }}
+					nodeNames={names}
 					onChanged={() => void task.refetch()}
-					waiting={
-						<p className="text-sm text-muted-foreground">
-							<Trans>Waiting for the payload to sign; the card appears when it is ready.</Trans>
-						</p>
-					}
 				/>
 			)}
 

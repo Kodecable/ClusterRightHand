@@ -285,7 +285,8 @@ approval is for single tasks only: approving node by node defeats the purpose of
 A task that passed its rules but needs a signature is `awaiting_authorization`, distinct from
 `awaiting_approval`. Approval waits never expire, but a signature wait ends the task as `rejected`
 with `authorization_wait_expired` after 24 hours, the same as the default lifetime of an owner's
-authorization. Stopping a session also ends the waits of the tasks it created
+authorization. The owner can also reject the wait with a reason: the task ends `rejected` with
+`authorization_rejected`. Stopping a session also ends the waits of the tasks it created
 ([Session state](agent-runtime.md#session-state)).
 
 The owner signs from the approvals page, the task page or the session's tool card. A task group's

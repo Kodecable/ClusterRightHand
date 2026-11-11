@@ -1,282 +1,213 @@
-import type { ApprovalBody, QuotaApproval, TaskGroupView, TaskView } from "@crh/api";
-import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import type { QuotaApproval, RefMap, TaskGroupView, TaskView } from "@crh/api";
+import type { MessageDescriptor } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon } from "lucide-react";
-import { ApprovalCard } from "@/components/approval-card";
+import { useMemo } from "react";
+import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/components/data-table";
+import { ApprovalDecision } from "@/components/decision";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { QuotaCard } from "@/components/quota-card";
-import { CardSkeleton, PageSkeleton } from "@/components/skeletons";
+import { RelativeTime } from "@/components/relative-time";
+import { PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
-import { useDecideQuota } from "@/features/sessions/api";
+import { UserLink } from "@/components/user-link";
+import { SignatureWait } from "@/features/authorizations/signature-wait";
+import { sessionTitle } from "@/features/sessions/session-item";
 import { TaskGroupStatus } from "@/features/tasks/task-group-result";
 import { taskTitle } from "@/features/tasks/title";
-import { cn, linkClass } from "@/lib/utils";
+import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useApprovalLookups, useApprovals, useApprovalTask, useApprovalTaskGroup, useDecideApproval } from "./api";
-import { pendingCount } from "./pending";
+import { actorLabel } from "./rules";
 
-/** A section that disappears entirely when it has nothing to show. */
-function ApprovalSection({
-	label,
-	title,
-	description,
-	children,
-	count,
-}: {
+/** What kind of decision a row holds; the table's first column. */
+type DecisionType = "approval" | "signature" | "quota";
+
+const TYPE_LABELS: Record<DecisionType, MessageDescriptor> = {
+	approval: msg`Approval`,
+	signature: msg`Signature`,
+	quota: msg`Quota`,
+};
+
+/** One row of the approvals table: a task, task group or session whose decision waits for the user. */
+interface DecisionRow {
+	key: string;
+	type: DecisionType;
+	operation: string;
+	nodes: string[];
+	refs?: RefMap;
+	actor?: { type: string; id: string };
+	requestedAt: string;
+	link: DataTableRowLink;
 	label: string;
-	title: React.ReactNode;
-	description?: React.ReactNode;
-	children: React.ReactNode;
-	count: number;
-}) {
-	if (count === 0) return null;
-	return (
-		<section className="grid gap-2" aria-label={label} data-testid={`approvals-section-${label}`}>
-			<div className="flex items-baseline gap-2">
-				<h2 className="text-sm font-medium">{title}</h2>
-				<span className="text-xs text-muted-foreground">
-					<Plural value={count} one="# waiting" other="# waiting" />
-				</span>
-			</div>
-			{description !== undefined && <p className="text-sm text-muted-foreground">{description}</p>}
-			<div className="grid gap-2">{children}</div>
-		</section>
-	);
 }
 
-function TaskCards({
-	tasks,
-	nodeNames,
-	refNames,
-	tokenNames,
-	userNames,
-}: {
-	tasks: TaskView[];
-	nodeNames: Map<string, string>;
-	refNames: Map<string, string>;
-	tokenNames: Map<string, string>;
-	userNames: Map<string, string>;
-}) {
-	const decide = useDecideApproval();
-	const onDecide = (id: string, body: ApprovalBody) => {
-		decide.mutate({ kind: "task", id, body });
+function taskRow(type: "approval" | "signature", task: TaskView): DecisionRow {
+	return {
+		key: `${type}:task:${task.id}`,
+		type,
+		operation: taskTitle(task),
+		nodes: [task.nodeId],
+		actor: { type: task.actorType, id: task.actorId },
+		requestedAt: task.createdAt,
+		link: { to: "/approvals/tasks/$taskId", params: { taskId: task.id } },
+		label: taskTitle(task),
 	};
-	return (
-		<>
-			{tasks.map((task) => (
-				<ApprovalCard
-					key={task.id}
-					item={{ kind: "task", task }}
-					nodeNames={nodeNames}
-					refNames={refNames}
-					tokenNames={tokenNames}
-					userNames={userNames}
-					busy={decide.isPending && decide.variables?.id === task.id}
-					error={decide.variables?.id === task.id ? decide.error : undefined}
-					onDecide={(body) => onDecide(task.id, body)}
-				/>
-			))}
-		</>
-	);
 }
 
-function TaskGroupCards({
-	taskGroups,
-	nodeNames,
-	refNames,
-	tokenNames,
-	userNames,
-}: {
-	taskGroups: TaskGroupView[];
-	nodeNames: Map<string, string>;
-	refNames: Map<string, string>;
-	tokenNames: Map<string, string>;
-	userNames: Map<string, string>;
-}) {
-	const decide = useDecideApproval();
-	const onDecide = (id: string, body: ApprovalBody) => {
-		decide.mutate({ kind: "task_group", id, body });
+function taskGroupRow(type: "approval" | "signature", taskGroup: TaskGroupView): DecisionRow {
+	return {
+		key: `${type}:task-group:${taskGroup.id}`,
+		type,
+		operation: taskTitle(taskGroup),
+		nodes: taskGroup.targets,
+		refs: taskGroup.refs,
+		actor: { type: taskGroup.actorType, id: taskGroup.actorId },
+		requestedAt: taskGroup.createdAt,
+		link: { to: "/approvals/task-groups/$taskGroupId", params: { taskGroupId: taskGroup.id } },
+		label: taskTitle(taskGroup),
 	};
-	return (
-		<>
-			{taskGroups.map((taskGroup) => (
-				<ApprovalCard
-					key={taskGroup.id}
-					item={{ kind: "task_group", taskGroup }}
-					nodeNames={nodeNames}
-					refNames={refNames}
-					tokenNames={tokenNames}
-					userNames={userNames}
-					busy={decide.isPending && decide.variables?.id === taskGroup.id}
-					error={decide.variables?.id === taskGroup.id ? decide.error : undefined}
-					onDecide={(body) => onDecide(taskGroup.id, body)}
-				/>
-			))}
-		</>
-	);
 }
 
-function SignatureSection({
-	tasks,
-	taskGroups,
-	nodeNames,
+function quotaRow(wait: QuotaApproval, defaultTitle: string): DecisionRow {
+	const title = sessionTitle(wait, defaultTitle);
+	return {
+		key: `quota:${wait.sessionId}`,
+		type: "quota",
+		operation: title,
+		nodes: [],
+		requestedAt: wait.since,
+		link: { to: "/sessions/$sessionId", params: { sessionId: wait.sessionId } },
+		label: title,
+	};
+}
+
+/** The readable full text of a node list for a cell's tooltip. */
+function nodeNamesText(ids: readonly string[], names: Map<string, string>): string | undefined {
+	const text = ids.map((id) => names.get(id) ?? id).join(", ");
+	return text === "" ? undefined : text;
+}
+
+/** The actor that asked for a task, or a dash when the row has none (a quota wait). */
+function AskedBy({
+	row,
+	userNames,
+	tokenNames,
 }: {
-	tasks: TaskView[];
-	taskGroups: TaskGroupView[];
-	nodeNames: Map<string, string>;
+	row: DecisionRow;
+	userNames: Map<string, string>;
+	tokenNames: Map<string, string>;
 }) {
-	const { t } = useLingui();
-	if (tasks.length + taskGroups.length === 0) return null;
-	return (
-		<section className="grid gap-2" aria-label={t`Waiting for your signature`} data-testid="signature-section">
-			<h2 className="text-sm font-medium">
-				<Trans>Waiting for your signature</Trans>
-			</h2>
-			<p className="text-sm text-muted-foreground">
-				<Trans>These passed their rules; they run once you sign them.</Trans>
-			</p>
-			<ul className="grid gap-1">
-				{tasks.map((task) => (
-					<li key={task.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-						<Link to="/tasks/$taskId" params={{ taskId: task.id }} className={cn("min-w-0 flex-1 truncate", linkClass)}>
-							{taskTitle(task)} · {nodeNames.get(task.nodeId) ?? task.nodeId}
-						</Link>
-						<span>
-							<Trans>Task</Trans>
-						</span>
-					</li>
-				))}
-				{taskGroups.map((taskGroup) => (
-					<li key={taskGroup.id} className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm">
-						<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1">
-							<Link
-								to="/task-groups/$taskGroupId"
-								params={{ taskGroupId: taskGroup.id }}
-								className={cn("min-w-0 truncate", linkClass)}
-							>
-								{taskTitle(taskGroup) || t`task group`}
-							</Link>
-							<span className="text-muted-foreground">·</span>
-							<NodeTargetList ids={taskGroup.targets} refs={taskGroup.refs} nodeNames={nodeNames} />
-						</span>
-						<span>
-							<Trans>Task group</Trans>
-						</span>
-					</li>
-				))}
-			</ul>
-		</section>
-	);
-}
-
-function QuotaRow({ wait }: { wait: QuotaApproval }) {
-	const decide = useDecideQuota(wait.sessionId);
-	return (
-		<QuotaCard
-			wait={wait}
-			busy={decide.isPending}
-			error={decide.error}
-			onDecide={(decision) => decide.mutate(decision)}
-		/>
-	);
+	if (row.actor === undefined) return <>–</>;
+	if (row.actor.type === "user") return <UserLink id={row.actor.id} name={userNames.get(row.actor.id)} />;
+	return <span className="truncate">{actorLabel(row.actor.type, row.actor.id, tokenNames)}</span>;
 }
 
 /**
- * The Approvals page (doc/design/webui.md "Approvals page"): everything that waits for this
- * user — task approvals, task-group approvals, privileged tasks waiting for a
- * signature and roots whose token quota is used up. Decisions go through the
- * shared cards and invalidate the queries, so the header badge updates too.
+ * The Approvals page (doc/design/webui.md "Approvals page"): one table of everything waiting for this
+ * user — task approvals, task-group approvals, tasks waiting for the user's
+ * signature and roots whose token quota is used up. A row opens the matching
+ * detail page, where the decision itself is made. The sidebar badge counts the
+ * same rows (`pending.ts`).
  */
 export function ApprovalsPage() {
+	const { t, i18n } = useLingui();
 	const approvals = useApprovals();
 	const lookups = useApprovalLookups();
 	const data = approvals.data;
-	const count = pendingCount(data);
 
-	if (approvals.isPending) {
-		return (
-			<Page>
-				<CardSkeleton />
-				<CardSkeleton />
-			</Page>
-		);
-	}
-	if (approvals.error !== null && approvals.error !== undefined) {
-		return (
-			<Page>
-				<ErrorState error={approvals.error} retry={() => void approvals.refetch()} />
-			</Page>
-		);
-	}
+	const rows = useMemo(() => {
+		if (data === undefined) return [];
+		const quotaDefault = t`New Session`;
+		return [
+			...data.tasks.map((task) => taskRow("approval", task)),
+			...data.taskGroups.map((taskGroup) => taskGroupRow("approval", taskGroup)),
+			...data.authorizations.tasks.map((task) => taskRow("signature", task)),
+			...data.authorizations.taskGroups.map((taskGroup) => taskGroupRow("signature", taskGroup)),
+			...data.quotas.map((wait) => quotaRow(wait, quotaDefault)),
+		];
+	}, [data, t]);
+
+	const columns = useMemo<DataTableColumn<DecisionRow>[]>(
+		() => [
+			{
+				id: "type",
+				header: t`Type`,
+				size: 100,
+				cell: ({ row }) => i18n._(TYPE_LABELS[row.original.type]),
+			},
+			{
+				id: "operation",
+				header: t`Operation`,
+				minSize: 160,
+				cell: ({ row }) => <span className={cn("truncate", MONO_CELL)}>{row.original.operation}</span>,
+				meta: { title: (row: DecisionRow) => row.operation },
+			},
+			{
+				id: "nodes",
+				header: t`Nodes`,
+				minSize: 120,
+				cell: ({ row }) => {
+					if (row.original.nodes.length === 0) return <span className="text-muted-foreground">–</span>;
+					if (row.original.refs !== undefined) {
+						return (
+							<NodeTargetList
+								ids={row.original.nodes}
+								refs={row.original.refs}
+								nodeNames={lookups.nodeNames}
+								className="flex-nowrap"
+							/>
+						);
+					}
+					const id = row.original.nodes[0] ?? "";
+					return <span className="truncate">{lookups.nodeNames.get(id) ?? id}</span>;
+				},
+				meta: {
+					title: (row: DecisionRow) => nodeNamesText(row.nodes, lookups.nodeNames),
+				},
+			},
+			{
+				id: "asked-by",
+				header: t`Asked by`,
+				size: 140,
+				cell: ({ row }) => <AskedBy row={row.original} userNames={lookups.userNames} tokenNames={lookups.tokenNames} />,
+			},
+			{
+				id: "requested",
+				header: t`Requested`,
+				size: 120,
+				cell: ({ row }) => <RelativeTime value={row.original.requestedAt} />,
+			},
+		],
+		[t, i18n, lookups.nodeNames, lookups.userNames, lookups.tokenNames],
+	);
 
 	return (
 		<Page data-testid="approvals-page">
 			<PageHeader title={<Trans>Approvals</Trans>} />
-
-			{data && count === 0 && (
-				<EmptyState
-					title={<Trans>Nothing is waiting for you</Trans>}
-					description={<Trans>New requests appear here and in the sidebar badge.</Trans>}
-				/>
-			)}
-
-			{data && data.tasks.length > 0 && (
-				<ApprovalSection
-					label="Task approvals"
-					title={<Trans>Task approvals</Trans>}
-					description={<Trans>These tasks were held back by a rule and run once you approve them.</Trans>}
-					count={data.tasks.length}
-				>
-					<TaskCards
-						tasks={data.tasks}
-						nodeNames={lookups.nodeNames}
-						refNames={lookups.refNames}
-						tokenNames={lookups.tokenNames}
-						userNames={lookups.userNames}
+			<DataTable
+				label={t`Waiting for you`}
+				columns={columns}
+				data={rows}
+				getRowId={(row) => row.key}
+				loading={approvals.isLoading}
+				error={approvals.isError ? approvals.error : undefined}
+				onRetry={() => void approvals.refetch()}
+				rowLink={(row) => row.link}
+				rowLabel={(row) => row.label}
+				rowLinkColumn="operation"
+				empty={
+					<EmptyState
+						bare
+						title={<Trans>Nothing is waiting for you</Trans>}
+						description={<Trans>New requests appear here and in the sidebar badge.</Trans>}
 					/>
-				</ApprovalSection>
-			)}
-
-			{data && data.taskGroups.length > 0 && (
-				<ApprovalSection
-					label="Task-group approvals"
-					title={<Trans>Task-group approvals</Trans>}
-					description={<Trans>One decision applies to every node in the task group.</Trans>}
-					count={data.taskGroups.length}
-				>
-					<TaskGroupCards
-						taskGroups={data.taskGroups}
-						nodeNames={lookups.nodeNames}
-						refNames={lookups.refNames}
-						tokenNames={lookups.tokenNames}
-						userNames={lookups.userNames}
-					/>
-				</ApprovalSection>
-			)}
-
-			{data && (
-				<SignatureSection
-					tasks={data.authorizations.tasks}
-					taskGroups={data.authorizations.taskGroups}
-					nodeNames={lookups.nodeNames}
-				/>
-			)}
-
-			{data && data.quotas.length > 0 && (
-				<ApprovalSection
-					label="Token quotas used up"
-					title={<Trans>Token quota used up</Trans>}
-					description={<Trans>Add tokens to the paused run or stop it.</Trans>}
-					count={data.quotas.length}
-				>
-					{data.quotas.map((wait) => (
-						<QuotaRow key={wait.sessionId} wait={wait} />
-					))}
-				</ApprovalSection>
-			)}
+				}
+			/>
 		</Page>
 	);
 }
@@ -309,7 +240,7 @@ function DetailPending() {
 	);
 }
 
-/** A deep link to one approval (MCP returns these paths). */
+/** A deep link to one task's approval or signature wait (MCP returns these paths). */
 export function ApprovalTaskPage() {
 	const params = useParams({ strict: false }) as { taskId?: string };
 	const task = useApprovalTask(params.taskId);
@@ -324,7 +255,7 @@ export function ApprovalTaskPage() {
 		);
 	}
 	if (!task.data) return null;
-	const pending = task.data.state === "awaiting_approval";
+	const view = task.data;
 	return (
 		<Page width="detail" data-testid="approval-detail">
 			<div>
@@ -336,20 +267,27 @@ export function ApprovalTaskPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
-			{pending ? (
-				<ApprovalCard
-					item={{ kind: "task", task: task.data }}
+			{view.state === "awaiting_approval" ? (
+				<ApprovalDecision
+					item={{ kind: "task", task: view }}
 					nodeNames={lookups.nodeNames}
 					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
-					userNames={lookups.userNames}
 					busy={decide.isPending}
 					error={decide.error}
-					onDecide={(body) => decide.mutate({ kind: "task", id: task.data?.id ?? "", body })}
+					onDecide={(body) => decide.mutate({ kind: "task", id: view.id, body })}
+				/>
+			) : view.state === "awaiting_authorization" ? (
+				<SignatureWait
+					kind="task"
+					id={view.id}
+					item={{ kind: "task", task: view }}
+					nodeNames={lookups.nodeNames}
+					onChanged={() => void task.refetch()}
 				/>
 			) : (
-				<Settled status={<TaskStatusBadge state={task.data.state} />} title={<Trans>Already settled</Trans>}>
-					<Link to="/tasks/$taskId" params={{ taskId: task.data.id }} className={linkClass}>
+				<Settled status={<TaskStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
+					<Link to="/tasks/$taskId" params={{ taskId: view.id }} className={linkClass}>
 						<Trans>Open the task</Trans>
 					</Link>
 				</Settled>
@@ -372,7 +310,7 @@ export function ApprovalTaskGroupPage() {
 		);
 	}
 	if (!taskGroup.data) return null;
-	const pending = taskGroup.data.state === "awaiting_approval";
+	const view = taskGroup.data;
 	return (
 		<Page width="detail" data-testid="approval-detail">
 			<div>
@@ -384,20 +322,27 @@ export function ApprovalTaskGroupPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
-			{pending ? (
-				<ApprovalCard
-					item={{ kind: "task_group", taskGroup: taskGroup.data }}
+			{view.state === "awaiting_approval" ? (
+				<ApprovalDecision
+					item={{ kind: "task_group", taskGroup: view }}
 					nodeNames={lookups.nodeNames}
 					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
-					userNames={lookups.userNames}
 					busy={decide.isPending}
 					error={decide.error}
-					onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.data?.id ?? "", body })}
+					onDecide={(body) => decide.mutate({ kind: "task_group", id: view.id, body })}
+				/>
+			) : view.state === "awaiting_authorization" ? (
+				<SignatureWait
+					kind="task_group"
+					id={view.id}
+					item={{ kind: "task_group", taskGroup: view }}
+					nodeNames={lookups.nodeNames}
+					onChanged={() => void taskGroup.refetch()}
 				/>
 			) : (
-				<Settled status={<TaskGroupStatus state={taskGroup.data.state} />} title={<Trans>Already settled</Trans>}>
-					<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: taskGroup.data.id }} className={linkClass}>
+				<Settled status={<TaskGroupStatus state={view.state} />} title={<Trans>Already settled</Trans>}>
+					<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: view.id }} className={linkClass}>
 						<Trans>Open the task group</Trans>
 					</Link>
 				</Settled>

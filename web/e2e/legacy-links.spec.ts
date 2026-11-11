@@ -42,7 +42,7 @@ test("an old #/approvals/tasks/:id link becomes the path and opens the approval"
 	await page.goto(`/#/approvals/tasks/${task.id}`);
 	await expect(page).toHaveURL(new RegExp(`/approvals/tasks/${task.id}$`));
 	await expect(page.getByTestId("page-title")).toHaveText("Approvals");
-	await expect(page.getByRole("region", { name: `Task ${task.id}` })).toBeVisible();
+	await expect(page.getByRole("region", { name: "Your approval is needed" })).toBeVisible();
 });
 
 test("an old #/tasks/:id link becomes the path", async ({ adminPage: page, crhs, env }) => {

@@ -2,6 +2,7 @@ import type { Evaluation, TaskGroupView, TaskView } from "@crh/api";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { authStore } from "@/features/auth/session";
 import { renderWithRouter, type TestLocale, testQueryClient } from "@/test/render";
 import { TaskGroupPage } from "./task-group-page";
 import { TaskPage } from "./task-page";
@@ -15,6 +16,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 });
 
 afterEach(() => {
+	authStore.clear();
 	vi.unstubAllGlobals();
 });
 
@@ -160,6 +162,9 @@ function mockTask(task: TaskView = TASK): void {
 			const json = (payload: unknown) =>
 				new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
 			if (url.pathname === "/api/tasks/t1" || url.pathname === "/api/tasks/t1/wait") return json({ task });
+			// The signed-in user owns the task, so its waiting decision is shown.
+			if (url.pathname === "/api/me") return json({ user: { id: "u1", username: "ada", kind: "admin" } });
+			if (url.pathname === "/api/tasks/t1/authorization") return json({ authorization: null });
 			if (url.pathname === "/api/nodes") return json({ nodes: [] });
 			if (url.pathname === "/api/node-groups") return json({ groups: [] });
 			if (url.pathname === "/api/api-tokens") return json({ tokens: [] });
@@ -324,6 +329,28 @@ describe("TaskPage and TaskGroupPage", () => {
 
 		const result = await screen.findByRole("region", { name: "Result" });
 		expect(within(result).getByLabelText("output")).toHaveTextContent("hello");
+	});
+
+	test("a task waiting for approval shows the shared decision inline", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({ ...TASK, state: "awaiting_approval", finishedAt: null });
+		await authStore.load();
+		await renderPage(<TaskPage />);
+
+		const decision = await screen.findByRole("region", { name: "Your approval is needed" });
+		expect(within(decision).getByRole("button", { name: "Approve" })).toBeInTheDocument();
+		expect(within(decision).getByRole("tab", { name: "Reject" })).toBeInTheDocument();
+	});
+
+	test("a task waiting for its signature shows the signature decision inline", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({ ...TASK, state: "awaiting_authorization", finishedAt: null });
+		await authStore.load();
+		await renderPage(<TaskPage />);
+
+		const decision = await screen.findByRole("region", { name: "Sign to approve" });
+		expect(within(decision).getByRole("tab", { name: "crha grant" })).toBeInTheDocument();
+		expect(within(decision).getByRole("tab", { name: "Reject" })).toBeInTheDocument();
 	});
 
 	test("an exited task with an approval still shows the rule chain evaluation", async () => {

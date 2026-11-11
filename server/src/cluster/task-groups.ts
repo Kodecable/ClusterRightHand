@@ -23,6 +23,7 @@ import {
 	rulesApproval,
 	rulesRejection,
 } from "./approval.ts";
+import { rejectionMessage } from "./authorization/reject.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
 import type { Cluster } from "./cluster.ts";
 import { listNodesForUser } from "./nodes.ts";
@@ -156,6 +157,12 @@ export class TaskGroups {
 	 * kept for the members cancelled here; the group row has no reason column (doc/design/execution.md "State machine").
 	 */
 	readonly #cancelled = new Map<string, string>();
+	/**
+	 * In-memory rejection of a group's signature wait, set by rejectAuthorization() with the reason and
+	 * the owner who gave it. The run ends the group `rejected` once its waiting members ended, like a
+	 * cancellation ends the run it stops (doc/design/privilege.md "Waiting for signatures").
+	 */
+	readonly #authorizationRejected = new Map<string, { reason: string; by: Actor }>();
 	/** Called once for every group that starts waiting for approval (Auto Review hooks in here). */
 	onAwaitingApproval: ((group: TaskGroupView) => Promise<void>) | undefined;
 	/** Called after a group starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
@@ -274,6 +281,61 @@ export class TaskGroups {
 		// and ends the waiting members of a group that had no run to do it.
 		await this.#cancelMembers(id, reason, by);
 		return ended || this.#running.has(id);
+	}
+
+	/**
+	 * Rejects a group's signature wait (doc/design/privilege.md "Waiting for signatures"): every member
+	 * still waiting for its authorization ends `rejected`/`authorization_rejected` with the reason, and
+	 * the run ends the group `rejected`. Members already finished are left alone. Returns false unless
+	 * the group still waits for a signature: the caller's read may be stale (another path settled it).
+	 */
+	async rejectAuthorization(id: string, reason: string, by: Actor): Promise<boolean> {
+		const row = await this.#row(id);
+		if (row?.state !== "awaiting_authorization" || this.#authorizationRejected.has(id)) return false;
+		const message = rejectionMessage(reason);
+		this.#authorizationRejected.set(id, { reason: message, by });
+		await this.#rejectWaitingMembers(id, message, by);
+		if (!this.#running.has(id)) {
+			// No run in this process owns the group (a stale row): end it here, as cancel() does.
+			const current = await this.#row(id);
+			if (current && !GROUP_TERMINAL.has(current.state)) {
+				const started = await this.#startedNodes(id);
+				const nodeIds = JSON.parse(current.node_ids) as string[];
+				await this.#db
+					.updateTable("task_groups")
+					.set({
+						state: "rejected",
+						skipped: JSON.stringify(nodeIds.filter((nodeId) => !started.has(nodeId))),
+						finished_at: now(),
+						handler_type: null,
+						handler_session_id: null,
+					})
+					.where("id", "=", id)
+					.where("state", "=", current.state)
+					.execute();
+			}
+			this.#settle(id);
+			this.#authorizationRejected.delete(id);
+		}
+		this.#auditLater({
+			actor: { type: by.type, id: by.id, onBehalfOfUserId: by.onBehalfOfUserId },
+			action: "authorization.rejected",
+			target: { type: "task_group", id },
+			detail: { reason: message },
+		});
+		this.onChange?.(row.actor_id);
+		return true;
+	}
+
+	/** Ends the members still waiting for a signature; the group's own event carries the reason once. */
+	async #rejectWaitingMembers(groupId: string, reason: string, by: Actor): Promise<void> {
+		const rows = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("task_group_id", "=", groupId)
+			.where("state", "=", "awaiting_authorization")
+			.execute();
+		for (const { id } of rows) await this.#cluster.rejectAuthorization(id, reason, by, { audit: false });
 	}
 
 	/** Writes a group's cancelled end state if it is still in the state read, with its unstarted nodes skipped. */
@@ -453,10 +515,11 @@ export class TaskGroups {
 		// Shutdown ends the waits: waitTask then returns at once, so a loop must check this or it would spin.
 		const ending = () => this.#waitsEnded || this.#cluster.waitsEnded;
 		const cancelled = () => this.#cancelled.has(id);
+		const rejected = () => this.#authorizationRejected.get(id);
 		const worker = async () => {
 			for (;;) {
 				// The group's cancel() (a stopped session, an aborted tool call) stops taking nodes at once.
-				if (cancelled() || (input.failFast && failed)) return;
+				if (cancelled() || rejected() || (input.failFast && failed)) return;
 				const nodeId = queue.shift();
 				if (nodeId === undefined) return;
 				if (ending()) {
@@ -469,10 +532,23 @@ export class TaskGroups {
 					queue.unshift(nodeId);
 					return;
 				}
+				if (rejected()) {
+					// Not started: put it back so it is recorded as skipped by the rejection.
+					queue.unshift(nodeId);
+					return;
+				}
 				const created = await this.#cluster.createTask(this.#taskInput(input, id, nodeId, approvedBy));
 				// cancel() cancelled the members it could see before this one existed; end it before waiting.
 				if (cancelled()) {
 					await this.#cluster.cancelTask(created.id, this.#cancelled.get(id) ?? GROUP_CANCELLED_REASON);
+					continue;
+				}
+				const refusal = rejected();
+				if (
+					refusal &&
+					(await this.#cluster.rejectAuthorization(created.id, refusal.reason, refusal.by, { audit: false }))
+				) {
+					// The owner rejected the wait while this member was being created: it ended with the group.
 					continue;
 				}
 				if (created.state === "awaiting_authorization") {
@@ -511,6 +587,12 @@ export class TaskGroups {
 			let done: TaskView | undefined = task;
 			while (done && !TERMINAL.has(done.state)) {
 				if (cancelled()) return;
+				const refusal = rejected();
+				if (refusal && done.state === "awaiting_authorization") {
+					// The owner rejected the wait after the group's waiting members were listed: this member
+					// was created in between and still waits for a signature nobody will give.
+					await this.#cluster.rejectAuthorization(task.id, refusal.reason, refusal.by, { audit: false });
+				}
 				if (ending()) {
 					abandoned = true;
 					return;
@@ -536,12 +618,14 @@ export class TaskGroups {
 				if (!this.#cluster.closing && !abandoned) {
 					if (failure !== undefined) await this.#fail(id, nodeIds, failure);
 					else if (cancelled()) await this.#finishCancelled(id, queue);
+					else if (rejected()) await this.#finishRejected(id, queue);
 					else await this.#finish(id, queue);
 				}
 			} finally {
 				// The group is done as a whole; its tasks may already have been dropped one by one.
 				this.#cluster.releaseGroupBudget(id);
 				this.#cancelled.delete(id);
+				this.#authorizationRejected.delete(id);
 			}
 		}
 		if (failure !== undefined) throw failure;
@@ -571,6 +655,26 @@ export class TaskGroups {
 		} catch (err) {
 			console.error(`task group ${id}: cancelling its remaining members failed:`, err);
 		}
+		this.#settle(id);
+	}
+
+	/**
+	 * Ends a run whose signature wait its owner rejected (doc/design/privilege.md "Waiting for signatures"): the
+	 * members still waiting were ended with the rejection, and the nodes never started are skipped.
+	 */
+	async #finishRejected(id: string, skipped: string[]): Promise<void> {
+		await this.#db
+			.updateTable("task_groups")
+			.set({
+				state: "rejected",
+				skipped: JSON.stringify(skipped),
+				finished_at: now(),
+				handler_type: null,
+				handler_session_id: null,
+			})
+			.where("id", "=", id)
+			.where("state", "not in", [...GROUP_TERMINAL])
+			.execute();
 		this.#settle(id);
 	}
 

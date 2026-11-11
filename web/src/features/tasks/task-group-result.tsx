@@ -2,13 +2,13 @@ import type { TaskGroupView } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { ApprovalCard, DecisionView } from "@/components/approval-card";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
+import { ApprovalDecision, DecisionView } from "@/components/decision";
 import { StatusText, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { useAuth } from "@/features/auth/session";
-import { AuthorizationWait } from "@/features/authorizations/authorization-wait";
+import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { taskGroupStatusTone } from "@/lib/status";
 
 const GROUP_STATES: Record<string, MessageDescriptor> = {
@@ -93,12 +93,11 @@ export function TaskGroupResult({
 	return (
 		<section className="grid gap-3" data-testid="task-group-result" data-group-id={taskGroup.id}>
 			{taskGroup.state === "awaiting_approval" && canAct && (
-				<ApprovalCard
+				<ApprovalDecision
 					item={{ kind: "task_group", taskGroup }}
 					nodeNames={lookups.nodeNames}
 					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
-					userNames={lookups.userNames}
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.id, body })}
@@ -106,15 +105,12 @@ export function TaskGroupResult({
 			)}
 
 			{taskGroup.state === "awaiting_authorization" && canSign && (
-				<AuthorizationWait
+				<SignatureWait
 					kind="task_group"
 					id={taskGroup.id}
+					item={{ kind: "task_group", taskGroup }}
+					nodeNames={names}
 					onChanged={onChanged}
-					waiting={
-						<p className="text-sm text-muted-foreground">
-							<Trans>Waiting for the owner's authorization; the payload is being prepared.</Trans>
-						</p>
-					}
 				/>
 			)}
 

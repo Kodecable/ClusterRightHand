@@ -110,7 +110,13 @@ test.describe("with a node", () => {
 		);
 	});
 
-	test("Stop ends a run that waits for approval", async ({ adminPage: page, crhs, env }) => {
+	// While a decision waits, the panel replaces the composer and has no Stop: the user rejects
+	// first, which ends the wait and brings the composer (and its Stop) back.
+	test("rejecting a waiting approval ends the wait and brings the composer back", async ({
+		adminPage: page,
+		crhs,
+		env,
+	}) => {
 		if (!env) throw new Error("withNode");
 		await newSession(page, "Stop chat");
 		crhs.faux.setResponses([
@@ -121,7 +127,10 @@ test.describe("with a node", () => {
 		]);
 		await sendMessage(page, "run it");
 		await expect(page.getByTestId("waiting-reason")).toContainText("waiting for an approval");
-		await page.getByTestId("abort-session").click();
+		await expect(page.getByTestId("abort-session")).toHaveCount(0);
+		const panel = page.getByRole("region", { name: "Your approval is needed" });
+		await panel.getByRole("tab", { name: "Reject" }).click();
+		await panel.getByRole("button", { name: "Reject", exact: true }).click();
 		await expect(page.getByTestId("waiting-reason")).toHaveCount(0, { timeout: 20_000 });
 		await expect(page.getByTestId("composer-input")).toBeEnabled();
 	});

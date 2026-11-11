@@ -40,16 +40,25 @@ test("approve and always allow adds a rule to the token and runs the task", asyn
 
 	await page.goto("/approvals");
 	await expect(page.getByTestId("nav-approvals-badge")).toContainText("1");
-	const card = page.getByRole("region", { name: `Task ${task.id}` });
-	await expect(card).toContainText("API token claude-laptop");
+	// The approvals page is one table; its row opens the decision's detail page.
+	const waiting = page.getByRole("row").filter({ hasText: "echo hi" });
+	await expect(waiting).toContainText("Approval");
+	await expect(waiting).toContainText("API token claude-laptop");
+	await waiting.getByRole("link", { name: "echo hi" }).click();
+	await expect(page).toHaveURL(new RegExp(`/approvals/tasks/${task.id}$`));
+
+	const card = page.getByRole("region", { name: "Your approval is needed" });
 	await expect(card).toContainText("echo hi");
+	await card.getByText("Rule chain evaluation").click();
 	await expect(card.getByRole("table", { name: "Rule chain evaluation" })).toContainText("Require approval");
-	await card.getByRole("button", { name: /Approve and always allow/ }).click();
+	await card.getByRole("tab", { name: "Always allow" }).click();
 	const rule = card.getByLabel("Rule to add to the caller's rule set");
 	await expect(rule).toHaveValue(/"exact": "echo hi"/);
 	await card.getByLabel("prefix").check();
 	await expect(rule).toHaveValue(/"prefix": "echo hi"/);
 	await card.getByRole("button", { name: "Approve and always allow", exact: true }).click();
+	await expect(page.getByRole("heading", { name: "Already settled" })).toBeVisible();
+	await page.goto("/approvals");
 	await expect(page.getByText("Nothing is waiting for you")).toBeVisible();
 
 	await page.goto(`/tasks/${task.id}`);
@@ -80,8 +89,9 @@ test("reject shows the reason on the task and the audit page lists the approval"
 	const task = await waitingTask(crhs, env.nodeId, token.id, "nope");
 
 	await page.goto(`/approvals/tasks/${task.id}`);
-	const card = page.getByRole("region", { name: `Task ${task.id}` });
-	await card.getByLabel(/Reason/).fill("too risky");
+	const card = page.getByRole("region", { name: "Your approval is needed" });
+	await card.getByRole("tab", { name: "Reject" }).click();
+	await card.getByLabel("Reason (optional)").fill("too risky");
 	await card.getByRole("button", { name: "Reject", exact: true }).click();
 	await expect(page.getByRole("heading", { name: "Already settled" })).toBeVisible();
 

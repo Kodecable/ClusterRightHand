@@ -1,13 +1,14 @@
 /**
  * User authorizations (doc/design/privilege.md "Authorization path"): submitting a signed authorization
- * (pasted `crha grant` output or a Passkey assertion), the administrators' list, and the pending
- * payload the waiting page shows its owner.
+ * (pasted `crha grant` output or a Passkey assertion), the administrators' list, the pending payload
+ * the waiting page shows its owner, and the owner rejecting the wait instead of signing it.
  */
-import type { AuthorizationSummary } from "@crh/api";
+import type { AuthorizationSummary, RejectAuthorizationBody } from "@crh/api";
 import { type AuthorizationPayload, decodeAuthorizationPayload } from "@crh/protocol";
-import { Hono } from "hono";
-import type { Cluster } from "../cluster/cluster.ts";
+import { type Context, Hono } from "hono";
+import type { Actor, Cluster } from "../cluster/cluster.ts";
 import { decodedPayloadOf, pendingForTask, pendingForTaskGroup } from "../cluster/pending.ts";
+import type { TaskGroups } from "../cluster/task-groups.ts";
 import { taskRelation } from "../cluster/task-visibility.ts";
 import {
 	parseSubmittedAuthorization,
@@ -30,8 +31,12 @@ import { requireAdmin } from "./middleware.ts";
 /** `GET /authorizations` pages over `created_at desc, id desc` (doc/design/webui.md "API conventions"). */
 const AUTHORIZATIONS_CURSOR: CursorSpec = { columns: [{ name: "created_at", type: "string" }], idType: "string" };
 
+/** A rejection reason is stored as the task's error message; longer text is cut, not refused. */
+const MAX_REJECTION_REASON = 1000;
+
 export interface AuthorizationRoutesOptions {
 	cluster?: Cluster;
+	taskGroups?: TaskGroups;
 }
 
 /** Expects requireUser to have run. */
@@ -111,57 +116,143 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 
 	/** The pending payload of a task, for its owner (doc/design/privilege.md "Authorizations"); other users get a 403. */
 	app.get("/tasks/:id/authorization", async (c) => {
-		const user = c.get("user");
-		const row = await db
-			.selectFrom("tasks")
-			.select(["id", "node_id", "on_behalf_of_user_id", "actor_type", "actor_id", "authorization"])
-			.where("id", "=", c.req.param("id"))
-			.executeTakeFirst();
-		if (
-			!row ||
-			!(
-				await taskRelation(db, user, {
-					onBehalfOfUserId: row.on_behalf_of_user_id,
-					actorType: row.actor_type,
-					actorId: row.actor_id,
-				})
-			).visible
-		) {
-			return jsonError(c, 404, "no such task");
+		const found = await authorizationTask(db, c.get("user"), c.req.param("id"));
+		if ("error" in found) return jsonError(c, found.error.status, found.error.message);
+		if (!found.owner) return jsonError(c, 403, "only the task's owner can authorize it");
+		return c.json({ authorization: await pendingForTask(db, found.row) });
+	});
+
+	/**
+	 * Rejects the task's signature wait instead of signing it (doc/design/privilege.md "Waiting for signatures"):
+	 * the task ends `rejected` with `authorization_rejected` and the reason, or the default text. Only its
+	 * owner may answer; anyone else gets the same 404 as a task they cannot see.
+	 */
+	app.post("/tasks/:id/authorization/reject", async (c) => {
+		if (!options.cluster) return c.json({ error: "the cluster is not running" }, 503);
+		const found = await authorizationTask(db, c.get("user"), c.req.param("id"));
+		if ("error" in found) return jsonError(c, found.error.status, found.error.message);
+		if (!found.owner) return jsonError(c, 404, "no such task");
+		if (found.row.state !== "awaiting_authorization") {
+			return jsonError(c, 409, "the task is not waiting for authorization");
 		}
-		if (row.on_behalf_of_user_id !== user.userId) {
-			return jsonError(c, 403, "only the task's owner can authorize it");
-		}
-		return c.json({ authorization: await pendingForTask(db, row) });
+		const rejected = await options.cluster.rejectAuthorization(
+			found.row.id,
+			await rejectionReason(c),
+			rejectingActor(c.get("user")),
+		);
+		if (!rejected) return jsonError(c, 409, "the task is not waiting for authorization");
+		return c.json({ ok: true });
 	});
 
 	/** The shared payload of a task group's waiting tasks; only the task group's owner may read it. */
 	app.get("/task-groups/:id/authorization", async (c) => {
 		const user = c.get("user");
-		const taskGroup = await db
-			.selectFrom("task_groups")
-			.select(["id", "on_behalf_of_user_id", "actor_type", "actor_id"])
-			.where("id", "=", c.req.param("id"))
-			.executeTakeFirst();
-		if (
-			!taskGroup ||
-			!(
-				await taskRelation(db, user, {
-					onBehalfOfUserId: taskGroup.on_behalf_of_user_id,
-					actorType: taskGroup.actor_type,
-					actorId: taskGroup.actor_id,
-				})
-			).visible
-		) {
-			return jsonError(c, 404, "no such task group");
+		const found = await authorizationTaskGroup(db, user, c.req.param("id"));
+		if ("error" in found) return jsonError(c, found.error.status, found.error.message);
+		if (!found.owner) return jsonError(c, 403, "only the task group's owner can authorize it");
+		return c.json({ taskGroup: await pendingForTaskGroup(db, found.row.id, user.userId) });
+	});
+
+	/**
+	 * Rejects the signature wait of a task group's owner (doc/design/privilege.md "Waiting for signatures"):
+	 * every member still waiting ends `rejected` with `authorization_rejected` and the reason, and the
+	 * group ends `rejected`. Members already finished are untouched, and only the owner may answer.
+	 */
+	app.post("/task-groups/:id/authorization/reject", async (c) => {
+		if (!options.taskGroups) return c.json({ error: "the cluster is not running" }, 503);
+		const found = await authorizationTaskGroup(db, c.get("user"), c.req.param("id"));
+		if ("error" in found) return jsonError(c, found.error.status, found.error.message);
+		if (!found.owner) return jsonError(c, 404, "no such task group");
+		if (found.row.state !== "awaiting_authorization") {
+			return jsonError(c, 409, "the task group is not waiting for authorization");
 		}
-		if (taskGroup.on_behalf_of_user_id !== user.userId) {
-			return jsonError(c, 403, "only the task group's owner can authorize it");
-		}
-		return c.json({ taskGroup: await pendingForTaskGroup(db, taskGroup.id, user.userId) });
+		const rejected = await options.taskGroups.rejectAuthorization(
+			found.row.id,
+			await rejectionReason(c),
+			rejectingActor(c.get("user")),
+		);
+		if (!rejected) return jsonError(c, 409, "the task group is not waiting for authorization");
+		return c.json({ ok: true });
 	});
 
 	return app;
+}
+
+/** The fields the authorization endpoints read; the owner check is shared by them all. */
+type AuthorizationTaskRow = {
+	id: string;
+	state: string;
+	node_id: string;
+	on_behalf_of_user_id: string;
+	actor_type: string;
+	actor_id: string;
+	authorization: string | null;
+};
+
+type AuthorizationTaskGroupRow = {
+	id: string;
+	state: string;
+	on_behalf_of_user_id: string;
+	actor_type: string;
+	actor_id: string;
+};
+
+type AuthorizationSubject<T> = { row: T; owner: boolean } | { error: { status: 404; message: string } };
+
+/**
+ * A task the user can see, with whether they own it: an invisible task is 404, like every lookup, and
+ * the endpoints decide their own answer for a visible task of another user (doc/design/privilege.md "Authorizations").
+ */
+async function authorizationTask(
+	db: Db,
+	user: AppEnv["Variables"]["user"],
+	id: string,
+): Promise<AuthorizationSubject<AuthorizationTaskRow>> {
+	const row = await db
+		.selectFrom("tasks")
+		.select(["id", "state", "node_id", "on_behalf_of_user_id", "actor_type", "actor_id", "authorization"])
+		.where("id", "=", id)
+		.executeTakeFirst();
+	if (!row) return { error: { status: 404, message: "no such task" } };
+	const relation = await taskRelation(db, user, {
+		onBehalfOfUserId: row.on_behalf_of_user_id,
+		actorType: row.actor_type,
+		actorId: row.actor_id,
+	});
+	if (!relation.visible) return { error: { status: 404, message: "no such task" } };
+	return { row, owner: row.on_behalf_of_user_id === user.userId };
+}
+
+/** A task group the user can see, with whether they own it; the same lookup as a task's. */
+async function authorizationTaskGroup(
+	db: Db,
+	user: AppEnv["Variables"]["user"],
+	id: string,
+): Promise<AuthorizationSubject<AuthorizationTaskGroupRow>> {
+	const row = await db
+		.selectFrom("task_groups")
+		.select(["id", "state", "on_behalf_of_user_id", "actor_type", "actor_id"])
+		.where("id", "=", id)
+		.executeTakeFirst();
+	if (!row) return { error: { status: 404, message: "no such task group" } };
+	const relation = await taskRelation(db, user, {
+		onBehalfOfUserId: row.on_behalf_of_user_id,
+		actorType: row.actor_type,
+		actorId: row.actor_id,
+	});
+	if (!relation.visible) return { error: { status: 404, message: "no such task group" } };
+	return { row, owner: row.on_behalf_of_user_id === user.userId };
+}
+
+/** The body's reason, trimmed and bounded; an absent or empty one is no reason. */
+async function rejectionReason(c: Context<AppEnv>): Promise<string> {
+	const body = (await readJsonObject(c)) as RejectAuthorizationBody | undefined;
+	return typeof body?.reason === "string" ? body.reason.trim().slice(0, MAX_REJECTION_REASON) : "";
+}
+
+/** The user answering for themselves: the actor the rejection audit names. */
+function rejectingActor(user: AppEnv["Variables"]["user"]): Actor {
+	return { type: "user", id: user.userId, onBehalfOfUserId: user.userId };
 }
 
 /** The stored payload of a row; throws on a damaged row (the caller then shows no detail). */

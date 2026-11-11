@@ -295,6 +295,17 @@ export class Cluster {
 	}
 
 	/**
+	 * POST /api/tasks/:id/authorization/reject: the owner declines to sign a waiting task. The task ends
+	 * `rejected`/`authorization_rejected` with the reason, and an outstanding local approval request is
+	 * withdrawn. Returns false when the task is no longer waiting for its signature
+	 * (doc/design/privilege.md "Waiting for signatures"). Without a reason the default message is stored.
+	 * A task group's members pass `audit: false`: the group's one event names the group instead.
+	 */
+	rejectAuthorization(id: string, reason: string, by: Actor, options: { audit?: boolean } = {}): Promise<boolean> {
+		return authorizations.rejectAuthorizationWait(this.#core, id, reason, by, options);
+	}
+
+	/**
 	 * Ends the tasks whose signature has not arrived within AUTHORIZATION_WAIT_MS since they began to wait
 	 * (doc/design/privilege.md "Waiting for signatures"): from the approval decision when there was one, else from creation.
 	 * Run at startup and by the periodic sweep; returns how many tasks it ended.

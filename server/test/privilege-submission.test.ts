@@ -1187,6 +1187,79 @@ describe("user authorizations", () => {
 		expect((await taskView(waiting.id)).state).toBe("awaiting_authorization");
 	});
 
+	it("rejects a group's signature wait and leaves finished members untouched", async () => {
+		const groups = new TaskGroups(db, cluster, { audit });
+		// The group must be driven by the same TaskGroups the route uses: its run ends the group rejected.
+		const groupApp = makeApp(db, undefined, { cluster, audit, authorizationKey: signing, taskGroups: groups });
+		const a = await connect("reject-group-a", (id) => summaryOf(id, [crhsTrustEntry()]));
+		const b = await connect("reject-group-b", (id) => summaryOf(id, [ownerEntry()]));
+		const c = await connect("reject-group-c", (id) => summaryOf(id, [ownerEntry()]));
+		const groupId = await groups.create({
+			targets: [a.node.name, b.node.name, c.node.name],
+			nodeIds: [a.node.id, b.node.id, c.node.id],
+			spec: EXEC,
+			privileged: true,
+			actor: actor(),
+			parallel: 3,
+			outputMode: "status",
+		});
+		const view = async () => (await groups.get(groupId)) as TaskGroupView;
+		await waitFor("task.start on node A", () => a.crha.starts.length === 1);
+		const taskA = (await view()).tasks.find((task) => task.nodeId === a.node.id);
+		if (!taskA) throw new Error("group task missing");
+		a.crha.exit(taskA.id, { kind: "code", value: 0 });
+		await waitFor("group awaiting_authorization", async () => (await view()).state === "awaiting_authorization");
+
+		// Another user gets the same 404 as the group payload lookup; the owner's rejection ends the wait.
+		const stranger = await call(groupApp, `/api/task-groups/${groupId}/authorization/reject`, {
+			cookie: other.cookie,
+			body: { reason: "mine now" },
+		});
+		expect(stranger.status).toBe(404);
+		const res = await call(groupApp, `/api/task-groups/${groupId}/authorization/reject`, {
+			cookie: owner.cookie,
+			body: { reason: "declined" },
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ ok: true });
+		const rejected = await waitFor("group rejected", async () => {
+			const group = await view();
+			return group.state === "rejected" ? group : undefined;
+		});
+		const byNode = new Map(rejected.tasks.map((task) => [task.nodeId, task]));
+		expect(byNode.get(a.node.id)).toMatchObject({ state: "exited", exitCode: 0 });
+		expect(byNode.get(b.node.id)).toMatchObject({
+			state: "rejected",
+			errorCode: "authorization_rejected",
+			errorMessage: "declined",
+		});
+		expect(byNode.get(c.node.id)).toMatchObject({
+			state: "rejected",
+			errorCode: "authorization_rejected",
+			errorMessage: "declined",
+		});
+		expect(rejected.skipped).toEqual([]);
+		expect(b.crha.starts).toHaveLength(0);
+		expect(c.crha.starts).toHaveLength(0);
+
+		await audit.flush();
+		const events = await auditRows("authorization.rejected");
+		expect(events).toHaveLength(1);
+		expect(events[0]).toMatchObject({
+			actor_type: "user",
+			actor_id: owner.userId,
+			target_type: "task_group",
+			target_id: groupId,
+		});
+		expect(JSON.parse(events[0]?.detail as string)).toEqual({ reason: "declined" });
+
+		const again = await call(groupApp, `/api/task-groups/${groupId}/authorization/reject`, {
+			cookie: owner.cookie,
+			body: {},
+		});
+		expect(again.status).toBe(409);
+	});
+
 	it("requests local approval, dispatches on approval and rejects on denial", async () => {
 		const { node, crha } = await connect("local-1", (id) => summaryOf(id, [localTrustEntry()]));
 		const task = await createPrivileged(node.id);
@@ -1237,7 +1310,7 @@ describe("user authorizations", () => {
 		await waitState(task.id, "running");
 	});
 
-	it("withdraws a local request when the owner signs and when the task is cancelled", async () => {
+	it("withdraws a local request when the owner signs, cancels or rejects", async () => {
 		const { node, crha } = await connect("local-2", (id) => summaryOf(id, [ownerEntry(), localTrustEntry()]));
 		const task = await createPrivileged(node.id);
 		await waitFor("local.request", () => crha.localRequests.length === 1);
@@ -1253,6 +1326,71 @@ describe("user authorizations", () => {
 		expect(await cluster.cancelTask(cancelled.id)).toBe(true);
 		await waitFor("withdraw on cancel", () => crha.localWithdrawals.length === 2);
 		expect(crha.localWithdrawals[1]).toEqual({ taskId: cancelled.id, attempt: 1 });
+
+		const rejected = await createPrivileged(node.id);
+		await waitFor("third local.request", () => crha.localRequests.length === 3);
+		const res = await call(app, `/api/tasks/${rejected.id}/authorization/reject`, {
+			cookie: owner.cookie,
+			body: { reason: "not now" },
+		});
+		expect(res.status).toBe(200);
+		await waitFor("withdraw on reject", () => crha.localWithdrawals.length === 3);
+		expect(crha.localWithdrawals[2]).toEqual({ taskId: rejected.id, attempt: 1 });
+		expect((await taskView(rejected.id)).state).toBe("rejected");
+	});
+
+	it("rejects a signature wait with the owner's reason and audits it", async () => {
+		const { node } = await connect("reject-1", (id) => summaryOf(id, [ownerEntry()]));
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+
+		const res = await call(app, `/api/tasks/${task.id}/authorization/reject`, {
+			cookie: owner.cookie,
+			body: { reason: "  not on my watch  " },
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({ ok: true });
+		const rejected = await waitState(task.id, "rejected");
+		expect(rejected).toMatchObject({ errorCode: "authorization_rejected", errorMessage: "not on my watch" });
+		expect(rejected.finishedAt).not.toBeNull();
+
+		await audit.flush();
+		const events = await auditRows("authorization.rejected");
+		expect(events).toHaveLength(1);
+		expect(events[0]).toMatchObject({
+			actor_type: "user",
+			actor_id: owner.userId,
+			on_behalf_of_user_id: owner.userId,
+			target_type: "task",
+			target_id: task.id,
+		});
+		expect(JSON.parse(events[0]?.detail as string)).toEqual({ reason: "not on my watch" });
+
+		// Another user cannot even see the task's authorization; a settled one is no longer waiting.
+		const stranger = await call(app, `/api/tasks/${task.id}/authorization/reject`, {
+			cookie: other.cookie,
+			body: { reason: "mine now" },
+		});
+		expect(stranger.status).toBe(404);
+		const again = await call(app, `/api/tasks/${task.id}/authorization/reject`, { cookie: owner.cookie, body: {} });
+		expect(again.status).toBe(409);
+	});
+
+	it("uses the default message when the owner rejects without a reason", async () => {
+		const { node } = await connect("reject-default", (id) => summaryOf(id, [ownerEntry()]));
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+
+		const res = await call(app, `/api/tasks/${task.id}/authorization/reject`, { cookie: owner.cookie, body: {} });
+		expect(res.status).toBe(200);
+		const rejected = await waitState(task.id, "rejected");
+		expect(rejected).toMatchObject({
+			errorCode: "authorization_rejected",
+			errorMessage: "the owner rejected the authorization",
+		});
+		await audit.flush();
+		const events = await auditRows("authorization.rejected");
+		expect(JSON.parse(events[0]?.detail as string)).toEqual({ reason: "the owner rejected the authorization" });
 	});
 
 	it("resends local.request after a new ok trust report, and drops the path when the node refuses it", async () => {

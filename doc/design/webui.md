@@ -126,8 +126,13 @@ behaves the same on every page:
 - **`EntityPicker`** is the only control for choosing users, user groups, nodes or node groups. It
   searches on the server and resolves already selected ids separately, so no page downloads a full
   list of users or nodes ([Entity search](#entity-search)).
-- **Decision cards** (approval, authorization, quota) are shared by the session page, the approvals
-  page and the task pages. A decision made in one place updates the others.
+- **Decision component.** One frame (what is asked, the target nodes by name, the operation on one
+  truncated line) with a tab bar for the answer: **Approve / Always allow / Reject** for a rule
+  approval, **Passkey / `crha grant` / `ssh-keygen` / Local approval / Reject** for a signature wait,
+  **Add tokens / Stop** for an exhausted quota. The Passkey tab exists only when a trusted Passkey
+  does. Session pages, approvals deep links and task pages render the same component, so a decision
+  made in one place updates the others; the rule chain or payload details stay behind a tab or a
+  collapsed block, never in the default view.
 
 ## Pages
 
@@ -168,10 +173,13 @@ that kind of node.
 
 ### Approvals page
 
-The approvals page collects everything waiting for the signed-in user: task approvals, task group
-approvals, tasks waiting for the user's signature, and sessions whose token quota ran out. A task group
-counts once. The deep links that MCP and agent tools return open one approval and show "Already
-settled" once it has been decided.
+The approvals page is one table of everything waiting for the signed-in user: task approvals, task
+group approvals, tasks waiting for the user's signature, and sessions whose token quota ran out. The
+columns are the type, the operation, the target nodes by name, who asked and when; the whole row opens
+its detail. A task or task group detail shows the decision component inline (a task in
+`awaiting_authorization` shows the signature variant), and a quota row opens its session, where the
+docked decision panel holds it. A task group counts once. The deep links that MCP and agent tools
+return open one approval and show "Already settled" once it has been decided.
 
 ### Models page
 
@@ -227,8 +235,12 @@ The header holds the title, the breadcrumb of a subagent, and sharing. Below it,
 line is shown, chosen by priority: connection problems, failure, retry, the reason the session is
 waiting, queued messages. Nothing is shown while a run is merely active.
 
-The root session page lists the approvals, signatures and quota waits of the whole session tree, so a
-user can answer them without opening each subagent.
+The root session page shows the approvals, signatures and quota waits of the whole session tree in a
+decision panel docked where the composer sits, so a user can answer them without opening each subagent.
+The panel is not collapsible: it shows the first pending decision only (quota, then rule approvals,
+task-group approvals and signature waits, oldest first), its own scroll and at most half of the session
+pane, and a small count while more wait. The composer returns as soon as nothing waits for this viewer;
+a session that waits only for someone else keeps the normal composer and the waiting reason.
 
 ### Composer
 
@@ -240,7 +252,8 @@ create the message twice.
 
 The line below the composer shows generation statistics, token usage with the cache hit rate, and
 context use ([Agent runtime](agent-runtime.md#session-statistics)). The remaining budget uses the
-budget measure, not the usage measure.
+budget measure, not the usage measure. A docked decision panel replaces the composer while something
+waits for the viewer ([Session header](#session-header)).
 
 ### Subagent bar
 
@@ -258,8 +271,8 @@ its store and Markdown tree, so the text does not re-render from scratch.
 
 User messages are shown as raw text. Assistant text and thinking are Markdown
 ([Markdown rendering](#markdown-rendering)). Tool calls are one-line rows that open a dialog with the
-arguments, output and result; approval, authorization and quota waits appear as cards in the
-transcript.
+arguments, output and result. Approval, authorization and quota waits appear in the docked decision
+panel, not in the transcript.
 
 A tool row's icon shows whether the call is running, finished or failed. Failure is judged from the
 structured result the tool returned, not by parsing the text the model sees. A call that stopped

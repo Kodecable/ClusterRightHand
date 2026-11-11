@@ -1,11 +1,13 @@
 import { expect, test } from "@playwright/test";
-import { emptyApprovals, login, mockApi, taskView } from "./helpers";
+import { emptyApprovals, login, mockApi, nodeView, taskView } from "./helpers";
 
 test("an approval decision from the Approvals page updates the list and the badge", async ({ page }) => {
 	const task = taskView({ id: "task-42" });
 	const api = await mockApi(page, {
 		state: {
 			approvals: { ...emptyApprovals(), tasks: [task] },
+			tasks: [task],
+			nodes: [nodeView()],
 		},
 	});
 	await login(page);
@@ -13,18 +15,24 @@ test("an approval decision from the Approvals page updates the list and the badg
 
 	await page.goto("/approvals");
 	await expect(page.getByTestId("approvals-page")).toBeVisible();
-	const card = page.getByRole("region", { name: /Task task-42/ });
-	await expect(card).toBeVisible();
-	await card.getByRole("button", { name: "Approve", exact: true }).click();
+	const row = page.getByRole("row").filter({ hasText: "systemctl restart nginx" });
+	await expect(row).toContainText("Approval");
+	await expect(row).toContainText("worker-01");
+	await row.getByRole("link", { name: "systemctl restart nginx" }).click();
+	await expect(page).toHaveURL(/\/approvals\/tasks\/task-42$/);
+
+	const decision = page.getByRole("region", { name: "Your approval is needed" });
+	await expect(decision).toBeVisible();
+	await decision.getByRole("button", { name: "Approve", exact: true }).click();
 
 	await expect
 		.poll(() => api.state.requests.some((request) => request.url === "/api/tasks/task-42/approval"))
 		.toBe(true);
-	const decision = api.state.requests.find((request) => request.url === "/api/tasks/task-42/approval");
-	expect(decision?.body).toEqual({ decision: "approve" });
+	const approval = api.state.requests.find((request) => request.url === "/api/tasks/task-42/approval");
+	expect(approval?.body).toEqual({ decision: "approve" });
 
 	// The fake server removed the task; the invalidated queries show an empty page and badge.
-	await expect(card).toBeHidden();
+	await page.goto("/approvals");
 	await expect(page.getByText("Nothing is waiting for you")).toBeVisible();
 	await expect(page.getByTestId("nav-approvals-badge")).toHaveCount(0);
 });

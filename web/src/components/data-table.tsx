@@ -31,6 +31,8 @@ export type DataTableRowLink =
 	| { to: "/tasks/$taskId"; params: { taskId: string } }
 	| { to: "/sessions/$sessionId"; params: { sessionId: string } }
 	| { to: "/task-groups/$taskGroupId"; params: { taskGroupId: string } }
+	| { to: "/approvals/tasks/$taskId"; params: { taskId: string } }
+	| { to: "/approvals/task-groups/$taskGroupId"; params: { taskGroupId: string } }
 	| { to: "/users/$userId"; params: { userId: string } }
 	| { to: "/user-groups/$userGroupId"; params: { userGroupId: string } };
 
@@ -185,6 +187,18 @@ function RowLink({
 				</Link>
 			);
 		case "/task-groups/$taskGroupId":
+			return (
+				<Link to={href.to} params={href.params} {...props}>
+					{children}
+				</Link>
+			);
+		case "/approvals/tasks/$taskId":
+			return (
+				<Link to={href.to} params={href.params} {...props}>
+					{children}
+				</Link>
+			);
+		case "/approvals/task-groups/$taskGroupId":
 			return (
 				<Link to={href.to} params={href.params} {...props}>
 					{children}

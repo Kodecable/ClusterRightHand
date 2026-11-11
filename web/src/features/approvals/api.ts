@@ -13,7 +13,7 @@ export const approvalKeys = {
 /**
  * Refreshes what a decision, a signature or a cancel changes: the approvals
  * list behind the sidebar badge and the Approvals page (it carries the pending
- * signatures too) and the tasks and task groups those cards show.
+ * signatures too) and the tasks and task groups those decisions show.
  */
 export function invalidatePendingDecisions(queryClient: QueryClient): void {
 	void queryClient.invalidateQueries({ queryKey: approvalKeys.all });
@@ -34,7 +34,7 @@ export function useApprovals() {
 	});
 }
 
-/** The name lookups the approval cards display nodes, node groups and tokens with. */
+/** The name lookups the decision components display nodes, node groups and tokens with. */
 export function useApprovalLookups() {
 	const nodes = useQuery({
 		queryKey: ["nodes", "list"],
@@ -62,7 +62,7 @@ export interface DecideInput {
 	body: ApprovalBody;
 }
 
-/** Approve or reject a waiting task or task group (the approvals page and the decision cards). */
+/** Approve or reject a waiting task or task group (every decision component shares it). */
 export function useDecideApproval() {
 	const queryClient = useQueryClient();
 	return useMutation({
@@ -74,7 +74,7 @@ export function useDecideApproval() {
 			invalidatePendingDecisions(queryClient);
 		},
 		onError: (error) => {
-			// 409 means someone else decided first: refresh so the card shows it.
+			// 409 means someone else decided first: refresh so the decision reflects it.
 			if (typeof error === "object" && error !== null && "status" in error && error.status === 409) {
 				void queryClient.invalidateQueries({ queryKey: approvalKeys.all });
 			}

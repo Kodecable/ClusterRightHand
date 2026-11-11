@@ -1,7 +1,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
-import { QuotaCard, type QuotaDecision } from "./quota-card";
+import { type QuotaAnswer, QuotaDecision } from "./quota-decision";
 
 const wait = {
 	sessionId: "s1",
@@ -12,22 +12,26 @@ const wait = {
 	budgetUsedTokens: 12_000,
 };
 
-describe("QuotaCard", () => {
-	test("shows the session, the used-up quota and the level", async () => {
-		await renderWithRouter(<QuotaCard wait={wait} onDecide={() => {}} />);
-		expect(screen.getByRole("link", { name: "Nightly cluster check" })).toHaveAttribute("href", "/sessions/s1");
+describe("QuotaDecision", () => {
+	test("shows the session and the used-up budget, and defaults to Add tokens", async () => {
+		await renderWithRouter(<QuotaDecision wait={wait} onDecide={() => {}} />);
+		expect(screen.getByRole("region", { name: "Token quota used up" })).toBeInTheDocument();
+		expect(screen.getByText("Nightly cluster check")).toBeInTheDocument();
 		expect(screen.getByText(/Budget used up \(300 over\)/)).toBeInTheDocument();
-		expect(screen.getByText("lvl-root")).toBeInTheDocument();
+		// The level id and the request time are technical fields, not part of the decision.
+		expect(screen.queryByText("lvl-root")).not.toBeInTheDocument();
+		expect(screen.queryByText("Since")).not.toBeInTheDocument();
+		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("Add tokens");
 	});
 
 	test("shows the default name when the session has no title yet", async () => {
-		await renderWithRouter(<QuotaCard wait={{ ...wait, title: null }} onDecide={() => {}} />);
-		expect(screen.getByRole("link", { name: "New Session" })).toHaveAttribute("href", "/sessions/s1");
+		await renderWithRouter(<QuotaDecision wait={{ ...wait, title: null }} onDecide={() => {}} />);
+		expect(screen.getByText("New Session")).toBeInTheDocument();
 	});
 
 	test("rejects a non-numeric amount without deciding", async () => {
-		const onDecide = vi.fn<(decision: QuotaDecision) => void>();
-		await renderWithRouter(<QuotaCard wait={wait} onDecide={onDecide} />);
+		const onDecide = vi.fn<(decision: QuotaAnswer) => void>();
+		await renderWithRouter(<QuotaDecision wait={wait} onDecide={onDecide} />);
 		fireEvent.change(screen.getByLabelText("Tokens to add"), { target: { value: "abc" } });
 		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 		expect(onDecide).not.toHaveBeenCalled();
@@ -35,8 +39,8 @@ describe("QuotaCard", () => {
 	});
 
 	test("rejects zero tokens", async () => {
-		const onDecide = vi.fn<(decision: QuotaDecision) => void>();
-		await renderWithRouter(<QuotaCard wait={wait} onDecide={onDecide} />);
+		const onDecide = vi.fn<(decision: QuotaAnswer) => void>();
+		await renderWithRouter(<QuotaDecision wait={wait} onDecide={onDecide} />);
 		fireEvent.change(screen.getByLabelText("Tokens to add"), { target: { value: "0" } });
 		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 		expect(onDecide).not.toHaveBeenCalled();
@@ -44,16 +48,17 @@ describe("QuotaCard", () => {
 	});
 
 	test("adds the typed amount", async () => {
-		const onDecide = vi.fn<(decision: QuotaDecision) => void>();
-		await renderWithRouter(<QuotaCard wait={wait} onDecide={onDecide} />);
+		const onDecide = vi.fn<(decision: QuotaAnswer) => void>();
+		await renderWithRouter(<QuotaDecision wait={wait} onDecide={onDecide} />);
 		fireEvent.change(screen.getByLabelText("Tokens to add"), { target: { value: " 100 " } });
 		fireEvent.click(screen.getByRole("button", { name: "Add" }));
 		expect(onDecide).toHaveBeenCalledWith({ decision: "approve", tokens: 100 });
 	});
 
-	test("stop denies the quota", async () => {
-		const onDecide = vi.fn<(decision: QuotaDecision) => void>();
-		await renderWithRouter(<QuotaCard wait={wait} onDecide={onDecide} />);
+	test("the Stop tab stops the paused run", async () => {
+		const onDecide = vi.fn<(decision: QuotaAnswer) => void>();
+		await renderWithRouter(<QuotaDecision wait={wait} onDecide={onDecide} />);
+		fireEvent.click(screen.getByRole("tab", { name: "Stop" }));
 		fireEvent.click(screen.getByRole("button", { name: "Stop" }));
 		expect(onDecide).toHaveBeenCalledWith({ decision: "deny" });
 	});

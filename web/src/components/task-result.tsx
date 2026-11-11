@@ -12,7 +12,7 @@ import { useAuth } from "@/features/auth/session";
 import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/features/tasks/output";
 import { taskTitle } from "@/features/tasks/title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
-import { DecisionView, EvaluationTable } from "./approval-card";
+import { DecisionView, EvaluationTable } from "./decision/evaluation";
 
 /** The authorization plan of a task that waits for a signature (doc/design/privilege.md "Authorization path"). */
 function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {

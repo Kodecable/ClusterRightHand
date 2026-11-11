@@ -89,12 +89,6 @@ msgstr "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgid "{0} gains the node access this user group grants."
 msgstr "{0} gains the node access this user group grants."
 
-#. placeholder {0}: item.task.kind
-#. placeholder {1}: nodeNames.get(item.task.nodeId) ?? item.task.nodeId
-#: src/components/approval-card.tsx
-msgid "{0} on {1}"
-msgstr "{0} on {1}"
-
 #. placeholder {0}: formatTokenRate(rate, locale)
 #: src/features/sessions/composer-meta.tsx
 msgid "{0} tok/s"
@@ -106,7 +100,7 @@ msgid "{0} tokens left"
 msgstr "{0} tokens left"
 
 #. placeholder {0}: formatNumber(status.remaining, locale)
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "{0} tokens left · {usedText} spent"
 msgstr "{0} tokens left · {usedText} spent"
 
@@ -127,10 +121,6 @@ msgstr "{bytes, plural, one {# byte} other {# bytes}}"
 #: src/features/users/pages.tsx
 msgid "{count, plural, one {# member} other {# members}}"
 msgstr "{count, plural, one {# member} other {# members}}"
-
-#: src/features/approvals/pages.tsx
-msgid "{count, plural, one {# waiting} other {# waiting}}"
-msgstr "{count, plural, one {# waiting} other {# waiting}}"
 
 #: src/features/sessions/composer-meta.tsx
 msgid "{exact} tokens in total"
@@ -182,10 +172,6 @@ msgstr "{running} running"
 msgid "{steps, plural, one {# step} other {# steps}}"
 msgstr "{steps, plural, one {# step} other {# steps}}"
 
-#: src/components/approval-card.tsx
-msgid "{taskGroupKind} on {taskGroupTargets}"
-msgstr "{taskGroupKind} on {taskGroupTargets}"
-
 #: src/features/sessions/children-bar.tsx
 msgid "{total, plural, one {# subagent} other {# subagents}}"
 msgstr "{total, plural, one {# subagent} other {# subagents}}"
@@ -198,9 +184,10 @@ msgstr "{turns, plural, one {# turn} other {# turns}}"
 msgid "/{name}: {description} (not sent as a message)"
 msgstr "/{name}: {description} (not sent as a message)"
 
-#: src/components/authorization-card.tsx
-msgid "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
-msgstr "`crha grant` decodes the payload for confirmation, signs it with `ssh-keygen -Y sign -n crh-auth-v1` and prints the authorization to paste below. The same thing by hand:"
+#. placeholder {0}: decisions.length
+#: src/features/sessions/session-decisions.tsx
+msgid "1 of {0}"
+msgstr "1 of {0}"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "30 days"
@@ -386,7 +373,7 @@ msgstr "Active · not connected"
 msgid "Actor type"
 msgstr "Actor type"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/users/user-group-dialogs.tsx
 msgid "Add"
 msgstr "Add"
@@ -445,9 +432,9 @@ msgstr "Add SSH key"
 msgid "Add to user group"
 msgstr "Add to user group"
 
-#: src/features/approvals/pages.tsx
-msgid "Add tokens to the paused run or stop it."
-msgstr "Add tokens to the paused run or stop it."
+#: src/components/decision/quota-decision.tsx
+msgid "Add tokens"
+msgstr "Add tokens"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Added rules (JSON)"
@@ -534,7 +521,7 @@ msgstr "All tasks"
 msgid "All users"
 msgstr "All users"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
@@ -544,11 +531,6 @@ msgstr "Allow"
 msgid "Already settled"
 msgstr "Already settled"
 
-#. placeholder {0}: pending.tried.join(", ")
-#: src/components/authorization-card.tsx
-msgid "Already tried: {0}."
-msgstr "Already tried: {0}."
-
 #: src/features/auth/change-password-dialog.tsx
 msgid "Also revoke all of my API tokens"
 msgstr "Also revoke all of my API tokens"
@@ -557,7 +539,11 @@ msgstr "Also revoke all of my API tokens"
 msgid "Also revoke all of this user's API tokens"
 msgstr "Also revoke all of this user's API tokens"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
+msgid "Always allow"
+msgstr "Always allow"
+
+#: src/components/decision/approval-decision.tsx
 msgid "Always allow rule"
 msgstr "Always allow rule"
 
@@ -585,10 +571,6 @@ msgstr "Any actor"
 msgid "any method and target"
 msgstr "any method and target"
 
-#: src/components/authorization-card.tsx
-msgid "Any method and target"
-msgstr "Any method and target"
-
 #: src/features/tasks/pages.tsx
 msgid "Any node"
 msgstr "Any node"
@@ -610,7 +592,7 @@ msgstr "Anything using this token stops working immediately. This cannot be undo
 msgid "API key"
 msgstr "API key"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "API token"
@@ -627,6 +609,7 @@ msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on ev
 msgstr "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
 
 #: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Approval"
 msgstr "Approval"
@@ -640,25 +623,21 @@ msgstr "Approval decision"
 msgid "Approvals"
 msgstr "Approvals"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve"
 msgstr "Approve"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Approve and always allow"
 msgstr "Approve and always allow"
-
-#: src/components/approval-card.tsx
-msgid "Approve and always allow…"
-msgstr "Approve and always allow…"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve node"
 msgstr "Approve node"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Approved"
 msgstr "Approved"
 
@@ -686,8 +665,8 @@ msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 msgstr "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 
-#: src/components/approval-card.tsx
 #: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
 msgid "Asked by"
 msgstr "Asked by"
 
@@ -700,7 +679,6 @@ msgstr "Assistant"
 msgid "At least 8 characters."
 msgstr "At least 8 characters."
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Attempt"
 msgstr "Attempt"
@@ -726,19 +704,11 @@ msgstr "Authorization"
 msgid "Authorization clock tolerance"
 msgstr "Authorization clock tolerance"
 
-#: src/components/authorization-card.tsx
-msgid "Authorization from `crha grant`"
-msgstr "Authorization from `crha grant`"
-
-#: src/components/authorization-card.tsx
-msgid "Authorization id"
-msgstr "Authorization id"
-
 #: src/features/authorizations/pages.tsx
 msgid "Authorization payload"
 msgstr "Authorization payload"
 
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Authorization submitted."
 msgstr "Authorization submitted."
 
@@ -774,7 +744,6 @@ msgstr "Average time to first token: {0}"
 msgid "Awaiting"
 msgstr "Awaiting"
 
-#: src/components/approval-card.tsx
 #: src/components/status-badge.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Awaiting approval"
@@ -803,16 +772,12 @@ msgstr "Base URL"
 msgid "Body fields"
 msgstr "Body fields"
 
-#: src/components/quota-card.tsx
-msgid "Budget"
-msgstr "Budget"
-
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "Budget used up · {usedText} spent"
 msgstr "Budget used up · {usedText} spent"
 
 #. placeholder {0}: formatNumber(status.over, locale)
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "Budget used up ({0} over) · {usedText} spent"
 msgstr "Budget used up ({0} over) · {usedText} spent"
 
@@ -1011,14 +976,9 @@ msgstr "Cluster"
 msgid "Collapse subagents"
 msgstr "Collapse subagents"
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Command"
 msgstr "Command"
-
-#: src/components/approval-card.tsx
-msgid "Command / path"
-msgstr "Command / path"
 
 #: src/components/task-form-fields.tsx
 msgid "Command line (split into argv)"
@@ -1135,14 +1095,11 @@ msgstr "Copy aliases"
 msgid "Copy code"
 msgstr "Copy code"
 
+#: src/components/decision/signature-decision.tsx
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Copy command"
 msgstr "Copy command"
-
-#: src/components/authorization-card.tsx
-msgid "Copy crha grant command"
-msgstr "Copy crha grant command"
 
 #: src/features/node-groups/pages.tsx
 msgid "Copy node group id"
@@ -1157,10 +1114,6 @@ msgstr "Copy node group id of {0}"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Copy public key"
 msgstr "Copy public key"
-
-#: src/components/authorization-card.tsx
-msgid "Copy ssh-keygen recipe"
-msgstr "Copy ssh-keygen recipe"
 
 #: src/components/task-result.tsx
 msgid "Copy task id"
@@ -1242,10 +1195,6 @@ msgstr "Credentials"
 msgid "crha client"
 msgstr "crha client"
 
-#: src/components/authorization-card.tsx
-msgid "crha grant command"
-msgstr "crha grant command"
-
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
 msgstr "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
@@ -1271,7 +1220,7 @@ msgstr "crhs trust snippet"
 msgid "Cron"
 msgstr "Cron"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Cumulative result"
 msgstr "Cumulative result"
 
@@ -1289,20 +1238,19 @@ msgstr "Custom"
 msgid "Dark"
 msgstr "Dark"
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Deadline"
 msgstr "Deadline"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Decided at"
 msgstr "Decided at"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Decided by"
 msgstr "Decided by"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Decision"
 msgstr "Decision"
 
@@ -1311,7 +1259,7 @@ msgstr "Decision"
 msgid "Decode speed: {0} tok/s"
 msgstr "Decode speed: {0} tok/s"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Default"
 msgstr "Default"
 
@@ -1439,7 +1387,7 @@ msgstr "Deleted user group"
 msgid "Denied"
 msgstr "Denied"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Deny"
@@ -1582,12 +1530,12 @@ msgstr "Ended in {duration}"
 msgid "Enrollment command"
 msgstr "Enrollment command"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
@@ -1646,7 +1594,7 @@ msgstr "Every model needs a max output of at least 1 token."
 msgid "Every model needs an id."
 msgstr "Every model needs an id."
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "exact"
 msgstr "exact"
 
@@ -1828,6 +1776,15 @@ msgstr "Host keys"
 msgid "Hostname"
 msgstr "Hostname"
 
+#: src/components/decision/approval-decision.tsx
+#: src/components/decision/quota-decision.tsx
+msgid "How to decide"
+msgstr "How to decide"
+
+#: src/components/decision/signature-decision.tsx
+msgid "How to sign"
+msgstr "How to sign"
+
 #: src/features/authorizations/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -1851,7 +1808,7 @@ msgstr "Image"
 msgid "Image understanding"
 msgstr "Image understanding"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Inherit"
 msgstr "Inherit"
 
@@ -1863,7 +1820,6 @@ msgstr "Interrupted"
 msgid "Invalid username or password."
 msgstr "Invalid username or password."
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 msgid "Issued"
 msgstr "Issued"
@@ -1943,17 +1899,9 @@ msgstr "Kinds"
 msgid "Language"
 msgstr "Language"
 
-#: src/components/authorization-card.tsx
-msgid "Last rejection"
-msgstr "Last rejection"
-
-#. placeholder {0}: pending.lastRejection.code
 #. placeholder {0}: record.lastRejection.code
-#. placeholder {1}: pending.lastRejection.attempt
 #. placeholder {1}: record.lastRejection.attempt
-#. placeholder {2}: pending.lastRejection.message
 #. placeholder {2}: record.lastRejection.message
-#: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
 msgid "Last rejection {0} (attempt {1}): {2}"
 msgstr "Last rejection {0} (attempt {1}): {2}"
@@ -1982,7 +1930,7 @@ msgstr "Leave empty to keep the current key"
 msgid "Leave empty to use the default prompt."
 msgstr "Leave empty to use the default prompt."
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Level"
 msgstr "Level"
 
@@ -2039,13 +1987,13 @@ msgstr "Loading shares…"
 msgid "Loading task…"
 msgstr "Loading task…"
 
-#: src/features/sessions/session-waits.tsx
-msgid "Loading the waiting decisions…"
-msgstr "Loading the waiting decisions…"
-
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Loading…"
 msgstr "Loading…"
+
+#: src/components/decision/signature-decision.tsx
+msgid "Local approval"
+msgstr "Local approval"
 
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
@@ -2067,7 +2015,7 @@ msgstr "Mapped value"
 msgid "Mapping"
 msgstr "Mapping"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Matched rule"
 msgstr "Matched rule"
 
@@ -2258,7 +2206,8 @@ msgstr "New schedule"
 msgid "New session"
 msgstr "New session"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
@@ -2308,7 +2257,6 @@ msgstr "Next run"
 msgid "Nightly check"
 msgstr "Nightly check"
 
-#: src/components/approval-card.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "No"
 msgstr "No"
@@ -2329,7 +2277,7 @@ msgstr "No authorizations yet"
 msgid "No budget limit"
 msgstr "No budget limit"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "No budget limit · {usedText} spent"
 msgstr "No budget limit · {usedText} spent"
 
@@ -2415,10 +2363,6 @@ msgstr "No output was kept."
 msgid "No output yet"
 msgstr "No output yet"
 
-#: src/components/authorization-card.tsx
-msgid "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
-msgstr "No Passkey of yours is trusted by this node for this command; sign with your SSH key below."
-
 #: src/features/sessions/tool-card.tsx
 msgid "No result"
 msgstr "No result"
@@ -2474,7 +2418,6 @@ msgstr "No user groups yet"
 msgid "No users yet"
 msgstr "No users yet"
 
-#: src/components/authorization-card.tsx
 #: src/components/entity-picker/entity-picker.tsx
 #: src/components/task-result.tsx
 #: src/features/node-groups/pages.tsx
@@ -2542,7 +2485,7 @@ msgid "Node tasks"
 msgstr "Node tasks"
 
 #: src/app/shell/nav.ts
-#: src/components/authorization-card.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/node-groups/dialogs.tsx
 #: src/features/nodes/pages.tsx
@@ -2562,7 +2505,7 @@ msgstr "Nodes that trust it stop accepting its signatures. Authorizations it alr
 msgid "None"
 msgstr "None"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Not a valid rule: {error}"
 msgstr "Not a valid rule: {error}"
 
@@ -2591,7 +2534,6 @@ msgstr "Not shared."
 msgid "Not valid JSON: {0}"
 msgstr "Not valid JSON: {0}"
 
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/schedules/run-history.tsx
 msgid "Note"
@@ -2649,10 +2591,6 @@ msgstr "On behalf of"
 msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 msgstr "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 
-#: src/features/approvals/pages.tsx
-msgid "One decision applies to every node in the task group."
-msgstr "One decision applies to every node in the task group."
-
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "One rule per line: method and a target prefix."
 msgstr "One rule per line: method and a target prefix."
@@ -2700,14 +2638,13 @@ msgstr "Open the task"
 msgid "Open the task group"
 msgstr "Open the task group"
 
-#: src/features/sessions/session-waits.tsx
 #: src/features/sessions/tool-dialog.tsx
 msgid "Open the task group page"
 msgstr "Open the task group page"
 
-#: src/features/sessions/session-waits.tsx
-msgid "Open the task page"
-msgstr "Open the task page"
+#: src/features/approvals/pages.tsx
+msgid "Operation"
+msgstr "Operation"
 
 #: src/app/shell/app-sidebar.tsx
 msgid "Ops console"
@@ -2737,11 +2674,6 @@ msgstr "Optional; it defaults to the node's hostname."
 #: src/features/credentials/pages.tsx
 msgid "Optional; it names the trust entry."
 msgstr "Optional; it names the trust entry."
-
-#. placeholder {0}: pending.taskIds[0] ?? ""
-#: src/components/authorization-card.tsx
-msgid "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
-msgstr "Or run <0>crha approve {0}</0> on the node (a user in its `local` trust entries) — the task then runs with that approval instead."
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
@@ -2800,6 +2732,7 @@ msgstr "Parallel must be a positive whole number."
 msgid "Partly failed"
 msgstr "Partly failed"
 
+#: src/components/decision/signature-decision.tsx
 #: src/features/credentials/pages.tsx
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Passkey"
@@ -2809,7 +2742,7 @@ msgstr "Passkey"
 msgid "Passkey registration was cancelled."
 msgstr "Passkey registration was cancelled."
 
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Passkey signing was cancelled."
 msgstr "Passkey signing was cancelled."
 
@@ -2872,15 +2805,15 @@ msgstr "Port"
 msgid "Preempted"
 msgstr "Preempted"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "prefix"
 msgstr "prefix"
 
-#: src/features/sessions/session-waits.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Preparing the payload to sign…"
 msgstr "Preparing the payload to sign…"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/decision.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
 #: src/features/tasks/task-columns.tsx
@@ -2936,13 +2869,17 @@ msgstr "queued"
 msgid "Queued"
 msgstr "Queued"
 
-#: src/components/approval-card.tsx
+#: src/features/approvals/pages.tsx
+msgid "Quota"
+msgstr "Quota"
+
+#: src/components/decision/evaluation.tsx
 msgid "Reason"
 msgstr "Reason"
 
-#: src/components/approval-card.tsx
-msgid "Reason (optional, used when rejecting)"
-msgstr "Reason (optional, used when rejecting)"
+#: src/components/decision/reject.tsx
+msgid "Reason (optional)"
+msgstr "Reason (optional)"
 
 #: src/features/users/pages.tsx
 msgid "Recent sessions"
@@ -2961,7 +2898,9 @@ msgstr "Reconnecting…"
 msgid "Register Passkey"
 msgstr "Register Passkey"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
+#: src/components/decision/reject.tsx
+#: src/components/decision/signature-decision.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject"
@@ -2975,7 +2914,7 @@ msgstr "Reject and delete"
 msgid "Reject node"
 msgstr "Reject node"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/components/status-badge.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
@@ -3113,11 +3052,11 @@ msgstr "Request body overrides must be valid JSON."
 msgid "Request body per level"
 msgstr "Request body per level"
 
-#: src/components/approval-card.tsx
+#: src/features/approvals/pages.tsx
 msgid "Requested"
 msgstr "Requested"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Require approval"
 msgstr "Require approval"
 
@@ -3191,7 +3130,8 @@ msgstr "Role"
 msgid "Route"
 msgstr "Route"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
+#: src/components/decision/evaluation.tsx
 #: src/components/task-result.tsx
 msgid "Rule chain evaluation"
 msgstr "Rule chain evaluation"
@@ -3209,11 +3149,11 @@ msgstr "Rule preset"
 msgid "Rule preset: {0}"
 msgstr "Rule preset: {0}"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 msgid "Rule result"
 msgstr "Rule result"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Rule to add to the caller's rule set"
 msgstr "Rule to add to the caller's rule set"
 
@@ -3266,6 +3206,10 @@ msgstr "Run started."
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Run task"
 msgstr "Run task"
+
+#: src/components/decision/signature-decision.tsx
+msgid "Run this on the node as a user in its local trust entries; the task then runs with that approval instead."
+msgstr "Run this on the node as a user in its local trust entries; the task then runs with that approval instead."
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Run this on the node:"
@@ -3326,7 +3270,7 @@ msgstr "Save rules"
 msgid "Save schedule"
 msgstr "Save schedule"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/tasks/pages.tsx
 msgid "Schedule"
 msgstr "Schedule"
@@ -3410,7 +3354,7 @@ msgstr "Select…"
 msgid "Send"
 msgstr "Send"
 
-#: src/components/approval-card.tsx
+#: src/components/decision/evaluation.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/model-presets.tsx
 #: src/features/tasks/task-page.tsx
@@ -3507,16 +3451,16 @@ msgstr "Sign in"
 msgid "Sign in to the operations console."
 msgstr "Sign in to the operations console."
 
-#: src/components/authorization-card.tsx
-msgid "Sign on your workstation"
-msgstr "Sign on your workstation"
+#: src/components/decision/signature-decision.tsx
+msgid "Sign to approve"
+msgstr "Sign to approve"
 
-#: src/components/authorization-card.tsx
-msgid "Sign the payload below with `crha grant` (or your Passkey). The signature is bound to this attempt: if the plan changes, this card shows a new payload."
-msgstr "Sign the payload below with `crha grant` (or your Passkey). The signature is bound to this attempt: if the plan changes, this card shows a new payload."
+#: src/components/decision/signature-decision.tsx
+msgid "Sign with a Passkey this node trusts for this command."
+msgstr "Sign with a Passkey this node trusts for this command."
 
 #. placeholder {0}: passkey.name
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Sign with Passkey “{0}”"
 msgstr "Sign with Passkey “{0}”"
 
@@ -3533,12 +3477,17 @@ msgstr "Signal"
 msgid "Signal {0}"
 msgstr "Signal {0}"
 
+#: src/components/decision/signature-decision.tsx
+#: src/features/approvals/pages.tsx
+msgid "Signature"
+msgstr "Signature"
+
 #: src/app/shell/user-menu.tsx
 msgid "Signed in as {name}"
 msgstr "Signed in as {name}"
 
 #. placeholder {0}: passkey.name
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Signed with Passkey \"{0}\"."
 msgstr "Signed with Passkey \"{0}\"."
 
@@ -3549,10 +3498,6 @@ msgstr "Signing credentials"
 #: src/features/nodes/trust-editor-panel.tsx
 msgid "Signing key"
 msgstr "Signing key"
-
-#: src/components/quota-card.tsx
-msgid "Since"
-msgstr "Since"
 
 #: src/components/task-result.tsx
 msgid "Size"
@@ -3573,10 +3518,6 @@ msgstr "Some rules reference deleted nodes or node groups. Remove or replace tho
 #: src/components/error-state.tsx
 msgid "Something went wrong"
 msgstr "Something went wrong"
-
-#: src/components/authorization-card.tsx
-msgid "Spec hash"
-msgstr "Spec hash"
 
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/ssh-node-section.tsx
@@ -3604,10 +3545,6 @@ msgstr "SSH key"
 msgid "SSH route"
 msgstr "SSH route"
 
-#: src/components/authorization-card.tsx
-msgid "ssh-keygen recipe"
-msgstr "ssh-keygen recipe"
-
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Standard"
@@ -3625,7 +3562,6 @@ msgstr "Start one, or wait for a scheduled run."
 msgid "State"
 msgstr "State"
 
-#: src/components/authorization-card.tsx
 #: src/components/task-result.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
@@ -3656,7 +3592,7 @@ msgstr "Stdin (optional)"
 msgid "Steps"
 msgstr "Steps"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/sessions/composer-footer.tsx
 msgid "Stop"
 msgstr "Stop"
@@ -3668,6 +3604,10 @@ msgstr "Stop it and run now"
 #: src/features/tasks/task-page.tsx
 msgid "Stop task"
 msgstr "Stop task"
+
+#: src/components/decision/quota-decision.tsx
+msgid "Stop the paused run instead of adding tokens."
+msgstr "Stop the paused run instead of adding tokens."
 
 #: src/features/schedules/scheduleForm.ts
 msgid "stopped by the next run"
@@ -3687,7 +3627,7 @@ msgstr "Subagent: {0}"
 msgid "Subagents"
 msgstr "Subagents"
 
-#: src/components/authorization-card.tsx
+#: src/components/decision/signature-decision.tsx
 msgid "Submit authorization"
 msgstr "Submit authorization"
 
@@ -3731,40 +3671,26 @@ msgstr "Target id"
 msgid "Target type"
 msgstr "Target type"
 
-#: src/components/approval-card.tsx
-#: src/components/authorization-card.tsx
+#: src/components/decision/summary.tsx
+msgid "Targets"
+msgstr "Targets"
+
 #: src/components/task-result.tsx
-#: src/features/approvals/pages.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "Task"
 msgstr "Task"
 
-#: src/features/approvals/pages.tsx
-msgid "Task approvals"
-msgstr "Task approvals"
-
+#: src/features/sessions/session-decisions.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task details"
 msgstr "Task details"
 
-#: src/components/approval-card.tsx
-#: src/features/approvals/pages.tsx
-msgid "task group"
-msgstr "task group"
-
-#: src/components/approval-card.tsx
-#: src/features/approvals/pages.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task group"
 msgstr "Task group"
 
-#: src/features/approvals/pages.tsx
-msgid "Task-group approvals"
-msgstr "Task-group approvals"
-
 #: src/app/shell/nav.ts
-#: src/components/authorization-card.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/tasks/pages.tsx
 msgid "Tasks"
@@ -3779,10 +3705,6 @@ msgstr "Tasks in this task group"
 msgid "Tasks of {0}"
 msgstr "Tasks of {0}"
 
-#: src/components/authorization-card.tsx
-msgid "Tasks waiting for authorization"
-msgstr "Tasks waiting for authorization"
-
 #: src/components/test-connection.tsx
 msgid "Test connection"
 msgstr "Test connection"
@@ -3791,7 +3713,7 @@ msgstr "Test connection"
 msgid "text"
 msgstr "text"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
 msgid "That number is too large."
@@ -3903,10 +3825,6 @@ msgstr "The offset is past the end of the file."
 msgid "The page you asked for does not exist."
 msgstr "The page you asked for does not exist."
 
-#: src/features/sessions/session-waits.tsx
-msgid "The pending payload is being prepared…"
-msgstr "The pending payload is being prepared…"
-
 #: src/features/nodes/ssh-wizard.tsx
 msgid "The port must be between 1 and 65535."
 msgstr "The port must be between 1 and 65535."
@@ -3983,14 +3901,6 @@ msgstr "The Yolo rule preset runs every action without asking or checking."
 msgid "Theme"
 msgstr "Theme"
 
-#: src/features/approvals/pages.tsx
-msgid "These passed their rules; they run once you sign them."
-msgstr "These passed their rules; they run once you sign them."
-
-#: src/features/approvals/pages.tsx
-msgid "These tasks were held back by a rule and run once you approve them."
-msgstr "These tasks were held back by a rule and run once you approve them."
-
 #: src/features/users/pages.tsx
 msgid "They are signed out and cannot sign in again until you enable them."
 msgstr "They are signed out and cannot sign in again until you enable them."
@@ -4048,10 +3958,6 @@ msgstr "This is a top-level key of privileged.toml. Paste it before the first `[
 msgid "This request is no longer waiting for approval; it is"
 msgstr "This request is no longer waiting for approval; it is"
 
-#: src/features/sessions/session-waits.tsx
-msgid "This session is waiting, but there is nothing for you to decide."
-msgstr "This session is waiting, but there is nothing for you to decide."
-
 #: src/features/schedules/schedule-actions.tsx
 msgid "This stops the current run. Its history will show it as preempted."
 msgstr "This stops the current run. Its history will show it as preempted."
@@ -4106,19 +4012,15 @@ msgstr "Toggle Sidebar"
 msgid "Token budget"
 msgstr "Token budget"
 
-#: src/components/quota-card.tsx
-msgid "Token budget used up"
-msgstr "Token budget used up"
-
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Token created"
 msgstr "Token created"
 
-#: src/features/approvals/pages.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "Token quota used up"
 msgstr "Token quota used up"
 
-#: src/components/quota-card.tsx
+#: src/components/decision/quota-decision.tsx
 msgid "Tokens to add"
 msgstr "Tokens to add"
 
@@ -4169,6 +4071,7 @@ msgid "Try again"
 msgstr "Try again"
 
 #: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
 msgid "Type"
 msgstr "Type"
 
@@ -4320,38 +4223,22 @@ msgstr "Waiting for approval"
 msgid "Waiting for approval. {approvalLink}"
 msgstr "Waiting for approval. {approvalLink}"
 
-#: src/features/tasks/task-group-result.tsx
-msgid "Waiting for the owner's authorization; the payload is being prepared."
-msgstr "Waiting for the owner's authorization; the payload is being prepared."
-
 #: src/components/task-result.tsx
 msgid "Waiting for the owner's authorization."
 msgstr "Waiting for the owner's authorization."
 
-#: src/features/tasks/task-page.tsx
-msgid "Waiting for the payload to sign; the card appears when it is ready."
-msgstr "Waiting for the payload to sign; the card appears when it is ready."
+#: src/features/approvals/pages.tsx
+msgid "Waiting for you"
+msgstr "Waiting for you"
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your approval."
 msgstr "Waiting for your approval."
 
-#: src/components/authorization-card.tsx
-msgid "Waiting for your authorization"
-msgstr "Waiting for your authorization"
-
-#: src/features/approvals/pages.tsx
-msgid "Waiting for your signature"
-msgstr "Waiting for your signature"
-
 #: src/components/task-result.tsx
 #: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your signature."
 msgstr "Waiting for your signature."
-
-#: src/components/approval-card.tsx
-msgid "What"
-msgstr "What"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "What the new session should do"
@@ -4385,7 +4272,6 @@ msgstr "Work"
 msgid "Working directory (optional)"
 msgstr "Working directory (optional)"
 
-#: src/components/approval-card.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Yes"
 msgstr "Yes"
@@ -4417,3 +4303,7 @@ msgstr "You cannot disable your own account."
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."
 msgstr "You have view access: the owner can let you send messages by sharing it for chat."
+
+#: src/components/decision/approval-decision.tsx
+msgid "Your approval is needed"
+msgstr "Your approval is needed"

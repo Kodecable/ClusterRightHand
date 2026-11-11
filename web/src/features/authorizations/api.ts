@@ -4,7 +4,6 @@ import type {
 	PendingAuthorization,
 	TaskGroupPending,
 	TaskGroupPendingTask,
-	TaskGroupView,
 } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidatePendingDecisions } from "@/features/approvals/api";
@@ -33,7 +32,7 @@ export function useAuthorizations(filters: AuthorizationFilters = {}) {
 	});
 }
 
-/** The pending payload of a waiting task or task group, polled while the card is open. */
+/** The pending payload of a waiting task or task group, polled while the decision is open. */
 export function usePendingAuthorization(kind: "task" | "task_group", id: string | undefined) {
 	return useQuery({
 		queryKey: authorizationKeys.pending(kind, id ?? ""),
@@ -74,17 +73,49 @@ export function useSubmitAuthorization() {
 			// The approvals list carries the pending signatures; signing settles a task.
 			invalidatePendingDecisions(queryClient);
 			// The dispatch continues after this response and no SSE carries a task's state, so
-			// refresh the pending card and the task views once more after the claim has landed. The
+			// refresh the pending decision and the task views once more after the claim has landed. The
 			// existing polls cover anything slower, such as an offline node's grace.
 			setTimeout(() => {
 				void queryClient.invalidateQueries({ queryKey: authorizationKeys.all });
 				invalidatePendingDecisions(queryClient);
 			}, DISPATCH_REFRESH_MS);
 		},
-		// The authorization card renders the failure beside its paste box.
+		// The signature decision renders the failure beside its signing controls.
 		meta: { toast: false },
 	});
 }
 
-/** The task group's pending-tasks table (the authorization card shows it for task groups). */
-export type { TaskGroupView };
+export interface RejectAuthorizationInput {
+	kind: "task" | "task_group";
+	id: string;
+	reason?: string;
+}
+
+/**
+ * The owner declining to sign (doc/design/privilege.md "Waiting for signatures"): the task ends
+ * `rejected` with `authorization_rejected` and the reason, or the server's
+ * default text. A 409 means the wait already ended, so the lists are refreshed.
+ */
+export function useRejectAuthorization() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ kind, id, reason }: RejectAuthorizationInput) => {
+			const body = reason !== undefined && reason.trim() !== "" ? { reason: reason.trim() } : {};
+			return kind === "task"
+				? http.post<{ ok: true }>(`/tasks/${enc(id)}/authorization/reject`, body)
+				: http.post<{ ok: true }>(`/task-groups/${enc(id)}/authorization/reject`, body);
+		},
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: authorizationKeys.all });
+			invalidatePendingDecisions(queryClient);
+		},
+		onError: (error) => {
+			if (typeof error === "object" && error !== null && "status" in error && error.status === 409) {
+				void queryClient.invalidateQueries({ queryKey: authorizationKeys.all });
+				invalidatePendingDecisions(queryClient);
+			}
+		},
+		// The signature decision renders the failure in its Reject tab.
+		meta: { toast: false },
+	});
+}
