@@ -6,8 +6,8 @@ import { TableEmpty } from "@/components/empty-state";
 import { SectionHeader } from "@/components/section";
 import { useNodeTasks } from "@/features/nodes/api";
 import { useTaskColumns } from "@/features/tasks/task-columns";
-import { taskTitle } from "@/features/tasks/title";
 import { useDirectory } from "@/features/users/api";
+import { taskTitle } from "@/lib/task-title";
 import { linkClass } from "@/lib/utils";
 
 /** The node's recent tasks (doc/design/webui.md "Task and task group pages"): newest first; a row opens its task. */

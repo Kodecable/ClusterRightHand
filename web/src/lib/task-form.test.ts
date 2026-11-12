@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildTaskRequest, emptyForm, TaskFormError } from "./taskForm";
+import { buildTaskRequest, emptyForm, TaskFormError } from "./task-form";
 
 describe("buildTaskRequest", () => {
 	test("exec shell with timeout", () => {

@@ -5,8 +5,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { AppSidebar } from "@/app/shell/app-sidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { authStore } from "@/features/auth/session";
 import { copyText } from "@/lib/clipboard";
+import { authStore } from "@/lib/session";
 import { renderWithRouter } from "@/test/render";
 import { SshCredentialsPage } from "./pages";
 

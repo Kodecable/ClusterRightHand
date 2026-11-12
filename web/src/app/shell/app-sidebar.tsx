@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useApprovals } from "@/features/approvals/api";
 import { pendingCount } from "@/features/approvals/pending";
-import { useAuth } from "@/features/auth/session";
+import { useAuth } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS, type NavItem, navItemForPath } from "./nav";
 import { UserMenu } from "./user-menu";

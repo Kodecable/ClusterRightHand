@@ -2,7 +2,7 @@ import type { Evaluation, TaskGroupView, TaskView } from "@crh/api";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { authStore } from "@/features/auth/session";
+import { authStore } from "@/lib/session";
 import { renderWithRouter, type TestLocale, testQueryClient } from "@/test/render";
 import { TaskGroupPage } from "./task-group-page";
 import { TaskPage } from "./task-page";

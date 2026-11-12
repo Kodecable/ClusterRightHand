@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { SignatureDecision } from "@/components/decision/signature-decision";
 import type { ApprovalItem } from "@/components/decision/types";
 import { usePendingAuthorization, useRejectAuthorization, useSubmitAuthorization } from "./api";
+import { SignatureDecision } from "./signature-decision";
 
 /**
  * Wires a waiting task or task group to the shared signature decision: the

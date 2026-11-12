@@ -1,6 +1,6 @@
 import type { User } from "@crh/api";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { authStore } from "@/features/auth/session";
+import { authStore } from "@/lib/session";
 import { router } from "./router";
 
 const ADMIN: User = {

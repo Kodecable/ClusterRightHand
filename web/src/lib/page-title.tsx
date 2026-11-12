@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect } from "react";
-import { APP_NAME } from "@/app/meta";
+import { APP_NAME } from "./meta";
 
 /**
  * How much of a command a browser tab and the shell's header bar show. The

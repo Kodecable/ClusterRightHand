@@ -12,11 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
+import { taskTitle } from "@/lib/task-title";
 import { useTasks } from "./api";
 import { RunTaskDialog } from "./run-task-dialog";
 import type { TasksSearch } from "./search";
 import { useTaskColumns } from "./task-columns";
-import { taskTitle } from "./title";
 
 const STATES = [
 	"awaiting_approval",

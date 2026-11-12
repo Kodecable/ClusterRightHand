@@ -8,9 +8,9 @@ import { DateTime, RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { useTimeColumnWidth } from "@/components/time-column";
 import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/features/auth/session";
-import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/features/tasks/output";
-import { taskTitle } from "@/features/tasks/title";
+import { useAuth } from "@/lib/session";
+import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/lib/task-output";
+import { taskTitle } from "@/lib/task-title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./decision/evaluation";
 

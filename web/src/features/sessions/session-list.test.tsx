@@ -10,8 +10,8 @@ import {
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { authStore } from "@/features/auth/session";
 import { LocaleProvider } from "@/lib/i18n";
+import { authStore } from "@/lib/session";
 import { activateLocale } from "@/test/render";
 import { SessionList } from "./session-list";
 import { closeSessionSearch, SessionSearchDialog } from "./session-search-dialog";

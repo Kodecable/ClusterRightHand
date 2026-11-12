@@ -20,6 +20,7 @@ import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { signingCredentialKeyId } from "@/lib/signing-credential-key";
 import { cn, MONO_CELL } from "@/lib/utils";
 import {
 	useAddSshSigningCredential,
@@ -28,10 +29,7 @@ import {
 	useRegisterPasskey,
 	useSigningCredentials,
 } from "./api";
-import { signingCredentialKeyId } from "./trust";
 import { TrustConfigDialog } from "./trust-config-dialog";
-
-export { signingCredentialKeyId };
 
 interface SshFormValues {
 	name: string;

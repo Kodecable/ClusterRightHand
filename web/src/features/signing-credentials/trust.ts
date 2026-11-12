@@ -10,11 +10,6 @@ export function toBase64url(base64: string): string {
 	return base64.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 }
 
-/** The key id a signing credential row shows: the SSH fingerprint or the WebAuthn credential id. */
-export function signingCredentialKeyId(credential: SigningCredentialView): string {
-	return credential.kind === "ssh" ? (credential.fingerprint ?? "") : (credential.credentialId ?? "");
-}
-
 /** A TOML array of basic strings, e.g. `["execute", "cosign"]`. */
 function tomlStrings(values: readonly string[]): string {
 	return `[${values.map(tomlString).join(", ")}]`;

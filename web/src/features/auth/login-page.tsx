@@ -4,7 +4,6 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { APP_NAME } from "@/app/meta";
 import { ErrorText } from "@/components/error-state";
 import { TextField } from "@/components/form";
 import { Spinner } from "@/components/spinner";
@@ -12,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { loginErrorMessage, useLogin, useLoginOptions } from "@/features/auth/api";
 import { safeRedirectPath } from "@/features/auth/redirect";
-import { useAuth } from "@/features/auth/session";
+import { APP_NAME } from "@/lib/meta";
+import { useAuth } from "@/lib/session";
 
 interface LoginValues {
 	username: string;

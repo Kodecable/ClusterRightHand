@@ -3,7 +3,6 @@ import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, SquareIcon } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
-import { usePageTitle } from "@/app/shell/page-title";
 import { ApprovalDecision, DecisionView } from "@/components/decision";
 import { ErrorState } from "@/components/error-state";
 import type { KeyValueItem } from "@/components/key-value";
@@ -24,16 +23,17 @@ import {
 import { Button } from "@/components/ui/button";
 import { UserLink } from "@/components/user-link";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
-import { useAuth } from "@/features/auth/session";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
 import { isNotFound } from "@/lib/api/client";
+import { usePageTitle } from "@/lib/page-title";
+import { useAuth } from "@/lib/session";
+import { isTerminal } from "@/lib/task-output";
+import { taskTitle } from "@/lib/task-title";
 import { linkClass } from "@/lib/utils";
 import { taskActor } from "./actor";
 import { useCancelTask, useTask } from "./api";
-import { isTerminal } from "./output";
-import { taskTitle } from "./title";
 
 /** A node link that shows the node's name, falling back to its id while the list loads. */
 function NodeLink({ nodeId, names }: { nodeId: string; names: Map<string, string> }) {

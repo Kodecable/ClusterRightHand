@@ -3,17 +3,23 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
+import {
+	DecisionFrame,
+	DecisionTab,
+	DecisionTabList,
+	DecisionTabs,
+	PrivilegedMark,
+} from "@/components/decision/decision";
+import { RejectDecision } from "@/components/decision/reject";
+import { DecisionSummary, operationText } from "@/components/decision/summary";
+import type { ApprovalItem } from "@/components/decision/types";
 import { ErrorText } from "@/components/error-state";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import type { SubmitAuthorizationInput } from "@/features/authorizations/api";
-import { grantCommand, sshKeygenRecipe } from "@/features/authorizations/authorization";
 import { errorMessage } from "@/lib/api/client";
-import { DecisionFrame, DecisionTab, DecisionTabList, DecisionTabs, PrivilegedMark } from "./decision";
-import { RejectDecision } from "./reject";
-import { DecisionSummary, operationText } from "./summary";
-import type { ApprovalItem } from "./types";
+import type { SubmitAuthorizationInput } from "./api";
+import { grantCommand, sshKeygenRecipe } from "./authorization";
 
 /** A one-line command with the copy button that puts the whole command on the clipboard. */
 function CommandLine({ text, label }: { text: string; label: string }) {

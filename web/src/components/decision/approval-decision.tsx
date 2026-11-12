@@ -6,7 +6,7 @@ import { ErrorText } from "@/components/error-state";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { alwaysRule } from "@/features/approvals/rules";
+import { alwaysRule } from "@/lib/approval-rules";
 import { DecisionFrame, DecisionTab, DecisionTabList, DecisionTabs, PrivilegedMark } from "./decision";
 import { EvaluationTable } from "./evaluation";
 import { RejectDecision } from "./reject";

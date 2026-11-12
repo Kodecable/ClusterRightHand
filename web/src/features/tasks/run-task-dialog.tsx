@@ -10,8 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ALL_TARGET } from "@/lib/names";
+import { buildTaskRequest, emptyForm, type TaskForm, taskFormErrorText } from "@/lib/task-form";
 import { useCreateTask, useCreateTaskGroup } from "./api";
-import { buildTaskRequest, emptyForm, type TaskForm, taskFormErrorText } from "./taskForm";
 
 /**
  * The "Run task" dialog of the tasks page (doc/design/webui.md "Task and task group pages"): pick nodes or node

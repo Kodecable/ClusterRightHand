@@ -1,6 +1,7 @@
 import type { SigningCredentialView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import { buildTrustConfig, signingCredentialKeyId, toBase64url, tomlString } from "./trust";
+import { signingCredentialKeyId } from "@/lib/signing-credential-key";
+import { buildTrustConfig, toBase64url, tomlString } from "./trust";
 
 describe("tomlString", () => {
 	test("escapes quotes and backslashes", () => {

@@ -2,7 +2,6 @@ import { Trans } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon } from "lucide-react";
 import { useMemo } from "react";
-import { usePageTitle } from "@/app/shell/page-title";
 import { ErrorState } from "@/components/error-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -10,9 +9,10 @@ import { PageSkeleton } from "@/components/skeletons";
 import { TaskGone } from "@/components/task-gone";
 import { useNodes } from "@/features/nodes/api";
 import { isNotFound } from "@/lib/api/client";
+import { usePageTitle } from "@/lib/page-title";
+import { taskTitle } from "@/lib/task-title";
 import { useTaskGroup } from "./api";
 import { TaskGroupResult, TaskGroupSkippedNotice, TaskGroupStatus } from "./task-group-result";
-import { taskTitle } from "./title";
 
 /**
  * One task group from a link, e.g. a group that waits for the owner's signature

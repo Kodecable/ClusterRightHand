@@ -2,7 +2,7 @@ import type { BatchOutputMode, CursorPage, CursorQuery, TaskGroupView, TaskReque
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
-import { isTerminal } from "./output";
+import { isTerminal } from "@/lib/task-output";
 
 /**
  * How long one `wait` request may hang before it answers with the current view.

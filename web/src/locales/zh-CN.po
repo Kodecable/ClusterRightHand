@@ -115,7 +115,7 @@ msgid "{0} tokens left"
 msgstr "剩余 {0} 个 token"
 
 #. placeholder {0}: formatNumber(status.remaining, locale)
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "{0} tokens left · {usedText} spent"
 msgstr "剩余 {0} 个 token · 已花 {usedText}"
 
@@ -215,7 +215,7 @@ msgstr "90 天"
 msgid "A base URL is required."
 msgstr "必须填写 Base URL。"
 
-#: src/features/tasks/taskForm.ts
+#: src/lib/task-form.ts
 msgid "A command is required."
 msgstr "需要填写命令。"
 
@@ -272,7 +272,7 @@ msgstr "节点组名称必须为 2–64 个字符，以字母开头、以字母�
 msgid "A node group name must not start with \"_\": names starting with \"_\" are reserved for the system."
 msgstr "节点组名称不能以 “_” 开头：以 “_” 开头的名称保留给系统。"
 
-#: src/features/tasks/taskForm.ts
+#: src/lib/task-form.ts
 msgid "A path is required."
 msgstr "需要填写路径。"
 
@@ -337,7 +337,7 @@ msgstr "访问权限"
 msgid "Access grants for {targetName}"
 msgstr "{targetName} 的访问权限"
 
-#: src/features/tasks/output.ts
+#: src/lib/task-output.ts
 msgid "Access to the node was revoked before the task was dispatched."
 msgstr "节点访问权限已在任务下发前被撤销。"
 
@@ -371,7 +371,7 @@ msgstr "活跃 · 未连接"
 msgid "Actor type"
 msgstr "操作者类型"
 
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 #: src/features/users/user-group-dialogs.tsx
 msgid "Add"
 msgstr "添加"
@@ -434,7 +434,7 @@ msgstr "添加 SSH 密钥"
 msgid "Add to user group"
 msgstr "加入用户组"
 
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Add tokens"
 msgstr "添加 token"
 
@@ -742,7 +742,7 @@ msgstr "授权签名密钥仍受信任"
 msgid "Authorization signing keys"
 msgstr "授权签名密钥"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Authorization submitted."
 msgstr "授权已提交。"
 
@@ -806,12 +806,12 @@ msgstr "Base URL"
 msgid "Body fields"
 msgstr "请求体字段"
 
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Budget used up · {usedText} spent"
 msgstr "预算已用尽 · 已花 {usedText}"
 
 #. placeholder {0}: formatNumber(status.over, locale)
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Budget used up ({0} over) · {usedText} spent"
 msgstr "预算已用尽（超出 {0}）· 已花 {usedText}"
 
@@ -1144,7 +1144,7 @@ msgstr "复制并关闭"
 msgid "Copy code"
 msgstr "复制代码"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Copy command"
 msgstr "复制命令"
 
@@ -1649,8 +1649,8 @@ msgstr "请输入至少 1 天的时长，或选择“永久保留”。"
 msgid "Enter a duration such as 60s or 5m."
 msgstr "请输入时长，例如 60s 或 5m。"
 
-#: src/components/decision/quota-decision.tsx
 #: src/features/sessions/budget-dialog.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "请输入要添加的 token 数（正整数）。"
 
@@ -1662,9 +1662,9 @@ msgstr "请输入大于等于 0 的整数。"
 msgid "Enter a whole number of at least 1."
 msgstr "请输入大于等于 1 的整数。"
 
-#: src/components/decision/quota-decision.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "请输入整数 token 数，留空表示不限。"
 
@@ -1922,11 +1922,11 @@ msgid "How long crhs keeps records after they finish. A duration of at least one
 msgstr "crhs 在记录结束后保留它们多久。时长至少一天，或选择“永久保留”。"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "How to decide"
 msgstr "如何决定"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "How to sign"
 msgstr "如何签名"
 
@@ -2141,7 +2141,7 @@ msgstr "正在加载任务…"
 msgid "Loading…"
 msgstr "正在加载…"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Local approval"
 msgstr "本地批准"
 
@@ -2341,9 +2341,9 @@ msgstr "新建计划任务"
 msgid "New session"
 msgstr "新会话"
 
-#: src/components/decision/quota-decision.tsx
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/children-bar.tsx
+#: src/features/sessions/quota-decision.tsx
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list-item.tsx
 #: src/features/sessions/session-search-dialog.tsx
@@ -2420,7 +2420,7 @@ msgstr "还没有授权"
 msgid "No budget limit"
 msgstr "没有预算限制"
 
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "No budget limit · {usedText} spent"
 msgstr "没有预算限制 · 已花 {usedText}"
 
@@ -2881,8 +2881,8 @@ msgstr "并发数必须是正整数。"
 msgid "Partly failed"
 msgstr "部分失败"
 
-#: src/components/decision/signature-decision.tsx
 #: src/components/entity-picker/api.ts
+#: src/features/authorizations/signature-decision.tsx
 #: src/features/signing-credentials/pages.tsx
 msgid "Passkey"
 msgstr "Passkey"
@@ -2891,7 +2891,7 @@ msgstr "Passkey"
 msgid "Passkey registration was cancelled."
 msgstr "Passkey 注册已取消。"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Passkey signing was cancelled."
 msgstr "Passkey 签名已取消。"
 
@@ -2971,7 +2971,7 @@ msgstr "已被抢占"
 msgid "prefix"
 msgstr "前缀匹配"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Preparing the payload to sign…"
 msgstr "正在准备待签名的载荷…"
 
@@ -3085,7 +3085,7 @@ msgstr "注册 Passkey"
 
 #: src/components/decision/approval-decision.tsx
 #: src/components/decision/reject.tsx
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject"
@@ -3395,7 +3395,7 @@ msgstr "运行已开始。"
 msgid "Run task"
 msgstr "运行任务"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Run this on the node as a user in its local trust entries; the task then runs with that approval instead."
 msgstr "在节点上以本地信任条目中的用户身份运行此命令；任务将改用该批准继续运行。"
 
@@ -3657,16 +3657,16 @@ msgstr "登录"
 msgid "Sign in to the operations console."
 msgstr "登录运维控制台。"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Sign to approve"
 msgstr "需要你签名批准"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Sign with a Passkey this node trusts for this command."
 msgstr "使用此节点为该命令信任的 Passkey 签名。"
 
 #. placeholder {0}: passkey.name
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Sign with Passkey “{0}”"
 msgstr "使用 Passkey“{0}”签名"
 
@@ -3687,8 +3687,8 @@ msgstr "信号"
 msgid "Signal {0}"
 msgstr "信号 {0}"
 
-#: src/components/decision/signature-decision.tsx
 #: src/features/approvals/pages.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Signature"
 msgstr "签名"
 
@@ -3697,7 +3697,7 @@ msgid "Signed in as {name}"
 msgstr "已登录为 {name}"
 
 #. placeholder {0}: passkey.name
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Signed with Passkey \"{0}\"."
 msgstr "已使用 Passkey“{0}”签名。"
 
@@ -3797,8 +3797,8 @@ msgstr "标准输入（可选）"
 msgid "Steps"
 msgstr "步骤"
 
-#: src/components/decision/quota-decision.tsx
 #: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Stop"
 msgstr "停止"
 
@@ -3814,7 +3814,7 @@ msgstr "停止它并立即运行"
 msgid "Stop task"
 msgstr "停止任务"
 
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Stop the paused run instead of adding tokens."
 msgstr "停止已暂停的运行，而不是添加 token。"
 
@@ -3836,7 +3836,7 @@ msgstr "子会话：{0}"
 msgid "Subagents"
 msgstr "子会话"
 
-#: src/components/decision/signature-decision.tsx
+#: src/features/authorizations/signature-decision.tsx
 msgid "Submit authorization"
 msgstr "提交授权"
 
@@ -3932,9 +3932,9 @@ msgstr "测试连接"
 msgid "text"
 msgstr "文本"
 
-#: src/components/decision/quota-decision.tsx
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "That number is too large."
 msgstr "这个数字太大了。"
 
@@ -3979,7 +3979,7 @@ msgstr "被授权者可以看到该节点或节点组中的每个节点，并在
 msgid "The hostname Passkeys are registered for, such as crh.example.com. Empty derives it from each request; set it together with the allowed origins. Default: unset."
 msgstr "Passkey 注册所用的主机名，例如 crh.example.com。留空则从每个请求中推导；请与允许的源一起设置。默认：未设置。"
 
-#: src/features/tasks/taskForm.ts
+#: src/lib/task-form.ts
 msgid "The limit must be a non-negative whole number."
 msgstr "限制必须是非负整数。"
 
@@ -4008,7 +4008,7 @@ msgstr "两次输入的新密码不一致。"
 msgid "The node group contains exactly the nodes selected here."
 msgstr "节点组将正好包含这里选中的节点。"
 
-#: src/features/tasks/output.ts
+#: src/lib/task-output.ts
 msgid "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
 msgstr "节点没有此任务所在节点组的别名。请把节点组的 UUID 加入节点上 privileged.toml 的 aliases，然后重新运行任务。"
 
@@ -4088,7 +4088,7 @@ msgstr "会话正在等待签名。"
 msgid "The session is waiting for an approval."
 msgstr "会话正在等待审批。"
 
-#: src/features/tasks/taskForm.ts
+#: src/lib/task-form.ts
 msgid "The start line must be a whole number of at least 1."
 msgstr "起始行必须是不小于 1 的整数。"
 
@@ -4100,11 +4100,11 @@ msgstr "任务组已被清理或不存在"
 msgid "The task was cleaned up or does not exist"
 msgstr "任务已被清理或不存在"
 
-#: src/features/tasks/taskForm.ts
+#: src/lib/task-form.ts
 msgid "The text to replace is required."
 msgstr "需要填写要替换的文本。"
 
-#: src/features/tasks/taskForm.ts
+#: src/lib/task-form.ts
 msgid "The timeout must be a non-negative whole number of seconds."
 msgstr "超时时间必须是非负整数秒。"
 
@@ -4248,11 +4248,11 @@ msgstr "token 预算"
 msgid "Token created"
 msgstr "令牌已创建"
 
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Token quota used up"
 msgstr "token 配额已用尽"
 
-#: src/components/decision/quota-decision.tsx
+#: src/features/sessions/quota-decision.tsx
 msgid "Tokens to add"
 msgstr "要添加的 token 数"
 

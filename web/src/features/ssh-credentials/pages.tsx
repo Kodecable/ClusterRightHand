@@ -17,8 +17,8 @@ import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/features/auth/session";
 import { errorMessage } from "@/lib/api/client";
+import { useAuth } from "@/lib/session";
 import { cn, MONO_CELL } from "@/lib/utils";
 import { useCreateSshCredential, useDeleteSshCredential, useSshCredentials } from "./api";
 

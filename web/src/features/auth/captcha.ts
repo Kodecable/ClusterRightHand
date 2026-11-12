@@ -2,6 +2,7 @@ import capWasmUrl from "@cap.js/wasm/browser/cap_wasm_bg.wasm?url";
 import hashwxWasmUrl from "@cap.js/wasm/browser/hashwx.wasm?url";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { ApiError } from "@/lib/api/client";
+import type { LoginCaptcha } from "@/lib/session";
 
 /**
  * The WebUI side of the login proof of work (doc/design/access-control.md "Cap proof of work").
@@ -18,11 +19,6 @@ declare global {
 		/** Removes the widget referral query parameters; the widget is invisible and removed after a solve. */
 		CAP_DISABLE_WIDGET_REF?: boolean;
 	}
-}
-
-export interface LoginCaptcha {
-	token: string;
-	solutions: number[];
 }
 
 interface ChallengeResponse {

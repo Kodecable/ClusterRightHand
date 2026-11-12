@@ -18,6 +18,9 @@ Three requirements shape the design:
 
 The code is split by domain under `web/src/features/`. A feature owns its API hooks, pages and
 components; code moves to the shared `components/` or `lib/` only when a second feature needs it.
+Shared layers (`components/`, `lib/`, `hooks/`, `markdown/`) never import from `features/` or `app/`,
+and a feature never imports from `app/`; type imports count. `pnpm check` enforces this with
+`scripts/check-web-layers.ts`, which names the file and import line of every violation.
 
 Each concern has one library and one implementation: one router, one server-state cache, one table
 component, one searchable picker, one form pattern. shadcn component sources are copied into the

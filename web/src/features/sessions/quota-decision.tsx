@@ -1,16 +1,16 @@
 import type { QuotaApproval } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { type ReactNode, useId, useState } from "react";
+import { DecisionFrame, DecisionTab, DecisionTabList, DecisionTabs } from "@/components/decision/decision";
 import { ErrorText } from "@/components/error-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
-import { sessionTitle } from "@/features/sessions/session-item";
 import { formatNumber } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { parseGrantInput, type QuotaError, quotaStatus } from "@/lib/quota";
-import { DecisionFrame, DecisionTab, DecisionTabList, DecisionTabs } from "./decision";
+import { sessionTitle } from "./session-item";
 
 /**
  * The remaining-budget line (doc/design/agent-runtime.md "Quota and token accounting"): no limit,

@@ -19,10 +19,10 @@ import { UserLink } from "@/components/user-link";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { sessionTitle } from "@/features/sessions/session-item";
 import { TaskGroupStatus } from "@/features/tasks/task-group-result";
-import { taskTitle } from "@/features/tasks/title";
+import { actorLabel } from "@/lib/approval-rules";
+import { taskTitle } from "@/lib/task-title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useApprovalLookups, useApprovals, useApprovalTask, useApprovalTaskGroup, useDecideApproval } from "./api";
-import { actorLabel } from "./rules";
 
 /** What kind of decision a row holds; the table's first column. */
 type DecisionType = "approval" | "signature" | "quota";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { actorLabel, alwaysRule, shellQuote } from "./rules";
+import { actorLabel, alwaysRule, shellQuote } from "./approval-rules";
 
 describe("alwaysRule", () => {
 	test("builds the allow rule from the reported operation", () => {

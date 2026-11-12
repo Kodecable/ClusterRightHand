@@ -12,8 +12,8 @@ import { useLingui } from "@lingui/react/macro";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { useQuery } from "@tanstack/react-query";
 import { nodeStatusLabel } from "@/components/status-badge";
-import { signingCredentialKeyId } from "@/features/signing-credentials/trust";
 import { http, queryString } from "@/lib/api/client";
+import { signingCredentialKeyId } from "@/lib/signing-credential-key";
 
 /**
  * The data half of EntityPicker: one search hook per entity kind (doc/design/webui.md "Entity search").

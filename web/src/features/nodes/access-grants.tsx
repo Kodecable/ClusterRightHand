@@ -17,8 +17,8 @@ import { SectionHeader } from "@/components/section";
 import { useTimeColumnWidth } from "@/components/time-column";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/features/auth/session";
 import { ApiError, errorMessage } from "@/lib/api/client";
+import { useAuth } from "@/lib/session";
 import { cn, linkClass } from "@/lib/utils";
 import { useCreateNodeAccessGrant, useDeleteNodeAccessGrant, useNodeAccessGrants } from "./access-api";
 

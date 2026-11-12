@@ -1,6 +1,6 @@
 import { sessionPageChunk, sessionsLayoutChunk } from "@/app/lazy-chunks";
-import { authStore } from "@/features/auth/session";
 import { type Locale, resolveInitialLocale } from "@/lib/locale";
+import { authStore } from "@/lib/session";
 
 /**
  * The work the first paint waits for, started before the rest of the entry's

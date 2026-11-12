@@ -4,12 +4,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { ApprovalDecision } from "@/components/decision/approval-decision";
-import { QuotaDecision } from "@/components/decision/quota-decision";
 import { useApprovalLookups, useApprovals, useDecideApproval } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { cn, linkClass } from "@/lib/utils";
 import { sessionKeys, useDecideQuota } from "./api";
 import { Composer } from "./composer";
+import { QuotaDecision } from "./quota-decision";
 
 export type SessionDecision =
 	| { kind: "quota"; wait: QuotaApproval }

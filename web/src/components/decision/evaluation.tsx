@@ -7,7 +7,7 @@ import { KeyValueList } from "@/components/key-value";
 import { DateTime } from "@/components/relative-time";
 import { StatusText } from "@/components/status-badge";
 import { UserLink } from "@/components/user-link";
-import { actorLabel } from "@/features/approvals/rules";
+import { actorLabel } from "@/lib/approval-rules";
 import { ruleWithNames } from "@/lib/refs";
 import { ruleResultTone } from "@/lib/status";
 import { cn, MONO_CELL } from "@/lib/utils";

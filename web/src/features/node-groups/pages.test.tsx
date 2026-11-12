@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { authStore } from "@/features/auth/session";
+import { authStore } from "@/lib/session";
 import { renderWithRouter } from "@/test/render";
 import { NodeGroupDetailPage, NodeGroupsPage } from "./pages";
 

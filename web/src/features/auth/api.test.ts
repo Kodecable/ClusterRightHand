@@ -1,10 +1,10 @@
 import { i18n } from "@lingui/core";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ApiError } from "@/lib/api/client";
+import { authStore } from "@/lib/session";
 import { messages as enMessages } from "@/locales/en.po";
 import { messages as zhMessages } from "@/locales/zh-CN.po";
 import { loginErrorKind, loginErrorMessage, loginWithCaptcha } from "./api";
-import { authStore } from "./session";
 
 const solveLoginCaptcha = vi.hoisted(() =>
 	vi.fn<(username: string, password: string) => Promise<{ token: string; solutions: number[] }>>(),

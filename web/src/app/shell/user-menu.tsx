@@ -24,8 +24,8 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useLogout } from "@/features/auth/api";
-import { useAuth } from "@/features/auth/session";
 import { useLocale } from "@/lib/i18n";
+import { useAuth } from "@/lib/session";
 import type { ThemePreference } from "@/lib/theme";
 import { useTheme } from "@/lib/theme";
 

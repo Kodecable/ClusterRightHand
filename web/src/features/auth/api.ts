@@ -3,8 +3,7 @@ import { i18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { type UseMutationResult, useMutation, useQuery } from "@tanstack/react-query";
 import { ApiError, http } from "@/lib/api/client";
-import type { LoginCaptcha } from "./captcha";
-import { authStore } from "./session";
+import { authStore, type LoginCaptcha } from "@/lib/session";
 
 export type LoginCaptchaMode = "cap" | "none";
 

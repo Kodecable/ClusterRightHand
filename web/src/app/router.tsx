@@ -8,9 +8,9 @@ import {
 	Outlet,
 	redirect,
 } from "@tanstack/react-router";
-import type { AuthStore } from "@/features/auth/session";
-import { authStore } from "@/features/auth/session";
 import { parseTasksSearch } from "@/features/tasks/search";
+import type { AuthStore } from "@/lib/session";
+import { authStore } from "@/lib/session";
 import { linkClass } from "@/lib/utils";
 import { sessionPageChunk, sessionsLayoutChunk } from "./lazy-chunks";
 import { AppShell } from "./shell/app-shell";

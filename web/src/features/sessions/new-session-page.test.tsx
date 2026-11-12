@@ -11,8 +11,8 @@ import {
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { authStore } from "@/features/auth/session";
 import { LocaleProvider } from "@/lib/i18n";
+import { authStore } from "@/lib/session";
 import { activateLocale } from "@/test/render";
 import { sessionKeys } from "./api";
 import { NEW_SESSION_MODEL_STORAGE_KEY, NewSessionPage } from "./new-session-page";

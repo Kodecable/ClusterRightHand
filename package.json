@@ -10,7 +10,7 @@
 		"build:crhs": "node scripts/build-crhs.ts",
 		"package": "node scripts/package.ts",
 		"package:oci": "node scripts/package.ts --oci",
-		"check": "node scripts/check-module-cycles.ts && biome check . && pnpm -r run typecheck && pnpm check:go",
+		"check": "node scripts/check-module-cycles.ts && node scripts/check-web-layers.ts && biome check . && pnpm -r run typecheck && pnpm check:go",
 		"check:go": "cd client && test -z \"$(gofmt -l .)\" && go vet ./...",
 		"format": "biome check --write . && gofmt -w client",
 		"test": "pnpm -r run test && pnpm test:go",

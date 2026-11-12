@@ -7,9 +7,9 @@ import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
 import { Badge } from "@/components/ui/badge";
 import { UserLink } from "@/components/user-link";
+import { taskTitle } from "@/lib/task-title";
 import { cn, MONO_CELL } from "@/lib/utils";
 import { taskActor } from "./actor";
-import { taskTitle } from "./title";
 
 export interface TaskColumnOptions {
 	/** Display names by user id, for the "By" column. */

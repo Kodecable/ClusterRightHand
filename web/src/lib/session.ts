@@ -1,9 +1,14 @@
 import type { User } from "@crh/api";
 import { useSyncExternalStore } from "react";
 import { http, setUnauthorizedHandler } from "@/lib/api/client";
-import type { LoginCaptcha } from "./captcha";
 
 export type AuthStatus = "unknown" | "authenticated" | "anonymous";
+
+/** The proof of work a login may carry; the captcha feature solves it. */
+export interface LoginCaptcha {
+	token: string;
+	solutions: number[];
+}
 
 export interface AuthState {
 	status: AuthStatus;

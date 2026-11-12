@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { SidebarProvider } from "@/components/ui/sidebar";
-import { authStore } from "@/features/auth/session";
+import { authStore } from "@/lib/session";
 import { renderWithRouter } from "@/test/render";
 import { AppSidebar } from "./app-sidebar";
 

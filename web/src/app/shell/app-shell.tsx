@@ -2,15 +2,15 @@ import { useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { APP_NAME } from "@/app/meta";
 import { navItemForPath } from "@/app/shell/nav";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { useAuth } from "@/features/auth/session";
 import { SessionSearchDialog } from "@/features/sessions/session-search-dialog";
+import { APP_NAME } from "@/lib/meta";
+import { PageTitleProvider } from "@/lib/page-title";
+import { useAuth } from "@/lib/session";
 import { readStorage, writeStorage } from "@/lib/storage";
 import { AppSidebar } from "./app-sidebar";
-import { PageTitleProvider } from "./page-title";
 
 const SIDEBAR_STORAGE_KEY = "crh.sidebar.open";
 

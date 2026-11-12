@@ -7,8 +7,8 @@ import { ApprovalDecision, DecisionView } from "@/components/decision";
 import { StatusText, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
-import { useAuth } from "@/features/auth/session";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
+import { useAuth } from "@/lib/session";
 import { taskGroupStatusTone } from "@/lib/status";
 
 const GROUP_STATES: Record<string, MessageDescriptor> = {

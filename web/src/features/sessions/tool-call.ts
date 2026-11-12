@@ -1,7 +1,7 @@
 /** Pure helpers of a tool call card: its one-line summary, the ids it follows, and whether it may still return. */
 
 import { taskGroupEnded } from "@/features/tasks/api";
-import { isTerminal } from "@/features/tasks/output";
+import { isTerminal } from "@/lib/task-output";
 import type { Json, JsonObject } from "./session-events";
 import { prettyJson } from "./tool-details";
 import type { TranscriptItem } from "./transcript-items";

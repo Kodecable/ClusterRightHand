@@ -1,6 +1,6 @@
 import type { TaskView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import { batchOutput, isTerminal, joinOutput, outputText, statusOutputNoteKey, taskOutcome } from "./output";
+import { batchOutput, isTerminal, joinOutput, outputText, statusOutputNoteKey, taskOutcome } from "./task-output";
 
 const baseTask = {
 	kind: "exec",
