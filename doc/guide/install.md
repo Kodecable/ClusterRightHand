@@ -14,6 +14,30 @@ crhs runs on the server host; crha runs on each node that is not reached over SS
 | Network from each node to crhs | crha nodes connect to crhs, never the other way |
 | SSH from crhs to each SSH node and its jump hosts | SSH nodes only |
 
+## Verify a release
+
+The release workflow signs the checksums and the image. Verify the `SHA256SUMS` of a release before
+using it:
+
+```sh
+cosign verify-blob SHA256SUMS \
+  --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/Kodecable/ClusterRightHand/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+`gh attestation verify <file> --repo Kodecable/ClusterRightHand` checks a download's build provenance
+instead.
+
+The container image is signed the same way:
+
+```sh
+cosign verify ghcr.io/kodecable/crhs:<version> \
+  --certificate-identity-regexp '^https://github.com/Kodecable/ClusterRightHand/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
 ## Install crhs
 
 ### Tar with Node
@@ -34,15 +58,15 @@ when `/etc/crhs/crhs.toml` already exists it only reminds you to restart crhs.
 
 ### Container image
 
-The image (`crhs:<version>` in these examples) runs as uid 1000 and keeps all state under `/crhs-data`,
-so mount one volume there that uid 1000 can write. With a host directory:
+The image (`ghcr.io/kodecable/crhs:<version>` in these examples) runs as uid 1000 and keeps all state
+under `/crhs-data`, so mount one volume there that uid 1000 can write. With a host directory:
 
 ```sh
 sudo install -d -o 1000 -g 1000 -m 0700 /srv/crhs
 sudoedit /srv/crhs/init.json
 sudo chown 1000:1000 /srv/crhs/init.json
 sudo chmod 600 /srv/crhs/init.json
-sudo podman run -d --name crhs -p 8080:8080 -v /srv/crhs:/crhs-data crhs:<version>
+sudo podman run -d --name crhs -p 8080:8080 -v /srv/crhs:/crhs-data ghcr.io/kodecable/crhs:<version>
 ```
 
 The first start runs `crhs init` from `/crhs-data/init.json`. Without that file, start the container with
@@ -70,7 +94,7 @@ Run further crhs commands in the running container, or pass the command to the i
 
 ```sh
 sudo podman exec -it crhs node /opt/crhs/crhs.mjs user add alice --config /crhs-data/crhs.toml
-sudo podman run --rm -it -v /srv/crhs:/crhs-data crhs:<version> user add alice --config /crhs-data/crhs.toml
+sudo podman run --rm -it -v /srv/crhs:/crhs-data ghcr.io/kodecable/crhs:<version> user add alice --config /crhs-data/crhs.toml
 ```
 
 ### Tar without Node
@@ -203,13 +227,15 @@ the command; when `/etc/crha/crha.toml` already exists it only reminds you to re
 
 ### deb and rpm
 
+The rpm packages are signed; import the key once, then install:
+
 ```sh
+sudo rpm --import https://raw.githubusercontent.com/Kodecable/ClusterRightHand/main/packaging/RPM-GPG-KEY-crh
 sudo apt install ./crha_<version>_<arch>.deb
 sudo dnf install ./crha-<version>-1.<rpmarch>.rpm
 ```
 
-A package-managed crha is updated by the package manager only. The rpm packages are not signed yet, so
-`dnf` may refuse them; add `--nogpgcheck`. On a first install, enroll the node as below.
+A package-managed crha is updated by the package manager only. On a first install, enroll the node as below.
 
 ## Enroll a node
 
@@ -358,7 +384,7 @@ cd client && CGO_ENABLED=0 go build -o crha ./cmd/crha
 | `the master key file does not belong to this database` | The key and the database come from different installations. Restore the matching key file. |
 | The WebUI returns 404 | `web_root` points elsewhere; a packaged crhs serves the bundled WebUI without it. |
 | `npm ci` fails on `re2` | Install a C++ toolchain or set `RE2_DOWNLOAD_MIRROR`. |
-| `does not verify: no signature` from `dnf` | The rpm packages are unsigned; add `--nogpgcheck`. |
+| `does not verify: no signature` from `dnf` | The rpm signing key is not imported; import it as in [deb and rpm](#deb-and-rpm). |
 | crha reports a missing `identity.key` | The node is not enrolled, or `state_dir` is wrong. |
 | `protocol_major mismatch` | crhs and crha come from incompatible versions; upgrade both. |
 | PostgreSQL authentication or permission errors | The role must own the database and be allowed to create tables. |

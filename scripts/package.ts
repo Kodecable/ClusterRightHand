@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Builds the release archives into dist/release and, with --oci, stages the OCI build context; see
+// Builds the release archives into dist/release and, with --oci, stages the OCI build contexts; see
 // doc/design/distribution.md. Plain Node TypeScript; run with `pnpm package` or `pnpm package:oci`.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import { resolveVersion } from "./version.ts";
@@ -16,7 +16,6 @@ const crhsDir = join(distDir, "crhs");
 const cacheDir = join(distDir, "cache");
 const stageDir = join(distDir, "stage");
 const releaseDir = join(distDir, "release");
-const ociContextDir = join(distDir, "oci-context");
 
 /** The Node.js release shipped in the crhs-<v>-linux-<arch> archives. */
 const NODE_VERSION = "26.13.0";
@@ -109,11 +108,15 @@ if (!skipBuild) {
 }
 
 if (oci) {
-	const context = await stageOci();
-	console.log(`\nbuild the image from the repository root with:`);
-	console.log(
-		`  podman build -f packaging/oci/Containerfile --build-arg CRH_VERSION=${version} -t crhs:${version} ${relative(context)}`,
-	);
+	const arches = parseArches(() => [hostArch()]);
+	await stageOci(arches);
+	console.log(`\nbuild the images from the repository root with:`);
+	for (const arch of arches) {
+		console.log(
+			`  podman build -f packaging/oci/Containerfile --build-arg CRH_VERSION=${version} ` +
+				`--platform linux/${arch} -t crhs:${version}-${arch} ${relative(ociContextDir(arch))}`,
+		);
+	}
 } else {
 	await packageArchives(parseArches());
 }
@@ -246,7 +249,7 @@ async function packageCrhaPackages(nfpm: string, version: string, sha: string, a
 function nfpmConfig(pkgVersion: string, arch: Arch, dir: string): string {
 	const mtime = new Date(Number(commitTime) * 1000).toISOString();
 	const yaml = (value: string): string => JSON.stringify(value);
-	return [
+	const config = [
 		`name: ${yaml("crha")}`,
 		`arch: ${yaml(arch)}`,
 		`platform: ${yaml("linux")}`,
@@ -261,6 +264,12 @@ function nfpmConfig(pkgVersion: string, arch: Arch, dir: string): string {
 		"scripts:",
 		`  postinstall: ${yaml(join(root, "packaging", "nfpm", "postinstall.sh"))}`,
 		`  preremove: ${yaml(join(root, "packaging", "nfpm", "preremove.sh"))}`,
+	];
+	// The release workflow points CRH_RPM_KEY_FILE at the ASCII-armored private key and passes its
+	// passphrase in NFPM_RPM_PASSPHRASE, which nfpm reads itself; without it the rpms stay unsigned.
+	const rpmKeyFile = process.env.CRH_RPM_KEY_FILE;
+	if (rpmKeyFile) config.push("rpm:", "  signature:", `    key_file: ${yaml(rpmKeyFile)}`);
+	config.push(
 		"contents:",
 		`  - src: ${yaml(join(dir, "crha"))}`,
 		"    dst: /usr/bin/crha",
@@ -271,7 +280,8 @@ function nfpmConfig(pkgVersion: string, arch: Arch, dir: string): string {
 		`  - src: ${yaml(join(dir, "THIRD_PARTY_LICENSES.txt"))}`,
 		"    dst: /usr/share/doc/crha/THIRD_PARTY_LICENSES.txt",
 		"",
-	].join("\n");
+	);
+	return config.join("\n");
 }
 
 /** deb and rpm versions must start with a digit; encode a git describe version instead. */
@@ -384,15 +394,28 @@ async function goLicenses(): Promise<string> {
 	return `${blocks.sort().join("\n\n")}\n`;
 }
 
-/** Stages dist/oci-context: the contents of dist/crhs plus the entrypoint, the image's build context. */
-async function stageOci(): Promise<string> {
-	await rm(ociContextDir, { recursive: true, force: true });
-	await mkdir(ociContextDir, { recursive: true });
-	await cp(crhsDir, ociContextDir, { recursive: true });
-	await copyFile(join(root, "packaging", "oci", "entrypoint.sh"), join(ociContextDir, "entrypoint.sh"));
-	await chmod(join(ociContextDir, "entrypoint.sh"), 0o755);
-	console.log(`staged ${relative(ociContextDir)}`);
-	return ociContextDir;
+/** The image's build context for one arch. */
+function ociContextDir(arch: Arch): string {
+	return join(distDir, `oci-context-${arch}`);
+}
+
+/**
+ * Stages dist/oci-context-<arch>: the contents of dist/crhs plus the entrypoint, with that arch's
+ * prebuilt re2 binary in place of the host's.
+ */
+async function stageOci(arches: Arch[]): Promise<void> {
+	for (const arch of arches) {
+		const dir = ociContextDir(arch);
+		await rm(dir, { recursive: true, force: true });
+		await mkdir(dir, { recursive: true });
+		await cp(crhsDir, dir, { recursive: true });
+		const re2Target = join(dir, "node_modules", "re2", "build", "Release", "re2.node");
+		await mkdir(dirname(re2Target), { recursive: true });
+		await writeFile(re2Target, await re2Binary(arch));
+		await copyFile(join(root, "packaging", "oci", "entrypoint.sh"), join(dir, "entrypoint.sh"));
+		await chmod(join(dir, "entrypoint.sh"), 0o755);
+		console.log(`staged ${relative(dir)}`);
+	}
 }
 
 /** tar --sort=name ... | gzip -n: the top directory only, with fixed mtime and owner. */
@@ -525,9 +548,17 @@ function relative(path: string): string {
 	return path.slice(root.length).replace(/^\//, "");
 }
 
-function parseArches(): Arch[] {
+/** The arch to build the image for when --arch is not given: the one this host runs. */
+function hostArch(): Arch {
+	if (process.arch === "x64") return "amd64";
+	if (process.arch === "arm64") return "arm64";
+	throw new Error(`cannot infer an arch from ${process.arch}; pass --arch amd64,arm64`);
+}
+
+/** The arches from --arch, or the caller's default (both) when it is not given. */
+function parseArches(defaults: () => Arch[] = () => ["amd64", "arm64"]): Arch[] {
 	const index = argv.findIndex((arg) => arg === "--arch" || arg.startsWith("--arch="));
-	if (index < 0) return ["amd64", "arm64"];
+	if (index < 0) return defaults();
 	const value = argv[index]?.startsWith("--arch=") ? (argv[index] as string).slice("--arch=".length) : argv[index + 1];
 	if (!value) throw new Error("--arch needs amd64, arm64 or a comma-separated list of them");
 	const arches = value

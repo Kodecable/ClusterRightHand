@@ -8,8 +8,10 @@ designed yet; the packaging leaves room for it.
 `pnpm package` builds every archive into `dist/release/` and writes `SHA256SUMS`; downloads are cached in
 `dist/cache/`. The version is `CRH_VERSION` or `git describe --tags --always --dirty`, the same as
 `pnpm build:crhs`, which it runs first unless `--skip-build`; `--arch amd64,arm64` picks the
-architectures (default both). `pnpm package:oci` stages the image's build context in `dist/oci-context/`
-and prints the `podman build` command.
+architectures (default both). `pnpm package:oci` stages one build context per architecture in
+`dist/oci-context-<arch>/` (default the host's architecture) and prints the `podman build` commands.
+Each context holds the contents of `dist/crhs` with that architecture's prebuilt `re2` binary in place
+of the host build.
 
 | Archive (top directory) | Contents | Self-update |
 |---|---|---|
@@ -46,6 +48,10 @@ version; on a first install it prints `run: sudo crha enroll`. Removal stops, di
 the `/etc/systemd/system/crha*.service` units that carry `X-CRH-Managed=1`, then reloads systemd;
 `/etc/crha` and `/var/lib/crha` are left alone.
 
+The rpm packages are signed when `CRH_RPM_KEY_FILE` names an ASCII-armored private key; nfpm reads the
+passphrase from `NFPM_RPM_PASSPHRASE`. Without it the rpms stay unsigned; the deb package is never
+signed.
+
 ### Installing crhs with Node
 
 `sudo ./install.sh` copies the directory to `/opt/crhs/versions/<v>/` (a second run with the same
@@ -62,12 +68,42 @@ for a restart.
 
 ### Container image
 
-The image runs as `node` (uid 1000), so the volume behind `/crhs-data` must be writable by uid 1000; the
+The released image is `ghcr.io/kodecable/crhs:<version>`, with `latest` for a stable release. The image
+runs as `node` (uid 1000), so the volume behind `/crhs-data` must be writable by uid 1000; the
 image creates the directory with that owner for a fresh named volume. On the first start the entrypoint
 runs `crhs init` with `--answers /crhs-data/init.json` when that file exists, or interactively when the
 container has a stdin terminal, else fails with an explanation. Without arguments it then runs
 `serve --config /crhs-data/crhs.toml`; with arguments it runs `crhs` itself, so
-`podman run ... crhs --config /crhs-data/crhs.toml user add alice` works.
+`podman run ... ghcr.io/kodecable/crhs:<version> --config /crhs-data/crhs.toml user add alice` works.
+
+## Releases
+
+CI (`.github/workflows/ci.yml`) runs the checks, the unit, e2e, bundle and system tests on every push to
+`main` and every pull request. Pushing a `v*` tag runs `.github/workflows/release.yml`, which:
+
+- `packages` builds the archives, deb and rpm for amd64 and arm64 in the `release` environment, signs
+  the rpms, verifies them with `rpm -K`, signs `SHA256SUMS` with cosign and attests the build provenance
+  of the files.
+- `image` builds `linux/amd64` on `ubuntu-latest` and `linux/arm64` on `ubuntu-24.04-arm`, one image per
+  runner, and pushes each to GHCR by digest.
+- `manifest` assembles the images into one manifest tagged `<version>` (and `latest` for a stable
+  release), signs it with cosign and attests its provenance.
+- `release` opens a draft GitHub release with the artifacts; the maintainer reviews and publishes it.
+
+The version is the tag without its leading `v`. A version containing `-` is a prerelease: it is not
+tagged `latest`, and the draft is marked as a prerelease.
+
+Signing is keyless: cosign uses the workflow's OIDC identity for `SHA256SUMS` and the image, and
+`actions/attest-build-provenance` attaches build provenance to the files and the image. The rpm
+packages are signed with the GPG key `B454E1E9759533CB4E07DA5BEDBB9D378E03F918`
+(`packaging/RPM-GPG-KEY-crh`); its private key and passphrase are the `RPM_GPG_KEY` and
+`RPM_GPG_PASSPHRASE` secrets of the `release` environment. The workflow fails when the public key has
+expired and warns when it expires within 90 days; it also fails when the private key's fingerprint is
+not that one. The deb packages are not signed.
+
+Rotate the rpm key yearly: `gpg --quick-set-expire <fingerprint> 1y`, then update
+`packaging/RPM-GPG-KEY-crh` and the `RPM_GPG_KEY` secret. On a compromise, revoke the key, publish the
+revocation in that file, and replace the key, the secret and the fingerprint in the workflow and docs.
 
 ## Answering questions
 

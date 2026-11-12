@@ -1,0 +1,332 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/kodecable/crhs
+
+jobs:
+  packages:
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: pnpm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: client/go.mod
+          cache-dependency-path: client/go.sum
+      - run: pnpm install --frozen-lockfile
+      - name: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "CRH_VERSION=$version" >> "$GITHUB_ENV"
+      - name: install nfpm and rpm
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb="$RUNNER_TEMP/nfpm_2.48.0_amd64.deb"
+          curl -fsSL -o "$deb" \
+            https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_amd64.deb
+          sudo apt-get update
+          sudo apt-get install -y "$deb" rpm
+      - name: write the rpm signing key
+        shell: bash
+        # The secrets reach only this step and the package build, never the dependency install scripts.
+        env:
+          RPM_GPG_KEY: ${{ secrets.RPM_GPG_KEY }}
+          NFPM_RPM_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "${RPM_GPG_KEY:-}" ]]; then
+            echo "::error::RPM_GPG_KEY is empty: set the ASCII-armored rpm signing key in the release environment"
+            exit 1
+          fi
+          if [[ -z "${NFPM_RPM_PASSPHRASE:-}" ]]; then
+            echo "::error::RPM_GPG_PASSPHRASE is empty: nfpm cannot unlock the rpm signing key"
+            exit 1
+          fi
+          key="$RUNNER_TEMP/rpm-key.asc"
+          printf '%s\n' "$RPM_GPG_KEY" > "$key"
+          chmod 600 "$key"
+          echo "CRH_RPM_KEY_FILE=$key" >> "$GITHUB_ENV"
+      - name: check the rpm signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 -p "$GNUPGHOME"
+          pub="$(gpg --batch --show-keys --with-colons packaging/RPM-GPG-KEY-crh | awk -F: '$1 == "pub" { print; exit }')"
+          if [[ -z "$pub" ]]; then
+            echo "::error::packaging/RPM-GPG-KEY-crh has no public key"
+            exit 1
+          fi
+          expiry="$(cut -d: -f7 <<< "$pub")"
+          if [[ -n "$expiry" ]]; then
+            now="$(date +%s)"
+            if (( expiry <= now )); then
+              echo "::error::the rpm signing key expired on $(date -u -d "@$expiry" '+%Y-%m-%d'); rotate it"
+              exit 1
+            fi
+            days=$(( (expiry - now) / 86400 ))
+            if (( days < 90 )); then
+              echo "::warning::the rpm signing key expires in $days days; extend it with gpg --quick-set-expire"
+            fi
+          fi
+          fingerprint="$(gpg --batch --show-keys --with-colons "$RUNNER_TEMP/rpm-key.asc" |
+            awk -F: '$1 == "fpr" { print $10; exit }')"
+          if [[ "$fingerprint" != "B454E1E9759533CB4E07DA5BEDBB9D378E03F918" ]]; then
+            echo "::error::the private rpm signing key is ${fingerprint:-not a key}"
+            echo "::error::expected B454E1E9759533CB4E07DA5BEDBB9D378E03F918"
+            exit 1
+          fi
+      - name: build the packages
+        shell: bash
+        env:
+          NFPM_RPM_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
+        run: pnpm package
+      - name: verify the packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LC_ALL=C
+          dbpath="$RUNNER_TEMP/rpmdb"
+          mkdir -p "$dbpath"
+          rpm --dbpath "$dbpath" --initdb
+          rpm --dbpath "$dbpath" --import packaging/RPM-GPG-KEY-crh
+          shopt -s nullglob
+          rpms=(dist/release/*.rpm)
+          if (( ${#rpms[@]} == 0 )); then
+            echo "::error::no rpm packages were built"
+            exit 1
+          fi
+          for file in "${rpms[@]}"; do
+            result="$(rpm --dbpath "$dbpath" -K "$file" 2>&1 || true)"
+            echo "$result"
+            if [[ "$result" != *"signatures OK"* ]]; then
+              echo "::error::$file: rpm did not report signatures OK"
+              exit 1
+            fi
+          done
+          (cd dist/release && sha256sum -c SHA256SUMS)
+      - uses: sigstore/cosign-installer@v3
+      - name: sign SHA256SUMS
+        shell: bash
+        run: cosign sign-blob --yes --bundle dist/release/SHA256SUMS.sigstore.json dist/release/SHA256SUMS
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            dist/release/*.tar.gz
+            dist/release/*.deb
+            dist/release/*.rpm
+      - name: stage the OCI build contexts
+        shell: bash
+        run: pnpm package:oci --skip-build --arch amd64,arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: dist/release
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oci-context
+          path: |
+            dist/oci-context-amd64
+            dist/oci-context-arm64
+          if-no-files-found: error
+      - name: remove the rpm signing key
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/rpm-key.asc"
+
+  image:
+    needs: packages
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: oci-context
+          path: dist
+      - name: restore the entrypoint mode
+        shell: bash
+        # Artifacts do not keep file permissions.
+        run: chmod 0755 "dist/oci-context-${{ matrix.arch }}/entrypoint.sh"
+      - name: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: dist/oci-context-${{ matrix.arch }}
+          file: packaging/oci/Containerfile
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            CRH_VERSION=${{ env.VERSION }}
+          labels: |
+            org.opencontainers.image.title=ClusterRightHand server
+            org.opencontainers.image.description=The ClusterRightHand server
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+      - name: write the digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest="${{ steps.build.outputs.digest }}"
+          if [[ -z "$digest" ]]; then
+            echo "::error::the image build returned no digest"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          retention-days: 1
+          if-no-files-found: error
+
+  manifest:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+      - name: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [[ "$version" == *-* ]]; then
+            echo "PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: create the manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          digests=("$RUNNER_TEMP"/digests/*)
+          if (( ${#digests[@]} == 0 )); then
+            echo "::error::no image digests were downloaded"
+            exit 1
+          fi
+          refs=()
+          for file in "${digests[@]}"; do
+            refs+=("$IMAGE@sha256:$(basename "$file")")
+          done
+          tags=(-t "$IMAGE:$VERSION")
+          if [[ "$PRERELEASE" != "true" ]]; then
+            tags+=(-t "$IMAGE:latest")
+          fi
+          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
+      - name: read the manifest digest
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest="$(docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:$VERSION" | jq -r '.digest')"
+          if [[ "$digest" != sha256:* ]]; then
+            echo "::error::no manifest digest for $IMAGE:$VERSION"
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@v3
+      - name: sign the image
+        shell: bash
+        run: cosign sign --yes "$IMAGE@${{ steps.manifest.outputs.digest }}"
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
+          push-to-registry: true
+
+  release:
+    needs: [packages, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist/release
+      - name: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [[ "$version" == *-* ]]; then
+            echo "PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+      - name: create the draft release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=("$GITHUB_REF_NAME" dist/release/* --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes)
+          args+=(--title "ClusterRightHand $VERSION")
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"

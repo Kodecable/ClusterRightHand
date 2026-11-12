@@ -58,19 +58,20 @@ database backup taken before the upgrade: the newer database was migrated for th
 **crhs, container.** Pull the new image and recreate the container with the same volume:
 
 ```sh
-sudo podman pull crhs:<version>
+sudo podman pull ghcr.io/kodecable/crhs:<version>
 sudo podman rm -f crhs
-sudo podman run -d --name crhs -p 8080:8080 -v /srv/crhs:/crhs-data crhs:<version>
+sudo podman run -d --name crhs -p 8080:8080 -v /srv/crhs:/crhs-data ghcr.io/kodecable/crhs:<version>
 ```
 
 **crhs, tar without Node.** Replace the directory with the new bundle, run `npm ci --omit=dev` in it,
 then `sudo systemctl restart crhs`.
 
-**crha, deb and rpm.** Install the new package; the package restarts `crha-privileged` and then `crha`:
+**crha, deb and rpm.** Install the new package; the package restarts `crha-privileged` and then `crha`.
+The rpm signing key must already be imported ([deb and rpm](install.md#deb-and-rpm)):
 
 ```sh
 sudo apt install ./crha_<version>_<arch>.deb
-sudo dnf install ./crha-<version>-1.<rpmarch>.rpm   # add --nogpgcheck: the rpms are unsigned
+sudo dnf install ./crha-<version>-1.<rpmarch>.rpm
 ```
 
 **crha, tar.** Run the new archive's `install.sh`, then restart the privileged mode before the agent:

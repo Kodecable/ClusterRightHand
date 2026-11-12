@@ -3,8 +3,9 @@
 `server/test/system/privileged` is the only layer that exercises privileged execution against a real
 operating system. Each node is one podman container running a real `crha privileged run` as root, a real
 `crha run` as an unprivileged user, real `sudo` and `doas`, and an sshd for the SSH tests. crhs is the
-in-process server from the end-to-end harness. The suite runs only with `CRH_TEST_PODMAN=1` and is not
-in CI; run it before releases that touch privilege, the Go client or the protocol.
+in-process server from the end-to-end harness. The suite runs only with `CRH_TEST_PODMAN=1`; CI runs it
+in the `system` job, and it is worth running before releases that touch privilege, the Go client or the
+protocol.
 
 The container image contains no Go toolchain. The host builds a static `crha` and mounts it into the
 container. The image is rebuilt automatically when its files change. Node state stays inside the
