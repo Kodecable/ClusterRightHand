@@ -1,7 +1,7 @@
 import type { AuditEvent } from "@crh/api";
 import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
-import { defaultOrgId } from "../users/service.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import { newId } from "../util/id.ts";
 
 export interface AuditActor {

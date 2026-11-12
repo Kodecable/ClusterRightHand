@@ -12,7 +12,7 @@ import {
 import { bindMasterKey, boundMasterKeyId, KeyError, MasterKey, readMasterKeyFile } from "../src/keys/master-key.ts";
 import { initMasterKey, restoreMasterKey } from "../src/keys/setup.ts";
 import type { Db } from "../src/storage/db.ts";
-import { defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 
 const WORK_FACTOR = 10; // age's scrypt work factor; the default (18) takes about a second

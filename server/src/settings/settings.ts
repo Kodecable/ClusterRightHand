@@ -19,7 +19,7 @@ import {
 	validateWebauthn,
 } from "../config.ts";
 import type { Db } from "../storage/db.ts";
-import { defaultOrgId } from "../users/service.ts";
+import { defaultOrgId } from "../storage/org.ts";
 
 /**
  * The low-frequency runtime settings administrators edit in System settings

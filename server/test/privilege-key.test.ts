@@ -10,7 +10,7 @@ import {
 } from "../src/privilege/key.ts";
 import { parseAuthorizedKey, verifySshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
-import { defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 
 describeBackends("authorization signing key", (backend) => {

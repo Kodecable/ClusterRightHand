@@ -4,15 +4,16 @@ import { createClientAddress } from "../src/api/client-address.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { resetHashGateForTesting } from "../src/auth/hash-gate.ts";
 import type { RetentionConfig } from "../src/config.ts";
-import { SettingsStore } from "../src/settings/settings.ts";
-import type { Db } from "../src/storage/db.ts";
 import {
 	type RetentionCounts,
 	type RetentionOptions,
 	runRetention,
 	startRetentionSweep,
-} from "../src/storage/retention.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+} from "../src/retention/retention.ts";
+import { SettingsStore } from "../src/settings/settings.ts";
+import type { Db } from "../src/storage/db.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";

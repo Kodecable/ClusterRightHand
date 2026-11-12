@@ -43,6 +43,19 @@ mode has no network access and runs only authorized tasks ([Privilege](privilege
   and the API do not depend on pi types.
 - **Dependencies point down.** Shared helpers in `server/src/util/` depend on nothing above them.
 
+### Server modules
+
+`server/src` is split into top-level modules, lowest layer first:
+
+```text
+util, config.ts, version.ts, keys, storage → policy → auth → users →
+audit, settings, sessions → privilege → cluster, retention → tools → agent →
+scheduler → mcp, api → setup, cli → main.ts
+```
+
+A module may import only modules at or below its layer, and `pnpm check` rejects runtime module
+cycles (type-only imports do not count) so the layering cannot erode through a local shortcut.
+
 ## Technology choices
 
 - **crhs in TypeScript on Node.js**, because the pi agent SDK runs there directly. **crha in Go**,

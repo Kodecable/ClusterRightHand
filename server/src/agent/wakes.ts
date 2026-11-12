@@ -1,8 +1,8 @@
+import { parentOf, type SessionRow } from "../sessions/session-chain.ts";
 import { awaitingQuotaSessions } from "./quota.ts";
 import { conversationOf, type RuntimeHost } from "./runtime-core.ts";
 import { pendingAgentRequests, requestKey, wakeRequestKey } from "./runtime-requests.ts";
 import { recordInput } from "./runtime-submissions.ts";
-import { parentOf, type SessionRow } from "./session-chain.ts";
 
 /**
  * Waking the agent that has to act on a subagent request (doc/design/agent-runtime.md "Handling subagent requests"): a follow-up

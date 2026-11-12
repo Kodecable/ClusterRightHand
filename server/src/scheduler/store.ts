@@ -6,8 +6,8 @@ import type { AuditActor } from "../audit/audit.ts";
 import type { Rule, RulePreset } from "../policy/rules.ts";
 import { createRootRuleSet, getRuleSet, type RuleRef, type StoredRuleSet, setRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import type { ScheduleRunsTable, SchedulesTable } from "../storage/schema.ts";
-import { defaultOrgId } from "../users/service.ts";
 import { errorText, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 

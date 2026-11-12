@@ -23,12 +23,12 @@ import {
 	type TrustEntry,
 } from "@crh/protocol";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
-import { parseTaskAuthorization } from "../cluster/authorization.ts";
 import type { Db } from "../storage/db.ts";
 import { errorText, UserError } from "../util/errors.ts";
 import { type AuthzEntry, type AuthzSignature, authzEntryFromTrust } from "./authz.ts";
 import { webauthnSigningCredentials } from "./signing-credentials.ts";
 import { parseAuthorizedKey, sshsigKeyBlob, verifySshsig } from "./sshsig.ts";
+import { parseTaskAuthorization } from "./task-authorization.ts";
 import { verifyAssertion } from "./webauthn.ts";
 
 /** A client error of POST /api/authorizations; the route answers 400 with the message. */

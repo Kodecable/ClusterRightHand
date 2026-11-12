@@ -1,11 +1,11 @@
 import { type ApprovalRecord, summarize } from "../cluster/cluster.ts";
 import type { TaskGroupApprovalRecord } from "../cluster/task-groups.ts";
+import { parentOf, sessionAncestors } from "../sessions/session-chain.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { awaitingQuotaChildren, grantQuota } from "./quota.ts";
 import type { AgentRequestView, RuntimeHost } from "./runtime-core.ts";
 import type { Inbox } from "./runtime-host/inboxes.ts";
 import { refreshState } from "./runtime-state.ts";
-import { parentOf, sessionAncestors } from "./session-chain.ts";
 import { markSessionsIdle } from "./session-state.ts";
 import { wakeParent } from "./wakes.ts";
 

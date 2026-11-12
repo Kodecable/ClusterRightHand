@@ -1,6 +1,6 @@
 import type { UserGroup, UserGroupDetail } from "@crh/api";
-import { deleteGrantsForUserGroup } from "../cluster/node-access.ts";
 import type { Db } from "../storage/db.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import {
@@ -11,7 +11,6 @@ import {
 	type RawEntityListQuery,
 	textMatches,
 } from "../util/list-query.ts";
-import { defaultOrgId } from "./service.ts";
 
 export type { UserGroup };
 
@@ -165,14 +164,22 @@ export async function renameUserGroup(db: Db, userGroupId: string, name: string)
 	};
 }
 
-export async function deleteUserGroup(db: Db, userGroupId: string): Promise<void> {
+/**
+ * Deletes a user group and its shares. `beforeDelete` runs in the same transaction, so a caller above
+ * users can remove rows that point at the group (node access grants) atomically.
+ */
+export async function deleteUserGroup(
+	db: Db,
+	userGroupId: string,
+	beforeDelete?: (trx: Db) => Promise<void>,
+): Promise<void> {
 	await db.transaction().execute(async (trx) => {
 		await trx
 			.deleteFrom("shares")
 			.where("grantee_type", "=", "user_group")
 			.where("grantee_id", "=", userGroupId)
 			.execute();
-		await deleteGrantsForUserGroup(trx, userGroupId);
+		await beforeDelete?.(trx);
 		const result = await trx.deleteFrom("user_groups").where("id", "=", userGroupId).executeTakeFirst();
 		if (result.numDeletedRows === 0n) throw new NotFoundError("no such user group");
 	});

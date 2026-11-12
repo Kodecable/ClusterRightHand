@@ -9,7 +9,8 @@ import { nodeRoute } from "../src/cluster/ssh/nodes.ts";
 import { secretAad } from "../src/keys/export.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 

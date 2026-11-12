@@ -1,11 +1,11 @@
 import type { SessionStats } from "@crh/api";
 import type { Selectable } from "kysely";
 import { sql } from "kysely";
+import { sessionAncestors, sessionChain } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
 import type { SessionsTable } from "../storage/schema.ts";
 import { UserError } from "../util/errors.ts";
 import type { StepTiming } from "./latency.ts";
-import { sessionAncestors, sessionChain } from "./session-chain.ts";
 import type { CallTokens } from "./tokens.ts";
 
 /**

@@ -13,7 +13,8 @@ import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-group
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";

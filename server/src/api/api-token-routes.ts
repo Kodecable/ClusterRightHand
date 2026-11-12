@@ -13,7 +13,7 @@ import type { TaskGroups } from "../cluster/task-groups.ts";
 import { parseRulesForWrite } from "../policy/refs.ts";
 import { type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import { defaultOrgId } from "../users/service.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
 import { reevaluateAfterRuleChange } from "./approval-routes.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";

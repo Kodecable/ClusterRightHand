@@ -4,7 +4,7 @@ import { ruleRefs } from "../policy/refs.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { createRootRuleSet, deleteRuleSet, getRuleSet, parseRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import { defaultOrgId } from "../users/service.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import type { SessionUser } from "./sessions.ts";

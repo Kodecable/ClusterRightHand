@@ -1,7 +1,7 @@
 import { sql } from "kysely";
 import { GROUP_TERMINAL, TERMINAL } from "../cluster/types.ts";
 import type { RetentionConfig } from "../config.ts";
-import type { Db } from "./db.ts";
+import type { Db } from "../storage/db.ts";
 
 /** Rows selected and deleted per batch, so one statement never holds the database queue for long. */
 export const RETENTION_BATCH_SIZE = 1000;

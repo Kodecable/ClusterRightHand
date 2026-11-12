@@ -13,7 +13,8 @@ import {
 } from "../src/cluster/node-groups.ts";
 import { renameNode } from "../src/cluster/nodes.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 

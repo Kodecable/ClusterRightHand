@@ -13,7 +13,7 @@ export interface RetentionConfig {
 	tasksMs: number | null;
 	/** Audit events. */
 	auditMs: number | null;
-	/** Terminal durable agent tasks (pi_tasks); see storage/retention.ts. */
+	/** Terminal durable agent tasks (pi_tasks); see retention/retention.ts. */
 	piTasksMs: number | null;
 }
 

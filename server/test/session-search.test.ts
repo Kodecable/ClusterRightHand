@@ -20,16 +20,17 @@ import {
 	SESSION_SEARCH_LIMIT_MAX,
 	snippet,
 } from "../src/agent/session-search.ts";
-import { shareSession } from "../src/agent/sharing.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
+import { shareSession } from "../src/sessions/sharing.ts";
 import type { Db } from "../src/storage/db.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
 import { PgStorage } from "../src/storage/pg-durable/index.ts";
 import { createMigrations, createSchema } from "../src/storage/pg-durable/schema.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { createUser } from "../src/users/service.ts";
 import { UserError } from "../src/util/errors.ts";
 import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";

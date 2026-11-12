@@ -12,7 +12,6 @@ import {
 	sessionListQuery,
 } from "../src/agent/session-list.ts";
 import { markSessionsIdle, setSessionState } from "../src/agent/session-state.ts";
-import { shareSession, unshareSession } from "../src/agent/sharing.ts";
 import { RequestDrain } from "../src/api/drain.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
@@ -20,8 +19,10 @@ import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { deleteSchedule, getSchedule } from "../src/scheduler/store.ts";
+import { shareSession, unshareSession } from "../src/sessions/sharing.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { addUserGroupMember, createUserGroup } from "../src/users/user-groups.ts";
 import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";

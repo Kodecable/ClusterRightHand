@@ -1,6 +1,5 @@
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { Hono } from "hono";
-import { jsonBodyLimit, MAX_INPUT_BODY_BYTES } from "../api/body-limit.ts";
 import type { Audit } from "../audit/audit.ts";
 import { resolveApiToken, type TokenIdentity } from "../auth/api-tokens.ts";
 import type { Cluster } from "../cluster/cluster.ts";
@@ -9,6 +8,7 @@ import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
+import { jsonBodyLimit, MAX_INPUT_BODY_BYTES } from "../util/body-limit.ts";
 import { CRH_VERSION } from "../version.ts";
 
 export interface McpOptions {

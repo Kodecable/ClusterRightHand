@@ -1,12 +1,12 @@
 import type { TaskSpec } from "@crh/protocol";
 import * as z from "zod/v4";
-import { sessionDescendants } from "../agent/session-chain.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { resolveTargets } from "../cluster/task-groups.ts";
 import type { RuleRef } from "../policy/store.ts";
+import { sessionDescendants } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
 import { nodeInfoFields, readNotes, readNotesBatch } from "./node-info.ts";

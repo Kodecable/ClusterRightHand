@@ -3,6 +3,7 @@ import type { Selectable } from "kysely";
 import { hashPassword } from "../auth/password.ts";
 import type { Db } from "../storage/db.ts";
 import { isPostgres } from "../storage/dialect.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import type { UsersTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
@@ -43,15 +44,6 @@ export async function usernamesById(db: Db, ids: readonly string[]): Promise<Map
 	if (ids.length === 0) return new Map();
 	const rows = await db.selectFrom("users").select(["id", "username"]).where("id", "in", ids).execute();
 	return new Map(rows.map((row) => [row.id, row.username]));
-}
-
-/** v1 has exactly one organization; it is created on first use. */
-export async function defaultOrgId(db: Db): Promise<string> {
-	const existing = await db.selectFrom("orgs").select("id").orderBy("created_at").executeTakeFirst();
-	if (existing) return existing.id;
-	const id = newId();
-	await db.insertInto("orgs").values({ id, name: "default", created_at: new Date().toISOString() }).execute();
-	return id;
 }
 
 export function validatePassword(password: string): void {

@@ -1,5 +1,5 @@
-import { sessionCapabilities } from "../agent/sharing.ts";
 import { isAdmin, type SessionUser } from "../auth/sessions.ts";
+import { sessionCapabilities } from "../sessions/sharing.ts";
 import type { Db } from "../storage/db.ts";
 
 /**

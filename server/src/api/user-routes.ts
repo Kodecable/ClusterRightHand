@@ -4,6 +4,7 @@ import { userActor } from "../audit/audit.ts";
 import { revokeAllApiTokens } from "../auth/api-tokens.ts";
 import { revokeUserWebSessions } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
+import { deleteGrantsForUserGroup } from "../cluster/node-access.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
@@ -250,7 +251,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			.where("grantee_type", "=", "user_group")
 			.where("grantee_id", "=", userGroupId)
 			.execute();
-		await deleteUserGroup(db, userGroupId);
+		await deleteUserGroup(db, userGroupId, (trx) => deleteGrantsForUserGroup(trx, userGroupId));
 		const audience = members.map((member) => member.user_id);
 		for (const sessionId of new Set(shares.map((share) => share.resource_id))) {
 			await options.sessions?.publishShareRemoved(sessionId, audience);

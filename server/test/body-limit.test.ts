@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { DEFAULT_BODY_LIMIT, MAX_INPUT_BASE64_LENGTH, MAX_INPUT_BYTES } from "../src/api/body-limit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
+import { DEFAULT_BODY_LIMIT, MAX_INPUT_BASE64_LENGTH, MAX_INPUT_BYTES } from "../src/util/body-limit.ts";
 import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";

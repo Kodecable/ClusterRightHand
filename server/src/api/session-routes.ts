@@ -3,7 +3,6 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { parseModelRef } from "../agent/models.ts";
 import { parseQuota } from "../agent/quota.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
-import { rootSessionIdOf } from "../agent/session-chain.ts";
 import {
 	type SessionListScope,
 	sessionChildItem,
@@ -14,6 +13,13 @@ import {
 	shareAudienceUserIds,
 } from "../agent/session-list.ts";
 import { parseSearchKeywords, parseSearchLimit, sessionSearch } from "../agent/session-search.ts";
+import { userActor } from "../audit/audit.ts";
+import { isAdmin, type SessionUser } from "../auth/sessions.ts";
+import type { Cluster } from "../cluster/cluster.ts";
+import type { TaskGroups } from "../cluster/task-groups.ts";
+import { parseRulePreset } from "../policy/store.ts";
+import type { Scheduler } from "../scheduler/scheduler.ts";
+import { rootSessionIdOf } from "../sessions/session-chain.ts";
 import {
 	capabilitiesFor,
 	listSessionShares,
@@ -22,13 +28,7 @@ import {
 	sharedSessionAccess,
 	shareSession,
 	unshareSession,
-} from "../agent/sharing.ts";
-import { userActor } from "../audit/audit.ts";
-import { isAdmin, type SessionUser } from "../auth/sessions.ts";
-import type { Cluster } from "../cluster/cluster.ts";
-import type { TaskGroups } from "../cluster/task-groups.ts";
-import { parseRulePreset } from "../policy/store.ts";
-import type { Scheduler } from "../scheduler/scheduler.ts";
+} from "../sessions/sharing.ts";
 import type { Db } from "../storage/db.ts";
 import { usernamesById } from "../users/service.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "../util/cursor.ts";

@@ -14,6 +14,7 @@ import * as z from "zod/v4";
 import type { Actor } from "../cluster/cluster.ts";
 import { parseRuleSetForWrite } from "../policy/refs.ts";
 import type { RuleRef } from "../policy/store.ts";
+import { sessionAncestors } from "../sessions/session-chain.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { UserError } from "../util/errors.ts";
@@ -23,7 +24,6 @@ import { THINKING_LEVELS } from "./models.ts";
 import { chargeCall, exhaustedLevel, parseQuota, setContextTokens } from "./quota.ts";
 import type { AgentRuntime } from "./runtime.ts";
 import type { AgentRequestView, AgentRuntimeOptions } from "./runtime-core.ts";
-import { sessionAncestors } from "./session-chain.ts";
 import { callTokens, estimateRequestTokens, RequestEstimates } from "./tokens.ts";
 
 /**

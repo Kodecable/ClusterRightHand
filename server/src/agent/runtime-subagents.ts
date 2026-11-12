@@ -10,6 +10,7 @@ import {
 import { sql } from "kysely";
 import type { RuleSet } from "../policy/rules.ts";
 import { createRuleSet } from "../policy/store.ts";
+import { MAX_SESSION_TREE_DEPTH, sessionAncestors } from "../sessions/session-chain.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { derivedId } from "../util/id.ts";
 import { type ModelRef, thinkingLevelOf } from "./models.ts";
@@ -18,7 +19,6 @@ import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts
 import { nextRequests, pendingAgentRequests } from "./runtime-requests.ts";
 import { refreshStates } from "./runtime-state.ts";
 import { recordInput } from "./runtime-submissions.ts";
-import { MAX_SESSION_TREE_DEPTH, sessionAncestors } from "./session-chain.ts";
 import type { SessionState } from "./session-state.ts";
 
 /**

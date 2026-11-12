@@ -13,7 +13,8 @@ import type { SessionUser } from "../auth/sessions.ts";
 import { ruleRefs } from "../policy/refs.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { createRootRuleSet, createRuleSet, deleteRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
-import { defaultOrgId } from "../users/service.ts";
+import { type SessionRow, sessionChain, sessionDescendants } from "../sessions/session-chain.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import { encodeCursor } from "../util/cursor.ts";
 import { isUniqueViolation, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
@@ -23,7 +24,6 @@ import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runt
 import { conversationOf, loadConversation } from "./runtime-core.ts";
 import { endSessionWork, refreshState } from "./runtime-state.ts";
 import { submit } from "./runtime-submissions.ts";
-import { type SessionRow, sessionChain, sessionDescendants } from "./session-chain.ts";
 import { toEntryRecord, toSessionEvent, toSnapshotEvent } from "./session-events.ts";
 import { markSessionsIdle } from "./session-state.ts";
 

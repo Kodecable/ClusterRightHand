@@ -1,5 +1,5 @@
+import { rootSessionIdOf } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
-import { rootSessionIdOf } from "./session-chain.ts";
 import { TREE_STATE } from "./session-list.ts";
 import type { SessionState } from "./session-state.ts";
 

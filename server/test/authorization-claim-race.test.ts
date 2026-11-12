@@ -51,7 +51,8 @@ import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../sr
 import { buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
 import { signSshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { createSshKey, type TestSshKey } from "./helpers/authenticator.ts";

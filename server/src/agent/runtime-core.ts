@@ -11,6 +11,7 @@ import type {
 import type { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { SessionRow } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../util/errors.ts";
 import type { GenerationTimings } from "./latency.ts";
@@ -22,7 +23,6 @@ import type { QuotaWaits } from "./runtime-host/quota-waits.ts";
 import type { SessionCaches } from "./runtime-host/session-caches.ts";
 import type { SessionFlags } from "./runtime-host/session-flags.ts";
 import type { StateRefreshes } from "./runtime-host/state-refreshes.ts";
-import type { SessionRow } from "./session-chain.ts";
 import type { SessionListHub } from "./session-list-hub.ts";
 
 /**

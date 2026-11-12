@@ -32,7 +32,8 @@ import {
 import { buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
 import { verifySshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";

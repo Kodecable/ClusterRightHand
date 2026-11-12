@@ -7,7 +7,7 @@ import { parseRulesForWrite } from "../policy/refs.ts";
 import type { Rule } from "../policy/rules.ts";
 import { appendRule, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
-import { defaultOrgId } from "../users/service.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import { UserError } from "../util/errors.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 

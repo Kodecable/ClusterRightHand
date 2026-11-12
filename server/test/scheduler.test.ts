@@ -21,7 +21,8 @@ import {
 	type Schedule,
 } from "../src/scheduler/store.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { derivedId, newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";

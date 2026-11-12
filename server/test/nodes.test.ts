@@ -24,7 +24,8 @@ import {
 } from "../src/cluster/nodes.ts";
 import { recordTrustReport } from "../src/cluster/trust.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { addUserGroupMember, createUserGroup } from "../src/users/user-groups.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
 

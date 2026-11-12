@@ -9,8 +9,9 @@ import type { NodeRow } from "../src/cluster/nodes.ts";
 import { onExit } from "../src/cluster/task-end.ts";
 import { waitTask } from "../src/cluster/task-wait.ts";
 import type { Db } from "../src/storage/db.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
 import type { TasksTable } from "../src/storage/schema.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 

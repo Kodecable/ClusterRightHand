@@ -7,6 +7,7 @@ import { resolveTargets, type TaskGroups } from "../cluster/task-groups.ts";
 import { taskRelation } from "../cluster/task-visibility.ts";
 import type { Db } from "../storage/db.ts";
 import type { TaskState } from "../storage/schema.ts";
+import { jsonBodyLimit, MAX_INPUT_BASE64_LENGTH, MAX_INPUT_BODY_BYTES, MAX_INPUT_BYTES } from "../util/body-limit.ts";
 import {
 	type CursorSpec,
 	cursorRows,
@@ -16,7 +17,6 @@ import {
 	parseLimit,
 } from "../util/cursor.ts";
 import { UserError } from "../util/errors.ts";
-import { jsonBodyLimit, MAX_INPUT_BASE64_LENGTH, MAX_INPUT_BODY_BYTES, MAX_INPUT_BYTES } from "./body-limit.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 
 const MAX_WAIT_MS = 10 * 60 * 1000;

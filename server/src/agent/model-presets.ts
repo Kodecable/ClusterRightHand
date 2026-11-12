@@ -1,7 +1,7 @@
 import type { ModelPreset } from "@crh/api";
 import type { Db } from "../storage/db.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import type { ModelPresetKind } from "../storage/schema.ts";
-import { defaultOrgId } from "../users/service.ts";
 import { DEFAULT_SESSION_PROMPT, SESSION_TOOL_GUIDE } from "./extension.ts";
 import type { ModelRef } from "./models.ts";
 import { DEFAULT_REVIEW_PROMPT, REVIEW_PROTOCOL } from "./review.ts";

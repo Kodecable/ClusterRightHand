@@ -3,7 +3,7 @@ import ssh2 from "ssh2";
 import { secretAad } from "../../keys/export.ts";
 import type { MasterKey } from "../../keys/master-key.ts";
 import type { Db } from "../../storage/db.ts";
-import { defaultOrgId } from "../../users/service.ts";
+import { defaultOrgId } from "../../storage/org.ts";
 import { NotFoundError, UserError } from "../../util/errors.ts";
 import { newId } from "../../util/id.ts";
 import { assertNameAvailable, availableGeneratedName, nameKey, validateName } from "../../util/names.ts";

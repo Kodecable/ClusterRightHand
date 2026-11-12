@@ -12,8 +12,8 @@ import { ClusterCore } from "../src/cluster/core.ts";
 import { insertTask, writeTask } from "../src/cluster/task-rows.ts";
 import { cancelTask } from "../src/cluster/task-wait.ts";
 import type { Db } from "../src/storage/db.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
 import type { TasksTable } from "../src/storage/schema.ts";
-import { defaultOrgId } from "../src/users/service.ts";
 import { openTestDb } from "./helpers/db.ts";
 
 const EXEC: TaskSpec = {

@@ -11,7 +11,7 @@ import {
 	type NodeAccessGrant,
 } from "../cluster/node-access.ts";
 import type { Db } from "../storage/db.ts";
-import { defaultOrgId } from "../users/service.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 

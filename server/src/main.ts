@@ -21,13 +21,13 @@ import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, type ConfigFile, DEFAULT_CONFIG_PATH, loadConfigFile } from "./config.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
+import { startRetentionSweep } from "./retention/retention.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
 import { importSettingsFromFile, SettingsStore } from "./settings/settings.ts";
 import { SetupError } from "./setup/answers.ts";
 import { runInit } from "./setup/init.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
-import { startRetentionSweep } from "./storage/retention.ts";
 import { UserError } from "./util/errors.ts";
 import { CRH_VERSION } from "./version.ts";
 

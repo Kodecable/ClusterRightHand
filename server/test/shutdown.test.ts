@@ -9,7 +9,7 @@ import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { Db } from "../src/storage/db.ts";
 import { openDb } from "../src/storage/db.ts";
 import { migrateToLatest } from "../src/storage/migrate.ts";
-import { defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
 import { newId } from "../src/util/id.ts";
 import { handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 

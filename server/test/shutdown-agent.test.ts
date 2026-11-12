@@ -17,7 +17,8 @@ import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-group
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
-import { createUser, defaultOrgId } from "../src/users/service.ts";
+import { defaultOrgId } from "../src/storage/org.ts";
+import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
