@@ -7,6 +7,7 @@ test("the schedule form drops redundant help and warns only for Ask and Yolo", a
 			models: [
 				{
 					provider: "faux",
+					providerName: "Faux",
 					modelId: "faux-1",
 					name: "Faux One",
 					contextWindow: 128_000,
@@ -62,6 +63,7 @@ test("create a schedule and run it now", async ({ page }) => {
 			models: [
 				{
 					provider: "faux",
+					providerName: "Faux",
 					modelId: "faux-1",
 					name: "Faux One",
 					contextWindow: 128_000,
@@ -91,11 +93,13 @@ test("create a schedule and run it now", async ({ page }) => {
 	expect(created?.body).toMatchObject({
 		name: "Nightly check",
 		prompt: "Check the nodes",
-		model: { provider: "faux", modelId: "faux-1", thinkingLevel: "off" },
+		model: { provider: "faux", modelId: "faux-1" },
 		rulePreset: "ask",
 		cron: "0 9 * * *",
 		enabled: true,
 	});
+	// "Off" is the default, so the form leaves thinkingLevel out of the request body.
+	expect(created?.body).not.toHaveProperty("model.thinkingLevel");
 
 	await page.getByRole("button", { name: "Run now" }).click();
 	await expect(page.getByText("Run started.")).toBeVisible();

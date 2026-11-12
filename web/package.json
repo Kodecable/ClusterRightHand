@@ -8,7 +8,7 @@
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
-		"typecheck": "tsc --noEmit && tsc -p e2e/tsconfig.json --noEmit",
+		"typecheck": "tsc --noEmit && tsc -p e2e/tsconfig.json --noEmit && tsc -p e2e-mock/tsconfig.json --noEmit",
 		"test": "vitest run && pnpm i18n:check",
 		"test:ui": "playwright test",
 		"test:ui:mock": "playwright test --config e2e-mock/playwright.config.ts",

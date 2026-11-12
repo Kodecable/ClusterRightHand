@@ -1,9 +1,11 @@
+import type { AvailableModel } from "@crh/api";
 import { expect, type Page, test } from "@playwright/test";
 import { login, mockApi, openSession, sessionListItem, sessionView, snapshotEvent, userEntry } from "./helpers";
 
-const MODELS = [
+const MODELS: AvailableModel[] = [
 	{
 		provider: "faux",
+		providerName: "Faux",
 		modelId: "faux-1",
 		name: "Faux One",
 		contextWindow: 128_000,

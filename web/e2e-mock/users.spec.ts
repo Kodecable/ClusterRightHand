@@ -42,7 +42,8 @@ test("create a user and add them to a group", async ({ page }) => {
 	await addMember.getByRole("combobox", { name: "User" }).click();
 	await page.getByRole("option", { name: /Alice/ }).click();
 	await addMember.getByRole("button", { name: "Add", exact: true }).click();
-	await expect(group.getByRole("table", { name: "Members of Ops" })).toContainText("alice");
+	// The members table shows the display name, not the username.
+	await expect(group.getByRole("table", { name: "Members of Ops" })).toContainText("Alice");
 	await expect
 		.poll(() =>
 			api.state.requests.some(
@@ -58,7 +59,9 @@ test("create a user and add them to a group", async ({ page }) => {
 	await removeMember.click();
 	const removeDialog = page.getByRole("dialog", { name: "Remove alice from Ops?" });
 	await removeDialog.getByRole("button", { name: "Remove" }).click();
-	await expect(group.getByRole("table", { name: "Members of Ops" })).not.toContainText("alice");
+	// The last member's removal leaves the table's empty state behind.
+	await expect(group.getByRole("table", { name: "Members of Ops" })).toHaveCount(0);
+	await expect(group.getByText("No members")).toBeVisible();
 	await expect
 		.poll(() =>
 			api.state.requests.some(

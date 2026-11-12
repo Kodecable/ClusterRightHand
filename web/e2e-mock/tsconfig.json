@@ -1,0 +1,17 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"lib": ["es2024", "dom"],
+		"types": ["node"],
+		"noEmit": true,
+		"module": "preserve",
+		"moduleResolution": "bundler",
+		"paths": {
+			"@crh/api": ["../../packages/api/src/index.ts"],
+			"@crh/protocol": ["../../packages/protocol/src/index.ts"]
+		}
+	},
+	// The mock suite's own tests; e2e-mock/perf and e2e-mock/review have their own configs.
+	"include": [".", "../playwright.config.ts"],
+	"exclude": ["perf", "review"]
+}

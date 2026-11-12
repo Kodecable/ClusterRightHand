@@ -21,6 +21,8 @@ import type {
 	SessionView,
 	SigningCredentialView,
 	SshCredential,
+	SshNodeDetails,
+	SshTargetInput,
 	TaskGroupView,
 	TaskView,
 	User,
@@ -95,6 +97,8 @@ export interface FakeState {
 	users: User[];
 	userGroups: UserGroup[];
 	sshCredentials: SshCredential[];
+	/** Confirmed routes by SSH node id, as `GET /api/nodes/:id` returns them. */
+	sshRoutes: Record<string, SshNodeDetails["hops"]>;
 	authorizations: AuthorizationSummary[];
 	nodeTrust: Record<string, NodeTrust>;
 	requests: { method: string; url: string; body: unknown }[];
@@ -132,12 +136,12 @@ export function sessionView(item: SessionListItem, overrides: Partial<SessionVie
 			scope: { type: "user", id: item.ownerUserId },
 			rulePreset: "ask",
 			rules: [],
-			default: "ask",
+			default: "require-approval",
 			updatedAt: item.updatedAt,
 		},
 		refs: {},
 		relationship: "owner",
-		capabilities: { view: true, chat: true, configure: true, manageShares: true },
+		capabilities: { view: true, chat: true, configure: true, manageShares: true, createShares: true },
 		ownerUsername: item.ownerName,
 		state: item.state,
 		waitingKind: item.waitingKind,
@@ -227,6 +231,7 @@ export function nodeView(overrides: Partial<PublicNode> = {}): PublicNode {
 		keyFingerprint: null,
 		connected: true,
 		clockWarning: null,
+		trustWarnings: [],
 		...overrides,
 	};
 }
@@ -292,6 +297,8 @@ declare global {
 	interface Window {
 		__crhSseSources?: { url: string; closed: boolean }[];
 		__crhEmitSse?: (urlPart: string, event: string, data: unknown) => number;
+		/** Counted by the app's entry point so a reload can be told apart from an in-app update. */
+		__crhAppMounts?: number;
 	}
 }
 
@@ -355,6 +362,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		users: [],
 		userGroups: [],
 		sshCredentials: [],
+		sshRoutes: {},
 		authorizations: [],
 		nodeTrust: {},
 		requests: [],
@@ -652,10 +660,16 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const ssh =
 				node.transport === "ssh"
 					? {
-							hops: [
-								{ host: node.hostname ?? "target.example", port: 22, user: "deploy", hostFingerprint: "SHA256:probe" },
+							hops: state.sshRoutes[id] ?? [
+								{
+									host: node.hostname ?? "target.example",
+									port: 22,
+									user: "deploy",
+									hostFingerprint: "SHA256:probe",
+									credentialId: "cred-1",
+									credential: { id: "cred-1", name: "laptop" },
+								},
 							],
-							credential: { id: "cred-1", name: "laptop" },
 						}
 					: null;
 			// The SSH route and credential are administrator data; a non-admin gets only the node.
@@ -683,11 +697,16 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ ok: true });
 		}
 		if (path === "/api/ssh-nodes/probe" && method === "POST") {
-			return json({ hop: 0, fingerprint: "SHA256:probe" });
+			// The wizard probes the first hop without a pinned fingerprint (the target when all jumps are pinned).
+			const target = body as SshTargetInput;
+			const jumps = target.jumps ?? [];
+			const unpinned = jumps.findIndex((hop) => !hop.hostFingerprint);
+			const hop = unpinned >= 0 ? unpinned : jumps.length;
+			return json({ hop, fingerprint: `SHA256:hop-${hop}` });
 		}
 		if (path === "/api/ssh-nodes/test" && method === "POST") return json({ ok: true });
 		if (path === "/api/ssh-nodes" && method === "POST") {
-			const input = body as { host: string; port: number; user: string; name: string; hostFingerprint: string };
+			const input = body as SshTargetInput & { name: string };
 			const node = nodeView({
 				id: `ssh-node-${state.nodes.length + 1}`,
 				name: input.name || input.host,
@@ -697,6 +716,17 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				access: "admin",
 			});
 			state.nodes.push(node);
+			state.sshRoutes[node.id] = [...(input.jumps ?? []), input].map((hop) => ({
+				host: hop.host,
+				port: hop.port ?? 22,
+				user: hop.user,
+				hostFingerprint: hop.hostFingerprint ?? "",
+				credentialId: hop.credentialId,
+				credential: {
+					id: hop.credentialId,
+					name: state.sshCredentials.find((candidate) => candidate.id === hop.credentialId)?.name ?? null,
+				},
+			}));
 			return json({ node });
 		}
 
@@ -716,7 +746,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 					scope: { type: "api_token", id: `token-${state.tokens.length + 1}` },
 					rulePreset: input.rulePreset as "ask" | "auto_review" | "yolo",
 					rules: [],
-					default: "ask",
+					default: "require-approval",
 					updatedAt: "2026-01-01T00:00:00.000Z",
 				},
 				refs: {},
@@ -898,14 +928,17 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				// Saving a provider refreshes the available models, as the real server does (`models.reload()`).
 				state.models = [
 					...state.models.filter((model) => model.provider !== providerId),
-					...(provider.models ?? []).map((model) => ({
-						provider: providerId,
-						modelId: model.id,
-						name: model.name ?? model.id,
-						contextWindow: model.contextWindow,
-						thinkingLevels: model.thinking ? ["off", "low", "medium", "high"] : ["off"],
-						input: model.input,
-					})),
+					...(provider.models ?? []).map(
+						(model): AvailableModel => ({
+							provider: providerId,
+							providerName: provider.name,
+							modelId: model.id,
+							name: model.name ?? model.id,
+							contextWindow: model.contextWindow,
+							thinkingLevels: model.thinking ? ["off", "low", "medium", "high"] : ["off"],
+							input: model.input,
+						}),
+					),
 				];
 				return json({ provider });
 			}
@@ -964,13 +997,6 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (path === "/api/authorizations" && method === "GET") {
 			return json({ items: state.authorizations, nextCursor: null });
 		}
-		const authorizationRevoke = /^\/api\/authorizations\/([^/]+)\/revoke$/.exec(path);
-		if (authorizationRevoke && method === "POST") {
-			const id = decodeURIComponent(authorizationRevoke[1] as string);
-			const entry = state.authorizations.find((candidate) => candidate.id === id);
-			if (entry) entry.revokedAt = "2026-01-02T00:00:00.000Z";
-			return json({ authorization: { id, revokedAt: "2026-01-02T00:00:00.000Z" } });
-		}
 
 		if (path === "/api/sessions/search" && method === "GET") {
 			const scope = url.searchParams.get("scope") ?? "mine";
@@ -1012,7 +1038,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				if (scope === "shared" && !item.shared) return false;
 				if (scope === "visible" && item.ownerUserId !== state.user.id && !item.shared) return false;
 				if (ownerId !== null && item.ownerUserId !== ownerId) return false;
-				if (q !== "" && !item.title.toLowerCase().includes(q)) return false;
+				if (q !== "" && !(item.title ?? "").toLowerCase().includes(q)) return false;
 				return true;
 			});
 			const items = visible.slice(start, start + limit);
@@ -1167,11 +1193,24 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				parallel: input.parallel ?? 10,
 				failFast: false,
 				outputMode: "status",
+				nodeMaxLines: null,
+				nodeMaxBytes: null,
 				privileged: false,
 				skipped: [],
 				tasks,
 				createdAt: "2026-01-01T00:00:00.000Z",
 				finishedAt: null,
+				summary: "batch run",
+				kind: "exec",
+				ruleChain: null,
+				approval: null,
+				actorType: "user",
+				actorId: state.user.id,
+				onBehalfOfUserId: state.user.id,
+				operation: null,
+				rootSessionId: null,
+				handlerType: null,
+				handlerSessionId: null,
 			};
 			state.taskGroups[groupId] = { taskGroup: group, polls: 0 };
 			return json({ taskGroup: group });
@@ -1267,7 +1306,7 @@ export function trustedNode(nodeId: string): NodeTrust {
 		stale: false,
 		summary: {
 			nodeId,
-			groups: [],
+			aliases: [],
 			clockSkewMs: 12,
 			identities: {
 				unprivileged: { uid: 1000, gid: 1000, user: "crha" },
@@ -1278,7 +1317,7 @@ export function trustedNode(nodeId: string): NodeTrust {
 					name: "crhs",
 					source: "local",
 					role: "crhs",
-					key: { kind: "sshsig", fingerprint: "SHA256:crhs" },
+					key: { kind: "sshsig", publicKey: "ssh-ed25519 AAAAcrhs crhs", fingerprint: "SHA256:crhs" },
 					kinds: ["execute", "cosign"],
 					requireExact: true,
 					requireTask: false,

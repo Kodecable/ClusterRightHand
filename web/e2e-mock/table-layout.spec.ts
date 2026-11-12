@@ -14,9 +14,9 @@ import {
 /** Data every table page needs; each table is rendered with two rows so a body row always exists. */
 const state = {
 	sessions: [sessionListItem()],
-	tasks: [taskView(), taskView({ id: "task-2", summary: "uptime" } as never)],
-	nodes: [nodeView(), nodeView({ id: "node-2", name: "web-1" } as never)],
-	audit: [auditEvent(), auditEvent({ id: "evt-2", seq: 2 } as never)],
+	tasks: [taskView(), taskView({ id: "task-2", summary: "uptime" })],
+	nodes: [nodeView(), nodeView({ id: "node-2", name: "web-1" })],
+	audit: [auditEvent(), auditEvent({ id: "evt-2", seq: 2 })],
 	tokens: [apiTokenView()],
 	providers: [providerView()],
 	users: [USER],
