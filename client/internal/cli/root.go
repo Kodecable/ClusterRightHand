@@ -16,10 +16,12 @@ func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "crha",
 		Short:         "ClusterRightHand node client",
-		Version:       version.Version,
+		Version:       version.String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	// --version prints the same line as the version command.
+	root.SetVersionTemplate("{{.Version}}\n")
 	root.AddCommand(
 		newRunCmd(),
 		newPrivilegedCmd(),

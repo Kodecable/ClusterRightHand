@@ -17,7 +17,7 @@ and prints the `podman build` command.
 | `crhs-<v>-linux-<arch>.tar.gz` (`crhs-<v>-linux-<arch>/`) | the bundle and WebUI, `node/` (the official `bin/node`), `node_modules/re2` for the arch, `bin/crhs`, `install.sh`, licenses, `VERSION` | Planned |
 | `crha-<v>-linux-<arch>.tar.gz` (`crha-<v>-linux-<arch>/`) | the static `crha`, `install.sh`, `LICENSE`, `THIRD_PARTY_LICENSES.txt`, `VERSION` | Planned |
 | crhs OCI image | Node, the bundle, the WebUI and re2 | No; pull a new image |
-| crha deb and rpm | The static binary, built with the `pkgmanaged` tag | Never; the package manager updates it |
+| `crha_<debversion>_<arch>.deb`, `crha-<rpmversion>-1.<rpmarch>.rpm` | `crha` in `/usr/bin` and the licenses in `/usr/share/doc/crha`, built with nfpm and the `pkgmanaged` tag | Never; the package manager updates it |
 
 `arch` is `amd64` or `arm64`. Archives are deterministic-ish: entries sorted by name, the mtime of the
 tree's last commit, owner 0:0, `gzip -n`. The archive without Node is installed by hand: run
@@ -29,6 +29,22 @@ JavaScript dependency into `crhs.mjs`. Only native modules stay outside: `re2` i
 files, and `cpu-features` is optional for `ssh2`, which falls back to JavaScript and WebAssembly. The
 version is injected at build time; an unbundled crhs reports `dev`. The archive with Node carries Node's
 LICENSE appended to `THIRD_PARTY_LICENSES.txt`; the `crha` archive collects the Go modules' licenses.
+
+### crha deb and rpm
+
+`pnpm package` builds `crha_<debversion>_<arch>.deb` and `crha-<rpmversion>-1.<rpmarch>.rpm` with nfpm,
+which must be on `PATH`; the `amd64`/`arm64` architectures become `x86_64`/`aarch64` in the rpm name. A
+version that does not start with a digit, such as a `git describe` result, is packaged as
+`0.0.0~git<version>`, with `-` replaced by `.`. The packages contain only `/usr/bin/crha` (with the
+`pkgmanaged` build tag) and `/usr/share/doc/crha/{LICENSE,THIRD_PARTY_LICENSES.txt}`; they create no
+user, directory or unit, because `crha enroll` does that. `crha version` then prints `package-managed`,
+and `crha upgrade` refuses in favour of apt or dnf.
+
+The nfpm scripts in `packaging/nfpm/` are shared by deb and rpm. On an upgrade the postinstall script
+restarts `crha-privileged.service` before `crha.service` when systemd is running, so both run the same
+version; on a first install it prints `run: sudo crha enroll`. Removal stops, disables and deletes only
+the `/etc/systemd/system/crha*.service` units that carry `X-CRH-Managed=1`, then reloads systemd;
+`/etc/crha` and `/var/lib/crha` are left alone.
 
 ### Installing crhs with Node
 

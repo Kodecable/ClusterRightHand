@@ -57,7 +57,7 @@ configuration take `--config` and have no default path.
 | `run` | Run the unprivileged mode, which connects to crhs and runs tasks. |
 | `status` | Show the server URL, the node's key fingerprint and the privilege mode. |
 | `version` | Show the version. |
-| `upgrade` | Not implemented yet. |
+| `upgrade` | Not implemented yet; a package-managed `pkgmanaged` build refuses and points at apt or dnf. |
 
 ```sh
 sudo crha enroll

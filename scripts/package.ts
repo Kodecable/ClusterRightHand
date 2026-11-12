@@ -3,7 +3,7 @@
 // doc/design/distribution.md. Plain Node TypeScript; run with `pnpm package` or `pnpm package:oci`.
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { createWriteStream } from "node:fs";
+import { constants, createWriteStream } from "node:fs";
 import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,6 +87,7 @@ fi
 const version = await resolveVersion();
 const commit = (await capture("git", ["rev-parse", "--short", "HEAD"])).trim();
 const commitTime = (await capture("git", ["log", "-1", "--format=%ct"])).trim();
+let goLicensesText: string | undefined;
 
 if (process.versions.node.split(".")[0] !== NODE_MAJOR) {
 	throw new Error(
@@ -112,6 +113,7 @@ if (oci) {
 }
 
 async function packageArchives(arches: Arch[]): Promise<void> {
+	const nfpm = await requireNfpm();
 	await rm(stageDir, { recursive: true, force: true });
 	await rm(releaseDir, { recursive: true, force: true });
 	await mkdir(stageDir, { recursive: true });
@@ -121,6 +123,7 @@ async function packageArchives(arches: Arch[]): Promise<void> {
 	for (const arch of arches) {
 		await packageCrhsWithNode(version, arch);
 		await packageCrha(version, commit, arch);
+		await packageCrhaPackages(nfpm, version, commit, arch);
 	}
 	await writeSums();
 }
@@ -182,29 +185,107 @@ async function packageCrha(version: string, sha: string, arch: Arch): Promise<vo
 	const top = `crha-${version}-linux-${arch}`;
 	const dir = join(stageDir, top);
 	await mkdir(dir, { recursive: true });
-	await exec(
-		"go",
-		[
-			"build",
-			"-trimpath",
-			"-ldflags",
-			`-s -w -X ${VERSION_PACKAGE}.Version=${version} -X ${VERSION_PACKAGE}.Commit=${sha}`,
-			"-o",
-			join(dir, "crha"),
-			"./cmd/crha",
-		],
-		{
-			cwd: join(root, "client"),
-			env: { ...process.env, CGO_ENABLED: "0", GOOS: "linux", GOARCH: arch, GOCACHE: "/tmp/crh-go-cache" },
-		},
-	);
+	await buildCrha(version, sha, arch, join(dir, "crha"));
 	await chmod(join(dir, "crha"), 0o755);
 	await copyFile(join(root, "LICENSE"), join(dir, "LICENSE"));
-	await writeFile(join(dir, "THIRD_PARTY_LICENSES.txt"), await goLicenses());
+	await writeFile(join(dir, "THIRD_PARTY_LICENSES.txt"), await goLicensesCached());
 	await writeFile(join(dir, "VERSION"), `${version}\n`);
 	await writeFile(join(dir, "install.sh"), CRHA_INSTALL);
 	await chmod(join(dir, "install.sh"), 0o755);
 	await gzipTar(top);
+}
+
+/** Builds crha for linux/arch, with the same ldflags as the archives, optionally with a build tag. */
+async function buildCrha(version: string, sha: string, arch: Arch, out: string, tags?: string): Promise<void> {
+	const args = ["build", "-trimpath"];
+	if (tags) args.push("-tags", tags);
+	args.push(
+		"-ldflags",
+		`-s -w -X ${VERSION_PACKAGE}.Version=${version} -X ${VERSION_PACKAGE}.Commit=${sha}`,
+		"-o",
+		out,
+		"./cmd/crha",
+	);
+	await exec("go", args, {
+		cwd: join(root, "client"),
+		env: { ...process.env, CGO_ENABLED: "0", GOOS: "linux", GOARCH: arch, GOCACHE: "/tmp/crh-go-cache" },
+	});
+}
+
+/** crha_<v>_<arch>.deb and crha-<v>-1.<rpmarch>.rpm: the pkgmanaged binary, built with nfpm. */
+async function packageCrhaPackages(nfpm: string, version: string, sha: string, arch: Arch): Promise<void> {
+	const pkgVersion = packageVersion(version);
+	const dir = join(stageDir, `crha-package-${arch}`);
+	await mkdir(dir, { recursive: true });
+	await buildCrha(version, sha, arch, join(dir, "crha"), "pkgmanaged");
+	await chmod(join(dir, "crha"), 0o755);
+	await copyFile(join(root, "LICENSE"), join(dir, "LICENSE"));
+	await writeFile(join(dir, "THIRD_PARTY_LICENSES.txt"), await goLicensesCached());
+	const configPath = join(stageDir, `crha-nfpm-${arch}.yaml`);
+	await writeFile(configPath, nfpmConfig(pkgVersion, arch, dir));
+	const env: NodeJS.ProcessEnv = { ...process.env, SOURCE_DATE_EPOCH: commitTime };
+	for (const packager of ["deb", "rpm"]) {
+		await exec(nfpm, ["package", "--config", configPath, "--packager", packager, "--target", releaseDir], {
+			env,
+		});
+	}
+	const rpmArch = arch === "amd64" ? "x86_64" : "aarch64";
+	for (const name of [`crha_${pkgVersion}_${arch}.deb`, `crha-${pkgVersion}-1.${rpmArch}.rpm`]) {
+		const size = (await stat(join(releaseDir, name))).size;
+		console.log(`wrote dist/release/${name} (${(size / 1024).toFixed(0)} KiB)`);
+	}
+}
+
+/** The nfpm configuration for one arch; paths are absolute so nfpm can run from anywhere. */
+function nfpmConfig(pkgVersion: string, arch: Arch, dir: string): string {
+	const mtime = new Date(Number(commitTime) * 1000).toISOString();
+	const yaml = (value: string): string => JSON.stringify(value);
+	return [
+		`name: ${yaml("crha")}`,
+		`arch: ${yaml(arch)}`,
+		`platform: ${yaml("linux")}`,
+		`version: ${yaml(pkgVersion)}`,
+		// Keep 0.1.0-test as is instead of nfpm's semver rewrite to 0.1.0~test.
+		"version_schema: none",
+		`maintainer: ${yaml("ClusterRightHand")}`,
+		`description: ${yaml("ClusterRightHand node client")}`,
+		`homepage: ${yaml("https://github.com/Kodecable/ClusterRightHand")}`,
+		`license: ${yaml("MIT")}`,
+		`mtime: ${yaml(mtime)}`,
+		"scripts:",
+		`  postinstall: ${yaml(join(root, "packaging", "nfpm", "postinstall.sh"))}`,
+		`  preremove: ${yaml(join(root, "packaging", "nfpm", "preremove.sh"))}`,
+		"contents:",
+		`  - src: ${yaml(join(dir, "crha"))}`,
+		"    dst: /usr/bin/crha",
+		"    file_info:",
+		"      mode: 0755",
+		`  - src: ${yaml(join(dir, "LICENSE"))}`,
+		"    dst: /usr/share/doc/crha/LICENSE",
+		`  - src: ${yaml(join(dir, "THIRD_PARTY_LICENSES.txt"))}`,
+		"    dst: /usr/share/doc/crha/THIRD_PARTY_LICENSES.txt",
+		"",
+	].join("\n");
+}
+
+/** deb and rpm versions must start with a digit; encode a git describe version instead. */
+function packageVersion(version: string): string {
+	if (/^[0-9]/.test(version)) return version;
+	return `0.0.0~git${version.replace(/-/g, ".")}`;
+}
+
+/** nfpm by absolute path from PATH, or a clear error before the release directory is touched. */
+async function requireNfpm(): Promise<string> {
+	for (const dir of (process.env.PATH ?? "").split(":")) {
+		const candidate = join(dir || ".", "nfpm");
+		try {
+			await access(candidate, constants.X_OK);
+			return candidate;
+		} catch {
+			// not in this PATH entry
+		}
+	}
+	throw new Error("nfpm is not on PATH; install nfpm to build the crha deb and rpm packages");
 }
 
 /** The official Node.js binary distribution, checked against SHASUMS256.txt. */
@@ -275,6 +356,11 @@ async function re2Binary(arch: Arch): Promise<Buffer> {
 }
 
 /** The licenses of the Go modules in the build, one block per license file. */
+async function goLicensesCached(): Promise<string> {
+	goLicensesText ??= await goLicenses();
+	return goLicensesText;
+}
+
 async function goLicenses(): Promise<string> {
 	const text = await capture("go", ["list", "-m", "-json", "all"], {
 		cwd: join(root, "client"),
@@ -335,11 +421,11 @@ async function gzipTar(top: string): Promise<void> {
 }
 
 async function writeSums(): Promise<void> {
-	const archives = (await readdir(releaseDir)).filter((name) => name.endsWith(".tar.gz")).sort();
+	const artifacts = (await readdir(releaseDir)).filter((name) => /\.(tar\.gz|deb|rpm)$/.test(name)).sort();
 	const lines: string[] = [];
-	for (const name of archives) lines.push(`${sha256(await readFile(join(releaseDir, name)))}  ${name}`);
+	for (const name of artifacts) lines.push(`${sha256(await readFile(join(releaseDir, name)))}  ${name}`);
 	await writeFile(join(releaseDir, "SHA256SUMS"), `${lines.join("\n")}\n`);
-	console.log(`wrote dist/release/SHA256SUMS (${archives.length} archives)`);
+	console.log(`wrote dist/release/SHA256SUMS (${artifacts.length} artifacts)`);
 }
 
 function readme(version: string): string {
@@ -406,7 +492,8 @@ function capture(
 			stderr += chunk;
 		});
 		child.once("error", reject);
-		child.once("exit", (code) => {
+		// Wait for "close", not "exit": stdout may still have buffered data when the process exits.
+		child.once("close", (code) => {
 			if (code === 0) resolve(stdout);
 			else reject(new Error(`${command} ${args.join(" ")} exited with ${code}\n${stderr}`));
 		});

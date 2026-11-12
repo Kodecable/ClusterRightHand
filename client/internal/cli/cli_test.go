@@ -22,6 +22,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
 func TestCommandPaths(t *testing.T) {
@@ -143,7 +144,14 @@ func TestApprovalSocketHelp(t *testing.T) {
 func TestNotImplemented(t *testing.T) {
 	root := NewRootCmd()
 	root.SetArgs([]string{"upgrade", "--apply", "/tmp/crha"})
-	if err := root.Execute(); err != errNotImplemented {
+	err := root.Execute()
+	if version.PackageManaged {
+		if err == nil || err.Error() != "crha is managed by the system package manager; upgrade it with apt or dnf" {
+			t.Fatalf("got %v, want the package-manager refusal", err)
+		}
+		return
+	}
+	if err != errNotImplemented {
 		t.Fatalf("got %v, want errNotImplemented", err)
 	}
 }
