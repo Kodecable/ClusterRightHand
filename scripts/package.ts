@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
-import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, copyFile, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
@@ -239,7 +239,11 @@ async function packageCrhaPackages(nfpm: string, version: string, sha: string, a
 		});
 	}
 	const rpmArch = arch === "amd64" ? "x86_64" : "aarch64";
-	for (const name of [`crha_${pkgVersion}_${arch}.deb`, `crha-${pkgVersion}-1.${rpmArch}.rpm`]) {
+	for (const built of [`crha_${pkgVersion}_${arch}.deb`, `crha-${pkgVersion}-1.${rpmArch}.rpm`]) {
+		// GitHub release assets cannot keep a `~` (it becomes `.`, breaking SHA256SUMS); only the file name
+		// changes, the version inside the package keeps it for sorting.
+		const name = built.replaceAll("~", "-");
+		if (name !== built) await rename(join(releaseDir, built), join(releaseDir, name));
 		const size = (await stat(join(releaseDir, name))).size;
 		console.log(`wrote dist/release/${name} (${(size / 1024).toFixed(0)} KiB)`);
 	}

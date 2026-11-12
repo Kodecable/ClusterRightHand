@@ -38,7 +38,8 @@ LICENSE appended to `THIRD_PARTY_LICENSES.txt`; the `crha` archive collects the 
 which must be on `PATH`; the `amd64`/`arm64` architectures become `x86_64`/`aarch64` in the rpm name. A
 prerelease `1.2.0-rc.1` is packaged as `1.2.0~rc.1`, because dpkg and rpm sort `~` before the release
 and a `-` after it. A version that does not start with a digit, such as a `git describe` result, is
-packaged as `0.0.0~git<version>`, with `-` replaced by `.`. The packages contain only `/usr/bin/crha` (with the
+packaged as `0.0.0~git<version>`, with `-` replaced by `.`. The `~` stays in the package metadata but
+becomes `-` in the file names, since GitHub release assets cannot carry it. The packages contain only `/usr/bin/crha` (with the
 `pkgmanaged` build tag) and `/usr/share/doc/crha/{LICENSE,THIRD_PARTY_LICENSES.txt}`; they create no
 user, directory or unit, because `crha enroll` does that. `crha version` then prints `package-managed`,
 and `crha upgrade` refuses in favour of apt or dnf.
