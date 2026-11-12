@@ -284,9 +284,13 @@ function nfpmConfig(pkgVersion: string, arch: Arch, dir: string): string {
 	return config.join("\n");
 }
 
-/** deb and rpm versions must start with a digit; encode a git describe version instead. */
+/**
+ * The deb and rpm version. A semver prerelease (`1.2.0-rc.1`) becomes `1.2.0~rc.1`: both dpkg and rpm sort
+ * `~` before the release, whereas a `-` would sort the prerelease after it (and is not allowed in an rpm
+ * version). Versions must start with a digit, so a git describe version is encoded under 0.0.0~git.
+ */
 function packageVersion(version: string): string {
-	if (/^[0-9]/.test(version)) return version;
+	if (/^[0-9]/.test(version)) return version.replace("-", "~").replace(/-/g, ".");
 	return `0.0.0~git${version.replace(/-/g, ".")}`;
 }
 

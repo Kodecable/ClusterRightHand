@@ -36,8 +36,9 @@ LICENSE appended to `THIRD_PARTY_LICENSES.txt`; the `crha` archive collects the 
 
 `pnpm package` builds `crha_<debversion>_<arch>.deb` and `crha-<rpmversion>-1.<rpmarch>.rpm` with nfpm,
 which must be on `PATH`; the `amd64`/`arm64` architectures become `x86_64`/`aarch64` in the rpm name. A
-version that does not start with a digit, such as a `git describe` result, is packaged as
-`0.0.0~git<version>`, with `-` replaced by `.`. The packages contain only `/usr/bin/crha` (with the
+prerelease `1.2.0-rc.1` is packaged as `1.2.0~rc.1`, because dpkg and rpm sort `~` before the release
+and a `-` after it. A version that does not start with a digit, such as a `git describe` result, is
+packaged as `0.0.0~git<version>`, with `-` replaced by `.`. The packages contain only `/usr/bin/crha` (with the
 `pkgmanaged` build tag) and `/usr/share/doc/crha/{LICENSE,THIRD_PARTY_LICENSES.txt}`; they create no
 user, directory or unit, because `crha enroll` does that. `crha version` then prints `package-managed`,
 and `crha upgrade` refuses in favour of apt or dnf.
@@ -70,11 +71,11 @@ for a restart.
 
 The released image is `ghcr.io/kodecable/crhs:<version>`, with `latest` for a stable release. The image
 runs as `node` (uid 1000), so the volume behind `/crhs-data` must be writable by uid 1000; the
-image creates the directory with that owner for a fresh named volume. On the first start the entrypoint
-runs `crhs init` with `--answers /crhs-data/init.json` when that file exists, or interactively when the
-container has a stdin terminal, else fails with an explanation. Without arguments it then runs
-`serve --config /crhs-data/crhs.toml`; with arguments it runs `crhs` itself, so
-`podman run ... ghcr.io/kodecable/crhs:<version> --config /crhs-data/crhs.toml user add alice` works.
+image creates the directory with that owner for a fresh named volume. With arguments the entrypoint runs
+that `crhs` command as given, initialized or not, so `--version` or `keys import` work before a first
+start. Without arguments, on the first start it runs `crhs init` with `--answers
+/crhs-data/init.json` when that file exists, or interactively when the container has a stdin terminal,
+else fails with an explanation; it then runs `serve --config /crhs-data/crhs.toml`.
 
 ## Releases
 
