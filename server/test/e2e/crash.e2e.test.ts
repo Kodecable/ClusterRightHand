@@ -188,7 +188,7 @@ describe.skipIf(!hasGo)("crhs killed mid tool call", () => {
 		const token = (await api("/api/enrollment-tokens", { body: { nameHint: "crash-node" } })).json.token;
 		const cfg = join(tmp, "crha.toml");
 		await writeFile(cfg, `server = "${url()}"\nstate_dir = "${join(tmp, "crha-state")}"\n`);
-		const enrolled = await runCrha(bin, ["enroll", "--config", cfg, url(), token]);
+		const enrolled = await runCrha(bin, ["register", "--config", cfg], `${token}\n`);
 		expect(enrolled.code, `${enrolled.stdout}${enrolled.stderr}\n${crhs.log}`).toBe(0);
 		crha = spawn(bin, ["run", "--config", cfg], { stdio: "ignore" });
 		const node = await waitFor("pending node", async () =>

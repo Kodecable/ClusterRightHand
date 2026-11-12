@@ -1148,6 +1148,14 @@ msgstr "复制代码"
 msgid "Copy command"
 msgstr "复制命令"
 
+#: src/features/nodes/enrollment-code.tsx
+msgid "Copy crhs address"
+msgstr "复制 crhs 地址"
+
+#: src/features/nodes/enrollment-code.tsx
+msgid "Copy enrollment token"
+msgstr "复制注册令牌"
+
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy fingerprint"
 msgstr "复制指纹"
@@ -1178,7 +1186,6 @@ msgstr "复制任务 ID"
 msgid "Copy this token now. It will not be shown again."
 msgstr "请立即复制此令牌，它不会再显示。"
 
-#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Copy token"
 msgstr "复制令牌"
@@ -1212,8 +1219,8 @@ msgid "Create a token to connect an MCP client."
 msgstr "创建令牌以连接 MCP 客户端。"
 
 #: src/features/nodes/add-node-dialog.tsx
-msgid "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
-msgstr "创建注册令牌，然后在节点上以 crha 运行任务应使用的用户执行打印出的命令。"
+msgid "Create an enrollment token, then run the printed command on the node as root."
+msgstr "创建注册令牌，然后在节点上以 root 身份运行打印出的命令。"
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Create one on the SSH credentials page."
@@ -1250,9 +1257,17 @@ msgstr "凭据"
 msgid "crha client"
 msgstr "crha 客户端"
 
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "crha enroll will ask to re-enroll; answer yes to replace this node's key."
+msgstr "crha enroll 会询问是否重新注册；回答 yes 以替换此节点的密钥。"
+
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
 msgstr "节点上的 crha 会被告知已被移除，随后断开连接并停止运行。等待该节点的任务会结束。该节点的访问授权和节点组成员关系会被移除。若要重新添加该主机，请先删除其 identity.key 和 server.pub，再用新令牌重新注册。"
+
+#: src/features/nodes/enrollment-code.tsx
+msgid "crhs address"
+msgstr "crhs 地址"
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
@@ -1614,9 +1629,13 @@ msgstr "已完成"
 msgid "Ended in {duration}"
 msgstr "已完成，用时 {duration}"
 
-#: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/enrollment-code.tsx
 msgid "Enrollment command"
 msgstr "注册命令"
+
+#: src/features/nodes/enrollment-code.tsx
+msgid "Enrollment token"
+msgstr "注册令牌"
 
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Enter a display name."
@@ -3031,10 +3050,6 @@ msgstr "重新注册"
 msgid "Re-enroll node"
 msgstr "重新注册节点"
 
-#: src/features/nodes/reenroll-node-dialog.tsx
-msgid "Re-enrollment command"
-msgstr "重新注册命令"
-
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Re-probe"
 msgstr "重新探测"
@@ -3788,8 +3803,8 @@ msgid "Stop"
 msgstr "停止"
 
 #: src/features/nodes/reenroll-node-dialog.tsx
-msgid "Stop crha, run this on the node, then start it again:"
-msgstr "停止 crha，在节点上运行此命令，然后重新启动："
+msgid "Stop crha, run this on the node as root, then start it again:"
+msgstr "停止 crha，在节点上以 root 身份运行以下命令，然后重新启动 crha："
 
 #: src/features/schedules/schedule-actions.tsx
 msgid "Stop it and run now"
@@ -3938,10 +3953,6 @@ msgstr "浏览器会提供平台认证器（Touch ID、Windows Hello）或安全
 #: src/features/sessions/composer-footer.tsx
 msgid "The budget is used up."
 msgstr "预算已用尽。"
-
-#: src/features/nodes/add-node-dialog.tsx
-msgid "The config file and state directory paths are a suggested layout; adjust them to your installation."
-msgstr "配置文件和状态目录路径只是建议的布局，可按实际安装调整。"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "The credential and its private key are deleted. This cannot be undone."
@@ -4227,10 +4238,6 @@ msgstr "切换侧边栏"
 #: src/components/ui/sidebar.tsx
 msgid "Toggle Sidebar"
 msgstr "切换侧边栏"
-
-#: src/features/nodes/reenroll-node-dialog.tsx
-msgid "Token"
-msgstr "令牌"
 
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/budget-dialog.tsx

@@ -6,13 +6,14 @@ This page describes what each command is for, with common examples. Run `crhs --
 ## crhs
 
 `crhs` runs on the server host. Until there are packages, run it as
-`node /opt/crh/server/src/main.ts` ([Install](../install.md)). Every command reads the configuration
-file (`--config`, default `/etc/crhs/crhs.toml`) and brings the database schema up to date before it
-runs.
+`node /opt/crh/server/src/main.ts` ([Install](../install.md)). Every command except `init` reads the
+configuration file (`--config`, default `/etc/crhs/crhs.toml`) and brings the database schema up to
+date before it runs.
 
 | Command | Purpose |
 |---|---|
 | `serve` | Run the server. This is the default command. |
+| `init [--answers <file>] [--save-answers <file>]` | Set up this host: user, directories, configuration, key, database, administrator and systemd unit. |
 | `user add <username>` | Create a user; `--admin` makes an administrator. |
 | `user passwd <username>` | Set a user's password. |
 | `keys init` | Create the master key file for a new database. |
@@ -20,11 +21,18 @@ runs.
 | `keys import <file>` | Restore the master key file from an export. |
 
 ```sh
+crhs init
+crhs init --answers /root/crhs-init.json --save-answers /root/crhs-init.without-secrets.json
 crhs user add alice --admin --display-name "Alice Example"
 printf '%s\n' "$PASSWORD" | crhs user add bob          # non-interactive
 crhs keys export --out /root/crhs-keys.age
 crhs keys import /root/crhs-keys.age
 ```
+
+`crhs init` asks its questions on the terminal, showing each default (Enter takes it), then prints a
+summary and asks before changing anything. `--answers <file>` answers questions ahead with one JSON
+object; `--save-answers <file>` writes an interactive run's answers without the secrets. Without a
+terminal, every question must be answered by the file.
 
 Passwords and passphrases are never taken as arguments. On a terminal they are prompted for twice;
 otherwise one line is read from standard input.
@@ -39,29 +47,46 @@ file), 2 when the command line or the configuration file is invalid.
 
 ## crha
 
-`crha` runs on a node. Commands that need a configuration take `--config`; there is no default path.
+`crha` runs on a node. `crha enroll` defaults to `/etc/crha/crha.toml`; the other commands that need a
+configuration take `--config` and have no default path.
 
 | Command | Purpose |
 |---|---|
-| `enroll <server-url> <token>` | Enroll the node with a one-time token from the WebUI; `--replace` re-enrolls an existing node. |
+| `enroll [--config <path>] [--answers <file>] [--save-answers <file>]` | Set up and enroll this node; run as root. |
+| `register --config <path> [--replace]` | Enroll using an existing `crha.toml`; the token is read from standard input. |
 | `run` | Run the unprivileged mode, which connects to crhs and runs tasks. |
 | `status` | Show the server URL, the node's key fingerprint and the privilege mode. |
 | `version` | Show the version. |
 | `upgrade` | Not implemented yet. |
 
 ```sh
-crha enroll --config /etc/crha/crha.toml https://crh.example.com 'crh1.…'
-crha enroll --replace --config /etc/crha/crha.toml https://crh.example.com 'crh1.…'
+sudo crha enroll
+sudo crha enroll --answers /root/crha-enroll.json --save-answers /root/crha-enroll.without-token.json
+sudo crha enroll --config /etc/crha/crha.toml
+printf '%s\n' "$TOKEN" | crha register --config /etc/crha/crha.toml
 crha run --config /etc/crha/crha.toml
 crha status --config /etc/crha/crha.toml
 ```
 
-`crha enroll` checks crhs's identity against the fingerprint in the token, creates the node's key and
-prints the node id and fingerprint. It refuses to run if the node already has a key; pass `--replace`
-with a Re-enroll token to replace it. `--replace` moves `identity.key` and `server.pub` aside as
-`identity.key.old` and `server.pub.old` (overwriting older backups) and restores them if enrollment
-fails, leaving the rest of the state directory untouched. There is no online rotation. If the
-configuration file does not exist, add `--state-dir <dir>` to create a minimal one.
+`crha enroll` sets up the node: it creates the `crha` user and group, `/etc/crha`, `/var/lib/crha`,
+`crha.toml`, the enrolled keys, `privileged.toml` for `forward` mode and the systemd units. It asks its
+questions on the terminal, showing each default; `--answers <file>` answers them ahead with one JSON
+object (a file holding the token must be readable only by its owner), and `--save-answers <file>` writes
+an interactive run's answers without the token. Without a terminal every question must be answered by
+the file. Each step that is already done is skipped, so an interrupted run can be repeated.
+
+`crha enroll` checks crhs's identity against the fingerprint in the token and prints the node id and
+key fingerprint. When the node already has a key it asks first whether to re-enroll, keeping the node's
+id, name, node groups and grants. Answering no keeps the existing enrollment: the server, TLS setting
+and privileged mode come from the existing `crha.toml`, no token is needed and the enrollment step is
+skipped (for `forward`, `privileged.toml` must already exist). Re-enrollment moves `identity.key` and
+`server.pub` aside as `.old` files (overwriting older backups) and restores them if enrollment fails.
+There is no online rotation.
+
+`crha register` is the enrollment step alone, for a manual layout: it reads the token from standard
+input (or prompts without echo on a terminal), uses the server and paths of an existing `crha.toml`,
+and creates no user, file or unit. `--replace` re-enrolls an existing node. `crha enroll` calls the same
+code rather than running `crha register`.
 
 Errors are printed as `crha: <message>` with exit code 1.
 

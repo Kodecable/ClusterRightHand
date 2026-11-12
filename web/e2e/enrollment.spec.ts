@@ -30,18 +30,19 @@ test("enrolls a node with a token from the UI and approves it after checking the
 	await dialog.getByLabel("Node name").fill("ui-enrolled");
 	await dialog.getByRole("button", { name: "New token" }).click();
 	await expect(dialog.getByText("Run this on the node:")).toBeVisible();
-	const command = ((await dialog.getByRole("region", { name: "Enrollment command" }).textContent()) ?? "").trim();
-	const match = /^crha enroll --config (\S+) --state-dir (\S+) (\S+) (\S+)$/.exec(command);
-	expect(match, `unexpected command: ${command}`).not.toBeNull();
-	expect(match?.[1]).toBe("/etc/crha/crha.toml");
-	expect(match?.[2]).toBe("/var/lib/crha");
-	const url = match?.[3] as string;
-	const token = match?.[4] as string;
-	expect(url).toBe(env.crhs.url);
+	await expect(dialog.getByText("sudo crha enroll")).toBeVisible();
+	const address = (
+		(await dialog.getByRole("group", { name: "crhs address" }).locator("code").textContent()) ?? ""
+	).trim();
+	const token = (
+		(await dialog.getByRole("group", { name: "Enrollment token" }).locator("code").textContent()) ?? ""
+	).trim();
+	expect(address).toBe(env.crhs.url);
+	expect(token).toMatch(/^crh1\./);
 	await dialog.getByRole("button", { name: "Close" }).first().click();
 
-	await writeFile(env.configPath, `server = "${url}"\nstate_dir = "${join(env.dir, "crha")}"\n`);
-	const enrolled = await runCrha(env.bin, ["enroll", "--config", env.configPath, url, token]);
+	await writeFile(env.configPath, `server = "${address}"\nstate_dir = "${join(env.dir, "crha")}"\n`);
+	const enrolled = await runCrha(env.bin, ["register", "--config", env.configPath], `${token}\n`);
 	expect(enrolled.code, enrolled.stdout + enrolled.stderr).toBe(0);
 	env.startCrha();
 

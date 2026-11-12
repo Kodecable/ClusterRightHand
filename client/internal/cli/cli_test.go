@@ -27,7 +27,7 @@ import (
 func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
 		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "stdio"},
-		{"enroll"}, {"status"}, {"upgrade"},
+		{"enroll"}, {"register"}, {"status"}, {"upgrade"},
 		{"grant"}, {"pending"}, {"approve"}, {"deny"}, {"version"},
 	}
 	root := NewRootCmd()
@@ -45,7 +45,7 @@ func TestConfigFlagRequired(t *testing.T) {
 	commands := [][]string{
 		{"run"},
 		{"privileged", "run"},
-		{"enroll", "https://crh.example.com", "crh1.abc.secret"},
+		{"register"},
 		{"status"},
 	}
 	for _, args := range commands {
@@ -435,9 +435,9 @@ func TestStartupFailsWithoutShell(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := enroll(context.Background(), io.Discard, configPath, "",
-		"http://127.0.0.1:1", "crh1.abc.secret", false); err == nil || !strings.Contains(err.Error(), "no sh") {
-		t.Fatalf("crha enroll error = %v, want the shell resolution failure", err)
+	if err := register(context.Background(), io.Discard, strings.NewReader("crh1.abc.secret\n"), io.Discard,
+		configPath, false); err == nil || !strings.Contains(err.Error(), "no sh") {
+		t.Fatalf("crha register error = %v, want the shell resolution failure", err)
 	}
 }
 
@@ -450,112 +450,6 @@ func stubNoShell(t *testing.T) {
 		return nil, errors.New("no sh to run tasks")
 	}
 	t.Cleanup(func() { resolveEnv = old })
-}
-
-// TestEnrollStateDirFlag covers that --state-dir has no default and the help documents it.
-func TestEnrollStateDirFlag(t *testing.T) {
-	cmd := newEnrollCmd()
-	flag := cmd.Flags().Lookup("state-dir")
-	if flag == nil {
-		t.Fatal("enroll has no --state-dir flag")
-	}
-	if flag.DefValue != "" {
-		t.Fatalf("--state-dir default = %q, want no default", flag.DefValue)
-	}
-	if !strings.Contains(cmd.Long, "--state-dir") {
-		t.Fatalf("help does not mention --state-dir: %q", cmd.Long)
-	}
-}
-
-// TestEnrollCreatesConfig covers one-command enrollment: --state-dir with a missing --config writes
-// a config with server and state_dir, prints it, and enrollment continues with that config.
-func TestEnrollCreatesConfig(t *testing.T) {
-	stubNoShell(t)
-
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "etc", "crha", "crha.toml")
-	stateDir := filepath.Join(dir, "lib", "crha")
-	var out bytes.Buffer
-	err := enroll(context.Background(), &out, configPath, stateDir, "https://crh.example.com", "crh1.abc.secret", false)
-	if err == nil || !strings.Contains(err.Error(), "no sh") {
-		t.Fatalf("enroll error = %v, want the shell resolution failure", err)
-	}
-	if got, want := out.String(), "wrote "+configPath+"\n"; got != want {
-		t.Fatalf("output = %q, want %q", got, want)
-	}
-	want := fmt.Sprintf("server = %q\nstate_dir = %q\n", "https://crh.example.com", stateDir)
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(data) != want {
-		t.Fatalf("config = %q, want %q", data, want)
-	}
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Server != "https://crh.example.com" || cfg.StateDir != stateDir {
-		t.Fatalf("config = server %q, state_dir %q", cfg.Server, cfg.StateDir)
-	}
-	if info, err := os.Stat(configPath); err != nil {
-		t.Fatal(err)
-	} else if info.Mode().Perm() != 0o644 {
-		t.Fatalf("mode = %v, want 0644", info.Mode().Perm())
-	}
-	if info, err := os.Stat(filepath.Dir(configPath)); err != nil {
-		t.Fatal(err)
-	} else if info.Mode().Perm() != 0o755 {
-		t.Fatalf("parent mode = %v, want 0755", info.Mode().Perm())
-	}
-}
-
-// TestEnrollMissingConfigWithoutStateDir covers that a missing config without --state-dir is a clear
-// error instead of a silently created file.
-func TestEnrollMissingConfigWithoutStateDir(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "crha.toml")
-	err := enroll(context.Background(), io.Discard, configPath, "", "https://crh.example.com", "crh1.abc.secret", false)
-	if err == nil || !strings.Contains(err.Error(), "does not exist") || !strings.Contains(err.Error(), "--state-dir") {
-		t.Fatalf("enroll error = %v, want a missing-config error pointing at --state-dir", err)
-	}
-	if _, statErr := os.Stat(configPath); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("config was created: %v", statErr)
-	}
-}
-
-// TestEnrollStateDirWithExistingConfig covers that --state-dir is refused rather than ignored when
-// the config file already exists.
-func TestEnrollStateDirWithExistingConfig(t *testing.T) {
-	stubNoShell(t)
-
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "crha.toml")
-	content := fmt.Sprintf("server = \"https://crh.example.com\"\nstate_dir = %q\n", filepath.Join(dir, "state"))
-	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	err := enroll(context.Background(), io.Discard, configPath, filepath.Join(dir, "other"),
-		"https://crh.example.com", "crh1.abc.secret", false)
-	if err == nil || !strings.Contains(err.Error(), "only applies when creating a new config") {
-		t.Fatalf("enroll error = %v, want the --state-dir refusal", err)
-	}
-	data, readErr := os.ReadFile(configPath)
-	if readErr != nil || string(data) != content {
-		t.Fatalf("config changed: %q, %v", data, readErr)
-	}
-}
-
-// TestEnrollRelativeStateDir covers that --state-dir must be absolute.
-func TestEnrollRelativeStateDir(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "crha.toml")
-	err := enroll(context.Background(), io.Discard, configPath, "state",
-		"https://crh.example.com", "crh1.abc.secret", false)
-	if err == nil || !strings.Contains(err.Error(), "absolute") {
-		t.Fatalf("enroll error = %v, want the absolute-path error", err)
-	}
-	if _, statErr := os.Stat(configPath); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("config was created: %v", statErr)
-	}
 }
 
 // stubResolvedEnv makes resolveEnv succeed, so a test reaches the steps after reading the config.
@@ -578,28 +472,64 @@ func writeEnrollConfig(t *testing.T, server, stateDir string) string {
 	return configPath
 }
 
-func TestEnrollReplaceFlag(t *testing.T) {
+// TestEnrollFlags covers the new enrollment command: --config has a default, the answers flags
+// exist, and there are no positional arguments.
+func TestEnrollFlags(t *testing.T) {
 	cmd := newEnrollCmd()
+	if cmd.Args == nil {
+		t.Fatal("enroll accepts positional arguments")
+	}
+	configFlag := cmd.Flags().Lookup("config")
+	if configFlag == nil || configFlag.DefValue != "/etc/crha/crha.toml" {
+		t.Fatalf("--config = %v, want the default /etc/crha/crha.toml", configFlag)
+	}
+	for _, name := range []string{"answers", "save-answers"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Fatalf("enroll has no --%s flag", name)
+		}
+	}
+	if err := execute("enroll", "extra"); err == nil {
+		t.Fatal("enroll accepted a positional argument")
+	}
+}
+
+// TestRegisterFlags covers that crha register reads an existing config and re-enrolls only with
+// --replace.
+func TestRegisterFlags(t *testing.T) {
+	cmd := newRegisterCmd()
 	flag := cmd.Flags().Lookup("replace")
-	if flag == nil {
-		t.Fatal("enroll has no --replace flag")
+	if flag == nil || flag.DefValue != "false" {
+		t.Fatalf("--replace = %v, want false", flag)
 	}
-	if flag.DefValue != "false" {
-		t.Fatalf("--replace default = %q, want false", flag.DefValue)
-	}
-	for _, want := range []string{"--replace", "identity.key.old", "server.pub.old"} {
+	for _, want := range []string{"standard input", "no user, file or unit", "*.old"} {
 		if !strings.Contains(cmd.Long, want) {
 			t.Fatalf("help does not mention %q: %q", want, cmd.Long)
 		}
 	}
-	if !strings.Contains(flag.Usage, "re-enrollment") {
-		t.Fatalf("--replace usage = %q, want it to mention re-enrollment", flag.Usage)
+}
+
+// TestRegisterMissingConfig covers that register uses an existing file only.
+func TestRegisterMissingConfig(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "crha.toml")
+	err := register(context.Background(), io.Discard, strings.NewReader("crh1.abc.secret\n"), io.Discard, configPath, false)
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("register error = %v, want a missing-config error", err)
 	}
 }
 
-// TestEnrollRefusesExistingKeyWithoutReplace covers that the existing refusal stays unless --replace
-// is passed, and that its message points at the flag.
-func TestEnrollRefusesExistingKeyWithoutReplace(t *testing.T) {
+// TestRegisterMissingToken covers that an empty standard input is refused before any network work.
+func TestRegisterMissingToken(t *testing.T) {
+	stubNoShell(t)
+	configPath := writeEnrollConfig(t, "https://crh.example.com", t.TempDir())
+	err := register(context.Background(), io.Discard, strings.NewReader("\n"), io.Discard, configPath, false)
+	if err == nil || !strings.Contains(err.Error(), "no enrollment token") {
+		t.Fatalf("register error = %v, want a missing-token error", err)
+	}
+}
+
+// TestRegisterRefusesExistingKeyWithoutReplace covers that the existing refusal stays unless
+// --replace is passed, and that its message points at the flag.
+func TestRegisterRefusesExistingKeyWithoutReplace(t *testing.T) {
 	dir := t.TempDir()
 	stateDir := filepath.Join(dir, "state")
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
@@ -611,9 +541,9 @@ func TestEnrollRefusesExistingKeyWithoutReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := enroll(context.Background(), io.Discard, configPath, "", "https://crh.example.com", "crh1.abc.secret", false)
+	err := register(context.Background(), io.Discard, strings.NewReader("crh1.abc.secret\n"), io.Discard, configPath, false)
 	if err == nil || !strings.Contains(err.Error(), "already enrolled") || !strings.Contains(err.Error(), "--replace") {
-		t.Fatalf("enroll error = %v, want the existing refusal to mention --replace", err)
+		t.Fatalf("register error = %v, want the existing refusal to mention --replace", err)
 	}
 	data, readErr := os.ReadFile(identityPath)
 	if readErr != nil || string(data) != "old identity\n" {
@@ -624,10 +554,10 @@ func TestEnrollRefusesExistingKeyWithoutReplace(t *testing.T) {
 	}
 }
 
-// TestEnrollReplaceRestoresKeysOnFailure covers that --replace moves both keys aside before the
+// TestRegisterReplaceRestoresKeysOnFailure covers that --replace moves both keys aside before the
 // network work and puts them back when enrollment fails, leaving the rest of the state directory
 // untouched.
-func TestEnrollReplaceRestoresKeysOnFailure(t *testing.T) {
+func TestRegisterReplaceRestoresKeysOnFailure(t *testing.T) {
 	stubResolvedEnv(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "no identity", http.StatusInternalServerError)
@@ -653,13 +583,13 @@ func TestEnrollReplaceRestoresKeysOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := enroll(context.Background(), io.Discard, configPath, "", server.URL, "crh1.abc.secret", true)
+	err := register(context.Background(), io.Discard, strings.NewReader("crh1.abc.secret\n"), io.Discard, configPath, true)
 	if err == nil {
-		t.Fatal("enroll succeeded against a server that returns 500")
+		t.Fatal("register succeeded against a server that returns 500")
 	}
 	// The refusal is the server's, not the old key's: --replace got past the file check.
 	if strings.Contains(err.Error(), "already enrolled") {
-		t.Fatalf("enroll still refused the existing key: %v", err)
+		t.Fatalf("register still refused the existing key: %v", err)
 	}
 	for path, want := range map[string]string{
 		identityPath:  "old identity\n",
@@ -676,73 +606,5 @@ func TestEnrollReplaceRestoresKeysOnFailure(t *testing.T) {
 	}
 	if info, statErr := os.Stat(filepath.Join(stateDir, "output")); statErr != nil || !info.IsDir() {
 		t.Fatalf("output directory changed: %v, %v", info, statErr)
-	}
-}
-
-// TestBackupEnrollmentKeys covers that --replace moves the keys aside, overwrites older backups, and
-// that the returned restore reverses the move.
-func TestBackupEnrollmentKeys(t *testing.T) {
-	stateDir := filepath.Join(t.TempDir(), "state")
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := config.Load(writeEnrollConfig(t, "https://crh.example.com", stateDir))
-	if err != nil {
-		t.Fatal(err)
-	}
-	identityPath := cfg.IdentityKeyPath()
-	serverPath := cfg.ServerKeyPath()
-	for path, content := range map[string]string{
-		identityPath:          "identity\n",
-		identityPath + ".old": "older identity\n",
-		serverPath:            "server\n",
-		serverPath + ".old":   "older server\n",
-	} {
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	restore, err := backupEnrollmentKeys(cfg, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for path, want := range map[string]string{
-		identityPath + ".old": "identity\n",
-		serverPath + ".old":   "server\n",
-	} {
-		data, readErr := os.ReadFile(path)
-		if readErr != nil || string(data) != want {
-			t.Fatalf("%s = %q, %v; want %q", path, data, readErr, want)
-		}
-	}
-	if _, statErr := os.Stat(identityPath); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("identity.key still exists after the move: %v", statErr)
-	}
-	if err := restore(); err != nil {
-		t.Fatal(err)
-	}
-	for path, want := range map[string]string{
-		identityPath: "identity\n",
-		serverPath:   "server\n",
-	} {
-		data, readErr := os.ReadFile(path)
-		if readErr != nil || string(data) != want {
-			t.Fatalf("%s = %q, %v; want %q", path, data, readErr, want)
-		}
-		if _, statErr := os.Stat(path + ".old"); !errors.Is(statErr, os.ErrNotExist) {
-			t.Fatalf("%s.old left behind: %v", path, statErr)
-		}
-	}
-	// Without --replace the helper is a no-op.
-	noop, err := backupEnrollmentKeys(cfg, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := noop(); err != nil {
-		t.Fatal(err)
-	}
-	if _, statErr := os.Stat(identityPath); statErr != nil {
-		t.Fatalf("identity.key missing after a no-op: %v", statErr)
 	}
 }

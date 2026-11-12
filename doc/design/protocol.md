@@ -358,13 +358,14 @@ so crhs can export the keys:
 1. An administrator creates an enrollment token in the WebUI. It has the form
    `crh1.<server identity fingerprint>.<random secret>`, is valid for one hour, can be used once, and
    can carry a name hint. A token bound to an existing crha node re-enrolls that node instead.
-2. On the node, `crha enroll` takes the server URL and the token plus its configuration file. If the
-   file does not exist, `--state-dir` makes `crha enroll` write a minimal one. crha fetches the
-   server's identity key over HTTPS, **checks it against the fingerprint in the token** and pins it,
-   so the token alone bootstraps trust. It generates its node key and puts the enrollment record in
-   the first Noise message; the token travels inside the channel, so a TLS terminator never sees it,
-   and a replay finds the token consumed. `--replace` moves an existing `identity.key` and
-   `server.pub` aside as `.old` files before this step.
+2. On the node, `crha enroll` asks for the crhs address, the token and the setup questions, then
+   calls the same enrollment code as `crha register --config <file>` (which reads the token from
+   standard input and uses an existing `crha.toml`). crha fetches the server's identity key over
+   HTTPS, **checks it against the fingerprint in the token** and pins it, so the token alone
+   bootstraps trust. It generates its node key and puts the enrollment record in the first Noise
+   message; the token travels inside the channel, so a TLS terminator never sees it, and a replay
+   finds the token consumed. Re-enrolling moves an existing `identity.key` and `server.pub` aside as
+   `.old` files before this step.
 3. crhs validates the token and the node becomes `pending`. An administrator compares the hostname
    and the key fingerprint (`crha status` prints it) and approves the node; a rejection deletes the
    key. Until approval, reconnecting with the same key yields a restricted connection.
@@ -380,7 +381,8 @@ token whose node was deleted is invalid.
 - **Revoke a node.** Deleting the node removes its public key; the next handshake fails, and an
   established connection is closed after `node.status{rejected}`.
 - **Replace a node key.** Re-enroll the node: its page's **Re-enroll** action issues a token bound to
-  the node, and `crha enroll --replace` replaces the identity key. The node keeps its record, and an
+  the node, and `crha enroll` asks whether to re-enroll and replaces the identity key (or
+  `crha register --replace` does the same for a manual layout). The node keeps its record, and an
   administrator approves the new fingerprint. There is no online rotation.
 - **Rotate the server identity key.** crhs keeps one server identity key. A node pins the key it saw
   at enrollment and a different key fails the handshake, so replacing the key requires every node to

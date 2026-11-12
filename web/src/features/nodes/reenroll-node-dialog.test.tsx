@@ -1,5 +1,5 @@
 import type { PublicNode } from "@crh/api";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithI18n } from "@/test/render";
 import { ReenrollNodeDialog } from "./reenroll-node-dialog";
@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 describe("ReenrollNodeDialog", () => {
-	test("explains what is kept and creates a token with a copyable --replace command", async () => {
+	test("explains what is kept and creates a token with the command, address and token", async () => {
 		const { calls } = mockFetch();
 		renderWithI18n(<ReenrollNodeDialog node={node()} onClose={() => {}} />);
 
@@ -59,11 +59,14 @@ describe("ReenrollNodeDialog", () => {
 		expect(screen.queryByText(/crha enroll/)).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "Create token" }));
-		const command = await screen.findByText(/crha enroll --replace/);
-		expect(command.textContent).toContain("--config /etc/crha/crha.toml");
-		expect(command.textContent).toContain(`'${CREATED.token}'`);
-		expect(screen.getByText(CREATED.token)).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Copy token" })).toBeInTheDocument();
+		expect(await screen.findByText("sudo crha enroll")).toBeInTheDocument();
+		expect(screen.getByText(/crha enroll will ask to re-enroll/)).toBeInTheDocument();
+		const address = within(screen.getByRole("group", { name: "crhs address" }));
+		expect(address.getByText(window.location.origin)).toBeInTheDocument();
+		expect(address.getByRole("button", { name: "Copy crhs address" })).toBeInTheDocument();
+		const token = within(screen.getByRole("group", { name: "Enrollment token" }));
+		expect(token.getByText(CREATED.token)).toBeInTheDocument();
+		expect(token.getByRole("button", { name: "Copy enrollment token" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Copy and close" })).toBeInTheDocument();
 		expect(screen.getByText(/Pending approval/)).toBeInTheDocument();
 		await waitFor(() =>
@@ -90,6 +93,6 @@ describe("ReenrollNodeDialog", () => {
 		renderWithI18n(<ReenrollNodeDialog node={node()} onClose={() => {}} />);
 		fireEvent.click(screen.getByRole("button", { name: "Create token" }));
 		expect(await screen.findByText("SSH nodes cannot be re-enrolled")).toBeInTheDocument();
-		expect(screen.queryByText(/crha enroll --replace/)).not.toBeInTheDocument();
+		expect(screen.queryByText("sudo crha enroll")).not.toBeInTheDocument();
 	});
 });

@@ -60,7 +60,7 @@ export async function freePort(): Promise<number> {
 	});
 }
 
-export async function podman(args: string[], opts: { timeout?: number } = {}): Promise<ExecResult> {
+export async function podman(args: string[], opts: { timeout?: number; stdin?: string } = {}): Promise<ExecResult> {
 	return run(PODMAN, args, opts);
 }
 
@@ -70,16 +70,22 @@ export interface ExecResult {
 	stderr: string;
 }
 
-function run(cmd: string, args: string[], opts: { timeout?: number } = {}): Promise<ExecResult> {
+function run(cmd: string, args: string[], opts: { timeout?: number; stdin?: string } = {}): Promise<ExecResult> {
 	return new Promise((complete) => {
-		execFile(cmd, args, { timeout: opts.timeout ?? 120_000, maxBuffer: 32 << 20 }, (err, stdout, stderr) => {
-			const code = err
-				? typeof (err as { code?: unknown }).code === "number"
-					? (err as { code: number }).code
-					: 1
-				: 0;
-			complete({ code, stdout: String(stdout), stderr: String(stderr) });
-		});
+		const child = execFile(
+			cmd,
+			args,
+			{ timeout: opts.timeout ?? 120_000, maxBuffer: 32 << 20 },
+			(err, stdout, stderr) => {
+				const code = err
+					? typeof (err as { code?: unknown }).code === "number"
+						? (err as { code: number }).code
+						: 1
+					: 0;
+				complete({ code, stdout: String(stdout), stderr: String(stderr) });
+			},
+		);
+		if (opts.stdin !== undefined) child.stdin?.end(opts.stdin);
 	});
 }
 
@@ -315,16 +321,13 @@ export class PrivilegedNode {
 
 	async #enroll(): Promise<void> {
 		const token = await this.crhs.enrollmentToken();
-		const res = await this.execAs(
-			UNPRIVILEGED_UID,
-			[CONTAINER_CRHA, "enroll", "--config", "/etc/crha/crha.toml", this.crhs.url, token],
-			{
-				timeout: 60_000,
-			},
-		);
-		if (res.code !== 0) throw new Error(`crha enroll failed:\n${res.stdout}\n${res.stderr}`);
+		const res = await this.execAs(UNPRIVILEGED_UID, [CONTAINER_CRHA, "register", "--config", "/etc/crha/crha.toml"], {
+			timeout: 60_000,
+			stdin: `${token}\n`,
+		});
+		if (res.code !== 0) throw new Error(`crha register failed:\n${res.stdout}\n${res.stderr}`);
 		const id = /enrolled as node ([^\s,]+)/.exec(res.stdout)?.[1];
-		if (!id) throw new Error(`could not read the node id from crha enroll:\n${res.stdout}\n${res.stderr}`);
+		if (!id) throw new Error(`could not read the node id from crha register:\n${res.stdout}\n${res.stderr}`);
 		this.nodeId = id;
 		// The enrollment row is written by the connection handler, so it may trail the printed id.
 		await waitFor(
@@ -374,12 +377,13 @@ export class PrivilegedNode {
 	}
 
 	/** Runs a command in the container as a user (uid 0 by default). */
-	async exec(command: string[], opts: { user?: number; timeout?: number } = {}): Promise<ExecResult> {
+	async exec(command: string[], opts: { user?: number; timeout?: number; stdin?: string } = {}): Promise<ExecResult> {
 		return this.execAs(opts.user ?? 0, command, opts);
 	}
 
-	async execAs(uid: number, command: string[], opts: { timeout?: number } = {}): Promise<ExecResult> {
-		return podman(["exec", "--user", String(uid), this.name, ...command], opts);
+	async execAs(uid: number, command: string[], opts: { timeout?: number; stdin?: string } = {}): Promise<ExecResult> {
+		const input = opts.stdin === undefined ? [] : ["-i"];
+		return podman(["exec", ...input, "--user", String(uid), this.name, ...command], opts);
 	}
 
 	/** privctl.sh: start/stop/restart the processes, reload trust, reset the privileged state. */

@@ -65,18 +65,19 @@ ClusterRightHand（CRH）是一个自托管的多节点 agent 平台，带有严
 
 **设计文档**
 
-| 文档                                                       | 内容                          |
-| ---------------------------------------------------------- | ----------------------------- |
-| [Architecture](doc/design/architecture.md)                 | 组件、边界、限制              |
-| [Protocol](doc/design/protocol.md)                         | crhs 与 crha 的协议和传输安全 |
-| [Execution plane](doc/design/execution.md)                 | 任务、输出、连接、SSH         |
-| [Privilege and authorization](doc/design/privilege.md)     | 特权模式、授权、节点信任      |
-| [Users, ownership and audit](doc/design/access-control.md) | 用户、访问、规则、审批、审计  |
-| [Agent runtime](doc/design/agent-runtime.md)               | 会话、工具、子 agent、配额    |
-| [Scheduled tasks](doc/design/scheduling.md)                | 计划任务                      |
-| [Data model](doc/design/data-model.md)                     | 存储和数据保留                |
-| [WebUI](doc/design/webui.md)                               | 前端设计                      |
-| [Testing](doc/design/testing/README.md)                    | 测试分层和运行方法            |
+| 文档                                                       | 内容                                 |
+| ---------------------------------------------------------- | ------------------------------------ |
+| [Architecture](doc/design/architecture.md)                 | 组件、边界、限制                     |
+| [Protocol](doc/design/protocol.md)                         | crhs 与 crha 的协议和传输安全        |
+| [Execution plane](doc/design/execution.md)                 | 任务、输出、连接、SSH                |
+| [Privilege and authorization](doc/design/privilege.md)     | 特权模式、授权、节点信任             |
+| [Users, ownership and audit](doc/design/access-control.md) | 用户、访问、规则、审批、审计         |
+| [Agent runtime](doc/design/agent-runtime.md)               | 会话、工具、子 agent、配额           |
+| [Scheduled tasks](doc/design/scheduling.md)                | 计划任务                             |
+| [Data model](doc/design/data-model.md)                     | 存储和数据保留                       |
+| [WebUI](doc/design/webui.md)                               | 前端设计                             |
+| [Distribution and setup](doc/design/distribution.md)       | 打包分发、`crhs init`、`crha enroll` |
+| [Testing](doc/design/testing/README.md)                    | 测试分层和运行方法                   |
 
 ## 仓库结构
 

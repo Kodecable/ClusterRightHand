@@ -193,34 +193,26 @@ Ordinary tasks run as the `crha` user.
 
 ## Enroll a node
 
-1. In the WebUI, open **Nodes** and choose **New node**. Copy the one-time enrollment token (valid for
-   one hour).
-2. On the node, create the configuration:
+1. In the WebUI, open **Nodes** and choose **New node**. Copy the crhs address and the one-time
+   enrollment token (valid for one hour).
+2. On the node, run:
 
    ```sh
-   sudo install -m 0640 -o root -g crha /dev/null /etc/crha/crha.toml
-   sudoedit /etc/crha/crha.toml
+   sudo crha enroll
    ```
 
-   ```toml
-   server = "https://crh.example.com"
-   state_dir = "/var/lib/crha"
-   ```
-
-3. Enroll and start the agent:
-
-   ```sh
-   sudo -u crha crha enroll --config /etc/crha/crha.toml https://crh.example.com 'crh1.…'
-   sudo -u crha crha run --config /etc/crha/crha.toml
-   ```
-
-   `crha enroll` checks crhs's identity against the fingerprint in the token, creates the node's key and
-   prints the node id and key fingerprint. If `crha.toml` does not exist yet, add
-   `--state-dir /var/lib/crha` and enroll writes a minimal file.
+   It asks for the crhs address, the token, whether to verify the TLS certificate and, for `forward`
+   mode, the local-root and trust settings. `crha enroll` creates the `crha` user and group, `/etc/crha`,
+   `/var/lib/crha`, `crha.toml`, the enrolled keys, `privileged.toml` for `forward` mode and the
+   systemd units, then prints the node id and key fingerprint.
+3. Approve the node (below), comparing the fingerprint.
 
 If the node was enrolled before, use **Re-enroll** on its page instead of **New node**:
-`crha enroll --replace` keeps the node record (id, name, node groups and access grants) while replacing
-its key ([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)).
+`sudo crha enroll` asks whether to re-enroll, which keeps the node record (id, name, node groups and
+access grants) while replacing its key ([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)).
+
+For a manual layout (an existing `crha.toml`), `crha register --config <file>` only registers the node;
+the token is read from standard input and `--replace` re-enrolls.
 
 Without a `[privileged]` table the node refuses privileged tasks. To enable them, see
 [Privileged tasks](#privileged-tasks).

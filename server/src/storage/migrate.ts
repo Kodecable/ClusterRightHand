@@ -1,5 +1,5 @@
 import type { DialectAdapter, Kysely } from "kysely";
-import { type Migration, type MigrationProvider, Migrator } from "kysely/migration";
+import { type Migration, type MigrationProvider, type MigrationResult, Migrator } from "kysely/migration";
 import * as m0001 from "./migrations/0001_initial.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
@@ -20,8 +20,8 @@ export interface MigrateOptions {
  * introspection can see the same-named tables of another schema in the database.
  */
 // biome-ignore lint/suspicious/noExplicitAny: the migrator works on any schema
-export async function migrateToLatest(db: Kysely<any>, options: MigrateOptions = {}): Promise<void> {
-	await runMigrations(db, migrations, options);
+export async function migrateToLatest(db: Kysely<any>, options: MigrateOptions = {}): Promise<MigrationResult[]> {
+	return runMigrations(db, migrations, options);
 }
 
 /**
@@ -39,7 +39,7 @@ export async function runMigrations(
 	db: Kysely<any>,
 	migrationSet: Record<string, Migration>,
 	options: MigrateOptions = {},
-): Promise<void> {
+): Promise<MigrationResult[]> {
 	const migrator = new Migrator({
 		db: withTransactionalDdl(db),
 		provider: providerFor(migrationSet),
@@ -50,6 +50,7 @@ export async function runMigrations(
 	if (error || failed) {
 		throw new Error(`migration ${failed?.migrationName ?? "?"} failed`, { cause: error });
 	}
+	return results ?? [];
 }
 
 function providerFor(migrationSet: Record<string, Migration>): MigrationProvider {

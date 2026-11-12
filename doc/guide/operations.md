@@ -156,16 +156,17 @@ issued for it.
 **Replace a node's key** by re-enrolling it. The node keeps its id, name, node groups, access grants and
 task history; there is no online rotation.
 
-1. On the node's page, choose **Re-enroll** and copy the token and command.
+1. On the node's page, choose **Re-enroll** and copy the crhs address and token.
 2. Stop `crha` (and `crha-privileged`).
-3. Run the printed command:
+3. Run `sudo crha enroll` and answer the questions, including yes to re-enroll:
 
    ```sh
-   sudo -u crha crha enroll --replace --config /etc/crha/crha.toml https://crh.example.com 'crh1.…'
+   sudo crha enroll
+   printf '%s\n' "$TOKEN" | crha register --replace --config /etc/crha/crha.toml   # manual layout
    ```
 
-   `--replace` moves the old `identity.key` and `server.pub` aside as `.old` files, overwriting older
-   backups, and restores them if enrollment fails. The rest of the state directory and the
+   Re-enrollment moves the old `identity.key` and `server.pub` aside as `.old` files, overwriting
+   older backups, and restores them if enrollment fails. The rest of the state directory and the
    configuration are untouched.
 
 4. Start the services and approve the new key fingerprint in the WebUI after comparing it with

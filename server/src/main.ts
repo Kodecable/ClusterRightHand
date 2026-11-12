@@ -25,6 +25,8 @@ import { initMasterKey, restoreMasterKey } from "./keys/setup.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
 import { importSettingsFromFile, SettingsStore } from "./settings/settings.ts";
+import { SetupError } from "./setup/answers.ts";
+import { runInit } from "./setup/init.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { startRetentionSweep } from "./storage/retention.ts";
@@ -37,6 +39,8 @@ const USAGE = `usage: crhs [--config <path>] <command>
 commands:
   version, --version                    print the version and exit
   serve                                 run the server (default)
+  init [--answers <file>] [--save-answers <file>]
+                                        set up this host; missing answers are asked on a terminal
   user add <username> [--admin] [--display-name <name>]
                                         create a user; the password is read from the terminal or stdin
   user passwd <username>                set a user's password
@@ -54,6 +58,8 @@ const { values, positionals } = parseArgs({
 		admin: { type: "boolean", default: false },
 		"display-name": { type: "string" },
 		out: { type: "string", short: "o" },
+		answers: { type: "string" },
+		"save-answers": { type: "string" },
 		help: { type: "boolean", short: "h", default: false },
 		version: { type: "boolean", default: false },
 	},
@@ -69,60 +75,79 @@ if (values.version || positionals[0] === "version") {
 	process.exit(0);
 }
 
-let configFile: ConfigFile;
-try {
-	configFile = await loadConfigFile(values.config);
-} catch (err) {
-	console.error(`crhs: ${values.config}: ${(err as Error).message}`);
-	process.exit(2);
-}
-const config: Config = configFile.config;
-const db = openDb(config.database);
-await migrateToLatest(db);
-
-// Settings an old crhs.toml still holds are imported into the database only when it has no value for
-// them; a key that is already stored is a startup error (two sources would silently disagree).
-let settings: SettingsStore;
-try {
-	await importSettingsFromFile(db, configFile.moved, (message) => console.warn(`crhs: ${message}`));
-	settings = await SettingsStore.load(db);
-} catch (err) {
-	console.error(`crhs: ${values.config}: ${(err as Error).message}`);
-	process.exit(2);
-}
-// Every Argon2id computation, including `user add` and `user passwd`, goes through this one gate.
-// It reads System settings from the database, which is why this happens after the database is open.
-configureHashGate({
-	concurrency: settings.current().auth.argon2Concurrency,
-	queue: settings.current().auth.argon2Queue,
-});
-
 const [command = "serve", ...args] = positionals;
-try {
-	if (command === "serve") {
-		const masterKey = await readMasterKeyFile(config.masterKeyFile);
-		await bindMasterKey(db, masterKey);
-		await runServer(config, db, masterKey, settings);
-	} else if (command === "keys" && args[0] === "init") {
-		await initKeys(config, db);
-	} else if (command === "keys" && args[0] === "export" && values.out) {
-		await exportKeys(config, db, values.out);
-	} else if (command === "keys" && args[0] === "import" && args[1]) {
-		await importKeys(config, db, args[1]);
-	} else if (command === "user" && args[0] === "add" && args[1]) {
-		await addUser(db, args[1]);
-	} else if (command === "user" && args[0] === "passwd" && args[1]) {
-		await changePassword(db, args[1]);
-	} else {
-		console.error(USAGE);
-		process.exitCode = 2;
+
+if (command === "init") {
+	try {
+		await runInit({
+			configPath: values.config,
+			answersPath: values.answers,
+			saveAnswersPath: values["save-answers"],
+		});
+	} catch (err) {
+		if (!(err instanceof SetupError || err instanceof UserError || err instanceof KeyError)) throw err;
+		console.error(`crhs: ${err.message}`);
+		process.exitCode = 1;
+	}
+} else {
+	await runCommand(command, args);
+}
+
+async function runCommand(command: string, args: string[]): Promise<void> {
+	let configFile: ConfigFile;
+	try {
+		configFile = await loadConfigFile(values.config);
+	} catch (err) {
+		console.error(`crhs: ${values.config}: ${(err as Error).message}`);
+		process.exit(2);
+	}
+	const config: Config = configFile.config;
+	const db = openDb(config.database);
+	await migrateToLatest(db);
+
+	// Settings an old crhs.toml still holds are imported into the database only when it has no value for
+	// them; a key that is already stored is a startup error (two sources would silently disagree).
+	let settings: SettingsStore;
+	try {
+		await importSettingsFromFile(db, configFile.moved, (message) => console.warn(`crhs: ${message}`));
+		settings = await SettingsStore.load(db);
+	} catch (err) {
+		console.error(`crhs: ${values.config}: ${(err as Error).message}`);
+		process.exit(2);
+	}
+	// Every Argon2id computation, including `user add` and `user passwd`, goes through this one gate.
+	// It reads System settings from the database, which is why this happens after the database is open.
+	configureHashGate({
+		concurrency: settings.current().auth.argon2Concurrency,
+		queue: settings.current().auth.argon2Queue,
+	});
+
+	try {
+		if (command === "serve") {
+			const masterKey = await readMasterKeyFile(config.masterKeyFile);
+			await bindMasterKey(db, masterKey);
+			await runServer(config, db, masterKey, settings);
+		} else if (command === "keys" && args[0] === "init") {
+			await initKeys(config, db);
+		} else if (command === "keys" && args[0] === "export" && values.out) {
+			await exportKeys(config, db, values.out);
+		} else if (command === "keys" && args[0] === "import" && args[1]) {
+			await importKeys(config, db, args[1]);
+		} else if (command === "user" && args[0] === "add" && args[1]) {
+			await addUser(db, args[1]);
+		} else if (command === "user" && args[0] === "passwd" && args[1]) {
+			await changePassword(db, args[1]);
+		} else {
+			console.error(USAGE);
+			process.exitCode = 2;
+			await db.destroy();
+		}
+	} catch (err) {
+		if (!(err instanceof UserError || err instanceof KeyError)) throw err;
+		console.error(`crhs: ${err.message}`);
+		process.exitCode = 1;
 		await db.destroy();
 	}
-} catch (err) {
-	if (!(err instanceof UserError || err instanceof KeyError)) throw err;
-	console.error(`crhs: ${err.message}`);
-	process.exitCode = 1;
-	await db.destroy();
 }
 
 async function readNewPassword(): Promise<string> {

@@ -5,8 +5,8 @@
 
 ## Configuration file
 
-`crha run`, `crha enroll` and `crha status` require `--config <path>`; crha has no default
-configuration path. If the file does not exist, `crha enroll --state-dir <dir>` creates a minimal one.
+`crha enroll` defaults to `/etc/crha/crha.toml` and writes it if it is missing. `crha run`,
+`crha register` and `crha status` require `--config <path>` and use an existing file.
 
 `crha run` re-reads the file on `SIGHUP`. A file that fails to load is not applied. Changes to `server`,
 `tls_verify` and `notes` take effect immediately; other changes need a restart, and crha logs which.

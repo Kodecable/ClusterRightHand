@@ -1148,6 +1148,14 @@ msgstr "Copy code"
 msgid "Copy command"
 msgstr "Copy command"
 
+#: src/features/nodes/enrollment-code.tsx
+msgid "Copy crhs address"
+msgstr "Copy crhs address"
+
+#: src/features/nodes/enrollment-code.tsx
+msgid "Copy enrollment token"
+msgstr "Copy enrollment token"
+
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy fingerprint"
 msgstr "Copy fingerprint"
@@ -1178,7 +1186,6 @@ msgstr "Copy task id"
 msgid "Copy this token now. It will not be shown again."
 msgstr "Copy this token now. It will not be shown again."
 
-#: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Copy token"
 msgstr "Copy token"
@@ -1212,8 +1219,8 @@ msgid "Create a token to connect an MCP client."
 msgstr "Create a token to connect an MCP client."
 
 #: src/features/nodes/add-node-dialog.tsx
-msgid "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
-msgstr "Create an enrollment token, then run the printed command on the node as the user crha should run tasks as."
+msgid "Create an enrollment token, then run the printed command on the node as root."
+msgstr "Create an enrollment token, then run the printed command on the node as root."
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Create one on the SSH credentials page."
@@ -1250,9 +1257,17 @@ msgstr "Credential"
 msgid "crha client"
 msgstr "crha client"
 
+#: src/features/nodes/reenroll-node-dialog.tsx
+msgid "crha enroll will ask to re-enroll; answer yes to replace this node's key."
+msgstr "crha enroll will ask to re-enroll; answer yes to replace this node's key."
+
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
 msgstr "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
+
+#: src/features/nodes/enrollment-code.tsx
+msgid "crhs address"
+msgstr "crhs address"
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
@@ -1614,9 +1629,13 @@ msgstr "Ended"
 msgid "Ended in {duration}"
 msgstr "Ended in {duration}"
 
-#: src/features/nodes/add-node-dialog.tsx
+#: src/features/nodes/enrollment-code.tsx
 msgid "Enrollment command"
 msgstr "Enrollment command"
+
+#: src/features/nodes/enrollment-code.tsx
+msgid "Enrollment token"
+msgstr "Enrollment token"
 
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Enter a display name."
@@ -3031,10 +3050,6 @@ msgstr "Re-enroll"
 msgid "Re-enroll node"
 msgstr "Re-enroll node"
 
-#: src/features/nodes/reenroll-node-dialog.tsx
-msgid "Re-enrollment command"
-msgstr "Re-enrollment command"
-
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Re-probe"
 msgstr "Re-probe"
@@ -3788,8 +3803,8 @@ msgid "Stop"
 msgstr "Stop"
 
 #: src/features/nodes/reenroll-node-dialog.tsx
-msgid "Stop crha, run this on the node, then start it again:"
-msgstr "Stop crha, run this on the node, then start it again:"
+msgid "Stop crha, run this on the node as root, then start it again:"
+msgstr "Stop crha, run this on the node as root, then start it again:"
 
 #: src/features/schedules/schedule-actions.tsx
 msgid "Stop it and run now"
@@ -3938,10 +3953,6 @@ msgstr "The browser offers a platform authenticator (Touch ID, Windows Hello) or
 #: src/features/sessions/composer-footer.tsx
 msgid "The budget is used up."
 msgstr "The budget is used up."
-
-#: src/features/nodes/add-node-dialog.tsx
-msgid "The config file and state directory paths are a suggested layout; adjust them to your installation."
-msgstr "The config file and state directory paths are a suggested layout; adjust them to your installation."
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "The credential and its private key are deleted. This cannot be undone."
@@ -4227,10 +4238,6 @@ msgstr "Toggle sidebar"
 #: src/components/ui/sidebar.tsx
 msgid "Toggle Sidebar"
 msgstr "Toggle Sidebar"
-
-#: src/features/nodes/reenroll-node-dialog.tsx
-msgid "Token"
-msgstr "Token"
 
 #: src/features/schedules/schedule-form.tsx
 #: src/features/sessions/budget-dialog.tsx

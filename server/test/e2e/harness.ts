@@ -352,12 +352,13 @@ export interface ExecResult {
 	stderr: string;
 }
 
-export function runCrha(bin: string, args: string[]): Promise<ExecResult> {
+export function runCrha(bin: string, args: string[], stdin?: string): Promise<ExecResult> {
 	return new Promise((resolve) => {
-		execFile(bin, args, { timeout: 30_000 }, (err, stdout, stderr) => {
+		const child = execFile(bin, args, { timeout: 30_000 }, (err, stdout, stderr) => {
 			const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
 			resolve({ code, stdout, stderr });
 		});
+		if (stdin !== undefined) child.stdin?.end(stdin);
 	});
 }
 
@@ -389,7 +390,8 @@ export class Env {
 	}
 
 	async enroll(): Promise<ExecResult> {
-		return runCrha(this.bin, ["enroll", "--config", this.configPath, this.crhs.url, await this.crhs.enrollmentToken()]);
+		const token = await this.crhs.enrollmentToken();
+		return runCrha(this.bin, ["register", "--config", this.configPath], `${token}\n`);
 	}
 
 	/** Enrolls, starts crha, approves the node and waits until it is connected. */

@@ -2,7 +2,7 @@
 # Boot sequence of the privileged system test container (doc/design/testing/privileged.md).
 #
 # sshd starts immediately so the SSH node tests always have a target. The crha processes wait for
-# /etc/crha/.ready, which the test writes after `crha enroll` has created the node identity and after
+# /etc/crha/.ready, which the test writes after `crha register` has created the node identity and after
 # the privileged.toml naming this node exists. The processes are started through privctl.sh so a test
 # can restart them individually; on SIGTERM they are stopped in reverse order.
 set -eu

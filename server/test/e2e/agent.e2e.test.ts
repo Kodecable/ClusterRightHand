@@ -55,12 +55,12 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 			};
 			const token = await env.crhs.enrollmentToken();
 			const a = await extra("second");
-			const first = await runCrha(env.bin, ["enroll", "--config", a.cfg, env.crhs.url, token]);
+			const first = await runCrha(env.bin, ["register", "--config", a.cfg], `${token}\n`);
 			expect(first.stdout + first.stderr).toContain("waiting for approval");
 			expect(first.code).toBe(0);
 
 			const b = await extra("third");
-			const second = await runCrha(env.bin, ["enroll", "--config", b.cfg, env.crhs.url, token]);
+			const second = await runCrha(env.bin, ["register", "--config", b.cfg], `${token}\n`);
 			expect(second.code).not.toBe(0);
 			expect(second.stdout + second.stderr).toContain("invalid, expired or already used");
 			expect(existsSync(b.state)).toBe(false);
@@ -70,17 +70,11 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 			const fresh = await env.crhs.enrollmentToken();
 			const secret = fresh.split(".")[2];
 			const c = await extra("fourth");
-			const bad = await runCrha(env.bin, [
-				"enroll",
-				"--config",
-				c.cfg,
-				env.crhs.url,
-				`crh1.${"A".repeat(43)}.${secret}`,
-			]);
+			const bad = await runCrha(env.bin, ["register", "--config", c.cfg], `crh1.${"A".repeat(43)}.${secret}\n`);
 			expect(bad.code).not.toBe(0);
 			expect(bad.stdout + bad.stderr).toMatch(/does not match the token/);
 			expect(existsSync(c.state)).toBe(false);
-			const good = await runCrha(env.bin, ["enroll", "--config", c.cfg, env.crhs.url, fresh]);
+			const good = await runCrha(env.bin, ["register", "--config", c.cfg], `${fresh}\n`);
 			expect(good.code).toBe(0);
 		}, 60_000);
 

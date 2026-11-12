@@ -148,8 +148,8 @@ A **clock** warning means the node's clock differs from crhs's
 
 ### Adding a crha node
 
-Administrators choose **New node**, optionally enter a name, and copy the command with the one-time
-token. Run it on the node as described in [Enroll a node](install.md#enroll-a-node).
+Administrators choose **New node**, optionally enter a name, and copy the command, the crhs address
+and the one-time token. Run it on the node as described in [Enroll a node](install.md#enroll-a-node).
 
 ### Approving a pending node
 
@@ -179,9 +179,9 @@ privileged mode is not running. Administrators can copy the `aliases` line for t
 #### Re-enrolling a node
 
 Administrators can re-enroll a crha node with **Re-enroll**. The dialog explains that the node keeps
-its id, name, node groups and access grants, and shows a one-time token and the command
-`crha enroll --replace --config /etc/crha/crha.toml <url> '<token>'`. Run it on the node and start
-`crha` again; the node returns to **Pending approval** and must be approved with its new fingerprint
+its id, name, node groups and access grants, and shows the command `sudo crha enroll` with the crhs
+address and a one-time token. Run it on the node (it asks to re-enroll) and start `crha` again; the node
+returns to **Pending approval** and must be approved with its new fingerprint
 ([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)). SSH nodes have no
 key, so they have no **Re-enroll** action.
 

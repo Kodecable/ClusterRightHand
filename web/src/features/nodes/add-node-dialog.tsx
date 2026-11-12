@@ -1,6 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
-import { CodeText } from "@/components/code-text";
 import { CopyAndCloseButton } from "@/components/copy-button";
 import { ErrorText } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
@@ -17,7 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useEnrollmentToken } from "@/features/nodes/api";
-import { enrollCommand } from "@/features/nodes/commands";
+import { EnrollmentCode } from "@/features/nodes/enrollment-code";
 
 /**
  * "New node": creates a one-time enrollment token and shows the command to run
@@ -30,7 +29,6 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 	const [hint, setHint] = useState("");
 	const [created, setCreated] = useState<{ token: string; expiresAt: string }>();
 	const create = useEnrollmentToken();
-	const command = created ? enrollCommand(window.location.origin, created.token) : "";
 
 	return (
 		<Dialog
@@ -45,9 +43,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 						<Trans>New node</Trans>
 					</DialogTitle>
 					<DialogDescription>
-						<Trans>
-							Create an enrollment token, then run the printed command on the node as the user crha should run tasks as.
-						</Trans>
+						<Trans>Create an enrollment token, then run the printed command on the node as root.</Trans>
 					</DialogDescription>
 				</DialogHeader>
 				<div className="grid gap-3">
@@ -56,19 +52,12 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 							<p className="text-sm">
 								<Trans>Run this on the node:</Trans>
 							</p>
-							<CodeText text={command} maxLines={4} label={t`Enrollment command`} copy={false} />
+							<EnrollmentCode address={window.location.origin} token={created.token} />
 							<p className="text-xs text-muted-foreground">
 								<Trans>
-									The config file and state directory paths are a suggested layout; adjust them to your installation.
+									The token is shown once and expires <DateTime value={created.expiresAt} />.
 								</Trans>
 							</p>
-							<div className="flex flex-wrap items-center gap-2">
-								<span className="text-xs text-muted-foreground">
-									<Trans>
-										The token is shown once and expires <DateTime value={created.expiresAt} />.
-									</Trans>
-								</span>
-							</div>
 							<p className="text-sm text-muted-foreground">
 								<Trans>
 									After the node connects it appears as pending; compare its key fingerprint with{" "}
@@ -94,7 +83,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 				</div>
 				<DialogFooter>
 					{created ? (
-						<CopyAndCloseButton text={command} onClose={onClose} />
+						<CopyAndCloseButton text={created.token} onClose={onClose} />
 					) : (
 						<>
 							<Button type="button" variant="outline" onClick={onClose}>

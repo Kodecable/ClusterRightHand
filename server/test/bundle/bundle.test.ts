@@ -20,10 +20,11 @@ interface Result {
 	stderr: string;
 }
 
-function runCrhs(dir: string, args: string[], input = ""): Promise<Result> {
+function runCrhs(dir: string, args: string[], input = "", env: NodeJS.ProcessEnv = {}): Promise<Result> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(process.execPath, [join(dir, "crhs.mjs"), ...args], {
 			cwd: dir,
+			env: { ...process.env, ...env },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		let stdout = "";
@@ -126,22 +127,27 @@ test("prints the bundled version", async () => {
 });
 
 describe("SQLite", () => {
-	test("initializes, creates a user and serves the bundled WebUI", async () => {
+	test("initializes with crhs init and serves the bundled WebUI", async () => {
 		const port = await freePort();
-		const config = join(appDir, "crhs.toml");
-		await writeConfig(
-			config,
-			"master.key",
-			port,
-			`driver = "sqlite"\npath = ${JSON.stringify(join(appDir, "crhs.db"))}`,
+		const data = join(appDir, "data");
+		const answersPath = join(appDir, "init.json");
+		await writeFile(
+			answersPath,
+			JSON.stringify({
+				version: 1,
+				listen: { host: "127.0.0.1", port },
+				database: { driver: "sqlite", path: join(data, "crhs.db") },
+				public_url: "",
+				admin: { username: "admin", display_name: "Admin User", password: "admin-password" },
+				service: { install: false, start: false },
+			}),
+			{ mode: 0o600 },
 		);
 
-		const init = await runCrhs(appDir, ["--config", config, "keys", "init"]);
+		const init = await runCrhs(appDir, ["init", "--answers", answersPath], "", { CRHS_DATA_DIR: data });
 		expect(init.code, init.stderr).toBe(0);
-		const add = await runCrhs(appDir, ["--config", config, "user", "add", "admin", "--admin"], "admin-password\n");
-		expect(add.code, add.stderr).toBe(0);
 
-		const serving = startCrhs(appDir, ["--config", config, "serve"]);
+		const serving = startCrhs(appDir, ["--config", join(data, "crhs.toml"), "serve"]);
 		let exitCode: number | null = null;
 		try {
 			await serving.started;

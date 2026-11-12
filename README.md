@@ -83,6 +83,7 @@ approvals and privilege.
 | [Scheduled tasks](doc/design/scheduling.md)                | Schedules                                     |
 | [Data model](doc/design/data-model.md)                     | Storage and retention                         |
 | [WebUI](doc/design/webui.md)                               | Frontend design                               |
+| [Distribution and setup](doc/design/distribution.md)       | Packages, `crhs init`, `crha enroll`          |
 | [Testing](doc/design/testing/README.md)                    | Test layers and how to run them               |
 
 ## Repository layout
