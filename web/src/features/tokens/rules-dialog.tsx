@@ -58,7 +58,7 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent className="sm:max-w-2xl" data-testid="token-rules-dialog">
+			<DialogContent className="sm:max-w-2xl" data-testid="token-rules-dialog" showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>Rules of {token.name}</Trans>

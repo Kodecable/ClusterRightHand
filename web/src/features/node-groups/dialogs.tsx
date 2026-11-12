@@ -72,9 +72,6 @@ export function NodeGroupNameDialog({
 				if (!open) onClose();
 			}}
 			title={group ? <Trans>Rename node group</Trans> : <Trans>New node group</Trans>}
-			description={
-				group ? undefined : <Trans>A node group selects several nodes for rules, batch runs and schedules.</Trans>
-			}
 			submitLabel={group ? <Trans>Rename</Trans> : <Trans>New node group</Trans>}
 			busy={mutation.isPending}
 			submitDisabled={name.trim() === ""}

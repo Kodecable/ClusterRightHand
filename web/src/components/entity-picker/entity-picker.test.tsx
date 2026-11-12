@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { SshCredential, User } from "@crh/api";
+import type { SigningCredentialView, SshCredential, User } from "@crh/api";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
@@ -28,6 +28,31 @@ const UNNAMED_CREDENTIAL: SshCredential = {
 	id: "cred-2",
 	name: "",
 };
+
+const SIGNING_CREDENTIALS: SigningCredentialView[] = [
+	{
+		id: "sc-1",
+		kind: "ssh",
+		name: "laptop key",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		publicKey: "ssh-ed25519 AAAAC3Nza signing",
+		fingerprint: "SHA256:abc",
+		credentialId: null,
+		rpId: null,
+		origins: [],
+	},
+	{
+		id: "sc-2",
+		kind: "webauthn",
+		name: "yubikey",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		publicKey: "o2NmbXRkbm9uZQ",
+		fingerprint: null,
+		credentialId: "AAECAwQ",
+		rpId: "crh.example.com",
+		origins: ["https://crh.example.com"],
+	},
+];
 
 const ALICE: User = {
 	id: "u1",
@@ -120,6 +145,9 @@ function mockFetch(): { calls: Call[] } {
 			if (url.pathname === "/api/ssh-credentials") {
 				// The endpoint returns the whole list; the picker filters by name or fingerprint.
 				return json({ credentials: [CREDENTIAL, UNNAMED_CREDENTIAL] });
+			}
+			if (url.pathname === "/api/me/signing-credentials") {
+				return json({ signingCredentials: SIGNING_CREDENTIALS });
 			}
 			if (url.pathname !== "/api/users") return json({});
 			if (ids !== null) {
@@ -228,6 +256,21 @@ function SshCredentialHarness({ onPick }: { onPick?: (id: string | null) => void
 		<EntityPicker
 			kind="sshCredential"
 			label="Credential"
+			value={value}
+			onChange={(id) => {
+				setValue(id);
+				onPick?.(id);
+			}}
+		/>
+	);
+}
+
+function SigningCredentialHarness({ onPick }: { onPick?: (id: string | null) => void }) {
+	const [value, setValue] = useState<string | null>(null);
+	return (
+		<EntityPicker
+			kind="signingCredential"
+			label="Signing credential"
 			value={value}
 			onChange={(id) => {
 				setValue(id);
@@ -401,6 +444,25 @@ describe("EntityPicker", () => {
 		await user.click(laptop);
 		await waitFor(() => expect(onPick).toHaveBeenCalledWith("cred-1"));
 		expect(screen.getByRole("combobox", { name: "Credential" })).toHaveTextContent("laptop");
+	});
+
+	test("signingCredential lists names over their kind and key id and picks one", async () => {
+		const { calls } = mockFetch();
+		const onPick = vi.fn();
+		renderWithI18n(<SigningCredentialHarness onPick={onPick} />);
+		const user = userEvent.setup();
+		await user.click(screen.getByRole("combobox", { name: "Signing credential" }));
+		expect(await screen.findByPlaceholderText("Search signing credentials…")).toBeInTheDocument();
+		expect(calls.some((call) => call.path === "/api/me/signing-credentials")).toBe(true);
+
+		const laptop = await screen.findByRole("option", { name: /laptop key/ });
+		expect(within(laptop).getByText("SSH key · SHA256:abc")).toBeInTheDocument();
+		const passkey = await screen.findByRole("option", { name: /yubikey/ });
+		expect(within(passkey).getByText("Passkey · AAECAwQ")).toBeInTheDocument();
+
+		await user.click(laptop);
+		await waitFor(() => expect(onPick).toHaveBeenCalledWith("sc-1"));
+		expect(screen.getByRole("combobox", { name: "Signing credential" })).toHaveTextContent("laptop key");
 	});
 
 	test("shows the more-results hint and the empty state", async () => {

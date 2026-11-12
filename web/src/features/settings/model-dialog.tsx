@@ -307,8 +307,9 @@ export function ModelDialog({
 			<DialogContent
 				className="flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
 				data-testid="model-dialog"
+				showCloseButton={false}
 			>
-				<DialogHeader className="border-b p-4 pr-12">
+				<DialogHeader className="border-b p-4">
 					<DialogTitle>{editing ? t`Edit model ${initial.id}` : t`New model`}</DialogTitle>
 				</DialogHeader>
 				<DialogScrollArea className="mx-0 my-0 grid min-h-0 flex-1 content-start gap-3 px-4 py-4">

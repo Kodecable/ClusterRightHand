@@ -20,7 +20,7 @@ export function AddSshNodeDialog({ onClose }: { onClose: () => void }) {
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent className="sm:max-w-5xl">
+			<DialogContent className="sm:max-w-5xl" showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>New SSH node</Trans>

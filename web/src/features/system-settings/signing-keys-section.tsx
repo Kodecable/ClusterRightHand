@@ -3,7 +3,7 @@ import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { CopyButton } from "@/components/copy-button";
+import { CopyAndCloseButton, CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { TableEmpty } from "@/components/empty-state";
@@ -71,7 +71,7 @@ function CreatedSigningKeyDialog({ signingKey, onClose }: { signingKey: SigningK
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent className="sm:max-w-2xl" data-testid="signing-key-created">
+			<DialogContent className="sm:max-w-2xl" data-testid="signing-key-created" showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>Authorization signing key added</Trans>
@@ -93,10 +93,7 @@ function CreatedSigningKeyDialog({ signingKey, onClose }: { signingKey: SigningK
 					</div>
 				</div>
 				<DialogFooter>
-					<CopyButton text={signingKey.publicKey} showLabel label={t`Copy public key`} variant="outline" />
-					<Button type="button" onClick={onClose}>
-						<Trans>Close</Trans>
-					</Button>
+					<CopyAndCloseButton text={signingKey.publicKey} onClose={onClose} />
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>

@@ -2,14 +2,13 @@ import type { NodeGroup } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PencilIcon, PlusIcon, Trash2Icon, UserPenIcon } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState, TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
-import { NodeLink } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { SectionHeader } from "@/components/section";
@@ -26,29 +25,6 @@ import { NodeGroupMembersDialog, NodeGroupNameDialog } from "./dialogs";
 /** One row of the member table: the stored node id and nothing else. */
 interface MemberRow {
 	nodeId: string;
-}
-
-/** The members of a node group, each linked to its node page. */
-function MemberLinks({
-	memberIds,
-	nodeNames,
-	className,
-}: {
-	memberIds: string[];
-	nodeNames: Map<string, string>;
-	className?: string;
-}) {
-	if (memberIds.length === 0) return <span className="text-muted-foreground">–</span>;
-	return (
-		<span className={cn("flex flex-wrap items-center gap-x-1", className)}>
-			{memberIds.map((id, index) => (
-				<Fragment key={id}>
-					{index > 0 && <span className="text-muted-foreground">,</span>}
-					<NodeLink id={id} name={nodeNames.get(id) ?? id} />
-				</Fragment>
-			))}
-		</span>
-	);
 }
 
 /** The header actions an administrator gets for one node group; members are edited in their section. */
@@ -68,17 +44,15 @@ function AdminActions({ onRename, onDelete }: { onRename: () => void; onDelete: 
 }
 
 /**
- * Every node group (doc/design/access-control.md "User model"): members links and the
+ * Every node group (doc/design/access-control.md "User model"): member counts and the
  * UUID to copy for a crha trust alias. Editing lives on the detail page; the
  * list only navigates. Everyone else sees the list read-only.
  */
 export function NodeGroupsPage() {
 	const { t } = useLingui();
-	const nodes = useNodes();
 	const groups = useNodeGroups();
 	const admin = useAuth().user?.kind === "admin";
 	const [creating, setCreating] = useState(false);
-	const nodeNames = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
 
 	const columns = useMemo<DataTableColumn<NodeGroup>[]>(
 		() => [
@@ -92,13 +66,10 @@ export function NodeGroupsPage() {
 			{
 				id: "members",
 				header: t`Members`,
-				size: 280,
+				size: 120,
 				cell: ({ row }) => (
-					<span className="grid gap-0.5">
-						<span className="text-muted-foreground">
-							<Plural value={row.original.memberIds.length} one="# member" other="# members" />
-						</span>
-						<MemberLinks memberIds={row.original.memberIds} nodeNames={nodeNames} />
+					<span className="text-muted-foreground">
+						<Plural value={row.original.memberIds.length} one="# member" other="# members" />
 					</span>
 				),
 			},
@@ -119,7 +90,7 @@ export function NodeGroupsPage() {
 				),
 			},
 		],
-		[nodeNames, t],
+		[t],
 	);
 
 	return (

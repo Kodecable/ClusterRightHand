@@ -6,8 +6,11 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { AppSidebar } from "@/app/shell/app-sidebar";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { authStore } from "@/features/auth/session";
+import { copyText } from "@/lib/clipboard";
 import { renderWithRouter } from "@/test/render";
 import { SshCredentialsPage } from "./pages";
+
+vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 
 const ADMIN: User = {
 	id: "u1",
@@ -144,12 +147,13 @@ describe("SshCredentialsPage", () => {
 		const created = await screen.findByTestId("ssh-credential-created-dialog");
 		expect(within(created).getByText("SSH credential created")).toBeInTheDocument();
 		expect(within(created).getByText(/AAAAC3NzaC1lZDI1NTE5AAAAINewKeyMaterial/)).toBeInTheDocument();
-		expect(within(created).getByRole("button", { name: "Copy public key" })).toBeInTheDocument();
+		expect(within(created).getByRole("button", { name: "Copy and close" })).toBeInTheDocument();
 		expect(api.calls.find((call) => call.method === "POST" && call.url === "/api/ssh-credentials")?.body).toEqual({
 			name: "new key",
 		});
 
-		await user.click(within(created).getAllByRole("button", { name: "Close" })[0] as HTMLElement);
+		await user.click(within(created).getByRole("button", { name: "Copy and close" }));
+		expect(copyText).toHaveBeenCalledWith("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINewKeyMaterial new");
 		expect(await screen.findByText("new key")).toBeInTheDocument();
 	});
 

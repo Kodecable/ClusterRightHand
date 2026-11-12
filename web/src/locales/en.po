@@ -94,6 +94,11 @@ msgstr "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
 msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgstr "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 
+#. placeholder {0}: key.fingerprint
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "{0} (newest)"
+msgstr "{0} (newest)"
+
 #. placeholder {0}: user.username
 #: src/features/users/user-group-dialogs.tsx
 msgid "{0} gains the node access this user group grants."
@@ -113,11 +118,6 @@ msgstr "{0} tokens left"
 #: src/components/decision/quota-decision.tsx
 msgid "{0} tokens left · {usedText} spent"
 msgstr "{0} tokens left · {usedText} spent"
-
-#. placeholder {0}: credential.name
-#: src/features/signing-credentials/pages.tsx
-msgid "{0}: privileged.toml"
-msgstr "{0}: privileged.toml"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{awaiting} awaiting"
@@ -227,10 +227,6 @@ msgstr "A cron expression has exactly five fields."
 msgid "A cron expression is required."
 msgstr "A cron expression is required."
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "A duration such as 5m or 24h. Empty means no limit."
-msgstr "A duration such as 5m or 24h. Empty means no limit."
-
 #: src/features/nodes/access-grants.tsx
 msgid "A granted user or user group can see the nodes in this node group and run tasks on them."
 msgstr "A granted user or user group can see the nodes in this node group and run tasks on them."
@@ -260,10 +256,6 @@ msgstr "A mapped level value is required."
 msgid "A name is required."
 msgstr "A name is required."
 
-#: src/features/nodes/crhs-key-panel.tsx
-msgid "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
-msgstr "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
-
 #: src/features/nodes/node-groups-dialog.tsx
 msgid "A node can be in any number of node groups."
 msgstr "A node can be in any number of node groups."
@@ -279,10 +271,6 @@ msgstr "A node group name must be 2-64 characters, start with a letter, end with
 #: src/features/node-groups/dialogs.tsx
 msgid "A node group name must not start with \"_\": names starting with \"_\" are reserved for the system."
 msgstr "A node group name must not start with \"_\": names starting with \"_\" are reserved for the system."
-
-#: src/features/node-groups/dialogs.tsx
-msgid "A node group selects several nodes for rules, batch runs and schedules."
-msgstr "A node group selects several nodes for rules, batch runs and schedules."
 
 #: src/features/tasks/taskForm.ts
 msgid "A path is required."
@@ -395,10 +383,6 @@ msgstr "Add a Passkey"
 #: src/features/settings/pages.tsx
 msgid "Add a Pi built-in provider or a custom endpoint."
 msgstr "Add a Pi built-in provider or a custom endpoint."
-
-#: src/features/nodes/pages.tsx
-msgid "Add a signing credential or connect crhs before configuring trust."
-msgstr "Add a signing credential or connect crhs before configuring trust."
 
 #: src/features/nodes/access-grants.tsx
 msgid "Add access"
@@ -545,7 +529,6 @@ msgstr "All users"
 
 #: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
-#: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
 msgstr "Allow"
 
@@ -637,10 +620,6 @@ msgstr "API token"
 #: src/features/tokens/pages.tsx
 msgid "API tokens"
 msgstr "API tokens"
-
-#: src/features/ssh-credentials/pages.tsx
-msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
-msgstr "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
 
 #: src/components/task-result.tsx
 #: src/features/approvals/pages.tsx
@@ -836,10 +815,6 @@ msgstr "Budget used up · {usedText} spent"
 msgid "Budget used up ({0} over) · {usedText} spent"
 msgstr "Budget used up ({0} over) · {usedText} spent"
 
-#: src/features/nodes/pages.tsx
-msgid "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
-msgstr "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
-
 #: src/features/audit/pages.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "By"
@@ -955,6 +930,10 @@ msgid "Choose a node or node group"
 msgstr "Choose a node or node group"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a signing credential"
+msgstr "Choose a signing credential"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a user"
 msgstr "Choose a user"
 
@@ -985,6 +964,10 @@ msgstr "Choose nodes"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose nodes or node groups"
 msgstr "Choose nodes or node groups"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose signing credentials"
+msgstr "Choose signing credentials"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose SSH credentials"
@@ -1029,15 +1012,6 @@ msgstr "Clock"
 #: src/features/system-settings/general-section.tsx
 msgid "Clock warning threshold"
 msgstr "Clock warning threshold"
-
-#: src/features/nodes/add-node-dialog.tsx
-#: src/features/nodes/reenroll-node-dialog.tsx
-#: src/features/signing-credentials/pages.tsx
-#: src/features/ssh-credentials/pages.tsx
-#: src/features/system-settings/signing-keys-section.tsx
-#: src/features/tokens/create-token-dialog.tsx
-msgid "Close"
-msgstr "Close"
 
 #: src/app/shell/nav.ts
 msgid "Cluster"
@@ -1162,20 +1136,26 @@ msgstr "Copy"
 msgid "Copy aliases"
 msgstr "Copy aliases"
 
+#: src/components/copy-button.tsx
+msgid "Copy and close"
+msgstr "Copy and close"
+
 #: src/markdown/CodeBlock.tsx
 msgid "Copy code"
 msgstr "Copy code"
 
 #: src/components/decision/signature-decision.tsx
-#: src/features/nodes/add-node-dialog.tsx
-#: src/features/nodes/reenroll-node-dialog.tsx
-#: src/features/tokens/create-token-dialog.tsx
 msgid "Copy command"
 msgstr "Copy command"
 
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy fingerprint"
 msgstr "Copy fingerprint"
+
+#. placeholder {0}: row.original.name
+#: src/features/signing-credentials/pages.tsx
+msgid "Copy key ID {0}"
+msgstr "Copy key ID {0}"
 
 #: src/features/node-groups/pages.tsx
 msgid "Copy node group id"
@@ -1187,7 +1167,6 @@ msgid "Copy node group id of {0}"
 msgstr "Copy node group id of {0}"
 
 #: src/features/ssh-credentials/pages.tsx
-#: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy public key"
 msgstr "Copy public key"
 
@@ -1204,11 +1183,9 @@ msgstr "Copy this token now. It will not be shown again."
 msgid "Copy token"
 msgstr "Copy token"
 
-#: src/features/nodes/crhs-key-panel.tsx
-#: src/features/nodes/trust-editor-panel.tsx
-#: src/features/signing-credentials/pages.tsx
-msgid "Copy trust snippet"
-msgstr "Copy trust snippet"
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "Copy trust config"
+msgstr "Copy trust config"
 
 #: src/components/task-result.tsx
 msgid "cosignature available"
@@ -1289,13 +1266,17 @@ msgstr "crhs generates a new ed25519 key. It becomes the newest key, but nodes u
 msgid "crhs generates an ed25519 key pair and keeps the private half. Only its public key leaves the server."
 msgstr "crhs generates an ed25519 key pair and keeps the private half. Only its public key leaves the server."
 
-#: src/features/nodes/crhs-key-panel.tsx
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "crhs has no authorization signing key."
+msgstr "crhs has no authorization signing key."
+
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "crhs may authorize privileged tasks on this node on its own."
+msgstr "crhs may authorize privileged tasks on this node on its own."
+
+#: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "crhs signing key"
 msgstr "crhs signing key"
-
-#: src/features/nodes/crhs-key-panel.tsx
-msgid "crhs trust snippet"
-msgstr "crhs trust snippet"
 
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
@@ -1496,7 +1477,6 @@ msgstr "Denied"
 
 #: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
-#: src/features/nodes/trust-editor-panel.tsx
 msgid "Deny"
 msgstr "Deny"
 
@@ -1556,17 +1536,13 @@ msgstr "Done"
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
 msgstr "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Each rule needs a target after the method."
-msgstr "Each rule needs a target after the method."
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Each rule starts with exec, file.read or file.write."
-msgstr "Each rule starts with exec, file.read or file.write."
-
 #: src/features/tokens/rules-dialog.tsx
 msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
 msgstr "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
+
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "Each selected signing credential may authorize a task, and crhs must countersign it; crhs cannot authorize alone."
+msgstr "Each selected signing credential may authorize a task, and crhs must countersign it; crhs cannot authorize alone."
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Each token has its own rules; what they do not allow waits for your approval."
@@ -1701,10 +1677,6 @@ msgstr "Enter your password."
 msgid "Enter your username."
 msgstr "Enter your username."
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Entry name"
-msgstr "Entry name"
-
 #: src/features/nodes/node-trust.tsx
 msgid "Environment"
 msgstr "Environment"
@@ -1788,10 +1760,6 @@ msgstr "Expires"
 msgid "Expires after"
 msgstr "Expires after"
 
-#: src/features/nodes/crhs-key-panel.tsx
-msgid "Export trust snippet"
-msgstr "Export trust snippet"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "Extra headers"
@@ -1822,7 +1790,6 @@ msgstr "Failed"
 msgid "Filter"
 msgstr "Filter"
 
-#: src/features/nodes/crhs-key-panel.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Fingerprint"
 msgstr "Fingerprint"
@@ -1848,6 +1815,10 @@ msgstr "Five fields: minute hour day-of-month month day-of-week, in the chosen I
 msgid "Flags"
 msgstr "Flags"
 
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
+msgstr "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
+
 #: src/features/nodes/node-trust.tsx
 msgid "Format"
 msgstr "Format"
@@ -1855,6 +1826,11 @@ msgstr "Format"
 #: src/features/system-settings/general-section.tsx
 msgid "General"
 msgstr "General"
+
+#: src/features/signing-credentials/pages.tsx
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "Generate trust config"
+msgstr "Generate trust config"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Generating…"
@@ -1894,10 +1870,6 @@ msgstr "Headers"
 #: src/features/settings/provider-dialog.tsx
 msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 msgstr "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
-
-#: src/features/nodes/crhs-key-panel.tsx
-msgid "Hide trust snippet"
-msgstr "Hide trust snippet"
 
 #: src/lib/thinking-level.ts
 msgid "High"
@@ -2020,13 +1992,16 @@ msgid "Keep forever"
 msgstr "Keep forever"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/signing-credentials/pages.tsx
 msgid "Key"
 msgstr "Key"
 
 #: src/features/nodes/pages.tsx
 msgid "Key fingerprint"
 msgstr "Key fingerprint"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Key ID"
+msgstr "Key ID"
 
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
@@ -2192,7 +2167,6 @@ msgid "Max output tokens"
 msgstr "Max output tokens"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/nodes/trust-editor-panel.tsx
 msgid "Max TTL"
 msgstr "Max TTL"
 
@@ -2295,10 +2269,6 @@ msgstr "Name"
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Name shown by the authenticator. Default: {defaultRpName}."
 msgstr "Name shown by the authenticator. Default: {defaultRpName}."
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Narrow the rules before trusting a key: anything not allowed here is refused on the node even when it was authorized."
-msgstr "Narrow the rules before trusting a key: anything not allowed here is refused on the node even when it was authorized."
 
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
@@ -2755,14 +2725,6 @@ msgstr "On behalf of"
 msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 msgstr "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "One rule per line: method and a target prefix."
-msgstr "One rule per line: method and a target prefix."
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "One rule per line: method and a target prefix. Empty allows any method and target."
-msgstr "One rule per line: method and a target prefix. Empty allows any method and target."
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "Only administrators can manage SSH credentials."
@@ -2901,7 +2863,7 @@ msgid "Partly failed"
 msgstr "Partly failed"
 
 #: src/components/decision/signature-decision.tsx
-#: src/features/nodes/trust-editor-panel.tsx
+#: src/components/entity-picker/api.ts
 #: src/features/signing-credentials/pages.tsx
 msgid "Passkey"
 msgstr "Passkey"
@@ -2938,10 +2900,6 @@ msgstr "Password hashes computed at once; each uses 64 MiB. Default: {defaultCon
 #: src/features/users/reset-password-dialog.tsx
 msgid "Password set."
 msgstr "Password set."
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Paste this block into the node's privileged.toml. The node must be restarted to pick up the change, and `crha status` shows the trust digest it reports."
-msgstr "Paste this block into the node's privileged.toml. The node must be restarted to pick up the change, and `crha status` shows the trust digest it reports."
 
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
@@ -3013,7 +2971,7 @@ msgstr "Privileged identity"
 msgid "Privileged mode"
 msgstr "Privileged mode"
 
-#: src/features/nodes/trust-editor-panel.tsx
+#: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "privileged.toml"
 msgstr "privileged.toml"
 
@@ -3042,7 +3000,6 @@ msgstr "Provider"
 msgid "Provider id"
 msgstr "Provider id"
 
-#: src/features/nodes/crhs-key-panel.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -3282,14 +3239,6 @@ msgstr "Requested"
 #: src/components/decision/evaluation.tsx
 msgid "Require approval"
 msgstr "Require approval"
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Require the exact command"
-msgstr "Require the exact command"
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Require user verification"
-msgstr "Require user verification"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Required for the new base URL"
@@ -3561,6 +3510,10 @@ msgid "Search sessions…"
 msgstr "Search sessions…"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Search signing credentials…"
+msgstr "Search signing credentials…"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Search SSH credentials…"
 msgstr "Search SSH credentials…"
 
@@ -3738,10 +3691,6 @@ msgstr "Signed with Passkey \"{0}\"."
 msgid "Signing credentials"
 msgstr "Signing credentials"
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Signing key"
-msgstr "Signing key"
-
 #: src/components/task-result.tsx
 msgid "Size"
 msgstr "Size"
@@ -3776,6 +3725,7 @@ msgstr "SSH credential created"
 msgid "SSH credentials"
 msgstr "SSH credentials"
 
+#: src/components/entity-picker/api.ts
 #: src/features/signing-credentials/pages.tsx
 msgid "SSH key"
 msgstr "SSH key"
@@ -4324,18 +4274,13 @@ msgstr "Triggered for"
 msgid "Trust"
 msgstr "Trust"
 
-#: src/features/nodes/pages.tsx
-msgid "Trust configuration"
-msgstr "Trust configuration"
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "Trust config"
+msgstr "Trust config"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Trust entries"
 msgstr "Trust entries"
-
-#: src/features/nodes/trust-editor-panel.tsx
-#: src/features/signing-credentials/pages.tsx
-msgid "Trust snippet"
-msgstr "Trust snippet"
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "Trust warnings"
@@ -4456,6 +4401,10 @@ msgstr "User groups of {0}"
 #: src/features/nodes/access-grants.tsx
 msgid "User or user group"
 msgstr "User or user group"
+
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "User signing credentials"
+msgstr "User signing credentials"
 
 #: src/features/tasks/pages.tsx
 msgid "User: {userName}"

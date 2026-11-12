@@ -16,13 +16,13 @@ import { NodeStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/session";
+import { tomlString } from "@/features/signing-credentials/trust";
 import { NodeAccessSection } from "./access-grants";
 import { AddNodeDialog } from "./add-node-dialog";
 import { AddSshNodeDialog } from "./add-ssh-node-dialog";
 import { useNode, useNodes } from "./api";
 import { ClockWarning, clockWarningText } from "./clock-warning";
 import { osName } from "./commands";
-import { CrhsKeyPanel } from "./crhs-key-panel";
 import { DeleteNodeDialog } from "./delete-node-dialog";
 import { EditSshRouteDialog } from "./edit-ssh-route-dialog";
 import { canRunOn } from "./node-access";
@@ -34,9 +34,6 @@ import { PendingNodeDialog } from "./pending-node-dialog";
 import { ReenrollNodeDialog } from "./reenroll-node-dialog";
 import { RenameNodeButton } from "./rename-node-button";
 import { SshNodeSection } from "./ssh-node-section";
-import { tomlString } from "./trust-editor";
-import { TrustEditor } from "./trust-editor-panel";
-import { useTrustSources } from "./trust-sources";
 import { TrustWarningIndicator, TrustWarningList } from "./trust-warnings";
 
 /**
@@ -217,7 +214,6 @@ export function NodeDetailPage() {
 	const params = useParams({ strict: false }) as { nodeId?: string };
 	const id = params.nodeId ?? "";
 	const node = useNode(id);
-	const trustSources = useTrustSources();
 	const admin = useAuth().user?.kind === "admin";
 	const [editingGroups, setEditingGroups] = useState(false);
 	const [editingRoute, setEditingRoute] = useState(false);
@@ -378,25 +374,6 @@ export function NodeDetailPage() {
 							</p>
 						</section>
 					)}
-					<section className="grid gap-2" aria-labelledby="trust-editor-heading">
-						<h2 id="trust-editor-heading" className="text-sm font-medium">
-							<Trans>Trust configuration</Trans>
-						</h2>
-						<p className="max-w-3xl text-sm text-muted-foreground">
-							<Trans>
-								Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only
-								exports it.
-							</Trans>
-						</p>
-						{trustSources.length > 0 ? (
-							<TrustEditor sources={trustSources} />
-						) : (
-							<p className="text-sm text-muted-foreground">
-								<Trans>Add a signing credential or connect crhs before configuring trust.</Trans>
-							</p>
-						)}
-					</section>
-					{admin && <CrhsKeyPanel />}
 				</>
 			)}
 

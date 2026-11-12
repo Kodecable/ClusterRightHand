@@ -42,7 +42,7 @@ export function ConfirmDialog({
 }) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent data-slot="confirm-dialog">
+			<DialogContent data-slot="confirm-dialog" showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					{description !== undefined && <DialogDescription>{description}</DialogDescription>}
@@ -108,8 +108,9 @@ export function FormDialog({
 				data-slot="form-dialog"
 				className={cn("flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0", className)}
 				data-testid={testId}
+				showCloseButton={false}
 			>
-				<DialogHeader className="border-b p-4 pr-12">
+				<DialogHeader className="border-b p-4">
 					<DialogTitle>{title}</DialogTitle>
 					{description !== undefined && <DialogDescription>{description}</DialogDescription>}
 				</DialogHeader>

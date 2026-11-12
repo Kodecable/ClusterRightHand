@@ -15,6 +15,15 @@ export interface CopyButtonProps {
 	variant?: React.ComponentProps<typeof Button>["variant"];
 }
 
+/** Copies a one-time result and closes its dialog, the single footer action of a result view. */
+export function CopyAndCloseButton({ text, onClose }: { text: string; onClose: () => void }) {
+	return (
+		<Button type="button" onClick={() => void copyText(text).then((copied) => copied && onClose())}>
+			<Trans>Copy and close</Trans>
+		</Button>
+	);
+}
+
 /** Copies text and confirms it inline for a moment. */
 export function CopyButton({
 	text,

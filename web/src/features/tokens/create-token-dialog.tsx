@@ -6,11 +6,10 @@ import { useId, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { CodeText } from "@/components/code-text";
-import { CopyButton } from "@/components/copy-button";
+import { CopyAndCloseButton, CopyButton } from "@/components/copy-button";
 import { FormDialog } from "@/components/dialogs";
 import { TextField } from "@/components/form";
 import { RulePresetSelect } from "@/components/rule-preset-select";
-import { Button } from "@/components/ui/button";
 import {
 	Dialog,
 	DialogContent,
@@ -88,7 +87,7 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 					if (!open) onClose();
 				}}
 			>
-				<DialogContent className="sm:max-w-2xl" data-testid="create-token-dialog">
+				<DialogContent className="sm:max-w-2xl" data-testid="create-token-dialog" showCloseButton={false}>
 					<DialogHeader>
 						<DialogTitle>
 							<Trans>Token created</Trans>
@@ -111,11 +110,8 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 							<CodeText text={command} maxLines={3} label={t`Claude Code command`} copy={false} />
 						</section>
 					</div>
-					<DialogFooter className="justify-between sm:justify-between">
-						<CopyButton text={command} label={t`Copy command`} showLabel variant="outline" />
-						<Button type="button" onClick={onClose}>
-							<Trans>Close</Trans>
-						</Button>
+					<DialogFooter>
+						<CopyAndCloseButton text={command} onClose={onClose} />
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>

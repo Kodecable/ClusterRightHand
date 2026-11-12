@@ -21,7 +21,7 @@ export function CreateScheduleDialog({ models, onClose }: { models: AvailableMod
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent>
+			<DialogContent showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>New schedule</Trans>

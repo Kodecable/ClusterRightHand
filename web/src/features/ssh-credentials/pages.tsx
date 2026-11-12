@@ -3,7 +3,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { LockKeyholeIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { Fragment, useId, useMemo, useState } from "react";
 import { CodeText } from "@/components/code-text";
-import { CopyButton } from "@/components/copy-button";
+import { CopyAndCloseButton, CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
@@ -15,14 +15,7 @@ import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
 import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/features/auth/session";
 import { errorMessage } from "@/lib/api/client";
@@ -115,24 +108,15 @@ function CreatedCredentialDialog({ credential, onClose }: { credential: SshCrede
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent data-testid="ssh-credential-created-dialog">
+			<DialogContent data-testid="ssh-credential-created-dialog" showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>SSH credential created</Trans>
 					</DialogTitle>
-					<DialogDescription>
-						<Trans>
-							Append this key to <code>~/.ssh/authorized_keys</code> of the target user on every hop (each jump host and
-							the target), before continuing.
-						</Trans>
-					</DialogDescription>
 				</DialogHeader>
 				<CodeText text={credential.publicKey} maxLines={4} label={t`Public key`} copy={false} />
-				<DialogFooter className="justify-between sm:justify-between">
-					<CopyButton text={credential.publicKey} label={t`Copy public key`} showLabel variant="outline" />
-					<Button type="button" onClick={onClose}>
-						<Trans>Close</Trans>
-					</Button>
+				<DialogFooter>
+					<CopyAndCloseButton text={credential.publicKey} onClose={onClose} />
 				</DialogFooter>
 			</DialogContent>
 		</Dialog>

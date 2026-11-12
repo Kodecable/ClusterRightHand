@@ -36,7 +36,7 @@ Each `[[trust]]` table names one signer:
 
 | `role` | `format` | `kinds` | Signer |
 |---|---|---|---|
-| `crhs` | `sshsig` | `execute`, `cosign` | crhs's signing key, shown on the node page in the WebUI |
+| `crhs` | `sshsig` | `execute`, `cosign` | crhs's signing key |
 | `user` | `sshsig` or `webauthn` | `execute`, `require-cosign` | A user's SSH key, FIDO key or Passkey |
 | `local` | none | `execute` | Local users who approve with `crha approve` |
 
@@ -45,8 +45,8 @@ Each `[[trust]]` table names one signer:
 - `require-cosign`: this user's authorizations also need crhs's confirmation.
 
 Without a `crhs` entry, crhs cannot authorize anything on this node. Without a `local` entry, nobody can
-approve locally, not even root. The WebUI's **Signing credentials** page and node page produce ready-made
-entries.
+approve locally, not even root. The **Generate trust config** dialog on the WebUI's **Signing
+credentials** page produces basic entries.
 
 ## Trust entry fields
 

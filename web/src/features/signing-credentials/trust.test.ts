@@ -1,6 +1,6 @@
 import type { SigningCredentialView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import { signingCredentialTrustSnippet, toBase64url, tomlString, trustSnippet } from "./trust";
+import { buildTrustConfig, signingCredentialKeyId, toBase64url, tomlString } from "./trust";
 
 describe("tomlString", () => {
 	test("escapes quotes and backslashes", () => {
@@ -8,27 +8,8 @@ describe("tomlString", () => {
 	});
 });
 
-describe("trustSnippet", () => {
-	test("builds the crhs trust entry for privileged.toml", () => {
-		const snippet = trustSnippet("ssh-ed25519 AAAAkey crhs-signing");
-		expect(snippet).toContain("[[trust]]");
-		expect(snippet).toContain('name          = "crhs"');
-		expect(snippet).toContain('role          = "crhs"');
-		expect(snippet).toContain('format        = "sshsig"');
-		expect(snippet).toContain('key           = "ssh-ed25519 AAAAkey crhs-signing"');
-		expect(snippet).toContain('kinds         = ["execute", "cosign"]');
-		expect(snippet).toContain("require_exact = true");
-		expect(snippet).toContain('max_ttl       = "5m"');
-		expect(snippet).toContain('{ method = "exec", prefix = "systemctl restart " },');
-		expect(snippet).toContain('{ method = "file.read", prefix = "/var/log/" },');
-		expect(snippet).toContain('{ method = "file.write", prefix = "/etc/crha/" },');
-		expect(snippet.endsWith("\n")).toBe(true);
-	});
-
-	test("escapes the TOML basic string", () => {
-		const snippet = trustSnippet('ssh-ed25519 AA"AA\\key comment');
-		expect(snippet).toContain('key           = "ssh-ed25519 AA\\"AA\\\\key comment"');
-	});
+test("toBase64url strips padding and maps +/", () => {
+	expect(toBase64url("a+b/c==")).toBe("a-b_c");
 });
 
 const sshCredential: SigningCredentialView = {
@@ -56,40 +37,74 @@ const passkeyCredential: SigningCredentialView = {
 	origins: ["https://crh.example.com"],
 };
 
-describe("signingCredentialTrustSnippet", () => {
-	test("builds a user entry for an SSH key", () => {
-		const snippet = signingCredentialTrustSnippet(sshCredential);
-		expect(snippet).toContain("[[trust]]");
-		expect(snippet).toContain('name          = "laptop"');
-		expect(snippet).toContain('role          = "user"');
-		expect(snippet).toContain('format        = "sshsig"');
-		expect(snippet).toContain('key           = "ssh-ed25519 AAAAC3Nza laptop"');
-		expect(snippet).toContain('kinds         = ["execute"]');
-		expect(snippet).toContain("# require_uv = true");
-		expect(snippet.endsWith("\n")).toBe(true);
-	});
-
-	test("builds a webauthn entry with the COSE key and RP", () => {
-		const snippet = signingCredentialTrustSnippet(passkeyCredential);
-		expect(snippet).toContain('format        = "webauthn"');
-		expect(snippet).toContain('rp_id         = "crh.example.com"');
-		expect(snippet).toContain('origins       = ["https://crh.example.com"]');
-		expect(snippet).toContain('credential_id = "AAECAwQ"');
-		expect(snippet).toContain('key           = "cose:o2NmbXRkbm9uZQ-_"');
-		expect(snippet).not.toContain("o2NmbXRkbm9uZQ+/");
-	});
-
-	test("escapes names, keys and origins as TOML strings", () => {
-		const snippet = signingCredentialTrustSnippet({
-			...sshCredential,
-			name: 'a "b" \\c',
-			publicKey: 'ssh-ed25519 AA"AA',
-		});
-		expect(snippet).toContain('name          = "a \\"b\\" \\\\c"');
-		expect(snippet).toContain('key           = "ssh-ed25519 AA\\"AA"');
-	});
+test("signingCredentialKeyId gives the SSH fingerprint or the Passkey credential id", () => {
+	expect(signingCredentialKeyId(sshCredential)).toBe("SHA256:abc");
+	expect(signingCredentialKeyId(passkeyCredential)).toBe("AAECAwQ");
 });
 
-test("toBase64url strips padding and maps +/", () => {
-	expect(toBase64url("a+b/c==")).toBe("a-b_c");
+describe("buildTrustConfig", () => {
+	test("trusts crhs alone when no signing credential is selected", () => {
+		expect(buildTrustConfig("ssh-ed25519 AAAAkey crhs-signing", [])).toBe(
+			[
+				"[[trust]]",
+				'name          = "crhs"',
+				'role          = "crhs"',
+				'format        = "sshsig"',
+				'key           = "ssh-ed25519 AAAAkey crhs-signing"',
+				'kinds         = ["execute"]',
+				"",
+			].join("\n"),
+		);
+	});
+
+	test("makes crhs a cosigner for selected SSH and Passkey credentials", () => {
+		expect(buildTrustConfig("ssh-ed25519 AAAAkey crhs-signing", [sshCredential, passkeyCredential])).toBe(
+			[
+				"[[trust]]",
+				'name          = "crhs"',
+				'role          = "crhs"',
+				'format        = "sshsig"',
+				'key           = "ssh-ed25519 AAAAkey crhs-signing"',
+				'kinds         = ["cosign"]',
+				"",
+				"[[trust]]",
+				'name          = "laptop"',
+				'role          = "user"',
+				'format        = "sshsig"',
+				'key           = "ssh-ed25519 AAAAC3Nza laptop"',
+				'kinds         = ["execute", "require-cosign"]',
+				"",
+				"[[trust]]",
+				'name          = "yubikey"',
+				'role          = "user"',
+				'format        = "webauthn"',
+				'rp_id         = "crh.example.com"',
+				'origins       = ["https://crh.example.com"]',
+				'credential_id = "AAECAwQ"',
+				'key           = "cose:o2NmbXRkbm9uZQ-_"',
+				'kinds         = ["execute", "require-cosign"]',
+				"",
+			].join("\n"),
+		);
+	});
+
+	test("deduplicates user entry names and never uses crhs", () => {
+		const snippet = buildTrustConfig("ssh-ed25519 AAAAkey crhs-signing", [
+			{ ...sshCredential, id: "c1", name: "laptop" },
+			{ ...sshCredential, id: "c2", name: "laptop" },
+			{ ...sshCredential, id: "c3", name: "crhs" },
+			{ ...sshCredential, id: "c4", name: "crhs" },
+		]);
+		const names = [...snippet.matchAll(/^name\s+= "(.+)"$/gm)].map((match) => match[1]);
+		expect(names).toEqual(["crhs", "laptop", "laptop-2", "crhs-2", "crhs-3"]);
+	});
+
+	test("escapes the crhs key and user fields as TOML strings", () => {
+		const snippet = buildTrustConfig('ssh-ed25519 AA"AA\\key comment', [
+			{ ...sshCredential, name: 'a "b" \\c', publicKey: 'ssh-ed25519 AA"AA\\key' },
+		]);
+		expect(snippet).toContain('key           = "ssh-ed25519 AA\\"AA\\\\key comment"');
+		expect(snippet).toContain('name          = "a \\"b\\" \\\\c"');
+		expect(snippet).toContain('key           = "ssh-ed25519 AA\\"AA\\\\key"');
+	});
 });

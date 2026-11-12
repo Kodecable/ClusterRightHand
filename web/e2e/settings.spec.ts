@@ -30,10 +30,9 @@ test("an administrator changes the public URL and adds and deletes an authorizat
 	const created = page.getByTestId("signing-key-created");
 	await expect(created).toBeVisible();
 	await expect(created.locator("code")).toContainText("ssh-ed25519");
-	await expect(created.getByRole("button", { name: "Copy public key" })).toBeVisible();
 	const fingerprint = (await created.getByText(/^SHA256:/).textContent())?.trim() ?? "";
 	expect(fingerprint).toMatch(/^SHA256:/);
-	await created.getByRole("button", { name: "Close", exact: true }).last().click();
+	await created.getByRole("button", { name: "Copy and close" }).click();
 	await expect(created).toHaveCount(0);
 
 	const row = page.getByRole("row").filter({ hasText: fingerprint });

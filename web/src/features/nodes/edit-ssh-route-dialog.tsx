@@ -53,7 +53,7 @@ export function EditSshRouteDialog({
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent className="sm:max-w-5xl" data-testid="edit-ssh-route-dialog">
+			<DialogContent className="sm:max-w-5xl" data-testid="edit-ssh-route-dialog" showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>Edit SSH route</Trans>

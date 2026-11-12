@@ -94,6 +94,11 @@ msgstr "{0, plural, one {替换了 # 处} other {替换了 # 处}}"
 msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgstr "{0, plural, one {写入了 # 字节} other {写入了 # 字节}}"
 
+#. placeholder {0}: key.fingerprint
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "{0} (newest)"
+msgstr "{0}（最新）"
+
 #. placeholder {0}: user.username
 #: src/features/users/user-group-dialogs.tsx
 msgid "{0} gains the node access this user group grants."
@@ -113,11 +118,6 @@ msgstr "剩余 {0} 个 token"
 #: src/components/decision/quota-decision.tsx
 msgid "{0} tokens left · {usedText} spent"
 msgstr "剩余 {0} 个 token · 已花 {usedText}"
-
-#. placeholder {0}: credential.name
-#: src/features/signing-credentials/pages.tsx
-msgid "{0}: privileged.toml"
-msgstr "{0}：privileged.toml"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{awaiting} awaiting"
@@ -227,10 +227,6 @@ msgstr "cron 表达式必须正好有五个字段。"
 msgid "A cron expression is required."
 msgstr "需要填写 cron 表达式。"
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "A duration such as 5m or 24h. Empty means no limit."
-msgstr "例如 5m 或 24h 的时长。留空表示不限制。"
-
 #: src/features/nodes/access-grants.tsx
 msgid "A granted user or user group can see the nodes in this node group and run tasks on them."
 msgstr "获得访问权限的用户或用户组可以查看此节点组中的节点，并在这些节点上执行任务。"
@@ -260,10 +256,6 @@ msgstr "填写映射值后才可使用该档。"
 msgid "A name is required."
 msgstr "需要填写名称。"
 
-#: src/features/nodes/crhs-key-panel.tsx
-msgid "A node authorizes privileged tasks signed by this key when its privileged.toml trusts the key below."
-msgstr "当节点的 privileged.toml 信任下面的密钥时，节点会授权由该密钥签名的特权任务。"
-
 #: src/features/nodes/node-groups-dialog.tsx
 msgid "A node can be in any number of node groups."
 msgstr "一个节点可以属于任意多个节点组。"
@@ -279,10 +271,6 @@ msgstr "节点组名称必须为 2–64 个字符，以字母开头、以字母�
 #: src/features/node-groups/dialogs.tsx
 msgid "A node group name must not start with \"_\": names starting with \"_\" are reserved for the system."
 msgstr "节点组名称不能以 “_” 开头：以 “_” 开头的名称保留给系统。"
-
-#: src/features/node-groups/dialogs.tsx
-msgid "A node group selects several nodes for rules, batch runs and schedules."
-msgstr "节点组用于在规则、批量运行和计划任务中选择多个节点。"
 
 #: src/features/tasks/taskForm.ts
 msgid "A path is required."
@@ -395,10 +383,6 @@ msgstr "添加 Passkey"
 #: src/features/settings/pages.tsx
 msgid "Add a Pi built-in provider or a custom endpoint."
 msgstr "添加 Pi 内置提供方或自定义端点。"
-
-#: src/features/nodes/pages.tsx
-msgid "Add a signing credential or connect crhs before configuring trust."
-msgstr "配置信任前，请先添加签名凭据或连接 crhs。"
 
 #: src/features/nodes/access-grants.tsx
 msgid "Add access"
@@ -545,7 +529,6 @@ msgstr "全部用户"
 
 #: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
-#: src/features/nodes/trust-editor-panel.tsx
 msgid "Allow"
 msgstr "允许"
 
@@ -637,10 +620,6 @@ msgstr "API 令牌"
 #: src/features/tokens/pages.tsx
 msgid "API tokens"
 msgstr "API 令牌"
-
-#: src/features/ssh-credentials/pages.tsx
-msgid "Append this key to <0>~/.ssh/authorized_keys</0> of the target user on every hop (each jump host and the target), before continuing."
-msgstr "继续之前，请把该密钥追加到每一跳（每个跳板机和目标）上目标用户的 <0>~/.ssh/authorized_keys</0>。"
 
 #: src/components/task-result.tsx
 #: src/features/approvals/pages.tsx
@@ -836,10 +815,6 @@ msgstr "预算已用尽 · 已花 {usedText}"
 msgid "Budget used up ({0} over) · {usedText} spent"
 msgstr "预算已用尽（超出 {0}）· 已花 {usedText}"
 
-#: src/features/nodes/pages.tsx
-msgid "Build the `[[trust]]` block for this node's privileged.toml. The node enforces it; this page only exports it."
-msgstr "为这个节点的 privileged.toml 生成 `[[trust]]` 块。节点负责执行，此页面只负责导出。"
-
 #: src/features/audit/pages.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "By"
@@ -955,6 +930,10 @@ msgid "Choose a node or node group"
 msgstr "选择一个节点或节点组"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a signing credential"
+msgstr "选择签名凭据"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a user"
 msgstr "选择一个用户"
 
@@ -985,6 +964,10 @@ msgstr "选择节点"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose nodes or node groups"
 msgstr "选择节点或节点组"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose signing credentials"
+msgstr "选择签名凭据"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose SSH credentials"
@@ -1029,15 +1012,6 @@ msgstr "时钟"
 #: src/features/system-settings/general-section.tsx
 msgid "Clock warning threshold"
 msgstr "时钟警告阈值"
-
-#: src/features/nodes/add-node-dialog.tsx
-#: src/features/nodes/reenroll-node-dialog.tsx
-#: src/features/signing-credentials/pages.tsx
-#: src/features/ssh-credentials/pages.tsx
-#: src/features/system-settings/signing-keys-section.tsx
-#: src/features/tokens/create-token-dialog.tsx
-msgid "Close"
-msgstr "关闭"
 
 #: src/app/shell/nav.ts
 msgid "Cluster"
@@ -1162,20 +1136,26 @@ msgstr "复制"
 msgid "Copy aliases"
 msgstr "复制别名"
 
+#: src/components/copy-button.tsx
+msgid "Copy and close"
+msgstr "复制并关闭"
+
 #: src/markdown/CodeBlock.tsx
 msgid "Copy code"
 msgstr "复制代码"
 
 #: src/components/decision/signature-decision.tsx
-#: src/features/nodes/add-node-dialog.tsx
-#: src/features/nodes/reenroll-node-dialog.tsx
-#: src/features/tokens/create-token-dialog.tsx
 msgid "Copy command"
 msgstr "复制命令"
 
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy fingerprint"
 msgstr "复制指纹"
+
+#. placeholder {0}: row.original.name
+#: src/features/signing-credentials/pages.tsx
+msgid "Copy key ID {0}"
+msgstr "复制密钥标识 {0}"
 
 #: src/features/node-groups/pages.tsx
 msgid "Copy node group id"
@@ -1187,7 +1167,6 @@ msgid "Copy node group id of {0}"
 msgstr "复制节点组 {0} 的 ID"
 
 #: src/features/ssh-credentials/pages.tsx
-#: src/features/system-settings/signing-keys-section.tsx
 msgid "Copy public key"
 msgstr "复制公钥"
 
@@ -1204,11 +1183,9 @@ msgstr "请立即复制此令牌，它不会再显示。"
 msgid "Copy token"
 msgstr "复制令牌"
 
-#: src/features/nodes/crhs-key-panel.tsx
-#: src/features/nodes/trust-editor-panel.tsx
-#: src/features/signing-credentials/pages.tsx
-msgid "Copy trust snippet"
-msgstr "复制信任片段"
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "Copy trust config"
+msgstr "复制信任配置"
 
 #: src/components/task-result.tsx
 msgid "cosignature available"
@@ -1289,13 +1266,17 @@ msgstr "crhs 会生成新的 ed25519 密钥。它将成为最新密钥，但节�
 msgid "crhs generates an ed25519 key pair and keeps the private half. Only its public key leaves the server."
 msgstr "crhs 生成 ed25519 密钥对并保留私钥部分，只有公钥会离开服务器。"
 
-#: src/features/nodes/crhs-key-panel.tsx
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "crhs has no authorization signing key."
+msgstr "crhs 没有授权签名密钥。"
+
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "crhs may authorize privileged tasks on this node on its own."
+msgstr "crhs 可以自行授权此节点上的特权任务。"
+
+#: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "crhs signing key"
 msgstr "crhs 签名密钥"
-
-#: src/features/nodes/crhs-key-panel.tsx
-msgid "crhs trust snippet"
-msgstr "crhs 信任片段"
 
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
@@ -1496,7 +1477,6 @@ msgstr "已拒绝"
 
 #: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
-#: src/features/nodes/trust-editor-panel.tsx
 msgid "Deny"
 msgstr "拒绝"
 
@@ -1556,17 +1536,13 @@ msgstr "完成"
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
 msgstr "每档的 JSON 对象会合并进请求体；只有同时填写请求体和显示名，该档才会被提供。"
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Each rule needs a target after the method."
-msgstr "每条规则都需要在方法后面给出目标。"
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Each rule starts with exec, file.read or file.write."
-msgstr "规则必须以 exec、file.read 或 file.write 开头。"
-
 #: src/features/tokens/rules-dialog.tsx
 msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
 msgstr "每条规则：action（allow、deny、require-approval）、可选 method（exec、file.read、file.write）、nodes（节点和节点组的名称或 ID，或 _all），以及 exact 或 prefix。"
+
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "Each selected signing credential may authorize a task, and crhs must countersign it; crhs cannot authorize alone."
+msgstr "每个选中的签名凭据都可以授权任务，且必须由 crhs 联署；crhs 不能单独授权。"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Each token has its own rules; what they do not allow waits for your approval."
@@ -1701,10 +1677,6 @@ msgstr "请输入密码。"
 msgid "Enter your username."
 msgstr "请输入用户名。"
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Entry name"
-msgstr "条目名称"
-
 #: src/features/nodes/node-trust.tsx
 msgid "Environment"
 msgstr "环境变量"
@@ -1788,10 +1760,6 @@ msgstr "过期时间"
 msgid "Expires after"
 msgstr "有效期"
 
-#: src/features/nodes/crhs-key-panel.tsx
-msgid "Export trust snippet"
-msgstr "导出信任片段"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "额外请求头"
@@ -1822,7 +1790,6 @@ msgstr "失败"
 msgid "Filter"
 msgstr "过滤"
 
-#: src/features/nodes/crhs-key-panel.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Fingerprint"
 msgstr "指纹"
@@ -1848,6 +1815,10 @@ msgstr "五个字段：分 时 日 月 周，使用所选的 IANA 时区。"
 msgid "Flags"
 msgstr "标志"
 
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
+msgstr "命令限制、有效期、本地批准等高级选项请参考文档，手动编辑 privileged.toml"
+
 #: src/features/nodes/node-trust.tsx
 msgid "Format"
 msgstr "格式"
@@ -1855,6 +1826,11 @@ msgstr "格式"
 #: src/features/system-settings/general-section.tsx
 msgid "General"
 msgstr "常规"
+
+#: src/features/signing-credentials/pages.tsx
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "Generate trust config"
+msgstr "生成信任配置"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Generating…"
@@ -1894,10 +1870,6 @@ msgstr "请求头"
 #: src/features/settings/provider-dialog.tsx
 msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 msgstr "请求头以明文存储和显示，不当作机密；不要在这里填写 API 密钥或 Authorization 令牌，请使用 API 密钥字段。"
-
-#: src/features/nodes/crhs-key-panel.tsx
-msgid "Hide trust snippet"
-msgstr "隐藏信任片段"
 
 #: src/lib/thinking-level.ts
 msgid "High"
@@ -2020,13 +1992,16 @@ msgid "Keep forever"
 msgstr "永久保留"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/signing-credentials/pages.tsx
 msgid "Key"
 msgstr "密钥"
 
 #: src/features/nodes/pages.tsx
 msgid "Key fingerprint"
 msgstr "密钥指纹"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Key ID"
+msgstr "密钥标识"
 
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
@@ -2192,7 +2167,6 @@ msgid "Max output tokens"
 msgstr "最大输出 token 数"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/nodes/trust-editor-panel.tsx
 msgid "Max TTL"
 msgstr "最大 TTL"
 
@@ -2295,10 +2269,6 @@ msgstr "名称"
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Name shown by the authenticator. Default: {defaultRpName}."
 msgstr "认证器显示的名称。默认：{defaultRpName}。"
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Narrow the rules before trusting a key: anything not allowed here is refused on the node even when it was authorized."
-msgstr "信任密钥前请收窄规则：这里不允许的操作，即使已获授权，节点也会拒绝。"
 
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
@@ -2755,14 +2725,6 @@ msgstr "代表"
 msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 msgstr "一行 authorized_keys 内容：ssh-ed25519、sk-ssh-ed25519@openssh.com、ecdsa-sha2-nistp256 或 sk-ecdsa-sha2-nistp256@openssh.com。"
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "One rule per line: method and a target prefix."
-msgstr "每行一条规则：方法和目标前缀。"
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "One rule per line: method and a target prefix. Empty allows any method and target."
-msgstr "每行一条规则：方法和目标前缀。留空表示允许任何方法和目标。"
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "只有管理员可以管理 SSH 凭据。"
@@ -2901,7 +2863,7 @@ msgid "Partly failed"
 msgstr "部分失败"
 
 #: src/components/decision/signature-decision.tsx
-#: src/features/nodes/trust-editor-panel.tsx
+#: src/components/entity-picker/api.ts
 #: src/features/signing-credentials/pages.tsx
 msgid "Passkey"
 msgstr "Passkey"
@@ -2938,10 +2900,6 @@ msgstr "同时计算的密码哈希数；每个使用 64 MiB 内存。默认：{
 #: src/features/users/reset-password-dialog.tsx
 msgid "Password set."
 msgstr "密码已设置。"
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Paste this block into the node's privileged.toml. The node must be restarted to pick up the change, and `crha status` shows the trust digest it reports."
-msgstr "把这个块粘贴到节点的 privileged.toml。节点需要重启才能生效，`crha status` 会显示它上报的信任摘要。"
 
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
@@ -3013,7 +2971,7 @@ msgstr "特权身份"
 msgid "Privileged mode"
 msgstr "特权模式"
 
-#: src/features/nodes/trust-editor-panel.tsx
+#: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "privileged.toml"
 msgstr "privileged.toml"
 
@@ -3042,7 +3000,6 @@ msgstr "提供方"
 msgid "Provider id"
 msgstr "提供方 ID"
 
-#: src/features/nodes/crhs-key-panel.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -3282,14 +3239,6 @@ msgstr "请求时间"
 #: src/components/decision/evaluation.tsx
 msgid "Require approval"
 msgstr "需要审批"
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Require the exact command"
-msgstr "要求精确命令"
-
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Require user verification"
-msgstr "要求用户验证"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Required for the new base URL"
@@ -3561,6 +3510,10 @@ msgid "Search sessions…"
 msgstr "搜索会话…"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Search signing credentials…"
+msgstr "搜索签名凭据…"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Search SSH credentials…"
 msgstr "搜索 SSH 凭据…"
 
@@ -3738,10 +3691,6 @@ msgstr "已使用 Passkey“{0}”签名。"
 msgid "Signing credentials"
 msgstr "签名凭据"
 
-#: src/features/nodes/trust-editor-panel.tsx
-msgid "Signing key"
-msgstr "签名密钥"
-
 #: src/components/task-result.tsx
 msgid "Size"
 msgstr "大小"
@@ -3776,6 +3725,7 @@ msgstr "SSH 凭据已创建"
 msgid "SSH credentials"
 msgstr "SSH 凭据"
 
+#: src/components/entity-picker/api.ts
 #: src/features/signing-credentials/pages.tsx
 msgid "SSH key"
 msgstr "SSH 密钥"
@@ -4324,18 +4274,13 @@ msgstr "触发时间"
 msgid "Trust"
 msgstr "信任"
 
-#: src/features/nodes/pages.tsx
-msgid "Trust configuration"
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "Trust config"
 msgstr "信任配置"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Trust entries"
 msgstr "信任条目"
-
-#: src/features/nodes/trust-editor-panel.tsx
-#: src/features/signing-credentials/pages.tsx
-msgid "Trust snippet"
-msgstr "信任片段"
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "Trust warnings"
@@ -4456,6 +4401,10 @@ msgstr "{0} 所属的用户组"
 #: src/features/nodes/access-grants.tsx
 msgid "User or user group"
 msgstr "用户或用户组"
+
+#: src/features/signing-credentials/trust-config-dialog.tsx
+msgid "User signing credentials"
+msgstr "用户签名凭据"
 
 #: src/features/tasks/pages.tsx
 msgid "User: {userName}"

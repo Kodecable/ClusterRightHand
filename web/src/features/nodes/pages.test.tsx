@@ -243,22 +243,6 @@ describe("NodeDetailPage", () => {
 		expect(screen.getByRole("button", { name: "Copy aliases" })).toBeInTheDocument();
 	});
 
-	test("shows the newest crhs signing key, not an older one", async () => {
-		route.params = { nodeId: "node-1" };
-		mockFetch(ADMIN, [node()]);
-		await authStore.load();
-		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-		await renderWithRouter(
-			<QueryClientProvider client={client}>
-				<NodeDetailPage />
-			</QueryClientProvider>,
-		);
-
-		expect(await screen.findByText("ssh-ed25519 AAAANEWEST crhs-signing")).toBeInTheDocument();
-		expect(screen.getByText("SHA256:newest")).toBeInTheDocument();
-		expect(screen.queryByText("ssh-ed25519 AAAAOLDER crhs-signing")).not.toBeInTheDocument();
-	});
-
 	test("a connected node's Last seen is Now, with the connection time on hover", async () => {
 		const lastSeenAt = "2026-01-01T00:00:05.000Z";
 		route.params = { nodeId: "node-1" };

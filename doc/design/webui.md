@@ -163,10 +163,10 @@ The node list folds enrollment and reachability into one status: pending approva
 offline for a crha node, and active for an SSH node, which has no standing connection.
 
 The node page shows the last trust report the node sent ([Privilege](privilege.md#trust-cache)). The
-report is the node's own view; crhs only displays it. The trust editor builds a `[[trust]]` fragment
-for the node's `privileged.toml`, which an administrator copies to the node: crhs cannot change what a
-node trusts. The measured clock offset is shown only as a warning, because it is measured once per
-connection ([Privilege](privilege.md#clock)).
+report is the node's own view; crhs only displays it. A **Generate trust config** dialog on the signing
+credentials page builds basic `[[trust]]` entries for a node's `privileged.toml`, which an administrator
+copies to the node: crhs cannot change what a node trusts. The measured clock offset is shown only as a
+warning, because it is measured once per connection ([Privilege](privilege.md#clock)).
 
 Administrators can delete a node from its page after a confirmation that states the consequences for
 that kind of node.

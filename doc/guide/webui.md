@@ -173,9 +173,8 @@ it.
 
 **Trust** (crha nodes) shows the trust configuration the node last reported: whom it trusts, for what,
 and its aliases. **Not applicable** means the node is not in `forward` mode; **Unavailable** means its
-privileged mode is not running. The page can also build `[[trust]]` entries and the `aliases` line for
-the node's `privileged.toml`, and administrators see crhs's signing key there. crhs cannot apply these
-itself; copy them to the node.
+privileged mode is not running. Administrators can copy the `aliases` line for the node's
+`privileged.toml` here. crhs cannot apply it itself; copy it to the node.
 
 #### Re-enrolling a node
 
@@ -195,9 +194,10 @@ memberships are removed. The host itself is not changed; to use it again, enroll
 
 ## Node groups
 
-**Node groups** lists the groups and their members. Administrators create groups, edit members, rename
-and delete them, and grant access to a group on its page. Rules and grants that referred to a deleted
-group show it as deleted; they never match another group with the same name.
+**Node groups** lists the groups and their member counts; a group's page lists its members.
+Administrators create groups, edit members, rename and delete them, and grant access to a group on its
+page. Rules and grants that referred to a deleted group show it as deleted; they never match another
+group with the same name.
 
 ## Users and user groups
 
@@ -246,8 +246,8 @@ When a privileged task waits for your signature, its decision offers:
 - **Local approval**, if the node allows it: run the copied `crha approve` command on the node instead;
 - **Reject**, with an optional reason; the task ends rejected and the reason is shown on it.
 
-Register your SSH keys and Passkeys on **Signing credentials**. Each signing credential has a **Trust snippet** to add to
-a node's `privileged.toml`. Passkeys need the WebUI to be served over HTTPS with a hostname.
+Register your SSH keys and Passkeys on **Signing credentials**. **Generate trust config** there builds the
+`[[trust]]` entries for a node's `privileged.toml`. Passkeys need the WebUI to be served over HTTPS with a hostname.
 
 ## Schedules
 

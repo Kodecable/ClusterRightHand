@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, mockApi, nodeView, sshCredentialView } from "./helpers";
+import { login, mockApi, sshCredentialView } from "./helpers";
 
 test("add an SSH node through the wizard", async ({ page }) => {
 	const api = await mockApi(page, {
@@ -47,43 +47,4 @@ test("add an SSH node through the wizard", async ({ page }) => {
 		credentialId: "cred-1",
 		name: "edge",
 	});
-});
-
-test("edit a node's trust configuration and export the snippet", async ({ page }) => {
-	await mockApi(page, {
-		state: {
-			nodes: [nodeView({ id: "node-1", name: "worker-01" })],
-			signingCredentials: [
-				{
-					id: "credential-1",
-					kind: "ssh",
-					name: "laptop",
-					createdAt: "2026-01-01T00:00:00.000Z",
-					publicKey: "ssh-ed25519 AAAAlaptop laptop",
-					fingerprint: "SHA256:laptop",
-					credentialId: null,
-					rpId: null,
-					origins: [],
-				},
-			],
-		},
-	});
-	await login(page);
-	await page.goto("/nodes/node-1");
-	await expect(page.getByTestId("node-detail")).toBeVisible();
-	await expect(page.getByTestId("node-trust")).toContainText("crhs");
-
-	const editor = page.getByTestId("trust-editor");
-	await expect(editor).toBeVisible();
-	await page.getByTestId("trust-source").click();
-	await page.getByRole("option", { name: "laptop", exact: true }).click();
-	await expect(editor).toContainText('role          = "user"');
-	await expect(editor).not.toContainText("require_uv");
-
-	await page.getByRole("checkbox", { name: "Require user verification" }).check();
-	await expect(editor).toContainText("require_uv    = true");
-
-	await page.getByLabel("Max TTL").fill("2h");
-	await expect(editor).toContainText('max_ttl       = "2h"');
-	await expect(editor).toContainText('key           = "ssh-ed25519 AAAAlaptop laptop"');
 });

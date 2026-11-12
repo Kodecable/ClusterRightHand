@@ -107,8 +107,9 @@ describe("NodeGroupsPage", () => {
 		expect(link).toHaveAttribute("href", "/node-groups/group-1");
 		// The name is the row's link, inside its first cell.
 		expect(screen.getByText("web").closest("a")).toBe(link);
-		// Members keep their own links to their node pages.
-		expect(screen.getByRole("link", { name: "worker-02" })).toHaveAttribute("href", "/nodes/node-2");
+		// The list shows only the member count; the members are on the detail page.
+		expect(screen.getByText("1 member")).toBeInTheDocument();
+		expect(screen.queryByRole("link", { name: "worker-02" })).not.toBeInTheDocument();
 		// The UUID is shown with a copy button for trust aliases.
 		expect(screen.getByText("group-1")).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Copy node group id of web" })).toBeInTheDocument();
@@ -137,7 +138,7 @@ describe("NodeGroupsPage", () => {
 	test("a non-administrator sees the list read-only", async () => {
 		await renderPage(MEMBER);
 		await screen.findByRole("link", { name: "web" });
-		expect(screen.getByRole("link", { name: "worker-02" })).toHaveAttribute("href", "/nodes/node-2");
+		expect(screen.getByText("1 member")).toBeInTheDocument();
 		expect(screen.queryByTestId("create-node-group")).not.toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Edit members" })).not.toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();

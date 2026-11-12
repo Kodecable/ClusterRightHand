@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useId, useState } from "react";
 import { CodeText } from "@/components/code-text";
-import { CopyButton } from "@/components/copy-button";
+import { CopyAndCloseButton } from "@/components/copy-button";
 import { ErrorText } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
 import { DateTime } from "@/components/relative-time";
@@ -39,7 +39,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent data-testid="add-node-dialog">
+			<DialogContent data-testid="add-node-dialog" showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>New node</Trans>
@@ -63,7 +63,6 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 								</Trans>
 							</p>
 							<div className="flex flex-wrap items-center gap-2">
-								<CopyButton text={command} label={t`Copy command`} showLabel variant="outline" />
 								<span className="text-xs text-muted-foreground">
 									<Trans>
 										The token is shown once and expires <DateTime value={created.expiresAt} />.
@@ -95,9 +94,7 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 				</div>
 				<DialogFooter>
 					{created ? (
-						<Button type="button" onClick={onClose}>
-							<Trans>Close</Trans>
-						</Button>
+						<CopyAndCloseButton text={command} onClose={onClose} />
 					) : (
 						<>
 							<Button type="button" variant="outline" onClick={onClose}>

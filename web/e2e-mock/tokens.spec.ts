@@ -18,7 +18,7 @@ test("create an API token once and revoke it", async ({ page }) => {
 	const created = api.state.requests.find((request) => request.method === "POST" && request.url === "/api/api-tokens");
 	expect(created?.body).toEqual({ name: "laptop", rulePreset: "ask", days: 90 });
 
-	await page.getByRole("button", { name: "Close" }).first().click();
+	await page.getByRole("button", { name: "Copy and close" }).click();
 	await expect(dialog).toBeHidden();
 	await expect(page.getByRole("table", { name: "API tokens" })).toContainText("laptop");
 	// The secret is not part of the list.

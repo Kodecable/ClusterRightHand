@@ -70,9 +70,8 @@ export function useNodeTasks(id: string | undefined) {
 export function useCrhsKey() {
 	return useQuery({
 		queryKey: nodeKeys.crhsKey(),
-		// The response carries the newest key first (`key`) and every key (`keys`); the trust
-		// panels build their snippets from the newest one.
-		queryFn: ({ signal }) => http.get<CrhsKeyResponse>("/privilege/crhs-key", { signal }).then((r) => r.key),
+		// The response carries the newest key first (`key`) and every key (`keys`).
+		queryFn: ({ signal }) => http.get<CrhsKeyResponse>("/privilege/crhs-key", { signal }),
 	});
 }
 

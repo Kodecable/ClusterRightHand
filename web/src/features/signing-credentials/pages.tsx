@@ -6,7 +6,6 @@ import { FingerprintIcon, KeyRoundIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { CodeText } from "@/components/code-text";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
@@ -19,7 +18,6 @@ import { DateTime } from "@/components/relative-time";
 import { Panel, SectionTitle } from "@/components/section";
 import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn, MONO_CELL } from "@/lib/utils";
@@ -30,16 +28,14 @@ import {
 	useRegisterPasskey,
 	useSigningCredentials,
 } from "./api";
-import { signingCredentialTrustSnippet } from "./trust";
+import { signingCredentialKeyId } from "./trust";
+import { TrustConfigDialog } from "./trust-config-dialog";
+
+export { signingCredentialKeyId };
 
 interface SshFormValues {
 	name: string;
 	publicKey: string;
-}
-
-/** The key id a signing credential row shows: the SSH fingerprint or the WebAuthn credential id. */
-export function signingCredentialKeyId(credential: SigningCredentialView): string {
-	return credential.kind === "ssh" ? (credential.fingerprint ?? "") : (credential.credentialId ?? "");
 }
 
 function AddSshKeyForm() {
@@ -154,45 +150,17 @@ function AddPasskeyCard() {
 	);
 }
 
-function TrustSnippetDialog({ credential, onClose }: { credential: SigningCredentialView; onClose: () => void }) {
-	const { t } = useLingui();
-	const snippet = signingCredentialTrustSnippet(credential);
-	return (
-		<Dialog
-			open
-			onOpenChange={(open) => {
-				if (!open) onClose();
-			}}
-		>
-			<DialogContent className="sm:max-w-2xl">
-				<DialogHeader>
-					<DialogTitle>{t`${credential.name}: privileged.toml`}</DialogTitle>
-				</DialogHeader>
-				<div className="max-h-[70vh] overflow-auto">
-					<CodeText text={snippet} maxLines={60} label={t`Trust snippet`} copy={false} />
-				</div>
-				<DialogFooter className="justify-between sm:justify-between">
-					<CopyButton text={snippet} label={t`Copy trust snippet`} showLabel variant="outline" />
-					<Button type="button" variant="outline" onClick={onClose}>
-						<Trans>Close</Trans>
-					</Button>
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
-	);
-}
-
 /**
  * Signing credentials (doc/design/privilege.md "Signing methods"): the SSH keys and Passkeys that let this
- * user authorize privileged tasks on a node. Each row exports the `[[trust]]`
- * block to paste into that node's privileged.toml.
+ * user authorize privileged tasks on a node. The page builds the `[[trust]]` entries for a node's
+ * privileged.toml.
  */
 export function SigningCredentialsPage() {
 	const { t } = useLingui();
 	const timeWidth = useTimeColumnWidth();
 	const credentials = useSigningCredentials();
 	const remove = useDeleteSigningCredential();
-	const [snippet, setSnippet] = useState<SigningCredentialView>();
+	const [generating, setGenerating] = useState(false);
 	const [deleting, setDeleting] = useState<SigningCredentialView>();
 
 	const columns = useMemo<DataTableColumn<SigningCredentialView>[]>(
@@ -212,7 +180,7 @@ export function SigningCredentialsPage() {
 			},
 			{
 				id: "key",
-				header: t`Key`,
+				header: t`Key ID`,
 				cell: ({ row }) => {
 					const key = signingCredentialKeyId(row.original);
 					return (
@@ -235,9 +203,12 @@ export function SigningCredentialsPage() {
 				size: 200,
 				cell: ({ row }) => (
 					<span className="flex flex-nowrap items-center gap-1">
-						<Button type="button" size="xs" variant="outline" onClick={() => setSnippet(row.original)}>
-							<Trans>Trust snippet</Trans>
-						</Button>
+						<CopyButton
+							text={signingCredentialKeyId(row.original)}
+							label={t`Copy key ID ${row.original.name}`}
+							showLabel
+							variant="outline"
+						/>
 						<Button
 							type="button"
 							size="xs"
@@ -257,7 +228,15 @@ export function SigningCredentialsPage() {
 
 	return (
 		<Page data-testid="signing-credentials-page">
-			<PageHeader title={<Trans>Signing credentials</Trans>} />
+			<PageHeader
+				title={<Trans>Signing credentials</Trans>}
+				actions={
+					<Button type="button" onClick={() => setGenerating(true)}>
+						<KeyRoundIcon />
+						<Trans>Generate trust config</Trans>
+					</Button>
+				}
+			/>
 			<div className="grid gap-4 lg:grid-cols-2">
 				<AddSshKeyForm />
 				<AddPasskeyCard />
@@ -280,7 +259,7 @@ export function SigningCredentialsPage() {
 					/>
 				}
 			/>
-			{snippet && <TrustSnippetDialog credential={snippet} onClose={() => setSnippet(undefined)} />}
+			<TrustConfigDialog open={generating} onOpenChange={setGenerating} />
 			<ConfirmDialog
 				open={deleting !== undefined}
 				onOpenChange={(open) => {

@@ -2,7 +2,7 @@ import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { CodeText } from "@/components/code-text";
-import { CopyButton } from "@/components/copy-button";
+import { CopyAndCloseButton, CopyButton } from "@/components/copy-button";
 import { ErrorText } from "@/components/error-state";
 import { DateTime } from "@/components/relative-time";
 import { Spinner } from "@/components/spinner";
@@ -36,7 +36,7 @@ export function ReenrollNodeDialog({ node, onClose }: { node: PublicNode; onClos
 				if (!open) onClose();
 			}}
 		>
-			<DialogContent data-testid="reenroll-node-dialog">
+			<DialogContent data-testid="reenroll-node-dialog" showCloseButton={false}>
 				<DialogHeader>
 					<DialogTitle>
 						<Trans>Re-enroll node</Trans>
@@ -56,7 +56,6 @@ export function ReenrollNodeDialog({ node, onClose }: { node: PublicNode; onClos
 							</p>
 							<CodeText text={command} maxLines={4} label={t`Re-enrollment command`} copy={false} />
 							<div className="flex flex-wrap items-center gap-2">
-								<CopyButton text={command} label={t`Copy command`} showLabel variant="outline" />
 								<span className="text-xs text-muted-foreground">
 									<Trans>
 										The token is shown once and expires <DateTime value={created.expiresAt} />.
@@ -91,9 +90,7 @@ export function ReenrollNodeDialog({ node, onClose }: { node: PublicNode; onClos
 				</div>
 				<DialogFooter>
 					{created ? (
-						<Button type="button" onClick={onClose}>
-							<Trans>Close</Trans>
-						</Button>
+						<CopyAndCloseButton text={command} onClose={onClose} />
 					) : (
 						<>
 							<Button type="button" variant="outline" onClick={onClose}>

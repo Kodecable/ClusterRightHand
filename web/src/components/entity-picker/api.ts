@@ -2,15 +2,17 @@ import type {
 	DirectoryResponse,
 	NodeGroupListResponse,
 	NodeListResponse,
+	SigningCredentialView,
 	SshCredential,
 	UserGroupListResponse,
 	UserListResponse,
 } from "@crh/api";
-import { plural } from "@lingui/core/macro";
+import { msg, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react/macro";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { useQuery } from "@tanstack/react-query";
 import { nodeStatusLabel } from "@/components/status-badge";
+import { signingCredentialKeyId } from "@/features/signing-credentials/trust";
 import { http, queryString } from "@/lib/api/client";
 
 /**
@@ -20,10 +22,18 @@ import { http, queryString } from "@/lib/api/client";
  * filtered here.
  */
 
-export type EntityKind = "user" | "userGroup" | "node" | "nodeGroup" | "directory" | "nodeTarget" | "sshCredential";
+export type EntityKind =
+	| "user"
+	| "userGroup"
+	| "node"
+	| "nodeGroup"
+	| "directory"
+	| "nodeTarget"
+	| "sshCredential"
+	| "signingCredential";
 
 /** The concrete kind of one option; `directory` combines users and user groups. */
-export type EntityOptionKind = "user" | "userGroup" | "node" | "nodeGroup" | "sshCredential";
+export type EntityOptionKind = "user" | "userGroup" | "node" | "nodeGroup" | "sshCredential" | "signingCredential";
 
 export interface EntityOption {
 	id: string;
@@ -60,6 +70,8 @@ const ROOTS: Record<EntityKind, readonly string[]> = {
 	nodeTarget: ["nodes", "picker", "node-target"],
 	// The credential page invalidates `["ssh-credentials"]` on create and delete.
 	sshCredential: ["ssh-credentials", "picker"],
+	// The signing credentials page invalidates `["signing-credentials"]` on create, delete and registration.
+	signingCredential: ["signing-credentials", "picker"],
 };
 
 export const entityPickerKeys = {
@@ -155,6 +167,20 @@ function sshCredentialOption(credential: SshCredential): EntityOption {
 	};
 }
 
+/** A signing credential: its name over its kind and key id. */
+function signingCredentialOption(
+	credential: SigningCredentialView,
+	i18n: ReturnType<typeof useLingui>["i18n"],
+): EntityOption {
+	const kind = i18n._(credential.kind === "ssh" ? msg`SSH key` : msg`Passkey`);
+	return {
+		id: credential.id,
+		kind: "signingCredential",
+		primary: credential.name,
+		secondary: `${kind} · ${signingCredentialKeyId(credential)}`,
+	};
+}
+
 /** Fetches one search page; the response mapping is shared with the label lookup. */
 async function fetchSearch(
 	kind: EntityKind,
@@ -242,6 +268,22 @@ async function fetchSearch(
 				more: false,
 			};
 		}
+		case "signingCredential": {
+			// The short, per-user list is fetched whole and filtered here, like SSH credentials.
+			const body = await http.get<{ signingCredentials: SigningCredentialView[] }>("/me/signing-credentials", {
+				signal,
+			});
+			const needle = q.toLowerCase();
+			return {
+				options: body.signingCredentials
+					.map((credential) => signingCredentialOption(credential, i18n))
+					.filter(
+						(option) =>
+							option.primary.toLowerCase().includes(needle) || (option.secondary ?? "").toLowerCase().includes(needle),
+					),
+				more: false,
+			};
+		}
 	}
 }
 
@@ -314,6 +356,15 @@ async function fetchLabelsChunk(
 			const body = await http.get<{ credentials: SshCredential[] }>("/ssh-credentials", { signal });
 			const wanted = new Set(ids);
 			return body.credentials.filter((credential) => wanted.has(credential.id)).map(sshCredentialOption);
+		}
+		case "signingCredential": {
+			const body = await http.get<{ signingCredentials: SigningCredentialView[] }>("/me/signing-credentials", {
+				signal,
+			});
+			const wanted = new Set(ids);
+			return body.signingCredentials
+				.filter((credential) => wanted.has(credential.id))
+				.map((credential) => signingCredentialOption(credential, i18n));
 		}
 	}
 }

@@ -291,7 +291,7 @@ describe("SystemSettingsPage", () => {
 		expect(screen.getByRole("dialog", { name: "Authorization signing key added" })).toBeVisible();
 		expect(within(created).getByText("ssh-ed25519 AAAANEWKEY crhs-signing")).toBeVisible();
 		expect(within(created).getByText("SHA256:newest-key")).toBeVisible();
-		expect(within(created).getByRole("button", { name: "Copy public key" })).toBeVisible();
+		expect(within(created).getByRole("button", { name: "Copy and close" })).toBeVisible();
 		expect(api.calls.find((call) => call.method === "POST")?.body).toEqual({});
 		expect(api.state.keys[0]).not.toHaveProperty("name");
 	});

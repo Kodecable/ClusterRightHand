@@ -64,7 +64,7 @@ describe("ReenrollNodeDialog", () => {
 		expect(command.textContent).toContain(`'${CREATED.token}'`);
 		expect(screen.getByText(CREATED.token)).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Copy token" })).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Copy command" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Copy and close" })).toBeInTheDocument();
 		expect(screen.getByText(/Pending approval/)).toBeInTheDocument();
 		await waitFor(() =>
 			expect(calls).toContainEqual(
