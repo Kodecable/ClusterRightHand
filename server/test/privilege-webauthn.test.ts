@@ -117,14 +117,14 @@ describe("Passkey authorization submission", () => {
 
 		// Register a Passkey through the API, as the WebUI does.
 		authenticator = new SoftwareAuthenticator({ alg: "ES256" });
-		const optionsRes = await call(app, "/api/me/credentials/webauthn/options", {
+		const optionsRes = await call(app, "/api/me/signing-credentials/webauthn/options", {
 			method: "POST",
 			cookie,
 			body: {},
 			headers: BROWSER,
 		});
 		const options = ((await optionsRes.json()) as { options: { challenge: string } }).options;
-		const registered = await call(app, "/api/me/credentials/webauthn", {
+		const registered = await call(app, "/api/me/signing-credentials/webauthn", {
 			method: "POST",
 			cookie,
 			body: { name: "yubikey", response: authenticator.registrationResponse(options.challenge) },
@@ -281,14 +281,14 @@ describe("Passkey authorization submission", () => {
 
 	it("signs with an Ed25519 Passkey as well", async () => {
 		const eddsa = new SoftwareAuthenticator({ alg: "EdDSA" });
-		const optionsRes = await call(app, "/api/me/credentials/webauthn/options", {
+		const optionsRes = await call(app, "/api/me/signing-credentials/webauthn/options", {
 			method: "POST",
 			cookie,
 			body: {},
 			headers: BROWSER,
 		});
 		const options = ((await optionsRes.json()) as { options: { challenge: string } }).options;
-		const registered = await call(app, "/api/me/credentials/webauthn", {
+		const registered = await call(app, "/api/me/signing-credentials/webauthn", {
 			method: "POST",
 			cookie,
 			body: { name: "eddsa-key", response: eddsa.registrationResponse(options.challenge) },

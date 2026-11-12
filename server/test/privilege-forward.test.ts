@@ -209,7 +209,7 @@ describe("privileged forward dispatch", () => {
 
 	const addCredential = async (): Promise<void> => {
 		await db
-			.insertInto("user_credentials")
+			.insertInto("signing_credentials")
 			.values({
 				id: newId(),
 				user_id: owner.userId,

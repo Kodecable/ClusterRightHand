@@ -306,7 +306,7 @@ export interface AuthorizationsTable {
 	created_at: CreatedAt;
 }
 
-export interface UserCredentialsTable {
+export interface SigningCredentialsTable {
 	id: string;
 	user_id: string;
 	kind: "ssh" | "webauthn";
@@ -532,7 +532,7 @@ export interface Database {
 	tasks: TasksTable;
 	task_groups: TaskGroupsTable;
 	ssh_credentials: SshCredentialsTable;
-	user_credentials: UserCredentialsTable;
+	signing_credentials: SigningCredentialsTable;
 	authorizations: AuthorizationsTable;
 	api_tokens: ApiTokensTable;
 	rule_sets: RuleSetsTable;

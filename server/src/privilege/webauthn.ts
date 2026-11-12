@@ -210,7 +210,7 @@ export async function verifyRegistration(input: {
 	};
 }
 
-/** A stored WebAuthn credential, as user_credentials keeps it. */
+/** A stored WebAuthn credential, as signing_credentials keeps it. */
 export interface StoredWebauthnCredential {
 	credentialId: string;
 	coseKey: Uint8Array;

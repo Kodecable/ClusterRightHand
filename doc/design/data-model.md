@@ -81,7 +81,7 @@ compressed.
 
 ## Users and ownership
 
-Users, user groups and their members, user credentials (SSH keys and Passkeys), API tokens, WebUI
+Users, user groups and their members, signing credentials (SSH keys and Passkeys), API tokens, WebUI
 sessions and session shares. Passwords may be null so that future OIDC users need none; disabling is the
 only account lifecycle operation. API tokens and WebUI session tokens are stored only as hashes. Shares
 are polymorphic (the resource is a session, the grantee a user or user group), so they have no foreign

@@ -117,7 +117,7 @@ describe("submitAuthorization claims from a stale row", () => {
 		app = makeApp(db, undefined, { cluster, audit, authorizationKey: signing, clockWarnMs: 60_000 });
 		owner = { userId: user.id, cookie: await login(app, "owner", "password-123") };
 		ownerKey = createSshKey("ssh-ed25519");
-		await addSshCredential(ownerKey);
+		await addSshSigningCredential(ownerKey);
 	});
 
 	afterEach(async () => {
@@ -127,8 +127,8 @@ describe("submitAuthorization claims from a stale row", () => {
 		await db.destroy();
 	});
 
-	async function addSshCredential(key: TestSshKey): Promise<void> {
-		const res = await call(app, "/api/me/credentials/ssh", {
+	async function addSshSigningCredential(key: TestSshKey): Promise<void> {
+		const res = await call(app, "/api/me/signing-credentials/ssh", {
 			cookie: owner.cookie,
 			body: { publicKey: key.line, name: "test" },
 		});

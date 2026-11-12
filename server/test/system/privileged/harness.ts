@@ -530,9 +530,9 @@ function trustEntryToml(entry: TrustSpec): string[] {
 
 /** Registers an SSH public key as one of the caller's (admin's) signing credentials. */
 export async function registerSshCredential(crhs: InProcessCrhs, publicKey: string): Promise<string> {
-	const res = await crhs.api("/api/me/credentials/ssh", { body: { publicKey, name: "privileged test key" } });
+	const res = await crhs.api("/api/me/signing-credentials/ssh", { body: { publicKey, name: "privileged test key" } });
 	if (res.status !== 201) throw new Error(`register credential: ${res.status} ${JSON.stringify(res.json)}`);
-	return res.json.credential.id;
+	return res.json.signingCredential.id;
 }
 
 export interface PendingAuthorization {

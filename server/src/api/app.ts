@@ -18,7 +18,6 @@ import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import { authorizationRoutes } from "./authorization-routes.ts";
 import { DEFAULT_BODY_LIMIT, jsonBodyLimit, takesLargeBody } from "./body-limit.ts";
 import type { AppEnv } from "./context.ts";
-import { credentialRoutes } from "./credential-routes.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
@@ -32,6 +31,7 @@ import { scheduleRoutes } from "./schedule-routes.ts";
 import { SessionStreams, sessionEventRoutes } from "./session-events-routes.ts";
 import { refuseWhenClosing, sessionRoutes } from "./session-routes.ts";
 import { settingsRoutes } from "./settings-routes.ts";
+import { signingCredentialRoutes } from "./signing-credential-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
 import { userRoutes } from "./user-routes.ts";
@@ -141,7 +141,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.route("/api", privilegeRoutes({ db, ...(signingKeys ? { signingKeys } : {}) }));
 	app.route(
 		"/api",
-		credentialRoutes(db, {
+		signingCredentialRoutes(db, {
 			...(options.webauthn ? { webauthn: options.webauthn } : {}),
 			...(options.settings ? { settings: options.settings } : {}),
 		}),

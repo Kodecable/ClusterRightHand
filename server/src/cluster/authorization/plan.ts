@@ -5,7 +5,6 @@
  */
 import type { TaskSpec } from "@crh/protocol";
 import type { Selectable, Updateable } from "kysely";
-import { ownerCredentials } from "../../privilege/credentials.ts";
 import { authorizationDeadline, type BuiltAuthorization } from "../../privilege/payload.ts";
 import {
 	buildTaskGroupAuthorization,
@@ -14,6 +13,7 @@ import {
 	planAuthorization,
 	USER_AUTHORIZATION_TTL_MS,
 } from "../../privilege/planner.ts";
+import { ownerSigningCredentials } from "../../privilege/signing-credentials.ts";
 import type { TaskState as TaskRowState, TasksTable } from "../../storage/schema.ts";
 import {
 	type PendingPayloadView,
@@ -134,7 +134,7 @@ async function planTurn(
 		aliases: summary.aliases,
 		task: { id, attempt: row.attempt, spec, privileged: true },
 		taskGroup: row.task_group_id !== null,
-		owner: await ownerCredentials(core.db, row.on_behalf_of_user_id),
+		owner: await ownerSigningCredentials(core.db, row.on_behalf_of_user_id),
 		crhsFingerprints,
 		tried,
 		now: Date.now(),

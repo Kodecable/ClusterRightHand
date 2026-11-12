@@ -8,19 +8,19 @@ import { Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
 import { DEFAULT_RP_NAME, type WebauthnConfig } from "../config.ts";
 import {
-	addSshCredential,
-	addWebauthnCredential,
-	deleteCredential,
-	listCredentials,
-	webauthnCredentials,
-} from "../privilege/credentials.ts";
+	addSshSigningCredential,
+	addWebauthnSigningCredential,
+	deleteSigningCredential,
+	listSigningCredentials,
+	webauthnSigningCredentials,
+} from "../privilege/signing-credentials.ts";
 import { RegistrationChallenges, rpForRequest, verifyRegistration } from "../privilege/webauthn.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { errorText } from "../util/errors.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 
-export interface CredentialRoutesOptions {
+export interface SigningCredentialRoutesOptions {
 	/** `[webauthn]` fallback for tests; production passes `settings`. */
 	webauthn?: WebauthnConfig;
 	/** Runtime settings; when given they are read per request and take precedence. */
@@ -30,7 +30,7 @@ export interface CredentialRoutesOptions {
 }
 
 /** Expects requireUser to have run. Every route works on the caller's own credentials only. */
-export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) {
+export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutesOptions = {}) {
 	const app = new Hono<AppEnv>();
 	const webauthn = (): WebauthnConfig =>
 		options.settings?.current().webauthn ??
@@ -41,31 +41,33 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 		};
 	const challenges = options.challenges ?? new RegistrationChallenges();
 
-	app.get("/me/credentials", async (c) => c.json({ credentials: await listCredentials(db, c.get("user").userId) }));
+	app.get("/me/signing-credentials", async (c) =>
+		c.json({ signingCredentials: await listSigningCredentials(db, c.get("user").userId) }),
+	);
 
-	app.post("/me/credentials/ssh", async (c) => {
+	app.post("/me/signing-credentials/ssh", async (c) => {
 		const user = c.get("user");
 		const body = await readJsonObject(c);
 		const publicKey = body ? optionalString(body, "publicKey") : undefined;
 		if (!publicKey) return jsonError(c, 400, "publicKey is required");
-		const credential = await addSshCredential(db, user.userId, {
+		const credential = await addSshSigningCredential(db, user.userId, {
 			publicKey,
 			name: optionalString(body as Record<string, unknown>, "name"),
 		});
 		void c.get("audit").record({
 			actor: userActor(user),
-			action: "credential.added",
-			target: { type: "credential", id: credential.id },
+			action: "signing_credential.added",
+			target: { type: "signing_credential", id: credential.id },
 			detail: { kind: "ssh", name: credential.name, fingerprint: credential.fingerprint },
 		});
-		return c.json({ credential }, 201);
+		return c.json({ signingCredential: credential }, 201);
 	});
 
 	/** Registration options for a new Passkey; the challenge is kept server-side and used once. */
-	app.post("/me/credentials/webauthn/options", async (c) => {
+	app.post("/me/signing-credentials/webauthn/options", async (c) => {
 		const user = c.get("user");
 		const rp = rpForRequest(webauthn(), c.req.header("origin"));
-		const existing = await webauthnCredentials(db, user.userId);
+		const existing = await webauthnSigningCredentials(db, user.userId);
 		const issued = await challenges.issue({
 			rp,
 			userId: user.userId,
@@ -76,7 +78,7 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 		return c.json({ options: issued.options });
 	});
 
-	app.post("/me/credentials/webauthn", async (c) => {
+	app.post("/me/signing-credentials/webauthn", async (c) => {
 		const user = c.get("user");
 		const body = await readJsonObject(c);
 		const response = body?.response as RegistrationResponseJSON | undefined;
@@ -99,7 +101,7 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 			return jsonError(c, 400, `origin ${origin} is not one the registration was started for`);
 		}
 		const verified = await verifyRegistration({ response, challenge, rp: pending.rp });
-		const credential = await addWebauthnCredential(db, user.userId, {
+		const credential = await addWebauthnSigningCredential(db, user.userId, {
 			name: optionalString(body as Record<string, unknown>, "name"),
 			credentialId: verified.credentialId,
 			coseKey: verified.coseKey,
@@ -108,8 +110,8 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 		});
 		void c.get("audit").record({
 			actor: userActor(user),
-			action: "credential.added",
-			target: { type: "credential", id: credential.id },
+			action: "signing_credential.added",
+			target: { type: "signing_credential", id: credential.id },
 			detail: {
 				kind: "webauthn",
 				name: credential.name,
@@ -117,16 +119,16 @@ export function credentialRoutes(db: Db, options: CredentialRoutesOptions = {}) 
 				rp_id: credential.rpId,
 			},
 		});
-		return c.json({ credential }, 201);
+		return c.json({ signingCredential: credential }, 201);
 	});
 
-	app.delete("/me/credentials/:id", async (c) => {
+	app.delete("/me/signing-credentials/:id", async (c) => {
 		const user = c.get("user");
-		const credential = await deleteCredential(db, user.userId, c.req.param("id"));
+		const credential = await deleteSigningCredential(db, user.userId, c.req.param("id"));
 		void c.get("audit").record({
 			actor: userActor(user),
-			action: "credential.removed",
-			target: { type: "credential", id: credential.id },
+			action: "signing_credential.removed",
+			target: { type: "signing_credential", id: credential.id },
 			detail: { kind: credential.kind, name: credential.name, fingerprint: credential.fingerprint },
 		});
 		return c.json({ ok: true });

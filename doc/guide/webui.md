@@ -28,7 +28,7 @@ your other browsers. Your API tokens keep working unless you tick **Also revoke 
 | Group | Items |
 |---|---|
 | **Work** | Sessions, Schedules, Tasks, Approvals |
-| **Cluster** | Nodes, Node groups, SSH credentials (administrators), Credentials |
+| **Cluster** | Nodes, Node groups, SSH credentials (administrators), Signing credentials |
 | **Admin** | Authorizations (administrators), API tokens, Audit, Models (administrators), System settings (administrators), Users (administrators) |
 
 The **Approvals** badge counts everything waiting for you. The user menu also sets the theme and the
@@ -246,7 +246,7 @@ When a privileged task waits for your signature, its decision offers:
 - **Local approval**, if the node allows it: run the copied `crha approve` command on the node instead;
 - **Reject**, with an optional reason; the task ends rejected and the reason is shown on it.
 
-Register your SSH keys and Passkeys on **Credentials**. Each credential has a **Trust snippet** to add to
+Register your SSH keys and Passkeys on **Signing credentials**. Each signing credential has a **Trust snippet** to add to
 a node's `privileged.toml`. Passkeys need the WebUI to be served over HTTPS with a hostname.
 
 ## Schedules

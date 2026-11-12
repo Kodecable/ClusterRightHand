@@ -7,7 +7,7 @@
  */
 import type { TrustWarning, TrustWarningKind, TrustWarningSeverity } from "@crh/api";
 import type { TrustEntry, TrustSummary } from "@crh/protocol";
-import { isOwnCrhsEntry, type OwnerCredentials, ownerCredentialOf } from "../privilege/planner.ts";
+import { isOwnCrhsEntry, type OwnerSigningCredentials, ownerSigningCredentialOf } from "../privilege/planner.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodeGroupRef } from "./node-groups.ts";
 import type { NodeRow } from "./nodes.ts";
@@ -34,7 +34,7 @@ export async function trustWarningContext(
 ): Promise<TrustWarningContext> {
 	const [groups, credentials] = await Promise.all([
 		db.selectFrom("node_groups").select(["id", "name"]).execute(),
-		db.selectFrom("user_credentials").select(["kind", "fingerprint", "credential_id"]).execute(),
+		db.selectFrom("signing_credentials").select(["kind", "fingerprint", "credential_id"]).execute(),
 	]);
 	return {
 		crhsFingerprints,
@@ -51,12 +51,12 @@ export async function trustWarningContext(
 /** A trust entry whose key crhs knows: its own signing key or a registered user credential. Local entries are never unknown. */
 function trustEntryKnown(entry: TrustEntry, context: TrustWarningContext): boolean {
 	if (entry.role === "local" || entry.key.kind === "local") return true;
-	const credentials: OwnerCredentials = {
+	const credentials: OwnerSigningCredentials = {
 		sshKeyFingerprints: [...context.sshFingerprints],
 		webauthnCredentialIds: [...context.webauthnCredentialIds],
 	};
 	if (entry.role === "crhs") return isOwnCrhsEntry(entry, context.crhsFingerprints);
-	return ownerCredentialOf(entry, credentials) !== null;
+	return ownerSigningCredentialOf(entry, credentials) !== null;
 }
 
 export interface NodeTrustWarningInput {

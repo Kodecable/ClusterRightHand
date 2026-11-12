@@ -307,7 +307,7 @@ reusable ones are bounded by their command limit, guard rules and deadline.
 
 crhs plans an authorization path from the trust reports nodes send, but planning is only a preview:
 the node re-checks everything against its current configuration. A planning mistake in crhs can only
-cause waiting or a refusal, never extra privilege. crhs considers only the task owner's credentials,
+cause waiting or a refusal, never extra privilege. crhs considers only the task owner's signing credentials,
 never those of users the session is shared with.
 
 ### Trust cache

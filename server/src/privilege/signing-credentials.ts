@@ -1,23 +1,23 @@
 /**
- * The owner's registered signing credentials (doc/design/privilege.md "Server-side authorization" `user_credentials`): the SSH keys
+ * The owner's registered signing credentials (doc/design/privilege.md "Server-side authorization" `signing_credentials`): the SSH keys
  * and Passkeys a user signs privileged tasks with. The planner only considers the user trust entries
  * that match a credential of the task's owner, and submissions are only accepted from them.
  */
-import type { CredentialView } from "@crh/api";
+import type { SigningCredentialView } from "@crh/api";
 import type { Selectable } from "kysely";
 import type { Db } from "../storage/db.ts";
-import type { UserCredentialsTable } from "../storage/schema.ts";
+import type { SigningCredentialsTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import type { OwnerCredentials } from "./planner.ts";
+import type { OwnerSigningCredentials } from "./planner.ts";
 import { authorizedKeyLine, parseAuthorizedKey, sshFingerprint } from "./sshsig.ts";
 import type { StoredWebauthnCredential } from "./webauthn.ts";
 
-export type CredentialKind = UserCredentialsTable["kind"];
+export type SigningCredentialKind = SigningCredentialsTable["kind"];
 
-export type { CredentialView };
+export type { SigningCredentialView };
 
-export function credentialView(row: Selectable<UserCredentialsTable>): CredentialView {
+export function signingCredentialView(row: Selectable<SigningCredentialsTable>): SigningCredentialView {
 	return {
 		id: row.id,
 		kind: row.kind,
@@ -41,22 +41,25 @@ function parseOrigins(json: string | null): string[] {
 	}
 }
 
-export async function listCredentials(db: Db, userId: string): Promise<CredentialView[]> {
+export async function listSigningCredentials(db: Db, userId: string): Promise<SigningCredentialView[]> {
 	const rows = await db
-		.selectFrom("user_credentials")
+		.selectFrom("signing_credentials")
 		.selectAll()
 		.where("user_id", "=", userId)
 		.orderBy("created_at")
 		.orderBy("id")
 		.execute();
-	return rows.map(credentialView);
+	return rows.map(signingCredentialView);
 }
 
 /** The fingerprints and credential ids of the owner's credentials, as the planner matches trust entries. */
-export async function ownerCredentials(db: Db, userId: string | null | undefined): Promise<OwnerCredentials> {
+export async function ownerSigningCredentials(
+	db: Db,
+	userId: string | null | undefined,
+): Promise<OwnerSigningCredentials> {
 	if (!userId) return { sshKeyFingerprints: [], webauthnCredentialIds: [] };
 	const rows = await db
-		.selectFrom("user_credentials")
+		.selectFrom("signing_credentials")
 		.select(["kind", "fingerprint", "credential_id"])
 		.where("user_id", "=", userId)
 		.execute();
@@ -79,7 +82,11 @@ export interface AddSshCredentialInput {
  * blob must really be of the named type, and the `SHA256:` fingerprint is what a node's TrustSummary
  * reports, so the owner can be matched to its trust entries.
  */
-export async function addSshCredential(db: Db, userId: string, input: AddSshCredentialInput): Promise<CredentialView> {
+export async function addSshSigningCredential(
+	db: Db,
+	userId: string,
+	input: AddSshCredentialInput,
+): Promise<SigningCredentialView> {
 	let parsed: ReturnType<typeof parseAuthorizedKey>;
 	try {
 		parsed = parseAuthorizedKey(input.publicKey);
@@ -88,14 +95,14 @@ export async function addSshCredential(db: Db, userId: string, input: AddSshCred
 	}
 	const fingerprint = sshFingerprint(parsed.blob);
 	const taken = await db
-		.selectFrom("user_credentials")
+		.selectFrom("signing_credentials")
 		.select("id")
 		.where("user_id", "=", userId)
 		.where("fingerprint", "=", fingerprint)
 		.executeTakeFirst();
 	if (taken) throw new UserError("this SSH key is already registered");
 	const name = (input.name ?? "").trim() || `ssh-${fingerprint.slice("SHA256:".length, "SHA256:".length + 8)}`;
-	const row: Selectable<UserCredentialsTable> = {
+	const row: Selectable<SigningCredentialsTable> = {
 		id: newId(),
 		user_id: userId,
 		kind: "ssh",
@@ -107,8 +114,8 @@ export async function addSshCredential(db: Db, userId: string, input: AddSshCred
 		origins: null,
 		created_at: new Date().toISOString(),
 	};
-	await db.insertInto("user_credentials").values(row).execute();
-	return credentialView(row);
+	await db.insertInto("signing_credentials").values(row).execute();
+	return signingCredentialView(row);
 }
 
 export interface AddWebauthnCredentialInput {
@@ -120,20 +127,20 @@ export interface AddWebauthnCredentialInput {
 }
 
 /** Registers a Passkey that a completed registration has already verified. */
-export async function addWebauthnCredential(
+export async function addWebauthnSigningCredential(
 	db: Db,
 	userId: string,
 	input: AddWebauthnCredentialInput,
-): Promise<CredentialView> {
+): Promise<SigningCredentialView> {
 	const taken = await db
-		.selectFrom("user_credentials")
+		.selectFrom("signing_credentials")
 		.select("id")
 		.where("user_id", "=", userId)
 		.where("credential_id", "=", input.credentialId)
 		.executeTakeFirst();
 	if (taken) throw new UserError("this Passkey is already registered");
 	const name = (input.name ?? "").trim() || `passkey-${input.credentialId.slice(0, 8)}`;
-	const row: Selectable<UserCredentialsTable> = {
+	const row: Selectable<SigningCredentialsTable> = {
 		id: newId(),
 		user_id: userId,
 		kind: "webauthn",
@@ -145,30 +152,30 @@ export async function addWebauthnCredential(
 		origins: JSON.stringify(input.origins),
 		created_at: new Date().toISOString(),
 	};
-	await db.insertInto("user_credentials").values(row).execute();
-	return credentialView(row);
+	await db.insertInto("signing_credentials").values(row).execute();
+	return signingCredentialView(row);
 }
 
 /** Deletes one of the user's own credentials; another user's credential is a 404. */
-export async function deleteCredential(db: Db, userId: string, id: string): Promise<CredentialView> {
+export async function deleteSigningCredential(db: Db, userId: string, id: string): Promise<SigningCredentialView> {
 	const row = await db
-		.selectFrom("user_credentials")
+		.selectFrom("signing_credentials")
 		.selectAll()
 		.where("id", "=", id)
 		.where("user_id", "=", userId)
 		.executeTakeFirst();
 	if (!row) throw new NotFoundError("no such credential");
-	await db.deleteFrom("user_credentials").where("id", "=", id).where("user_id", "=", userId).execute();
-	return credentialView(row);
+	await db.deleteFrom("signing_credentials").where("id", "=", id).where("user_id", "=", userId).execute();
+	return signingCredentialView(row);
 }
 
 /** The user's WebAuthn credentials, with the key material needed to verify an assertion. */
-export async function webauthnCredentials(
+export async function webauthnSigningCredentials(
 	db: Db,
 	userId: string,
 ): Promise<(StoredWebauthnCredential & { name: string })[]> {
 	const rows = await db
-		.selectFrom("user_credentials")
+		.selectFrom("signing_credentials")
 		.selectAll()
 		.where("user_id", "=", userId)
 		.where("kind", "=", "webauthn")

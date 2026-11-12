@@ -499,7 +499,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	await db.schema.createIndex("authorizations_deadline_idx").on("authorizations").column("deadline").execute();
 
 	await db.schema
-		.createTable("user_credentials")
+		.createTable("signing_credentials")
 		.addColumn("id", "text", (c) => c.primaryKey())
 		.addColumn("user_id", "text", (c) => c.notNull().references("users.id").onDelete("cascade"))
 		.addColumn("kind", "text", (c) => c.notNull())
@@ -510,10 +510,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("rp_id", "text")
 		.addColumn("created_at", "text", (c) => c.notNull())
 		.addColumn("origins", "text")
-		.addUniqueConstraint("user_credentials_user_fingerprint_unique", ["user_id", "fingerprint"])
-		.addUniqueConstraint("user_credentials_user_credential_unique", ["user_id", "credential_id"])
+		.addUniqueConstraint("signing_credentials_user_fingerprint_unique", ["user_id", "fingerprint"])
+		.addUniqueConstraint("signing_credentials_user_credential_unique", ["user_id", "credential_id"])
 		.execute();
-	await db.schema.createIndex("user_credentials_user_id_idx").on("user_credentials").column("user_id").execute();
+	await db.schema.createIndex("signing_credentials_user_id_idx").on("signing_credentials").column("user_id").execute();
 
 	await db.schema
 		.createTable("node_access_grants")
@@ -564,7 +564,7 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 		"settings",
 		"model_presets",
 		"node_access_grants",
-		"user_credentials",
+		"signing_credentials",
 		"authorizations",
 		"model_providers",
 		"sessions",

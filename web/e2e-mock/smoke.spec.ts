@@ -19,7 +19,7 @@ test("only authorizations and schedules keep a page header description", async (
 		"/approvals",
 		"/tasks",
 		"/nodes",
-		"/credentials",
+		"/signing-credentials",
 		"/audit",
 		"/settings/models",
 		"/tokens",

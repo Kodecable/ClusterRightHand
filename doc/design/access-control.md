@@ -14,7 +14,7 @@ multi-organization feature yet; crhs creates a single organization on first use.
 |---|---|
 | User | A person who signs in to the WebUI with a local password. |
 | User group | A set of users maintained by administrators, used to share sessions and grant node access. |
-| User credential | An SSH key, FIDO key or Passkey used only to sign privileged-task authorizations, never to sign in. |
+| Signing credential | An SSH key, FIDO key or Passkey used only to sign privileged-task authorizations, never to sign in. |
 | API token | A user's credential for MCP clients; the root of its own rule chain. |
 | Node | A managed host, owned by the organization and managed by administrators. |
 | Node group | A named set of nodes, used to select nodes and grant access. |

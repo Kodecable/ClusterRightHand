@@ -199,12 +199,6 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 						className="m-3 py-8"
 						title={<Trans>No sessions yet</Trans>}
 						description={<Trans>Start one, or wait for a scheduled run.</Trans>}
-						action={
-							<Button type="button" size="sm" disabled={noModels} onClick={openDraft}>
-								<PlusIcon />
-								<Trans>New session</Trans>
-							</Button>
-						}
 					/>
 				)}
 				{rows.length > 0 && (

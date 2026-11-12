@@ -22,8 +22,8 @@ privilege authorization and auditing.
 - **Simple to run.** One Node.js process serves the WebUI, the API, MCP, the agents and the scheduler,
   on SQLite or PostgreSQL. The WebUI is in English and Chinese.
 
-| Sessions | Node trust |
-| --- | --- |
+| Sessions                                                                            | Node trust                                                                             |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | ![An agent session that collected facts from every node](doc/images/session.en.png) | ![db-1 trusts only the admin's signature and local root](doc/images/node-trust.en.png) |
 
 ## How it works
@@ -57,43 +57,43 @@ approvals and privilege.
 
 **Guide**
 
-| Page | Covers |
-| --- | --- |
-| [Concepts](doc/guide/concepts.md) | Nodes, tasks, sessions, rules, approvals, privilege |
-| [Install](doc/guide/install.md) | Setting up crhs, nodes and models |
-| [Using the WebUI](doc/guide/webui.md) | A tour of the console |
-| [MCP server](doc/guide/mcp.md) | Connecting external coding agents |
-| [Security](doc/guide/security.md) | Trust, privilege modes, hardening |
-| [Operations](doc/guide/operations.md) | Upgrades, backups, logs, troubleshooting |
-| [crhs configuration](doc/guide/reference/crhs-config.md) | `crhs.toml` and system settings |
-| [crha configuration](doc/guide/reference/crha-config.md) | `crha.toml` |
-| [Privileged configuration](doc/guide/reference/privileged-config.md) | `privileged.toml` |
-| [Command line](doc/guide/reference/cli.md) | `crhs` and `crha` commands |
+| Page                                                                 | Covers                                              |
+| -------------------------------------------------------------------- | --------------------------------------------------- |
+| [Concepts](doc/guide/concepts.md)                                    | Nodes, tasks, sessions, rules, approvals, privilege |
+| [Install](doc/guide/install.md)                                      | Setting up crhs, nodes and models                   |
+| [Using the WebUI](doc/guide/webui.md)                                | A tour of the console                               |
+| [MCP server](doc/guide/mcp.md)                                       | Connecting external coding agents                   |
+| [Security](doc/guide/security.md)                                    | Trust, privilege modes, hardening                   |
+| [Operations](doc/guide/operations.md)                                | Upgrades, backups, logs, troubleshooting            |
+| [crhs configuration](doc/guide/reference/crhs-config.md)             | `crhs.toml` and system settings                     |
+| [crha configuration](doc/guide/reference/crha-config.md)             | `crha.toml`                                         |
+| [Privileged configuration](doc/guide/reference/privileged-config.md) | `privileged.toml`                                   |
+| [Command line](doc/guide/reference/cli.md)                           | `crhs` and `crha` commands                          |
 
 **Design**
 
-| Document | Covers |
-| --- | --- |
-| [Architecture](doc/design/architecture.md) | Components, boundaries, limitations |
-| [Protocol](doc/design/protocol.md) | The crhs–crha protocol and transport security |
-| [Execution plane](doc/design/execution.md) | Tasks, output, connections, SSH |
-| [Privilege and authorization](doc/design/privilege.md) | Privilege modes, authorizations, node trust |
-| [Users, ownership and audit](doc/design/access-control.md) | Users, access, rules, approvals, audit |
-| [Agent runtime](doc/design/agent-runtime.md) | Sessions, tools, subagents, quotas |
-| [Scheduled tasks](doc/design/scheduling.md) | Schedules |
-| [Data model](doc/design/data-model.md) | Storage and retention |
-| [WebUI](doc/design/webui.md) | Frontend design |
-| [Testing](doc/design/testing/README.md) | Test layers and how to run them |
+| Document                                                   | Covers                                        |
+| ---------------------------------------------------------- | --------------------------------------------- |
+| [Architecture](doc/design/architecture.md)                 | Components, boundaries, limitations           |
+| [Protocol](doc/design/protocol.md)                         | The crhs–crha protocol and transport security |
+| [Execution plane](doc/design/execution.md)                 | Tasks, output, connections, SSH               |
+| [Privilege and authorization](doc/design/privilege.md)     | Privilege modes, authorizations, node trust   |
+| [Users, ownership and audit](doc/design/access-control.md) | Users, access, rules, approvals, audit        |
+| [Agent runtime](doc/design/agent-runtime.md)               | Sessions, tools, subagents, quotas            |
+| [Scheduled tasks](doc/design/scheduling.md)                | Schedules                                     |
+| [Data model](doc/design/data-model.md)                     | Storage and retention                         |
+| [WebUI](doc/design/webui.md)                               | Frontend design                               |
+| [Testing](doc/design/testing/README.md)                    | Test layers and how to run them               |
 
 ## Repository layout
 
-| Path | Contents |
-| --- | --- |
-| `server/` | crhs (TypeScript, Node.js) |
-| `web/` | The WebUI (React) |
-| `client/` | crha (Go) |
+| Path        | Contents                                                       |
+| ----------- | -------------------------------------------------------------- |
+| `server/`   | crhs (TypeScript, Node.js)                                     |
+| `web/`      | The WebUI (React)                                              |
+| `client/`   | crha (Go)                                                      |
 | `packages/` | Shared TypeScript packages: API types, the CRH protocol, Noise |
-| `doc/` | The guide and the design documents |
+| `doc/`      | The guide and the design documents                             |
 
 ## License
 

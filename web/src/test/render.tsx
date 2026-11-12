@@ -76,7 +76,7 @@ function buildRouter(ui: React.ReactElement, options: RenderRouterOptions = {}) 
 		"/node-groups",
 		"/node-groups/$nodeGroupId",
 		"/ssh-credentials",
-		"/credentials",
+		"/signing-credentials",
 		"/authorizations",
 		"/tokens",
 		"/audit",

@@ -45,7 +45,7 @@ Each `[[trust]]` table names one signer:
 - `require-cosign`: this user's authorizations also need crhs's confirmation.
 
 Without a `crhs` entry, crhs cannot authorize anything on this node. Without a `local` entry, nobody can
-approve locally, not even root. The WebUI's **Credentials** page and node page produce ready-made
+approve locally, not even root. The WebUI's **Signing credentials** page and node page produce ready-made
 entries.
 
 ## Trust entry fields

@@ -40,7 +40,7 @@ describe("signing credentials API", () => {
 		name: string | undefined,
 		withCookie = cookie,
 	) => {
-		const optionsRes = await call(app, "/api/me/credentials/webauthn/options", {
+		const optionsRes = await call(app, "/api/me/signing-credentials/webauthn/options", {
 			method: "POST",
 			cookie: withCookie,
 			body: {},
@@ -53,7 +53,7 @@ describe("signing credentials API", () => {
 		const response = authenticator.registrationResponse(options.challenge);
 		return {
 			options,
-			res: await call(app, "/api/me/credentials/webauthn", {
+			res: await call(app, "/api/me/signing-credentials/webauthn", {
 				method: "POST",
 				cookie: withCookie,
 				body: { name, response },
@@ -73,51 +73,60 @@ describe("signing credentials API", () => {
 		for (const type of types) {
 			const key = createSshKey(type);
 			if (type === "ssh-ed25519") firstKey = key;
-			const res = await call(app, "/api/me/credentials/ssh", { cookie, body: { publicKey: key.line, name: type } });
+			const res = await call(app, "/api/me/signing-credentials/ssh", {
+				cookie,
+				body: { publicKey: key.line, name: type },
+			});
 			expect(res.status).toBe(201);
-			const { credential } = (await res.json()) as { credential: Record<string, unknown> };
-			expect(credential).toMatchObject({ kind: "ssh", name: type, fingerprint: key.fingerprint });
-			expect(credential.fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
+			const { signingCredential } = (await res.json()) as { signingCredential: Record<string, unknown> };
+			expect(signingCredential).toMatchObject({ kind: "ssh", name: type, fingerprint: key.fingerprint });
+			expect(signingCredential.fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]{43}$/);
 		}
-		const listed = (await (await call(app, "/api/me/credentials", { cookie })).json()) as {
-			credentials: { id: string; name: string }[];
+		const listed = (await (await call(app, "/api/me/signing-credentials", { cookie })).json()) as {
+			signingCredentials: { id: string; name: string }[];
 		};
-		expect(listed.credentials).toHaveLength(4);
+		expect(listed.signingCredentials).toHaveLength(4);
 
 		// The same key again, an unsupported type and a blob of another type are all refused.
-		const duplicate = await call(app, "/api/me/credentials/ssh", { cookie, body: { publicKey: firstKey.line } });
+		const duplicate = await call(app, "/api/me/signing-credentials/ssh", {
+			cookie,
+			body: { publicKey: firstKey.line },
+		});
 		expect(duplicate.status).toBe(400);
 		expect(((await duplicate.json()) as { error: string }).error).toMatch(/already registered/);
-		const unsupported = await call(app, "/api/me/credentials/ssh", {
+		const unsupported = await call(app, "/api/me/signing-credentials/ssh", {
 			cookie,
 			body: { publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAA= me" },
 		});
 		expect(unsupported.status).toBe(400);
 		expect(((await unsupported.json()) as { error: string }).error).toMatch(/unsupported key type/);
-		const mismatched = await call(app, "/api/me/credentials/ssh", {
+		const mismatched = await call(app, "/api/me/signing-credentials/ssh", {
 			cookie,
 			body: { publicKey: `ssh-ed25519 ${Buffer.from("not a key").toString("base64")}` },
 		});
 		expect(mismatched.status).toBe(400);
 
 		// Another user sees none of them and cannot delete one.
-		const theirs = (await (await call(app, "/api/me/credentials", { cookie: otherCookie })).json()) as {
-			credentials: unknown[];
+		const theirs = (await (await call(app, "/api/me/signing-credentials", { cookie: otherCookie })).json()) as {
+			signingCredentials: unknown[];
 		};
-		expect(theirs.credentials).toEqual([]);
-		const id = listed.credentials[0]?.id as string;
+		expect(theirs.signingCredentials).toEqual([]);
+		const id = listed.signingCredentials[0]?.id as string;
 		expect(
-			(await call(app, `/api/me/credentials/${id}`, { method: "DELETE", cookie: otherCookie, body: {} })).status,
+			(await call(app, `/api/me/signing-credentials/${id}`, { method: "DELETE", cookie: otherCookie, body: {} }))
+				.status,
 		).toBe(404);
-		expect((await call(app, `/api/me/credentials/${id}`, { method: "DELETE", cookie, body: {} })).status).toBe(200);
-		const after = (await (await call(app, "/api/me/credentials", { cookie })).json()) as {
-			credentials: unknown[];
+		expect((await call(app, `/api/me/signing-credentials/${id}`, { method: "DELETE", cookie, body: {} })).status).toBe(
+			200,
+		);
+		const after = (await (await call(app, "/api/me/signing-credentials", { cookie })).json()) as {
+			signingCredentials: unknown[];
 		};
-		expect(after.credentials).toHaveLength(3);
+		expect(after.signingCredentials).toHaveLength(3);
 
 		await audit.flush();
-		expect(await auditRows("credential.added")).toHaveLength(4);
-		expect(await auditRows("credential.removed")).toHaveLength(1);
+		expect(await auditRows("signing_credential.added")).toHaveLength(4);
+		expect(await auditRows("signing_credential.removed")).toHaveLength(1);
 	});
 
 	it("registers a Passkey with P-256 and Ed25519 and records its RP", async () => {
@@ -128,8 +137,8 @@ describe("signing credentials API", () => {
 		for (const [alg, authenticator] of Object.entries(keys)) {
 			const { options, res } = await registerPasskey(authenticator, `passkey-${alg}`);
 			expect(res.status).toBe(201);
-			const { credential } = (await res.json()) as { credential: Record<string, unknown> };
-			expect(credential).toMatchObject({
+			const { signingCredential } = (await res.json()) as { signingCredential: Record<string, unknown> };
+			expect(signingCredential).toMatchObject({
 				kind: "webauthn",
 				name: `passkey-${alg}`,
 				credentialId: Buffer.from(authenticator.credentialId).toString("base64url"),
@@ -139,22 +148,22 @@ describe("signing credentials API", () => {
 			// Only the three algorithms crha can verify are offered (doc/design/protocol.md "Authorization object").
 			expect(options.pubKeyCredParams.map((param) => param.alg)).toEqual([-7, -8, -257]);
 		}
-		const listed = (await (await call(app, "/api/me/credentials", { cookie })).json()) as {
-			credentials: { kind: string; credentialId: string }[];
+		const listed = (await (await call(app, "/api/me/signing-credentials", { cookie })).json()) as {
+			signingCredentials: { kind: string; credentialId: string }[];
 		};
-		expect(listed.credentials.map((credential) => credential.kind)).toEqual(["webauthn", "webauthn"]);
+		expect(listed.signingCredentials.map((credential) => credential.kind)).toEqual(["webauthn", "webauthn"]);
 
 		// The same credential cannot be registered twice (a new challenge is issued, the attestation repeats).
 		const again = await registerPasskey(keys.ES256, "duplicate");
 		expect(again.res.status).toBe(400);
 		expect(((await again.res.json()) as { error: string }).error).toMatch(/already registered/);
 		await audit.flush();
-		expect(await auditRows("credential.added")).toHaveLength(2);
+		expect(await auditRows("signing_credential.added")).toHaveLength(2);
 	});
 
 	it("consumes a registration challenge once and refuses an unknown one", async () => {
 		const authenticator = new SoftwareAuthenticator();
-		const optionsRes = await call(app, "/api/me/credentials/webauthn/options", {
+		const optionsRes = await call(app, "/api/me/signing-credentials/webauthn/options", {
 			method: "POST",
 			cookie,
 			body: {},
@@ -162,14 +171,14 @@ describe("signing credentials API", () => {
 		});
 		const { options } = (await optionsRes.json()) as { options: { challenge: string } };
 		const response = authenticator.registrationResponse(options.challenge);
-		const first = await call(app, "/api/me/credentials/webauthn", {
+		const first = await call(app, "/api/me/signing-credentials/webauthn", {
 			method: "POST",
 			cookie,
 			body: { response },
 			headers: BROWSER,
 		});
 		expect(first.status).toBe(201);
-		const second = await call(app, "/api/me/credentials/webauthn", {
+		const second = await call(app, "/api/me/signing-credentials/webauthn", {
 			method: "POST",
 			cookie,
 			body: { name: "replay", response },
@@ -181,7 +190,7 @@ describe("signing credentials API", () => {
 		// A challenge this server never issued.
 		const foreign = new SoftwareAuthenticator();
 		const foreignResponse = foreign.registrationResponse("not-a-real-challenge");
-		const unknown = await call(app, "/api/me/credentials/webauthn", {
+		const unknown = await call(app, "/api/me/signing-credentials/webauthn", {
 			method: "POST",
 			cookie,
 			body: { response: foreignResponse },

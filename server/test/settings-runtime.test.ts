@@ -131,7 +131,7 @@ describe("settings applied without a restart", () => {
 	it("changes the WebAuthn origins accepted for registration options", async () => {
 		const { db, app, admin } = await setup();
 		const options = (origin: string) =>
-			call(app, "/api/me/credentials/webauthn/options", {
+			call(app, "/api/me/signing-credentials/webauthn/options", {
 				method: "POST",
 				cookie: admin,
 				body: {},

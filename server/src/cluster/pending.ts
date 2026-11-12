@@ -12,7 +12,7 @@ import type {
 } from "@crh/api";
 import type { AuthorizationPayload } from "@crh/protocol";
 import { decodeAuthorizationPayload } from "@crh/protocol";
-import { webauthnCredentials } from "../privilege/credentials.ts";
+import { webauthnSigningCredentials } from "../privilege/signing-credentials.ts";
 import { webauthnChallenge } from "../privilege/webauthn.ts";
 import type { Db } from "../storage/db.ts";
 import { type PendingPayloadView, parseTaskAuthorization, type TaskAuthorizationRecord } from "./authorization.ts";
@@ -88,7 +88,7 @@ async function passkeysFor(
 		record.plan.paths.filter((path) => path.path === "user").flatMap((path) => path.entries.map((entry) => entry.name)),
 	);
 	if (planned.size === 0) return [];
-	const credentials = await webauthnCredentials(db, userId);
+	const credentials = await webauthnSigningCredentials(db, userId);
 	const out: PendingPasskey[] = [];
 	for (const entry of summary.summary.trust) {
 		if (entry.role !== "user" || entry.key.kind !== "webauthn" || entry.kinds.length === 0) continue;

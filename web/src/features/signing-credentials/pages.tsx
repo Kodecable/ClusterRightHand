@@ -1,4 +1,4 @@
-import type { CredentialView } from "@crh/api";
+import type { SigningCredentialView } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startRegistration } from "@simplewebauthn/browser";
@@ -23,22 +23,28 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn, MONO_CELL } from "@/lib/utils";
-import { useAddSshCredential, useCredentials, useDeleteCredential, usePasskeyOptions, useRegisterPasskey } from "./api";
-import { credentialTrustSnippet } from "./trust";
+import {
+	useAddSshSigningCredential,
+	useDeleteSigningCredential,
+	usePasskeyOptions,
+	useRegisterPasskey,
+	useSigningCredentials,
+} from "./api";
+import { signingCredentialTrustSnippet } from "./trust";
 
 interface SshFormValues {
 	name: string;
 	publicKey: string;
 }
 
-/** The key id a credential row shows: the SSH fingerprint or the WebAuthn credential id. */
-export function credentialKeyId(credential: CredentialView): string {
+/** The key id a signing credential row shows: the SSH fingerprint or the WebAuthn credential id. */
+export function signingCredentialKeyId(credential: SigningCredentialView): string {
 	return credential.kind === "ssh" ? (credential.fingerprint ?? "") : (credential.credentialId ?? "");
 }
 
 function AddSshKeyForm() {
 	const { t } = useLingui();
-	const add = useAddSshCredential();
+	const add = useAddSshSigningCredential();
 	const schema = useMemo(
 		() =>
 			z.object({
@@ -148,9 +154,9 @@ function AddPasskeyCard() {
 	);
 }
 
-function TrustSnippetDialog({ credential, onClose }: { credential: CredentialView; onClose: () => void }) {
+function TrustSnippetDialog({ credential, onClose }: { credential: SigningCredentialView; onClose: () => void }) {
 	const { t } = useLingui();
-	const snippet = credentialTrustSnippet(credential);
+	const snippet = signingCredentialTrustSnippet(credential);
 	return (
 		<Dialog
 			open
@@ -181,22 +187,22 @@ function TrustSnippetDialog({ credential, onClose }: { credential: CredentialVie
  * user authorize privileged tasks on a node. Each row exports the `[[trust]]`
  * block to paste into that node's privileged.toml.
  */
-export function CredentialsPage() {
+export function SigningCredentialsPage() {
 	const { t } = useLingui();
 	const timeWidth = useTimeColumnWidth();
-	const credentials = useCredentials();
-	const remove = useDeleteCredential();
-	const [snippet, setSnippet] = useState<CredentialView>();
-	const [deleting, setDeleting] = useState<CredentialView>();
+	const credentials = useSigningCredentials();
+	const remove = useDeleteSigningCredential();
+	const [snippet, setSnippet] = useState<SigningCredentialView>();
+	const [deleting, setDeleting] = useState<SigningCredentialView>();
 
-	const columns = useMemo<DataTableColumn<CredentialView>[]>(
+	const columns = useMemo<DataTableColumn<SigningCredentialView>[]>(
 		() => [
 			{
 				id: "name",
 				header: t`Name`,
 				minSize: 140,
 				cell: ({ row }) => <span className="truncate font-medium">{row.original.name}</span>,
-				meta: { title: (credential: CredentialView) => credential.name },
+				meta: { title: (credential: SigningCredentialView) => credential.name },
 			},
 			{
 				id: "kind",
@@ -208,14 +214,14 @@ export function CredentialsPage() {
 				id: "key",
 				header: t`Key`,
 				cell: ({ row }) => {
-					const key = credentialKeyId(row.original);
+					const key = signingCredentialKeyId(row.original);
 					return (
 						<span className={cn("block truncate", MONO_CELL)}>
 							{key === "" ? <span className="text-muted-foreground">–</span> : key}
 						</span>
 					);
 				},
-				meta: { title: (credential: CredentialView) => credentialKeyId(credential) || undefined },
+				meta: { title: (credential: SigningCredentialView) => signingCredentialKeyId(credential) || undefined },
 			},
 			{
 				id: "created",
@@ -250,7 +256,7 @@ export function CredentialsPage() {
 	);
 
 	return (
-		<Page data-testid="credentials-page">
+		<Page data-testid="signing-credentials-page">
 			<PageHeader title={<Trans>Signing credentials</Trans>} />
 			<div className="grid gap-4 lg:grid-cols-2">
 				<AddSshKeyForm />
@@ -267,7 +273,7 @@ export function CredentialsPage() {
 				empty={
 					<EmptyState
 						bare
-						title={<Trans>No credentials yet</Trans>}
+						title={<Trans>No signing credentials yet</Trans>}
 						description={
 							<Trans>Add an SSH key or register a Passkey to sign authorizations for privileged tasks.</Trans>
 						}
@@ -280,14 +286,14 @@ export function CredentialsPage() {
 				onOpenChange={(open) => {
 					if (!open) setDeleting(undefined);
 				}}
-				title={deleting ? t`Delete the credential "${deleting.name}"?` : ""}
+				title={deleting ? t`Delete the signing credential "${deleting.name}"?` : ""}
 				description={
 					<Trans>
 						Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their
 						deadline.
 					</Trans>
 				}
-				confirmLabel={<Trans>Delete credential</Trans>}
+				confirmLabel={<Trans>Delete signing credential</Trans>}
 				busy={remove.isPending}
 				onConfirm={() => {
 					if (!deleting) return;

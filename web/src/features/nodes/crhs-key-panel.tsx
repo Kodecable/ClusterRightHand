@@ -6,8 +6,8 @@ import { ErrorState } from "@/components/error-state";
 import { KeyValueList } from "@/components/key-value";
 import { CardSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
-import { trustSnippet } from "@/features/credentials/trust";
 import { useCrhsKey } from "@/features/nodes/api";
+import { trustSnippet } from "@/features/signing-credentials/trust";
 
 /**
  * crhs's authorization signing key (doc/design/privilege.md "Authorization signing key"): the

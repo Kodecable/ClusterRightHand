@@ -1,6 +1,6 @@
-import type { CredentialView } from "@crh/api";
+import type { SigningCredentialView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import { credentialTrustSnippet, toBase64url, tomlString, trustSnippet } from "./trust";
+import { signingCredentialTrustSnippet, toBase64url, tomlString, trustSnippet } from "./trust";
 
 describe("tomlString", () => {
 	test("escapes quotes and backslashes", () => {
@@ -31,7 +31,7 @@ describe("trustSnippet", () => {
 	});
 });
 
-const sshCredential: CredentialView = {
+const sshCredential: SigningCredentialView = {
 	id: "c1",
 	kind: "ssh",
 	name: "laptop",
@@ -43,7 +43,7 @@ const sshCredential: CredentialView = {
 	origins: [],
 };
 
-const passkeyCredential: CredentialView = {
+const passkeyCredential: SigningCredentialView = {
 	id: "c2",
 	kind: "webauthn",
 	name: "yubikey",
@@ -56,9 +56,9 @@ const passkeyCredential: CredentialView = {
 	origins: ["https://crh.example.com"],
 };
 
-describe("credentialTrustSnippet", () => {
+describe("signingCredentialTrustSnippet", () => {
 	test("builds a user entry for an SSH key", () => {
-		const snippet = credentialTrustSnippet(sshCredential);
+		const snippet = signingCredentialTrustSnippet(sshCredential);
 		expect(snippet).toContain("[[trust]]");
 		expect(snippet).toContain('name          = "laptop"');
 		expect(snippet).toContain('role          = "user"');
@@ -70,7 +70,7 @@ describe("credentialTrustSnippet", () => {
 	});
 
 	test("builds a webauthn entry with the COSE key and RP", () => {
-		const snippet = credentialTrustSnippet(passkeyCredential);
+		const snippet = signingCredentialTrustSnippet(passkeyCredential);
 		expect(snippet).toContain('format        = "webauthn"');
 		expect(snippet).toContain('rp_id         = "crh.example.com"');
 		expect(snippet).toContain('origins       = ["https://crh.example.com"]');
@@ -80,7 +80,7 @@ describe("credentialTrustSnippet", () => {
 	});
 
 	test("escapes names, keys and origins as TOML strings", () => {
-		const snippet = credentialTrustSnippet({
+		const snippet = signingCredentialTrustSnippet({
 			...sshCredential,
 			name: 'a "b" \\c',
 			publicKey: 'ssh-ed25519 AA"AA',

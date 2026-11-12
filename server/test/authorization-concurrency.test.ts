@@ -69,7 +69,7 @@ describe("authorization paths and the task queue", () => {
 		ownerId = (await createUser(db, { username: "owner", kind: "member", password: "password-123" })).id;
 		app = makeApp(db, undefined, { cluster });
 		ownerKey = createSshKey("ssh-ed25519");
-		await addSshCredential(ownerKey);
+		await addSshSigningCredential(ownerKey);
 	});
 
 	afterEach(async () => {
@@ -79,9 +79,9 @@ describe("authorization paths and the task queue", () => {
 		await db.destroy();
 	});
 
-	async function addSshCredential(key: TestSshKey): Promise<void> {
+	async function addSshSigningCredential(key: TestSshKey): Promise<void> {
 		const cookie = await login(app, "owner", "password-123");
-		const res = await call(app, "/api/me/credentials/ssh", {
+		const res = await call(app, "/api/me/signing-credentials/ssh", {
 			cookie,
 			body: { publicKey: key.line, name: "test" },
 		});

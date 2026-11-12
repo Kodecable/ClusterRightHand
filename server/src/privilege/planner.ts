@@ -24,8 +24,8 @@ export const USER_AUTHORIZATION_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type { AuthorizationPath };
 
-/** The owner's registered credentials (doc/design/privilege.md "Server-side authorization" `user_credentials`). */
-export interface OwnerCredentials {
+/** The owner's registered signing credentials (doc/design/privilege.md "Server-side authorization" `signing_credentials`). */
+export interface OwnerSigningCredentials {
 	/** OpenSSH `SHA256:…` fingerprints of the owner's SSH keys. */
 	sshKeyFingerprints: readonly string[];
 	/** base64url credential ids of the owner's WebAuthn credentials. */
@@ -43,7 +43,7 @@ export interface PlannerInput {
 	task: { id: string; attempt: number; spec: TaskSpec; privileged: boolean };
 	/** Tasks of a task group never use local approval. */
 	taskGroup: boolean;
-	owner: OwnerCredentials;
+	owner: OwnerSigningCredentials;
 	/**
 	 * The fingerprints of crhs's own authorization signing keys, newest first. When given, only crhs
 	 * trust entries with one of these keys can sign or cosign, and the newest key the node trusts with
@@ -119,7 +119,10 @@ function payloadTtl(entry: TrustEntry, fallback: number): number {
 	return Math.min(entry.maxTtlMs ?? fallback, fallback);
 }
 
-export function ownerCredentialOf(entry: TrustEntry, owner: OwnerCredentials): PlannedUserEntry["credential"] | null {
+export function ownerSigningCredentialOf(
+	entry: TrustEntry,
+	owner: OwnerSigningCredentials,
+): PlannedUserEntry["credential"] | null {
 	if (entry.key.kind === "sshsig") {
 		return owner.sshKeyFingerprints.includes(entry.key.fingerprint)
 			? { kind: "sshsig", fingerprint: entry.key.fingerprint }
@@ -296,7 +299,7 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 		const acceptable: { planned: PlannedUserEntry; ttl: number }[] = [];
 		for (const entry of summary.trust) {
 			if (entry.role !== "user" || !entry.kinds.includes("execute")) continue;
-			const credential = ownerCredentialOf(entry, input.owner);
+			const credential = ownerSigningCredentialOf(entry, input.owner);
 			if (!credential) continue;
 			const entryKey = entriesByName.get(entry.name);
 			if (!entryKey) continue;
@@ -356,7 +359,8 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 			});
 		} else {
 			const ownerEntries = summary.trust.filter(
-				(entry) => entry.role === "user" && entry.kinds.includes("execute") && ownerCredentialOf(entry, input.owner),
+				(entry) =>
+					entry.role === "user" && entry.kinds.includes("execute") && ownerSigningCredentialOf(entry, input.owner),
 			);
 			if (ownerEntries.length === 0) {
 				notes.push("the node trusts none of the owner's credentials");

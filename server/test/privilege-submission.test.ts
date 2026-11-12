@@ -105,8 +105,8 @@ describe("user authorizations", () => {
 		adminCookie = await login(app, "admin", "password-123");
 		ownerKey = createSshKey("ssh-ed25519");
 		otherKey = createSshKey("ssh-ed25519");
-		await addSshCredential(ownerKey, owner.cookie);
-		await addSshCredential(otherKey, other.cookie);
+		await addSshSigningCredential(ownerKey, owner.cookie);
+		await addSshSigningCredential(otherKey, other.cookie);
 	});
 
 	afterEach(async () => {
@@ -115,8 +115,11 @@ describe("user authorizations", () => {
 		await db.destroy();
 	});
 
-	async function addSshCredential(key: TestSshKey, cookie: string): Promise<void> {
-		const res = await call(app, "/api/me/credentials/ssh", { cookie, body: { publicKey: key.line, name: "test" } });
+	async function addSshSigningCredential(key: TestSshKey, cookie: string): Promise<void> {
+		const res = await call(app, "/api/me/signing-credentials/ssh", {
+			cookie,
+			body: { publicKey: key.line, name: "test" },
+		});
 		expect(res.status).toBe(201);
 	}
 

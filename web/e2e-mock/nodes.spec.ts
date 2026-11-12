@@ -53,7 +53,7 @@ test("edit a node's trust configuration and export the snippet", async ({ page }
 	await mockApi(page, {
 		state: {
 			nodes: [nodeView({ id: "node-1", name: "worker-01" })],
-			credentials: [
+			signingCredentials: [
 				{
 					id: "credential-1",
 					kind: "ssh",

@@ -226,10 +226,10 @@ const sshCredentialsRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/ssh-credentials/pages"), "SshCredentialsPage"),
 });
 
-const credentialsRoute = createRoute({
+const signingCredentialsRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
-	path: "/credentials",
-	component: lazyRouteComponent(() => import("@/features/credentials/pages"), "CredentialsPage"),
+	path: "/signing-credentials",
+	component: lazyRouteComponent(() => import("@/features/signing-credentials/pages"), "SigningCredentialsPage"),
 });
 
 // --- admin ----------------------------------------------------------------
@@ -311,7 +311,7 @@ const routeTree = rootRoute.addChildren([
 		nodeGroupsRoute,
 		nodeGroupDetailRoute,
 		sshCredentialsRoute,
-		credentialsRoute,
+		signingCredentialsRoute,
 		authorizationsRoute,
 		tokensRoute,
 		auditRoute,

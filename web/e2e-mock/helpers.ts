@@ -4,7 +4,6 @@ import type {
 	AuditEvent,
 	AuthorizationSummary,
 	AvailableModel,
-	CredentialView,
 	Directory,
 	ModelPreset,
 	ModelPresetInput,
@@ -20,6 +19,7 @@ import type {
 	ScheduleView,
 	SessionListItem,
 	SessionView,
+	SigningCredentialView,
 	SshCredential,
 	TaskGroupView,
 	TaskView,
@@ -90,7 +90,7 @@ export interface FakeState {
 	providers: ModelProviderView[];
 	builtinProviders: string[];
 	presets: ModelPreset[];
-	credentials: CredentialView[];
+	signingCredentials: SigningCredentialView[];
 	audit: AuditEvent[];
 	users: User[];
 	userGroups: UserGroup[];
@@ -350,7 +350,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				protocol: "Reply with the title only, on one line, at most 60 characters, without quotes.",
 			},
 		],
-		credentials: [],
+		signingCredentials: [],
 		audit: [],
 		users: [],
 		userGroups: [],
@@ -936,12 +936,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ preset });
 		}
 
-		// --- credentials and authorizations --------------------------------
-		if (path === "/api/me/credentials" && method === "GET") return json({ credentials: state.credentials });
-		if (path === "/api/me/credentials/ssh" && method === "POST") {
+		// --- signing credentials and authorizations --------------------------------
+		if (path === "/api/me/signing-credentials" && method === "GET")
+			return json({ signingCredentials: state.signingCredentials });
+		if (path === "/api/me/signing-credentials/ssh" && method === "POST") {
 			const input = body as { publicKey: string; name?: string };
-			const credential: CredentialView = {
-				id: `credential-${state.credentials.length + 1}`,
+			const credential: SigningCredentialView = {
+				id: `signing-credential-${state.signingCredentials.length + 1}`,
 				kind: "ssh",
 				name: input.name ?? "ssh key",
 				createdAt: "2026-01-01T00:00:00.000Z",
@@ -951,13 +952,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				rpId: null,
 				origins: [],
 			};
-			state.credentials.push(credential);
-			return json({ credential });
+			state.signingCredentials.push(credential);
+			return json({ signingCredential: credential });
 		}
-		const credentialDelete = /^\/api\/me\/credentials\/([^/]+)$/.exec(path);
+		const credentialDelete = /^\/api\/me\/signing-credentials\/([^/]+)$/.exec(path);
 		if (credentialDelete && method === "DELETE") {
 			const id = decodeURIComponent(credentialDelete[1] as string);
-			state.credentials = state.credentials.filter((candidate) => candidate.id !== id);
+			state.signingCredentials = state.signingCredentials.filter((candidate) => candidate.id !== id);
 			return json({ ok: true });
 		}
 		if (path === "/api/authorizations" && method === "GET") {

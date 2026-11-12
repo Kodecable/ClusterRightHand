@@ -27,7 +27,7 @@ import { parseTaskAuthorization } from "../cluster/authorization.ts";
 import type { Db } from "../storage/db.ts";
 import { errorText, UserError } from "../util/errors.ts";
 import { type AuthzEntry, type AuthzSignature, authzEntryFromTrust } from "./authz.ts";
-import { webauthnCredentials } from "./credentials.ts";
+import { webauthnSigningCredentials } from "./signing-credentials.ts";
 import { parseAuthorizedKey, sshsigKeyBlob, verifySshsig } from "./sshsig.ts";
 import { verifyAssertion } from "./webauthn.ts";
 
@@ -120,7 +120,9 @@ export async function parseWebauthnSubmission(
 	if (Buffer.from(createHash("sha256").update(payloadBytes).digest()).toString("hex") !== payloadId) {
 		throw new SubmissionError("the pending payload does not hash to that id");
 	}
-	const credential = (await webauthnCredentials(db, userId)).find((candidate) => candidate.credentialId === value.id);
+	const credential = (await webauthnSigningCredentials(db, userId)).find(
+		(candidate) => candidate.credentialId === value.id,
+	);
 	if (!credential) throw new SubmissionError("the assertion is for a credential that is not one of yours");
 	try {
 		await verifyAssertion({ credential, payload: payloadBytes, response: value });
@@ -186,12 +188,12 @@ interface SshSigningKey {
 /** The user's own credentials, as submission checks need them. */
 export interface UserSigningMaterial {
 	ssh: SshSigningKey[];
-	webauthn: Awaited<ReturnType<typeof webauthnCredentials>>;
+	webauthn: Awaited<ReturnType<typeof webauthnSigningCredentials>>;
 }
 
 export async function loadUserSigningMaterial(db: Db, userId: string): Promise<UserSigningMaterial> {
 	const rows = await db
-		.selectFrom("user_credentials")
+		.selectFrom("signing_credentials")
 		.select(["kind", "public_key", "fingerprint"])
 		.where("user_id", "=", userId)
 		.execute();
@@ -199,7 +201,7 @@ export async function loadUserSigningMaterial(db: Db, userId: string): Promise<U
 		ssh: rows.flatMap((row) =>
 			row.kind === "ssh" && row.fingerprint ? [{ publicKey: row.public_key, fingerprint: row.fingerprint }] : [],
 		),
-		webauthn: await webauthnCredentials(db, userId),
+		webauthn: await webauthnSigningCredentials(db, userId),
 	};
 }
 

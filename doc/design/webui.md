@@ -100,7 +100,7 @@ A status is coloured text with a tone (ok, warn, danger, info, muted), the same 
 used only in the session list.
 
 Lists show relative times, with the absolute time in the tooltip. Detail pages and security-relevant
-lists (audit, authorizations, approvals, tokens, credentials) show absolute times with seconds. All
+lists (audit, authorizations, approvals, tokens, signing credentials) show absolute times with seconds. All
 times use the browser's time zone.
 
 A task in state `exited` reads **Finished** whatever its exit code; the outcome (exit code, signal,

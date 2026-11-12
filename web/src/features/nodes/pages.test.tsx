@@ -79,7 +79,7 @@ function mockFetch(
 			}
 			if (path.endsWith("/tasks")) return json({ tasks: [] });
 			if (path === "/api/node-groups") return json({ groups: [] });
-			if (path === "/api/me/credentials") return json({ credentials: [] });
+			if (path === "/api/me/signing-credentials") return json({ signingCredentials: [] });
 			if (path === "/api/privilege/crhs-key") {
 				// The server answers with the newest key (`key`) and every key, newest first.
 				return json({

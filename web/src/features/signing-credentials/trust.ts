@@ -1,4 +1,4 @@
-import type { CredentialView } from "@crh/api";
+import type { SigningCredentialView } from "@crh/api";
 
 /** A TOML basic string; the only characters that need escaping are the quote and the backslash. */
 export function tomlString(value: string): string {
@@ -44,11 +44,11 @@ export function trustSnippet(authorizedKey: string): string {
 /**
  * The `[[trust]]` block for an SSH key or Passkey the user registered
  * (doc/design/privilege.md "Trust configuration"). The allow and deny lists are
- * examples to narrow: the owner edits them on the node before the credential
+ * examples to narrow: the owner edits them on the node before the signing credential
  * can authorize anything. `require_uv` and `max_ttl` are commented out because
  * they are policy choices, not defaults.
  */
-export function credentialTrustSnippet(credential: CredentialView): string {
+export function signingCredentialTrustSnippet(credential: SigningCredentialView): string {
 	const lines = ["[[trust]]", `name          = ${tomlString(credential.name)}`, 'role          = "user"'];
 	if (credential.kind === "ssh") {
 		lines.push('format        = "sshsig"', `key           = ${tomlString(credential.publicKey)}`);
@@ -66,12 +66,12 @@ export function credentialTrustSnippet(credential: CredentialView): string {
 		"",
 		credential.kind === "ssh"
 			? "# Require user verification (a FIDO touch with PIN); only sk-* SSH keys can assert it."
-			: "# Require user verification (a PIN or biometrics) for this credential.",
+			: "# Require user verification (a PIN or biometrics) for this signing credential.",
 		"# require_uv = true",
-		"# Longest lifetime a signature of this credential may have; omit for no limit.",
+		"# Longest lifetime a signature of this signing credential may have; omit for no limit.",
 		'# max_ttl   = "24h"',
 		"",
-		"# What this credential may authorize on this node: narrow it before trusting the key.",
+		"# What this signing credential may authorize on this node: narrow it before trusting the key.",
 		"allow = [",
 		'\t{ method = "exec", prefix = "systemctl restart " },',
 		"]",

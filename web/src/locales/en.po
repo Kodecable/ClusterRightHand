@@ -115,7 +115,7 @@ msgid "{0} tokens left · {usedText} spent"
 msgstr "{0} tokens left · {usedText} spent"
 
 #. placeholder {0}: credential.name
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "{0}: privileged.toml"
 msgstr "{0}: privileged.toml"
 
@@ -296,7 +296,7 @@ msgstr "A prompt is required."
 msgid "A provider id is lowercase letters, digits and dashes."
 msgstr "A provider id is lowercase letters, digits and dashes."
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "A public key is required."
 msgstr "A public key is required."
 
@@ -388,7 +388,7 @@ msgstr "Actor type"
 msgid "Add"
 msgstr "Add"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Add a Passkey"
 msgstr "Add a Passkey"
 
@@ -404,11 +404,11 @@ msgstr "Add a signing credential or connect crhs before configuring trust."
 msgid "Add access"
 msgstr "Add access"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Add an SSH key"
 msgstr "Add an SSH key"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 msgstr "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 
@@ -441,7 +441,7 @@ msgstr "Add origin"
 msgid "Add share"
 msgstr "Add share"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Add SSH key"
 msgstr "Add SSH key"
 
@@ -1030,9 +1030,9 @@ msgstr "Clock"
 msgid "Clock warning threshold"
 msgstr "Clock warning threshold"
 
-#: src/features/credentials/pages.tsx
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/nodes/reenroll-node-dialog.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/create-token-dialog.tsx
@@ -1204,9 +1204,9 @@ msgstr "Copy this token now. It will not be shown again."
 msgid "Copy token"
 msgstr "Copy token"
 
-#: src/features/credentials/pages.tsx
 #: src/features/nodes/crhs-key-panel.tsx
 #: src/features/nodes/trust-editor-panel.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Copy trust snippet"
 msgstr "Copy trust snippet"
 
@@ -1252,8 +1252,8 @@ msgstr "Create token"
 
 #: src/components/task-result.tsx
 #: src/features/authorizations/pages.tsx
-#: src/features/credentials/pages.tsx
 #: src/features/nodes/access-grants.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tasks/task-columns.tsx
@@ -1268,10 +1268,6 @@ msgstr "Created"
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Credential"
 msgstr "Credential"
-
-#: src/app/shell/nav.ts
-msgid "Credentials"
-msgstr "Credentials"
 
 #: src/features/nodes/pages.tsx
 msgid "crha client"
@@ -1369,10 +1365,10 @@ msgstr "Default prompt and protocol"
 msgid "Default: {defaultValue}."
 msgstr "Default: {defaultValue}."
 
-#: src/features/credentials/pages.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 #: src/features/tokens/pages.tsx
@@ -1382,8 +1378,8 @@ msgstr "Delete"
 
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
-#: src/features/credentials/pages.tsx
 #: src/features/settings/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete {0}"
 msgstr "Delete {0}"
@@ -1406,7 +1402,6 @@ msgstr "Delete authorization signing key {0}"
 msgid "Delete authorization signing key?"
 msgstr "Delete authorization signing key?"
 
-#: src/features/credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
 msgstr "Delete credential"
@@ -1443,10 +1438,14 @@ msgstr "Delete provider {0}?"
 msgid "Delete schedule"
 msgstr "Delete schedule"
 
+#: src/features/signing-credentials/pages.tsx
+msgid "Delete signing credential"
+msgstr "Delete signing credential"
+
 #. placeholder {0}: deleting.name
-#: src/features/credentials/pages.tsx
-msgid "Delete the credential \"{0}\"?"
-msgstr "Delete the credential \"{0}\"?"
+#: src/features/signing-credentials/pages.tsx
+msgid "Delete the signing credential \"{0}\"?"
+msgstr "Delete the signing credential \"{0}\"?"
 
 #. placeholder {0}: deleting.name
 #: src/features/ssh-credentials/pages.tsx
@@ -2020,8 +2019,8 @@ msgstr "Jump to latest"
 msgid "Keep forever"
 msgstr "Keep forever"
 
-#: src/features/credentials/pages.tsx
 #: src/features/nodes/node-trust.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Key"
 msgstr "Key"
 
@@ -2035,9 +2034,9 @@ msgstr "Keys crhs signs authorizations with. The newest is used by default; a no
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
-#: src/features/credentials/pages.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/users/new-user-dialog.tsx
 #: src/features/users/pages.tsx
 msgid "Kind"
@@ -2277,7 +2276,6 @@ msgid "More results — keep typing to narrow down"
 msgstr "More results — keep typing to narrow down"
 
 #: src/components/task-result.tsx
-#: src/features/credentials/pages.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
@@ -2285,6 +2283,7 @@ msgstr "More results — keep typing to narrow down"
 #: src/features/schedules/schedule-form.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
@@ -2440,10 +2439,6 @@ msgstr "No budget limit · {usedText} spent"
 msgid "No captcha"
 msgstr "No captcha"
 
-#: src/features/credentials/pages.tsx
-msgid "No credentials yet"
-msgstr "No credentials yet"
-
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
 msgstr "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
@@ -2542,6 +2537,10 @@ msgstr "No schedules yet"
 #: src/features/users/pages.tsx
 msgid "No sessions yet"
 msgstr "No sessions yet"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "No signing credentials yet"
+msgstr "No signing credentials yet"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "No SSH credentials yet"
@@ -2660,7 +2659,7 @@ msgstr "Nodes"
 msgid "Nodes or node groups"
 msgstr "Nodes or node groups"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 msgstr "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 
@@ -2752,7 +2751,7 @@ msgstr "Old text"
 msgid "On behalf of"
 msgstr "On behalf of"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 msgstr "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 
@@ -2815,8 +2814,8 @@ msgstr "Operation"
 msgid "Ops console"
 msgstr "Ops console"
 
-#: src/features/credentials/pages.tsx
 #: src/features/settings/provider-dialog.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Optional"
 msgstr "Optional"
 
@@ -2836,7 +2835,7 @@ msgstr "Optional; defaults to the target's host."
 msgid "Optional; it defaults to the node's hostname."
 msgstr "Optional; it defaults to the node's hostname."
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Optional; it names the trust entry."
 msgstr "Optional; it names the trust entry."
 
@@ -2902,12 +2901,12 @@ msgid "Partly failed"
 msgstr "Partly failed"
 
 #: src/components/decision/signature-decision.tsx
-#: src/features/credentials/pages.tsx
 #: src/features/nodes/trust-editor-panel.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Passkey"
 msgstr "Passkey"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Passkey registration was cancelled."
 msgstr "Passkey registration was cancelled."
 
@@ -3043,9 +3042,9 @@ msgstr "Provider"
 msgid "Provider id"
 msgstr "Provider id"
 
-#: src/features/credentials/pages.tsx
 #: src/features/nodes/crhs-key-panel.tsx
 #: src/features/nodes/node-trust.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Public key"
@@ -3108,7 +3107,7 @@ msgstr "Recent tasks"
 msgid "Reconnecting…"
 msgstr "Reconnecting…"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Register Passkey"
 msgstr "Register Passkey"
 
@@ -3734,7 +3733,8 @@ msgstr "Signed in as {name}"
 msgid "Signed with Passkey \"{0}\"."
 msgstr "Signed with Passkey \"{0}\"."
 
-#: src/features/credentials/pages.tsx
+#: src/app/shell/nav.ts
+#: src/features/signing-credentials/pages.tsx
 msgid "Signing credentials"
 msgstr "Signing credentials"
 
@@ -3776,7 +3776,7 @@ msgstr "SSH credential created"
 msgid "SSH credentials"
 msgstr "SSH credentials"
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "SSH key"
 msgstr "SSH key"
 
@@ -3981,7 +3981,7 @@ msgstr "The Ask rule preset can often pause the schedule while it waits for your
 msgid "The base URL must start with http:// or https://."
 msgstr "The base URL must start with http:// or https://."
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 msgstr "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 
@@ -4030,7 +4030,7 @@ msgstr "The listing is truncated: the directory has more entries than are shown.
 msgid "The model list could not be loaded."
 msgstr "The model list could not be loaded."
 
-#: src/features/credentials/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "The name must be at most 100 characters."
 msgstr "The name must be at most 100 characters."
@@ -4332,8 +4332,8 @@ msgstr "Trust configuration"
 msgid "Trust entries"
 msgstr "Trust entries"
 
-#: src/features/credentials/pages.tsx
 #: src/features/nodes/trust-editor-panel.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Trust snippet"
 msgstr "Trust snippet"
 

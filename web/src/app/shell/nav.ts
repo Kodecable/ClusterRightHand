@@ -31,7 +31,7 @@ export type NavPath =
 	| "/nodes"
 	| "/node-groups"
 	| "/ssh-credentials"
-	| "/credentials"
+	| "/signing-credentials"
 	| "/authorizations"
 	| "/tokens"
 	| "/audit"
@@ -71,7 +71,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/nodes", label: msg`Nodes`, icon: ServerIcon },
 			{ to: "/node-groups", label: msg`Node groups`, icon: GraphHubIcon },
 			{ to: "/ssh-credentials", label: msg`SSH credentials`, icon: LockKeyholeIcon, adminOnly: true },
-			{ to: "/credentials", label: msg`Credentials`, icon: KeyRoundIcon },
+			{ to: "/signing-credentials", label: msg`Signing credentials`, icon: KeyRoundIcon },
 		],
 	},
 	{

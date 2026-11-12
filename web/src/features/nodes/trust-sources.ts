@@ -1,12 +1,12 @@
 import { useMemo } from "react";
-import { useCredentials } from "@/features/credentials/api";
+import { useSigningCredentials } from "@/features/signing-credentials/api";
 import { useCrhsKey } from "./api";
 import type { TrustKeySource } from "./trust-editor";
 
-/** Sources the trust editor can build a snippet for: crhs's key and the user's own credentials. */
+/** Sources the trust editor can build a snippet for: crhs's key and the user's own signing credentials. */
 export function useTrustSources(): TrustKeySource[] {
 	const crhsKey = useCrhsKey();
-	const credentials = useCredentials();
+	const credentials = useSigningCredentials();
 	return useMemo(() => {
 		const sources: TrustKeySource[] = [];
 		if (crhsKey.data) sources.push({ kind: "crhs", authorizedKey: crhsKey.data.authorizedKey });

@@ -16,8 +16,8 @@ ClusterRightHand（CRH）是一个自托管的多节点 agent 平台，带有严
 - **同时是 MCP 服务器。** 直接接入现有工作流，Claude Code、Codex 等 MCP 客户端可以接入 MCP 使用同一套工具，受同样的规则和审批约束。
 - **部署简单。** 一个 Node.js 进程提供 WebUI、API、MCP、agent 和调度器，数据存 SQLite 或 PostgreSQL。WebUI 支持中文和英文。
 
-| 会话 | 节点信任 |
-| --- | --- |
+| 会话                                                            | 节点信任                                                                |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | ![agent 会话汇总了每个节点的信息](doc/images/session.zh-CN.png) | ![db-1 只信任 admin 的签名和本机 root](doc/images/node-trust.zh-CN.png) |
 
 ## 工作方式
@@ -50,43 +50,43 @@ ClusterRightHand（CRH）是一个自托管的多节点 agent 平台，带有严
 
 **使用指南**
 
-| 页面 | 内容 |
-| --- | --- |
-| [Concepts](doc/guide/concepts.md) | 节点、任务、会话、规则、审批、特权 |
-| [Install](doc/guide/install.md) | 安装 crhs、节点和模型 |
-| [Using the WebUI](doc/guide/webui.md) | 控制台导览 |
-| [MCP server](doc/guide/mcp.md) | 接入外部编程 agent |
-| [Security](doc/guide/security.md) | 信任、特权模式、加固 |
-| [Operations](doc/guide/operations.md) | 升级、备份、日志、故障排查 |
-| [crhs configuration](doc/guide/reference/crhs-config.md) | `crhs.toml` 和系统设置 |
-| [crha configuration](doc/guide/reference/crha-config.md) | `crha.toml` |
-| [Privileged configuration](doc/guide/reference/privileged-config.md) | `privileged.toml` |
-| [Command line](doc/guide/reference/cli.md) | `crhs` 和 `crha` 命令 |
+| 页面                                                                 | 内容                               |
+| -------------------------------------------------------------------- | ---------------------------------- |
+| [Concepts](doc/guide/concepts.md)                                    | 节点、任务、会话、规则、审批、特权 |
+| [Install](doc/guide/install.md)                                      | 安装 crhs、节点和模型              |
+| [Using the WebUI](doc/guide/webui.md)                                | 控制台导览                         |
+| [MCP server](doc/guide/mcp.md)                                       | 接入外部编程 agent                 |
+| [Security](doc/guide/security.md)                                    | 信任、特权模式、加固               |
+| [Operations](doc/guide/operations.md)                                | 升级、备份、日志、故障排查         |
+| [crhs configuration](doc/guide/reference/crhs-config.md)             | `crhs.toml` 和系统设置             |
+| [crha configuration](doc/guide/reference/crha-config.md)             | `crha.toml`                        |
+| [Privileged configuration](doc/guide/reference/privileged-config.md) | `privileged.toml`                  |
+| [Command line](doc/guide/reference/cli.md)                           | `crhs` 和 `crha` 命令              |
 
 **设计文档**
 
-| 文档 | 内容 |
-| --- | --- |
-| [Architecture](doc/design/architecture.md) | 组件、边界、限制 |
-| [Protocol](doc/design/protocol.md) | crhs 与 crha 的协议和传输安全 |
-| [Execution plane](doc/design/execution.md) | 任务、输出、连接、SSH |
-| [Privilege and authorization](doc/design/privilege.md) | 特权模式、授权、节点信任 |
-| [Users, ownership and audit](doc/design/access-control.md) | 用户、访问、规则、审批、审计 |
-| [Agent runtime](doc/design/agent-runtime.md) | 会话、工具、子 agent、配额 |
-| [Scheduled tasks](doc/design/scheduling.md) | 计划任务 |
-| [Data model](doc/design/data-model.md) | 存储和数据保留 |
-| [WebUI](doc/design/webui.md) | 前端设计 |
-| [Testing](doc/design/testing/README.md) | 测试分层和运行方法 |
+| 文档                                                       | 内容                          |
+| ---------------------------------------------------------- | ----------------------------- |
+| [Architecture](doc/design/architecture.md)                 | 组件、边界、限制              |
+| [Protocol](doc/design/protocol.md)                         | crhs 与 crha 的协议和传输安全 |
+| [Execution plane](doc/design/execution.md)                 | 任务、输出、连接、SSH         |
+| [Privilege and authorization](doc/design/privilege.md)     | 特权模式、授权、节点信任      |
+| [Users, ownership and audit](doc/design/access-control.md) | 用户、访问、规则、审批、审计  |
+| [Agent runtime](doc/design/agent-runtime.md)               | 会话、工具、子 agent、配额    |
+| [Scheduled tasks](doc/design/scheduling.md)                | 计划任务                      |
+| [Data model](doc/design/data-model.md)                     | 存储和数据保留                |
+| [WebUI](doc/design/webui.md)                               | 前端设计                      |
+| [Testing](doc/design/testing/README.md)                    | 测试分层和运行方法            |
 
 ## 仓库结构
 
-| 路径 | 内容 |
-| --- | --- |
-| `server/` | crhs（TypeScript，Node.js） |
-| `web/` | WebUI（React） |
-| `client/` | crha（Go） |
+| 路径        | 内容                                            |
+| ----------- | ----------------------------------------------- |
+| `server/`   | crhs（TypeScript，Node.js）                     |
+| `web/`      | WebUI（React）                                  |
+| `client/`   | crha（Go）                                      |
 | `packages/` | 共享的 TypeScript 包：API 类型、CRH 协议、Noise |
-| `doc/` | 使用指南和设计文档 |
+| `doc/`      | 使用指南和设计文档                              |
 
 ## 许可证
 
