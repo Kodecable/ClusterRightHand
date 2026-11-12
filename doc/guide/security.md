@@ -152,7 +152,9 @@ calls and configuration changes. Its guarantees are limited:
   is no built-in export.
 - On each `forward` node, the privileged mode keeps its own log of every privileged task, which crhs
   cannot change. If that log cannot be written, the task is refused.
-- Local approvals and `crhs keys export` are not in the crhs audit log.
+- Local approvals are recorded only in the node's privileged log. `crhs` CLI commands are audited with
+  the actor `cli`, the OS user and host; they record the supported path, but cannot stop someone with
+  access to the master key file or the database from bypassing `crhs`.
 
 ## Key management
 

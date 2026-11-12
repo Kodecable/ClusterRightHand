@@ -45,9 +45,17 @@ export class Audit {
 		this.#db = db;
 	}
 
+	/**
+	 * Appends an event and fails if it cannot be written: for a caller that must not keep a change
+	 * whose record is missing (a CLI action, or a transaction that includes its own event).
+	 */
+	async append(input: AuditInput): Promise<void> {
+		await this.#append(input);
+	}
+
 	/** Records an event; failures are logged, never thrown, since the action already happened. */
 	record(input: AuditInput): Promise<void> {
-		const run = this.#append(input).then(
+		const run = this.append(input).then(
 			() => {},
 			(err: unknown) => console.error(`audit: failed to record ${input.action}:`, err),
 		);

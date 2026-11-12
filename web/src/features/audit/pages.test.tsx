@@ -95,6 +95,23 @@ describe("AuditPage filters", () => {
 		expect(screen.getByRole("link", { name: "Ada Ops" })).toHaveAttribute("href", "/users/user-1");
 	});
 
+	test("renders a CLI system actor and the key actions", async () => {
+		mockAudit([
+			{
+				...EVENT,
+				actorType: "system",
+				actorId: "cli",
+				action: "keys.exported",
+				targetType: null,
+				targetId: null,
+				detail: { out: "/root/crhs-keys.age" },
+			},
+		]);
+		await renderPage();
+		await screen.findByText("keys.exported");
+		expect(screen.getByText("system:cli")).toBeInTheDocument();
+	});
+
 	test("activating a row opens the event detail dialog", async () => {
 		mockAudit();
 		await renderPage();

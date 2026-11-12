@@ -352,6 +352,8 @@ so crhs can export the keys:
   export belongs to the database and that every key matches its row.
 - Export and import are local command-line operations only, never available through the WebUI or the
   API. A node needs no export: if its key is lost, it re-enrolls and keeps its record.
+- Every key command is recorded in the [audit log](access-control.md#audit) with the actor `cli`; the
+  export event names the key fingerprints and the output path, never key material.
 
 ### Node registration
 

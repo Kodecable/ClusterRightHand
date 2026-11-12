@@ -315,7 +315,9 @@ removes a revoked or expired token.
 
 **Audit** shows the audit log: administrators see every event, others the events recorded on their
 behalf. Filter by action (a value ending in `.` matches a prefix, such as `task.`) or target; click a row
-for its details. Old events are removed after the retention period ([Retention and cleanup](operations.md#retention-and-cleanup)).
+for its details. `crhs` CLI commands appear with the actor `system:cli`; their detail names the OS user
+and host, and the key actions (`keys.initialized`, `keys.imported`, `keys.exported`) never contain key
+material. Old events are removed after the retention period ([Retention and cleanup](operations.md#retention-and-cleanup)).
 
 ## SSH credentials
 

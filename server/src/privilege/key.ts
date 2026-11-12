@@ -51,6 +51,11 @@ function publicParts(publicKey: KeyObject): { publicKeyBlob: Uint8Array; authori
 	};
 }
 
+/** The OpenSSH fingerprint of an ed25519 private key (for an exported key's audit record, without the key). */
+export function signingKeyFingerprint(privateKey: KeyObject): string {
+	return publicParts(createPublicKey(privateKey)).fingerprint;
+}
+
 /** Builds the public surface of one key; the private key is never stored beyond the signer closure. */
 function signingKey(parts: { id: string; createdAt: string }, privateKey: KeyObject): AuthorizationSigningKey {
 	const publicKey = createPublicKey(privateKey);

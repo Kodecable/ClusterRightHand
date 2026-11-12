@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { readFile, writeFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
@@ -12,6 +11,7 @@ import { RequestDrain } from "./api/drain.ts";
 import { Audit } from "./audit/audit.ts";
 import { configureHashGate } from "./auth/hash-gate.ts";
 import { deleteExpiredWebSessions } from "./auth/sessions.ts";
+import { addUser, changePassword, exportKeys, importKeys, initKeys } from "./cli/commands.ts";
 import { readSecret } from "./cli/prompt.ts";
 import { AgentServer } from "./cluster/agent-server.ts";
 import { Cluster } from "./cluster/cluster.ts";
@@ -19,9 +19,7 @@ import { loadServerIdentity } from "./cluster/identity.ts";
 import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, type ConfigFile, DEFAULT_CONFIG_PATH, loadConfigFile } from "./config.ts";
-import { buildKeyExport, decryptKeyExport, encryptKeyExport } from "./keys/export.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
-import { initMasterKey, restoreMasterKey } from "./keys/setup.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
 import { importSettingsFromFile, SettingsStore } from "./settings/settings.ts";
@@ -30,7 +28,6 @@ import { runInit } from "./setup/init.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { startRetentionSweep } from "./storage/retention.ts";
-import { createUser, findUserByUsername, setPassword } from "./users/service.ts";
 import { UserError } from "./util/errors.ts";
 import { CRH_VERSION } from "./version.ts";
 
@@ -122,31 +119,48 @@ async function runCommand(command: string, args: string[]): Promise<void> {
 		queue: settings.current().auth.argon2Queue,
 	});
 
+	let dbDestroyed = false;
 	try {
 		if (command === "serve") {
 			const masterKey = await readMasterKeyFile(config.masterKeyFile);
 			await bindMasterKey(db, masterKey);
 			await runServer(config, db, masterKey, settings);
-		} else if (command === "keys" && args[0] === "init") {
-			await initKeys(config, db);
-		} else if (command === "keys" && args[0] === "export" && values.out) {
-			await exportKeys(config, db, values.out);
-		} else if (command === "keys" && args[0] === "import" && args[1]) {
-			await importKeys(config, db, args[1]);
-		} else if (command === "user" && args[0] === "add" && args[1]) {
-			await addUser(db, args[1]);
-		} else if (command === "user" && args[0] === "passwd" && args[1]) {
-			await changePassword(db, args[1]);
 		} else {
-			console.error(USAGE);
-			process.exitCode = 2;
-			await db.destroy();
+			try {
+				if (command === "keys" && args[0] === "init") {
+					await initKeys(config, db);
+					console.log(`created ${config.masterKeyFile}; back it up with "crhs keys export"`);
+				} else if (command === "keys" && args[0] === "export" && values.out) {
+					const data = await exportKeys(config, db, values.out, await readExportPassphrase());
+					console.log(`exported the master key and ${data.keys.length} server key(s) to ${values.out}`);
+				} else if (command === "keys" && args[0] === "import" && args[1]) {
+					const key = await importKeys(config, db, args[1], await readSecret("Export passphrase: "));
+					console.log(`restored ${config.masterKeyFile} (master key id ${key.id})`);
+				} else if (command === "user" && args[0] === "add" && args[1]) {
+					const user = await addUser(db, args[1], {
+						password: await readNewPassword(),
+						kind: values.admin ? "admin" : "member",
+						displayName: values["display-name"],
+					});
+					console.log(`created ${user.kind} ${user.username} (${user.id})`);
+				} else if (command === "user" && args[0] === "passwd" && args[1]) {
+					const user = await changePassword(db, args[1], await readNewPassword());
+					console.log(`password updated for ${user.username}`);
+				} else {
+					console.error(USAGE);
+					process.exitCode = 2;
+				}
+			} finally {
+				await db.destroy();
+				dbDestroyed = true;
+			}
 		}
 	} catch (err) {
 		if (!(err instanceof UserError || err instanceof KeyError)) throw err;
 		console.error(`crhs: ${err.message}`);
 		process.exitCode = 1;
-		await db.destroy();
+		// serve keeps its database open on purpose; a command closed it in the finally above.
+		if (!dbDestroyed) await db.destroy();
 	}
 }
 
@@ -158,55 +172,12 @@ async function readNewPassword(): Promise<string> {
 	return password;
 }
 
-async function addUser(db: Db, username: string): Promise<void> {
-	const password = await readNewPassword();
-	const user = await createUser(db, {
-		username,
-		password,
-		kind: values.admin ? "admin" : "member",
-		displayName: values["display-name"],
-	});
-	console.log(`created ${user.kind} ${user.username} (${user.id})`);
-	await db.destroy();
-}
-
-async function changePassword(db: Db, username: string): Promise<void> {
-	const user = await findUserByUsername(db, username);
-	if (!user) throw new UserError(`no such user: ${username}`);
-	await setPassword(db, user.id, await readNewPassword());
-	console.log(`password updated for ${user.username}`);
-	await db.destroy();
-}
-
-async function initKeys(config: Config, db: Db): Promise<void> {
-	await initMasterKey(config.masterKeyFile, db); // fails if the database already belongs to another master key
-	console.log(`created ${config.masterKeyFile}; back it up with "crhs keys export"`);
-	await db.destroy();
-}
-
-async function exportKeys(config: Config, db: Db, out: string): Promise<void> {
-	const key = await readMasterKeyFile(config.masterKeyFile);
-	await bindMasterKey(db, key);
+async function readExportPassphrase(): Promise<string> {
 	const passphrase = await readSecret("Export passphrase: ");
 	if (process.stdin.isTTY && (await readSecret("Repeat passphrase: ")) !== passphrase) {
 		throw new KeyError("passphrases do not match");
 	}
-	const data = await buildKeyExport(db, key);
-	try {
-		await writeFile(out, await encryptKeyExport(data, passphrase), { mode: 0o600, flag: "wx" });
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "EEXIST") throw new KeyError(`${out} already exists`);
-		throw err;
-	}
-	console.log(`exported the master key and ${data.keys.length} server key(s) to ${out}`);
-	await db.destroy();
-}
-
-async function importKeys(config: Config, db: Db, file: string): Promise<void> {
-	const data = await decryptKeyExport(await readFile(file, "utf8"), await readSecret("Export passphrase: "));
-	const key = await restoreMasterKey(config.masterKeyFile, db, data);
-	console.log(`restored ${config.masterKeyFile} (master key id ${key.id})`);
-	await db.destroy();
+	return passphrase;
 }
 
 async function runServer(config: Config, db: Db, masterKey: MasterKey, settings: SettingsStore): Promise<void> {

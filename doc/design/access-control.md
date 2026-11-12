@@ -269,9 +269,16 @@ messages, which stay in their own tables.
 ### Recorded events
 
 Events cover authentication, nodes and node groups, tasks and approvals, authorizations, sessions and
-tool calls, users and sharing, and configuration. Action names are dotted verbs such as
+tool calls, users and sharing, configuration, and the `crhs` CLI. Action names are dotted verbs such as
 `node.approved` or `task.approval`. Model calls are not audited; their usage is part of
 [session statistics](agent-runtime.md#session-statistics).
+
+The CLI writes with the actor `system:cli` and adds `via: "cli"`, the OS user, uid and host to the
+detail. It records `keys.initialized`, `keys.imported`, `keys.exported` (the key fingerprints and the
+output path, never key material), `user.created` and `user.password_reset`. A user change and its
+event share one transaction; a key export is removed again if its event cannot be written. These
+records cover what went through crhs, not what someone with the master key file or the database can
+do without it ([Audit](../guide/security.md#audit)).
 
 ### Tamper resistance
 

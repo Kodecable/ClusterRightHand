@@ -256,6 +256,23 @@ describe("init", () => {
 			expect(admin).toMatchObject({ kind: "admin", display_name: "Admin User" });
 			expect(admin?.password_hash).toBeTruthy();
 			expect((await SettingsStore.load(db)).current().publicUrl).toBe("https://crh.example.com");
+
+			// init records the CLI actor for the master key and the administrator it creates.
+			const events = await db.selectFrom("audit_events").selectAll().orderBy("seq").execute();
+			expect(events.map((event) => event.action)).toEqual(["keys.initialized", "user.created"]);
+			for (const event of events) {
+				expect(event).toMatchObject({ actor_type: "system", actor_id: "cli" });
+				expect(JSON.parse(event.detail)).toMatchObject({ via: "cli", host: expect.any(String) });
+			}
+			expect(JSON.parse(events[0]?.detail ?? "{}")).toMatchObject({
+				master_key_file: "/etc/crhs/master.key",
+			});
+			expect(events[1]).toMatchObject({ target_type: "user", target_id: admin?.id });
+			expect(JSON.parse(events[1]?.detail ?? "{}")).toMatchObject({
+				username: "admin",
+				kind: "admin",
+				display_name: "Admin User",
+			});
 		} finally {
 			await db.destroy();
 		}

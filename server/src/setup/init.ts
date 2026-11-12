@@ -3,6 +3,7 @@ import { realpathSync } from "node:fs";
 import { chmod, mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import pg from "pg";
+import { appendCliAudit, cliInput } from "../audit/cli.ts";
 import { type DatabaseConfig, DEFAULT_CONFIG_PATH } from "../config.ts";
 import { initMasterKey } from "../keys/setup.ts";
 import { SettingsStore } from "../settings/settings.ts";
@@ -226,8 +227,18 @@ async function ensureMasterKey(layout: Layout, host: SetupHost, db: Db, say: (li
 		say(`skipped: ${layout.masterKeyPath}`);
 		return;
 	}
-	await initMasterKey(actual, db);
+	const key = await initMasterKey(actual, db);
 	if (layout.host) await host.chown(actual, SYSTEM_USER, SYSTEM_USER);
+	try {
+		await appendCliAudit(
+			db,
+			cliInput("keys.initialized", { master_key_file: layout.masterKeyPath, master_key_id: key.id }),
+		);
+	} catch (err) {
+		throw new SetupError(
+			`created ${layout.masterKeyPath} but could not record its audit event: ${(err as Error).message}`,
+		);
+	}
 	say(`created: ${layout.masterKeyPath}`);
 }
 
@@ -237,11 +248,23 @@ async function ensureAdministrator(answers: ResolvedAnswers, db: Db, say: (line:
 		say(`skipped: administrator ${existing.username}`);
 		return;
 	}
-	const user = await createUser(db, {
-		username: answers.admin.username,
-		displayName: answers.admin.displayName,
-		kind: "admin",
-		password: answers.admin.password,
+	// The administrator and its audit event are one transaction: init never leaves an unrecorded admin.
+	const user = await db.transaction().execute(async (trx) => {
+		const created = await createUser(trx, {
+			username: answers.admin.username,
+			displayName: answers.admin.displayName,
+			kind: "admin",
+			password: answers.admin.password,
+		});
+		await appendCliAudit(
+			trx,
+			cliInput(
+				"user.created",
+				{ username: created.username, kind: created.kind, display_name: created.displayName },
+				{ type: "user", id: created.id },
+			),
+		);
+		return created;
 	});
 	say(`created admin ${user.username} (${user.id})`);
 }
