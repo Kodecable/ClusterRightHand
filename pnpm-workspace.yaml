@@ -3,5 +3,13 @@ packages:
   - server
   - web
 allowBuilds:
+  # The only native module crhs needs; prebuilt or compiled at install.
   re2: true
+  # Not needed: ssh2 falls back to JavaScript without its optional native crypto and cpu-features,
+  # esbuild's binary comes as an optional dependency, and the others' scripts do nothing we use.
+  "@google/genai": false
+  cpu-features: false
+  esbuild: false
+  protobufjs: false
+  ssh2: false
 verifyDepsBeforeRun: false
