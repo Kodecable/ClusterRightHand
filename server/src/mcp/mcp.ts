@@ -9,6 +9,7 @@ import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { callTool } from "../tools/adapter.ts";
 import { TOOLS, type ToolContext } from "../tools/catalog.ts";
+import { CRH_VERSION } from "../version.ts";
 
 export interface McpOptions {
 	cluster: Cluster;
@@ -67,7 +68,7 @@ export function mcpRoutes(db: Db, options: McpOptions): Hono {
 }
 
 function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { baseUrl: string }): McpServer {
-	const server = new McpServer({ name: "clusterrighthand", version: options.version ?? "0.0.0" });
+	const server = new McpServer({ name: "clusterrighthand", version: options.version ?? CRH_VERSION });
 	const baseCtx: ToolContext = {
 		db,
 		cluster: options.cluster,

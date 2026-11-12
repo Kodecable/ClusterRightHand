@@ -30,10 +30,12 @@ import { migrateToLatest } from "./storage/migrate.ts";
 import { startRetentionSweep } from "./storage/retention.ts";
 import { createUser, findUserByUsername, setPassword } from "./users/service.ts";
 import { UserError } from "./util/errors.ts";
+import { CRH_VERSION } from "./version.ts";
 
 const USAGE = `usage: crhs [--config <path>] <command>
 
 commands:
+  version, --version                    print the version and exit
   serve                                 run the server (default)
   user add <username> [--admin] [--display-name <name>]
                                         create a user; the password is read from the terminal or stdin
@@ -53,11 +55,17 @@ const { values, positionals } = parseArgs({
 		"display-name": { type: "string" },
 		out: { type: "string", short: "o" },
 		help: { type: "boolean", short: "h", default: false },
+		version: { type: "boolean", default: false },
 	},
 });
 
 if (values.help) {
 	console.log(USAGE);
+	process.exit(0);
+}
+
+if (values.version || positionals[0] === "version") {
+	console.log(CRH_VERSION);
 	process.exit(0);
 }
 

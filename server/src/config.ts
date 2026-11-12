@@ -2,6 +2,9 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parse } from "smol-toml";
 
+// Set by the bundled build (scripts/build-crhs.ts), whose own tree holds web/ next to crhs.mjs.
+declare const __CRH_BUNDLED__: boolean | undefined;
+
 export type DatabaseConfig = { driver: "sqlite"; path: string } | { driver: "postgres"; url: string };
 
 /** How long rows are kept before the retention sweep deletes them; null keeps them forever (doc/design/data-model.md "Retention"). */
@@ -48,7 +51,7 @@ export interface Config {
 	listen: ListenConfig;
 	database: DatabaseConfig;
 	masterKeyFile: string;
-	/** Built WebUI (web/dist); served at /. */
+	/** Built WebUI: web/ next to a bundled crhs.mjs, web/dist next to the server source otherwise. */
 	webRoot: string;
 }
 
@@ -141,6 +144,14 @@ export function parseConfig(text: string): Config {
 	return parseConfigFile(text).config;
 }
 
+/** The built WebUI's default directory; the bundle carries it next to crhs.mjs. */
+function defaultWebRoot(): string {
+	if (typeof __CRH_BUNDLED__ !== "undefined" && __CRH_BUNDLED__) {
+		return fileURLToPath(new URL("./web", import.meta.url));
+	}
+	return fileURLToPath(new URL("../../web/dist", import.meta.url));
+}
+
 export function parseConfigFile(text: string): ConfigFile {
 	const raw = parse(text);
 	rejectUnknown(raw, "", [...TOP_LEVEL_KEYS]);
@@ -172,7 +183,7 @@ export function parseConfigFile(text: string): ConfigFile {
 			},
 			database: db,
 			masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
-			webRoot: str(raw, "web_root", "web_root", fileURLToPath(new URL("../../web/dist", import.meta.url))),
+			webRoot: str(raw, "web_root", "web_root", defaultWebRoot()),
 		},
 		moved: fileSettings(raw, listen),
 	};

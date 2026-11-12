@@ -7,6 +7,7 @@
 		"node": ">=24.7"
 	},
 	"scripts": {
+		"build:crhs": "node scripts/build-crhs.ts",
 		"check": "biome check . && pnpm -r run typecheck && pnpm check:go",
 		"check:go": "cd client && test -z \"$(gofmt -l .)\" && go vet ./...",
 		"format": "biome check --write . && gofmt -w client",
@@ -19,6 +20,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^2.6.3",
 		"@types/node": "^26.6.5",
+		"esbuild": "0.28.2",
 		"typescript": "^7.0.2",
 		"vitest": "^5.0.5"
 	},

@@ -29,7 +29,7 @@ path = "/var/lib/crhs/crhs.db"
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `master_key_file` | path | `/etc/crhs/master.key` | The master key, created by `crhs keys init`. Must be readable only by its owner (mode 0600) and belong to this database. |
-| `web_root` | path | `web/dist` next to the server source | The built WebUI. |
+| `web_root` | path | `web/` next to a bundled `crhs.mjs`, `web/dist` next to the server source otherwise | The built WebUI. |
 
 ## [listen]
 

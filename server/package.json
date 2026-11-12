@@ -15,7 +15,8 @@
 		"start": "node src/main.ts",
 		"soak": "node test/soak/run.ts",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest run --exclude 'test/e2e/**' --exclude 'test/perf/**' --exclude 'test/system/**' --exclude '**/node_modules/**'",
+		"test": "vitest run --exclude 'test/e2e/**' --exclude 'test/perf/**' --exclude 'test/system/**' --exclude 'test/bundle/**' --exclude '**/node_modules/**'",
+		"test:bundle": "vitest run test/bundle",
 		"test:e2e": "vitest run test/e2e",
 		"test:system": "vitest run test/system --no-file-parallelism",
 		"test:perf": "NODE_OPTIONS=--expose-gc vitest run test/perf --no-file-parallelism"

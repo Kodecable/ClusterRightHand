@@ -10,12 +10,14 @@
 | Privileged system | `server/test/system/privileged` | One podman container per node with real root, sudo, doas and sshd | No |
 | WebUI end-to-end | `web/e2e` | A real crhs serving the built WebUI, a real crha node, a fake model | Yes |
 | WebUI mock | `web/e2e-mock` | The built WebUI against a mocked API | No |
+| Bundled build | `server/test/bundle` | `dist/crhs` copied outside the repository, on SQLite (and PostgreSQL when configured) | No |
 | Go | `client/**/*_test.go` | Go units | Yes |
 | Performance | `server/test/perf`, `web/e2e-mock/perf` | The fake model on real storage; the WebUI under CPU throttling | No |
 
 Details: [Server tests](server.md), [WebUI tests](web.md), [Privileged system tests](privileged.md),
 [Interop fixtures](interop.md). The scripts for each suite are in the root and package `package.json`
-files; CI is `.github/workflows/ci.yml`.
+files; CI is `.github/workflows/ci.yml`. Build the bundle with `pnpm build:crhs`; its smoke test is
+`pnpm --filter @crh/server test:bundle`.
 
 ## What to run when
 
