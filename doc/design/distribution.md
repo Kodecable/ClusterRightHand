@@ -56,7 +56,9 @@ switch without an edit. On a terminal the installer runs `crhs init`, otherwise 
 The official Node binary needs glibc and a few system libraries that minimal systems may lack (such as
 `libatomic.so.1`); the installer checks that the bundled Node starts before installing anything, and
 otherwise shows the error and asks the operator to check its dependencies.
-The `crha` installer puts `crha` in `/usr/local/bin` and then runs `crha enroll` on a terminal.
+The `crha` installer puts `crha` in `/usr/local/bin` and then runs `crha enroll` on a terminal. Both
+installers skip the setup command when its configuration file already exists, so an upgrade only asks
+for a restart.
 
 ### Container image
 

@@ -65,7 +65,10 @@ else
 fi
 ln -sfn "$target" /opt/crhs/current
 ln -sfn /opt/crhs/current/bin/crhs /usr/local/bin/crhs
-if [ -t 0 ]; then
+# An upgrade keeps the existing setup; only a new host is initialized.
+if [ -e /etc/crhs/crhs.toml ]; then
+	echo "installed crhs $version; restart it: sudo systemctl restart crhs"
+elif [ -t 0 ]; then
 	/usr/local/bin/crhs init
 else
 	echo "run: sudo crhs init"
@@ -77,7 +80,10 @@ const CRHA_INSTALL = `#!/bin/sh
 set -eu
 dir=$(dirname "$(readlink -f "$0")")
 install -m 0755 "$dir/crha" /usr/local/bin/crha
-if [ -t 0 ]; then
+# An upgrade keeps the existing enrollment; only a new node is enrolled.
+if [ -e /etc/crha/crha.toml ]; then
+	echo "installed crha; restart it: sudo systemctl restart crha-privileged crha (crha-privileged only in forward mode)"
+elif [ -t 0 ]; then
 	crha enroll
 else
 	echo "run: sudo crha enroll"

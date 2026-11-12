@@ -5,10 +5,9 @@ This page describes what each command is for, with common examples. Run `crhs --
 
 ## crhs
 
-`crhs` runs on the server host. Until there are packages, run it as
-`node /opt/crh/server/src/main.ts` ([Install](../install.md)). Every command except `init` reads the
-configuration file (`--config`, default `/etc/crhs/crhs.toml`) and brings the database schema up to
-date before it runs.
+`crhs` runs on the server host ([Install](../install.md)); the examples use the `crhs` command installed by
+the tar with Node. Every command except `init` reads the configuration file (`--config`, default
+`/etc/crhs/crhs.toml`) and brings the database schema up to date before it runs.
 
 | Command | Purpose |
 |---|---|
@@ -57,7 +56,7 @@ configuration take `--config` and have no default path.
 | `run` | Run the unprivileged mode, which connects to crhs and runs tasks. |
 | `status` | Show the server URL, the node's key fingerprint and the privilege mode. |
 | `version` | Show the version. |
-| `upgrade` | Not implemented yet; a package-managed `pkgmanaged` build refuses and points at apt or dnf. |
+| `upgrade` | Not implemented; a package-managed `crha` refuses and points at apt or dnf. |
 
 ```sh
 sudo crha enroll
@@ -150,4 +149,4 @@ socket.
 | `CRHA_PRIVILEGED_SOCKET` | `crha pending`, `approve`, `deny` | The privileged mode's socket. |
 | `CRHA_PRIVILEGED_STDIN_DIR` | `crha privileged stdio` | Where the `native` helper stages task input. |
 | `UV_THREADPOOL_SIZE` | crhs | Node.js worker threads; raise it together with `auth.argon2_concurrency` in **System settings**. |
-| `RE2_DOWNLOAD_MIRROR` | `pnpm install` | Mirror for the prebuilt RE2 module. |
+| `RE2_DOWNLOAD_MIRROR` | `npm ci` in the crhs tar without Node | Mirror for the prebuilt RE2 module. |

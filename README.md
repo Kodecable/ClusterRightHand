@@ -44,10 +44,13 @@ API, so none of them can bypass the checks. See [Architecture](doc/design/archit
 
 ## Getting started
 
-You need Linux, Node.js 24.7 or newer with pnpm, and Go to build `crha`.
+You need a glibc Linux host (amd64 or arm64) for crhs and for each node, and a reverse proxy with TLS in
+front of crhs.
 
-1. [Install crhs](doc/guide/install.md), create the first administrator and configure a model provider.
-2. [Enroll a node](doc/guide/install.md#enroll-a-node) with `crha`, or [add an SSH node](doc/guide/install.md#add-an-ssh-node).
+1. [Install crhs](doc/guide/install.md) from the tar or the container image and initialize it
+   (`sudo crhs init`, or the first container start), then configure a model provider.
+2. [Enroll a node](doc/guide/install.md#enroll-a-node) with `sudo crha enroll`, or
+   [add an SSH node](doc/guide/install.md#add-an-ssh-node).
 3. Start a session in the WebUI, or [connect an MCP client](doc/guide/mcp.md).
 
 Read the [concepts](doc/guide/concepts.md) first if you want the vocabulary: nodes, tasks, rules,

@@ -12,7 +12,7 @@ Every key, with its default (commented keys are unset by default):
 
 ```toml
 master_key_file = "/etc/crhs/master.key"
-# web_root = "/opt/crh/web/dist"
+# web_root = "/srv/crh/web"
 
 [listen]
 host = "127.0.0.1"
@@ -28,7 +28,7 @@ path = "/var/lib/crhs/crhs.db"
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `master_key_file` | path | `/etc/crhs/master.key` | The master key, created by `crhs keys init`. Must be readable only by its owner (mode 0600) and belong to this database. |
+| `master_key_file` | path | `/etc/crhs/master.key` | The master key, created by `crhs init` or `crhs keys init`. Must be readable only by its owner (mode 0600) and belong to this database. |
 | `web_root` | path | `web/` next to a bundled `crhs.mjs`, `web/dist` next to the server source otherwise | The built WebUI. |
 
 ## [listen]

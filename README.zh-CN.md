@@ -38,10 +38,10 @@ ClusterRightHand（CRH）是一个自托管的多节点 agent 平台，带有严
 
 ## 快速开始
 
-需要 Linux、Node.js 24.7 及以上和 pnpm，构建 `crha` 还需要 Go。
+crhs 和每个节点都需要 glibc Linux（amd64 或 arm64），crhs 前面还需要一个带 TLS 的反向代理。
 
-1. [安装 crhs](doc/guide/install.md)，创建第一个管理员，配置模型提供方。
-2. 用 `crha` [注册节点](doc/guide/install.md#enroll-a-node)，或[添加 SSH 节点](doc/guide/install.md#add-an-ssh-node)。
+1. [安装 crhs](doc/guide/install.md)（二进制包或容器镜像），初始化（运行 `sudo crhs init`，容器首次启动时自动完成），并配置模型提供方。
+2. 用 `sudo crha enroll` [注册节点](doc/guide/install.md#enroll-a-node)，或[添加 SSH 节点](doc/guide/install.md#add-an-ssh-node)。
 3. 在 WebUI 里新建会话，或[接入 MCP 客户端](doc/guide/mcp.md)。
 
 想先了解节点、任务、规则、审批和特权这些概念，可以读 [Concepts](doc/guide/concepts.md)。
