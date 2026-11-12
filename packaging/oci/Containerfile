@@ -1,0 +1,18 @@
+# The crhs OCI image. Build it from the context `pnpm package:oci` stages, which holds the contents of
+# dist/crhs plus entrypoint.sh; see doc/design/distribution.md.
+FROM docker.io/library/node:26.13.0-trixie-slim
+
+ARG CRH_VERSION=dev
+LABEL org.opencontainers.image.title="ClusterRightHand server" \
+	org.opencontainers.image.version="${CRH_VERSION}" \
+	org.opencontainers.image.source="https://github.com/Kodecable/ClusterRightHand" \
+	org.opencontainers.image.licenses="MIT"
+
+COPY . /opt/crhs/
+RUN install -d -o node -g node -m 0700 /crhs-data
+WORKDIR /opt/crhs
+ENV CRHS_DATA_DIR=/crhs-data
+VOLUME /crhs-data
+EXPOSE 8080
+USER node
+ENTRYPOINT ["/opt/crhs/entrypoint.sh"]

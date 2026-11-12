@@ -112,7 +112,7 @@ export async function runInit(options: RunInitOptions = {}): Promise<void> {
 	if (answers.database.driver === "postgres") await checkPostgresUrl(answers.database.url);
 	if (options.saveAnswersPath) await saveAnswersFile(options.saveAnswersPath, answersForSaving(answers));
 
-	await applyAnswers(answers, layout, host, say);
+	await applyAnswers(answers, layout, host, env.CRHS_LAUNCHER, say);
 	printReminders(say, layout, options.answersPath, fileAnswers);
 }
 
@@ -132,6 +132,7 @@ async function applyAnswers(
 	answers: ResolvedAnswers,
 	layout: Layout,
 	host: SetupHost,
+	launcher: string | undefined,
 	say: (line: string) => void,
 ): Promise<void> {
 	if (layout.host) {
@@ -161,7 +162,7 @@ async function applyAnswers(
 			if (await exists(file)) await host.chown(file, SYSTEM_USER, SYSTEM_USER);
 		}
 	}
-	await ensureServiceUnit(answers, layout, host, say);
+	await ensureServiceUnit(answers, layout, host, launcher, say);
 }
 
 async function ensureSystemUser(host: SetupHost, say: (line: string) => void): Promise<void> {
@@ -260,6 +261,7 @@ async function ensureServiceUnit(
 	answers: ResolvedAnswers,
 	layout: Layout,
 	host: SetupHost,
+	launcher: string | undefined,
 	say: (line: string) => void,
 ): Promise<void> {
 	if (!answers.service.install) return;
@@ -269,7 +271,7 @@ async function ensureServiceUnit(
 		return;
 	}
 	await mkdir(dirname(actual), { recursive: true });
-	await writeFile(actual, renderUnit(answers, layout, host), { mode: 0o644, flag: "wx" });
+	await writeFile(actual, renderUnit(answers, layout, host, launcher), { mode: 0o644, flag: "wx" });
 	await chmod(actual, 0o644);
 	say(`wrote: ${UNIT_PATH}`);
 	await systemctl(host, ["daemon-reload"]);
@@ -293,8 +295,12 @@ function renderConfig(answers: ResolvedAnswers, layout: Layout): string {
 	return `${lines.join("\n")}\n`;
 }
 
-function renderUnit(answers: ResolvedAnswers, layout: Layout, host: SetupHost): string {
+function renderUnit(answers: ResolvedAnswers, layout: Layout, host: SetupHost, launcher: string | undefined): string {
 	const meta = JSON.stringify({ v: 1, version: host.version, config: layout.configPath });
+	// The packaged wrapper sets CRHS_LAUNCHER, so the unit follows /opt/crhs/current across versions.
+	const execStart = launcher
+		? `${launcher} serve --config ${layout.configPath}`
+		: `${host.nodePath} ${host.entryPath} serve --config ${layout.configPath}`;
 	// ProtectSystem=strict leaves only these writable: the state directory and a SQLite file kept elsewhere.
 	const writable = new Set(["/var/lib/crhs"]);
 	if (answers.database.driver === "sqlite") writable.add(dirname(answers.database.path));
@@ -309,7 +315,7 @@ X-CRH-Meta=${meta}
 [Service]
 User=${SYSTEM_USER}
 Group=${SYSTEM_USER}
-ExecStart=${host.nodePath} ${host.entryPath} serve --config ${layout.configPath}
+ExecStart=${execStart}
 Restart=on-failure
 TimeoutStopSec=20
 NoNewPrivileges=true

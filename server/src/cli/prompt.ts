@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
 import { Writable } from "node:stream";
+import { UserError } from "../util/errors.ts";
 
 /** Asks questions on one input stream; secrets are not echoed on a terminal. */
 export interface Prompter {
@@ -39,7 +40,7 @@ export function createPrompter(
 	});
 	rl.on("close", () => {
 		closed = true;
-		waiter?.reject(new Error("no input on stdin"));
+		waiter?.reject(new UserError("no input on standard input: pipe the value in or run on a terminal"));
 		waiter = undefined;
 	});
 	const next = (prompt: string, secret: boolean): Promise<string> => {
@@ -57,7 +58,7 @@ export function createPrompter(
 			if (queued !== undefined) return finish(queued);
 			if (closed) {
 				muted = false;
-				reject(new Error("no input on stdin"));
+				reject(new UserError("no input on standard input: pipe the value in or run on a terminal"));
 				return;
 			}
 			waiter = { resolve: finish, reject };
@@ -84,7 +85,7 @@ export async function readSecret(prompt: string): Promise<string> {
 			rl.close();
 			return line;
 		}
-		throw new Error("no input on stdin");
+		throw new UserError("no input on standard input: pipe the value in or run on a terminal");
 	}
 	const prompter = createPrompter();
 	try {

@@ -261,6 +261,23 @@ describe("init", () => {
 		}
 	});
 
+	test("starts the unit through CRHS_LAUNCHER when set", async () => {
+		const prefix = await tempDir();
+		const state: FakeState = { commands: [], chowns: [], userExists: true };
+		const answersPath = await writeAnswers(prefix, hostAnswers());
+		await runInit({
+			host: fakeHost(prefix, state),
+			env: { CRHS_LAUNCHER: "/usr/local/bin/crhs" },
+			answersPath,
+			interactive: false,
+			stdout: sink().stream,
+			stderr: sink().stream,
+		});
+
+		const unit = await readFile(join(prefix, "etc/systemd/system/crhs.service"), "utf8");
+		expect(unit).toContain("ExecStart=/usr/local/bin/crhs serve --config /etc/crhs/crhs.toml");
+	});
+
 	test("skips every step on a second run", async () => {
 		const prefix = await tempDir();
 		const state: FakeState = { commands: [], chowns: [], userExists: false };
@@ -308,23 +325,27 @@ describe("init", () => {
 		expect(state.chowns.every((call) => call.path.includes("crhs.db"))).toBe(true);
 	});
 
-	test("keeps everything under CRHS_DATA_DIR and installs no unit", async () => {
+	test("keeps everything under CRHS_DATA_DIR, listens on all interfaces and installs no unit", async () => {
 		const prefix = await tempDir();
 		const state: FakeState = { commands: [], chowns: [], userExists: false };
 		const answersPath = await writeAnswers(
 			prefix,
 			hostAnswers({
+				listen: { port: 18080 },
 				database: { driver: "sqlite", path: "/crhs-data/crhs.db" },
 				public_url: "",
 				service: { install: false, start: false },
 			}),
 		);
+		const input = new PassThrough();
+		input.write("\n\n");
 		const stdout = sink();
 		await runInit({
 			host: fakeHost(prefix, state),
 			env: { CRHS_DATA_DIR: "/crhs-data" },
 			answersPath,
-			interactive: false,
+			interactive: true,
+			input,
 			stdout: stdout.stream,
 			stderr: stdout.stream,
 		});
@@ -333,6 +354,7 @@ describe("init", () => {
 		expect(await modeOf(dataDir)).toBe(0o700);
 		const config = await readFile(join(dataDir, "crhs.toml"), "utf8");
 		expect(config).toContain('master_key_file = "/crhs-data/master.key"');
+		expect(config).toContain('[listen]\nhost = "0.0.0.0"\nport = 18080');
 		expect(config).toContain('path = "/crhs-data/crhs.db"');
 		expect(await modeOf(join(dataDir, "crhs.toml"))).toBe(0o640);
 		expect(await modeOf(join(dataDir, "master.key"))).toBe(0o600);

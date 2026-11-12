@@ -6,6 +6,7 @@ import { copyFile, cp, mkdir, readdir, readFile, realpath, rm, writeFile } from 
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { resolveVersion } from "./version.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const outDir = join(root, "dist", "crhs");
@@ -15,17 +16,6 @@ const skipWeb = process.argv.includes("--skip-web");
 const BANNER =
 	"import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" +
 	"const __filename=import.meta.filename;const __dirname=import.meta.dirname;";
-
-/** The version: CRH_VERSION, then git describe, then a placeholder. */
-async function resolveVersion(): Promise<string> {
-	if (process.env.CRH_VERSION) return process.env.CRH_VERSION;
-	try {
-		const { stdout } = await run("git", ["describe", "--tags", "--always", "--dirty"]);
-		return stdout.trim() || "0.0.0-dev";
-	} catch {
-		return "0.0.0-dev";
-	}
-}
 
 function run(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
 	return new Promise((resolve, reject) => {

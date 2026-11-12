@@ -5,18 +5,51 @@ designed yet; the packaging leaves room for it.
 
 ## Artifacts
 
-| Artifact | Contents | Self-update |
+`pnpm package` builds every archive into `dist/release/` and writes `SHA256SUMS`; downloads are cached in
+`dist/cache/`. The version is `CRH_VERSION` or `git describe --tags --always --dirty`, the same as
+`pnpm build:crhs`, which it runs first unless `--skip-build`; `--arch amd64,arm64` picks the
+architectures (default both). `pnpm package:oci` stages the image's build context in `dist/oci-context/`
+and prints the `podman build` command.
+
+| Archive (top directory) | Contents | Self-update |
 |---|---|---|
+| `crhs-<v>.tar.gz` (`crhs-<v>/`) | `crhs.mjs`, `web/`, `package.json`, `package-lock.json`, `THIRD_PARTY_LICENSES.txt`, `VERSION`, `LICENSE`, `README.txt` | No |
+| `crhs-<v>-linux-<arch>.tar.gz` (`crhs-<v>-linux-<arch>/`) | the bundle and WebUI, `node/` (the official `bin/node`), `node_modules/re2` for the arch, `bin/crhs`, `install.sh`, licenses, `VERSION` | Planned |
+| `crha-<v>-linux-<arch>.tar.gz` (`crha-<v>-linux-<arch>/`) | the static `crha`, `install.sh`, `LICENSE`, `THIRD_PARTY_LICENSES.txt`, `VERSION` | Planned |
 | crhs OCI image | Node, the bundle, the WebUI and re2 | No; pull a new image |
-| crhs tar without Node | The bundle, the WebUI and a `package.json` naming re2; the user runs `npm ci --omit=dev` | No |
-| crhs tar with Node | The above plus Node and re2's binary, and an install script | Planned |
-| crha tar | The static binary and an install script | Planned |
 | crha deb and rpm | The static binary, built with the `pkgmanaged` tag | Never; the package manager updates it |
+
+`arch` is `amd64` or `arm64`. Archives are deterministic-ish: entries sorted by name, the mtime of the
+tree's last commit, owner 0:0, `gzip -n`. The archive without Node is installed by hand: run
+`npm ci --omit=dev` once in the unpacked directory (it downloads or builds re2), then `node crhs.mjs init`
+and `node crhs.mjs serve`.
 
 `pnpm build:crhs` produces the common part in `dist/crhs`: esbuild bundles the server and every pure
 JavaScript dependency into `crhs.mjs`. Only native modules stay outside: `re2` is shipped with its runtime
 files, and `cpu-features` is optional for `ssh2`, which falls back to JavaScript and WebAssembly. The
-version is injected at build time; an unbundled crhs reports `dev`.
+version is injected at build time; an unbundled crhs reports `dev`. The archive with Node carries Node's
+LICENSE appended to `THIRD_PARTY_LICENSES.txt`; the `crha` archive collects the Go modules' licenses.
+
+### Installing crhs with Node
+
+`sudo ./install.sh` copies the directory to `/opt/crhs/versions/<v>/` (a second run with the same
+`VERSION` continues), points `/opt/crhs/current` at it and links `/usr/local/bin/crhs` to
+`/opt/crhs/current/bin/crhs`. Versions stay side by side, and switching is `ln -sfn`; the unit written by
+`crhs init` starts `/usr/local/bin/crhs` because the wrapper exports `CRHS_LAUNCHER`, so it follows the
+switch without an edit. On a terminal the installer runs `crhs init`, otherwise it prints the command.
+The official Node binary needs glibc and a few system libraries that minimal systems may lack (such as
+`libatomic.so.1`); the installer checks that the bundled Node starts before installing anything, and
+otherwise shows the error and asks the operator to check its dependencies.
+The `crha` installer puts `crha` in `/usr/local/bin` and then runs `crha enroll` on a terminal.
+
+### Container image
+
+The image runs as `node` (uid 1000), so the volume behind `/crhs-data` must be writable by uid 1000; the
+image creates the directory with that owner for a fresh named volume. On the first start the entrypoint
+runs `crhs init` with `--answers /crhs-data/init.json` when that file exists, or interactively when the
+container has a stdin terminal, else fails with an explanation. Without arguments it then runs
+`serve --config /crhs-data/crhs.toml`; with arguments it runs `crhs` itself, so
+`podman run ... crhs --config /crhs-data/crhs.toml user add alice` works.
 
 ## Answering questions
 
@@ -41,7 +74,7 @@ Run as root on a host install. It asks:
 
 | Question | Default | Field |
 |---|---|---|
-| Listen address and port | `127.0.0.1`, `8080` | `listen.host`, `listen.port` |
+| Listen address and port | `127.0.0.1`, `8080` (`0.0.0.0` under `CRHS_DATA_DIR`) | `listen.host`, `listen.port` |
 | Database | SQLite | `database.driver` |
 | SQLite file | `/var/lib/crhs/crhs.db` | `database.path` |
 | PostgreSQL URL (tested at once) | — | `database.url` (secret) |
@@ -52,19 +85,20 @@ Run as root on a host install. It asks:
 It then creates the `crhs` system user, `/etc/crhs` (root:crhs, 0750) and `/var/lib/crhs` (crhs, 0700);
 writes `crhs.toml` (root:crhs, 0640) without `web_root`, so the bundled WebUI is used; creates the master
 key, migrates the database, creates the administrator and stores the public URL as a system setting;
-installs `crhs.service`, whose `ExecStart` names the running Node and `crhs.mjs`; and finally reminds the
-operator to back up the master key, take a key export and set up a reverse proxy with TLS. The paths are
-fixed; a different layout is a manual install.
+installs `crhs.service`, whose `ExecStart` names the running Node and `crhs.mjs`, or `$CRHS_LAUNCHER` when
+the packaged wrapper set it; and finally reminds the operator to back up the master key, take a key export
+and set up a reverse proxy with TLS. The paths are fixed; a different layout is a manual install.
 
 Every step is skipped when it is already done (the file, key, administrator or unit exists), so an
 interrupted init is simply run again.
 
 In the OCI image everything lives in `/crhs-data`: the configuration, the master key, the SQLite
 database and the answers file, so one volume holds all state and is the unit of backup. The image sets
-`CRHS_DATA_DIR=/crhs-data`, which makes init put every file there instead of the fixed host paths. When
-`/crhs-data/crhs.toml` is missing, the entrypoint runs `crhs init --answers /crhs-data/init.json` with
-`service.install` false; init then tells the operator to delete the file, which holds the administrator's
-password. The image creates no system user and no unit.
+`CRHS_DATA_DIR=/crhs-data`, which makes init put every file there instead of the fixed host paths and
+default the listen address to `0.0.0.0` instead of the loopback. When `/crhs-data/crhs.toml` is missing,
+the entrypoint runs `crhs init --answers /crhs-data/init.json` with `service.install` false (or an
+interactive init on a terminal); init then tells the operator to delete the file, which holds the
+administrator's password. The image creates no system user and no unit.
 
 ## crha enroll
 

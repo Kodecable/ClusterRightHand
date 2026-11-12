@@ -4,6 +4,7 @@ package cli
 import (
 	"errors"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -15,6 +16,7 @@ func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "crha",
 		Short:         "ClusterRightHand node client",
+		Version:       version.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

@@ -127,7 +127,8 @@ export async function collectAnswers(fileAnswers: Answers, layout: Layout, io: A
 
 	try {
 		const listen = {
-			host: await take(fileAnswers.listen?.host, "Listen address", "127.0.0.1"),
+			// A container must listen on all interfaces; the fixed host layout keeps the loopback default.
+			host: await take(fileAnswers.listen?.host, "Listen address", layout.host ? "127.0.0.1" : "0.0.0.0"),
 			port: await resolvePort(fileAnswers.listen?.port, ask),
 		};
 		const driver = await take(fileAnswers.database?.driver, "Database driver (sqlite or postgres)", "sqlite");
