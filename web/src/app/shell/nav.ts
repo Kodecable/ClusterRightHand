@@ -7,6 +7,7 @@ import {
 	GraphHubIcon,
 	KeyRoundIcon,
 	KeySquareIcon,
+	LibraryIcon,
 	ListChecksIcon,
 	LockKeyholeIcon,
 	type LucideIcon,
@@ -25,6 +26,7 @@ import {
 
 export type NavPath =
 	| "/sessions"
+	| "/library"
 	| "/schedules"
 	| "/tasks"
 	| "/approvals"
@@ -60,6 +62,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		label: msg`Work`,
 		items: [
 			{ to: "/sessions", label: msg`Sessions`, icon: MessageSquareIcon },
+			{ to: "/library", label: msg`Library`, icon: LibraryIcon },
 			{ to: "/schedules", label: msg`Schedules`, icon: CalendarClockIcon },
 			{ to: "/tasks", label: msg`Tasks`, icon: ListChecksIcon, activeFor: ["/task-groups"] },
 			{ to: "/approvals", label: msg`Approvals`, icon: ShieldCheckIcon, badge: "approvals" },

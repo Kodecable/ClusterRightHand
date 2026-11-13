@@ -1,5 +1,6 @@
-import type { UserGroup, UserGroupDetail } from "@crh/api";
+import type { LibraryLimits, UserGroup, UserGroupDetail } from "@crh/api";
 import type { Db } from "../storage/db.ts";
+import { defaultLibraryLimits, insertLibrary, withTransaction } from "../storage/library-rows.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
@@ -83,7 +84,12 @@ function normalizeUserGroupName(name: string): string {
 	return normalized;
 }
 
-export async function createUserGroup(db: Db, name: string): Promise<UserGroup> {
+export interface CreateUserGroupOptions {
+	/** The new library's limits; the defaults when omitted (doc/design/library.md "Limits"). */
+	library?: LibraryLimits;
+}
+
+export async function createUserGroup(db: Db, name: string, options: CreateUserGroupOptions = {}): Promise<UserGroup> {
 	const normalized = normalizeUserGroupName(name);
 	const orgId = await defaultOrgId(db);
 	const taken = await db
@@ -100,7 +106,10 @@ export async function createUserGroup(db: Db, name: string): Promise<UserGroup> 
 		source: "local" as const,
 		created_at: new Date().toISOString(),
 	};
-	await db.insertInto("user_groups").values(row).execute();
+	await withTransaction(db, async (trx) => {
+		await trx.insertInto("user_groups").values(row).execute();
+		await insertLibrary(trx, "group", row.id, options.library ?? defaultLibraryLimits("group"));
+	});
 	return { id: row.id, name: row.name, source: row.source, createdAt: row.created_at, memberIds: [] };
 }
 
@@ -174,14 +183,29 @@ export async function deleteUserGroup(
 	beforeDelete?: (trx: Db) => Promise<void>,
 ): Promise<void> {
 	await db.transaction().execute(async (trx) => {
+		const group = await trx.selectFrom("user_groups").select(["name"]).where("id", "=", userGroupId).executeTakeFirst();
+		if (!group) throw new NotFoundError("no such user group");
+		// A group with files cannot be deleted: a mistaken deletion would lose them with no way back
+		// (doc/design/library.md "Libraries"). The empty library row goes in the same transaction.
+		const library = await trx
+			.selectFrom("libraries")
+			.select(["id", "used_files"])
+			.where("owner_kind", "=", "group")
+			.where("owner_id", "=", userGroupId)
+			.executeTakeFirst();
+		if (library && library.used_files > 0) {
+			throw new UserError(
+				`user group ${group.name} still has ${library.used_files} file(s) in its library; delete them before deleting the group`,
+			);
+		}
+		if (library) await trx.deleteFrom("libraries").where("id", "=", library.id).execute();
 		await trx
 			.deleteFrom("shares")
 			.where("grantee_type", "=", "user_group")
 			.where("grantee_id", "=", userGroupId)
 			.execute();
 		await beforeDelete?.(trx);
-		const result = await trx.deleteFrom("user_groups").where("id", "=", userGroupId).executeTakeFirst();
-		if (result.numDeletedRows === 0n) throw new NotFoundError("no such user group");
+		await trx.deleteFrom("user_groups").where("id", "=", userGroupId).execute();
 	});
 }
 

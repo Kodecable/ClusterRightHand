@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { PageSkeleton } from "@/components/skeletons";
 import { useSystemSettings } from "./api";
 import { GeneralSection } from "./general-section";
+import { LibraryDefaultsSection } from "./library-section";
 import { PasskeysSection } from "./passkeys-section";
 import { RetentionSection } from "./retention-section";
 import { SignInSection } from "./sign-in-section";
@@ -45,6 +46,7 @@ export function SystemSettingsPage() {
 			<SignInSection settings={settings.data.settings} defaults={settings.data.defaults} />
 			<PasskeysSection settings={settings.data.settings} defaults={settings.data.defaults} />
 			<RetentionSection settings={settings.data.settings} defaults={settings.data.defaults} />
+			<LibraryDefaultsSection settings={settings.data.settings} defaults={settings.data.defaults} />
 			<SigningKeysSection />
 		</Page>
 	);

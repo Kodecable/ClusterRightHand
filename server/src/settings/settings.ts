@@ -1,11 +1,13 @@
-import type { SystemSettings, SystemSettingsRetention } from "@crh/api";
+import type { LibraryLimits, SystemSettings, SystemSettingsLibrary, SystemSettingsRetention } from "@crh/api";
 import { configureHashGate } from "../auth/hash-gate.ts";
 import type { AuthConfig, FileSettings, RetentionConfig, WebauthnConfig } from "../config.ts";
 import {
 	DEFAULT_ARGON2_CONCURRENCY,
 	DEFAULT_ARGON2_QUEUE,
 	DEFAULT_CAPTCHA,
+	DEFAULT_GROUP_LIBRARY_LIMITS,
 	DEFAULT_RP_NAME,
+	DEFAULT_USER_LIBRARY_LIMITS,
 	parseCaptcha,
 	parseDurationMs,
 	parseHeaderName,
@@ -34,6 +36,7 @@ export interface RuntimeSettings {
 	webauthn: WebauthnConfig;
 	auth: AuthConfig;
 	realIpHeader: string | null;
+	library: SystemSettingsLibrary;
 }
 
 /** The keys stored in the `settings` table; each row holds one validated value as JSON. */
@@ -50,6 +53,12 @@ export const SETTING_KEYS = [
 	"auth.argon2_concurrency",
 	"auth.argon2_queue",
 	"listen.real_ip_header",
+	"library.user_files",
+	"library.user_file_bytes",
+	"library.user_total_bytes",
+	"library.group_files",
+	"library.group_file_bytes",
+	"library.group_total_bytes",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -68,6 +77,10 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
 	webauthn: { rpId: null, rpName: DEFAULT_RP_NAME, origins: [] },
 	auth: { captcha: DEFAULT_CAPTCHA, argon2Concurrency: DEFAULT_ARGON2_CONCURRENCY, argon2Queue: DEFAULT_ARGON2_QUEUE },
 	realIpHeader: null,
+	library: {
+		user: { ...DEFAULT_USER_LIBRARY_LIMITS },
+		group: { ...DEFAULT_GROUP_LIBRARY_LIMITS },
+	},
 };
 
 /** A copy of the defaults, safe for a caller to modify. */
@@ -92,6 +105,12 @@ function defaultsByKey(): Record<SettingKey, unknown> {
 		"auth.argon2_concurrency": DEFAULT_SYSTEM_SETTINGS.auth.argon2Concurrency,
 		"auth.argon2_queue": DEFAULT_SYSTEM_SETTINGS.auth.argon2Queue,
 		"listen.real_ip_header": DEFAULT_SYSTEM_SETTINGS.realIpHeader,
+		"library.user_files": DEFAULT_SYSTEM_SETTINGS.library.user.files,
+		"library.user_file_bytes": DEFAULT_SYSTEM_SETTINGS.library.user.fileBytes,
+		"library.user_total_bytes": DEFAULT_SYSTEM_SETTINGS.library.user.totalBytes,
+		"library.group_files": DEFAULT_SYSTEM_SETTINGS.library.group.files,
+		"library.group_file_bytes": DEFAULT_SYSTEM_SETTINGS.library.group.fileBytes,
+		"library.group_total_bytes": DEFAULT_SYSTEM_SETTINGS.library.group.totalBytes,
 	};
 }
 
@@ -110,6 +129,12 @@ function flatten(settings: SystemSettings): Record<SettingKey, unknown> {
 		"auth.argon2_concurrency": settings.auth.argon2Concurrency,
 		"auth.argon2_queue": settings.auth.argon2Queue,
 		"listen.real_ip_header": settings.realIpHeader,
+		"library.user_files": settings.library.user.files,
+		"library.user_file_bytes": settings.library.user.fileBytes,
+		"library.user_total_bytes": settings.library.user.totalBytes,
+		"library.group_files": settings.library.group.files,
+		"library.group_file_bytes": settings.library.group.fileBytes,
+		"library.group_total_bytes": settings.library.group.totalBytes,
 	};
 }
 
@@ -134,6 +159,18 @@ function unflatten(values: Record<SettingKey, unknown>): SystemSettings {
 			argon2Queue: values["auth.argon2_queue"] as number,
 		},
 		realIpHeader: values["listen.real_ip_header"] as string | null,
+		library: {
+			user: {
+				files: values["library.user_files"] as number,
+				fileBytes: values["library.user_file_bytes"] as number,
+				totalBytes: values["library.user_total_bytes"] as number,
+			},
+			group: {
+				files: values["library.group_files"] as number,
+				fileBytes: values["library.group_file_bytes"] as number,
+				totalBytes: values["library.group_total_bytes"] as number,
+			},
+		},
 	};
 }
 
@@ -172,7 +209,21 @@ export function parseSettingValue(key: SettingKey, value: unknown): unknown {
 			return parseInteger(value, "auth.argon2_queue", 0);
 		case "listen.real_ip_header":
 			return parseHeaderName(value, "listen.real_ip_header");
+		case "library.user_files":
+		case "library.user_file_bytes":
+		case "library.user_total_bytes":
+		case "library.group_files":
+		case "library.group_file_bytes":
+		case "library.group_total_bytes":
+			return parseLibraryLimit(value, key);
 	}
+}
+
+/** A library limit: an integer from 0 (nothing allowed) to the largest 32-bit signed integer. */
+function parseLibraryLimit(value: unknown, name: string): number {
+	const limit = parseInteger(value, name, 0);
+	if (limit > 2_147_483_647) throw new Error(`${name} must be an integer <= 2147483647`);
+	return limit;
 }
 
 /** The flat stored form of the file settings an old crhs.toml still holds. */
@@ -219,7 +270,7 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 		}
 	};
 	for (const key of Object.keys(input)) {
-		if (!["publicUrl", "clockWarn", "retention", "webauthn", "auth", "realIpHeader"].includes(key)) {
+		if (!["publicUrl", "clockWarn", "retention", "webauthn", "auth", "realIpHeader", "library"].includes(key)) {
 			fields[key] = `unknown setting ${key}`;
 		}
 	}
@@ -327,6 +378,40 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 		}
 	}
 
+	if (input.library !== undefined) {
+		const group = plainObject(input.library);
+		if (!group) fields.library = "library must be an object";
+		else {
+			for (const owner of Object.keys(group)) {
+				if (!["user", "group"].includes(owner)) fields[`library.${owner}`] = `unknown setting ${owner}`;
+			}
+			for (const owner of ["user", "group"] as const) {
+				const valuesForOwner = group[owner];
+				if (valuesForOwner === undefined) continue;
+				const limits = plainObject(valuesForOwner);
+				if (!limits) {
+					fields[`library.${owner}`] = "must be an object";
+					continue;
+				}
+				for (const key of Object.keys(limits)) {
+					if (!["files", "fileBytes", "totalBytes"].includes(key)) {
+						fields[`library.${owner}.${key}`] = `unknown setting ${key}`;
+					}
+				}
+				for (const [field, setting] of [
+					["files", `${owner}_files`],
+					["fileBytes", `${owner}_file_bytes`],
+					["totalBytes", `${owner}_total_bytes`],
+				] as const) {
+					if (limits[field] === undefined) continue;
+					check(`library.${owner}.${field}`, () => {
+						values[`library.${setting}` as SettingKey] = parseLibraryLimit(limits[field], `library.${owner}.${field}`);
+					});
+				}
+			}
+		}
+	}
+
 	if (Object.keys(fields).length > 0) throw new SettingsValidationError(fields);
 	return values;
 }
@@ -350,6 +435,18 @@ function resolveSettings(wire: SystemSettings): RuntimeSettings {
 		webauthn: validateWebauthn(wire.webauthn.rpId, wire.webauthn.rpName, wire.webauthn.origins),
 		auth: validateAuth(wire.auth.captcha, wire.auth.argon2Concurrency, wire.auth.argon2Queue),
 		realIpHeader: parseHeaderName(wire.realIpHeader, "listen.real_ip_header"),
+		library: {
+			user: validateLibraryLimits(wire.library.user, "library.user"),
+			group: validateLibraryLimits(wire.library.group, "library.group"),
+		},
+	};
+}
+
+function validateLibraryLimits(limits: LibraryLimits, name: string): LibraryLimits {
+	return {
+		files: parseLibraryLimit(limits.files, `${name}.files`),
+		fileBytes: parseLibraryLimit(limits.fileBytes, `${name}.fileBytes`),
+		totalBytes: parseLibraryLimit(limits.totalBytes, `${name}.totalBytes`),
 	};
 }
 

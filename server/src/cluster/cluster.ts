@@ -27,9 +27,13 @@ import { ClusterCore } from "./core.ts";
 import { acceptDataConnection } from "./data-transfer.ts";
 import {
 	type PullFileInput,
+	type PullLibraryFileInput,
 	type PushFileInput,
+	type PushLibraryFileInput,
 	pullFile,
+	pullLibraryFile,
 	pushFile,
+	pushLibraryFile,
 	stageBytesForPush,
 	stagingLocation,
 } from "./file-plane.ts";
@@ -252,6 +256,16 @@ export class Cluster {
 	/** Starts a file.pull task: crhs receives the node's regular file into the location. */
 	pullFile(input: PullFileInput): Promise<TaskView> {
 		return pullFile(this.#core, input);
+	}
+
+	/** Starts a file.push task whose source is a library file (library → node). */
+	pushLibraryFile(input: PushLibraryFileInput): Promise<TaskView> {
+		return pushLibraryFile(this.#core, input);
+	}
+
+	/** Starts a file.pull task whose destination is a library path (node → library). */
+	pullLibraryFile(input: PullLibraryFileInput): Promise<TaskView> {
+		return pullLibraryFile(this.#core, input);
 	}
 
 	/**

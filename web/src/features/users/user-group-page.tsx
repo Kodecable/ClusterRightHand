@@ -16,7 +16,9 @@ import { SectionHeader } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { LibrarySection } from "@/features/library/library-section";
 import { GranteeNodeAccessSection } from "@/features/nodes/access-grants";
+import { linkClass } from "@/lib/utils";
 import { useDeleteUserGroup, useRemoveUserGroupMember, useUserGroup, useUsers } from "./api";
 import { UserGroupAddMemberDialog, UserGroupNameDialog } from "./user-group-dialogs";
 
@@ -152,6 +154,8 @@ export function UserGroupDetailPage() {
 
 			<KeyValueList items={[{ label: t`Created`, value: <DateTime value={details.createdAt} /> }]} />
 
+			<LibrarySection reference={`group:${details.name}`} />
+
 			<section className="grid gap-2" aria-labelledby="user-group-members-heading" data-testid="user-group-members">
 				<SectionHeader
 					id="user-group-members-heading"
@@ -230,10 +234,21 @@ export function UserGroupDetailPage() {
 						},
 					})
 				}
-			/>
-			{removeGroup.error !== null && removeGroup.error !== undefined && (
-				<ErrorState error={removeGroup.error} compact retry={() => void removeGroup.reset()} />
-			)}
+			>
+				{removeGroup.error !== null && removeGroup.error !== undefined && (
+					<div className="grid gap-2">
+						<ErrorState error={removeGroup.error} compact retry={() => void removeGroup.reset()} />
+						<Link
+							to="/library/$library"
+							params={{ library: `group:${details.name}` }}
+							search={{}}
+							className={linkClass}
+						>
+							<Trans>Open the library to delete its files</Trans>
+						</Link>
+					</div>
+				)}
+			</ConfirmDialog>
 		</Page>
 	);
 }

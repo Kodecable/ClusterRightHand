@@ -22,6 +22,13 @@ port = 8080
 driver = "sqlite"
 path = "/var/lib/crhs/crhs.db"
 # url = "postgres://crh:secret@db.example.com/crh"
+
+# [library]
+# backend = "local"
+# For the webdav backend:
+# url = "https://dav.example.com/crhs/"
+# username = "crhs"
+# password = "secret"
 ```
 
 ## Top-level keys
@@ -48,6 +55,23 @@ path = "/var/lib/crhs/crhs.db"
 | `path` | path | `/var/lib/crhs/crhs.db` | SQLite database file. Its directory must exist. |
 | `url` | string | none | PostgreSQL connection string; required with `driver = "postgres"`. |
 
+## [library]
+
+The library object store, shared by every user and user group library
+([Libraries](../webui.md#libraries)). The whole table is optional; without it, `backend` is `"local"`.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `backend` | `"local"` or `"webdav"` | `"local"` | Where file objects are stored. |
+| `url` | absolute http(s) URL | none | The WebDAV collection; required with `backend = "webdav"`. A trailing `/` is optional. |
+| `username` | string | none | The WebDAV user; required with `backend = "webdav"`. |
+| `password` | string | none | The WebDAV password; required with `backend = "webdav"`. |
+
+With `local`, objects live in the `library/` directory of crhs's data directory: the directory
+containing the SQLite database, or the directory containing `master_key_file` with PostgreSQL. crhs
+owns the store exclusively; nothing else may read or write it. Changing the backend does not move
+existing objects, so keep the old store available until its files are removed.
+
 ## System settings
 
 The low-frequency settings below are **not** in `crhs.toml`. Administrators edit them in the WebUI's
@@ -67,6 +91,15 @@ The low-frequency settings below are **not** in `crhs.toml`. Administrators edit
 | `auth.argon2_queue` | integer ≥ 0 | `32` | Password hashes allowed to wait; beyond that, requests fail with `hash_busy`. |
 | `auth.captcha` | `"cap"` or `"none"` | `"cap"` | Whether sign-in requires the proof-of-work check. Use `"none"` only where no browser is involved. |
 | `listen.real_ip_header` | header name | unset | Take the client address from the first value of this header, for example `X-Forwarded-For`. Unset: the connection's peer address. |
+| `library.user.files` | integer ≥ 0 | `256` | Files a new user library may hold. |
+| `library.user.file_bytes` | integer ≥ 0 | `33554432` | Largest single file in a new user library, in bytes (32 MiB). |
+| `library.user.total_bytes` | integer ≥ 0 | `268435456` | Total size of a new user library, in bytes (256 MiB). |
+| `library.group.files` | integer ≥ 0 | `0` | Files a new user group library may hold; `0` allows none. |
+| `library.group.file_bytes` | integer ≥ 0 | `0` | Largest single file in a new user group library, in bytes. |
+| `library.group.total_bytes` | integer ≥ 0 | `0` | Total size of a new user group library, in bytes. |
+
+The library defaults are copied when a user or user group is created; changing them does not touch an
+existing library. Administrators change an existing library's limits on its user or user group page.
 
 Set `webauthn.rp_id` and `webauthn.origins` together, or leave both unset to take them from each
 request's origin.

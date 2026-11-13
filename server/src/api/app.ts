@@ -7,6 +7,7 @@ import { Audit } from "../audit/audit.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
 import type { MasterKey } from "../keys/master-key.ts";
+import type { LibraryBackend } from "../library/backend.ts";
 import { mcpRoutes } from "../mcp/mcp.ts";
 import { type AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
@@ -20,6 +21,7 @@ import { authorizationRoutes } from "./authorization-routes.ts";
 import type { AppEnv } from "./context.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
+import { libraryRoutes } from "./library-routes.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { modelPresetRoutes } from "./model-preset-routes.ts";
 import { modelProviderRoutes } from "./model-provider-routes.ts";
@@ -47,6 +49,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	authorizationKey?: AuthorizationSigningKey;
 	/** Needed for SSH credentials and nodes. */
 	masterKey?: MasterKey;
+	/** The library object store; without it library metadata still works and file routes answer 400. */
+	libraryBackend?: LibraryBackend;
 	/** `[webauthn]` fallback for tests; production passes `settings`. */
 	webauthn?: WebauthnConfig;
 	/** Clock-warning fallback for tests; production passes `settings` (doc/design/privilege.md "Clock"). */
@@ -128,6 +132,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	app.route(
 		"/api",
 		userRoutes(db, {
+			...(options.settings ? { settings: options.settings } : {}),
 			...(options.agent ? { sessions: options.agent.runtime.sessionList } : {}),
 			...(cluster ? { cluster } : {}),
 			...(taskGroups ? { taskGroups } : {}),
@@ -135,6 +140,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 		}),
 	);
 	app.route("/api", settingsRoutes(db, options.settings ? { settings: options.settings } : {}));
+	app.route("/api", libraryRoutes(db, options.libraryBackend ? { backend: options.libraryBackend } : {}));
 	app.route("/api", nodeRoutes(db, { ...options, signingKeys }));
 	app.route("/api", nodeGroupRoutes(db));
 	app.route("/api", nodeAccessRoutes(db));

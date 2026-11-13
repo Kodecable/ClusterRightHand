@@ -8,6 +8,7 @@ import {
 	RouterProvider,
 } from "@tanstack/react-router";
 import { type RenderResult, render } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { LocaleProvider } from "@/lib/i18n";
 import { ThemeProvider } from "@/lib/theme";
 import { messages as enMessages } from "@/locales/en.po";
@@ -45,7 +46,9 @@ export function renderWithI18n(
 		wrapper: ({ children }) => (
 			<QueryClientProvider client={client}>
 				<ThemeProvider>
-					<LocaleProvider initialLocale={locale}>{children}</LocaleProvider>
+					<LocaleProvider initialLocale={locale}>
+						<TooltipProvider delay={0}>{children}</TooltipProvider>
+					</LocaleProvider>
 				</ThemeProvider>
 			</QueryClientProvider>
 		),
@@ -64,6 +67,7 @@ function buildRouter(ui: React.ReactElement, options: RenderRouterOptions = {}) 
 	const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: () => ui });
 	const paths = [
 		"/sessions",
+		"/library/$library",
 		"/schedules",
 		"/schedules/$scheduleId",
 		"/tasks",
@@ -122,7 +126,9 @@ export async function renderWithRouter(
 		<QueryClientProvider client={testQueryClient()}>
 			<ThemeProvider>
 				<LocaleProvider initialLocale={locale}>
-					<RouterProvider router={router} />
+					<TooltipProvider delay={0}>
+						<RouterProvider router={router} />
+					</TooltipProvider>
 				</LocaleProvider>
 			</ThemeProvider>
 		</QueryClientProvider>,

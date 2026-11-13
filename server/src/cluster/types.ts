@@ -5,6 +5,7 @@
 import type { AgentRequest, ApprovalDecision, ApprovalRecord, TaskView } from "@crh/api";
 import type { TaskSpec } from "@crh/protocol";
 import type { Audit } from "../audit/audit.ts";
+import type { LibraryBackend } from "../library/backend.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { SettingsStore } from "../settings/settings.ts";
@@ -108,6 +109,8 @@ export interface ClusterOptions {
 	clockWarnMs?: number;
 	/** A file plane transfer's crhs-side staging directory (doc/design/library.md "File plane"). */
 	transferRoot?: string;
+	/** The one library object backend (doc/design/library.md "Backends"); needed for library transfers. */
+	libraryBackend?: LibraryBackend;
 	/** The transfer slots; tests lower them to exercise the queue (defaults for production). */
 	transferLimits?: Partial<{
 		runningPerNode: number;

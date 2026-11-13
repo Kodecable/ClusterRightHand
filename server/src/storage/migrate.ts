@@ -2,11 +2,13 @@ import type { DialectAdapter, Kysely } from "kysely";
 import { type Migration, type MigrationProvider, type MigrationResult, Migrator } from "kysely/migration";
 import * as m0001 from "./migrations/0001_initial.ts";
 import * as m0002 from "./migrations/0002_task_transfer.ts";
+import * as m0003 from "./migrations/0003_libraries.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
 	"0001_initial": m0001,
 	"0002_task_transfer": m0002,
+	"0003_libraries": m0003,
 };
 
 /** Options shared by the migration entry points. */

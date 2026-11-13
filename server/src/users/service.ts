@@ -1,8 +1,9 @@
-import type { Directory, User, UserDetail, UserKind, UserStatus } from "@crh/api";
+import type { Directory, LibraryLimits, User, UserDetail, UserKind, UserStatus } from "@crh/api";
 import type { Selectable } from "kysely";
 import { hashPassword } from "../auth/password.ts";
 import type { Db } from "../storage/db.ts";
 import { isPostgres } from "../storage/dialect.ts";
+import { defaultLibraryLimits, insertLibrary, withTransaction } from "../storage/library-rows.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import type { UsersTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
@@ -52,9 +53,15 @@ export function validatePassword(password: string): void {
 	}
 }
 
+export interface CreateUserOptions {
+	/** The new library's limits; the defaults when omitted (doc/design/library.md "Limits"). */
+	library?: LibraryLimits;
+}
+
 export async function createUser(
 	db: Db,
 	input: { username: string; displayName?: string; email?: string | null; kind: UserKind; password?: string },
+	options: CreateUserOptions = {},
 ): Promise<PublicUser> {
 	const username = input.username.trim().toLowerCase();
 	if (!USERNAME_RE.test(username)) {
@@ -83,7 +90,10 @@ export async function createUser(
 		status: "active" as const,
 		created_at: new Date().toISOString(),
 	};
-	await db.insertInto("users").values(row).execute();
+	await withTransaction(db, async (trx) => {
+		await trx.insertInto("users").values(row).execute();
+		await insertLibrary(trx, "user", row.id, options.library ?? defaultLibraryLimits("user"));
+	});
 	return toPublicUser(row);
 }
 

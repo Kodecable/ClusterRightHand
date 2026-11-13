@@ -31,5 +31,11 @@ export function jsonBodyLimit(maxSize: number): MiddlewareHandler {
  * body before their own limit saw it.
  */
 export function takesLargeBody(path: string): boolean {
-	return path === "/mcp" || path === "/api/task-groups" || /^\/api\/nodes\/[^/]+\/tasks\/?$/.test(path);
+	return (
+		path === "/mcp" ||
+		path === "/api/task-groups" ||
+		/^\/api\/nodes\/[^/]+\/tasks\/?$/.test(path) ||
+		// A library upload streams a raw body; the route checks the library's one-file limit itself.
+		/^\/api\/libraries\/[^/]+\/file$/.test(path)
+	);
 }

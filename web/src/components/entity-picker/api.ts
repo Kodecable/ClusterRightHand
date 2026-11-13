@@ -1,5 +1,6 @@
 import type {
 	DirectoryResponse,
+	LibraryListResponse,
 	NodeGroupListResponse,
 	NodeListResponse,
 	SigningCredentialView,
@@ -29,6 +30,8 @@ export type EntityKind =
 	| "nodeGroup"
 	| "directory"
 	| "nodeTarget"
+	| "libraryOwner"
+	| "library"
 	| "sshCredential"
 	| "signingCredential";
 
@@ -68,6 +71,10 @@ const ROOTS: Record<EntityKind, readonly string[]> = {
 	directory: ["users", "directory-picker"],
 	// Node and node-group mutations both invalidate `["nodes"]`, so one root refreshes both halves.
 	nodeTarget: ["nodes", "picker", "node-target"],
+	// A library owner is a user or a user group, chosen by its library reference as the option id.
+	libraryOwner: ["libraries", "picker"],
+	// The caller's own libraries and their user groups' libraries, with the reference as the option id.
+	library: ["libraries", "picker"],
 	// The credential page invalidates `["ssh-credentials"]` on create and delete.
 	sshCredential: ["ssh-credentials", "picker"],
 	// The signing credentials page invalidates `["signing-credentials"]` on create, delete and registration.
@@ -252,6 +259,50 @@ async function fetchSearch(
 				more: nodes.more === true || groups.more === true,
 			};
 		}
+		case "libraryOwner": {
+			// The picker is shown to administrators, so it searches the full (administrator-only)
+			// lists; that also reaches a disabled user's library. The id is the library reference.
+			const [users, groups] = await Promise.all([
+				http.get<UserListResponse>(`/users${params}`, { signal }),
+				http.get<UserGroupListResponse>(`/user-groups${params}`, { signal }),
+			]);
+			return {
+				options: [
+					...users.users.map((user) => ({
+						id: `user:${user.username}`,
+						kind: "user" as const,
+						primary: user.username,
+						secondary: user.displayName || undefined,
+						disabled: user.status !== "active",
+					})),
+					...groups.groups.map((group) => ({
+						id: `group:${group.name}`,
+						kind: "userGroup" as const,
+						primary: group.name,
+						secondary: i18n._(msg`User group`),
+					})),
+				],
+				more: users.more === true || groups.more === true,
+			};
+		}
+		case "library": {
+			// The reachable libraries are a short list; filtering here keeps the picker simple.
+			const body = await http.get<LibraryListResponse>("/libraries", { signal });
+			const needle = q.toLowerCase();
+			return {
+				options: body.libraries
+					.map(
+						(library): EntityOption => ({
+							id: library.ref,
+							kind: library.ownerKind === "user" ? "user" : "userGroup",
+							primary: library.ownerDisplayName || library.ownerName,
+							secondary: i18n._(library.ownerKind === "user" ? msg`User` : msg`User group`),
+						}),
+					)
+					.filter((option) => option.primary.toLowerCase().includes(needle)),
+				more: false,
+			};
+		}
 		case "sshCredential": {
 			// The endpoint returns the whole (administrator-only, short) list; filtering here keeps it tidy.
 			const body = await http.get<{ credentials: SshCredential[] }>("/ssh-credentials", { signal });
@@ -351,6 +402,29 @@ async function fetchLabelsChunk(
 				...nodes.nodes.map((node) => nodeTargetNodeOption(node)),
 				...groups.groups.map((group) => nodeTargetGroupOption(group, i18n)),
 			];
+		}
+		case "libraryOwner":
+			// The id already carries the kind and the name, so a selected reference needs no request.
+			return ids.flatMap((id) => {
+				const separator = id.indexOf(":");
+				if (separator === -1) return [];
+				const kind = id.slice(0, separator);
+				const name = id.slice(separator + 1);
+				if ((kind !== "user" && kind !== "group") || name === "") return [];
+				return [{ id, kind: kind === "user" ? ("user" as const) : ("userGroup" as const), primary: name }];
+			});
+		case "library": {
+			const body = await http.get<LibraryListResponse>("/libraries", { signal });
+			const wanted = new Set(ids);
+			return body.libraries
+				.filter((library) => wanted.has(library.ref))
+				.map(
+					(library): EntityOption => ({
+						id: library.ref,
+						kind: library.ownerKind === "user" ? "user" : "userGroup",
+						primary: library.ownerDisplayName || library.ownerName,
+					}),
+				);
 		}
 		case "sshCredential": {
 			const body = await http.get<{ credentials: SshCredential[] }>("/ssh-credentials", { signal });

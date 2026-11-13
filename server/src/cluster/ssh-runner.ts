@@ -144,7 +144,7 @@ export async function runSsh(
 	// is no data connection (doc/design/library.md "SSH nodes"). A broken descriptor fails the task
 	// through the catch below.
 	const transferRecord = parseTransferRecord((await core.row(id))?.transfer ?? null);
-	const location = transferRecord ? openTransferLocation(core.transferRoot, transferRecord.location) : undefined;
+	const location = transferRecord ? openTransferLocation(core.transferContext(), transferRecord.location) : undefined;
 	const sftpTransfer: SftpTransfer | undefined = location
 		? { openRead: () => location.openRead(), openWrite: () => location.openWrite() }
 		: undefined;

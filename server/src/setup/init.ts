@@ -249,13 +249,18 @@ async function ensureAdministrator(answers: ResolvedAnswers, db: Db, say: (line:
 		return;
 	}
 	// The administrator and its audit event are one transaction: init never leaves an unrecorded admin.
+	const settings = await SettingsStore.load(db);
 	const user = await db.transaction().execute(async (trx) => {
-		const created = await createUser(trx, {
-			username: answers.admin.username,
-			displayName: answers.admin.displayName,
-			kind: "admin",
-			password: answers.admin.password,
-		});
+		const created = await createUser(
+			trx,
+			{
+				username: answers.admin.username,
+				displayName: answers.admin.displayName,
+				kind: "admin",
+				password: answers.admin.password,
+			},
+			{ library: settings.current().library.user },
+		);
 		await appendCliAudit(
 			trx,
 			cliInput(

@@ -243,6 +243,14 @@ msgstr "A host is required."
 msgid "A label for this key, for example \"laptop\"."
 msgstr "A label for this key, for example \"laptop\"."
 
+#: src/features/system-settings/library-section.tsx
+msgid "A limit of 0 allows nothing, so a new group library is unusable until an administrator raises its limits."
+msgstr "A limit of 0 allows nothing, so a new group library is unusable until an administrator raises its limits."
+
+#: src/features/library/limits-dialog.tsx
+msgid "A limit of 0 allows nothing. Lowering a limit below the current usage keeps the files and refuses new writes until files are deleted."
+msgstr "A limit of 0 allows nothing. Lowering a limit below the current usage keeps the files and refuses new writes until files are deleted."
+
 #: src/components/task-result.tsx
 msgid "A line alone is longer than the 50 KB a page keeps."
 msgstr "A line alone is longer than the 50 KB a page keeps."
@@ -821,6 +829,8 @@ msgid "By"
 msgstr "By"
 
 #: src/components/dialogs.tsx
+#: src/components/file-manager/file-picker-dialog.tsx
+#: src/components/upload/upload-progress-dialog.tsx
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/reenroll-node-dialog.tsx
@@ -892,6 +902,10 @@ msgstr "Changing the password signs out your other web sessions but does not rev
 msgid "Changing the RP ID invalidates the Passkeys registered for the old one."
 msgstr "Changing the RP ID invalidates the Passkeys registered for the old one."
 
+#: src/features/library/library-section.tsx
+msgid "Changing them applies to this library only."
+msgstr "Changing them applies to this library only."
+
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
 msgstr "Chat"
@@ -904,6 +918,14 @@ msgstr "Chat Completions"
 #: src/features/schedules/schedule-form.tsx
 msgid "Check the highlighted fields."
 msgstr "Check the highlighted fields."
+
+#: src/components/file-manager/file-picker-dialog.tsx
+msgid "Choose a file"
+msgstr "Choose a file"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a library"
+msgstr "Choose a library"
 
 #: src/components/model-select.tsx
 msgid "Choose a model"
@@ -953,6 +975,14 @@ msgstr "Choose an SSH credential"
 msgid "Choose at least one target."
 msgstr "Choose at least one target."
 
+#: src/components/file-manager/file-picker-dialog.tsx
+msgid "Choose files"
+msgstr "Choose files"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose libraries"
+msgstr "Choose libraries"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose node groups"
 msgstr "Choose node groups"
@@ -964,6 +994,14 @@ msgstr "Choose nodes"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose nodes or node groups"
 msgstr "Choose nodes or node groups"
+
+#: src/components/file-manager/file-picker-dialog.tsx
+msgid "Choose one file."
+msgstr "Choose one file."
+
+#: src/components/file-manager/file-picker-dialog.tsx
+msgid "Choose one or more files."
+msgstr "Choose one or more files."
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose signing credentials"
@@ -1012,6 +1050,10 @@ msgstr "Clock"
 #: src/features/system-settings/general-section.tsx
 msgid "Clock warning threshold"
 msgstr "Clock warning threshold"
+
+#: src/components/upload/upload-progress-dialog.tsx
+msgid "Close"
+msgstr "Close"
 
 #: src/app/shell/nav.ts
 msgid "Cluster"
@@ -1361,6 +1403,12 @@ msgstr "Default prompt and protocol"
 msgid "Default: {defaultValue}."
 msgstr "Default: {defaultValue}."
 
+#. placeholder {0}: formatBytes(defaults.library.user.totalBytes, i18n.locale)
+#: src/features/system-settings/library-section.tsx
+msgid "Defaults: {0} total."
+msgstr "Defaults: {0} total."
+
+#: src/components/file-manager/file-list.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/pages.tsx
@@ -1372,8 +1420,10 @@ msgstr "Default: {defaultValue}."
 msgid "Delete"
 msgstr "Delete"
 
+#. placeholder {0}: entry.path
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
+#: src/components/file-manager/file-list.tsx
 #: src/features/settings/pages.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -1381,6 +1431,8 @@ msgid "Delete {0}"
 msgstr "Delete {0}"
 
 #. placeholder {0}: current.name
+#. placeholder {0}: entry.path
+#: src/components/file-manager/file-list.tsx
 #: src/features/schedules/pages.tsx
 msgid "Delete {0}?"
 msgstr "Delete {0}?"
@@ -1547,6 +1599,15 @@ msgstr "Display name"
 msgid "Done"
 msgstr "Done"
 
+#: src/components/file-manager/file-list.tsx
+msgid "Download"
+msgstr "Download"
+
+#. placeholder {0}: entry.path
+#: src/components/file-manager/file-list.tsx
+msgid "Download {0}"
+msgstr "Download {0}"
+
 #: src/features/settings/model-dialog.tsx
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
 msgstr "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
@@ -1572,6 +1633,15 @@ msgstr "Edit"
 #: src/features/settings/pages.tsx
 msgid "Edit {0}"
 msgstr "Edit {0}"
+
+#: src/features/library/library-section.tsx
+msgid "Edit limits"
+msgstr "Edit limits"
+
+#. placeholder {0}: library.ownerDisplayName || library.ownerName
+#: src/features/library/limits-dialog.tsx
+msgid "Edit limits for {0}"
+msgstr "Edit limits for {0}"
 
 #: src/features/node-groups/pages.tsx
 msgid "Edit members"
@@ -1654,6 +1724,15 @@ msgstr "Enter a duration such as 60s or 5m."
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
 
+#: src/components/file-manager/file-list.tsx
+msgid "Enter a valid path without a leading or trailing /."
+msgstr "Enter a valid path without a leading or trailing /."
+
+#: src/features/library/limits-dialog.tsx
+#: src/features/system-settings/library-section.tsx
+msgid "Enter a whole number between 0 and {MAX_LIMIT}."
+msgstr "Enter a whole number between 0 and {MAX_LIMIT}."
+
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Enter a whole number of 0 or more."
 msgstr "Enter a whole number of 0 or more."
@@ -1703,6 +1782,10 @@ msgstr "Environment"
 #: src/components/task-result.tsx
 msgid "Error"
 msgstr "Error"
+
+#: src/components/upload/upload-progress-dialog.tsx
+msgid "ETA"
+msgstr "ETA"
 
 #. placeholder {0}: detail.seq
 #: src/features/audit/pages.tsx
@@ -1805,6 +1888,33 @@ msgstr "failed"
 msgid "Failed"
 msgstr "Failed"
 
+#: src/components/upload/upload-progress-dialog.tsx
+msgid "Failed files"
+msgstr "Failed files"
+
+#: src/features/library/usage-indicator.tsx
+msgid "File count limit: {filesPercent} ({filesUsed}/{filesLimit})"
+msgstr "File count limit: {filesPercent} ({filesUsed}/{filesLimit})"
+
+#: src/components/file-manager/file-picker-dialog.tsx
+#: src/components/upload/upload-progress-dialog.tsx
+#: src/features/library/library-section.tsx
+#: src/features/library/limits-dialog.tsx
+msgid "Files"
+msgstr "Files"
+
+#: src/features/system-settings/library-section.tsx
+msgid "Files for new groups"
+msgstr "Files for new groups"
+
+#: src/features/system-settings/library-section.tsx
+msgid "Files for new users"
+msgstr "Files for new users"
+
+#: src/components/file-manager/file-list.tsx
+msgid "Files in {loadingLabel}"
+msgstr "Files in {loadingLabel}"
+
 #: src/features/audit/pages.tsx
 msgid "Filter"
 msgstr "Filter"
@@ -1867,6 +1977,10 @@ msgstr "Grantee"
 #: src/components/task-result.tsx
 msgid "Group"
 msgstr "Group"
+
+#: src/features/library/pages.tsx
+msgid "Group {name}'s library"
+msgstr "Group {name}'s library"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Header"
@@ -2088,6 +2202,20 @@ msgstr "Level"
 msgid "Level mapping"
 msgstr "Level mapping"
 
+#: src/app/shell/nav.ts
+#: src/features/library/library-section.tsx
+#: src/features/library/pages.tsx
+msgid "Library"
+msgstr "Library"
+
+#: src/features/system-settings/library-section.tsx
+msgid "Library defaults"
+msgstr "Library defaults"
+
+#: src/features/library/usage-indicator.tsx
+msgid "Library usage"
+msgstr "Library usage"
+
 #: src/app/shell/user-menu.tsx
 msgid "Light"
 msgstr "Light"
@@ -2095,6 +2223,10 @@ msgstr "Light"
 #: src/components/task-form-fields.tsx
 msgid "Limit"
 msgstr "Limit"
+
+#: src/features/library/library-section.tsx
+msgid "Limits"
+msgstr "Limits"
 
 #: src/components/task-form-fields.tsx
 msgid "Lines"
@@ -2117,6 +2249,10 @@ msgstr "List at least one model."
 msgid "Load more"
 msgstr "Load more"
 
+#: src/features/library/library-section.tsx
+msgid "Loading library…"
+msgstr "Loading library…"
+
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Loading more"
 msgstr "Loading more"
@@ -2128,6 +2264,10 @@ msgstr "Loading more sessions…"
 #: src/features/sessions/transcript.tsx
 msgid "Loading older messages…"
 msgstr "Loading older messages…"
+
+#: src/components/file-manager/preview-dialog.tsx
+msgid "Loading preview"
+msgstr "Loading preview"
 
 #: src/features/sessions/share-dialog.tsx
 msgid "Loading shares…"
@@ -2268,6 +2408,21 @@ msgstr "More options"
 msgid "More results — keep typing to narrow down"
 msgstr "More results — keep typing to narrow down"
 
+#: src/components/file-manager/file-list.tsx
+msgid "Move"
+msgstr "Move"
+
+#: src/components/file-manager/file-list.tsx
+msgid "Move or rename"
+msgstr "Move or rename"
+
+#. placeholder {0}: entry.name
+#. placeholder {0}: entry.path
+#: src/components/file-manager/file-list.tsx
+msgid "Move or rename {0}"
+msgstr "Move or rename {0}"
+
+#: src/components/file-manager/file-list.tsx
 #: src/components/task-result.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/node-trust.tsx
@@ -2322,6 +2477,10 @@ msgstr "New node group"
 #: src/features/users/reset-password-dialog.tsx
 msgid "New password"
 msgstr "New password"
+
+#: src/components/file-manager/file-list.tsx
+msgid "New path"
+msgstr "New path"
 
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -2380,6 +2539,14 @@ msgstr "New user"
 msgid "New user group"
 msgstr "New user group"
 
+#: src/features/system-settings/library-section.tsx
+msgid "New user group libraries"
+msgstr "New user group libraries"
+
+#: src/features/system-settings/library-section.tsx
+msgid "New user libraries"
+msgstr "New user libraries"
+
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Newest"
 msgstr "Newest"
@@ -2435,6 +2602,10 @@ msgstr "No crha runs on the host, so nothing is sent to it. Tasks waiting for th
 #: src/features/audit/pages.tsx
 msgid "No events"
 msgstr "No events"
+
+#: src/features/library/library-section.tsx
+msgid "No library exists for this account."
+msgstr "No library exists for this account."
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "No matches"
@@ -2696,6 +2867,10 @@ msgstr "Note"
 msgid "Nothing here yet."
 msgstr "Nothing here yet."
 
+#: src/features/library/library-section.tsx
+msgid "Nothing is allowed until an administrator raises them."
+msgstr "Nothing is allowed until an administrator raises them."
+
 #: src/features/approvals/pages.tsx
 msgid "Nothing is waiting for you"
 msgstr "Nothing is waiting for you"
@@ -2744,6 +2919,22 @@ msgstr "On behalf of"
 msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 msgstr "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 
+#: src/features/library/library-section.tsx
+msgid "One file"
+msgstr "One file"
+
+#: src/features/library/limits-dialog.tsx
+msgid "One file (bytes)"
+msgstr "One file (bytes)"
+
+#: src/features/system-settings/library-section.tsx
+msgid "One file for new groups (bytes)"
+msgstr "One file for new groups (bytes)"
+
+#: src/features/system-settings/library-section.tsx
+msgid "One file for new users (bytes)"
+msgstr "One file for new users (bytes)"
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "Only administrators can manage SSH credentials."
@@ -2762,10 +2953,18 @@ msgstr "Open {0} {1}"
 msgid "Open approval page"
 msgstr "Open approval page"
 
+#: src/features/library/library-section.tsx
+msgid "Open library"
+msgstr "Open library"
+
 #. placeholder {0}: (run.sessionId ?? "").slice(0, 8)
 #: src/features/schedules/run-history.tsx
 msgid "Open session {0}"
 msgstr "Open session {0}"
+
+#: src/features/users/user-group-page.tsx
+msgid "Open the library to delete its files"
+msgstr "Open the library to delete its files"
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "Open the signing page"
@@ -2852,6 +3051,10 @@ msgstr "Output file"
 #: src/features/sessions/tool-dialog.tsx
 msgid "Output so far"
 msgstr "Output so far"
+
+#: src/components/upload/upload-progress-dialog.tsx
+msgid "Overall upload progress"
+msgstr "Overall upload progress"
 
 #: src/components/task-form-fields.tsx
 msgid "Overwrite if it exists"
@@ -2974,6 +3177,16 @@ msgstr "prefix"
 #: src/features/authorizations/signature-decision.tsx
 msgid "Preparing the payload to sign…"
 msgstr "Preparing the payload to sign…"
+
+#: src/components/file-manager/file-list.tsx
+#: src/components/file-manager/preview-dialog.tsx
+msgid "Preview"
+msgstr "Preview"
+
+#. placeholder {0}: entry.path
+#: src/components/file-manager/file-list.tsx
+msgid "Preview {0}"
+msgstr "Preview {0}"
 
 #: src/components/decision/decision.tsx
 #: src/components/task-form-fields.tsx
@@ -3429,6 +3642,7 @@ msgid "Runtime settings for this crhs. A save applies without a restart and is r
 msgstr "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
 
 #: src/components/dialogs.tsx
+#: src/features/library/limits-dialog.tsx
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/rename-node-button.tsx
 #: src/features/sessions/budget-dialog.tsx
@@ -3504,6 +3718,10 @@ msgid "Search failed"
 msgstr "Search failed"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Search libraries…"
+msgstr "Search libraries…"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Search node groups…"
 msgstr "Search node groups…"
 
@@ -3546,6 +3764,10 @@ msgid "Search users and groups…"
 msgstr "Search users and groups…"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Search users and user groups…"
+msgstr "Search users and user groups…"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Search users…"
 msgstr "Search users…"
 
@@ -3556,6 +3778,21 @@ msgstr "Searching"
 #: src/features/auth/api.ts
 msgid "Security verification failed. Try again."
 msgstr "Security verification failed. Try again."
+
+#: src/components/file-manager/file-list.tsx
+#: src/components/file-manager/file-picker-dialog.tsx
+msgid "Select"
+msgstr "Select"
+
+#. placeholder {0}: row.original.path
+#: src/components/file-manager/file-list.tsx
+msgid "Select {0}"
+msgstr "Select {0}"
+
+#. placeholder {0}: selected.size
+#: src/components/file-manager/file-picker-dialog.tsx
+msgid "Select {0} files"
+msgstr "Select {0} files"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
@@ -3711,6 +3948,7 @@ msgstr "Signed with Passkey \"{0}\"."
 msgid "Signing credentials"
 msgstr "Signing credentials"
 
+#: src/components/file-manager/file-list.tsx
 #: src/components/task-result.tsx
 msgid "Size"
 msgstr "Size"
@@ -3730,6 +3968,10 @@ msgstr "Some rules reference deleted nodes or node groups. Remove or replace tho
 #: src/components/error-state.tsx
 msgid "Something went wrong"
 msgstr "Something went wrong"
+
+#: src/components/upload/upload-progress-dialog.tsx
+msgid "Speed"
+msgstr "Speed"
 
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/ssh-node-section.tsx
@@ -3988,6 +4230,10 @@ msgstr "The hostname Passkeys are registered for, such as crh.example.com. Empty
 msgid "The limit must be a non-negative whole number."
 msgstr "The limit must be a non-negative whole number."
 
+#: src/features/system-settings/library-section.tsx
+msgid "The limits a new user or user group library copies when it is created. Changing them applies only to libraries created later."
+msgstr "The limits a new user or user group library copies when it is created. Changing them applies only to libraries created later."
+
 #: src/components/task-result.tsx
 msgid "The listing is truncated: the directory has more entries than are shown."
 msgstr "The listing is truncated: the directory has more entries than are shown."
@@ -4179,9 +4425,21 @@ msgstr "This alias is for a node group the node is not in. Reusable authorizatio
 msgid "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:"
 msgstr "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:"
 
+#: src/components/file-manager/file-list.tsx
+msgid "This cannot be undone."
+msgstr "This cannot be undone."
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "This credential is used by a node and cannot be deleted."
+
+#: src/components/file-manager/file-list.tsx
+msgid "This folder is empty."
+msgstr "This folder is empty."
+
+#: src/components/file-manager/file-list.tsx
+msgid "This folder is empty. Drop files here to upload them."
+msgstr "This folder is empty. Drop files here to upload them."
 
 #: src/features/nodes/pages.tsx
 msgid "This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table."
@@ -4190,6 +4448,10 @@ msgstr "This is a top-level key of privileged.toml. Paste it before the first `[
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "This is the last authorization signing key: crhs will no longer sign for any node."
 msgstr "This is the last authorization signing key: crhs will no longer sign for any node."
+
+#: src/features/library/pages.tsx
+msgid "This library doesn't exist or you don't have access."
+msgstr "This library doesn't exist or you don't have access."
 
 #: src/features/approvals/pages.tsx
 msgid "This request is no longer waiting for approval; it is"
@@ -4273,6 +4535,27 @@ msgstr "Tool arguments"
 msgid "Tool result"
 msgstr "Tool result"
 
+#: src/components/upload/upload-progress-dialog.tsx
+#: src/features/library/library-section.tsx
+msgid "Total size"
+msgstr "Total size"
+
+#: src/features/library/limits-dialog.tsx
+msgid "Total size (bytes)"
+msgstr "Total size (bytes)"
+
+#: src/features/system-settings/library-section.tsx
+msgid "Total size for new groups (bytes)"
+msgstr "Total size for new groups (bytes)"
+
+#: src/features/system-settings/library-section.tsx
+msgid "Total size for new users (bytes)"
+msgstr "Total size for new users (bytes)"
+
+#: src/features/library/usage-indicator.tsx
+msgid "Total size limit: {bytesPercent} ({bytesUsed}/{bytesLimit})"
+msgstr "Total size limit: {bytesPercent} ({bytesUsed}/{bytesLimit})"
+
 #: src/features/nodes/pages.tsx
 msgid "Transport"
 msgstr "Transport"
@@ -4348,10 +4631,19 @@ msgstr "Unprivileged identity"
 msgid "Unread"
 msgstr "Unread"
 
+#: src/components/file-manager/file-list.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx
 msgid "Updated"
 msgstr "Updated"
+
+#: src/components/file-manager/file-manager.tsx
+msgid "Upload"
+msgstr "Upload"
+
+#: src/components/upload/upload-progress-dialog.tsx
+msgid "Uploading files"
+msgstr "Uploading files"
 
 #: src/features/nodes/pages.tsx
 msgid "Use \"New node\" to enrol a crha client, or \"New SSH node\" for an SSH target."
@@ -4378,6 +4670,7 @@ msgstr "Used by"
 msgid "Used for links crhs returns, e.g. in MCP results. Empty uses the address of the request (the default)."
 msgstr "Used for links crhs returns, e.g. in MCP results. Empty uses the address of the request (the default)."
 
+#: src/components/entity-picker/api.ts
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-route-editor.tsx
@@ -4388,6 +4681,11 @@ msgstr "Used for links crhs returns, e.g. in MCP results. Empty uses the address
 msgid "User"
 msgstr "User"
 
+#: src/features/library/pages.tsx
+msgid "User {name}'s library"
+msgstr "User {name}'s library"
+
+#: src/components/entity-picker/api.ts
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/sessions/share-dialog.tsx

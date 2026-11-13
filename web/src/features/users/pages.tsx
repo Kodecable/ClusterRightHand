@@ -17,6 +17,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { SessionStatusBadge, StatusText } from "@/components/status-badge";
 import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
+import { LibrarySection } from "@/features/library/library-section";
 import { GranteeNodeAccessSection } from "@/features/nodes/access-grants";
 import { useNodes } from "@/features/nodes/api";
 import { useSessions } from "@/features/sessions/api";
@@ -374,6 +375,8 @@ export function UserDetailPage() {
 					{ label: t`Created`, value: <DateTime value={user.createdAt} /> },
 				]}
 			/>
+
+			<LibrarySection reference={`user:${user.username}`} />
 
 			<section
 				className="grid gap-2"

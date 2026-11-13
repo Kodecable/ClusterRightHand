@@ -121,7 +121,7 @@ export async function acceptDataConnection(
 	}
 
 	core.usedTransfers.add(init.transferId);
-	const storage = openTransferLocation(core.transferRoot, record.location);
+	const storage = openTransferLocation(core.transferContext(), record.location);
 	let resolveDone!: () => void;
 	const done = new Promise<void>((resolve) => {
 		resolveDone = resolve;

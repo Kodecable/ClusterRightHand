@@ -5,6 +5,8 @@ import type {
 	AuthorizationSummary,
 	AvailableModel,
 	Directory,
+	LibraryFile,
+	LibraryView,
 	ModelPreset,
 	ModelPresetInput,
 	ModelPresetKind,
@@ -101,6 +103,11 @@ export interface FakeState {
 	sshRoutes: Record<string, SshNodeDetails["hops"]>;
 	authorizations: AuthorizationSummary[];
 	nodeTrust: Record<string, NodeTrust>;
+	/** Libraries the fake API exposes, and each library's files by its `user:…`/`group:…` reference. */
+	libraries: LibraryView[];
+	libraryFiles: Record<string, LibraryFile[]>;
+	/** Uploads the fake server refuses, keyed by file path, with the reason it returns. */
+	libraryUploadErrors: Record<string, string>;
 	requests: { method: string; url: string; body: unknown }[];
 }
 
@@ -365,6 +372,9 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		sshRoutes: {},
 		authorizations: [],
 		nodeTrust: {},
+		libraries: [],
+		libraryFiles: {},
+		libraryUploadErrors: {},
 		requests: [],
 		...options.state,
 	};
@@ -429,7 +439,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		const path = url.pathname;
 		const method = request.method();
 		const rawBody = request.postData();
-		const body = rawBody === null || rawBody === "" ? undefined : JSON.parse(rawBody);
+		// A library upload is a raw body, not JSON.
+		let body: unknown;
+		try {
+			body = rawBody === null || rawBody === "" ? undefined : JSON.parse(rawBody);
+		} catch {
+			body = undefined;
+		}
 		state.requests.push({ method, url: `${path}${url.search}`, body });
 
 		const json = (data: unknown, status = 200) =>
@@ -777,6 +793,98 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const id = decodeURIComponent(tokenDelete[1] as string);
 			state.tokens = state.tokens.filter((candidate) => candidate.id !== id);
 			return json({ ok: true });
+		}
+
+		// --- libraries -----------------------------------------------------
+		if (path === "/api/libraries" && method === "GET") return json({ libraries: state.libraries });
+		const libraryMatch = /^\/api\/libraries\/([^/]+)(?:\/(files|stat|file|move|limits))?$/.exec(path);
+		if (libraryMatch) {
+			const ref = decodeURIComponent(libraryMatch[1] as string);
+			const library = state.libraries.find((candidate) => candidate.ref === ref);
+			const part = libraryMatch[2];
+			if (!library) return json({ error: "no such library" }, 404);
+			const files = state.libraryFiles[ref] ?? [];
+			if (part === undefined && method === "GET") return json({ library });
+			if (part === "files" && method === "GET") {
+				const prefix = url.searchParams.get("prefix") ?? "";
+				const under = files.filter((file) => prefix === "" || file.path.startsWith(`${prefix}/`));
+				const direct: LibraryFile[] = [];
+				const directories = new Set<string>();
+				for (const file of under) {
+					const rest = prefix === "" ? file.path : file.path.slice(prefix.length + 1);
+					const slash = rest.indexOf("/");
+					if (slash === -1) direct.push(file);
+					else directories.add(rest.slice(0, slash));
+				}
+				return json({ prefix, files: direct, directories: [...directories].sort() });
+			}
+			if (part === "stat" && method === "GET") {
+				const file = files.find((candidate) => candidate.path === url.searchParams.get("path"));
+				return file ? json({ file }) : json({ error: "no such library file" }, 404);
+			}
+			if (part === "file" && method === "GET") {
+				const file = files.find((candidate) => candidate.path === url.searchParams.get("path"));
+				if (!file) return json({ error: "no such library file" }, 404);
+				const bytes =
+					file.mediaType === "image/png"
+						? Buffer.from(
+								"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lY1Z3wAAAABJRU5ErkJggg==",
+								"base64",
+							)
+						: Buffer.from(file.path);
+				return route.fulfill({
+					status: 200,
+					headers: {
+						"content-type": file.mediaType,
+						"content-length": String(bytes.length),
+						"content-disposition":
+							url.searchParams.get("preview") === "1" && file.mediaType.startsWith("image/") ? "inline" : "attachment",
+						"x-content-type-options": "nosniff",
+					},
+					body: bytes,
+				});
+			}
+			if (part === "file" && method === "PUT") {
+				const filePath = url.searchParams.get("path") ?? "";
+				const refused = state.libraryUploadErrors[filePath];
+				if (refused !== undefined) return json({ error: refused }, 400);
+				const bytes = request.postDataBuffer() ?? Buffer.alloc(0);
+				const file: LibraryFile = {
+					path: filePath,
+					size: bytes.length,
+					sha256: "0".repeat(64),
+					mediaType: filePath.endsWith(".png") ? "image/png" : "text/plain",
+					createdAt: "2026-01-01T00:00:00.000Z",
+					updatedAt: "2026-01-01T00:00:00.000Z",
+				};
+				const previous = files.find((candidate) => candidate.path === filePath);
+				state.libraryFiles[ref] = [...files.filter((candidate) => candidate.path !== filePath), file];
+				library.usage.files += previous === undefined ? 1 : 0;
+				library.usage.bytes += bytes.length - (previous?.size ?? 0);
+				return json({ file }, 201);
+			}
+			if (part === "file" && method === "DELETE") {
+				const filePath = url.searchParams.get("path");
+				const file = files.find((candidate) => candidate.path === filePath);
+				if (!file) return json({ error: "no such library file" }, 404);
+				state.libraryFiles[ref] = files.filter((candidate) => candidate.path !== filePath);
+				library.usage.files -= 1;
+				library.usage.bytes -= file.size;
+				return json({ ok: true });
+			}
+			if (part === "move" && method === "POST") {
+				const input = body as { from: string; to: string };
+				const file = files.find((candidate) => candidate.path === input.from);
+				if (!file) return json({ error: "no such library file" }, 404);
+				const moved = { ...file, path: input.to, updatedAt: "2026-01-02T00:00:00.000Z" };
+				state.libraryFiles[ref] = [...files.filter((candidate) => candidate.path !== input.from), moved];
+				return json({ file: moved });
+			}
+			if (part === "limits" && method === "PATCH") {
+				Object.assign(library.limits, body as object);
+				return json({ library });
+			}
+			return json({ error: "not found" }, 404);
 		}
 
 		// --- audit ---------------------------------------------------------

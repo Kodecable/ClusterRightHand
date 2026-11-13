@@ -27,7 +27,7 @@ your other browsers. Your API tokens keep working unless you tick **Also revoke 
 
 | Group | Items |
 |---|---|
-| **Work** | Sessions, Schedules, Tasks, Approvals |
+| **Work** | Sessions, Library, Schedules, Tasks, Approvals |
 | **Cluster** | Nodes, Node groups, SSH credentials (administrators), Signing credentials |
 | **Admin** | Authorizations (administrators), API tokens, Audit, Models (administrators), System settings (administrators), Users (administrators) |
 
@@ -90,6 +90,36 @@ Press `Ctrl K` (`⌘K` on a Mac) anywhere, or click **Search sessions…**. Sepa
 every keyword must match. Choosing a matching message opens the session at that message.
 
 With PostgreSQL, search covers titles and message text. With SQLite, only titles are searched.
+
+## Libraries
+
+Every user has a library, and so does every user group. A library holds whole files under paths; there
+are no folders, and a directory exists only while a file is under it. **Library** in the sidebar opens
+your own library. The control at the top right names the current library by its owner's display name
+and opens a picker of your own and your groups' libraries; administrators can pick any user's or user
+group's library there.
+
+- The share of the total size limit in use is shown beside **Upload**, with a bar for the limit that
+  is closest to being reached. Hover it for the file-count and total-size ratios; a warning appears near a limit, and when
+  a limit is reached, uploads and overwrites are refused with the limit they hit. **0** means the
+  library allows nothing until an administrator raises its limit.
+- **Upload** or drop files on the page to add them at the current path. They upload one at a time in a
+  dialog showing the overall progress, the speed and the time left; a refused file is listed with the
+  server's reason and the rest continue, and **Cancel** stops the remaining uploads.
+- A file row offers **Download**, **Move or rename** and **Delete**; a small PNG, JPEG, GIF or WebP
+  also offers **Preview**. Anything else is downloaded, never shown inline.
+- **Move or rename** takes a full path; a `/` in it creates the directories. An existing target is
+  refused, so a move never overwrites a file.
+- **Delete** asks for confirmation and removes that one file. Deleting all files is the only way to
+  empty a library.
+- An administrator changes a library's three limits with **Edit limits** on the user or user group page.
+  Lowering a limit below the current usage keeps the files and refuses new writes until files are
+  deleted.
+- A user group whose library still has files cannot be deleted; the error names the file count and
+  links to the library, where the files can be deleted first.
+
+Use the path in your browser's address bar to link a location: `/library/user:alice?path=docs` opens
+Alice's library in `docs`.
 
 ## Tasks
 
@@ -206,7 +236,11 @@ administrator can change the role, disable or enable the account, reset the pass
 membership and grant node access. Members can open only their own page.
 
 On a user group's page, administrators add and remove members, grant node access, rename and delete the
-group. Members receive what the group is granted immediately.
+group. Members receive what the group is granted immediately. A user group can be deleted only while its
+library is empty.
+
+Both a user's page and a user group's page have a **Library** section with the usage, the three limits
+and a link to the library. Administrators edit the limits there.
 
 ### Granting node access
 
@@ -285,7 +319,7 @@ authorization for exactly that command ([Privilege](../design/scheduling.md#priv
 
 **System settings** (administrators only) edits crhs's runtime settings; a save applies without a
 restart and is recorded in the audit log. The [configuration reference](reference/crhs-config.md#system-settings)
-lists every value and its default. Each of the four settings sections has its own **Save**.
+lists every value and its default. Each settings section has its own **Save**.
 
 - **General.** **Public URL** is the address crhs uses in links it returns, such as MCP results; empty
   uses the request's address. **Clock warning threshold** is how far a node's clock may drift before
@@ -299,6 +333,9 @@ lists every value and its default. Each of the four settings sections has its ow
   ID invalidates Passkeys registered for the old one.
 - **Data retention.** How long **Tasks**, **Audit events** and **Agent tool records** are kept: a
   duration of at least one day, or **Keep forever**.
+- **Library defaults.** The files, one-file size and total size limits that a new user or user group
+  library copies when it is created. Changing them applies only to libraries created later, not to
+  existing ones.
 - **Authorization signing keys.** The keys crhs signs authorizations with; the newest is marked and
   used by default. **Add authorization signing key** creates one and shows the public key line to paste
   into a node's `privileged.toml`. The table counts the nodes that trust each key; the delete dialog

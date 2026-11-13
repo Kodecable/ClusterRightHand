@@ -7,6 +7,7 @@ export * from "./approvals.ts";
 export * from "./audit.ts";
 export * from "./authorizations.ts";
 export * from "./common.ts";
+export * from "./libraries.ts";
 export * from "./models.ts";
 export * from "./nodes.ts";
 export * from "./policy.ts";

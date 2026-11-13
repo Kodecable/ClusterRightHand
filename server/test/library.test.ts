@@ -1,0 +1,378 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, rm, utimes } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { LibraryFile, LibraryFilesResponse, LibraryListResponse } from "@crh/api";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createLibraryBackend, getBytes, putBytes } from "../src/library/backend.ts";
+import { beginLibraryUpload } from "../src/library/files.ts";
+import { findLibraryByRef } from "../src/library/library.ts";
+import { MediaProbe } from "../src/library/media-type.ts";
+import { validateLibraryPath } from "../src/library/paths.ts";
+import { sweepLibraryOrphans } from "../src/library/sweep.ts";
+import { defaultSystemSettings, SettingsStore } from "../src/settings/settings.ts";
+import type { Db } from "../src/storage/db.ts";
+import { createUser } from "../src/users/service.ts";
+import { call, login, makeApp } from "./helpers/api.ts";
+import { openTestDb } from "./helpers/db.ts";
+
+const sha256Hex = (data: Uint8Array): string => createHash("sha256").update(data).digest("hex");
+
+describe("library paths", () => {
+	it("accepts flat keys and refuses everything else", () => {
+		expect(validateLibraryPath("docs/a.txt")).toBe("docs/a.txt");
+		expect(validateLibraryPath("a b/ünïcode.png")).toBe("a b/ünïcode.png");
+		for (const bad of ["", "/a", "a/", "a//b", "a/./b", "a/../b", "a\u0000b", `x/${"a".repeat(1100)}`]) {
+			expect(() => validateLibraryPath(bad), bad).toThrow();
+		}
+	});
+});
+
+describe("media type sniffing", () => {
+	const sniff = (data: Uint8Array): string => {
+		const probe = new MediaProbe();
+		probe.push(data);
+		return probe.finish();
+	};
+
+	it("recognizes the image types and PDF from magic bytes", () => {
+		expect(sniff(Buffer.from("89504e470d0a1a0a72657374", "hex"))).toBe("image/png");
+		expect(sniff(Buffer.from("ffd8ff72657374", "hex"))).toBe("image/jpeg");
+		expect(sniff(Buffer.from("GIF89arest"))).toBe("image/gif");
+		expect(sniff(Buffer.from("RIFF1234WEBPrest"))).toBe("image/webp");
+		expect(sniff(Buffer.from("%PDF-1.7\n"))).toBe("application/pdf");
+	});
+
+	it("calls valid UTF-8 without NUL text and everything else binary", () => {
+		expect(sniff(Buffer.from("hello, 世界"))).toBe("text/plain");
+		expect(sniff(Buffer.from([0x68, 0x00, 0x69]))).toBe("application/octet-stream");
+		expect(sniff(Buffer.from([0xff, 0xfe]))).toBe("application/octet-stream");
+	});
+});
+
+describe("library API", () => {
+	let db: Db;
+	let root: string;
+	let app: ReturnType<typeof makeApp>;
+	let admin: string;
+	let alice: string;
+	let bob: string;
+	let aliceId: string;
+	let adminId: string;
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite");
+		root = await mkdtemp(join(tmpdir(), "crhs-library-"));
+		const backend = createLibraryBackend({ backend: "local" }, root);
+		app = makeApp(db, undefined, { libraryBackend: backend });
+		adminId = (await createUser(db, { username: "root", kind: "admin", password: "root-password" })).id;
+		aliceId = (await createUser(db, { username: "alice", kind: "member", password: "alice-password" })).id;
+		await createUser(db, { username: "bob", kind: "member", password: "bob-password" });
+		admin = await login(app, "root", "root-password");
+		alice = await login(app, "alice", "alice-password");
+		bob = await login(app, "bob", "bob-password");
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+		await rm(root, { recursive: true, force: true });
+	});
+
+	const lib = (ref: string): string => `/api/libraries/${encodeURIComponent(ref)}`;
+
+	const upload = (
+		cookie: string,
+		ref: string,
+		path: string,
+		data: Uint8Array,
+		options: { overwrite?: boolean; preview?: boolean } = {},
+	) => {
+		const query = new URLSearchParams({ path });
+		if (options.overwrite) query.set("overwrite", "1");
+		if (options.preview) query.set("preview", "1");
+		return app.request(`${lib(ref)}/file?${query}`, {
+			method: "PUT",
+			headers: { host: "localhost:8080", cookie, "content-type": "application/octet-stream" },
+			body: data,
+		});
+	};
+
+	const list = async (cookie: string, ref: string, prefix = ""): Promise<LibraryFilesResponse> =>
+		(await (
+			await app.request(`${lib(ref)}/files${prefix === "" ? "" : `?prefix=${encodeURIComponent(prefix)}`}`, {
+				headers: { host: "localhost:8080", cookie },
+			})
+		).json()) as LibraryFilesResponse;
+
+	it("lists the caller's libraries with usage and limits", async () => {
+		const response = await app.request("/api/libraries", { headers: { host: "localhost:8080", cookie: alice } });
+		const body = (await response.json()) as LibraryListResponse;
+		expect(body.libraries.map((library) => library.ref)).toEqual(["user:alice"]);
+		expect(body.libraries[0]?.limits).toEqual({
+			files: 256,
+			fileBytes: 32 * 1024 * 1024,
+			totalBytes: 256 * 1024 * 1024,
+		});
+		expect(body.libraries[0]?.capabilities).toEqual({ write: true, manage: false });
+
+		const adminView = await app.request("/api/libraries", { headers: { host: "localhost:8080", cookie: admin } });
+		expect(((await adminView.json()) as LibraryListResponse).libraries.map((library) => library.ref)).toEqual([
+			"user:root",
+		]);
+	});
+
+	it("uploads, lists by prefix, stats, downloads, renames and deletes", async () => {
+		const data = Buffer.from("hello world\n");
+		const uploaded = await upload(alice, "user:alice", "docs/notes/a.txt", data);
+		expect(uploaded.status).toBe(201);
+		const file = ((await uploaded.json()) as { file: LibraryFile }).file;
+		expect(file).toMatchObject({
+			path: "docs/notes/a.txt",
+			size: data.length,
+			sha256: sha256Hex(data),
+			mediaType: "text/plain",
+		});
+
+		const rootListing = await list(alice, "user:alice");
+		expect(rootListing.files).toEqual([]);
+		expect(rootListing.directories).toEqual(["docs"]);
+		const docs = await list(alice, "user:alice", "docs");
+		expect(docs.directories).toEqual(["notes"]);
+		const notes = await list(alice, "user:alice", "docs/notes");
+		expect(notes.files.map((entry) => entry.path)).toEqual(["docs/notes/a.txt"]);
+
+		const stat = await app.request(`${lib("user:alice")}/stat?path=docs/notes/a.txt`, {
+			headers: { host: "localhost:8080", cookie: alice },
+		});
+		expect(stat.status).toBe(200);
+
+		const download = await app.request(`${lib("user:alice")}/file?path=docs/notes/a.txt`, {
+			headers: { host: "localhost:8080", cookie: alice },
+		});
+		expect(download.status).toBe(200);
+		expect(download.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(download.headers.get("content-security-policy")).toBe("sandbox");
+		expect(download.headers.get("content-disposition")).toContain("attachment");
+		expect(Buffer.from(await download.arrayBuffer()).toString()).toBe("hello world\n");
+
+		const moved = await call(app, `${lib("user:alice")}/move`, {
+			cookie: alice,
+			body: { from: "docs/notes/a.txt", to: "archive/renamed.txt" },
+		});
+		expect(moved.status).toBe(200);
+		expect(await list(alice, "user:alice", "archive")).toMatchObject({ directories: [] });
+
+		const library = (await (
+			await app.request(lib("user:alice"), { headers: { host: "localhost:8080", cookie: alice } })
+		).json()) as { library: { usage: { files: number; bytes: number } } };
+		expect(library.library.usage).toEqual({ files: 1, bytes: data.length });
+
+		const deleted = await app.request(`${lib("user:alice")}/file?path=archive/renamed.txt`, {
+			method: "DELETE",
+			headers: { host: "localhost:8080", cookie: alice, "content-type": "application/json" },
+			body: "{}",
+		});
+		expect(deleted.status).toBe(200);
+		expect((await list(alice, "user:alice")).files).toEqual([]);
+	});
+
+	it("overwrites a file atomically and removes the replaced object", async () => {
+		expect((await upload(alice, "user:alice", "replace.txt", Buffer.from("old"))).status).toBe(201);
+		const first = await db
+			.selectFrom("library_files")
+			.select(["object_key", "size"])
+			.where("path", "=", "replace.txt")
+			.executeTakeFirstOrThrow();
+		const backend = createLibraryBackend({ backend: "local" }, root);
+
+		expect((await upload(alice, "user:alice", "replace.txt", Buffer.from("newer"), { overwrite: true })).status).toBe(
+			201,
+		);
+		const second = await db
+			.selectFrom("library_files")
+			.select(["object_key", "size", "sha256"])
+			.where("path", "=", "replace.txt")
+			.executeTakeFirstOrThrow();
+		expect(second.size).toBe(5);
+		expect(second.object_key).not.toBe(first.object_key);
+		expect(await getBytes(backend, second.object_key)).toEqual(Buffer.from("newer"));
+		await expect(getBytes(backend, first.object_key)).rejects.toThrow();
+		const library = await db
+			.selectFrom("libraries")
+			.select(["used_files", "used_bytes"])
+			.where("owner_kind", "=", "user")
+			.where("owner_id", "=", aliceId)
+			.executeTakeFirstOrThrow();
+		expect(library).toEqual({ used_files: 1, used_bytes: 5 });
+	});
+
+	it("serves only PNG, JPEG, GIF and WebP inline and only for a preview", async () => {
+		const png = Buffer.from("\x89PNG\r\n\x1a\n0123456789", "latin1");
+		expect((await upload(alice, "user:alice", "pic.png", png)).status).toBe(201);
+		const preview = await app.request(`${lib("user:alice")}/file?path=pic.png&preview=1`, {
+			headers: { host: "localhost:8080", cookie: alice },
+		});
+		expect(preview.headers.get("content-type")).toBe("image/png");
+		expect(preview.headers.get("content-disposition")).toContain("inline");
+
+		const plain = await app.request(`${lib("user:alice")}/file?path=pic.png`, {
+			headers: { host: "localhost:8080", cookie: alice },
+		});
+		expect(plain.headers.get("content-disposition")).toContain("attachment");
+	});
+
+	it("refuses another member's library with 404 and lets an administrator reach it", async () => {
+		const denied = await app.request(lib("user:alice"), { headers: { host: "localhost:8080", cookie: bob } });
+		expect(denied.status).toBe(404);
+		const allowed = await app.request(lib("user:alice"), { headers: { host: "localhost:8080", cookie: admin } });
+		expect(allowed.status).toBe(200);
+	});
+
+	it("enforces the one-file, file-count and total limits and shows which one was hit", async () => {
+		const limits = await call(app, `${lib("user:alice")}/limits`, {
+			method: "PATCH",
+			cookie: admin,
+			body: { files: 2, fileBytes: 4, totalBytes: 5 },
+		});
+		expect(limits.status).toBe(200);
+
+		const tooLarge = await upload(alice, "user:alice", "big.txt", Buffer.alloc(5));
+		expect(tooLarge.status).toBe(400);
+		expect(await tooLarge.json()).toMatchObject({ error: expect.stringContaining("one-file size") });
+
+		expect((await upload(alice, "user:alice", "a.txt", Buffer.from("1234"))).status).toBe(201);
+		const overTotal = await upload(alice, "user:alice", "b.txt", Buffer.from("12"));
+		expect(overTotal.status).toBe(400);
+		expect(await overTotal.json()).toMatchObject({ error: expect.stringContaining("total size") });
+
+		expect((await upload(alice, "user:alice", "c.txt", Buffer.from("1"))).status).toBe(201);
+		const overFiles = await upload(alice, "user:alice", "d.txt", Buffer.from("1"));
+		expect(overFiles.status).toBe(400);
+		expect(await overFiles.json()).toMatchObject({ error: expect.stringContaining("file count") });
+
+		// An overwrite that keeps the usage inside the limits needs no file slot.
+		expect((await upload(alice, "user:alice", "a.txt", Buffer.from("12"), { overwrite: true })).status).toBe(201);
+		const refusedOverwrite = await upload(alice, "user:alice", "a.txt", Buffer.from("12345"), {
+			overwrite: true,
+		});
+		expect(refusedOverwrite.status).toBe(400);
+	});
+
+	it("lets only one of two concurrent uploads take the last file slot", async () => {
+		expect(
+			(await call(app, `${lib("user:alice")}/limits`, { method: "PATCH", cookie: admin, body: { files: 1 } })).status,
+		).toBe(200);
+		const [first, second] = await Promise.all([
+			upload(alice, "user:alice", "one.txt", Buffer.from("1")),
+			upload(alice, "user:alice", "two.txt", Buffer.from("2")),
+		]);
+		const statuses = [first.status, second.status].sort();
+		expect(statuses).toEqual([201, 400]);
+		expect((await list(alice, "user:alice")).files).toHaveLength(1);
+	});
+
+	it("refuses a group deletion while its library has files and deletes the empty library row", async () => {
+		const created = await call(app, "/api/user-groups", { cookie: admin, body: { name: "team" } });
+		expect(created.status).toBe(201);
+		const group = ((await created.json()) as { group: { id: string; name: string } }).group;
+		expect(
+			(
+				await call(app, `${lib("group:team")}/limits`, {
+					method: "PATCH",
+					cookie: admin,
+					body: { files: 2, fileBytes: 16, totalBytes: 16 },
+				})
+			).status,
+		).toBe(200);
+		expect((await upload(admin, "group:team", "shared.txt", Buffer.from("shared"))).status).toBe(201);
+
+		const refused = await call(app, `/api/user-groups/${group.id}`, { method: "DELETE", cookie: admin, body: {} });
+		expect(refused.status).toBe(400);
+		expect(await refused.json()).toMatchObject({ error: expect.stringContaining("1 file") });
+
+		const remove = await app.request(`${lib("group:team")}/file?path=shared.txt`, {
+			method: "DELETE",
+			headers: { host: "localhost:8080", cookie: admin, "content-type": "application/json" },
+			body: "{}",
+		});
+		expect(remove.status).toBe(200);
+		expect(
+			(await call(app, `/api/user-groups/${group.id}`, { method: "DELETE", cookie: admin, body: {} })).status,
+		).toBe(200);
+		expect(await db.selectFrom("libraries").select("id").where("owner_kind", "=", "group").execute()).toEqual([]);
+	});
+
+	it("gives group members read and write access", async () => {
+		const created = await call(app, "/api/user-groups", { cookie: admin, body: { name: "team" } });
+		const group = ((await created.json()) as { group: { id: string } }).group;
+		await call(app, `/api/user-groups/${group.id}/members/${aliceId}`, { method: "PUT", cookie: admin, body: {} });
+		expect(
+			(
+				await call(app, `${lib("group:team")}/limits`, {
+					method: "PATCH",
+					cookie: admin,
+					body: { files: 1, fileBytes: 8, totalBytes: 8 },
+				})
+			).status,
+		).toBe(200);
+		expect((await upload(alice, "group:team", "member.txt", Buffer.from("ok"))).status).toBe(201);
+		expect((await upload(bob, "group:team", "other.txt", Buffer.from("no"))).status).toBe(404);
+	});
+
+	it("copies the System settings defaults when a user is created", async () => {
+		const defaults = defaultSystemSettings();
+		defaults.auth.captcha = "none";
+		const settings = SettingsStore.fromSystemSettings(defaults);
+		await settings.patch(db, { library: { user: { files: 7, fileBytes: 11, totalBytes: 13 } } }, adminId);
+		const withSettings = makeApp(db, undefined, {
+			libraryBackend: createLibraryBackend({ backend: "local" }, root),
+			settings,
+		});
+		const adminCookie = await login(withSettings, "root", "root-password");
+		const created = await call(withSettings, "/api/users", {
+			cookie: adminCookie,
+			body: { username: "carol", kind: "member", password: "carol-password" },
+		});
+		expect(created.status).toBe(201);
+		const carol = ((await created.json()) as { user: { id: string } }).user;
+		const library = await db
+			.selectFrom("libraries")
+			.selectAll()
+			.where("owner_id", "=", carol.id)
+			.executeTakeFirstOrThrow();
+		expect(library).toMatchObject({ max_files: 7, max_file_bytes: 11, max_total_bytes: 13 });
+	});
+
+	it("sweeps unreferenced objects older than an hour", async () => {
+		const backend = createLibraryBackend({ backend: "local" }, root);
+		const record = await findLibraryByRef(db, "user:alice");
+		if (!record) throw new Error("no alice library");
+		const upload = beginLibraryUpload(db, backend, {
+			library: record.row,
+			path: "kept.txt",
+			overwrite: false,
+			createdBy: aliceId,
+		});
+		await upload.write(Buffer.from("kept"));
+		await upload.commit();
+		const keptKey = (
+			await db
+				.selectFrom("library_files")
+				.select("object_key")
+				.where("library_id", "=", record.row.id)
+				.executeTakeFirstOrThrow()
+		).object_key;
+
+		const oldOrphan = "0".repeat(32);
+		const youngOrphan = "1".repeat(32);
+		await putBytes(backend, oldOrphan, Buffer.from("old"));
+		await putBytes(backend, youngOrphan, Buffer.from("young"));
+		const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+		await utimes(join(root, oldOrphan), twoHoursAgo, twoHoursAgo);
+
+		expect(await sweepLibraryOrphans(db, backend)).toBe(1);
+		expect(await getBytes(backend, keptKey)).toEqual(Buffer.from("kept"));
+		await expect(getBytes(backend, oldOrphan)).rejects.toThrow();
+		expect(await getBytes(backend, youngOrphan)).toEqual(Buffer.from("young"));
+	});
+});

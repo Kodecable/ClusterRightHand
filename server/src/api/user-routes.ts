@@ -7,6 +7,7 @@ import type { Cluster } from "../cluster/cluster.ts";
 import { deleteGrantsForUserGroup } from "../cluster/node-access.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
+import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import {
 	createUser,
@@ -41,6 +42,8 @@ export interface UserRoutesOptions {
 	taskGroups?: TaskGroups;
 	/** Ends the user's per-session SSE streams after a password reset revokes their WebUI sessions. */
 	revalidateWebSessions?: (userId: string) => Promise<void> | void;
+	/** System settings: a new user or user group copies the default library limits. */
+	settings?: SettingsStore;
 }
 
 /** Expects requireUser to have run. */
@@ -102,13 +105,18 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		const kind = optionalString(body, "kind") ?? "member";
 		if (!username) return jsonError(c, 400, "username is required");
 		if (!KINDS.has(kind)) return jsonError(c, 400, "kind must be admin or member");
-		const user = await createUser(db, {
-			username,
-			kind: kind as "admin" | "member",
-			displayName: optionalString(body, "displayName"),
-			email: optionalString(body, "email"),
-			password: optionalString(body, "password"),
-		});
+		await options.settings?.ensureLoaded(db);
+		const user = await createUser(
+			db,
+			{
+				username,
+				kind: kind as "admin" | "member",
+				displayName: optionalString(body, "displayName"),
+				email: optionalString(body, "email"),
+				password: optionalString(body, "password"),
+			},
+			options.settings ? { library: options.settings.current().library.user } : {},
+		);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user.created",
@@ -211,7 +219,12 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		const body = await readJsonObject(c);
 		const name = body ? optionalString(body, "name") : undefined;
 		if (!name) return jsonError(c, 400, "name is required");
-		const group = await createUserGroup(db, name);
+		await options.settings?.ensureLoaded(db);
+		const group = await createUserGroup(
+			db,
+			name,
+			options.settings ? { library: options.settings.current().library.group } : {},
+		);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.created",

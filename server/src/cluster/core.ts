@@ -8,6 +8,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
+import type { LibraryBackend } from "../library/backend.ts";
+import type { TransferContext } from "../library/transfer-location.ts";
 import { AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
 import type { TasksTable } from "../storage/schema.ts";
@@ -92,6 +94,8 @@ export class ClusterCore {
 	readonly groupQueue = new KeyedQueue("task group queue");
 	/** The staging directory of file plane transfers (doc/design/library.md "File plane"). */
 	readonly transferRoot: string;
+	/** The library object backend, used by library transfer locations. */
+	readonly libraryBackend: LibraryBackend | undefined;
 	/** The per-node and global transfer slots (doc/design/library.md "Data connections"). */
 	readonly transferScheduler: TransferScheduler;
 	/** The live data connection of each transfer task. */
@@ -120,8 +124,18 @@ export class ClusterCore {
 		this.trustWaitMs = options.trustWaitMs ?? 5_000;
 		this.settings = options.settings;
 		this.transferRoot = options.transferRoot ?? join(tmpdir(), "crhs-staging");
+		this.libraryBackend = options.libraryBackend;
 		this.transferScheduler = new TransferScheduler(options.transferLimits);
 		this.#clockWarnMs = options.clockWarnMs ?? 60_000;
+	}
+
+	/** The context a stored transfer location opens against. */
+	transferContext(): TransferContext {
+		return {
+			root: this.transferRoot,
+			db: this.db,
+			...(this.libraryBackend ? { backend: this.libraryBackend } : {}),
+		};
 	}
 
 	/** The current clock warning threshold: System settings when present, the static fallback otherwise. */

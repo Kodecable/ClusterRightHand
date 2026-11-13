@@ -24,6 +24,7 @@ function configFor(masterKeyFile: string): Config {
 		listen: { host: "127.0.0.1", port: 18080 },
 		database: { driver: "sqlite", path: ":memory:" },
 		masterKeyFile,
+		library: { backend: "local" },
 		webRoot: "",
 	};
 }

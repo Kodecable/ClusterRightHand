@@ -143,3 +143,19 @@ export function parseList(text: string): string[] {
 		.filter((value) => value !== "");
 	return [...new Set(values)];
 }
+
+/**
+ * A byte count with a binary unit: "512 B", "1.5 KiB", "32 MiB". The number keeps the active
+ * locale; the unit is the same in both (doc/design/webui.md "Frontend architecture").
+ */
+export function formatBytes(value: number, locale: string): string {
+	const bytes = Number.isFinite(value) ? Math.max(0, value) : 0;
+	const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+	let amount = bytes;
+	let unit = 0;
+	while (amount >= 1024 && unit < units.length - 1) {
+		amount /= 1024;
+		unit += 1;
+	}
+	return `${formatNumber(amount, locale, { maximumFractionDigits: unit === 0 ? 0 : 1 })} ${units[unit]}`;
+}

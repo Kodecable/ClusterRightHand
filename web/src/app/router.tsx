@@ -128,6 +128,36 @@ const sessionRoute = createRoute({
 	component: lazyRouteComponent(sessionPageChunk, "SessionPage"),
 });
 
+// --- library --------------------------------------------------------------
+
+/** The library page's search keeps the current directory in the URL, so a location can be linked. */
+interface LibrarySearch {
+	path?: string;
+}
+
+function parseLibrarySearch(search: Record<string, unknown>): LibrarySearch {
+	return typeof search.path === "string" ? { path: search.path } : {};
+}
+
+/** The sidebar's plain `/library` opens the signed-in user's own library. */
+const libraryIndexRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/library",
+	beforeLoad: ({ context }) => {
+		const username = context.auth.state.user?.username;
+		if (username !== undefined) {
+			throw redirect({ to: "/library/$library", params: { library: `user:${username}` }, replace: true });
+		}
+	},
+});
+
+const libraryRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/library/$library",
+	validateSearch: parseLibrarySearch,
+	component: lazyRouteComponent(() => import("@/features/library/pages"), "LibraryPage"),
+});
+
 // --- schedules ------------------------------------------------------------
 
 const schedulesRoute = createRoute({
@@ -297,6 +327,8 @@ const routeTree = rootRoute.addChildren([
 	authenticatedRoute.addChildren([
 		indexRoute,
 		sessionsRoute.addChildren([sessionsIndexRoute, newSessionRoute, sessionRoute]),
+		libraryIndexRoute,
+		libraryRoute,
 		schedulesRoute,
 		scheduleDetailRoute,
 		tasksRoute,

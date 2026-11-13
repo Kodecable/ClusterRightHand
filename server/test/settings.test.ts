@@ -8,10 +8,12 @@ import {
 	DEFAULT_ARGON2_QUEUE,
 	DEFAULT_CAPTCHA,
 	DEFAULT_CLOCK_WARN_MS,
+	DEFAULT_GROUP_LIBRARY_LIMITS,
 	DEFAULT_RETENTION_AUDIT_MS,
 	DEFAULT_RETENTION_PI_TASKS_MS,
 	DEFAULT_RETENTION_TASKS_MS,
 	DEFAULT_RP_NAME,
+	DEFAULT_USER_LIBRARY_LIMITS,
 	parseConfigFile,
 	parseDurationMs,
 	parseRetentionDuration,
@@ -61,6 +63,10 @@ describe("system settings storage", () => {
 				argon2Queue: DEFAULT_ARGON2_QUEUE,
 			},
 			realIpHeader: null,
+			library: {
+				user: { ...DEFAULT_USER_LIBRARY_LIMITS },
+				group: { ...DEFAULT_GROUP_LIBRARY_LIMITS },
+			},
 		});
 	});
 });
@@ -204,6 +210,10 @@ describe("settings API", () => {
 			webauthn: { rpId: "crh.example.com", origins: ["https://crh.example.com"] },
 			auth: { argon2Concurrency: 1, argon2Queue: 0 },
 			realIpHeader: "X-Real-IP",
+			library: {
+				user: { files: 5, fileBytes: 6, totalBytes: 7 },
+				group: { files: 1, fileBytes: 2, totalBytes: 3 },
+			},
 		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { settings: SystemSettings };
@@ -215,6 +225,10 @@ describe("settings API", () => {
 			realIpHeader: "X-Real-IP",
 			retention: { ...DEFAULT_SYSTEM_SETTINGS.retention, tasks: "off" },
 			webauthn: { rpId: "crh.example.com", rpName: "ClusterRightHand", origins: ["https://crh.example.com"] },
+			library: {
+				user: { files: 5, fileBytes: 6, totalBytes: 7 },
+				group: { files: 1, fileBytes: 2, totalBytes: 3 },
+			},
 		});
 		// The live object the consumers read is replaced at once.
 		expect(store.current().publicUrl).toBe("https://crh.example.com");
@@ -223,6 +237,8 @@ describe("settings API", () => {
 		expect(store.current().auth).toEqual({ captcha: "none", argon2Concurrency: 1, argon2Queue: 0 });
 		expect(store.current().webauthn.origins).toEqual(["https://crh.example.com"]);
 		expect(store.current().realIpHeader).toBe("X-Real-IP");
+		expect(store.current().library.user).toEqual({ files: 5, fileBytes: 6, totalBytes: 7 });
+		expect(store.current().library.group).toEqual({ files: 1, fileBytes: 2, totalBytes: 3 });
 	});
 
 	it("rejects bad values with a per-field message and writes nothing", async () => {
@@ -241,6 +257,8 @@ describe("settings API", () => {
 			[{ auth: { argon2Concurrency: 0 } }, "auth.argon2Concurrency"],
 			[{ auth: { argon2Queue: -1 } }, "auth.argon2Queue"],
 			[{ realIpHeader: "X Forwarded For" }, "realIpHeader"],
+			[{ library: { user: { files: -1 } } }, "library.user.files"],
+			[{ library: { group: { nope: 1 } } }, "library.group.nope"],
 			[{ nope: 1 }, "nope"],
 			[{ retention: "30d" }, "retention"],
 		];

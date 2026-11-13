@@ -3,6 +3,9 @@ import type { Migration } from "kysely/migration";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Db } from "../src/storage/db.ts";
 import { migrateToLatest, runMigrations } from "../src/storage/migrate.ts";
+import * as m0001 from "../src/storage/migrations/0001_initial.ts";
+import * as m0002 from "../src/storage/migrations/0002_task_transfer.ts";
+import * as m0003 from "../src/storage/migrations/0003_libraries.ts";
 import { type Backend, describeBackends, openTestDb } from "./helpers/db.ts";
 
 /**
@@ -75,6 +78,8 @@ const TABLES = [
 	"audit_events",
 	"authorizations",
 	"enrollment_tokens",
+	"libraries",
+	"library_files",
 	"model_presets",
 	"model_providers",
 	"node_access_grants",
@@ -108,6 +113,7 @@ const INDEXES = [
 	"schedules_due_idx",
 	"sessions_owner_create_request_unique",
 	"sessions_state_live_idx",
+	"library_files_object_key_idx",
 	"tasks_handler_agent_idx",
 	"user_group_members_user_id_idx",
 	"web_sessions_expires_at_idx",
@@ -159,7 +165,7 @@ describeBackends("initial migration", (backend) => {
 				: undefined;
 		await migrateToLatest(db, schema ? { schema } : {});
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
-		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_task_transfer" }]);
+		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_task_transfer" }, { name: "0003_libraries" }]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
 });
@@ -241,5 +247,64 @@ describe("SQLite migration transactions", () => {
 		expect(await migrationNames()).toEqual(["0001_first", "0002_second"]);
 		expect(await itemRows()).toEqual([{ id: "item", label: "kept" }]);
 		expect(await tableColumns("sqlite", db, "b5_items")).toEqual(["id", "label", "extra"]);
+	});
+});
+
+describe("library backfill migration", () => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite", { migrate: false });
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("creates a library for every existing user and user group", async () => {
+		await runMigrations(db, { "0001_initial": m0001, "0002_task_transfer": m0002 });
+		await sql`insert into orgs (id, name, created_at) values ('org-1', 'Org', '2026-01-01T00:00:00.000Z')`.execute(db);
+		await sql`
+			insert into users (id, org_id, username, display_name, email, kind, password_hash, status, created_at)
+			values ('user-1', 'org-1', 'alice', 'Alice', null, 'member', null, 'active', '2026-01-01T00:00:00.000Z')`.execute(
+			db,
+		);
+		await sql`
+			insert into user_groups (id, org_id, name, source, created_at)
+			values ('group-1', 'org-1', 'team', 'local', '2026-01-02T00:00:00.000Z')`.execute(db);
+
+		await runMigrations(db, {
+			"0001_initial": m0001,
+			"0002_task_transfer": m0002,
+			"0003_libraries": m0003,
+		});
+		const rows = await sql<{
+			owner_kind: string;
+			owner_id: string;
+			max_files: number;
+			max_file_bytes: number;
+			max_total_bytes: number;
+			created_at: string;
+		}>`select owner_kind, owner_id, max_files, max_file_bytes, max_total_bytes, created_at from libraries order by owner_kind`.execute(
+			db,
+		);
+		expect(rows.rows).toEqual([
+			{
+				owner_kind: "group",
+				owner_id: "group-1",
+				max_files: 0,
+				max_file_bytes: 0,
+				max_total_bytes: 0,
+				created_at: "2026-01-02T00:00:00.000Z",
+			},
+			{
+				owner_kind: "user",
+				owner_id: "user-1",
+				max_files: 256,
+				max_file_bytes: 32 * 1024 * 1024,
+				max_total_bytes: 256 * 1024 * 1024,
+				created_at: "2026-01-01T00:00:00.000Z",
+			},
+		]);
 	});
 });

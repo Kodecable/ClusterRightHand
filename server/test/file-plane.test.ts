@@ -3,10 +3,12 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPair } from "@crh/noise";
+import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
+import { createLibraryBackend, getBytes, newObjectKey, putBytes } from "../src/library/backend.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
@@ -23,11 +25,15 @@ describe("file plane transfers", () => {
 	let agents: TestAgentServer;
 	let ownerUserId = "";
 	let transferRoot = "";
+	let libraryRoot = "";
+	let libraryBackend: ReturnType<typeof createLibraryBackend>;
 
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
 		transferRoot = await mkdtemp(join(tmpdir(), "crhs-transfer-"));
-		cluster = new Cluster(db, { transferRoot });
+		libraryRoot = await mkdtemp(join(tmpdir(), "crhs-library-"));
+		libraryBackend = createLibraryBackend({ backend: "local" }, libraryRoot);
+		cluster = new Cluster(db, { transferRoot, libraryBackend });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		ownerUserId = (await createUser(db, { username: "owner", kind: "member", password: "password-123" })).id;
@@ -38,6 +44,7 @@ describe("file plane transfers", () => {
 		await agents.close();
 		await db.destroy();
 		await rm(transferRoot, { recursive: true, force: true });
+		await rm(libraryRoot, { recursive: true, force: true });
 	});
 
 	const actor = () => ({ type: "user" as const, id: ownerUserId, onBehalfOfUserId: ownerUserId });
@@ -201,6 +208,42 @@ describe("file plane transfers", () => {
 		expect(crha.starts.length).toBe(1);
 	});
 
+	const addLibraryFile = async (path: string, data: Buffer): Promise<string> => {
+		const library = await db
+			.selectFrom("libraries")
+			.select("id")
+			.where("owner_kind", "=", "user")
+			.where("owner_id", "=", ownerUserId)
+			.executeTakeFirstOrThrow();
+		const objectKey = newObjectKey();
+		const stored = await putBytes(libraryBackend, objectKey, data);
+		const now = new Date().toISOString();
+		await db
+			.insertInto("library_files")
+			.values({
+				library_id: library.id,
+				path,
+				size: stored.size,
+				sha256: stored.sha256,
+				media_type: "application/octet-stream",
+				backend: "local",
+				object_key: objectKey,
+				created_by: ownerUserId,
+				created_at: now,
+				updated_at: now,
+			})
+			.execute();
+		await db
+			.updateTable("libraries")
+			.set({
+				used_files: sql<number>`used_files + 1`,
+				used_bytes: sql<number>`used_bytes + ${stored.size}`,
+			})
+			.where("id", "=", library.id)
+			.execute();
+		return library.id;
+	};
+
 	it("accepts a transfer id for one data connection while its task lives", async () => {
 		const { node, key } = await addNode("web-1");
 		const crha = await connect(node, key);
@@ -214,5 +257,86 @@ describe("file plane transfers", () => {
 		// The first connection still owns the id; aborting it fails the task.
 		first.send({ kind: "abort", code: "cancelled" });
 		await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "failed");
+	});
+
+	it("pushes a library file to a node", async () => {
+		const { node, key } = await addNode("web-1");
+		const crha = await connect(node, key);
+		const content = Buffer.from("library file content");
+		const libraryId = await addLibraryFile("docs/app.bin", content);
+		const task = await cluster.pushLibraryFile({
+			nodeId: node.id,
+			path: "/srv/app.bin",
+			libraryId,
+			libraryPath: "docs/app.bin",
+			actor: actor(),
+		});
+		await waitFor("push task.start", () => crha.starts.length === 1);
+		const start = crha.starts[0];
+		if (start?.spec.kind !== "file.push") throw new Error("no push spec");
+		expect(start.spec.size).toBe(content.length);
+		const data = await agents.connectData(key, task.id, start.spec.endpoint.transferId);
+		const chunks: Buffer[] = [];
+		for (;;) {
+			const frame = await data.next();
+			if (frame.kind === "data") chunks.push(Buffer.from(frame.bytes));
+			else if (frame.kind === "end") break;
+			else throw new Error(`unexpected abort ${frame.code}`);
+		}
+		expect(Buffer.concat(chunks).equals(content)).toBe(true);
+		crha.exit(task.id);
+		await waitFor("push task exited", async () => (await cluster.getTask(task.id))?.state === "exited");
+	});
+
+	it("pulls a node file into a library path", async () => {
+		const { node, key } = await addNode("web-1");
+		const crha = await connect(node, key);
+		const content = Buffer.from("pulled into the library");
+		await addLibraryFile("existing.txt", Buffer.from("old"));
+		const library = await db
+			.selectFrom("libraries")
+			.select("id")
+			.where("owner_id", "=", ownerUserId)
+			.executeTakeFirstOrThrow();
+		const task = await cluster.pullLibraryFile({
+			nodeId: node.id,
+			path: "/etc/app.conf",
+			libraryId: library.id,
+			libraryPath: "in/from-node.txt",
+			createdBy: ownerUserId,
+			actor: actor(),
+		});
+		await waitFor("pull task.start", () => crha.starts.length === 1);
+		const start = crha.starts[0];
+		if (start?.spec.kind !== "file.pull") throw new Error("no pull spec");
+		const data = await agents.connectData(key, task.id, start.spec.endpoint.transferId);
+		data.send({ kind: "data", bytes: content });
+		data.send({ kind: "end" });
+		crha.exit(
+			task.id,
+			{ kind: "code", value: 0 },
+			{
+				result: {
+					kind: "file.pull",
+					size: content.length,
+					sha256: Uint8Array.from(Buffer.from(sha256Hex(content), "hex")),
+				},
+			},
+		);
+		await waitFor("pull task exited", async () => (await cluster.getTask(task.id))?.state === "exited");
+		const row = await db
+			.selectFrom("library_files")
+			.selectAll()
+			.where("library_id", "=", library.id)
+			.where("path", "=", "in/from-node.txt")
+			.executeTakeFirstOrThrow();
+		expect(row.size).toBe(content.length);
+		expect(await getBytes(libraryBackend, row.object_key)).toEqual(content);
+		const after = await db
+			.selectFrom("libraries")
+			.select(["used_files", "used_bytes"])
+			.where("id", "=", library.id)
+			.executeTakeFirstOrThrow();
+		expect(after).toEqual({ used_files: 2, used_bytes: 3 + content.length });
 	});
 });

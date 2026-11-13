@@ -6,7 +6,14 @@
  */
 import { randomUUID } from "node:crypto";
 import type { TaskSpec } from "@crh/protocol";
-import { newStagingLocation, stageBytes, type TransferLocationJson } from "../library/transfer-location.ts";
+import { findLibraryFile, libraryForTransfer } from "../library/files.ts";
+import type { LibraryRecord } from "../library/library.ts";
+import {
+	newLibraryLocation,
+	newStagingLocation,
+	stageBytes,
+	type TransferLocationJson,
+} from "../library/transfer-location.ts";
 import { UserError } from "../util/errors.ts";
 import type { ClusterCore } from "./core.ts";
 import { createTask } from "./task-dispatch.ts";
@@ -92,4 +99,56 @@ export function pullFile(core: ClusterCore, input: PullFileInput): Promise<TaskV
 		outputMode: rest.outputMode ?? "status",
 		transfer: JSON.stringify(record),
 	});
+}
+
+/** A push source that names a library file: its size and SHA-256 are the row's. */
+export async function stageLibrarySource(
+	core: ClusterCore,
+	libraryId: string,
+	libraryPath: string,
+): Promise<TransferLocationJson> {
+	const row = await findLibraryFile(core.db, libraryId, libraryPath);
+	if (!row) throw new UserError(`no such library file ${libraryPath}`);
+	return newLibraryLocation(libraryId, libraryPath, {
+		overwrite: false,
+		createdBy: null,
+		size: row.size,
+		sha256: row.sha256,
+	});
+}
+
+export type PushLibraryFileInput = Omit<PushFileInput, "location"> & {
+	libraryId: string;
+	/** The source path inside the library. */
+	libraryPath: string;
+};
+
+/** Starts a file.push task whose source is a library file (library → node). */
+export async function pushLibraryFile(core: ClusterCore, input: PushLibraryFileInput): Promise<TaskView> {
+	const { libraryId, libraryPath, ...rest } = input;
+	const location = await stageLibrarySource(core, libraryId, libraryPath);
+	return pushFile(core, { ...rest, location });
+}
+
+export type PullLibraryFileInput = Omit<PullFileInput, "location" | "maxBytes"> & {
+	libraryId: string;
+	/** The destination path inside the library. */
+	libraryPath: string;
+	overwrite?: boolean;
+	/** The user the new row records as creator; the task actor's user. */
+	createdBy: string | null;
+};
+
+/**
+ * Starts a file.pull task whose destination is a library path (node → library). The node refuses a
+ * file larger than the library's one-file limit; the count and total limits are checked at commit.
+ */
+export async function pullLibraryFile(core: ClusterCore, input: PullLibraryFileInput): Promise<TaskView> {
+	const { libraryId, libraryPath, overwrite, createdBy, ...rest } = input;
+	const record: LibraryRecord = await libraryForTransfer(core.db, libraryId);
+	const location = newLibraryLocation(libraryId, libraryPath, {
+		overwrite: overwrite === true,
+		createdBy,
+	});
+	return pullFile(core, { ...rest, maxBytes: record.row.max_file_bytes, location });
 }

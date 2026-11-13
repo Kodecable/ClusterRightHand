@@ -6,6 +6,8 @@
  * Durations use the crhs.toml syntax (`"60s"`, `"5m"`, `"1d"`); retention values are also `"off"`.
  */
 
+import type { LibraryLimits, SystemSettingsLibrary } from "./libraries.ts";
+
 /** How long crhs keeps finished tasks and authorizations, audit events and durable tool tasks. */
 export interface SystemSettingsRetention {
 	/** Terminal tasks, terminal task groups and expired authorizations. */
@@ -41,6 +43,8 @@ export interface SystemSettings {
 	auth: SystemSettingsAuth;
 	/** Header such as `X-Forwarded-For` whose first value is the client address; null uses the socket. */
 	realIpHeader: string | null;
+	/** The limits new user and user group libraries copy when they are created. */
+	library: SystemSettingsLibrary;
 }
 
 export interface SystemSettingsResponse {
@@ -70,4 +74,8 @@ export interface SystemSettingsPatch {
 		argon2Queue?: number;
 	};
 	realIpHeader?: string | null;
+	library?: {
+		user?: Partial<LibraryLimits>;
+		group?: Partial<LibraryLimits>;
+	};
 }

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import type { LibraryLimits } from "@crh/api";
 import { parse } from "smol-toml";
 
 // Set by the bundled build (scripts/build-crhs.ts), whose own tree holds web/ next to crhs.mjs.
@@ -26,6 +27,11 @@ export interface WebauthnConfig {
 	origins: string[];
 }
 
+/** The library object store (doc/design/library.md "Backends") configured in crhs.toml's `[library]`. */
+export type LibraryConfig =
+	| { backend: "local" }
+	| { backend: "webdav"; url: string; username: string; password: string };
+
 /** Login security settings (doc/guide/reference/crhs-config.md and doc/design/access-control.md). */
 export interface AuthConfig {
 	/** Argon2id computations allowed to run at once; peak memory is roughly this times 64 MiB. */
@@ -51,6 +57,8 @@ export interface Config {
 	listen: ListenConfig;
 	database: DatabaseConfig;
 	masterKeyFile: string;
+	/** Where library objects are stored (doc/design/library.md "Backends"). */
+	library: LibraryConfig;
 	/** Built WebUI: web/ next to a bundled crhs.mjs, web/dist next to the server source otherwise. */
 	webRoot: string;
 }
@@ -87,6 +95,16 @@ export const DEFAULT_RETENTION_TASKS_MS = 90 * 24 * 60 * 60 * 1000;
 export const DEFAULT_RETENTION_AUDIT_MS = 180 * 24 * 60 * 60 * 1000;
 /** Terminal durable agent tasks are kept for 7 days by default: after that they are only bookkeeping. */
 export const DEFAULT_RETENTION_PI_TASKS_MS = 7 * 24 * 60 * 60 * 1000;
+/** The default limits of a new user library: 256 files, 32 MiB each, 256 MiB in total. */
+export const DEFAULT_USER_LIBRARY_LIMITS: LibraryLimits = {
+	files: 256,
+	fileBytes: 32 * 1024 * 1024,
+	totalBytes: 256 * 1024 * 1024,
+};
+
+/** The default limits of a new user group library: 0 allows nothing until an administrator raises them. */
+export const DEFAULT_GROUP_LIBRARY_LIMITS: LibraryLimits = { files: 0, fileBytes: 0, totalBytes: 0 };
+
 /**
  * The shortest retention (doc/design/data-model.md "Retention"): a durable tool call that reruns after a crash reattaches
  * to its cluster task by id (cluster/task-dispatch.ts createTask), so deleting the row too soon could dispatch
@@ -105,6 +123,7 @@ const TOP_LEVEL_KEYS = [
 	"webauthn",
 	"retention",
 	"auth",
+	"library",
 ] as const;
 
 const DURATION_UNITS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
@@ -159,6 +178,7 @@ export function parseConfigFile(text: string): ConfigFile {
 	const database = table(raw, "database");
 	rejectUnknown(listen, "listen.", ["host", "port", "real_ip_header"]);
 	rejectUnknown(database, "database.", ["driver", "path", "url"]);
+	const library = parseLibraryConfig(table(raw, "library"));
 
 	const driver = database.driver ?? "sqlite";
 	let db: DatabaseConfig;
@@ -182,6 +202,7 @@ export function parseConfigFile(text: string): ConfigFile {
 				port,
 			},
 			database: db,
+			library,
 			masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
 			webRoot: str(raw, "web_root", "web_root", defaultWebRoot()),
 		},
@@ -370,6 +391,37 @@ export function validateAuth(captcha: unknown, argon2Concurrency: unknown, argon
 				? DEFAULT_ARGON2_CONCURRENCY
 				: parseInteger(argon2Concurrency, "auth.argon2_concurrency", 1),
 		argon2Queue: argon2Queue === undefined ? DEFAULT_ARGON2_QUEUE : parseInteger(argon2Queue, "auth.argon2_queue", 0),
+	};
+}
+
+/** `[library]`: the object backend; local is the default and needs no other key. */
+function parseLibraryConfig(raw: Record<string, unknown>): LibraryConfig {
+	rejectUnknown(raw, "library.", ["backend", "url", "username", "password"]);
+	const backend = raw.backend ?? "local";
+	if (backend === "local") {
+		if (raw.url !== undefined || raw.username !== undefined || raw.password !== undefined) {
+			throw new Error("library.url, library.username and library.password belong to the webdav backend");
+		}
+		return { backend: "local" };
+	}
+	if (backend !== "webdav") {
+		throw new Error('library.backend must be "local" or "webdav"');
+	}
+	const url = str(raw, "url", "library.url");
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		throw new Error("library.url must be an absolute http(s) URL");
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+		throw new Error("library.url must be an absolute http(s) URL");
+	}
+	return {
+		backend: "webdav",
+		url,
+		username: str(raw, "username", "library.username"),
+		password: str(raw, "password", "library.password"),
 	};
 }
 

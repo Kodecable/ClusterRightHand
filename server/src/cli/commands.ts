@@ -1,5 +1,6 @@
 import { createPrivateKey } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
+import type { LibraryLimits } from "@crh/api";
 import { keyPairFromPrivate } from "@crh/noise";
 import type { AuditInput } from "../audit/audit.ts";
 import { appendCliAudit, cliInput } from "../audit/cli.ts";
@@ -29,6 +30,8 @@ export interface AddUserOptions extends CliCommandOptions {
 	password: string;
 	kind: "admin" | "member";
 	displayName?: string;
+	/** The new library's limits; the defaults when omitted. */
+	library?: LibraryLimits;
 }
 
 /**
@@ -42,12 +45,16 @@ export async function addUser(
 ): Promise<{ id: string; username: string; kind: string }> {
 	const audit = options.audit ?? appendCliAudit;
 	return db.transaction().execute(async (trx) => {
-		const user = await createUser(trx, {
-			username,
-			password: options.password,
-			kind: options.kind,
-			displayName: options.displayName,
-		});
+		const user = await createUser(
+			trx,
+			{
+				username,
+				password: options.password,
+				kind: options.kind,
+				displayName: options.displayName,
+			},
+			options.library ? { library: options.library } : {},
+		);
 		await audit(
 			trx,
 			cliInput(

@@ -21,6 +21,8 @@ import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, type ConfigFile, DEFAULT_CONFIG_PATH, loadConfigFile } from "./config.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
+import { createLibraryBackend } from "./library/backend.ts";
+import { startLibrarySweep } from "./library/sweep.ts";
 import { cleanupStaging } from "./library/transfer-location.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
 import { startRetentionSweep } from "./retention/retention.ts";
@@ -143,6 +145,7 @@ async function runCommand(command: string, args: string[]): Promise<void> {
 						password: await readNewPassword(),
 						kind: values.admin ? "admin" : "member",
 						displayName: values["display-name"],
+						library: settings.current().library.user,
 					});
 					console.log(`created ${user.kind} ${user.username} (${user.id})`);
 				} else if (command === "user" && args[0] === "passwd" && args[1]) {
@@ -193,12 +196,16 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	const dataDir = config.database.driver === "sqlite" ? dirname(config.database.path) : dirname(config.masterKeyFile);
 	const transferRoot = join(dataDir, "staging");
 	await cleanupStaging(transferRoot);
+	// The one library object store (doc/design/library.md "Backends"); objects live under the data directory
+	// with the staging area.
+	const libraryBackend = createLibraryBackend(config.library, join(dataDir, "library"));
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),
 		signingKeys,
 		settings,
 		audit,
 		transferRoot,
+		libraryBackend,
 	});
 	const agents = new AgentServer(db, identity, cluster, audit);
 	const taskGroups = new TaskGroups(db, cluster, { audit });
@@ -235,6 +242,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		taskGroups,
 		signingKeys,
 		masterKey,
+		libraryBackend,
 		webRoot: config.webRoot,
 		audit,
 		agent: { runtime, models },
@@ -272,6 +280,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// Retention deletes rows past their configured age: once shortly after startup, then hourly. The
 	// getter reads System settings at each run, so a changed window applies without a restart.
 	const retention = startRetentionSweep(db, () => settings.current().retention);
+	// Orphaned library objects: once at startup, then hourly (doc/design/library.md "Metadata and objects").
+	const librarySweep = startLibrarySweep(db, libraryBackend);
 	let shuttingDown = false;
 	// Awaited end to end, so nothing writes to the database after db.destroy().
 	const shutdown = async () => {
@@ -283,6 +293,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		agents.stopAccepting();
 		await sweepRun;
 		await retention.stop();
+		await librarySweep.stop();
 		// 2. Stop the scheduler before the agent runtime closes: it must not start another submit, and an
 		// in-flight one is awaited here (doc/design/scheduling.md). Then close the agent runtime before ending any wait.
 		// An agent tool call is a durable task, not a request: the Harness aborts and joins it without recording

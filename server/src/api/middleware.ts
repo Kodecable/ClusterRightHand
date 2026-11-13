@@ -24,8 +24,15 @@ function normalizedHost(host: string, scheme: string): string {
  */
 export const csrfGuard: MiddlewareHandler = async (c, next) => {
 	if (!SAFE_METHODS.has(c.req.method)) {
-		const contentType = c.req.header("content-type") ?? "";
-		if (!contentType.toLowerCase().startsWith("application/json")) {
+		const contentType = (c.req.header("content-type") ?? "").toLowerCase();
+		// A library upload is a raw stream; application/octet-stream is not a CORS-safelisted request
+		// content type, so a cross-site form cannot send it and a cross-site fetch needs a preflight.
+		const libraryUpload = c.req.method === "PUT" && /^\/api\/libraries\/[^/]+\/file$/.test(c.req.path);
+		if (libraryUpload) {
+			if (!contentType.startsWith("application/octet-stream")) {
+				return jsonError(c, 400, "content-type must be application/octet-stream");
+			}
+		} else if (!contentType.startsWith("application/json")) {
 			return jsonError(c, 400, "content-type must be application/json");
 		}
 		const origin = c.req.header("origin");

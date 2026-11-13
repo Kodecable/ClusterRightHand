@@ -50,6 +50,34 @@ export interface UserGroupMembersTable {
 	created_at: CreatedAt;
 }
 
+/** One user's or user group's library, with its limits and hot usage counters (doc/design/library.md "Libraries"). */
+export interface LibrariesTable {
+	id: string;
+	owner_kind: "user" | "group";
+	/** Points at users.id or user_groups.id depending on owner_kind; no foreign key, the owner row is created with it. */
+	owner_id: string;
+	max_files: number;
+	max_file_bytes: number;
+	max_total_bytes: number;
+	used_files: number;
+	used_bytes: number;
+	created_at: CreatedAt;
+}
+
+/** One file of a library; the bytes are an object in the backend under a random key. */
+export interface LibraryFilesTable {
+	library_id: string;
+	path: string;
+	size: number;
+	sha256: string;
+	media_type: string;
+	backend: string;
+	object_key: string;
+	created_by: string | null;
+	created_at: CreatedAt;
+	updated_at: string;
+}
+
 export interface WebSessionsTable {
 	id: string;
 	/** Hex SHA-256 of the cookie token. */
@@ -521,6 +549,8 @@ export interface Database {
 	users: UsersTable;
 	user_groups: UserGroupsTable;
 	user_group_members: UserGroupMembersTable;
+	libraries: LibrariesTable;
+	library_files: LibraryFilesTable;
 	web_sessions: WebSessionsTable;
 	shares: SharesTable;
 	server_meta: ServerMetaTable;

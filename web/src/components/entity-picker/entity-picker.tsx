@@ -3,7 +3,7 @@ import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { CheckIcon, ChevronsUpDownIcon, XIcon } from "lucide-react";
-import { useId, useMemo, useState } from "react";
+import { type ReactNode, useId, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,8 @@ const SEARCH_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Search node groups…`,
 	directory: msg`Search users and groups…`,
 	nodeTarget: msg`Search nodes and node groups…`,
+	libraryOwner: msg`Search users and user groups…`,
+	library: msg`Search libraries…`,
 	sshCredential: msg`Search SSH credentials…`,
 	signingCredential: msg`Search signing credentials…`,
 };
@@ -29,6 +31,8 @@ const SINGLE_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Choose a node group`,
 	directory: msg`Choose a user or user group`,
 	nodeTarget: msg`Choose a node or node group`,
+	libraryOwner: msg`Choose a user or user group`,
+	library: msg`Choose a library`,
 	sshCredential: msg`Choose an SSH credential`,
 	signingCredential: msg`Choose a signing credential`,
 };
@@ -40,6 +44,8 @@ const MULTI_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Choose node groups`,
 	directory: msg`Choose users or user groups`,
 	nodeTarget: msg`Choose nodes or node groups`,
+	libraryOwner: msg`Choose users or user groups`,
+	library: msg`Choose libraries`,
 	sshCredential: msg`Choose SSH credentials`,
 	signingCredential: msg`Choose signing credentials`,
 };
@@ -62,6 +68,8 @@ interface BaseProps {
 	exclude?: readonly string[];
 	/** Whether pending nodes may be picked. Defaults to true; the batch page wants active nodes only. */
 	includeDisabled?: boolean;
+	/** Replaces the trigger's label and chevron, e.g. a page control with its own wording. */
+	trigger?: ReactNode;
 }
 
 interface SingleProps extends BaseProps {
@@ -232,18 +240,25 @@ export function EntityPicker(props: EntityPickerProps) {
 					aria-label={props.label}
 					className={cn(TRIGGER_CLASS, props.className)}
 				>
-					<span
-						className={cn("min-w-0 flex-1 truncate text-left", selectedOptions.length === 0 && "text-muted-foreground")}
-					>
-						{selectedOptions.length === 0 ? (
-							placeholder
-						) : multiple ? (
-							<Plural value={selectedOptions.length} one="# selected" other="# selected" />
-						) : (
-							selectedOptions[0]?.primary
-						)}
-					</span>
-					<ChevronsUpDownIcon className="pointer-events-none size-4 shrink-0 text-muted-foreground" />
+					{props.trigger ?? (
+						<>
+							<span
+								className={cn(
+									"min-w-0 flex-1 truncate text-left",
+									selectedOptions.length === 0 && "text-muted-foreground",
+								)}
+							>
+								{selectedOptions.length === 0 ? (
+									placeholder
+								) : multiple ? (
+									<Plural value={selectedOptions.length} one="# selected" other="# selected" />
+								) : (
+									selectedOptions[0]?.primary
+								)}
+							</span>
+							<ChevronsUpDownIcon className="pointer-events-none size-4 shrink-0 text-muted-foreground" />
+						</>
+					)}
 				</Combobox.Trigger>
 
 				<Combobox.Portal>

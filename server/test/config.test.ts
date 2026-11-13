@@ -6,10 +6,26 @@ describe("parseConfigFile", () => {
 		expect(parseConfig("")).toEqual({
 			listen: { host: "127.0.0.1", port: 8080 },
 			database: { driver: "sqlite", path: "/var/lib/crhs/crhs.db" },
+			library: { backend: "local" },
 			masterKeyFile: "/etc/crhs/master.key",
 			webRoot: expect.stringMatching(/web\/dist$/),
 		});
 		expect(parseConfigFile("").moved).toEqual({});
+	});
+
+	it("reads the library backend", () => {
+		expect(parseConfig("").library).toEqual({ backend: "local" });
+		expect(parseConfig('[library]\nbackend = "local"\n').library).toEqual({ backend: "local" });
+		expect(
+			parseConfig(
+				'[library]\nbackend = "webdav"\nurl = "https://dav.example.com/crhs/"\nusername = "crhs"\npassword = "secret"\n',
+			).library,
+		).toEqual({ backend: "webdav", url: "https://dav.example.com/crhs/", username: "crhs", password: "secret" });
+		expect(() => parseConfig('[library]\nbackend = "s3"\n')).toThrow(/library\.backend/);
+		expect(() => parseConfig('[library]\nbackend = "webdav"\nusername = "crhs"\npassword = "x"\n')).toThrow(
+			/library\.url/,
+		);
+		expect(() => parseConfig('[library]\nbackend = "local"\nurl = "https://x"\n')).toThrow(/webdav backend/);
 	});
 
 	it("reads the listen address and the database settings", () => {

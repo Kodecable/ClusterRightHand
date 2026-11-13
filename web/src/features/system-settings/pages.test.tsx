@@ -12,6 +12,10 @@ const SETTINGS: SystemSettings = {
 	webauthn: { rpId: null, rpName: "ClusterRightHand", origins: [] },
 	auth: { captcha: "cap", argon2Concurrency: 2, argon2Queue: 32 },
 	realIpHeader: null,
+	library: {
+		user: { files: 256, fileBytes: 32 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 },
+		group: { files: 0, fileBytes: 0, totalBytes: 0 },
+	},
 };
 
 const DEFAULTS: SystemSettings = {
@@ -21,6 +25,10 @@ const DEFAULTS: SystemSettings = {
 	webauthn: { rpId: null, rpName: "ClusterRightHand", origins: [] },
 	auth: { captcha: "cap", argon2Concurrency: 2, argon2Queue: 32 },
 	realIpHeader: null,
+	library: {
+		user: { files: 256, fileBytes: 32 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 },
+		group: { files: 0, fileBytes: 0, totalBytes: 0 },
+	},
 };
 
 const NEWEST_KEY: SigningKey = {
@@ -58,6 +66,14 @@ function mergeSettings(settings: SystemSettings, patch: Record<string, unknown>)
 		...(patch.retention !== undefined ? { retention: { ...settings.retention, ...(patch.retention as object) } } : {}),
 		...(patch.webauthn !== undefined ? { webauthn: { ...settings.webauthn, ...(patch.webauthn as object) } } : {}),
 		...(patch.auth !== undefined ? { auth: { ...settings.auth, ...(patch.auth as object) } } : {}),
+		...(patch.library !== undefined
+			? {
+					library: {
+						user: { ...settings.library.user, ...((patch.library as { user?: object }).user ?? {}) },
+						group: { ...settings.library.group, ...((patch.library as { group?: object }).group ?? {}) },
+					},
+				}
+			: {}),
 	};
 }
 
@@ -174,7 +190,7 @@ describe("SystemSettingsPage", () => {
 		await renderWithRouter(<SystemSettingsPage />, "zh-CN");
 
 		expect(await screen.findByRole("heading", { name: "系统设置" })).toBeVisible();
-		for (const name of ["常规", "登录", "Passkey", "数据保留", "授权签名密钥"]) {
+		for (const name of ["常规", "登录", "Passkey", "数据保留", "资料库默认值", "授权签名密钥"]) {
 			expect(screen.getByRole("heading", { name })).toBeVisible();
 		}
 	});
@@ -275,6 +291,26 @@ describe("SystemSettingsPage", () => {
 		await userEvent.click(within(general).getByRole("button", { name: "Save" }));
 
 		expect(await within(general).findByText("public_url must not have a query or fragment")).toBeVisible();
+	});
+
+	test("saves only the Library defaults section's fields", async () => {
+		const api = mockApi();
+		await renderPage();
+		const library = section("library-defaults-section");
+
+		await userEvent.clear(within(library).getByLabelText("Files for new users"));
+		await userEvent.type(within(library).getByLabelText("Files for new users"), "10");
+		await userEvent.clear(within(library).getByLabelText("Files for new groups"));
+		await userEvent.type(within(library).getByLabelText("Files for new groups"), "2");
+		await userEvent.click(within(library).getByRole("button", { name: "Save" }));
+
+		await waitFor(() => expect(api.calls.some((call) => call.method === "PATCH")).toBe(true));
+		expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
+			library: {
+				user: { files: 10, fileBytes: 32 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 },
+				group: { files: 2, fileBytes: 0, totalBytes: 0 },
+			},
+		});
 	});
 
 	test("adds a signing key and shows its public key line to copy", async () => {

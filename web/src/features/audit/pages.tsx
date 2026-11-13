@@ -38,7 +38,9 @@ function TargetCell({ event }: { event: AuditEvent }) {
 			? ({ to: "/tasks/$taskId", params: { taskId: event.targetId } } as const)
 			: event.targetType === "node"
 				? ({ to: "/nodes/$nodeId", params: { nodeId: event.targetId } } as const)
-				: null;
+				: event.targetType === "library"
+					? ({ to: "/library/$library", params: { library: event.targetId }, search: {} } as const)
+					: null;
 	return (
 		<span className="flex min-w-0 items-center gap-1">
 			<span className="text-muted-foreground">{event.targetType}:</span>

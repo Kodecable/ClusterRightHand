@@ -138,10 +138,13 @@ behaves the same on every page:
   collapsed block, never in the default view.
 - **`FileManager`** is the only file browser. It knows nothing of libraries or nodes: it takes a
   `FileSource` with `list` and `stat`, and optionally `download`, `upload`, `delete`, `rename` and
-  `preview`. A missing operation hides its action. Paths are browsed with a breadcrumb, and directories
-  list before files. Previews are images only (PNG, JPEG, GIF, WebP up to 20 MiB), loaded when opened;
-  lists show no thumbnails. **`FilePickerDialog`** is the same component in selection mode (single or
-  multiple files) over any source.
+  `preview`. A missing operation hides its action. Its toolbar (a home icon, the path breadcrumb and
+  an actions slot) and its list are exported as `FileToolbar` and `FileList`, so a page supplies its
+  own actions; directories list before files, and a narrow screen hides the size and updated columns.
+  Previews are images only (PNG, JPEG, GIF, WebP up to 20 MiB), loaded when opened; lists show no
+  thumbnails. Uploads run through `useUploadQueue` — sequential, with byte progress, speed, time left,
+  skip-on-error and cancel — and are shown in `UploadProgressDialog`. **`FilePickerDialog`** is the
+  same component in selection mode (single or multiple files) over any source.
 
 ## Pages
 
@@ -178,12 +181,16 @@ count and a link to the library ([Libraries](library.md#libraries)).
 ### Library page
 
 **Library** in the Work group of the sidebar opens `/library/$library?path=…`, so a location can be
-linked and survives a reload. A selector switches between the user's library and their groups'
-libraries; administrators can pick any user's or group's. The page is the file manager over the library,
-with a usage bar for files and total size that turns to a warning near a limit. Uploads take the
-button or a drop on the page, several at once, each with progress and cancel; a refused upload names the
-limit it hit. There are no folder objects: an upload goes to the current path, and a path with `/` in
-an upload or rename creates the directories ([Libraries](library.md)).
+linked and survives a reload. One control names the current library by its owner's display name
+(**User …'s library** / **Group …'s library**) and opens the entity picker: a member sees their own
+and their groups' libraries, an administrator any user or group. The page is the file manager over the
+library. Its toolbar shows the share of the total-size limit in use and a bar for the tighter of the
+file-count and total-size limits, with the exact ratios in a tooltip; the bar turns to a warning near a
+limit.
+Uploads take the button or a drop on the page, one at a time, in a dialog with the overall progress,
+the speed and the time left. A refused file is skipped and listed with the limit it hit, and cancel
+stops the remaining uploads. There are no folder objects: an upload goes to the current path, and a
+path with `/` in an upload or rename creates the directories ([Libraries](library.md)).
 
 ### Node pages
 
@@ -226,7 +233,7 @@ cannot be redirected to another host without the person who knows it.
 Administrators edit the low-frequency runtime settings here (public URL, clock warning, retention,
 WebAuthn, login hashing and captcha, the real-IP header, the default library limits for new users and
 groups, the attachment inline limits and the image cache), plus crhs's authorization signing keys.
-Each of the four settings sections is its own form with its own **Save**, which patches only that
+Each settings section is its own form with its own **Save**, which patches only that
 section's values and stays disabled until something changed: an unrelated edit elsewhere in the page
 cannot be overwritten or submitted along with it. A save applies without a restart and is audited. The
 authorization signing keys table marks the newest key, because that is the one crhs signs with by
