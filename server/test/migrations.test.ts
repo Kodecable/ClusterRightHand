@@ -6,6 +6,9 @@ import { migrateToLatest, runMigrations } from "../src/storage/migrate.ts";
 import * as m0001 from "../src/storage/migrations/0001_initial.ts";
 import * as m0002 from "../src/storage/migrations/0002_task_transfer.ts";
 import * as m0003 from "../src/storage/migrations/0003_libraries.ts";
+import * as m0004 from "../src/storage/migrations/0004_purpose_and_image_cache.ts";
+import * as m0005 from "../src/storage/migrations/0005_task_group_transfer.ts";
+import * as m0006 from "../src/storage/migrations/0006_image_state.ts";
 import { type Backend, describeBackends, openTestDb } from "./helpers/db.ts";
 
 /**
@@ -151,6 +154,13 @@ describeBackends("initial migration", (backend) => {
 		]);
 		expect(await isNotNull(backend, db, "authorizations", "deadline")).toBe(true);
 		expect(await isNotNull(backend, db, "sessions", "title")).toBe(false);
+		expect(await tableColumns(backend, db, "image_cache")).toEqual([
+			"sha256",
+			"bytes",
+			"mime",
+			"last_used_at",
+			"stored_at",
+		]);
 
 		const sessions = await tableColumns(backend, db, "sessions");
 		expect(sessions).toContain("title_pending");
@@ -176,6 +186,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0003_libraries" },
 			{ name: "0004_purpose_and_image_cache" },
 			{ name: "0005_task_group_transfer" },
+			{ name: "0006_image_state" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
@@ -258,6 +269,39 @@ describe("SQLite migration transactions", () => {
 		expect(await migrationNames()).toEqual(["0001_first", "0002_second"]);
 		expect(await itemRows()).toEqual([{ id: "item", label: "kept" }]);
 		expect(await tableColumns("sqlite", db, "b5_items")).toEqual(["id", "label", "extra"]);
+	});
+});
+
+describe("image state migration", () => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite", { migrate: false });
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("gives an existing image cache row its last use as stored_at", async () => {
+		const before = {
+			"0001_initial": m0001,
+			"0002_task_transfer": m0002,
+			"0003_libraries": m0003,
+			"0004_purpose_and_image_cache": m0004,
+			"0005_task_group_transfer": m0005,
+		};
+		await runMigrations(db, before);
+		await sql`
+			insert into image_cache (sha256, bytes, mime, last_used_at)
+			values ('abc', 3, 'image/png', '2026-01-02T00:00:00.000Z')`.execute(db);
+		await runMigrations(db, { ...before, "0006_image_state": m0006 });
+		const row = await db
+			.selectFrom("image_cache")
+			.select("stored_at")
+			.where("sha256", "=", "abc")
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({ stored_at: "2026-01-02T00:00:00.000Z" });
 	});
 });
 

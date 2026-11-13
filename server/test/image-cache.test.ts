@@ -83,6 +83,30 @@ describe("image cache", () => {
 		expect(await reopened.get(digest)).toMatchObject({ mime: "image/png", bytes: image });
 	});
 
+	it("keeps stored_at from a restored result and moves only last_used_at on a hit", async () => {
+		const image = png(800, 600, 10);
+		const digest = sha(image);
+		const storedAt = Date.now() - 60 * 60 * 1000;
+		await cache.put(digest, "image/png", image, storedAt);
+		expect(await cache.storedAt(digest)).toBe(storedAt);
+		// A repeated put keeps the entry's own stored_at: the bytes never left the disk tier.
+		await cache.put(digest, "image/png", image, storedAt + 1000);
+		expect(await cache.storedAt(digest)).toBe(storedAt);
+
+		const oldUse = new Date(storedAt).toISOString();
+		await db.updateTable("image_cache").set({ last_used_at: oldUse }).where("sha256", "=", digest).execute();
+		// A new instance reads the disk tier instead of the memory tier.
+		const reopened = new ImageCache(db, backend, () => limits);
+		expect(await reopened.get(digest)).toMatchObject({ bytes: image });
+		const row = await db
+			.selectFrom("image_cache")
+			.select(["last_used_at", "stored_at"])
+			.where("sha256", "=", digest)
+			.executeTakeFirstOrThrow();
+		expect(row.stored_at).toBe(oldUse);
+		expect(Date.parse(row.last_used_at)).toBeGreaterThan(storedAt);
+	});
+
 	it("evicts the least recently used memory entry past its size and by age", async () => {
 		const first = png(10, 10, 400);
 		const second = png(20, 20, 400);

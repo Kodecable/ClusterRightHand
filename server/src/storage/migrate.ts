@@ -5,6 +5,7 @@ import * as m0002 from "./migrations/0002_task_transfer.ts";
 import * as m0003 from "./migrations/0003_libraries.ts";
 import * as m0004 from "./migrations/0004_purpose_and_image_cache.ts";
 import * as m0005 from "./migrations/0005_task_group_transfer.ts";
+import * as m0006 from "./migrations/0006_image_state.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -13,6 +14,7 @@ const migrations: Record<string, Migration> = {
 	"0003_libraries": m0003,
 	"0004_purpose_and_image_cache": m0004,
 	"0005_task_group_transfer": m0005,
+	"0006_image_state": m0006,
 };
 
 /** Options shared by the migration entry points. */

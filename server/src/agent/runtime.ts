@@ -28,7 +28,9 @@ import {
 	findSessionByCreateRequestId,
 	getSession,
 	hasSubagents,
+	latestEntryId,
 	sessionAt,
+	transcriptEntries,
 	watch,
 } from "./runtime-sessions.ts";
 import { endOrphanWaits, reconcileSessionStates, refreshState } from "./runtime-state.ts";
@@ -306,6 +308,16 @@ export class AgentRuntime {
 	/** A page of a session's history for `GET /sessions/:id/entries`, oldest first. */
 	async entriesPage(sessionId: string, before: number | undefined, limit: number) {
 		return entriesPage(this.#host, sessionId, before, limit);
+	}
+
+	/** The newest visible entry id of a conversation, for per-conversation derived state (the image hook). */
+	async latestEntryId(conversationId: string): Promise<number | undefined> {
+		return latestEntryId(this.#host, conversationId);
+	}
+
+	/** A conversation's transcript entries, oldest first, for per-conversation derived state (the image hook). */
+	async transcriptEntries(conversationId: string) {
+		return transcriptEntries(this.#host, conversationId);
 	}
 
 	/** The session a conversation belongs to, for tool calls that only know their conversation id. */

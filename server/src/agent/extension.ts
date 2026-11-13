@@ -16,6 +16,7 @@ import * as z from "zod/v4";
 import type { Actor } from "../cluster/cluster.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import { findLibraryFile } from "../library/files.ts";
+import { REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
 import { requireOwnerLibrary } from "../library/library.ts";
 import { parseRuleSetForWrite } from "../policy/refs.ts";
@@ -24,6 +25,7 @@ import { sessionAncestors } from "../sessions/session-chain.ts";
 import { callTool } from "../tools/adapter.ts";
 import { actingUserNote, DEFAULT_IMAGE_LIMITS, type ImageLimits, TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { UserError } from "../util/errors.ts";
+import { imageDetails, rejectedImageSha256s } from "./image-rejection.ts";
 import { stepTiming } from "./latency.ts";
 import type { ModelPresets } from "./model-presets.ts";
 import { THINKING_LEVELS } from "./models.ts";
@@ -88,6 +90,7 @@ export function subagentRequestsBlock(requests: readonly Pick<AgentRequestView, 
 async function toolContextFor(
 	options: AgentRuntimeOptions,
 	conversationId: string,
+	imageRejected?: (sha256: string) => Promise<boolean>,
 ): Promise<Omit<ToolContext, "callKey" | "signal" | "onStatus">> {
 	const { db } = options;
 	const session = await db
@@ -130,6 +133,7 @@ async function toolContextFor(
 		waitThroughApproval: true,
 		imageLimits: imageLimitsOf(options, session.model),
 		...(options.imageCache ? { imageCache: options.imageCache } : {}),
+		...(imageRejected ? { imageRejected } : {}),
 		...(options.audit ? { audit: options.audit } : {}),
 	};
 }
@@ -158,6 +162,9 @@ function imageLimitsOf(options: AgentRuntimeOptions, modelJson: string | null): 
 	};
 }
 
+/** No image is rejected in a conversation; the default for callers that do not derive transcript state. */
+const NO_REJECTED_IMAGES: ReadonlySet<string> = new Set();
+
 /**
  * The `view_image` results of one request as image blocks (doc/design/library.md "view_image"). It matches on
  * the tool name and the structured `details.image` only, never on the text. A cache miss for a library file
@@ -168,6 +175,7 @@ export async function replaceViewImages(
 	options: AgentRuntimeOptions,
 	conversationId: string,
 	messages: readonly PiMessage[],
+	rejectedImages: ReadonlySet<string> = NO_REJECTED_IMAGES,
 ): Promise<PiMessage[] | undefined> {
 	const relevant = messages.some(
 		(message) =>
@@ -206,7 +214,30 @@ export async function replaceViewImages(
 			replaced.push(message);
 			continue;
 		}
-		const content = await imageContent(options, background, user, limits, image);
+		if (rejectedImages.has(image.sha256)) {
+			changed = true;
+			replaced.push({ ...message, content: [{ type: "text", text: REJECTED_IMAGE_TEXT }] });
+			continue;
+		}
+		// The memory tier does not count: only a disk entry written at or before this result may restore it.
+		const storedAt = options.imageCache ? await options.imageCache.storedAt(image.sha256) : undefined;
+		if (storedAt !== undefined && storedAt > message.timestamp) {
+			changed = true;
+			replaced.push({
+				...message,
+				content: [{ type: "text", text: placeholder("the image was cached after this result") }],
+			});
+			continue;
+		}
+		const content = await imageContent(
+			options,
+			background,
+			user,
+			limits,
+			image,
+			storedAt !== undefined,
+			message.timestamp,
+		);
 		if (content === undefined) {
 			replaced.push(message);
 			continue;
@@ -217,16 +248,6 @@ export async function replaceViewImages(
 	return changed ? replaced : undefined;
 }
 
-/** The structured `details.image` of a tool result, or undefined when it is missing or malformed. */
-function imageDetails(details: unknown): { sha256: string; mime: string; source: unknown } | undefined {
-	if (typeof details !== "object" || details === null) return undefined;
-	const image = (details as Record<string, unknown>).image;
-	if (typeof image !== "object" || image === null) return undefined;
-	const record = image as Record<string, unknown>;
-	if (typeof record.sha256 !== "string" || typeof record.mime !== "string") return undefined;
-	return { sha256: record.sha256, mime: record.mime, source: record.source };
-}
-
 /** The image block for one result, or its text placeholder with the reason. */
 async function imageContent(
 	options: AgentRuntimeOptions,
@@ -234,11 +255,14 @@ async function imageContent(
 	user: { sessionId: string; userId: string; username: string; kind: "admin" | "member" },
 	limits: ImageLimits,
 	image: { sha256: string; mime: string; source: unknown },
+	cachedOnDisk: boolean,
+	resultAt: number,
 ): Promise<{ type: "image"; data: string; mimeType: string } | { type: "text"; text: string } | undefined> {
 	if (!limits.supported) return { type: "text", text: placeholder("this model cannot take images") };
 	const cache = options.imageCache;
 	if (!cache) return { type: "text", text: placeholder("the image cache is not configured") };
-	let cached = await cache.get(image.sha256);
+	// A memory-only entry does not count, so a disk miss goes straight to the library re-read or placeholder.
+	let cached = cachedOnDisk ? await cache.get(image.sha256) : undefined;
 	if (!cached) {
 		const source = image.source;
 		const library = sourceObject(source);
@@ -257,7 +281,8 @@ async function imageContent(
 		if (digest !== image.sha256) {
 			return { type: "text", text: placeholder("the library file changed since it was viewed") };
 		}
-		await cache.put(digest, row.media_type === image.mime ? row.media_type : image.mime, bytes);
+		// Restoring this result backdates the entry, so this result becomes the image once and newer reads use it.
+		await cache.put(digest, row.media_type === image.mime ? row.media_type : image.mime, bytes, resultAt);
 		cached = { bytes, mime: image.mime };
 	}
 	// The session's model can change between requests, so a cached image must pass the CURRENT
@@ -306,6 +331,19 @@ export function clusterExtension(
 	// basis for input tokens the upstream does not report; durable's hook sees no system prompt or tool
 	// declarations).
 	const requestInput = new RequestEstimates();
+	// Rejected images per conversation, derived from the transcript. `latestEntryId` invalidates it when new
+	// entries appear; correctness never depends on it, since a restart derives the same set again.
+	const rejectedImages = new Map<string, { latestEntryId: number | undefined; sha256s: ReadonlySet<string> }>();
+	const rejectedImagesFor = async (conversationId: string): Promise<ReadonlySet<string>> => {
+		const runtime = runtimeRef.current;
+		if (!runtime) return NO_REJECTED_IMAGES;
+		const latestEntryId = await runtime.latestEntryId(conversationId);
+		const cached = rejectedImages.get(conversationId);
+		if (cached !== undefined && cached.latestEntryId === latestEntryId) return cached.sha256s;
+		const sha256s = rejectedImageSha256s(await runtime.transcriptEntries(conversationId));
+		rejectedImages.set(conversationId, { latestEntryId, sha256s });
+		return sha256s;
+	};
 	const requestJson = (r: AgentRequestView) => ({
 		kind: r.kind,
 		id: r.id,
@@ -349,8 +387,14 @@ export function clusterExtension(
 				// Custom providers may put the crh session id into request headers/body; the mapping must be
 				// known before the first generation request, not only after its response.
 				await runtimeRef.current?.rememberProviderSession(conversationId);
-				// view_image results become image blocks for this request only (doc/design/library.md "view_image").
-				const messages = await replaceViewImages(options, conversationId, request.messages);
+				// view_image results become image blocks for this request only, unless this conversation has
+				// already had a provider reject the image (doc/design/library.md "view_image").
+				const messages = await replaceViewImages(
+					options,
+					conversationId,
+					request.messages,
+					await rejectedImagesFor(conversationId),
+				);
 				return messages === undefined ? undefined : { messages };
 			},
 			// The budget measure counts the output at every level; a level whose quota is not above zero stops its
@@ -408,7 +452,10 @@ export function clusterExtension(
 			// and must not cut a note block — or a 512-node status group, whose per-node status is not budgeted.
 			outputLimits: { maxBytes: 256 * 1024, maxLines: 10_000 },
 			execute: async (args, api, context) => {
-				const base = await toolContextFor(options, String(api.conversationId));
+				const conversationId = String(api.conversationId);
+				const base = await toolContextFor(options, conversationId, async (sha256) =>
+					(await rejectedImagesFor(conversationId)).has(sha256),
+				);
 				// Quota at or below zero: pause this call and ask an ancestor's agent, or the owner, for more
 				// (doc/design/agent-runtime.md "Quota and token accounting"). A denial ends the run without another model request.
 				if (await exhaustedLevel(options.db, base.actor.id)) {

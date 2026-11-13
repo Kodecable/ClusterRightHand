@@ -8,7 +8,7 @@ import { listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { resolveTargets } from "../cluster/task-groups.ts";
 import { copyLibraryFile } from "../library/files.ts";
-import type { ImageCache } from "../library/image-cache.ts";
+import { type ImageCache, REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
 import { findUserLibrary, libraryRef } from "../library/library.ts";
 import { openTransferLocation, type TransferLocationJson } from "../library/transfer-location.ts";
@@ -74,6 +74,8 @@ export interface ToolContext {
 	onStatus?: (status: Record<string, unknown>) => Promise<void>;
 	/** The image cache behind `view_image`; the tool reports that it is not configured without one. */
 	imageCache?: ImageCache;
+	/** Whether this conversation already had the provider reject a SHA-256 (doc/design/library.md "view_image"). */
+	imageRejected?: (sha256: string) => Promise<boolean>;
 	/**
 	 * The model's image input limits. Absent over MCP, where there is no model: the tool then uses the
 	 * defaults (doc/design/library.md "view_image").
@@ -1037,6 +1039,10 @@ const viewImage = define({
 			source = { node: name, path: args.path };
 			label = args.path.slice(args.path.lastIndexOf("/") + 1);
 		}
+		const sha256 = createHash("sha256").update(bytes).digest("hex");
+		if (ctx.imageRejected && (await ctx.imageRejected(sha256))) {
+			return textResult([{ note: REJECTED_IMAGE_TEXT }]);
+		}
 		const header = readImageHeader(bytes);
 		if (!header) {
 			return errorResult(
@@ -1054,7 +1060,6 @@ const viewImage = define({
 					`${limits.maxWidth}x${limits.maxHeight} and ${limits.maxBase64Bytes} bytes as base64`,
 			);
 		}
-		const sha256 = createHash("sha256").update(bytes).digest("hex");
 		await ctx.imageCache.put(sha256, header.mime, bytes);
 		const image = {
 			sha256,

@@ -625,6 +625,32 @@ export async function entriesPage(
 	};
 }
 
+/**
+ * The newest visible entry id of a conversation; one indexed read. The image hook compares it with the id
+ * its in-memory derivation covered, so new entries invalidate the cache (doc/design/library.md "view_image").
+ */
+export async function latestEntryId(host: RuntimeHost, conversationId: string): Promise<number | undefined> {
+	const conversation = await conversationOf(host, { conversation_id: conversationId });
+	if (!conversation) return undefined;
+	const page = await conversation.entries({ order: "descending" }, 1, undefined, host.context);
+	const newest = page.items[0];
+	return newest === undefined ? undefined : Number(newest.id);
+}
+
+/** A conversation's visible entries, oldest first, including the system entries the chat does not show. */
+export async function transcriptEntries(host: RuntimeHost, conversationId: string): Promise<PiEntryRecord[]> {
+	const conversation = await conversationOf(host, { conversation_id: conversationId });
+	if (!conversation) return [];
+	const entries: PiEntryRecord[] = [];
+	let cursor: Cursor | undefined;
+	for (;;) {
+		const page = await conversation.entries({ order: "ascending" }, 200, cursor, host.context);
+		entries.push(...page.items);
+		if (!page.next) return entries;
+		cursor = page.next;
+	}
+}
+
 /** The session a conversation belongs to, for tool calls that only know their conversation id. */
 export async function sessionAt(host: RuntimeHost, conversationId: string): Promise<SessionInfo | undefined> {
 	const cached = host.sessionCaches.sessionFor(conversationId);

@@ -1,8 +1,8 @@
 /**
  * The image cache (doc/design/library.md "Image cache"): the bytes behind `view_image` results, in an
  * in-process LRU in front of an object area of the library backend. A row in `image_cache` indexes each
- * object's size, media type and last use. Both tiers drop entries by least recent use and by age; the
- * disk tier is bounded by its size setting.
+ * object's size, media type, last use and stored time. Both tiers drop entries by least recent use and by
+ * age; the disk tier is bounded by its size setting.
  */
 import { Readable } from "node:stream";
 import type { Db } from "../storage/db.ts";
@@ -13,6 +13,9 @@ export interface CachedImage {
 	bytes: Buffer;
 	mime: string;
 }
+
+/** The text a rejected image's tool result and request placeholder carry (doc/design/library.md "view_image"). */
+export const REJECTED_IMAGE_TEXT = "This image was rejected by the model provider; it was not sent.";
 
 /** The limits the cache reads at use time, so a settings change applies without a restart. */
 export interface ImageCacheLimits {
@@ -47,14 +50,24 @@ export class ImageCache {
 		return this.#memoryBytes;
 	}
 
-	/** Stores one image in both tiers; a repeated SHA-256 refreshes the entry instead of adding another. */
-	async put(sha256: string, mime: string, bytes: Uint8Array): Promise<void> {
+	/**
+	 * Stores one image in both tiers; a repeated SHA-256 refreshes the entry instead of adding another, keeping
+	 * its original `stored_at` because the bytes never left the disk tier. `storedAt` backdates a new entry when
+	 * a library re-read restores a result (doc/design/library.md "Image cache"); a normal write defaults to now.
+	 */
+	async put(sha256: string, mime: string, bytes: Uint8Array, storedAt = Date.now()): Promise<void> {
 		const data = Buffer.from(bytes);
 		const now = Date.now();
 		await this.#backend.putCache(sha256, Readable.from([data]));
 		await this.#db
 			.insertInto("image_cache")
-			.values({ sha256, bytes: data.length, mime, last_used_at: new Date(now).toISOString() })
+			.values({
+				sha256,
+				bytes: data.length,
+				mime,
+				last_used_at: new Date(now).toISOString(),
+				stored_at: new Date(storedAt).toISOString(),
+			})
 			.onConflict((conflict) =>
 				conflict.column("sha256").doUpdateSet({
 					bytes: data.length,
@@ -64,6 +77,16 @@ export class ImageCache {
 			)
 			.execute();
 		this.#remember(sha256, { bytes: data, mime, lastUsed: now });
+	}
+
+	/** When the disk-tier entry was written, or undefined when it is gone; the memory tier does not count. */
+	async storedAt(sha256: string): Promise<number | undefined> {
+		const row = await this.#db
+			.selectFrom("image_cache")
+			.select("stored_at")
+			.where("sha256", "=", sha256)
+			.executeTakeFirst();
+		return row === undefined ? undefined : Date.parse(row.stored_at);
 	}
 
 	/** The image for a SHA-256, or undefined when neither tier has it any more. */

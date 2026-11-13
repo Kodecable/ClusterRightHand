@@ -256,7 +256,20 @@ applies; `overwrite` is accepted and has no effect.
   into the [image cache](#image-cache), never into the transcript.
 - Before each model request, a `beforeRequest` hook replaces the content of every `view_image` result that
   carries `details.image` with the image block. It matches on the tool name and the structured `details`,
-  which only the tool produces, and never parses text. The replacement applies to that request only.
+  which only the tool produces, and never parses text. The replacement applies to that request only, and
+  only while the disk entry was written at or before the result's timestamp. An entry restored by a later
+  read therefore cannot turn an older placeholder back into an image: the prompt cache misses once, not
+  twice, and the image is not sent twice.
+- Provider rejection is derived from the conversation's transcript, which is the single source of truth:
+  it follows forks, needs no cleanup, and belongs to one conversation because a rejection is specific to
+  the provider/model that saw it. A `view_image` result counts as sent when an assistant message after it
+  ended without an error. Otherwise the assistant messages after it with a provider 4xx status (a numeric
+  status or error code, never provider wording) are counted; after two such failures the image is rejected
+  in that conversation. A success in between means the image was sent, so it is not rejected; a 5xx or
+  network error does not count. Once one result of a SHA-256 is rejected, a later `view_image` of the same
+  SHA-256 in the same conversation is rejected too. The hook then replaces the results with a placeholder
+  saying it was rejected and not sent, and `view_image` returns that text instead of an image. The answer
+  is derived again from the transcript after a restart, so no separate state is kept or cleaned up.
 - The WebUI's tool card shows the source, dimensions, size and SHA-256, with a link when the source is a
   library; it does not render the image.
 
@@ -267,18 +280,23 @@ The bytes for `view_image` results live in a bounded cache keyed by SHA-256, in 
 | Tier | Where | Default size |
 |---|---|---|
 | Memory | An LRU in the crhs process | 64 MiB |
-| Disk | A `cache/` area of the library backend, indexed by an `image_cache` table (SHA-256, size, media type, last use) | 1 GiB |
+| Disk | A `cache/` area of the library backend, indexed by an `image_cache` table (SHA-256, size, media type, last use, stored time) | 1 GiB |
 
 - Both tiers evict least recently used entries, and drop entries unused for longer than the TTL (default
   7 days). The sizes and TTL are system settings. The cache counts toward no library's limits.
 - The disk tier is in the backend, not the database, so it does not grow the database or its backups.
+- `stored_at` is when the current entry entered the disk tier; writing the same SHA-256 again keeps it,
+  because the bytes never left. A hit moves only `last_used_at`, so `beforeRequest` can tell whether the
+  bytes stayed cached continuously since a result was produced. A library re-read on a miss writes the
+  entry back with `stored_at` set to the restored result's timestamp, so that result is restored once and
+  newer reads use the entry normally.
 - **On a miss**, a library source is read again from its recorded path and used if its SHA-256 still
   matches; it is then cached again. A node source is never read again during a request: that would start
   a task, possibly wait for an approval, and stall on an offline node, all invisibly. The agent can call
   `view_image` again, visibly and under the rules.
 - An image that cannot be restored becomes a text placeholder giving the reason (changed or deleted
-  library file, expired cache entry) and suggesting `view_image` again. The prompt cache misses once when
-  this happens.
+  library file, expired cache entry, a cache entry newer than the result) and suggesting `view_image`
+  again where it can help. The prompt cache misses once when this happens.
 - A model without image input gets the same kind of placeholder for every image.
 - Compaction does not go through `beforeRequest`, so the summarizer sees the one-line text, which is
   enough for a summary.

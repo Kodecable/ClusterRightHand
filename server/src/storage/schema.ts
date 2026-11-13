@@ -85,6 +85,8 @@ export interface ImageCacheTable {
 	bytes: number;
 	mime: string;
 	last_used_at: string;
+	/** When the current bytes were written to the disk tier; a hit moves only `last_used_at`. */
+	stored_at: string;
 }
 
 export interface WebSessionsTable {
