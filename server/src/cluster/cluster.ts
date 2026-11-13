@@ -16,7 +16,8 @@ import type { TransportCiphers } from "@crh/noise";
 import type { DataConnectionInit, NodeStatus, TaskSpec } from "@crh/protocol";
 import type { WebSocket } from "ws";
 import type { SessionUser } from "../auth/sessions.ts";
-import type { TransferLocationJson } from "../library/transfer-location.ts";
+import type { LibraryBackend } from "../library/backend.ts";
+import type { TransferContext, TransferLocationJson } from "../library/transfer-location.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { SubmittedAuthorization } from "../privilege/submission.ts";
@@ -35,6 +36,7 @@ import {
 	pushFile,
 	pushLibraryFile,
 	stageBytesForPush,
+	stageLibrarySource,
 	stagingLocation,
 } from "./file-plane.ts";
 import * as links from "./links.ts";
@@ -235,6 +237,16 @@ export class Cluster {
 		return tasks.createTask(this.#core, input);
 	}
 
+	/** The library object store; absent when this crhs has no library backend. */
+	get libraryBackend(): LibraryBackend | undefined {
+		return this.#core.libraryBackend;
+	}
+
+	/** Where a stored transfer location opens against: the staging root and the library backend. */
+	transferContext(): TransferContext {
+		return this.#core.transferContext();
+	}
+
 	/** A new empty staging destination for a pull (doc/design/library.md "File plane"). */
 	stagingLocation(): TransferLocationJson {
 		return stagingLocation();
@@ -261,6 +273,11 @@ export class Cluster {
 	/** Starts a file.push task whose source is a library file (library → node). */
 	pushLibraryFile(input: PushLibraryFileInput): Promise<TaskView> {
 		return pushLibraryFile(this.#core, input);
+	}
+
+	/** The location of a stored library file, for a task group that pushes it to several nodes. */
+	stageLibrarySource(libraryId: string, path: string): Promise<TransferLocationJson> {
+		return stageLibrarySource(this.#core, libraryId, path);
 	}
 
 	/** Starts a file.pull task whose destination is a library path (node → library). */

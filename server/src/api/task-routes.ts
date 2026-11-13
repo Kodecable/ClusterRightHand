@@ -133,6 +133,8 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 			.selectFrom("tasks")
 			.select("id")
 			.where("node_id", "=", nodeId)
+			// A feature's own tasks, such as node file browsing, stay out of the ordinary lists.
+			.where("purpose", "is", null)
 			.orderBy("created_at", "desc")
 			.limit(10);
 		if (!isAdmin(user)) query = query.where("on_behalf_of_user_id", "=", user.userId);
@@ -168,6 +170,8 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		}
 		const filterNode = c.req.query("nodeId");
 		const filterUser = c.req.query("userId");
+		// Tasks a dedicated feature created (node file browsing) are left out unless asked for.
+		const includePurpose = c.req.query("includePurpose") === "true" || c.req.query("includePurpose") === "1";
 		const limit = parseLimit(c.req.query("limit"));
 		const rawCursor = c.req.query("cursor");
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, TASKS_CURSOR);
@@ -180,6 +184,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		// The "By" column shows `on_behalf_of_user_id`, so that is what a user's own task filter matches (a
 		// session or token task still acts for its owner). Applied after the visibility rule above.
 		if (filterUser !== undefined && filterUser !== "") query = query.where("on_behalf_of_user_id", "=", filterUser);
+		if (!includePurpose) query = query.where("purpose", "is", null);
 		if (state !== undefined) query = query.where("state", "=", state as TaskState);
 		if (actorType !== undefined) query = query.where("actor_type", "=", actorType);
 		if (cursor) query = query.where(descendingKeyset(["created_at"], cursor));

@@ -214,7 +214,8 @@ payload.
   resolved to UUIDs before signing, so a rename does not invalidate an authorization.
 - **Command** is `null` for any method and any target, or `exact` (target and `spec_sha256`) or
   `prefix` (target only). `spec_sha256 = SHA-256(CBOR(TaskSpec))` covers environment, working
-  directory, input hash and content, so an `exact` approval covers what runs.
+  directory, input hash and content, so an `exact` approval covers what runs. A `file.push`/`file.pull`
+  endpoint's transfer id is crhs-side routing and is left out, so a group's members hash alike.
 - **Reusable or one-shot.** `task_ids` and `attempt` are both `null` (reusable until the deadline) or
   both set (one-shot). A one-shot authorization has unique task ids and `attempt ≥ 1`, may list only
   node UUIDs, and binds position by position: the task id must be listed, the node id at that

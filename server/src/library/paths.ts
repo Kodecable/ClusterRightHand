@@ -41,6 +41,21 @@ export function libraryPathName(path: string): string {
 	return index === -1 ? path : path.slice(index + 1);
 }
 
+/**
+ * A path with ` (n)` before the first dot of its base name, for an upload that must not replace an
+ * existing file: `x.tar.gz` → `x (1).tar.gz`, `.bashrc` → `.bashrc (1)`. A leading dot is not the
+ * extension separator; the directory part is kept as is.
+ */
+export function numberedLibraryPath(path: string, index: number): string {
+	const slash = path.lastIndexOf("/");
+	const directory = slash === -1 ? "" : path.slice(0, slash + 1);
+	const name = slash === -1 ? path : path.slice(slash + 1);
+	const dot = name.indexOf(".", 1);
+	const base = dot === -1 ? name : name.slice(0, dot);
+	const extension = dot === -1 ? "" : name.slice(dot);
+	return `${directory}${base} (${index})${extension}`;
+}
+
 /** The directory segments of a path, for a breadcrumb. */
 export function libraryPathSegments(path: string): string[] {
 	return path === "" ? [] : path.split("/");

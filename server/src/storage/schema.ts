@@ -78,6 +78,15 @@ export interface LibraryFilesTable {
 	updated_at: string;
 }
 
+/** The image cache's index (doc/design/library.md "Image cache"); the bytes live in the backend's cache area. */
+export interface ImageCacheTable {
+	/** Hex SHA-256; also the object's name in the cache area. */
+	sha256: string;
+	bytes: number;
+	mime: string;
+	last_used_at: string;
+}
+
 export interface WebSessionsTable {
 	id: string;
 	/** Hex SHA-256 of the cookie token. */
@@ -290,6 +299,11 @@ export interface TasksTable extends ApprovalColumns {
 	late_result: string | null;
 	/** The file plane transfer: JSON { transferId, location } for file.push/file.pull (doc/design/library.md). */
 	transfer: string | null;
+	/**
+	 * Why a dedicated feature created this task, such as `browse` for the node file manager
+	 * (doc/design/execution.md "Task purpose"). Null for ordinary tasks; the task API never sets it.
+	 */
+	purpose: string | null;
 }
 
 export interface TaskGroupsTable extends ApprovalColumns {
@@ -317,6 +331,13 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	/** TaskSpec JSON (doc/design/protocol.md "JSON storage forms"), kept while waiting for approval. */
 	spec: string | null;
 	timeout_ms: number | null;
+	/** Why a dedicated feature created this group; null for ordinary work (doc/design/execution.md "Task purpose"). */
+	purpose: string | null;
+	/**
+	 * A transfer group's crhs-side source location (JSON), shared by every member; null for other groups
+	 * (doc/design/library.md "Copies").
+	 */
+	transfer: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 export interface AuthorizationsTable {
@@ -551,6 +572,7 @@ export interface Database {
 	user_group_members: UserGroupMembersTable;
 	libraries: LibrariesTable;
 	library_files: LibraryFilesTable;
+	image_cache: ImageCacheTable;
 	web_sessions: WebSessionsTable;
 	shares: SharesTable;
 	server_meta: ServerMetaTable;

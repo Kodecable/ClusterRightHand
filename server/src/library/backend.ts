@@ -30,11 +30,22 @@ export interface LibraryBackend {
 	delete(key: string): Promise<void>;
 	/** Every object of the store, for the orphan sweep. */
 	list(): AsyncIterable<LibraryObject>;
+	/** The image cache's area, outside every library (doc/design/library.md "Image cache"). */
+	putCache(key: string, source: Readable): Promise<{ size: number; sha256: string }>;
+	getCache(key: string): Readable;
+	deleteCache(key: string): Promise<void>;
+	listCache(): AsyncIterable<LibraryObject>;
 }
 
 /** A random object key: never derived from a path, so a move or overwrite is pure metadata. */
 export function newObjectKey(): string {
 	return randomBytes(16).toString("hex");
+}
+
+/** An image cache key is the image's hex SHA-256, so one image has one object. */
+export function checkCacheKey(key: string): string {
+	if (!/^[0-9a-f]{64}$/.test(key)) throw new Error(`invalid image cache key ${JSON.stringify(key)}`);
+	return key;
 }
 
 /** Rejects a key that is not one of ours before it becomes a file name. */
@@ -110,6 +121,59 @@ class LocalLibraryBackend implements LibraryBackend {
 				yield { key: entry.name, lastModified: info.mtimeMs };
 			} catch {
 				// The object vanished between readdir and stat; there is nothing to sweep.
+			}
+		}
+	}
+
+	async putCache(key: string, source: Readable): Promise<{ size: number; sha256: string }> {
+		const target = join(this.#root, "cache", checkCacheKey(key));
+		await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+		const temp = `${target}.crh-part-${randomBytes(6).toString("hex")}`;
+		const hash = createHash("sha256");
+		let size = 0;
+		const out = createWriteStream(temp, { mode: 0o600 });
+		try {
+			for await (const chunk of source) {
+				const bytes = Buffer.from(chunk);
+				size += bytes.length;
+				hash.update(bytes);
+				if (!out.write(bytes)) await once(out, "drain");
+			}
+			out.end();
+			await once(out, "finish");
+			await rename(temp, target);
+			return { size, sha256: hash.digest("hex") };
+		} catch (err) {
+			out.destroy();
+			await rm(temp, { force: true });
+			throw err;
+		}
+	}
+
+	getCache(key: string): Readable {
+		return createReadStream(join(this.#root, "cache", checkCacheKey(key)));
+	}
+
+	async deleteCache(key: string): Promise<void> {
+		await rm(join(this.#root, "cache", checkCacheKey(key)), { force: true });
+	}
+
+	async *listCache(): AsyncIterable<LibraryObject> {
+		const root = join(this.#root, "cache");
+		let entries: Dirent[];
+		try {
+			entries = await readdir(root, { withFileTypes: true });
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+			throw err;
+		}
+		for (const entry of entries) {
+			if (!entry.isFile() || !/^[0-9a-f]{64}$/.test(entry.name)) continue;
+			try {
+				const info = await stat(join(root, entry.name));
+				yield { key: entry.name, lastModified: info.mtimeMs };
+			} catch {
+				// The entry vanished between readdir and stat.
 			}
 		}
 	}

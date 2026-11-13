@@ -180,7 +180,7 @@ async function pushTaskWaiting(ctx: ToolContext, t: TaskView): Promise<void> {
  * Waits for a blocking file task until it is final, approval and signature included. When the call is
  * aborted the task is cancelled instead (a running one asked to stop, a waiting one rejected).
  */
-async function waitBlockingTask(ctx: ToolContext, id: string): Promise<TaskView | undefined> {
+export async function waitBlockingTask(ctx: ToolContext, id: string): Promise<TaskView | undefined> {
 	let t = await ctx.cluster.getTask(id);
 	await ctx.onStatus?.({ task_id: id, state: t?.state });
 	const cancel = async () => {
@@ -246,7 +246,7 @@ async function pushGroupWaiting(ctx: ToolContext, g: TaskGroupView): Promise<voi
 }
 
 /** Waits for a blocking file task group until it is final; an aborted call cancels it. */
-async function waitBlockingGroup(ctx: ToolContext, id: string): Promise<TaskGroupView> {
+export async function waitBlockingGroup(ctx: ToolContext, id: string): Promise<TaskGroupView> {
 	let g = (await ctx.taskGroups.get(id)) as TaskGroupView;
 	await ctx.onStatus?.({ task_group_id: id, state: g.state });
 	if (ctx.signal?.aborted) {

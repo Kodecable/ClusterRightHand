@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import type { RefMap, TaskGroupApprovalRecord, TaskGroupView } from "@crh/api";
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
+import { openTransferLocation, type TransferLocationJson } from "../library/transfer-location.ts";
 import { targetRefs } from "../policy/refs.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
@@ -122,13 +124,18 @@ export async function resolveTargets(db: Db, user: SessionUser, targets: string[
 }
 
 export interface CreateTaskGroupInput
-	extends Omit<CreateTaskInput, "nodeId" | "taskGroupId" | "approvedBy" | "noWait"> {
+	extends Omit<CreateTaskInput, "nodeId" | "taskGroupId" | "approvedBy" | "noWait" | "transfer"> {
 	targets: string[];
 	nodeIds: string[];
 	parallel?: number;
 	failFast?: boolean;
 	/** Batch output mode; defaults to `status` for exec and is fixed to `head` for file operations. */
 	outputMode?: BatchOutputMode;
+	/**
+	 * A file plane group's crhs-side source. Every member gets its own transfer id for this location,
+	 * so each task carries its own transfer record (doc/design/library.md "Copies").
+	 */
+	transferLocation?: TransferLocationJson;
 	actor: Actor;
 	/** A caller-chosen id; an existing group with it is returned as is (see CreateTaskInput.id). */
 	id?: string;
@@ -214,6 +221,22 @@ export class TaskGroups {
 	}
 
 	/**
+	 * Removes a transfer group's staged source once no member can read it any more. A library source
+	 * belongs to the library and is left alone; only a staging file is copy-owned.
+	 */
+	async #discardTransfer(id: string): Promise<void> {
+		const row = await this.#row(id);
+		if (!row?.transfer) return;
+		const location = JSON.parse(row.transfer) as TransferLocationJson;
+		if (location.kind !== "staging") return;
+		try {
+			await openTransferLocation(this.#cluster.transferContext(), location).discard();
+		} catch (err) {
+			console.error(`task group ${id}: discarding its staged source failed:`, err);
+		}
+	}
+
+	/**
 	 * Waits for the group runs this process started and the approval steps still queued. Call after
 	 * Cluster.close(): its wake-ups end the waitTask calls and its refusal of new tasks ends the workers;
 	 * unfinished groups are recovered on the next start.
@@ -244,6 +267,7 @@ export class TaskGroups {
 			await this.#endWaiting(row.id);
 			this.#cluster.releaseGroupBudget(row.id);
 			this.#settle(row.id);
+			await this.#discardTransfer(row.id);
 		}
 	}
 
@@ -275,6 +299,7 @@ export class TaskGroups {
 				this.#cluster.releaseGroupBudget(id);
 				this.#settle(id);
 				this.#cancelled.delete(id);
+				await this.#discardTransfer(id);
 			}
 		}
 		// Cancel what exists either way: this wakes a worker parked in waitTask so it can see the flag,
@@ -316,6 +341,7 @@ export class TaskGroups {
 			}
 			this.#settle(id);
 			this.#authorizationRejected.delete(id);
+			await this.#discardTransfer(id);
 		}
 		this.#auditLater({
 			actor: { type: by.type, id: by.id, onBehalfOfUserId: by.onBehalfOfUserId },
@@ -438,6 +464,8 @@ export class TaskGroups {
 				// Until an ancestor agent is routed, the user (the group's on_behalf user) is the handler.
 				handler_type: waiting ? "user" : null,
 				handler_session_id: null,
+				purpose: input.purpose ?? null,
+				transfer: input.transferLocation ? JSON.stringify(input.transferLocation) : null,
 			})
 			.execute();
 		this.#auditLater({
@@ -472,11 +500,16 @@ export class TaskGroups {
 	}
 
 	#taskInput(input: CreateTaskGroupInput, groupId: string, nodeId: string, approvedBy?: ApprovalDecision) {
-		const { nodeIds: _n, targets: _t, parallel: _p, failFast: _f, id: _i, ...task } = input;
+		const { nodeIds: _n, targets: _t, parallel: _p, failFast: _f, id: _i, transferLocation, ...task } = input;
+		const transfer = transferLocation ? memberTransfer(input.spec, transferLocation) : undefined;
 		// A group with a stable id gives its tasks stable ids too, so a rerun reattaches to them.
 		const id = input.id ? derivedId(`${input.id}/${nodeId}`) : undefined;
 		return {
 			...task,
+			// Every member of a transfer group has its own endpoint (the group's spec has a placeholder),
+			// while the location and the size/hash stay shared (doc/design/library.md "Copies").
+			spec: transfer?.spec ?? input.spec,
+			...(transfer ? { transfer: JSON.stringify(transfer.record) } : {}),
 			// The group's mode is fixed; a task left waiting keeps it until dispatch.
 			outputMode: input.outputMode ?? "status",
 			nodeId,
@@ -626,6 +659,8 @@ export class TaskGroups {
 				this.#cluster.releaseGroupBudget(id);
 				this.#cancelled.delete(id);
 				this.#authorizationRejected.delete(id);
+				// A staged source is copy-owned; the group is over only when this run did not stop early.
+				if (!this.#cluster.closing && !abandoned) await this.#discardTransfer(id);
 			}
 		}
 		if (failure !== undefined) throw failure;
@@ -763,8 +798,9 @@ export class TaskGroups {
 			const remaining = (JSON.parse(row.node_ids) as string[]).filter((n) => !started.has(n));
 			this.#start(id, input, remaining, row.parallel, { ...decision, taskGroupId: id });
 		} else {
-			// A rejected group never runs; release anything its denied tasks may have held.
+			// A rejected group never runs; release anything its denied tasks may have held and its staging source.
 			this.#cluster.releaseGroupBudget(id);
+			await this.#discardTransfer(id);
 		}
 		this.#settle(id);
 		return true;
@@ -885,6 +921,8 @@ export class TaskGroups {
 			failFast: row.fail_fast === 1,
 			actor: { type: row.actor_type as Actor["type"], id: row.actor_id, onBehalfOfUserId: row.on_behalf_of_user_id },
 			...(row.rule_chain ? { chain: JSON.parse(row.rule_chain) as RuleRef[] } : {}),
+			...(row.purpose !== null ? { purpose: row.purpose } : {}),
+			...(row.transfer ? { transferLocation: JSON.parse(row.transfer) as TransferLocationJson } : {}),
 		};
 	}
 
@@ -972,6 +1010,7 @@ export class TaskGroups {
 			rootSessionId: row.root_session_id,
 			handlerType: row.handler_type,
 			handlerSessionId: row.handler_session_id,
+			purpose: row.purpose,
 		};
 	}
 
@@ -1012,6 +1051,22 @@ export class TaskGroups {
 		if (run) await until(run);
 		return this.get(id);
 	}
+}
+
+/**
+ * A transfer group member's spec and row record: the group's spec with its own crhs-side transfer id,
+ * and the group's shared location. The endpoint is routing, not part of what an approval binds:
+ * specSha256() leaves it out, so every member hashes like the group's spec.
+ */
+function memberTransfer(
+	spec: TaskSpec,
+	location: TransferLocationJson,
+): { spec: TaskSpec; record: { transferId: string; location: TransferLocationJson } } {
+	if (spec.kind !== "file.push" && spec.kind !== "file.pull") {
+		throw new Error("a transfer task group must push or pull a file");
+	}
+	const transferId = randomUUID();
+	return { spec: { ...spec, endpoint: { kind: "crhs", transferId } }, record: { transferId, location } };
 }
 
 function now(): string {

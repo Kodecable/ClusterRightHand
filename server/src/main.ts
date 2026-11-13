@@ -22,6 +22,7 @@ import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, type ConfigFile, DEFAULT_CONFIG_PATH, loadConfigFile } from "./config.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
 import { createLibraryBackend } from "./library/backend.ts";
+import { ImageCache, startImageCacheSweep } from "./library/image-cache.ts";
 import { startLibrarySweep } from "./library/sweep.ts";
 import { cleanupStaging } from "./library/transfer-location.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
@@ -199,6 +200,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// The one library object store (doc/design/library.md "Backends"); objects live under the data directory
 	// with the staging area.
 	const libraryBackend = createLibraryBackend(config.library, join(dataDir, "library"));
+	// The image cache's limits are read at each use, so a System settings change applies without a restart.
+	const imageCache = new ImageCache(db, libraryBackend, () => settings.current().imageCache);
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),
 		signingKeys,
@@ -224,6 +227,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		models,
 		cluster,
 		taskGroups,
+		imageCache,
 		audit,
 	});
 	// Signature waits that outlived their deadline while crhs was down end before requests are served.
@@ -243,6 +247,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		signingKeys,
 		masterKey,
 		libraryBackend,
+		imageCache,
 		webRoot: config.webRoot,
 		audit,
 		agent: { runtime, models },
@@ -282,6 +287,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	const retention = startRetentionSweep(db, () => settings.current().retention);
 	// Orphaned library objects: once at startup, then hourly (doc/design/library.md "Metadata and objects").
 	const librarySweep = startLibrarySweep(db, libraryBackend);
+	// The image cache: least-recently-used and expired entries, once at startup and then hourly.
+	const imageCacheSweep = startImageCacheSweep(imageCache);
 	let shuttingDown = false;
 	// Awaited end to end, so nothing writes to the database after db.destroy().
 	const shutdown = async () => {
@@ -294,6 +301,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		await sweepRun;
 		await retention.stop();
 		await librarySweep.stop();
+		await imageCacheSweep.stop();
 		// 2. Stop the scheduler before the agent runtime closes: it must not start another submit, and an
 		// in-flight one is awaited here (doc/design/scheduling.md). Then close the agent runtime before ending any wait.
 		// An agent tool call is a durable task, not a request: the Harness aborts and joins it without recording

@@ -23,6 +23,8 @@ export interface FilePickerDialogProps {
 	rootLabel?: string;
 	title?: ReactNode;
 	description?: ReactNode;
+	/** Extra controls in the header, e.g. a library selector above the file manager. */
+	header?: ReactNode;
 	testId?: string;
 }
 
@@ -39,6 +41,7 @@ export function FilePickerDialog({
 	rootLabel,
 	title,
 	description,
+	header,
 	testId,
 }: FilePickerDialogProps) {
 	const { t } = useLingui();
@@ -77,6 +80,7 @@ export function FilePickerDialog({
 					<DialogDescription>
 						{description ?? (multiple ? <Trans>Choose one or more files.</Trans> : <Trans>Choose one file.</Trans>)}
 					</DialogDescription>
+					{header !== undefined && <div className="pt-2">{header}</div>}
 				</DialogHeader>
 				<div className="min-h-0 flex-1 overflow-auto p-4">
 					<FileManager

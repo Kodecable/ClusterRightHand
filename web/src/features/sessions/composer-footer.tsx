@@ -1,7 +1,7 @@
 import type { ModelRef, RulePreset, SessionView, ThinkingLevel } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, LightbulbIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { INLINE_CONTROL_CLASS } from "@/components/inline-control";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
@@ -57,8 +57,11 @@ export function ComposerFooter({
 	sendDisabled,
 	onStop,
 	stopPending,
+	attach,
 }: {
 	state: ComposerFooterState;
+	/** The owner's attach menu, at the left of the controls. */
+	attach?: ReactNode;
 	/** A run (this session's or, for a root, its tree's) can be stopped. */
 	stoppable: boolean;
 	sending: boolean;
@@ -70,6 +73,7 @@ export function ComposerFooter({
 	return (
 		<div className="flex min-w-0 items-center gap-2" data-testid="composer-footer">
 			<div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-hidden">
+				{attach}
 				<span className="flex min-w-0 shrink items-center">
 					<ModelControl state={state} />
 				</span>
@@ -120,8 +124,10 @@ export function SessionComposerFooter({
 	sendDisabled,
 	onStop,
 	stopPending,
+	attach,
 }: {
 	session: SessionView;
+	attach?: ReactNode;
 	stoppable: boolean;
 	sending: boolean;
 	sendDisabled: boolean;
@@ -156,6 +162,7 @@ export function SessionComposerFooter({
 			sendDisabled={sendDisabled}
 			onStop={onStop}
 			stopPending={stopPending}
+			attach={attach}
 		/>
 	);
 }

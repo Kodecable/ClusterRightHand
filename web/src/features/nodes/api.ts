@@ -1,6 +1,8 @@
 import type {
 	CrhsKeyResponse,
 	EnrollmentTokenResponse,
+	NodeFileInfo,
+	NodeFilesResponse,
 	NodeGroupRef,
 	NodeTrust,
 	PublicNode,
@@ -9,6 +11,8 @@ import type {
 	TaskView,
 } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import type { FileEntry, FileSource } from "@/components/file-manager";
 import { nodeGroupKeys } from "@/features/node-groups/keys";
 import { enc, http } from "@/lib/api/client";
 
@@ -192,4 +196,81 @@ export function useSetNodeGroups() {
 			void queryClient.invalidateQueries({ queryKey: nodeGroupKeys.all });
 		},
 	});
+}
+
+/** A node file's media type from its name; the server sniffs the bytes again before serving a preview. */
+function mediaTypeOf(name: string): string | undefined {
+	const lower = name.toLowerCase();
+	if (lower.endsWith(".png")) return "image/png";
+	if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+	if (lower.endsWith(".gif")) return "image/gif";
+	if (lower.endsWith(".webp")) return "image/webp";
+	return undefined;
+}
+
+function nodeAbsolutePath(prefix: string): string {
+	return prefix === "" ? "/" : `/${prefix}`;
+}
+
+/**
+ * The FileSource of a node's Files tab (doc/design/webui.md "Node pages"): list, stat and preview only;
+ * upload, download, delete and rename are not available for nodes yet. Every call is a browse task the
+ * server runs as the signed-in user, unprivileged.
+ */
+export function useNodeFileSource(nodeId: string): FileSource {
+	return useMemo<FileSource>(() => {
+		const base = `/nodes/${enc(nodeId)}`;
+		return {
+			async list(prefix, signal) {
+				const body = await http.get<NodeFilesResponse>(
+					`${base}/files?path=${encodeURIComponent(nodeAbsolutePath(prefix))}`,
+					{
+						signal,
+					},
+				);
+				const files: FileEntry[] = body.entries
+					.filter((entry) => entry.type !== "dir")
+					.map((entry) => ({
+						path: entry.path.replace(/^\//, ""),
+						name: entry.name,
+						kind: "file",
+						size: entry.size,
+						mediaType: mediaTypeOf(entry.name),
+						...(entry.mtime === undefined ? {} : { updatedAt: entry.mtime }),
+					}));
+				return {
+					files,
+					directories: body.entries.filter((entry) => entry.type === "dir").map((entry) => entry.name),
+				};
+			},
+			async stat(path) {
+				const body = await http.get<{ file: NodeFileInfo }>(`${base}/stat?path=${encodeURIComponent(`/${path}`)}`);
+				const file = body.file;
+				return {
+					path: file.path.replace(/^\//, ""),
+					name: file.path.slice(file.path.lastIndexOf("/") + 1),
+					kind: file.type === "dir" ? "directory" : "file",
+					size: file.size,
+					mediaType: mediaTypeOf(file.path),
+					updatedAt: file.mtime,
+				};
+			},
+			async preview(path) {
+				const response = await fetch(`/api${base}/file?path=${encodeURIComponent(`/${path}`)}&preview=1`, {
+					credentials: "same-origin",
+				});
+				if (!response.ok) {
+					let message = `HTTP ${response.status}`;
+					try {
+						const body = (await response.json()) as { error?: string };
+						message = body.error ?? message;
+					} catch {
+						// Not JSON; keep the status line.
+					}
+					throw new Error(message);
+				}
+				return response.blob();
+			},
+		};
+	}, [nodeId]);
 }

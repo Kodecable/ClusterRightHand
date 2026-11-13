@@ -1,11 +1,14 @@
 import { useLingui } from "@lingui/react/macro";
+import { Link } from "@tanstack/react-router";
 import { LoaderCircleIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { taskGroupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
 import { isNotFound } from "@/lib/api/client";
+import { formatBytes } from "@/lib/format";
 import { isTerminal } from "@/lib/task-output";
 import { cn } from "@/lib/utils";
 import { callStillOpen, detailId, type ToolItem, toolLine } from "./tool-call";
+import { viewImageDetails } from "./tool-details";
 import { ToolDialog } from "./tool-dialog";
 import { type ToolFailure, taskGroupViewFailure, taskViewFailure, toolResultFailure } from "./tool-failure";
 import type { TranscriptStreams } from "./transcript-streams";
@@ -48,7 +51,7 @@ export function ToolCard({
 	streams: TranscriptStreams;
 	sessionActive: boolean;
 }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const [open, setOpen] = useState(false);
 
 	const result = item.result;
@@ -132,6 +135,7 @@ export function ToolCard({
 	else statusLabel = outcome === "done" ? t`Done` : failureLabel(outcome);
 	const line = toolLine(item.name, item.args);
 	const rest = line.slice(item.name.length);
+	const image = item.name === "view_image" ? viewImageDetails(result?.details ?? item.details) : undefined;
 	const liveOutput = result === undefined ? streams.tool(item.callId) : undefined;
 
 	return (
@@ -146,7 +150,37 @@ export function ToolCard({
 				<ToolStatusIcon spinning={spinning} failed={failed} label={statusLabel} />
 				<span className="min-w-0 flex-1 truncate font-mono text-xs" title={line}>
 					<span className="font-medium">{item.name}</span>
-					{rest}
+					{image === undefined ? (
+						rest
+					) : (
+						<span className="ml-1.5 inline-flex items-center gap-1.5 font-sans" data-testid="view-image-summary">
+							{"library" in image.source ? (
+								<Link
+									to="/library/$library"
+									params={{ library: image.source.library }}
+									search={{
+										path: image.source.path.includes("/")
+											? image.source.path.slice(0, image.source.path.lastIndexOf("/"))
+											: "",
+									}}
+									className="underline underline-offset-2"
+									title={image.source.path}
+								>
+									{image.source.library}
+								</Link>
+							) : (
+								<span title={image.source.path}>{image.source.node}</span>
+							)}
+							<span className="text-muted-foreground">{image.source.path}</span>
+							<span>
+								{image.width}×{image.height}
+							</span>
+							<span>{formatBytes(image.bytes, i18n.locale)}</span>
+							<span className="font-mono text-muted-foreground" title={image.sha256}>
+								{image.sha256.slice(0, 12)}
+							</span>
+						</span>
+					)}
 				</span>
 			</button>
 			<ToolDialog item={item} open={open} onOpenChange={setOpen} liveOutput={liveOutput} />

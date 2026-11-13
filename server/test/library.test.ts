@@ -8,7 +8,7 @@ import { createLibraryBackend, getBytes, putBytes } from "../src/library/backend
 import { beginLibraryUpload } from "../src/library/files.ts";
 import { findLibraryByRef } from "../src/library/library.ts";
 import { MediaProbe } from "../src/library/media-type.ts";
-import { validateLibraryPath } from "../src/library/paths.ts";
+import { numberedLibraryPath, validateLibraryPath } from "../src/library/paths.ts";
 import { sweepLibraryOrphans } from "../src/library/sweep.ts";
 import { defaultSystemSettings, SettingsStore } from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -25,6 +25,14 @@ describe("library paths", () => {
 		for (const bad of ["", "/a", "a/", "a//b", "a/./b", "a/../b", "a\u0000b", `x/${"a".repeat(1100)}`]) {
 			expect(() => validateLibraryPath(bad), bad).toThrow();
 		}
+	});
+
+	it("numbers a renamed upload before the first dot of the base name", () => {
+		expect(numberedLibraryPath("x.tar.gz", 1)).toBe("x (1).tar.gz");
+		expect(numberedLibraryPath("photo.png", 1)).toBe("photo (1).png");
+		expect(numberedLibraryPath(".bashrc", 1)).toBe(".bashrc (1)");
+		expect(numberedLibraryPath("Makefile", 1)).toBe("Makefile (1)");
+		expect(numberedLibraryPath("attachments/2026-01/x.tar.gz", 2)).toBe("attachments/2026-01/x (2).tar.gz");
 	});
 });
 
@@ -85,11 +93,12 @@ describe("library API", () => {
 		ref: string,
 		path: string,
 		data: Uint8Array,
-		options: { overwrite?: boolean; preview?: boolean } = {},
+		options: { overwrite?: boolean; preview?: boolean; rename?: boolean } = {},
 	) => {
 		const query = new URLSearchParams({ path });
 		if (options.overwrite) query.set("overwrite", "1");
 		if (options.preview) query.set("preview", "1");
+		if (options.rename) query.set("rename", "1");
 		return app.request(`${lib(ref)}/file?${query}`, {
 			method: "PUT",
 			headers: { host: "localhost:8080", cookie, "content-type": "application/octet-stream" },
@@ -256,6 +265,33 @@ describe("library API", () => {
 			overwrite: true,
 		});
 		expect(refusedOverwrite.status).toBe(400);
+	});
+
+	it("renames an upload on the server when the path is taken", async () => {
+		expect((await upload(alice, "user:alice", "x.tar.gz", Buffer.from("first"))).status).toBe(201);
+		const second = await upload(alice, "user:alice", "x.tar.gz", Buffer.from("second"), { rename: true });
+		expect(second.status).toBe(201);
+		expect(((await second.json()) as { file: LibraryFile }).file.path).toBe("x (1).tar.gz");
+		const third = await upload(alice, "user:alice", "x.tar.gz", Buffer.from("third"), { rename: true });
+		expect(((await third.json()) as { file: LibraryFile }).file.path).toBe("x (2).tar.gz");
+
+		expect((await upload(alice, "user:alice", ".bashrc", Buffer.from("dot"))).status).toBe(201);
+		const dot = await upload(alice, "user:alice", ".bashrc", Buffer.from("dot again"), { rename: true });
+		expect(((await dot.json()) as { file: LibraryFile }).file.path).toBe(".bashrc (1)");
+	});
+
+	it("renames concurrent uploads of one name without a race", async () => {
+		const [first, second] = await Promise.all([
+			upload(alice, "user:alice", "same.txt", Buffer.from("one"), { rename: true }),
+			upload(alice, "user:alice", "same.txt", Buffer.from("two"), { rename: true }),
+		]);
+		expect([first.status, second.status]).toEqual([201, 201]);
+		const paths = [
+			((await first.json()) as { file: LibraryFile }).file.path,
+			((await second.json()) as { file: LibraryFile }).file.path,
+		].sort();
+		expect(paths).toEqual(["same (1).txt", "same.txt"]);
+		expect((await list(alice, "user:alice")).files.map((file) => file.path).sort()).toEqual(paths);
 	});
 
 	it("lets only one of two concurrent uploads take the last file slot", async () => {

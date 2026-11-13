@@ -18,6 +18,7 @@ function queue(overrides: Partial<UploadQueue> = {}): UploadQueue {
 		running: false,
 		start: () => {},
 		cancel: () => {},
+		clear: () => {},
 		...overrides,
 	};
 }

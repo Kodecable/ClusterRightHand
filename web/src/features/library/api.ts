@@ -58,11 +58,24 @@ function toEntry(file: LibraryFile): FileEntry {
 	};
 }
 
+/** `rename` asks the server to pick the next free name when the path is taken (doc/design/library.md "Chat attachments"). */
+export interface UploadOptions extends FileUploadOptions {
+	rename?: boolean;
+}
+
 /** PUT with an upload progress callback and cancel, because `fetch` does not report upload progress. */
-function uploadWithProgress(ref: string, path: string, file: File, options: FileUploadOptions): Promise<LibraryFile> {
+export function uploadWithProgress(
+	ref: string,
+	path: string,
+	file: File,
+	options: UploadOptions,
+): Promise<LibraryFile> {
 	return new Promise((resolve, reject) => {
 		const xhr = new XMLHttpRequest();
-		xhr.open("PUT", `/api/libraries/${enc(ref)}/file${queryString({ path })}`);
+		xhr.open(
+			"PUT",
+			`/api/libraries/${enc(ref)}/file${queryString({ path, rename: options.rename === true ? 1 : undefined })}`,
+		);
 		xhr.responseType = "text";
 		xhr.setRequestHeader("content-type", "application/octet-stream");
 		xhr.upload.addEventListener("progress", (event) => {

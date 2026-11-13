@@ -13,11 +13,27 @@ import {
 import type { Method } from "../policy/rules.ts";
 import { isUuid } from "../util/names.ts";
 
-/** SHA-256(CBOR(TaskSpec)): what an `exact` authorization commits to. */
+/**
+ * The spec an `exact` authorization binds: a transfer's endpoint is crhs-side routing (which data
+ * connection to accept), not part of what the node does, so it is left out of the hash. That lets one
+ * approval or group authorization cover every member of a copy while each member has its own transfer id.
+ */
+function authorizedSpec(spec: TaskSpec): TaskSpec {
+	switch (spec.kind) {
+		case "file.push":
+			return { ...spec, endpoint: { ...spec.endpoint, transferId: "" } };
+		case "file.pull":
+			return { ...spec, endpoint: { ...spec.endpoint, transferId: "" } };
+		default:
+			return spec;
+	}
+}
+
+/** SHA-256(CBOR(spec without the transfer endpoint)): what an `exact` authorization commits to. */
 export function specSha256(spec: TaskSpec): Uint8Array {
 	return Uint8Array.from(
 		createHash("sha256")
-			.update(encodeCbor(taskSpecCodec.encode(spec)))
+			.update(encodeCbor(taskSpecCodec.encode(authorizedSpec(spec))))
 			.digest(),
 	);
 }

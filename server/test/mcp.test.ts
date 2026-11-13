@@ -114,6 +114,7 @@ describe("MCP links", () => {
 			rootSessionId: null,
 			handlerType: "user",
 			handlerSessionId: null,
+			purpose: null,
 		};
 		const cluster = {
 			createTask: async () => task,
@@ -145,6 +146,25 @@ describe("MCP links", () => {
 			await client.close();
 		}
 	}
+
+	it("names the token user's own library in the library tool descriptions", async () => {
+		const app = appWith();
+		const client = new Client({ name: "crh-test", version: "0.0.0" });
+		const transport = new StreamableHTTPClientTransport(new URL("http://crh.test/mcp"), {
+			requestInit: { headers: { authorization: `Bearer ${token}` } },
+			fetch: async (input, init) => await app.request(new Request(input, init)),
+		});
+		await client.connect(transport);
+		try {
+			const tools = (await client.listTools()).tools;
+			for (const name of ["list_dir", "stat", "copy_file", "view_image"]) {
+				const tool = tools.find((candidate) => candidate.name === name);
+				expect(tool?.description, name).toContain("user:alice");
+			}
+		} finally {
+			await client.close();
+		}
+	});
 
 	it("uses public_url when set", async () => {
 		const text = await execText(appWith("https://crh.example.com"));

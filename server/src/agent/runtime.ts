@@ -1,3 +1,4 @@
+import type { ChatAttachment } from "@crh/api";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import { createRegistry, Harness } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
@@ -85,6 +86,7 @@ export class AgentRuntime {
 			audit: options.audit,
 			cluster: options.cluster,
 			taskGroups: options.taskGroups,
+			imageCache: options.imageCache,
 			context: BACKGROUND_CONTEXT,
 			sessionList: this.#sessionList,
 			modelPresets: presets,
@@ -322,8 +324,14 @@ export class AgentRuntime {
 	 * Hands the user's message to the session; it runs at once or queues behind the current run. `requestId`
 	 * makes a retried submit find the first one.
 	 */
-	async submit(sessionId: string, by: SessionUser, text: string, requestId: string): Promise<string> {
-		return submit(this.#host, sessionId, by, text, requestId);
+	async submit(
+		sessionId: string,
+		by: SessionUser,
+		text: string,
+		requestId: string,
+		options: { content?: { type: "text"; text: string }[]; attachments?: ChatAttachment[] } = {},
+	): Promise<string> {
+		return submit(this.#host, sessionId, by, text, requestId, options);
 	}
 
 	/** Manually compacts the session; the summary is made in the background (doc/design/agent-runtime.md "Sessions"). */

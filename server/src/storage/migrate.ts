@@ -3,12 +3,16 @@ import { type Migration, type MigrationProvider, type MigrationResult, Migrator 
 import * as m0001 from "./migrations/0001_initial.ts";
 import * as m0002 from "./migrations/0002_task_transfer.ts";
 import * as m0003 from "./migrations/0003_libraries.ts";
+import * as m0004 from "./migrations/0004_purpose_and_image_cache.ts";
+import * as m0005 from "./migrations/0005_task_group_transfer.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
 	"0001_initial": m0001,
 	"0002_task_transfer": m0002,
 	"0003_libraries": m0003,
+	"0004_purpose_and_image_cache": m0004,
+	"0005_task_group_transfer": m0005,
 };
 
 /** Options shared by the migration entry points. */

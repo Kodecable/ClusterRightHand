@@ -42,7 +42,7 @@ export interface SessionState {
 	/** False until the first snapshot arrived. */
 	ready: boolean;
 	/** Committed transcript messages in order; `kind` keeps the entry type (`pi.compaction` is a note row). */
-	entries: { id: string; kind: string; message: Message }[];
+	entries: { id: string; kind: string; message: Message; data?: Json }[];
 	/** The assistant message being generated. */
 	streaming: Extract<Message, { role: "assistant" }> | undefined;
 	/**
@@ -85,7 +85,7 @@ export const initialState: SessionState = {
 	historyCursor: null,
 };
 
-const SHOWN_KINDS = new Set(["pi.user", "pi.assistant", "pi.tool-result", "pi.compaction"]);
+const SHOWN_KINDS = new Set(["pi.user", "pi.assistant", "pi.tool-result", "pi.compaction", "crh.user_input"]);
 
 type ShownEntry = SessionState["entries"][number];
 
@@ -93,7 +93,12 @@ function shownEntry(entry: EntryRecord | undefined): ShownEntry | undefined {
 	if (!entry || !SHOWN_KINDS.has(entry.kind)) return undefined;
 	const message = entry.model?.[0];
 	if (!message) return undefined;
-	return { id: String(entry.id), kind: entry.kind, message };
+	return {
+		id: String(entry.id),
+		kind: entry.kind,
+		message,
+		...(entry.data === undefined ? {} : { data: entry.data }),
+	};
 }
 
 function addEntry(entries: SessionState["entries"], entry: EntryRecord | undefined): SessionState["entries"] {

@@ -66,6 +66,7 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		const tools = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(tools).toEqual(
 			[
+				"copy_file",
 				"edit_file",
 				"exec",
 				"list_dir",
@@ -75,6 +76,7 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 				"stat",
 				"task_cancel",
 				"task_wait",
+				"view_image",
 				"write_file",
 			].sort(),
 		);

@@ -118,8 +118,11 @@ audit and retention apply as they do to `file.read` and `file.write`.
   `too_large` before sending anything. Its result reports the size and SHA-256 it sent, and crhs checks
   the received bytes against them.
 - The transfer endpoint's crhs-side location (a staging file, later a library object) is stored with the
-  task, so a transfer waiting for approval survives a crhs restart. A transfer already streaming when
-  crhs stops fails, like any interrupted transfer.
+  task, so a transfer waiting for approval survives a crhs restart. A task group stores the shared source
+  location too: every member has its own transfer id and location, while node-to-nodes members all read
+  the one staging file. A transfer already streaming when crhs stops fails, like any interrupted transfer.
+- The transfer endpoint (which data connection crhs accepts) is routing, not something the node does, so
+  the spec hash an approval or `exact` authorization binds leaves the transfer id out.
 - The approval view shows the path, size, SHA-256 and the library source, not the content.
 - Neither kind has a timeout; a stalled transfer fails through the data connection's idle timeout.
 - Privileged transfers in `forward` mode pass through the privileged mode over `crh-priv`, as file content
@@ -171,22 +174,29 @@ A copy has one source file and one or more destinations:
 | A library file | One library path, or one path on one or more nodes |
 | A node file | One library path, or one path on one or more nodes |
 
-- **Library to nodes**: one `file.push` per node, each streaming from the backend.
+- **Library to nodes**: one task group whose members push the library object to one node each, all
+  streaming from the backend.
 - **Node to library**: one `file.pull`, streaming into a new object.
-- **Node to nodes**: one `file.pull` into a staging file in crhs's data directory, then one `file.push`
-  per destination. The staging file is deleted when the copy ends; leftovers are removed at startup.
-  A staged file may be at most the one-file limit of the acting user's own library, though it does not
-  count toward that library's usage. `view_image` stages under the same limit.
+- **Node to nodes**: one `file.pull` into a staging file in crhs's data directory, then one task group
+  whose members push that staged file to the destination nodes. The staging file is deleted when the
+  group ends; leftovers are removed at startup. A staged file may be at most the one-file limit of the
+  acting user's own library, though it does not count toward that library's usage. `view_image` stages
+  under the same limit.
 - **Library to library**: a backend copy (get and put); no task.
-- Several destination nodes form a task group with the usual bounded parallelism and per-node results.
+- Several destination nodes are one task group, like `write_file` with several targets: the group is
+  approved once and runs its members with bounded parallelism. Every member carries its own transfer
+  id and location on its task row, while the source location and the size and SHA-256 in the spec are
+  shared, so the group's approval and authorization cover every member. Only the transfer endpoint
+  differs, and the spec hash leaves it out. The tool returns one result per node.
 - An existing destination is refused unless `overwrite` is set, on nodes and in libraries alike.
 
 ## Agent tools
 
 The tools follow the existing naming and argument style ([Cluster tools](agent-runtime.md#cluster-tools)).
 A location is either a node (`node`, or `targets` where several are allowed) or a library (`library`,
-whose value is `user:<username>` or `group:<group name>`). The tool descriptions and the session's system
-prompt name the session owner, so the model can tell whose library is whose.
+whose value is `user:<username>` or `group:<group name>`). The session's system prompt names the owner
+the session acts for; the MCP facade adds that name to the library tools' descriptions too (an agent
+session's tool descriptions are registered once per server, so its prompt carries the name).
 
 | Tool | Behavior |
 |---|---|
@@ -245,8 +255,11 @@ Every attachment goes to a library; a message never carries image bytes.
   server refuses their uploads, so attachments always land in a library the agent can reach.
 - The composer's **+** menu offers **Upload files** and **Choose from library** (the shared file picker).
   Paste and drop upload too.
-- Uploaded files go to the owner's library under `attachments/<YYYY-MM>/`, with a numeric suffix when the
-  name is taken. Upload happens before sending, with progress, and can be cancelled; sending waits for it.
+- Uploaded files go to the owner's library under `attachments/<YYYY-MM>/`. An upload with `rename=1` asks
+  the server to keep an existing file: inside the commit it picks `name (1)`, `name (2)`, … before the
+  first dot of the base name (a leading dot does not count), retrying on a concurrent insert, and returns
+  the final path. The composer uses this option, so concurrent uploads of one name cannot race.
+  Upload happens before sending, with progress, and can be cancelled; sending waits for it.
 - The input is placed as a `crh.user_input` entry. Its model content is a list of separate text blocks:
   the typed text first, then one block per attachment. Each attachment block starts with "The user
   uploaded the file <name> (<size>), saved to <library> at <path>." The entry's `data` lists the

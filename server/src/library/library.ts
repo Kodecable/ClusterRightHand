@@ -147,6 +147,42 @@ export async function requireLibrary(db: Db, user: SessionUser, ref: string): Pr
 	return record;
 }
 
+/**
+ * Whether `user` may use the library as an agent would: their own and their groups' only, never the
+ * administrator bypass (doc/design/library.md "Libraries"). Agent sessions and API tokens act this way,
+ * and so does validating a chat attachment for the session owner.
+ */
+export async function canAccessLibraryAsOwner(db: Db, user: SessionUser, row: LibraryRow): Promise<boolean> {
+	if (row.owner_kind === "user") return row.owner_id === user.userId;
+	const membership = await db
+		.selectFrom("user_group_members")
+		.select("user_group_id")
+		.where("user_group_id", "=", row.owner_id)
+		.where("user_id", "=", user.userId)
+		.executeTakeFirst();
+	return membership !== undefined;
+}
+
+/** Resolves a reference as the owner would, without the administrator bypass; a miss is a 404. */
+export async function requireOwnerLibrary(db: Db, user: SessionUser, ref: string): Promise<LibraryRecord> {
+	const record = await findLibraryByRef(db, ref);
+	if (!record || !(await canAccessLibraryAsOwner(db, user, record.row))) {
+		throw new NotFoundError("no such library");
+	}
+	return record;
+}
+
+/** A user's own library; every user has one, created with the account. */
+export async function findUserLibrary(db: Db, userId: string): Promise<LibraryRecord | undefined> {
+	const row = await db
+		.selectFrom("libraries")
+		.selectAll()
+		.where("owner_kind", "=", "user")
+		.where("owner_id", "=", userId)
+		.executeTakeFirst();
+	return row ? findLibraryById(db, row.id) : undefined;
+}
+
 /** The libraries the caller can reach: their own and their user groups'. */
 export async function listAccessibleLibraries(db: Db, user: SessionUser): Promise<LibraryRecord[]> {
 	const rows = await db

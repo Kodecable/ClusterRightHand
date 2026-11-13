@@ -207,6 +207,10 @@ msgstr "30 天"
 msgid "365 days"
 msgstr "365 天"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "7d"
+msgstr "7 天"
+
 #: src/features/tokens/create-token-dialog.tsx
 msgid "90 days"
 msgstr "90 天"
@@ -303,6 +307,10 @@ msgstr "计划任务在每次触发时创建一个新会话并提交固定的提
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
 msgstr "计划运行走正常的授权路径：特权任务需要所有者签名。若要让固定命令无人值守地运行，请在"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "A text file up to the per-file limit has its content appended to its message block; no more than the per-message limit is inlined over one message. Images are never inlined."
+msgstr "不超过单文件限制的文本文件，其内容会追加到该附件的消息块后；每条消息内联的文本总量不超过单条消息限制。图片从不内联。"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "A timezone is required."
@@ -708,6 +716,14 @@ msgstr "助手"
 msgid "At least 8 characters."
 msgstr "至少 8 个字符。"
 
+#: src/features/sessions/attachments.tsx
+msgid "Attach files"
+msgstr "添加文件"
+
+#: src/features/sessions/attachment-chip.tsx
+msgid "Attachment"
+msgstr "附件"
+
 #: src/features/authorizations/pages.tsx
 msgid "Attempt"
 msgstr "尝试"
@@ -828,6 +844,10 @@ msgstr "预算已用尽（超出 {0}）· 已花 {usedText}"
 msgid "By"
 msgstr "操作者"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Cache area in the backend (bytes)"
+msgstr "后端缓存区（字节）"
+
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
 #: src/components/upload/upload-progress-dialog.tsx
@@ -840,6 +860,14 @@ msgstr "操作者"
 #: src/features/tokens/rules-dialog.tsx
 msgid "Cancel"
 msgstr "取消"
+
+#: src/features/sessions/attachments.tsx
+msgid "Cancel upload"
+msgstr "取消上传"
+
+#: src/features/sessions/attachments.tsx
+msgid "Canceled"
+msgstr "已取消"
 
 #: src/features/tasks/task-page.tsx
 msgid "Cancellation requested."
@@ -910,6 +938,10 @@ msgstr "修改后仅影响此资料库。"
 msgid "Chat"
 msgstr "聊天"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Chat attachments"
+msgstr "聊天附件"
+
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Chat Completions"
@@ -918,6 +950,10 @@ msgstr "Chat Completions"
 #: src/features/schedules/schedule-form.tsx
 msgid "Check the highlighted fields."
 msgstr "请检查标出的字段。"
+
+#: src/features/sessions/attachment-chip.tsx
+msgid "Checking the file…"
+msgstr "正在检查文件…"
 
 #: src/components/file-manager/file-picker-dialog.tsx
 msgid "Choose a file"
@@ -979,6 +1015,14 @@ msgstr "请至少选择一个目标。"
 msgid "Choose files"
 msgstr "选择文件"
 
+#: src/features/sessions/attachments.tsx
+msgid "Choose files from a library"
+msgstr "从库中选择文件"
+
+#: src/features/sessions/attachments.tsx
+msgid "Choose from library"
+msgstr "从库中选择"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose libraries"
 msgstr "选择资料库"
@@ -1000,6 +1044,7 @@ msgid "Choose one file."
 msgstr "选择一个文件。"
 
 #: src/components/file-manager/file-picker-dialog.tsx
+#: src/features/sessions/attachments.tsx
 msgid "Choose one or more files."
 msgstr "选择一个或多个文件。"
 
@@ -1719,6 +1764,10 @@ msgstr "请输入至少 1 天的时长，或选择“永久保留”。"
 msgid "Enter a duration such as 60s or 5m."
 msgstr "请输入时长，例如 60s 或 5m。"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Enter a duration such as 7d."
+msgstr "请输入时长，例如 7 天。"
+
 #: src/features/sessions/budget-dialog.tsx
 #: src/features/sessions/quota-decision.tsx
 msgid "Enter a positive number of tokens to add."
@@ -1740,6 +1789,10 @@ msgstr "请输入大于等于 0 的整数。"
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Enter a whole number of at least 1."
 msgstr "请输入大于等于 1 的整数。"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Enter a whole number of bytes."
+msgstr "请输入整数字节数。"
 
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
@@ -1892,6 +1945,10 @@ msgstr "失败"
 msgid "Failed files"
 msgstr "失败的文件"
 
+#: src/components/decision/summary.tsx
+msgid "File browsing"
+msgstr "文件浏览"
+
 #: src/features/library/usage-indicator.tsx
 msgid "File count limit: {filesPercent} ({filesUsed}/{filesLimit})"
 msgstr "文件数量限额：{filesPercent} ({filesUsed}/{filesLimit})"
@@ -1900,6 +1957,7 @@ msgstr "文件数量限额：{filesPercent} ({filesUsed}/{filesLimit})"
 #: src/components/upload/upload-progress-dialog.tsx
 #: src/features/library/library-section.tsx
 #: src/features/library/limits-dialog.tsx
+#: src/features/nodes/pages.tsx
 msgid "Files"
 msgstr "文件"
 
@@ -2063,9 +2121,21 @@ msgstr "忽略（SSH）"
 msgid "Image"
 msgstr "图像"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Image cache"
+msgstr "图片缓存"
+
 #: src/features/settings/model-dialog.tsx
 msgid "Image understanding"
 msgstr "图像理解"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "In-memory cache (bytes)"
+msgstr "内存缓存（字节）"
+
+#: src/features/tasks/pages.tsx
+msgid "Include file browsing"
+msgstr "包含文件浏览"
 
 #: src/components/decision/evaluation.tsx
 msgid "Inherit"
@@ -2162,6 +2232,10 @@ msgstr "类型"
 #: src/app/shell/user-menu.tsx
 msgid "Language"
 msgstr "语言"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Largest file to inline (bytes)"
+msgstr "可内联的最大文件（字节）"
 
 #. placeholder {0}: record.lastRejection.code
 #. placeholder {1}: record.lastRejection.attempt
@@ -2360,6 +2434,10 @@ msgstr "{0} 的成员"
 msgid "Message"
 msgstr "消息"
 
+#: src/features/sessions/composer-input.tsx
+msgid "Message composer"
+msgstr "消息输入框"
+
 #: src/lib/thinking-level.ts
 msgid "Minimal"
 msgstr "最低"
@@ -2407,6 +2485,10 @@ msgstr "更多选项"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "More results — keep typing to narrow down"
 msgstr "更多结果——请继续输入以缩小范围"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Most inlined per message (bytes)"
+msgstr "每条消息最多内联（字节）"
 
 #: src/components/file-manager/file-list.tsx
 msgid "Move"
@@ -2807,6 +2889,10 @@ msgstr "节点或节点组"
 msgid "Node tasks"
 msgstr "节点任务"
 
+#: src/features/nodes/pages.tsx
+msgid "Node views"
+msgstr "节点视图"
+
 #: src/app/shell/nav.ts
 #: src/features/approvals/pages.tsx
 #: src/features/authorizations/pages.tsx
@@ -3056,6 +3142,10 @@ msgstr "目前的输出"
 msgid "Overall upload progress"
 msgstr "整体上传进度"
 
+#: src/features/nodes/pages.tsx
+msgid "Overview"
+msgstr "概览"
+
 #: src/components/task-form-fields.tsx
 msgid "Overwrite if it exists"
 msgstr "如果已存在则覆盖"
@@ -3243,6 +3333,10 @@ msgstr "公钥"
 msgid "Public URL"
 msgstr "公开 URL"
 
+#: src/components/decision/summary.tsx
+msgid "Purpose"
+msgstr "用途"
+
 #: src/features/schedules/scheduleForm.ts
 msgid "queued"
 msgstr "排队中"
@@ -3338,9 +3432,11 @@ msgid "Remove"
 msgstr "移除"
 
 #. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#. placeholder {0}: item.name
 #. placeholder {0}: option.primary
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/ssh-route-editor.tsx
+#: src/features/sessions/attachments.tsx
 msgid "Remove {0}"
 msgstr "移除 {0}"
 
@@ -4201,6 +4297,10 @@ msgstr "浏览器会提供平台认证器（Touch ID、Windows Hello）或安全
 msgid "The budget is used up."
 msgstr "预算已用尽。"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "The bytes behind view_image results: an in-process cache in front of a cache area in the library backend. Entries are evicted least recently used, and dropped after the time to live."
+msgstr "view_image 结果的字节：进程内缓存位于库后端的缓存区之前。条目按最近最少使用淘汰，超过存活时间的条目会被清除。"
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "The credential and its private key are deleted. This cannot be undone."
 msgstr "凭据及其私钥将被删除，此操作无法撤销。"
@@ -4433,6 +4533,14 @@ msgstr "此操作无法撤销。"
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "此凭据正被节点使用，无法删除。"
 
+#: src/features/sessions/attachment-chip.tsx
+msgid "This file could not be checked."
+msgstr "无法检查此文件。"
+
+#: src/features/sessions/attachment-chip.tsx
+msgid "This file is no longer available."
+msgstr "此文件已不存在。"
+
 #: src/components/file-manager/file-list.tsx
 msgid "This folder is empty."
 msgstr "此文件夹为空。"
@@ -4476,6 +4584,10 @@ msgstr "该用户或用户组已拥有访问权限。"
 #: src/features/audit/pages.tsx
 msgid "Time"
 msgstr "时间"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Time to live"
+msgstr "存活时间"
 
 #: src/components/task-result.tsx
 #: src/features/sessions/tool-card.tsx
@@ -4640,6 +4752,14 @@ msgstr "更新时间"
 #: src/components/file-manager/file-manager.tsx
 msgid "Upload"
 msgstr "上传"
+
+#: src/features/sessions/attachments.tsx
+msgid "Upload files"
+msgstr "上传文件"
+
+#: src/features/sessions/attachments.tsx
+msgid "Uploading"
+msgstr "正在上传"
 
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Uploading files"
@@ -4849,6 +4969,10 @@ msgstr "不能修改自己的类型。"
 #: src/features/users/pages.tsx
 msgid "You cannot disable your own account."
 msgstr "不能停用自己的账号。"
+
+#: src/features/sessions/attachment-chip.tsx
+msgid "You don't have access to this library."
+msgstr "你无权访问此库。"
 
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."

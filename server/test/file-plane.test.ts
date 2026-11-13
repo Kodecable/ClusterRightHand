@@ -3,14 +3,19 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPair } from "@crh/noise";
+import type { TaskSpec } from "@crh/protocol";
 import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Cluster } from "../src/cluster/cluster.ts";
+import { Cluster, specFromRow } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
+import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { createLibraryBackend, getBytes, newObjectKey, putBytes } from "../src/library/backend.ts";
+import { createRootRuleSet } from "../src/policy/store.ts";
+import { specSha256 } from "../src/privilege/payload.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
+import { TOOLS, type ToolContext } from "../src/tools/catalog.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
@@ -100,6 +105,22 @@ describe("file plane transfers", () => {
 		expect(await crha.peer.request("hello", HELLO)).toEqual({ acks: [] });
 		await waitFor("link ready", () => cluster.isConnected(node.id));
 		return crha;
+	};
+
+	/** Opens the data connection of a push and reads the bytes up to [end]. */
+	const collectPush = async (
+		key: ReturnType<typeof generateKeyPair>,
+		start: { taskId: string; spec: TaskSpec },
+	): Promise<Buffer> => {
+		if (start.spec.kind !== "file.push") throw new Error("no push spec");
+		const data = await agents.connectData(key, start.taskId, start.spec.endpoint.transferId);
+		const chunks: Buffer[] = [];
+		for (;;) {
+			const frame = await data.next();
+			if (frame.kind === "data") chunks.push(Buffer.from(frame.bytes));
+			else if (frame.kind === "end") return Buffer.concat(chunks);
+			else throw new Error(`unexpected abort ${frame.code}`);
+		}
 	};
 
 	it("pushes a staged file to the node over a data connection", async () => {
@@ -338,5 +359,138 @@ describe("file plane transfers", () => {
 			.where("id", "=", library.id)
 			.executeTakeFirstOrThrow();
 		expect(after).toEqual({ used_files: 2, used_bytes: 3 + content.length });
+	});
+
+	it("copies a library file to several nodes as one approved task group with a transfer per member", async () => {
+		const web1 = await addNode("web-1");
+		const web2 = await addNode("web-2");
+		const crha1 = await connect(web1.node, web1.key);
+		const crha2 = await connect(web2.node, web2.key);
+		const content = Buffer.from("one library object, two transfers\n");
+		await addLibraryFile("docs/shared.bin", content);
+
+		const tokenId = newId();
+		await db
+			.insertInto("api_tokens")
+			.values({
+				id: tokenId,
+				org_id: await defaultOrgId(db),
+				user_id: ownerUserId,
+				name: "copy chain",
+				token_hash: newId(),
+				created_at: new Date().toISOString(),
+				expires_at: null,
+				revoked_at: null,
+				last_used_at: null,
+			})
+			.execute();
+		const ref = { type: "api_token" as const, id: tokenId };
+		await createRootRuleSet(db, await defaultOrgId(db), ref, "yolo", [
+			{ action: "require-approval", method: "file.write", nodes: [web1.node.id] },
+		]);
+
+		const taskGroups = new TaskGroups(db, cluster);
+		const user = { sessionId: "s", userId: ownerUserId, username: "owner", kind: "member" as const };
+		const context = {
+			db,
+			cluster,
+			taskGroups,
+			user,
+			actor: actor(),
+			chain: [ref],
+			approvalUrl: () => "http://crh.test/approval",
+		} as ToolContext;
+		const tool = TOOLS.find((candidate) => candidate.name === "copy_file");
+		if (!tool) throw new Error("copy_file is missing");
+		const pending = tool.handler(
+			{
+				source: { library: "user:owner", path: "docs/shared.bin" },
+				targets: ["web-1", "web-2"],
+				path: "/srv/shared.bin",
+			} as never,
+			context,
+		);
+
+		const waiting = await waitFor("group waiting for approval", async () => {
+			const row = await db.selectFrom("task_groups").selectAll().executeTakeFirst();
+			return row?.state === "awaiting_approval" ? row : undefined;
+		});
+		// The copy is one group, not one independent task per node, so there is one approval to give.
+		expect(await db.selectFrom("task_groups").select("id").execute()).toHaveLength(1);
+		expect((await taskGroups.get(waiting.id))?.tasks).toEqual([]);
+		await taskGroups.decide(waiting.id, {
+			decision: "approved",
+			by: actor(),
+			at: new Date().toISOString(),
+			taskGroupId: waiting.id,
+		});
+
+		await waitFor("both pushes start", () => crha1.starts.length === 1 && crha2.starts.length === 1);
+		const start1 = crha1.starts[0] as NonNullable<(typeof crha1.starts)[number]>;
+		const start2 = crha2.starts[0] as NonNullable<(typeof crha2.starts)[number]>;
+		const [bytes1, bytes2] = await Promise.all([collectPush(web1.key, start1), collectPush(web2.key, start2)]);
+		expect(bytes1.equals(content)).toBe(true);
+		expect(bytes2.equals(content)).toBe(true);
+		crha1.exit(start1.taskId);
+		crha2.exit(start2.taskId);
+
+		const result = await pending;
+		expect(result.isError).toBe(false);
+		const body = JSON.parse(result.content[0]?.text ?? "{}") as { state: string; nodes: unknown[] };
+		expect(body.state).toBe("finished");
+		expect(body.nodes).toHaveLength(2);
+
+		const tasks = await db.selectFrom("tasks").selectAll().execute();
+		expect(tasks).toHaveLength(2);
+		const records = tasks.map(
+			(row) => JSON.parse(row.transfer ?? "null") as { transferId: string; location: { kind: string; path: string } },
+		);
+		expect(new Set(records.map((record) => record.transferId)).size).toBe(2);
+		expect(records.map((record) => `${record.location.kind}:${record.location.path}`)).toEqual([
+			"library:docs/shared.bin",
+			"library:docs/shared.bin",
+		]);
+		// The endpoint differs per member, but the hash approval and authorization bind is the group's.
+		const hashes = new Set(tasks.map((row) => Buffer.from(specSha256(specFromRow(row.spec, "task"))).toString("hex")));
+		const groupHash = Buffer.from(specSha256(specFromRow(waiting.spec, "task group"))).toString("hex");
+		expect(hashes).toEqual(new Set([groupHash]));
+		const finished = await taskGroups.get(waiting.id);
+		expect(finished?.approval?.decision).toMatchObject({ decision: "approved" });
+	});
+
+	it("deletes a node-to-nodes staging file when the task group ends", async () => {
+		const web1 = await addNode("web-1");
+		const web2 = await addNode("web-2");
+		const crha1 = await connect(web1.node, web1.key);
+		const crha2 = await connect(web2.node, web2.key);
+		const content = Buffer.from("staged once, pushed twice\n");
+		const location = await cluster.stageBytesForPush(content);
+		const spec: TaskSpec = {
+			kind: "file.push",
+			path: "/tmp/copied.bin",
+			size: content.length,
+			sha256: Uint8Array.from(Buffer.from(sha256Hex(content), "hex")),
+			overwrite: false,
+			mode: 0,
+			owner: "",
+			group: "",
+			endpoint: { kind: "crhs", transferId: "" },
+		};
+		const taskGroups = new TaskGroups(db, cluster);
+		const id = await taskGroups.create({
+			targets: [web1.node.name, web2.node.name],
+			nodeIds: [web1.node.id, web2.node.id],
+			spec,
+			transferLocation: location,
+			actor: actor(),
+		});
+		await waitFor("both pushes start", () => crha1.starts.length === 1 && crha2.starts.length === 1);
+		const start1 = crha1.starts[0] as NonNullable<(typeof crha1.starts)[number]>;
+		const start2 = crha2.starts[0] as NonNullable<(typeof crha2.starts)[number]>;
+		await Promise.all([collectPush(web1.key, start1), collectPush(web2.key, start2)]);
+		crha1.exit(start1.taskId);
+		crha2.exit(start2.taskId);
+		expect((await taskGroups.wait(id, 5000))?.state).toBe("finished");
+		await expect(readFile(join(transferRoot, location.path))).rejects.toThrow();
 	});
 });

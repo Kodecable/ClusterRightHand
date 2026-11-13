@@ -4,10 +4,11 @@ import type { Audit } from "../audit/audit.ts";
 import { resolveApiToken, type TokenIdentity } from "../auth/api-tokens.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { ImageCache } from "../library/image-cache.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { callTool } from "../tools/adapter.ts";
-import { TOOLS, type ToolContext } from "../tools/catalog.ts";
+import { actingUserNote, TOOLS, type ToolContext } from "../tools/catalog.ts";
 import { jsonBodyLimit, MAX_INPUT_BODY_BYTES } from "../util/body-limit.ts";
 import { CRH_VERSION } from "../version.ts";
 
@@ -15,6 +16,8 @@ export interface McpOptions {
 	cluster: Cluster;
 	taskGroups: TaskGroups;
 	audit?: Audit;
+	/** The image cache behind `view_image`; without one the tool reports that it is not configured. */
+	imageCache?: ImageCache;
 	/** Absolute base URL for links; unset builds them from the request URL (`public_url`). */
 	publicUrl?: string | null;
 	/** Runtime settings; when given `public_url` is read per request and takes precedence. */
@@ -78,13 +81,16 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { baseUrl:
 		chain: [{ type: "api_token", id: id.tokenId }],
 		approvalUrl: (kind, taskId) => `${id.baseUrl}/approvals/${kind === "task" ? "tasks" : "task-groups"}/${taskId}`,
 		taskUrl: (taskId) => `${id.baseUrl}/tasks/${taskId}`,
+		...(options.imageCache ? { imageCache: options.imageCache } : {}),
 		taskGroupUrl: (taskGroupId) => `${id.baseUrl}/task-groups/${taskGroupId}`,
 	};
 	for (const tool of TOOLS) {
 		server.registerTool(
 			tool.name,
 			{
-				description: tool.description,
+				description: tool.description.includes("library")
+					? `${tool.description} ${actingUserNote(id.user.username)}`
+					: tool.description,
 				inputSchema: tool.input,
 				annotations: { readOnlyHint: tool.readOnly, openWorldHint: true },
 			},

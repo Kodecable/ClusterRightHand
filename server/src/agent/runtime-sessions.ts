@@ -1,4 +1,4 @@
-import type { SessionEntriesPage } from "@crh/api";
+import type { ChatAttachment, SessionEntriesPage } from "@crh/api";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import {
 	type AgentEvent,
@@ -166,6 +166,9 @@ export interface CreateSessionWithMessageInput {
 	model: ModelRef;
 	rulePreset: RulePreset;
 	budgetRemaining?: number | null;
+	/** The first message's content blocks and attachments (doc/design/library.md "Chat attachments"). */
+	content?: { type: "text"; text: string }[];
+	attachments?: ChatAttachment[];
 }
 
 /**
@@ -202,7 +205,10 @@ export async function createSessionWithMessage(
 	}
 
 	try {
-		await submit(host, session.id, owner, input.message, submissionRequestIdFor(input.requestId));
+		await submit(host, session.id, owner, input.message, submissionRequestIdFor(input.requestId), {
+			...(input.content ? { content: input.content } : {}),
+			...(input.attachments ? { attachments: input.attachments } : {}),
+		});
 	} catch (err) {
 		await removeCreatedSession(host, session.id).catch((cleanupError: unknown) => {
 			console.error("agent runtime: removing a session whose first message failed failed:", cleanupError);

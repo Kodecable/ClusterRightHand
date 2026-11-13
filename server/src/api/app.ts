@@ -8,6 +8,7 @@ import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { LibraryBackend } from "../library/backend.ts";
+import type { ImageCache } from "../library/image-cache.ts";
 import { mcpRoutes } from "../mcp/mcp.ts";
 import { type AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
@@ -51,6 +52,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	masterKey?: MasterKey;
 	/** The library object store; without it library metadata still works and file routes answer 400. */
 	libraryBackend?: LibraryBackend;
+	/** The image cache behind `view_image`; the tool reports that it is not configured without one. */
+	imageCache?: ImageCache;
 	/** `[webauthn]` fallback for tests; production passes `settings`. */
 	webauthn?: WebauthnConfig;
 	/** Clock-warning fallback for tests; production passes `settings` (doc/design/privilege.md "Clock"). */
@@ -184,6 +187,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 					taskGroups,
 					streams,
 					...(options.scheduler ? { scheduler: options.scheduler } : {}),
+					...(options.settings ? { settings: options.settings } : {}),
 				}),
 			);
 			app.route("/api", sessions);
@@ -206,6 +210,7 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 				cluster,
 				taskGroups,
 				audit,
+				...(options.imageCache ? { imageCache: options.imageCache } : {}),
 				...(options.settings ? { settings: options.settings } : {}),
 				...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
 			}),

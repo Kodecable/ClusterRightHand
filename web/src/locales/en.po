@@ -207,6 +207,10 @@ msgstr "30 days"
 msgid "365 days"
 msgstr "365 days"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "7d"
+msgstr "7d"
+
 #: src/features/tokens/create-token-dialog.tsx
 msgid "90 days"
 msgstr "90 days"
@@ -303,6 +307,10 @@ msgstr "A schedule creates a new session at each trigger and submits a fixed pro
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
 msgstr "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "A text file up to the per-file limit has its content appended to its message block; no more than the per-message limit is inlined over one message. Images are never inlined."
+msgstr "A text file up to the per-file limit has its content appended to its message block; no more than the per-message limit is inlined over one message. Images are never inlined."
 
 #: src/features/schedules/scheduleForm.ts
 msgid "A timezone is required."
@@ -708,6 +716,14 @@ msgstr "Assistant"
 msgid "At least 8 characters."
 msgstr "At least 8 characters."
 
+#: src/features/sessions/attachments.tsx
+msgid "Attach files"
+msgstr "Attach files"
+
+#: src/features/sessions/attachment-chip.tsx
+msgid "Attachment"
+msgstr "Attachment"
+
 #: src/features/authorizations/pages.tsx
 msgid "Attempt"
 msgstr "Attempt"
@@ -828,6 +844,10 @@ msgstr "Budget used up ({0} over) · {usedText} spent"
 msgid "By"
 msgstr "By"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Cache area in the backend (bytes)"
+msgstr "Cache area in the backend (bytes)"
+
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
 #: src/components/upload/upload-progress-dialog.tsx
@@ -840,6 +860,14 @@ msgstr "By"
 #: src/features/tokens/rules-dialog.tsx
 msgid "Cancel"
 msgstr "Cancel"
+
+#: src/features/sessions/attachments.tsx
+msgid "Cancel upload"
+msgstr "Cancel upload"
+
+#: src/features/sessions/attachments.tsx
+msgid "Canceled"
+msgstr "Canceled"
 
 #: src/features/tasks/task-page.tsx
 msgid "Cancellation requested."
@@ -910,6 +938,10 @@ msgstr "Changing them applies to this library only."
 msgid "Chat"
 msgstr "Chat"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Chat attachments"
+msgstr "Chat attachments"
+
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Chat Completions"
@@ -918,6 +950,10 @@ msgstr "Chat Completions"
 #: src/features/schedules/schedule-form.tsx
 msgid "Check the highlighted fields."
 msgstr "Check the highlighted fields."
+
+#: src/features/sessions/attachment-chip.tsx
+msgid "Checking the file…"
+msgstr "Checking the file…"
 
 #: src/components/file-manager/file-picker-dialog.tsx
 msgid "Choose a file"
@@ -979,6 +1015,14 @@ msgstr "Choose at least one target."
 msgid "Choose files"
 msgstr "Choose files"
 
+#: src/features/sessions/attachments.tsx
+msgid "Choose files from a library"
+msgstr "Choose files from a library"
+
+#: src/features/sessions/attachments.tsx
+msgid "Choose from library"
+msgstr "Choose from library"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose libraries"
 msgstr "Choose libraries"
@@ -1000,6 +1044,7 @@ msgid "Choose one file."
 msgstr "Choose one file."
 
 #: src/components/file-manager/file-picker-dialog.tsx
+#: src/features/sessions/attachments.tsx
 msgid "Choose one or more files."
 msgstr "Choose one or more files."
 
@@ -1719,6 +1764,10 @@ msgstr "Enter a duration of at least 1 day, or choose Keep forever."
 msgid "Enter a duration such as 60s or 5m."
 msgstr "Enter a duration such as 60s or 5m."
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Enter a duration such as 7d."
+msgstr "Enter a duration such as 7d."
+
 #: src/features/sessions/budget-dialog.tsx
 #: src/features/sessions/quota-decision.tsx
 msgid "Enter a positive number of tokens to add."
@@ -1740,6 +1789,10 @@ msgstr "Enter a whole number of 0 or more."
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Enter a whole number of at least 1."
 msgstr "Enter a whole number of at least 1."
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Enter a whole number of bytes."
+msgstr "Enter a whole number of bytes."
 
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
@@ -1892,6 +1945,10 @@ msgstr "Failed"
 msgid "Failed files"
 msgstr "Failed files"
 
+#: src/components/decision/summary.tsx
+msgid "File browsing"
+msgstr "File browsing"
+
 #: src/features/library/usage-indicator.tsx
 msgid "File count limit: {filesPercent} ({filesUsed}/{filesLimit})"
 msgstr "File count limit: {filesPercent} ({filesUsed}/{filesLimit})"
@@ -1900,6 +1957,7 @@ msgstr "File count limit: {filesPercent} ({filesUsed}/{filesLimit})"
 #: src/components/upload/upload-progress-dialog.tsx
 #: src/features/library/library-section.tsx
 #: src/features/library/limits-dialog.tsx
+#: src/features/nodes/pages.tsx
 msgid "Files"
 msgstr "Files"
 
@@ -2063,9 +2121,21 @@ msgstr "ignored (SSH)"
 msgid "Image"
 msgstr "Image"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Image cache"
+msgstr "Image cache"
+
 #: src/features/settings/model-dialog.tsx
 msgid "Image understanding"
 msgstr "Image understanding"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "In-memory cache (bytes)"
+msgstr "In-memory cache (bytes)"
+
+#: src/features/tasks/pages.tsx
+msgid "Include file browsing"
+msgstr "Include file browsing"
 
 #: src/components/decision/evaluation.tsx
 msgid "Inherit"
@@ -2162,6 +2232,10 @@ msgstr "Kinds"
 #: src/app/shell/user-menu.tsx
 msgid "Language"
 msgstr "Language"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Largest file to inline (bytes)"
+msgstr "Largest file to inline (bytes)"
 
 #. placeholder {0}: record.lastRejection.code
 #. placeholder {1}: record.lastRejection.attempt
@@ -2360,6 +2434,10 @@ msgstr "Members of {0}"
 msgid "Message"
 msgstr "Message"
 
+#: src/features/sessions/composer-input.tsx
+msgid "Message composer"
+msgstr "Message composer"
+
 #: src/lib/thinking-level.ts
 msgid "Minimal"
 msgstr "Minimal"
@@ -2407,6 +2485,10 @@ msgstr "More options"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "More results — keep typing to narrow down"
 msgstr "More results — keep typing to narrow down"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Most inlined per message (bytes)"
+msgstr "Most inlined per message (bytes)"
 
 #: src/components/file-manager/file-list.tsx
 msgid "Move"
@@ -2807,6 +2889,10 @@ msgstr "Node or node group"
 msgid "Node tasks"
 msgstr "Node tasks"
 
+#: src/features/nodes/pages.tsx
+msgid "Node views"
+msgstr "Node views"
+
 #: src/app/shell/nav.ts
 #: src/features/approvals/pages.tsx
 #: src/features/authorizations/pages.tsx
@@ -3056,6 +3142,10 @@ msgstr "Output so far"
 msgid "Overall upload progress"
 msgstr "Overall upload progress"
 
+#: src/features/nodes/pages.tsx
+msgid "Overview"
+msgstr "Overview"
+
 #: src/components/task-form-fields.tsx
 msgid "Overwrite if it exists"
 msgstr "Overwrite if it exists"
@@ -3243,6 +3333,10 @@ msgstr "Public key"
 msgid "Public URL"
 msgstr "Public URL"
 
+#: src/components/decision/summary.tsx
+msgid "Purpose"
+msgstr "Purpose"
+
 #: src/features/schedules/scheduleForm.ts
 msgid "queued"
 msgstr "queued"
@@ -3338,9 +3432,11 @@ msgid "Remove"
 msgstr "Remove"
 
 #. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#. placeholder {0}: item.name
 #. placeholder {0}: option.primary
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/ssh-route-editor.tsx
+#: src/features/sessions/attachments.tsx
 msgid "Remove {0}"
 msgstr "Remove {0}"
 
@@ -4201,6 +4297,10 @@ msgstr "The browser offers a platform authenticator (Touch ID, Windows Hello) or
 msgid "The budget is used up."
 msgstr "The budget is used up."
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "The bytes behind view_image results: an in-process cache in front of a cache area in the library backend. Entries are evicted least recently used, and dropped after the time to live."
+msgstr "The bytes behind view_image results: an in-process cache in front of a cache area in the library backend. Entries are evicted least recently used, and dropped after the time to live."
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "The credential and its private key are deleted. This cannot be undone."
 msgstr "The credential and its private key are deleted. This cannot be undone."
@@ -4433,6 +4533,14 @@ msgstr "This cannot be undone."
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "This credential is used by a node and cannot be deleted."
 
+#: src/features/sessions/attachment-chip.tsx
+msgid "This file could not be checked."
+msgstr "This file could not be checked."
+
+#: src/features/sessions/attachment-chip.tsx
+msgid "This file is no longer available."
+msgstr "This file is no longer available."
+
 #: src/components/file-manager/file-list.tsx
 msgid "This folder is empty."
 msgstr "This folder is empty."
@@ -4476,6 +4584,10 @@ msgstr "This user or user group already has access."
 #: src/features/audit/pages.tsx
 msgid "Time"
 msgstr "Time"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Time to live"
+msgstr "Time to live"
 
 #: src/components/task-result.tsx
 #: src/features/sessions/tool-card.tsx
@@ -4640,6 +4752,14 @@ msgstr "Updated"
 #: src/components/file-manager/file-manager.tsx
 msgid "Upload"
 msgstr "Upload"
+
+#: src/features/sessions/attachments.tsx
+msgid "Upload files"
+msgstr "Upload files"
+
+#: src/features/sessions/attachments.tsx
+msgid "Uploading"
+msgstr "Uploading"
 
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Uploading files"
@@ -4849,6 +4969,10 @@ msgstr "You cannot change your own kind."
 #: src/features/users/pages.tsx
 msgid "You cannot disable your own account."
 msgstr "You cannot disable your own account."
+
+#: src/features/sessions/attachment-chip.tsx
+msgid "You don't have access to this library."
+msgstr "You don't have access to this library."
 
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."

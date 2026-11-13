@@ -25,6 +25,7 @@ export const taskKeys = {
 				actorType: filters.actorType ?? "",
 				nodeId: filters.nodeId ?? "",
 				userId: filters.userId ?? "",
+				includePurpose: filters.includePurpose === true ? "1" : "",
 			},
 		] as const,
 	detail: (id: string) => ["tasks", "detail", id] as const,
@@ -38,15 +39,25 @@ export interface TaskFilters extends CursorQuery {
 	nodeId?: string;
 	/** Tasks whose requesting user (the "By" column) is this user. */
 	userId?: string;
+	/** Include tasks with a purpose, such as the node file manager's browse tasks. */
+	includePurpose?: boolean;
 }
 
 export function useTasks(filters: TaskFilters = {}) {
-	const { state, actorType, nodeId, userId } = filters;
+	const { state, actorType, nodeId, userId, includePurpose } = filters;
 	return useCursorInfiniteQuery<TaskView>({
 		queryKey: taskKeys.listPage(filters),
 		fetchPage: (cursor, signal) =>
 			http.get<CursorPage<TaskView>>(
-				`/tasks${queryString({ state, actorType, nodeId, userId, cursor, limit: filters.limit })}`,
+				`/tasks${queryString({
+					state,
+					actorType,
+					nodeId,
+					userId,
+					includePurpose: includePurpose === true ? "true" : undefined,
+					cursor,
+					limit: filters.limit,
+				})}`,
 				{ signal },
 			),
 	});

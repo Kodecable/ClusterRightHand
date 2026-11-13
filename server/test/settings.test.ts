@@ -18,7 +18,16 @@ import {
 	parseDurationMs,
 	parseRetentionDuration,
 } from "../src/config.ts";
-import { DEFAULT_SYSTEM_SETTINGS, importSettingsFromFile, SettingsStore } from "../src/settings/settings.ts";
+import {
+	DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES,
+	DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES,
+	DEFAULT_IMAGE_CACHE_DISK_BYTES,
+	DEFAULT_IMAGE_CACHE_MEMORY_BYTES,
+	DEFAULT_IMAGE_CACHE_TTL,
+	DEFAULT_SYSTEM_SETTINGS,
+	importSettingsFromFile,
+	SettingsStore,
+} from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
@@ -66,6 +75,15 @@ describe("system settings storage", () => {
 			library: {
 				user: { ...DEFAULT_USER_LIBRARY_LIMITS },
 				group: { ...DEFAULT_GROUP_LIBRARY_LIMITS },
+			},
+			attachments: {
+				inlineTextBytes: DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES,
+				inlineTotalBytes: DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES,
+			},
+			imageCache: {
+				memoryBytes: DEFAULT_IMAGE_CACHE_MEMORY_BYTES,
+				diskBytes: DEFAULT_IMAGE_CACHE_DISK_BYTES,
+				ttlMs: parseDurationMs(DEFAULT_IMAGE_CACHE_TTL, "image_cache.ttl"),
 			},
 		});
 	});

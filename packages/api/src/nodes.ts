@@ -195,3 +195,47 @@ export interface SshNodeDetails {
 	/** Jump hosts in order, then the node itself; each carries its own credential. */
 	hops: SshHop[];
 }
+
+/**
+ * A node's file manager (doc/design/webui.md "Node pages"): listings and stats are `file.list` /
+ * `file.stat` tasks with purpose `browse`, run as the signed-in user and unprivileged.
+ */
+export interface NodeFileInfo {
+	/** The absolute path. */
+	path: string;
+	type: string;
+	size: number;
+	/** Octal permission bits as the node reports them. */
+	mode: number;
+	uid: number;
+	gid: number;
+	owner: string;
+	group: string;
+	/** ISO 8601. */
+	mtime: string;
+	linkTarget: string | null;
+}
+
+/** One entry of a node listing; the path is absolute. */
+export interface NodeFileEntry {
+	path: string;
+	name: string;
+	type: string;
+	size: number;
+	/** Undefined when the node's listing did not report it. */
+	mtime?: string;
+	linkTarget?: string | null;
+}
+
+/** `GET /api/nodes/:id/files?path=…`: the entries under an absolute directory path. */
+export interface NodeFilesResponse {
+	/** The listed absolute path. */
+	path: string;
+	entries: NodeFileEntry[];
+	truncated: boolean;
+}
+
+/** `GET /api/nodes/:id/stat?path=…`. */
+export interface NodeFileResponse {
+	file: NodeFileInfo;
+}

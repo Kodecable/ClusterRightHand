@@ -172,6 +172,7 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		handler_type: waiting ? "user" : null,
 		handler_session_id: null,
 		transfer: input.transfer ?? null,
+		purpose: input.purpose ?? null,
 	};
 	await endTask(core, id, {
 		write: { insert: values, ended: endedAtCreation },

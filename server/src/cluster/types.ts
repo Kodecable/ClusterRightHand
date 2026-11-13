@@ -55,6 +55,11 @@ export interface CreateTaskInput {
 	 * (doc/design/library.md "File plane").
 	 */
 	transfer?: string;
+	/**
+	 * Why a dedicated feature creates this task, such as `browse` for the node file manager
+	 * (doc/design/execution.md "Task purpose"). Only such endpoints set it; the task API, tools and MCP never do.
+	 */
+	purpose?: string;
 }
 
 /** What decide() expects of the waiting row's handler when its turn runs (the read is checked again). */

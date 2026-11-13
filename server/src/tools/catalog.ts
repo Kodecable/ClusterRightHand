@@ -1,16 +1,25 @@
+import { createHash } from "node:crypto";
 import type { TaskSpec } from "@crh/protocol";
 import * as z from "zod/v4";
+import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { resolveTargets } from "../cluster/task-groups.ts";
+import { copyLibraryFile } from "../library/files.ts";
+import type { ImageCache } from "../library/image-cache.ts";
+import { readImageHeader } from "../library/image-header.ts";
+import { findUserLibrary, libraryRef } from "../library/library.ts";
+import { openTransferLocation, type TransferLocationJson } from "../library/transfer-location.ts";
 import type { RuleRef } from "../policy/store.ts";
 import { sessionDescendants } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
+import { derivedId } from "../util/id.ts";
+import { listToolLibrary, statToolLibrary, toolLibrary } from "./library-access.ts";
 import { nodeInfoFields, readNotes, readNotesBatch } from "./node-info.ts";
-import { jsonResult, type ToolOutput, type ToolResult } from "./render.ts";
+import { errorResult, jsonResult, type ToolOutput, type ToolResult, textResult } from "./render.ts";
 import {
 	execResult,
 	execTaskResult,
@@ -18,6 +27,7 @@ import {
 	fileJsonResult,
 	readGroupResult,
 	readTaskResult,
+	taskError,
 } from "./task-render.ts";
 import {
 	GROUP_READ_LINES,
@@ -25,6 +35,8 @@ import {
 	MAX_OUTPUT_LINES,
 	READ_PAGE_LINES,
 	runTaskTool,
+	waitBlockingGroup,
+	waitBlockingTask,
 	waitExistingGroup,
 	waitExistingTask,
 } from "./task-tool.ts";
@@ -59,7 +71,42 @@ export interface ToolContext {
 	waitThroughApproval?: boolean;
 	/** Progress for a UI, e.g. "waiting for approval". */
 	onStatus?: (status: Record<string, unknown>) => Promise<void>;
+	/** The image cache behind `view_image`; the tool reports that it is not configured without one. */
+	imageCache?: ImageCache;
+	/**
+	 * The model's image input limits. Absent over MCP, where there is no model: the tool then uses the
+	 * defaults (doc/design/library.md "view_image").
+	 */
+	imageLimits?: ImageLimits;
+	/** The audit log, for the library copy `copy_file` records. */
+	audit?: Audit;
 }
+
+/** How large an image `view_image` accepts. */
+export interface ImageLimits {
+	/** The model cannot take images at all: the tool refuses and the request hook writes a placeholder. */
+	supported: boolean;
+	maxWidth: number;
+	maxHeight: number;
+	/** The largest base64 form the request may carry. */
+	maxBase64Bytes: number;
+}
+
+/** The line that tells any surface whose library is whose (doc/design/library.md "Agent tools"). */
+export function actingUserNote(username: string): string {
+	return (
+		`You act for ${username}. user:${username} is that user's personal library; group:<name> is a library of a ` +
+		"group the user belongs to."
+	);
+}
+
+/** The limits `view_image` uses when the surface has no model to ask (MCP) or the model declares none. */
+export const DEFAULT_IMAGE_LIMITS: ImageLimits = {
+	supported: true,
+	maxWidth: 2000,
+	maxHeight: 2000,
+	maxBase64Bytes: 4_500_000,
+};
 
 export interface ClusterTool<S extends z.ZodType = z.ZodType> {
 	name: string;
@@ -424,50 +471,475 @@ const editFile = define({
 const listDir = define({
 	name: "list_dir",
 	description:
-		"List a directory on a node (or on several with targets). The call blocks until the task ends, approval " +
-		"included, and returns no task id.",
+		"List a directory on a node (or on several with targets), or a directory of a library with `library` " +
+		"instead of targets. A library is user:<username> or group:<group name>; you reach the libraries of the " +
+		"user you act for. A library directory exists only while some file is under it, so a library has no " +
+		"empty directories and none need creating. The call blocks until the task ends, approval included, " +
+		"and returns no task id.",
 	input: z.object({
-		targets: targetsField,
-		path: z.string().describe("Absolute path"),
+		targets: targetsField.optional(),
+		library: z
+			.string()
+			.optional()
+			.describe("A library to list instead of nodes: user:<username> or group:<group name>"),
+		path: z.string().describe("A node's absolute path, or a library path without a leading /"),
 		limit: z.number().int().min(1).max(10_000).optional(),
 		privileged: privilegedField,
 		...fileBatchFields,
 	}),
 	readOnly: true,
 	output: "json",
-	handler: async (args, ctx) =>
-		runTaskTool(
+	handler: async (args, ctx) => {
+		if (args.library !== undefined) {
+			if (args.targets !== undefined) throw new UserError("give targets or library, not both", "invalid_argument");
+			return jsonResult(await listToolLibrary(ctx, args.library, args.path));
+		}
+		if (args.targets === undefined) throw new UserError("give targets or library", "invalid_argument");
+		return runTaskTool(
 			ctx,
-			args,
+			{ ...args, targets: args.targets },
 			{ spec: { kind: "file.list", path: args.path, limit: args.limit ?? 0 } },
 			"blocking",
 			(started) =>
 				started.kind === "task"
 					? fileJsonResult(ctx, started.task, started.nodeName)
 					: fileJsonGroupResult(ctx, started.taskGroup, started.names),
-		),
+		);
+	},
 });
 
 const stat = define({
 	name: "stat",
 	description:
 		"Show a file's attributes on a node (or the same path on several with targets): type, size, mode, owner, " +
-		"group, modification time and link target. The call blocks until the task ends, approval included, and " +
-		"returns no task id.",
+		"group, modification time and link target. With `library` instead of targets, show a library file's size, " +
+		"SHA-256, media type and times. The call blocks until the task ends, approval included, and returns no task id.",
 	input: z.object({
-		targets: targetsField,
-		path: z.string().describe("Absolute path"),
+		targets: targetsField.optional(),
+		library: z
+			.string()
+			.optional()
+			.describe("A library to stat instead of nodes: user:<username> or group:<group name>"),
+		path: z.string().describe("A node's absolute path, or a library path without a leading /"),
 		privileged: privilegedField,
 		...fileBatchFields,
 	}),
 	readOnly: true,
 	output: "json",
-	handler: async (args, ctx) =>
-		runTaskTool(ctx, args, { spec: { kind: "file.stat", path: args.path } }, "blocking", (started) =>
-			started.kind === "task"
-				? fileJsonResult(ctx, started.task, started.nodeName)
-				: fileJsonGroupResult(ctx, started.taskGroup, started.names),
-		),
+	handler: async (args, ctx) => {
+		if (args.library !== undefined) {
+			if (args.targets !== undefined) throw new UserError("give targets or library, not both", "invalid_argument");
+			const row = await statToolLibrary(ctx, args.library, args.path);
+			return jsonResult({
+				library: args.library,
+				path: row.path,
+				size: row.size,
+				sha256: row.sha256,
+				media_type: row.media_type,
+				created_at: row.created_at,
+				updated_at: row.updated_at,
+			});
+		}
+		if (args.targets === undefined) throw new UserError("give targets or library", "invalid_argument");
+		return runTaskTool(
+			ctx,
+			{ ...args, targets: args.targets },
+			{ spec: { kind: "file.stat", path: args.path } },
+			"blocking",
+			(started) =>
+				started.kind === "task"
+					? fileJsonResult(ctx, started.task, started.nodeName)
+					: fileJsonGroupResult(ctx, started.taskGroup, started.names),
+		);
+	},
+});
+
+// ---- copies and images ----
+
+/** Collects a byte stream; image and cache reads are bounded well below memory concerns. */
+async function readAll(stream: AsyncIterable<Uint8Array>): Promise<Buffer> {
+	const parts: Buffer[] = [];
+	for await (const chunk of stream) parts.push(Buffer.from(chunk));
+	return Buffer.concat(parts);
+}
+
+/** One synthesized note line: fields inside square brackets, separated by ", ". */
+function noteLine(fields: readonly string[]): string {
+	return `[${fields.join(", ")}]`;
+}
+
+/** The source of a copy or an image: exactly one node or one library, and a path. */
+const sourceLocation = z
+	.object({
+		node: z.string().optional().describe("A node name or id"),
+		library: z.string().optional().describe("A library: user:<username> or group:<group name>"),
+		path: z.string().describe("Absolute on a node; without a leading / in a library"),
+	})
+	.describe("One source file: { node, path } or { library, path }");
+
+const copyFile = define({
+	name: "copy_file",
+	description:
+		"Copy one file between nodes and libraries. The source is { node, path } or { library, path }; the " +
+		"destination is targets plus path (one or more nodes) or the library argument plus path. An existing " +
+		"destination is refused unless overwrite is true. Missing parent directories need no separate step: " +
+		"on nodes they are created like mkdir -p, and a library has no directory objects, so any path just " +
+		"works. Node destinations take mode, owner, group and " +
+		"privileged. A library path reaches the libraries of the user you act for. The call blocks until every " +
+		"destination task ends, approval included.",
+	input: z.object({
+		source: sourceLocation,
+		targets: z
+			.array(z.string())
+			.min(1)
+			.optional()
+			.describe("Destination nodes: node names or ids, node-group names or ids, or _all"),
+		library: z
+			.string()
+			.optional()
+			.describe("Destination library instead of nodes: user:<username> or group:<group name>"),
+		path: z.string().describe("Destination path: absolute on nodes, without a leading / in a library"),
+		overwrite: z.boolean().optional(),
+		mode: z.string().optional().describe('Node destinations only: permission bits as an octal string, e.g. "0644"'),
+		owner: z.string().optional().describe("Node destinations only: owning user name"),
+		group: z.string().optional().describe("Node destinations only: owning group name"),
+		privileged: privilegedField,
+		parallel: z.number().int().min(1).max(100).optional().describe("Nodes copied at once (default 10)"),
+	}),
+	readOnly: false,
+	output: "json",
+	handler: async (args, ctx) => {
+		const source = args.source;
+		if ((source.node === undefined) === (source.library === undefined)) {
+			throw new UserError("the source must name a node or a library", "invalid_argument");
+		}
+		if (args.targets !== undefined && args.library !== undefined) {
+			throw new UserError("give targets or a destination library, not both", "invalid_argument");
+		}
+		if (args.targets === undefined && args.library === undefined) {
+			throw new UserError("give targets or a destination library", "invalid_argument");
+		}
+		const mode = modeBits(args.mode);
+		const overwrite = args.overwrite === true;
+		const actor = ctx.actor;
+		const chain = ctx.chain;
+
+		if (source.library !== undefined) {
+			const record = await toolLibrary(ctx, source.library);
+			if (args.library !== undefined) {
+				const destination = await toolLibrary(ctx, args.library);
+				const backend = ctx.cluster.libraryBackend;
+				if (!backend) throw new UserError("this crhs has no library backend");
+				const file = await copyLibraryFile(
+					ctx.db,
+					backend,
+					record.row.id,
+					source.path,
+					{ libraryId: destination.row.id, library: destination.row },
+					args.path,
+					overwrite,
+					ctx.user.userId,
+				);
+				void ctx.audit?.record({
+					actor: { type: actor.type, id: actor.id, onBehalfOfUserId: actor.onBehalfOfUserId },
+					action: "library.file.copied",
+					target: { type: "library", id: libraryRef(destination.row, destination.ownerName) },
+					detail: {
+						from_library: libraryRef(record.row, record.ownerName),
+						from_path: source.path,
+						library: libraryRef(destination.row, destination.ownerName),
+						path: file.path,
+						size: file.size,
+						sha256: file.sha256,
+					},
+				});
+				return jsonResult(
+					{
+						library: libraryRef(destination.row, destination.ownerName),
+						path: file.path,
+						size: file.size,
+						sha256: file.sha256,
+					},
+					{ details: { library: libraryRef(destination.row, destination.ownerName), path: file.path } },
+				);
+			}
+			const resolved = await resolveTargets(ctx.db, ctx.user, args.targets ?? []);
+			const names = await nodeNames(ctx, resolved.nodeIds);
+			if (resolved.singleNode) {
+				const nodeId = resolved.nodeIds[0] as string;
+				const id = ctx.callKey ? derivedId(`copy:${ctx.callKey}:${nodeId}`) : undefined;
+				const task = await ctx.cluster.pushLibraryFile({
+					nodeId,
+					libraryId: record.row.id,
+					libraryPath: source.path,
+					path: args.path,
+					overwrite,
+					mode,
+					owner: args.owner ?? "",
+					group: args.group ?? "",
+					actor,
+					chain,
+					privileged: args.privileged === true,
+					...(id ? { id } : {}),
+				});
+				const done = (await waitBlockingTask(ctx, task.id)) ?? task;
+				return fileJsonResult(ctx, done, names.get(nodeId) ?? nodeId);
+			}
+			const location = await ctx.cluster.stageLibrarySource(record.row.id, source.path);
+			const id = ctx.callKey ? derivedId(`copy-group:${ctx.callKey}`) : undefined;
+			const groupId = await ctx.taskGroups.create({
+				spec: pushSpec(args.path, location, overwrite, mode, args.owner ?? "", args.group ?? ""),
+				targets: resolved.targets,
+				nodeIds: resolved.nodeIds,
+				transferLocation: location,
+				...(args.parallel === undefined ? {} : { parallel: args.parallel }),
+				actor,
+				chain,
+				privileged: args.privileged === true,
+				...(id ? { id } : {}),
+			});
+			return fileJsonGroupResult(ctx, await waitBlockingGroup(ctx, groupId), names);
+		}
+
+		const sourceResolved = await resolveTargets(ctx.db, ctx.user, [source.node as string]);
+		if (!sourceResolved.singleNode) {
+			throw new UserError("source.node must name one node", "invalid_argument");
+		}
+		const sourceNodeId = sourceResolved.nodeIds[0] as string;
+		const sourceName = (await nodeNames(ctx, [sourceNodeId])).get(sourceNodeId) ?? sourceNodeId;
+
+		if (args.library !== undefined) {
+			const destination = await toolLibrary(ctx, args.library);
+			const id = ctx.callKey ? derivedId(`copy:${ctx.callKey}:library`) : undefined;
+			const task = await ctx.cluster.pullLibraryFile({
+				nodeId: sourceNodeId,
+				path: source.path,
+				libraryId: destination.row.id,
+				libraryPath: args.path,
+				overwrite,
+				createdBy: ctx.user.userId,
+				actor,
+				chain,
+				privileged: args.privileged === true,
+				...(id ? { id } : {}),
+			});
+			const done = (await waitBlockingTask(ctx, task.id)) ?? task;
+			return fileJsonResult(ctx, done, sourceName);
+		}
+
+		const resolved = await resolveTargets(ctx.db, ctx.user, args.targets ?? []);
+		const names = await nodeNames(ctx, resolved.nodeIds);
+		const own = await findUserLibrary(ctx.db, ctx.user.userId);
+		if (!own) throw new UserError("the acting user has no library");
+		const location = ctx.cluster.stagingLocation();
+		const pullId = ctx.callKey ? derivedId(`copy-pull:${ctx.callKey}`) : undefined;
+		const pull = await ctx.cluster.pullFile({
+			nodeId: sourceNodeId,
+			path: source.path,
+			maxBytes: own.row.max_file_bytes,
+			location,
+			actor,
+			chain,
+			privileged: args.privileged === true,
+			...(pullId ? { id: pullId } : {}),
+		});
+		const pulled = (await waitBlockingTask(ctx, pull.id)) ?? pull;
+		if (pulled.result?.kind !== "file.pull" || pulled.state !== "exited") {
+			return fileJsonResult(ctx, pulled, sourceName);
+		}
+		const staged = {
+			...location,
+			size: pulled.result.size,
+			sha256: pulled.result.sha256,
+		};
+		if (resolved.singleNode) {
+			const nodeId = resolved.nodeIds[0] as string;
+			const id = ctx.callKey ? derivedId(`copy:${ctx.callKey}:${nodeId}`) : undefined;
+			try {
+				const task = await ctx.cluster.pushFile({
+					nodeId,
+					path: args.path,
+					location: staged,
+					overwrite,
+					mode,
+					owner: args.owner ?? "",
+					group: args.group ?? "",
+					actor,
+					chain,
+					privileged: args.privileged === true,
+					...(id ? { id } : {}),
+				});
+				const done = (await waitBlockingTask(ctx, task.id)) ?? task;
+				return fileJsonResult(ctx, done, names.get(nodeId) ?? nodeId);
+			} finally {
+				await openTransferLocation(ctx.cluster.transferContext(), location).discard();
+			}
+		}
+		// One group, one approval: every member streams from the same staged file, and the group
+		// discards it when it ends (doc/design/library.md "Copies").
+		const id = ctx.callKey ? derivedId(`copy-group:${ctx.callKey}`) : undefined;
+		const groupId = await ctx.taskGroups.create({
+			spec: pushSpec(args.path, staged, overwrite, mode, args.owner ?? "", args.group ?? ""),
+			targets: resolved.targets,
+			nodeIds: resolved.nodeIds,
+			transferLocation: staged,
+			...(args.parallel === undefined ? {} : { parallel: args.parallel }),
+			actor,
+			chain,
+			privileged: args.privileged === true,
+			...(id ? { id } : {}),
+		});
+		return fileJsonGroupResult(ctx, await waitBlockingGroup(ctx, groupId), names);
+	},
+});
+
+/** Node names for a set of ids, for the labels of copy results. */
+async function nodeNames(ctx: ToolContext, ids: readonly string[]): Promise<Map<string, string>> {
+	if (ids.length === 0) return new Map();
+	const rows = await ctx.db
+		.selectFrom("nodes")
+		.select(["id", "name"])
+		.where("id", "in", [...ids])
+		.execute();
+	return new Map(rows.map((row) => [row.id, row.name] as const));
+}
+
+/** The spec of a copy group; its endpoint is a placeholder that each member replaces with its own transfer id. */
+function pushSpec(
+	path: string,
+	location: TransferLocationJson,
+	overwrite: boolean,
+	mode: number,
+	owner: string,
+	group: string,
+): TaskSpec {
+	if (location.size === null || location.sha256 === null) throw new UserError("the copy source has no size and sha256");
+	return {
+		kind: "file.push",
+		path,
+		size: location.size,
+		sha256: Buffer.from(location.sha256, "hex"),
+		overwrite,
+		mode,
+		owner,
+		group,
+		endpoint: { kind: "crhs", transferId: "" },
+	};
+}
+
+const viewImage = define({
+	name: "view_image",
+	description:
+		"Look at one image from { node, path } or { library, path }. PNG, JPEG, GIF and WebP work, within the " +
+		"model's image size limits; the image becomes visible to you for the rest of this conversation. A larger " +
+		"image or another format is refused with the limits, so shrink it on a node first. The call blocks until " +
+		"a node task ends, approval included.",
+	input: z.object({
+		node: z.string().optional().describe("A node name or id"),
+		library: z.string().optional().describe("A library: user:<username> or group:<group name>"),
+		path: z.string().describe("Absolute on a node; without a leading / in a library"),
+	}),
+	readOnly: true,
+	output: "text",
+	handler: async (args, ctx) => {
+		if ((args.node === undefined) === (args.library === undefined)) {
+			throw new UserError("give node or library, one of them", "invalid_argument");
+		}
+		const limits = ctx.imageLimits ?? DEFAULT_IMAGE_LIMITS;
+		if (!limits.supported) {
+			return errorResult(
+				"text",
+				"image_input_unavailable",
+				"this model cannot take images; tell the user what the image is and where it is instead",
+			);
+		}
+		if (!ctx.imageCache) {
+			return errorResult("text", "image_cache_unavailable", "the image cache is not configured on this server");
+		}
+		let bytes: Buffer;
+		let source: { library: string; path: string } | { node: string; path: string };
+		let label: string;
+		if (args.library !== undefined) {
+			const record = await toolLibrary(ctx, args.library);
+			const row = await statToolLibrary(ctx, args.library, args.path);
+			const backend = ctx.cluster.libraryBackend;
+			if (!backend) throw new UserError("this crhs has no library backend");
+			bytes = await readAll(backend.get(row.object_key));
+			source = { library: libraryRef(record.row, record.ownerName), path: row.path };
+			label = row.path.slice(row.path.lastIndexOf("/") + 1);
+		} else {
+			const resolved = await resolveTargets(ctx.db, ctx.user, [args.node as string]);
+			if (!resolved.singleNode) throw new UserError("node must name one node", "invalid_argument");
+			const nodeId = resolved.nodeIds[0] as string;
+			const name = (await nodeNames(ctx, [nodeId])).get(nodeId) ?? nodeId;
+			const own = await findUserLibrary(ctx.db, ctx.user.userId);
+			if (!own) throw new UserError("the acting user has no library");
+			const location = ctx.cluster.stagingLocation();
+			const task = await ctx.cluster.pullFile({
+				nodeId,
+				path: args.path,
+				maxBytes: own.row.max_file_bytes,
+				location,
+				actor: ctx.actor,
+				chain: ctx.chain,
+				...(ctx.callKey ? { id: derivedId(`image:${ctx.callKey}`) } : {}),
+			});
+			const done = (await waitBlockingTask(ctx, task.id)) ?? task;
+			const opened = openTransferLocation(ctx.cluster.transferContext(), location);
+			try {
+				if (done.result?.kind !== "file.pull" || done.state !== "exited") {
+					const error = taskError(done);
+					return errorResult("text", error?.code ?? "pull_failed", error?.message ?? "the file could not be read");
+				}
+				bytes = await readAll(opened.openRead());
+			} finally {
+				await opened.discard();
+			}
+			source = { node: name, path: args.path };
+			label = args.path.slice(args.path.lastIndexOf("/") + 1);
+		}
+		const header = readImageHeader(bytes);
+		if (!header) {
+			return errorResult(
+				"text",
+				"unsupported_image",
+				"only PNG, JPEG, GIF and WebP images can be viewed; convert the file first",
+			);
+		}
+		const base64Bytes = Math.ceil(bytes.length / 3) * 4;
+		if (header.width > limits.maxWidth || header.height > limits.maxHeight || base64Bytes > limits.maxBase64Bytes) {
+			return errorResult(
+				"text",
+				"image_too_large",
+				`the image is ${header.width}x${header.height}, ${base64Bytes} bytes as base64; the model accepts at most ` +
+					`${limits.maxWidth}x${limits.maxHeight} and ${limits.maxBase64Bytes} bytes as base64`,
+			);
+		}
+		const sha256 = createHash("sha256").update(bytes).digest("hex");
+		await ctx.imageCache.put(sha256, header.mime, bytes);
+		const image = {
+			sha256,
+			mime: header.mime,
+			width: header.width,
+			height: header.height,
+			bytes: bytes.length,
+			source,
+		};
+		return textResult(
+			[
+				{
+					note: noteLine([
+						`view_image ${label}`,
+						header.mime,
+						`${header.width}x${header.height}`,
+						`${bytes.length} bytes`,
+						`sha256 ${sha256}`,
+					]),
+				},
+			],
+			{ details: { image } },
+		);
+	},
 });
 
 // ---- following up exec ----
@@ -590,6 +1062,8 @@ export const TOOLS: readonly ClusterTool[] = [
 	editFile,
 	listDir,
 	stat,
+	copyFile,
+	viewImage,
 	taskWait,
 	taskCancel,
 ] as unknown as ClusterTool[];

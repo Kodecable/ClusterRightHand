@@ -15,6 +15,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { NodeStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { tomlString } from "@/features/signing-credentials/trust";
 import { useAuth } from "@/lib/session";
 import { NodeAccessSection } from "./access-grants";
@@ -26,6 +27,7 @@ import { osName } from "./commands";
 import { DeleteNodeDialog } from "./delete-node-dialog";
 import { EditSshRouteDialog } from "./edit-ssh-route-dialog";
 import { canRunOn } from "./node-access";
+import { NodeFiles } from "./node-files";
 import { NodeGroupsDialog } from "./node-groups-dialog";
 import { NodeLastSeen } from "./node-last-seen";
 import { NodeTaskList } from "./node-tasks";
@@ -219,6 +221,7 @@ export function NodeDetailPage() {
 	const [editingRoute, setEditingRoute] = useState(false);
 	const [reenrolling, setReenrolling] = useState(false);
 	const [deleting, setDeleting] = useState(false);
+	const [tab, setTab] = useState<"overview" | "files">("overview");
 	const details = node.data?.node;
 
 	if (node.isError) {
@@ -302,83 +305,102 @@ export function NodeDetailPage() {
 				}
 			/>
 
-			<TrustWarningList warnings={details.trustWarnings} />
+			<Tabs value={tab} onValueChange={(next) => setTab(next as "overview" | "files")}>
+				<TabsList variant="line" aria-label={t`Node views`}>
+					<TabsTrigger value="overview">
+						<Trans>Overview</Trans>
+					</TabsTrigger>
+					<TabsTrigger value="files">
+						<Trans>Files</Trans>
+					</TabsTrigger>
+				</TabsList>
+				<TabsContent value="overview" className="grid gap-3">
+					<TrustWarningList warnings={details.trustWarnings} />
 
-			<KeyValueList
-				items={[
-					{ label: t`Transport`, value: details.transport === "ssh" ? t`SSH` : t`crha client` },
-					{ label: t`Hostname`, value: details.hostname ?? "–", mono: true },
-					{ label: t`OS`, value: osName(details.facts) },
-					{
-						label: t`Privileged mode`,
-						value: details.transport === "ssh" ? t`ignored (SSH)` : (details.privilegedMode ?? "–"),
-					},
-					{
-						label: t`Node groups`,
-						value: <NodeGroupLinks nodeGroups={details.nodeGroups} />,
-					},
-					...(details.transport === "client"
-						? [
-								{ label: t`Client`, value: details.clientVersion ?? "–" },
-								{
-									label: t`Last seen`,
-									value: <NodeLastSeen lastSeenAt={details.lastSeenAt} connected={details.connected} />,
-								},
-								{ label: t`Key fingerprint`, value: details.keyFingerprint ?? "–", mono: true },
-							]
-						: []),
-					...(details.clockWarning !== null
-						? [{ label: t`Clock`, value: clockWarningText(i18n, details.clockWarning) }]
-						: []),
-					{ label: t`Node id`, value: details.id, mono: true },
-				]}
-			/>
+					<KeyValueList
+						items={[
+							{ label: t`Transport`, value: details.transport === "ssh" ? t`SSH` : t`crha client` },
+							{ label: t`Hostname`, value: details.hostname ?? "–", mono: true },
+							{ label: t`OS`, value: osName(details.facts) },
+							{
+								label: t`Privileged mode`,
+								value: details.transport === "ssh" ? t`ignored (SSH)` : (details.privilegedMode ?? "–"),
+							},
+							{
+								label: t`Node groups`,
+								value: <NodeGroupLinks nodeGroups={details.nodeGroups} />,
+							},
+							...(details.transport === "client"
+								? [
+										{ label: t`Client`, value: details.clientVersion ?? "–" },
+										{
+											label: t`Last seen`,
+											value: <NodeLastSeen lastSeenAt={details.lastSeenAt} connected={details.connected} />,
+										},
+										{ label: t`Key fingerprint`, value: details.keyFingerprint ?? "–", mono: true },
+									]
+								: []),
+							...(details.clockWarning !== null
+								? [{ label: t`Clock`, value: clockWarningText(i18n, details.clockWarning) }]
+								: []),
+							{ label: t`Node id`, value: details.id, mono: true },
+						]}
+					/>
 
-			{facts.length > 0 && (
-				<details className="rounded-lg border p-3">
-					<summary className="cursor-pointer text-sm font-medium">
-						<Trans>Facts ({facts.length})</Trans>
-					</summary>
-					<div className="mt-2">
-						<KeyValueList items={facts.map(([key, value]) => ({ label: key, value: factValue(value), mono: true }))} />
-					</div>
-				</details>
-			)}
-
-			{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
-			{editingRoute && node.data?.ssh && (
-				<EditSshRouteDialog node={details} details={node.data.ssh} onClose={() => setEditingRoute(false)} />
-			)}
-			{reenrolling && <ReenrollNodeDialog node={details} onClose={() => setReenrolling(false)} />}
-			{deleting && <DeleteNodeDialog node={details} onClose={() => setDeleting(false)} />}
-			{/* The SSH route and its per-hop credentials are administrator data; the server omits `ssh` otherwise. */}
-			{details.transport === "ssh" && node.data?.ssh && (
-				<SshNodeSection node={details} details={node.data.ssh} canRun={canRun} />
-			)}
-			{details.transport === "client" && (
-				<>
-					<NodeTrustPanel nodeId={details.id} />
-					{admin && details.privilegedMode === "forward" && details.nodeGroups.length > 0 && (
-						<section className="grid gap-2" aria-labelledby="trust-aliases-heading" data-testid="trust-aliases">
-							<h2 id="trust-aliases-heading" className="text-sm font-medium">
-								<Trans>Aliases for privileged.toml</Trans>
-							</h2>
-							<div className="flex flex-wrap items-center gap-2">
-								<code className="break-all rounded-md border bg-muted/40 px-2 py-1 font-mono text-xs">
-									{aliasesLine}
-								</code>
-								<CopyButton text={aliasesLine} label={t`Copy aliases`} showLabel variant="outline" />
+					{facts.length > 0 && (
+						<details className="rounded-lg border p-3">
+							<summary className="cursor-pointer text-sm font-medium">
+								<Trans>Facts ({facts.length})</Trans>
+							</summary>
+							<div className="mt-2">
+								<KeyValueList
+									items={facts.map(([key, value]) => ({ label: key, value: factValue(value), mono: true }))}
+								/>
 							</div>
-							<p className="max-w-3xl text-sm text-muted-foreground">
-								<Trans>This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table.</Trans>
-							</p>
-						</section>
+						</details>
 					)}
-				</>
-			)}
 
-			<NodeAccessSection targetType="node" targetId={details.id} targetName={details.name} />
-			<NodeTaskList nodeId={details.id} />
+					{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
+					{editingRoute && node.data?.ssh && (
+						<EditSshRouteDialog node={details} details={node.data.ssh} onClose={() => setEditingRoute(false)} />
+					)}
+					{reenrolling && <ReenrollNodeDialog node={details} onClose={() => setReenrolling(false)} />}
+					{deleting && <DeleteNodeDialog node={details} onClose={() => setDeleting(false)} />}
+					{/* The SSH route and its per-hop credentials are administrator data; the server omits `ssh` otherwise. */}
+					{details.transport === "ssh" && node.data?.ssh && (
+						<SshNodeSection node={details} details={node.data.ssh} canRun={canRun} />
+					)}
+					{details.transport === "client" && (
+						<>
+							<NodeTrustPanel nodeId={details.id} />
+							{admin && details.privilegedMode === "forward" && details.nodeGroups.length > 0 && (
+								<section className="grid gap-2" aria-labelledby="trust-aliases-heading" data-testid="trust-aliases">
+									<h2 id="trust-aliases-heading" className="text-sm font-medium">
+										<Trans>Aliases for privileged.toml</Trans>
+									</h2>
+									<div className="flex flex-wrap items-center gap-2">
+										<code className="break-all rounded-md border bg-muted/40 px-2 py-1 font-mono text-xs">
+											{aliasesLine}
+										</code>
+										<CopyButton text={aliasesLine} label={t`Copy aliases`} showLabel variant="outline" />
+									</div>
+									<p className="max-w-3xl text-sm text-muted-foreground">
+										<Trans>
+											This is a top-level key of privileged.toml. Paste it before the first `[[trust]]` table.
+										</Trans>
+									</p>
+								</section>
+							)}
+						</>
+					)}
+
+					<NodeAccessSection targetType="node" targetId={details.id} targetName={details.name} />
+					<NodeTaskList nodeId={details.id} />
+				</TabsContent>
+				<TabsContent value="files">
+					<NodeFiles nodeId={details.id} nodeName={details.name} />
+				</TabsContent>
+			</Tabs>
 		</Page>
 	);
 }

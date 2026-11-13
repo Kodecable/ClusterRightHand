@@ -45,6 +45,7 @@ const TASK: TaskView = {
 	rootSessionId: null,
 	handlerType: null,
 	handlerSessionId: null,
+	purpose: null,
 };
 
 interface MockOptions {
@@ -114,6 +115,18 @@ describe("TasksPage filters", () => {
 		expect(link).toHaveAttribute("href", "/tasks/task-1");
 		// The first column is Created, so the summary cell carries the row link.
 		expect(screen.getByText("echo hi").closest("a")).toBe(link);
+	});
+
+	test("includes file browsing tasks only when the toggle is on", async () => {
+		const { urls } = mockApi();
+		await renderPage();
+		await waitFor(() => expect(urls.some((url) => url.startsWith("/api/tasks"))).toBe(true));
+		expect(urls.find((url) => url.startsWith("/api/tasks"))).not.toContain("includePurpose");
+		const user = userEvent.setup();
+		await user.click(screen.getByTestId("task-filter-purpose"));
+		await waitFor(() =>
+			expect(urls.some((url) => url.startsWith("/api/tasks") && url.includes("includePurpose=true"))).toBe(true),
+		);
 	});
 
 	test("does not link to the approvals page", async () => {

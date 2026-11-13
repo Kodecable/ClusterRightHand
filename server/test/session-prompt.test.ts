@@ -12,6 +12,7 @@ import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
+import { actingUserNote } from "../src/tools/catalog.ts";
 import { createUser } from "../src/users/service.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
@@ -81,7 +82,8 @@ it("appends the tool guide to the default prompt and to a custom prompt, exactly
 	// Without a custom prompt: the identity and the guide.
 	await submitAndCapture(session.id, "hello", captured);
 	const first = systemPromptOf(captured[0] as TranscriptContext);
-	expect(first).toBe(sessionSystemPrompt(null));
+	// The section also names the user the session acts for, so the model knows whose user: library is whose.
+	expect(first).toBe(`${sessionSystemPrompt(null)}\n\n${actingUserNote("alice")}`);
 	expect(first).toContain("You are ClusterRightHand");
 	expect(first.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
 	expect(first.split("Start with list_nodes").length - 1).toBe(1);
@@ -90,7 +92,7 @@ it("appends the tool guide to the default prompt and to a custom prompt, exactly
 	await runtime.modelPresets.update("session", { systemPrompt: "CUSTOM SESSION PROMPT" });
 	await submitAndCapture(session.id, "again", captured);
 	const second = systemPromptOf(captured[1] as TranscriptContext);
-	expect(second).toBe(sessionSystemPrompt("CUSTOM SESSION PROMPT"));
+	expect(second).toBe(`${sessionSystemPrompt("CUSTOM SESSION PROMPT")}\n\n${actingUserNote("alice")}`);
 	expect(second).toContain("CUSTOM SESSION PROMPT");
 	expect(second).not.toContain(DEFAULT_SESSION_PROMPT);
 	expect(second.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
@@ -99,7 +101,7 @@ it("appends the tool guide to the default prompt and to a custom prompt, exactly
 	await runtime.modelPresets.update("session", { systemPrompt: null });
 	await submitAndCapture(session.id, "once more", captured);
 	const third = systemPromptOf(captured[2] as TranscriptContext);
-	expect(third).toBe(sessionSystemPrompt(null));
+	expect(third).toBe(`${sessionSystemPrompt(null)}\n\n${actingUserNote("alice")}`);
 	expect(third).not.toContain("CUSTOM SESSION PROMPT");
 	expect(third.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
 });

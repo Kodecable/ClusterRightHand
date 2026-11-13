@@ -1,4 +1,4 @@
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { type FormEvent, type KeyboardEvent, type ReactNode, type RefObject, useLayoutEffect } from "react";
 
 /**
@@ -49,15 +49,35 @@ export function ComposerShell({
 	inputId,
 	onSubmit,
 	after,
+	onDropFiles,
 	children,
 }: {
 	inputId: string;
 	onSubmit: () => void;
 	after?: ReactNode;
+	/** Files dropped anywhere on the composer; omitted when the viewer may not attach. */
+	onDropFiles?: (files: File[]) => void;
 	children: ReactNode;
 }) {
+	const { t } = useLingui();
 	return (
-		<div className="shrink-0 bg-background/80 px-3 pt-1 pb-2" data-slot="composer">
+		<section
+			className="shrink-0 bg-background/80 px-3 pt-1 pb-2"
+			data-slot="composer"
+			aria-label={t`Message composer`}
+			onDragOver={(event) => {
+				if (onDropFiles === undefined) return;
+				if (!event.dataTransfer.types.includes("Files")) return;
+				event.preventDefault();
+			}}
+			onDrop={(event) => {
+				if (onDropFiles === undefined) return;
+				const files = [...event.dataTransfer.files];
+				if (files.length === 0) return;
+				event.preventDefault();
+				onDropFiles(files);
+			}}
+		>
 			<form
 				onSubmit={(event: FormEvent) => {
 					event.preventDefault();
@@ -72,7 +92,7 @@ export function ComposerShell({
 				</div>
 				{after}
 			</form>
-		</div>
+		</section>
 	);
 }
 

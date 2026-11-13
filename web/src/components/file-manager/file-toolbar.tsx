@@ -39,7 +39,9 @@ export function FileToolbar({ path, onPathChange, rootLabel, actions }: FileTool
 						) : (
 							<BreadcrumbLink
 								aria-label={rootLabel}
-								render={<button type="button" className="flex items-center" onClick={() => onPathChange("")} />}
+								render={
+									<button type="button" className="flex cursor-pointer items-center" onClick={() => onPathChange("")} />
+								}
 							>
 								<HouseIcon className="size-4" aria-hidden="true" />
 							</BreadcrumbLink>
@@ -54,7 +56,9 @@ export function FileToolbar({ path, onPathChange, rootLabel, actions }: FileTool
 									{target === path ? (
 										<BreadcrumbPage>{segment}</BreadcrumbPage>
 									) : (
-										<BreadcrumbLink render={<button type="button" onClick={() => onPathChange(target)} />}>
+										<BreadcrumbLink
+											render={<button type="button" className="cursor-pointer" onClick={() => onPathChange(target)} />}
+										>
 											{segment}
 										</BreadcrumbLink>
 									)}

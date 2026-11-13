@@ -1,10 +1,11 @@
 /** The derived transcript view of a session's state: what the rows render, in display order. */
 
+import type { ChatAttachment } from "@crh/api";
 import type { Json, JsonObject, Message, TextBlock, ThinkingBlock, ToolCallBlock } from "./session-events";
 import type { SessionState } from "./session-reducer";
 
 type TranscriptItemRow =
-	| { kind: "user"; key: string; text: string; at?: number }
+	| { kind: "user"; key: string; text: string; attachments?: ChatAttachment[]; at?: number }
 	| {
 			kind: "text";
 			key: string;
@@ -49,6 +50,45 @@ type TranscriptItemRow =
  * scrolls to the first row sharing the target entry id.
  */
 export type TranscriptItem = TranscriptItemRow & { entryId?: string };
+
+/** The attachments of a `crh.user_input` entry, or none for a plain `pi.user` one. */
+function attachmentsOf(data: Json | undefined): ChatAttachment[] {
+	if (typeof data !== "object" || data === null || Array.isArray(data)) return [];
+	const value = data.attachments;
+	if (!Array.isArray(value)) return [];
+	return value.flatMap((item) => {
+		if (typeof item !== "object" || item === null || Array.isArray(item)) return [];
+		const record = item as Record<string, unknown>;
+		if (
+			typeof record.library !== "string" ||
+			typeof record.path !== "string" ||
+			typeof record.name !== "string" ||
+			typeof record.bytes !== "number" ||
+			typeof record.mime !== "string" ||
+			typeof record.sha256 !== "string" ||
+			typeof record.inlined !== "boolean"
+		) {
+			return [];
+		}
+		return [
+			{
+				library: record.library,
+				path: record.path,
+				name: record.name,
+				bytes: record.bytes,
+				mime: record.mime,
+				sha256: record.sha256,
+				inlined: record.inlined,
+			},
+		];
+	});
+}
+
+/** The first text block of a user message: the typed text of a `crh.user_input`. */
+function firstText(content: string | { type: string; text?: string }[]): string {
+	if (typeof content === "string") return content;
+	return content.find((block) => block.type === "text")?.text ?? "";
+}
 
 function userText(content: string | { type: string; text?: string }[]): string {
 	return typeof content === "string"
@@ -160,18 +200,22 @@ export function transcript(state: SessionState): TranscriptItem[] {
 			});
 		}
 	};
-	for (const { id, kind, message } of ordered) {
+	for (const { id, kind, message, data } of ordered) {
 		if (kind === "pi.compaction" && message.role === "user") {
 			items.push({ kind: "compaction", key: id, entryId: id, text: userText(message.content) });
-		} else if (message.role === "user")
+		} else if (message.role === "user") {
+			const attachments = kind === "crh.user_input" ? attachmentsOf(data) : [];
 			items.push({
 				kind: "user",
 				key: id,
 				entryId: id,
-				text: userText(message.content),
+				// A crh input's content is the typed text first, then one block per attachment; a plain
+				// pi.user entry keeps the whole content, so older transcripts render exactly as before.
+				text: kind === "crh.user_input" ? firstText(message.content) : userText(message.content),
+				...(attachments.length > 0 ? { attachments } : {}),
 				...(message.timestamp === undefined ? {} : { at: message.timestamp }),
 			});
-		else if (message.role === "assistant") {
+		} else if (message.role === "assistant") {
 			const liveKey = state.streamedKeys[id];
 			addAssistant(id, liveKey ?? id, message, false, liveKey !== undefined);
 		}

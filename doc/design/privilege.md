@@ -111,9 +111,11 @@ encoding is in [Authorization object](protocol.md#authorization-object).
   resolved before signing, so renaming does not affect issued authorizations. A node accepts an
   authorization that names its own id or one of its [trust aliases](#trust-aliases).
 - **Command limit.** `exact` binds the method, the target and the hash of the complete task spec,
-  including environment, working directory, input and file content. Approving "write
-  `/etc/nginx/nginx.conf`" therefore approves that content. `prefix` binds only the method and a target
-  prefix, not input or content. No limit means any command.
+  including environment, working directory, input and file content. A file plane transfer's endpoint
+  (which data connection crhs accepts) is routing and is left out, so one group authorization covers
+  members with different transfer ids. Approving "write `/etc/nginx/nginx.conf`" therefore approves that
+  content. `prefix` binds only the method and a target prefix, not input or content. No limit means any
+  command.
 - **One-shot or reusable.** A one-shot authorization lists task ids and an attempt number and is valid
   only for those tasks; a reusable one is valid for any matching task until its deadline. Scheduled
   tasks and authorizations pre-signed with `crha grant` rely on reuse. crhs authorizations, all

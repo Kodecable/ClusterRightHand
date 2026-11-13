@@ -5,8 +5,10 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ErrorText } from "@/components/error-state";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { useAbortSession, useCompactSession, useSendMessage } from "./api";
+import { AttachmentChips, AttachmentMenu, AttachmentPickerDialog, useComposerAttachments } from "./attachments";
 import { SessionComposerFooter } from "./composer-footer";
 import { ComposerShell, handleComposerKey, UnknownCommandHint, useTextareaAutosize } from "./composer-input";
 import { ComposerMeta } from "./composer-meta";
@@ -51,6 +53,11 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 	const compact = useCompactSession(session.id);
 	const abort = useAbortSession(session.id);
 	const pending = send.isPending || compact.isPending;
+	const auth = useAuth();
+	// Only the session's owner may attach files; the server refuses anyone else too.
+	const canAttach = auth.user !== null && auth.user.id === session.ownerUserId;
+	const attachments = useComposerAttachments(canAttach ? auth.user?.username : undefined);
+	const [pickerOpen, setPickerOpen] = useState(false);
 
 	// The textarea grows with its content, but never past half of the transcript
 	// pane: the pane is what the page has left above the composer, so banners,
@@ -163,11 +170,16 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 		const id = requestId ?? crypto.randomUUID();
 		setRequestId(id);
 		send.mutate(
-			{ text: value, requestId: id },
+			{
+				text: value,
+				requestId: id,
+				...(attachments.sendable.length > 0 ? { attachments: attachments.sendable } : {}),
+			},
 			{
 				onSuccess: () => {
 					setText("");
 					setRequestId(undefined);
+					attachments.clear();
 				},
 			},
 		);
@@ -225,7 +237,13 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 	const error = send.error ?? compact.error;
 
 	return (
-		<ComposerShell inputId="composer-input" onSubmit={submit} after={<ComposerMeta session={session} />}>
+		<ComposerShell
+			inputId="composer-input"
+			onSubmit={submit}
+			after={<ComposerMeta session={session} />}
+			onDropFiles={canAttach ? attachments.addFiles : undefined}
+		>
+			{canAttach && <AttachmentChips attachments={attachments} />}
 			<Textarea
 				ref={textareaRef}
 				id="composer-input"
@@ -243,6 +261,13 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 					completionOpen && highlightedCommand !== undefined ? optionId(highlightedIndex) : undefined
 				}
 				onKeyDown={(event) => handleComposerKey(event, submit, completionKey)}
+				onPaste={(event) => {
+					if (!canAttach) return;
+					const files = [...event.clipboardData.files];
+					if (files.length === 0) return;
+					event.preventDefault();
+					attachments.addFiles(files);
+				}}
 				onChange={(event) => {
 					setText(event.target.value);
 					setHighlighted(0);
@@ -314,11 +339,23 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 					session={session}
 					stoppable={stoppable}
 					sending={pending}
-					sendDisabled={text.trim() === ""}
+					sendDisabled={text.trim() === "" || attachments.busy || attachments.failures > 0}
 					stopPending={abort.isPending}
 					onStop={stop}
+					attach={
+						canAttach ? (
+							<AttachmentMenu attachments={attachments} onChooseLibrary={() => setPickerOpen(true)} />
+						) : undefined
+					}
 				/>
 			</div>
+			{canAttach && (
+				<AttachmentPickerDialog
+					open={pickerOpen}
+					onOpenChange={setPickerOpen}
+					onSelect={(files) => attachments.addLibraryFiles(files)}
+				/>
+			)}
 		</ComposerShell>
 	);
 }

@@ -32,6 +32,24 @@ export interface SystemSettingsAuth {
 	argon2Queue: number;
 }
 
+/** Chat attachments: how much short text is inlined into the model content (doc/design/library.md "Chat attachments"). */
+export interface SystemSettingsAttachments {
+	/** The largest file whose text content is appended to its attachment block. */
+	inlineTextBytes: number;
+	/** The most text inlined over one message. */
+	inlineTotalBytes: number;
+}
+
+/** The two tiers of the image cache and its time to live (doc/design/library.md "Image cache"). */
+export interface SystemSettingsImageCache {
+	/** Bytes kept in the process's LRU. */
+	memoryBytes: number;
+	/** Bytes kept in the backend's cache area. */
+	diskBytes: number;
+	/** A duration such as "7d"; an entry unused for longer is swept. */
+	ttl: string;
+}
+
 /** The settings administrators edit in System settings. */
 export interface SystemSettings {
 	/** Absolute public base URL for links crhs generates; null uses the request URL. */
@@ -45,6 +63,10 @@ export interface SystemSettings {
 	realIpHeader: string | null;
 	/** The limits new user and user group libraries copy when they are created. */
 	library: SystemSettingsLibrary;
+	/** How much attachment text is inlined into the model content. */
+	attachments: SystemSettingsAttachments;
+	/** The image cache's sizes and its time to live. */
+	imageCache: SystemSettingsImageCache;
 }
 
 export interface SystemSettingsResponse {
@@ -77,5 +99,14 @@ export interface SystemSettingsPatch {
 	library?: {
 		user?: Partial<LibraryLimits>;
 		group?: Partial<LibraryLimits>;
+	};
+	attachments?: {
+		inlineTextBytes?: number;
+		inlineTotalBytes?: number;
+	};
+	imageCache?: {
+		memoryBytes?: number;
+		diskBytes?: number;
+		ttl?: string;
 	};
 }

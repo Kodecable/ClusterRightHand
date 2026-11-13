@@ -212,3 +212,27 @@ export interface QuotaApproval {
 	/** The budget measure spent by the tree. */
 	budgetUsedTokens: number;
 }
+
+/** One attachment the composer uploads to the owner's library or picks from it (doc/design/library.md "Chat attachments"). */
+export interface ChatAttachmentInput {
+	/** `user:<username>` or `group:<group name>`. */
+	library: string;
+	/** The path inside that library. */
+	path: string;
+}
+
+/**
+ * One attachment of a submitted chat message, as the entry's `data` carries it and the transcript renders
+ * it (doc/design/library.md "Chat attachments"). The server takes name, size, media type and SHA-256 from
+ * the library row, never from the request.
+ */
+export interface ChatAttachment {
+	library: string;
+	path: string;
+	name: string;
+	bytes: number;
+	mime: string;
+	sha256: string;
+	/** Whether the file's text content was included in the model content. */
+	inlined: boolean;
+}

@@ -11,6 +11,7 @@ import type {
 import type { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { ImageCache } from "../library/image-cache.ts";
 import type { SessionRow } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../util/errors.ts";
@@ -68,6 +69,8 @@ export interface AgentRuntimeOptions {
 	cluster: Cluster;
 	taskGroups: TaskGroups;
 	audit?: Audit;
+	/** The image cache behind `view_image` (doc/design/library.md "Image cache"); required to use that tool. */
+	imageCache?: ImageCache;
 	/**
 	 * How long idle conversations keep their context and documents in memory (durable's default: 10 minutes).
 	 * Memory grows with what was active within this window (doc/design/testing/server.md "Server performance").
@@ -98,6 +101,7 @@ export interface RuntimeHost {
 	readonly audit: Audit | undefined;
 	readonly cluster: Cluster;
 	readonly taskGroups: TaskGroups;
+	readonly imageCache: ImageCache | undefined;
 	readonly context: Context;
 	readonly sessionList: SessionListHub;
 	/** The cached model presets: prompt sections, Auto Review and title generation read them. */

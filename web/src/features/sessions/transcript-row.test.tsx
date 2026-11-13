@@ -5,8 +5,10 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { taskKeys } from "@/features/tasks/api";
 import { renderWithI18n, renderWithRouter, testQueryClient } from "@/test/render";
 import type { Json } from "./session-events";
+import { initialState } from "./session-reducer";
 import { callStillOpen, toolLine } from "./tool-call";
 import type { TranscriptItem } from "./transcript-items";
+import { transcript } from "./transcript-items";
 import { TranscriptRow } from "./transcript-row";
 import { TranscriptStreams } from "./transcript-streams";
 
@@ -742,5 +744,87 @@ describe("a returned task group", () => {
 
 		const link = await screen.findByRole("link", { name: "Open the task group page" });
 		expect(link).toHaveAttribute("href", "/task-groups/g1");
+	});
+});
+
+describe("attachment chips and crh.user_input", () => {
+	const attachment = {
+		library: "user:alice",
+		path: "docs/report.txt",
+		name: "report.txt",
+		bytes: 1234,
+		mime: "text/plain",
+		sha256: "ab".repeat(32),
+		inlined: true,
+	};
+
+	test("reads the typed text from the first block and the attachments from data", () => {
+		const state = {
+			...initialState,
+			entries: [
+				{
+					id: "1",
+					kind: "crh.user_input",
+					message: {
+						role: "user" as const,
+						content: [
+							{ type: "text", text: "look at this" },
+							{ type: "text", text: "The user uploaded the file report.txt ..." },
+						],
+					},
+					data: { attachments: [attachment] },
+				},
+			],
+		};
+		const items = transcript(state);
+		expect(items[0]).toMatchObject({ kind: "user", text: "look at this", attachments: [attachment] });
+	});
+
+	test("a plain pi.user entry still shows its whole content", () => {
+		const state = {
+			...initialState,
+			entries: [{ id: "1", kind: "pi.user", message: { role: "user" as const, content: "old message" } }],
+		};
+		expect(transcript(state)[0]).toMatchObject({ kind: "user", text: "old message" });
+		expect(transcript(state)[0]).not.toHaveProperty("attachments");
+	});
+
+	test("a reachable attachment links to its library file", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				const body = url.includes("/stat")
+					? { file: { path: attachment.path, size: attachment.bytes } }
+					: { library: { id: "lib", ref: attachment.library } };
+				return new Response(JSON.stringify(body), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}),
+		);
+		renderRow({ kind: "user", key: "u1", text: "", attachments: [attachment] });
+		const link = await screen.findByTestId("attachment-chip-link");
+		expect(link).toHaveTextContent("report.txt");
+		expect(link).toHaveAttribute("href", "/api/libraries/user%3Aalice/file?path=docs%2Freport.txt");
+	});
+
+	test("an unreachable library or a missing file makes the chip inactive with the reason", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ error: "no such library" }), {
+						status: 404,
+						headers: { "content-type": "application/json" },
+					}),
+			),
+		);
+		renderRow({ kind: "user", key: "u1", text: "", attachments: [attachment] });
+		expect(await screen.findByTestId("attachment-chip-inactive")).toBeInTheDocument();
+		expect(await screen.findByTestId("attachment-chip-reason")).toHaveTextContent(
+			"You don't have access to this library.",
+		);
+		expect(screen.queryByTestId("attachment-chip-link")).not.toBeInTheDocument();
 	});
 });

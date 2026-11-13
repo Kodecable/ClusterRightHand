@@ -1,4 +1,5 @@
 import type {
+	ChatAttachmentInput,
 	CursorPage,
 	SessionChildrenSummary,
 	SessionListItem,
@@ -378,6 +379,8 @@ export interface CreateSessionInput {
 	/** The draft's idempotency key: one request id creates one session and submits one message. */
 	requestId: string;
 	message: string;
+	/** Files the owner attached to the first message (doc/design/library.md "Chat attachments"). */
+	attachments?: ChatAttachmentInput[];
 	title?: string;
 	model: SessionView["model"];
 	rulePreset: string;
@@ -477,8 +480,19 @@ export function usePatchSession(id: string) {
 export function useSendMessage(id: string) {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: ({ text, requestId }: { text: string; requestId: string }) =>
-			http.post<{ submissionId: string }>(`/sessions/${enc(id)}/messages`, { text, requestId }),
+		mutationFn: ({
+			text,
+			requestId,
+			attachments,
+		}: {
+			text: string;
+			requestId: string;
+			attachments?: ChatAttachmentInput[];
+		}) =>
+			http.post<{ submissionId: string }>(
+				`/sessions/${enc(id)}/messages`,
+				attachments === undefined || attachments.length === 0 ? { text, requestId } : { text, requestId, attachments },
+			),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(id) });
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });

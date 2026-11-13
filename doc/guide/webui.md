@@ -64,6 +64,21 @@ or Yolo; see [Rules and approvals](concepts.md#rules-and-approvals)) and the **b
 from the agent's next step. Below the composer, a line shows turns and generation speed, token usage
 with the cache hit rate, and how full the context is.
 
+### Attachments
+
+The owner of a session can attach files with the **+** beside the composer: **Upload files** sends a
+file to the owner's library under `attachments/<year>-<month>/`, and **Choose from library** picks an
+existing library file. You can also paste a file or drop it on the composer. Each attachment shows as a
+chip with its upload progress and a **remove** button; sending waits for the uploads to finish, and a
+failed attachment must be removed before the message can be sent. Only the session owner can attach
+files; the server refuses attachments from anyone else.
+
+An attachment becomes part of the message the agent reads: a short text file has its content included
+in the message, up to the limits in System settings, and everything else is described by its name, size,
+library and path. To see an image, the agent calls its `view_image` tool. The transcript shows each
+attachment as a chip that links to the library file; a chip is inactive, with the reason, when the file
+is gone or you cannot reach its library. Deleting a session leaves its attachments in the library.
+
 ### Waiting for a decision
 
 When the session or one of its subagents needs you, a decision panel replaces the composer at the
@@ -195,7 +210,15 @@ connection and create the node. See [Add an SSH node](install.md#add-an-ssh-node
 
 ### The node page
 
-The node page shows the node's facts, its access grants and its ten most recent tasks. Administrators
+The node page has an **Overview** tab with the node's facts, its access grants and its ten most recent
+tasks, and a **Files** tab.
+
+**Files** browses the node's file system with the same file manager as a library, as you and without
+privilege: every listing or file check is an ordinary `file.list` or `file.stat` task, so rules and
+approvals still apply, but those tasks stay out of the task list (tick **Include file browsing** on the
+tasks page to see them). It shows sizes and modification times and previews PNG, JPEG, GIF and WebP
+images. Downloading, uploading, deleting and renaming on a node come later, so those actions are not
+shown. Administrators
 can rename it, change its node groups, edit an SSH node's route, re-enroll it (crha nodes), and delete
 it.
 

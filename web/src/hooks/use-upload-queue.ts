@@ -44,6 +44,8 @@ export interface UploadQueue {
 	running: boolean;
 	start: (files: File[]) => void;
 	cancel: () => void;
+	/** Forgets the finished batch; only called once the queue is not running. */
+	clear: () => void;
 }
 
 function processedBytes(entries: QueuedUpload[]): number {
@@ -152,6 +154,12 @@ export function useUploadQueue(upload: UploadFile): UploadQueue {
 		controllerRef.current?.abort();
 	}, []);
 
+	const clear = useCallback(() => {
+		if (running) return;
+		publish([]);
+		setSpeed(0);
+	}, [publish, running]);
+
 	const done = entries.filter((entry) => entry.status === "done").length;
 	const totalBytes = entries.reduce((total, entry) => total + entry.file.size, 0);
 	const loadedBytes = processedBytes(entries);
@@ -173,5 +181,6 @@ export function useUploadQueue(upload: UploadFile): UploadQueue {
 		running,
 		start,
 		cancel,
+		clear,
 	};
 }

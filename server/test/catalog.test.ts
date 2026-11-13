@@ -74,6 +74,7 @@ function task(overrides: Partial<TaskView>): TaskView {
 		rootSessionId: null,
 		handlerType: null,
 		handlerSessionId: null,
+		purpose: null,
 		...overrides,
 	};
 }
@@ -106,6 +107,7 @@ function group(overrides: Partial<TaskGroupView>): TaskGroupView {
 		rootSessionId: null,
 		handlerType: null,
 		handlerSessionId: null,
+		purpose: null,
 		...overrides,
 	};
 }
@@ -253,6 +255,8 @@ describe("the tool catalog", () => {
 			"edit_file",
 			"list_dir",
 			"stat",
+			"copy_file",
+			"view_image",
 			"task_wait",
 			"task_cancel",
 		]);

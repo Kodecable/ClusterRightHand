@@ -1,6 +1,9 @@
-import { Hono } from "hono";
+import { Readable } from "node:stream";
+import type { NodeFileInfo, NodeFilesResponse } from "@crh/api";
+import { type Context, Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
 import { isAdmin } from "../auth/sessions.ts";
+import { type TaskView, TERMINAL } from "../cluster/cluster.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import { nodeGroupsForNodes, resolveNodeGroupIds, setNodeGroupsForNode } from "../cluster/node-groups.ts";
 import {
@@ -17,7 +20,10 @@ import {
 import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
 import { trustView } from "../cluster/trust.ts";
 import { trustWarningsForRows } from "../cluster/trust-warnings.ts";
+import { INLINE_MEDIA_TYPES, INLINE_PREVIEW_MAX_BYTES, sniffMagic } from "../library/media-type.ts";
+import { openTransferLocation, type TransferContext, type TransferLocationJson } from "../library/transfer-location.ts";
 import type { Db } from "../storage/db.ts";
+import { UserError } from "../util/errors.ts";
 import type { AppOptions } from "./app.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
@@ -72,6 +78,172 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const row = level ? await getNode(db, id) : undefined;
 		if (!level || !row) return jsonError(c, 404, "no such node");
 		return c.json({ trust: trustView(row, options.cluster?.trustFresh(id) ?? false) });
+	});
+
+	/**
+	 * A node's file manager (doc/design/webui.md "Node pages"): each listing and stat is a `file.list` or
+	 * `file.stat` task with purpose `browse`, created and waited for here, as the signed-in user and
+	 * unprivileged. The ordinary task list leaves those tasks out.
+	 */
+	const browseActor = (c: { get(k: "user"): AppEnv["Variables"]["user"] }) => {
+		const user = c.get("user");
+		return { type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId };
+	};
+
+	const waitForBrowse = async (c: Context<AppEnv>, taskId: string): Promise<TaskView | undefined> => {
+		const signal = c.req.raw.signal;
+		let task = await options.cluster?.getTask(taskId);
+		while (task && !TERMINAL.has(task.state) && !options.cluster?.waitsEnded) {
+			if (signal.aborted) {
+				await options.cluster?.cancelTask(taskId, "the file browser request ended", browseActor(c));
+				return options.cluster?.getTask(taskId);
+			}
+			task = (await options.cluster?.waitTask(taskId, 5 * 60 * 1000, signal)) ?? task;
+		}
+		return task;
+	};
+
+	/** The browse task's failure as an HTTP response; undefined when it succeeded. */
+	const browseFailure = (c: Parameters<typeof jsonError>[0], task: TaskView | undefined) => {
+		if (!task) return jsonError(c, 404, "no such node");
+		if (task.errorCode === "not_found") return jsonError(c, 404, task.errorMessage ?? "no such file");
+		if (task.errorCode === "permission_denied") return jsonError(c, 403, task.errorMessage ?? "permission denied");
+		if (task.state !== "exited" || task.result === null) {
+			return jsonError(c, 400, task.errorMessage ?? `the listing failed (${task.state})`);
+		}
+		return undefined;
+	};
+
+	const browsePath = (value: string | undefined, fallback = "/"): string => {
+		if (value === undefined || value === "") return fallback;
+		if (!value.startsWith("/")) throw new UserError("path must be absolute");
+		return value;
+	};
+
+	app.get("/nodes/:id/files", async (c) => {
+		const nodeId = c.req.param("id");
+		if (!(await access(c, nodeId))) return jsonError(c, 404, "no such node");
+		if (!options.cluster) return jsonError(c, 503, "the cluster is not running");
+		const path = browsePath(c.req.query("path"));
+		const task = await options.cluster.createTask({
+			nodeId,
+			spec: { kind: "file.list", path, limit: 0 },
+			actor: browseActor(c),
+			purpose: "browse",
+		});
+		const done = await waitForBrowse(c, task.id);
+		const failure = browseFailure(c, done);
+		if (failure) return failure;
+		const result = done?.result;
+		if (result?.kind !== "file.list") return jsonError(c, 400, "the node reported no listing");
+		const entries = result.entries.map((entry) => ({
+			path: path === "/" ? `/${entry.name}` : `${path}/${entry.name}`,
+			name: entry.name,
+			type: entry.type,
+			size: entry.size,
+			mtime: entry.mtime,
+			linkTarget: null,
+		}));
+		const body: NodeFilesResponse = { path, entries, truncated: result.truncated };
+		return c.json(body);
+	});
+
+	app.get("/nodes/:id/stat", async (c) => {
+		const nodeId = c.req.param("id");
+		if (!(await access(c, nodeId))) return jsonError(c, 404, "no such node");
+		if (!options.cluster) return jsonError(c, 503, "the cluster is not running");
+		const path = browsePath(c.req.query("path"), "");
+		if (path === "") throw new UserError("path is required");
+		const task = await options.cluster.createTask({
+			nodeId,
+			spec: { kind: "file.stat", path },
+			actor: browseActor(c),
+			purpose: "browse",
+		});
+		const done = await waitForBrowse(c, task.id);
+		const failure = browseFailure(c, done);
+		if (failure) return failure;
+		const result = done?.result;
+		if (result?.kind !== "file.stat") return jsonError(c, 400, "the node reported no file");
+		const file: NodeFileInfo = {
+			path: result.path,
+			type: result.type,
+			size: result.size,
+			mode: Number.parseInt(result.mode, 8),
+			uid: result.uid,
+			gid: result.gid,
+			owner: result.owner,
+			group: result.group,
+			mtime: result.mtime,
+			linkTarget: result.linkTarget,
+		};
+		return c.json({ file });
+	});
+
+	/**
+	 * A node file's image preview: one `file.pull` with purpose `browse` into staging, then a check of the
+	 * sniffed type and size before the bytes stream with the same safe headers as a library preview.
+	 */
+	app.get("/nodes/:id/file", async (c) => {
+		const nodeId = c.req.param("id");
+		if (!(await access(c, nodeId))) return jsonError(c, 404, "no such node");
+		if (!options.cluster) return jsonError(c, 503, "the cluster is not running");
+		if (c.req.query("preview") !== "1") throw new UserError("preview=1 is required");
+		const path = browsePath(c.req.query("path"), "");
+		if (path === "") throw new UserError("path is required");
+		const location = options.cluster.stagingLocation();
+		const task = await options.cluster.pullFile({
+			nodeId,
+			path,
+			maxBytes: INLINE_PREVIEW_MAX_BYTES,
+			location,
+			actor: browseActor(c),
+			purpose: "browse",
+		});
+		const done = await waitForBrowse(c, task.id);
+		const failure = browseFailure(c, done);
+		if (failure) {
+			await discardLocation(options.cluster.transferContext(), location);
+			return failure;
+		}
+		const result = done?.result;
+		if (result?.kind !== "file.pull") {
+			await discardLocation(options.cluster.transferContext(), location);
+			return jsonError(c, 400, "the node reported no file");
+		}
+		const opened = openTransferLocation(options.cluster.transferContext(), location);
+		const stream = opened.openRead();
+		const iterator = stream[Symbol.asyncIterator]();
+		let head: Buffer;
+		const first = await iterator.next();
+		head = first.done ? Buffer.alloc(0) : Buffer.from(first.value as Uint8Array);
+		const mime = sniffMagic(head.subarray(0, 16));
+		if (mime === undefined || !INLINE_MEDIA_TYPES.has(mime) || result.size > INLINE_PREVIEW_MAX_BYTES) {
+			stream.destroy();
+			await opened.discard();
+			throw new UserError("only PNG, JPEG, GIF and WebP images up to 20 MiB can be previewed");
+		}
+		const name = path.slice(path.lastIndexOf("/") + 1);
+		c.header("Content-Type", mime);
+		c.header("Content-Length", String(result.size));
+		c.header("X-Content-Type-Options", "nosniff");
+		c.header("Content-Security-Policy", "sandbox");
+		c.header("Content-Disposition", contentDisposition("inline", name));
+		const body = Readable.from(
+			(async function* () {
+				try {
+					if (!first.done) yield head;
+					for (;;) {
+						const next = await iterator.next();
+						if (next.done) break;
+						yield next.value as Uint8Array;
+					}
+				} finally {
+					await opened.discard();
+				}
+			})(),
+		);
+		return c.body(Readable.toWeb(body) as unknown as ReadableStream);
 	});
 
 	app.post("/enrollment-tokens", requireAdmin, async (c) => {
@@ -207,4 +379,18 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	});
 
 	return app;
+}
+
+async function discardLocation(context: TransferContext, location: TransferLocationJson): Promise<void> {
+	await openTransferLocation(context, location).discard();
+}
+
+/** `inline`/`attachment` with an ASCII fallback and the UTF-8 form for other file names. */
+function contentDisposition(kind: "inline" | "attachment", filename: string): string {
+	const fallback = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+	const encoded = encodeURIComponent(filename).replace(
+		/['()*]/g,
+		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+	);
+	return `${kind}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }

@@ -69,18 +69,36 @@ Clients that support only stdio need a third-party bridge.
 | `read_file` | Read a page of lines from a file |
 | `write_file` | Create or overwrite a file |
 | `edit_file` | Replace text in a file |
-| `list_dir` | List a directory |
-| `stat` | File attributes |
+| `list_dir` | List a directory on a node, or of a library |
+| `stat` | File attributes on a node, or of a library |
+| `copy_file` | Copy one file between nodes and libraries |
+| `view_image` | Look at one image, from a node or a library |
 | `task_wait` | Keep waiting for an `exec` task or task group |
 | `task_cancel` | Cancel an `exec` task or task group |
 
-Your client shows each tool's arguments and descriptions.
+Your client shows each tool's arguments and descriptions. The library tools reach the libraries of the
+user whose API token you use: their own `user:<username>` library and the libraries of their groups.
+The token never gets the administrator bypass, even when its user is an administrator.
 
 ### Targets and batching
 
 Every node tool takes `targets`, a list of node or node group names, or `_all`. One node gives one
 result. A node group, `_all` or several entries run as a task group with one result per node, approved
 once; `parallel` and `fail_fast` control the batch. A batch is limited to 512 nodes.
+
+### Libraries and images
+
+`list_dir` and `stat` accept `library` (`user:<username>` or `group:<group name>`) instead of `targets`;
+the path inside a library has no leading `/`. `copy_file` copies one file: the source is
+`{ node, path }` or `{ library, path }`, and the destination is `targets` plus `path`, or a library plus
+`path`. An existing destination is refused unless `overwrite` is true; a node destination also takes
+`mode`, `owner`, `group` and `privileged`. A library destination is limited by that library's limits.
+
+`view_image` accepts PNG, JPEG, GIF and WebP within the model's image limits (by default 2000×2000
+pixels and 4.5 MB as base64) and stores the image in crhs's image cache. Over MCP there is no model
+request to attach it to, so the result is its one-line description; the image is still cached for a
+later turn in the same session. A larger image or another format is refused with the limits, so convert
+or shrink it on a node first.
 
 ### exec in detail
 

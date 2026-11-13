@@ -83,6 +83,15 @@ describe("FileManager", () => {
 		expect(screen.queryByRole("button", { name: "Delete docs" })).not.toBeInTheDocument();
 	});
 
+	test("clickable breadcrumbs and file names show the pointer cursor", async () => {
+		renderManager(makeSource(), { path: "docs" });
+		const table = await screen.findByRole("table", { name: "Files in docs" });
+		expect(within(table).getByRole("button", { name: "docs/notes.txt" })).toHaveClass("cursor-pointer");
+		expect(screen.getByRole("button", { name: "Test library" })).toHaveClass("cursor-pointer");
+		// The current breadcrumb is not clickable and keeps the default cursor.
+		expect(screen.queryByRole("button", { name: "docs" })).not.toBeInTheDocument();
+	});
+
 	test("previews a small image when its action is opened", async () => {
 		const source = makeSource();
 		renderManager(source);

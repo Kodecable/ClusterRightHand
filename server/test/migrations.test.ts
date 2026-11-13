@@ -78,6 +78,7 @@ const TABLES = [
 	"audit_events",
 	"authorizations",
 	"enrollment_tokens",
+	"image_cache",
 	"libraries",
 	"library_files",
 	"model_presets",
@@ -113,7 +114,10 @@ const INDEXES = [
 	"schedules_due_idx",
 	"sessions_owner_create_request_unique",
 	"sessions_state_live_idx",
+	"image_cache_last_used_idx",
 	"library_files_object_key_idx",
+	"task_groups_purpose_idx",
+	"tasks_purpose_idx",
 	"tasks_handler_agent_idx",
 	"user_group_members_user_id_idx",
 	"web_sessions_expires_at_idx",
@@ -154,8 +158,9 @@ describeBackends("initial migration", (backend) => {
 		expect(sessions).toContain("counted_submission_id");
 		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_fingerprint");
 		expect(await tableColumns(backend, db, "tasks")).toEqual(
-			expect.arrayContaining(["rev", "output_head", "result", "transfer"]),
+			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose"]),
 		);
+		expect(await tableColumns(backend, db, "task_groups")).toContain("transfer");
 	});
 
 	it("is idempotent on a second run", async () => {
@@ -165,7 +170,13 @@ describeBackends("initial migration", (backend) => {
 				: undefined;
 		await migrateToLatest(db, schema ? { schema } : {});
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
-		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_task_transfer" }, { name: "0003_libraries" }]);
+		expect(rows.rows).toEqual([
+			{ name: "0001_initial" },
+			{ name: "0002_task_transfer" },
+			{ name: "0003_libraries" },
+			{ name: "0004_purpose_and_image_cache" },
+			{ name: "0005_task_group_transfer" },
+		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
 });

@@ -5,6 +5,7 @@ import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
+import { AttachmentChip } from "./attachment-chip";
 import { ToolCard } from "./tool-card";
 import type { TranscriptItem } from "./transcript-items";
 import type { TranscriptStreams } from "./transcript-streams";
@@ -204,10 +205,15 @@ export function TranscriptRow({
 			)}
 		>
 			{item.kind === "user" && (
-				<div className="flex justify-end">
-					<div className="max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
-						{item.text}
-					</div>
+				<div className="flex flex-col items-end gap-1">
+					{(item.text !== "" || item.attachments === undefined) && (
+						<div className="max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
+							{item.text}
+						</div>
+					)}
+					{item.attachments?.map((attachment) => (
+						<AttachmentChip key={`${attachment.library}:${attachment.path}`} attachment={attachment} />
+					))}
 				</div>
 			)}
 			{item.kind === "text" && (

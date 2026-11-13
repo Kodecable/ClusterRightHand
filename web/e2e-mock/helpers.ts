@@ -108,6 +108,8 @@ export interface FakeState {
 	libraryFiles: Record<string, LibraryFile[]>;
 	/** Uploads the fake server refuses, keyed by file path, with the reason it returns. */
 	libraryUploadErrors: Record<string, string>;
+	/** Node file listings by `<node id>:<absolute path>`, as the browse endpoints return their entries. */
+	nodeFiles: Record<string, { path: string; name: string; type: string; size: number; mtime?: string }[]>;
 	requests: { method: string; url: string; body: unknown }[];
 }
 
@@ -374,6 +376,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		nodeTrust: {},
 		libraries: [],
 		libraryFiles: {},
+		nodeFiles: {},
 		libraryUploadErrors: {},
 		requests: [],
 		...options.state,
@@ -795,6 +798,18 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ ok: true });
 		}
 
+		// --- node files (doc/design/webui.md "Node pages") ------------------
+		const nodeFilesMatch = /^\/api\/nodes\/([^/]+)\/files$/.exec(path);
+		if (nodeFilesMatch && method === "GET") {
+			const nodeId = decodeURIComponent(nodeFilesMatch[1] as string);
+			const listed = url.searchParams.get("path") ?? "/";
+			return json({
+				path: listed,
+				entries: state.nodeFiles[`${nodeId}:${listed}`] ?? [],
+				truncated: false,
+			});
+		}
+
 		// --- libraries -----------------------------------------------------
 		if (path === "/api/libraries" && method === "GET") return json({ libraries: state.libraries });
 		const libraryMatch = /^\/api\/libraries\/([^/]+)(?:\/(files|stat|file|move|limits))?$/.exec(path);
@@ -845,9 +860,21 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				});
 			}
 			if (part === "file" && method === "PUT") {
-				const filePath = url.searchParams.get("path") ?? "";
-				const refused = state.libraryUploadErrors[filePath];
+				const requestedPath = url.searchParams.get("path") ?? "";
+				const refused = state.libraryUploadErrors[requestedPath];
 				if (refused !== undefined) return json({ error: refused }, 400);
+				let filePath = requestedPath;
+				if (url.searchParams.get("rename") === "1") {
+					for (let index = 1; files.some((candidate) => candidate.path === filePath); index++) {
+						const slash = requestedPath.lastIndexOf("/");
+						const directory = slash === -1 ? "" : requestedPath.slice(0, slash + 1);
+						const name = requestedPath.slice(slash + 1);
+						const dot = name.indexOf(".", 1);
+						const base = dot === -1 ? name : name.slice(0, dot);
+						const extension = dot === -1 ? "" : name.slice(dot);
+						filePath = `${directory}${base} (${index})${extension}`;
+					}
+				}
 				const bytes = request.postDataBuffer() ?? Buffer.alloc(0);
 				const file: LibraryFile = {
 					path: filePath,
@@ -1319,6 +1346,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				rootSessionId: null,
 				handlerType: null,
 				handlerSessionId: null,
+				purpose: null,
 			};
 			state.taskGroups[groupId] = { taskGroup: group, polls: 0 };
 			return json({ taskGroup: group });

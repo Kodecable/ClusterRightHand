@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import type { LibraryConfig } from "../config.ts";
-import type { LibraryBackend, LibraryObject } from "./backend.ts";
+import { checkCacheKey, type LibraryBackend, type LibraryObject } from "./backend.ts";
 
 type WebdavConfig = Extract<LibraryConfig, { backend: "webdav" }>;
 
@@ -25,6 +25,7 @@ class WebdavLibraryBackend implements LibraryBackend {
 	readonly #base: URL;
 	readonly #authorization: string;
 	#collection: Promise<void> | undefined;
+	#cacheCollection: Promise<void> | undefined;
 
 	constructor(config: WebdavConfig) {
 		this.#base = new URL(config.url);
@@ -34,6 +35,10 @@ class WebdavLibraryBackend implements LibraryBackend {
 
 	#objectUrl(key: string): URL {
 		return new URL(encodeURIComponent(key), this.#base);
+	}
+
+	#cacheUrl(key: string): URL {
+		return new URL(`cache/${checkCacheKey(key)}`, this.#base);
 	}
 
 	async #fetch(url: URL, init: RequestInit = {}): Promise<Response> {
@@ -52,6 +57,18 @@ class WebdavLibraryBackend implements LibraryBackend {
 			}
 		})();
 		return this.#collection;
+	}
+
+	/** Creates the cache collection once, below the library collection. */
+	#ensureCacheCollection(): Promise<void> {
+		this.#cacheCollection ??= (async () => {
+			await this.#ensureCollection();
+			const response = await this.#fetch(new URL("cache/", this.#base), { method: "MKCOL" });
+			if (response.status !== 201 && response.status !== 405 && response.status !== 200) {
+				throw new Error(`library WebDAV: MKCOL cache failed with ${response.status}`);
+			}
+		})();
+		return this.#cacheCollection;
 	}
 
 	async put(key: string, source: Readable): Promise<{ size: number; sha256: string }> {
@@ -93,6 +110,79 @@ class WebdavLibraryBackend implements LibraryBackend {
 		const response = await this.#fetch(this.#objectUrl(key), { method: "DELETE" });
 		if (!response.ok && response.status !== 404) {
 			throw new Error(`library WebDAV: DELETE ${key} failed with ${response.status}`);
+		}
+	}
+
+	async putCache(key: string, source: Readable): Promise<{ size: number; sha256: string }> {
+		await this.#ensureCacheCollection();
+		const hash = createHash("sha256");
+		let size = 0;
+		async function* counted(): AsyncGenerator<Uint8Array> {
+			for await (const chunk of source) {
+				const bytes = Buffer.from(chunk);
+				size += bytes.length;
+				hash.update(bytes);
+				yield bytes;
+			}
+		}
+		const body = Readable.toWeb(Readable.from(counted())) as WebReadableStream<Uint8Array>;
+		const response = await this.#fetch(this.#cacheUrl(key), {
+			method: "PUT",
+			headers: { "content-type": "application/octet-stream" },
+			body,
+			duplex: "half",
+		} as RequestInit);
+		if (!response.ok) throw new Error(`library WebDAV: PUT cache failed with ${response.status}`);
+		return { size, sha256: hash.digest("hex") };
+	}
+
+	getCache(key: string): Readable {
+		return Readable.from(this.#getCache(key));
+	}
+
+	async *#getCache(key: string): AsyncGenerator<Uint8Array> {
+		const response = await this.#fetch(this.#cacheUrl(key));
+		if (!response.ok || response.body === null) {
+			throw new Error(`library WebDAV: GET cache failed with ${response.status}`);
+		}
+		for await (const chunk of response.body) yield chunk;
+	}
+
+	async deleteCache(key: string): Promise<void> {
+		const response = await this.#fetch(this.#cacheUrl(key), { method: "DELETE" });
+		if (!response.ok && response.status !== 404) {
+			throw new Error(`library WebDAV: DELETE cache failed with ${response.status}`);
+		}
+	}
+
+	async *listCache(): AsyncIterable<LibraryObject> {
+		const url = new URL("cache/", this.#base);
+		const response = await this.#fetch(url, {
+			method: "PROPFIND",
+			headers: { depth: "1", "content-type": "application/xml" },
+			body: PROPFIND_BODY,
+		});
+		if (response.status === 404) return;
+		if (!response.ok) throw new Error(`library WebDAV: PROPFIND cache failed with ${response.status}`);
+		const text = await response.text();
+		for (const match of text.matchAll(/<(?:[\w-]+:)?response\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?response>/g)) {
+			const block = match[1] ?? "";
+			const href = /<(?:[\w-]+:)?href\b[^>]*>([^<]*)<\/(?:[\w-]+:)?href>/.exec(block)?.[1];
+			if (href === undefined) continue;
+			let parsed: URL;
+			try {
+				parsed = new URL(decodeXml(href.trim()), url);
+			} catch {
+				continue;
+			}
+			const key = decodeURIComponent(parsed.pathname.slice(url.pathname.length)).replace(/\/$/, "");
+			if (!/^[0-9a-f]{64}$/.test(key)) continue;
+			const modified = /<(?:[\w-]+:)?getlastmodified\b[^>]*>([^<]*)<\/(?:[\w-]+:)?getlastmodified>/.exec(block)?.[1];
+			const lastModified = modified === undefined ? undefined : Date.parse(decodeXml(modified.trim()));
+			yield {
+				key,
+				...(lastModified === undefined || Number.isNaN(lastModified) ? {} : { lastModified }),
+			};
 		}
 	}
 

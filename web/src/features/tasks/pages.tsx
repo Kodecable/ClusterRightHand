@@ -9,6 +9,7 @@ import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { taskStateLabel } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNodes } from "@/features/nodes/api";
 import { useDirectory } from "@/features/users/api";
@@ -80,6 +81,7 @@ export function TasksPage() {
 	const [state, setState] = useState("any");
 	const [actorType, setActorType] = useState("any");
 	const [running, setRunning] = useState(false);
+	const [includePurpose, setIncludePurpose] = useState(false);
 	const nodeId = search.node ?? "any";
 	const userId = search.user;
 
@@ -88,6 +90,7 @@ export function TasksPage() {
 		actorType: actorType === "any" ? undefined : actorType,
 		nodeId: nodeId === "any" ? undefined : nodeId,
 		userId,
+		includePurpose,
 	});
 	const rows = useMemo(() => tasks.data?.pages.flatMap((page) => page.items) ?? [], [tasks.data]);
 	const users = useMemo(
@@ -164,6 +167,15 @@ export function TasksPage() {
 					options={actorTypes}
 				/>
 				<FilterSelect id="task-filter-node" label={t`Node`} value={nodeId} onChange={setNode} options={nodeOptions} />
+				<label className="flex items-center gap-2 pb-1.5 text-sm" htmlFor="task-filter-purpose">
+					<Checkbox
+						id="task-filter-purpose"
+						checked={includePurpose}
+						onCheckedChange={(next) => setIncludePurpose(next === true)}
+						data-testid="task-filter-purpose"
+					/>
+					<Trans>Include file browsing</Trans>
+				</label>
 				{userId !== undefined && (
 					<div className="flex items-center gap-1 pb-1" data-testid="user-filter">
 						<span className="text-sm text-muted-foreground">{t`User: ${userName}`}</span>

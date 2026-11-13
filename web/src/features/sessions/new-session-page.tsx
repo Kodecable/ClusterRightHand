@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/session";
 import { readStorage, writeStorage } from "@/lib/storage";
 import { supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
 import { insertSessionIntoListCaches, useCreateSession } from "./api";
+import { AttachmentChips, AttachmentMenu, AttachmentPickerDialog, useComposerAttachments } from "./attachments";
 import { ComposerFooter, type ComposerFooterState } from "./composer-footer";
 import { ComposerShell, handleComposerKey, UnknownCommandHint, useTextareaAutosize } from "./composer-input";
 import { isUnknownSlashCommand, parseSlashCommand } from "./slash-commands";
@@ -65,6 +66,8 @@ export function NewSessionPage() {
 	const [budgetRemaining, setBudgetRemaining] = useState<number | null>(null);
 	const [text, setText] = useState("");
 	const [sendError, setSendError] = useState<string>();
+	const attachments = useComposerAttachments(auth.user?.username);
+	const [pickerOpen, setPickerOpen] = useState(false);
 	// One id for the draft's lifetime: a retry after a lost response returns the session the first
 	// attempt made instead of creating a second one.
 	const [requestId] = useState(() => crypto.randomUUID());
@@ -91,7 +94,13 @@ export function NewSessionPage() {
 	// sent; the hint says why rather than silently posting it as a message.
 	const compactUnavailable = parsedCommand?.command.name === "compact";
 	const unknownCommand = isUnknownSlashCommand(text);
-	const canSend = chosen !== undefined && text.trim() !== "" && !create.isPending && !compactUnavailable;
+	const canSend =
+		chosen !== undefined &&
+		text.trim() !== "" &&
+		!create.isPending &&
+		!compactUnavailable &&
+		!attachments.busy &&
+		attachments.failures === 0;
 
 	const submit = async () => {
 		if (compactUnavailable) {
@@ -105,6 +114,7 @@ export function NewSessionPage() {
 			const session = await create.mutateAsync({
 				requestId,
 				message: value,
+				...(attachments.sendable.length > 0 ? { attachments: attachments.sendable } : {}),
 				model: withThinkingLevel(chosen, thinkingLevel),
 				rulePreset,
 				budgetRemaining,
@@ -167,7 +177,12 @@ export function NewSessionPage() {
 					</h1>
 				</div>
 			</div>
-			<ComposerShell inputId="new-session-input" onSubmit={() => void submit()}>
+			<ComposerShell
+				inputId="new-session-input"
+				onSubmit={() => void submit()}
+				onDropFiles={auth.user === null ? undefined : attachments.addFiles}
+			>
+				<AttachmentChips attachments={attachments} />
 				<Textarea
 					ref={textareaRef}
 					id="new-session-input"
@@ -178,6 +193,12 @@ export function NewSessionPage() {
 					style={{ maxHeight: "50vh", fieldSizing: "fixed" }}
 					placeholder={t`Ask the agent to do something. Enter sends, Shift+Enter adds a line.`}
 					onKeyDown={(event) => handleComposerKey(event, () => void submit())}
+					onPaste={(event) => {
+						const files = [...event.clipboardData.files];
+						if (files.length === 0) return;
+						event.preventDefault();
+						attachments.addFiles(files);
+					}}
 					onChange={(event) => {
 						// Editing does not start a new request id: the draft's id lasts until the session exists.
 						setText(event.target.value);
@@ -209,9 +230,15 @@ export function NewSessionPage() {
 						sendDisabled={!canSend}
 						onStop={() => {}}
 						stopPending={false}
+						attach={<AttachmentMenu attachments={attachments} onChooseLibrary={() => setPickerOpen(true)} />}
 					/>
 				</div>
 			</ComposerShell>
+			<AttachmentPickerDialog
+				open={pickerOpen}
+				onOpenChange={setPickerOpen}
+				onSelect={(files) => attachments.addLibraryFiles(files)}
+			/>
 		</div>
 	);
 }

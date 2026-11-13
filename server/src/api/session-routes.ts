@@ -19,6 +19,7 @@ import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
+import { type AttachmentLimits, attachmentContent, resolveAttachments } from "../sessions/attachments.ts";
 import { rootSessionIdOf } from "../sessions/session-chain.ts";
 import {
 	capabilitiesFor,
@@ -29,9 +30,12 @@ import {
 	shareSession,
 	unshareSession,
 } from "../sessions/sharing.ts";
+import type { SettingsStore } from "../settings/settings.ts";
+import { DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES, DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { usernamesById } from "../users/service.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "../util/cursor.ts";
+import { UserError } from "../util/errors.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import type { SessionStreams } from "./session-events-routes.ts";
 
@@ -43,6 +47,8 @@ export interface SessionRoutesOptions {
 	streams: SessionStreams;
 	/** Tells the scheduler when a scheduled run's root quota was denied, so the run ends failed (doc/design/scheduling.md). */
 	scheduler?: Scheduler;
+	/** The attachment inline limits; the defaults apply without a store (tests). */
+	settings?: SettingsStore;
 }
 
 /**
@@ -96,6 +102,31 @@ export function refuseWhenClosing(runtime: AgentRuntime): MiddlewareHandler<AppE
 export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	const { runtime, streams } = options;
 	const app = new Hono<AppEnv>();
+
+	const attachmentLimits = (): AttachmentLimits => {
+		const configured = options.settings?.current().attachments;
+		return {
+			inlineTextBytes: configured?.inlineTextBytes ?? DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES,
+			inlineTotalBytes: configured?.inlineTotalBytes ?? DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES,
+		};
+	};
+
+	/** The attachment list of a request body; anything but `[{ library, path }]` is a 400. */
+	const parseAttachments = (body: Record<string, unknown> | undefined): { library: string; path: string }[] => {
+		const value = body?.attachments;
+		if (value === undefined) return [];
+		if (!Array.isArray(value)) throw new UserError("attachments must be an array", "invalid_argument");
+		return value.map((item) => {
+			if (typeof item !== "object" || item === null) {
+				throw new UserError("each attachment needs a library and a path", "invalid_argument");
+			}
+			const record = item as Record<string, unknown>;
+			if (typeof record.library !== "string" || typeof record.path !== "string") {
+				throw new UserError("each attachment needs a library and a path", "invalid_argument");
+			}
+			return { library: record.library, path: record.path };
+		});
+	};
 
 	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (view unless shared chat) ----
 
@@ -225,6 +256,11 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		if (message === "") return jsonError(c, 400, "message is required");
 		// Any level may have a remaining budget; null (or no field) is unlimited and never charged.
 		const budgetRemaining = body.budgetRemaining === undefined ? undefined : parseQuota(body.budgetRemaining);
+		const inputs = parseAttachments(body);
+		const resolved =
+			inputs.length === 0
+				? undefined
+				: await resolveAttachments(db, options.cluster.libraryBackend, c.get("user"), inputs, attachmentLimits());
 		const { session, created } = await runtime.createSessionWithMessage(c.get("user"), {
 			requestId,
 			message,
@@ -232,6 +268,12 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
 			...(typeof body.title === "string" ? { title: body.title } : {}),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
+			...(resolved
+				? {
+						content: attachmentContent(message, resolved.blocks),
+						attachments: resolved.attachments,
+					}
+				: {}),
 		});
 		return c.json({ session: (await decorate(c, [session]))[0] }, created ? 201 : 200);
 	});
@@ -430,7 +472,21 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const requestId = typeof body?.requestId === "string" && body.requestId ? body.requestId.slice(0, 200) : undefined;
 		if (!text) return jsonError(c, 400, "text is required");
 		if (!requestId) return jsonError(c, 400, "requestId is required");
-		const submissionId = await runtime.submit(v.session.id, c.get("user"), text, requestId);
+		const inputs = parseAttachments(body ?? undefined);
+		if (inputs.length > 0 && v.session.ownerUserId !== c.get("user").userId) {
+			return jsonError(c, 403, "only the session owner can attach files");
+		}
+		const resolved =
+			inputs.length === 0
+				? undefined
+				: await resolveAttachments(db, options.cluster.libraryBackend, c.get("user"), inputs, attachmentLimits());
+		const submissionId = await runtime.submit(
+			v.session.id,
+			c.get("user"),
+			text,
+			requestId,
+			resolved ? { content: attachmentContent(text, resolved.blocks), attachments: resolved.attachments } : {},
+		);
 		return c.json({ submissionId }, 202);
 	});
 

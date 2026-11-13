@@ -542,12 +542,26 @@ func AuthorizationID(payload []byte) [32]byte {
 
 // SpecSHA256 is SHA-256 of the canonical CBOR encoding of spec. It is the value an exact
 // authorization pins in spec_sha256.
+//
+// A file.push/file.pull endpoint is crhs-side routing, so its transfer id is left out: every member of
+// a copy task group then hashes like the group's spec and one authorization covers them all.
 func SpecSHA256(spec *TaskSpec) ([32]byte, error) {
 	var zero [32]byte
 	if spec == nil {
 		return zero, errors.New("protocol: nil task spec")
 	}
-	encoded, err := Marshal(spec)
+	canonical := *spec
+	if spec.FilePush != nil {
+		push := *spec.FilePush
+		push.Endpoint.TransferID = ""
+		canonical.FilePush = &push
+	}
+	if spec.FilePull != nil {
+		pull := *spec.FilePull
+		pull.Endpoint.TransferID = ""
+		canonical.FilePull = &pull
+	}
+	encoded, err := Marshal(&canonical)
 	if err != nil {
 		return zero, fmt.Errorf("protocol: encode task spec: %w", err)
 	}

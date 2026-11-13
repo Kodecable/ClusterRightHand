@@ -24,6 +24,25 @@ const RESTART: TaskSpec = {
 };
 const READ_SHADOW: TaskSpec = { kind: "file.read", path: "/etc/shadow", startLine: 1, lineCount: 100 };
 
+const push = (transferId: string, size = 5): TaskSpec => ({
+	kind: "file.push",
+	path: "/srv/copy.bin",
+	size,
+	sha256: new Uint8Array(32).fill(7),
+	overwrite: false,
+	mode: 0o644,
+	owner: "",
+	group: "",
+	endpoint: { kind: "crhs", transferId },
+});
+
+describe("spec hash", () => {
+	it("leaves a transfer endpoint out, so copy-group members hash like their group", () => {
+		expect(Buffer.from(specSha256(push("member-a")))).toEqual(Buffer.from(specSha256(push("member-b"))));
+		expect(Buffer.from(specSha256(push("member-a", 6)))).not.toEqual(Buffer.from(specSha256(push("member-a"))));
+	});
+});
+
 const KEY_LINE = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGZzY2tleQ== generated";
 const SK_KEY_LINE = "sk-ssh-ed25519@openssh.com AAAAC3NzaC1lZDI1NTE5AAAAIHNrY3Jocw== generated";
 

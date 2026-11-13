@@ -1,8 +1,10 @@
+import type { ChatAttachment } from "@crh/api";
 import { type Context, withAbortSignal } from "@earendil-works/chord/context";
 import {
 	type CompactionResult,
 	SessionFailed,
 	type Submission,
+	type SubmissionDraft,
 	type SubmissionId,
 	type TaskId,
 } from "@earendil-works/pi-durable";
@@ -31,9 +33,10 @@ export async function submit(
 	by: SessionUser,
 	text: string,
 	requestId: string,
+	options: { content?: { type: "text"; text: string }[]; attachments?: ChatAttachment[] } = {},
 ): Promise<string> {
 	// A user driving a session shared with them still acts on behalf of its owner (doc/design/access-control.md).
-	return submitInput(host, sessionId, text, requestId, { type: "user", id: by.userId });
+	return submitInput(host, sessionId, text, requestId, { type: "user", id: by.userId }, true, options);
 }
 
 /** How long a manual compaction waits for durable to say whether it has an old history to summarize. */
@@ -199,6 +202,7 @@ async function submitInput(
 	requestId: string,
 	actor: { type: string; id: string },
 	checkQuota = true,
+	options: { content?: { type: "text"; text: string }[]; attachments?: ChatAttachment[] } = {},
 ): Promise<string> {
 	const { row, conversation } = await loadConversation(host, sessionId);
 	if (row.status !== "active") throw new UserError("the session is archived");
@@ -212,7 +216,19 @@ async function submitInput(
 			);
 		}
 	}
-	const submission = await conversation.submit({ type: "input", content: text, requestId }, host.context);
+	// With attachments the input is a crh entry whose data the transcript reads; without them it stays a
+	// plain pi.user entry, so existing sessions render as before (doc/design/library.md "Chat attachments").
+	const draft =
+		options.attachments !== undefined && options.attachments.length > 0
+			? {
+					type: "input" as const,
+					content: options.content ?? text,
+					entry: { kind: "crh.user_input", data: { attachments: options.attachments } },
+					requestId,
+				}
+			: { type: "input" as const, content: text, requestId };
+	// The entry's data is a plain JSON object; TypeScript only wants the index signature spelled out.
+	const submission = await conversation.submit(draft as unknown as SubmissionDraft, host.context);
 	await recordInput(host, sessionId, submission);
 	void host.audit?.record({
 		actor: { ...actor, onBehalfOfUserId: row.owner_user_id },

@@ -1,5 +1,5 @@
 import type { Operation, RefMap } from "@crh/api";
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { NodeTargetList } from "@/components/node-targets";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,7 @@ export function DecisionSummary({
 	refs,
 	nodeNames,
 	operation,
+	purpose,
 	className,
 }: {
 	/** Target ids: one node for a task, the stored targets for a task group. */
@@ -31,8 +32,12 @@ export function DecisionSummary({
 	nodeNames?: Map<string, string>;
 	/** The full operation line; it is truncated with its text in `title`. */
 	operation: string;
+	/** Why a dedicated feature created it, such as `browse` for the node file manager. */
+	purpose?: string | null;
 	className?: string;
 }) {
+	const { t } = useLingui();
+	const purposeLabel = purpose === "browse" ? t`File browsing` : purpose;
 	return (
 		<div data-slot="decision-summary" className={cn("grid min-w-0 gap-1", className)}>
 			<p className="min-w-0 text-xs break-words text-muted-foreground [overflow-wrap:anywhere]">
@@ -40,6 +45,11 @@ export function DecisionSummary({
 				{": "}
 				<NodeTargetList ids={ids} refs={refs} nodeNames={nodeNames} className="min-w-0" />
 			</p>
+			{purposeLabel !== null && purposeLabel !== undefined && purposeLabel !== "" && (
+				<p className="text-xs text-muted-foreground" data-testid="decision-purpose">
+					<Trans>Purpose</Trans>: {purposeLabel}
+				</p>
+			)}
 			<code
 				data-testid="decision-operation"
 				title={operation}

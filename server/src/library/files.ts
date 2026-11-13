@@ -11,20 +11,25 @@ import type { LibraryFile, LibraryLimitsPatch } from "@crh/api";
 import { type Selectable, sql } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { LibrariesTable, LibraryFilesTable } from "../storage/schema.ts";
-import { NotFoundError, UserError } from "../util/errors.ts";
+import { isUniqueViolation, NotFoundError, UserError } from "../util/errors.ts";
 import { escapeLike } from "../util/list-query.ts";
 import type { LibraryBackend } from "./backend.ts";
 import { newObjectKey } from "./backend.ts";
 import type { LibraryRecord } from "./library.ts";
 import { findLibraryById } from "./library.ts";
 import { MediaProbe } from "./media-type.ts";
-import { validateLibraryPath, validateLibraryPrefix } from "./paths.ts";
+import { numberedLibraryPath, validateLibraryPath, validateLibraryPrefix } from "./paths.ts";
 
 export type LibraryFileRow = Selectable<LibraryFilesTable>;
 export type LibraryRow = Selectable<LibrariesTable>;
 
 /** The largest a library limit may be, matching the database's 32-bit integer column. */
 const MAX_LIMIT = 2_147_483_647;
+/** How many `name (n)` candidates an upload with `rename` tries before giving up. */
+const MAX_RENAME_ATTEMPTS = 1000;
+
+/** The candidate path of an upload that must not replace an existing file was taken; try the next one. */
+class PathTaken extends Error {}
 
 export function toLibraryFile(row: LibraryFileRow): LibraryFile {
 	return {
@@ -80,6 +85,11 @@ export interface LibraryUploadOptions {
 	library: LibraryRow;
 	path: string;
 	overwrite: boolean;
+	/**
+	 * Pick `name (n)` (the number before the first dot of the base name) when the path is taken, inside
+	 * the commit, retrying on a concurrent insert (doc/design/library.md "Chat attachments").
+	 */
+	rename?: boolean;
 	createdBy: string | null;
 }
 
@@ -96,7 +106,9 @@ export interface LibraryUpload {
 
 /** Starts writing a new object for `path`; nothing is visible in the library until `commit()`. */
 export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: LibraryUploadOptions): LibraryUpload {
-	const { library, overwrite, createdBy } = options;
+	const { library, createdBy, rename } = options;
+	// `rename` never replaces: an existing path just moves to the next numbered name.
+	const overwrite = options.overwrite && !rename;
 	const path = validateLibraryPath(options.path);
 	const key = newObjectKey();
 	const stream = new PassThrough();
@@ -131,79 +143,91 @@ export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: Lib
 				throw new UserError(`the upload wrote ${size} bytes but the backend stored ${actual.size}`);
 			}
 			const mediaType = probe.finish();
-			const result = await db.transaction().execute(async (trx) => {
-				const existing = await trx
-					.selectFrom("library_files")
-					.select(["size", "backend", "object_key"])
-					.where("library_id", "=", library.id)
-					.where("path", "=", path)
-					.executeTakeFirst();
-				if (existing && !overwrite) {
-					throw new UserError(`a file already exists at ${path}`);
+			for (let attempt = 0; attempt < (rename ? MAX_RENAME_ATTEMPTS : 1); attempt++) {
+				const target = attempt === 0 ? path : numberedLibraryPath(path, attempt);
+				try {
+					const result = await db.transaction().execute(async (trx) => {
+						const existing = await trx
+							.selectFrom("library_files")
+							.select(["size", "backend", "object_key"])
+							.where("library_id", "=", library.id)
+							.where("path", "=", target)
+							.executeTakeFirst();
+						if (existing && !overwrite) {
+							// A rename moves on to the next candidate; without one the upload is refused.
+							if (rename) throw new PathTaken();
+							throw new UserError(`a file already exists at ${target}`);
+						}
+						const fileDelta = existing ? 0 : 1;
+						const byteDelta = actual.size - (existing?.size ?? 0);
+						const updated = await trx
+							.updateTable("libraries")
+							.set({
+								used_files: sql<number>`used_files + ${fileDelta}`,
+								used_bytes: sql<number>`used_bytes + ${byteDelta}`,
+							})
+							.where("id", "=", library.id)
+							.where(sql<boolean>`used_files + ${fileDelta} <= max_files`)
+							.where(sql<boolean>`used_bytes + ${byteDelta} <= max_total_bytes`)
+							.executeTakeFirst();
+						if (updated.numUpdatedRows === 0n) throw await limitError(trx, library.id, fileDelta, byteDelta);
+						const now = new Date().toISOString();
+						if (existing) {
+							await trx
+								.updateTable("library_files")
+								.set({
+									size: actual.size,
+									sha256: actual.sha256,
+									media_type: mediaType,
+									backend: backend.kind,
+									object_key: key,
+									updated_at: now,
+								})
+								.where("library_id", "=", library.id)
+								.where("path", "=", target)
+								.execute();
+						} else {
+							await trx
+								.insertInto("library_files")
+								.values({
+									library_id: library.id,
+									path: target,
+									size: actual.size,
+									sha256: actual.sha256,
+									media_type: mediaType,
+									backend: backend.kind,
+									object_key: key,
+									created_by: createdBy,
+									created_at: now,
+									updated_at: now,
+								})
+								.execute();
+						}
+						const row = await trx
+							.selectFrom("library_files")
+							.selectAll()
+							.where("library_id", "=", library.id)
+							.where("path", "=", target)
+							.executeTakeFirstOrThrow();
+						return {
+							file: toLibraryFile(row),
+							oldObjectKey: existing?.backend === backend.kind ? existing.object_key : undefined,
+						};
+					});
+					committed = true;
+					if (result.oldObjectKey !== undefined && result.oldObjectKey !== key) {
+						await backend.delete(result.oldObjectKey).catch((err: unknown) => {
+							console.error("library: deleting the replaced object failed:", err);
+						});
+					}
+					return result;
+				} catch (err) {
+					// A concurrent upload took this name between the read and the insert: take the next one.
+					if (err instanceof PathTaken || (rename && isUniqueViolation(err))) continue;
+					throw err;
 				}
-				const fileDelta = existing ? 0 : 1;
-				const byteDelta = actual.size - (existing?.size ?? 0);
-				const updated = await trx
-					.updateTable("libraries")
-					.set({
-						used_files: sql<number>`used_files + ${fileDelta}`,
-						used_bytes: sql<number>`used_bytes + ${byteDelta}`,
-					})
-					.where("id", "=", library.id)
-					.where(sql<boolean>`used_files + ${fileDelta} <= max_files`)
-					.where(sql<boolean>`used_bytes + ${byteDelta} <= max_total_bytes`)
-					.executeTakeFirst();
-				if (updated.numUpdatedRows === 0n) throw await limitError(trx, library.id, fileDelta, byteDelta);
-				const now = new Date().toISOString();
-				if (existing) {
-					await trx
-						.updateTable("library_files")
-						.set({
-							size: actual.size,
-							sha256: actual.sha256,
-							media_type: mediaType,
-							backend: backend.kind,
-							object_key: key,
-							updated_at: now,
-						})
-						.where("library_id", "=", library.id)
-						.where("path", "=", path)
-						.execute();
-				} else {
-					await trx
-						.insertInto("library_files")
-						.values({
-							library_id: library.id,
-							path,
-							size: actual.size,
-							sha256: actual.sha256,
-							media_type: mediaType,
-							backend: backend.kind,
-							object_key: key,
-							created_by: createdBy,
-							created_at: now,
-							updated_at: now,
-						})
-						.execute();
-				}
-				const row = await trx
-					.selectFrom("library_files")
-					.selectAll()
-					.where("library_id", "=", library.id)
-					.where("path", "=", path)
-					.executeTakeFirstOrThrow();
-				return {
-					file: toLibraryFile(row),
-					oldObjectKey: existing?.backend === backend.kind ? existing.object_key : undefined,
-				};
-			});
-			committed = true;
-			if (result.oldObjectKey !== undefined && result.oldObjectKey !== key) {
-				await backend.delete(result.oldObjectKey).catch((err: unknown) => {
-					console.error("library: deleting the replaced object failed:", err);
-				});
 			}
-			return result;
+			throw new UserError(`too many files named like ${path}`);
 		},
 		async discard() {
 			if (committed || discarded) return;
@@ -363,4 +387,40 @@ export async function libraryForTransfer(db: Db, libraryId: string): Promise<Lib
 	const record = await findLibraryById(db, libraryId);
 	if (!record) throw new NotFoundError("no such library");
 	return record;
+}
+
+/**
+ * Copies a library file inside the backend (doc/design/library.md "Copies"): one get and one put, no task.
+ * The destination's one-file limit is checked while streaming and its count and total limits at commit;
+ * the source may be in another library.
+ */
+export async function copyLibraryFile(
+	db: Db,
+	backend: LibraryBackend,
+	sourceLibraryId: string,
+	sourcePath: string,
+	destination: { libraryId: string; library: LibraryRow },
+	destinationPath: string,
+	overwrite: boolean,
+	createdBy: string | null,
+): Promise<LibraryFile> {
+	const source = await findLibraryFile(db, sourceLibraryId, sourcePath);
+	if (!source) throw new NotFoundError("no such library file");
+	const path = validateLibraryPath(destinationPath);
+	if (sourceLibraryId === destination.libraryId && source.path === path) return toLibraryFile(source);
+	const upload = beginLibraryUpload(db, backend, {
+		library: destination.library,
+		path,
+		overwrite,
+		createdBy,
+	});
+	try {
+		for await (const chunk of backend.get(source.object_key)) await upload.write(chunk as Uint8Array);
+		await upload.finish();
+		const { file } = await upload.commit();
+		return file;
+	} catch (err) {
+		await upload.discard();
+		throw err;
+	}
 }

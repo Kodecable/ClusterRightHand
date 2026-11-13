@@ -58,6 +58,7 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined): Tas
 		rootSessionId: row.root_session_id,
 		handlerType: row.handler_type,
 		handlerSessionId: row.handler_session_id,
+		purpose: row.purpose,
 	};
 }
 

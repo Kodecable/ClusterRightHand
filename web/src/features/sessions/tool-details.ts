@@ -30,3 +30,54 @@ export function prettyJson(text: string): { pretty: string; value: JsonObject | 
 		return undefined;
 	}
 }
+
+/** The structured image of a `view_image` result (doc/design/library.md "view_image"). */
+export interface ViewImageDetails {
+	sha256: string;
+	mime: string;
+	width: number;
+	height: number;
+	bytes: number;
+	source: { library: string; path: string } | { node: string; path: string };
+}
+
+export function viewImageDetails(details: Json | undefined): ViewImageDetails | undefined {
+	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
+	const image = details.image;
+	if (typeof image !== "object" || image === null || Array.isArray(image)) return undefined;
+	const record = image as Record<string, unknown>;
+	if (
+		typeof record.sha256 !== "string" ||
+		typeof record.mime !== "string" ||
+		typeof record.width !== "number" ||
+		typeof record.height !== "number" ||
+		typeof record.bytes !== "number"
+	) {
+		return undefined;
+	}
+	const source = record.source;
+	if (typeof source !== "object" || source === null || Array.isArray(source)) return undefined;
+	const where = source as Record<string, unknown>;
+	if (typeof where.path !== "string") return undefined;
+	if (typeof where.library === "string") {
+		return {
+			sha256: record.sha256,
+			mime: record.mime,
+			width: record.width,
+			height: record.height,
+			bytes: record.bytes,
+			source: { library: where.library, path: where.path },
+		};
+	}
+	if (typeof where.node === "string") {
+		return {
+			sha256: record.sha256,
+			mime: record.mime,
+			width: record.width,
+			height: record.height,
+			bytes: record.bytes,
+			source: { node: where.node, path: where.path },
+		};
+	}
+	return undefined;
+}

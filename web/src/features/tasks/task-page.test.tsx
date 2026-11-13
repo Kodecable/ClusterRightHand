@@ -90,6 +90,7 @@ const GROUP_TASK = {
 	rootSessionId: null,
 	handlerType: null,
 	handlerSessionId: null,
+	purpose: null,
 } as TaskView;
 
 const GROUP = {
@@ -122,6 +123,7 @@ const GROUP = {
 	rootSessionId: null,
 	handlerType: null,
 	handlerSessionId: null,
+	purpose: null,
 } as TaskGroupView;
 
 /** Answers a successful task-group read plus the page's auxiliary lookups. */

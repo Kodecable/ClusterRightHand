@@ -135,7 +135,7 @@ const ROW_INTERACTIVE_SELECTOR =
  * (doc/design/webui.md "List navigation, links and refresh").
  */
 const ROW_LINK_CLASS =
-	"block min-w-0 rounded-sm text-left text-inherit no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
+	"block min-w-0 cursor-pointer rounded-sm text-left text-inherit no-underline outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
 
 /** Whether the user has selected text; a click that ends a selection must not navigate. */
 function hasTextSelection(): boolean {

@@ -4,6 +4,7 @@ import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { PageSkeleton } from "@/components/skeletons";
 import { useSystemSettings } from "./api";
+import { AttachmentsSection, ImageCacheSection } from "./attachments-section";
 import { GeneralSection } from "./general-section";
 import { LibraryDefaultsSection } from "./library-section";
 import { PasskeysSection } from "./passkeys-section";
@@ -47,6 +48,8 @@ export function SystemSettingsPage() {
 			<PasskeysSection settings={settings.data.settings} defaults={settings.data.defaults} />
 			<RetentionSection settings={settings.data.settings} defaults={settings.data.defaults} />
 			<LibraryDefaultsSection settings={settings.data.settings} defaults={settings.data.defaults} />
+			<AttachmentsSection settings={settings.data.settings} />
+			<ImageCacheSection settings={settings.data.settings} />
 			<SigningKeysSection />
 		</Page>
 	);

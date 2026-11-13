@@ -121,4 +121,41 @@ describePodman("privileged system: file plane on an unprivileged node", () => {
 		expect(done.errorCode).toBe("input_mismatch");
 		expect((await node.exec(["/usr/bin/test", "-e", path])).code).not.toBe(0);
 	}, 60_000);
+
+	it("copies one staged file to two nodes as one task group and deletes the staging file", async () => {
+		const other = await PrivilegedNode.create({ bin, crhs, mode: "ignore", trust: [] });
+		try {
+			const content = Buffer.from("group copy content\n");
+			const path = "/tmp/crh-plane-group-copy.txt";
+			const location = await crhs.cluster.stageBytesForPush(content);
+			const groupId = await crhs.taskGroups.create({
+				targets: [node.nodeId, other.nodeId],
+				nodeIds: [node.nodeId, other.nodeId],
+				spec: {
+					kind: "file.push",
+					path,
+					size: content.length,
+					sha256: Uint8Array.from(Buffer.from(sha256Hex(content), "hex")),
+					overwrite: false,
+					mode: 0,
+					owner: "",
+					group: "",
+					endpoint: { kind: "crhs", transferId: "" },
+				},
+				transferLocation: location,
+				actor: actor(),
+			});
+			const group = await crhs.taskGroups.wait(groupId, 120_000);
+			expect(group?.state).toBe("finished");
+			expect(group?.tasks.map((task) => task.state)).toEqual(["exited", "exited"]);
+			for (const target of [node, other]) {
+				const read = await target.exec(["/bin/cat", path]);
+				expect(read.stdout).toBe(content.toString());
+				expect(read.code).toBe(0);
+			}
+			await expect(readFile(join(transferRoot, location.path))).rejects.toThrow();
+		} finally {
+			await other.destroy();
+		}
+	}, 180_000);
 });

@@ -90,7 +90,9 @@ export function libraryRoutes(db: Db, options: LibraryRoutesOptions = {}) {
 		const record = await requireLibrary(db, c.get("user"), c.req.param("ref"));
 		const path = requiredPath(c.req.query("path"));
 		const overwrite = c.req.query("overwrite") === "1";
-		const existing = await findLibraryFile(db, record.row.id, path);
+		// `rename` picks the next free `name (n)` inside the commit instead of replacing or refusing.
+		const rename = c.req.query("rename") === "1";
+		const existing = rename ? undefined : await findLibraryFile(db, record.row.id, path);
 		const lengthHeader = c.req.header("content-length");
 		if (lengthHeader !== undefined) {
 			const length = Number(lengthHeader);
@@ -107,6 +109,7 @@ export function libraryRoutes(db: Db, options: LibraryRoutesOptions = {}) {
 			library: record.row,
 			path,
 			overwrite,
+			rename,
 			createdBy: c.get("user").userId,
 		});
 		let file: LibraryFile;

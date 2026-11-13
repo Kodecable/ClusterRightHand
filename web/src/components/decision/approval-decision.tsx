@@ -170,6 +170,7 @@ export function ApprovalDecision({
 					refs={item.kind === "task_group" ? item.taskGroup.refs : undefined}
 					nodeNames={nodeNames}
 					operation={operationText(subject.kind, subject.operation, subject.summary)}
+					purpose={item.kind === "task_group" ? item.taskGroup.purpose : item.task.purpose}
 				/>
 			}
 			details={details}

@@ -49,6 +49,8 @@ export interface TaskListQuery extends CursorQuery {
 	nodeId?: string;
 	/** Tasks whose requesting user (`onBehalfOfUserId`, the "By" column) is this user. */
 	userId?: string;
+	/** Include tasks a dedicated feature created, such as node file browsing (doc/design/execution.md "Task purpose"). */
+	includePurpose?: boolean;
 }
 
 export interface TaskView {
@@ -105,6 +107,8 @@ export interface TaskView {
 	/** Who handles a waiting approval; null when it is not waiting. */
 	handlerType: "agent" | "user" | null;
 	handlerSessionId: string | null;
+	/** Why a dedicated feature created this task, such as `browse`; null for ordinary work (doc/design/execution.md "Task purpose"). */
+	purpose: string | null;
 }
 
 export interface TaskGroupView {
@@ -143,6 +147,8 @@ export interface TaskGroupView {
 	/** Who handles a waiting approval; null when it is not waiting. */
 	handlerType: "agent" | "user" | null;
 	handlerSessionId: string | null;
+	/** Why a dedicated feature created this group; null for ordinary work (doc/design/execution.md "Task purpose"). */
+	purpose: string | null;
 }
 
 /** Body of `POST /nodes/:id/tasks` and `POST /task-groups`: `kind` plus the kind's fields. */
