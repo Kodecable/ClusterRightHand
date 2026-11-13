@@ -16,7 +16,7 @@ technology choices, the deliberate extension points and the known limitations.
 │   ─────────── Cluster API: the only way to run anything ───── │
 │   Cluster core: nodes, tasks, rules, approvals, signing, audit│
 │   transports: crha (CRH protocol) · SSH                       │
-│   storage: SQLite or PostgreSQL                               │
+│   storage: SQLite or PostgreSQL · libraries: local or WebDAV  │
 └─────────┬────────────────────────────────────┬────────────────┘
           │ CRH protocol over WSS (crha dials) │ SSH
    crha unprivileged mode ── unix socket ── crha privileged mode (no network)
@@ -28,6 +28,10 @@ runs sessions on pi-durable, and the scheduler starts sessions on a timetable. B
 only through the Cluster API, which owns node registration, tasks, rules, approvals, authorization
 signing and audit. Below it, one transport talks to crha over the CRH protocol and another runs tasks
 over SSH on nodes with nothing installed.
+
+Libraries are per-user and per-group file stores on crhs; whole files move between them and nodes
+through crhs, on data connections separate from the control connection ([Libraries and file
+transfer](library.md)).
 
 On a node, crha's unprivileged mode connects to crhs and runs ordinary tasks; its optional privileged
 mode has no network access and runs only authorized tasks ([Privilege](privilege.md)).
@@ -49,7 +53,7 @@ mode has no network access and runs only authorized tasks ([Privilege](privilege
 
 ```text
 util, config.ts, version.ts, keys, storage → policy → auth → users →
-audit, settings, sessions → privilege → cluster, retention → tools → agent →
+audit, settings, sessions → library → privilege → cluster, retention → tools → agent →
 scheduler → mcp, api → setup, cli → main.ts
 ```
 
@@ -105,6 +109,7 @@ These are not implemented, but the design leaves room for them:
   ([Handshake and replay protection](protocol.md#handshake-and-replay-protection)).
 - **Audit export** to a system outside crhs for tamper evidence
   ([Tamper resistance](access-control.md#tamper-resistance)).
+- **Direct transfers**: presigned S3 URLs and node-to-node copies ([Extension points](library.md#extension-points)).
 - **Signed trust bundles** for managing node trust centrally ([Extension points](privilege.md#extension-points)).
 - **OIDC login** ([Extension points: OIDC](access-control.md#extension-points-oidc)).
 - **Local crha policy**, limits in `crha.toml` that would hold even against a compromised crhs. crha

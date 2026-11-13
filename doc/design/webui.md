@@ -136,6 +136,12 @@ behaves the same on every page:
   does. Session pages, approvals deep links and task pages render the same component, so a decision
   made in one place updates the others; the rule chain or payload details stay behind a tab or a
   collapsed block, never in the default view.
+- **`FileManager`** is the only file browser. It knows nothing of libraries or nodes: it takes a
+  `FileSource` with `list` and `stat`, and optionally `download`, `upload`, `delete`, `rename` and
+  `preview`. A missing operation hides its action. Paths are browsed with a breadcrumb, and directories
+  list before files. Previews are images only (PNG, JPEG, GIF, WebP up to 20 MiB), loaded when opened;
+  lists show no thumbnails. **`FilePickerDialog`** is the same component in selection mode (single or
+  multiple files) over any source.
 
 ## Pages
 
@@ -155,10 +161,29 @@ list can be filtered by node and by user through the URL, so other pages link to
 (**View all tasks**) instead of paging through tasks themselves; their recent lists show only the
 newest ten.
 
+The list hides tasks that have a `purpose` ([Task purpose](execution.md#task-purpose)), such as file
+browsing, unless the filter includes them. `file.push` and `file.pull` tasks and their approvals show
+the direction, both ends (a library end links to the file), the size and a copyable SHA-256; content is
+never previewed.
+
 ### User and user group pages
 
 Only administrators manage users. A member can open only their own user page. Group membership and
 node access are edited on the user, user group or node group page, not in lists.
+
+Both pages have a library section with the usage, the three limits, an administrator's **Edit limits**
+dialog and a link to the library. Deleting a group whose library is not empty is refused with the file
+count and a link to the library ([Libraries](library.md#libraries)).
+
+### Library page
+
+**Library** in the Work group of the sidebar opens `/library/$library?path=…`, so a location can be
+linked and survives a reload. A selector switches between the user's library and their groups'
+libraries; administrators can pick any user's or group's. The page is the file manager over the library,
+with a usage bar for files and total size that turns to a warning near a limit. Uploads take the
+button or a drop on the page, several at once, each with progress and cancel; a refused upload names the
+limit it hit. There are no folder objects: an upload goes to the current path, and a path with `/` in
+an upload or rename creates the directories ([Libraries](library.md)).
 
 ### Node pages
 
@@ -173,6 +198,12 @@ warning, because it is measured once per connection ([Privilege](privilege.md#cl
 
 Administrators can delete a node from its page after a confirmation that states the consequences for
 that kind of node.
+
+A **Files** tab browses the node's file system with the file manager, as the signed-in user and
+unprivileged. Each listing or stat is a `file.list` or `file.stat` task with `purpose = browse`, created
+by a dedicated endpoint that waits for the result, so rules, approvals and audit apply while the task
+list stays readable. It can show metadata and image previews; download, upload, delete and rename on
+nodes come later.
 
 ### Approvals page
 
@@ -193,7 +224,8 @@ cannot be redirected to another host without the person who knows it.
 ### System settings page
 
 Administrators edit the low-frequency runtime settings here (public URL, clock warning, retention,
-WebAuthn, login hashing and captcha, and the real-IP header), plus crhs's authorization signing keys.
+WebAuthn, login hashing and captcha, the real-IP header, the default library limits for new users and
+groups, the attachment inline limits and the image cache), plus crhs's authorization signing keys.
 Each of the four settings sections is its own form with its own **Save**, which patches only that
 section's values and stays disabled until something changed: an unrelated edit elsewhere in the page
 cannot be overwritten or submitted along with it. A save applies without a restart and is audited. The
@@ -262,6 +294,10 @@ a session that waits only for someone else keeps the normal composer and the wai
 Changes to the model, thinking level or rule preset apply from the next model request or tool call;
 the step in progress keeps its settings. A rule preset change re-checks waiting approvals at once.
 
+Only the session owner sees the **+** button, which offers **Upload files** and **Choose from
+library**; paste and drop upload too. Each attachment shows as a chip with progress and a remove button,
+and sending waits for uploads ([Chat attachments](library.md#chat-attachments)).
+
 Every send carries a request id. A retry after a lost response reuses it, so the server does not
 create the message twice.
 
@@ -284,7 +320,9 @@ its store and Markdown tree, so the text does not re-render from scratch.
 
 ### Message rendering
 
-User messages are shown as raw text. Assistant text and thinking are Markdown
+User messages are shown as raw text, with attachment chips from the entry's structured data, never
+parsed from the text ([Chat attachments](library.md#chat-attachments)). A `view_image` row shows the
+image's source, size and SHA-256, not the image. Assistant text and thinking are Markdown
 ([Markdown rendering](#markdown-rendering)). Tool calls are one-line rows that open a dialog with the
 arguments, output and result. Approval, authorization and quota waits appear in the docked decision
 panel, not in the transcript.

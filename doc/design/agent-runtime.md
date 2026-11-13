@@ -95,6 +95,7 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `node_info` | Node facts and notes |
 | `exec` | Run a command |
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
+| `copy_file`, `view_image` | Whole-file copies between nodes and libraries, and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `task_wait`, `task_cancel` | Follow or cancel an `exec` task or task group |
 
 `task_wait` and `task_cancel` reach only tasks started by this session (or its subagents) or this API

@@ -128,6 +128,10 @@ protecting anything. A grant on a node group follows the group's current members
 - A node access grant only decides whether crhs lets a task start. A `forward` node still applies its
   own trust configuration to privileged tasks.
 
+Every user and every user group has a library. A personal library is reachable only by its user, a
+group library by the group's members, and administrators reach every library without access checks. An
+agent session reaches its owner's libraries ([Libraries](library.md#libraries)).
+
 Sessions can be shared with users and user groups at two levels: `view` (read the session) and `chat`
 (also send messages and stop runs). Nodes are not shared; they are granted.
 

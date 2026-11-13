@@ -24,10 +24,13 @@ crash, creation returns the existing task instead of running the command twice.
 | `file.edit` | Replaces text segments, each of which must occur exactly once in the file. |
 | `file.stat` | Returns file metadata. |
 | `file.list` | Lists a directory, up to a limit. |
+| `file.push` | Receives a whole file from crhs and writes it atomically, like `file.write`. |
+| `file.pull` | Sends a whole regular file to crhs. |
 
 The spec and result shapes are in `packages/protocol/src/messages.ts`. File results travel in the task's
-structured result, never in the output stream. These six kinds are the whole vocabulary: there are no
-interactive (PTY) or file-transfer tasks ([Known limitations](architecture.md#known-limitations)).
+structured result, never in the output stream. `file.push` and `file.pull` move their bytes on a data
+connection ([File plane](library.md#file-plane)). These eight kinds are the whole vocabulary: there are no
+interactive (PTY) tasks ([Known limitations](architecture.md#known-limitations)).
 
 An `exec` task can have a timeout. File tasks have none and end only through cancellation. A task's
 `attempt` increases only when a privileged task is retried after an authorization refusal.
@@ -153,6 +156,15 @@ disconnects, re-planning and sweeps. Three rules keep this correct:
    returns; planning and dispatch continue in the background. A rule change records its decisions at
    once and dispatches in the background, so editing a rule never waits for an offline node's grace
    period.
+
+### Task purpose
+
+A task or task group may carry a `purpose`; ordinary tasks have none. `browse` marks the listings and
+stats of the WebUI file manager, and an interactive terminal would add `terminal`. Only the endpoints of
+that feature set it, never the task API, agent tools or MCP, so an agent cannot hide its tasks. The task
+list leaves tasks with a purpose out unless its filter includes them; rules, approvals (which name the
+purpose), audit and retention treat them like any other task. One value per task suffices: general tags,
+if ever needed, would be a separate column.
 
 ## Task groups
 

@@ -83,6 +83,7 @@ approvals and privilege.
 | [Privilege and authorization](doc/design/privilege.md)     | Privilege modes, authorizations, node trust   |
 | [Users, ownership and audit](doc/design/access-control.md) | Users, access, rules, approvals, audit        |
 | [Agent runtime](doc/design/agent-runtime.md)               | Sessions, tools, subagents, quotas            |
+| [Libraries and file transfer](doc/design/library.md)       | Libraries, file plane, attachments            |
 | [Scheduled tasks](doc/design/scheduling.md)                | Schedules                                     |
 | [Data model](doc/design/data-model.md)                     | Storage and retention                         |
 | [WebUI](doc/design/webui.md)                               | Frontend design                               |

@@ -60,7 +60,8 @@ throws is answered with a generic `internal_error`, never with its internals.
 
 A success response means the command succeeded, not that its work has finished. The common codes are
 `unsupported_command`, `node_pending` (a command not allowed on a restricted connection), `busy` and
-`internal_error`.
+`internal_error`. A `task.start` for a transfer is refused with `busy` when the node already runs one;
+the transfer itself uses `too_large` and `input_mismatch` (a size or SHA-256 mismatch) as error codes.
 
 ## Version negotiation
 
@@ -91,6 +92,9 @@ an equal `crha_version`, because crha and its privileged mode always upgrade tog
 | `task.input` | crhs → crha | One input chunk at a byte offset, after acceptance and in order. |
 | `task.cancel` | crhs → crha | Asks the node to stop a task. A cancel that arrives first is remembered, and the later start is refused. |
 | `task.query` | crhs → crha | The node's view of a task, used after a reconnect. |
+
+`file.push` and `file.pull` tasks move their bytes on a separate
+[data connection](#data-connections), never in these commands.
 
 A task has one merged output stream, and every offset counts bytes in it. `task.cancel` only
 acknowledges the signal; the result is `task.exit`. The privilege names are under
@@ -266,6 +270,33 @@ registration state: crhs pushes every change.
   place.
 - **Rejection.** crhs deletes the public key, pushes `node.status{rejected}` and closes. crha stops
   reconnecting, and `crha run` exits non-zero with the reason.
+
+## Data connections
+
+A data connection carries the bytes of one `file.push` or `file.pull` transfer
+([File plane](library.md#file-plane)). It is a separate WebSocket to its own path on the same listener,
+so a large transfer never delays the control connection. The path is the control path plus `/data`
+(`/agent/data`), and the `crh-data/0` prologue keeps the two handshakes apart.
+
+- The transport is the control connection's: WSS outside, Noise IK inside, the node's static key, and a
+  server challenge in the prologue. The prologue prefix is `"crh-data/0"`, so a data handshake can never
+  be taken for a control one, or the reverse.
+- The client payload holds `protocol_major`, the task id and the transfer id; the server payload holds
+  `protocol_major` only. A privileged `file.pull` in `forward` mode sends its chunks to the
+  unprivileged mode as `transfer.data` events over `crh-priv`, which relays them; a privileged
+  `file.push` receives its content as ordinary `task.input` chunks there. crhs accepts it only from an active node whose control connection is up and
+  which has accepted that task, and only once per transfer. Anything else closes the connection.
+- After the handshake, each Noise message is one CBOR frame: `[data, bytes]` for a chunk, `[end]` after
+  the last chunk, or `[abort, code]`. Chunks are in order, and the sender stops at `[end]` or `[abort]`.
+- The receiver verifies the total size and SHA-256 against the task (`file.push`'s spec, or `file.pull`'s
+  result) before committing. A mismatch, an abort, or 90 seconds without a frame fails the transfer.
+- Flow control is the WebSocket's: the sender waits for its buffer to drain before writing more.
+- The connection closes after `[end]` or `[abort]`. It never outlives its task, and a task cancel closes
+  it.
+
+A transfer endpoint in a task spec is a union. Today it has one variant, `[crhs, transfer_id]`: the node
+opens a data connection to crhs. Other endpoints, such as a presigned URL, will come with new negotiated
+names ([Extension points](library.md#extension-points)).
 
 ## Transport security
 

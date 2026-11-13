@@ -147,6 +147,14 @@ token measures and statistics ([Sessions](agent-runtime.md#sessions),
 Model providers store their configuration and a reference to the encrypted API key. Model presets are one
 row per kind.
 
+## Libraries
+
+`libraries` holds one row per user or user group library, with its limits and usage; `library_files`
+holds one row per file, keyed by library id and path. The bytes are objects in the library backend under
+random keys. The rows are the source of truth, and objects without a row are swept
+([Metadata and objects](library.md#metadata-and-objects)). A user group with a non-empty library cannot
+be deleted ([Libraries](library.md#libraries)).
+
 ## Scheduled tasks
 
 A schedule holds its owner, message, model, budget, timetable and next run time; its rules are a rule set.
