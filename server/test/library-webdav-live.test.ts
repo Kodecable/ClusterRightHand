@@ -9,7 +9,6 @@ import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { createLibraryBackend, type LibraryBackend, newObjectKey, putBytes } from "../src/library/backend.ts";
 import { beginLibraryUpload, deleteLibraryFile, findLibraryFile, moveLibraryFile } from "../src/library/files.ts";
-import { ImageCache } from "../src/library/image-cache.ts";
 import { findLibraryByRef, type LibraryRecord } from "../src/library/library.ts";
 import { sweepLibraryOrphans } from "../src/library/sweep.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -66,7 +65,6 @@ describe.skipIf(liveUrl === undefined)("WebDAV library backend (live)", () => {
 
 	const emptyCollection = async (): Promise<void> => {
 		for await (const object of backend.list()) await backend.delete(object.key);
-		for await (const object of backend.listCache()) await backend.deleteCache(object.key);
 	};
 
 	beforeAll(async () => {
@@ -146,27 +144,6 @@ describe.skipIf(liveUrl === undefined)("WebDAV library backend (live)", () => {
 		expect(await sweepLibraryOrphans(db, backend, Date.now() + 1, 0)).toBe(1);
 		await expect(readAll(backend.get(orphan))).rejects.toThrow();
 		expect(await readAll(backend.get(keptRow.object_key))).toEqual(kept);
-	});
-
-	it("puts, gets and evicts images in the cache area", async () => {
-		const limits = { memoryBytes: 1024 * 1024, diskBytes: 1024 * 1024, ttlMs: 7 * 24 * 60 * 60 * 1000 };
-		const cache = new ImageCache(db, backend, () => limits);
-		const one = Buffer.from("image one");
-		const two = Buffer.from("image two");
-		const oneSha = sha256Hex(one);
-		const twoSha = sha256Hex(two);
-		await cache.put(oneSha, "image/png", one);
-		await cache.put(twoSha, "image/png", two);
-
-		// A fresh instance has an empty memory tier, so this reads the cache area through the backend.
-		const reopened = new ImageCache(db, backend, () => limits);
-		expect(await reopened.get(oneSha)).toMatchObject({ mime: "image/png", bytes: one });
-
-		limits.diskBytes = one.length;
-		await cache.sweep();
-		expect(await reopened.get(twoSha)).toBeUndefined();
-		await expect(readAll(backend.getCache(twoSha))).rejects.toThrow();
-		expect(await readAll(backend.getCache(oneSha))).toEqual(one);
 	});
 
 	it("pushes a library file to a node and pulls a node file into the library", async () => {

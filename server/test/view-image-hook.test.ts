@@ -47,7 +47,7 @@ const faux = fauxProvider({
 	],
 });
 
-const cacheLimits = () => ({ memoryBytes: 1 << 20, diskBytes: 1 << 20, ttlMs: 60_000 });
+const cacheLimits = () => ({ diskBytes: 1 << 20, ttlMs: 60_000 });
 
 describe("view_image beforeRequest hook", () => {
 	let db: Db;
@@ -69,7 +69,7 @@ describe("view_image beforeRequest hook", () => {
 		const models = new ModelConfig(db, MasterKey.generate());
 		models.addProvider(faux.provider);
 		await models.reload();
-		imageCache = new ImageCache(db, backend, cacheLimits);
+		imageCache = new ImageCache(db, join(root, "image-cache"), cacheLimits);
 		options = {
 			db,
 			storage: async () => (await openAgentStorage({ driver: "sqlite", path: storagePath })).storage,
@@ -233,8 +233,7 @@ describe("view_image beforeRequest hook", () => {
 
 		// The cache is gone and the file changed: no image, a placeholder that says why.
 		await db.deleteFrom("image_cache").execute();
-		imageCache.forget(digest);
-		await backend.deleteCache(digest);
+		await rm(join(root, "image-cache", digest.slice(0, 2), digest), { force: true });
 		await put(Buffer.from("changed"));
 		const changed = await replaceViewImages(options, conversationId, [message]);
 		const changedText = firstBlock(changed);
@@ -282,8 +281,7 @@ describe("view_image beforeRequest hook", () => {
 
 		// The entry expires; the old result can no longer be restored, and is a placeholder.
 		await db.deleteFrom("image_cache").where("sha256", "=", digest).execute();
-		imageCache.forget(digest);
-		await backend.deleteCache(digest);
+		await rm(join(root, "image-cache", digest.slice(0, 2), digest), { force: true });
 		const evicted = await replaceViewImages(options, conversationId, [old]);
 		expect(firstBlock(evicted).text).toContain("no longer cached");
 
@@ -300,7 +298,7 @@ describe("view_image beforeRequest hook", () => {
 		// Consecutive requests keep the same placeholder text, and a restart over the same DB makes the same call.
 		const second = await replaceViewImages(options, conversationId, [old, fresh]);
 		expect(firstBlock(second).text).toBe(firstOld.text);
-		options.imageCache = new ImageCache(db, backend, cacheLimits);
+		options.imageCache = new ImageCache(db, join(root, "image-cache"), cacheLimits);
 		const restarted = await replaceViewImages(options, conversationId, [old, fresh]);
 		expect(firstBlock(restarted).text).toBe(firstOld.text);
 		expect(restarted?.[1]?.content[0]).toMatchObject({ type: "image" });

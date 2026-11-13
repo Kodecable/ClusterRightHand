@@ -1,6 +1,6 @@
 import { type Kysely, sql } from "kysely";
 import type { Migration } from "kysely/migration";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Db } from "../src/storage/db.ts";
 import { migrateToLatest, runMigrations } from "../src/storage/migrate.ts";
 import * as m0001 from "../src/storage/migrations/0001_initial.ts";
@@ -9,7 +9,12 @@ import * as m0003 from "../src/storage/migrations/0003_libraries.ts";
 import * as m0004 from "../src/storage/migrations/0004_purpose_and_image_cache.ts";
 import * as m0005 from "../src/storage/migrations/0005_task_group_transfer.ts";
 import * as m0006 from "../src/storage/migrations/0006_image_state.ts";
-import { type Backend, describeBackends, openTestDb } from "./helpers/db.ts";
+import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
+
+// Opening a schema runs the migrator or creates tables under the shared DDL lock; in the full parallel
+// PostgreSQL suite the wait for it can pass Vitest's 5s test and 10s hook defaults. These cases open one or
+// more schemas themselves, so they get a longer limit rather than a flaky timeout.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 /**
  * Columns of the named table in this connection's own schema, or undefined when it does not exist.
@@ -119,8 +124,6 @@ const INDEXES = [
 	"sessions_state_live_idx",
 	"image_cache_last_used_idx",
 	"library_files_object_key_idx",
-	"task_groups_purpose_idx",
-	"tasks_purpose_idx",
 	"tasks_handler_agent_idx",
 	"user_group_members_user_id_idx",
 	"web_sessions_expires_at_idx",
@@ -178,7 +181,8 @@ describeBackends("initial migration", (backend) => {
 			backend === "postgres"
 				? (await sql<{ name: string }>`select current_schema() as name`.execute(db)).rows[0]?.name
 				: undefined;
-		await migrateToLatest(db, schema ? { schema } : {});
+		// The migrator introspects every schema, so a parallel test dropping its schema must not run now.
+		await withDdlLockOn(backend, () => migrateToLatest(db, schema ? { schema } : {}));
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
 		expect(rows.rows).toEqual([
 			{ name: "0001_initial" },

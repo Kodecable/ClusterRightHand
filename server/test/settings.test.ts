@@ -22,7 +22,6 @@ import {
 	DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES,
 	DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES,
 	DEFAULT_IMAGE_CACHE_DISK_BYTES,
-	DEFAULT_IMAGE_CACHE_MEMORY_BYTES,
 	DEFAULT_IMAGE_CACHE_TTL,
 	DEFAULT_SYSTEM_SETTINGS,
 	importSettingsFromFile,
@@ -81,7 +80,6 @@ describe("system settings storage", () => {
 				inlineTotalBytes: DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES,
 			},
 			imageCache: {
-				memoryBytes: DEFAULT_IMAGE_CACHE_MEMORY_BYTES,
 				diskBytes: DEFAULT_IMAGE_CACHE_DISK_BYTES,
 				ttlMs: parseDurationMs(DEFAULT_IMAGE_CACHE_TTL, "image_cache.ttl"),
 			},

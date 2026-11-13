@@ -40,11 +40,9 @@ export interface SystemSettingsAttachments {
 	inlineTotalBytes: number;
 }
 
-/** The two tiers of the image cache and its time to live (doc/design/library.md "Image cache"). */
+/** The image cache and its time to live (doc/design/library.md "Image cache"). */
 export interface SystemSettingsImageCache {
-	/** Bytes kept in the process's LRU. */
-	memoryBytes: number;
-	/** Bytes kept in the backend's cache area. */
+	/** Bytes kept on crhs's local disk. */
 	diskBytes: number;
 	/** A duration such as "7d"; an entry unused for longer is swept. */
 	ttl: string;
@@ -105,7 +103,6 @@ export interface SystemSettingsPatch {
 		inlineTotalBytes?: number;
 	};
 	imageCache?: {
-		memoryBytes?: number;
 		diskBytes?: number;
 		ttl?: string;
 	};

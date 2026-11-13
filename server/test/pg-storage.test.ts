@@ -3,8 +3,13 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { ConversationId, EntryId, Storage } from "@earendil-works/pi-durable";
 import { registerStorageConformance } from "@earendil-works/pi-durable/testing";
 import pg from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PgStorage } from "../src/storage/pg-durable/index.ts";
+
+// Opening a schema runs the migrator or creates tables under the shared DDL lock; in the full parallel
+// PostgreSQL suite the wait for it can pass Vitest's 5s test and 10s hook defaults. These cases open one or
+// more schemas themselves, so they get a longer limit rather than a flaky timeout.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const pgUrl = process.env.CRH_TEST_PG_URL;
 const context = BACKGROUND_CONTEXT;

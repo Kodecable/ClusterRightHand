@@ -21,13 +21,6 @@ function png(width: number, height: number, fill = 1): Buffer {
 
 const sha = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex");
 
-/** Reads a cache object through the backend's cache area. */
-async function cacheBytes(backend: ReturnType<typeof createLibraryBackend>, key: string): Promise<Buffer> {
-	const parts: Buffer[] = [];
-	for await (const chunk of backend.getCache(key)) parts.push(Buffer.from(chunk));
-	return Buffer.concat(parts);
-}
-
 describe("image headers", () => {
 	it("reads PNG, JPEG, GIF and WebP size from the header", () => {
 		expect(readImageHeader(png(800, 600))).toEqual({ mime: "image/png", width: 800, height: 600 });
@@ -55,6 +48,7 @@ describe("image headers", () => {
 describe("image cache", () => {
 	let db: Db;
 	let root: string;
+	let cacheRoot: string;
 	let backend: ReturnType<typeof createLibraryBackend>;
 	let limits: ImageCacheLimits;
 	let cache: ImageCache;
@@ -62,9 +56,10 @@ describe("image cache", () => {
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
 		root = await mkdtemp(join(tmpdir(), "crhs-image-cache-"));
-		backend = createLibraryBackend({ backend: "local" }, root);
-		limits = { memoryBytes: 64 * 1024, diskBytes: 1024 * 1024, ttlMs: 7 * 24 * 60 * 60 * 1000 };
-		cache = new ImageCache(db, backend, () => limits);
+		cacheRoot = join(root, "image-cache");
+		backend = createLibraryBackend({ backend: "local" }, join(root, "library"));
+		limits = { diskBytes: 1024 * 1024, ttlMs: 7 * 24 * 60 * 60 * 1000 };
+		cache = new ImageCache(db, cacheRoot, () => limits);
 	});
 
 	afterEach(async () => {
@@ -72,14 +67,17 @@ describe("image cache", () => {
 		await rm(root, { recursive: true, force: true });
 	});
 
-	it("keeps the image in memory and serves it from the disk tier after a restart", async () => {
+	/** Reads a cache file from its two-character shard. */
+	const cacheBytes = (key: string): Promise<Buffer> => readFile(join(cacheRoot, key.slice(0, 2), key));
+
+	it("keeps the image on local disk and serves it after a restart", async () => {
 		const image = png(800, 600, 10);
 		const digest = sha(image);
 		await cache.put(digest, "image/png", image);
 		expect(await cache.get(digest)).toMatchObject({ mime: "image/png", bytes: image });
-		expect(await cacheBytes(backend, digest)).toEqual(image);
+		expect(await cacheBytes(digest)).toEqual(image);
 
-		const reopened = new ImageCache(db, backend, () => limits);
+		const reopened = new ImageCache(db, cacheRoot, () => limits);
 		expect(await reopened.get(digest)).toMatchObject({ mime: "image/png", bytes: image });
 	});
 
@@ -89,15 +87,13 @@ describe("image cache", () => {
 		const storedAt = Date.now() - 60 * 60 * 1000;
 		await cache.put(digest, "image/png", image, storedAt);
 		expect(await cache.storedAt(digest)).toBe(storedAt);
-		// A repeated put keeps the entry's own stored_at: the bytes never left the disk tier.
+		// A repeated put keeps the entry's own stored_at: the bytes never left the disk.
 		await cache.put(digest, "image/png", image, storedAt + 1000);
 		expect(await cache.storedAt(digest)).toBe(storedAt);
 
 		const oldUse = new Date(storedAt).toISOString();
 		await db.updateTable("image_cache").set({ last_used_at: oldUse }).where("sha256", "=", digest).execute();
-		// A new instance reads the disk tier instead of the memory tier.
-		const reopened = new ImageCache(db, backend, () => limits);
-		expect(await reopened.get(digest)).toMatchObject({ bytes: image });
+		expect(await cache.get(digest)).toMatchObject({ bytes: image });
 		const row = await db
 			.selectFrom("image_cache")
 			.select(["last_used_at", "stored_at"])
@@ -105,23 +101,6 @@ describe("image cache", () => {
 			.executeTakeFirstOrThrow();
 		expect(row.stored_at).toBe(oldUse);
 		expect(Date.parse(row.last_used_at)).toBeGreaterThan(storedAt);
-	});
-
-	it("evicts the least recently used memory entry past its size and by age", async () => {
-		const first = png(10, 10, 400);
-		const second = png(20, 20, 400);
-		limits.memoryBytes = 1024 * 1024;
-		await cache.put(sha(first), "image/png", first);
-		await cache.put(sha(second), "image/png", second);
-		expect(cache.memoryBytes).toBe(first.length + second.length);
-		// Only one image fits: the first is the least recently used and goes.
-		limits.memoryBytes = second.length;
-		expect(cache.sweepMemory()).toBe(1);
-		expect(cache.memoryBytes).toBe(second.length);
-		// A memory hit makes the second the newest; an expired first entry is gone from the tier.
-		expect(await cache.get(sha(second))).toMatchObject({ bytes: second });
-		expect(cache.sweepMemory(Date.now() + limits.ttlMs + 1000)).toBe(1);
-		expect(cache.memoryBytes).toBe(0);
 	});
 
 	it("sweeps rows and objects by age and size", async () => {
@@ -134,27 +113,27 @@ describe("image cache", () => {
 
 		limits.diskBytes = one.length;
 		await cache.sweep();
-		await expect(cacheBytes(backend, oneSha)).rejects.toThrow();
-		expect(await cacheBytes(backend, twoSha)).toEqual(two);
+		await expect(cacheBytes(oneSha)).rejects.toThrow();
+		expect(await cacheBytes(twoSha)).toEqual(two);
 		expect(await db.selectFrom("image_cache").select("sha256").execute()).toEqual([{ sha256: twoSha }]);
 
 		const later = Date.now() + limits.ttlMs + 1000;
 		limits.diskBytes = 1024 * 1024;
 		await cache.sweep(later);
 		expect(await db.selectFrom("image_cache").select("sha256").execute()).toEqual([]);
-		await expect(cacheBytes(backend, twoSha)).rejects.toThrow();
+		await expect(cacheBytes(twoSha)).rejects.toThrow();
 	});
 
 	it("does not treat cache objects as library orphans", async () => {
 		const image = png(1, 1, 10);
 		await cache.put(sha(image), "image/png", image);
 		expect(await sweepLibraryOrphans(db, backend)).toBe(0);
-		expect(await cacheBytes(backend, sha(image))).toEqual(image);
+		expect(await cacheBytes(sha(image))).toEqual(image);
 	});
 
-	it("sweeps a stale putCache part file", async () => {
+	it("sweeps a stale cache part file", async () => {
 		const key = sha(png(1, 1, 10));
-		const directory = join(root, "cache", key.slice(0, 2));
+		const directory = join(cacheRoot, key.slice(0, 2));
 		const part = join(directory, `${key}.crh-part-abcdef123456`);
 		await mkdir(directory, { recursive: true });
 		await writeFile(part, "partial");

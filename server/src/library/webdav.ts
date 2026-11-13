@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import type { LibraryConfig } from "../config.ts";
-import { checkCacheKey, checkObjectKey, type LibraryBackend, type LibraryObject, objectShard } from "./backend.ts";
+import { checkObjectKey, type LibraryBackend, type LibraryObject, objectShard } from "./backend.ts";
 
 type WebdavConfig = Extract<LibraryConfig, { backend: "webdav" }>;
 
@@ -15,7 +15,6 @@ const PROPFIND_BODY = `<?xml version="1.0" encoding="utf-8"?>
 
 /** The object-key shape of this backend; other files in the collection are not ours and stay put. */
 const OBJECT_KEY_RE = /^[0-9a-f]{32}$/;
-const CACHE_KEY_RE = /^[0-9a-f]{64}$/;
 
 /** One entry of a PROPFIND response: where it is and, when the server reports it, when it changed. */
 interface DavEntry {
@@ -32,7 +31,6 @@ class WebdavLibraryBackend implements LibraryBackend {
 	readonly #base: URL;
 	readonly #authorization: string;
 	#collection: Promise<void> | undefined;
-	#cacheCollection: Promise<void> | undefined;
 
 	constructor(config: WebdavConfig) {
 		this.#base = new URL(config.url);
@@ -43,15 +41,6 @@ class WebdavLibraryBackend implements LibraryBackend {
 	#objectUrl(key: string): URL {
 		const name = checkObjectKey(key);
 		return new URL(`${objectShard(name)}/${name}`, this.#base);
-	}
-
-	#cacheUrl(key: string): URL {
-		const name = checkCacheKey(key);
-		return new URL(`cache/${objectShard(name)}/${name}`, this.#base);
-	}
-
-	#cacheRoot(): URL {
-		return new URL("cache/", this.#base);
 	}
 
 	async #fetch(url: URL, init: RequestInit = {}): Promise<Response> {
@@ -65,15 +54,6 @@ class WebdavLibraryBackend implements LibraryBackend {
 	#ensureCollection(): Promise<void> {
 		this.#collection ??= this.#mkcol(this.#base);
 		return this.#collection;
-	}
-
-	/** Creates the cache collection once, below the library collection. */
-	#ensureCacheCollection(): Promise<void> {
-		this.#cacheCollection ??= (async () => {
-			await this.#ensureCollection();
-			await this.#mkcol(this.#cacheRoot());
-		})();
-		return this.#cacheCollection;
 	}
 
 	/** A MKCOL that treats 405 as "already exists"; that is how a generic WebDAV server answers it. */
@@ -131,54 +111,6 @@ class WebdavLibraryBackend implements LibraryBackend {
 		if (!response.ok && response.status !== 404) {
 			throw new Error(`library WebDAV: DELETE ${key} failed with ${response.status}`);
 		}
-	}
-
-	async putCache(key: string, source: Readable): Promise<{ size: number; sha256: string }> {
-		const url = this.#cacheUrl(key);
-		await this.#ensureCacheCollection();
-		await this.#ensureShard(this.#cacheRoot(), key);
-		const hash = createHash("sha256");
-		let size = 0;
-		async function* counted(): AsyncGenerator<Uint8Array> {
-			for await (const chunk of source) {
-				const bytes = Buffer.from(chunk);
-				size += bytes.length;
-				hash.update(bytes);
-				yield bytes;
-			}
-		}
-		const body = Readable.toWeb(Readable.from(counted())) as WebReadableStream<Uint8Array>;
-		const response = await this.#fetch(url, {
-			method: "PUT",
-			headers: { "content-type": "application/octet-stream" },
-			body,
-			duplex: "half",
-		} as RequestInit);
-		if (!response.ok) throw new Error(`library WebDAV: PUT cache failed with ${response.status}`);
-		return { size, sha256: hash.digest("hex") };
-	}
-
-	getCache(key: string): Readable {
-		return Readable.from(this.#getCache(key));
-	}
-
-	async *#getCache(key: string): AsyncGenerator<Uint8Array> {
-		const response = await this.#fetch(this.#cacheUrl(key));
-		if (!response.ok || response.body === null) {
-			throw new Error(`library WebDAV: GET cache failed with ${response.status}`);
-		}
-		for await (const chunk of response.body) yield chunk;
-	}
-
-	async deleteCache(key: string): Promise<void> {
-		const response = await this.#fetch(this.#cacheUrl(key), { method: "DELETE" });
-		if (!response.ok && response.status !== 404) {
-			throw new Error(`library WebDAV: DELETE cache failed with ${response.status}`);
-		}
-	}
-
-	async *listCache(): AsyncIterable<LibraryObject> {
-		yield* this.#listSharded(this.#cacheRoot(), CACHE_KEY_RE);
 	}
 
 	async *list(): AsyncIterable<LibraryObject> {

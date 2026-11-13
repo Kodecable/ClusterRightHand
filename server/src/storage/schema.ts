@@ -78,14 +78,14 @@ export interface LibraryFilesTable {
 	updated_at: string;
 }
 
-/** The image cache's index (doc/design/library.md "Image cache"); the bytes live in the backend's cache area. */
+/** The image cache's index (doc/design/library.md "Image cache"); the bytes live on crhs's local disk. */
 export interface ImageCacheTable {
-	/** Hex SHA-256; also the object's name in the cache area. */
+	/** Hex SHA-256; also the cache file's name. */
 	sha256: string;
 	bytes: number;
 	mime: string;
 	last_used_at: string;
-	/** When the current bytes were written to the disk tier; a hit moves only `last_used_at`. */
+	/** When the current bytes were written to the cache; a hit moves only `last_used_at`. */
 	stored_at: string;
 }
 
@@ -337,7 +337,8 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	purpose: string | null;
 	/**
 	 * A transfer group's crhs-side source location (JSON), shared by every member; null for other groups
-	 * (doc/design/library.md "Copies").
+	 * (doc/design/library.md "Copies"). Members are created only once the group is approved, so a group
+	 * waiting for approval keeps its source here across a restart.
 	 */
 	transfer: ColumnType<string | null, string | null | undefined, string | null>;
 }

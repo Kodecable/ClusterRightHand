@@ -2,13 +2,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLibraryBackend, getBytes, type LibraryObject, putBytes } from "../src/library/backend.ts";
 
 const BASE_PATH = "/dav/";
 const KEY = "a".repeat(32);
-const CACHE_KEY = "c".repeat(64);
 
 /** A tiny in-process WebDAV collection: MKCOL, PUT, GET, DELETE and Depth-1 PROPFIND over collections and a Map. */
 function startWebdav() {
@@ -137,20 +135,5 @@ describe("WebDAV library backend", () => {
 
 		await backend.delete(KEY);
 		expect(fake.objects.has(`${shard}/${KEY}`)).toBe(false);
-	});
-
-	it("stores and lists cache objects in a sharded cache collection", async () => {
-		const data = Buffer.from("cached image");
-		const shard = CACHE_KEY.slice(0, 2);
-		await backend.putCache(CACHE_KEY, Readable.from([data]));
-		expect(fake.collections).toEqual(new Set(["", "cache", `cache/${shard}`]));
-		expect(fake.objects.get(`cache/${shard}/${CACHE_KEY}`)?.data).toEqual(data);
-
-		const listed: LibraryObject[] = [];
-		for await (const object of backend.listCache()) listed.push(object);
-		expect(listed.map((object) => object.key)).toEqual([CACHE_KEY]);
-
-		await backend.deleteCache(CACHE_KEY);
-		expect(fake.objects.has(`cache/${shard}/${CACHE_KEY}`)).toBe(false);
 	});
 });

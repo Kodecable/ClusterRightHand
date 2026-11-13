@@ -93,7 +93,7 @@ export function AttachmentsSection({ settings }: { settings: SystemSettings }) {
 	);
 }
 
-/** The image cache's two tiers and its time to live (doc/design/library.md "Image cache"). */
+/** The image cache's size and time to live (doc/design/library.md "Image cache"). */
 export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 	const { t } = useLingui();
 	const save = useSaveSystemSettings();
@@ -101,7 +101,6 @@ export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 	const schema = useMemo(
 		() =>
 			z.object({
-				memoryBytes: z.number(t`Enter a whole number of bytes.`).int().min(0),
 				diskBytes: z.number(t`Enter a whole number of bytes.`).int().min(0),
 				ttl: z.string().trim().min(1, t`Enter a duration such as 7d.`),
 			}),
@@ -111,7 +110,6 @@ export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
 		defaultValues: {
-			memoryBytes: settings.imageCache.memoryBytes,
 			diskBytes: settings.imageCache.diskBytes,
 			ttl: settings.imageCache.ttl,
 		},
@@ -121,13 +119,12 @@ export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 		setError(undefined);
 		try {
 			const next = await save.mutateAsync({
-				imageCache: { memoryBytes: values.memoryBytes, diskBytes: values.diskBytes, ttl: values.ttl },
+				imageCache: { diskBytes: values.diskBytes, ttl: values.ttl },
 			});
 			form.reset(next.imageCache);
 		} catch (failure) {
 			setError(
 				applyServerFieldErrors<Values>(failure, form.setError, {
-					"imageCache.memoryBytes": "memoryBytes",
 					"imageCache.diskBytes": "diskBytes",
 					"imageCache.ttl": "ttl",
 				}),
@@ -140,8 +137,8 @@ export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 			title={<Trans>Image cache</Trans>}
 			description={
 				<Trans>
-					The bytes behind view_image results: an in-process cache in front of a cache area in the library backend.
-					Entries are evicted least recently used, and dropped after the time to live.
+					The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted
+					least recently used, and dropped after the time to live.
 				</Trans>
 			}
 			onSubmit={submit}
@@ -151,20 +148,8 @@ export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 			testId="image-cache-section"
 		>
 			<FieldShell
-				id="image-cache-memory-bytes"
-				label={t`In-memory cache (bytes)`}
-				error={form.formState.errors.memoryBytes?.message}
-			>
-				<Input
-					id="image-cache-memory-bytes"
-					type="number"
-					min={0}
-					{...form.register("memoryBytes", { valueAsNumber: true })}
-				/>
-			</FieldShell>
-			<FieldShell
 				id="image-cache-disk-bytes"
-				label={t`Cache area in the backend (bytes)`}
+				label={t`Cache size on disk (bytes)`}
 				error={form.formState.errors.diskBytes?.message}
 			>
 				<Input

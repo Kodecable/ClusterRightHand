@@ -82,9 +82,9 @@ A backend implements four streaming operations: put, get, delete and list (for t
 records its backend, so a later migration can move objects without guessing.
 
 Placement is each backend's own strategy: an object lives under one level of two hex characters taken from
-its key (`<first two>/<full key>`, and `cache/<first two>/<key>` in the image cache area). This spreads
-objects over at most 256 directories or collections, keeping a directory's entries and a PROPFIND response
-small; empty shards are created on demand and kept, never removed.
+its key (`<first two>/<full key>`). This spreads objects over at most 256 directories or collections,
+keeping a directory's entries and a PROPFIND response small; empty shards are created on demand and kept,
+never removed.
 
 ### Limits
 
@@ -128,9 +128,9 @@ audit and retention apply as they do to `file.read` and `file.write`.
   the received bytes against them. crhs also enforces `max_bytes` itself at the first byte past it, so a
   node that sends more than it declared cannot fill crhs's disk.
 - The transfer endpoint's crhs-side location (a staging file, later a library object) is stored with the
-  task, so a transfer waiting for approval survives a crhs restart. A task group stores the shared source
-  location too: every member has its own transfer id and location, while node-to-nodes members all read
-  the one staging file. A transfer already streaming when crhs stops fails, like any interrupted transfer.
+  task, so a transfer waiting for approval survives a crhs restart. A task group's members each carry
+  their own transfer id and the same source location, while node-to-nodes members all read the one
+  staging file. A transfer already streaming when crhs stops fails, like any interrupted transfer.
 - The transfer endpoint (which data connection crhs accepts) is routing, not something the node does, so
   the spec hash an approval or `exact` authorization binds leaves the transfer id out.
 - The approval view shows the path, size, SHA-256 and the library source, not the content.
@@ -275,17 +275,19 @@ applies; `overwrite` is accepted and has no effect.
 
 ### Image cache
 
-The bytes for `view_image` results live in a bounded cache keyed by SHA-256, in two tiers:
+The bytes for `view_image` results live in a bounded, disposable cache keyed by SHA-256 on crhs's local
+disk:
 
-| Tier | Where | Default size |
-|---|---|---|
-| Memory | An LRU in the crhs process | 64 MiB |
-| Disk | A `cache/` area of the library backend, indexed by an `image_cache` table (SHA-256, size, media type, last use, stored time) | 1 GiB |
+| Where | Default size |
+|---|---|
+| `<data dir>/image-cache/<first two>/<sha256>`, indexed by an `image_cache` table (SHA-256, size, media type, last use, stored time) | 1 GiB |
 
-- Both tiers evict least recently used entries, and drop entries unused for longer than the TTL (default
-  7 days). The sizes and TTL are system settings. The cache counts toward no library's limits.
-- The disk tier is in the backend, not the database, so it does not grow the database or its backups.
-- `stored_at` is when the current entry entered the disk tier; writing the same SHA-256 again keeps it,
+- Entries are evicted least recently used, and dropped when unused for longer than the TTL (default 7
+  days). The size and TTL are system settings. The cache counts toward no library's limits.
+- The cache is local and independent of the library backend, whatever the backend is. It is not part of
+  a library and is not backed up with one; it is outside the database, so it does not grow the database
+  or its backups. Repeated reads rely on the operating system's page cache.
+- `stored_at` is when the current entry entered the cache; writing the same SHA-256 again keeps it,
   because the bytes never left. A hit moves only `last_used_at`, so `beforeRequest` can tell whether the
   bytes stayed cached continuously since a result was produced. A library re-read on a miss writes the
   entry back with `stored_at` set to the restored result's timestamp, so that result is restored once and

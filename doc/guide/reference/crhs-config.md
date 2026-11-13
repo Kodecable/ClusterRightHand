@@ -99,8 +99,7 @@ The low-frequency settings below are **not** in `crhs.toml`. Administrators edit
 | `library.group.total_bytes` | integer ≥ 0 | `0` | Total size of a new user group library, in bytes. |
 | `attachments.inline_text_bytes` | integer ≥ 0 | `32768` | Largest attachment whose text content is included in the message (32 KiB). |
 | `attachments.inline_total_bytes` | integer ≥ 0 | `65536` | Most attachment text included over one message (64 KiB). |
-| `image_cache.memory_bytes` | integer ≥ 0 | `67108864` | In-process image cache size (64 MiB). |
-| `image_cache.disk_bytes` | integer ≥ 0 | `1073741824` | Image cache size in the library backend's `cache/` area (1 GiB). |
+| `image_cache.disk_bytes` | integer ≥ 0 | `1073741824` | Image cache size on crhs's local disk (1 GiB). |
 | `image_cache.ttl` | duration | `"7d"` | Drop an image cache entry unused for this long. Must be greater than zero. |
 
 The library defaults are copied when a user or user group is created; changing them does not touch an
@@ -108,8 +107,9 @@ existing library. Administrators change an existing library's limits on its user
 
 The attachment limits control what the agent sees directly in a chat message; the rest is described by
 its library path, and the agent can copy it to a node to read. The image cache holds the bytes behind
-`view_image` results and counts toward no library's limits; it evicts least recently used entries and
-drops entries unused for the time to live.
+`view_image` results in a disposable local directory, independent of the library backend and not backed
+up; it counts toward no library's limits, evicts least recently used entries and drops entries unused for
+the time to live.
 
 Set `webauthn.rp_id` and `webauthn.origins` together, or leave both unset to take them from each
 request's origin.

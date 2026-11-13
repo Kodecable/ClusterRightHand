@@ -845,8 +845,8 @@ msgid "By"
 msgstr "By"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "Cache area in the backend (bytes)"
-msgstr "Cache area in the backend (bytes)"
+msgid "Cache size on disk (bytes)"
+msgstr "Cache size on disk (bytes)"
 
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
@@ -2130,10 +2130,6 @@ msgstr "Image cache"
 #: src/features/settings/model-dialog.tsx
 msgid "Image understanding"
 msgstr "Image understanding"
-
-#: src/features/system-settings/attachments-section.tsx
-msgid "In-memory cache (bytes)"
-msgstr "In-memory cache (bytes)"
 
 #: src/features/tasks/pages.tsx
 msgid "Include file browsing"
@@ -4304,8 +4300,8 @@ msgid "The budget is used up."
 msgstr "The budget is used up."
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "The bytes behind view_image results: an in-process cache in front of a cache area in the library backend. Entries are evicted least recently used, and dropped after the time to live."
-msgstr "The bytes behind view_image results: an in-process cache in front of a cache area in the library backend. Entries are evicted least recently used, and dropped after the time to live."
+msgid "The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted least recently used, and dropped after the time to live."
+msgstr "The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted least recently used, and dropped after the time to live."
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "The credential and its private key are deleted. This cannot be undone."

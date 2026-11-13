@@ -347,8 +347,7 @@ describe("library tools", () => {
 			actor: { type: "user", id: alice.userId, onBehalfOfUserId: alice.userId },
 			chain: [],
 			approvalUrl: () => "http://crh.test/approval",
-			imageCache: new ImageCache(db, backend, () => ({
-				memoryBytes: 1024 * 1024,
+			imageCache: new ImageCache(db, join(root, "image-cache"), () => ({
 				diskBytes: 1024 * 1024,
 				ttlMs: 1000,
 			})),
@@ -625,8 +624,7 @@ describe("view_image", () => {
 		backend = createLibraryBackend({ backend: "local" }, root);
 		const row = await createUser(db, { username: "alice", kind: "member", password: "alice-password" });
 		alice = { sessionId: "s", userId: row.id, username: "alice", kind: "member" };
-		const imageCache = new ImageCache(db, backend, () => ({
-			memoryBytes: 1024 * 1024,
+		const imageCache = new ImageCache(db, join(root, "image-cache"), () => ({
 			diskBytes: 1024 * 1024,
 			ttlMs: 1000,
 		}));

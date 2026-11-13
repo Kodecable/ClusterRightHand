@@ -1,12 +1,14 @@
 /**
- * The image cache (doc/design/library.md "Image cache"): the bytes behind `view_image` results, in an
- * in-process LRU in front of an object area of the library backend. A row in `image_cache` indexes each
- * object's size, media type, last use and stored time. Both tiers drop entries by least recent use and by
- * age; the disk tier is bounded by its size setting.
+ * The image cache (doc/design/library.md "Image cache"): the bytes behind `view_image` results, in a
+ * disposable directory on crhs's local disk. A row in `image_cache` indexes each object's size, media
+ * type, last use and stored time. Entries are dropped by least recent use and by age; the cache is
+ * bounded by its size setting. Repeated reads rely on the operating system's page cache.
  */
-import { Readable } from "node:stream";
+import { randomBytes } from "node:crypto";
+import type { Dirent } from "node:fs";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { Db } from "../storage/db.ts";
-import type { LibraryBackend } from "./backend.ts";
 
 /** What the cache keeps of one image. */
 export interface CachedImage {
@@ -19,46 +21,51 @@ export const REJECTED_IMAGE_TEXT = "This image was rejected by the model provide
 
 /** The limits the cache reads at use time, so a settings change applies without a restart. */
 export interface ImageCacheLimits {
-	memoryBytes: number;
 	diskBytes: number;
 	ttlMs: number;
-}
-
-interface MemoryEntry extends CachedImage {
-	lastUsed: number;
 }
 
 /** A sweep never deletes a cache object younger than this, so one being written now is not lost. */
 const MIN_OBJECT_AGE_MS = 60 * 60 * 1000;
 
+/** Cache file names: the hex SHA-256, and a write's temporary `<sha256>.crh-part-…` sibling. */
+const CACHE_NAME_RE = /^[0-9a-f]{64}(?:\.crh-part-[0-9a-f]{12})?$/;
+
 export class ImageCache {
 	readonly #db: Db;
-	readonly #backend: LibraryBackend;
+	readonly #root: string;
 	readonly #limits: () => ImageCacheLimits;
-	/** Map order is LRU order: the first key is the least recently used. */
-	readonly #memory = new Map<string, MemoryEntry>();
-	#memoryBytes = 0;
 
-	constructor(db: Db, backend: LibraryBackend, limits: () => ImageCacheLimits) {
+	constructor(db: Db, root: string, limits: () => ImageCacheLimits) {
 		this.#db = db;
-		this.#backend = backend;
+		this.#root = root;
 		this.#limits = limits;
 	}
 
-	/** Bytes the memory tier holds now (diagnostics and tests). */
-	get memoryBytes(): number {
-		return this.#memoryBytes;
+	/** The file of one cache object; the name is hex SHA-256, split into a two-character shard. */
+	#path(name: string): string {
+		if (!CACHE_NAME_RE.test(name)) throw new Error(`invalid image cache key ${JSON.stringify(name)}`);
+		return join(this.#root, name.slice(0, 2), name);
 	}
 
 	/**
-	 * Stores one image in both tiers; a repeated SHA-256 refreshes the entry instead of adding another, keeping
-	 * its original `stored_at` because the bytes never left the disk tier. `storedAt` backdates a new entry when
+	 * Stores one image; a repeated SHA-256 refreshes the entry instead of adding another, keeping its
+	 * original `stored_at` because the bytes never left the cache. `storedAt` backdates a new entry when
 	 * a library re-read restores a result (doc/design/library.md "Image cache"); a normal write defaults to now.
 	 */
 	async put(sha256: string, mime: string, bytes: Uint8Array, storedAt = Date.now()): Promise<void> {
 		const data = Buffer.from(bytes);
+		const target = this.#path(sha256);
+		const temp = `${target}.crh-part-${randomBytes(6).toString("hex")}`;
+		await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+		try {
+			await writeFile(temp, data, { mode: 0o600 });
+			await rename(temp, target);
+		} catch (err) {
+			await rm(temp, { force: true });
+			throw err;
+		}
 		const now = Date.now();
-		await this.#backend.putCache(sha256, Readable.from([data]));
 		await this.#db
 			.insertInto("image_cache")
 			.values({
@@ -76,10 +83,9 @@ export class ImageCache {
 				}),
 			)
 			.execute();
-		this.#remember(sha256, { bytes: data, mime, lastUsed: now });
 	}
 
-	/** When the disk-tier entry was written, or undefined when it is gone; the memory tier does not count. */
+	/** When the entry was written, or undefined when it is gone. */
 	async storedAt(sha256: string): Promise<number | undefined> {
 		const row = await this.#db
 			.selectFrom("image_cache")
@@ -89,63 +95,31 @@ export class ImageCache {
 		return row === undefined ? undefined : Date.parse(row.stored_at);
 	}
 
-	/** The image for a SHA-256, or undefined when neither tier has it any more. */
+	/** The image for a SHA-256, or undefined when it is no longer cached. */
 	async get(sha256: string): Promise<CachedImage | undefined> {
-		const now = Date.now();
-		const cached = this.#memory.get(sha256);
-		if (cached) {
-			cached.lastUsed = now;
-			this.#memory.delete(sha256);
-			this.#memory.set(sha256, cached);
-			return { bytes: cached.bytes, mime: cached.mime };
-		}
 		const row = await this.#db.selectFrom("image_cache").selectAll().where("sha256", "=", sha256).executeTakeFirst();
 		if (!row) return undefined;
 		let bytes: Buffer;
 		try {
-			bytes = await readAll(this.#backend.getCache(sha256));
+			bytes = await readFile(this.#path(sha256));
 		} catch {
-			// The row outlived its object (a failed backend or a manual cleanup): forget it.
+			// The row outlived its object (a failed write or a manual cleanup): forget it.
 			await this.#db.deleteFrom("image_cache").where("sha256", "=", sha256).execute();
 			return undefined;
 		}
 		await this.#db
 			.updateTable("image_cache")
-			.set({ last_used_at: new Date(now).toISOString() })
+			.set({ last_used_at: new Date().toISOString() })
 			.where("sha256", "=", sha256)
 			.execute();
-		this.#remember(sha256, { bytes, mime: row.mime, lastUsed: now });
 		return { bytes, mime: row.mime };
 	}
 
-	/** Forgets a memory entry only; the disk object and row stay until the sweep. */
-	forget(sha256: string): void {
-		const cached = this.#memory.get(sha256);
-		if (!cached) return;
-		this.#memory.delete(sha256);
-		this.#memoryBytes -= cached.bytes.length;
-	}
-
-	/** Drops least recently used entries past the memory size, and entries unused for longer than the TTL. */
-	sweepMemory(now = Date.now()): number {
-		const { memoryBytes, ttlMs } = this.#limits();
-		let dropped = 0;
-		for (const [sha256, entry] of this.#memory) {
-			const expired = now - entry.lastUsed > ttlMs;
-			if (!expired && this.#memoryBytes <= memoryBytes) break;
-			this.#memory.delete(sha256);
-			this.#memoryBytes -= entry.bytes.length;
-			dropped += 1;
-		}
-		return dropped;
-	}
-
 	/**
-	 * Evicts the disk tier by size (least recently used first) and by age, and removes objects whose row is
+	 * Evicts entries by size (least recently used first) and by age, and removes objects whose row is
 	 * gone. Returns how many rows were dropped.
 	 */
 	async sweep(now = Date.now()): Promise<number> {
-		this.sweepMemory(now);
 		const { diskBytes, ttlMs } = this.#limits();
 		const rows = await this.#db.selectFrom("image_cache").selectAll().orderBy("last_used_at", "asc").execute();
 		const known = new Set(rows.map((row) => row.sha256));
@@ -155,38 +129,48 @@ export class ImageCache {
 			const expired = now - Date.parse(row.last_used_at) > ttlMs;
 			if (!expired && total <= diskBytes) continue;
 			await this.#db.deleteFrom("image_cache").where("sha256", "=", row.sha256).execute();
-			await this.#backend.deleteCache(row.sha256).catch((err: unknown) => {
-				console.error(`image cache: deleting ${row.sha256} failed:`, err);
-			});
-			this.forget(row.sha256);
+			await this.#delete(row.sha256);
 			total -= row.bytes;
 			dropped += 1;
 		}
-		for await (const object of this.#backend.listCache()) {
-			if (known.has(object.key)) continue;
+		for await (const object of this.#objects()) {
+			if (known.has(object.name)) continue;
 			// An object without a row is a put that failed between the two writes, or already swept metadata.
-			if (object.lastModified !== undefined && now - object.lastModified < MIN_OBJECT_AGE_MS) continue;
-			await this.#backend.deleteCache(object.key).catch((err: unknown) => {
-				console.error(`image cache: deleting orphan ${object.key} failed:`, err);
-			});
+			if (now - object.modifiedAt < MIN_OBJECT_AGE_MS) continue;
+			await this.#delete(object.name);
 		}
 		return dropped;
 	}
 
-	#remember(sha256: string, entry: MemoryEntry): void {
-		const previous = this.#memory.get(sha256);
-		if (previous) this.#memoryBytes -= previous.bytes.length;
-		this.#memory.delete(sha256);
-		this.#memory.set(sha256, entry);
-		this.#memoryBytes += entry.bytes.length;
-		this.sweepMemory(entry.lastUsed);
+	async #delete(name: string): Promise<void> {
+		await rm(this.#path(name), { force: true }).catch((err: unknown) => {
+			console.error(`image cache: deleting ${name} failed:`, err);
+		});
 	}
-}
 
-async function readAll(chunks: Readable): Promise<Buffer> {
-	const parts: Buffer[] = [];
-	for await (const chunk of chunks) parts.push(Buffer.from(chunk));
-	return Buffer.concat(parts);
+	/** Lists the shards' cache files; anything else under the root is left alone. */
+	async *#objects(): AsyncIterable<{ name: string; modifiedAt: number }> {
+		let shards: Dirent[];
+		try {
+			shards = await readdir(this.#root, { withFileTypes: true });
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+			throw err;
+		}
+		for (const shard of shards) {
+			if (!shard.isDirectory() || !/^[0-9a-f]{2}$/.test(shard.name)) continue;
+			const directory = join(this.#root, shard.name);
+			for (const entry of await readdir(directory, { withFileTypes: true })) {
+				if (!entry.isFile() || !CACHE_NAME_RE.test(entry.name)) continue;
+				try {
+					const info = await stat(join(directory, entry.name));
+					yield { name: entry.name, modifiedAt: info.mtimeMs };
+				} catch {
+					// The object vanished between readdir and stat; there is nothing to sweep.
+				}
+			}
+		}
+	}
 }
 
 /** A sweep's interval; the same as the library orphan sweep's. */

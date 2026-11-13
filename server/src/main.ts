@@ -200,8 +200,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// The one library object store (doc/design/library.md "Backends"); objects live under the data directory
 	// with the staging area.
 	const libraryBackend = createLibraryBackend(config.library, join(dataDir, "library"));
-	// The image cache's limits are read at each use, so a System settings change applies without a restart.
-	const imageCache = new ImageCache(db, libraryBackend, () => settings.current().imageCache);
+	// The image cache is a local, disposable directory (doc/design/library.md "Image cache"); its limits are
+	// read at each use, so a System settings change applies without a restart.
+	const imageCache = new ImageCache(db, join(dataDir, "image-cache"), () => settings.current().imageCache);
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),
 		signingKeys,

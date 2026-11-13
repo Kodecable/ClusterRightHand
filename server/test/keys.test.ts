@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
 	buildKeyExport,
 	decryptKeyExport,
@@ -14,6 +14,11 @@ import { initMasterKey, restoreMasterKey } from "../src/keys/setup.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
+
+// Opening a schema runs the migrator or creates tables under the shared DDL lock; in the full parallel
+// PostgreSQL suite the wait for it can pass Vitest's 5s test and 10s hook defaults. These cases open one or
+// more schemas themselves, so they get a longer limit rather than a flaky timeout.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const WORK_FACTOR = 10; // age's scrypt work factor; the default (18) takes about a second
 

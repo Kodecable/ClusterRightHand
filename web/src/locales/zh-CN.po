@@ -845,8 +845,8 @@ msgid "By"
 msgstr "操作者"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "Cache area in the backend (bytes)"
-msgstr "后端缓存区（字节）"
+msgid "Cache size on disk (bytes)"
+msgstr "磁盘缓存大小（字节）"
 
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
@@ -2130,10 +2130,6 @@ msgstr "图片缓存"
 #: src/features/settings/model-dialog.tsx
 msgid "Image understanding"
 msgstr "图像理解"
-
-#: src/features/system-settings/attachments-section.tsx
-msgid "In-memory cache (bytes)"
-msgstr "内存缓存（字节）"
 
 #: src/features/tasks/pages.tsx
 msgid "Include file browsing"
@@ -4304,8 +4300,8 @@ msgid "The budget is used up."
 msgstr "预算已用尽。"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "The bytes behind view_image results: an in-process cache in front of a cache area in the library backend. Entries are evicted least recently used, and dropped after the time to live."
-msgstr "view_image 结果的字节：进程内缓存位于库后端的缓存区之前。条目按最近最少使用淘汰，超过存活时间的条目会被清除。"
+msgid "The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted least recently used, and dropped after the time to live."
+msgstr "view_image 结果的字节，保存在 crhs 本地磁盘上的可丢弃目录中。条目按最近最少使用淘汰，超过存活时间的条目会被清除。"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "The credential and its private key are deleted. This cannot be undone."

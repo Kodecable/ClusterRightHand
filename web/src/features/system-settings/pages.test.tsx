@@ -17,7 +17,7 @@ const SETTINGS: SystemSettings = {
 		group: { files: 0, fileBytes: 0, totalBytes: 0 },
 	},
 	attachments: { inlineTextBytes: 32768, inlineTotalBytes: 65536 },
-	imageCache: { memoryBytes: 67108864, diskBytes: 1073741824, ttl: "7d" },
+	imageCache: { diskBytes: 1073741824, ttl: "7d" },
 };
 
 const DEFAULTS: SystemSettings = {
@@ -32,7 +32,7 @@ const DEFAULTS: SystemSettings = {
 		group: { files: 0, fileBytes: 0, totalBytes: 0 },
 	},
 	attachments: { inlineTextBytes: 32768, inlineTotalBytes: 65536 },
-	imageCache: { memoryBytes: 67108864, diskBytes: 1073741824, ttl: "7d" },
+	imageCache: { diskBytes: 1073741824, ttl: "7d" },
 };
 
 const NEWEST_KEY: SigningKey = {

@@ -30,11 +30,6 @@ export interface LibraryBackend {
 	delete(key: string): Promise<void>;
 	/** Every object of the store, for the orphan sweep. */
 	list(): AsyncIterable<LibraryObject>;
-	/** The image cache's area, outside every library (doc/design/library.md "Image cache"). */
-	putCache(key: string, source: Readable): Promise<{ size: number; sha256: string }>;
-	getCache(key: string): Readable;
-	deleteCache(key: string): Promise<void>;
-	listCache(): AsyncIterable<LibraryObject>;
 }
 
 /** A random object key: never derived from a path, so a move or overwrite is pure metadata. */
@@ -48,12 +43,6 @@ export function newObjectKey(): string {
  */
 export function objectShard(key: string): string {
 	return key.slice(0, 2);
-}
-
-/** An image cache key is the image's hex SHA-256, so one image has one object. */
-export function checkCacheKey(key: string): string {
-	if (!/^[0-9a-f]{64}$/.test(key)) throw new Error(`invalid image cache key ${JSON.stringify(key)}`);
-	return key;
 }
 
 /** Rejects a key that is not one of ours before it becomes a file name. */
@@ -123,32 +112,13 @@ class LocalLibraryBackend implements LibraryBackend {
 	}
 
 	async *list(): AsyncIterable<LibraryObject> {
-		yield* listShardedObjects(this.#root, /^[0-9a-f]{32}(?:\.crh-part-[0-9a-f]{12})?$/);
-	}
-
-	async putCache(key: string, source: Readable): Promise<{ size: number; sha256: string }> {
-		const name = checkCacheKey(key);
-		return this.#writeObject(join(this.#root, "cache", objectShard(name), name), source);
-	}
-
-	getCache(key: string): Readable {
-		const name = checkCacheKey(key);
-		return createReadStream(join(this.#root, "cache", objectShard(name), name));
-	}
-
-	async deleteCache(key: string): Promise<void> {
-		// Like delete: a crashed putCache leaves `<key>.crh-part-…` for the cache sweep.
-		const name = /^[0-9a-f]{64}(?:\.crh-part-[0-9a-f]{12})?$/.test(key) ? key : checkCacheKey(key);
-		await rm(join(this.#root, "cache", objectShard(name), name), { force: true });
-	}
-
-	async *listCache(): AsyncIterable<LibraryObject> {
-		yield* listShardedObjects(join(this.#root, "cache"), /^[0-9a-f]{64}(?:\.crh-part-[0-9a-f]{12})?$/);
+		yield* listShardedObjects(this.#root);
 	}
 }
 
 /** Lists the objects under `root`'s two-hex-character shard directories; anything else is left alone. */
-async function* listShardedObjects(root: string, namePattern: RegExp): AsyncIterable<LibraryObject> {
+async function* listShardedObjects(root: string): AsyncIterable<LibraryObject> {
+	const namePattern = /^[0-9a-f]{32}(?:\.crh-part-[0-9a-f]{12})?$/;
 	let shards: Dirent[];
 	try {
 		shards = await readdir(root, { withFileTypes: true });

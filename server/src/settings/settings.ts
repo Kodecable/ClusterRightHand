@@ -39,8 +39,8 @@ export interface RuntimeSettings {
 	library: SystemSettingsLibrary;
 	/** Resolved attachment inline limits, in bytes. */
 	attachments: { inlineTextBytes: number; inlineTotalBytes: number };
-	/** Resolved image cache sizes and TTL. */
-	imageCache: { memoryBytes: number; diskBytes: number; ttlMs: number };
+	/** Resolved image cache size and TTL. */
+	imageCache: { diskBytes: number; ttlMs: number };
 }
 
 /** The keys stored in the `settings` table; each row holds one validated value as JSON. */
@@ -65,7 +65,6 @@ export const SETTING_KEYS = [
 	"library.group_total_bytes",
 	"attachments.inline_text_bytes",
 	"attachments.inline_total_bytes",
-	"image_cache.memory_bytes",
 	"image_cache.disk_bytes",
 	"image_cache.ttl",
 ] as const;
@@ -82,9 +81,7 @@ export function isSettingKey(value: string): value is SettingKey {
 export const DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES = 32 * 1024;
 /** The most attachment text inlined over one message. */
 export const DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES = 64 * 1024;
-/** The memory tier of the image cache. */
-export const DEFAULT_IMAGE_CACHE_MEMORY_BYTES = 64 * 1024 * 1024;
-/** The disk tier of the image cache, in the backend's cache area. */
+/** The image cache's size on crhs's local disk. */
 export const DEFAULT_IMAGE_CACHE_DISK_BYTES = 1024 * 1024 * 1024;
 /** An image cache entry unused for this long is swept. */
 export const DEFAULT_IMAGE_CACHE_TTL = "7d";
@@ -106,7 +103,6 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
 		inlineTotalBytes: DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES,
 	},
 	imageCache: {
-		memoryBytes: DEFAULT_IMAGE_CACHE_MEMORY_BYTES,
 		diskBytes: DEFAULT_IMAGE_CACHE_DISK_BYTES,
 		ttl: DEFAULT_IMAGE_CACHE_TTL,
 	},
@@ -142,7 +138,6 @@ function defaultsByKey(): Record<SettingKey, unknown> {
 		"library.group_total_bytes": DEFAULT_SYSTEM_SETTINGS.library.group.totalBytes,
 		"attachments.inline_text_bytes": DEFAULT_SYSTEM_SETTINGS.attachments.inlineTextBytes,
 		"attachments.inline_total_bytes": DEFAULT_SYSTEM_SETTINGS.attachments.inlineTotalBytes,
-		"image_cache.memory_bytes": DEFAULT_SYSTEM_SETTINGS.imageCache.memoryBytes,
 		"image_cache.disk_bytes": DEFAULT_SYSTEM_SETTINGS.imageCache.diskBytes,
 		"image_cache.ttl": DEFAULT_SYSTEM_SETTINGS.imageCache.ttl,
 	};
@@ -171,7 +166,6 @@ function flatten(settings: SystemSettings): Record<SettingKey, unknown> {
 		"library.group_total_bytes": settings.library.group.totalBytes,
 		"attachments.inline_text_bytes": settings.attachments.inlineTextBytes,
 		"attachments.inline_total_bytes": settings.attachments.inlineTotalBytes,
-		"image_cache.memory_bytes": settings.imageCache.memoryBytes,
 		"image_cache.disk_bytes": settings.imageCache.diskBytes,
 		"image_cache.ttl": settings.imageCache.ttl,
 	};
@@ -215,7 +209,6 @@ function unflatten(values: Record<SettingKey, unknown>): SystemSettings {
 			inlineTotalBytes: values["attachments.inline_total_bytes"] as number,
 		},
 		imageCache: {
-			memoryBytes: values["image_cache.memory_bytes"] as number,
 			diskBytes: values["image_cache.disk_bytes"] as number,
 			ttl: values["image_cache.ttl"] as string,
 		},
@@ -266,7 +259,6 @@ export function parseSettingValue(key: SettingKey, value: unknown): unknown {
 			return parseLibraryLimit(value, key);
 		case "attachments.inline_text_bytes":
 		case "attachments.inline_total_bytes":
-		case "image_cache.memory_bytes":
 		case "image_cache.disk_bytes":
 			return parseInteger(value, key, 0);
 		case "image_cache.ttl": {
@@ -508,12 +500,11 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 		if (!group) fields.imageCache = "imageCache must be an object";
 		else {
 			for (const key of Object.keys(group)) {
-				if (!["memoryBytes", "diskBytes", "ttl"].includes(key)) {
+				if (!["diskBytes", "ttl"].includes(key)) {
 					fields[`imageCache.${key}`] = `unknown setting ${key}`;
 				}
 			}
 			for (const [field, setting] of [
-				["memoryBytes", "image_cache.memory_bytes"],
 				["diskBytes", "image_cache.disk_bytes"],
 				["ttl", "image_cache.ttl"],
 			] as const) {
@@ -557,7 +548,6 @@ function resolveSettings(wire: SystemSettings): RuntimeSettings {
 			inlineTotalBytes: parseInteger(wire.attachments.inlineTotalBytes, "attachments.inlineTotalBytes", 0),
 		},
 		imageCache: {
-			memoryBytes: parseInteger(wire.imageCache.memoryBytes, "imageCache.memoryBytes", 0),
 			diskBytes: parseInteger(wire.imageCache.diskBytes, "imageCache.diskBytes", 0),
 			ttlMs: parseDurationMs(wire.imageCache.ttl, "image_cache.ttl"),
 		},
