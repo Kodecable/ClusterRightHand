@@ -134,7 +134,7 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 	it("node_info returns the node's notes", async () => {
 		const client = await connect((await token("yolo")).token);
 		const before = await call(client, "node_info", { targets: [nodeName] });
-		expect(before.notes).toMatchObject({ content: null, note: expect.stringContaining("no notes yet") });
+		expect(before.notes).toEqual({ path: expect.any(String), status: expect.stringContaining("no notes yet") });
 		const path = before.notes.path as string;
 		await call(client, "write_file", {
 			targets: [nodeName],
@@ -159,9 +159,9 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 			body: { rules: [{ action: "require-approval", method: "file.read", exact: path }] },
 		});
 		const strict = await connect(t.token);
-		expect((await call(strict, "node_info", { targets: [nodeName] })).notes).toMatchObject({
-			content: null,
-			note: expect.stringContaining("approval"),
+		expect((await call(strict, "node_info", { targets: [nodeName] })).notes).toEqual({
+			path: expect.any(String),
+			status: expect.stringContaining("approval"),
 		});
 		expect((await env.crhs.api("/api/approvals")).json.tasks).toEqual([]);
 		await strict.close();

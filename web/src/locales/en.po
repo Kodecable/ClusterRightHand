@@ -1645,14 +1645,13 @@ msgid "Done"
 msgstr "Done"
 
 #: src/components/file-manager/file-list.tsx
-#: src/features/sessions/tool-card.tsx
 msgid "Download"
 msgstr "Download"
 
 #. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
-#: src/features/sessions/tool-card.tsx
+#: src/features/sessions/deliveries.tsx
 msgid "Download {0}"
 msgstr "Download {0}"
 
@@ -2343,6 +2342,7 @@ msgid "Loading older messages…"
 msgstr "Loading older messages…"
 
 #: src/components/file-manager/preview-dialog.tsx
+#: src/features/sessions/deliveries.tsx
 msgid "Loading preview"
 msgstr "Loading preview"
 
@@ -3273,11 +3273,14 @@ msgstr "Preparing the payload to sign…"
 
 #: src/components/file-manager/file-list.tsx
 #: src/components/file-manager/preview-dialog.tsx
+#: src/features/sessions/deliveries.tsx
 msgid "Preview"
 msgstr "Preview"
 
+#. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
+#: src/features/sessions/deliveries.tsx
 msgid "Preview {0}"
 msgstr "Preview {0}"
 

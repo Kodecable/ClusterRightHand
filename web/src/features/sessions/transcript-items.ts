@@ -11,6 +11,11 @@ type TranscriptItemRow =
 			key: string;
 			text: string;
 			streaming: boolean;
+			/**
+			 * The producing assistant message ended without tool calls, so this text can be the turn's final
+			 * answer (doc/design/webui.md "Message view").
+			 */
+			final: boolean;
 			/** The row came from the live stream and keeps its `StreamingTextStore` after commit. */
 			live?: boolean;
 			/** Epoch ms when the producing assistant message started. */
@@ -139,6 +144,10 @@ export function transcript(state: SessionState): TranscriptItem[] {
 			...(m.timestamp === undefined ? {} : { at: m.timestamp }),
 			...(m.durationMs === undefined ? {} : { durationMs: m.durationMs }),
 		};
+		// An intermediate assistant message streams its text before the tool call arrives; only a message
+		// that ended without tool calls can be a final answer.
+		const endedWithoutToolCalls =
+			!streaming && !m.content.some((b) => b.type === "toolCall") && m.stopReason !== "toolUse";
 		m.content.forEach((b, i) => {
 			const k = `${key}/${i}`;
 			// While streaming, a block is listed from its first delta; its text is
@@ -151,6 +160,7 @@ export function transcript(state: SessionState): TranscriptItem[] {
 						key: k,
 						text,
 						streaming,
+						final: endedWithoutToolCalls,
 						...entry,
 						...(liveRow ? { live: true } : {}),
 						...timing,

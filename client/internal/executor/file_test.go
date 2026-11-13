@@ -36,6 +36,8 @@ func runFile(t *testing.T, kind any, input io.Reader) (*protocol.TaskResult, str
 		spec.Kind, spec.FileRead = protocol.TaskSpecFileRead, k
 	case *protocol.FileWriteSpec:
 		spec.Kind, spec.FileWrite = protocol.TaskSpecFileWrite, k
+	case *protocol.FilePushSpec:
+		spec.Kind, spec.FilePush = protocol.TaskSpecFilePush, k
 	case *protocol.FileEditSpec:
 		spec.Kind, spec.FileEdit = protocol.TaskSpecFileEdit, k
 	case *protocol.FileStatSpec:
@@ -148,6 +150,18 @@ func (r *chmodOnRead) Read(p []byte) (int, error) {
 func writeSpec(path, content string) *protocol.FileWriteSpec {
 	sum := sha256.Sum256([]byte(content))
 	return &protocol.FileWriteSpec{Path: path, Content: protocol.InputRef{Size: protocol.Uint(len(content)), SHA256: protocol.Hash(sum)}}
+}
+
+// pushSpec is a file.push spec whose content is data.
+func pushSpec(path string, data []byte) *protocol.FilePushSpec {
+	sum := sha256.Sum256(data)
+	return &protocol.FilePushSpec{
+		Path:      path,
+		Size:      protocol.Uint(len(data)),
+		SHA256:    protocol.Hash(sum),
+		Overwrite: true,
+		Endpoint:  protocol.TransferEndpoint{Kind: protocol.TransferEndpointCRHS, TransferID: "tr"},
+	}
 }
 
 func noTemps(t *testing.T, dir string) {
@@ -1306,4 +1320,34 @@ func TestFileWriteRenameErrorStaysBare(t *testing.T) {
 	_, err := run(t, writeSpec(filepath.Join(dir, "f"), "abc"), input)
 	wantCode(t, err, "permission_denied")
 	wantMessage(t, err, "permission denied")
+}
+
+func TestFilePushCreateParentDirs(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "a", "b", "f")
+	s := pushSpec(p, []byte("hello"))
+	s.CreateParentDirs = true
+	if _, err := run(t, s, strings.NewReader("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if readFileStr(t, p) != "hello" {
+		t.Fatal("content")
+	}
+	for _, d := range []string{"a", filepath.Join("a", "b")} {
+		if _, err := os.Stat(filepath.Join(dir, d)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	noTemps(t, filepath.Join(dir, "a", "b"))
+}
+
+func TestFilePushWithoutCreateParentDirsRefusesMissingParent(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "missing", "f")
+	s := pushSpec(p, []byte("hello"))
+	_, err := run(t, s, strings.NewReader("hello"))
+	wantCode(t, err, "not_found")
+	if _, statErr := os.Stat(p); !os.IsNotExist(statErr) {
+		t.Fatalf("file was written despite the missing parent: %v", statErr)
+	}
 }

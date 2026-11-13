@@ -71,7 +71,7 @@ Clients that support only stdio need a third-party bridge.
 | `edit_file` | Replace text in a file |
 | `list_dir` | List a directory on a node, or of a library |
 | `stat` | File attributes on a node, or of a library |
-| `copy_file` | Copy one file between nodes and libraries, or offer it to the user for download |
+| `copy_file` | Copy one file between nodes and libraries, or offer it to the people in the session |
 | `view_image` | Look at one image, from a node or a library |
 | `task_wait` | Keep waiting for an `exec` task or task group |
 | `task_cancel` | Cancel an `exec` task or task group |
@@ -89,12 +89,15 @@ once; `parallel` and `fail_fast` control the batch. A batch is limited to 512 no
 ### Libraries and images
 
 `list_dir` and `stat` accept `library` (`user:<username>` or `group:<group name>`) instead of `targets`;
-the path inside a library has no leading `/`. `copy_file` copies one file: the source is
-`{ node, path }` or `{ library, path }`, and the destination is `targets` plus `path`, or a library plus
-`path`. An existing destination is refused unless `overwrite` is true; a node destination also takes
-`mode`, `owner`, `group` and `privileged`. A library destination is limited by that library's limits.
-With `to_user: true` instead of a destination, nothing is copied: the tool stats the file and reports
-that it was offered to the user for download, so you learn whether it exists.
+omit `targets` then. The path inside a library has no leading `/`. `copy_file` copies one file: the
+source is `{ node, path }` or `{ library, path }`. The destination is a node
+`{ targets, path }` (with `create_parent_dirs`, `mode`, `owner`, `group` and `privileged`), a library
+`{ library, path }`, or `{ user_interface: true }`. An existing destination is refused unless
+`overwrite` is true; `overwrite` applies to node and library destinations. A node destination creates
+missing parent directories only with `create_parent_dirs: true`; a library has no directories, so any
+library path works. A library destination is limited by that library's limits. With
+`{ user_interface: true }` nothing is copied: the tool stats the file and reports that it was offered to
+the people in the session for download, so you learn whether it exists.
 
 `view_image` accepts PNG, JPEG, GIF and WebP within the model's image limits (by default 2000×2000
 pixels and 4.5 MB as base64) and stores the image in crhs's image cache. Over MCP there is no model

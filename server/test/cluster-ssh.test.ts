@@ -312,4 +312,29 @@ describe("SSH tasks", () => {
 		});
 		expect(done.errorCode).toBe("connection_lost");
 	});
+
+	it("fails a transfer task whose stored descriptor cannot be opened instead of leaving it dispatched", async () => {
+		const node = await addSshNode("ssh-bad-transfer");
+		const session = new FakeSession();
+		fake.connect = async () => session;
+		const task = await cluster.createTask({
+			nodeId: node.id,
+			spec: {
+				kind: "file.pull",
+				path: "/etc/passwd",
+				maxBytes: 1024,
+				endpoint: { kind: "crhs", transferId: "bad-transfer" },
+			},
+			transfer: JSON.stringify({ transferId: "bad-transfer", location: { kind: "nonsense" } }),
+			actor: actor(),
+		});
+		const done = await waitFor("failed", async () => {
+			const current = await view(task.id);
+			return current.state === "failed" ? current : undefined;
+		});
+		expect(done.errorCode).toBe("connect_failed");
+		expect(done.errorMessage).toContain("unknown transfer location kind");
+		// Nothing ran on the node: the task never reached the connection.
+		expect(session.taskCommands()).toHaveLength(0);
+	});
 });

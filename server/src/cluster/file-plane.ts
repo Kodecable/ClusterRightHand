@@ -34,6 +34,8 @@ export type PushFileInput = Omit<CreateTaskInput, "spec" | "input" | "transfer">
 	mode?: number;
 	owner?: string;
 	group?: string;
+	/** Create missing parent directories, like write_file's create_parent_dirs. */
+	createParentDirs?: boolean;
 };
 
 export type PullFileInput = Omit<CreateTaskInput, "spec" | "input" | "transfer"> & {
@@ -57,7 +59,7 @@ export function stageBytesForPush(core: ClusterCore, data: Uint8Array): Promise<
 
 /** Starts a file.push task: crhs streams the location's bytes to the node's path. */
 export function pushFile(core: ClusterCore, input: PushFileInput): Promise<TaskView> {
-	const { path, location, overwrite, mode, owner, group, ...rest } = input;
+	const { path, location, overwrite, mode, owner, group, createParentDirs, ...rest } = input;
 	if (location.size === null || location.sha256 === null) {
 		throw new UserError("a push source must have a size and sha256");
 	}
@@ -71,6 +73,7 @@ export function pushFile(core: ClusterCore, input: PushFileInput): Promise<TaskV
 		mode: mode ?? 0,
 		owner: owner ?? "",
 		group: group ?? "",
+		createParentDirs: createParentDirs === true,
 		endpoint: { kind: "crhs", transferId },
 	};
 	const record: TransferRecord = { transferId, location };

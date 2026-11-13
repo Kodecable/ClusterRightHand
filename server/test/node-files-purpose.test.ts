@@ -291,9 +291,12 @@ describe("node file browsing", () => {
 		fake.setPulled(bytes);
 		const res = await call(app, `/api/nodes/${nodeId}/file?path=/srv/a.txt&preview=1`, { cookie });
 		expect(res.status).toBe(400);
-		// The refusal is JSON: the file's Content-Length must not have been set before the check.
+		// The refusal is JSON: the file's headers (above all its Content-Length) are set only after the
+		// sniff passed, never on the refusal.
 		expect(res.headers.get("content-type")).toContain("application/json");
 		expect(res.headers.get("content-length")).not.toBe(String(bytes.length));
+		expect(res.headers.get("content-length")).toBeNull();
+		expect(res.headers.get("content-disposition")).toBeNull();
 		// The staging file is discarded once the preview fails.
 		const staging = join(root, (fake.created[0] as unknown as { location: { path: string } }).location.path);
 		await expect(readFile(staging)).rejects.toThrow();

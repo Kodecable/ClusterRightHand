@@ -41,18 +41,22 @@ function notesSpec(path: string): TaskSpec {
 	return { kind: "file.read", path, startLine: 1, lineCount: READ_PAGE_LINES };
 }
 
-/** The notes fields node_info returns: the path, the kept content and why some of it is missing. */
+/**
+ * The notes fields node_info returns: `{ path, content }` with the kept notes, or `{ path, status }` when
+ * there are none, with an optional `truncated` note when only part of them is shown.
+ */
 function notesFields(
 	path: string,
 	content: string | null,
 	extra: { note?: string; truncated?: string } = {},
 ): Record<string, unknown> {
-	return {
-		path,
-		content,
-		...(extra.note === undefined ? {} : { note: extra.note }),
-		...(extra.truncated === undefined ? {} : { truncated: extra.truncated }),
-	};
+	return content === null
+		? {
+				path,
+				...(extra.note === undefined ? {} : { status: extra.note }),
+				...(extra.truncated === undefined ? {} : { truncated: extra.truncated }),
+			}
+		: { path, content, ...(extra.truncated === undefined ? {} : { truncated: extra.truncated }) };
 }
 
 /** The notes of a read task that did not finish; undefined when it read the file. */

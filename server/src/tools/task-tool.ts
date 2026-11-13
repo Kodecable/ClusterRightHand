@@ -59,14 +59,24 @@ export interface StartOptions {
 /** A node's transport, which decides whether its tasks can keep a full output file. */
 export type NodeTransport = "client" | "ssh";
 
+/** How a node applies privileged execution, for the note that says so. */
+export interface NodePrivilege {
+	transport: NodeTransport;
+	/** The node's privileged mode (forward, native, ignore or reject); null for SSH and unknown nodes. */
+	mode: string | null;
+	/** The SSH user a task runs as; null for a client node. */
+	sshUser: string | null;
+}
+
 /** A started call: one task, or a task group whose result has one entry per node. */
 export type Started =
-	| { kind: "task"; task: TaskView; nodeName: string; transport?: NodeTransport }
+	| { kind: "task"; task: TaskView; nodeName: string; transport?: NodeTransport; privilege?: NodePrivilege }
 	| {
 			kind: "task_group";
 			taskGroup: TaskGroupView;
 			names: Map<string, string>;
 			transports?: Map<string, NodeTransport>;
+			privileges?: Map<string, NodePrivilege>;
 	  };
 
 /** Waits until a task or group is final, approval and signature included (blocking file tools). */
@@ -77,9 +87,22 @@ export type WaitKind = "background" | "blocking";
 async function nodeInfos(
 	ctx: ToolContext,
 	ids: string[],
-): Promise<Map<string, { name: string; transport: NodeTransport }>> {
-	const nodes = await ctx.db.selectFrom("nodes").select(["id", "name", "transport"]).where("id", "in", ids).execute();
-	return new Map(nodes.map((n) => [n.id, { name: n.name, transport: n.transport }]));
+): Promise<Map<string, { name: string; transport: NodeTransport; privilege: NodePrivilege }>> {
+	const nodes = await ctx.db
+		.selectFrom("nodes")
+		.select(["id", "name", "transport", "privileged_mode", "ssh_user"])
+		.where("id", "in", ids)
+		.execute();
+	return new Map(
+		nodes.map((n) => [
+			n.id,
+			{
+				name: n.name,
+				transport: n.transport as NodeTransport,
+				privilege: { transport: n.transport as NodeTransport, mode: n.privileged_mode, sshUser: n.ssh_user },
+			},
+		]),
+	);
 }
 
 function abortReason(): string {
@@ -304,7 +327,13 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 			...(id ? { id } : {}),
 		});
 		const info = (await nodeInfos(ctx, [nodeId])).get(nodeId);
-		return { kind: "task", task, nodeName: info?.name ?? nodeId, transport: info?.transport };
+		return {
+			kind: "task",
+			task,
+			nodeName: info?.name ?? nodeId,
+			transport: info?.transport,
+			...(info === undefined ? {} : { privilege: info.privilege }),
+		};
 	}
 	const id = await ctx.taskGroups.create({
 		...common,
@@ -321,11 +350,13 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 	const infos = await nodeInfos(ctx, resolved.nodeIds);
 	const names = new Map(Array.from(infos, ([nodeId, info]) => [nodeId, info.name] as const));
 	const transports = new Map(Array.from(infos, ([nodeId, info]) => [nodeId, info.transport] as const));
+	const privileges = new Map(Array.from(infos, ([nodeId, info]) => [nodeId, info.privilege] as const));
 	return {
 		kind: "task_group",
 		taskGroup: (await ctx.taskGroups.get(id)) as TaskGroupView,
 		names,
 		transports,
+		privileges,
 	};
 }
 

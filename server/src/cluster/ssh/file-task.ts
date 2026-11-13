@@ -344,6 +344,11 @@ async function filePush(ctx: Ctx, s: FilePushSpec, transfer: SftpTransfer | unde
 	if (existing && (existing.mode & S_IFMT) === S_IFDIR) {
 		throw new FileTaskError("is_directory", `${path} is a directory`);
 	}
+	if (s.createParentDirs) {
+		// Same mkdir -p as file.write: the new directories are 0755 before the remote umask and belong to
+		// the SSH user, like the file itself (SFTP cannot set an owner by name).
+		await makeParentDirs(sftp, path, ctx.signal);
+	}
 	const tmp = await createTemp(sftp, path);
 	const hash = createHash("sha256");
 	let size = 0;

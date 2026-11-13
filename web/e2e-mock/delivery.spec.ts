@@ -17,9 +17,9 @@ const LIBRARY = {
 	capabilities: { write: true, manage: false },
 };
 
-/** A completed copy_file call that offered a library file to the user, as the server records it. */
-function deliveryEntries(): EntryRecord[] {
-	return [
+/** The file name is shown in the tool arguments, so the ordinary row keeps it too. */
+function deliveryEntries(final = false): EntryRecord[] {
+	const entries: EntryRecord[] = [
 		userEntry("u1", "hand me the report"),
 		{
 			id: "a1",
@@ -32,9 +32,13 @@ function deliveryEntries(): EntryRecord[] {
 							type: "toolCall",
 							id: "call-1",
 							name: "copy_file",
-							arguments: { source: { library: "group:team", path: "docs/report.txt" }, to_user: true },
+							arguments: {
+								source: { library: "group:team", path: "docs/report.txt" },
+								destination: { user_interface: true },
+							},
 						},
 					],
+					stopReason: "toolUse",
 				},
 			],
 		},
@@ -59,9 +63,25 @@ function deliveryEntries(): EntryRecord[] {
 			],
 		},
 	];
+	if (final) {
+		entries.push({
+			id: "a2",
+			kind: "pi.assistant",
+			model: [
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "Here it is." }],
+					timestamp: 2_000,
+					durationMs: 1_000,
+					stopReason: "stop",
+				},
+			],
+		});
+	}
+	return entries;
 }
 
-test("a copy_file delivery shows its file, source and path with a download link", async ({ page }) => {
+test("a copy_file delivery is an ordinary tool row plus one delivered-file box", async ({ page }) => {
 	const api = await mockApi(page, {
 		state: {
 			sessions: [item],
@@ -74,13 +94,42 @@ test("a copy_file delivery shows its file, source and path with a download link"
 	await openSession(page, api, "s1");
 	await expect(page.locator('[data-testid="session-page"]')).toBeVisible();
 
-	const delivery = page.getByTestId("copy-delivery");
+	// The call itself is a normal tool row: no dedicated card.
+	await expect(page.getByTestId("tool-card")).toHaveCount(1);
+	await expect(page.getByTestId("copy-delivery")).toHaveCount(0);
+
+	const delivery = page.getByTestId("delivery-box");
 	await expect(delivery).toContainText("report.txt");
 	await expect(delivery).toContainText("group:team");
-	await expect(delivery).toContainText("docs/report.txt");
 	await expect(delivery).toContainText("1.2 KiB");
 	// The link follows the library id to the current reference, not the stored one.
-	await expect(page.getByTestId("copy-delivery-download")).toHaveAttribute(
+	await expect(page.getByTestId("delivery-download")).toHaveAttribute(
+		"href",
+		"/api/libraries/group%3Ateam-renamed/file?path=docs%2Freport.txt",
+	);
+});
+
+test("delivered files stay visible when the turn is folded", async ({ page }) => {
+	const entries = deliveryEntries(true);
+	const user = entries[0] as EntryRecord;
+	if (user.model?.[0]?.role === "user") user.model[0].timestamp = 1_000;
+	const api = await mockApi(page, {
+		state: {
+			sessions: [item],
+			details: { s1: sessionView(item) },
+			libraries: [LIBRARY],
+			events: { s1: snapshotEvent(entries, null) },
+		},
+	});
+	await login(page);
+	await openSession(page, api, "s1");
+	await expect(page.locator('[data-testid="session-page"]')).toBeVisible();
+
+	// The process is folded, but the delivered file follows the turn's final answer.
+	await expect(page.getByTestId("turn-summary")).toBeVisible();
+	await expect(page.getByTestId("tool-card")).toHaveCount(0);
+	await expect(page.getByTestId("delivery-box")).toContainText("report.txt");
+	await expect(page.getByTestId("delivery-download")).toHaveAttribute(
 		"href",
 		"/api/libraries/group%3Ateam-renamed/file?path=docs%2Freport.txt",
 	);

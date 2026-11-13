@@ -82,7 +82,7 @@ export function viewImageDetails(details: Json | undefined): ViewImageDetails | 
 	return undefined;
 }
 
-/** A `copy_file to_user: true` offer, from its result details (doc/design/library.md "Agent tools"). */
+/** A `copy_file` user_interface delivery, from its result details (doc/design/library.md "Agent tools"). */
 export interface DeliveryDetails {
 	source: { library: string; libraryId: string; path: string } | { node: string; nodeId: string; path: string };
 	name: string;

@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, utimes } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import type { LibraryFile, LibraryFilesResponse, LibraryListResponse } from "@crh/api";
+import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLibraryBackend, getBytes, putBytes } from "../src/library/backend.ts";
 import { beginLibraryUpload } from "../src/library/files.ts";
@@ -56,6 +58,26 @@ describe("media type sniffing", () => {
 		expect(sniff(Buffer.from("hello, 世界"))).toBe("text/plain");
 		expect(sniff(Buffer.from([0x68, 0x00, 0x69]))).toBe("application/octet-stream");
 		expect(sniff(Buffer.from([0xff, 0xfe]))).toBe("application/octet-stream");
+	});
+});
+
+describe("local library backend", () => {
+	it("rejects a put whose write stream fails without crashing on an unhandled error", async () => {
+		const root = await mkdtemp(join(tmpdir(), "crhs-local-backend-"));
+		try {
+			const backend = createLibraryBackend({ backend: "local" }, root);
+			const key = `ab${"0".repeat(30)}`;
+			// A read-only shard makes the destination's open fail as ENOSPC or EACCES would while the
+			// source is still being read. A put that does not own the write stream's error crashes here.
+			await mkdir(join(root, key.slice(0, 2)), { mode: 0o500 });
+			await expect(backend.put(key, Readable.from([Buffer.alloc(64 * 1024, 7)]))).rejects.toMatchObject({
+				code: "EACCES",
+			});
+			expect(await readdir(join(root, key.slice(0, 2)))).toEqual([]);
+			await expect(getBytes(backend, key)).rejects.toThrow();
+		} finally {
+			await rm(root, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -215,6 +237,42 @@ describe("library API", () => {
 			.where("owner_id", "=", aliceId)
 			.executeTakeFirstOrThrow();
 		expect(library).toEqual({ used_files: 1, used_bytes: 5 });
+	});
+
+	it("keeps used_bytes at the final size and one object when two overwrites race", async () => {
+		expect((await upload(alice, "user:alice", "race.txt", Buffer.from("old"))).status).toBe(201);
+		const contents = [Buffer.from("first"), Buffer.from("second!!")];
+		const responses = await Promise.all(
+			contents.map((data) => upload(alice, "user:alice", "race.txt", data, { overwrite: true })),
+		);
+		expect(responses.map((response) => response.status)).toEqual([201, 201]);
+
+		const library = await db
+			.selectFrom("libraries")
+			.select("id")
+			.where("owner_kind", "=", "user")
+			.where("owner_id", "=", aliceId)
+			.executeTakeFirstOrThrow();
+		const row = await db
+			.selectFrom("library_files")
+			.select(["size", "object_key"])
+			.where("library_id", "=", library.id)
+			.where("path", "=", "race.txt")
+			.executeTakeFirstOrThrow();
+		// The second commit's byte delta is read under the library row lock, so usage matches the file
+		// that survived and the object the first commit replaced was deleted rather than leaked.
+		expect(contents.map((data) => data.length)).toContain(row.size);
+		expect(await getBytes(backend, row.object_key)).toHaveLength(row.size);
+		expect(
+			await db
+				.selectFrom("libraries")
+				.select(["used_files", "used_bytes"])
+				.where("id", "=", library.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ used_files: 1, used_bytes: row.size });
+		const objects: string[] = [];
+		for await (const object of backend.list()) objects.push(object.key);
+		expect(objects).toEqual([row.object_key]);
 	});
 
 	it("serves only PNG, JPEG, GIF and WebP inline and only for a preview", async () => {
@@ -487,6 +545,73 @@ describe("library API", () => {
 			(await call(app, `/api/user-groups/${group.id}`, { method: "DELETE", cookie: admin, body: {} })).status,
 		).toBe(200);
 		expect(await db.selectFrom("libraries").select("id").where("owner_kind", "=", "group").execute()).toEqual([]);
+	});
+
+	it("refuses a group deletion racing a committed upload and keeps the file", async () => {
+		const created = await call(app, "/api/user-groups", { cookie: admin, body: { name: "racers" } });
+		expect(created.status).toBe(201);
+		const group = ((await created.json()) as { group: { id: string; name: string } }).group;
+		expect(
+			(
+				await call(app, `${lib("group:racers")}/limits`, {
+					method: "PATCH",
+					cookie: admin,
+					body: { files: 2, fileBytes: 16, totalBytes: 16 },
+				})
+			).status,
+		).toBe(200);
+		const record = await findLibraryByRef(db, "group:racers");
+		if (!record) throw new Error("the group has no library");
+		const upload = beginLibraryUpload(db, backend, {
+			library: record.row,
+			path: "race.txt",
+			overwrite: false,
+			createdBy: adminId,
+		});
+		const data = Buffer.from("race me");
+		await upload.write(data);
+		await upload.finish();
+
+		// Hold the library row so the deletion request is in flight while the upload has not committed.
+		// The upload's commit is queued first, and the deletion then runs against the committed file
+		// instead of deleting the library out from under it.
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const holding = db.transaction().execute(async (trx) => {
+			await trx
+				.updateTable("libraries")
+				.set({ used_bytes: sql<number>`used_bytes` })
+				.where("id", "=", record.row.id)
+				.execute();
+			await held;
+		});
+		const committing = upload.commit();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const deleting = call(app, `/api/user-groups/${group.id}`, { method: "DELETE", cookie: admin, body: {} });
+		release();
+		await holding;
+		await committing;
+
+		const refused = await deleting;
+		expect(refused.status).toBe(400);
+		expect(await refused.json()).toMatchObject({ error: expect.stringContaining("1 file") });
+		const row = await db
+			.selectFrom("library_files")
+			.select(["path", "object_key", "size"])
+			.where("library_id", "=", record.row.id)
+			.executeTakeFirstOrThrow();
+		expect(row).toMatchObject({ path: "race.txt", size: data.length });
+		expect(await getBytes(backend, row.object_key)).toEqual(data);
+		expect(
+			await db
+				.selectFrom("libraries")
+				.select(["used_files", "used_bytes"])
+				.where("id", "=", record.row.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ used_files: 1, used_bytes: data.length });
+		expect(await db.selectFrom("user_groups").select("id").where("id", "=", group.id).executeTakeFirst()).toBeDefined();
 	});
 
 	it("gives group members read and write access", async () => {

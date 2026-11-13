@@ -45,6 +45,7 @@ const PUSH: TaskSpec = {
 	mode: 0o644,
 	owner: "deploy",
 	group: "deploy",
+	createParentDirs: true,
 	endpoint: { kind: "crhs", transferId: "tr-1" },
 };
 
@@ -201,7 +202,7 @@ export function buildTransferFixture(): TransferFixture {
 		"task.spec.push.short",
 		"file.push spec without the endpoint",
 		"task-spec",
-		encodeCbor(["file.push", ["/x", 1, SHA_333, false, 0, "", ""]]),
+		encodeCbor(["file.push", ["/x", 1, SHA_333, false, 0, "", "", false]]),
 	);
 	add(
 		negative,

@@ -1,6 +1,6 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronDownIcon, ChevronRightIcon, LoaderCircleIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
@@ -10,37 +10,18 @@ import { ToolCard } from "./tool-card";
 import type { TranscriptItem } from "./transcript-items";
 import type { TranscriptStreams } from "./transcript-streams";
 
-/** Tick once a second while the final answer streams; the row stops ticking at the end. */
-function useLiveElapsed(startedAt: number | undefined, live: boolean): number | undefined {
-	const [now, setNow] = useState(() => Date.now());
-	useEffect(() => {
-		if (!live || startedAt === undefined) return;
-		setNow(Date.now());
-		const timer = setInterval(() => setNow(Date.now()), 1_000);
-		return () => clearInterval(timer);
-	}, [live, startedAt]);
-	return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
-}
-
 /** The completed turn's fold line, above its final answer (doc/design/webui.md "Message view"). */
 export function TurnSummaryRow({
-	startedAt,
-	live,
 	durationMs,
 	open,
 	onToggle,
 }: {
-	startedAt: number | undefined;
-	live: boolean;
 	durationMs: number | undefined;
 	open: boolean;
 	onToggle: () => void;
 }) {
 	const { t, i18n } = useLingui();
-	const elapsed = useLiveElapsed(startedAt, live);
-	const effectiveDuration = live ? elapsed : durationMs;
-	const duration =
-		effectiveDuration === undefined ? undefined : formatDuration(Math.max(1000, effectiveDuration), i18n.locale);
+	const duration = durationMs === undefined ? undefined : formatDuration(Math.max(1000, durationMs), i18n.locale);
 	return (
 		<article className="px-3 pb-1" data-testid="turn-summary">
 			<button

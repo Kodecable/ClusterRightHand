@@ -95,7 +95,7 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `node_info` | Node facts and notes |
 | `exec` | Run a command |
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
-| `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the user for download, `to_user`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
+| `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `task_wait`, `task_cancel` | Follow or cancel an `exec` task or task group |
 
 `task_wait` and `task_cancel` reach only tasks started by this session (or its subagents) or this API
@@ -154,12 +154,15 @@ Lists and facts are returned as compact JSON.
 
 When output is truncated, the note gives the line range kept, the total, and the path of the complete
 output file on the node. A failed task, a non-zero exit, a timeout, a signal or an `unknown` state sets
-the result's error flag while keeping any output.
+the result's error flag while keeping any output. A privileged task's note also names how the node
+applied privilege: `privileged via forward` or `privileged via native`, and on an SSH node
+`privileged ignored: SSH runs as <user>`, from the notice crhs recorded on the task.
 
 Agent tool results also carry structured `details` (task ids, states, error codes) for the WebUI, which
 uses them to link to tasks and to judge success without parsing text. `details` is never sent to the
-model. A `copy_file` offer to the user (`to_user`) carries `details.delivery` there, which the tool card
-renders as the file, its source and a download link ([Deliveries](library.md#deliveries)).
+model. A `copy_file` offer to the people in the session (`destination.user_interface`) carries
+`details.delivery` there; after the turn ends, the delivered-file box shows the file, its source and a
+download link ([Deliveries](library.md#deliveries)).
 
 ## Sessions
 
@@ -280,7 +283,8 @@ Tools follow pi's coding-agent defaults where they apply:
 | Automatic compaction | pi's thresholds, starting in the background before the blocking threshold |
 | `exec` wait before returning | 10 minutes for agents, 30 seconds for MCP |
 
-Node notes returned by `node_info` are cut to 8 KiB, because every call returns them.
+Node notes returned by `node_info` are cut to 8 KiB, because every call returns them. A node with notes
+returns `{ path, content }`; a node without them returns `{ path, status }` and no `content`.
 
 ## Quota and token accounting
 

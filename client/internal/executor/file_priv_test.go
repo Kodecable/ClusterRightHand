@@ -36,6 +36,8 @@ func privilegedSpec(kind any) *protocol.TaskSpec {
 		spec.Kind, spec.FileRead = protocol.TaskSpecFileRead, k
 	case *protocol.FileWriteSpec:
 		spec.Kind, spec.FileWrite = protocol.TaskSpecFileWrite, k
+	case *protocol.FilePushSpec:
+		spec.Kind, spec.FilePush = protocol.TaskSpecFilePush, k
 	case *protocol.FileEditSpec:
 		spec.Kind, spec.FileEdit = protocol.TaskSpecFileEdit, k
 	case *protocol.FileStatSpec:
@@ -427,6 +429,45 @@ func TestPrivilegedFileWriteCreateParentDirs(t *testing.T) {
 	s = writeSpec(filepath.Join(dir, "x", "y", "f"), "x")
 	_, err := runPrivileged(t, s, strings.NewReader("x"))
 	wantCode(t, err, "not_found")
+}
+
+func TestPrivilegedFilePushCreateParentDirs(t *testing.T) {
+	dir := privateDir(t)
+	p := filepath.Join(dir, "a", "b", "f")
+	s := pushSpec(p, []byte("hello"))
+	s.CreateParentDirs = true
+	if _, err := runPrivileged(t, s, strings.NewReader("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if readFileStr(t, p) != "hello" {
+		t.Fatal("content")
+	}
+	for _, d := range []string{"a", filepath.Join("a", "b")} {
+		fi, err := os.Stat(filepath.Join(dir, d))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != 0o755 {
+			t.Fatalf("%s mode = %v, want 0755 before the umask", d, fi.Mode())
+		}
+	}
+
+	// Without create_parent_dirs a missing parent is still not_found.
+	s = pushSpec(filepath.Join(dir, "x", "y", "f"), []byte("x"))
+	_, err := runPrivileged(t, s, strings.NewReader("x"))
+	wantCode(t, err, "not_found")
+}
+
+func TestPrivilegedFilePushCreateParentDirsRefusesSymlink(t *testing.T) {
+	dir := privateDir(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	s := pushSpec(filepath.Join(dir, "link", "a", "f"), []byte("x"))
+	s.CreateParentDirs = true
+	_, err := runPrivileged(t, s, strings.NewReader("x"))
+	wantCode(t, err, "symlink_not_allowed")
 }
 
 func TestPrivilegedFileWriteCreateParentDirsRefusesSymlink(t *testing.T) {

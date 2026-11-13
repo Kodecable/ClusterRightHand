@@ -90,7 +90,7 @@ test("user message, streamed text and the committed entry", () => {
 	// Markdown tree is not remounted when `message_end` arrives.
 	expect(transcript(s)).toEqual([
 		{ kind: "user", key: "1", entryId: "1", text: "hi" },
-		{ kind: "text", key: "live/1/0", entryId: "2", text: "Hello", streaming: false, live: true },
+		{ kind: "text", key: "live/1/0", entryId: "2", text: "Hello", streaming: false, final: true, live: true },
 	]);
 });
 
@@ -120,7 +120,9 @@ test("a snapshot does not claim live rows", () => {
 			},
 		},
 	]);
-	expect(transcript(s)).toEqual([{ kind: "text", key: "2/0", entryId: "2", text: "hello", streaming: false }]);
+	expect(transcript(s)).toEqual([
+		{ kind: "text", key: "2/0", entryId: "2", text: "hello", streaming: false, final: true },
+	]);
 });
 
 test("thinking streams into its own item", () => {
@@ -512,7 +514,7 @@ describe("history pages", () => {
 		expect(transcript(s)).toEqual([
 			{ kind: "user", key: "1", entryId: "1", text: "before" },
 			{ kind: "compaction", key: "2", entryId: "2", text: "Summary of the earlier conversation" },
-			{ kind: "text", key: "3/0", entryId: "3", text: "after", streaming: false },
+			{ kind: "text", key: "3/0", entryId: "3", text: "after", streaming: false, final: true },
 		]);
 	});
 

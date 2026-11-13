@@ -382,7 +382,9 @@ test("8. a completed turn folds its process under the ended line", async ({ page
 	await expect(page.locator(SCROLLER).locator('[data-kind="thinking"]')).toHaveCount(0);
 });
 
-test("9. the process folds as soon as the final answer starts streaming", async ({ page }) => {
+test("9. the process stays unfolded while the final answer streams and folds when its message ends", async ({
+	page,
+}) => {
 	const fixture = sessionState();
 	const user = userEntry("live-u", "run");
 	if (user.model?.[0]?.role === "user") user.model[0].timestamp = Date.now() - 3_000;
@@ -395,7 +397,6 @@ test("9. the process folds as soon as the final answer starts streaming", async 
 	const api = await mockApi(page, {
 		state: {
 			...fixture,
-			sessions: fixture.sessions.map((session, index) => (index === 0 ? { ...session, state: "running" } : session)),
 			events: { s1: snapshotEvent([user, thought], null), s2: fixture.events.s2 },
 		},
 	});
@@ -412,6 +413,20 @@ test("9. the process folds as soon as the final answer starts streaming", async 
 			],
 		},
 	]);
+
+	// While the text streams it is not a final answer yet: the turn stays open, with no ended line.
+	await expect(page.getByText("Final answer while streaming")).toBeVisible();
+	await expect(page.getByTestId("turn-summary")).toHaveCount(0);
+	await expect(page.locator(SCROLLER).locator('[data-kind="thinking"]')).toHaveCount(1);
+
+	// The assistant message ended without a tool call, so the text is the final answer and the turn folds.
+	const answer = assistantEntry("live-a", "Final answer while streaming");
+	if (answer.model?.[0]?.role === "assistant") {
+		answer.model[0].timestamp = Date.now() - 1_000;
+		answer.model[0].durationMs = 1_000;
+		answer.model[0].stopReason = "stop";
+	}
+	await api.emit("/api/sessions/s1/events", "events", [{ type: "message_end", entry: answer }]);
 
 	const summary = page.getByTestId("turn-summary");
 	await expect(summary).toContainText("Ended in");

@@ -6,6 +6,7 @@
  */
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DATA_IDLE_TIMEOUT_MS } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
 import type { LibraryBackend } from "../library/backend.ts";
@@ -94,6 +95,8 @@ export class ClusterCore {
 	readonly groupQueue = new KeyedQueue("task group queue");
 	/** The staging directory of file plane transfers (doc/design/library.md "File plane"). */
 	readonly transferRoot: string;
+	/** How long a data connection may stay silent before its transfer fails (DATA_IDLE_TIMEOUT_MS). */
+	readonly dataIdleTimeoutMs: number;
 	/** The library object backend, used by library transfer locations. */
 	readonly libraryBackend: LibraryBackend | undefined;
 	/** The per-node and global transfer slots (doc/design/library.md "Data connections"). */
@@ -124,6 +127,7 @@ export class ClusterCore {
 		this.trustWaitMs = options.trustWaitMs ?? 5_000;
 		this.settings = options.settings;
 		this.transferRoot = options.transferRoot ?? join(tmpdir(), "crhs-staging");
+		this.dataIdleTimeoutMs = options.dataIdleTimeoutMs ?? DATA_IDLE_TIMEOUT_MS;
 		this.libraryBackend = options.libraryBackend;
 		this.transferScheduler = new TransferScheduler(options.transferLimits);
 		this.#clockWarnMs = options.clockWarnMs ?? 60_000;

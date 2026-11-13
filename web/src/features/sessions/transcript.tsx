@@ -3,6 +3,8 @@ import { ArrowDownIcon, LoaderCircleIcon } from "lucide-react";
 import { type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { Button } from "@/components/ui/button";
+import { TurnDeliveries } from "./deliveries";
+import type { DeliveryDetails } from "./tool-details";
 import type { TranscriptItem } from "./transcript-items";
 import { TranscriptRow, TurnSummaryRow } from "./transcript-row";
 import type { TranscriptStreams } from "./transcript-streams";
@@ -31,11 +33,10 @@ type TranscriptDisplayRow =
 			kind: "summary";
 			key: string;
 			turnKey: string;
-			startedAt: number | undefined;
-			live: boolean;
 			durationMs: number | undefined;
 			open: boolean;
-	  };
+	  }
+	| { kind: "deliveries"; key: string; deliveries: DeliveryDetails[] };
 
 /**
  * The session transcript (doc/design/webui.md "Message view"): a virtua list with `shift`
@@ -314,33 +315,35 @@ export function Transcript({
 		const display: TranscriptDisplayRow[] = [];
 		for (const turn of turns) {
 			if (turn.user !== undefined) display.push({ kind: "item", key: turn.user.key, item: turn.user });
-			if (!turn.foldable) {
-				for (const item of turn.body) display.push({ kind: "item", key: item.key, item });
-				continue;
-			}
-			const open = openTurns.has(turn.key);
-			display.push({
-				kind: "summary",
-				key: `summary:${turn.key}`,
-				turnKey: turn.key,
-				startedAt: turn.startedAt,
-				live: turn.live,
-				durationMs: turn.durationMs,
-				open,
-			});
-			if (open) {
-				for (const item of turn.process) display.push({ kind: "item", key: item.key, item });
-			} else {
-				// A closed turn still lists its compaction notes (doc/design/webui.md "Message rendering"):
-				// they are never hidden by the fold and stay in commit order before the final answer.
-				for (const item of turn.process) {
-					if (item.kind === "compaction") display.push({ kind: "item", key: item.key, item });
+			if (turn.foldable) {
+				const open = openTurns.has(turn.key);
+				display.push({
+					kind: "summary",
+					key: `summary:${turn.key}`,
+					turnKey: turn.key,
+					durationMs: turn.durationMs,
+					open,
+				});
+				if (open) {
+					for (const item of turn.process) display.push({ kind: "item", key: item.key, item });
+				} else {
+					// A closed turn still lists its compaction notes (doc/design/webui.md "Message rendering"):
+					// they are never hidden by the fold and stay in commit order before the final answer.
+					for (const item of turn.process) {
+						if (item.kind === "compaction") display.push({ kind: "item", key: item.key, item });
+					}
 				}
+				if (turn.final !== undefined) display.push({ kind: "item", key: turn.final.key, item: turn.final });
+				// Compaction notes committed after the final answer always follow it, whether
+				// the turn is open or closed, so the transcript keeps commit order (doc/design/webui.md "Message rendering").
+				for (const item of turn.after) display.push({ kind: "item", key: item.key, item });
+			} else {
+				for (const item of turn.body) display.push({ kind: "item", key: item.key, item });
 			}
-			if (turn.final !== undefined) display.push({ kind: "item", key: turn.final.key, item: turn.final });
-			// Compaction notes committed after the final answer always follow it, whether
-			// the turn is open or closed, so the transcript keeps commit order (doc/design/webui.md "Message rendering").
-			for (const item of turn.after) display.push({ kind: "item", key: item.key, item });
+			// The turn's delivered files follow everything it shows, and stay out of its fold.
+			if (turn.ended && turn.deliveries.length > 0) {
+				display.push({ kind: "deliveries", key: `deliveries:${turn.key}`, deliveries: turn.deliveries });
+			}
 		}
 		for (const item of items) if (item.kind === "compacting") display.push({ kind: "item", key: item.key, item });
 		return display;
@@ -453,12 +456,12 @@ export function Transcript({
 							row.kind === "summary" ? (
 								<TurnSummaryRow
 									key={row.key}
-									startedAt={row.startedAt}
-									live={row.live}
 									durationMs={row.durationMs}
 									open={row.open}
 									onToggle={() => toggleTurn(row.turnKey)}
 								/>
+							) : row.kind === "deliveries" ? (
+								<TurnDeliveries key={row.key} deliveries={row.deliveries} />
 							) : (
 								<TranscriptRow
 									key={row.key}

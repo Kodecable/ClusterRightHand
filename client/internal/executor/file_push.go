@@ -14,12 +14,13 @@ func filePush(ctx context.Context, acc fileAccess, s *protocol.FilePushSpec, inp
 	// fileWrite verifies the content against the ref while it streams into the temporary file, so a
 	// mismatch never publishes anything.
 	_, err := fileWrite(ctx, acc, &protocol.FileWriteSpec{
-		Path:      s.Path,
-		Content:   protocol.InputRef{Size: s.Size, SHA256: s.SHA256},
-		Overwrite: s.Overwrite,
-		Mode:      s.Mode,
-		Owner:     s.Owner,
-		Group:     s.Group,
+		Path:             s.Path,
+		Content:          protocol.InputRef{Size: s.Size, SHA256: s.SHA256},
+		Overwrite:        s.Overwrite,
+		Mode:             s.Mode,
+		Owner:            s.Owner,
+		Group:            s.Group,
+		CreateParentDirs: s.CreateParentDirs,
 	}, input)
 	if err != nil {
 		return nil, err

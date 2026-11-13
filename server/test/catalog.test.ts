@@ -430,6 +430,37 @@ describe("non-task tools", () => {
 		}
 	});
 
+	it("reports a node without notes as a status, not as empty content", async () => {
+		const db = await openTestDb("sqlite");
+		try {
+			const user = await createUser(db, { username: "notes-status-user", kind: "member" });
+			await addNode(db, user.id, { name: "web-1", facts: { notesPath: "/etc/crh/notes.md" } });
+			const sessionUser: SessionUser = { sessionId: "s", userId: user.id, username: user.username, kind: "member" };
+			const cluster = {
+				evaluateFor: async () => ({ result: "allow" }),
+				createTask: async () => task({ id: "notes-1", kind: "file.read" }),
+				waitTask: async () =>
+					task({
+						id: "notes-1",
+						kind: "file.read",
+						state: "rejected",
+						errorCode: "not_found",
+						errorMessage: "no such file",
+					}),
+			} as unknown as Cluster;
+			const info = await tool("node_info").handler({ targets: ["web-1"] } as never, {
+				...f2base(db, sessionUser),
+				cluster,
+			});
+			expect(jsonOf(info).notes).toEqual({
+				path: "/etc/crh/notes.md",
+				status: "no notes yet; create the file with write_file",
+			});
+		} finally {
+			await db.destroy();
+		}
+	});
+
 	it("returns one entry per node for a batch and reads each node's notes under the batch budget", async () => {
 		const db = await openTestDb("sqlite");
 		try {
@@ -519,14 +550,15 @@ describe("non-task tools", () => {
 				cluster,
 			});
 			const entries = jsonOf(result).nodes as {
-				notes: { content: string | null; truncated?: string; note?: string };
+				notes: { content?: string | null; truncated?: string; status?: string };
 			}[];
 			// Six nodes fill 6 x 8 KB of the 50 KB batch budget; the seventh keeps the rest, the eighth nothing.
 			expect(Buffer.byteLength(entries[5]?.notes.content ?? "")).toBe(8192);
 			expect(Buffer.byteLength(entries[6]?.notes.content ?? "")).toBe(2048);
 			expect(entries[6]?.notes.truncated).toContain("first 2048 bytes");
-			expect(entries[7]?.notes.content).toBeNull();
-			expect(entries[7]?.notes.note).toContain("batch budget");
+			// No notes kept: the field is a status, with no empty content.
+			expect(entries[7]?.notes.content).toBeUndefined();
+			expect(entries[7]?.notes.status).toContain("batch budget");
 		} finally {
 			await db.destroy();
 		}
@@ -561,9 +593,10 @@ describe("non-task tools", () => {
 				...f2base(db, sessionUser),
 				cluster,
 			});
-			const entries = jsonOf(result).nodes as { notes: { content: string | null; note?: string } }[];
+			const entries = jsonOf(result).nodes as { notes: { content?: string; status?: string } }[];
 			expect(entries[0]?.notes.content).toBe("# web-1\n");
-			expect(entries[1]?.notes).toMatchObject({ content: null, note: expect.stringContaining("approval") });
+			expect(entries[1]?.notes).toMatchObject({ status: expect.stringContaining("approval") });
+			expect(entries[1]?.notes.content).toBeUndefined();
 			expect(created).toHaveLength(1);
 		} finally {
 			await db.destroy();
@@ -647,6 +680,33 @@ describe("exec text results", () => {
 		expect(texts(result)).toEqual(["hello\nworld\n", "[web-1, exit 0]"]);
 		expect(result.isError).toBe(false);
 		expect(result.details).toMatchObject({ task_id: "t1", node: "web-1", state: "exited", exit_code: 0 });
+	});
+
+	it("names how privilege was applied in the note line", () => {
+		const forwarded = execTaskResult(ctx, task({ privileged: true }), "web-1", "client", {
+			transport: "client",
+			mode: "forward",
+			sshUser: null,
+		});
+		expect(texts(forwarded)[0]).toBe("[web-1, exit 0, privileged via forward]");
+		const native = execTaskResult(ctx, task({ privileged: true }), "app-1", "client", {
+			transport: "client",
+			mode: "native",
+			sshUser: null,
+		});
+		expect(texts(native)[0]).toBe("[app-1, exit 0, privileged via native]");
+		// SSH has no privileged mode: the note names the user the task ran as, and the notice is not repeated.
+		const ssh = execTaskResult(
+			ctx,
+			task({
+				privileged: true,
+				notice: "crh: privileged was ignored: SSH nodes run tasks as the SSH user\n",
+			}),
+			"ssh-1",
+			"ssh",
+			{ transport: "ssh", mode: null, sshUser: "deploy" },
+		);
+		expect(texts(ssh)[0]).toBe("[ssh-1, exit 0, privileged ignored: SSH runs as deploy]");
 	});
 
 	it("shows the line range and the full output path when truncated", () => {
@@ -1154,6 +1214,25 @@ describe("read_file pages", () => {
 			undefined,
 		);
 		expect(texts(result)[1]).toBe("[web-1:/x, lines 3-3 of 3 (end of file)]");
+	});
+
+	it("names how privilege was applied after the page's note", () => {
+		const result = readTaskResult(
+			ctx,
+			task({
+				kind: "file.read",
+				privileged: true,
+				outputHead: "x\n",
+				outputBytes: 2,
+				result: page({ from: 1, to: 1, eof: true, total: 1 }),
+			}),
+			"web-1",
+			"/x",
+			1,
+			undefined,
+			{ transport: "client", mode: "native", sshUser: null },
+		);
+		expect(texts(result)[1]).toBe("[web-1:/x, lines 1-1 of 1 (end of file), privileged via native]");
 	});
 
 	it("says the file is empty", () => {

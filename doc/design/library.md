@@ -201,6 +201,9 @@ A copy has one source file and one or more destinations:
   shared, so the group's approval and authorization cover every member. Only the transfer endpoint
   differs, and the spec hash leaves it out. The tool returns one result per node.
 - An existing destination is refused unless `overwrite` is set, on nodes and in libraries alike.
+- Missing parent directories on a node are created only with `create_parent_dirs: true`, like
+  `write_file`; by default a missing parent fails the task. A library has no directory objects, so any
+  library path works.
 
 ## Agent tools
 
@@ -212,7 +215,7 @@ session's tool descriptions are registered once per server, so its prompt carrie
 
 | Tool | Behavior |
 |---|---|
-| `copy_file` | Copies one file. The source is `{ node, path }` or `{ library, path }`; the destination is `targets` plus `path`, or `library` plus `path`. Takes `overwrite`, and `mode`, `owner`, `group`, `privileged` for node destinations. With `to_user: true` it copies nothing and offers the file to the user ([Deliveries](#deliveries)). Blocks like the other file tools. |
+| `copy_file` | Copies one file. The source is `{ node, path }` or `{ library, path }`. The destination is a node `{ targets, path }` (taking `create_parent_dirs`, `mode`, `owner`, `group` and `privileged`), a library `{ library, path }`, or `{ user_interface: true }`, which copies nothing and offers the file to the people in the session ([Deliveries](#deliveries)). `overwrite` applies to node and library destinations and has no effect with `user_interface`. Blocks like the other file tools. |
 | `view_image` | Gives the model one image from `{ node, path }` or `{ library, path }`. |
 | `list_dir`, `stat` | Also accept `library` instead of `node`. |
 
@@ -222,9 +225,9 @@ session's tool descriptions are registered once per server, so its prompt carrie
 
 ### Deliveries
 
-A file can be handed to the session's user without copying it: `copy_file` takes `to_user: true` instead
-of a destination. Exactly one of `targets`, `library` and `to_user` is required, and with `to_user` the
-destination `path`, `mode`, `owner`, `group`, `privileged` and `overwrite` are invalid.
+A file can be handed to the people in the session without copying it: `copy_file` takes
+`{ user_interface: true }` as its destination. Nothing is copied, and no destination path or node option
+applies; `overwrite` is accepted and has no effect.
 
 - **Nothing is transferred.** The tool stats the source (a library stat, or a `file.stat` task on the node
   through the ordinary rules, approvals included) so the model learns whether the file exists and how
@@ -232,9 +235,10 @@ destination `path`, `mode`, `owner`, `group`, `privileged` and `overwrite` are i
 - The result carries `details.delivery = { source, name, bytes }`, where `source` is
   `{ library, libraryId, path }` or `{ node, nodeId, path }`; the model-facing text says the file was
   offered to the user for download.
-- The WebUI tool card shows the name, the source (library reference or node name) and the path, with a
-  **Download** button. A library source is resolved by its id, so a renamed group keeps the link. It
-  downloads the path as it is when clicked: no size, SHA-256 or version is pinned.
+- After the turn ends, the WebUI shows each delivered file as its own box with the name, the source
+  (library reference or node name) and the size; clicking it downloads the file. A library source is
+  resolved by its id, so a renamed group keeps the link. It downloads the path as it is when clicked: no
+  size, SHA-256 or version is pinned.
 - Permission is decided at click time by the ordinary rules for the clicking user: a library source uses
   the library file endpoint and needs library access, and a node source uses
   `GET /api/nodes/:id/file?path=`, which runs a `file.pull` for that user (see [WebUI and API](#webui-and-api)).

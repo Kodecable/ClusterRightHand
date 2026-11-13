@@ -246,6 +246,7 @@ export const taskSpecCodec = union({
 		["mode", uint],
 		["owner", text],
 		["group", text],
+		["createParentDirs", bool],
 		["endpoint", transferEndpointCodec],
 	]),
 	"file.pull": tuple([

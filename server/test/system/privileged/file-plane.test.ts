@@ -6,7 +6,7 @@
  * The node runs in `ignore` mode, so the privileged mode is not involved; the push and pull run as
  * uid 998 like every ordinary file task.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,6 +63,36 @@ describePodman("privileged system: file plane on an unprivileged node", () => {
 		expect(stat.stdout.trim()).toBe(`640 ${content.length}`);
 		const read = await node.execAs(998, ["/bin/cat", path]);
 		expect(read.stdout).toBe(content.toString());
+	}, 60_000);
+
+	it("creates missing parent directories only with createParentDirs", async () => {
+		const content = Buffer.from("nested push content\n");
+		const dir = `/tmp/crh-plane-parent-${randomBytes(4).toString("hex")}`;
+		const path = `${dir}/a/b/c.txt`;
+
+		// Without createParentDirs the missing parent fails the push, like file.write.
+		const refused = await crhs.cluster.pushFile({
+			nodeId: node.nodeId,
+			path,
+			location: await crhs.cluster.stageBytesForPush(content),
+			overwrite: true,
+			actor: actor(),
+		});
+		const refusedDone = await node.taskState(refused.id);
+		expect(refusedDone).toMatchObject({ state: "failed", errorCode: "not_found" });
+
+		const created = await crhs.cluster.pushFile({
+			nodeId: node.nodeId,
+			path,
+			location: await crhs.cluster.stageBytesForPush(content),
+			overwrite: true,
+			createParentDirs: true,
+			actor: actor(),
+		});
+		const done = await node.taskState(created.id);
+		expect(done).toMatchObject({ state: "exited", exitCode: 0 });
+		const read = await node.exec(["/bin/cat", path]);
+		expect(read).toMatchObject({ code: 0, stdout: content.toString() });
 	}, 60_000);
 
 	it("pulls a node file into the staging location and verifies it", async () => {
@@ -140,6 +170,7 @@ describePodman("privileged system: file plane on an unprivileged node", () => {
 					mode: 0,
 					owner: "",
 					group: "",
+					createParentDirs: false,
 					endpoint: { kind: "crhs", transferId: "" },
 				},
 				transferLocation: location,

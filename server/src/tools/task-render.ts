@@ -10,7 +10,7 @@ import type { TaskGroupView } from "../cluster/task-groups.ts";
 import { GROUP_TERMINAL } from "../cluster/types.ts";
 import type { ToolContext } from "./catalog.ts";
 import { jsonResult, type TextBlock, type ToolResult, textResult } from "./render.ts";
-import { MAX_OUTPUT_BYTES, type NodeTransport, type Started } from "./task-tool.ts";
+import { MAX_OUTPUT_BYTES, type NodePrivilege, type NodeTransport, type Started } from "./task-tool.ts";
 
 // ---- details for the UI ----
 
@@ -91,34 +91,49 @@ function noteLine(fields: readonly string[]): string {
 	return `[${fields.join(", ")}]`;
 }
 
+/**
+ * How a privileged task was applied, as the note line says: the node's mode, or the SSH notice already
+ * recorded on the task (doc/design/privilege.md "Privilege modes").
+ */
+function privilegeField(task: TaskView, info: NodePrivilege | undefined): string | undefined {
+	if (!task.privileged) return undefined;
+	if (info?.transport === "ssh") return `privileged ignored: SSH runs as ${info.sshUser ?? "the SSH user"}`;
+	if (info?.mode === "forward" || info?.mode === "native") return `privileged via ${info.mode}`;
+	if (info?.mode === "ignore") return "privileged ignored";
+	return "privileged";
+}
+
 /** `<node, exit 0>`, `<node, error <code>: <message>>`, and the waiting variants. */
-function taskStatusLine(task: TaskView, label: string): string {
+function taskStatusLine(task: TaskView, label: string, info?: NodePrivilege): string {
+	const privilege = privilegeField(task, info);
+	const withPrivilege = (fields: string[]): string =>
+		noteLine(privilege === undefined ? fields : [...fields, privilege]);
 	if (task.timedOut) {
 		const timeout = task.timeoutMs === null ? "timed out" : `timed out after ${seconds(task.timeoutMs)}`;
-		return noteLine([label, timeout]);
+		return withPrivilege([label, timeout]);
 	}
-	if (task.signal !== null && task.signal !== "") return noteLine([label, `killed by ${task.signal}`]);
+	if (task.signal !== null && task.signal !== "") return withPrivilege([label, `killed by ${task.signal}`]);
 	if (task.state === "unknown") {
 		const code = task.errorCode ?? "unknown";
 		const reason = task.errorMessage === null ? "" : ` (${task.errorMessage})`;
-		return noteLine([label, `error ${code}: execution failed; the outcome is unknown${reason}`]);
+		return withPrivilege([label, `error ${code}: execution failed; the outcome is unknown${reason}`]);
 	}
-	if (task.errorCode !== null) return noteLine([label, `error ${task.errorCode}: ${task.errorMessage ?? ""}`]);
+	if (task.errorCode !== null) return withPrivilege([label, `error ${task.errorCode}: ${task.errorMessage ?? ""}`]);
 	if (task.state === "exited") {
 		const fields = [label, `exit ${task.exitCode ?? 0}`];
 		if (task.cancelled) fields.push("cancelled");
-		return noteLine(fields);
+		return withPrivilege(fields);
 	}
 	if (task.exitCode !== null) {
 		const fields = [label, `exit ${task.exitCode}`];
 		if (task.cancelled) fields.push("cancelled");
-		return noteLine(fields);
+		return withPrivilege(fields);
 	}
 	if (task.state === "failed" || task.state === "denied" || task.state === "rejected") {
 		const error = taskError(task);
-		return noteLine([label, `error ${error?.code ?? task.state}: ${error?.message ?? ""}`]);
+		return withPrivilege([label, `error ${error?.code ?? task.state}: ${error?.message ?? ""}`]);
 	}
-	return noteLine([label, task.state]);
+	return withPrivilege([label, task.state]);
 }
 
 function isWaiting(task: TaskView): boolean {
@@ -173,8 +188,12 @@ function bytesTruncated(task: TaskView, text: string): boolean {
 }
 
 /** crhs's own note about the task (the SSH privileged notice), bracketed on its own line. */
-function noticeLine(task: TaskView): string | undefined {
+function noticeLine(task: TaskView, info?: NodePrivilege): string | undefined {
 	if (task.notice === null || task.notice.trim() === "") return undefined;
+	// The status line already says how privilege was applied; the notice only repeats it.
+	if (privilegeField(task, info)?.startsWith("privileged ignored") && task.notice.includes("privileged was ignored")) {
+		return undefined;
+	}
 	return task.notice
 		.trim()
 		.split(/\r?\n/)
@@ -183,8 +202,8 @@ function noticeLine(task: TaskView): string | undefined {
 }
 
 /** Adds the task's notice as the last line of a note block. */
-function withNotice(note: string, task: TaskView): string {
-	const notice = noticeLine(task);
+function withNotice(note: string, task: TaskView, info?: NodePrivilege): string {
+	const notice = noticeLine(task, info);
 	return notice === undefined ? note : `${note}\n${notice}`;
 }
 
@@ -199,6 +218,7 @@ export function execTaskResult(
 	task: TaskView,
 	nodeName: string,
 	transport: NodeTransport = "client",
+	privilege?: NodePrivilege,
 ): ToolResult {
 	const details = taskDetails(task, nodeName);
 	// with_output: false keeps only the status; the model gets JSON, like a status batch.
@@ -209,14 +229,14 @@ export function execTaskResult(
 	if (waiting !== undefined) {
 		// A long-running task still returns the output it has produced so far (doc/design/agent-runtime.md "exec tool semantics").
 		const { text } = taskSourceText(task);
-		const note = [waiting, noticeLine(task)].filter((line): line is string => line !== undefined).join("\n");
+		const note = [waiting, noticeLine(task, privilege)].filter((line): line is string => line !== undefined).join("\n");
 		return textResult([{ output: text, note }], { details });
 	}
 	const { text, keptLines } = taskSourceText(task);
 	const note = [
-		taskStatusLine(task, nodeName),
+		taskStatusLine(task, nodeName, privilege),
 		truncationHint(keptLines, task.outputLines, task.outputFile, transport, bytesTruncated(task, text)),
-		noticeLine(task),
+		noticeLine(task, privilege),
 	]
 		.filter((line): line is string => line !== undefined)
 		.join("\n");
@@ -260,23 +280,27 @@ function groupTextResult(
 	group: TaskGroupView,
 	names: Map<string, string>,
 	transports?: Map<string, NodeTransport>,
+	privileges?: Map<string, NodePrivilege>,
 ): ToolResult {
 	const blocks: TextBlock[] = [{ note: groupTextNote(ctx, group, true) }];
 	for (const task of group.tasks) {
 		const nodeName = names.get(task.nodeId) ?? task.nodeId;
 		const transport = transports?.get(task.nodeId) ?? "client";
+		const privilege = privileges?.get(task.nodeId);
 		const waiting = waitingLine(task, nodeName, ctx, false);
 		if (waiting !== undefined) {
 			const { text } = taskSourceText(task);
-			const note = [waiting, noticeLine(task)].filter((line): line is string => line !== undefined).join("\n");
+			const note = [waiting, noticeLine(task, privilege)]
+				.filter((line): line is string => line !== undefined)
+				.join("\n");
 			blocks.push({ output: text, note });
 			continue;
 		}
 		const { text, keptLines } = taskSourceText(task);
 		const note = [
-			taskStatusLine(task, nodeName),
+			taskStatusLine(task, nodeName, privilege),
 			truncationHint(keptLines, task.outputLines, task.outputFile, transport, bytesTruncated(task, text)),
-			noticeLine(task),
+			noticeLine(task, privilege),
 		]
 			.filter((line): line is string => line !== undefined)
 			.join("\n");
@@ -338,10 +362,12 @@ function execGroupStatusResult(ctx: ToolContext, group: TaskGroupView, names: Ma
  * (`status` JSON by default, `text` otherwise).
  */
 export function execResult(ctx: ToolContext, started: Started): ToolResult {
-	if (started.kind === "task") return execTaskResult(ctx, started.task, started.nodeName, started.transport);
-	const { taskGroup, names, transports } = started;
+	if (started.kind === "task") {
+		return execTaskResult(ctx, started.task, started.nodeName, started.transport, started.privilege);
+	}
+	const { taskGroup, names, transports, privileges } = started;
 	return taskGroup.outputMode === "text"
-		? groupTextResult(ctx, taskGroup, names, transports)
+		? groupTextResult(ctx, taskGroup, names, transports, privileges)
 		: execGroupStatusResult(ctx, taskGroup, names);
 }
 
@@ -502,31 +528,35 @@ function readPage(
 	path: string,
 	startLine: number,
 	maxBytes: number | undefined,
+	privilege?: NodePrivilege,
 ): PageRead {
+	// Every note line says how privilege was applied when the task was privileged.
+	const privileged = privilegeField(task, privilege);
+	const noteFor = (fields: string[]): string => noteLine(privileged === undefined ? fields : [...fields, privileged]);
 	if (isWaiting(task) || isRunning(task)) {
-		return { output: "", note: waitingLine(task, label, ctx, false) ?? taskStatusLine(task, label) };
+		return { output: "", note: waitingLine(task, label, ctx, false) ?? taskStatusLine(task, label, privilege) };
 	}
 	if (task.state !== "exited" || task.errorCode !== null) {
-		const status = taskStatusLine(task, label);
+		const status = taskStatusLine(task, label, privilege);
 		return { output: "", note: status, ...(taskError(task) ? { error: taskError(task) } : {}) };
 	}
 	const page = pageResultOf(task.result);
 	if (!page) {
 		const error = { code: PAGE_MISSING, message: "the node reported no file.read result" };
-		return { output: "", note: noteLine([label, `error ${error.code}: ${error.message}`]), error };
+		return { output: "", note: noteFor([label, `error ${error.code}: ${error.message}`]), error };
 	}
 	const failure = pageFailure(page, startLine, path);
 	if (failure) {
-		return { output: "", note: noteLine([label, `error ${failure.code}: ${failure.message}`]), error: failure };
+		return { output: "", note: noteFor([label, `error ${failure.code}: ${failure.message}`]), error: failure };
 	}
-	if (page.from === 0) return { output: "", note: noteLine([label, "the file is empty"]) };
+	if (page.from === 0) return { output: "", note: noteFor([label, "the file is empty"]) };
 
 	// The page may be cut by the per-node byte budget (single task `max_bytes`, or a batch node's grant).
 	// A batch head that dropped its whole grant, or cut it mid-line, is finished at its last whole line.
 	if (task.outputBytes > 0 && task.outputHead === "" && page.to >= page.from) {
 		return {
 			output: "",
-			note: noteLine([label, "no page was kept for this node (batch budget); read it on its own"]),
+			note: noteFor([label, "no page was kept for this node (batch budget); read it on its own"]),
 		};
 	}
 	const available = task.outputHead;
@@ -542,13 +572,13 @@ function readPage(
 					? "no whole line was kept for this node (batch budget); read it on its own"
 					: "no whole line fits in max_bytes; increase max_bytes or use a smaller offset",
 		};
-		return { output: "", note: noteLine([label, `error ${error.code}: ${error.message}`]), error };
+		return { output: "", note: noteFor([label, `error ${error.code}: ${error.message}`]), error };
 	}
 	const to = page.from + keptLines - 1;
 	const more = !page.eof || to < page.to;
 	const note = more
-		? noteLine([label, `lines ${page.from}-${to}. Use offset=${to + 1} to continue.`])
-		: noteLine([label, `lines ${page.from}-${to}${page.total === null ? "" : ` of ${page.total}`} (end of file)`]);
+		? noteFor([label, `lines ${page.from}-${to}. Use offset=${to + 1} to continue.`])
+		: noteFor([label, `lines ${page.from}-${to}${page.total === null ? "" : ` of ${page.total}`} (end of file)`]);
 	return { output, note };
 }
 
@@ -560,10 +590,11 @@ export function readTaskResult(
 	path: string,
 	startLine: number,
 	maxBytes: number | undefined,
+	privilege?: NodePrivilege,
 ): ToolResult {
 	const details = taskDetails(task, nodeName);
-	const page = readPage(ctx, task, `${nodeName}:${path}`, path, startLine, maxBytes);
-	return textResult([{ output: page.output, note: withNotice(page.note, task) }], {
+	const page = readPage(ctx, task, `${nodeName}:${path}`, path, startLine, maxBytes, privilege);
+	return textResult([{ output: page.output, note: withNotice(page.note, task, privilege) }], {
 		isError: taskFailed(task) || page.error !== undefined,
 		details,
 	});
@@ -577,10 +608,15 @@ export function readGroupResult(
 	path: string,
 	startLine: number,
 	maxBytes: number | undefined,
+	privileges?: Map<string, NodePrivilege>,
 ): ToolResult {
 	const pages = group.tasks.map((task) => {
 		const nodeName = names.get(task.nodeId) ?? task.nodeId;
-		return { task, page: readPage(ctx, task, `${nodeName}:${path}`, path, startLine, maxBytes) };
+		return {
+			task,
+			privilege: privileges?.get(task.nodeId),
+			page: readPage(ctx, task, `${nodeName}:${path}`, path, startLine, maxBytes, privileges?.get(task.nodeId)),
+		};
 	});
 	const failedPages = pages.filter(({ task, page }) => taskFailed(task) || page.error !== undefined).length;
 	const blocks: TextBlock[] = [
@@ -591,7 +627,9 @@ export function readGroupResult(
 			}),
 		},
 	];
-	for (const { task, page } of pages) blocks.push({ output: page.output, note: withNotice(page.note, task) });
+	for (const { task, page, privilege } of pages) {
+		blocks.push({ output: page.output, note: withNotice(page.note, task, privilege) });
+	}
 	return textResult(blocks, {
 		isError: groupFailed(group) || failedPages > 0,
 		details: groupDetails(group, names),

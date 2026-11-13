@@ -140,7 +140,7 @@ export async function acceptDataConnection(
 	};
 	core.dataTransfers.set(row.id, transfer);
 	const transferId = row.id;
-	void runTransfer(transfer, spec, storage).then(
+	void runTransfer(transfer, spec, storage, core.dataIdleTimeoutMs).then(
 		() => {
 			transfer.close();
 			resolveDone();
@@ -176,8 +176,9 @@ async function runTransfer(
 	transfer: DataTransfer,
 	spec: TaskSpec,
 	storage: ReturnType<typeof openTransferLocation>,
+	idleTimeoutMs: number,
 ): Promise<void> {
-	const idle = idleTimer(() => {
+	const idle = idleTimer(idleTimeoutMs, () => {
 		// Close the socket but leave the entry in the map: the rejection path below then fails the
 		// task and discards a pull's partial write (close() alone would drop the entry and leak it).
 		transfer.idle = true;
@@ -232,12 +233,12 @@ async function runTransfer(
 	}
 }
 
-function idleTimer(onIdle: () => void): { reset(): void; stop(): void } {
-	let timer = setTimeout(onIdle, DATA_IDLE_TIMEOUT_MS);
+function idleTimer(idleTimeoutMs: number, onIdle: () => void): { reset(): void; stop(): void } {
+	let timer = setTimeout(onIdle, idleTimeoutMs);
 	return {
 		reset() {
 			clearTimeout(timer);
-			timer = setTimeout(onIdle, DATA_IDLE_TIMEOUT_MS);
+			timer = setTimeout(onIdle, idleTimeoutMs);
 		},
 		stop() {
 			clearTimeout(timer);

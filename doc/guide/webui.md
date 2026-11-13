@@ -55,9 +55,10 @@ no model is configured, an administrator must add one first ([Models](#models)).
 - **Stop** stops the session and all its subagents.
 - `/compact` summarizes older parts of the conversation to free context.
 - Tool calls appear as one-line rows; click one to see its arguments, output and result. When the final
-  answer arrives, the agent's intermediate steps fold into one line that you can expand. A `copy_file`
-  that hands you a file shows its name, source and path with a **Download** button; the file is checked
-  when you click, so the link keeps working while you have access.
+  answer ends, the agent's intermediate steps fold into one line that you can expand; the answer streams
+  unfolded first. A `copy_file` that hands you a file is an ordinary tool row, and when the turn ends each
+  delivered file gets a small box with its name, source and size: click it to download, and an image can
+  be previewed. The file is checked when you click, so the box keeps working while you have access.
 - Click the title to rename the session. Clearing it restores the default name and stops automatic
   titling.
 

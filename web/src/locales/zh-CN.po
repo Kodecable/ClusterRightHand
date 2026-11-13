@@ -1645,14 +1645,13 @@ msgid "Done"
 msgstr "完成"
 
 #: src/components/file-manager/file-list.tsx
-#: src/features/sessions/tool-card.tsx
 msgid "Download"
 msgstr "下载"
 
 #. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
-#: src/features/sessions/tool-card.tsx
+#: src/features/sessions/deliveries.tsx
 msgid "Download {0}"
 msgstr "下载 {0}"
 
@@ -2343,6 +2342,7 @@ msgid "Loading older messages…"
 msgstr "正在加载更早的消息…"
 
 #: src/components/file-manager/preview-dialog.tsx
+#: src/features/sessions/deliveries.tsx
 msgid "Loading preview"
 msgstr "正在加载预览"
 
@@ -3273,11 +3273,14 @@ msgstr "正在准备待签名的载荷…"
 
 #: src/components/file-manager/file-list.tsx
 #: src/components/file-manager/preview-dialog.tsx
+#: src/features/sessions/deliveries.tsx
 msgid "Preview"
 msgstr "预览"
 
+#. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
+#: src/features/sessions/deliveries.tsx
 msgid "Preview {0}"
 msgstr "预览 {0}"
 

@@ -38,7 +38,7 @@ describe("file plane transfers", () => {
 		transferRoot = await mkdtemp(join(tmpdir(), "crhs-transfer-"));
 		libraryRoot = await mkdtemp(join(tmpdir(), "crhs-library-"));
 		libraryBackend = createLibraryBackend({ backend: "local" }, libraryRoot);
-		cluster = new Cluster(db, { transferRoot, libraryBackend, reconnectGraceMs: 100 });
+		cluster = new Cluster(db, { transferRoot, libraryBackend, reconnectGraceMs: 100, dataIdleTimeoutMs: 2000 });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		ownerUserId = (await createUser(db, { username: "owner", kind: "member", password: "password-123" })).id;
@@ -230,6 +230,26 @@ describe("file plane transfers", () => {
 		const done = await cluster.getTask(task.id);
 		expect(done?.errorCode).toBe("too_large");
 		expect(await readdir(transferRoot)).toEqual([]);
+	});
+
+	it("fails a pull on the data-connection idle timeout and removes the staging part", async () => {
+		const { node, key } = await addNode("web-1");
+		const crha = await connect(node, key);
+		const task = await cluster.pullFile({ nodeId: node.id, path: "/etc/app.conf", maxBytes: 1024, actor: actor() });
+		await waitFor("pull task.start", () => crha.starts.length === 1);
+		const start = crha.starts[0];
+		if (start?.spec.kind !== "file.pull") throw new Error("no pull spec");
+		const data = await agents.connectData(key, task.id, start.spec.endpoint.transferId);
+		data.send({ kind: "data", bytes: Buffer.from("partial bytes") });
+		// The idle transfer has a staging part file by now; failing it must not leave the part behind.
+		await waitFor("staging part", async () => (await readdir(transferRoot)).length === 1);
+		const done = await waitFor("pull task failed", async () => {
+			const current = await cluster.getTask(task.id);
+			return current?.state === "failed" ? current : undefined;
+		});
+		expect(done.errorCode).toBe("io_error");
+		expect(done.errorMessage).toContain("idle for too long");
+		await waitFor("part discarded", async () => (await readdir(transferRoot)).length === 0);
 	});
 
 	it("discards a finished pull's staged bytes when the task ends unknown without task.exit", async () => {
@@ -497,8 +517,7 @@ describe("file plane transfers", () => {
 		const pending = tool.handler(
 			{
 				source: { library: "user:owner", path: "docs/shared.bin" },
-				targets: ["web-1", "web-2"],
-				path: "/srv/shared.bin",
+				destination: { targets: ["web-1", "web-2"], path: "/srv/shared.bin" },
 			} as never,
 			context,
 		);
@@ -566,6 +585,7 @@ describe("file plane transfers", () => {
 			mode: 0,
 			owner: "",
 			group: "",
+			createParentDirs: false,
 			endpoint: { kind: "crhs", transferId: "" },
 		};
 		const taskGroups = new TaskGroups(db, cluster);

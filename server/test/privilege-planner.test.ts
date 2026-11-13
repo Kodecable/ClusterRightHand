@@ -33,6 +33,7 @@ const push = (transferId: string, size = 5): TaskSpec => ({
 	mode: 0o644,
 	owner: "",
 	group: "",
+	createParentDirs: false,
 	endpoint: { kind: "crhs", transferId },
 });
 
@@ -40,6 +41,12 @@ describe("spec hash", () => {
 	it("leaves a transfer endpoint out, so copy-group members hash like their group", () => {
 		expect(Buffer.from(specSha256(push("member-a")))).toEqual(Buffer.from(specSha256(push("member-b"))));
 		expect(Buffer.from(specSha256(push("member-a", 6)))).not.toEqual(Buffer.from(specSha256(push("member-a"))));
+	});
+
+	it("binds createParentDirs into a file.push spec", () => {
+		const spec = push("member-a") as Extract<TaskSpec, { kind: "file.push" }>;
+		const withDirs: TaskSpec = { ...spec, createParentDirs: true };
+		expect(Buffer.from(specSha256(withDirs))).not.toEqual(Buffer.from(specSha256(spec)));
 	});
 });
 

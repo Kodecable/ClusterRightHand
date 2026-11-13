@@ -56,6 +56,7 @@ export type JsonTaskSpec =
 			mode: number;
 			owner: string;
 			group: string;
+			createParentDirs: boolean;
 			endpoint: JsonTransferEndpoint;
 	  }
 	| { kind: "file.pull"; path: string; maxBytes: number; endpoint: JsonTransferEndpoint }
@@ -267,6 +268,7 @@ export function taskSpecToJson(value: TaskSpec): JsonTaskSpec {
 				mode: uint(value.mode, "mode"),
 				owner: text(value.owner, "owner"),
 				group: text(value.group, "group"),
+				createParentDirs: bool(value.createParentDirs, "createParentDirs"),
 				endpoint: transferEndpointToJson(value.endpoint),
 			};
 		case "file.pull":
@@ -347,6 +349,7 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 				"mode",
 				"owner",
 				"group",
+				"createParentDirs",
 				"endpoint",
 			]);
 			return {
@@ -358,6 +361,7 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 				mode: uint(object.mode, "mode"),
 				owner: text(object.owner, "owner"),
 				group: text(object.group, "group"),
+				createParentDirs: bool(object.createParentDirs, "createParentDirs"),
 				endpoint: transferEndpointFromJson(object.endpoint, "endpoint"),
 			};
 		}

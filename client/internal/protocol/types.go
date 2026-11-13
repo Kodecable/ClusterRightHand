@@ -540,16 +540,18 @@ func (t *TransferEndpoint) UnmarshalCBOR(data []byte) error {
 // FilePushSpec is the TaskSpec body for the "file.push" kind: the bytes of a whole file arrive on a
 // data connection and are written atomically with file.write's semantics. Size and SHA256 bind the
 // content to an exact authorization or an approval (doc/design/library.md "File plane").
+// CreateParentDirs makes the node create missing parent directories like mkdir -p before writing.
 type FilePushSpec struct {
-	_         struct{} `cbor:",toarray"`
-	Path      string
-	Size      Uint
-	SHA256    Hash
-	Overwrite bool
-	Mode      Uint
-	Owner     string
-	Group     string
-	Endpoint  TransferEndpoint
+	_                struct{} `cbor:",toarray"`
+	Path             string
+	Size             Uint
+	SHA256           Hash
+	Overwrite        bool
+	Mode             Uint
+	Owner            string
+	Group            string
+	CreateParentDirs bool
+	Endpoint         TransferEndpoint
 }
 
 // FilePullSpec is the TaskSpec body for the "file.pull" kind: a whole regular file is sent to crhs

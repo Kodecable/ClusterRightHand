@@ -33,7 +33,7 @@ describe("TranscriptRow", () => {
 	});
 
 	test("assistant text renders through SafeMarkdown", () => {
-		renderRow({ kind: "text", key: "a1", text: "Hello **world**", streaming: false });
+		renderRow({ kind: "text", key: "a1", text: "Hello **world**", streaming: false, final: true });
 		expect(screen.getByText("world").tagName).toBe("STRONG");
 	});
 
@@ -42,7 +42,7 @@ describe("TranscriptRow", () => {
 		const store = streams.text("live/1/0");
 		store.setText("Streamed *text*");
 		store.flush();
-		renderRow({ kind: "text", key: "live/1/0", text: "", streaming: true, live: true }, streams);
+		renderRow({ kind: "text", key: "live/1/0", text: "", streaming: true, final: false, live: true }, streams);
 		expect(screen.getByTestId("streaming-text")).toHaveTextContent("Streamed text");
 	});
 
@@ -51,12 +51,15 @@ describe("TranscriptRow", () => {
 		const store = streams.text("live/1/0");
 		store.setText("Hello **wor");
 		store.flush();
-		const { rerender } = renderRow({ kind: "text", key: "live/1/0", text: "", streaming: true, live: true }, streams);
+		const { rerender } = renderRow(
+			{ kind: "text", key: "live/1/0", text: "", streaming: true, final: false, live: true },
+			streams,
+		);
 		const strong = screen.getByText("wor");
 		store.finish();
 		rerender(
 			<TranscriptRow
-				item={{ kind: "text", key: "live/1/0", text: "Hello **world**", streaming: false, live: true }}
+				item={{ kind: "text", key: "live/1/0", text: "Hello **world**", streaming: false, final: true, live: true }}
 				streams={streams}
 				sessionActive
 			/>,

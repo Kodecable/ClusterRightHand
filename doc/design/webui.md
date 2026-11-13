@@ -279,10 +279,12 @@ drifts while rows are measured.
 While the reader is at the bottom, new content keeps the view pinned. Any upward scroll stops following
 immediately and shows a **Jump to latest** button.
 
-When the final answer of a turn starts streaming, the turn's intermediate work (thinking, tool calls,
-intermediate text) folds into one line with the turn's duration, leaving the question and the answer.
-A turn that contains an error is never folded. Compactions appear in transcript order as their own
-rows.
+When an assistant message ends without tool calls, its text is the turn's final answer: the turn's
+intermediate work (thinking, tool calls, intermediate text) folds into one line with the turn's duration,
+leaving the question and the answer. While the answer streams the turn stays unfolded and shows no
+duration line; it folds when the message ends. An intermediate message that streams its text before its
+tool call arrives is not a final answer. A turn that contains an error is never folded. Compactions
+appear in transcript order as their own rows.
 
 ### Jumping to a message
 
@@ -338,12 +340,15 @@ User messages are shown as raw text, with attachment chips from the entry's stru
 parsed from the text ([Chat attachments](library.md#chat-attachments)). A chip resolves its library by
 the id in that data, so a renamed group keeps the link; an older entry falls back to the stored
 reference. A `view_image` row shows the image's source, size and SHA-256, not the image. A `copy_file`
-row that delivered a file (`to_user`) shows the file name, the source (library reference or node name),
-the path and a **Download** button that downloads the path as it is at click time; a library source is
-resolved by id, like a chip ([Deliveries](library.md#deliveries)). Assistant text and thinking are
-Markdown ([Markdown rendering](#markdown-rendering)). Tool calls are one-line rows that open a dialog with
-the arguments, output and result. Approval, authorization and quota waits appear in the docked decision
-panel, not in the transcript.
+call is an ordinary tool row. Once a turn has ended, each file it delivered (`destination.user_interface`)
+appears after the final answer — and after anything the turn shows after it — as its own box with the file
+name, the source (library reference or node name) and the size; clicking the box downloads the file, and
+an image offers a small preview button. A library source is resolved by id, like a chip, and the box stays
+visible while the turn's process is folded. Only a turn's successful deliveries are shown, once per
+source and path, and nothing is shown while the turn runs ([Deliveries](library.md#deliveries)).
+Assistant text and thinking are Markdown ([Markdown rendering](#markdown-rendering)). Tool calls are
+one-line rows that open a dialog with the arguments, output and result. Approval, authorization and quota
+waits appear in the docked decision panel, not in the transcript.
 
 A tool row's icon shows whether the call is running, finished or failed. Failure is judged from the
 structured result the tool returned, not by parsing the text the model sees. A call that stopped

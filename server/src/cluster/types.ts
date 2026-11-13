@@ -114,6 +114,8 @@ export interface ClusterOptions {
 	clockWarnMs?: number;
 	/** A file plane transfer's crhs-side staging directory (doc/design/library.md "File plane"). */
 	transferRoot?: string;
+	/** How long a data connection may stay silent before its transfer fails (DATA_IDLE_TIMEOUT_MS). */
+	dataIdleTimeoutMs?: number;
 	/** The one library object backend (doc/design/library.md "Backends"); needed for library transfers. */
 	libraryBackend?: LibraryBackend;
 	/** The transfer slots; tests lower them to exercise the queue (defaults for production). */

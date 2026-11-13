@@ -140,6 +140,12 @@ func TestPushTransferWritesFile(t *testing.T) {
 	if !bytes.Equal(got, data) {
 		t.Fatalf("file content = %q, want %q", got, data)
 	}
+	// One data connection carries one transfer: a successful push closes it too.
+	select {
+	case <-conn.closed:
+	case <-time.After(time.Second):
+		t.Fatal("the data connection was not closed after the transfer")
+	}
 }
 
 func TestPullTransferSendsFileAndResult(t *testing.T) {

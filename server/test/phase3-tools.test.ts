@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type * as z from "zod/v4";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { Cluster, TaskView } from "../src/cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../src/cluster/task-groups.ts";
@@ -31,6 +32,7 @@ function png(width: number, height: number, fill = 4): Buffer {
 
 type AnyTool = {
 	name: string;
+	input: z.ZodType;
 	output: "text" | "json";
 	handler: (args: never, ctx: ToolContext) => Promise<ToolResult>;
 };
@@ -89,7 +91,7 @@ function task(overrides: Partial<TaskView>): TaskView {
 /** A cluster that records node-side calls and finishes them at once. */
 function fakeCluster(transferRoot: string) {
 	const tasks = new Map<string, TaskView>();
-	const pushes: { path: string; location: unknown }[] = [];
+	const pushes: { path: string; location: unknown; createParentDirs?: boolean }[] = [];
 	const pulls: { path: string }[] = [];
 	const stats: { nodeId: string; path: string }[] = [];
 	let staged: Uint8Array = new Uint8Array(0);
@@ -148,8 +150,8 @@ function fakeCluster(transferRoot: string) {
 			tasks.set(view.id, view);
 			return view;
 		},
-		async pushLibraryFile(input: { path: string }) {
-			pushes.push({ path: input.path, location: {} });
+		async pushLibraryFile(input: { path: string; createParentDirs?: boolean }) {
+			pushes.push({ path: input.path, location: {}, createParentDirs: input.createParentDirs });
 			const view = task({ kind: "file.push" });
 			tasks.set(view.id, view);
 			return view;
@@ -389,8 +391,7 @@ describe("library tools", () => {
 		const copy = await tool("copy_file").handler(
 			{
 				source: { library: "user:alice", path: "docs/a.txt" },
-				library: "group:team",
-				path: "docs/a.txt",
+				destination: { library: "group:team", path: "docs/a.txt" },
 			} as never,
 			context,
 		);
@@ -402,8 +403,7 @@ describe("library tools", () => {
 		const overwrite = await tool("copy_file").handler(
 			{
 				source: { library: "user:alice", path: "docs/a.txt" },
-				library: "group:team",
-				path: "docs/a.txt",
+				destination: { library: "group:team", path: "docs/a.txt" },
 				overwrite: true,
 			} as never,
 			context,
@@ -411,7 +411,10 @@ describe("library tools", () => {
 		expect(overwrite.isError).toBe(false);
 		await expect(
 			tool("copy_file").handler(
-				{ source: { library: "user:alice", path: "docs/a.txt" }, library: "group:team", path: "docs/a.txt" } as never,
+				{
+					source: { library: "user:alice", path: "docs/a.txt" },
+					destination: { library: "group:team", path: "docs/a.txt" },
+				} as never,
 				context,
 			),
 		).rejects.toThrow("already exists");
@@ -424,7 +427,10 @@ describe("library tools", () => {
 			.execute();
 		await expect(
 			tool("copy_file").handler(
-				{ source: { library: "user:alice", path: "docs/a.txt" }, library: "group:team", path: "small.txt" } as never,
+				{
+					source: { library: "user:alice", path: "docs/a.txt" },
+					destination: { library: "group:team", path: "small.txt" },
+				} as never,
 				context,
 			),
 		).rejects.toThrow();
@@ -436,16 +442,19 @@ describe("library tools", () => {
 		const source = { library: "user:alice", path: "docs/a.txt" };
 
 		await expect(
-			tool("copy_file").handler({ source, library: "group:team", path: "dir" } as never, context),
+			tool("copy_file").handler({ source, destination: { library: "group:team", path: "dir" } } as never, context),
 		).rejects.toThrow("a directory already exists at dir");
 		await expect(
-			tool("copy_file").handler({ source, library: "group:team", path: "plain.txt/child.txt" } as never, context),
+			tool("copy_file").handler(
+				{ source, destination: { library: "group:team", path: "plain.txt/child.txt" } } as never,
+				context,
+			),
 		).rejects.toThrow("a file already exists at plain.txt");
 	});
 
 	it("offers a library file to the user without copying it", async () => {
 		const source = { library: "user:alice", path: "docs/a.txt" };
-		const result = await tool("copy_file").handler({ source, to_user: true } as never, context);
+		const result = await tool("copy_file").handler({ source, destination: { user_interface: true } } as never, context);
 		expect(result.isError).toBe(false);
 		const library = await findLibraryByRef(db, "user:alice");
 		expect(result.details?.delivery).toEqual({
@@ -455,6 +464,13 @@ describe("library tools", () => {
 		});
 		expect(textOf(result)).toContain("copy_file offered a.txt, 11 bytes, to the user for download");
 		expect(textOf(result)).toContain("from user:alice at docs/a.txt");
+		// overwrite has no effect with user_interface, and is not an error.
+		const withOverwrite = await tool("copy_file").handler(
+			{ source, destination: { user_interface: true }, overwrite: true } as never,
+			context,
+		);
+		expect(withOverwrite.isError).toBe(false);
+		expect(withOverwrite.details?.delivery).toEqual(result.details?.delivery);
 		// Nothing was copied: the group library is untouched.
 		expect(
 			await findLibraryFile(db, (await findLibraryByRef(db, "group:team"))?.row.id as string, "a.txt"),
@@ -463,28 +479,26 @@ describe("library tools", () => {
 		// A missing source is the ordinary stat refusal; no delivery is recorded for a file that is not there.
 		await expect(
 			tool("copy_file").handler(
-				{ source: { library: "user:alice", path: "docs/missing.txt" }, to_user: true } as never,
+				{ source: { library: "user:alice", path: "docs/missing.txt" }, destination: { user_interface: true } } as never,
 				context,
 			),
 		).rejects.toThrow("no such library file");
 	});
 
-	it("validates the to_user destination arguments", async () => {
+	it("validates the destination: node options belong to the node destination", () => {
+		const input = tool("copy_file").input as z.ZodType;
 		const source = { library: "user:alice", path: "docs/a.txt" };
-		const offer = (extra: Record<string, unknown>) =>
-			tool("copy_file").handler({ source, to_user: true, ...extra } as never, context);
-		await expect(offer({ targets: ["web-1"] })).rejects.toThrow("exactly one destination");
-		await expect(offer({ library: "group:team" })).rejects.toThrow("exactly one destination");
-		await expect(offer({ path: "copy.txt" })).rejects.toThrow("path is not allowed with to_user");
-		await expect(offer({ overwrite: true })).rejects.toThrow("overwrite is not allowed with to_user");
-		await expect(offer({ mode: "0644" })).rejects.toThrow("mode is not allowed with to_user");
-		await expect(offer({ owner: "root" })).rejects.toThrow("owner is not allowed with to_user");
-		await expect(offer({ group: "admins" })).rejects.toThrow("group is not allowed with to_user");
-		await expect(offer({ privileged: true })).rejects.toThrow("privileged is not allowed with to_user");
-		// A copy still needs a destination path.
-		await expect(tool("copy_file").handler({ source, targets: ["web-1"] } as never, context)).rejects.toThrow(
-			"give a destination path",
-		);
+		// Exactly one destination shape; node-only options are not part of a library destination.
+		expect(input.safeParse({ source, destination: { user_interface: true } }).success).toBe(true);
+		expect(input.safeParse({ source, destination: { user_interface: true, mode: "0644" } }).success).toBe(false);
+		expect(
+			input.safeParse({ source, destination: { library: "group:team", path: "a.txt", mode: "0644" } }).success,
+		).toBe(false);
+		expect(input.safeParse({ source, destination: { targets: ["web-1"], path: "/x" } }).success).toBe(true);
+		// overwrite is meaningless with user_interface and has no effect rather than erroring.
+		expect(input.safeParse({ source, destination: { user_interface: true }, overwrite: true }).success).toBe(true);
+		// A copy still needs a destination.
+		expect(input.safeParse({ source }).success).toBe(false);
 	});
 
 	it("offers a node file after a stat, and reports a missing one", async () => {
@@ -492,7 +506,7 @@ describe("library tools", () => {
 		const fake = fakeCluster(root);
 		fake.setStat(42);
 		const result = await tool("copy_file").handler(
-			{ source: { node: "web-1", path: "/srv/a.txt" }, to_user: true } as never,
+			{ source: { node: "web-1", path: "/srv/a.txt" }, destination: { user_interface: true } } as never,
 			{
 				...context,
 				cluster: fake.cluster,
@@ -510,12 +524,33 @@ describe("library tools", () => {
 
 		fake.setStat(0, true);
 		const missing = await tool("copy_file").handler(
-			{ source: { node: "web-1", path: "/srv/missing.txt" }, to_user: true } as never,
+			{ source: { node: "web-1", path: "/srv/missing.txt" }, destination: { user_interface: true } } as never,
 			{ ...context, cluster: fake.cluster },
 		);
 		expect(missing.isError).toBe(true);
 		expect(jsonOf(missing)).toMatchObject({ error: { code: "not_found" } });
 		expect(missing.details?.delivery).toBeUndefined();
+	});
+
+	it("asks the node to create parent directories only with create_parent_dirs", async () => {
+		await addNode(db, alice.userId, "web-1");
+		const fake = fakeCluster(root);
+		await tool("copy_file").handler(
+			{
+				source: { library: "user:alice", path: "docs/a.txt" },
+				destination: { targets: ["web-1"], path: "/srv/new/a.txt", create_parent_dirs: true },
+			} as never,
+			{ ...context, cluster: fake.cluster },
+		);
+		expect(fake.pushes[0]?.createParentDirs).toBe(true);
+		await tool("copy_file").handler(
+			{
+				source: { library: "user:alice", path: "docs/a.txt" },
+				destination: { targets: ["web-1"], path: "/srv/a.txt" },
+			} as never,
+			{ ...context, cluster: fake.cluster },
+		);
+		expect(fake.pushes[1]?.createParentDirs).toBe(false);
 	});
 
 	it("copies a library file to nodes", async () => {
@@ -524,8 +559,7 @@ describe("library tools", () => {
 		const result = await tool("copy_file").handler(
 			{
 				source: { library: "user:alice", path: "docs/a.txt" },
-				targets: ["web-1"],
-				path: "/srv/a.txt",
+				destination: { targets: ["web-1"], path: "/srv/a.txt" },
 			} as never,
 			{ ...context, cluster: fake.cluster },
 		);
@@ -542,14 +576,20 @@ describe("library tools", () => {
 		fake.setStaged(Buffer.from("from node"));
 
 		const toLibrary = await tool("copy_file").handler(
-			{ source: { node: "web-1", path: "/srv/a.txt" }, library: "user:alice", path: "inbox/a.txt" } as never,
+			{
+				source: { node: "web-1", path: "/srv/a.txt" },
+				destination: { library: "user:alice", path: "inbox/a.txt" },
+			} as never,
 			{ ...context, cluster: { ...fake.cluster, libraryBackend: backend } as unknown as Cluster },
 		);
 		expect(toLibrary.isError).toBe(false);
 		expect(jsonOf(toLibrary)).toMatchObject({ node: "web-1", state: "exited" });
 
 		const toNodes = await tool("copy_file").handler(
-			{ source: { node: "web-1", path: "/srv/a.txt" }, targets: ["web-1", "web-2"], path: "/tmp/copy.txt" } as never,
+			{
+				source: { node: "web-1", path: "/srv/a.txt" },
+				destination: { targets: ["web-1", "web-2"], path: "/tmp/copy.txt" },
+			} as never,
 			{ ...context, cluster: fake.cluster, taskGroups: fake.taskGroups as unknown as TaskGroups },
 		);
 		expect(toNodes.isError).toBe(false);

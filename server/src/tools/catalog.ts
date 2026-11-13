@@ -33,6 +33,7 @@ import {
 	GROUP_READ_LINES,
 	MAX_OUTPUT_BYTES,
 	MAX_OUTPUT_LINES,
+	type NodeTransport,
 	READ_PAGE_LINES,
 	runTaskTool,
 	waitBlockingGroup,
@@ -126,6 +127,10 @@ const targetsField = z
 			"Exactly one entry that names a node runs one task and returns its result; a node-group entry, _all, " +
 			"or several entries run a task group and return one result per node",
 	);
+/** The optional `targets` of a tool that also takes `library`: omit it when the library is used. */
+const libraryTargetsField = targetsField
+	.optional()
+	.describe(`${targetsField.description}. Omit it when library is given.`);
 const waitField = z
 	.number()
 	.int()
@@ -160,8 +165,8 @@ const maxLinesField = z
 	.max(MAX_OUTPUT_LINES)
 	.optional()
 	.describe(
-		"Per-node line budget, at most 2000: for a single task it caps the tail given to you; for a batch " +
-			"each node keeps at most this many lines. Not allowed with with_output: false",
+		"Per node, at most 2000: exec keeps the last lines (the tail) of each node's output, for a single task " +
+			"and for each node of a batch alike. Not allowed with with_output: false",
 	);
 const maxBytesField = z
 	.number()
@@ -170,8 +175,8 @@ const maxBytesField = z
 	.max(MAX_OUTPUT_BYTES)
 	.optional()
 	.describe(
-		"Per-node byte budget, at most 51200: for a single task it caps the tail given to you; for a batch " +
-			"each node keeps at most this many bytes. Not allowed with with_output: false",
+		"Per node, at most 51200: exec keeps the last bytes (the tail) of each node's output, for a single task " +
+			"and for each node of a batch alike. Not allowed with with_output: false",
 	);
 
 /** The batch parameters of the file tools; they never take a `wait`. */
@@ -357,8 +362,16 @@ const readFile = define({
 			"blocking",
 			(started) =>
 				started.kind === "task"
-					? readTaskResult(ctx, started.task, started.nodeName, args.path, startLine, args.max_bytes)
-					: readGroupResult(ctx, started.taskGroup, started.names, args.path, startLine, args.max_bytes),
+					? readTaskResult(ctx, started.task, started.nodeName, args.path, startLine, args.max_bytes, started.privilege)
+					: readGroupResult(
+							ctx,
+							started.taskGroup,
+							started.names,
+							args.path,
+							startLine,
+							args.max_bytes,
+							started.privileges,
+						),
 		);
 	},
 });
@@ -477,7 +490,7 @@ const listDir = define({
 		"empty directories and none need creating. The call blocks until the task ends, approval included, " +
 		"and returns no task id.",
 	input: z.object({
-		targets: targetsField.optional(),
+		targets: libraryTargetsField,
 		library: z
 			.string()
 			.optional()
@@ -515,7 +528,7 @@ const stat = define({
 		"group, modification time and link target. With `library` instead of targets, show a library file's size, " +
 		"SHA-256, media type and times. The call blocks until the task ends, approval included, and returns no task id.",
 	input: z.object({
-		targets: targetsField.optional(),
+		targets: libraryTargetsField,
 		library: z
 			.string()
 			.optional()
@@ -568,91 +581,106 @@ function noteLine(fields: readonly string[]): string {
 	return `[${fields.join(", ")}]`;
 }
 
-/** The source of a copy or an image: exactly one node or one library, and a path. */
+/** One source file of a copy: a node path, or a library path. */
 const sourceLocation = z
-	.object({
-		node: z.string().optional().describe("A node name or id"),
-		library: z.string().optional().describe("A library: user:<username> or group:<group name>"),
-		path: z.string().describe("Absolute on a node; without a leading / in a library"),
-	})
+	.union([
+		z
+			.object({
+				node: z.string().describe("A node name or id"),
+				path: z.string().describe("Absolute path on the node"),
+			})
+			.strict(),
+		z
+			.object({
+				library: z.string().describe("A library: user:<username> or group:<group name>"),
+				path: z.string().describe("Path in the library, without a leading /"),
+			})
+			.strict(),
+	])
 	.describe("One source file: { node, path } or { library, path }");
+
+/** A node destination; its options apply only here, so the schema says where they are allowed. */
+const nodeDestination = z
+	.object({
+		targets: z
+			.array(z.string())
+			.min(1)
+			.describe("Destination nodes: node names or ids, node-group names or ids, or _all"),
+		path: z.string().describe("Absolute destination path on each node"),
+		create_parent_dirs: z
+			.boolean()
+			.optional()
+			.describe("Create missing parent directories first, like mkdir -p (default false)"),
+		mode: z
+			.string()
+			.optional()
+			.describe('Permission bits for a new file as an octal string, e.g. "0644" (a leading 0 is optional)'),
+		owner: z.string().optional().describe("Owning user name"),
+		group: z.string().optional().describe("Owning group name"),
+		privileged: privilegedField,
+	})
+	.strict();
+
+/** A library destination: no directories and no node-only options. */
+const libraryDestination = z
+	.object({
+		library: z.string().describe("Destination library: user:<username> or group:<group name>"),
+		path: z.string().describe("Destination path in the library, without a leading /"),
+	})
+	.strict();
+
+/** The no-copy destination: offer the source to the people in the session and download it at click time. */
+const userInterfaceDestination = z
+	.object({
+		user_interface: z.literal(true).describe("Offer the file to the people in the session; nothing is copied"),
+	})
+	.strict();
+
+const destinationLocation = z
+	.union([nodeDestination, libraryDestination, userInterfaceDestination])
+	.describe(
+		"Where the file goes: a node destination { targets, path, create_parent_dirs?, mode?, owner?, group?, " +
+			"privileged? }, a library destination { library, path }, or { user_interface: true }",
+	);
 
 const copyFile = define({
 	name: "copy_file",
 	description:
-		"Copy one file between nodes and libraries. The source is { node, path } or { library, path }; the " +
-		"destination is targets plus path (one or more nodes) or the library argument plus path. With " +
-		"to_user: true, nothing is copied: the file is offered to the session's user for download in the " +
-		"WebUI (a node or library they can open), so it takes no destination path and no mode, owner, group, " +
-		"privileged or overwrite. An existing destination is refused unless overwrite is true. Missing parent " +
-		"directories need no separate step: on nodes they are created like mkdir -p, and a library has no " +
-		"directory objects, so any path just works. Node destinations take mode, owner, group and privileged. " +
-		"A library path reaches the libraries of the user you act for. The call blocks until every destination " +
-		"task ends, approval included.",
+		"Copy one file. The source is { node, path } or { library, path }. The destination is a node " +
+		"{ targets, path } (one or more nodes, with create_parent_dirs, mode, owner, group and privileged), a " +
+		"library { library, path }, or { user_interface: true }. Node destinations create missing parent " +
+		"directories only with create_parent_dirs: true; a library has no directories, so any library path " +
+		"works. With user_interface nothing is copied: the file is offered to the people in the session and " +
+		"downloaded at click time. An existing destination is refused unless overwrite is true; overwrite " +
+		"applies to node and library destinations and has no effect with user_interface. A library path reaches " +
+		"the libraries of the user you act for. The call blocks until every destination task ends, approval included.",
 	input: z.object({
 		source: sourceLocation,
-		targets: z
-			.array(z.string())
-			.min(1)
-			.optional()
-			.describe("Destination nodes: node names or ids, node-group names or ids, or _all"),
-		library: z
-			.string()
-			.optional()
-			.describe("Destination library instead of nodes: user:<username> or group:<group name>"),
-		to_user: z
-			.boolean()
-			.optional()
-			.describe(
-				"Offer the source to the session's user for download instead of copying it; takes no path, mode, " +
-					"owner, group, privileged or overwrite",
-			),
-		path: z
-			.string()
-			.optional()
-			.describe("Destination path: absolute on nodes, without a leading / in a library; not allowed with to_user"),
+		destination: destinationLocation,
 		overwrite: z.boolean().optional(),
-		mode: z.string().optional().describe('Node destinations only: permission bits as an octal string, e.g. "0644"'),
-		owner: z.string().optional().describe("Node destinations only: owning user name"),
-		group: z.string().optional().describe("Node destinations only: owning group name"),
-		privileged: privilegedField,
 		parallel: z.number().int().min(1).max(100).optional().describe("Nodes copied at once (default 10)"),
 	}),
 	readOnly: false,
 	output: "json",
 	handler: async (args, ctx) => {
-		const source = args.source;
-		if ((source.node === undefined) === (source.library === undefined)) {
-			throw new UserError("the source must name a node or a library", "invalid_argument");
-		}
-		const destinations = [args.targets !== undefined, args.library !== undefined, args.to_user === true].filter(
-			Boolean,
-		).length;
-		if (destinations !== 1) {
-			throw new UserError(
-				"give exactly one destination: targets, a destination library, or to_user",
-				"invalid_argument",
-			);
-		}
-		if (args.to_user === true) {
-			for (const field of ["path", "mode", "owner", "group", "privileged", "overwrite"] as const) {
-				if (args[field] !== undefined) {
-					throw new UserError(`${field} is not allowed with to_user`, "invalid_argument");
-				}
-			}
-			return offerToUser(source, ctx);
-		}
-		if (args.path === undefined) throw new UserError("give a destination path", "invalid_argument");
-		const destinationPath = args.path;
-		const mode = modeBits(args.mode);
+		const { source, destination } = args;
 		const overwrite = args.overwrite === true;
 		const actor = ctx.actor;
 		const chain = ctx.chain;
 
-		if (source.library !== undefined) {
+		if ("user_interface" in destination) return offerToUser(source, ctx);
+
+		// The node destination is the only one with node-only options and several targets.
+		const toNodes = "targets" in destination;
+		const destinationPath = destination.path;
+		const mode = toNodes ? modeBits(destination.mode) : 0;
+		const createParentDirs = toNodes && destination.create_parent_dirs === true;
+		const privileged = toNodes && destination.privileged === true;
+
+		if ("library" in source) {
 			const record = await toolLibrary(ctx, source.library);
-			if (args.library !== undefined) {
-				const destination = await toolLibrary(ctx, args.library);
+			if (!toNodes) {
+				const destinationLibrary = await toolLibrary(ctx, destination.library);
 				const backend = ctx.cluster.libraryBackend;
 				if (!backend) throw new UserError("this crhs has no library backend");
 				const file = await copyLibraryFile(
@@ -660,7 +688,7 @@ const copyFile = define({
 					backend,
 					record.row.id,
 					source.path,
-					{ libraryId: destination.row.id, library: destination.row },
+					{ libraryId: destinationLibrary.row.id, library: destinationLibrary.row },
 					destinationPath,
 					overwrite,
 					ctx.user.userId,
@@ -668,11 +696,11 @@ const copyFile = define({
 				void ctx.audit?.record({
 					actor: { type: actor.type, id: actor.id, onBehalfOfUserId: actor.onBehalfOfUserId },
 					action: "library.file.copied",
-					target: { type: "library", id: libraryRef(destination.row, destination.ownerName) },
+					target: { type: "library", id: libraryRef(destinationLibrary.row, destinationLibrary.ownerName) },
 					detail: {
 						from_library: libraryRef(record.row, record.ownerName),
 						from_path: source.path,
-						library: libraryRef(destination.row, destination.ownerName),
+						library: libraryRef(destinationLibrary.row, destinationLibrary.ownerName),
 						path: file.path,
 						size: file.size,
 						sha256: file.sha256,
@@ -680,15 +708,15 @@ const copyFile = define({
 				});
 				return jsonResult(
 					{
-						library: libraryRef(destination.row, destination.ownerName),
+						library: libraryRef(destinationLibrary.row, destinationLibrary.ownerName),
 						path: file.path,
 						size: file.size,
 						sha256: file.sha256,
 					},
-					{ details: { library: libraryRef(destination.row, destination.ownerName), path: file.path } },
+					{ details: { library: libraryRef(destinationLibrary.row, destinationLibrary.ownerName), path: file.path } },
 				);
 			}
-			const resolved = await resolveTargets(ctx.db, ctx.user, args.targets ?? []);
+			const resolved = await resolveTargets(ctx.db, ctx.user, destination.targets);
 			const names = await nodeNames(ctx, resolved.nodeIds);
 			if (resolved.singleNode) {
 				const nodeId = resolved.nodeIds[0] as string;
@@ -700,11 +728,12 @@ const copyFile = define({
 					path: destinationPath,
 					overwrite,
 					mode,
-					owner: args.owner ?? "",
-					group: args.group ?? "",
+					owner: destination.owner ?? "",
+					group: destination.group ?? "",
+					createParentDirs,
 					actor,
 					chain,
-					privileged: args.privileged === true,
+					privileged,
 					...(id ? { id } : {}),
 				});
 				const done = (await waitBlockingTask(ctx, task.id)) ?? task;
@@ -713,46 +742,53 @@ const copyFile = define({
 			const location = await ctx.cluster.stageLibrarySource(record.row.id, source.path);
 			const id = ctx.callKey ? derivedId(`copy-group:${ctx.callKey}`) : undefined;
 			const groupId = await ctx.taskGroups.create({
-				spec: pushSpec(destinationPath, location, overwrite, mode, args.owner ?? "", args.group ?? ""),
+				spec: pushSpec(
+					destinationPath,
+					location,
+					overwrite,
+					mode,
+					destination.owner ?? "",
+					destination.group ?? "",
+					createParentDirs,
+				),
 				targets: resolved.targets,
 				nodeIds: resolved.nodeIds,
 				transferLocation: location,
 				...(args.parallel === undefined ? {} : { parallel: args.parallel }),
 				actor,
 				chain,
-				privileged: args.privileged === true,
+				privileged,
 				...(id ? { id } : {}),
 			});
 			return fileJsonGroupResult(ctx, await waitBlockingGroup(ctx, groupId), names);
 		}
 
-		const sourceResolved = await resolveTargets(ctx.db, ctx.user, [source.node as string]);
+		const sourceResolved = await resolveTargets(ctx.db, ctx.user, [source.node]);
 		if (!sourceResolved.singleNode) {
 			throw new UserError("source.node must name one node", "invalid_argument");
 		}
 		const sourceNodeId = sourceResolved.nodeIds[0] as string;
 		const sourceName = (await nodeNames(ctx, [sourceNodeId])).get(sourceNodeId) ?? sourceNodeId;
 
-		if (args.library !== undefined) {
-			const destination = await toolLibrary(ctx, args.library);
+		if (!toNodes) {
+			const destinationLibrary = await toolLibrary(ctx, destination.library);
 			const id = ctx.callKey ? derivedId(`copy:${ctx.callKey}:library`) : undefined;
 			const task = await ctx.cluster.pullLibraryFile({
 				nodeId: sourceNodeId,
 				path: source.path,
-				libraryId: destination.row.id,
+				libraryId: destinationLibrary.row.id,
 				libraryPath: destinationPath,
 				overwrite,
 				createdBy: ctx.user.userId,
 				actor,
 				chain,
-				privileged: args.privileged === true,
 				...(id ? { id } : {}),
 			});
 			const done = (await waitBlockingTask(ctx, task.id)) ?? task;
 			return fileJsonResult(ctx, done, sourceName);
 		}
 
-		const resolved = await resolveTargets(ctx.db, ctx.user, args.targets ?? []);
+		const resolved = await resolveTargets(ctx.db, ctx.user, destination.targets);
 		const names = await nodeNames(ctx, resolved.nodeIds);
 		const own = await findUserLibrary(ctx.db, ctx.user.userId);
 		if (!own) throw new UserError("the acting user has no library");
@@ -765,7 +801,7 @@ const copyFile = define({
 			location,
 			actor,
 			chain,
-			privileged: args.privileged === true,
+			privileged,
 			...(pullId ? { id: pullId } : {}),
 		});
 		const pulled = (await waitBlockingTask(ctx, pull.id)) ?? pull;
@@ -787,11 +823,12 @@ const copyFile = define({
 					location: staged,
 					overwrite,
 					mode,
-					owner: args.owner ?? "",
-					group: args.group ?? "",
+					owner: destination.owner ?? "",
+					group: destination.group ?? "",
+					createParentDirs,
 					actor,
 					chain,
-					privileged: args.privileged === true,
+					privileged,
 					...(id ? { id } : {}),
 				});
 				const done = (await waitBlockingTask(ctx, task.id)) ?? task;
@@ -804,14 +841,22 @@ const copyFile = define({
 		// discards it when it ends (doc/design/library.md "Copies").
 		const id = ctx.callKey ? derivedId(`copy-group:${ctx.callKey}`) : undefined;
 		const groupId = await ctx.taskGroups.create({
-			spec: pushSpec(destinationPath, staged, overwrite, mode, args.owner ?? "", args.group ?? ""),
+			spec: pushSpec(
+				destinationPath,
+				staged,
+				overwrite,
+				mode,
+				destination.owner ?? "",
+				destination.group ?? "",
+				createParentDirs,
+			),
 			targets: resolved.targets,
 			nodeIds: resolved.nodeIds,
 			transferLocation: staged,
 			...(args.parallel === undefined ? {} : { parallel: args.parallel }),
 			actor,
 			chain,
-			privileged: args.privileged === true,
+			privileged,
 			...(id ? { id } : {}),
 		});
 		return fileJsonGroupResult(ctx, await waitBlockingGroup(ctx, groupId), names);
@@ -824,15 +869,15 @@ type DeliverySource =
 	| { node: string; nodeId: string; path: string };
 
 /**
- * `copy_file to_user: true`: stat the source so the model learns whether it exists, then record it as
- * offered. Nothing is transferred; the WebUI's Download link runs the ordinary download at click time,
- * under the clicking user's library or node access.
+ * `copy_file` with a user_interface destination: stat the source so the model learns whether it exists, then
+ * record it as offered. Nothing is transferred; the WebUI's download runs the ordinary download at click
+ * time, under the clicking user's library or node access.
  */
 async function offerToUser(
-	source: { node?: string; library?: string; path: string },
+	source: { node: string; path: string } | { library: string; path: string },
 	ctx: ToolContext,
 ): Promise<ToolResult> {
-	if (source.library !== undefined) {
+	if ("library" in source) {
 		const record = await toolLibrary(ctx, source.library);
 		const row = await statToolLibrary(ctx, source.library, source.path);
 		return deliveryResult(
@@ -841,7 +886,7 @@ async function offerToUser(
 			row.size,
 		);
 	}
-	const resolved = await resolveTargets(ctx.db, ctx.user, [source.node as string]);
+	const resolved = await resolveTargets(ctx.db, ctx.user, [source.node]);
 	if (!resolved.singleNode) throw new UserError("source.node must name one node", "invalid_argument");
 	const nodeId = resolved.nodeIds[0] as string;
 	const nodeName = (await nodeNames(ctx, [nodeId])).get(nodeId) ?? nodeId;
@@ -865,7 +910,7 @@ async function offerToUser(
 	);
 }
 
-/** The model-facing note and the `details.delivery` of an offer; the WebUI renders the card from it. */
+/** The model-facing note and the `details.delivery` of an offer; the WebUI shows the delivered file from it. */
 function deliveryResult(source: DeliverySource, name: string, bytes: number): ToolResult {
 	const where = "library" in source ? `${source.library} at ${source.path}` : `${source.node} at ${source.path}`;
 	return textResult(
@@ -893,6 +938,7 @@ function pushSpec(
 	mode: number,
 	owner: string,
 	group: string,
+	createParentDirs: boolean,
 ): TaskSpec {
 	if (location.size === null || location.sha256 === null) throw new UserError("the copy source has no size and sha256");
 	return {
@@ -904,6 +950,7 @@ function pushSpec(
 		mode,
 		owner,
 		group,
+		createParentDirs,
 		endpoint: { kind: "crhs", transferId: "" },
 	};
 }
@@ -1064,12 +1111,25 @@ const taskWait = define({
 			const done = await waitExistingGroup(ctx, taskGroup.id, waitMs);
 			const nodes = await ctx.db
 				.selectFrom("nodes")
-				.select(["id", "name", "transport"])
+				.select(["id", "name", "transport", "privileged_mode", "ssh_user"])
 				.where("id", "in", done.nodeIds)
 				.execute();
 			const names = new Map(nodes.map((n) => [n.id, n.name] as const));
-			const transports = new Map(nodes.map((n) => [n.id, n.transport] as const));
-			return execResult(ctx, { kind: "task_group", taskGroup: done, names, transports });
+			const transports = new Map(nodes.map((n) => [n.id, n.transport as NodeTransport] as const));
+			const privileges = new Map(
+				nodes.map(
+					(n) =>
+						[
+							n.id,
+							{
+								transport: n.transport as NodeTransport,
+								mode: n.privileged_mode,
+								sshUser: n.ssh_user,
+							},
+						] as const,
+				),
+			);
+			return execResult(ctx, { kind: "task_group", taskGroup: done, names, transports, privileges });
 		}
 		if (!args.task_id) throw new UserError("give task_id or task_group_id", "invalid_argument");
 		const t = await ownTask(ctx, args.task_id);
@@ -1077,10 +1137,22 @@ const taskWait = define({
 		const done = (await waitExistingTask(ctx, t.id, waitMs)) ?? t;
 		const node = await ctx.db
 			.selectFrom("nodes")
-			.select(["name", "transport"])
+			.select(["name", "transport", "privileged_mode", "ssh_user"])
 			.where("id", "=", t.nodeId)
 			.executeTakeFirst();
-		return execTaskResult(ctx, done, node?.name ?? t.nodeId, node?.transport ?? "client");
+		return execTaskResult(
+			ctx,
+			done,
+			node?.name ?? t.nodeId,
+			(node?.transport as NodeTransport | undefined) ?? "client",
+			node === undefined
+				? undefined
+				: {
+						transport: node.transport as NodeTransport,
+						mode: node.privileged_mode,
+						sshUser: node.ssh_user,
+					},
+		);
 	},
 });
 
