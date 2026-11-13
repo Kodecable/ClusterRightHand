@@ -77,8 +77,10 @@ function AlwaysAllowForm({
 					<Trans>prefix</Trans>
 				</label>
 			</div>
-			<label className="grid gap-1 text-xs font-medium" htmlFor="always-rule">
-				<Trans>Rule to add to the caller's rule set</Trans>
+			<label className="grid gap-1 text-xs" htmlFor="always-rule">
+				<span className="font-medium">
+					<Trans>Rule to add to the caller's rule set</Trans>
+				</span>
 				<Textarea
 					id="always-rule"
 					className="font-mono text-xs"

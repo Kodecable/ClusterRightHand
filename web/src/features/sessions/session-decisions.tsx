@@ -233,7 +233,7 @@ export function SessionDecisionDock({ decisions }: { decisions: SessionDecision[
 			data-testid="session-decisions"
 			data-decision={first.kind}
 			data-decision-id={decisionId(first)}
-			className="max-h-[50%] min-h-0 shrink-0 overflow-y-auto bg-muted/30 p-2 sm:p-3"
+			className="max-h-[50%] min-h-0 shrink-0 overflow-y-auto bg-background p-2 sm:p-3 [&_[data-slot=decision]]:bg-background"
 		>
 			<DockDecision decision={first} count={count} />
 		</div>

@@ -13,8 +13,10 @@ export function RejectDecision({ busy = false, onReject }: { busy?: boolean; onR
 	const [reason, setReason] = useState("");
 	return (
 		<div className="grid min-w-0 gap-2" data-testid="decision-reject">
-			<label className="grid gap-1 text-xs font-medium" htmlFor={id}>
-				<Trans>Reason (optional)</Trans>
+			<label className="grid gap-1 text-xs" htmlFor={id}>
+				<span className="font-medium">
+					<Trans>Reason (optional)</Trans>
+				</span>
 				<Textarea
 					id={id}
 					rows={2}

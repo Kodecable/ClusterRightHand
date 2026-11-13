@@ -50,8 +50,8 @@ function PasteBox({
 	const { t } = useLingui();
 	const id = useId();
 	return (
-		<label className="grid gap-1 text-xs font-medium" htmlFor={id}>
-			{t`Signature`}
+		<label className="grid gap-1 text-xs" htmlFor={id}>
+			<span className="font-medium">{t`Signature`}</span>
 			<Textarea
 				id={id}
 				rows={3}
