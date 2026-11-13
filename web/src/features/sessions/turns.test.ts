@@ -20,6 +20,7 @@ const text = (key: string, final: boolean, at?: number, durationMs?: number): Tr
 	...(at === undefined ? {} : { at }),
 	...(durationMs === undefined ? {} : { durationMs }),
 });
+const error = (key: string): TranscriptItem => ({ kind: "error", key, reason: "failed", message: "boom" });
 const tool = (key: string, name: string, details?: Json, isError = false): TranscriptItem => ({
 	kind: "tool",
 	key,
@@ -92,6 +93,30 @@ describe("buildTranscriptTurns", () => {
 			false,
 		);
 		expect(turn?.foldable).toBe(false);
+	});
+
+	test("counts the trailing errors of the running turn into the retry attempt", () => {
+		const [one] = buildTranscriptTurns([user("u1"), thinking("t1"), error("e1")], true);
+		expect(one?.retryAttempt).toBe(2);
+		const [two] = buildTranscriptTurns([user("u1"), error("e1"), error("e2")], true);
+		expect(two?.retryAttempt).toBe(3);
+	});
+
+	test("shows no retry line once the turn stops ending in an error", () => {
+		const [recovered] = buildTranscriptTurns(
+			[user("u1"), error("e1"), { kind: "text", key: "a1", text: "again", streaming: true, final: false }],
+			true,
+		);
+		expect(recovered?.retryAttempt).toBeUndefined();
+		const [notTrailing] = buildTranscriptTurns([user("u1"), error("e1"), thinking("t1")], true);
+		expect(notTrailing?.retryAttempt).toBeUndefined();
+	});
+
+	test("shows no retry line when the session stopped or a later turn followed", () => {
+		const [stopped] = buildTranscriptTurns([user("u1"), error("e1")], false);
+		expect(stopped?.retryAttempt).toBeUndefined();
+		const [earlier] = buildTranscriptTurns([user("u1"), thinking("t1"), error("e1"), user("u2"), thinking("t2")], true);
+		expect(earlier?.retryAttempt).toBeUndefined();
 	});
 
 	test("keeps the user outside the process and starts a new turn at the next user", () => {

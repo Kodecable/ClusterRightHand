@@ -28,6 +28,11 @@ export interface TranscriptTurn {
 	/** The turn is over: another user turn follows it, or the session is idle. */
 	ended: boolean;
 	foldable: boolean;
+	/**
+	 * The attempt number of the retry line after the running turn: its trailing error rows plus one, or
+	 * undefined when the turn does not currently end in an error (doc/design/webui.md "Message rendering").
+	 */
+	retryAttempt: number | undefined;
 }
 
 /**
@@ -51,6 +56,13 @@ function turnDeliveries(body: readonly TranscriptItem[]): DeliveryDetails[] {
 		deliveries.push(delivery);
 	}
 	return deliveries;
+}
+
+/** How many error rows trail the turn: each one is an attempt the running session is retrying. */
+function trailingErrors(items: readonly TranscriptItem[]): number {
+	let count = 0;
+	for (let index = items.length - 1; index >= 0 && items[index]?.kind === "error"; index--) count += 1;
+	return count;
 }
 
 /**
@@ -93,6 +105,8 @@ export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionAc
 				: undefined;
 		const hasError = process.some((item) => item.kind === "error");
 		const foldable = ended && final !== undefined && process.length > 0 && durationMs !== undefined && !hasError;
+		const errors = index === groups.length - 1 ? trailingErrors(group.body) : 0;
+		const retryAttempt = sessionActive && errors > 0 ? errors + 1 : undefined;
 		return {
 			key: group.user?.key ?? group.body[0]?.key ?? `turn-${index}`,
 			user: group.user,
@@ -105,6 +119,7 @@ export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionAc
 			durationMs,
 			ended,
 			foldable,
+			retryAttempt,
 		};
 	});
 }

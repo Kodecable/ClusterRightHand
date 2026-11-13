@@ -322,6 +322,17 @@ at the provider stream by wrapping the harness's model access, so it is recorded
 is watching. Cache hit rate is computed from prompt and cache-read token counts, which cover the whole
 tree. The statistics are display-only and do not affect quotas.
 
+## Provider network errors
+
+pi-ai keeps only `error.message`, so Node's bare `terminated` or `fetch failed` would hide what happened.
+`meteredModels` (`server/src/agent/metering.ts`) therefore wraps the fetch it passes to the adapters that
+accept one — openai-completions, openai-responses, azure-openai-responses, openai-codex-responses,
+anthropic-messages, mistral-conversations and pi-messages — and names the host and the phase (connecting
+or reading the streamed response) while folding in the error's cause and code; a caller-provided fetch is
+wrapped instead of the global one. An aborted request passes through unchanged, and HTTP error responses
+are untouched. The Google adapters reject a custom fetch and Bedrock does not use fetch, so those keep
+pi-ai's message.
+
 ## Node notes
 
 A node note is an ordinary Markdown file on the node, whose path crha reports. `node_info` returns it

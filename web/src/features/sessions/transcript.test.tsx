@@ -113,3 +113,53 @@ test("an anchor survives a streaming append and is applied only after the reques
 	});
 	expect(scrollTop).toBe(30);
 });
+
+test("shows the retry attempt at the end of a running turn and hides it when a message streams or the session stops", () => {
+	const streams = new TranscriptStreams();
+	const items: TranscriptItem[] = [
+		{ kind: "user", key: "u1", text: "do it" },
+		{ kind: "error", key: "e1", reason: "failed", message: "terminated" },
+		{ kind: "error", key: "e2", reason: "failed", message: "terminated" },
+	];
+	const view = renderWithI18n(
+		<Transcript
+			items={items}
+			streams={streams}
+			ready
+			sessionActive
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+		/>,
+	);
+	expect(screen.getByTestId("retrying")).toHaveTextContent("Retrying (attempt 3)…");
+	expect(screen.getAllByRole("alert")).toHaveLength(2);
+
+	view.rerender(
+		<Transcript
+			items={[...items, { kind: "text", key: "a1", text: "again", streaming: true, final: false }]}
+			streams={streams}
+			ready
+			sessionActive
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+		/>,
+	);
+	expect(screen.queryByTestId("retrying")).toBeNull();
+	expect(screen.getAllByRole("alert")).toHaveLength(2);
+
+	view.rerender(
+		<Transcript
+			items={items}
+			streams={streams}
+			ready
+			sessionActive={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+		/>,
+	);
+	expect(screen.queryByTestId("retrying")).toBeNull();
+	expect(screen.getAllByRole("alert")).toHaveLength(2);
+});

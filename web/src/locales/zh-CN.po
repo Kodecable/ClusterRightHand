@@ -3594,6 +3594,10 @@ msgstr "Responses"
 msgid "Result"
 msgstr "结果"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Retrying (attempt {attempt})…"
+msgstr "正在重试（第 {attempt} 次）…"
+
 #: src/features/sessions/session-banner.tsx
 msgid "Retrying after an error: {retry}"
 msgstr "出错后正在重试：{retry}"

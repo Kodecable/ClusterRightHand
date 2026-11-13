@@ -3594,6 +3594,10 @@ msgstr "Responses"
 msgid "Result"
 msgstr "Result"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Retrying (attempt {attempt})…"
+msgstr "Retrying (attempt {attempt})…"
+
 #: src/features/sessions/session-banner.tsx
 msgid "Retrying after an error: {retry}"
 msgstr "Retrying after an error: {retry}"

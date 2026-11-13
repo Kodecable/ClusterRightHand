@@ -131,6 +131,26 @@ function CompactionRow({ text }: { text: string }) {
 	);
 }
 
+/**
+ * The retry line after a running turn whose last rows are errors (doc/design/webui.md "Message rendering"):
+ * warn-coloured, outside the fold, so the retry stays visible while the session keeps running.
+ */
+export function RetryingRow({ attempt }: { attempt: number }) {
+	return (
+		<article className="px-3 pb-2.5" data-testid="retrying">
+			<p
+				role="status"
+				className="flex max-w-[92%] items-center gap-2 rounded-lg border border-warn/30 bg-warn-bg px-3 py-2 text-sm text-warn"
+			>
+				<LoaderCircleIcon className="size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+				<span>
+					<Trans>Retrying (attempt {attempt})…</Trans>
+				</span>
+			</p>
+		</article>
+	);
+}
+
 /** A running compaction: the note row's style with the running spinner, at the transcript's end. */
 function CompactingRow() {
 	return (

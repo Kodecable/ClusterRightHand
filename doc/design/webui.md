@@ -346,6 +346,10 @@ name, the source (library reference or node name) and the size; clicking the box
 an image offers a small preview button. A library source is resolved by id, like a chip, and the box stays
 visible while the turn's process is folded. Only a turn's successful deliveries are shown, once per
 source and path, and nothing is shown while the turn runs ([Deliveries](library.md#deliveries)).
+While the session runs, a turn whose last rows are errors shows one warn-coloured
+"Retrying (attempt N)…" line after the turn, outside its fold; N counts the consecutive trailing
+errors plus one. The line leaves as soon as a new assistant message starts or the session stops, while
+the red error rows themselves stay.
 Assistant text and thinking are Markdown ([Markdown rendering](#markdown-rendering)). Tool calls are
 one-line rows that open a dialog with the arguments, output and result. Approval, authorization and quota
 waits appear in the docked decision panel, not in the transcript.

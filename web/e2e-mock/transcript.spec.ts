@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import type { EntryRecord } from "../src/features/sessions/session-events";
 import {
 	type ApiMock,
 	assistantEntry,
@@ -432,4 +433,56 @@ test("9. the process stays unfolded while the final answer streams and folds whe
 	await expect(summary).toContainText("Ended in");
 	await expect(page.locator(SCROLLER).locator('[data-kind="thinking"]')).toHaveCount(0);
 	await expect(page.getByText("Final answer while streaming")).toBeVisible();
+});
+
+function errorEntry(id: string, message: string): EntryRecord {
+	return {
+		id,
+		kind: "pi.assistant",
+		model: [{ role: "assistant", content: [], stopReason: "error", errorMessage: message }],
+	};
+}
+
+test("10. a running turn ending in errors shows the retry attempt until a message streams", async ({ page }) => {
+	const api = await mockApi(page, {
+		state: {
+			sessions: [sessionListItem({ id: "s1", title: "Retrying deploy", state: "running" })],
+			events: {
+				s1: snapshotEvent(
+					[userEntry("u1", "deploy"), errorEntry("e1", "terminated"), errorEntry("e2", "terminated")],
+					null,
+				),
+			},
+		},
+	});
+	await login(page);
+	await openChat(page, api);
+
+	await expect(page.getByTestId("retrying")).toContainText("Retrying (attempt 3)…");
+	await expect(page.getByRole("alert")).toHaveCount(2);
+
+	await api.emit("/api/sessions/s1/events", "events", [
+		{ type: "message_start", message: { role: "assistant", content: [] } },
+		{ type: "message_update", changes: [{ type: "text_start", contentIndex: 0, block: { type: "text", text: "" } }] },
+	]);
+	await expect(page.getByTestId("retrying")).toHaveCount(0);
+	// The error rows themselves stay unchanged.
+	await expect(page.getByRole("alert")).toHaveCount(2);
+});
+
+test("11. a stopped session keeps its red error row without a retry line", async ({ page }) => {
+	const api = await mockApi(page, {
+		state: {
+			sessions: [sessionListItem({ id: "s1", title: "Failed deploy", state: "idle" })],
+			events: { s1: snapshotEvent([userEntry("u1", "deploy"), errorEntry("e1", "terminated")], null) },
+		},
+	});
+	await login(page);
+	await openChat(page, api);
+
+	await expect(page.getByTestId("retrying")).toHaveCount(0);
+	const alert = page.getByRole("alert");
+	await expect(alert).toHaveCount(1);
+	await expect(alert).toContainText("The run failed");
+	await expect(alert).toHaveClass(/text-danger/);
 });

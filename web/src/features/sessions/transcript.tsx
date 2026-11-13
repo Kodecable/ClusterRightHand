@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { TurnDeliveries } from "./deliveries";
 import type { DeliveryDetails } from "./tool-details";
 import type { TranscriptItem } from "./transcript-items";
-import { TranscriptRow, TurnSummaryRow } from "./transcript-row";
+import { RetryingRow, TranscriptRow, TurnSummaryRow } from "./transcript-row";
 import type { TranscriptStreams } from "./transcript-streams";
 import { buildTranscriptTurns } from "./turns";
 
@@ -36,6 +36,7 @@ type TranscriptDisplayRow =
 			durationMs: number | undefined;
 			open: boolean;
 	  }
+	| { kind: "retrying"; key: string; attempt: number }
 	| { kind: "deliveries"; key: string; deliveries: DeliveryDetails[] };
 
 /**
@@ -340,6 +341,10 @@ export function Transcript({
 			} else {
 				for (const item of turn.body) display.push({ kind: "item", key: item.key, item });
 			}
+			// A running turn that ends in errors shows that the session is retrying (doc/design/webui.md "Message rendering").
+			if (turn.retryAttempt !== undefined) {
+				display.push({ kind: "retrying", key: `retrying:${turn.key}`, attempt: turn.retryAttempt });
+			}
 			// The turn's delivered files follow everything it shows, and stay out of its fold.
 			if (turn.ended && turn.deliveries.length > 0) {
 				display.push({ kind: "deliveries", key: `deliveries:${turn.key}`, deliveries: turn.deliveries });
@@ -460,6 +465,8 @@ export function Transcript({
 									open={row.open}
 									onToggle={() => toggleTurn(row.turnKey)}
 								/>
+							) : row.kind === "retrying" ? (
+								<RetryingRow key={row.key} attempt={row.attempt} />
 							) : row.kind === "deliveries" ? (
 								<TurnDeliveries key={row.key} deliveries={row.deliveries} />
 							) : (
