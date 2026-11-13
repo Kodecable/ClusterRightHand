@@ -49,6 +49,11 @@ export interface CreateTaskInput {
 	 * call that reruns after a crash reattaches to the task its first attempt started (doc/design/agent-runtime.md).
 	 */
 	id?: string;
+	/**
+	 * The file plane transfer, as JSON { transferId, location }, for file.push/file.pull tasks
+	 * (doc/design/library.md "File plane").
+	 */
+	transfer?: string;
 }
 
 /** What decide() expects of the waiting row's handler when its turn runs (the read is checked again). */
@@ -101,6 +106,15 @@ export interface ClusterOptions {
 	settings?: SettingsStore;
 	/** Static fallback for callers (mostly tests) that do not pass `settings`. */
 	clockWarnMs?: number;
+	/** A file plane transfer's crhs-side staging directory (doc/design/library.md "File plane"). */
+	transferRoot?: string;
+	/** The transfer slots; tests lower them to exercise the queue (defaults for production). */
+	transferLimits?: Partial<{
+		runningPerNode: number;
+		queuedPerNode: number;
+		runningTotal: number;
+		queuedTotal: number;
+	}>;
 	audit?: Audit;
 }
 

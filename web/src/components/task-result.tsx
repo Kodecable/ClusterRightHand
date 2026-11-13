@@ -402,6 +402,11 @@ export function TaskResultData({ result, className }: { result: TaskResultView; 
 					<Plural value={result.bytes} one="Wrote # byte" other="Wrote # bytes" />
 					{result.created ? <Trans> (a new file)</Trans> : <Trans> (replaced)</Trans>}
 				</p>
+			) : result.kind === "file.pull" ? (
+				<p className="text-sm text-muted-foreground" data-testid="task-result-file-pull">
+					<Trans>Received {result.size} bytes</Trans>{" "}
+					<code className="font-mono text-xs break-all">{result.sha256}</code>
+				</p>
 			) : (
 				<p className="text-sm text-muted-foreground">
 					<Plural value={result.replacements} one="Replaced # occurrence" other="Replaced # occurrences" />

@@ -2,6 +2,12 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { HandshakeState, type KeyPair } from "@crh/noise";
 import {
+	DATA_NOISE_PROLOGUE_PREFIX,
+	type DataConnectionInit,
+	type DataFrame,
+	dataConnectionInitCodec,
+	dataConnectionResponseCodec,
+	dataFrameCodec,
 	decode as decodeCbor,
 	decodeFrame,
 	encode as encodeCbor,
@@ -20,6 +26,7 @@ import {
 	type TaskStart,
 	type TrustReport,
 } from "@crh/protocol";
+import { expect } from "vitest";
 import { WebSocket } from "ws";
 import { AgentServer } from "../../src/cluster/agent-server.ts";
 import type { Cluster } from "../../src/cluster/cluster.ts";
@@ -148,6 +155,30 @@ export class TestAgentServer {
 		return { ws, messages, hs, closed };
 	}
 
+	/** Opens the data connection of one transfer (doc/design/protocol.md "Data connections"). */
+	async connectData(staticKey: KeyPair, taskId: string, transferId: string): Promise<FakeDataConnection> {
+		const ws = new WebSocket(`${this.url}/data`);
+		const messages = new MessageQueue(ws);
+		const closed = new Promise<CloseInfo>((resolve) => {
+			ws.once("close", (code, reason) => resolve({ code, reason: reason.toString() }));
+		});
+		await new Promise<void>((resolve, reject) => {
+			ws.once("open", () => resolve());
+			ws.once("error", reject);
+		});
+		const challenge = await messages.next();
+		const hs = HandshakeState.initiator({
+			prologue: Buffer.concat([Buffer.from(DATA_NOISE_PROLOGUE_PREFIX), Buffer.from(challenge)]),
+			staticKey,
+			remoteStaticKey: this.identity.keyPair.publicKey,
+		});
+		const init: DataConnectionInit = { protocolMajor: PROTOCOL_MAJOR, taskId, transferId };
+		ws.send(hs.writeMessage(encodeCbor(dataConnectionInitCodec.encode(init))));
+		const response = dataConnectionResponseCodec.decode(decodeCbor(hs.readMessage(await messages.next())));
+		expect(response.protocolMajor).toBe(PROTOCOL_MAJOR);
+		return new FakeDataConnection(ws, hs.split(), messages, closed);
+	}
+
 	/** Performs the full handshake and returns a wire peer for the fake crha. */
 	async connect(
 		staticKey: KeyPair,
@@ -181,6 +212,38 @@ export class TestAgentServer {
 		});
 		ws.once("close", (code, reason) => peer.close(reason.toString() || `closed (${code})`));
 		return new FakeCrha(ws, peer, response, closed, sendRaw, commands);
+	}
+}
+
+/** The data connection of a fake crha: one CBOR data frame per WebSocket message. */
+export class FakeDataConnection {
+	readonly ws: WebSocket;
+	readonly #ciphers: ReturnType<HandshakeState["split"]>;
+	readonly #messages: MessageQueue;
+	readonly closed: Promise<CloseInfo>;
+
+	constructor(
+		ws: WebSocket,
+		ciphers: ReturnType<HandshakeState["split"]>,
+		messages: MessageQueue,
+		closed: Promise<CloseInfo>,
+	) {
+		this.ws = ws;
+		this.#ciphers = ciphers;
+		this.#messages = messages;
+		this.closed = closed;
+	}
+
+	send(frame: DataFrame): void {
+		this.ws.send(this.#ciphers.send.encrypt(EMPTY, encodeCbor(dataFrameCodec.encode(frame))));
+	}
+
+	async next(): Promise<DataFrame> {
+		return dataFrameCodec.decode(decodeCbor(this.#ciphers.receive.decrypt(EMPTY, await this.#messages.next())));
+	}
+
+	close(): void {
+		this.ws.close();
 	}
 }
 

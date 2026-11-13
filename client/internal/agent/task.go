@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -48,6 +49,19 @@ type task struct {
 	// suppressOutput withholds task.output events for batch "status" tasks, which deliver only
 	// task.exit (with the real stream ends) and the output file.
 	suppressOutput bool
+	// transferDone says the task's data connection finished, so task.exit may be sent. A
+	// file.push/file.pull task waits for it, because crhs must have the bytes before the exit
+	// that commits them (doc/design/library.md "Data connections").
+	transferDone bool
+	// transferSend sends one chunk of a file.pull task's content on the data connection; it is
+	// set before the task starts. closeTransfer closes the data connection.
+	transferSend  func([]byte) error
+	closeTransfer func()
+	// transferReady is closed once transferSend is set.
+	transferReady chan struct{}
+	// doneCh is closed when done and result are set, so a transfer can wait without polling.
+	doneCh   chan struct{}
+	doneOnce sync.Once
 
 	// input is the shared offset, size and SHA-256 accounting of the task's declared input.
 	// inputErr records why an input failed and overrides the task's outcome.
@@ -99,6 +113,44 @@ type taskRun interface {
 	finished(t *task)
 }
 
+// signalDone closes doneCh once, when the task's outcome is recorded.
+func (t *task) signalDone() { t.doneOnce.Do(func() { close(t.doneCh) }) }
+
+// emitTransfer sends one chunk of a pull task's content on the data connection, if the transfer
+// goroutine has attached one. A missing connection is a cancelled transfer.
+func (a *Agent) emitTransfer(t *task, data []byte) error {
+	a.mu.Lock()
+	send := t.transferSend
+	a.mu.Unlock()
+	if send == nil {
+		return errors.New("the data connection is not open")
+	}
+	return send(data)
+}
+
+// relayTransfer handles one transfer.data event of a privileged pull task: it waits for the data
+// connection (opened once crhs answered the task.start) and sends the chunk on it. The event stream
+// is ordered, so the wait cannot reorder chunks.
+func (a *Agent) relayTransfer(t *task, chunk *protocol.TaskOutput) error {
+	a.mu.Lock()
+	ready, send := t.transferReady, t.transferSend
+	a.mu.Unlock()
+	if send == nil {
+		select {
+		case <-ready:
+		case <-t.runCtx.Done():
+			return nil
+		}
+		a.mu.Lock()
+		send = t.transferSend
+		a.mu.Unlock()
+	}
+	if send == nil {
+		return errors.New("the data connection is not open")
+	}
+	return send(chunk.Data)
+}
+
 func (t *task) status() protocol.TaskStatus {
 	st := protocol.TaskRunning
 	if t.done {
@@ -114,6 +166,9 @@ func (t *task) status() protocol.TaskStatus {
 // exitReady reports whether every output byte task.exit reports has been sent. Batch "status" tasks
 // send no output at all, so their exit is ready as soon as the task is done. a.mu must be held.
 func (t *task) exitReady() bool {
+	if !t.transferDone {
+		return false
+	}
 	if t.suppressOutput {
 		return true
 	}
@@ -156,27 +211,39 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	if dup {
 		return nil, &protocol.RemoteError{Code: protocol.CodeAlreadyAccepted, Message: "task " + ts.TaskID + " was already accepted"}
 	}
+	// One transfer per node: a second one is refused with busy before it is accepted. crhs
+	// schedules transfers, so this is a backstop (doc/design/library.md "Data connections").
+	if isTransferKind(ts.Spec.Kind) && !a.claimTransfer() {
+		return nil, &protocol.RemoteError{Code: protocol.CodeBusy, Message: "this node is already running a transfer"}
+	}
 	// The mode decides how the task runs. A privileged task this mode cannot run is refused before
 	// an output file or an input stream is created for it.
 	run, err := a.newRun(ts)
 	if err != nil {
+		a.releaseTransfer()
 		return nil, err
 	}
 	if err := checkTaskKind(ts.Spec); err != nil {
+		a.releaseTransfer()
 		return nil, err
 	}
 
+	kind := ts.Spec.Kind
 	t := &task{
 		id:             ts.TaskID,
 		spec:           ts,
 		run:            run,
 		output:         executor.NewOutput(ts.TaskID, a.opts.OutputDir, outputOptions(ts.Output)),
 		suppressOutput: ts.Output.Kind == protocol.OutputStatus,
+		transferDone:   !isTransferKind(kind),
+		transferReady:  make(chan struct{}),
+		doneCh:         make(chan struct{}),
 	}
 	if ref := taskinput.Ref(&ts.Spec); ref != nil {
 		// A zero-size input still commits crhs to the SHA-256 of empty input. A different hash can
 		// never match, so refuse the task before accepting it.
 		if err := taskinput.ValidateRef(ref); err != nil {
+			a.releaseTransfer()
 			return nil, err
 		}
 		t.input = taskinput.New(ref)
@@ -185,6 +252,7 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	t.cancel, t.runCtx = cancel, runCtx
 	if err := run.prepare(a, ctx, t); err != nil {
 		cancel()
+		a.releaseTransfer()
 		return nil, err
 	}
 	a.mu.Lock()
@@ -242,6 +310,14 @@ func checkTaskKind(spec protocol.TaskSpec) *protocol.RemoteError {
 		}
 	case protocol.TaskSpecFileWrite:
 		if spec.FileWrite == nil {
+			return invalid
+		}
+	case protocol.TaskSpecFilePush:
+		if spec.FilePush == nil {
+			return invalid
+		}
+	case protocol.TaskSpecFilePull:
+		if spec.FilePull == nil {
 			return invalid
 		}
 	case protocol.TaskSpecFileEdit:
@@ -365,6 +441,12 @@ func (a *Agent) handleTaskCancel(ctx context.Context, body cbor.RawMessage) (any
 	a.mu.Unlock()
 	if running {
 		t.run.cancel(a, ctx, t)
+		a.mu.Lock()
+		closeTransfer := t.closeTransfer
+		a.mu.Unlock()
+		if closeTransfer != nil {
+			closeTransfer()
+		}
 	}
 	return protocol.Empty{}, nil
 }
@@ -455,6 +537,11 @@ func (a *Agent) launch(t *task) {
 	run := t.run
 	a.mu.Unlock()
 	go a.forward(t)
+	if isTransferKind(t.spec.Spec.Kind) {
+		// A transfer opens its data connection first and starts the runner itself.
+		go a.transfer(t)
+		return
+	}
 	run.start(a, t)
 }
 

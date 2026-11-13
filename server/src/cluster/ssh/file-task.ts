@@ -1,5 +1,6 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { posix } from "node:path";
+import type { Readable } from "node:stream";
 import {
 	FILE_LIST_MAX_BYTES,
 	FILE_READ_MAX_BYTES,
@@ -10,6 +11,7 @@ import {
 	type TaskSpec,
 } from "@crh/protocol";
 import type { SFTPWrapper } from "ssh2";
+import type { TransferWrite } from "../../library/transfer-location.ts";
 import { applyEdits, detectLineEnding, MAX_EDIT_SIZE, normalizeToLF, toBytesString, UTF8_BOM } from "./file-edit.ts";
 import {
 	checkPath,
@@ -21,6 +23,7 @@ import {
 	S_IFDIR,
 	S_IFLNK,
 	S_IFMT,
+	S_IFREG,
 	Sftp,
 } from "./file-sftp.ts";
 
@@ -35,9 +38,17 @@ type Out = (data: Uint8Array) => void;
 
 type FileReadSpec = Extract<TaskSpec, { kind: "file.read" }>;
 type FileWriteSpec = Extract<TaskSpec, { kind: "file.write" }>;
+type FilePushSpec = Extract<TaskSpec, { kind: "file.push" }>;
+type FilePullSpec = Extract<TaskSpec, { kind: "file.pull" }>;
 type FileEditSpec = Extract<TaskSpec, { kind: "file.edit" }>;
 type FileStatSpec = Extract<TaskSpec, { kind: "file.stat" }>;
 type FileListSpec = Extract<TaskSpec, { kind: "file.list" }>;
+
+/** The crhs-side location of an SSH transfer: SFTP streams directly from or to it. */
+export interface SftpTransfer {
+	openRead(): Readable;
+	openWrite(): TransferWrite;
+}
 
 interface Ctx {
 	sftp: Sftp;
@@ -62,7 +73,8 @@ export async function runSftpFileTask(
 	input: Uint8Array | undefined,
 	stdout: Out,
 	signal: AbortSignal,
-): Promise<TaskResult> {
+	transfer?: SftpTransfer,
+): Promise<TaskResult | null> {
 	const ctx: Ctx = { sftp: new Sftp(sftp), signal };
 	try {
 		checkAborted(signal);
@@ -71,6 +83,10 @@ export async function runSftpFileTask(
 				return await fileRead(ctx, spec, stdout);
 			case "file.write":
 				return await fileWrite(ctx, spec, input);
+			case "file.push":
+				return await filePush(ctx, spec, transfer);
+			case "file.pull":
+				return await filePull(ctx, spec, transfer);
 			case "file.edit":
 				return await fileEdit(ctx, spec);
 			case "file.stat":
@@ -314,6 +330,98 @@ async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefin
 		}
 	}
 	return { kind: "file.write", bytes: data.length, created: !existing };
+}
+
+async function filePush(ctx: Ctx, s: FilePushSpec, transfer: SftpTransfer | undefined): Promise<TaskResult | null> {
+	const { sftp } = ctx;
+	const path = s.path;
+	checkPath(path);
+	if (!transfer) throw new FileTaskError("invalid_spec", "the transfer location is missing");
+	if (s.owner !== "" || s.group !== "") {
+		throw new FileTaskError("invalid_spec", "owner/group are not supported on SSH nodes");
+	}
+	const existing = await sftp.lstatOpt(path);
+	if (existing && (existing.mode & S_IFMT) === S_IFDIR) {
+		throw new FileTaskError("is_directory", `${path} is a directory`);
+	}
+	const tmp = await createTemp(sftp, path);
+	const hash = createHash("sha256");
+	let size = 0;
+	let ok = false;
+	try {
+		for await (const chunk of transfer.openRead()) {
+			const data = Buffer.from(chunk as Buffer);
+			checkAborted(ctx.signal);
+			size += data.length;
+			hash.update(data);
+			if (size > s.size) throw new FileTaskError("input_mismatch", `content is longer than ${s.size} bytes`);
+			await writeAll(ctx, tmp, data);
+		}
+		const sha256 = hash.digest("hex");
+		if (size !== s.size || sha256 !== Buffer.from(s.sha256).toString("hex")) {
+			throw new FileTaskError("input_mismatch", `content does not match declared size/sha256 (got ${size} bytes)`);
+		}
+		let mode = 0o644;
+		if (s.mode !== 0) {
+			mode = s.mode & 0o7777;
+		} else if (existing) {
+			mode = existing.mode & 0o7777;
+		}
+		if (existing) await sftp.fchown(tmp.handle, existing.uid, existing.gid).catch(() => {});
+		await sftp.fchmod(tmp.handle, mode);
+		checkAborted(ctx.signal);
+		await publish(sftp, tmp, path, !s.overwrite);
+		ok = true;
+	} finally {
+		if (!ok) await discard(sftp, tmp);
+	}
+	// A push reports nothing structured (doc/design/library.md "File plane").
+	return null;
+}
+
+async function filePull(ctx: Ctx, s: FilePullSpec, transfer: SftpTransfer | undefined): Promise<TaskResult> {
+	const { sftp } = ctx;
+	const path = s.path;
+	checkPath(path);
+	if (!transfer) throw new FileTaskError("invalid_spec", "the transfer location is missing");
+	const st = await sftp.stat(path);
+	if ((st.mode & S_IFMT) !== S_IFREG) {
+		throw new FileTaskError("not_regular_file", `${path} is not a regular file`);
+	}
+	if (st.size > s.maxBytes) {
+		throw new FileTaskError("too_large", `${path} is ${st.size} bytes, the destination accepts at most ${s.maxBytes}`);
+	}
+	const write = transfer.openWrite();
+	const hash = createHash("sha256");
+	let size = 0;
+	let ok = false;
+	const handle = await sftp.open(path, "r");
+	try {
+		for (;;) {
+			checkAborted(ctx.signal);
+			const buf = Buffer.allocUnsafe(CHUNK);
+			const n = await sftp.readAt(handle, buf, CHUNK, size);
+			if (n === 0) break;
+			const data = buf.subarray(0, n);
+			size += n;
+			if (size > s.maxBytes) {
+				throw new FileTaskError("too_large", `${path} grew past the destination's limit of ${s.maxBytes} bytes`);
+			}
+			hash.update(data);
+			await write.write(data);
+		}
+	} finally {
+		await sftp.close(handle).catch(() => {});
+	}
+	try {
+		const sha256 = hash.digest("hex");
+		await write.finish();
+		await write.commit({ size, sha256 });
+		ok = true;
+		return { kind: "file.pull", size, sha256: Uint8Array.from(Buffer.from(sha256, "hex")) };
+	} finally {
+		if (!ok) await write.discard();
+	}
 }
 
 async function fileEdit(ctx: Ctx, s: FileEditSpec): Promise<TaskResult> {

@@ -260,6 +260,8 @@ export interface TasksTable extends ApprovalColumns {
 	/** The task's structured result in the JSON form of doc/design/protocol.md "Task results"; null when it has none. */
 	result: string | null;
 	late_result: string | null;
+	/** The file plane transfer: JSON { transferId, location } for file.push/file.pull (doc/design/library.md). */
+	transfer: string | null;
 }
 
 export interface TaskGroupsTable extends ApprovalColumns {

@@ -147,7 +147,9 @@ describeBackends("initial migration", (backend) => {
 		expect(sessions).toContain("create_request_id");
 		expect(sessions).toContain("counted_submission_id");
 		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_fingerprint");
-		expect(await tableColumns(backend, db, "tasks")).toEqual(expect.arrayContaining(["rev", "output_head", "result"]));
+		expect(await tableColumns(backend, db, "tasks")).toEqual(
+			expect.arrayContaining(["rev", "output_head", "result", "transfer"]),
+		);
 	});
 
 	it("is idempotent on a second run", async () => {
@@ -157,7 +159,7 @@ describeBackends("initial migration", (backend) => {
 				: undefined;
 		await migrateToLatest(db, schema ? { schema } : {});
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
-		expect(rows.rows).toEqual([{ name: "0001_initial" }]);
+		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_task_transfer" }]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
 });

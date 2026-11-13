@@ -174,8 +174,9 @@ func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
 
 	n.stream = wire.NewStream(stdout, stdin, negotiated)
 	peer := n.stream.Peer()
-	output, exit := n.events.eventHandlers(func(string) string { return ts.TaskID })
+	output, transfer, exit := n.events.eventHandlers(func(string) string { return ts.TaskID })
 	peer.HandleEvent(protocol.EventTaskOutput, output)
+	peer.HandleEvent(wire.EventTransferData, transfer)
 	peer.HandleEvent(protocol.EventTaskExit, exit)
 	n.loopStarted = true
 	go func() {

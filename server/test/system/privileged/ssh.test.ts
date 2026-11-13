@@ -6,7 +6,8 @@
  * The sshd is the one in the suite container (127.0.0.1:2222); crhs reaches it over a real SSH
  * connection with a key it generated through the API.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,12 +24,19 @@ describePodman("privileged system: SSH nodes", () => {
 	let node: PrivilegedNode;
 	let sshNodeId = "";
 	let sshPort = 0;
+	let transferRoot = "";
+	let actorId = "";
+	const sha256Hex = (data: Uint8Array): string => createHash("sha256").update(data).digest("hex");
+	const actor = () => ({ type: "user" as const, id: actorId, onBehalfOfUserId: actorId });
 
 	beforeAll(async () => {
 		tmp = await mkdtemp(join(tmpdir(), "crh-priv-ssh-"));
 		bin = await buildStaticCrha(tmp);
-		crhs = await InProcessCrhs.create();
+		transferRoot = join(tmp, "staging");
+		crhs = await InProcessCrhs.create({ transferRoot });
 		await crhs.loginAdmin();
+		actorId = (await crhs.db.selectFrom("users").select("id").where("username", "=", "root").executeTakeFirstOrThrow())
+			.id;
 		sshPort = await freePort();
 		node = await PrivilegedNode.create({ bin, crhs, mode: "forward", trust: [], ssh: true, sshPort });
 		// crhs generates the key pair; the public half goes into the container's authorized_keys.
@@ -85,6 +93,55 @@ describePodman("privileged system: SSH nodes", () => {
 		// The notice is not part of the page; the file.read result is the task's structured result.
 		expect(read.notice).toBe(SSH_PRIVILEGED_NOTICE);
 		expect(read.result).toMatchObject({ kind: "file.read", from: 1, to: 1, eof: true });
+	}, 60_000);
+
+	it("pushes and pulls a file over SFTP and writes the privileged notice", async () => {
+		const pushedContent = Buffer.from("sftp plane push\n");
+		const pushPath = "/root/crh-sftp-plane-push.txt";
+		const location = await crhs.cluster.stageBytesForPush(pushedContent);
+		const pushed = await crhs.cluster.pushFile({
+			nodeId: sshNodeId,
+			path: pushPath,
+			location,
+			overwrite: true,
+			mode: 0o600,
+			privileged: true,
+			actor: actor(),
+		});
+		const p = await node.taskState(pushed.id);
+		expect(p).toMatchObject({ state: "exited", exitCode: 0, privileged: true, notice: SSH_PRIVILEGED_NOTICE });
+		expect((await node.exec(["/usr/bin/stat", "-c", "%a %s", pushPath])).stdout.trim()).toBe(
+			`600 ${pushedContent.length}`,
+		);
+		expect((await node.exec(["/bin/cat", pushPath])).stdout).toBe(pushedContent.toString());
+
+		const pulledContent = Buffer.from("sftp plane pull\n");
+		const pullPath = "/root/crh-sftp-plane-pull.txt";
+		const created = await node.exec(["/usr/bin/tee", pullPath], { stdin: pulledContent.toString() });
+		expect(created.code).toBe(0);
+		expect((await node.exec(["/bin/chmod", "0600", pullPath])).code).toBe(0);
+		const target = crhs.cluster.stagingLocation();
+		const pulled = await crhs.cluster.pullFile({
+			nodeId: sshNodeId,
+			path: pullPath,
+			maxBytes: 4096,
+			location: target,
+			privileged: true,
+			actor: actor(),
+		});
+		const pull = await node.taskState(pulled.id);
+		expect(pull).toMatchObject({
+			state: "exited",
+			exitCode: 0,
+			privileged: true,
+			notice: SSH_PRIVILEGED_NOTICE,
+		});
+		expect(pull.result).toMatchObject({
+			kind: "file.pull",
+			size: pulledContent.length,
+			sha256: sha256Hex(pulledContent),
+		});
+		expect((await readFile(join(transferRoot, target.path))).equals(pulledContent)).toBe(true);
 	}, 60_000);
 
 	it("sets LANG and LC_ALL, keeps sshd's identity and drops CRHA_TASK_*", async () => {

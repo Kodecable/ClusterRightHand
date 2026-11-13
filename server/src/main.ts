@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import type { Server } from "node:http";
+import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { ModelConfig } from "./agent/models.ts";
@@ -20,6 +21,7 @@ import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, type ConfigFile, DEFAULT_CONFIG_PATH, loadConfigFile } from "./config.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
+import { cleanupStaging } from "./library/transfer-location.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
 import { startRetentionSweep } from "./retention/retention.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
@@ -186,11 +188,17 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// Administrators can add and delete keys while crhs runs (doc/design/privilege.md "Authorization signing key").
 	const signingKeys = await loadAuthorizationSigningKeys(db, masterKey);
 	const audit = new Audit(db);
+	// Transfers stage under crhs's data directory; leftovers of an interrupted process are removed
+	// before a new transfer can see them (doc/design/library.md "File plane").
+	const dataDir = config.database.driver === "sqlite" ? dirname(config.database.path) : dirname(config.masterKeyFile);
+	const transferRoot = join(dataDir, "staging");
+	await cleanupStaging(transferRoot);
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),
 		signingKeys,
 		settings,
 		audit,
+		transferRoot,
 	});
 	const agents = new AgentServer(db, identity, cluster, audit);
 	const taskGroups = new TaskGroups(db, cluster, { audit });

@@ -96,7 +96,7 @@ func TestVectors(t *testing.T) {
 					PrivMajor: PrivMajor, PrivMinor: PrivMinor,
 					Commands: []string{
 						"task.start", "task.input", "task.cancel", "task.query",
-						"task.output", "task.exit", "trust.query", "trust.summary",
+						"task.output", "task.exit", "trust.query", "trust.summary", "transfer.data",
 					},
 					CRHAVersion: "0.4.0",
 					Role:        RoleForward,
@@ -116,7 +116,7 @@ func TestVectors(t *testing.T) {
 					PrivMajor: PrivMajor, PrivMinor: PrivMinor,
 					Commands: []string{
 						"task.start", "task.input", "task.cancel", "task.query",
-						"task.output", "task.exit", "trust.query", "trust.summary",
+						"task.output", "task.exit", "trust.query", "trust.summary", "transfer.data",
 					},
 					CRHAVersion: "0.4.0",
 				}
@@ -215,7 +215,7 @@ func TestHandshakeFromVectors(t *testing.T) {
 	}
 	if want := []string{
 		"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
-		"trust.query", "trust.summary",
+		"transfer.data", "trust.query", "trust.summary",
 	}; !reflect.DeepEqual(res.set.Names(), want) {
 		t.Fatalf("negotiated %v, want %v", res.set.Names(), want)
 	}
@@ -254,7 +254,7 @@ func TestHandshakeFromVectors(t *testing.T) {
 	}
 	wantNegotiated := []string{
 		"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
-		"trust.query", "trust.summary",
+		"transfer.data", "trust.query", "trust.summary",
 	}
 	if cres.welcome.CRHAVersion != "0.4.0" || !reflect.DeepEqual(cres.negotiated.Names(), wantNegotiated) {
 		t.Fatalf("welcome = %+v negotiated %v", cres.welcome, cres.negotiated.Names())
@@ -363,7 +363,7 @@ func TestHandshake(t *testing.T) {
 	if welcome.PrivMajor != PrivMajor || welcome.PrivMinor != PrivMinor || welcome.CRHAVersion != "0.4.0-test" {
 		t.Fatalf("welcome = %+v", welcome)
 	}
-	if want := []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start"}; !reflect.DeepEqual(negotiated.Names(), want) {
+	if want := []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start", "transfer.data"}; !reflect.DeepEqual(negotiated.Names(), want) {
 		t.Fatalf("negotiated %v, want %v", negotiated.Names(), want)
 	}
 	res := <-results
@@ -508,7 +508,7 @@ func TestHandshakeDifferentMinorAccepted(t *testing.T) {
 // TestRoleNames covers the per-role command sets: native keeps the 1.0 task set, forward adds
 // the forward-only names and local adds its approval names.
 func TestRoleNames(t *testing.T) {
-	core := []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start"}
+	core := []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start", "transfer.data"}
 	if got := Names(); !reflect.DeepEqual(got, core) {
 		t.Fatalf("Names() = %v, want %v", got, core)
 	}
@@ -522,7 +522,7 @@ func TestRoleNames(t *testing.T) {
 		{RoleForward, []string{
 			"local.decision", "local.request", "local.withdraw",
 			"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
-			"trust.query", "trust.summary",
+			"transfer.data", "trust.query", "trust.summary",
 		}},
 		{RoleLocal, []string{"local.approve", "local.deny", "pending.list"}},
 	}

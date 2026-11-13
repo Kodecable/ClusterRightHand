@@ -97,6 +97,9 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 		Dial: func(ctx context.Context) (*transport.Conn, error) {
 			return transport.Dial(ctx, dialOptions(cfg.Load(), key, serverKey, &protocol.HandshakeInit{CRHAVersion: version.Version}))
 		},
+		DataDial: func(ctx context.Context, taskID, transferID string) (agent.DataConn, error) {
+			return transport.DialData(ctx, dataDialOptions(cfg.Load(), key, serverKey, taskID, transferID))
+		},
 		Facts:            func() protocol.Facts { return nodeFacts(cfg.Load(), env) },
 		OutputDir:        first.Output.Dir,
 		PrivilegedMode:   first.Privilege.Mode,
@@ -159,6 +162,17 @@ func reloadOnHangup(ctx context.Context, log *slog.Logger, path string, cfg *ato
 		} else if err := a.RefreshFacts(ctx); err != nil {
 			log.Warn("report facts after reload", "err", err)
 		}
+	}
+}
+
+func dataDialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte, taskID, transferID string) transport.DataDialOptions {
+	return transport.DataDialOptions{
+		URL:                cfg.DataURL(),
+		InsecureSkipVerify: cfg.TLSVerify == config.TLSVerifyNone,
+		Identity:           key,
+		ServerPublic:       serverKey,
+		TaskID:             taskID,
+		TransferID:         transferID,
 	}
 }
 

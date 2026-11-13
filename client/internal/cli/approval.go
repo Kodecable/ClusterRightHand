@@ -231,6 +231,10 @@ type approvalView struct {
 	Cwd        string            `json:"cwd,omitempty"`
 	Stdin      *approvalInput    `json:"stdin,omitempty"`
 	Path       string            `json:"path,omitempty"`
+	Direction  string            `json:"direction,omitempty"`
+	Size       uint64            `json:"size,omitempty"`
+	SHA256     string            `json:"sha256,omitempty"`
+	MaxBytes   uint64            `json:"max_bytes,omitempty"`
 	StartLine  uint64            `json:"start_line,omitempty"`
 	LineCount  uint64            `json:"line_count,omitempty"`
 	Limit      uint64            `json:"limit,omitempty"`
@@ -309,6 +313,26 @@ func approvalViewFor(entry *protocol.PendingEntry) approvalView {
 			}
 			view.Owner = spec.FileWrite.Owner
 			view.Group = spec.FileWrite.Group
+		}
+	case protocol.TaskSpecFilePush:
+		if spec.FilePush != nil {
+			view.Path = spec.FilePush.Path
+			view.Direction = "push"
+			view.Size = uint64(spec.FilePush.Size)
+			view.SHA256 = hex.EncodeToString(spec.FilePush.SHA256[:])
+			overwrite := spec.FilePush.Overwrite
+			view.Overwrite = &overwrite
+			if spec.FilePush.Mode != 0 {
+				view.Mode = fmt.Sprintf("0o%o", uint64(spec.FilePush.Mode))
+			}
+			view.Owner = spec.FilePush.Owner
+			view.Group = spec.FilePush.Group
+		}
+	case protocol.TaskSpecFilePull:
+		if spec.FilePull != nil {
+			view.Path = spec.FilePull.Path
+			view.Direction = "pull"
+			view.MaxBytes = uint64(spec.FilePull.MaxBytes)
 		}
 	case protocol.TaskSpecFileEdit:
 		if spec.FileEdit != nil {

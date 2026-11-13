@@ -317,3 +317,97 @@ func TestSendWriteTimeout(t *testing.T) {
 		t.Fatalf("send took %v", elapsed)
 	}
 }
+
+// TestDialData covers the data connection's own prologue and handshake payloads
+// (doc/design/protocol.md "Data connections").
+func TestDialData(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.CloseNow()
+		ctx := r.Context()
+		challenge := make([]byte, noise.ChallengeLen)
+		_, _ = rand.Read(challenge)
+		_ = ws.Write(ctx, websocket.MessageBinary, challenge)
+		res, _ := noise.NewDataResponder(serverKey, challenge)
+		_, m1, err := ws.Read(ctx)
+		if err != nil {
+			return
+		}
+		payload, clientPub, err := res.ReadInit(m1)
+		if err != nil || string(clientPub) != string(clientKey.Public) {
+			ws.Close(websocket.StatusPolicyViolation, "unknown node")
+			return
+		}
+		var init protocol.DataConnectionInit
+		if protocol.Unmarshal(payload, &init) != nil || init.TaskID != "task-1" || init.TransferID != "tr-1" {
+			ws.Close(websocket.StatusPolicyViolation, "bad init")
+			return
+		}
+		respPayload, err := protocol.Marshal(protocol.DataConnectionResponse{ProtocolMajor: protocol.ProtocolMajor})
+		if err != nil {
+			return
+		}
+		m2, session, err := res.WriteResponse(respPayload)
+		if err != nil {
+			return
+		}
+		_ = ws.Write(ctx, websocket.MessageBinary, m2)
+		_, ct, err := ws.Read(ctx)
+		if err != nil {
+			return
+		}
+		frame, err := session.Decrypt(ct)
+		if err != nil {
+			return
+		}
+		var got protocol.DataFrame
+		if protocol.Unmarshal(frame, &got) != nil || got.Kind != protocol.DataFrameEnd {
+			return
+		}
+		echo, _ := protocol.Marshal(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("ok")})
+		ct, _ = session.Encrypt(echo)
+		_ = ws.Write(ctx, websocket.MessageBinary, ct)
+	}))
+	defer srv.Close()
+
+	conn, err := DialData(context.Background(), DataDialOptions{
+		URL:          "ws" + strings.TrimPrefix(srv.URL, "http"),
+		Identity:     clientKey,
+		ServerPublic: serverKey.Public,
+		TaskID:       "task-1",
+		TransferID:   "tr-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close("done")
+	end, err := protocol.Marshal(protocol.DataFrame{Kind: protocol.DataFrameEnd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Send(context.Background(), end); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := conn.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frame protocol.DataFrame
+	if err := protocol.Unmarshal(raw, &frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Kind != protocol.DataFrameData || string(frame.Bytes) != "ok" {
+		t.Fatalf("frame = %+v", frame)
+	}
+}

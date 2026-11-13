@@ -878,6 +878,7 @@ function privVectors(authorization: HexVector): HexVector[] {
 		"task.exit",
 		"trust.query",
 		"trust.summary",
+		"transfer.data",
 	];
 	const hello = encodeCbor(
 		privHelloCodec.encode({

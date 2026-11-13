@@ -37,6 +37,11 @@ func (r *localRun) prepare(*Agent, context.Context, *task) error { return nil }
 func (r *localRun) registered(*Agent, *task) {}
 
 func (r *localRun) start(a *Agent, t *task) {
+	if t.spec.Spec.Kind == protocol.TaskSpecFilePull {
+		// A pull sends its content on the data connection, not into the executor's input.
+		go a.executePull(t)
+		return
+	}
 	// A task without input must pass a nil io.Reader, not a typed nil *executor.Input: the executor
 	// would call Read on it.
 	var in io.Reader
@@ -122,6 +127,37 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 		exit.Result = nil
 	}
 	t.done, t.result = true, exit
+	t.signalDone()
+	a.mu.Unlock()
+	a.wake()
+}
+
+// executePull runs a file.pull task locally and records its exit. The content goes out on the data
+// connection through emitTransfer; the result carries the size and SHA-256 the receiver verifies.
+func (a *Agent) executePull(t *task) {
+	exit := &protocol.TaskExit{TaskID: t.id}
+	result, err := executor.RunPull(t.runCtx, &t.spec.Spec, func(data []byte) error {
+		return a.emitTransfer(t, data)
+	}, false)
+	res := executor.FileResult(result, err)
+	exit.TimedOut, exit.Cancelled, exit.Outcome = res.TimedOut, res.Cancelled, res.Outcome()
+	exit.Result = res.TaskResult
+	t.output.Close()
+	exit.OutputEnd = protocol.Uint(t.output.End())
+	exit.OutputFile = protocol.CleanText(t.output.Path())
+	exit.OutputLines = protocol.Uint(t.output.Lines())
+
+	a.mu.Lock()
+	if t.inputErr != nil {
+		exit.Outcome = protocol.Outcome{
+			Kind:  protocol.OutcomeError,
+			Error: &protocol.Error{Code: t.inputErr.Code, Message: protocol.ErrorMessage(t.inputErr.Message)},
+		}
+		exit.Cancelled = false
+		exit.Result = nil
+	}
+	t.done, t.result = true, exit
+	t.signalDone()
 	a.mu.Unlock()
 	a.wake()
 }

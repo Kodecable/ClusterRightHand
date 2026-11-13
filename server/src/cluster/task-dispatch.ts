@@ -32,6 +32,7 @@ import {
 import { writeTask } from "./task-rows.ts";
 import { pendingInputColumn, sendTaskStart, taskStartOf } from "./task-start.ts";
 import { getTask } from "./task-wait.ts";
+import { TransferBusyError } from "./transfer-scheduler.ts";
 import type { ApprovalRecord, CreateTaskInput, TaskView } from "./types.ts";
 
 /** How the rule chain judges running `spec` on a node. */
@@ -170,6 +171,7 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		// Until an ancestor agent is routed, the user (the task's on_behalf user) is the handler.
 		handler_type: waiting ? "user" : null,
 		handler_session_id: null,
+		transfer: input.transfer ?? null,
 	};
 	await endTask(core, id, {
 		write: { insert: values, ended: endedAtCreation },
@@ -264,6 +266,18 @@ export async function dispatch(
 	}
 	const fresh = ready.node;
 	const link = ready.link;
+	const transfer = isTransferKind(spec.kind);
+	if (transfer) {
+		try {
+			// crhs schedules transfers (doc/design/library.md "Data connections"): wait for a slot,
+			// or fail at once when both the running and the queued capacity are full.
+			await core.transferScheduler.acquire(id, fresh.id);
+		} catch (err) {
+			if (!(err instanceof TransferBusyError)) throw err;
+			await failTransferBusy(core, id);
+			return;
+		}
+	}
 	const outcome = await core.taskQueue.run(id, async (): Promise<DispatchTurn> => {
 		// The row may have been cancelled or settled while the grace ran.
 		const current = await core.row(id);
@@ -294,11 +308,15 @@ export async function dispatch(
 		return { kind: "claimed", row: current };
 	});
 	if (outcome.kind === "plan") {
-		// The plan waits for the trust report and plans in its own turn, outside this one.
+		// The plan waits for the trust report and plans in its own turn, outside this one. The
+		// transfer slot stays held until the task ends (busy if that is how it ends).
 		await planPrivileged(core, id, fresh, outcome.link, spec, inputBytes, opts, ["awaiting_approval"]);
 		return;
 	}
-	if (outcome.kind !== "claimed") return;
+	if (outcome.kind !== "claimed") {
+		if (transfer) core.transferScheduler.release(id);
+		return;
+	}
 	const claimedRow = outcome.row;
 	if (ssh) {
 		newLive(
@@ -335,6 +353,40 @@ export async function dispatch(
 		// The start may be refused or the link may drop; the state machine follows the response.
 		core.background("task dispatch failed", dispatchRemote(core, link, id, spec, inputBytes, opts));
 	}
+}
+
+/** Whether a task kind moves its bytes on a data connection (doc/design/library.md "File plane"). */
+export function isTransferKind(kind: string): kind is "file.push" | "file.pull" {
+	return kind === "file.push" || kind === "file.pull";
+}
+
+/**
+ * Ends a transfer that found the queue full with `busy` (doc/design/library.md "Data connections"):
+ * it waited for no approval and nothing ran.
+ */
+async function failTransferBusy(core: ClusterCore, id: string): Promise<void> {
+	await core.taskQueue.run(id, async () => {
+		const row = await core.row(id);
+		if (row?.state !== "awaiting_approval") return;
+		await endTask(core, id, {
+			write: {
+				from: ["awaiting_approval"],
+				rev: row.rev,
+				set: {
+					state: "failed",
+					error_code: "busy",
+					error_message: "the transfer queue is full",
+					pending_input: null,
+					handler_type: null,
+					handler_session_id: null,
+				},
+			},
+			live: "none",
+			group: row.task_group_id,
+			awaitGroup: true,
+			onChange: row.actor_id,
+		});
+	});
 }
 
 /**

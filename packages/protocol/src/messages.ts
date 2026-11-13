@@ -37,6 +37,18 @@ export const PROTOCOL_MINOR = 0;
  */
 export const NOISE_PROLOGUE_PREFIX = `crh/${PROTOCOL_MAJOR}`;
 
+/**
+ * The data connection's Noise prologue prefix, `"crh-data/0"` (doc/design/protocol.md "Data connections").
+ * Its own prefix means a data handshake can never be taken for a control one, or the reverse.
+ */
+export const DATA_NOISE_PROLOGUE_PREFIX = "crh-data/0";
+
+/** One data frame is at most this many bytes, so it fits a Noise message (doc/design/protocol.md "Data connections"). */
+export const DATA_CHUNK_BYTES = 32 * 1024;
+
+/** A data connection that delivers no frame for this long fails the transfer. */
+export const DATA_IDLE_TIMEOUT_MS = 90_000;
+
 // ---------------------------------------------------------------------------
 // Handshake payloads (Noise IK messages, not frames)
 // ---------------------------------------------------------------------------
@@ -200,6 +212,16 @@ export const FILE_READ_MAX_BYTES = 50 * 1024;
  */
 export const FILE_LIST_MAX_BYTES = 32 * 1024;
 
+/**
+ * The crhs-side end of a transfer (doc/design/protocol.md "Data connections"): the node opens a data
+ * connection to crhs for `transfer_id`, a random id crhs generates per dispatch attempt. The union
+ * leaves room for presigned URLs and node-to-node endpoints.
+ */
+export const transferEndpointCodec = union({
+	crhs: field("transferId", text),
+});
+export type TransferEndpoint = Infer<typeof transferEndpointCodec>;
+
 export const taskSpecCodec = union({
 	exec: execSpecCodec,
 	"file.read": tuple([
@@ -215,6 +237,21 @@ export const taskSpecCodec = union({
 		["owner", text],
 		["group", text],
 		["createParentDirs", bool],
+	]),
+	"file.push": tuple([
+		["path", text],
+		["size", uint],
+		["sha256", sha256],
+		["overwrite", bool],
+		["mode", uint],
+		["owner", text],
+		["group", text],
+		["endpoint", transferEndpointCodec],
+	]),
+	"file.pull": tuple([
+		["path", text],
+		["maxBytes", uint],
+		["endpoint", transferEndpointCodec],
 	]),
 	"file.edit": tuple([
 		["path", text],
@@ -317,6 +354,13 @@ export type FileWriteResult = Infer<typeof fileWriteResultCodec>;
 export const fileEditResultCodec = tuple([["replacements", uint]]);
 export type FileEditResult = Infer<typeof fileEditResultCodec>;
 
+/** What a `file.pull` task sent: the size and SHA-256 of the file's bytes (doc/design/library.md "File plane"). */
+export const filePullResultCodec = tuple([
+	["size", uint],
+	["sha256", sha256],
+]);
+export type FilePullResult = Infer<typeof filePullResultCodec>;
+
 /**
  * The structured result of a task, carried in `task.exit.result` (doc/design/protocol.md "Task results"). Its
  * tag is the task kind; a kind that reports nothing structured has no branch. The result never
@@ -328,6 +372,7 @@ export const taskResultCodec = union({
 	"file.list": fileListResultCodec,
 	"file.write": fileWriteResultCodec,
 	"file.edit": fileEditResultCodec,
+	"file.pull": filePullResultCodec,
 });
 export type TaskResult = Infer<typeof taskResultCodec>;
 
@@ -398,3 +443,34 @@ export type NodeStatus = Infer<typeof nodeStatusCodec>;
 
 export const taskExitAckCodec = tuple([["taskId", text]]);
 export type TaskExitAck = Infer<typeof taskExitAckCodec>;
+
+// ---------------------------------------------------------------------------
+// Data connections (doc/design/protocol.md "Data connections")
+// ---------------------------------------------------------------------------
+
+/**
+ * The client payload of a data connection's Noise IK handshake: the protocol major first, so a
+ * receiver can reject a future major without parsing the rest, then the task and transfer ids crhs
+ * checks against the task it dispatched.
+ */
+export const dataConnectionInitCodec = tuple([
+	["protocolMajor", uint],
+	["taskId", text],
+	["transferId", text],
+]);
+export type DataConnectionInit = Infer<typeof dataConnectionInitCodec>;
+
+/** The server payload of a data connection's handshake: the protocol major only. */
+export const dataConnectionResponseCodec = tuple([["protocolMajor", uint]]);
+export type DataConnectionResponse = Infer<typeof dataConnectionResponseCodec>;
+
+/**
+ * One data frame after the handshake: a chunk of bytes, the end of the transfer, or an abort with
+ * the error code that ended it. Chunks are in order, and the sender stops at `end` or `abort`.
+ */
+export const dataFrameCodec = union({
+	data: field("bytes", bytes),
+	end: tuple([]),
+	abort: field("code", text),
+});
+export type DataFrame = Infer<typeof dataFrameCodec>;

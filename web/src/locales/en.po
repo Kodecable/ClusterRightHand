@@ -3066,6 +3066,11 @@ msgstr "Reason"
 msgid "Reason (optional)"
 msgstr "Reason (optional)"
 
+#. placeholder {0}: result.size
+#: src/components/task-result.tsx
+msgid "Received {0} bytes"
+msgstr "Received {0} bytes"
+
 #: src/features/users/pages.tsx
 msgid "Recent sessions"
 msgstr "Recent sessions"

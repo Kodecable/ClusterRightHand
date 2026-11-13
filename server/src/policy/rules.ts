@@ -139,6 +139,9 @@ const KIND_METHOD: Record<string, Method> = {
 	"file.list": "file.read",
 	"file.write": "file.write",
 	"file.edit": "file.write",
+	// The file plane keeps file.write/file.read semantics (doc/design/library.md "File plane").
+	"file.push": "file.write",
+	"file.pull": "file.read",
 };
 
 /** The method and target of a task spec (doc/design/privilege.md "Methods and targets"). */

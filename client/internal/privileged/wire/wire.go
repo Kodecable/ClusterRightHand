@@ -71,6 +71,11 @@ const (
 	CmdLocalDeny    = "local.deny"
 )
 
+// EventTransferData carries one chunk of a file.pull task's content from the privileged mode to the
+// unprivileged one, which owns the data connection (doc/design/library.md "File plane"). It is not
+// part of the crhs <-> crha registry, so crha's crhs-facing handshake never advertises it.
+const EventTransferData = "transfer.data"
+
 // Names returns the task command and event names shared by every crh-priv role, sorted. It is
 // the native helper's complete set; forward and local add their own names (NamesFor).
 func Names() []string {
@@ -85,6 +90,7 @@ func coreNames() []string {
 		protocol.CmdTaskQuery,
 		protocol.EventTaskOutput,
 		protocol.EventTaskExit,
+		EventTransferData,
 	}
 	slices.Sort(names)
 	return names
@@ -126,7 +132,7 @@ func requiredNamesFor(role Role) []string {
 		return []string{
 			protocol.CmdTaskStart, protocol.CmdTaskInput, protocol.CmdTaskCancel, protocol.CmdTaskQuery,
 			protocol.EventTaskOutput, protocol.EventTaskExit,
-			CmdTrustQuery, protocol.EventTrustSummary,
+			CmdTrustQuery, protocol.EventTrustSummary, EventTransferData,
 		}
 	default:
 		return NamesFor(role)

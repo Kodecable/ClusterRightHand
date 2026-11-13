@@ -68,6 +68,11 @@ func runFileTask(ctx context.Context, spec *protocol.TaskSpec, input io.Reader, 
 			return nil, errf(protocol.CodeInvalidSpec, "file.write task has no spec")
 		}
 		result, err = fileWrite(ctx, acc, spec.FileWrite, input)
+	case protocol.TaskSpecFilePush:
+		if spec.FilePush == nil {
+			return nil, errf(protocol.CodeInvalidSpec, "file.push task has no spec")
+		}
+		result, err = filePush(ctx, acc, spec.FilePush, input)
 	case protocol.TaskSpecFileEdit:
 		if spec.FileEdit == nil {
 			return nil, errf(protocol.CodeInvalidSpec, "file.edit task has no spec")

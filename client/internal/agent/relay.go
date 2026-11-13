@@ -37,16 +37,18 @@ type relayRouter struct {
 	finishedOrder []string
 }
 
-// relayHandlers is the pair of events a relayed task receives.
+// relayHandlers is the set of events a relayed task receives.
 type relayHandlers struct {
-	output func(*protocol.TaskOutput) error
-	exit   func(*protocol.TaskExit) error
+	output   func(*protocol.TaskOutput) error
+	transfer func(*protocol.TaskOutput) error
+	exit     func(*protocol.TaskExit) error
 }
 
 // relayEvent is one event waiting for its task's handlers; exactly one field is set.
 type relayEvent struct {
-	output *protocol.TaskOutput
-	exit   *protocol.TaskExit
+	output   *protocol.TaskOutput
+	transfer *protocol.TaskOutput
+	exit     *protocol.TaskExit
 }
 
 // handle delivers the event to the task's handlers.
@@ -54,6 +56,8 @@ func (e relayEvent) handle(h *relayHandlers) error {
 	switch {
 	case e.output != nil:
 		return h.output(e.output)
+	case e.transfer != nil:
+		return h.transfer(e.transfer)
 	case e.exit != nil:
 		return h.exit(e.exit)
 	default:
@@ -127,13 +131,20 @@ func (r *relayRouter) discard(taskID string) {
 // each event and route it under the task id key returns for the event's own task id. The daemon
 // connection routes by the event's id; a native helper runs one task, so all of its events are
 // routed to that task, whose handlers reject an event for another id.
-func (r *relayRouter) eventHandlers(key func(taskID string) string) (output, exit protocol.EventHandler) {
+func (r *relayRouter) eventHandlers(key func(taskID string) string) (output, transfer, exit protocol.EventHandler) {
 	output = func(body cbor.RawMessage) error {
 		var out protocol.TaskOutput
 		if err := protocol.UnmarshalBody(body, &out); err != nil {
 			return err
 		}
 		return r.route(key(out.TaskID), relayEvent{output: &out})
+	}
+	transfer = func(body cbor.RawMessage) error {
+		var chunk protocol.TaskOutput
+		if err := protocol.UnmarshalBody(body, &chunk); err != nil {
+			return err
+		}
+		return r.route(key(chunk.TaskID), relayEvent{transfer: &chunk})
 	}
 	exit = func(body cbor.RawMessage) error {
 		var exit protocol.TaskExit
@@ -142,7 +153,7 @@ func (r *relayRouter) eventHandlers(key func(taskID string) string) (output, exi
 		}
 		return r.route(key(exit.TaskID), relayEvent{exit: &exit})
 	}
-	return output, exit
+	return output, transfer, exit
 }
 
 // relayTaskHandlers relays a privileged peer's events of t into the task: output into its own
@@ -155,6 +166,12 @@ func (a *Agent) relayTaskHandlers(t *task, peer string) *relayHandlers {
 				return fmt.Errorf("%s sent output for task %q, want %q", peer, out.TaskID, t.id)
 			}
 			return a.relayOutput(t, out)
+		},
+		transfer: func(chunk *protocol.TaskOutput) error {
+			if chunk.TaskID != t.id {
+				return fmt.Errorf("%s sent transfer data for task %q, want %q", peer, chunk.TaskID, t.id)
+			}
+			return a.relayTransfer(t, chunk)
 		},
 		exit: func(exit *protocol.TaskExit) error {
 			if exit.TaskID != t.id {
@@ -188,6 +205,10 @@ func (a *Agent) relayOutput(t *task, out *protocol.TaskOutput) error {
 // the peer's task.exit and by its connection breaking at the same time.
 func (a *Agent) finishRelayed(t *task, exit *protocol.TaskExit) {
 	t.finishOnce.Do(func() {
+		if a.taskDone(t) {
+			// A transfer that could not open its data connection already ended the task.
+			return
+		}
 		t.output.Close()
 		exit.OutputEnd = protocol.Uint(t.output.End())
 		exit.OutputFile = protocol.CleanText(t.output.Path())
@@ -205,6 +226,7 @@ func (a *Agent) finishRelayed(t *task, exit *protocol.TaskExit) {
 			exit.Result = nil
 		}
 		t.done, t.result = true, exit
+		t.signalDone()
 		a.mu.Unlock()
 
 		t.run.finished(t)

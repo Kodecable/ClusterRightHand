@@ -12,8 +12,11 @@
  *   `task-approval.ts`, `task-wait.ts` and `live-output.ts`);
  * - `approval.ts`: what the approval of a task and of a task group share.
  */
-import type { NodeStatus, TaskSpec } from "@crh/protocol";
+import type { TransportCiphers } from "@crh/noise";
+import type { DataConnectionInit, NodeStatus, TaskSpec } from "@crh/protocol";
+import type { WebSocket } from "ws";
 import type { SessionUser } from "../auth/sessions.ts";
+import type { TransferLocationJson } from "../library/transfer-location.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { SubmittedAuthorization } from "../privilege/submission.ts";
@@ -21,6 +24,15 @@ import type { Db } from "../storage/db.ts";
 import * as authorizations from "./authorization-flow.ts";
 import type { NodeConnection } from "./connection.ts";
 import { ClusterCore } from "./core.ts";
+import { acceptDataConnection } from "./data-transfer.ts";
+import {
+	type PullFileInput,
+	type PushFileInput,
+	pullFile,
+	pushFile,
+	stageBytesForPush,
+	stagingLocation,
+} from "./file-plane.ts";
 import * as links from "./links.ts";
 import type { NodeRow } from "./nodes.ts";
 import { closeSsh, closeSshNode } from "./ssh-runner.ts";
@@ -140,6 +152,14 @@ export class Cluster {
 		links.attach(this.#core, conn, node);
 	}
 
+	/** Called by AgentServer after a data connection's handshake: checks the task and runs the transfer. */
+	attachData(ws: WebSocket, ciphers: TransportCiphers, nodeId: string, init: DataConnectionInit): void {
+		void acceptDataConnection(this.#core, nodeId, ws, ciphers, init).catch((err: unknown) => {
+			console.error("data connection failed:", err);
+			ws.terminate();
+		});
+	}
+
 	/** Closes a node's connection, e.g. after approval (crha reconnects as active) or deletion. */
 	disconnect(nodeId: string, reason: string): void {
 		links.disconnect(this.#core, nodeId, reason);
@@ -166,6 +186,11 @@ export class Cluster {
 			for (const t of this.#core.unknownTimers.values()) clearTimeout(t);
 			this.#core.unknownTimers.clear();
 			this.#core.cancelledBy.clear();
+			for (const transfer of this.#core.dataTransfers.values()) {
+				transfer.close();
+				void transfer.write?.discard();
+			}
+			this.#core.dataTransfers.clear();
 			// Let waitTask callers (task groups, tools) return instead of holding a timer for an hour.
 			this.#core.endWaits();
 		}
@@ -204,6 +229,29 @@ export class Cluster {
 	 */
 	createTask(input: CreateTaskInput): Promise<TaskView> {
 		return tasks.createTask(this.#core, input);
+	}
+
+	/** A new empty staging destination for a pull (doc/design/library.md "File plane"). */
+	stagingLocation(): TransferLocationJson {
+		return stagingLocation();
+	}
+
+	/** Writes bytes into crhs's staging directory, for a push source. */
+	stageBytesForPush(data: Uint8Array): Promise<TransferLocationJson> {
+		return stageBytesForPush(this.#core, data);
+	}
+
+	/**
+	 * Starts a file.push task: crhs streams the location's bytes to the node's path. The bytes travel
+	 * on a data connection, and the task's result and approvals arrive like any other task.
+	 */
+	pushFile(input: PushFileInput): Promise<TaskView> {
+		return pushFile(this.#core, input);
+	}
+
+	/** Starts a file.pull task: crhs receives the node's regular file into the location. */
+	pullFile(input: PullFileInput): Promise<TaskView> {
+		return pullFile(this.#core, input);
 	}
 
 	/**

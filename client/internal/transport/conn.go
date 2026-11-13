@@ -215,3 +215,93 @@ func (c *Conn) Recv(ctx context.Context) ([]byte, error) {
 func (c *Conn) Close(reason string) error {
 	return c.ws.Close(websocket.StatusNormalClosure, reason)
 }
+
+// DataDialOptions configures a data connection (doc/design/protocol.md "Data connections"). It is
+// the control connection's transport with its own Noise prologue and handshake payload.
+type DataDialOptions struct {
+	// URL of the data endpoint, the agent endpoint's path plus "/data".
+	URL                string
+	InsecureSkipVerify bool
+	Identity           noise.Keypair
+	ServerPublic       []byte
+	TaskID             string
+	TransferID         string
+}
+
+// DialData opens the data connection of one file.push or file.pull transfer.
+func DialData(ctx context.Context, opts DataDialOptions) (*Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
+	defer cancel()
+
+	client := http.DefaultClient
+	if opts.InsecureSkipVerify {
+		client = &http.Client{Transport: &http.Transport{
+			Proxy:           http.ProxyFromEnvironment,
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // see DialOptions
+		}}
+	}
+	ws, _, err := websocket.Dial(ctx, opts.URL, &websocket.DialOptions{HTTPClient: client})
+	if err != nil {
+		return nil, fmt.Errorf("dial %s: %w", opts.URL, err)
+	}
+	ws.SetReadLimit(noise.MaxMessageLen)
+	c, err := dataHandshake(ctx, ws, opts)
+	if err != nil {
+		ws.Close(websocket.StatusPolicyViolation, "handshake failed")
+		return nil, err
+	}
+	return c, nil
+}
+
+func dataHandshake(ctx context.Context, ws wsConn, opts DataDialOptions) (*Conn, error) {
+	challenge, err := readBinary(ctx, ws)
+	if err != nil {
+		return nil, fmt.Errorf("read challenge: %w", err)
+	}
+	if len(challenge) != noise.ChallengeLen {
+		return nil, &HandshakeError{fmt.Errorf("challenge of %d bytes", len(challenge))}
+	}
+	ini, err := noise.NewDataInitiator(opts.Identity, opts.ServerPublic, challenge)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := protocol.Marshal(protocol.DataConnectionInit{
+		ProtocolMajor: protocol.ProtocolMajor,
+		TaskID:        opts.TaskID,
+		TransferID:    opts.TransferID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	m1, err := ini.WriteInit(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := ws.Write(ctx, websocket.MessageBinary, m1); err != nil {
+		return nil, fmt.Errorf("send handshake: %w", err)
+	}
+	m2, err := readBinary(ctx, ws)
+	if err != nil {
+		var ce websocket.CloseError
+		if errors.As(err, &ce) {
+			return nil, &HandshakeError{fmt.Errorf("rejected by server: %s", ce.Reason)}
+		}
+		return nil, fmt.Errorf("read handshake response: %w", err)
+	}
+	respPayload, session, err := ini.ReadResponse(m2)
+	if err != nil {
+		return nil, &HandshakeError{err}
+	}
+	major, err := protocol.PeekMajor(respPayload)
+	if err != nil {
+		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
+	}
+	if major != protocol.ProtocolMajor {
+		return nil, &HandshakeError{fmt.Errorf("protocol_major mismatch: server %d, client %d", major, protocol.ProtocolMajor)}
+	}
+	var resp protocol.DataConnectionResponse
+	if err := protocol.Unmarshal(respPayload, &resp); err != nil {
+		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
+	}
+	return &Conn{ws: ws, session: session}, nil
+}

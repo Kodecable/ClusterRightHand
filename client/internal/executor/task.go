@@ -47,12 +47,12 @@ func RunTask(ctx context.Context, spec *protocol.TaskSpec, in io.Reader, out Sin
 	} else {
 		result, err = RunFile(ctx, spec, in, out.Writer())
 	}
-	return fileResult(result, err)
+	return FileResult(result, err)
 }
 
-// fileResult converts a file task's result and error into a Result. A file task that ran has exit
+// FileResult converts a file task's result and error into a Result. A file task that ran has exit
 // code 0 and carries its structured result.
-func fileResult(result *protocol.TaskResult, err error) Result {
+func FileResult(result *protocol.TaskResult, err error) Result {
 	if err == nil {
 		code := int32(0)
 		return Result{ExitCode: &code, TaskResult: result}

@@ -2,7 +2,17 @@
  * JSON forms used by the database and Web API. The wire types keep sha256 as
  * bytes; JSON stores lowercase 64-character hex.
  */
-import type { Command, Edit, Facts, FileListEntry, InputRef, Shells, TaskResult, TaskSpec } from "./messages.ts";
+import type {
+	Command,
+	Edit,
+	Facts,
+	FileListEntry,
+	InputRef,
+	Shells,
+	TaskResult,
+	TaskSpec,
+	TransferEndpoint,
+} from "./messages.ts";
 
 export class JsonError extends Error {
 	override name = "JsonError";
@@ -14,6 +24,9 @@ export interface JsonInputRef {
 }
 
 export type JsonCommand = { argv: string[] } | { shell: string };
+
+/** The JSON form of a transfer endpoint (doc/design/protocol.md "Data connections"). */
+export type JsonTransferEndpoint = { kind: "crhs"; transferId: string };
 
 export type JsonTaskSpec =
 	| {
@@ -34,6 +47,18 @@ export type JsonTaskSpec =
 			group: string;
 			createParentDirs: boolean;
 	  }
+	| {
+			kind: "file.push";
+			path: string;
+			size: number;
+			sha256: string;
+			overwrite: boolean;
+			mode: number;
+			owner: string;
+			group: string;
+			endpoint: JsonTransferEndpoint;
+	  }
+	| { kind: "file.pull"; path: string; maxBytes: number; endpoint: JsonTransferEndpoint }
 	| { kind: "file.edit"; path: string; edits: { oldText: string; newText: string }[] }
 	| { kind: "file.stat"; path: string }
 	| { kind: "file.list"; path: string; limit: number };
@@ -68,7 +93,8 @@ export type JsonTaskResult =
 	  }
 	| { kind: "file.list"; entries: JsonFileListEntry[]; truncated: boolean }
 	| { kind: "file.write"; bytes: number; created: boolean }
-	| { kind: "file.edit"; replacements: number };
+	| { kind: "file.edit"; replacements: number }
+	| { kind: "file.pull"; size: number; sha256: string };
 
 /**
  * The JSON form of Facts: the camelCase fields that are present (doc/design/protocol.md "Events"). Every key
@@ -191,6 +217,17 @@ function commandFromJson(value: unknown, what: string): Command {
 	return { shell: text(value.shell, `${what}.shell`) };
 }
 
+function transferEndpointToJson(value: TransferEndpoint): JsonTransferEndpoint {
+	if (value.kind !== "crhs") bad("endpoint", `unknown kind: ${value.kind}`);
+	return { kind: "crhs", transferId: text(value.transferId, "endpoint.transferId") };
+}
+
+function transferEndpointFromJson(value: unknown, what: string): TransferEndpoint {
+	const object = record(value, what, ["kind", "transferId"]);
+	if (object.kind !== "crhs") bad(what, `unknown kind: ${String(object.kind)}`);
+	return { kind: "crhs", transferId: text(object.transferId, `${what}.transferId`) };
+}
+
 /** Convert a TaskSpec to its JSON form (sha256 as lowercase hex). */
 export function taskSpecToJson(value: TaskSpec): JsonTaskSpec {
 	switch (value.kind) {
@@ -219,6 +256,25 @@ export function taskSpecToJson(value: TaskSpec): JsonTaskSpec {
 				owner: text(value.owner, "owner"),
 				group: text(value.group, "group"),
 				createParentDirs: bool(value.createParentDirs, "createParentDirs"),
+			};
+		case "file.push":
+			return {
+				kind: "file.push",
+				path: text(value.path, "path"),
+				size: uint(value.size, "size"),
+				sha256: bytesToHex(value.sha256, "sha256"),
+				overwrite: bool(value.overwrite, "overwrite"),
+				mode: uint(value.mode, "mode"),
+				owner: text(value.owner, "owner"),
+				group: text(value.group, "group"),
+				endpoint: transferEndpointToJson(value.endpoint),
+			};
+		case "file.pull":
+			return {
+				kind: "file.pull",
+				path: text(value.path, "path"),
+				maxBytes: uint(value.maxBytes, "maxBytes"),
+				endpoint: transferEndpointToJson(value.endpoint),
 			};
 		case "file.edit":
 			return {
@@ -279,6 +335,39 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 				owner: text(object.owner, "owner"),
 				group: text(object.group, "group"),
 				createParentDirs: bool(object.createParentDirs, "createParentDirs"),
+			};
+		}
+		case "file.push": {
+			const object = record(value, "file.push", [
+				"kind",
+				"path",
+				"size",
+				"sha256",
+				"overwrite",
+				"mode",
+				"owner",
+				"group",
+				"endpoint",
+			]);
+			return {
+				kind: "file.push",
+				path: text(object.path, "path"),
+				size: uint(object.size, "size"),
+				sha256: hexToBytes(object.sha256, "sha256"),
+				overwrite: bool(object.overwrite, "overwrite"),
+				mode: uint(object.mode, "mode"),
+				owner: text(object.owner, "owner"),
+				group: text(object.group, "group"),
+				endpoint: transferEndpointFromJson(object.endpoint, "endpoint"),
+			};
+		}
+		case "file.pull": {
+			const object = record(value, "file.pull", ["kind", "path", "maxBytes", "endpoint"]);
+			return {
+				kind: "file.pull",
+				path: text(object.path, "path"),
+				maxBytes: uint(object.maxBytes, "maxBytes"),
+				endpoint: transferEndpointFromJson(object.endpoint, "endpoint"),
 			};
 		}
 		case "file.edit": {
@@ -360,6 +449,8 @@ export function taskResultToJson(value: TaskResult): JsonTaskResult {
 			return { kind: "file.write", bytes: uint(value.bytes, "bytes"), created: bool(value.created, "created") };
 		case "file.edit":
 			return { kind: "file.edit", replacements: uint(value.replacements, "replacements") };
+		case "file.pull":
+			return { kind: "file.pull", size: uint(value.size, "size"), sha256: bytesToHex(value.sha256, "sha256") };
 	}
 }
 
@@ -424,6 +515,10 @@ export function taskResultFromJson(value: unknown): TaskResult {
 		case "file.edit": {
 			const object = record(value, "file.edit result", ["kind", "replacements"]);
 			return { kind: "file.edit", replacements: uint(object.replacements, "replacements") };
+		}
+		case "file.pull": {
+			const object = record(value, "file.pull result", ["kind", "size", "sha256"]);
+			return { kind: "file.pull", size: uint(object.size, "size"), sha256: hexToBytes(object.sha256, "sha256") };
 		}
 		default:
 			bad("task result", `unknown kind: ${kind}`);

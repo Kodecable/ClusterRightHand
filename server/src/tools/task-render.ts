@@ -375,6 +375,8 @@ function resultFields(result: JsonTaskResult): Record<string, unknown> {
 			return { bytes: result.bytes, created: result.created };
 		case "file.edit":
 			return { replacements: result.replacements };
+		case "file.pull":
+			return { size: result.size, sha256: result.sha256 };
 	}
 }
 

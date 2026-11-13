@@ -77,13 +77,13 @@ async function readPage(
 		lineCount: value.lineCount ?? 2000,
 	} as TaskSpec;
 	const out: Uint8Array[] = [];
-	const task: TaskResult = await runSftpFileTask(
+	const task = (await runSftpFileTask(
 		fake.wrapper,
 		spec,
 		undefined,
 		(d) => out.push(Buffer.from(d)),
 		new AbortController().signal,
-	);
+	)) as TaskResult;
 	if (task.kind !== "file.read") throw new Error(`task result is ${task.kind}, want file.read`);
 	return { page: Buffer.concat(out).toString(), result: task, sftp: fake };
 }

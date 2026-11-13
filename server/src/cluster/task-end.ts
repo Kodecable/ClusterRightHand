@@ -9,6 +9,7 @@ import type { Insertable, Selectable, Updateable } from "kysely";
 import type { TaskState as TaskRowState, TasksTable } from "../storage/schema.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now, type ReadyNode } from "./core.ts";
+import { parseTransferRecord, settleTransferOnExit } from "./data-transfer.ts";
 import { dropLive, EMPTY_OUTPUT, keepUnknownOutput, newLive } from "./live-output.ts";
 import { insertTask, writeTask } from "./task-rows.ts";
 import { outputColumns } from "./task-view.ts";
@@ -316,6 +317,9 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 		conn.peer.emit("task.exit.ack", { taskId: row.id });
 		return;
 	}
+	// A pull's received bytes are verified and committed before its success is recorded; a failed
+	// transfer overrides the node's outcome (doc/design/library.md "File plane").
+	const transferFailure = await settleTransferOnExit(core, row, exit);
 	const live =
 		existing ??
 		newLive(core, exit.taskId, conn.nodeId, row.output_mode, row.task_group_id, row.max_lines, row.max_bytes, {
@@ -329,7 +333,9 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 
 	// A status task's byte total comes from task.exit; the other modes already received the bytes.
 	const output = row.output_mode === "status" ? live.output.snapshot(exit.outputEnd) : live.output.snapshot();
-	const outcome = exit.outcome;
+	const outcome = transferFailure
+		? { kind: "error" as const, code: transferFailure.code, message: transferFailure.message }
+		: exit.outcome;
 	const fields: Updateable<TasksTable> = {
 		exit_code: outcome.kind === "code" ? outcome.value : null,
 		signal: outcome.kind === "signal" ? outcome.value : null,
@@ -337,7 +343,7 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 		error_message: outcome.kind === "error" ? outcome.message : null,
 		timed_out: exit.timedOut ? 1 : 0,
 		cancelled: exit.cancelled ? 1 : 0,
-		result: exit.result === null ? null : JSON.stringify(taskResultToJson(exit.result)),
+		result: exit.result === null || transferFailure ? null : JSON.stringify(taskResultToJson(exit.result)),
 		...outputColumns(output),
 		output_lines: exit.outputLines,
 		output_file: exit.outputFile || null,
@@ -373,7 +379,12 @@ export async function endTask(core: ClusterCore, id: string, end: TaskEnd): Prom
 	} else {
 		updated = await writeTerminal(core, id, write.from, write.set, write.nodeId, write.rev, write.outOfTurn);
 	}
+	// A transfer slot is freed by whichever ending won the row; release is idempotent.
+	core.transferScheduler.release(id);
 	if (!updated && !end.always) return false;
+	// The task no longer runs, so its transfer id may be used again. Until this point it could
+	// open one data connection only (doc/design/protocol.md "Data connections").
+	if (updated) await forgetTransfer(core, id);
 	if (end.live === "drop") dropLive(core, id);
 	else if (end.live === "keep") keepUnknownOutput(core, id);
 	if (end.notify !== false) core.notify(id);
@@ -389,6 +400,12 @@ export async function endTask(core: ClusterCore, id: string, end: TaskEnd): Prom
 		if (end.audit !== false) await auditFinish(core, id);
 	}
 	return updated;
+}
+
+/** Drops the task's transfer id once the task ended, so the set does not grow with every transfer. */
+async function forgetTransfer(core: ClusterCore, id: string): Promise<void> {
+	const transfer = parseTransferRecord((await core.row(id))?.transfer ?? null);
+	if (transfer) core.usedTransfers.delete(transfer.transferId);
 }
 
 /** The guarded row write of an ending: only a task in one of `from` (on `nodeId`, at `rev`) is written. */

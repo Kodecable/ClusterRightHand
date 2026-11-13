@@ -8,6 +8,7 @@ import (
 	"github.com/fxamacker/cbor/v2"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
@@ -68,7 +69,7 @@ func (s *Session) HandleRequests() {
 // used record) prepares first and adds it only after that succeeded, so a resource failure cannot
 // burn a one-shot authorization; a task that is not added is released with Task.Discard.
 func (s *Session) Prepare(ts protocol.TaskStart) (*Task, error) {
-	return New(ts, s.outputEmitter(ts.TaskID), s.opts.Env, s.opts.SpoolRoot)
+	return New(ts, s.outputEmitter(ts.TaskID), s.transferEmitter(ts.TaskID), s.opts.Env, s.opts.SpoolRoot)
 }
 
 // Add adds a prepared task to the session. The task does not run until Launch.
@@ -93,6 +94,22 @@ func (s *Session) Accept(ts protocol.TaskStart) (*Task, error) {
 func (s *Session) outputEmitter(taskID string) Emit {
 	return func(off uint64, data []byte) error {
 		return s.peer.Emit(protocol.EventTaskOutput, protocol.TaskOutput{
+			TaskID: taskID, Offset: protocol.Uint(off), Data: data,
+		})
+	}
+}
+
+// transferEmitter turns a file.pull task's content into crh-priv transfer.data events. The offset
+// counts the bytes sent so the unprivileged mode can check their order.
+func (s *Session) transferEmitter(taskID string) TransferEmit {
+	var mu sync.Mutex
+	var offset uint64
+	return func(data []byte) error {
+		mu.Lock()
+		off := offset
+		offset += uint64(len(data))
+		mu.Unlock()
+		return s.peer.Emit(wire.EventTransferData, protocol.TaskOutput{
 			TaskID: taskID, Offset: protocol.Uint(off), Data: data,
 		})
 	}

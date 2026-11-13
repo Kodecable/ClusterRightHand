@@ -4,6 +4,8 @@
  * background writes that close() drains. The behaviour lives in the sibling modules; this is only the
  * core they share.
  */
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
 import { AuthorizationSigningKeyStore } from "../privilege/key.ts";
@@ -11,11 +13,13 @@ import type { Db } from "../storage/db.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
 import type { GroupBudget } from "./batch-output.ts";
+import type { DataTransfer } from "./data-transfer.ts";
 import type { NodeLink } from "./links.ts";
 import type { Live } from "./live-output.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import type { SshConnection } from "./ssh-runner.ts";
 import { TASK_QUEUE_LABEL } from "./task-rows.ts";
+import { TransferScheduler } from "./transfer-scheduler.ts";
 import {
 	type Actor,
 	type ClusterOptions,
@@ -86,6 +90,14 @@ export class ClusterCore {
 	readonly trustQueue = new KeyedQueue("trust queue");
 	/** Serializes the shared payload of a task group's waiting tasks. */
 	readonly groupQueue = new KeyedQueue("task group queue");
+	/** The staging directory of file plane transfers (doc/design/library.md "File plane"). */
+	readonly transferRoot: string;
+	/** The per-node and global transfer slots (doc/design/library.md "Data connections"). */
+	readonly transferScheduler: TransferScheduler;
+	/** The live data connection of each transfer task. */
+	readonly dataTransfers = new Map<string, DataTransfer>();
+	/** The transfer id of every live transfer task on this process: a transfer id opens one data connection. */
+	readonly usedTransfers = new Set<string>();
 	/** Set when close() begins: no connection is attached and no task starts afterwards. */
 	closing = false;
 	/** Set by endWaits(): every current and later waitTask returns the current view at once. */
@@ -107,6 +119,8 @@ export class ClusterCore {
 		this.signingKeys = options.signingKeys ?? AuthorizationSigningKeyStore.fromKey(options.authorizationKey);
 		this.trustWaitMs = options.trustWaitMs ?? 5_000;
 		this.settings = options.settings;
+		this.transferRoot = options.transferRoot ?? join(tmpdir(), "crhs-staging");
+		this.transferScheduler = new TransferScheduler(options.transferLimits);
 		this.#clockWarnMs = options.clockWarnMs ?? 60_000;
 	}
 

@@ -51,6 +51,17 @@ func Prologue(challenge []byte) []byte {
 	return append([]byte(prefix), challenge...)
 }
 
+// DataPrologue is the data connection's prologue: its own prefix, so a data handshake can never be
+// taken for a control one, or the reverse (doc/design/protocol.md "Data connections").
+func DataPrologue(challenge []byte) []byte {
+	return append([]byte(protocol.DataNoiseProloguePrefix), challenge...)
+}
+
+// NewDataInitiator runs the client side of a data connection's IK handshake.
+func NewDataInitiator(static Keypair, serverPublic, challenge []byte) (*Initiator, error) {
+	return newInitiatorPrologue(static, serverPublic, DataPrologue(challenge), nil)
+}
+
 // Session holds the transport ciphers after a completed handshake.
 type Session struct {
 	send, recv    *noise.CipherState
@@ -135,6 +146,11 @@ type Responder struct {
 
 func NewResponder(static Keypair, challenge []byte) (*Responder, error) {
 	return newResponder(static, challenge, nil)
+}
+
+// NewDataResponder runs the server side of a data connection's IK handshake.
+func NewDataResponder(static Keypair, challenge []byte) (*Responder, error) {
+	return newResponderPrologue(static, DataPrologue(challenge), nil)
 }
 
 func newResponder(static Keypair, challenge []byte, ephemeral *Keypair) (*Responder, error) {

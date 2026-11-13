@@ -4,8 +4,10 @@
  */
 import { type TaskSpec, taskResultToJson } from "@crh/protocol";
 import type { Updateable } from "kysely";
+import { openTransferLocation } from "../library/transfer-location.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import type { ClusterCore } from "./core.ts";
+import { parseTransferRecord } from "./data-transfer.ts";
 import { dropLive, type Live } from "./live-output.ts";
 import { markNodeSeen, type NodeRow, setSshNodeFacts } from "./nodes.ts";
 import { LineCounter } from "./output.ts";
@@ -18,7 +20,7 @@ import {
 	type SshExecSink,
 	type SshShells,
 } from "./ssh/exec.ts";
-import { FileTaskError, runSftpFileTask } from "./ssh/file-task.ts";
+import { FileTaskError, runSftpFileTask, type SftpTransfer } from "./ssh/file-task.ts";
 import { finish, markUnknown, onAccepted } from "./task-end.ts";
 import { writeTask } from "./task-rows.ts";
 import { outputColumns } from "./task-view.ts";
@@ -138,6 +140,14 @@ export async function runSsh(
 	// tail, head the page's head. It sees the whole stream, so it also has the line count TaskExit
 	// would report.
 	const outputFields = () => ({ ...outputColumns(live.output.snapshot()), output_lines: lines.lines });
+	// An SSH transfer streams directly from or to the stored location on the pooled connection; there
+	// is no data connection (doc/design/library.md "SSH nodes"). A broken descriptor fails the task
+	// through the catch below.
+	const transferRecord = parseTransferRecord((await core.row(id))?.transfer ?? null);
+	const location = transferRecord ? openTransferLocation(core.transferRoot, transferRecord.location) : undefined;
+	const sftpTransfer: SftpTransfer | undefined = location
+		? { openRead: () => location.openRead(), openWrite: () => location.openWrite() }
+		: undefined;
 	try {
 		// SSH has no privileged mode: the task runs as the SSH user. The notice is crhs's own, so it lives
 		// in tasks.notice and never in the output; every output mode keeps it, status included.
@@ -162,7 +172,7 @@ export async function runSsh(
 				break;
 			}
 			try {
-				fields = await sshTask(link, spec, input, timeoutMs, ac.signal, sink);
+				fields = await sshTask(link, spec, input, timeoutMs, ac.signal, sink, sftpTransfer);
 				break;
 			} catch (err) {
 				if (isStarted || attempt > 0 || !(err instanceof SshError) || ac.signal.aborted) throw err;
@@ -198,6 +208,7 @@ async function sshTask(
 	timeoutMs: number | undefined,
 	signal: AbortSignal,
 	sink: SshExecSink,
+	transfer: SftpTransfer | undefined,
 ): Promise<Updateable<TasksTable>> {
 	const session = link.session;
 	if (spec.kind === "exec") {
@@ -215,8 +226,8 @@ async function sshTask(
 	const sftp = await session.sftp();
 	sink.started();
 	try {
-		const result = await runSftpFileTask(sftp, spec, input, sink.stdout, signal);
-		return { state: "exited", exit_code: 0, result: JSON.stringify(taskResultToJson(result)) };
+		const result = await runSftpFileTask(sftp, spec, input, sink.stdout, signal, transfer);
+		return { state: "exited", exit_code: 0, result: result === null ? null : JSON.stringify(taskResultToJson(result)) };
 	} catch (err) {
 		if (!(err instanceof FileTaskError) || session.closed) throw new SshConnectionLost("connection lost");
 		return {

@@ -106,7 +106,10 @@ func rejectionError(err error, ns *nodeStatus) error {
 
 // Options configure the agent. Dial is called for every connection attempt.
 type Options struct {
-	Dial      func(ctx context.Context) (*transport.Conn, error)
+	Dial func(ctx context.Context) (*transport.Conn, error)
+	// DataDial opens a data connection to crhs for one file.push or file.pull transfer
+	// (doc/design/protocol.md "Data connections"). nil refuses transfer tasks.
+	DataDial  func(ctx context.Context, taskID, transferID string) (DataConn, error)
 	Facts     func() protocol.Facts
 	OutputDir string
 	Logger    *slog.Logger
@@ -154,6 +157,10 @@ type Agent struct {
 	// The current active connection, for RefreshFacts and Reconnect.
 	conn *transport.Conn
 	peer *protocol.Peer
+
+	// transferMu guards transferActive: a node runs at most one data connection transfer.
+	transferMu     sync.Mutex
+	transferActive bool
 
 	// forwardStarted guards startForward so the daemon connection is dialed once per process.
 	forwardStarted atomic.Bool
@@ -389,7 +396,9 @@ func (a *Agent) hello() protocol.Hello {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	h := protocol.Hello{
-		TaskKinds:      []string{"exec", "file.read", "file.write", "file.edit", "file.stat", "file.list"},
+		TaskKinds: []string{
+			"exec", "file.read", "file.write", "file.push", "file.pull", "file.edit", "file.stat", "file.list",
+		},
 		PrivilegedMode: a.opts.PrivilegedMode,
 	}
 	for _, t := range a.tasks {

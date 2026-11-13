@@ -67,6 +67,17 @@ func Target(spec *protocol.TaskSpec) (method, target string, err error) {
 			return "", "", errors.New("authz: file.write task spec has no body")
 		}
 		return string(protocol.MethodFileWrite), spec.FileWrite.Path, nil
+	case protocol.TaskSpecFilePush:
+		// A push writes a node path, so it is a file.write (doc/design/library.md "File plane").
+		if spec.FilePush == nil {
+			return "", "", errors.New("authz: file.push task spec has no body")
+		}
+		return string(protocol.MethodFileWrite), spec.FilePush.Path, nil
+	case protocol.TaskSpecFilePull:
+		if spec.FilePull == nil {
+			return "", "", errors.New("authz: file.pull task spec has no body")
+		}
+		return string(protocol.MethodFileRead), spec.FilePull.Path, nil
 	case protocol.TaskSpecFileEdit:
 		if spec.FileEdit == nil {
 			return "", "", errors.New("authz: file.edit task spec has no body")

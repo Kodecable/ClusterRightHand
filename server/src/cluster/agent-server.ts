@@ -3,6 +3,10 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { HandshakeState } from "@crh/noise";
 import {
+	DATA_NOISE_PROLOGUE_PREFIX,
+	type DataConnectionInit,
+	dataConnectionInitCodec,
+	dataConnectionResponseCodec,
 	decode as decodeCbor,
 	encode as encodeCbor,
 	factsToJson,
@@ -27,6 +31,8 @@ import type { ServerIdentity } from "./identity.ts";
 import { findNodeByPublicKey, type NodeRow } from "./nodes.ts";
 
 export const AGENT_PATH = "/agent";
+/** The data connection's path: the control path plus `/data` (doc/design/protocol.md "Data connections"). */
+export const AGENT_DATA_PATH = `${AGENT_PATH}/data`;
 const CHALLENGE_LEN = 32;
 const HANDSHAKE_TIMEOUT_MS = 20_000;
 const MAX_NOISE_MESSAGE = 65535;
@@ -70,9 +76,11 @@ export class AgentServer {
 	/** Attach to the HTTP server's `upgrade` event. Returns false for other paths. */
 	handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
 		if (!this.#accepting) return false;
-		if (new URL(req.url ?? "/", "http://x").pathname !== AGENT_PATH) return false;
+		const path = new URL(req.url ?? "/", "http://x").pathname;
+		if (path !== AGENT_PATH && path !== AGENT_DATA_PATH) return false;
+		const data = path === AGENT_DATA_PATH;
 		this.#wss.handleUpgrade(req, socket, head, (ws) => {
-			const accepted: Promise<void> = this.#accept(ws)
+			const accepted: Promise<void> = (data ? this.#acceptData(ws) : this.#accept(ws))
 				.catch((err: unknown) => {
 					console.error("agent connection failed:", err);
 					ws.terminate();
@@ -193,6 +201,65 @@ export class AgentServer {
 		ws.send(hs.writeMessage(encodeCbor(handshakeResponseCodec.encode(response))));
 		const conn = new NodeConnection(connectionId, node.id, ws, hs.split(), negotiated);
 		this.#cluster.attach(conn, node as NodeRow);
+	}
+
+	/**
+	 * The data connection endpoint: the same challenge and Noise IK, with the `crh-data/0` prologue and
+	 * the small data handshake payload (doc/design/protocol.md "Data connections"). Only an active node
+	 * whose control connection is up gets past the handshake; the task and transfer are checked by the
+	 * cluster once the channel exists.
+	 */
+	async #acceptData(ws: WebSocket): Promise<void> {
+		const challenge = randomBytes(CHALLENGE_LEN);
+		const first = new Promise<Uint8Array>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("handshake timeout")), HANDSHAKE_TIMEOUT_MS);
+			ws.once("message", (data, isBinary) => {
+				clearTimeout(timer);
+				if (isBinary) resolve(toBytes(data));
+				else reject(new Error("text message"));
+			});
+			ws.once("close", () => reject(new Error("closed")));
+		});
+		ws.send(challenge);
+
+		let message1: Uint8Array;
+		try {
+			message1 = await first;
+		} catch {
+			return ws.terminate();
+		}
+		const hs = HandshakeState.responder({
+			prologue: Buffer.concat([Buffer.from(DATA_NOISE_PROLOGUE_PREFIX), challenge]),
+			staticKey: this.#identity.keyPair,
+		});
+		let payload: Uint8Array;
+		try {
+			payload = hs.readMessage(message1);
+		} catch {
+			return reject(ws, "handshake failed");
+		}
+		let clientMajor: number;
+		try {
+			clientMajor = peekProtocolMajor(payload);
+		} catch {
+			return reject(ws, "handshake failed");
+		}
+		if (clientMajor !== PROTOCOL_MAJOR) {
+			return reject(ws, `protocol_major mismatch: server ${PROTOCOL_MAJOR}, client ${clientMajor}`);
+		}
+		let init: DataConnectionInit;
+		try {
+			init = dataConnectionInitCodec.decode(decodeCbor(payload));
+		} catch {
+			return reject(ws, "handshake failed");
+		}
+		const clientKey = hs.remoteStaticKey as Uint8Array;
+		const node = await findNodeByPublicKey(this.#db, clientKey);
+		if (!node) return reject(ws, "unknown node");
+		if (node.status !== "active") return reject(ws, "node_pending");
+		if (ws.readyState !== WebSocket.OPEN) return;
+		ws.send(hs.writeMessage(encodeCbor(dataConnectionResponseCodec.encode({ protocolMajor: PROTOCOL_MAJOR }))));
+		this.#cluster.attachData(ws, hs.split(), node.id, init);
 	}
 }
 

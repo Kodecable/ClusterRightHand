@@ -381,10 +381,10 @@ func TestResultOutcome(t *testing.T) {
 		t.Fatalf("empty outcome: %+v", got)
 	}
 	written := &protocol.TaskResult{Kind: protocol.TaskResultFileWrite, FileWrite: &protocol.FileWriteResult{Bytes: 1}}
-	if got := fileResult(written, nil); got.ExitCode == nil || *got.ExitCode != 0 || got.TaskResult != written {
+	if got := FileResult(written, nil); got.ExitCode == nil || *got.ExitCode != 0 || got.TaskResult != written {
 		t.Fatalf("successful file task: %+v", got)
 	}
-	if got := fileResult(nil, errf("cancelled", "x")); got.Err == nil || !got.Cancelled || got.TaskResult != nil {
+	if got := FileResult(nil, errf("cancelled", "x")); got.Err == nil || !got.Cancelled || got.TaskResult != nil {
 		t.Fatalf("cancelled file task: %+v", got)
 	}
 }

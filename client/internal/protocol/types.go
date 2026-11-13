@@ -396,6 +396,58 @@ type TaskExitAck struct {
 	TaskID string
 }
 
+// DataConnectionInit is the client payload of a data connection's Noise IK handshake: the protocol
+// major, the task id and the transfer id (doc/design/protocol.md "Data connections").
+type DataConnectionInit struct {
+	_             struct{} `cbor:",toarray"`
+	ProtocolMajor Uint
+	TaskID        string
+	TransferID    string
+}
+
+// DataConnectionResponse is the server payload of a data connection's handshake: the protocol major.
+type DataConnectionResponse struct {
+	_             struct{} `cbor:",toarray"`
+	ProtocolMajor Uint
+}
+
+// DataFrame is one CBOR frame on a data connection after its handshake: a chunk of bytes, the end of
+// the transfer, or an abort with the error code that ended it.
+type DataFrame struct {
+	Kind  DataFrameKind
+	Bytes []byte
+	Code  string
+}
+
+// DataFrameKind is a DataFrame union tag.
+type DataFrameKind string
+
+const (
+	DataFrameData  DataFrameKind = "data"
+	DataFrameEnd   DataFrameKind = "end"
+	DataFrameAbort DataFrameKind = "abort"
+)
+
+// dataFrameUnion is the DataFrame union.
+var dataFrameUnion = newBareUnion("data frame",
+	unionValue("data", func(f DataFrame) []byte { return f.Bytes }, func(f *DataFrame, b []byte) { f.Bytes = b }),
+	unionEmpty[DataFrame]("end"),
+	unionValue("abort", func(f DataFrame) string { return f.Code }, func(f *DataFrame, code string) { f.Code = code }),
+)
+
+// MarshalCBOR encodes a DataFrame as [tag, body].
+func (f DataFrame) MarshalCBOR() ([]byte, error) { return dataFrameUnion.marshal(f, string(f.Kind)) }
+
+// UnmarshalCBOR decodes [tag, body] into the matching DataFrame branch.
+func (f *DataFrame) UnmarshalCBOR(data []byte) error {
+	tag, err := dataFrameUnion.unmarshal(data, f)
+	if err != nil {
+		return err
+	}
+	f.Kind = DataFrameKind(tag)
+	return nil
+}
+
 // Empty is the empty tuple body of commands and responses that carry no fields.
 type Empty struct {
 	_ struct{} `cbor:",toarray"`
@@ -446,6 +498,67 @@ type FileWriteSpec struct {
 	Owner            string
 	Group            string
 	CreateParentDirs bool
+}
+
+// TransferEndpoint is the union that names the crhs-side end of a file.push or file.pull transfer
+// (doc/design/protocol.md "Data connections"). Today it has one branch: the node opens a data
+// connection to crhs for TransferID.
+type TransferEndpoint struct {
+	Kind       TransferEndpointKind
+	TransferID string
+}
+
+// TransferEndpointKind is a TransferEndpoint union tag.
+type TransferEndpointKind string
+
+const (
+	TransferEndpointCRHS TransferEndpointKind = "crhs"
+)
+
+// transferEndpointUnion is the TransferEndpoint union.
+var transferEndpointUnion = newUnion("transfer endpoint",
+	unionValue("crhs",
+		func(t TransferEndpoint) string { return t.TransferID },
+		func(t *TransferEndpoint, id string) { t.TransferID = id }),
+)
+
+// MarshalCBOR encodes a TransferEndpoint as [tag, body].
+func (t TransferEndpoint) MarshalCBOR() ([]byte, error) {
+	return transferEndpointUnion.marshal(t, string(t.Kind))
+}
+
+// UnmarshalCBOR decodes [tag, body] into the matching TransferEndpoint branch.
+func (t *TransferEndpoint) UnmarshalCBOR(data []byte) error {
+	tag, err := transferEndpointUnion.unmarshal(data, t)
+	if err != nil {
+		return err
+	}
+	t.Kind = TransferEndpointKind(tag)
+	return nil
+}
+
+// FilePushSpec is the TaskSpec body for the "file.push" kind: the bytes of a whole file arrive on a
+// data connection and are written atomically with file.write's semantics. Size and SHA256 bind the
+// content to an exact authorization or an approval (doc/design/library.md "File plane").
+type FilePushSpec struct {
+	_         struct{} `cbor:",toarray"`
+	Path      string
+	Size      Uint
+	SHA256    Hash
+	Overwrite bool
+	Mode      Uint
+	Owner     string
+	Group     string
+	Endpoint  TransferEndpoint
+}
+
+// FilePullSpec is the TaskSpec body for the "file.pull" kind: a whole regular file is sent to crhs
+// on a data connection. MaxBytes is the most the destination accepts.
+type FilePullSpec struct {
+	_        struct{} `cbor:",toarray"`
+	Path     string
+	MaxBytes Uint
+	Endpoint TransferEndpoint
 }
 
 // FileEditSpec is the TaskSpec body for the "file.edit" kind.
@@ -534,6 +647,14 @@ type FileEditResult struct {
 	Replacements Uint
 }
 
+// FilePullResult is the TaskResult body for the "file.pull" kind: the size and SHA-256 of the bytes
+// the node sent. crhs checks the received bytes against them (doc/design/library.md "File plane").
+type FilePullResult struct {
+	_      struct{} `cbor:",toarray"`
+	Size   Uint
+	SHA256 Hash
+}
+
 // TaskResult is the union of the structured results a task may report. Its tag is the task kind; a
 // kind that reports nothing structured has no branch. A result travels in task.exit, never in the
 // output streams (doc/design/protocol.md "Task results").
@@ -545,6 +666,7 @@ type TaskResult struct {
 	FileEdit  *FileEditResult
 	FileStat  *FileStatResult
 	FileList  *FileListResult
+	FilePull  *FilePullResult
 }
 
 // OutputMode selects how task output is delivered. "full" carries spill limits in its
@@ -562,6 +684,8 @@ type TaskSpec struct {
 	Exec      *ExecSpec
 	FileRead  *FileReadSpec
 	FileWrite *FileWriteSpec
+	FilePush  *FilePushSpec
+	FilePull  *FilePullSpec
 	FileEdit  *FileEditSpec
 	FileStat  *FileStatSpec
 	FileList  *FileListSpec
@@ -645,6 +769,8 @@ const (
 	TaskSpecExec      TaskSpecKind = "exec"
 	TaskSpecFileRead  TaskSpecKind = "file.read"
 	TaskSpecFileWrite TaskSpecKind = "file.write"
+	TaskSpecFilePush  TaskSpecKind = "file.push"
+	TaskSpecFilePull  TaskSpecKind = "file.pull"
 	TaskSpecFileEdit  TaskSpecKind = "file.edit"
 	TaskSpecFileStat  TaskSpecKind = "file.stat"
 	TaskSpecFileList  TaskSpecKind = "file.list"
@@ -685,6 +811,7 @@ const (
 	TaskResultFileEdit  TaskResultKind = "file.edit"
 	TaskResultFileStat  TaskResultKind = "file.stat"
 	TaskResultFileList  TaskResultKind = "file.list"
+	TaskResultFilePull  TaskResultKind = "file.pull"
 )
 
 // taskSpecUnion is the TaskSpec union: one branch per task kind.
@@ -692,6 +819,8 @@ var taskSpecUnion = newUnion("task spec",
 	unionPtr[TaskSpec]("exec", func(s *TaskSpec) **ExecSpec { return &s.Exec }),
 	unionPtr[TaskSpec]("file.read", func(s *TaskSpec) **FileReadSpec { return &s.FileRead }),
 	unionPtr[TaskSpec]("file.write", func(s *TaskSpec) **FileWriteSpec { return &s.FileWrite }),
+	unionPtr[TaskSpec]("file.push", func(s *TaskSpec) **FilePushSpec { return &s.FilePush }),
+	unionPtr[TaskSpec]("file.pull", func(s *TaskSpec) **FilePullSpec { return &s.FilePull }),
 	unionPtr[TaskSpec]("file.edit", func(s *TaskSpec) **FileEditSpec { return &s.FileEdit }),
 	unionPtr[TaskSpec]("file.stat", func(s *TaskSpec) **FileStatSpec { return &s.FileStat }),
 	unionPtr[TaskSpec]("file.list", func(s *TaskSpec) **FileListSpec { return &s.FileList }),
@@ -802,6 +931,7 @@ var taskResultUnion = unionDef[TaskResult]{
 		unionPtr[TaskResult]("file.edit", func(r *TaskResult) **FileEditResult { return &r.FileEdit }),
 		unionPtr[TaskResult]("file.stat", func(r *TaskResult) **FileStatResult { return &r.FileStat }),
 		unionPtr[TaskResult]("file.list", func(r *TaskResult) **FileListResult { return &r.FileList }),
+		unionPtr[TaskResult]("file.pull", func(r *TaskResult) **FilePullResult { return &r.FilePull }),
 	},
 }
 

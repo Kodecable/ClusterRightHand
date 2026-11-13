@@ -14,7 +14,8 @@
  * process, so both ends are the shipped code.
  */
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -55,6 +56,10 @@ describePodman("privileged system: forward", () => {
 	let userKey = "";
 	let crhsKey = "";
 	let credentialId = "";
+	let actorId = "";
+	let transferRoot = "";
+	const sha256Hex = (data: Uint8Array): string => createHash("sha256").update(data).digest("hex");
+	const actor = () => ({ type: "user" as const, id: actorId, onBehalfOfUserId: actorId });
 
 	const userEntry = (extra: Partial<TrustSpec> = {}): TrustSpec => ({
 		name: "owner",
@@ -107,8 +112,11 @@ describePodman("privileged system: forward", () => {
 	beforeAll(async () => {
 		tmp = await mkdtemp(join(tmpdir(), "crh-priv-forward-"));
 		bin = await buildStaticCrha(tmp);
-		crhs = await InProcessCrhs.create();
+		transferRoot = join(tmp, "staging");
+		crhs = await InProcessCrhs.create({ transferRoot });
 		await crhs.loginAdmin();
+		actorId = (await crhs.db.selectFrom("users").select("id").where("username", "=", "root").executeTakeFirstOrThrow())
+			.id;
 		// clock_skew 0: both processes share the host clock, and the fallback case needs a 1 ms
 		// authorization to really expire (doc/design/privilege.md "Clock").
 		node = await PrivilegedNode.create({ bin, crhs, mode: "forward", trust: [], clockSkew: "0s" });
@@ -629,5 +637,59 @@ describePodman("privileged system: forward", () => {
 			const again = await task({ kind: "exec", argv: ["true"] });
 			expect((await node.taskState(again.id)).state).toBe("exited");
 		}, 90_000);
+	});
+
+	// -----------------------------------------------------------------------
+	describe("item 11: file plane transfers", () => {
+		beforeAll(async () => {
+			await node.setTrust([crhsEntry({ allow: [{ method: "file.read" }, { method: "file.write" }] })]);
+		}, 60_000);
+
+		it("pushes a file to a root-owned path with its owner, group and mode", async () => {
+			const content = Buffer.from("forward push content\n");
+			const path = "/root/crh-plane-push.txt";
+			const location = await crhs.cluster.stageBytesForPush(content);
+			const t = await crhs.cluster.pushFile({
+				nodeId: node.nodeId,
+				path,
+				location,
+				overwrite: true,
+				mode: 0o640,
+				owner: "root",
+				group: "root",
+				privileged: true,
+				actor: actor(),
+			});
+			const done = await waitTerminal(t.id);
+			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
+			expect(done.authorization?.dispatchedPath).toBe("crhs");
+			const stat = await node.exec(["/usr/bin/stat", "-c", "%a %u %g %s", path]);
+			expect(stat.stdout.trim()).toBe(`640 0 0 ${content.length}`);
+			expect((await node.exec(["/bin/cat", path])).stdout).toBe(content.toString());
+		}, 60_000);
+
+		it("pulls a root-only file into the staging location", async () => {
+			const content = Buffer.from("forward pull content\n");
+			const path = "/root/crh-plane-pull.txt";
+			const created = await node.exec(["/usr/bin/tee", path], { stdin: content.toString() });
+			expect(created.code).toBe(0);
+			expect((await node.exec(["/bin/chmod", "0600", path])).code).toBe(0);
+			expect((await node.execAs(998, ["/bin/cat", path])).code).not.toBe(0);
+			const location = crhs.cluster.stagingLocation();
+			const t = await crhs.cluster.pullFile({
+				nodeId: node.nodeId,
+				path,
+				maxBytes: 4096,
+				location,
+				privileged: true,
+				actor: actor(),
+			});
+			const done = await waitTerminal(t.id);
+			expect(done).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
+			expect(done.authorization?.dispatchedPath).toBe("crhs");
+			expect(done.result).toMatchObject({ kind: "file.pull", size: content.length, sha256: sha256Hex(content) });
+			const staged = await readFile(join(transferRoot, location.path));
+			expect(staged.equals(content)).toBe(true);
+		}, 60_000);
 	});
 });

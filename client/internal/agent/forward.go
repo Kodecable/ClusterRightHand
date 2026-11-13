@@ -181,8 +181,9 @@ func (a *Agent) dialForward(ctx context.Context) (*forwardConn, error) {
 		done:       make(chan struct{}),
 	}
 	fc.peer = fc.stream.Peer()
-	output, exit := a.relay.eventHandlers(func(taskID string) string { return taskID })
+	output, transfer, exit := a.relay.eventHandlers(func(taskID string) string { return taskID })
 	fc.peer.HandleEvent(protocol.EventTaskOutput, output)
+	fc.peer.HandleEvent(wire.EventTransferData, transfer)
 	fc.peer.HandleEvent(protocol.EventTaskExit, exit)
 	fc.peer.HandleEvent(protocol.EventTrustSummary, a.handleForwardSummary)
 	fc.peer.HandleEvent(protocol.EventLocalDecision, a.handleForwardLocalDecision)

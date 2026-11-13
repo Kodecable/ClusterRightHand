@@ -8,6 +8,7 @@ package protocol
 import (
 	"regexp"
 	"slices"
+	"time"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -32,6 +33,14 @@ const (
 	MaxErrorMessageBytes = 1024
 	// MaxNameBytes bounds a command or event name (cmd, name) in UTF-8 bytes.
 	MaxNameBytes = 64
+	// DataNoiseProloguePrefix starts the data connection's Noise prologue; it keeps a data handshake
+	// from being taken for a control one, or the reverse (doc/design/protocol.md "Data connections").
+	DataNoiseProloguePrefix = "crh-data/0"
+	// DataChunkBytes is the largest chunk of a data connection frame (doc/design/protocol.md
+	// "Data connections").
+	DataChunkBytes = 32 << 10
+	// DataIdleTimeout fails a data connection transfer that delivers no frame for this long.
+	DataIdleTimeout = 90 * time.Second
 )
 
 // IsUUID reports whether s is a canonical lowercase UUID, the textual form of node ids and node

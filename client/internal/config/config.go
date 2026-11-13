@@ -307,6 +307,10 @@ func (c *Config) IdentityKeyPath() string { return filepath.Join(c.StateDir, "id
 // ServerKeyPath returns the path of the pinned server public key.
 func (c *Config) ServerKeyPath() string { return filepath.Join(c.StateDir, "server.pub") }
 
+// DataURL returns the websocket URL of the server's data endpoint: the agent endpoint's path plus
+// "/data" (doc/design/protocol.md "Data connections").
+func (c *Config) DataURL() string { return c.AgentURL() + "/data" }
+
 // AgentURL returns the websocket URL of the server's agent endpoint.
 func (c *Config) AgentURL() string {
 	u, err := url.Parse(c.Server)

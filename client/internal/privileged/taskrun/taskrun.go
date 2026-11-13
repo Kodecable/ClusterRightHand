@@ -49,6 +49,11 @@ var (
 // output; the task keeps running and the caller records its outcome in the local log.
 type Emit func(offset uint64, data []byte) error
 
+// TransferEmit sends one chunk of a file.pull task's content to the unprivileged mode, which relays
+// it on the data connection (doc/design/library.md "File plane"). An error means the data connection
+// is gone; the task ends as a failure.
+type TransferEmit func(data []byte) error
+
 // Task is one accepted privileged task. Its methods are safe for concurrent use.
 type Task struct {
 	id    string
@@ -58,6 +63,9 @@ type Task struct {
 	// in is the streaming input of a file.write task, which the file task itself verifies
 	// before publishing the file. It is nil for an exec task.
 	in *executor.Input
+	// transfer sends the content of a file.pull task to the unprivileged mode, which owns the data
+	// connection. It is nil for every other task.
+	transfer TransferEmit
 	// spool is the private temporary file that collects the stdin of a privileged exec task.
 	// The process only starts with it as stdin once the input matched its declared size and
 	// SHA-256, so a compromised crhs cannot have a different chunk read by the process
@@ -182,21 +190,23 @@ func spoolFits(total, free, size uint64) bool {
 	return free >= size && free-size >= reserve
 }
 
-// New prepares a task. It validates task.start with Validate. env is the environment the privileged
-// process resolved when it started (execenv.Resolve); nil resolves it per task, which only tests and
-// programmatic callers do. spoolRoot is the privileged state directory; a task's stdin is staged in
-// its stdin subdirectory while the input is verified. An empty spoolRoot refuses a task with input.
-func New(ts protocol.TaskStart, emit Emit, env *execenv.Environment, spoolRoot string) (*Task, error) {
+// New prepares a task. It validates task.start with Validate. transfer sends the content of a
+// file.pull task; it may be nil when no data connection exists (tests that only check the file
+// side). env is the environment the privileged process resolved when it started (execenv.Resolve);
+// nil resolves it per task, which only tests and programmatic callers do. spoolRoot is the
+// privileged state directory; a task's stdin is staged in its stdin subdirectory while the input is
+// verified. An empty spoolRoot refuses a task with input.
+func New(ts protocol.TaskStart, emit Emit, transfer TransferEmit, env *execenv.Environment, spoolRoot string) (*Task, error) {
 	if err := Validate(ts); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	t := &Task{id: ts.TaskID, start: ts, env: env, ctx: ctx, abort: cancel, done: make(chan struct{})}
+	t := &Task{id: ts.TaskID, start: ts, transfer: transfer, env: env, ctx: ctx, abort: cancel, done: make(chan struct{})}
 	t.sink = newStreamSink(emit)
 	if ref := taskinput.Ref(&ts.Spec); ref != nil {
 		t.input = taskinput.New(ref)
 		switch {
-		case ts.Spec.Kind == protocol.TaskSpecFileWrite:
+		case ts.Spec.Kind == protocol.TaskSpecFileWrite, ts.Spec.Kind == protocol.TaskSpecFilePush:
 			t.in = executor.NewInput()
 			if ref.Size == 0 {
 				t.in.Close()
@@ -325,12 +335,27 @@ func (t *Task) run() executor.Result {
 			return executor.Result{Err: &executor.Error{Code: protocol.CodeIOError, Message: "rewind the task input: " + err.Error()}}
 		}
 	}
+	if t.start.Spec.Kind == protocol.TaskSpecFilePull {
+		// A pull sends its content to the unprivileged mode over crh-priv, not to the output sink:
+		// the bytes travel on the data connection and never become task output.
+		result, err := executor.RunPull(t.ctx, &t.start.Spec, t.emitTransfer, true)
+		return executor.FileResult(result, err)
+	}
 	return executor.RunTask(t.ctx, &t.start.Spec, t.reader(), t.sink, executor.TaskOptions{
 		Timeout:    timeout,
 		KillGrace:  time.Duration(t.start.KillGraceMS) * time.Millisecond,
 		Privileged: true,
 		Env:        t.env,
 	})
+}
+
+// emitTransfer forwards one chunk of a file.pull task to the unprivileged mode. Without a transfer
+// sink the task still reads and hashes the file but sends nothing (tests only).
+func (t *Task) emitTransfer(data []byte) error {
+	if t.transfer == nil {
+		return nil
+	}
+	return t.transfer(data)
 }
 
 // awaitInput blocks until the spooled input is complete and verified, the task is cancelled or

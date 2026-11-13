@@ -17,7 +17,7 @@ import (
 var emptySHA256 = protocol.Hash(sha256.Sum256(nil))
 
 // Ref returns the input a task spec declares, or nil: an exec task declares its stdin, a file.write
-// task its content.
+// task its content, and a file.push task the content that arrives on its data connection.
 func Ref(spec *protocol.TaskSpec) *protocol.InputRef {
 	switch spec.Kind {
 	case protocol.TaskSpecExec:
@@ -27,6 +27,10 @@ func Ref(spec *protocol.TaskSpec) *protocol.InputRef {
 	case protocol.TaskSpecFileWrite:
 		if spec.FileWrite != nil {
 			return &spec.FileWrite.Content
+		}
+	case protocol.TaskSpecFilePush:
+		if spec.FilePush != nil {
+			return &protocol.InputRef{Size: spec.FilePush.Size, SHA256: spec.FilePush.SHA256}
 		}
 	}
 	return nil

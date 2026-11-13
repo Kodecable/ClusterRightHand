@@ -82,7 +82,13 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		signal: AbortSignal = new AbortController().signal,
 	): Promise<{ result: TaskResult; stdout: Buffer }> {
 		const out: Uint8Array[] = [];
-		const result = await runSftpFileTask(sftp, specOf(kind, value), input, (d) => out.push(Buffer.from(d)), signal);
+		const result = (await runSftpFileTask(
+			sftp,
+			specOf(kind, value),
+			input,
+			(d) => out.push(Buffer.from(d)),
+			signal,
+		)) as TaskResult;
 		return { result, stdout: Buffer.concat(out) };
 	}
 	async function runRaw(

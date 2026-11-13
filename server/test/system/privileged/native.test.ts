@@ -9,7 +9,8 @@
  * The non-privileged mode runs as uid 998 and the helper as root, both in the same container as a
  * real sudo/doas, so the output "0" is the real uid of the process the trusted code started.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -29,12 +30,19 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 	let bin = "";
 	let crhs: InProcessCrhs;
 	let node: PrivilegedNode;
+	let transferRoot = "";
+	let actorId = "";
+	const sha256Hex = (data: Uint8Array): string => createHash("sha256").update(data).digest("hex");
+	const actor = () => ({ type: "user" as const, id: actorId, onBehalfOfUserId: actorId });
 
 	beforeAll(async () => {
 		tmp = await mkdtemp(join(tmpdir(), "crh-priv-native-"));
 		bin = await buildStaticCrha(tmp);
-		crhs = await InProcessCrhs.create();
+		transferRoot = join(tmp, "staging");
+		crhs = await InProcessCrhs.create({ transferRoot });
 		await crhs.loginAdmin();
+		actorId = (await crhs.db.selectFrom("users").select("id").where("username", "=", "root").executeTakeFirstOrThrow())
+			.id;
 		node = await PrivilegedNode.create({ bin, crhs, mode: "native", native: "sudo", trust: [] });
 		await waitFor(
 			"the node to report native mode",
@@ -129,6 +137,51 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const r = await node.taskState(read.id);
 			expect(r.state).toBe("exited");
 			expect(r.outputHead + r.outputTail).toContain("native-file");
+		}, 60_000);
+
+		it("pushes and pulls a file as root", async () => {
+			const pushedContent = Buffer.from("native plane push\n");
+			const pushPath = "/root/crh-native-plane-push.txt";
+			const location = await crhs.cluster.stageBytesForPush(pushedContent);
+			const pushed = await crhs.cluster.pushFile({
+				nodeId: node.nodeId,
+				path: pushPath,
+				location,
+				overwrite: true,
+				mode: 0o600,
+				owner: "root",
+				group: "root",
+				privileged: true,
+				actor: actor(),
+			});
+			const p = await node.taskState(pushed.id);
+			expect(p).toMatchObject({ state: "exited", exitCode: 0, privileged: true });
+			const stat = await node.exec(["/usr/bin/stat", "-c", "%a %u %g %s", pushPath]);
+			expect(stat.stdout.trim()).toBe(`600 0 0 ${pushedContent.length}`);
+			expect((await node.exec(["/bin/cat", pushPath])).stdout).toBe(pushedContent.toString());
+
+			const pulledContent = Buffer.from("native plane pull\n");
+			const pullPath = "/root/crh-native-plane-pull.txt";
+			const created = await node.exec(["/usr/bin/tee", pullPath], { stdin: pulledContent.toString() });
+			expect(created.code).toBe(0);
+			expect((await node.exec(["/bin/chmod", "0600", pullPath])).code).toBe(0);
+			const target = crhs.cluster.stagingLocation();
+			const pulled = await crhs.cluster.pullFile({
+				nodeId: node.nodeId,
+				path: pullPath,
+				maxBytes: 4096,
+				location: target,
+				privileged: true,
+				actor: actor(),
+			});
+			const pull = await node.taskState(pulled.id);
+			expect(pull).toMatchObject({ state: "exited", exitCode: 0 });
+			expect(pull.result).toMatchObject({
+				kind: "file.pull",
+				size: pulledContent.length,
+				sha256: sha256Hex(pulledContent),
+			});
+			expect((await readFile(join(transferRoot, target.path))).equals(pulledContent)).toBe(true);
 		}, 60_000);
 
 		it("cancels a running task through the helper", async () => {

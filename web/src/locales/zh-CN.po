@@ -3066,6 +3066,11 @@ msgstr "原因"
 msgid "Reason (optional)"
 msgstr "原因（可选）"
 
+#. placeholder {0}: result.size
+#: src/components/task-result.tsx
+msgid "Received {0} bytes"
+msgstr "已接收 {0} 字节"
+
 #: src/features/users/pages.tsx
 msgid "Recent sessions"
 msgstr "最近的会话"

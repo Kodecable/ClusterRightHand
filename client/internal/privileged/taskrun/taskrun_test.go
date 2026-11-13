@@ -31,7 +31,7 @@ func stdinStart(size uint64, sum protocol.Hash) protocol.TaskStart {
 func TestSpoolLivesBelowStateDir(t *testing.T) {
 	root := t.TempDir()
 	sum := sha256.Sum256([]byte("abc"))
-	task, err := New(stdinStart(3, protocol.Hash(sum)), func(uint64, []byte) error { return nil }, nil, root)
+	task, err := New(stdinStart(3, protocol.Hash(sum)), func(uint64, []byte) error { return nil }, nil, nil, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestSpoolLivesBelowStateDir(t *testing.T) {
 func TestDiscardRemovesPreparedStaging(t *testing.T) {
 	root := t.TempDir()
 	sum := sha256.Sum256([]byte("abc"))
-	task, err := New(stdinStart(3, protocol.Hash(sum)), func(uint64, []byte) error { return nil }, nil, root)
+	task, err := New(stdinStart(3, protocol.Hash(sum)), func(uint64, []byte) error { return nil }, nil, nil, root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestDiscardRemovesPreparedStaging(t *testing.T) {
 // error code instead of filling it.
 func TestSpoolRefusesInputThatDoesNotFit(t *testing.T) {
 	root := t.TempDir()
-	_, err := New(stdinStart(1<<53-1, protocol.Hash{}), func(uint64, []byte) error { return nil }, nil, root)
+	_, err := New(stdinStart(1<<53-1, protocol.Hash{}), func(uint64, []byte) error { return nil }, nil, nil, root)
 	var remote *protocol.RemoteError
 	if !errors.As(err, &remote) {
 		t.Fatalf("got %v, want a remote error", err)
@@ -129,9 +129,137 @@ func TestSpoolFits(t *testing.T) {
 // TestSpoolWithoutStateDir covers a session that has no spool root: a task with input is refused
 // rather than staged somewhere shared.
 func TestSpoolWithoutStateDir(t *testing.T) {
-	_, err := New(stdinStart(3, protocol.Hash(sha256.Sum256([]byte("abc")))), func(uint64, []byte) error { return nil }, nil, "")
+	_, err := New(stdinStart(3, protocol.Hash(sha256.Sum256([]byte("abc")))), func(uint64, []byte) error { return nil }, nil, nil, "")
 	var remote *protocol.RemoteError
 	if !errors.As(err, &remote) || remote.Code != protocol.CodeInternalError {
 		t.Fatalf("got %v, want an internal error for the missing staging directory", err)
+	}
+}
+
+// pullStart is a file.pull task for path.
+func pullStart(path string, maxBytes uint64) protocol.TaskStart {
+	return protocol.TaskStart{
+		TaskID: "t-pull",
+		Spec: protocol.TaskSpec{
+			Kind: protocol.TaskSpecFilePull,
+			FilePull: &protocol.FilePullSpec{
+				Path: path, MaxBytes: protocol.Uint(maxBytes),
+				Endpoint: protocol.TransferEndpoint{Kind: protocol.TransferEndpointCRHS, TransferID: "tr-1"},
+			},
+		},
+		Privileged: true,
+	}
+}
+
+// TestPullStreamsContent covers the privileged half of a file.pull: the bytes reach the
+// unprivileged mode through the transfer emitter and the result carries the size and digest the
+// data connection's receiver checks.
+func TestPullStreamsContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	data := []byte("privileged pull")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	task, err := New(pullStart(path, 1024), func(uint64, []byte) error { return nil }, func(chunk []byte) error {
+		got = append(got, chunk...)
+		return nil
+	}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exit *protocol.TaskExit
+	task.Start(nil, func(e *protocol.TaskExit) { exit = e })
+	<-task.Done()
+	if exit == nil {
+		t.Fatal("no task.exit")
+	}
+	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("outcome = %+v", exit.Outcome)
+	}
+	if exit.Result == nil || exit.Result.Kind != protocol.TaskResultFilePull || exit.Result.FilePull == nil {
+		t.Fatalf("result = %+v", exit.Result)
+	}
+	want := protocol.Hash(sha256.Sum256(data))
+	if r := exit.Result.FilePull; protocol.Uint(len(data)) != r.Size || want != r.SHA256 {
+		t.Fatalf("file.pull result = %+v", r)
+	}
+	if string(got) != string(data) {
+		t.Fatalf("emitted %q, want %q", got, data)
+	}
+}
+
+// TestPullTooLargeEmitsNothing covers the pre-send refusal: a file over max_bytes never reaches the
+// data connection and fails with too_large.
+func TestPullTooLargeEmitsNothing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "f.txt")
+	if err := os.WriteFile(path, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	emitted := false
+	task, err := New(pullStart(path, 1), func(uint64, []byte) error { return nil }, func([]byte) error {
+		emitted = true
+		return nil
+	}, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exit *protocol.TaskExit
+	task.Start(nil, func(e *protocol.TaskExit) { exit = e })
+	<-task.Done()
+	if exit == nil || exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil {
+		t.Fatalf("exit = %+v", exit)
+	}
+	if exit.Outcome.Error.Code != protocol.CodeTooLarge {
+		t.Fatalf("error = %+v, want too_large", exit.Outcome.Error)
+	}
+	if emitted {
+		t.Fatal("a too-large file emitted content")
+	}
+}
+
+// TestPushWritesVerifiedContent covers the privileged half of a file.push: the chunks the
+// unprivileged mode relays as task.input are verified against the approved size and digest before
+// the file is published.
+func TestPushWritesVerifiedContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pushed.txt")
+	data := []byte("push me")
+	sum := sha256.Sum256(data)
+	ts := protocol.TaskStart{
+		TaskID: "t-push",
+		Spec: protocol.TaskSpec{
+			Kind: protocol.TaskSpecFilePush,
+			FilePush: &protocol.FilePushSpec{
+				Path: path, Size: protocol.Uint(len(data)), SHA256: protocol.Hash(sum),
+				Endpoint: protocol.TransferEndpoint{Kind: protocol.TransferEndpointCRHS, TransferID: "tr-1"},
+			},
+		},
+		Privileged: true,
+	}
+	task, err := New(ts, func(uint64, []byte) error { return nil }, nil, nil, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exit *protocol.TaskExit
+	task.Start(nil, func(e *protocol.TaskExit) { exit = e })
+	if _, err := task.Input(protocol.TaskInput{TaskID: ts.TaskID, Offset: 0, Data: data}); err != nil {
+		t.Fatal(err)
+	}
+	<-task.Done()
+	if exit == nil || exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("exit = %+v", exit)
+	}
+	if exit.Result != nil {
+		t.Fatalf("a push reported a result: %+v", exit.Result)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(data) {
+		t.Fatalf("content = %q, want %q", got, data)
 	}
 }

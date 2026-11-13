@@ -56,6 +56,9 @@ export function summarize(specJson: string): string {
 			path?: unknown;
 			startLine?: unknown;
 			lineCount?: unknown;
+			size?: unknown;
+			maxBytes?: unknown;
+			sha256?: unknown;
 		};
 		if (spec.kind === "exec") {
 			const command = spec.command ?? {};
@@ -66,6 +69,16 @@ export function summarize(specJson: string): string {
 		// A read names the lines it asks for, so an approver sees the range and not just the path.
 		if (spec.kind === "file.read" && typeof spec.startLine === "number" && typeof spec.lineCount === "number") {
 			return `${String(spec.path)} (lines ${spec.startLine}-${spec.startLine + spec.lineCount - 1})`;
+		}
+		// A transfer shows what an approver needs to bind: direction, path, size and digest, never
+		// the content (doc/design/library.md "File plane").
+		if (spec.kind === "file.push" && typeof spec.path === "string") {
+			const size = typeof spec.size === "number" ? spec.size : "?";
+			const sha = typeof spec.sha256 === "string" ? spec.sha256 : "?";
+			return `push ${String(spec.path)} (${size} bytes, sha256 ${sha})`;
+		}
+		if (spec.kind === "file.pull" && typeof spec.path === "string") {
+			return `pull ${String(spec.path)} (at most ${typeof spec.maxBytes === "number" ? spec.maxBytes : "?"} bytes)`;
 		}
 		if (typeof spec.path === "string") return spec.path;
 	} catch {}

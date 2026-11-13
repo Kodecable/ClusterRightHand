@@ -1,0 +1,115 @@
+{
+	"prologue": "crh-data/0",
+	"positive": [
+		{
+			"id": "data.init",
+			"description": "DataConnectionInit [protocol_major=0, task_id=\"t-1\", transfer_id=\"tr-1\"]",
+			"codec": "data-init",
+			"hex": "830063742d316474722d31"
+		},
+		{
+			"id": "data.response",
+			"description": "DataConnectionResponse [protocol_major=0]",
+			"codec": "data-response",
+			"hex": "8100"
+		},
+		{
+			"id": "data.frame.data",
+			"description": "data frame [\"data\", bytes 0x0102]",
+			"codec": "data-frame",
+			"hex": "826464617461420102"
+		},
+		{
+			"id": "data.frame.end",
+			"description": "data frame [\"end\", []]",
+			"codec": "data-frame",
+			"hex": "8263656e6480"
+		},
+		{
+			"id": "data.frame.abort",
+			"description": "data frame [\"abort\", \"too_large\"]",
+			"codec": "data-frame",
+			"hex": "826561626f727469746f6f5f6c61726765"
+		},
+		{
+			"id": "task.spec.push",
+			"description": "file.push spec",
+			"codec": "task-spec",
+			"hex": "826966696c652e7075736888742f7372762f6170702f72656c656173652e7461721a0010000058203333333333333333333333333333333333333333333333333333333333333333f51901a4666465706c6f79666465706c6f798264637268736474722d31"
+		},
+		{
+			"id": "task.spec.pull",
+			"description": "file.pull spec",
+			"codec": "task-spec",
+			"hex": "826966696c652e70756c6c83752f6574632f6e67696e782f6e67696e782e636f6e661a004000008264637268736474722d32"
+		},
+		{
+			"id": "task.result.pull",
+			"description": "file.pull result {size, sha256}",
+			"codec": "task-result",
+			"hex": "826966696c652e70756c6c8219040058203333333333333333333333333333333333333333333333333333333333333333"
+		},
+		{
+			"id": "frame.task.start.push",
+			"description": "task.start request with a file.push spec",
+			"codec": "frame",
+			"hex": "8400076a7461736b2e73746172748866742d7075736801826966696c652e7075736888742f7372762f6170702f72656c656173652e7461721a0010000058203333333333333333333333333333333333333333333333333333333333333333f51901a4666465706c6f79666465706c6f798264637268736474722d31f4800000826673746174757380"
+		},
+		{
+			"id": "frame.task.start.pull",
+			"description": "task.start request with a file.pull spec",
+			"codec": "frame",
+			"hex": "8400076a7461736b2e73746172748866742d70756c6c01826966696c652e70756c6c83752f6574632f6e67696e782f6e67696e782e636f6e661a004000008264637268736474722d32f4800000826673746174757380"
+		},
+		{
+			"id": "frame.task.exit.pull",
+			"description": "task.exit event carrying a file.pull result",
+			"codec": "frame",
+			"hex": "8302697461736b2e657869748866742d70756c6c8264636f646500f4f4006000826966696c652e70756c6c8219040058203333333333333333333333333333333333333333333333333333333333333333"
+		}
+	],
+	"negative": [
+		{
+			"id": "data.frame.unknown",
+			"description": "data frame with an unknown tag [\"chunk\", []]",
+			"codec": "data-frame",
+			"hex": "82656368756e6b80"
+		},
+		{
+			"id": "data.frame.end-body",
+			"description": "data frame [\"end\", [\"x\"]] has a body",
+			"codec": "data-frame",
+			"hex": "8263656e64816178"
+		},
+		{
+			"id": "data.frame.data-text",
+			"description": "data frame [\"data\", \"abc\"] is not bytes",
+			"codec": "data-frame",
+			"hex": "82646461746163616263"
+		},
+		{
+			"id": "data.init.missing",
+			"description": "DataConnectionInit without the transfer id",
+			"codec": "data-init",
+			"hex": "820063742d31"
+		},
+		{
+			"id": "task.spec.push.short",
+			"description": "file.push spec without the endpoint",
+			"codec": "task-spec",
+			"hex": "826966696c652e7075736887622f780158203333333333333333333333333333333333333333333333333333333333333333f4006060"
+		},
+		{
+			"id": "task.spec.endpoint.unknown",
+			"description": "file.pull spec with an unknown endpoint tag",
+			"codec": "task-spec",
+			"hex": "826966696c652e70756c6c83622f7801826375726c6f68747470733a2f2f6578616d706c65"
+		},
+		{
+			"id": "task.result.pull.short",
+			"description": "file.pull result with a short sha256",
+			"codec": "task-result",
+			"hex": "826966696c652e70756c6c8201581f00000000000000000000000000000000000000000000000000000000000000"
+		}
+	]
+}

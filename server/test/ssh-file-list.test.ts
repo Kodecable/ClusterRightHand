@@ -53,13 +53,13 @@ async function list(
 	const { wrapper } = fakeDirectory(files);
 	const spec = { kind: "file.list", path: "/srv/dir", limit: value.limit ?? 0 } as TaskSpec;
 	const out: Uint8Array[] = [];
-	const result = await runSftpFileTask(
+	const result = (await runSftpFileTask(
 		wrapper,
 		spec,
 		undefined,
 		(d) => out.push(Buffer.from(d)),
 		new AbortController().signal,
-	);
+	)) as TaskResult;
 	return { result, stdout: Buffer.concat(out) };
 }
 
