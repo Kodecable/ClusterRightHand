@@ -13,6 +13,7 @@ export {
 	isPreviewable,
 	isValidFilePath,
 	joinPath,
+	normalizeFilePath,
 	PREVIEW_MAX_BYTES,
 	PREVIEW_MEDIA_TYPES,
 	pathSegments,

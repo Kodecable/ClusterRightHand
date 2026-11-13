@@ -80,14 +80,20 @@ export function pathSegments(prefix: string): string[] {
 	return prefix === "" ? [] : prefix.split("/");
 }
 
+/** The canonical form of a library-style key: without leading "/" characters. */
+export function normalizeFilePath(path: string): string {
+	return path.replace(/^\/+/, "");
+}
+
 /**
- * Whether `path` is a library-style key: valid UTF-8, at most 1024 bytes, no leading or trailing
- * slash, no empty, "." or ".." segment and no control characters
- * (doc/design/library.md "Paths"). The server validates again.
+ * Whether `path` is a library-style key: valid UTF-8, at most 1024 bytes, no trailing slash, no
+ * empty, "." or ".." segment and no control characters. A leading "/" is accepted and normalized
+ * away; the canonical form has none (doc/design/library.md "Paths"). The server validates again.
  */
 export function isValidFilePath(path: string): boolean {
-	if (path === "" || path.startsWith("/") || path.endsWith("/")) return false;
-	if (/[\p{Cc}]/u.test(path)) return false;
-	if (path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) return false;
-	return new TextEncoder().encode(path).length <= 1024;
+	const canonical = normalizeFilePath(path);
+	if (canonical === "" || canonical.endsWith("/")) return false;
+	if (/[\p{Cc}]/u.test(canonical)) return false;
+	if (canonical.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) return false;
+	return new TextEncoder().encode(canonical).length <= 1024;
 }

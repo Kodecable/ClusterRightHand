@@ -10,7 +10,12 @@ import { createLibraryBackend, getBytes, putBytes } from "../src/library/backend
 import { beginLibraryUpload } from "../src/library/files.ts";
 import { findLibraryByRef } from "../src/library/library.ts";
 import { MediaProbe } from "../src/library/media-type.ts";
-import { numberedLibraryPath, validateLibraryPath } from "../src/library/paths.ts";
+import {
+	normalizeLibraryPath,
+	numberedLibraryPath,
+	validateLibraryPath,
+	validateLibraryPrefix,
+} from "../src/library/paths.ts";
 import { sweepLibraryOrphans } from "../src/library/sweep.ts";
 import { defaultSystemSettings, SettingsStore } from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -22,10 +27,15 @@ import { openTestDb } from "./helpers/db.ts";
 const sha256Hex = (data: Uint8Array): string => createHash("sha256").update(data).digest("hex");
 
 describe("library paths", () => {
-	it("accepts flat keys and refuses everything else", () => {
+	it("accepts flat keys, normalizes a leading / and refuses everything else", () => {
 		expect(validateLibraryPath("docs/a.txt")).toBe("docs/a.txt");
 		expect(validateLibraryPath("a b/ünïcode.png")).toBe("a b/ünïcode.png");
-		for (const bad of ["", "/a", "a/", "a//b", "a/./b", "a/../b", "a\u0000b", `x/${"a".repeat(1100)}`]) {
+		expect(validateLibraryPath("/docs/a.txt")).toBe("docs/a.txt");
+		expect(validateLibraryPath("//a")).toBe("a");
+		expect(normalizeLibraryPath("//a/b")).toBe("a/b");
+		expect(validateLibraryPrefix("/")).toBe("");
+		expect(validateLibraryPrefix("//docs")).toBe("docs");
+		for (const bad of ["", "/", "a/", "/a/", "a//b", "a/./b", "a/../b", "../a", "a\u0000b", `x/${"a".repeat(1100)}`]) {
 			expect(() => validateLibraryPath(bad), bad).toThrow();
 		}
 	});
@@ -207,6 +217,23 @@ describe("library API", () => {
 		});
 		expect(deleted.status).toBe(200);
 		expect((await list(alice, "user:alice")).files).toEqual([]);
+	});
+
+	it("normalizes a leading / in an uploaded path", async () => {
+		const data = Buffer.from("normalized\n");
+		const uploaded = await upload(alice, "user:alice", "/x/y.txt", data);
+		expect(uploaded.status).toBe(201);
+		expect(((await uploaded.json()) as { file: LibraryFile }).file.path).toBe("x/y.txt");
+		const record = await findLibraryByRef(db, "user:alice");
+		if (!record) throw new Error("no alice library");
+		const row = await db
+			.selectFrom("library_files")
+			.select("path")
+			.where("library_id", "=", record.row.id)
+			.executeTakeFirstOrThrow();
+		expect(row.path).toBe("x/y.txt");
+		const root = await list(alice, "user:alice", "/");
+		expect(root).toMatchObject({ prefix: "", files: [], directories: ["x"] });
 	});
 
 	it("overwrites a file atomically and removes the replaced object", async () => {

@@ -373,6 +373,25 @@ describe("library tools", () => {
 		expect(stat.sha256).toBe(sha256Hex(Buffer.from("hello alice")));
 	});
 
+	it("normalizes a leading / in library paths", async () => {
+		const rootListing = jsonOf(await tool("list_dir").handler({ library: "user:alice", path: "/" } as never, context));
+		expect(rootListing).toMatchObject({ library: "user:alice", path: "" });
+		expect(rootListing.files).toEqual([]);
+		expect(rootListing.directories).toEqual(["docs"]);
+
+		const copy = await tool("copy_file").handler(
+			{
+				source: { library: "user:alice", path: "/docs/a.txt" },
+				destination: { library: "group:team", path: "/docs/a.txt" },
+			} as never,
+			context,
+		);
+		expect(copy.isError).toBe(false);
+		expect(jsonOf(copy)).toMatchObject({ library: "group:team", path: "docs/a.txt", size: 11 });
+		const row = await findLibraryFile(db, (await findLibraryByRef(db, "group:team"))?.row.id as string, "docs/a.txt");
+		expect(row?.sha256).toBe(sha256Hex(Buffer.from("hello alice")));
+	});
+
 	it("does not apply the administrator bypass or reach another user's library", async () => {
 		await expect(
 			tool("stat").handler({ library: "user:bob", path: "x" } as never, { ...context, user: alice }),

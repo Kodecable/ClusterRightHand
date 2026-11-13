@@ -23,7 +23,7 @@ import {
 	requireLibrary,
 } from "../library/library.ts";
 import { INLINE_MEDIA_TYPES, INLINE_PREVIEW_MAX_BYTES } from "../library/media-type.ts";
-import { libraryPathName, validateLibraryPath } from "../library/paths.ts";
+import { libraryPathName, validateLibraryPath, validateLibraryPrefix } from "../library/paths.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
@@ -58,7 +58,7 @@ export function libraryRoutes(db: Db, options: LibraryRoutesOptions = {}) {
 
 	app.get("/libraries/:ref/files", async (c) => {
 		const record = await requireLibrary(db, c.get("user"), c.req.param("ref"));
-		const listing = await listLibraryFiles(db, record.row.id, c.req.query("prefix") ?? "");
+		const listing = await listLibraryFiles(db, record.row.id, validateLibraryPrefix(c.req.query("prefix") ?? ""));
 		return c.json(listing);
 	});
 
@@ -147,14 +147,16 @@ export function libraryRoutes(db: Db, options: LibraryRoutesOptions = {}) {
 		if (body.overwrite !== undefined && typeof body.overwrite !== "boolean") {
 			return jsonError(c, 400, "overwrite must be a boolean");
 		}
-		const file = await moveLibraryFile(db, backend(), record.row.id, from, to, body.overwrite === true);
+		const fromPath = validateLibraryPath(from);
+		const toPath = validateLibraryPath(to);
+		const file = await moveLibraryFile(db, backend(), record.row.id, fromPath, toPath, body.overwrite === true);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "library.file.moved",
 			target: { type: "library", id: libraryRef(record.row, record.ownerName) },
 			detail: {
 				library: libraryRef(record.row, record.ownerName),
-				from,
+				from: fromPath,
 				to: file.path,
 				size: file.size,
 				sha256: file.sha256,

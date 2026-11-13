@@ -11,6 +11,7 @@ import { copyLibraryFile } from "../library/files.ts";
 import { type ImageCache, REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
 import { findUserLibrary, libraryRef } from "../library/library.ts";
+import { validateLibraryPath, validateLibraryPrefix } from "../library/paths.ts";
 import { openTransferLocation, type TransferLocationJson } from "../library/transfer-location.ts";
 import type { RuleRef } from "../policy/store.ts";
 import { sessionDescendants } from "../sessions/session-chain.ts";
@@ -497,7 +498,9 @@ const listDir = define({
 			.string()
 			.optional()
 			.describe("A library to list instead of nodes: user:<username> or group:<group name>"),
-		path: z.string().describe("A node's absolute path, or a library path without a leading /"),
+		path: z
+			.string()
+			.describe("A node's absolute path, or a library path relative to the library root (a leading / is optional)"),
 		limit: z.number().int().min(1).max(10_000).optional(),
 		privileged: privilegedField,
 		...fileBatchFields,
@@ -507,7 +510,8 @@ const listDir = define({
 	handler: async (args, ctx) => {
 		if (args.library !== undefined) {
 			if (args.targets !== undefined) throw new UserError("give targets or library, not both", "invalid_argument");
-			return jsonResult(await listToolLibrary(ctx, args.library, args.path));
+			const prefix = validateLibraryPrefix(args.path);
+			return jsonResult(await listToolLibrary(ctx, args.library, prefix));
 		}
 		if (args.targets === undefined) throw new UserError("give targets or library", "invalid_argument");
 		return runTaskTool(
@@ -535,7 +539,9 @@ const stat = define({
 			.string()
 			.optional()
 			.describe("A library to stat instead of nodes: user:<username> or group:<group name>"),
-		path: z.string().describe("A node's absolute path, or a library path without a leading /"),
+		path: z
+			.string()
+			.describe("A node's absolute path, or a library path relative to the library root (a leading / is optional)"),
 		privileged: privilegedField,
 		...fileBatchFields,
 	}),
@@ -544,7 +550,8 @@ const stat = define({
 	handler: async (args, ctx) => {
 		if (args.library !== undefined) {
 			if (args.targets !== undefined) throw new UserError("give targets or library, not both", "invalid_argument");
-			const row = await statToolLibrary(ctx, args.library, args.path);
+			const path = validateLibraryPath(args.path);
+			const row = await statToolLibrary(ctx, args.library, path);
 			return jsonResult({
 				library: args.library,
 				path: row.path,
@@ -595,7 +602,7 @@ const sourceLocation = z
 		z
 			.object({
 				library: z.string().describe("A library: user:<username> or group:<group name>"),
-				path: z.string().describe("Path in the library, without a leading /"),
+				path: z.string().describe("Path in the library relative to its root (a leading / is optional)"),
 			})
 			.strict(),
 	])
@@ -627,7 +634,7 @@ const nodeDestination = z
 const libraryDestination = z
 	.object({
 		library: z.string().describe("Destination library: user:<username> or group:<group name>"),
-		path: z.string().describe("Destination path in the library, without a leading /"),
+		path: z.string().describe("Destination path in the library relative to its root (a leading / is optional)"),
 	})
 	.strict();
 
@@ -674,12 +681,13 @@ const copyFile = define({
 
 		// The node destination is the only one with node-only options and several targets.
 		const toNodes = "targets" in destination;
-		const destinationPath = destination.path;
+		const destinationPath = "library" in destination ? validateLibraryPath(destination.path) : destination.path;
 		const mode = toNodes ? modeBits(destination.mode) : 0;
 		const createParentDirs = toNodes && destination.create_parent_dirs === true;
 		const privileged = toNodes && destination.privileged === true;
 
 		if ("library" in source) {
+			const sourcePath = validateLibraryPath(source.path);
 			const record = await toolLibrary(ctx, source.library);
 			if (!toNodes) {
 				const destinationLibrary = await toolLibrary(ctx, destination.library);
@@ -689,7 +697,7 @@ const copyFile = define({
 					ctx.db,
 					backend,
 					record.row.id,
-					source.path,
+					sourcePath,
 					{ libraryId: destinationLibrary.row.id, library: destinationLibrary.row },
 					destinationPath,
 					overwrite,
@@ -701,7 +709,7 @@ const copyFile = define({
 					target: { type: "library", id: libraryRef(destinationLibrary.row, destinationLibrary.ownerName) },
 					detail: {
 						from_library: libraryRef(record.row, record.ownerName),
-						from_path: source.path,
+						from_path: sourcePath,
 						library: libraryRef(destinationLibrary.row, destinationLibrary.ownerName),
 						path: file.path,
 						size: file.size,
@@ -726,7 +734,7 @@ const copyFile = define({
 				const task = await ctx.cluster.pushLibraryFile({
 					nodeId,
 					libraryId: record.row.id,
-					libraryPath: source.path,
+					libraryPath: sourcePath,
 					path: destinationPath,
 					overwrite,
 					mode,
@@ -741,7 +749,7 @@ const copyFile = define({
 				const done = (await waitBlockingTask(ctx, task.id)) ?? task;
 				return fileJsonResult(ctx, done, names.get(nodeId) ?? nodeId);
 			}
-			const location = await ctx.cluster.stageLibrarySource(record.row.id, source.path);
+			const location = await ctx.cluster.stageLibrarySource(record.row.id, sourcePath);
 			const id = ctx.callKey ? derivedId(`copy-group:${ctx.callKey}`) : undefined;
 			const groupId = await ctx.taskGroups.create({
 				spec: pushSpec(
@@ -880,8 +888,9 @@ async function offerToUser(
 	ctx: ToolContext,
 ): Promise<ToolResult> {
 	if ("library" in source) {
+		const path = validateLibraryPath(source.path);
 		const record = await toolLibrary(ctx, source.library);
-		const row = await statToolLibrary(ctx, source.library, source.path);
+		const row = await statToolLibrary(ctx, source.library, path);
 		return deliveryResult(
 			{ library: libraryRef(record.row, record.ownerName), libraryId: record.row.id, path: row.path },
 			row.path.slice(row.path.lastIndexOf("/") + 1),
@@ -967,7 +976,9 @@ const viewImage = define({
 	input: z.object({
 		node: z.string().optional().describe("A node name or id"),
 		library: z.string().optional().describe("A library: user:<username> or group:<group name>"),
-		path: z.string().describe("Absolute on a node; without a leading / in a library"),
+		path: z
+			.string()
+			.describe("Absolute on a node; relative to the library root in a library (a leading / is optional)"),
 	}),
 	readOnly: true,
 	output: "text",
@@ -990,8 +1001,9 @@ const viewImage = define({
 		let source: { library: string; path: string } | { node: string; path: string };
 		let label: string;
 		if (args.library !== undefined) {
+			const path = validateLibraryPath(args.path);
 			const record = await toolLibrary(ctx, args.library);
-			const row = await statToolLibrary(ctx, args.library, args.path);
+			const row = await statToolLibrary(ctx, args.library, path);
 			const backend = ctx.cluster.libraryBackend;
 			if (!backend) throw new UserError("this crhs has no library backend");
 			// Check the stored size before reading the object: a large one must not be loaded only

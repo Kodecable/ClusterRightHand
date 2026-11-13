@@ -203,7 +203,7 @@ describe("FileManager", () => {
 		const move = await screen.findByRole("dialog", { name: "Move or rename notes.txt" });
 		const input = within(move).getByLabelText("New path");
 		await userEvent.clear(input);
-		await userEvent.type(input, "docs/renamed.txt");
+		await userEvent.type(input, "/docs/renamed.txt");
 		await userEvent.click(within(move).getByRole("button", { name: "Move" }));
 		await waitFor(() => expect(source.rename).toHaveBeenCalledWith("notes.txt", "docs/renamed.txt"));
 

@@ -258,7 +258,7 @@ export function locationFromJson(value: unknown): TransferLocationJson {
 			throw new UserError("library transfer location has no library id");
 		}
 		if (typeof object.path !== "string") throw new UserError("library transfer location has no path");
-		validateLibraryPath(object.path);
+		const path = validateLibraryPath(object.path);
 		if (typeof object.overwrite !== "boolean") throw new UserError("library transfer location has no overwrite flag");
 		if (object.createdBy !== null && typeof object.createdBy !== "string") {
 			throw new UserError("library transfer location has an invalid createdBy");
@@ -269,7 +269,7 @@ export function locationFromJson(value: unknown): TransferLocationJson {
 		return {
 			kind: "library",
 			libraryId: object.libraryId,
-			path: object.path,
+			path,
 			overwrite: object.overwrite,
 			createdBy: object.createdBy as string | null,
 			size: object.size,
@@ -311,7 +311,7 @@ export function newLibraryLocation(
 	return {
 		kind: "library",
 		libraryId,
-		path,
+		path: validateLibraryPath(path),
 		overwrite: options.overwrite,
 		createdBy: options.createdBy,
 		size: options.size ?? null,

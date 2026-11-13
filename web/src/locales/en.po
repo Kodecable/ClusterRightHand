@@ -1776,8 +1776,8 @@ msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
 
 #: src/components/file-manager/file-list.tsx
-msgid "Enter a valid path without a leading or trailing /."
-msgstr "Enter a valid path without a leading or trailing /."
+msgid "Enter a valid path without a trailing /."
+msgstr "Enter a valid path without a trailing /."
 
 #: src/features/library/limits-dialog.tsx
 #: src/features/system-settings/library-section.tsx

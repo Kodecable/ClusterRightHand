@@ -45,9 +45,11 @@ and there are no directory objects. A directory exists while some file is under 
 the path is a directory (some file lies under `path/`) or when any ancestor of the path is a file;
 server-side auto-numbering treats both as taken.
 
-- Valid UTF-8, at most 1024 bytes, no leading or trailing `/`, no empty, `.` or `..` segments, no control
-  characters.
-- Listing takes a prefix and returns the files and the next-level directory names under it, like `list_dir`.
+- A leading `/` is accepted and normalized away. There is one canonical form, without a leading `/`, and
+  that is what is stored, compared and made unique.
+- Valid UTF-8, at most 1024 bytes, no trailing `/`, no empty, `.` or `..` segments, no control characters.
+- Listing takes a prefix and returns the files and the next-level directory names under it, like `list_dir`;
+  an empty prefix or `/` names the root.
 - Moving and renaming change only metadata.
 
 ### Metadata and objects

@@ -1,38 +1,45 @@
 /**
  * Library paths (doc/design/library.md "Paths"): flat keys with "/" separating segments, no directory
- * objects. A listing prefix may be empty (the root).
+ * objects. A leading "/" is accepted and normalized away; the canonical form has none. A listing prefix
+ * may be empty (the root), which "/" also names.
  */
 import { UserError } from "../util/errors.ts";
 
 /** The longest path, in UTF-8 bytes. */
 export const MAX_LIBRARY_PATH_BYTES = 1024;
 
-/** Validates a file path and returns it unchanged. */
+/** The canonical form of a library path: without leading "/" characters. */
+export function normalizeLibraryPath(path: string): string {
+	return path.replace(/^\/+/, "");
+}
+
+/** Validates a file path and returns its canonical form, without a leading "/". */
 export function validateLibraryPath(path: unknown): string {
 	if (typeof path !== "string" || path === "") throw new UserError("a library path must not be empty");
-	if (path.startsWith("/") || path.endsWith("/")) {
-		throw new UserError("a library path must not start or end with /");
-	}
-	if (/[\p{Cc}]/u.test(path)) throw new UserError("a library path must not contain control characters");
-	for (const segment of path.split("/")) {
+	const canonical = normalizeLibraryPath(path);
+	if (canonical === "") throw new UserError("a library path must not be empty");
+	if (canonical.endsWith("/")) throw new UserError("a library path must not end with /");
+	if (/[\p{Cc}]/u.test(canonical)) throw new UserError("a library path must not contain control characters");
+	for (const segment of canonical.split("/")) {
 		if (segment === "" || segment === "." || segment === "..") {
 			throw new UserError("a library path must not contain empty, . or .. segments");
 		}
 	}
-	if (Buffer.byteLength(path, "utf8") > MAX_LIBRARY_PATH_BYTES) {
+	if (Buffer.byteLength(canonical, "utf8") > MAX_LIBRARY_PATH_BYTES) {
 		throw new UserError(`a library path must be at most ${MAX_LIBRARY_PATH_BYTES} bytes`);
 	}
-	if (Buffer.from(path, "utf8").toString("utf8") !== path) {
+	if (Buffer.from(canonical, "utf8").toString("utf8") !== canonical) {
 		throw new UserError("a library path must be valid UTF-8");
 	}
-	return path;
+	return canonical;
 }
 
-/** Validates a listing prefix; the empty string means the library's root. */
+/** Validates a listing prefix; the empty string and "/" both mean the library's root. */
 export function validateLibraryPrefix(prefix: unknown): string {
-	if (prefix === undefined || prefix === null || prefix === "") return "";
+	if (prefix === undefined || prefix === null) return "";
 	if (typeof prefix !== "string") throw new UserError("a library prefix must be a string");
-	return validateLibraryPath(prefix);
+	const canonical = normalizeLibraryPath(prefix);
+	return canonical === "" ? "" : validateLibraryPath(canonical);
 }
 
 /** The last segment of a path, for a download's file name. */

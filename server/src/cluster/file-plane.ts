@@ -112,7 +112,7 @@ export async function stageLibrarySource(
 ): Promise<TransferLocationJson> {
 	const row = await findLibraryFile(core.db, libraryId, libraryPath);
 	if (!row) throw new UserError(`no such library file ${libraryPath}`);
-	return newLibraryLocation(libraryId, libraryPath, {
+	return newLibraryLocation(libraryId, row.path, {
 		overwrite: false,
 		createdBy: null,
 		size: row.size,

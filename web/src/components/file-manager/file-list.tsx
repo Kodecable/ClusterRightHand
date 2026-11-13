@@ -17,7 +17,15 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { errorMessage } from "@/lib/api/client";
 import { formatBytes } from "@/lib/format";
 import { FilePreviewDialog } from "./preview-dialog";
-import { type FileEntry, type FileSelection, type FileSource, isPreviewable, isValidFilePath, joinPath } from "./types";
+import {
+	type FileEntry,
+	type FileSelection,
+	type FileSource,
+	isPreviewable,
+	isValidFilePath,
+	joinPath,
+	normalizeFilePath,
+} from "./types";
 
 export interface FileListProps {
 	source: FileSource;
@@ -300,9 +308,7 @@ function MoveFileDialog({
 	const schema = useMemo(
 		() =>
 			z.object({
-				path: z
-					.string()
-					.refine((value) => isValidFilePath(value), t`Enter a valid path without a leading or trailing /.`),
+				path: z.string().refine((value) => isValidFilePath(value), t`Enter a valid path without a trailing /.`),
 			}),
 		[t],
 	);
@@ -314,7 +320,7 @@ function MoveFileDialog({
 		setError(undefined);
 		setBusy(true);
 		try {
-			await source.rename(entry.path, values.path.trim());
+			await source.rename(entry.path, normalizeFilePath(values.path.trim()));
 			onRenamed();
 		} catch (err) {
 			setError(errorMessage(err));
