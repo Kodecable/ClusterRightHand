@@ -15,7 +15,7 @@ import {
 
 export type { UserGroup };
 
-const USER_GROUP_NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const USER_GROUP_NAME_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 
 /** One searchable list page (see `queryUsers`). */
 export interface UserGroupListPage {
@@ -79,7 +79,7 @@ export async function listUserGroups(db: Db): Promise<UserGroup[]> {
 function normalizeUserGroupName(name: string): string {
 	const normalized = name.trim().toLowerCase();
 	if (!USER_GROUP_NAME_RE.test(normalized)) {
-		throw new UserError("user group name must be 1-64 characters of a-z, 0-9, '.', '_' or '-'");
+		throw new UserError("user group name must be 1-64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter");
 	}
 	return normalized;
 }
@@ -198,7 +198,25 @@ export async function deleteUserGroup(
 				`user group ${group.name} still has ${library.used_files} file(s) in its library; delete them before deleting the group`,
 			);
 		}
-		if (library) await trx.deleteFrom("libraries").where("id", "=", library.id).execute();
+		if (library) {
+			// Conditional, not a check-then-delete: an upload committing between the read above and
+			// this delete would otherwise have its library row cascaded away (doc/design/library.md "Libraries").
+			const removed = await trx
+				.deleteFrom("libraries")
+				.where("id", "=", library.id)
+				.where("used_files", "=", 0)
+				.executeTakeFirst();
+			if (removed.numDeletedRows === 0n) {
+				const current = await trx
+					.selectFrom("libraries")
+					.select("used_files")
+					.where("id", "=", library.id)
+					.executeTakeFirst();
+				throw new UserError(
+					`user group ${group.name} still has ${current?.used_files ?? library.used_files} file(s) in its library; delete them before deleting the group`,
+				);
+			}
+		}
 		await trx
 			.deleteFrom("shares")
 			.where("grantee_type", "=", "user_group")

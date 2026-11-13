@@ -12,7 +12,6 @@ import { type Selectable, sql } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { LibrariesTable, LibraryFilesTable } from "../storage/schema.ts";
 import { isUniqueViolation, NotFoundError, UserError } from "../util/errors.ts";
-import { escapeLike } from "../util/list-query.ts";
 import type { LibraryBackend } from "./backend.ts";
 import { newObjectKey } from "./backend.ts";
 import type { LibraryRecord } from "./library.ts";
@@ -54,8 +53,9 @@ export async function listLibraryFiles(
 	const validPrefix = validateLibraryPrefix(prefix);
 	let select = db.selectFrom("library_files").selectAll().where("library_id", "=", libraryId);
 	if (validPrefix !== "") {
-		const pattern = `${escapeLike(validPrefix)}/%`;
-		select = select.where(sql<boolean>`path like ${pattern} escape '\\'`);
+		// substr, not LIKE: SQLite's LIKE is case-insensitive, so "docs" would match "Docs/".
+		const head = `${validPrefix}/`;
+		select = select.where(sql<boolean>`substr(path, 1, length(${head})) = ${head}`);
 	}
 	const rows = await select.orderBy("path").execute();
 	const files: LibraryFile[] = [];
@@ -113,9 +113,24 @@ export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: Lib
 	const key = newObjectKey();
 	const stream = new PassThrough();
 	const probe = new MediaProbe();
+	// The backend may reject while a write is waiting for drain; the deferred wakes that write so
+	// the request fails instead of hanging on a stream the backend stopped reading.
+	let failure: Error | undefined;
+	let rejectFailure!: (err: Error) => void;
+	const failed = new Promise<never>((_, reject) => {
+		rejectFailure = reject;
+	});
+	void failed.catch(() => {});
+	const fail = (err: unknown): void => {
+		if (failure) return;
+		failure = err instanceof Error ? err : new Error(String(err));
+		rejectFailure(failure);
+		stream.destroy(failure);
+	};
+	// The stream is destroyed with the backend's error, so it needs a listener even between writes.
+	stream.on("error", () => {});
 	const put = backend.put(key, stream);
-	// The backend may fail while nobody awaits put() yet; finish() still sees the rejection.
-	void put.catch(() => {});
+	void put.catch(fail);
 	let size = 0;
 	let finished: Promise<{ size: number; sha256: string }> | undefined;
 	let committed = false;
@@ -123,15 +138,18 @@ export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: Lib
 
 	return {
 		async write(chunk) {
+			if (failure) throw failure;
 			if (size + chunk.length > library.max_file_bytes) {
 				throw new UserError("the file is larger than the library's one-file size limit");
 			}
 			size += chunk.length;
 			probe.push(chunk);
-			if (!stream.write(chunk)) await once(stream, "drain");
+			if (!stream.write(chunk)) await Promise.race([once(stream, "drain"), failed]);
+			if (failure) throw failure;
 		},
 		finish() {
 			finished ??= (async () => {
+				if (failure) throw failure;
 				stream.end();
 				return put;
 			})();
@@ -147,6 +165,13 @@ export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: Lib
 				const target = attempt === 0 ? path : numberedLibraryPath(path, attempt);
 				try {
 					const result = await db.transaction().execute(async (trx) => {
+						// Take the library row lock before reading `existing`, so the byte delta and the
+						// object key being replaced are read under it (doc/design/library.md "Limits").
+						await trx
+							.updateTable("libraries")
+							.set({ used_files: sql<number>`used_files` })
+							.where("id", "=", library.id)
+							.execute();
 						const existing = await trx
 							.selectFrom("library_files")
 							.select(["size", "backend", "object_key"])
@@ -171,6 +196,14 @@ export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: Lib
 							.where(sql<boolean>`used_bytes + ${byteDelta} <= max_total_bytes`)
 							.executeTakeFirst();
 						if (updated.numUpdatedRows === 0n) throw await limitError(trx, library.id, fileDelta, byteDelta);
+						// The usage update took the library row lock, so the conflict checks and the row write
+						// serialize against every other commit to this library (doc/design/library.md "Paths").
+						const conflict = await pathConflict(trx, library.id, target);
+						if (conflict !== undefined) {
+							// A rename treats a conflict as a taken candidate and moves to the next number.
+							if (rename) throw new PathTaken();
+							throw new UserError(conflict);
+						}
 						const now = new Date().toISOString();
 						if (existing) {
 							await trx
@@ -247,13 +280,45 @@ async function limitError(trx: Db, libraryId: string, fileDelta: number, byteDel
 		.selectFrom("libraries")
 		.select(["max_files", "max_total_bytes", "used_files", "used_bytes"])
 		.where("id", "=", libraryId)
-		.executeTakeFirstOrThrow();
+		.executeTakeFirst();
+	if (!row) throw new NotFoundError("no such library");
 	const filesAfter = row.used_files + fileDelta;
 	const bytesAfter = row.used_bytes + byteDelta;
 	if (filesAfter > row.max_files) return new UserError("the library's file count limit would be exceeded");
 	return new UserError(
 		`the library's total size limit would be exceeded (${bytesAfter} bytes after the write, limit ${row.max_total_bytes})`,
 	);
+}
+
+/**
+ * Why `path` cannot be written in this library, or undefined when it can: a path that is a directory, or
+ * whose ancestor is a file, conflicts (doc/design/library.md "Paths"). The caller runs this inside its
+ * transaction after taking the library row lock, so a concurrent sibling write cannot slip in. `except`
+ * is the file being moved, which must not conflict with a target that only meets its own path.
+ */
+async function pathConflict(trx: Db, libraryId: string, path: string, except?: string): Promise<string | undefined> {
+	// substr, not LIKE: SQLite's LIKE is case-insensitive, so "a" would match the children of "A".
+	const head = `${path}/`;
+	const directoryQuery = trx
+		.selectFrom("library_files")
+		.select("path")
+		.where("library_id", "=", libraryId)
+		.where(sql<boolean>`substr(path, 1, length(${head})) = ${head}`);
+	const directory = await (except === undefined
+		? directoryQuery
+		: directoryQuery.where("path", "!=", except)
+	).executeTakeFirst();
+	if (directory) return `a directory already exists at ${path}`;
+	const parts = path.split("/");
+	const ancestors = parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/"));
+	if (ancestors.length === 0) return undefined;
+	const fileQuery = trx
+		.selectFrom("library_files")
+		.select("path")
+		.where("library_id", "=", libraryId)
+		.where("path", "in", ancestors);
+	const file = await (except === undefined ? fileQuery : fileQuery.where("path", "!=", except)).executeTakeFirst();
+	return file === undefined ? undefined : `a file already exists at ${file.path}`;
 }
 
 /** Deletes a file's row and usage, then its object; deletes are always allowed (doc/design/library.md "Limits"). */
@@ -264,6 +329,12 @@ export async function deleteLibraryFile(
 	path: string,
 ): Promise<LibraryFile> {
 	const row = await db.transaction().execute(async (trx) => {
+		// Take the library row lock before reading the row, so two deletes cannot both decrement.
+		await trx
+			.updateTable("libraries")
+			.set({ used_files: sql<number>`used_files` })
+			.where("id", "=", libraryId)
+			.execute();
 		const existing = await trx
 			.selectFrom("library_files")
 			.selectAll()
@@ -290,9 +361,13 @@ export async function deleteLibraryFile(
 	return toLibraryFile(row);
 }
 
-/** Moves or renames a file; only metadata changes. An existing target is refused unless `overwrite`. */
+/**
+ * Moves or renames a file: its own object does not move. An existing target is refused unless `overwrite`;
+ * an overwritten target's object is deleted after the commit, like an overwriting upload.
+ */
 export async function moveLibraryFile(
 	db: Db,
+	backend: LibraryBackend,
 	libraryId: string,
 	from: string,
 	to: string,
@@ -300,7 +375,14 @@ export async function moveLibraryFile(
 ): Promise<LibraryFile> {
 	const sourcePath = validateLibraryPath(from);
 	const targetPath = validateLibraryPath(to);
-	return db.transaction().execute(async (trx) => {
+	const result = await db.transaction().execute(async (trx) => {
+		// A move changes no usage, but it takes the library row lock so the conflict checks and the row write
+		// serialize against uploads and other moves to the same library (doc/design/library.md "Paths").
+		await trx
+			.updateTable("libraries")
+			.set({ used_files: sql<number>`used_files` })
+			.where("id", "=", libraryId)
+			.execute();
 		const source = await trx
 			.selectFrom("library_files")
 			.selectAll()
@@ -308,13 +390,16 @@ export async function moveLibraryFile(
 			.where("path", "=", sourcePath)
 			.executeTakeFirst();
 		if (!source) throw new NotFoundError("no such library file");
+		if (targetPath === sourcePath) return { file: toLibraryFile(source), oldObjectKey: undefined };
+		// Ignore the moved file itself: moving a/b to a, or a to a/b, conflicts only with other files.
+		const conflict = await pathConflict(trx, libraryId, targetPath, sourcePath);
+		if (conflict !== undefined) throw new UserError(conflict);
 		const target = await trx
 			.selectFrom("library_files")
 			.selectAll()
 			.where("library_id", "=", libraryId)
 			.where("path", "=", targetPath)
 			.executeTakeFirst();
-		if (targetPath === sourcePath) return toLibraryFile(source);
 		if (target && !overwrite) throw new UserError(`a file already exists at ${targetPath}`);
 		if (target) {
 			await trx
@@ -344,8 +429,19 @@ export async function moveLibraryFile(
 			.where("library_id", "=", libraryId)
 			.where("path", "=", targetPath)
 			.executeTakeFirstOrThrow();
-		return toLibraryFile(row);
+		return {
+			file: toLibraryFile(row),
+			oldObjectKey: target?.backend === backend.kind ? target.object_key : undefined,
+		};
 	});
+	// Like an overwriting upload, the replaced object goes after the commit: the metadata is the
+	// source of truth, and a failed delete is only logged.
+	if (result.oldObjectKey !== undefined) {
+		await backend.delete(result.oldObjectKey).catch((err: unknown) => {
+			console.error("library: deleting the replaced object failed:", err);
+		});
+	}
+	return result.file;
 }
 
 /** Applies an administrators' limits change; omitted fields keep their value. */

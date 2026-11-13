@@ -92,6 +92,14 @@ describe("CLI audit", () => {
 		expect(await rows()).toEqual([]);
 	});
 
+	it("applies the username rule before creating anything", async () => {
+		await expect(addUser(db, "1cli", { kind: "member", password: "cli-password" })).rejects.toThrow(
+			"starting with a letter",
+		);
+		expect(await findUserByUsername(db, "1cli")).toBeUndefined();
+		expect(await rows()).toEqual([]);
+	});
+
 	it("records user passwd as user.password_reset", async () => {
 		const user = await addUser(db, "carol", { password: "carol-password", kind: "member" });
 		await changePassword(db, "carol", "new-carol-password");

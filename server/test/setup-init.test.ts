@@ -278,6 +278,25 @@ describe("init", () => {
 		}
 	});
 
+	test("applies the username rule to the administrator from the answers", async () => {
+		const prefix = await tempDir();
+		const state: FakeState = { commands: [], chowns: [], userExists: true };
+		const answersPath = await writeAnswers(
+			prefix,
+			hostAnswers({ admin: { username: "1admin", display_name: "Admin", password: "admin-password" } }),
+		);
+		await expect(
+			runInit({
+				host: fakeHost(prefix, state),
+				env: {},
+				answersPath,
+				interactive: false,
+				stdout: sink().stream,
+				stderr: sink().stream,
+			}),
+		).rejects.toThrow("starting with a letter");
+	});
+
 	test("starts the unit through CRHS_LAUNCHER when set", async () => {
 		const prefix = await tempDir();
 		const state: FakeState = { commands: [], chowns: [], userExists: true };

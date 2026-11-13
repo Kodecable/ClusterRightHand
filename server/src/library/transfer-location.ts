@@ -231,9 +231,10 @@ const KINDS: Record<string, LocationKind> = {
 		openWrite(context, spec) {
 			return libraryWrite(context, spec as LibraryLocationJson);
 		},
-		async discard(context, spec) {
-			const target = await libraryUpload(context, spec as LibraryLocationJson).catch(() => undefined);
-			await target?.discard();
+		async discard() {
+			// Only an upload opened through openWrite has an object to remove, and its own discard owns
+			// it: this location was never opened, so there is nothing to delete. Never throw once here:
+			// the caller is often already failing.
 		},
 	},
 };

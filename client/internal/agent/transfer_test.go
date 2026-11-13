@@ -198,6 +198,64 @@ func TestPullTransferSendsFileAndResult(t *testing.T) {
 	if !ended {
 		t.Fatal("the pull did not send [end]")
 	}
+	// The data connection carried one transfer: it is closed once the transfer finished.
+	select {
+	case <-conn.closed:
+	case <-time.After(time.Second):
+		t.Fatal("the data connection was not closed after the transfer")
+	}
+}
+
+func TestAbortIncompleteInputsLeavesFilePushAlone(t *testing.T) {
+	a := newTestAgent(t, Options{})
+	content := []byte("0123456789")
+	push := transferTaskStart("push-keep", &protocol.TaskSpec{
+		Kind: protocol.TaskSpecFilePush,
+		FilePush: &protocol.FilePushSpec{
+			Path: "/tmp/keep.bin", Size: protocol.Uint(len(content)), SHA256: hashOf(content),
+			Endpoint: protocol.TransferEndpoint{Kind: protocol.TransferEndpointCRHS, TransferID: "tr-keep"},
+		},
+	})
+	if _, err := a.start(context.Background(), &push); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	// The control connection dropped while the data connection was still delivering the push: its
+	// bytes do not depend on task.input, so the task must not fail as input_incomplete here.
+	a.abortIncompleteInputs()
+	a.mu.Lock()
+	started := a.tasks["push-keep"]
+	a.mu.Unlock()
+	if started == nil {
+		t.Fatal("the push task is not registered")
+	}
+	if started.inputErr != nil {
+		t.Fatalf("inputErr = %+v, want none", started.inputErr)
+	}
+	if started.done {
+		t.Fatal("the push task was ended by the control connection's drop")
+	}
+}
+
+func TestRelayTransferHandsChunksToTheTransferQueue(t *testing.T) {
+	a := newTestAgent(t, Options{})
+	relayed := &task{
+		id:                  "relay-queue",
+		transferQueue:       make(chan []byte, 1),
+		transferQueueClosed: make(chan struct{}),
+		doneCh:              make(chan struct{}),
+	}
+	// No data connection: the event handler only queues the chunk and never waits for one.
+	if err := a.relayTransfer(relayed, &protocol.TaskOutput{TaskID: relayed.id, Data: []byte("chunk")}); err != nil {
+		t.Fatalf("relayTransfer: %v", err)
+	}
+	select {
+	case got := <-relayed.transferQueue:
+		if !bytes.Equal(got, []byte("chunk")) {
+			t.Fatalf("queued %q, want %q", got, "chunk")
+		}
+	default:
+		t.Fatal("the chunk was not queued")
+	}
 }
 
 func TestPullTooLargeSendsAbortBeforeAnyData(t *testing.T) {

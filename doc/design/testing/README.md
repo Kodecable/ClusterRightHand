@@ -41,6 +41,7 @@ Playwright needs Chromium. External services are never started automatically:
 | Variable | Enables |
 |---|---|
 | `CRH_TEST_PG_URL` | The PostgreSQL variants of the server tests; each test database gets its own schema |
+| `CRH_TEST_WEBDAV_URL` | The live WebDAV backend tests; a URL with credentials pointing at an empty collection |
 | `CRH_TEST_SSH`, `CRH_TEST_SSH_KEY` | The SSH route and SFTP tests against a live sshd |
 | `CRH_TEST_SSH_JUMP` | The WebUI SSH wizard test |
 | `CRH_TEST_PODMAN=1` | The privileged system tests (rootless podman, Linux) |

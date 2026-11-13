@@ -73,6 +73,8 @@ export interface DataTransfer {
 	done: Promise<void>;
 	/** A pull keeps its write for task.exit to verify and commit, so close must not drop it. */
 	keepForExit?: boolean;
+	/** Set when the idle timer fired: the transfer fails at once instead of waiting for task.exit. */
+	idle?: boolean;
 	close(): void;
 }
 
@@ -150,12 +152,18 @@ export async function acceptDataConnection(
 			if (core.dataTransfers.get(transferId) !== transfer) return;
 			// A closed connection without an abort frame usually means the node refused the bytes; its
 			// task.exit carries the precise code (input_mismatch, ...), so give it a moment to arrive.
-			// failTransfer leaves a task that already ended alone.
-			if (!(err instanceof TransferAborted)) {
+			// failTransfer leaves a task that already ended alone. An idle timeout has no exit coming.
+			if (!(err instanceof TransferAborted) && transfer.idle !== true) {
 				await new Promise<void>((resolve) => setTimeout(resolve, EXIT_GRACE_MS).unref());
 			}
 			const code = err instanceof TransferAborted ? err.code : "io_error";
-			await failTransfer(core, transferId, nodeId, code, err instanceof Error ? err.message : String(err));
+			const message =
+				transfer.idle === true
+					? "the data connection was idle for too long"
+					: err instanceof Error
+						? err.message
+						: String(err);
+			await failTransfer(core, transferId, nodeId, code, message);
 		},
 	);
 }
@@ -169,7 +177,12 @@ async function runTransfer(
 	spec: TaskSpec,
 	storage: ReturnType<typeof openTransferLocation>,
 ): Promise<void> {
-	const idle = idleTimer(() => transfer.close());
+	const idle = idleTimer(() => {
+		// Close the socket but leave the entry in the map: the rejection path below then fails the
+		// task and discards a pull's partial write (close() alone would drop the entry and leak it).
+		transfer.idle = true;
+		transfer.frames.close();
+	});
 	try {
 		if (spec.kind === "file.push") {
 			for await (const chunk of storage.openRead()) {
@@ -183,13 +196,23 @@ async function runTransfer(
 				}
 			}
 			await transfer.frames.send(encodeDataFrame({ kind: "end" }));
-		} else {
+		} else if (spec.kind === "file.pull") {
+			// crhs trusts the node's max_bytes check only as an early report: enforce it here too, so a
+			// buggy or malicious node cannot fill the disk (doc/design/library.md "File plane").
+			let received = 0;
 			const write = storage.openWrite();
 			transfer.write = write;
 			for (;;) {
 				const frame = decodeDataFrame(await transfer.frames.next());
 				idle.reset();
 				if (frame.kind === "data") {
+					received += frame.bytes.length;
+					if (received > spec.maxBytes) {
+						throw new TransferAborted(
+							"too_large",
+							`the node sent more than the ${spec.maxBytes} bytes the pull accepts`,
+						);
+					}
 					await write.write(frame.bytes);
 				} else if (frame.kind === "end") {
 					transfer.finished = await write.finish();

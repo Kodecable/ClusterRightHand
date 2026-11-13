@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPair } from "@crh/noise";
-import type { TaskSpec } from "@crh/protocol";
+import { RemoteError, type TaskSpec } from "@crh/protocol";
 import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Cluster, specFromRow } from "../src/cluster/cluster.ts";
@@ -38,7 +38,7 @@ describe("file plane transfers", () => {
 		transferRoot = await mkdtemp(join(tmpdir(), "crhs-transfer-"));
 		libraryRoot = await mkdtemp(join(tmpdir(), "crhs-library-"));
 		libraryBackend = createLibraryBackend({ backend: "local" }, libraryRoot);
-		cluster = new Cluster(db, { transferRoot, libraryBackend });
+		cluster = new Cluster(db, { transferRoot, libraryBackend, reconnectGraceMs: 100 });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		ownerUserId = (await createUser(db, { username: "owner", kind: "member", password: "password-123" })).id;
@@ -217,6 +217,56 @@ describe("file plane transfers", () => {
 		await expect(readFile(join(transferRoot, record.location.path))).rejects.toThrow();
 	});
 
+	it("fails a pull as soon as the node sends more than max_bytes", async () => {
+		const { node, key } = await addNode("web-1");
+		const crha = await connect(node, key);
+		const task = await cluster.pullFile({ nodeId: node.id, path: "/etc/app.conf", maxBytes: 4, actor: actor() });
+		await waitFor("pull task.start", () => crha.starts.length === 1);
+		const start = crha.starts[0];
+		if (start?.spec.kind !== "file.pull") throw new Error("no pull spec");
+		const data = await agents.connectData(key, task.id, start.spec.endpoint.transferId);
+		data.send({ kind: "data", bytes: Buffer.from("12345") });
+		await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "failed");
+		const done = await cluster.getTask(task.id);
+		expect(done?.errorCode).toBe("too_large");
+		expect(await readdir(transferRoot)).toEqual([]);
+	});
+
+	it("discards a finished pull's staged bytes when the task ends unknown without task.exit", async () => {
+		const { node, key } = await addNode("web-1");
+		const crha = await connect(node, key);
+		const content = Buffer.from("received bytes");
+		const task = await cluster.pullFile({ nodeId: node.id, path: "/etc/app.conf", maxBytes: 1024, actor: actor() });
+		await waitFor("pull task.start", () => crha.starts.length === 1);
+		const start = crha.starts[0];
+		if (start?.spec.kind !== "file.pull") throw new Error("no pull spec");
+		const data = await agents.connectData(key, task.id, start.spec.endpoint.transferId);
+		data.send({ kind: "data", bytes: content });
+		data.send({ kind: "end" });
+		// [end] arrived (crhs closes the data connection); the task.exit that would commit never does.
+		await data.closed;
+		crha.ws.close();
+		await waitFor("pull task unknown", async () => (await cluster.getTask(task.id))?.state === "unknown");
+		await waitFor("staged bytes discarded", async () => (await readdir(transferRoot)).length === 0);
+	});
+
+	it("retries a transfer start the node refuses with busy", async () => {
+		const { node, key } = await addNode("web-1");
+		const crha = await connect(node, key);
+		let refusals = 2;
+		crha.answerStart = () => {
+			if (refusals > 0) {
+				refusals -= 1;
+				throw new RemoteError("busy", "the node is already running a transfer");
+			}
+		};
+		const location = await cluster.stageBytesForPush(Buffer.from("retried"));
+		const task = await cluster.pushFile({ nodeId: node.id, path: "/srv/retried.bin", location, actor: actor() });
+		// The refusal means nothing ran, so the same start is sent again until the node accepts it.
+		await waitFor("push task.start retried", () => crha.starts.length === 3);
+		await waitFor("push task running", async () => (await cluster.getTask(task.id))?.state === "running");
+	});
+
 	it("refuses a data connection for an unknown transfer id", async () => {
 		const { node, key } = await addNode("web-1");
 		const crha = await connect(node, key);
@@ -359,6 +409,48 @@ describe("file plane transfers", () => {
 			.where("id", "=", library.id)
 			.executeTakeFirstOrThrow();
 		expect(after).toEqual({ used_files: 2, used_bytes: 3 + content.length });
+	});
+
+	it("refuses a pull onto a directory or under a file", async () => {
+		const { node, key } = await addNode("web-1");
+		const crha = await connect(node, key);
+		const content = Buffer.from("x");
+		const libraryId = await addLibraryFile("blocked/child.txt", Buffer.from("child"));
+		await addLibraryFile("plain.txt", Buffer.from("plain"));
+		let starts = 0;
+		const pull = async (libraryPath: string): Promise<string> => {
+			const task = await cluster.pullLibraryFile({
+				nodeId: node.id,
+				path: "/etc/app.conf",
+				libraryId,
+				libraryPath,
+				createdBy: ownerUserId,
+				actor: actor(),
+			});
+			starts += 1;
+			await waitFor("pull task.start", () => crha.starts.length === starts);
+			const start = crha.starts[starts - 1];
+			if (start?.spec.kind !== "file.pull") throw new Error("no pull spec");
+			const data = await agents.connectData(key, task.id, start.spec.endpoint.transferId);
+			data.send({ kind: "data", bytes: content });
+			data.send({ kind: "end" });
+			crha.exit(
+				task.id,
+				{ kind: "code", value: 0 },
+				{
+					result: {
+						kind: "file.pull",
+						size: content.length,
+						sha256: Uint8Array.from(Buffer.from(sha256Hex(content), "hex")),
+					},
+				},
+			);
+			await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "failed");
+			return (await cluster.getTask(task.id))?.errorMessage ?? "";
+		};
+
+		expect(await pull("blocked")).toContain("a directory already exists at blocked");
+		expect(await pull("plain.txt/child.txt")).toContain("a file already exists at plain.txt");
 	});
 
 	it("copies a library file to several nodes as one approved task group with a transfer per member", async () => {

@@ -83,6 +83,9 @@ func (a *Agent) transfer(t *task) {
 		a.finishTransferError(t, protocol.CodeIOError, "open the data connection: "+err.Error())
 		return
 	}
+	// One data connection carries one transfer: close it once the bytes and the [end]/[abort] frame
+	// are out, so crhs and the node do not keep a socket per finished transfer.
+	defer func() { _ = conn.Close("transfer done") }()
 	// The idle watchdog closes the connection when neither side sent anything for 90 s; the
 	// blocked Recv or send then fails and the task ends.
 	idle := time.AfterFunc(transferIdleTimeout, func() {
@@ -221,16 +224,50 @@ func (a *Agent) pushTransfer(t *task, conn DataConn, ctx context.Context, reset 
 	}
 }
 
-// pullTransfer sends the content of a file.pull task. The privileged mode and the local executor
-// stream chunks through transferSend; this waits for the task's outcome and then finishes the data
-// connection with [end] or [abort].
+// pullTransfer sends the content of a file.pull task. The local executor streams chunks through
+// transferSend directly; a privileged pull's chunks arrive on the shared crh-priv read loop and are
+// queued for this goroutine, so a slow data connection never stalls that loop.
 func (a *Agent) pullTransfer(t *task, conn DataConn, ctx context.Context, reset func()) {
-	select {
-	case <-t.doneCh:
-	case <-ctx.Done():
-		a.markTransferDone(t)
-		return
+	defer close(t.transferQueueClosed)
+	// drain sends everything already queued; false means the data connection is gone.
+	drain := func() bool {
+		for {
+			select {
+			case data := <-t.transferQueue:
+				if err := a.sendTransferData(ctx, conn, t, data, reset); err != nil {
+					return false
+				}
+			default:
+				return true
+			}
+		}
 	}
+	for {
+		select {
+		case data := <-t.transferQueue:
+			if err := a.sendTransferData(ctx, conn, t, data, reset); err != nil {
+				// The data connection is gone; crhs fails the transfer and cancels the task.
+				a.markTransferDone(t)
+				return
+			}
+		case <-t.doneCh:
+			// Every transfer event precedes task.exit on the ordered crh-priv stream, so the queue
+			// is final here: send it before [end] or the file would be truncated.
+			if !drain() {
+				a.markTransferDone(t)
+				return
+			}
+			a.finishPull(t, conn, ctx, reset)
+			return
+		case <-ctx.Done():
+			a.markTransferDone(t)
+			return
+		}
+	}
+}
+
+// finishPull writes a pull's outcome to the data connection after its bytes.
+func (a *Agent) finishPull(t *task, conn DataConn, ctx context.Context, reset func()) {
 	a.mu.Lock()
 	exit := t.result
 	a.mu.Unlock()

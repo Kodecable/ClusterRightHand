@@ -147,7 +147,7 @@ export function libraryRoutes(db: Db, options: LibraryRoutesOptions = {}) {
 		if (body.overwrite !== undefined && typeof body.overwrite !== "boolean") {
 			return jsonError(c, 400, "overwrite must be a boolean");
 		}
-		const file = await moveLibraryFile(db, record.row.id, from, to, body.overwrite === true);
+		const file = await moveLibraryFile(db, backend(), record.row.id, from, to, body.overwrite === true);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "library.file.moved",

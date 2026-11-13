@@ -99,7 +99,9 @@ Back up three things:
 | The master key file (`master_key_file`) | Decrypts the secrets |
 | A key export (`crhs keys export`) | A passphrase-protected copy of the master key and crhs's own keys |
 
-The database and the master key belong together; neither is useful alone.
+The database and the master key belong together; neither is useful alone. The database and the library
+storage (the `library/` directory under the data directory, or the WebDAV collection when the `webdav`
+backend is used) must be backed up together, since files are only identifiable through the database.
 
 **SQLite.** Stop crhs and copy the database file together with its `-wal` and `-shm` files, or back it up
 online:

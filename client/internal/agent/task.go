@@ -23,6 +23,10 @@ const cancelTombstoneTTL = 10 * time.Minute
 // maxCancelTombstones is a variable so tests can lower it.
 var maxCancelTombstones = 1024
 
+// transferQueueChunks bounds a privileged pull's chunks waiting for the data connection: a slow
+// connection applies backpressure after this many frames instead of stalling the shared read loop.
+const transferQueueChunks = 64
+
 // cancelTombstone is one recorded cancellation, with the time it was recorded for expiry and for
 // telling a stale order entry from a newer tombstone of the same id.
 type cancelTombstone struct {
@@ -59,6 +63,11 @@ type task struct {
 	closeTransfer func()
 	// transferReady is closed once transferSend is set.
 	transferReady chan struct{}
+	// transferQueue hands a privileged pull's chunks to the transfer goroutine, so the shared
+	// crh-priv read loop never waits on the data connection. transferQueueClosed is closed when
+	// nothing drains the queue any more. Both are nil for kinds that send their bytes locally.
+	transferQueue       chan []byte
+	transferQueueClosed chan struct{}
 	// doneCh is closed when done and result are set, so a transfer can wait without polling.
 	doneCh   chan struct{}
 	doneOnce sync.Once
@@ -128,27 +137,24 @@ func (a *Agent) emitTransfer(t *task, data []byte) error {
 	return send(data)
 }
 
-// relayTransfer handles one transfer.data event of a privileged pull task: it waits for the data
-// connection (opened once crhs answered the task.start) and sends the chunk on it. The event stream
-// is ordered, so the wait cannot reorder chunks.
+// relayTransfer handles one transfer.data event of a privileged pull task: it hands the chunk to
+// the transfer goroutine instead of sending it here. This handler runs in the shared crh-priv read
+// loop under relayRouter.mu, so waiting on the data connection would stall every other privileged
+// task's events, and this task's cancel, behind one slow pull (doc/design/protocol.md "crh-priv").
+// The event stream is ordered, so the queued chunks stay in order.
 func (a *Agent) relayTransfer(t *task, chunk *protocol.TaskOutput) error {
-	a.mu.Lock()
-	ready, send := t.transferReady, t.transferSend
-	a.mu.Unlock()
-	if send == nil {
-		select {
-		case <-ready:
-		case <-t.runCtx.Done():
-			return nil
-		}
-		a.mu.Lock()
-		send = t.transferSend
-		a.mu.Unlock()
+	if t.transferQueue == nil {
+		return errors.New("the task has no transfer queue")
 	}
-	if send == nil {
-		return errors.New("the data connection is not open")
+	select {
+	case t.transferQueue <- chunk.Data:
+		return nil
+	case <-t.transferQueueClosed:
+		// The transfer goroutine is gone: the data connection failed, and crhs ends the task.
+		return nil
+	case <-t.doneCh:
+		return nil
 	}
-	return send(chunk.Data)
 }
 
 func (t *task) status() protocol.TaskStatus {
@@ -238,6 +244,10 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		transferDone:   !isTransferKind(kind),
 		transferReady:  make(chan struct{}),
 		doneCh:         make(chan struct{}),
+	}
+	if kind == protocol.TaskSpecFilePull {
+		t.transferQueue = make(chan []byte, transferQueueChunks)
+		t.transferQueueClosed = make(chan struct{})
 	}
 	if ref := taskinput.Ref(&ts.Spec); ref != nil {
 		// A zero-size input still commits crhs to the SHA-256 of empty input. A different hash can
@@ -415,6 +425,11 @@ func (a *Agent) abortIncompleteInputs() {
 // and the task is still running. a.mu must be held.
 func (a *Agent) abortIncompleteInputLocked(t *task) {
 	if t.done || t.inputComplete() {
+		return
+	}
+	// A file.push receives its bytes on the data connection, which is independent of the control
+	// connection that just ended: its pushTransfer ends the task on success, failure or idle timeout.
+	if t.spec.Spec.Kind == protocol.TaskSpecFilePush {
 		return
 	}
 	a.failInputLocked(t, protocol.CodeInputIncomplete, "connection closed before the task input was complete")

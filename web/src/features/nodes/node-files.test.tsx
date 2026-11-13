@@ -50,15 +50,16 @@ describe("node Files tab", () => {
 		Object.defineProperty(URL, "createObjectURL", { value: vi.fn(() => "blob:preview"), configurable: true });
 	});
 
-	test("lists the root, navigates into a directory and offers no mutating actions", async () => {
+	test("lists the root, navigates into a directory and offers download and preview only", async () => {
 		const { urls } = mockFiles();
 		renderWithI18n(<NodeFiles nodeId="node-1" nodeName="web-1" />);
 		expect(await screen.findByText("readme.txt")).toBeInTheDocument();
 		expect(screen.getByText("etc")).toBeInTheDocument();
 		expect(urls[0]).toContain("/api/nodes/node-1/files?path=%2F");
-		// Nodes have no upload, download, delete or rename yet; only a preview appears for an image.
+		// Nodes have no upload, delete or rename yet; download and image preview are offered.
 		expect(screen.queryByTestId("file-upload")).not.toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: /^Download/ })).not.toBeInTheDocument();
+		const download = screen.getByRole("button", { name: "Download readme.txt" });
+		expect(download).toHaveAttribute("href", "/api/nodes/node-1/file?path=%2Freadme.txt");
 		expect(screen.queryByRole("button", { name: /^Delete/ })).not.toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: /Move or rename/ })).not.toBeInTheDocument();
 

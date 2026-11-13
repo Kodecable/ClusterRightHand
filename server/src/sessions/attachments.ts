@@ -60,6 +60,7 @@ export async function resolveAttachments(
 		}
 		attachments.push({
 			library: libraryRef(record.row, record.ownerName),
+			libraryId: record.row.id,
 			path: row.path,
 			name,
 			bytes: row.size,

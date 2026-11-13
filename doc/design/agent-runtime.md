@@ -95,7 +95,7 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `node_info` | Node facts and notes |
 | `exec` | Run a command |
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
-| `copy_file`, `view_image` | Whole-file copies between nodes and libraries, and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
+| `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the user for download, `to_user`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `task_wait`, `task_cancel` | Follow or cancel an `exec` task or task group |
 
 `task_wait` and `task_cancel` reach only tasks started by this session (or its subagents) or this API
@@ -158,7 +158,8 @@ the result's error flag while keeping any output.
 
 Agent tool results also carry structured `details` (task ids, states, error codes) for the WebUI, which
 uses them to link to tasks and to judge success without parsing text. `details` is never sent to the
-model.
+model. A `copy_file` offer to the user (`to_user`) carries `details.delivery` there, which the tool card
+renders as the file, its source and a download link ([Deliveries](library.md#deliveries)).
 
 ## Sessions
 

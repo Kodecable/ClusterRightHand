@@ -140,8 +140,10 @@ describe("chat attachments", () => {
 		expect(input).toBeDefined();
 		if (!input) throw new Error("no input entry");
 		const attachment = (input.data as unknown as { attachments: ChatAttachment[] }).attachments[0];
+		const library = await findLibraryByRef(db, "user:alice");
 		expect(attachment).toMatchObject({
 			library: "user:alice",
+			libraryId: library?.row.id,
 			path: "notes/a.txt",
 			name: "a.txt",
 			bytes: 16,

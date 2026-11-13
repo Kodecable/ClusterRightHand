@@ -395,8 +395,9 @@ async function filePull(ctx: Ctx, s: FilePullSpec, transfer: SftpTransfer | unde
 	const hash = createHash("sha256");
 	let size = 0;
 	let ok = false;
-	const handle = await sftp.open(path, "r");
+	let handle: Buffer | undefined;
 	try {
+		handle = await sftp.open(path, "r");
 		for (;;) {
 			checkAborted(ctx.signal);
 			const buf = Buffer.allocUnsafe(CHUNK);
@@ -410,16 +411,13 @@ async function filePull(ctx: Ctx, s: FilePullSpec, transfer: SftpTransfer | unde
 			hash.update(data);
 			await write.write(data);
 		}
-	} finally {
-		await sftp.close(handle).catch(() => {});
-	}
-	try {
 		const sha256 = hash.digest("hex");
 		await write.finish();
 		await write.commit({ size, sha256 });
 		ok = true;
 		return { kind: "file.pull", size, sha256: Uint8Array.from(Buffer.from(sha256, "hex")) };
 	} finally {
+		if (handle !== undefined) await sftp.close(handle).catch(() => {});
 		if (!ok) await write.discard();
 	}
 }

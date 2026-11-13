@@ -1,17 +1,28 @@
-import { useLingui } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
-import { LoaderCircleIcon, WrenchIcon } from "lucide-react";
+import { DownloadIcon, LoaderCircleIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useLibraries } from "@/features/library/api";
 import { taskGroupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
-import { isNotFound } from "@/lib/api/client";
+import { enc, isNotFound, queryString } from "@/lib/api/client";
 import { formatBytes } from "@/lib/format";
 import { isTerminal } from "@/lib/task-output";
 import { cn } from "@/lib/utils";
 import { callStillOpen, detailId, type ToolItem, toolLine } from "./tool-call";
-import { viewImageDetails } from "./tool-details";
+import { type DeliveryDetails, deliveryDetails, viewImageDetails } from "./tool-details";
 import { ToolDialog } from "./tool-dialog";
 import { type ToolFailure, taskGroupViewFailure, taskViewFailure, toolResultFailure } from "./tool-failure";
 import type { TranscriptStreams } from "./transcript-streams";
+
+/**
+ * Where a `copy_file to_user` delivery is downloaded from. A library is resolved by id when possible, so a
+ * renamed group keeps the link; the server checks access when the link is clicked.
+ */
+function deliveryHref(source: DeliveryDetails["source"], ref: string | undefined): string {
+	return "library" in source
+		? `/api/libraries/${enc(ref ?? source.library)}/file${queryString({ path: source.path })}`
+		: `/api/nodes/${enc(source.nodeId)}/file${queryString({ path: source.path })}`;
+}
 
 /** How often an open call re-reads the task or task group it follows. */
 const FOLLOW_INTERVAL_MS = 5000;
@@ -136,53 +147,80 @@ export function ToolCard({
 	const line = toolLine(item.name, item.args);
 	const rest = line.slice(item.name.length);
 	const image = item.name === "view_image" ? viewImageDetails(result?.details ?? item.details) : undefined;
+	const delivery = item.name === "copy_file" ? deliveryDetails(result?.details ?? item.details) : undefined;
+	const deliveryLibraryId =
+		delivery !== undefined && "library" in delivery.source ? delivery.source.libraryId : undefined;
+	const deliveryLibraries = useLibraries(deliveryLibraryId !== undefined);
+	const deliveryRef = deliveryLibraries.data?.find((library) => library.id === deliveryLibraryId)?.ref;
 	const liveOutput = result === undefined ? streams.tool(item.callId) : undefined;
 
 	return (
 		<div className="text-xs" data-testid="tool-card" data-tool-status={status}>
-			<button
-				type="button"
-				data-testid="tool-toggle"
-				aria-haspopup="dialog"
-				onClick={() => setOpen(true)}
-				className="group flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
-			>
-				<ToolStatusIcon spinning={spinning} failed={failed} label={statusLabel} />
-				<span className="min-w-0 flex-1 truncate font-mono text-xs" title={line}>
-					<span className="font-medium">{item.name}</span>
-					{image === undefined ? (
-						rest
-					) : (
-						<span className="ml-1.5 inline-flex items-center gap-1.5 font-sans" data-testid="view-image-summary">
-							{"library" in image.source ? (
-								<Link
-									to="/library/$library"
-									params={{ library: image.source.library }}
-									search={{
-										path: image.source.path.includes("/")
-											? image.source.path.slice(0, image.source.path.lastIndexOf("/"))
-											: "",
-									}}
-									className="underline underline-offset-2"
-									title={image.source.path}
-								>
-									{image.source.library}
-								</Link>
-							) : (
-								<span title={image.source.path}>{image.source.node}</span>
-							)}
-							<span className="text-muted-foreground">{image.source.path}</span>
-							<span>
-								{image.width}×{image.height}
+			<div className="flex items-center gap-1">
+				<button
+					type="button"
+					data-testid="tool-toggle"
+					aria-haspopup="dialog"
+					onClick={() => setOpen(true)}
+					className="group flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
+				>
+					<ToolStatusIcon spinning={spinning} failed={failed} label={statusLabel} />
+					<span className="min-w-0 flex-1 truncate font-mono text-xs" title={line}>
+						<span className="font-medium">{item.name}</span>
+						{delivery !== undefined ? (
+							<span className="ml-1.5 inline-flex min-w-0 items-center gap-1.5 font-sans" data-testid="copy-delivery">
+								<span className="truncate font-medium text-foreground">{delivery.name}</span>
+								<span className="truncate text-muted-foreground" title={delivery.source.path}>
+									{"library" in delivery.source ? delivery.source.library : delivery.source.node} ·{" "}
+									{delivery.source.path}
+								</span>
+								{delivery.bytes !== undefined && <span>{formatBytes(delivery.bytes, i18n.locale)}</span>}
 							</span>
-							<span>{formatBytes(image.bytes, i18n.locale)}</span>
-							<span className="font-mono text-muted-foreground" title={image.sha256}>
-								{image.sha256.slice(0, 12)}
+						) : image === undefined ? (
+							rest
+						) : (
+							<span className="ml-1.5 inline-flex items-center gap-1.5 font-sans" data-testid="view-image-summary">
+								{"library" in image.source ? (
+									<Link
+										to="/library/$library"
+										params={{ library: image.source.library }}
+										search={{
+											path: image.source.path.includes("/")
+												? image.source.path.slice(0, image.source.path.lastIndexOf("/"))
+												: "",
+										}}
+										className="underline underline-offset-2"
+										title={image.source.path}
+									>
+										{image.source.library}
+									</Link>
+								) : (
+									<span title={image.source.path}>{image.source.node}</span>
+								)}
+								<span className="text-muted-foreground">{image.source.path}</span>
+								<span>
+									{image.width}×{image.height}
+								</span>
+								<span>{formatBytes(image.bytes, i18n.locale)}</span>
+								<span className="font-mono text-muted-foreground" title={image.sha256}>
+									{image.sha256.slice(0, 12)}
+								</span>
 							</span>
-						</span>
-					)}
-				</span>
-			</button>
+						)}
+					</span>
+				</button>
+				{delivery !== undefined && (
+					<a
+						href={deliveryHref(delivery.source, deliveryRef)}
+						className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+						data-testid="copy-delivery-download"
+						title={t`Download ${delivery.name}`}
+					>
+						<DownloadIcon className="size-3.5" aria-hidden="true" />
+						<Trans>Download</Trans>
+					</a>
+				)}
+			</div>
 			<ToolDialog item={item} open={open} onOpenChange={setOpen} liveOutput={liveOutput} />
 		</div>
 	);

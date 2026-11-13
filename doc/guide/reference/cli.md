@@ -28,6 +28,9 @@ crhs keys export --out /root/crhs-keys.age
 crhs keys import /root/crhs-keys.age
 ```
 
+A username (from `user add` or `init`) is trimmed and lower-cased and must start with a letter, like
+usernames created in the WebUI ([Concepts](../concepts.md#users-user-groups-and-administrators)).
+
 `crhs init` asks its questions on the terminal, showing each default (Enter takes it), then prints a
 summary and asks before changing anything. `--answers <file>` answers questions ahead with one JSON
 object; `--save-answers <file>` writes an interactive run's answers without the secrets. Without a

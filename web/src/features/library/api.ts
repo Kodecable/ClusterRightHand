@@ -17,9 +17,10 @@ export const libraryKeys = {
 };
 
 /** The caller's libraries: their own and their user groups'. */
-export function useLibraries() {
+export function useLibraries(enabled = true) {
 	return useQuery({
 		queryKey: libraryKeys.list(),
+		enabled,
 		queryFn: ({ signal }) => http.get<LibraryListResponse>("/libraries", { signal }).then((r) => r.libraries),
 	});
 }

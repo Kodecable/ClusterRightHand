@@ -143,12 +143,12 @@ export async function runSsh(
 	// An SSH transfer streams directly from or to the stored location on the pooled connection; there
 	// is no data connection (doc/design/library.md "SSH nodes"). A broken descriptor fails the task
 	// through the catch below.
-	const transferRecord = parseTransferRecord((await core.row(id))?.transfer ?? null);
-	const location = transferRecord ? openTransferLocation(core.transferContext(), transferRecord.location) : undefined;
-	const sftpTransfer: SftpTransfer | undefined = location
-		? { openRead: () => location.openRead(), openWrite: () => location.openWrite() }
-		: undefined;
 	try {
+		const transferRecord = parseTransferRecord((await core.row(id))?.transfer ?? null);
+		const location = transferRecord ? openTransferLocation(core.transferContext(), transferRecord.location) : undefined;
+		const sftpTransfer: SftpTransfer | undefined = location
+			? { openRead: () => location.openRead(), openWrite: () => location.openWrite() }
+			: undefined;
 		// SSH has no privileged mode: the task runs as the SSH user. The notice is crhs's own, so it lives
 		// in tasks.notice and never in the output; every output mode keeps it, status included.
 		if (privileged) {

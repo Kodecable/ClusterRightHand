@@ -39,6 +39,11 @@ const faux = fauxProvider({
 	models: [
 		{ id: "image-model", input: ["text", "image"] },
 		{ id: "text-model", input: ["text"] },
+		{
+			id: "small-image-model",
+			input: ["text", "image"],
+			inputLimits: { images: { resize: { maxWidth: 10, maxHeight: 10 } } },
+		},
 	],
 });
 
@@ -159,6 +164,33 @@ describe("view_image beforeRequest hook", () => {
 		const block = firstBlock(second === undefined ? undefined : [second]);
 		expect(block).toMatchObject({ type: "image", mimeType: "image/png" });
 		expect(block.data).toBe(image.toString("base64"));
+	});
+
+	it("checks a cached image against the current model's limits", async () => {
+		const image = png(40, 30);
+		const digest = sha256Hex(image);
+		await imageCache.put(digest, "image/png", image);
+		const session = await runtime.createSession(alice, {
+			model: { provider: faux.provider.id, modelId: "small-image-model" },
+			rulePreset: "ask",
+		});
+		const conversationId = await conversationIdOf(db, session.id);
+		const message = toolResultMessage({
+			image: {
+				sha256: digest,
+				mime: "image/png",
+				width: 40,
+				height: 30,
+				bytes: image.length,
+				source: { node: "web-1", path: "/x.png" },
+			},
+		});
+		const replaced = await replaceViewImages(options, conversationId, [message]);
+		const block = firstBlock(replaced);
+		expect(block.type).toBe("text");
+		// The image is cached and was valid for the model view_image ran under; this session's model is smaller.
+		expect(block.text).toContain("40x30");
+		expect(block.text).toContain("10x10");
 	});
 
 	it("re-reads a library source on a miss, and writes a placeholder when it changed or is a node source", async () => {

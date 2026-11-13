@@ -55,7 +55,9 @@ no model is configured, an administrator must add one first ([Models](#models)).
 - **Stop** stops the session and all its subagents.
 - `/compact` summarizes older parts of the conversation to free context.
 - Tool calls appear as one-line rows; click one to see its arguments, output and result. When the final
-  answer arrives, the agent's intermediate steps fold into one line that you can expand.
+  answer arrives, the agent's intermediate steps fold into one line that you can expand. A `copy_file`
+  that hands you a file shows its name, source and path with a **Download** button; the file is checked
+  when you click, so the link keeps working while you have access.
 - Click the title to rename the session. Clearing it restores the default name and stops automatic
   titling.
 
@@ -76,8 +78,9 @@ files; the server refuses attachments from anyone else.
 An attachment becomes part of the message the agent reads: a short text file has its content included
 in the message, up to the limits in System settings, and everything else is described by its name, size,
 library and path. To see an image, the agent calls its `view_image` tool. The transcript shows each
-attachment as a chip that links to the library file; a chip is inactive, with the reason, when the file
-is gone or you cannot reach its library. Deleting a session leaves its attachments in the library.
+attachment as a chip that links to the library file; the chip resolves the library by id, so renaming a
+user group does not break it, and a chip is inactive, with the reason, when the file is gone or you cannot
+reach its library. Deleting a session leaves its attachments in the library.
 
 ### Waiting for a decision
 
@@ -217,8 +220,9 @@ tasks, and a **Files** tab.
 privilege: every listing or file check is an ordinary `file.list` or `file.stat` task, so rules and
 approvals still apply, but those tasks stay out of the task list (tick **Include file browsing** on the
 tasks page to see them). It shows sizes and modification times and previews PNG, JPEG, GIF and WebP
-images. Downloading, uploading, deleting and renaming on a node come later, so those actions are not
-shown. Administrators
+images. A file can be **Downloaded** through a `file.pull` task capped at your own library's one-file
+limit; when that pull needs an approval, the download fails with the approval page named. Uploading,
+deleting and renaming on a node come later. Administrators
 can rename it, change its node groups, edit an SSH node's route, re-enroll it (crha nodes), and delete
 it.
 
@@ -256,10 +260,12 @@ group with the same name.
 
 **Users** (administrators only) lists the accounts and, below them, the user groups. On a user's page an
 administrator can change the role, disable or enable the account, reset the password, manage group
-membership and grant node access. Members can open only their own page.
+membership and grant node access. Members can open only their own page. A username starts with a letter;
+upper case is folded to lower case ([Concepts](concepts.md#users-user-groups-and-administrators)).
 
 On a user group's page, administrators add and remove members, grant node access, rename and delete the
-group. Members receive what the group is granted immediately. A user group can be deleted only while its
+group. A group name follows the same rule, and an existing group is checked again when it is renamed.
+Members receive what the group is granted immediately. A user group can be deleted only while its
 library is empty.
 
 Both a user's page and a user group's page have a **Library** section with the usage, the three limits

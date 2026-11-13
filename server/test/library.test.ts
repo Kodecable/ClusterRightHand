@@ -13,6 +13,7 @@ import { sweepLibraryOrphans } from "../src/library/sweep.ts";
 import { defaultSystemSettings, SettingsStore } from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
+import { NotFoundError } from "../src/util/errors.ts";
 import { call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
 
@@ -61,6 +62,7 @@ describe("media type sniffing", () => {
 describe("library API", () => {
 	let db: Db;
 	let root: string;
+	let backend: ReturnType<typeof createLibraryBackend>;
 	let app: ReturnType<typeof makeApp>;
 	let admin: string;
 	let alice: string;
@@ -71,7 +73,7 @@ describe("library API", () => {
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
 		root = await mkdtemp(join(tmpdir(), "crhs-library-"));
-		const backend = createLibraryBackend({ backend: "local" }, root);
+		backend = createLibraryBackend({ backend: "local" }, root);
 		app = makeApp(db, undefined, { libraryBackend: backend });
 		adminId = (await createUser(db, { username: "root", kind: "admin", password: "root-password" })).id;
 		aliceId = (await createUser(db, { username: "alice", kind: "member", password: "alice-password" })).id;
@@ -237,6 +239,20 @@ describe("library API", () => {
 		expect(allowed.status).toBe(200);
 	});
 
+	it("serves a library file only to a user who can reach the library", async () => {
+		expect((await upload(alice, "user:alice", "private.txt", Buffer.from("private"))).status).toBe(201);
+		// The attachment chip and a copy_file delivery download through this endpoint; access is checked here.
+		const denied = await app.request(`${lib("user:alice")}/file?path=private.txt`, {
+			headers: { host: "localhost:8080", cookie: bob },
+		});
+		expect(denied.status).toBe(404);
+		const allowed = await app.request(`${lib("user:alice")}/file?path=private.txt`, {
+			headers: { host: "localhost:8080", cookie: alice },
+		});
+		expect(allowed.status).toBe(200);
+		expect(Buffer.from(await allowed.arrayBuffer()).toString()).toBe("private");
+	});
+
 	it("enforces the one-file, file-count and total limits and shows which one was hit", async () => {
 		const limits = await call(app, `${lib("user:alice")}/limits`, {
 			method: "PATCH",
@@ -292,6 +308,141 @@ describe("library API", () => {
 		].sort();
 		expect(paths).toEqual(["same (1).txt", "same.txt"]);
 		expect((await list(alice, "user:alice")).files.map((file) => file.path).sort()).toEqual(paths);
+	});
+
+	it("refuses an upload onto a directory or under a file", async () => {
+		expect((await upload(alice, "user:alice", "dir/child.txt", Buffer.from("child"))).status).toBe(201);
+		const ontoDirectory = await upload(alice, "user:alice", "dir", Buffer.from("not a directory"));
+		expect(ontoDirectory.status).toBe(400);
+		expect(await ontoDirectory.json()).toMatchObject({ error: expect.stringContaining("a directory already exists") });
+
+		expect((await upload(alice, "user:alice", "plain.txt", Buffer.from("plain"))).status).toBe(201);
+		const underFile = await upload(alice, "user:alice", "plain.txt/child.txt", Buffer.from("nested"));
+		expect(underFile.status).toBe(400);
+		expect(await underFile.json()).toMatchObject({ error: "a file already exists at plain.txt" });
+	});
+
+	it("numbers an upload past a directory", async () => {
+		expect((await upload(alice, "user:alice", "taken/child.txt", Buffer.from("child"))).status).toBe(201);
+		const renamed = await upload(alice, "user:alice", "taken", Buffer.from("renamed"), { rename: true });
+		expect(renamed.status).toBe(201);
+		expect(((await renamed.json()) as { file: LibraryFile }).file.path).toBe("taken (1)");
+		expect((await list(alice, "user:alice")).directories).toContain("taken");
+		expect((await list(alice, "user:alice")).files.map((file) => file.path)).toEqual(["taken (1)"]);
+	});
+
+	it("lets only one of a concurrent a and a/b upload win", async () => {
+		const [outer, nested] = await Promise.all([
+			upload(alice, "user:alice", "a", Buffer.from("a")),
+			upload(alice, "user:alice", "a/b", Buffer.from("b")),
+		]);
+		expect([outer.status, nested.status].sort()).toEqual([201, 400]);
+		const root = await list(alice, "user:alice");
+		expect(root.files.length + root.directories.length).toBe(1);
+	});
+
+	it("refuses a move onto a directory or under a file", async () => {
+		expect((await upload(alice, "user:alice", "dir/child.txt", Buffer.from("child"))).status).toBe(201);
+		expect((await upload(alice, "user:alice", "source.txt", Buffer.from("source"))).status).toBe(201);
+		expect((await upload(alice, "user:alice", "plain.txt", Buffer.from("plain"))).status).toBe(201);
+
+		const ontoDirectory = await call(app, `${lib("user:alice")}/move`, {
+			cookie: alice,
+			body: { from: "source.txt", to: "dir" },
+		});
+		expect(ontoDirectory.status).toBe(400);
+		expect(await ontoDirectory.json()).toMatchObject({ error: expect.stringContaining("a directory already exists") });
+
+		const underFile = await call(app, `${lib("user:alice")}/move`, {
+			cookie: alice,
+			body: { from: "source.txt", to: "plain.txt/child.txt" },
+		});
+		expect(underFile.status).toBe(400);
+		expect(await underFile.json()).toMatchObject({ error: "a file already exists at plain.txt" });
+	});
+
+	it("moves a file onto the directory it was under, or under its own path", async () => {
+		expect((await upload(alice, "user:alice", "a/b", Buffer.from("b"))).status).toBe(201);
+		// "a/b" is the only file under "a/": after the move it is "a" itself, not a directory conflict.
+		const onto = await call(app, `${lib("user:alice")}/move`, { cookie: alice, body: { from: "a/b", to: "a" } });
+		expect(onto.status).toBe(200);
+		// "a" is the moved file itself, so it is not a conflicting ancestor of its new path.
+		const under = await call(app, `${lib("user:alice")}/move`, { cookie: alice, body: { from: "a", to: "a/b" } });
+		expect(under.status).toBe(200);
+		expect((await list(alice, "user:alice", "a")).files.map((file) => file.path)).toEqual(["a/b"]);
+	});
+
+	it("removes the object a move overwrites", async () => {
+		expect((await upload(alice, "user:alice", "new.txt", Buffer.from("new"))).status).toBe(201);
+		expect((await upload(alice, "user:alice", "victim.txt", Buffer.from("old"))).status).toBe(201);
+		const victim = await db
+			.selectFrom("library_files")
+			.select("object_key")
+			.where("path", "=", "victim.txt")
+			.executeTakeFirstOrThrow();
+		const moved = await call(app, `${lib("user:alice")}/move`, {
+			cookie: alice,
+			body: { from: "new.txt", to: "victim.txt", overwrite: true },
+		});
+		expect(moved.status).toBe(200);
+		await expect(getBytes(backend, victim.object_key)).rejects.toThrow();
+	});
+
+	it("matches listing prefixes case-sensitively", async () => {
+		expect((await upload(alice, "user:alice", "Docs/a.txt", Buffer.from("upper"))).status).toBe(201);
+		expect(await list(alice, "user:alice", "docs")).toEqual({ prefix: "docs", files: [], directories: [] });
+		// The conflict check is case-sensitive too: "docs" is not the directory "Docs".
+		expect((await upload(alice, "user:alice", "docs", Buffer.from("lower"))).status).toBe(201);
+	});
+
+	it("fails an upload whose backend stops reading instead of hanging", async () => {
+		const broken = createLibraryBackend({ backend: "local" }, root);
+		broken.put = async (_key, source) => {
+			for await (const _chunk of source) throw new Error("disk full");
+			return { size: 0, sha256: "" };
+		};
+		const brokenApp = makeApp(db, undefined, { libraryBackend: broken });
+		const response = await brokenApp.request(`${lib("user:alice")}/file?path=stalled.bin`, {
+			method: "PUT",
+			headers: { host: "localhost:8080", cookie: alice, "content-type": "application/octet-stream" },
+			body: Buffer.alloc(64 * 1024, 7),
+		});
+		expect(response.status).toBe(500);
+		expect(await db.selectFrom("library_files").select("path").where("path", "=", "stalled.bin").execute()).toEqual([]);
+	});
+
+	it("reports a library that vanished before the commit as not found", async () => {
+		const record = await findLibraryByRef(db, "user:alice");
+		if (!record) throw new Error("no alice library");
+		const uploader = beginLibraryUpload(db, backend, {
+			library: record.row,
+			path: "gone.txt",
+			overwrite: false,
+			createdBy: aliceId,
+		});
+		await uploader.write(Buffer.from("x"));
+		await db.deleteFrom("libraries").where("id", "=", record.row.id).execute();
+		await expect(uploader.commit()).rejects.toBeInstanceOf(NotFoundError);
+		await uploader.discard();
+	});
+
+	it("frees a file's slot once when two deletes race", async () => {
+		expect((await upload(alice, "user:alice", "once.txt", Buffer.from("abc"))).status).toBe(201);
+		const remove = () =>
+			app.request(`${lib("user:alice")}/file?path=once.txt`, {
+				method: "DELETE",
+				headers: { host: "localhost:8080", cookie: alice, "content-type": "application/json" },
+				body: "{}",
+			});
+		const [first, second] = await Promise.all([remove(), remove()]);
+		expect([first.status, second.status].sort()).toEqual([200, 404]);
+		const usage = await db
+			.selectFrom("libraries")
+			.select(["used_files", "used_bytes"])
+			.where("owner_kind", "=", "user")
+			.where("owner_id", "=", aliceId)
+			.executeTakeFirstOrThrow();
+		expect(usage).toEqual({ used_files: 0, used_bytes: 0 });
 	});
 
 	it("lets only one of two concurrent uploads take the last file slot", async () => {
@@ -404,7 +555,7 @@ describe("library API", () => {
 		await putBytes(backend, oldOrphan, Buffer.from("old"));
 		await putBytes(backend, youngOrphan, Buffer.from("young"));
 		const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-		await utimes(join(root, oldOrphan), twoHoursAgo, twoHoursAgo);
+		await utimes(join(root, oldOrphan.slice(0, 2), oldOrphan), twoHoursAgo, twoHoursAgo);
 
 		expect(await sweepLibraryOrphans(db, backend)).toBe(1);
 		expect(await getBytes(backend, keptKey)).toEqual(Buffer.from("kept"));

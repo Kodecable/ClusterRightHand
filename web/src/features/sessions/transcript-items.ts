@@ -73,6 +73,7 @@ function attachmentsOf(data: Json | undefined): ChatAttachment[] {
 		return [
 			{
 				library: record.library,
+				...(typeof record.libraryId === "string" ? { libraryId: record.libraryId } : {}),
 				path: record.path,
 				name: record.name,
 				bytes: record.bytes,

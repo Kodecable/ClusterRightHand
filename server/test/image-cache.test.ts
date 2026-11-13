@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -126,5 +126,17 @@ describe("image cache", () => {
 		await cache.put(sha(image), "image/png", image);
 		expect(await sweepLibraryOrphans(db, backend)).toBe(0);
 		expect(await cacheBytes(backend, sha(image))).toEqual(image);
+	});
+
+	it("sweeps a stale putCache part file", async () => {
+		const key = sha(png(1, 1, 10));
+		const directory = join(root, "cache", key.slice(0, 2));
+		const part = join(directory, `${key}.crh-part-abcdef123456`);
+		await mkdir(directory, { recursive: true });
+		await writeFile(part, "partial");
+		const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+		await utimes(part, old, old);
+		await cache.sweep();
+		await expect(readFile(part)).rejects.toThrow();
 	});
 });

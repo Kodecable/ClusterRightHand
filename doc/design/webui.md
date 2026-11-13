@@ -174,6 +174,10 @@ never previewed.
 Only administrators manage users. A member can open only their own user page. Group membership and
 node access are edited on the user, user group or node group page, not in lists.
 
+Usernames and user group names start with a letter after trimming and lower-casing
+([User model](access-control.md#user-model)). The **New user** form checks the rule before submitting and
+shows the same message the server would; the user group dialog shows the server's refusal.
+
 Both pages have a library section with the usage, the three limits, an administrator's **Edit limits**
 dialog and a link to the library. Deleting a group whose library is not empty is refused with the file
 count and a link to the library ([Libraries](library.md#libraries)).
@@ -209,7 +213,10 @@ that kind of node.
 A **Files** tab browses the node's file system with the file manager, as the signed-in user and
 unprivileged. Each listing or stat is a `file.list` or `file.stat` task with `purpose = browse`, created
 by a dedicated endpoint that waits for the result, so rules, approvals and audit apply while the task
-list stays readable. It can show metadata and image previews; download, upload, delete and rename on
+list stays readable. A file row offers **Download** and, for a PNG, JPEG, GIF or WebP, **Preview**.
+**Download** goes to `/api/nodes/:id/file?path=`, which runs a `file.pull` with purpose `browse` capped at
+the user's own library one-file limit and streams the file as an attachment; when that pull needs an
+approval, the request returns the reason and names the approval page. Upload, delete and rename on
 nodes come later.
 
 ### Approvals page
@@ -328,10 +335,14 @@ its store and Markdown tree, so the text does not re-render from scratch.
 ### Message rendering
 
 User messages are shown as raw text, with attachment chips from the entry's structured data, never
-parsed from the text ([Chat attachments](library.md#chat-attachments)). A `view_image` row shows the
-image's source, size and SHA-256, not the image. Assistant text and thinking are Markdown
-([Markdown rendering](#markdown-rendering)). Tool calls are one-line rows that open a dialog with the
-arguments, output and result. Approval, authorization and quota waits appear in the docked decision
+parsed from the text ([Chat attachments](library.md#chat-attachments)). A chip resolves its library by
+the id in that data, so a renamed group keeps the link; an older entry falls back to the stored
+reference. A `view_image` row shows the image's source, size and SHA-256, not the image. A `copy_file`
+row that delivered a file (`to_user`) shows the file name, the source (library reference or node name),
+the path and a **Download** button that downloads the path as it is at click time; a library source is
+resolved by id, like a chip ([Deliveries](library.md#deliveries)). Assistant text and thinking are
+Markdown ([Markdown rendering](#markdown-rendering)). Tool calls are one-line rows that open a dialog with
+the arguments, output and result. Approval, authorization and quota waits appear in the docked decision
 panel, not in the transcript.
 
 A tool row's icon shows whether the call is running, finished or failed. Failure is judged from the

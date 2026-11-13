@@ -72,6 +72,11 @@ describeBackends("api users", (backend) => {
 				(await call(app, "/api/users", { cookie: admin, body: { username: "x3", password: "short" } })).status,
 			).toBe(400);
 			expect((await call(app, "/api/users", { cookie: admin, body: { username: "bad name!" } })).status).toBe(400);
+			// A username starts with a letter (doc/design/access-control.md "User model").
+			const digit = await call(app, "/api/users", { cookie: admin, body: { username: "1st-user" } });
+			expect(digit.status).toBe(400);
+			expect(((await digit.json()) as { error: string }).error).toContain("starting with a letter");
+			expect((await call(app, "/api/users", { cookie: admin, body: { username: ".hidden" } })).status).toBe(400);
 			expect((await call(app, "/api/users", { cookie: admin, body: {} })).status).toBe(400);
 			expect((await call(app, "/api/users", { cookie: admin, body: { username: 5 } })).status).toBe(400);
 			expect((await call(app, "/api/users", { cookie: admin, body: [] })).status).toBe(400);
@@ -285,6 +290,20 @@ describeBackends("api users", (backend) => {
 			const dup = await call(app, "/api/user-groups", { cookie: admin, body: { name: "DATA-TEAM" } });
 			expect(dup.status).toBe(400);
 			expect((await call(app, "/api/user-groups", { cookie: admin, body: { name: "bad name" } })).status).toBe(400);
+			// A group name starts with a letter; existing groups are checked again only on their next rename.
+			const digit = await call(app, "/api/user-groups", { cookie: admin, body: { name: "2nd-team" } });
+			expect(digit.status).toBe(400);
+			expect(((await digit.json()) as { error: string }).error).toContain("starting with a letter");
+			const group = (await groups()).find((g) => g.name === "data-team");
+			expect(
+				(
+					await call(app, `/api/user-groups/${group?.id}`, {
+						method: "PATCH",
+						cookie: admin,
+						body: { name: "1renamed" },
+					})
+				).status,
+			).toBe(400);
 			expect((await call(app, "/api/user-groups", { cookie: admin, body: {} })).status).toBe(400);
 			expect((await groups()).filter((g) => g.name === "data-team")).toHaveLength(1);
 		});

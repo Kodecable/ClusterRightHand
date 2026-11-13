@@ -81,3 +81,38 @@ export function viewImageDetails(details: Json | undefined): ViewImageDetails | 
 	}
 	return undefined;
 }
+
+/** A `copy_file to_user: true` offer, from its result details (doc/design/library.md "Agent tools"). */
+export interface DeliveryDetails {
+	source: { library: string; libraryId: string; path: string } | { node: string; nodeId: string; path: string };
+	name: string;
+	bytes?: number;
+}
+
+export function deliveryDetails(details: Json | undefined): DeliveryDetails | undefined {
+	if (typeof details !== "object" || details === null || Array.isArray(details)) return undefined;
+	const delivery = details.delivery;
+	if (typeof delivery !== "object" || delivery === null || Array.isArray(delivery)) return undefined;
+	const record = delivery as Record<string, unknown>;
+	if (typeof record.name !== "string") return undefined;
+	const bytes = typeof record.bytes === "number" ? record.bytes : undefined;
+	const source = record.source;
+	if (typeof source !== "object" || source === null || Array.isArray(source)) return undefined;
+	const where = source as Record<string, unknown>;
+	if (typeof where.path !== "string") return undefined;
+	if (typeof where.library === "string" && typeof where.libraryId === "string") {
+		return {
+			source: { library: where.library, libraryId: where.libraryId, path: where.path },
+			name: record.name,
+			...(bytes === undefined ? {} : { bytes }),
+		};
+	}
+	if (typeof where.node === "string" && typeof where.nodeId === "string") {
+		return {
+			source: { node: where.node, nodeId: where.nodeId, path: where.path },
+			name: record.name,
+			...(bytes === undefined ? {} : { bytes }),
+		};
+	}
+	return undefined;
+}

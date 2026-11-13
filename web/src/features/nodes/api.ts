@@ -255,6 +255,9 @@ export function useNodeFileSource(nodeId: string): FileSource {
 					updatedAt: file.mtime,
 				};
 			},
+			download(path) {
+				return `/api${base}/file?path=${encodeURIComponent(`/${path}`)}`;
+			},
 			async preview(path) {
 				const response = await fetch(`/api${base}/file?path=${encodeURIComponent(`/${path}`)}&preview=1`, {
 					credentials: "same-origin",

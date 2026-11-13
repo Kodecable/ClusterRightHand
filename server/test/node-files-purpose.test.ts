@@ -6,6 +6,7 @@ import type { TaskListQuery } from "@crh/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Cluster, TaskView } from "../src/cluster/cluster.ts";
 import type { CreateTaskInput } from "../src/cluster/types.ts";
+import { findLibraryByRef } from "../src/library/library.ts";
 import type { TransferLocationJson } from "../src/library/transfer-location.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -64,7 +65,9 @@ function view(overrides: Partial<TaskView>): TaskView {
 function fakeCluster(root: string) {
 	const created: CreateTaskInput[] = [];
 	const tasks = new Map<string, TaskView>();
+	const cancelled: string[] = [];
 	let pulled: Buffer = Buffer.from("png");
+	let awaitingApproval = false;
 	const createTask = async (input: CreateTaskInput) => {
 		created.push(input);
 		const id = newId();
@@ -99,13 +102,29 @@ function fakeCluster(root: string) {
 		path: string;
 		nodeId: string;
 		purpose?: string;
+		maxBytes?: number;
 	}) => {
 		created.push({
 			...input,
-			spec: { kind: "file.pull", path: input.path, maxBytes: 0, endpoint: { kind: "crhs", transferId: "x" } },
+			spec: {
+				kind: "file.pull",
+				path: input.path,
+				maxBytes: input.maxBytes ?? 0,
+				endpoint: { kind: "crhs", transferId: "x" },
+			},
 			actor: { type: "user", id: "u1", onBehalfOfUserId: "u1" },
 		} as never);
 		if (input.location.kind !== "staging") throw new Error("not staging");
+		if (awaitingApproval) {
+			const waiting = view({
+				id: newId(),
+				kind: "file.pull",
+				purpose: input.purpose ?? null,
+				state: "awaiting_approval",
+			});
+			tasks.set(waiting.id, waiting);
+			return waiting;
+		}
 		await writeFile(join(root, input.location.path), pulled);
 		const task = view({
 			id: newId(),
@@ -127,7 +146,8 @@ function fakeCluster(root: string) {
 		async waitTask(id: string) {
 			return tasks.get(id);
 		},
-		async cancelTask() {
+		async cancelTask(id: string) {
+			cancelled.push(id);
 			return true;
 		},
 		stagingLocation() {
@@ -139,9 +159,13 @@ function fakeCluster(root: string) {
 	return {
 		cluster,
 		created,
+		cancelled,
 		tasks,
 		setPulled(data: Buffer) {
 			pulled = data;
+		},
+		setAwaitingApproval(value: boolean) {
+			awaitingApproval = value;
 		},
 	};
 }
@@ -263,9 +287,60 @@ describe("node file browsing", () => {
 	});
 
 	it("refuses a preview that is not one of the four image types", async () => {
-		fake.setPulled(Buffer.from("plain text"));
+		const bytes = Buffer.from("plain text");
+		fake.setPulled(bytes);
 		const res = await call(app, `/api/nodes/${nodeId}/file?path=/srv/a.txt&preview=1`, { cookie });
 		expect(res.status).toBe(400);
+		// The refusal is JSON: the file's Content-Length must not have been set before the check.
+		expect(res.headers.get("content-type")).toContain("application/json");
+		expect(res.headers.get("content-length")).not.toBe(String(bytes.length));
+		// The staging file is discarded once the preview fails.
+		const staging = join(root, (fake.created[0] as unknown as { location: { path: string } }).location.path);
+		await expect(readFile(staging)).rejects.toThrow();
+	});
+
+	it("downloads a node file as an attachment within the user's library limit and cleans staging", async () => {
+		const bytes = Buffer.from("hello node");
+		fake.setPulled(bytes);
+		const res = await call(app, `/api/nodes/${nodeId}/file?path=/srv/report.txt`, { cookie });
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("application/octet-stream");
+		expect(res.headers.get("content-length")).toBe(String(bytes.length));
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(res.headers.get("content-security-policy")).toBe("sandbox");
+		expect(res.headers.get("content-disposition")).toContain("attachment");
+		expect(res.headers.get("content-disposition")).toContain("report.txt");
+		expect(Buffer.from(await res.arrayBuffer())).toEqual(bytes);
+		expect(fake.created[0]?.privileged ?? false).toBe(false);
+		expect(fake.created[0]).toMatchObject({ purpose: "browse", spec: { kind: "file.pull", path: "/srv/report.txt" } });
+		// A download stages at most the user's own library one-file limit; it is not pinned to a preview size.
+		const own = await findLibraryByRef(db, "user:alice");
+		expect((fake.created[0] as unknown as { spec: { maxBytes: number } }).spec.maxBytes).toBe(own?.row.max_file_bytes);
+		expect((fake.created[0] as unknown as { spec: { maxBytes: number } }).spec.maxBytes).toBeGreaterThan(
+			20 * 1024 * 1024,
+		);
+		const staging = join(root, (fake.created[0] as unknown as { location: { path: string } }).location.path);
+		await expect(readFile(staging)).rejects.toThrow();
+
+		// Without node access the file does not exist as far as the caller is concerned, and nothing is pulled.
+		await createUser(db, { username: "bob", kind: "member", password: "bob-password" });
+		const bobCookie = await login(app, "bob", "bob-password");
+		const denied = await call(app, `/api/nodes/${nodeId}/file?path=/srv/report.txt`, { cookie: bobCookie });
+		expect(denied.status).toBe(404);
+		expect(fake.created).toHaveLength(1);
+	});
+
+	it("points at the approval when the pull cannot run yet", async () => {
+		fake.setAwaitingApproval(true);
+		const res = await call(app, `/api/nodes/${nodeId}/file?path=/srv/report.txt`, { cookie });
+		expect(res.status).toBe(409);
+		const body = (await res.json()) as { error: string };
+		expect(body.error).toContain("needs approval");
+		expect(body.error).toMatch(/\/approvals\/tasks\//);
+		// The browser request is over: the waiting task is cancelled instead of being left to run later.
+		expect(fake.cancelled).toHaveLength(1);
+		const staging = join(root, (fake.created[0] as unknown as { location: { path: string } }).location.path);
+		await expect(readFile(staging)).rejects.toThrow();
 	});
 
 	it("sets no purpose through the task API and lists purpose tasks only on request", async () => {

@@ -1645,11 +1645,14 @@ msgid "Done"
 msgstr "完成"
 
 #: src/components/file-manager/file-list.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Download"
 msgstr "下载"
 
+#. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
+#: src/features/sessions/tool-card.tsx
 msgid "Download {0}"
 msgstr "下载 {0}"
 
@@ -4768,6 +4771,10 @@ msgstr "正在上传文件"
 #: src/features/nodes/pages.tsx
 msgid "Use \"New node\" to enrol a crha client, or \"New SSH node\" for an SSH target."
 msgstr "使用“新建节点”注册 crha 客户端，或使用“新建 SSH 节点”添加 SSH 目标。"
+
+#: src/features/users/new-user-dialog.tsx
+msgid "Use 1–64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter."
+msgstr "使用 1–64 个字符，可为 a-z、0-9、'.'、'_' 或 '-'，且以字母开头。"
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Use at least 8 characters, or leave it empty."

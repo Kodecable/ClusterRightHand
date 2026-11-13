@@ -3,7 +3,7 @@ import { login, mockApi, nodeView } from "./helpers";
 
 const NODE = nodeView({ id: "node-1", name: "worker-01" });
 
-test("the node Files tab lists and navigates with no upload or mutation actions", async ({ page }) => {
+test("the node Files tab lists, downloads and navigates with no upload or mutation actions", async ({ page }) => {
 	await mockApi(page, {
 		state: {
 			nodes: [NODE],
@@ -24,10 +24,13 @@ test("the node Files tab lists and navigates with no upload or mutation actions"
 	const table = page.getByRole("table", { name: "Files in worker-01" });
 	await expect(table).toContainText("readme.txt");
 	await expect(table).toContainText("etc");
-	// Nodes have no upload, download, delete or rename yet.
+	// Nodes have no upload, delete or rename yet; a file downloads through its page endpoint.
 	await expect(page.getByTestId("file-upload")).toHaveCount(0);
 	const manager = page.getByTestId("node-file-manager");
-	await expect(manager.getByRole("button", { name: /^Download/ })).toHaveCount(0);
+	await expect(manager.getByRole("button", { name: "Download readme.txt" })).toHaveAttribute(
+		"href",
+		"/api/nodes/node-1/file?path=%2Freadme.txt",
+	);
 	await expect(manager.getByRole("button", { name: /^Delete/ })).toHaveCount(0);
 
 	await page.getByRole("button", { name: "etc", exact: true }).click();

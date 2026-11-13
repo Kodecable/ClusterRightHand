@@ -385,6 +385,16 @@ export async function endTask(core: ClusterCore, id: string, end: TaskEnd): Prom
 	// The task no longer runs, so its transfer id may be used again. Until this point it could
 	// open one data connection only (doc/design/protocol.md "Data connections").
 	if (updated) await forgetTransfer(core, id);
+	// A transfer can end without the node's task.exit (cancelled, unknown, node deleted). Close its
+	// data connection and drop the pending write: only task.exit commits a pull's bytes.
+	const transfer = updated ? core.dataTransfers.get(id) : undefined;
+	if (transfer) {
+		core.dataTransfers.delete(id);
+		transfer.close();
+		await transfer.write?.discard().catch((err: unknown) => {
+			console.error(`task ${id}: discarding the transfer write failed:`, err);
+		});
+	}
 	if (end.live === "drop") dropLive(core, id);
 	else if (end.live === "keep") keepUnknownOutput(core, id);
 	if (end.notify !== false) core.notify(id);

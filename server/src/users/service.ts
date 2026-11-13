@@ -22,7 +22,7 @@ export type { UserKind, UserStatus };
 /** The fields of a user that may leave the server; the API's `User`. */
 export type PublicUser = User;
 
-const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+const USERNAME_RE = /^[a-z][a-z0-9._-]{0,63}$/;
 export const MIN_PASSWORD_LENGTH = 8;
 
 export function toPublicUser(row: Omit<Selectable<UsersTable>, "password_hash">): PublicUser {
@@ -65,9 +65,7 @@ export async function createUser(
 ): Promise<PublicUser> {
 	const username = input.username.trim().toLowerCase();
 	if (!USERNAME_RE.test(username)) {
-		throw new UserError(
-			"username must be 1-64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter or digit",
-		);
+		throw new UserError("username must be 1-64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter");
 	}
 	if (input.password !== undefined) validatePassword(input.password);
 	const orgId = await defaultOrgId(db);

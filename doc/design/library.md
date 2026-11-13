@@ -41,7 +41,9 @@ The scope is deliberately narrow:
 ### Paths
 
 A file is addressed by a path within its library. Paths are flat keys: `/` separates segments for listing,
-and there are no directory objects. A directory exists while some file is under it.
+and there are no directory objects. A directory exists while some file is under it. A write is refused when
+the path is a directory (some file lies under `path/`) or when any ancestor of the path is a file;
+server-side auto-numbering treats both as taken.
 
 - Valid UTF-8, at most 1024 bytes, no leading or trailing `/`, no empty, `.` or `..` segments, no control
   characters.
@@ -79,6 +81,11 @@ One backend serves all libraries, configured in `crhs.toml`:
 A backend implements four streaming operations: put, get, delete and list (for the orphan sweep). Each row
 records its backend, so a later migration can move objects without guessing.
 
+Placement is each backend's own strategy: an object lives under one level of two hex characters taken from
+its key (`<first two>/<full key>`, and `cache/<first two>/<key>` in the image cache area). This spreads
+objects over at most 256 directories or collections, keeping a directory's entries and a PROPFIND response
+small; empty shards are created on demand and kept, never removed.
+
 ### Limits
 
 Each library has three limits that administrators can change: the number of files, the size of one file,
@@ -98,8 +105,10 @@ and the total size. A new library copies them once from the defaults in System s
 - Changing the defaults does not change existing libraries.
 - The one-file limit is checked before an upload starts when its size is known. The file-count and
   total limits are checked when the upload commits, by one conditional update that adds the new usage
-  only if the library stays within its limits; no row lock is needed on SQLite or PostgreSQL. When two
-  uploads race, the one that commits second fails and its object is discarded.
+  only if the library stays within its limits. The commit takes the library row lock before reading the
+  target it replaces, so its byte delta and old object key are read under that lock; deletes and moves
+  take the lock too. When two uploads race, the one that commits second fails and its object is
+  discarded.
 
 ## File plane
 
@@ -116,7 +125,8 @@ audit and retention apply as they do to `file.read` and `file.write`.
   with `file.write`'s meaning.
 - `file.pull` carries `max_bytes`, the most the destination accepts; the node refuses a larger file with
   `too_large` before sending anything. Its result reports the size and SHA-256 it sent, and crhs checks
-  the received bytes against them.
+  the received bytes against them. crhs also enforces `max_bytes` itself at the first byte past it, so a
+  node that sends more than it declared cannot fill crhs's disk.
 - The transfer endpoint's crhs-side location (a staging file, later a library object) is stored with the
   task, so a transfer waiting for approval survives a crhs restart. A task group stores the shared source
   location too: every member has its own transfer id and location, while node-to-nodes members all read
@@ -150,8 +160,10 @@ crhs schedules transfers; nodes keep no queue:
 | Per crhs | 16 | 256 |
 
 A transfer that finds the queue full fails with `busy` at once rather than waiting. crha refuses a second
-concurrent transfer with `busy` as well, as a backstop. A staged copy counts as one transfer per leg. With
-one transfer per node, a large transfer delays the next one on that node, including a small `view_image`.
+concurrent transfer with `busy` as well, as a backstop; crhs retries that refusal for a few seconds,
+because it frees a node's slot when the task ends while the node may still be finishing the previous
+transfer. A staged copy counts as one transfer per leg. With one transfer per node, a large transfer
+delays the next one on that node, including a small `view_image`.
 
 ### SSH nodes
 
@@ -200,13 +212,33 @@ session's tool descriptions are registered once per server, so its prompt carrie
 
 | Tool | Behavior |
 |---|---|
-| `copy_file` | Copies one file. The source is `{ node, path }` or `{ library, path }`; the destination is `targets` plus `path`, or `library` plus `path`. Takes `overwrite`, and `mode`, `owner`, `group`, `privileged` for node destinations. Blocks like the other file tools. |
+| `copy_file` | Copies one file. The source is `{ node, path }` or `{ library, path }`; the destination is `targets` plus `path`, or `library` plus `path`. Takes `overwrite`, and `mode`, `owner`, `group`, `privileged` for node destinations. With `to_user: true` it copies nothing and offers the file to the user ([Deliveries](#deliveries)). Blocks like the other file tools. |
 | `view_image` | Gives the model one image from `{ node, path }` or `{ library, path }`. |
 | `list_dir`, `stat` | Also accept `library` instead of `node`. |
 
 - `read_file`, `write_file` and `edit_file` stay node-only, since a library has no partial reads. To read a
   library file, copy it to a node.
 - The tools are shared with MCP. Over MCP, `library` reaches the libraries of the token's user.
+
+### Deliveries
+
+A file can be handed to the session's user without copying it: `copy_file` takes `to_user: true` instead
+of a destination. Exactly one of `targets`, `library` and `to_user` is required, and with `to_user` the
+destination `path`, `mode`, `owner`, `group`, `privileged` and `overwrite` are invalid.
+
+- **Nothing is transferred.** The tool stats the source (a library stat, or a `file.stat` task on the node
+  through the ordinary rules, approvals included) so the model learns whether the file exists and how
+  large it is. A missing file is the ordinary error result.
+- The result carries `details.delivery = { source, name, bytes }`, where `source` is
+  `{ library, libraryId, path }` or `{ node, nodeId, path }`; the model-facing text says the file was
+  offered to the user for download.
+- The WebUI tool card shows the name, the source (library reference or node name) and the path, with a
+  **Download** button. A library source is resolved by its id, so a renamed group keeps the link. It
+  downloads the path as it is when clicked: no size, SHA-256 or version is pinned.
+- Permission is decided at click time by the ordinary rules for the clicking user: a library source uses
+  the library file endpoint and needs library access, and a node source uses
+  `GET /api/nodes/:id/file?path=`, which runs a `file.pull` for that user (see [WebUI and API](#webui-and-api)).
+  A user who cannot reach either gets the same 404 as a missing resource.
 
 ### view_image
 
@@ -263,8 +295,9 @@ Every attachment goes to a library; a message never carries image bytes.
 - The input is placed as a `crh.user_input` entry. Its model content is a list of separate text blocks:
   the typed text first, then one block per attachment. Each attachment block starts with "The user
   uploaded the file <name> (<size>), saved to <library> at <path>." The entry's `data` lists the
-  attachments (library, path, name, size, media type, SHA-256, whether inlined) for the WebUI, which reads
-  the typed text from the first block and the attachments from `data`. Nothing parses message text.
+  attachments (library reference and id, path, name, size, media type, SHA-256, whether inlined) for the
+  WebUI, which reads the typed text from the first block and the attachments from `data`. Nothing parses
+  message text.
 - **Short text is also inlined.** A file that is valid UTF-8 without NUL bytes and at most 32 KiB has its
   content appended to its block, after the note. At most 64 KiB is inlined per message; files past that
   get the note only, saying the content was not included and can be copied to a node and read there.
@@ -272,9 +305,10 @@ Every attachment goes to a library; a message never carries image bytes.
   note or the typed text, and needs no escaping.
 - An image gets the note only; the agent calls `view_image` to see it. Images and models without image
   input therefore take one path.
-- The transcript shows attachments as chips from `data`, linking to the library file; a chip is inactive
-  with a reason when the file is gone or the viewer cannot reach the library. Deleting a session leaves
-  its attachments in the library.
+- The transcript shows attachments as chips from `data`, linking to the library file. A chip resolves the
+  library by its id, so a renamed group keeps the link; an entry written before ids were recorded falls
+  back to its reference. A chip is inactive with a reason when the file is gone or the viewer cannot reach
+  the library. Deleting a session leaves its attachments in the library.
 
 ## WebUI and API
 
@@ -287,6 +321,12 @@ Every attachment goes to a library; a message never carries image bytes.
   JPEG, GIF and WebP, by the sniffed type, are served inline for preview, and only up to 20 MiB; everything
   else, SVG and HTML included, is served as an attachment. Library files are served from the WebUI's
   origin, so an inline SVG or HTML file would be stored cross-site scripting.
+- A node file downloads through `GET /api/nodes/:id/file?path=` (without `preview=1`, which stays an image
+  preview). As the signed-in user and unprivileged, the endpoint runs a `file.pull` with purpose `browse`
+  into staging, capped at the user's own library one-file limit, and streams the result as an attachment
+  with the same safe headers; the staging file is deleted afterwards. Rules, approvals and audit apply as
+  for any task: if the pull needs approval, the request returns an error naming the approval page instead
+  of waiting, and cancels the waiting task.
 
 Uploads, overwrites, moves and deletions are audited with the library, path, size and SHA-256. Transfers
 to and from nodes are audited as tasks.

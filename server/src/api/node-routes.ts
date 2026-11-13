@@ -20,6 +20,7 @@ import {
 import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
 import { trustView } from "../cluster/trust.ts";
 import { trustWarningsForRows } from "../cluster/trust-warnings.ts";
+import { findUserLibrary } from "../library/library.ts";
 import { INLINE_MEDIA_TYPES, INLINE_PREVIEW_MAX_BYTES, sniffMagic } from "../library/media-type.ts";
 import { openTransferLocation, type TransferContext, type TransferLocationJson } from "../library/transfer-location.ts";
 import type { Db } from "../storage/db.ts";
@@ -90,10 +91,16 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return { type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId };
 	};
 
-	const waitForBrowse = async (c: Context<AppEnv>, taskId: string): Promise<TaskView | undefined> => {
+	const waitForBrowse = async (
+		c: Context<AppEnv>,
+		taskId: string,
+		wait: { stopAtApproval?: boolean } = {},
+	): Promise<TaskView | undefined> => {
 		const signal = c.req.raw.signal;
 		let task = await options.cluster?.getTask(taskId);
 		while (task && !TERMINAL.has(task.state) && !options.cluster?.waitsEnded) {
+			// A download cannot wait minutes for a decision: hand the approval link back instead.
+			if (wait.stopAtApproval === true && task.state === "awaiting_approval") return task;
 			if (signal.aborted) {
 				await options.cluster?.cancelTask(taskId, "the file browser request ended", browseActor(c));
 				return options.cluster?.getTask(taskId);
@@ -181,26 +188,35 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	});
 
 	/**
-	 * A node file's image preview: one `file.pull` with purpose `browse` into staging, then a check of the
-	 * sniffed type and size before the bytes stream with the same safe headers as a library preview.
+	 * A node file for the browser (doc/design/webui.md "Node pages"): `preview=1` streams an image inline,
+	 * after checking the sniffed type and size; without it the file streams as an attachment. Both are one
+	 * `file.pull` with purpose `browse` into staging, as the signed-in user and unprivileged, so rules,
+	 * approvals and audit apply; a download is capped at the user's own library one-file limit.
 	 */
 	app.get("/nodes/:id/file", async (c) => {
 		const nodeId = c.req.param("id");
 		if (!(await access(c, nodeId))) return jsonError(c, 404, "no such node");
 		if (!options.cluster) return jsonError(c, 503, "the cluster is not running");
-		if (c.req.query("preview") !== "1") throw new UserError("preview=1 is required");
+		const preview = c.req.query("preview") === "1";
 		const path = browsePath(c.req.query("path"), "");
 		if (path === "") throw new UserError("path is required");
+		const own = await findUserLibrary(db, c.get("user").userId);
+		if (!own) throw new UserError("the acting user has no library");
 		const location = options.cluster.stagingLocation();
 		const task = await options.cluster.pullFile({
 			nodeId,
 			path,
-			maxBytes: INLINE_PREVIEW_MAX_BYTES,
+			maxBytes: preview ? INLINE_PREVIEW_MAX_BYTES : own.row.max_file_bytes,
 			location,
 			actor: browseActor(c),
 			purpose: "browse",
 		});
-		const done = await waitForBrowse(c, task.id);
+		const done = await waitForBrowse(c, task.id, { stopAtApproval: !preview });
+		if (done?.state === "awaiting_approval") {
+			await options.cluster.cancelTask(task.id, "the file browser request ended", browseActor(c));
+			await discardLocation(options.cluster.transferContext(), location);
+			return jsonError(c, 409, `the file pull needs approval; approve it at /approvals/tasks/${task.id}`);
+		}
 		const failure = browseFailure(c, done);
 		if (failure) {
 			await discardLocation(options.cluster.transferContext(), location);
@@ -213,21 +229,46 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		}
 		const opened = openTransferLocation(options.cluster.transferContext(), location);
 		const stream = opened.openRead();
+		const name = path.slice(path.lastIndexOf("/") + 1);
+		if (!preview) {
+			c.header("Content-Length", String(result.size));
+			c.header("X-Content-Type-Options", "nosniff");
+			c.header("Content-Security-Policy", "sandbox");
+			c.header("Content-Type", "application/octet-stream");
+			c.header("Content-Disposition", contentDisposition("attachment", name));
+			const body = Readable.from(
+				(async function* () {
+					try {
+						for await (const chunk of stream) yield chunk as Uint8Array;
+					} finally {
+						await opened.discard();
+					}
+				})(),
+			);
+			return c.body(Readable.toWeb(body) as unknown as ReadableStream);
+		}
 		const iterator = stream[Symbol.asyncIterator]();
-		let head: Buffer;
-		const first = await iterator.next();
-		head = first.done ? Buffer.alloc(0) : Buffer.from(first.value as Uint8Array);
+		let first: IteratorResult<unknown>;
+		try {
+			first = await iterator.next();
+		} catch (err) {
+			stream.destroy();
+			await opened.discard();
+			throw err;
+		}
+		const head = first.done ? Buffer.alloc(0) : Buffer.from(first.value as Uint8Array);
 		const mime = sniffMagic(head.subarray(0, 16));
 		if (mime === undefined || !INLINE_MEDIA_TYPES.has(mime) || result.size > INLINE_PREVIEW_MAX_BYTES) {
 			stream.destroy();
 			await opened.discard();
 			throw new UserError("only PNG, JPEG, GIF and WebP images up to 20 MiB can be previewed");
 		}
-		const name = path.slice(path.lastIndexOf("/") + 1);
-		c.header("Content-Type", mime);
+		// Only a preview that passed the sniff is an image: headers set before the check would ride
+		// along on the JSON refusal with the file's Content-Length.
 		c.header("Content-Length", String(result.size));
 		c.header("X-Content-Type-Options", "nosniff");
 		c.header("Content-Security-Policy", "sandbox");
+		c.header("Content-Type", mime);
 		c.header("Content-Disposition", contentDisposition("inline", name));
 		const body = Readable.from(
 			(async function* () {

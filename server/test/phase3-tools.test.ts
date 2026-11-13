@@ -91,11 +91,44 @@ function fakeCluster(transferRoot: string) {
 	const tasks = new Map<string, TaskView>();
 	const pushes: { path: string; location: unknown }[] = [];
 	const pulls: { path: string }[] = [];
+	const stats: { nodeId: string; path: string }[] = [];
 	let staged: Uint8Array = new Uint8Array(0);
+	let statSize = 0;
+	let statMissing = false;
 	const cluster = {
 		libraryBackend: undefined,
 		transferContext: () => ({ root: transferRoot }),
 		stagingLocation: () => newStagingLocation(),
+		async createTask(input: { nodeId: string; spec: { kind: string; path: string } }) {
+			stats.push({ nodeId: input.nodeId, path: input.spec.path });
+			const view = statMissing
+				? task({
+						nodeId: input.nodeId,
+						kind: "file.stat",
+						state: "rejected",
+						errorCode: "not_found",
+						errorMessage: `no such file ${input.spec.path}`,
+					})
+				: task({
+						nodeId: input.nodeId,
+						kind: "file.stat",
+						result: {
+							kind: "file.stat",
+							path: input.spec.path,
+							type: "file",
+							size: statSize,
+							mode: "0644",
+							uid: 0,
+							gid: 0,
+							owner: "root",
+							group: "root",
+							mtime: "2026-01-01T00:00:00Z",
+							linkTarget: null,
+						},
+					});
+			tasks.set(view.id, view);
+			return view;
+		},
 		async pullFile(input: { path: string; location: { path: string } }) {
 			pulls.push({ path: input.path });
 			const target = join(transferRoot, input.location.path);
@@ -183,8 +216,13 @@ function fakeCluster(transferRoot: string) {
 		tasks,
 		pushes,
 		pulls,
+		stats,
 		setStaged(data: Uint8Array) {
 			staged = data;
+		},
+		setStat(size: number, missing = false) {
+			statSize = size;
+			statMissing = missing;
 		},
 	};
 }
@@ -392,6 +430,94 @@ describe("library tools", () => {
 		).rejects.toThrow();
 	});
 
+	it("refuses a copy onto a directory or under a file", async () => {
+		await put("group:team", "dir/child.txt", Buffer.from("child"));
+		await put("group:team", "plain.txt", Buffer.from("plain"));
+		const source = { library: "user:alice", path: "docs/a.txt" };
+
+		await expect(
+			tool("copy_file").handler({ source, library: "group:team", path: "dir" } as never, context),
+		).rejects.toThrow("a directory already exists at dir");
+		await expect(
+			tool("copy_file").handler({ source, library: "group:team", path: "plain.txt/child.txt" } as never, context),
+		).rejects.toThrow("a file already exists at plain.txt");
+	});
+
+	it("offers a library file to the user without copying it", async () => {
+		const source = { library: "user:alice", path: "docs/a.txt" };
+		const result = await tool("copy_file").handler({ source, to_user: true } as never, context);
+		expect(result.isError).toBe(false);
+		const library = await findLibraryByRef(db, "user:alice");
+		expect(result.details?.delivery).toEqual({
+			source: { library: "user:alice", libraryId: library?.row.id, path: "docs/a.txt" },
+			name: "a.txt",
+			bytes: 11,
+		});
+		expect(textOf(result)).toContain("copy_file offered a.txt, 11 bytes, to the user for download");
+		expect(textOf(result)).toContain("from user:alice at docs/a.txt");
+		// Nothing was copied: the group library is untouched.
+		expect(
+			await findLibraryFile(db, (await findLibraryByRef(db, "group:team"))?.row.id as string, "a.txt"),
+		).toBeUndefined();
+
+		// A missing source is the ordinary stat refusal; no delivery is recorded for a file that is not there.
+		await expect(
+			tool("copy_file").handler(
+				{ source: { library: "user:alice", path: "docs/missing.txt" }, to_user: true } as never,
+				context,
+			),
+		).rejects.toThrow("no such library file");
+	});
+
+	it("validates the to_user destination arguments", async () => {
+		const source = { library: "user:alice", path: "docs/a.txt" };
+		const offer = (extra: Record<string, unknown>) =>
+			tool("copy_file").handler({ source, to_user: true, ...extra } as never, context);
+		await expect(offer({ targets: ["web-1"] })).rejects.toThrow("exactly one destination");
+		await expect(offer({ library: "group:team" })).rejects.toThrow("exactly one destination");
+		await expect(offer({ path: "copy.txt" })).rejects.toThrow("path is not allowed with to_user");
+		await expect(offer({ overwrite: true })).rejects.toThrow("overwrite is not allowed with to_user");
+		await expect(offer({ mode: "0644" })).rejects.toThrow("mode is not allowed with to_user");
+		await expect(offer({ owner: "root" })).rejects.toThrow("owner is not allowed with to_user");
+		await expect(offer({ group: "admins" })).rejects.toThrow("group is not allowed with to_user");
+		await expect(offer({ privileged: true })).rejects.toThrow("privileged is not allowed with to_user");
+		// A copy still needs a destination path.
+		await expect(tool("copy_file").handler({ source, targets: ["web-1"] } as never, context)).rejects.toThrow(
+			"give a destination path",
+		);
+	});
+
+	it("offers a node file after a stat, and reports a missing one", async () => {
+		const nodeId = await addNode(db, alice.userId, "web-1");
+		const fake = fakeCluster(root);
+		fake.setStat(42);
+		const result = await tool("copy_file").handler(
+			{ source: { node: "web-1", path: "/srv/a.txt" }, to_user: true } as never,
+			{
+				...context,
+				cluster: fake.cluster,
+			},
+		);
+		expect(result.isError).toBe(false);
+		expect(fake.stats).toEqual([{ nodeId, path: "/srv/a.txt" }]);
+		expect(result.details?.delivery).toEqual({
+			source: { node: "web-1", nodeId, path: "/srv/a.txt" },
+			name: "a.txt",
+			bytes: 42,
+		});
+		expect(textOf(result)).toContain("to the user for download");
+		expect(textOf(result)).toContain("from web-1 at /srv/a.txt");
+
+		fake.setStat(0, true);
+		const missing = await tool("copy_file").handler(
+			{ source: { node: "web-1", path: "/srv/missing.txt" }, to_user: true } as never,
+			{ ...context, cluster: fake.cluster },
+		);
+		expect(missing.isError).toBe(true);
+		expect(jsonOf(missing)).toMatchObject({ error: { code: "not_found" } });
+		expect(missing.details?.delivery).toBeUndefined();
+	});
+
 	it("copies a library file to nodes", async () => {
 		const nodeId = await addNode(db, alice.userId, "web-1");
 		const fake = fakeCluster(root);
@@ -520,6 +646,23 @@ describe("view_image", () => {
 		});
 		expect(noImages.isError).toBe(true);
 		expect(textOf(noImages)).toContain("image_input_unavailable");
+	});
+
+	it("refuses an oversized library image without reading its object", async () => {
+		const image = png(20, 20, 200_000);
+		await put("huge.png", image);
+		const record = await findLibraryByRef(db, "user:alice");
+		if (!record) throw new Error("no alice library");
+		const row = await findLibraryFile(db, record.row.id, "huge.png");
+		if (!row) throw new Error("no huge.png row");
+		// The object is gone: a check that reads the bytes first would fail as a read error instead.
+		await backend.delete(row.object_key);
+		const result = await tool("view_image").handler({ library: "user:alice", path: "huge.png" } as never, {
+			...context,
+			imageLimits: { supported: true, maxWidth: 2000, maxHeight: 2000, maxBase64Bytes: 10 },
+		});
+		expect(result.isError).toBe(true);
+		expect(textOf(result)).toContain("image_too_large");
 	});
 
 	it("pulls a node image into staging and caches it", async () => {

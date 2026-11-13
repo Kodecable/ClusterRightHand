@@ -100,9 +100,18 @@ interface StartFollowUp {
 	onAuthorizationRejected?: (err: RemoteError) => Promise<void>;
 }
 
+/** How often, and how many times, a transfer's `busy` refusal is retried: crhs frees its slot first. */
+const TRANSFER_BUSY_RETRY_MS = 250;
+const TRANSFER_BUSY_RETRIES = 20;
+
+function isTransferStart(start: TaskStart): boolean {
+	return start.spec.kind === "file.push" || start.spec.kind === "file.pull";
+}
+
 /**
- * Sends `task.start` exactly once, then, once accepted, the input as pipelined `task.input` requests.
- * See doc/design/execution.md "No duplicate execution and authorization retry".
+ * Sends `task.start`, then, once accepted, the input as pipelined `task.input` requests. A transfer
+ * refused with `busy` is retried while the node finishes its previous transfer; no other refusal is
+ * resent. See doc/design/execution.md "No duplicate execution and authorization retry".
  */
 export async function sendTaskStart(
 	core: ClusterCore,
@@ -124,7 +133,26 @@ export async function sendTaskStart(
 	// task.start waits for the node's answer: it must not be sent from a task queue turn.
 	core.assertOutsideTaskTurn("task.start");
 	try {
-		await link.conn.peer.request("task.start", start);
+		for (let attempt = 0; ; attempt++) {
+			try {
+				await link.conn.peer.request("task.start", start);
+				break;
+			} catch (err) {
+				// crhs frees a node's transfer slot when the task ends, which can be before the node let
+				// its previous transfer go; the refusal means nothing ran, so waiting for the node to
+				// finish is retryable (doc/design/library.md "Data connections").
+				if (
+					err instanceof RemoteError &&
+					err.code === "busy" &&
+					isTransferStart(start) &&
+					attempt < TRANSFER_BUSY_RETRIES
+				) {
+					await new Promise<void>((resolve) => setTimeout(resolve, TRANSFER_BUSY_RETRY_MS));
+					continue;
+				}
+				throw err;
+			}
+		}
 	} catch (err) {
 		if (err instanceof ConnectionError) {
 			// The task stays dispatched; the grace timer reports dispatch_unconfirmed, never a retry.

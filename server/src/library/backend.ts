@@ -4,12 +4,12 @@
  * directory, `webdav` in a collection. Object keys are random and never derived from a path.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { once } from "node:events";
 import type { Dirent } from "node:fs";
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { LibraryConfig } from "../config.ts";
 import { createWebdavBackend } from "./webdav.ts";
 
@@ -42,6 +42,14 @@ export function newObjectKey(): string {
 	return randomBytes(16).toString("hex");
 }
 
+/**
+ * The one-level shard of an object key: its first two hex characters. A backend maps a key to
+ * `<shard>/<key>`, spreading the store over at most 256 shards (doc/design/library.md "Backends").
+ */
+export function objectShard(key: string): string {
+	return key.slice(0, 2);
+}
+
 /** An image cache key is the image's hex SHA-256, so one image has one object. */
 export function checkCacheKey(key: string): string {
 	if (!/^[0-9a-f]{64}$/.test(key)) throw new Error(`invalid image cache key ${JSON.stringify(key)}`);
@@ -68,29 +76,37 @@ class LocalLibraryBackend implements LibraryBackend {
 	}
 
 	#path(key: string): string {
-		return join(this.#root, checkObjectKey(key));
+		const name = checkObjectKey(key);
+		return join(this.#root, objectShard(name), name);
 	}
 
 	async put(key: string, source: Readable): Promise<{ size: number; sha256: string }> {
-		const target = this.#path(key);
+		return this.#writeObject(this.#path(key), source);
+	}
+
+	/**
+	 * Streams `source` to `target` through a hashing counter. `pipeline` owns every stream's errors:
+	 * a failing destination (ENOSPC, EACCES, EMFILE) rejects even while `source` is still being read,
+	 * where a bare `for await` would leave it unhandled and crash crhs.
+	 */
+	async #writeObject(target: string, source: Readable): Promise<{ size: number; sha256: string }> {
 		await mkdir(dirname(target), { recursive: true, mode: 0o700 });
 		const temp = `${target}.crh-part-${randomBytes(6).toString("hex")}`;
 		const hash = createHash("sha256");
 		let size = 0;
-		const out = createWriteStream(temp, { mode: 0o600 });
-		try {
-			for await (const chunk of source) {
+		const counter = new Transform({
+			transform(chunk, _encoding, callback) {
 				const bytes = Buffer.from(chunk);
 				size += bytes.length;
 				hash.update(bytes);
-				if (!out.write(bytes)) await once(out, "drain");
-			}
-			out.end();
-			await once(out, "finish");
+				callback(null, bytes);
+			},
+		});
+		try {
+			await pipeline(source, counter, createWriteStream(temp, { mode: 0o600 }));
 			await rename(temp, target);
 			return { size, sha256: hash.digest("hex") };
 		} catch (err) {
-			out.destroy();
 			await rm(temp, { force: true });
 			throw err;
 		}
@@ -103,77 +119,53 @@ class LocalLibraryBackend implements LibraryBackend {
 	async delete(key: string): Promise<void> {
 		// A crashed upload leaves `<key>.crh-part-…` behind; the sweep must be able to remove it too.
 		const name = /^[0-9a-f]{32}(?:\.crh-part-[0-9a-f]{12})?$/.test(key) ? key : checkObjectKey(key);
-		await rm(join(this.#root, name), { force: true });
+		await rm(join(this.#root, objectShard(name), name), { force: true });
 	}
 
 	async *list(): AsyncIterable<LibraryObject> {
-		let entries: Dirent[];
-		try {
-			entries = await readdir(this.#root, { withFileTypes: true });
-		} catch (err) {
-			if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
-			throw err;
-		}
-		for (const entry of entries) {
-			if (!entry.isFile()) continue;
-			try {
-				const info = await stat(join(this.#root, entry.name));
-				yield { key: entry.name, lastModified: info.mtimeMs };
-			} catch {
-				// The object vanished between readdir and stat; there is nothing to sweep.
-			}
-		}
+		yield* listShardedObjects(this.#root, /^[0-9a-f]{32}(?:\.crh-part-[0-9a-f]{12})?$/);
 	}
 
 	async putCache(key: string, source: Readable): Promise<{ size: number; sha256: string }> {
-		const target = join(this.#root, "cache", checkCacheKey(key));
-		await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-		const temp = `${target}.crh-part-${randomBytes(6).toString("hex")}`;
-		const hash = createHash("sha256");
-		let size = 0;
-		const out = createWriteStream(temp, { mode: 0o600 });
-		try {
-			for await (const chunk of source) {
-				const bytes = Buffer.from(chunk);
-				size += bytes.length;
-				hash.update(bytes);
-				if (!out.write(bytes)) await once(out, "drain");
-			}
-			out.end();
-			await once(out, "finish");
-			await rename(temp, target);
-			return { size, sha256: hash.digest("hex") };
-		} catch (err) {
-			out.destroy();
-			await rm(temp, { force: true });
-			throw err;
-		}
+		const name = checkCacheKey(key);
+		return this.#writeObject(join(this.#root, "cache", objectShard(name), name), source);
 	}
 
 	getCache(key: string): Readable {
-		return createReadStream(join(this.#root, "cache", checkCacheKey(key)));
+		const name = checkCacheKey(key);
+		return createReadStream(join(this.#root, "cache", objectShard(name), name));
 	}
 
 	async deleteCache(key: string): Promise<void> {
-		await rm(join(this.#root, "cache", checkCacheKey(key)), { force: true });
+		// Like delete: a crashed putCache leaves `<key>.crh-part-…` for the cache sweep.
+		const name = /^[0-9a-f]{64}(?:\.crh-part-[0-9a-f]{12})?$/.test(key) ? key : checkCacheKey(key);
+		await rm(join(this.#root, "cache", objectShard(name), name), { force: true });
 	}
 
 	async *listCache(): AsyncIterable<LibraryObject> {
-		const root = join(this.#root, "cache");
-		let entries: Dirent[];
-		try {
-			entries = await readdir(root, { withFileTypes: true });
-		} catch (err) {
-			if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
-			throw err;
-		}
-		for (const entry of entries) {
-			if (!entry.isFile() || !/^[0-9a-f]{64}$/.test(entry.name)) continue;
+		yield* listShardedObjects(join(this.#root, "cache"), /^[0-9a-f]{64}(?:\.crh-part-[0-9a-f]{12})?$/);
+	}
+}
+
+/** Lists the objects under `root`'s two-hex-character shard directories; anything else is left alone. */
+async function* listShardedObjects(root: string, namePattern: RegExp): AsyncIterable<LibraryObject> {
+	let shards: Dirent[];
+	try {
+		shards = await readdir(root, { withFileTypes: true });
+	} catch (err) {
+		if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+		throw err;
+	}
+	for (const shard of shards) {
+		if (!shard.isDirectory() || !/^[0-9a-f]{2}$/.test(shard.name)) continue;
+		const directory = join(root, shard.name);
+		for (const entry of await readdir(directory, { withFileTypes: true })) {
+			if (!entry.isFile() || !namePattern.test(entry.name)) continue;
 			try {
-				const info = await stat(join(root, entry.name));
+				const info = await stat(join(directory, entry.name));
 				yield { key: entry.name, lastModified: info.mtimeMs };
 			} catch {
-				// The entry vanished between readdir and stat.
+				// The object vanished between readdir and stat; there is nothing to sweep.
 			}
 		}
 	}

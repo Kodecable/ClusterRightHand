@@ -9,6 +9,18 @@ the `ssh2` interfaces, plus a live sshd when `CRH_TEST_SSH` is set.
 Tests lower Argon2id's cost to keep them fast; the password tests restore the production parameters
 where cost is what they test. Login tests disable the captcha except in the captcha suite.
 
+## Live WebDAV tests
+
+`test/library-webdav-live.test.ts` exercises the WebDAV backend against a real server when
+`CRH_TEST_WEBDAV_URL` is set; without it the suite is skipped. The variable is a URL with credentials
+pointing at an empty collection the test may write to; the test empties it, and empty shard collections
+remain. The server must be WebDAV Class 1 with PUT, GET, DELETE, MKCOL and PROPFIND Depth 1. From
+`server/`:
+
+```sh
+CRH_TEST_WEBDAV_URL=http://user:password@127.0.0.1:8080/ pnpm exec vitest run test/library-webdav-live.test.ts
+```
+
 ## Server end-to-end tests
 
 `server/test/e2e` runs the real server, the real Go client and the real agent runtime, with no HTTP or

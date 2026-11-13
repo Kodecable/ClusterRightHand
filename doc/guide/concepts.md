@@ -10,11 +10,12 @@ organization.
 
 ## Users, user groups and administrators
 
-A user has a unique username. Password login is currently the only way to sign in. SSH keys and
+A user has a unique username. It is trimmed and lower-cased and must start with a letter (then up to 63
+of `a-z`, `0-9`, `.`, `_` and `-`). Password login is currently the only way to sign in. SSH keys and
 Passkeys are used only to sign privileged-task authorizations.
 
-A user group is a named set of users that administrators maintain. You can grant node access to a
-group or share a session with it. User groups do not nest.
+A user group is a named set of users that administrators maintain. Its name follows the same rule. You
+can grant node access to a group or share a session with it. User groups do not nest.
 
 An administrator is a user who manages users, user groups, nodes, node groups, SSH credentials and
 model settings. Administrators can see every node, session and audit event without an access grant.

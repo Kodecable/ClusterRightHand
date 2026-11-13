@@ -228,6 +228,11 @@ export interface ChatAttachmentInput {
  */
 export interface ChatAttachment {
 	library: string;
+	/**
+	 * The library's id, so the WebUI resolves a renamed library by id instead of the (possibly stale)
+	 * reference; entries written before this field have none and use `library`.
+	 */
+	libraryId?: string;
 	path: string;
 	name: string;
 	bytes: number;

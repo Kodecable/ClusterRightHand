@@ -24,6 +24,11 @@ Nodes are organized by node groups rather than tags. Wherever a set of nodes is 
 list of node and node group references. Node groups are crhs data: they contain only nodes, do not
 nest, and are not configured on the node.
 
+A username and a user group name are trimmed, lower-cased and must start with a letter:
+`^[a-z][a-z0-9._-]{0,63}$` (`server/src/users/service.ts`, `server/src/users/user-groups.ts`).
+Existing rows are not migrated or rechecked: users cannot be renamed, and a group name is checked again
+on its next rename.
+
 ## User types
 
 There are no roles and no fine-grained permissions, only two user types:

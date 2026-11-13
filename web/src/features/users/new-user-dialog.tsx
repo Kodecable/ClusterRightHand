@@ -15,6 +15,9 @@ interface NewUserValues {
 	password: string;
 }
 
+/** The server's username rule, applied after trimming and lower-casing (doc/design/access-control.md "User model"). */
+const USERNAME_RE = /^[a-z][a-z0-9._-]{0,63}$/;
+
 /** The "New user" dialog: name, kind and an optional initial password. */
 export function NewUserDialog({ onClose }: { onClose: () => void }) {
 	const { t } = useLingui();
@@ -22,7 +25,14 @@ export function NewUserDialog({ onClose }: { onClose: () => void }) {
 	const schema = useMemo(
 		() =>
 			z.object({
-				username: z.string().trim().min(1, t`A username is required.`),
+				username: z
+					.string()
+					.trim()
+					.min(1, t`A username is required.`)
+					.refine(
+						(value) => USERNAME_RE.test(value.toLowerCase()),
+						t`Use 1–64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter.`,
+					),
 				displayName: z.string().max(100, t`The display name must be at most 100 characters.`),
 				kind: z.enum(["admin", "member"]),
 				password: z
