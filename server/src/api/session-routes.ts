@@ -45,7 +45,7 @@ import { userActor } from "../audit/audit.ts";
 import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
-import { parseDisabledMcpServers } from "../extensions/servers.ts";
+import { parseDisabledExtensions } from "../extensions/store.ts";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import { type AttachmentLimits, attachmentContent, resolveAttachments } from "../sessions/attachments.ts";
@@ -250,7 +250,7 @@ const patchRoute = defineRoute({
 	method: "patch",
 	path: "/sessions/{id}",
 	tags: TAGS,
-	summary: "Change a session's title, model, rule preset, budget or disabled MCP servers (only the owner)",
+	summary: "Change a session's title, model, rule preset, budget or disabled extensions (only the owner)",
 	agent: "deny", // rule presets and the budget are guardrails
 	request: { params: SessionIdParamSchema, body: { required: true, ...json(SessionPatchBodySchema) } },
 	responses: {
@@ -674,8 +674,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			...(body.model === undefined ? {} : { model: parseModelRef(body.model) }),
 			...(rulePreset ? { rulePreset } : {}),
 			...(body.budgetRemaining !== undefined ? { budgetRemaining: parseQuota(body.budgetRemaining) } : {}),
-			...(body.disabledMcpServers !== undefined
-				? { disabledMcpServers: parseDisabledMcpServers(body.disabledMcpServers) }
+			...(body.disabledExtensions !== undefined
+				? { disabledExtensions: parseDisabledExtensions(body.disabledExtensions) }
 				: {}),
 		});
 		if (body.budgetRemaining !== undefined) {

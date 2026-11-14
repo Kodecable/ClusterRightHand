@@ -1,4 +1,4 @@
-import type { ApprovalList, TaskGroupView, TaskView } from "@crh/api";
+import type { ApprovalList, ExternalCallView, TaskGroupView, TaskView } from "@crh/api";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -21,15 +21,15 @@ const task = (id: string, createdAt: string, rootSessionId: string | null = "roo
 const group = (id: string, createdAt: string): TaskGroupView =>
 	({ id, createdAt, rootSessionId: "root" }) as TaskGroupView;
 
-const externalCall = (id: string, createdAt: string, rootSessionId = "root") =>
+const externalCall = (id: string, createdAt: string, rootSessionId = "root"): ExternalCallView =>
 	({
 		id,
 		createdAt,
 		rootSessionId,
-		server: "github",
+		extension: "github",
 		tool: "create_issue",
 		arguments: { title: "Bug" },
-		operation: { method: "mcp.write", target: "github/create_issue" },
+		operation: { method: "ext.write", target: "github/create_issue" },
 		annotations: null,
 		state: "awaiting_approval",
 		approval: { evaluation: { result: "require-approval", levels: [] } },
@@ -39,7 +39,21 @@ const externalCall = (id: string, createdAt: string, rootSessionId = "root") =>
 		handlerType: "user",
 		handlerSessionId: null,
 		finishedAt: null,
-	}) as never;
+	}) as ExternalCallView;
+
+const apiRequestCall = (id: string) =>
+	({
+		...externalCall(id, "2026-01-01T00:00:00.000Z"),
+		extension: "api",
+		tool: "api_request",
+		arguments: {
+			method: "POST",
+			path: "/api/sessions",
+			query: { scope: "mine" },
+			body: { title: "Bug" },
+		},
+		operation: { method: "api.write", target: "POST /api/sessions" },
+	}) as ExternalCallView;
 
 const quota = (sessionId: string, since: string) => ({
 	sessionId,
@@ -158,7 +172,7 @@ describe("SessionDecisionDock", () => {
 });
 
 describe("external call decision", () => {
-	test("shows the server, tool and arguments in the dock", async () => {
+	test("shows the extension, tool and arguments in the dock", async () => {
 		mockLookups();
 		const call = externalCall("call-1", "2026-01-01T00:00:00.000Z");
 		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call }]} />);
@@ -167,6 +181,21 @@ describe("external call decision", () => {
 		expect(within(dock).getByText("create_issue")).toBeInTheDocument();
 		expect(within(dock).getByTestId("external-call-arguments")).toHaveTextContent("Bug");
 		expect(within(dock).getByRole("button", { name: "Approve" })).toBeInTheDocument();
+	});
+
+	test("shows an api_request's method, path, query and body, and offers the route rule", async () => {
+		mockLookups();
+		const call = apiRequestCall("api-1");
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call }]} />);
+		const dock = await screen.findByTestId("session-decisions");
+		expect(within(dock).getByTestId("external-call-api-request")).toHaveTextContent("POST");
+		expect(within(dock).getByTestId("external-call-api-request")).toHaveTextContent("/api/sessions");
+		expect(within(dock).getByTestId("external-call-query")).toHaveTextContent("scope");
+		expect(within(dock).getByTestId("external-call-body")).toHaveTextContent("Bug");
+		fireEvent.click(within(dock).getByRole("tab", { name: "Always allow" }));
+		expect(within(dock).getByTestId("external-call-always-rule")).toHaveTextContent('"exact": "POST /api/sessions"');
+		fireEvent.click(within(dock).getByRole("radio", { name: "This route" }));
+		expect(within(dock).getByTestId("external-call-always-rule")).toHaveTextContent('"prefix": "POST /api/sessions"');
 	});
 });
 

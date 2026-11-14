@@ -198,15 +198,18 @@ simple choice; full rule sets let an agent restrict a subagent precisely.
 ### Rules
 
 A rule has an action (`allow`, `require-approval`, `deny`) and optional matchers: the method (`exec`,
-`file.read`, `file.write`, `mcp.read`, `mcp.write`), the nodes, whether the task is privileged, and an
+`file.read`, `file.write`, `ext.read`, `ext.write`, `api.read`, `api.write`), the nodes, whether the
+task is privileged, and an
 `exact` or `prefix` target, as defined in [Methods and targets](privilege.md#methods-and-targets). Each
 level also has a default for obligations no rule matches. The schema is in `packages/api/src/policy.ts`.
 
-External calls use `mcp.read` (a read-only tool on a server whose annotations are trusted) and
-`mcp.write` (every other tool). Their target is `<server>/<tool>`, so `prefix: "github/"` covers a
-server ([Rules and approvals](extensions.md#rules-and-approvals)). A rule with `nodes` never matches an
-external call, external calls are never privileged, and `allow mcp.write` also allows `mcp.read` on the
-same target.
+Extension calls use `ext.read` (a read-only tool on an extension whose annotations are trusted) and
+`ext.write` (every other tool). Their target is `<extension>/<tool>`, so `prefix: "github/"` covers an
+extension ([Rules and approvals](extensions.md#rules-and-approvals)). The built-in `api` extension states
+its own `api.read`/`api.write` operations on the request's route (`<METHOD> <path template>`), so a rule
+such as `prefix: "POST /api/sessions"` covers a family of routes. A rule with `nodes` never matches an
+external call, external calls are never privileged, and `allow ext.write` or `allow api.write` also
+allows the matching read on the same target.
 
 - `allow file.write` also allows reading the same target, but `deny file.write` blocks only writes:
   "do not modify" should not mean "do not look".
@@ -240,7 +243,7 @@ node when isolation matters; its trust entries restrict the environment.
 
 An approval is part of the object that waits. A task waits in `awaiting_approval`, and the decision,
 decider, reason and each level's judgment are stored on it; a task group is approved once. An external
-MCP call has its own small object, `external_calls`, and waits the same way
+external call has its own small object, `external_calls`, and waits the same way
 ([External calls](extensions.md#external-calls)).
 
 - A request goes up the chain from the level that raised it to the nearest ancestor whose cumulative
@@ -285,9 +288,9 @@ messages, which stay in their own tables.
 
 ### Recorded events
 
-Events cover authentication, nodes and node groups, tasks and approvals, external MCP calls
-(`external_call.started`, `external_call.finished`, with arguments truncated), MCP server changes
-(`mcp_server.created`, `mcp_server.updated`, `mcp_server.deleted`, without header values), sessions and
+Events cover authentication, nodes and node groups, tasks and approvals, external calls
+(`external_call.started`, `external_call.finished`, with arguments truncated), extension changes
+(`extension.created`, `extension.updated`, `extension.deleted`, without header values), sessions and
 tool calls, users and sharing, configuration, and the `crhs` CLI. Action names are dotted verbs such as
 `node.approved` or `task.approval`. Model calls are not audited; their usage is part of
 [session statistics](agent-runtime.md#session-statistics).

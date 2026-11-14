@@ -8,11 +8,22 @@ export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** last_seen_at is written at most this often per session. */
 const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
+/** The audit actor an internal API request acts as: the agent session, on behalf of its owner. */
+export interface SessionActorOverride {
+	type: string;
+	id: string;
+}
+
 export interface SessionUser {
 	sessionId: string;
 	userId: string;
 	username: string;
 	kind: "admin" | "member";
+	/**
+	 * Set only for an in-process `api_request` (doc/design/extensions.md "API requests"): the audit actor is
+	 * the agent session on behalf of the owner, not a WebUI user. `sessionId` is then not a web session.
+	 */
+	actor?: SessionActorOverride;
 }
 
 /**

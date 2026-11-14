@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Evaluation, McpSessionServer, McpToolAnnotations, Operation } from "@crh/api";
+import type { Evaluation, Operation } from "@crh/api";
 import type { TaskSpec } from "@crh/protocol";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import * as z from "zod/v4";
@@ -10,13 +10,6 @@ import { listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { resolveTargets } from "../cluster/task-groups.ts";
 import {
-	McpCallLostError,
-	type McpConnections,
-	type McpTool,
-	McpToolError,
-	McpUnavailableError,
-} from "../extensions/connections.ts";
-import {
 	createExternalCall,
 	type ExternalCallRow,
 	externalCallApproval,
@@ -25,6 +18,13 @@ import {
 	getExternalCall,
 	waitExternalCall,
 } from "../extensions/external-calls.ts";
+import {
+	ExtensionCallLostError,
+	type ExtensionTool,
+	ExtensionToolError,
+	ExtensionUnavailableError,
+	type SessionExtension,
+} from "../extensions/model.ts";
 import { copyLibraryFile } from "../library/files.ts";
 import { type ImageCache, REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
@@ -105,10 +105,8 @@ export interface ToolContext {
 	imageLimits?: ImageLimits;
 	/** The audit log, for the library copy `copy_file` records. */
 	audit?: Audit;
-	/** The MCP connections behind `search_tools` and `call_tool` (doc/design/extensions.md). */
-	mcp?: McpConnections;
-	/** The MCP servers this session may use, with its own on/off choice. */
-	mcpServers?: McpSessionServer[];
+	/** The extensions this session may use, with its own on/off choice (doc/design/extensions.md). */
+	extensions?: SessionExtension[];
 	/** The session tree's root, for grouping external-call approvals. */
 	rootSessionId?: string;
 	/** The WebUI page where the owner decides a waiting external call. */
@@ -1267,7 +1265,7 @@ async function mayActFor(ctx: ToolContext, actorType: string, actorId: string): 
 	return descendants.includes(actorId);
 }
 
-// ---- external MCP tools ----
+// ---- extension tools ----
 
 /** How much of a call's arguments the audit log keeps. */
 const AUDIT_ARGUMENTS_MAX = 2000;
@@ -1290,32 +1288,6 @@ function auditExternal(ctx: ToolContext, action: string, id: string, detail: Rec
 	});
 }
 
-/** The rule method of one external tool: a trusted read-only hint makes it a read, everything else a write. */
-function externalMethod(
-	annotations: McpToolAnnotations | null | undefined,
-	server: McpSessionServer,
-): "mcp.read" | "mcp.write" {
-	return annotations?.readOnlyHint === true && server.trustAnnotations ? "mcp.read" : "mcp.write";
-}
-
-async function evaluateExternal(
-	ctx: ToolContext,
-	server: McpSessionServer,
-	tool: string,
-	annotations: McpToolAnnotations | null | undefined,
-): Promise<{ operation: Operation; evaluation: Evaluation }> {
-	const method = externalMethod(annotations, server);
-	const operation: Operation = { method, target: `${server.name}/${tool}` };
-	let chain: Awaited<ReturnType<typeof loadChain>>;
-	try {
-		chain = await loadChain(ctx.db, ctx.chain);
-	} catch {
-		return { operation, evaluation: { result: "deny", levels: [] } };
-	}
-	const evaluation = evaluate(chain, { ...operation, privileged: false });
-	return { operation, evaluation };
-}
-
 function searchTokens(query: string): string[] {
 	return query
 		.toLowerCase()
@@ -1324,7 +1296,7 @@ function searchTokens(query: string): string[] {
 }
 
 /** Plain keyword scoring over name, title and description; a token must appear in at least one of them. */
-function scoreTool(tokens: readonly string[], tool: McpTool): number {
+function scoreTool(tokens: readonly string[], tool: ExtensionTool): number {
 	const name = tool.name.toLowerCase();
 	const title = tool.title?.toLowerCase() ?? "";
 	const description = tool.description?.toLowerCase() ?? "";
@@ -1341,37 +1313,52 @@ function scoreTool(tokens: readonly string[], tool: McpTool): number {
 	return score;
 }
 
-/** The session's MCP server list. */
-function sessionServers(ctx: ToolContext): McpSessionServer[] {
-	return ctx.mcpServers ?? [];
+/** The session's extension list, with the owner's on/off choice. */
+function sessionExtensions(ctx: ToolContext): SessionExtension[] {
+	return ctx.extensions ?? [];
 }
 
-function serverOf(ctx: ToolContext, name: string): McpSessionServer {
-	const server = sessionServers(ctx).find((candidate) => candidate.name === name);
-	if (!server) throw new UserError(`no MCP server named ${name} is available to this session`, "not_found");
-	if (!server.enabled) throw new UserError(`the MCP server ${name} is turned off for this session`, "unavailable");
-	return server;
+function extensionOf(ctx: ToolContext, name: string): SessionExtension {
+	const entry = sessionExtensions(ctx).find((candidate) => candidate.extension.name === name);
+	if (!entry) throw new UserError(`no extension named ${name} is available to this session`, "not_found");
+	if (!entry.enabled) throw new UserError(`the extension ${name} is turned off for this session`, "unavailable");
+	return entry;
 }
 
-/** Connects the servers a search may use; failures leave them unavailable with their last known tools. */
-async function prepareSearchServers(ctx: ToolContext, servers: readonly McpSessionServer[]): Promise<void> {
-	const mcp = ctx.mcp;
-	if (!mcp) return;
-	await Promise.allSettled(
-		servers.filter((server) => server.available).map((server) => mcp.ensureConnected(server.name)),
-	);
+/** Connects the extensions a search may use; failures leave them unavailable with their last known tools. */
+async function prepareSearchExtensions(entries: readonly SessionExtension[]): Promise<void> {
+	const available = entries.filter((entry) => entry.extension.status().state !== "unavailable");
+	await Promise.allSettled(available.map((entry) => entry.extension.ensureAvailable()));
+}
+
+/** The rule operation of one extension call and its evaluation along the caller's chain. */
+async function evaluateExtension(
+	ctx: ToolContext,
+	entry: SessionExtension,
+	tool: string,
+	args: Record<string, unknown>,
+): Promise<{ operation: Operation; evaluation: Evaluation }> {
+	const operation = entry.extension.operation(tool, args);
+	let chain: Awaited<ReturnType<typeof loadChain>>;
+	try {
+		chain = await loadChain(ctx.db, ctx.chain);
+	} catch {
+		return { operation, evaluation: { result: "deny", levels: [] } };
+	}
+	const evaluation = evaluate(chain, { ...operation, privileged: false });
+	return { operation, evaluation };
 }
 
 const searchTools = define({
 	name: "search_tools",
 	description:
-		"Search the tools of the external MCP servers available to this session by keyword over their names, titles and " +
-		"descriptions. Returns the best matches with their full input schema and annotations. Give server to search one " +
-		"server; with server and no query it lists that server's tools by name and summary, paged with offset. Call a " +
-		"result with call_tool.",
+		"Search the tools of the extensions available to this session by keyword over their names, titles and " +
+		"descriptions. Returns the best matches with their full input schema and annotations. Give extension to search " +
+		"one extension; with extension and no query it lists that extension's tools by name and summary, paged with " +
+		"offset. Call a result with call_tool.",
 	input: z.object({
 		query: z.string().optional().describe('Keywords, e.g. "create issue" or "query database"'),
-		server: z.string().optional().describe("Restrict the search to one server"),
+		extension: z.string().optional().describe("Restrict the search to one extension"),
 		offset: z.number().int().min(0).optional().describe("Listing mode only: skip this many tools (default 0)"),
 		limit: z
 			.number()
@@ -1385,33 +1372,35 @@ const searchTools = define({
 	agentOnly: true,
 	output: "json",
 	handler: async (args, ctx) => {
-		if (!ctx.mcp) throw new UserError("external tools are not configured", "unavailable");
-		const servers = sessionServers(ctx).filter((server) => server.enabled);
+		if (!ctx.extensions) throw new UserError("extensions are not configured", "unavailable");
+		const entries = sessionExtensions(ctx);
 		const query = args.query?.trim() ?? "";
-		if (query === "" && args.server === undefined) {
-			// Nothing to search: show what exists, so the model can pick a server or write a query.
+		if (query === "" && args.extension === undefined) {
+			// Nothing to search: show what exists, so the model can pick an extension or write a query.
 			return jsonResult({
-				servers: sessionServers(ctx).map((server) => ({
-					name: server.name,
-					description: server.description,
-					enabled: server.enabled,
-					available: server.available,
-					tool_count: ctx.mcp?.status(server.name).toolCount ?? 0,
+				extensions: entries.map((entry) => ({
+					name: entry.extension.name,
+					kind: entry.extension.kind,
+					description: entry.extension.description,
+					enabled: entry.enabled,
+					available: entry.extension.status().state !== "unavailable",
+					tool_count: entry.extension.status().toolCount,
 				})),
-				hint: "Give query, or server with no query to list that server's tools.",
+				hint: "Give query, or extension with no query to list that extension's tools.",
 			});
 		}
-		if (args.server !== undefined) {
-			const server = serverOf(ctx, args.server);
-			await prepareSearchServers(ctx, [server]);
-			const state = ctx.mcp.status(server.name);
+		if (args.extension !== undefined) {
+			const entry = extensionOf(ctx, args.extension);
+			await prepareSearchExtensions([entry]);
+			const name = entry.extension.name;
+			const state = entry.extension.status();
 			if (query === "") {
-				const all = ctx.mcp.tools(server.name);
+				const all = entry.extension.tools();
 				const offset = Math.min(args.offset ?? 0, all.length);
 				const limit = Math.min(args.limit ?? 25, MAX_LISTED_TOOLS);
 				const page = all.slice(offset, offset + limit);
 				return jsonResult({
-					server: server.name,
+					extension: name,
 					total: all.length,
 					offset,
 					next_offset: offset + page.length < all.length ? offset + page.length : null,
@@ -1424,17 +1413,17 @@ const searchTools = define({
 				});
 			}
 			const tokens = searchTokens(query);
-			const matches = ctx.mcp
-				.tools(server.name)
+			const matches = entry.extension
+				.tools()
 				.map((tool) => ({ tool, score: scoreTool(tokens, tool) }))
-				.filter((entry) => entry.score > 0)
+				.filter((match) => match.score > 0)
 				.sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
 				.slice(0, Math.min(args.limit ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS));
 			return jsonResult({
-				server: server.name,
+				extension: name,
 				stale: state.state === "unavailable",
 				results: matches.map(({ tool }) => ({
-					server: server.name,
+					extension: name,
 					tool: tool.name,
 					title: tool.title,
 					description: tool.description,
@@ -1443,28 +1432,29 @@ const searchTools = define({
 				})),
 			});
 		}
-		await prepareSearchServers(ctx, servers);
+		await prepareSearchExtensions(entries.filter((entry) => entry.enabled));
 		const tokens = searchTokens(query);
-		const matches: { server: string; score: number; tool: McpTool }[] = [];
-		for (const server of servers) {
-			for (const tool of ctx.mcp.tools(server.name)) {
+		const matches: { extension: string; score: number; tool: ExtensionTool }[] = [];
+		for (const entry of entries) {
+			if (!entry.enabled) continue;
+			for (const tool of entry.extension.tools()) {
 				const score = scoreTool(tokens, tool);
-				if (score > 0) matches.push({ server: server.name, score, tool });
+				if (score > 0) matches.push({ extension: entry.extension.name, score, tool });
 			}
 		}
 		matches.sort(
-			(a, b) => b.score - a.score || a.server.localeCompare(b.server) || a.tool.name.localeCompare(b.tool.name),
+			(a, b) => b.score - a.score || a.extension.localeCompare(b.extension) || a.tool.name.localeCompare(b.tool.name),
 		);
-		const staleServers = servers
-			.filter((server) => ctx.mcp?.status(server.name).state === "unavailable")
-			.map((server) => server.name);
+		const staleExtensions = entries
+			.filter((entry) => entry.extension.status().state === "unavailable")
+			.map((entry) => entry.extension.name);
 		return jsonResult({
-			// The tool list is the last one listed: when a server is unavailable, its results may be stale.
-			...(staleServers.length > 0 ? { stale: true, stale_servers: staleServers } : {}),
+			// The tool list is the last one listed: when an extension is unavailable, its results may be stale.
+			...(staleExtensions.length > 0 ? { stale: true, stale_extensions: staleExtensions } : {}),
 			results: matches
 				.slice(0, Math.min(args.limit ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS))
-				.map(({ server, tool }) => ({
-					server,
+				.map(({ extension, tool }) => ({
+					extension,
 					tool: tool.name,
 					title: tool.title,
 					description: tool.description,
@@ -1479,8 +1469,8 @@ const searchTools = define({
  * The result of a tool call whose row is already terminal: the first attempt ended before this one, and its
  * result was never kept. The call is not made again. An unknown outcome keeps its own wording.
  */
-function replayedResult(row: ExternalCallRow, server: string, tool: string): ToolResult {
-	const details = { server, tool };
+function replayedResult(row: ExternalCallRow, extension: string, tool: string): ToolResult {
+	const details = { extension, tool };
 	switch (row.state) {
 		case "running":
 			return errorResult(
@@ -1500,7 +1490,7 @@ function replayedResult(row: ExternalCallRow, server: string, tool: string): Too
 			return textResult(
 				[
 					{
-						note: `[${server}/${tool}: the call finished before a restart; its result could not be kept, and the server was not called again]`,
+						note: `[${extension}/${tool}: the call finished before a restart; its result could not be kept, and the extension was not called again]`,
 					},
 				],
 				{ details },
@@ -1508,9 +1498,9 @@ function replayedResult(row: ExternalCallRow, server: string, tool: string): Too
 	}
 }
 
-/** The result of a call settled while this tool call waited: rejected and cancelled end here, never at the server. */
-function settledResult(row: ExternalCallRow, server: string, tool: string): ToolResult {
-	const details = { server, tool };
+/** The result of a call settled while this tool call waited: rejected and cancelled end here, never at the extension. */
+function settledResult(row: ExternalCallRow, extension: string, tool: string): ToolResult {
+	const details = { extension, tool };
 	if (row.state === "rejected") {
 		return errorResult(
 			"text",
@@ -1526,61 +1516,72 @@ function settledResult(row: ExternalCallRow, server: string, tool: string): Tool
 		// Only a shutdown leaves the waiting call in place after the wait returns; it was never sent.
 		return errorResult("text", "unknown", "the call is still waiting for approval; it was not sent", details);
 	}
-	return replayedResult(row, server, tool);
+	return replayedResult(row, extension, tool);
 }
 
 /**
- * Runs one external call under the rules and approvals (doc/design/extensions.md "Rules and approvals" and
+ * Runs one extension call under the rules and approvals (doc/design/extensions.md "Rules and approvals" and
  * "External calls"): a denied call never starts, an approval waits in the WebUI (or Auto Review settles it),
- * and the call itself is never repeated after a connection loss or a restart.
+ * and the call itself is never repeated after a connection loss or a restart. The extension supplies its own
+ * rule operation, so an MCP tool and a built-in API request are judged the same way.
  */
-export async function runExternalTool(
+export async function runExtensionTool(
 	ctx: ToolContext,
-	serverName: string,
+	extensionName: string,
 	toolName: string,
 	arguments_: Record<string, unknown>,
 ): Promise<ToolResult> {
-	const mcp = ctx.mcp;
-	if (!mcp) throw new UserError("external tools are not configured", "unavailable");
-	const server = serverOf(ctx, serverName);
+	if (!ctx.extensions) throw new UserError("extensions are not configured", "unavailable");
+	const entry = extensionOf(ctx, extensionName);
+	const extension = entry.extension;
 	const callKey = ctx.callKey ?? newId();
 	const id = externalCallId(callKey);
 	// A replayed tool call finds its row and returns what the first attempt produced, without connecting again.
 	const existing = await getExternalCall(ctx.db, id);
 	// A replayed tool call finds its row: a running one is never sent again, and a terminal one already ran.
-	if (existing && existing.state !== "awaiting_approval") return replayedResult(existing, serverName, toolName);
+	if (existing && existing.state !== "awaiting_approval") return replayedResult(existing, extensionName, toolName);
 	try {
-		await mcp.ensureConnected(serverName, { immediate: true });
+		await extension.ensureAvailable({ immediate: true });
 	} catch (err) {
 		return errorResult(
 			"text",
 			"unavailable",
-			`the MCP server ${serverName} is unavailable: ${(err as Error).message}`,
-			{
-				server: serverName,
-			},
+			`the extension ${extensionName} is unavailable: ${(err as Error).message}`,
+			{ extension: extensionName },
 		);
 	}
-	let tool = mcp.tool(serverName, toolName);
+	let tool = extension.tools().find((candidate) => candidate.name === toolName);
 	if (!tool) {
 		// A tool can be new since the last listing; one refresh makes a just-added tool callable.
 		try {
-			await mcp.refreshTools(serverName);
-			tool = mcp.tool(serverName, toolName);
+			await extension.refreshTools();
+			tool = extension.tools().find((candidate) => candidate.name === toolName);
 		} catch {
 			// The listing failed; the original "no such tool" is the useful answer.
 		}
 	}
 	if (!tool) {
-		return errorResult("text", "unknown_tool", `the MCP server ${serverName} has no tool named ${toolName}`, {
-			server: serverName,
+		return errorResult("text", "unknown_tool", `the extension ${extensionName} has no tool named ${toolName}`, {
+			extension: extensionName,
 			tool: toolName,
 		});
 	}
-	const { operation, evaluation } = await evaluateExternal(ctx, server, toolName, tool.annotations);
+	let operation: Operation;
+	let evaluation: Evaluation;
+	try {
+		({ operation, evaluation } = await evaluateExtension(ctx, entry, toolName, arguments_));
+	} catch (err) {
+		// A built-in extension refuses a call in its operation before any rule or external call exists, e.g. an
+		// API route its document marks deny (doc/design/extensions.md "API requests").
+		if (!(err instanceof UserError)) throw err;
+		return errorResult("text", err.code ?? "invalid_argument", err.message, {
+			extension: extensionName,
+			tool: toolName,
+		});
+	}
 	if (evaluation.result === "deny") {
 		return errorResult("text", "policy_denied", "denied by the authorization rules", {
-			server: serverName,
+			extension: extensionName,
 			tool: toolName,
 		});
 	}
@@ -1594,7 +1595,7 @@ export async function runExternalTool(
 			actorType: ctx.actor.type,
 			actorId: ctx.actor.id,
 			onBehalfOfUserId: ctx.actor.onBehalfOfUserId,
-			server: serverName,
+			extension: extensionName,
 			tool: toolName,
 			arguments: arguments_,
 			operation,
@@ -1607,7 +1608,7 @@ export async function runExternalTool(
 		row = created.row;
 		if (created.created) {
 			auditExternal(ctx, "external_call.started", id, {
-				server: serverName,
+				extension: extensionName,
 				tool: toolName,
 				arguments: auditArguments(arguments_),
 				state: row.state,
@@ -1641,40 +1642,72 @@ export async function runExternalTool(
 			await ctx.onStatus?.({ external_call_id: id, state: row.state });
 		}
 	}
-	if (row.state !== "running") return settledResult(row, serverName, toolName);
+	if (row.state !== "running") return settledResult(row, extensionName, toolName);
 	try {
-		const resultValue = await mcp.callTool(serverName, toolName, arguments_, {
+		const resultValue = await extension.call(toolName, arguments_, {
 			...(ctx.signal ? { signal: ctx.signal } : {}),
 			identity: { username: ctx.user.username, sessionId: ctx.actor.id },
-			timeoutMs: server.timeoutMs,
+			builtin: {
+				db: ctx.db,
+				actor: { type: ctx.actor.type, id: ctx.actor.id, onBehalfOfUserId: ctx.actor.onBehalfOfUserId },
+			},
 		});
 		const converted = await convertExternalResult(resultValue as CallToolResult, {
-			server: serverName,
+			extension: extensionName,
 			tool: toolName,
 			...(ctx.imageCache ? { imageCache: ctx.imageCache } : {}),
 		});
 		await finishExternalCall(ctx.db, id, { state: "succeeded" });
-		auditExternal(ctx, "external_call.finished", id, { server: serverName, tool: toolName, state: "succeeded" });
+		auditExternal(ctx, "external_call.finished", id, {
+			extension: extensionName,
+			tool: toolName,
+			state: "succeeded",
+		});
 		return converted;
 	} catch (err) {
-		if (err instanceof McpUnavailableError) {
+		if (err instanceof UserError) {
+			// The built-in refused the call itself (a bad argument, an unknown document); it never ran.
 			await finishExternalCall(ctx.db, id, { state: "failed" });
-			auditExternal(ctx, "external_call.finished", id, { server: serverName, tool: toolName, state: "failed" });
-			return errorResult("text", "unavailable", err.message, { server: serverName, tool: toolName });
+			auditExternal(ctx, "external_call.finished", id, {
+				extension: extensionName,
+				tool: toolName,
+				state: "failed",
+			});
+			return errorResult("text", err.code ?? "invalid_argument", err.message, {
+				extension: extensionName,
+				tool: toolName,
+			});
 		}
-		if (err instanceof McpToolError) {
+		if (err instanceof ExtensionUnavailableError) {
 			await finishExternalCall(ctx.db, id, { state: "failed" });
-			auditExternal(ctx, "external_call.finished", id, { server: serverName, tool: toolName, state: "failed" });
-			return errorResult("text", "tool_error", err.message, { server: serverName, tool: toolName });
+			auditExternal(ctx, "external_call.finished", id, {
+				extension: extensionName,
+				tool: toolName,
+				state: "failed",
+			});
+			return errorResult("text", "unavailable", err.message, { extension: extensionName, tool: toolName });
 		}
-		if (err instanceof McpCallLostError) {
+		if (err instanceof ExtensionToolError) {
+			await finishExternalCall(ctx.db, id, { state: "failed" });
+			auditExternal(ctx, "external_call.finished", id, {
+				extension: extensionName,
+				tool: toolName,
+				state: "failed",
+			});
+			return errorResult("text", "tool_error", err.message, { extension: extensionName, tool: toolName });
+		}
+		if (err instanceof ExtensionCallLostError) {
 			// A lost call is not retried. On shutdown the row stays running so the next start recovers it as unknown.
 			if (!ctx.closing?.()) {
 				await finishExternalCall(ctx.db, id, { state: "unknown" });
-				auditExternal(ctx, "external_call.finished", id, { server: serverName, tool: toolName, state: "unknown" });
+				auditExternal(ctx, "external_call.finished", id, {
+					extension: extensionName,
+					tool: toolName,
+					state: "unknown",
+				});
 			}
 			return errorResult("text", "unknown", `${err.message}; its outcome is unknown and it was not retried`, {
-				server: serverName,
+				extension: extensionName,
 				tool: toolName,
 			});
 		}
@@ -1685,18 +1718,18 @@ export async function runExternalTool(
 const callTool = define({
 	name: "call_tool",
 	description:
-		"Call a tool on an external MCP server with arguments (a JSON object matching the tool's input schema, as " +
-		"search_tools returns it). The call may wait for the user's approval. A call that ends unknown may have run on " +
-		"the server; it is not retried.",
+		"Call a tool of an extension with arguments (a JSON object matching the tool's input schema, as search_tools " +
+		"returns it). The call may wait for the user's approval. A call that ends unknown may have run on the " +
+		"extension; it is not retried.",
 	input: z.object({
-		server: z.string().describe("The MCP server's name, as search_tools lists it"),
-		tool: z.string().describe("The tool's name on that server"),
+		extension: z.string().describe("The extension's name, as search_tools lists it"),
+		tool: z.string().describe("The tool's name on that extension"),
 		arguments: z.record(z.string(), z.unknown()).optional().describe("The tool's arguments; omit for no arguments"),
 	}),
 	readOnly: false,
 	agentOnly: true,
 	output: "text",
-	handler: async (args, ctx) => runExternalTool(ctx, args.server, args.tool, args.arguments ?? {}),
+	handler: async (args, ctx) => runExtensionTool(ctx, args.extension, args.tool, args.arguments ?? {}),
 });
 
 /**

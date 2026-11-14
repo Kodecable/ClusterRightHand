@@ -103,8 +103,9 @@ export function RulesDialog({ token, onClose }: { token: ApiTokenView; onClose: 
 						/>
 						<p className="text-xs text-muted-foreground">
 							<Trans>
-								Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes
-								(names or ids of nodes and node groups, or _all), and exact or prefix.
+								Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write,
+								ext.read, ext.write, api.read, api.write), nodes (names or ids of nodes and node groups, or _all), and
+								exact or prefix.
 							</Trans>
 						</p>
 						{deletedRef && (

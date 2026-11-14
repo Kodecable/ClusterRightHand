@@ -1,10 +1,22 @@
 import type { Context } from "hono";
 import type { Audit } from "../audit/audit.ts";
-import type { SessionUser } from "../auth/sessions.ts";
+import type { SessionActorOverride, SessionUser } from "../auth/sessions.ts";
 import { UserError } from "../util/errors.ts";
+
+/**
+ * The identity an in-process `api_request` carries in the request's bindings (doc/design/extensions.md
+ * "API requests"). It is not derived from any header, so a network request cannot set it.
+ */
+export interface InternalRequestIdentity {
+	/** The session owner the request runs as. */
+	userId: string;
+	/** The audit actor: the agent session or subagent, on behalf of the owner. */
+	actor: SessionActorOverride;
+}
 
 export interface AppEnv {
 	Variables: { user: SessionUser; audit: Audit };
+	Bindings: { crhInternal?: InternalRequestIdentity };
 }
 
 export interface JsonErrorOptions {

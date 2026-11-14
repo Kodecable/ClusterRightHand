@@ -292,7 +292,7 @@ function describeExternal(row: ExternalCallRow): string {
 	const details = JSON.stringify(
 		{
 			operation: externalCallOperation(row),
-			server: row.server_name,
+			extension: row.extension_name,
 			tool: row.tool_name,
 			annotations,
 			arguments: externalCallArguments(row),

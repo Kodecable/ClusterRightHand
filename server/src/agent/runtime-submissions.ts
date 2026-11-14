@@ -11,7 +11,7 @@ import {
 import { sql } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import { UserError } from "../util/errors.ts";
-import { syncSessionMcpExtensions } from "./extension.ts";
+import { syncSessionExtensions } from "./extension.ts";
 import { exhaustedLevel } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { loadConversation } from "./runtime-core.ts";
@@ -36,8 +36,10 @@ export async function submit(
 	requestId: string,
 	options: { content?: { type: "text"; text: string }[]; attachments?: ChatAttachment[] } = {},
 ): Promise<string> {
-	// A user driving a session shared with them still acts on behalf of its owner (doc/design/access-control.md).
-	return submitInput(host, sessionId, text, requestId, { type: "user", id: by.userId }, true, options);
+	// A user driving a session shared with them still acts on behalf of its owner (doc/design/access-control.md);
+	// an internal api_request carries the agent session as its actor.
+	const actor = by.actor ?? { type: "user", id: by.userId };
+	return submitInput(host, sessionId, text, requestId, actor, true, options);
 }
 
 /** How long a manual compaction waits for durable to say whether it has an old history to summarize. */
@@ -100,7 +102,7 @@ export async function compact(
 		}
 	}
 	void host.audit?.record({
-		actor: { type: "user", id: by.userId, onBehalfOfUserId: row.owner_user_id },
+		actor: { ...(by.actor ?? { type: "user", id: by.userId }), onBehalfOfUserId: row.owner_user_id },
 		action: "session.compacted",
 		target: { type: "session", id: sessionId },
 		detail: { task_id: String(taskId), ...(instructions ? { instructions_chars: instructions.length } : {}) },
@@ -207,8 +209,8 @@ async function submitInput(
 ): Promise<string> {
 	const { row, conversation } = await loadConversation(host, sessionId);
 	if (row.status !== "active") throw new UserError("the session is archived");
-	// The next request selects its MCP servers from the rows read now (doc/design/extensions.md "MCP servers").
-	await syncSessionMcpExtensions(host, row);
+	// The next request selects its extensions from the rows read now (doc/design/extensions.md "Extensions").
+	await syncSessionExtensions(host, row);
 	if (checkQuota) {
 		const over = await exhaustedLevel(host.db, sessionId);
 		if (over) {

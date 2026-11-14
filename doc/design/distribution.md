@@ -15,10 +15,10 @@ of the host build.
 
 | Archive (top directory) | Contents | Self-update |
 |---|---|---|
-| `crhs-<v>.tar.gz` (`crhs-<v>/`) | `crhs.mjs`, `web/`, `package.json`, `package-lock.json`, `THIRD_PARTY_LICENSES.txt`, `VERSION`, `LICENSE`, `README.txt` | No |
-| `crhs-<v>-linux-<arch>.tar.gz` (`crhs-<v>-linux-<arch>/`) | the bundle and WebUI, `node/` (the official `bin/node`), `node_modules/re2` for the arch, `bin/crhs`, `install.sh`, licenses, `VERSION` | Planned |
+| `crhs-<v>.tar.gz` (`crhs-<v>/`) | `crhs.mjs`, `web/`, `doc/`, `package.json`, `package-lock.json`, `THIRD_PARTY_LICENSES.txt`, `VERSION`, `LICENSE`, `README.txt` | No |
+| `crhs-<v>-linux-<arch>.tar.gz` (`crhs-<v>-linux-<arch>/`) | the bundle, WebUI and documentation, `node/` (the official `bin/node`), `node_modules/re2` for the arch, `bin/crhs`, `install.sh`, licenses, `VERSION` | Planned |
 | `crha-<v>-linux-<arch>.tar.gz` (`crha-<v>-linux-<arch>/`) | the static `crha`, `install.sh`, `LICENSE`, `THIRD_PARTY_LICENSES.txt`, `VERSION` | Planned |
-| crhs OCI image | Node, the bundle, the WebUI and re2 | No; pull a new image |
+| crhs OCI image | Node, the bundle, the WebUI, the documentation and re2 | No; pull a new image |
 | `crha_<debversion>_<arch>.deb`, `crha-<rpmversion>-1.<rpmarch>.rpm` | `crha` in `/usr/bin` and the licenses in `/usr/share/doc/crha`, built with nfpm and the `pkgmanaged` tag | Never; the package manager updates it |
 
 `arch` is `amd64` or `arm64`. Archives are deterministic-ish: entries sorted by name, the mtime of the
@@ -27,7 +27,8 @@ tree's last commit, owner 0:0, `gzip -n`. The archive without Node is installed 
 and `node crhs.mjs serve`.
 
 `pnpm build:crhs` produces the common part in `dist/crhs`: esbuild bundles the server and every pure
-JavaScript dependency into `crhs.mjs`. Only native modules stay outside: `re2` is shipped with its runtime
+JavaScript dependency into `crhs.mjs`, and the WebUI and the documentation (`doc/**/*.md`, without
+images) are copied next to it. Only native modules stay outside: `re2` is shipped with its runtime
 files, and `cpu-features` is optional for `ssh2`, which falls back to JavaScript and WebAssembly. The
 version is injected at build time; an unbundled crhs reports `dev`. The archive with Node carries Node's
 LICENSE appended to `THIRD_PARTY_LICENSES.txt`; the `crha` archive collects the Go modules' licenses.

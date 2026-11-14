@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 import { cursorPageSchema, RefMapSchema } from "./common.ts";
-import { McpSessionServerSchema } from "./extensions.ts";
+import { SessionExtensionSchema } from "./extensions.ts";
 import { ModelRefSchema } from "./models.ts";
 import { RulePresetSchema, StoredRuleSetSchema } from "./policy.ts";
 
@@ -119,7 +119,7 @@ export const SessionStatsSchema = z
 
 /**
  * `GET /api/sessions/{id}`: the session, how the caller relates to it and their effective capabilities.
- * `mcpServers` lists the servers the session may use with the owner's on/off choice.
+ * `extensions` lists the extensions the session may use with the owner's on/off choice.
  */
 export const SessionViewSchema = z
 	.object({
@@ -148,7 +148,7 @@ export const SessionViewSchema = z
 		usageTokens: z.number().describe("The statistics measure: input + output tokens of the session and its subagents."),
 		contextTokens: z.number().nullable().describe("The input size of the session's own last main-agent call."),
 		stats: SessionStatsSchema.describe("The session's own generation statistics; token totals cover its whole tree."),
-		mcpServers: z.array(McpSessionServerSchema).optional(),
+		extensions: z.array(SessionExtensionSchema).optional(),
 		shares: z.array(SessionShareSchema).optional(),
 	})
 	.meta({ id: "SessionView" });
@@ -242,7 +242,7 @@ export const SessionPatchBodySchema = z.object({
 		.nullable()
 		.optional()
 		.describe("Replaces the remaining budget at any level; null is unlimited."),
-	disabledMcpServers: z.array(z.string()).optional().describe("The MCP servers the owner turned off."),
+	disabledExtensions: z.array(z.string()).optional().describe("The extensions the owner turned off."),
 });
 
 /** `POST /api/sessions/{id}/messages`: the user's message; `requestId` makes a retried send land once. */

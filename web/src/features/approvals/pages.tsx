@@ -84,15 +84,25 @@ function taskGroupRow(type: "approval" | "signature", taskGroup: TaskGroupView):
 }
 
 function externalCallRow(call: ExternalCallView): DecisionRow {
+	// An api_request is shown by the request it makes (method and path), not by the built-in tool's name.
+	const args =
+		typeof call.arguments === "object" && call.arguments !== null && !Array.isArray(call.arguments)
+			? (call.arguments as Record<string, unknown>)
+			: {};
+	const request =
+		call.extension === "api" && call.tool === "api_request"
+			? [args.method, args.path].filter((value): value is string => typeof value === "string" && value !== "").join(" ")
+			: "";
+	const label = request === "" ? `${call.extension}/${call.tool}` : request;
 	return {
 		key: `approval:external-call:${call.id}`,
 		type: "approval",
-		operation: `${call.server}/${call.tool}`,
+		operation: label,
 		nodes: [],
 		actor: { type: call.actorType, id: call.actorId },
 		requestedAt: call.createdAt,
 		link: { to: "/approvals/external-calls/$externalCallId", params: { externalCallId: call.id } },
-		label: `${call.server}/${call.tool}`,
+		label,
 	};
 }
 

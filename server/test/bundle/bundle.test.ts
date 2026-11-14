@@ -126,6 +126,11 @@ test("prints the bundled version", async () => {
 	expect(result.stdout.trim()).toBe((await readFile(join(appDir, "VERSION"), "utf8")).trim());
 });
 
+test("carries the Markdown documentation without images", async () => {
+	expect(await readFile(join(appDir, "doc", "design", "extensions.md"), "utf8")).toContain("# Extensions");
+	await expect(access(join(appDir, "doc", "images"))).rejects.toThrow();
+});
+
 describe("SQLite", () => {
 	test("initializes with crhs init and serves the bundled WebUI", async () => {
 		const port = await freePort();

@@ -7,6 +7,7 @@ import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
+import { configureBuiltinExtensions } from "../extensions/builtin.ts";
 import type { McpConnections } from "../extensions/connections.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { LibraryBackend } from "../library/backend.ts";
@@ -24,15 +25,15 @@ import { authorizationRoutes } from "./authorization-routes.ts";
 import type { AppEnv } from "./context.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
+import { extensionRoutes } from "./extension-routes.ts";
 import { libraryRoutes } from "./library-routes.ts";
-import { mcpServerRoutes } from "./mcp-server-routes.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { modelPresetRoutes } from "./model-preset-routes.ts";
 import { modelProviderRoutes } from "./model-provider-routes.ts";
 import { nodeAccessRoutes } from "./node-access-routes.ts";
 import { nodeGroupRoutes } from "./node-group-routes.ts";
 import { nodeRoutes } from "./node-routes.ts";
-import { defineRoute, json } from "./openapi.ts";
+import { apiDocument, defineRoute, json } from "./openapi.ts";
 import { privilegeRoutes } from "./privilege-routes.ts";
 import { scheduleRoutes } from "./schedule-routes.ts";
 import { SessionStreams, sessionEventRoutes } from "./session-events-routes.ts";
@@ -176,14 +177,14 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 	if (options.masterKey && options.mcp) {
 		app.route(
 			"/api",
-			mcpServerRoutes(db, {
+			extensionRoutes(db, {
 				masterKey: options.masterKey,
 				connections: options.mcp,
-				onServerChanged: (row) => {
-					if (options.agent) options.agent.runtime.installMcpServerTools(row, options.mcp?.tools(row.name) ?? []);
+				onExtensionChanged: (row, tools) => {
+					options.agent?.runtime.installExtensionTools(row, tools);
 				},
-				onServerDeleted: (name) => {
-					options.agent?.runtime.removeMcpServerExtension(name);
+				onExtensionDeleted: (name) => {
+					options.agent?.runtime.removeExtension(name);
 				},
 			}),
 		);
@@ -258,6 +259,16 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			isApi(c.req.path) ? c.json({ error: "not found" }, 404) : serveStatic({ root, path: "index.html" })(c, next),
 		);
 	}
+
+	// The built-in extensions read this app's routes: `docs` renders the API reference from the same document,
+	// and `api_request` runs through this router as the session owner (doc/design/extensions.md "Built-in
+	// extensions"). All routes are mounted at this point.
+	configureBuiltinExtensions({
+		api: {
+			document: apiDocument(app),
+			request: async (request, identity) => app.request(request, undefined, { crhInternal: identity }),
+		},
+	});
 
 	return app;
 }

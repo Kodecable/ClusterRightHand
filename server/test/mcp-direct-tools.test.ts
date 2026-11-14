@@ -10,8 +10,9 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
-import { McpConnections, type McpTool } from "../src/extensions/connections.ts";
-import { getMcpServerRow, type McpServerRow, saveMcpServer } from "../src/extensions/servers.ts";
+import { McpConnections } from "../src/extensions/connections.ts";
+import type { ExtensionTool } from "../src/extensions/model.ts";
+import { type ExtensionRow, getExtensionRow, saveExtension } from "../src/extensions/store.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -60,7 +61,7 @@ const fakeFetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit)
 	return handler.fetch(new Request(url, init));
 };
 
-const manualTool = (name: string): McpTool => ({
+const manualTool = (name: string): ExtensionTool => ({
 	name,
 	title: null,
 	description: `The ${name} tool`,
@@ -99,7 +100,7 @@ beforeAll(async () => {
 	owner = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
 	await addServer({ listDirectly: true, enabled: true, granted: true });
 	await mcp.ensureConnected("fake");
-	runtime.installMcpServerTools((await getMcpServerRow(db, "fake")) as McpServerRow, mcp.tools("fake"));
+	runtime.installExtensionTools((await getExtensionRow(db, "fake")) as ExtensionRow, mcp.tools("fake"));
 	const session = await runtime.createSession(owner, { title: "direct tools", model: model(), rulePreset: "ask" });
 	sessionId = session.id;
 });
@@ -112,7 +113,7 @@ afterAll(async () => {
 
 async function addServer(options: { listDirectly: boolean; enabled: boolean; granted: boolean }) {
 	const user = await db.selectFrom("users").select("id").where("username", "=", "owner").executeTakeFirst();
-	const { row } = await saveMcpServer(
+	const { row } = await saveExtension(
 		db,
 		masterKey,
 		"fake",
@@ -130,8 +131,8 @@ async function addServer(options: { listDirectly: boolean; enabled: boolean; gra
 
 /** Saves the server through the administrator path and reinstalls its tools, like the settings route. */
 async function updateServer(change: { listDirectly?: boolean; enabled?: boolean }) {
-	const current = await getMcpServerRow(db, "fake");
-	const { row } = await saveMcpServer(
+	const current = await getExtensionRow(db, "fake");
+	const { row } = await saveExtension(
 		db,
 		masterKey,
 		"fake",
@@ -143,24 +144,24 @@ async function updateServer(change: { listDirectly?: boolean; enabled?: boolean 
 		owner.userId,
 	);
 	await mcp.invalidate("fake", { keepTools: true });
-	runtime.installMcpServerTools(row, mcp.tools("fake"));
+	runtime.installExtensionTools(row, mcp.tools("fake"));
 	return row;
 }
 
 async function setGrant(granted: boolean): Promise<void> {
 	const user = await db.selectFrom("users").select("id").where("username", "=", "owner").executeTakeFirst();
-	const server = await getMcpServerRow(db, "fake");
+	const server = await getExtensionRow(db, "fake");
 	await db
-		.deleteFrom("mcp_server_grants")
-		.where("server_id", "=", server?.id ?? "")
+		.deleteFrom("extension_grants")
+		.where("extension_id", "=", server?.id ?? "")
 		.execute();
 	if (granted) {
 		await db
-			.insertInto("mcp_server_grants")
+			.insertInto("extension_grants")
 			.values({
 				id: newId(),
 				org_id: await defaultOrgId(db),
-				server_id: server?.id ?? "",
+				extension_id: server?.id ?? "",
 				grantee_type: "user",
 				grantee_id: user?.id ?? "",
 				created_by_user_id: owner.userId,
@@ -187,42 +188,42 @@ async function nextRequestTools(session: string): Promise<string[]> {
 }
 
 it("offers a list-directly server's tools and follows the flag on the next request", async () => {
-	expect(await nextRequestTools(sessionId)).toContain("mcp__fake__echo");
+	expect(await nextRequestTools(sessionId)).toContain("ext__fake__echo");
 	await updateServer({ listDirectly: false });
-	expect(await nextRequestTools(sessionId)).not.toContain("mcp__fake__echo");
+	expect(await nextRequestTools(sessionId)).not.toContain("ext__fake__echo");
 	await updateServer({ listDirectly: true });
-	expect(await nextRequestTools(sessionId)).toContain("mcp__fake__echo");
+	expect(await nextRequestTools(sessionId)).toContain("ext__fake__echo");
 });
 
 it("follows enabling and disabling a server on the next request", async () => {
 	await updateServer({ enabled: false });
-	expect(await nextRequestTools(sessionId)).not.toContain("mcp__fake__echo");
+	expect(await nextRequestTools(sessionId)).not.toContain("ext__fake__echo");
 	await updateServer({ enabled: true });
-	expect(await nextRequestTools(sessionId)).toContain("mcp__fake__echo");
+	expect(await nextRequestTools(sessionId)).toContain("ext__fake__echo");
 });
 
 it("follows grant changes on the next request", async () => {
 	await setGrant(false);
-	expect(await nextRequestTools(sessionId)).not.toContain("mcp__fake__echo");
+	expect(await nextRequestTools(sessionId)).not.toContain("ext__fake__echo");
 	await setGrant(true);
-	expect(await nextRequestTools(sessionId)).toContain("mcp__fake__echo");
+	expect(await nextRequestTools(sessionId)).toContain("ext__fake__echo");
 });
 
 it("follows a session's own off switch and its re-enabling", async () => {
-	await runtime.configure(sessionId, { disabledMcpServers: ["fake"] });
-	expect(await nextRequestTools(sessionId)).not.toContain("mcp__fake__echo");
-	await runtime.configure(sessionId, { disabledMcpServers: [] });
-	expect(await nextRequestTools(sessionId)).toContain("mcp__fake__echo");
+	await runtime.configure(sessionId, { disabledExtensions: ["fake"] });
+	expect(await nextRequestTools(sessionId)).not.toContain("ext__fake__echo");
+	await runtime.configure(sessionId, { disabledExtensions: [] });
+	expect(await nextRequestTools(sessionId)).toContain("ext__fake__echo");
 });
 
 it("follows the server's tool list on the next request", async () => {
-	const row = (await getMcpServerRow(db, "fake")) as McpServerRow;
-	runtime.installMcpServerTools(row, [manualTool("echo"), manualTool("manual_only")]);
+	const row = (await getExtensionRow(db, "fake")) as ExtensionRow;
+	runtime.installExtensionTools(row, [manualTool("echo"), manualTool("manual_only")]);
 	let tools = await nextRequestTools(sessionId);
-	expect(tools).toContain("mcp__fake__manual_only");
-	expect(tools).not.toContain("mcp__fake__write_thing");
-	runtime.installMcpServerTools(row, mcp.tools("fake"));
+	expect(tools).toContain("ext__fake__manual_only");
+	expect(tools).not.toContain("ext__fake__write_thing");
+	runtime.installExtensionTools(row, mcp.tools("fake"));
 	tools = await nextRequestTools(sessionId);
-	expect(tools).toContain("mcp__fake__write_thing");
-	expect(tools).not.toContain("mcp__fake__manual_only");
+	expect(tools).toContain("ext__fake__write_thing");
+	expect(tools).not.toContain("ext__fake__manual_only");
 });

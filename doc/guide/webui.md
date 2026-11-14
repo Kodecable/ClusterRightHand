@@ -29,31 +29,47 @@ your other browsers. Your API tokens keep working unless you tick **Also revoke 
 |---|---|
 | **Work** | Sessions, Library, Schedules, Tasks, Approvals |
 | **Cluster** | Nodes, Node groups, SSH credentials (administrators), Signing credentials |
-| **Admin** | Authorizations (administrators), API tokens, Audit, Models (administrators), System settings (administrators), Users (administrators) |
+| **Admin** | Authorizations (administrators), API tokens, Audit, Extensions (administrators), Models (administrators), System settings (administrators), Users (administrators) |
 
 The **Approvals** badge counts everything waiting for you. The user menu also sets the theme and the
 language (English or Chinese); these are stored in your browser.
 
 Lists update by themselves; there is no refresh button. Editing happens on an object's own page.
 
-## MCP servers
+## Extensions
 
-An administrator connects Streamable HTTP MCP servers under **System settings → MCP servers**. Each
-server needs a name (lowercase letters, digits and `-`), its URL and optionally fixed request headers,
-which are stored encrypted and never shown again. Changing a URL therefore asks for the headers again or
-for removing them. **Grants** choose the users and user groups whose sessions may use the server.
+Extensions give agent sessions tools beyond the cluster tools. An administrator manages them under
+**System settings → Extensions**, which lists both kinds in one table with their kind, connection state,
+tool count, availability and whether they are enabled. There are two kinds:
 
-The server list shows whether a server is connected, its last error and when crhs tries again;
-**Reconnect** tries at once and **Tools** lists what the server offers. **List directly** puts a small
-server's tools into the model's tool list; otherwise the agent finds them with search and calls them
-through the same rules and approvals as cluster tools. A change to the flag, the grants or the server's
-tool list applies from the session's next request.
+- **MCP extensions** connect to a Streamable HTTP MCP server. Each needs a name (lowercase letters,
+  digits and `-`), its URL and optionally fixed request headers, which are stored encrypted and never
+  shown again. Changing a URL therefore asks for the headers again or for removing them. **Reconnect**
+  tries the connection at once; **Tools** lists what the server offers.
+- **Built-in extensions** ship with crhs: `docs` serves the documentation and the API reference, and `api`
+  lets a session make crhs API requests as its owner. They are always ready and cannot be deleted; an
+  administrator can disable one, change whether its tools are listed directly, and set its availability
+  and grants. `docs` offers `search_docs` (keyword search over the documentation and the API reference,
+  with the path, heading and a snippet of each match) and `read_doc` (a whole document or one section by
+  heading, paged when long). The API reference is rendered from the running version's API document, one
+  page per tag; routes an agent may not call are left out. It stays available when `api` is turned off,
+  because it also explains what the WebUI does. `api` offers `api_request`, which makes one API request
+  (`method`, `path`, `query`, `body`) as the session's owner through the same routes, validation and
+  audit as the WebUI; a request that needs approval shows its method, path, query and body.
 
-In a session, the plug control beside the composer turns single servers off. A new session has every
-granted server on, and a subagent cannot turn on what its parent turned off. External calls that need
-approval go up the session chain like task approvals: the nearest ancestor agent whose rules allow the
-call may approve, reject or pass it on; otherwise it appears in the session's decision panel and on the
-Approvals page, with the server, tool, annotations and arguments.
+**Availability** decides who may use an extension: **Everyone**, or only the granted users and user
+groups. Built-in extensions default to everyone; MCP extensions to granted only. **List directly** puts
+a small extension's tools into the model's tool list; otherwise the agent finds them with search and
+calls them through the same rules and approvals as cluster tools. A change to the flag, the availability,
+the grants or an MCP server's tool list applies from the session's next request.
+
+In a session, the plug control beside the composer turns single extensions off. A new session has every
+available extension on, and a subagent cannot turn on what its parent turned off. Extension calls that
+need approval go up the session chain like task approvals: the nearest ancestor agent whose rules allow
+the call may approve, reject or pass it on; otherwise it appears in the session's decision panel and on
+the Approvals page, with the extension, tool, annotations and arguments. For `api_request` the panel
+shows the method, path, query and body instead. **Always allow** offers the exact rule or a prefix: the
+whole extension for an MCP tool, or the called API route for `api_request`.
 
 ## Sessions
 

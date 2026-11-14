@@ -1,63 +1,72 @@
 /**
- * External tools through MCP servers, called "extensions" (doc/design/extensions.md). Administrators
- * connect servers; agent sessions reach their tools through `search_tools` and `call_tool`, and every
- * call goes through the same rules, approvals and audit log as a cluster task.
+ * Tools beyond the cluster tools, called "extensions" (doc/design/extensions.md). An extension is either an
+ * MCP server an administrator connected or one of crhs's built-in extensions (`docs`, `api`). Agent
+ * sessions reach their tools through `search_tools` and `call_tool`, and every call goes through the same
+ * rules, approvals and audit log as a cluster task.
  */
 
 import type { z } from "zod";
 import type {
+	ExtensionAvailabilitySchema,
+	ExtensionGrantSchema,
+	ExtensionHeaderSchema,
+	ExtensionIdentityHeadersSchema,
+	ExtensionInputSchema,
+	ExtensionKindSchema,
+	ExtensionListResponseSchema,
+	ExtensionResponseSchema,
+	ExtensionStateSchema,
+	ExtensionStatusSchema,
+	ExtensionToolAnnotationsSchema,
+	ExtensionToolsResponseSchema,
+	ExtensionToolViewSchema,
+	ExtensionViewSchema,
 	ExternalCallStateSchema,
 	ExternalCallViewSchema,
-	McpServerGrantSchema,
-	McpServerHeaderSchema,
-	McpServerIdentityHeadersSchema,
-	McpServerInputSchema,
-	McpServerListResponseSchema,
-	McpServerResponseSchema,
-	McpServerStateSchema,
-	McpServerStatusSchema,
-	McpServerToolsResponseSchema,
-	McpServerViewSchema,
-	McpSessionServerSchema,
-	McpToolAnnotationsSchema,
-	McpToolViewSchema,
+	SessionExtensionSchema,
 } from "./schemas/extensions.ts";
 
-/** What an administrator may set on an MCP server; `name` comes from the route. */
-export type McpServerHeader = z.infer<typeof McpServerHeaderSchema>;
+/** What kind of extension this is: an MCP server or a built-in of crhs. */
+export type ExtensionKind = z.infer<typeof ExtensionKindSchema>;
+
+/** Who may use an extension: every user, or only the granted users and user groups. */
+export type ExtensionAvailability = z.infer<typeof ExtensionAvailabilitySchema>;
+
+/** One request header of an MCP extension; the value is write-only. */
+export type ExtensionHeader = z.infer<typeof ExtensionHeaderSchema>;
 
 /**
- * The two headers that carry the CRH identity to the server: the user's name and the session id. They are
- * written by crhs on every call and are not authentication.
+ * The two headers that carry the CRH identity to an MCP server: the user's name and the session id. They
+ * are written by crhs on every call and are not authentication.
  */
-export type McpServerIdentityHeaders = z.infer<typeof McpServerIdentityHeadersSchema>;
+export type ExtensionIdentityHeaders = z.infer<typeof ExtensionIdentityHeadersSchema>;
 
-/** How a server's connection currently behaves (doc/design/extensions.md "Connections"). */
-export type McpServerState = z.infer<typeof McpServerStateSchema>;
+/** How an extension's connection currently behaves (doc/design/extensions.md "MCP connections"). */
+export type ExtensionState = z.infer<typeof ExtensionStateSchema>;
 
-export type McpServerStatus = z.infer<typeof McpServerStatusSchema>;
+export type ExtensionStatus = z.infer<typeof ExtensionStatusSchema>;
 
-/** One MCP tool as the server listed it. */
-export type McpToolView = z.infer<typeof McpToolViewSchema>;
+/** One tool as the extension listed it. */
+export type ExtensionToolView = z.infer<typeof ExtensionToolViewSchema>;
 
 /** The tool annotations rules may use (doc/design/extensions.md "Rules and approvals"). */
-export type McpToolAnnotations = z.infer<typeof McpToolAnnotationsSchema>;
+export type ExtensionToolAnnotations = z.infer<typeof ExtensionToolAnnotationsSchema>;
 
-export type McpServerGrant = z.infer<typeof McpServerGrantSchema>;
+export type ExtensionGrant = z.infer<typeof ExtensionGrantSchema>;
 
-export type McpServerView = z.infer<typeof McpServerViewSchema>;
+export type ExtensionView = z.infer<typeof ExtensionViewSchema>;
 
-/** `PUT /api/mcp-servers/:name`; omitted fields keep their value, `headers` null removes them. */
-export type McpServerInput = z.infer<typeof McpServerInputSchema>;
+/** `PUT /api/extensions/:name`; omitted fields keep their value, `headers` null removes them. */
+export type ExtensionInput = z.infer<typeof ExtensionInputSchema>;
 
-export type McpServerListResponse = z.infer<typeof McpServerListResponseSchema>;
+export type ExtensionListResponse = z.infer<typeof ExtensionListResponseSchema>;
 
-export type McpServerResponse = z.infer<typeof McpServerResponseSchema>;
+export type ExtensionResponse = z.infer<typeof ExtensionResponseSchema>;
 
-export type McpServerToolsResponse = z.infer<typeof McpServerToolsResponseSchema>;
+export type ExtensionToolsResponse = z.infer<typeof ExtensionToolsResponseSchema>;
 
-/** A server as a session's settings and tool guide see it. */
-export type McpSessionServer = z.infer<typeof McpSessionServerSchema>;
+/** An extension as a session's settings and tool guide see it. */
+export type SessionExtension = z.infer<typeof SessionExtensionSchema>;
 
 /** The state of one external tool call (doc/design/extensions.md "External calls"). */
 export type ExternalCallState = z.infer<typeof ExternalCallStateSchema>;

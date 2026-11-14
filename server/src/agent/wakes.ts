@@ -1,5 +1,5 @@
 import { parentOf, type SessionRow } from "../sessions/session-chain.ts";
-import { syncSessionMcpExtensions } from "./extension.ts";
+import { syncSessionExtensions } from "./extension.ts";
 import { awaitingQuotaSessions } from "./quota.ts";
 import { conversationOf, type RuntimeHost } from "./runtime-core.ts";
 import { pendingAgentRequests, requestKey, wakeRequestKey } from "./runtime-requests.ts";
@@ -72,7 +72,7 @@ async function submitWake(host: RuntimeHost, handlerId: string, requestId: strin
 	const conversation = await conversationOf(host, row);
 	if (!conversation) return;
 	// The wake starts the handler's next request, so its MCP server selection is recomputed first.
-	await syncSessionMcpExtensions(host, row);
+	await syncSessionExtensions(host, row);
 	const submission = await conversation.submit({ type: "input", content, requestId }, host.context);
 	await recordInput(host, handlerId, submission);
 }

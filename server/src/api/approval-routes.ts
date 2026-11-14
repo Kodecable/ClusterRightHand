@@ -277,7 +277,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			target: { type: "external_call", id: row.id },
 			detail: {
 				decision: body.decision,
-				server: row.server_name,
+				extension: row.extension_name,
 				tool: row.tool_name,
 				grader: externalCallApproval(row)?.evaluation.result,
 				...(reason ? { reason } : {}),

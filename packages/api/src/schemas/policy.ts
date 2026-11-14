@@ -5,7 +5,15 @@
 import { z } from "zod";
 
 export const RuleActionSchema = z.enum(["allow", "deny", "require-approval"]);
-export const RuleMethodSchema = z.enum(["exec", "file.read", "file.write", "mcp.read", "mcp.write"]);
+export const RuleMethodSchema = z.enum([
+	"exec",
+	"file.read",
+	"file.write",
+	"ext.read",
+	"ext.write",
+	"api.read",
+	"api.write",
+]);
 export const RulePresetSchema = z.enum(["ask", "auto_review", "yolo"]);
 /** A level's own result; only a lower level than the root may inherit. */
 export const DefaultActionSchema = z.enum(["allow", "deny", "require-approval", "inherit"]);

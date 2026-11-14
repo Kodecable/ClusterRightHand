@@ -226,18 +226,20 @@ group approvals, tasks waiting for the user's signature, and sessions whose toke
 columns are the type, the operation, the target nodes by name, who asked and when; the whole row opens
 its detail. A task or task group detail shows the decision component inline (a task in
 `awaiting_authorization` shows the signature variant), and a quota row opens its session, where the
-docked decision panel holds it. A task group counts once. The deep links that MCP and agent tools
+docked decision panel holds it. A task group counts once. The deep links that extension and agent tools
 return open one approval and show "Already settled" once it has been decided.
 
-### MCP servers page
+### Extensions page
 
-**System settings → MCP servers** lists the administrator's servers with their connection state, last
-error, next attempt, tool count, grants and mode flags. The list refreshes while the page is open, and
-connecting through **Tools** or **Reconnect** refreshes it at once too. A server's editor covers every
-field, with request headers write-only (the stored names are listed, never the values) and grants chosen
-with the shared user/user-group picker. **Tools** opens the listed tools with their annotations;
-**Reconnect** connects at once instead of waiting for the backoff. A failed connection shows its error and
-keeps the last tool list searchable ([Extensions](extensions.md#connections)).
+**System settings → Extensions** lists both kinds in one table with their kind (MCP or built-in), state,
+last error, next attempt, tool count, availability and mode flags. The list refreshes while the page is
+open, and connecting through **Tools** or **Reconnect** refreshes it at once too. An MCP extension's
+editor covers every field, with request headers write-only (the stored names are listed, never the values)
+and availability and grants chosen with the shared controls; **New extension** creates an MCP extension.
+A built-in extension's editor has only enabled, list directly, availability, grants and description, and
+it has no **Reconnect** or **Delete**: built-ins exist from the start and are always ready. **Tools**
+opens the listed tools with their annotations. A failed connection shows its error and keeps the last tool
+list searchable ([Extensions](extensions.md#mcp-connections)).
 
 ### Models page
 
@@ -319,8 +321,8 @@ a session that waits only for someone else keeps the normal composer and the wai
 
 Changes to the model, thinking level or rule preset apply from the next model request or tool call;
 the step in progress keeps its settings. A rule preset change re-checks waiting approvals at once. The
-extensions control beside them turns single MCP servers off for the session; a new session starts with
-all granted servers on and a subagent inherits its parent's set, only turning more off.
+extensions control beside them turns single extensions off for the session; a new session starts with
+all available extensions on and a subagent inherits its parent's set, only turning more off.
 
 Only the session owner sees the **+** button, which offers **Upload files** and **Choose from
 library**; paste and drop upload too. Each attachment shows as a chip with progress and a remove button,

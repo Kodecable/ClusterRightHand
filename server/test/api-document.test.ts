@@ -143,14 +143,14 @@ describe("API document", () => {
 			expect(operation, key).toBeDefined();
 			expect(operation?.[AGENT_ACCESS_EXTENSION], key).toMatch(/^(allow|ask|deny)$/);
 		}
-		// The walk saw the session, model, schedule and MCP groups that only mount with all dependencies.
+		// The walk saw the session, model, schedule and extension groups that only mount with all dependencies.
 		for (const key of [
 			"get /api/sessions/stream",
 			"get /api/sessions/{id}/events",
 			"post /api/sessions",
 			"get /api/models",
 			"get /api/schedules",
-			"get /api/mcp-servers",
+			"get /api/extensions",
 			"get /api/health",
 		]) {
 			expect(seen.has(key), key).toBe(true);

@@ -8,13 +8,13 @@ import {
 	type SubmissionId,
 } from "@earendil-works/pi-durable";
 import { sql } from "kysely";
-import { mcpServerNamesForUser, parseDisabledServers } from "../extensions/servers.ts";
+import { extensionNamesForUser, parseDisabledExtensionNames } from "../extensions/store.ts";
 import type { RuleSet } from "../policy/rules.ts";
 import { createRuleSet } from "../policy/store.ts";
 import { MAX_SESSION_TREE_DEPTH, sessionAncestors } from "../sessions/session-chain.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { derivedId } from "../util/id.ts";
-import { syncSessionMcpExtensions } from "./extension.ts";
+import { syncSessionExtensions } from "./extension.ts";
 import { type ModelRef, thinkingLevelOf } from "./models.ts";
 import type { AgentRequestView, RuntimeHost } from "./runtime-core.ts";
 import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts";
@@ -103,14 +103,14 @@ export async function createSubagent(
 		.harness()
 		.conversation(Number(conversationId) as unknown as ConversationId, host.context);
 	if (!conversation) throw new NotFoundError("the subagent's conversation is missing");
-	// A subagent inherits its parent's server set and can only turn more off (doc/design/extensions.md "MCP servers").
-	const disabledMcpServers = parseDisabledServers(parent.disabled_mcp_servers);
-	const serverNames = await mcpServerNamesForUser(host.db, parent.owner_user_id, disabledMcpServers);
+	// A subagent inherits its parent's extension set and can only turn more off (doc/design/extensions.md "Extensions").
+	const disabledExtensions = parseDisabledExtensionNames(parent.disabled_extensions);
+	const extensionNames = await extensionNamesForUser(host.db, parent.owner_user_id, disabledExtensions);
 	await conversation.configure(
 		{
 			model: { provider: model.provider, modelId: model.modelId },
 			thinkingLevel: thinkingLevelOf(model),
-			extensions: host.extensionsFor(serverNames),
+			extensions: host.extensionsFor(extensionNames),
 		},
 		host.context,
 	);
@@ -126,7 +126,7 @@ export async function createSubagent(
 				conversation_id: String(conversation.id),
 				parent_session_id: parent.id,
 				root_session_id: parent.root_session_id,
-				disabled_mcp_servers: disabledMcpServers.length === 0 ? null : JSON.stringify(disabledMcpServers),
+				disabled_extensions: disabledExtensions.length === 0 ? null : JSON.stringify(disabledExtensions),
 				title: input.task.slice(0, 80),
 				// A child's title is the start of its task; it never generates one.
 				title_pending: 0,
@@ -169,8 +169,8 @@ export async function startSubagent(
 	const { row, conversation } = await loadConversation(host, childId, {
 		noConversation: "the subagent's conversation is missing",
 	});
-	// The subagent's next request selects its MCP servers from the rows read now.
-	await syncSessionMcpExtensions(host, row);
+	// The subagent's next request selects its extensions from the rows read now.
+	await syncSessionExtensions(host, row);
 	const submission = await conversation.submit({ type: "input", content: text, requestId }, host.context);
 	await recordInput(host, childId, submission);
 	void host.audit?.record({

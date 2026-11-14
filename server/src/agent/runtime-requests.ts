@@ -118,7 +118,7 @@ async function queryRequests(host: RuntimeHost, handlerId: string): Promise<Agen
 			nodeId: null,
 			createdAt: row.created_at,
 			externalCall: {
-				server: row.server_name,
+				extension: row.extension_name,
 				tool: row.tool_name,
 				operation: externalCallOperation(row),
 				annotations: externalCallAnnotations(row),
@@ -252,7 +252,7 @@ export async function decideAgentRequest(
 	}
 	const call = await host.db
 		.selectFrom("external_calls")
-		.select(["id", "state", "approval", "on_behalf_of_user_id", "actor_id", "server_name", "tool_name"])
+		.select(["id", "state", "approval", "on_behalf_of_user_id", "actor_id", "extension_name", "tool_name"])
 		.where("id", "=", requestId)
 		.executeTakeFirst();
 	if (call) {
@@ -286,7 +286,7 @@ export async function decideAgentRequest(
 			target: { type: "external_call", id: requestId },
 			detail: {
 				decision,
-				server: call.server_name,
+				extension: call.extension_name,
 				tool: call.tool_name,
 				...(reason ? { reason } : {}),
 			},

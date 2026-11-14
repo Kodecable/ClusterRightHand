@@ -1,15 +1,15 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { McpSessionServer, RulePreset } from "@crh/api";
+import type { RulePreset } from "@crh/api";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as z from "zod/v4";
-import { mcpServerExtension, mcpSessionServers } from "../src/agent/extension.ts";
+import { directToolsExtension, sessionExtensionViews } from "../src/agent/extension.ts";
 import type { AgentRuntimeOptions } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
-import { McpCallLostError, McpConnections, type McpTool, McpUnavailableError } from "../src/extensions/connections.ts";
+import { McpConnections } from "../src/extensions/connections.ts";
 import {
 	cancelWaitingExternalCall,
 	createExternalCall,
@@ -24,20 +24,22 @@ import {
 	requestAgentDecision,
 	waitExternalCall,
 } from "../src/extensions/external-calls.ts";
+import { ExtensionCallLostError, type ExtensionTool, ExtensionUnavailableError } from "../src/extensions/model.ts";
+import { sessionExtensionsForUser } from "../src/extensions/registry.ts";
 import {
-	deleteMcpServer,
-	mcpServerNamesForUser,
-	mcpServersForUser,
-	parseDisabledServers,
-	saveMcpServer,
-} from "../src/extensions/servers.ts";
+	deleteExtension,
+	extensionNamesForUser,
+	extensionsForUser,
+	parseDisabledExtensionNames,
+	saveExtension,
+} from "../src/extensions/store.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { ImageCache } from "../src/library/image-cache.ts";
 import { createRootRuleSet } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import type { ToolContext } from "../src/tools/catalog.ts";
-import { runExternalTool, TOOLS } from "../src/tools/catalog.ts";
+import { runExtensionTool, TOOLS } from "../src/tools/catalog.ts";
 import { convertExternalResult } from "../src/tools/external-results.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
@@ -176,7 +178,7 @@ describe("MCP extensions", () => {
 				created_at: now,
 				updated_at: now,
 				archived_at: null,
-				disabled_mcp_servers: null,
+				disabled_extensions: null,
 				last_submission_id: null,
 				state: "idle",
 				waiting_kind: null,
@@ -201,7 +203,7 @@ describe("MCP extensions", () => {
 	async function addServer(
 		overrides: { preset?: RulePreset; trustAnnotations?: boolean; listDirectly?: boolean; grants?: boolean } = {},
 	) {
-		const { row } = await saveMcpServer(
+		const { row } = await saveExtension(
 			db,
 			masterKey,
 			"fake",
@@ -224,16 +226,7 @@ describe("MCP extensions", () => {
 		enabled: boolean;
 		available: boolean;
 	}): Promise<ToolContext> {
-		const row = await db.selectFrom("mcp_servers").selectAll().where("name", "=", server.name).executeTakeFirst();
-		const session: McpSessionServer = {
-			name: server.name,
-			description: server.description,
-			enabled: server.enabled,
-			available: server.available,
-			trustAnnotations: row?.trust_annotations === 1,
-			listDirectly: row?.list_directly === 1,
-			timeoutMs: row?.timeout_ms ?? 300_000,
-		};
+		const entries = await sessionExtensionsForUser(db, user.userId, server.enabled ? [] : [server.name], mcp);
 		return {
 			db,
 			cluster: {} as never,
@@ -243,25 +236,24 @@ describe("MCP extensions", () => {
 			chain: [{ type: "session", id: sessionId }],
 			approvalUrl: () => "",
 			rootSessionId: sessionId,
-			mcp,
-			mcpServers: [session],
+			extensions: entries,
 			audit,
 		};
 	}
 
-	async function search(query: string, server = "fake") {
+	async function search(query: string, extension = "fake") {
 		const tool = TOOLS.find((entry) => entry.name === "search_tools");
 		if (!tool) throw new Error("no search_tools");
-		const ctx = await context({ name: server, description: "A fake server", enabled: true, available: true });
+		const ctx = await context({ name: extension, description: "A fake server", enabled: true, available: true });
 		const result = await tool.handler({ query } as never, ctx);
 		return JSON.parse(result.content[0]?.text ?? "{}") as Record<string, unknown>;
 	}
 
 	it("validates server names, encrypts headers and requires re-entering them on a URL change", async () => {
-		await expect(saveMcpServer(db, masterKey, "Bad Name", { url: "http://mcp.test/mcp" }, user.userId)).rejects.toThrow(
+		await expect(saveExtension(db, masterKey, "Bad Name", { url: "http://mcp.test/mcp" }, user.userId)).rejects.toThrow(
 			/lowercase/,
 		);
-		await saveMcpServer(
+		await saveExtension(
 			db,
 			masterKey,
 			"fake",
@@ -270,11 +262,11 @@ describe("MCP extensions", () => {
 		);
 		const secret = await db.selectFrom("secrets").select(["ciphertext"]).executeTakeFirst();
 		expect(secret?.ciphertext).not.toContain("top-secret");
-		await expect(saveMcpServer(db, masterKey, "fake", { url: "http://other.test/mcp" }, user.userId)).rejects.toThrow(
+		await expect(saveExtension(db, masterKey, "fake", { url: "http://other.test/mcp" }, user.userId)).rejects.toThrow(
 			/re-entering the headers/,
 		);
-		await saveMcpServer(db, masterKey, "fake", { url: "http://other.test/mcp", headers: null }, user.userId);
-		await deleteMcpServer(db, "fake");
+		await saveExtension(db, masterKey, "fake", { url: "http://other.test/mcp", headers: null }, user.userId);
+		await deleteExtension(db, "fake");
 		expect(await db.selectFrom("secrets").select("id").execute()).toHaveLength(0);
 	});
 
@@ -285,7 +277,7 @@ describe("MCP extensions", () => {
 		expect(results.map((entry) => entry.tool)).toEqual(["echo"]);
 		expect(results[0]?.input_schema).toMatchObject({ type: "object" });
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
-		const result = await runExternalTool(ctx, "fake", "echo", { message: "hi" });
+		const result = await runExtensionTool(ctx, "fake", "echo", { message: "hi" });
 		expect(result.isError).toBe(false);
 		expect(result.content.map((block) => block.text).join("\n")).toContain("echo: hi");
 		const row = await db.selectFrom("external_calls").selectAll().executeTakeFirst();
@@ -297,7 +289,7 @@ describe("MCP extensions", () => {
 		await addServer();
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
 		const id = externalCallId("finished");
-		const first = await runExternalTool({ ...ctx, callKey: "finished" }, "fake", "echo", { message: "hi" });
+		const first = await runExtensionTool({ ...ctx, callKey: "finished" }, "fake", "echo", { message: "hi" });
 		expect(first.isError).toBe(false);
 		expect(first.content.map((block) => block.text).join("\n")).toContain("echo: hi");
 		expect(first.details?.approval_url).toBeUndefined();
@@ -307,11 +299,11 @@ describe("MCP extensions", () => {
 		expect(finished?.finished_at).not.toBeNull();
 
 		const callsBefore = state.calls.length;
-		const replay = await runExternalTool({ ...ctx, callKey: "finished" }, "fake", "echo", { message: "hi" });
+		const replay = await runExtensionTool({ ...ctx, callKey: "finished" }, "fake", "echo", { message: "hi" });
 		const text = replay.content.map((block) => block.text).join("\n");
 		expect(text).toContain("finished before a restart");
 		expect(text).toContain("could not be kept");
-		expect(replay.details).toEqual({ server: "fake", tool: "echo" });
+		expect(replay.details).toEqual({ extension: "fake", tool: "echo" });
 		expect(state.calls.length).toBe(callsBefore);
 	});
 
@@ -325,14 +317,14 @@ describe("MCP extensions", () => {
 				statuses.push(status);
 			},
 		};
-		const pending = runExternalTool(ctx, "fake", "write_thing", { value: 3 });
+		const pending = runExtensionTool(ctx, "fake", "write_thing", { value: 3 });
 		const waiting = await waitFor(async () => {
 			const rows = await db.selectFrom("external_calls").selectAll().execute();
 			return rows.find((row) => row.state === "awaiting_approval");
 		});
 		const view = (await externalCallViews(db, [waiting]))[0];
-		expect(view?.server).toBe("fake");
-		expect(view?.operation).toEqual({ method: "mcp.write", target: "fake/write_thing" });
+		expect(view?.extension).toBe("fake");
+		expect(view?.operation).toEqual({ method: "ext.write", target: "fake/write_thing" });
 		await expect(getExternalCall(db, waiting.id)).resolves.toBeDefined();
 		const decided = await decideExternalCall(db, waiting.id, {
 			decision: "approved",
@@ -358,7 +350,7 @@ describe("MCP extensions", () => {
 	it("returns a rejected call's reason without an approval link", async () => {
 		await addServer({ preset: "ask" });
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
-		const pending = runExternalTool(ctx, "fake", "write_thing", { value: 4 });
+		const pending = runExtensionTool(ctx, "fake", "write_thing", { value: 4 });
 		const waiting = await waitFor(async () => {
 			const rows = await db.selectFrom("external_calls").selectAll().execute();
 			return rows.find((row) => row.state === "awaiting_approval");
@@ -382,12 +374,12 @@ describe("MCP extensions", () => {
 	it("treats an untrusted readOnlyHint as a write", async () => {
 		await addServer({ trustAnnotations: false });
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
-		const pending = runExternalTool(ctx, "fake", "echo", { message: "x" });
+		const pending = runExtensionTool(ctx, "fake", "echo", { message: "x" });
 		const waiting = await waitFor(async () => {
 			const rows = await db.selectFrom("external_calls").selectAll().execute();
 			return rows.find((row) => row.state === "awaiting_approval");
 		});
-		expect(JSON.parse(waiting.operation)).toEqual({ method: "mcp.write", target: "fake/echo" });
+		expect(JSON.parse(waiting.operation)).toEqual({ method: "ext.write", target: "fake/echo" });
 		await cancelWaitingExternalCall(db, waiting.id);
 		const result = await pending;
 		expect(result.isError).toBe(true);
@@ -397,7 +389,7 @@ describe("MCP extensions", () => {
 		const cache = new ImageCache(db, imageDir, () => ({ diskBytes: 1_048_576, ttlMs: 60_000 }));
 		await addServer();
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
-		const result = await runExternalTool({ ...ctx, imageCache: cache }, "fake", "show_picture", {});
+		const result = await runExtensionTool({ ...ctx, imageCache: cache }, "fake", "show_picture", {});
 		const images = (result.details as { images?: { sha256: string }[] } | undefined)?.images ?? [];
 		expect(images).toHaveLength(1);
 		expect(await cache.get(images[0]?.sha256 ?? "")).toBeDefined();
@@ -406,14 +398,14 @@ describe("MCP extensions", () => {
 	it("reports an isError result as a failed tool result with text", async () => {
 		await addServer({ preset: "yolo" });
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
-		const result = await runExternalTool(ctx, "fake", "fail_thing", {});
+		const result = await runExtensionTool(ctx, "fake", "fail_thing", {});
 		expect(result.isError).toBe(true);
 		expect(result.content.map((block) => block.text).join("\n")).toContain("it failed");
 	});
 
 	it("lists tools directly only when asked, skipping names that do not fit", async () => {
 		const options = { db } as AgentRuntimeOptions;
-		const tools: McpTool[] = [
+		const tools: ExtensionTool[] = [
 			{ name: "echo", title: null, description: null, inputSchema: { type: "object" }, annotations: null },
 			{
 				name: `x${"y".repeat(64)}`,
@@ -423,9 +415,9 @@ describe("MCP extensions", () => {
 				annotations: null,
 			},
 		];
-		const extension = mcpServerExtension(options, {}, "fake", tools);
-		expect(extension.name).toBe("mcp:fake");
-		expect(extension.tools?.map((tool) => tool.name)).toEqual(["mcp__fake__echo"]);
+		const extension = directToolsExtension(options, {}, "fake", tools);
+		expect(extension.name).toBe("ext:fake");
+		expect(extension.tools?.map((tool) => tool.name)).toEqual(["ext__fake__echo"]);
 	});
 
 	it("backs off exponentially and lets an administrator reconnect at once", async () => {
@@ -494,7 +486,7 @@ describe("MCP extensions", () => {
 			await vi.advanceTimersByTimeAsync(9_999);
 			await vi.advanceTimersByTimeAsync(1);
 			const error = await outcome;
-			expect(error).toBeInstanceOf(McpUnavailableError);
+			expect(error).toBeInstanceOf(ExtensionUnavailableError);
 			expect((error as Error).message).toContain("timed out");
 			expect(mcp.status("fake").state).toBe("unavailable");
 			expect(mcp.status("fake").nextAttemptAt).not.toBeNull();
@@ -543,7 +535,7 @@ describe("MCP extensions", () => {
 		expect(found.stale).toBe(true);
 		expect((found.results as unknown[]).length).toBe(1);
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: false });
-		const result = await runExternalTool(ctx, "fake", "echo", { message: "x" });
+		const result = await runExtensionTool(ctx, "fake", "echo", { message: "x" });
 		expect(result.isError).toBe(true);
 		expect(result.content.map((block) => block.text).join("\n")).toContain("unavailable");
 	});
@@ -555,7 +547,7 @@ describe("MCP extensions", () => {
 			() => undefined,
 			(error: unknown) => error,
 		);
-		expect(result).toBeInstanceOf(McpCallLostError);
+		expect(result).toBeInstanceOf(ExtensionCallLostError);
 		// A row that was in flight when the process stopped is recovered as unknown.
 		const call = await createExternalCall(db, {
 			callKey: "in-flight",
@@ -563,10 +555,10 @@ describe("MCP extensions", () => {
 			actorType: "session",
 			actorId: sessionId,
 			onBehalfOfUserId: user.userId,
-			server: "fake",
+			extension: "fake",
 			tool: "write_thing",
 			arguments: {},
-			operation: { method: "mcp.write", target: "fake/write_thing" },
+			operation: { method: "ext.write", target: "fake/write_thing" },
 			annotations: null,
 			ruleChain: [{ type: "session", id: sessionId }],
 			rootSessionId: sessionId,
@@ -577,7 +569,7 @@ describe("MCP extensions", () => {
 		expect((await getExternalCall(db, call.row.id))?.state).toBe("unknown");
 		const callsBefore = state.calls.length;
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
-		const replay = await runExternalTool({ ...ctx, callKey: "in-flight" }, "fake", "write_thing", { value: 1 });
+		const replay = await runExtensionTool({ ...ctx, callKey: "in-flight" }, "fake", "write_thing", { value: 1 });
 		expect(replay.isError).toBe(true);
 		expect(replay.content.map((block) => block.text).join("\n")).toContain("unknown");
 		expect(state.calls.length).toBe(callsBefore);
@@ -596,38 +588,53 @@ describe("MCP extensions", () => {
 			.values({ user_group_id: group?.id ?? "", user_id: user.userId, created_at: new Date().toISOString() })
 			.execute();
 		// The direct grant already covers the user; drop it to prove the group grant is what reaches them.
-		await db.deleteFrom("mcp_server_grants").execute();
-		expect(await mcpServersForUser(db, user.userId)).toHaveLength(0);
-		const row = await db.selectFrom("mcp_servers").selectAll().executeTakeFirst();
+		await db.deleteFrom("extension_grants").execute();
+		expect((await extensionsForUser(db, user.userId)).map((row) => row.name)).toEqual(["api", "docs"]);
+		const row = await db.selectFrom("extensions").selectAll().where("name", "=", "fake").executeTakeFirst();
 		await db
-			.insertInto("mcp_server_grants")
+			.insertInto("extension_grants")
 			.values({
 				id: newId(),
 				org_id: orgId,
-				server_id: row?.id ?? "",
+				extension_id: row?.id ?? "",
 				grantee_type: "user_group",
 				grantee_id: group?.id ?? "",
 				created_by_user_id: user.userId,
 				created_at: new Date().toISOString(),
 			})
 			.execute();
-		expect(await mcpServerNamesForUser(db, user.userId)).toEqual(["fake"]);
-		expect(await mcpServerNamesForUser(db, user.userId, ["fake"])).toEqual([]);
-		expect(parseDisabledServers('["fake"]')).toEqual(["fake"]);
+		expect(await extensionNamesForUser(db, user.userId)).toEqual(["api", "docs", "fake"]);
+		expect(await extensionNamesForUser(db, user.userId, ["fake"])).toEqual(["api", "docs"]);
+		expect(parseDisabledExtensionNames('["fake"]')).toEqual(["fake"]);
 	});
 
-	it("describes the session's servers for the tool guide", async () => {
+	it("describes the session's extensions for the tool guide", async () => {
 		await addServer();
-		const servers = await mcpSessionServers({ db } as AgentRuntimeOptions, user.userId, []);
-		expect(servers).toEqual([
+		const extensions = await sessionExtensionViews({ db, mcp } as AgentRuntimeOptions, user.userId, []);
+		expect(extensions).toEqual([
+			{
+				name: "api",
+				kind: "builtin",
+				description: "The crhs API as the session owner, through the same routes and rules as the WebUI",
+				enabled: true,
+				available: true,
+				listDirectly: true,
+			},
+			{
+				name: "docs",
+				kind: "builtin",
+				description: "The documentation and the API reference of this crhs version",
+				enabled: true,
+				available: true,
+				listDirectly: true,
+			},
 			{
 				name: "fake",
+				kind: "mcp",
 				description: "A fake server",
 				enabled: true,
 				available: true,
-				trustAnnotations: true,
 				listDirectly: false,
-				timeoutMs: 300_000,
 			},
 		]);
 	});
@@ -640,10 +647,10 @@ describe("MCP extensions", () => {
 			actorType: "session",
 			actorId: sessionId,
 			onBehalfOfUserId: user.userId,
-			server: "fake",
+			extension: "fake",
 			tool: "write_thing",
 			arguments: {},
-			operation: { method: "mcp.write", target: "fake/write_thing" },
+			operation: { method: "ext.write", target: "fake/write_thing" },
 			annotations: null,
 			ruleChain: [{ type: "session", id: sessionId }],
 			rootSessionId: sessionId,
@@ -675,10 +682,10 @@ describe("MCP extensions", () => {
 					actorType: "session",
 					actorId: sessionId,
 					onBehalfOfUserId: user.userId,
-					server: "fake",
+					extension: "fake",
 					tool: "write_thing",
 					arguments: {},
-					operation: { method: "mcp.write", target: "fake/write_thing" },
+					operation: { method: "ext.write", target: "fake/write_thing" },
 					annotations: null,
 					ruleChain: [{ type: "session", id: sessionId }],
 					rootSessionId: sessionId,
@@ -711,10 +718,10 @@ describe("MCP extensions", () => {
 			actorType: "subagent",
 			actorId: sessionId,
 			onBehalfOfUserId: user.userId,
-			server: "fake",
+			extension: "fake",
 			tool: "write_thing",
 			arguments: { value: 1 },
-			operation: { method: "mcp.write", target: "fake/write_thing" },
+			operation: { method: "ext.write", target: "fake/write_thing" },
 			annotations: null,
 			ruleChain: [{ type: "session", id: sessionId }],
 			rootSessionId: sessionId,
@@ -754,10 +761,10 @@ describe("MCP extensions", () => {
 			actorType: "subagent",
 			actorId: sessionId,
 			onBehalfOfUserId: user.userId,
-			server: "fake",
+			extension: "fake",
 			tool: "write_thing",
 			arguments: {},
-			operation: { method: "mcp.write", target: "fake/write_thing" },
+			operation: { method: "ext.write", target: "fake/write_thing" },
 			annotations: null,
 			ruleChain: [{ type: "session", id: sessionId }],
 			rootSessionId: sessionId,
@@ -796,10 +803,10 @@ describe("MCP extensions", () => {
 			actorType: "session",
 			actorId: sessionId,
 			onBehalfOfUserId: user.userId,
-			server: "fake",
+			extension: "fake",
 			tool: "write_thing",
 			arguments: {},
-			operation: { method: "mcp.write", target: "fake/write_thing" },
+			operation: { method: "ext.write", target: "fake/write_thing" },
 			annotations: null,
 			ruleChain: [{ type: "session", id: sessionId }],
 			rootSessionId: sessionId,
@@ -826,7 +833,7 @@ describe("MCP extensions", () => {
 				],
 				structuredContent: { ok: 1 },
 			},
-			{ server: "fake", tool: "mixed" },
+			{ extension: "fake", tool: "mixed" },
 		);
 		const text = result.content.map((block) => block.text).join("\n");
 		expect(text).toContain("file:///a.txt");

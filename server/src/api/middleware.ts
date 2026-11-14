@@ -20,9 +20,11 @@ function normalizedHost(host: string, scheme: string): string {
 /**
  * CSRF defence for cookie-authenticated requests: state-changing requests must be JSON (which a cross-site
  * form cannot send without a CORS preflight) and, when the browser sends Origin, it must match the Host.
- * The session cookie is also SameSite=Strict.
+ * The session cookie is also SameSite=Strict. An internal `api_request` carries its identity in the
+ * request's bindings and sends no cookie, so it has no cross-site vector and is let through.
  */
 export const csrfGuard: MiddlewareHandler = async (c, next) => {
+	if (c.env?.crhInternal !== undefined) return next();
 	if (!SAFE_METHODS.has(c.req.method)) {
 		const contentType = (c.req.header("content-type") ?? "").toLowerCase();
 		// A library upload is a raw stream; application/octet-stream is not a CORS-safelisted request
@@ -53,6 +55,25 @@ export const csrfGuard: MiddlewareHandler = async (c, next) => {
 
 export function requireUser(db: Db): MiddlewareHandler<AppEnv> {
 	return async (c, next) => {
+		// An in-process api_request identifies the session owner in the request's bindings; a network request
+		// cannot set them, so no header can impersonate anyone.
+		const internal = c.env?.crhInternal;
+		if (internal) {
+			const row = await db
+				.selectFrom("users")
+				.select(["id", "username", "kind", "status"])
+				.where("id", "=", internal.userId)
+				.executeTakeFirst();
+			if (row?.status !== "active") return jsonError(c, 401, "not signed in");
+			c.set("user", {
+				sessionId: `internal:${internal.actor.id}`,
+				userId: row.id,
+				username: row.username,
+				kind: row.kind,
+				actor: internal.actor,
+			});
+			return next();
+		}
 		const token = getCookie(c, SESSION_COOKIE);
 		const user = token ? await resolveWebSession(db, token) : undefined;
 		if (!user) return jsonError(c, 401, "not signed in");

@@ -219,6 +219,10 @@ msgstr "90 天"
 msgid "A base URL is required."
 msgstr "必须填写 Base URL。"
 
+#: src/features/settings/extension-dialog.tsx
+msgid "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability, its grants and its description."
+msgstr "内置扩展随 crhs 一起提供，始终就绪。你可以停用它，修改其工具是否直接列出、可用范围、授权对象和描述。"
+
 #: src/lib/task-form.ts
 msgid "A command is required."
 msgstr "需要填写命令。"
@@ -308,14 +312,6 @@ msgstr "计划任务在每次触发时创建一个新会话并提交固定的提
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
 msgstr "计划运行走正常的授权路径：特权任务需要所有者签名。若要让固定命令无人值守地运行，请在"
 
-#: src/features/settings/mcp-server-dialog.tsx
-msgid "A server is reached over Streamable HTTP with static headers. Only administrators connect servers; the grants decide which sessions may use it."
-msgstr "服务器通过 Streamable HTTP 和静态请求头访问。只有管理员能连接服务器；授权决定哪些会话可以使用它。"
-
-#: src/features/sessions/composer-footer.tsx
-msgid "A server that is off is hidden from the model. The change applies to the next turn."
-msgstr "关闭的服务器对模型不可见。改动在下一轮生效。"
-
 #: src/features/system-settings/attachments-section.tsx
 msgid "A text file up to the per-file limit has its content appended to its message block; no more than the per-message limit is inlined over one message. Images are never inlined."
 msgstr "不超过单文件限制的文本文件，其内容会追加到该附件的消息块后；每条消息内联的文本总量不超过单条消息限制。图片从不内联。"
@@ -354,8 +350,6 @@ msgstr "必须填写用户名。"
 
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
-#: src/features/settings/mcp-server-dialog.tsx
-#: src/features/settings/mcp-servers.tsx
 msgid "Access"
 msgstr "访问权限"
 
@@ -430,7 +424,7 @@ msgstr "添加授权签名密钥"
 msgid "Add field"
 msgstr "添加字段"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Add header"
 msgstr "添加请求头"
@@ -504,9 +498,9 @@ msgstr "节点连接后会显示为待批准；批准前请把它的密钥指纹
 msgid "Agent"
 msgstr "Agent"
 
-#: src/features/settings/mcp-servers.tsx
-msgid "Agent sessions reach these servers' tools through search_tools and call_tool, under the session's rules and approvals."
-msgstr "智能体会话通过 search_tools 和 call_tool 使用这些服务器的工具，并遵守会话的规则与审批。"
+#: src/features/settings/extensions.tsx
+msgid "Agent sessions reach extension tools through search_tools and call_tool, under the session's rules and approvals. MCP extensions connect over Streamable HTTP; built-in extensions ship with crhs."
+msgstr "Agent 会话通过 search_tools 和 call_tool 使用扩展工具，同样受会话规则和审批约束。MCP 扩展通过 Streamable HTTP 连接；内置扩展随 crhs 一起提供。"
 
 #: src/features/system-settings/retention-section.tsx
 msgid "Agent tool records"
@@ -606,8 +600,20 @@ msgid "An administrator grants access to nodes."
 msgstr "节点访问权限由管理员授予。"
 
 #: src/components/decision/external-call-decision.tsx
-msgid "An external tool call needs approval"
-msgstr "外部工具调用需要审批"
+msgid "An API request needs approval"
+msgstr "一个 API 请求需要审批"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "An extension that is off is hidden from the model. The change applies to the next turn."
+msgstr "关闭的扩展对模型不可见。更改从下一轮开始生效。"
+
+#: src/components/decision/external-call-decision.tsx
+msgid "An extension tool call needs approval"
+msgstr "扩展工具调用需要审批"
+
+#: src/features/settings/extension-dialog.tsx
+msgid "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
+msgstr "MCP 扩展通过 Streamable HTTP 和静态请求头访问。只有管理员可以创建扩展；可用范围和授权对象决定哪些会话可以使用它。"
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "An SSH credential is required."
@@ -617,7 +623,7 @@ msgstr "需要选择 SSH 凭据。"
 msgid "Annotations"
 msgstr "注解"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Annotations untrusted"
 msgstr "注解不受信任"
 
@@ -823,6 +829,11 @@ msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 re
 msgid "Auto review"
 msgstr "自动复核"
 
+#: src/features/settings/extension-dialog.tsx
+#: src/features/settings/extensions.tsx
+msgid "Availability"
+msgstr "可用范围"
+
 #. placeholder {0}: formatLatency(averageTtft, locale)
 #: src/features/sessions/composer-meta.tsx
 msgid "Average time to first token: {0}"
@@ -857,9 +868,13 @@ msgstr "返回会话列表"
 msgid "Base URL"
 msgstr "Base URL"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Behavior"
 msgstr "行为"
+
+#: src/components/decision/external-call-decision.tsx
+msgid "Body"
+msgstr "正文"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Body fields"
@@ -873,6 +888,10 @@ msgstr "预算已用尽 · 已花 {usedText}"
 #: src/features/sessions/quota-decision.tsx
 msgid "Budget used up ({0} over) · {usedText} spent"
 msgstr "预算已用尽（超出 {0}）· 已花 {usedText}"
+
+#: src/features/settings/extensions.tsx
+msgid "Built-in"
+msgstr "内置"
 
 #: src/features/audit/pages.tsx
 #: src/features/tasks/task-columns.tsx
@@ -965,7 +984,7 @@ msgstr "修改密码会登出你的其他 Web 会话，但不会吊销已有的 
 msgid "Changing the RP ID invalidates the Passkeys registered for the old one."
 msgstr "更改 RP ID 会使为旧 ID 注册的 Passkey 失效。"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Changing the URL requires entering the headers again or removing them."
 msgstr "更改 URL 需要重新输入请求头或将其移除。"
 
@@ -1203,7 +1222,7 @@ msgstr "确认"
 msgid "Confirm every host fingerprint first."
 msgstr "请先确认所有主机指纹。"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Connect a Streamable HTTP MCP server to give sessions external tools."
 msgstr "连接一个 Streamable HTTP MCP 服务器，为会话提供外部工具。"
 
@@ -1220,7 +1239,7 @@ msgstr "已连接"
 msgid "Connected since {0}"
 msgstr "自 {0} 起连接"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Connecting"
 msgstr "正在连接"
 
@@ -1228,7 +1247,7 @@ msgstr "正在连接"
 msgid "Connecting…"
 msgstr "正在连接…"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Connection"
 msgstr "连接"
 
@@ -1507,7 +1526,7 @@ msgstr "默认值：总计 {0}。"
 #: src/components/file-manager/file-list.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -1521,7 +1540,7 @@ msgstr "删除"
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
 #: src/components/file-manager/file-list.tsx
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -1552,10 +1571,14 @@ msgstr "删除授权签名密钥？"
 msgid "Delete credential"
 msgstr "删除凭据"
 
+#: src/features/settings/extensions.tsx
+msgid "Delete extension"
+msgstr "删除扩展"
+
 #. placeholder {0}: deleting.name
-#: src/features/settings/mcp-servers.tsx
-msgid "Delete MCP server {0}?"
-msgstr "删除 MCP 服务器 {0}？"
+#: src/features/settings/extensions.tsx
+msgid "Delete MCP extension {0}?"
+msgstr "删除 MCP 扩展 {0}？"
 
 #: src/features/nodes/delete-node-dialog.tsx
 #: src/features/nodes/pages.tsx
@@ -1588,10 +1611,6 @@ msgstr "删除提供方 {0}？"
 #: src/features/schedules/pages.tsx
 msgid "Delete schedule"
 msgstr "删除计划任务"
-
-#: src/features/settings/mcp-servers.tsx
-msgid "Delete server"
-msgstr "删除服务器"
 
 #: src/features/signing-credentials/pages.tsx
 msgid "Delete signing credential"
@@ -1658,7 +1677,7 @@ msgstr "拒绝"
 msgid "Describe the route (jump hosts, then the target), pick each hop's credential and pin its host fingerprint, then test the connection and create the node."
 msgstr "描述路由（先是跳板机，最后是目标），为每一跳选择凭据并固定其主机指纹，然后测试连接并创建节点。"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Description"
 msgstr "描述"
 
@@ -1689,7 +1708,7 @@ msgid "Disable user"
 msgstr "禁用用户"
 
 #: src/features/schedules/pages.tsx
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/users/pages.tsx
 #: src/features/users/user-group-page.tsx
@@ -1727,8 +1746,8 @@ msgid "Each level's JSON object is merged into the request body; a level is offe
 msgstr "每档的 JSON 对象会合并进请求体；只有同时填写请求体和显示名，该档才会被提供。"
 
 #: src/features/tokens/rules-dialog.tsx
-msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
-msgstr "每条规则：action（allow、deny、require-approval）、可选 method（exec、file.read、file.write）、nodes（节点和节点组的名称或 ID，或 _all），以及 exact 或 prefix。"
+msgid "Each rule: action (allow, deny, require-approval), optional method (exec, file.read, file.write, ext.read, ext.write, api.read, api.write), nodes (names or ids of nodes and node groups, or _all), and exact or prefix."
+msgstr "每条规则：action（allow、deny、require-approval），可选 method（exec、file.read、file.write、ext.read、ext.write、api.read、api.write），nodes（节点和节点组的名称或 ID，或 _all），以及 exact 或 prefix。"
 
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "Each selected signing credential may authorize a task, and crhs must countersign it; crhs cannot authorize alone."
@@ -1738,7 +1757,7 @@ msgstr "每个选中的签名凭据都可以授权任务，且必须由 crhs 联
 msgid "Each token has its own rules; what they do not allow waits for your approval."
 msgstr "每个令牌有自己的规则；规则不允许的操作会等待你审批。"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Edit"
@@ -1746,10 +1765,15 @@ msgstr "编辑"
 
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 msgid "Edit {0}"
 msgstr "编辑 {0}"
+
+#. placeholder {0}: existing.name
+#: src/features/settings/extension-dialog.tsx
+msgid "Edit extension {0}"
+msgstr "编辑扩展 {0}"
 
 #: src/features/library/library-section.tsx
 msgid "Edit limits"
@@ -1759,11 +1783,6 @@ msgstr "编辑限制"
 #: src/features/library/limits-dialog.tsx
 msgid "Edit limits for {0}"
 msgstr "编辑 {0} 的限制"
-
-#. placeholder {0}: existing.name
-#: src/features/settings/mcp-server-dialog.tsx
-msgid "Edit MCP server {0}"
-msgstr "编辑 MCP 服务器 {0}"
 
 #: src/features/node-groups/pages.tsx
 msgid "Edit members"
@@ -1803,15 +1822,15 @@ msgstr "启用"
 
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Enabled"
 msgstr "已启用"
 
-#: src/features/settings/mcp-server-dialog.tsx
-msgid "Enabled (a disabled server is invisible to sessions)"
-msgstr "已启用（禁用的服务器对会话不可见）"
+#: src/features/settings/extension-dialog.tsx
+msgid "Enabled (a disabled extension is invisible to sessions)"
+msgstr "启用（停用的扩展对会话不可见）"
 
 #. placeholder {0}: schedule.name
 #: src/features/schedules/schedule-actions.tsx
@@ -1954,6 +1973,15 @@ msgstr "每个模型的最大输出至少为 1 个 token。"
 msgid "Every model needs an id."
 msgstr "每个模型都需要 ID。"
 
+#: src/features/settings/extension-dialog.tsx
+msgid "Every user reaches this extension, under the session's rules and approvals."
+msgstr "所有用户都可以使用此扩展，但仍受会话规则和审批约束。"
+
+#: src/features/settings/extension-dialog.tsx
+#: src/features/settings/extensions.tsx
+msgid "Everyone"
+msgstr "所有人"
+
 #: src/components/decision/approval-decision.tsx
 msgid "exact"
 msgstr "精确匹配"
@@ -2004,14 +2032,20 @@ msgstr "过期时间"
 msgid "Expires after"
 msgstr "有效期"
 
-#. placeholder {0}: servers.length
+#: src/components/decision/external-call-decision.tsx
+msgid "Extension"
+msgstr "扩展"
+
+#: src/app/shell/nav.ts
+#: src/features/sessions/composer-footer.tsx
+#: src/features/settings/extensions.tsx
+msgid "Extensions"
+msgstr "扩展"
+
+#. placeholder {0}: extensions.length
 #: src/features/sessions/composer-footer.tsx
 msgid "Extensions: {enabled}/{0}"
 msgstr "扩展：{enabled}/{0}"
-
-#: src/features/settings/mcp-servers.tsx
-msgid "External tool servers"
-msgstr "外部工具服务器"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
@@ -2125,13 +2159,13 @@ msgstr "正在生成…"
 msgid "Go to sessions"
 msgstr "前往会话"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Grant"
 msgstr "授权"
 
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Grantee"
 msgstr "被授权方"
 
@@ -2139,19 +2173,19 @@ msgstr "被授权方"
 msgid "Group"
 msgstr "用户组"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Header"
 msgstr "请求头"
 
 #. placeholder {0}: index + 1
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Header {0} name"
 msgstr "请求头 {0} 名称"
 
 #. placeholder {0}: index + 1
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Header {0} value"
 msgstr "请求头 {0} 值"
@@ -2211,7 +2245,7 @@ msgstr "如何签名"
 msgid "Id"
 msgstr "ID"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Identity headers"
 msgstr "身份请求头"
 
@@ -2280,9 +2314,9 @@ msgstr "成员将失去这个节点组。引用它的规则和任务组会保留
 msgid "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 msgstr "它的模型会从模型列表中消失，保存的密钥也会删除。正在使用这些模型的现有会话会停止工作，直到你更换模型。"
 
-#: src/features/settings/mcp-servers.tsx
-msgid "Its tools disappear from sessions and its stored headers are deleted. Waiting calls of this server are not retried."
-msgstr "它的工具将从会话中消失，已存的请求头会被删除。该服务器上等待中的调用不会重试。"
+#: src/features/settings/extensions.tsx
+msgid "Its tools disappear from sessions and its stored headers are deleted. Waiting calls of this extension are not retried."
+msgstr "它的工具会从会话中消失，已存储的请求头会被删除。此扩展等待中的调用不会被重试。"
 
 #. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
@@ -2319,6 +2353,7 @@ msgstr "crhs 用于为授权签名的密钥。默认使用最新的密钥；节�
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
+#: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/signing-credentials/pages.tsx
@@ -2425,11 +2460,11 @@ msgstr "链接目标"
 msgid "List at least one model."
 msgstr "至少列出一个模型。"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "List its tools directly in the model's tool list"
 msgstr "直接将其工具列入模型的工具列表"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Listed directly"
 msgstr "直接列出"
 
@@ -2467,7 +2502,7 @@ msgstr "正在加载共享…"
 msgid "Loading task…"
 msgstr "正在加载任务…"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Loading the tool list…"
 msgstr "正在加载工具列表…"
 
@@ -2487,7 +2522,7 @@ msgstr "退出登录"
 msgid "Low"
 msgstr "低"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Lowercase letters, digits and \"-\", not starting with a digit. Tools and rules use it."
 msgstr "小写字母、数字和“-”，不能以数字开头。工具和规则会使用它。"
 
@@ -2527,11 +2562,9 @@ msgstr "最大输出 token 数"
 msgid "Max TTL"
 msgstr "最大 TTL"
 
-#: src/app/shell/nav.ts
-#: src/features/sessions/composer-footer.tsx
-#: src/features/settings/mcp-servers.tsx
-msgid "MCP servers"
-msgstr "MCP 服务器"
+#: src/features/settings/extensions.tsx
+msgid "MCP"
+msgstr "MCP"
 
 #: src/lib/thinking-level.ts
 msgid "Medium"
@@ -2567,6 +2600,10 @@ msgstr "消息"
 #: src/features/sessions/composer-input.tsx
 msgid "Message composer"
 msgstr "消息输入框"
+
+#: src/components/decision/external-call-decision.tsx
+msgid "Method"
+msgstr "方法"
 
 #: src/lib/thinking-level.ts
 msgid "Minimal"
@@ -2641,8 +2678,8 @@ msgstr "移动或重命名 {0}"
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
-#: src/features/settings/mcp-server-dialog.tsx
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extension-dialog.tsx
+#: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/signing-credentials/pages.tsx
@@ -2667,9 +2704,10 @@ msgstr "永不过期"
 msgid "Never run"
 msgstr "从未运行"
 
-#: src/features/settings/mcp-server-dialog.tsx
-msgid "New MCP server"
-msgstr "新建 MCP 服务器"
+#: src/features/settings/extension-dialog.tsx
+#: src/features/settings/extensions.tsx
+msgid "New extension"
+msgstr "新建扩展"
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -2713,10 +2751,6 @@ msgstr "新的请求会出现在这里和侧边栏角标中。"
 #: src/features/schedules/pages.tsx
 msgid "New schedule"
 msgstr "新建计划任务"
-
-#: src/features/settings/mcp-servers.tsx
-msgid "New server"
-msgstr "新建服务器"
 
 #: src/features/sessions/session-list.tsx
 msgid "New session"
@@ -2781,7 +2815,7 @@ msgstr "下一步"
 msgid "Next run"
 msgstr "下次运行"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Next try"
 msgstr "下次尝试"
 
@@ -2829,6 +2863,10 @@ msgstr "该主机上不运行 crha，因此不会向其发送任何内容。等�
 msgid "No events"
 msgstr "没有事件"
 
+#: src/features/settings/extensions.tsx
+msgid "No extensions yet"
+msgstr "还没有扩展"
+
 #: src/features/library/library-section.tsx
 msgid "No library exists for this account."
 msgstr "此账户没有资料库。"
@@ -2840,10 +2878,6 @@ msgstr "没有匹配项"
 #: src/features/sessions/session-search-dialog.tsx
 msgid "No matching sessions"
 msgstr "没有匹配的会话"
-
-#: src/features/settings/mcp-servers.tsx
-msgid "No MCP servers yet"
-msgstr "还没有 MCP 服务器"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-group-page.tsx
@@ -2894,6 +2928,10 @@ msgstr "还没有节点"
 #: src/features/authorizations/pages.tsx
 msgid "No one has signed an authorization yet."
 msgstr "还没有人签发过授权。"
+
+#: src/features/settings/extensions.tsx
+msgid "No one yet"
+msgstr "还没有人"
 
 #: src/components/task-result.tsx
 msgid "No output is kept (SSH nodes keep no output)."
@@ -3075,7 +3113,7 @@ msgstr "不适用"
 msgid "Not confirmed"
 msgstr "未确认"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Not connected yet"
 msgstr "尚未连接"
 
@@ -3174,9 +3212,13 @@ msgstr "新用户的单个文件"
 msgid "Only administrators can manage SSH credentials."
 msgstr "只有管理员可以管理 SSH 凭据。"
 
-#: src/features/settings/mcp-server-dialog.tsx
-msgid "Only granted users and members of granted user groups reach this server."
-msgstr "只有被授权的用户和被授权用户组的成员可以访问此服务器。"
+#: src/features/settings/extension-dialog.tsx
+msgid "Only granted users and groups"
+msgstr "仅被授权的用户和用户组"
+
+#: src/features/settings/extension-dialog.tsx
+msgid "Only granted users and members of granted user groups reach this extension."
+msgstr "只有被授权的用户和被授权用户组的成员可以使用此扩展。"
 
 #: src/features/nodes/access-grants.tsx
 msgid "Only targets without an existing grant are listed."
@@ -3246,7 +3288,7 @@ msgstr "运维控制台"
 msgid "Optional"
 msgstr "可选"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Optional header names that receive the CRH username and session id. They are not authentication."
 msgstr "可选：接收 CRH 用户名和会话 id 的请求头名称。它们不是身份验证。"
 
@@ -3382,6 +3424,7 @@ msgstr "密码已设置。"
 msgid "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
 msgstr "将此行粘贴到节点 privileged.toml 的信任条目中。该密钥是最新的，但节点仅在自身信任该密钥后才会使用它。"
 
+#: src/components/decision/external-call-decision.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
 msgid "Path"
@@ -3505,6 +3548,10 @@ msgstr "公开 URL"
 msgid "Purpose"
 msgstr "用途"
 
+#: src/components/decision/external-call-decision.tsx
+msgid "Query"
+msgstr "查询参数"
+
 #: src/features/schedules/scheduleForm.ts
 msgid "queued"
 msgstr "排队中"
@@ -3530,11 +3577,11 @@ msgid "Re-probe"
 msgstr "重新探测"
 
 #: src/components/decision/external-call-decision.tsx
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Read-only"
 msgstr "只读"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Ready"
 msgstr "就绪"
 
@@ -3564,12 +3611,12 @@ msgstr "最近的会话"
 msgid "Recent tasks"
 msgstr "最近任务"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Reconnect"
 msgstr "重新连接"
 
 #. placeholder {0}: row.original.name
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Reconnect {0}"
 msgstr "重新连接 {0}"
 
@@ -3624,7 +3671,7 @@ msgstr "移除"
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 #: src/features/sessions/attachments.tsx
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Remove {0}"
 msgstr "移除 {0}"
 
@@ -3664,7 +3711,7 @@ msgid "Remove from {0}"
 msgstr "从 {0} 移除"
 
 #. placeholder {0}: index + 1
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove header {0}"
 msgstr "删除请求头 {0}"
@@ -3693,7 +3740,7 @@ msgstr "删除会话 id 请求头 {0}"
 msgid "Remove share"
 msgstr "移除共享"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Remove stored headers"
 msgstr "移除已存储的请求头"
 
@@ -3754,7 +3801,7 @@ msgstr "请求体覆盖必须是有效的 JSON。"
 msgid "Request body per level"
 msgstr "各档请求体"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Request headers"
 msgstr "请求头"
 
@@ -4100,13 +4147,9 @@ msgstr "选择 {0} 个文件"
 msgid "Send"
 msgstr "发送"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."
 msgstr "每次请求都会发送，并加密存储；其值不会再次显示。更改 URL 需要重新输入或移除它们。"
-
-#: src/components/decision/external-call-decision.tsx
-msgid "Server"
-msgstr "服务器"
 
 #: src/components/decision/evaluation.tsx
 #: src/features/schedules/run-history.tsx
@@ -4125,7 +4168,7 @@ msgstr "会话 id 请求体字段 {0}"
 msgid "Session id fields"
 msgstr "会话 id 字段"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Session id header"
 msgstr "会话 id 请求头"
 
@@ -4205,9 +4248,9 @@ msgstr "收起"
 msgid "Showing first {maxLines} of {lines} lines"
 msgstr "显示前 {maxLines} 行，共 {lines} 行"
 
-#: src/features/settings/mcp-server-dialog.tsx
-msgid "Shown to the model; the server's own instructions otherwise"
-msgstr "显示给模型；否则使用服务器自己的说明"
+#: src/features/settings/extension-dialog.tsx
+msgid "Shown to the model; an MCP server's own instructions otherwise"
+msgstr "展示给模型；否则使用 MCP 服务器自己的说明"
 
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
@@ -4388,7 +4431,7 @@ msgid "stopped by the next run"
 msgstr "被下一次运行停止"
 
 #. placeholder {0}: existing.headerNames.join(", ")
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Stored headers: {0}"
 msgstr "已存储的请求头：{0}"
 
@@ -4536,6 +4579,10 @@ msgstr "凭据及其私钥将被删除，此操作无法撤销。"
 msgid "The display name must be at most 100 characters."
 msgstr "显示名最多 100 个字符。"
 
+#: src/features/settings/extensions.tsx
+msgid "The extension lists no tools."
+msgstr "该扩展没有列出任何工具。"
+
 #. placeholder {0}: output.file
 #: src/components/task-result.tsx
 msgid "The full output is in <0>{0}</0> on the node."
@@ -4654,10 +4701,6 @@ msgstr "正在运行的实例（如有）会被停止，运行历史会被删除
 msgid "The server is busy. Try again later."
 msgstr "服务器繁忙，请稍后重试"
 
-#: src/features/settings/mcp-servers.tsx
-msgid "The server listed no tools."
-msgstr "该服务器没有列出工具。"
-
 #: src/features/sessions/session-banner.tsx
 msgid "The session is paused: its token quota is used up."
 msgstr "会话已暂停：token 配额已用完。"
@@ -4690,7 +4733,7 @@ msgstr "需要填写要替换的文本。"
 msgid "The timeout must be a non-negative whole number of seconds."
 msgstr "超时时间必须是非负整数秒。"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "The timeout must be a whole number of seconds from 1 to 3600."
 msgstr "超时必须是 1 到 3600 之间的整数秒。"
 
@@ -4704,8 +4747,8 @@ msgid "The user can sign in with this password immediately."
 msgstr "用户可以立即使用此密码登录。"
 
 #: src/components/decision/external-call-decision.tsx
-msgid "The whole server"
-msgstr "整个服务器"
+msgid "The whole extension"
+msgstr "整个扩展"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "The Yolo rule preset runs every action without asking or checking."
@@ -4808,6 +4851,14 @@ msgstr "此资料库不存在，或你没有访问权限。"
 msgid "This request is no longer waiting for approval; it is"
 msgstr "此请求已不再等待审批；当前状态为"
 
+#: src/components/decision/external-call-decision.tsx
+msgid "This request only"
+msgstr "仅此请求"
+
+#: src/components/decision/external-call-decision.tsx
+msgid "This route"
+msgstr "此路由"
+
 #: src/features/schedules/schedule-actions.tsx
 msgid "This stops the current run. Its history will show it as preempted."
 msgstr "这会停止当前运行，运行历史会把它显示为被抢占。"
@@ -4845,7 +4896,7 @@ msgstr "已超时"
 msgid "Timeout (s)"
 msgstr "超时（秒）"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Timeout (seconds)"
 msgstr "超时（秒）"
 
@@ -4902,12 +4953,12 @@ msgstr "工具参数"
 msgid "Tool result"
 msgstr "工具结果"
 
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Tools"
 msgstr "工具"
 
-#. placeholder {0}: server.name
-#: src/features/settings/mcp-servers.tsx
+#. placeholder {0}: extension.name
+#: src/features/settings/extensions.tsx
 msgid "Tools of {0}"
 msgstr "{0} 的工具"
 
@@ -4950,9 +5001,9 @@ msgstr "信任配置"
 msgid "Trust entries"
 msgstr "信任条目"
 
-#: src/features/settings/mcp-server-dialog.tsx
-msgid "Trust the server's annotations (a readOnly tool passes as mcp.read)"
-msgstr "信任服务器的注解（只读工具按 mcp.read 通过）"
+#: src/features/settings/extension-dialog.tsx
+msgid "Trust the server's annotations (a readOnly tool passes as ext.read)"
+msgstr "信任服务器的注解（只读工具按 ext.read 通过）"
 
 #: src/features/nodes/trust-warnings.tsx
 msgid "Trust warnings"
@@ -4976,7 +5027,7 @@ msgid "Type keywords separated by spaces"
 msgstr "输入用空格分隔的关键词"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "Unavailable"
 msgstr "不可用"
 
@@ -5031,8 +5082,7 @@ msgstr "正在上传"
 msgid "Uploading files"
 msgstr "正在上传文件"
 
-#: src/features/settings/mcp-server-dialog.tsx
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "URL"
 msgstr "URL"
 
@@ -5125,7 +5175,7 @@ msgstr "用户：{userName}"
 msgid "Username"
 msgstr "用户名"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 msgid "Username header"
 msgstr "用户名请求头"
 
@@ -5134,7 +5184,7 @@ msgstr "用户名请求头"
 msgid "Users"
 msgstr "用户"
 
-#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/extension-dialog.tsx
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Value"
@@ -5150,7 +5200,7 @@ msgid "View all tasks"
 msgstr "查看全部任务"
 
 #. placeholder {0}: row.original.name
-#: src/features/settings/mcp-servers.tsx
+#: src/features/settings/extensions.tsx
 msgid "View tools of {0}"
 msgstr "查看 {0} 的工具"
 

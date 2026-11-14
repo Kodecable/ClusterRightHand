@@ -1,9 +1,9 @@
 import type {
 	ApprovalDecision,
 	ApprovalRecord,
+	ExtensionToolAnnotations,
 	ExternalCallState,
 	ExternalCallView,
-	McpToolAnnotations,
 	Operation,
 } from "@crh/api";
 import type { Selectable } from "kysely";
@@ -16,7 +16,7 @@ import { UserError } from "../util/errors.ts";
 import { derivedId } from "../util/id.ts";
 
 /**
- * External MCP calls and their approvals (doc/design/extensions.md "External calls"). An external call is the
+ * External extension calls and their approvals (doc/design/extensions.md "External calls"). An external call is the
  * small object an approval belongs to: it holds the rule chain, the approval record, the operation and the
  * state that must survive while the call is in progress. Its id is derived from the durable tool call, so a
  * replayed call finds its earlier row. A terminal row keeps only its state and `finished_at` (the "already
@@ -59,11 +59,11 @@ export interface ExternalCallInput {
 	actorType: string;
 	actorId: string;
 	onBehalfOfUserId: string;
-	server: string;
+	extension: string;
 	tool: string;
 	arguments: Record<string, unknown>;
 	operation: Operation;
-	annotations: McpToolAnnotations | null;
+	annotations: ExtensionToolAnnotations | null;
 	ruleChain: RuleRef[];
 	rootSessionId: string | null;
 	approval: ApprovalRecord;
@@ -100,7 +100,7 @@ export async function createExternalCall(
 			actor_type: input.actorType,
 			actor_id: input.actorId,
 			on_behalf_of_user_id: input.onBehalfOfUserId,
-			server_name: input.server,
+			extension_name: input.extension,
 			tool_name: input.tool,
 			arguments: JSON.stringify(input.arguments),
 			operation: JSON.stringify(input.operation),
@@ -138,7 +138,9 @@ export async function pendingExternalCallRows(db: Db, userId: string): Promise<E
 }
 
 export function externalCallOperation(row: ExternalCallRow): Operation {
-	return parseJson<Operation>(row.operation) ?? { method: "mcp.write", target: `${row.server_name}/${row.tool_name}` };
+	return (
+		parseJson<Operation>(row.operation) ?? { method: "ext.write", target: `${row.extension_name}/${row.tool_name}` }
+	);
 }
 
 export function externalCallArguments(row: ExternalCallRow): Record<string, unknown> {
@@ -149,15 +151,15 @@ export function externalCallApproval(row: Pick<ExternalCallRow, "approval">): Ap
 	return parseJson<ApprovalRecord>(row.approval);
 }
 
-export function externalCallAnnotations(row: ExternalCallRow): McpToolAnnotations | null {
-	return parseJson<McpToolAnnotations>(row.annotations);
+export function externalCallAnnotations(row: ExternalCallRow): ExtensionToolAnnotations | null {
+	return parseJson<ExtensionToolAnnotations>(row.annotations);
 }
 
 /** One line naming what an ancestor agent is asked about, for its request list and its wake note. */
 export function externalCallSummary(row: ExternalCallRow): string {
 	const annotations = externalCallAnnotations(row);
 	return (
-		`${row.server_name}/${row.tool_name} (${externalCallOperation(row).method})` +
+		`${row.extension_name}/${row.tool_name} (${externalCallOperation(row).method})` +
 		(annotations === null ? "" : ` annotations ${JSON.stringify(annotations)}`) +
 		` arguments ${JSON.stringify(externalCallArguments(row))}`
 	);
@@ -166,11 +168,11 @@ export function externalCallSummary(row: ExternalCallRow): string {
 function toView(row: ExternalCallRow): ExternalCallView {
 	return {
 		id: row.id,
-		server: row.server_name,
+		extension: row.extension_name,
 		tool: row.tool_name,
 		arguments: externalCallArguments(row),
 		operation: externalCallOperation(row),
-		annotations: parseJson<McpToolAnnotations>(row.annotations),
+		annotations: parseJson<ExtensionToolAnnotations>(row.annotations),
 		state: row.state,
 		approval: externalCallApproval(row),
 		actorType: row.actor_type,

@@ -75,6 +75,12 @@ afterAll(async () => {
 	await db.destroy();
 });
 
+/** The extension list the session guide appends: both built-ins are available to everyone. */
+const BUILTIN_GUIDE =
+	"\n\nExtensions you can use with search_tools and call_tool:" +
+	"\n- api: The crhs API as the session owner, through the same routes and rules as the WebUI (1 tool)" +
+	"\n- docs: The documentation and the API reference of this crhs version (2 tools)";
+
 it("appends the tool guide to the default prompt and to a custom prompt, exactly once", async () => {
 	const session = await runtime.createSession(alice, { title: "prompt", model: model(), rulePreset: "ask" });
 	const captured: TranscriptContext[] = [];
@@ -83,7 +89,7 @@ it("appends the tool guide to the default prompt and to a custom prompt, exactly
 	await submitAndCapture(session.id, "hello", captured);
 	const first = systemPromptOf(captured[0] as TranscriptContext);
 	// The section also names the user the session acts for, so the model knows whose user: library is whose.
-	expect(first).toBe(`${sessionSystemPrompt(null)}\n\n${actingUserNote("alice")}`);
+	expect(first).toBe(`${sessionSystemPrompt(null)}\n\n${actingUserNote("alice")}${BUILTIN_GUIDE}`);
 	expect(first).toContain("You are ClusterRightHand");
 	expect(first.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
 	expect(first.split("Start with list_nodes").length - 1).toBe(1);
@@ -92,7 +98,7 @@ it("appends the tool guide to the default prompt and to a custom prompt, exactly
 	await runtime.modelPresets.update("session", { systemPrompt: "CUSTOM SESSION PROMPT" });
 	await submitAndCapture(session.id, "again", captured);
 	const second = systemPromptOf(captured[1] as TranscriptContext);
-	expect(second).toBe(`${sessionSystemPrompt("CUSTOM SESSION PROMPT")}\n\n${actingUserNote("alice")}`);
+	expect(second).toBe(`${sessionSystemPrompt("CUSTOM SESSION PROMPT")}\n\n${actingUserNote("alice")}${BUILTIN_GUIDE}`);
 	expect(second).toContain("CUSTOM SESSION PROMPT");
 	expect(second).not.toContain(DEFAULT_SESSION_PROMPT);
 	expect(second.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
@@ -101,7 +107,7 @@ it("appends the tool guide to the default prompt and to a custom prompt, exactly
 	await runtime.modelPresets.update("session", { systemPrompt: null });
 	await submitAndCapture(session.id, "once more", captured);
 	const third = systemPromptOf(captured[2] as TranscriptContext);
-	expect(third).toBe(`${sessionSystemPrompt(null)}\n\n${actingUserNote("alice")}`);
+	expect(third).toBe(`${sessionSystemPrompt(null)}\n\n${actingUserNote("alice")}${BUILTIN_GUIDE}`);
 	expect(third).not.toContain("CUSTOM SESSION PROMPT");
 	expect(third.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
 });

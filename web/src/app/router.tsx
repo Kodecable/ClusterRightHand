@@ -296,11 +296,11 @@ const modelSettingsRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/settings/pages"), "ModelSettingsPage"),
 });
 
-const mcpServersRoute = createRoute({
+const extensionsRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/settings/extensions",
 	beforeLoad: ({ context }) => requireAdmin(context),
-	component: lazyRouteComponent(() => import("@/features/settings/mcp-servers"), "McpServersPage"),
+	component: lazyRouteComponent(() => import("@/features/settings/extensions"), "ExtensionsPage"),
 });
 
 const systemSettingsRoute = createRoute({
@@ -362,7 +362,7 @@ const routeTree = rootRoute.addChildren([
 		tokensRoute,
 		auditRoute,
 		modelSettingsRoute,
-		mcpServersRoute,
+		extensionsRoute,
 		systemSettingsRoute,
 		usersRoute,
 		userDetailRoute,

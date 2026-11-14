@@ -1,9 +1,9 @@
 import type {
 	AvailableModel,
-	McpServerInput,
-	McpServerStatus,
-	McpServerView,
-	McpToolView,
+	ExtensionInput,
+	ExtensionStatus,
+	ExtensionToolView,
+	ExtensionView,
 	ModelPreset,
 	ModelPresetInput,
 	ModelPresetKind,
@@ -71,53 +71,55 @@ export function useSaveModelPreset() {
 	});
 }
 
-export const mcpServerKeys = {
-	all: ["settings", "mcp-servers"] as const,
-	tools: (name: string) => ["settings", "mcp-servers", name, "tools"] as const,
+export const extensionKeys = {
+	all: ["settings", "extensions"] as const,
+	tools: (name: string) => ["settings", "extensions", name, "tools"] as const,
 };
 
-/** The administrator's MCP servers (doc/design/extensions.md "MCP servers"). */
-export function useMcpServers() {
+/** The administrator's extensions (doc/design/extensions.md "Extensions"). */
+export function useExtensions() {
 	return useQuery({
-		queryKey: mcpServerKeys.all,
-		queryFn: ({ signal }) => http.get<{ servers: McpServerView[] }>("/mcp-servers", { signal }),
-		// A connection changes state (and the next backoff attempt) in the background; the list stays current.
+		queryKey: extensionKeys.all,
+		queryFn: ({ signal }) => http.get<{ extensions: ExtensionView[] }>("/extensions", { signal }),
+		// An MCP connection changes state (and the next backoff attempt) in the background; the list stays current.
 		refetchInterval: 5_000,
 	});
 }
 
-export function useSaveMcpServer() {
+export function useSaveExtension() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: ({ name, body }: { name: string; body: McpServerInput }) =>
-			http.put<{ server: McpServerView }>(`/mcp-servers/${enc(name)}`, body).then((r) => r.server),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: mcpServerKeys.all }),
+		mutationFn: ({ name, body }: { name: string; body: ExtensionInput }) =>
+			http.put<{ extension: ExtensionView }>(`/extensions/${enc(name)}`, body).then((r) => r.extension),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: extensionKeys.all }),
 	});
 }
 
-export function useDeleteMcpServer() {
+export function useDeleteExtension() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (name: string) => http.del<{ ok: true }>(`/mcp-servers/${enc(name)}`),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: mcpServerKeys.all }),
+		mutationFn: (name: string) => http.del<{ ok: true }>(`/extensions/${enc(name)}`),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: extensionKeys.all }),
 	});
 }
 
-export function useReconnectMcpServer() {
+export function useReconnectExtension() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (name: string) =>
-			http.post<{ status: McpServerStatus }>(`/mcp-servers/${enc(name)}/reconnect`).then((r) => r.status),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: mcpServerKeys.all }),
+			http.post<{ status: ExtensionStatus }>(`/extensions/${enc(name)}/reconnect`).then((r) => r.status),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: extensionKeys.all }),
 	});
 }
 
-export function useMcpServerTools(name: string | undefined) {
+export function useExtensionTools(name: string | undefined) {
 	return useQuery({
-		queryKey: mcpServerKeys.tools(name ?? ""),
+		queryKey: extensionKeys.tools(name ?? ""),
 		enabled: name !== undefined && name !== "",
 		retry: false,
 		queryFn: ({ signal }) =>
-			http.get<{ tools: McpToolView[]; status: McpServerStatus }>(`/mcp-servers/${enc(name ?? "")}/tools`, { signal }),
+			http.get<{ tools: ExtensionToolView[]; status: ExtensionStatus }>(`/extensions/${enc(name ?? "")}/tools`, {
+				signal,
+			}),
 	});
 }

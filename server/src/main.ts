@@ -205,7 +205,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// The image cache is a local, disposable directory (doc/design/library.md "Image cache"); its limits are
 	// read at each use, so a System settings change applies without a restart.
 	const imageCache = new ImageCache(db, join(dataDir, "image-cache"), () => settings.current().imageCache);
-	// One connection per MCP server for all sessions (doc/design/extensions.md "Connections").
+	// One connection per MCP server for all sessions (doc/design/extensions.md "MCP connections").
 	const mcp = new McpConnections({ db, masterKey });
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),

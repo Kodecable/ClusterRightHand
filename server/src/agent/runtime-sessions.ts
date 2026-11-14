@@ -9,8 +9,9 @@ import {
 	type SnapshotEvent as PiSnapshotEvent,
 	watchEvents,
 } from "@earendil-works/pi-durable";
+import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
-import { mcpServerNamesForUser, parseDisabledServers } from "../extensions/servers.ts";
+import { extensionNamesForUser, parseDisabledExtensionNames } from "../extensions/store.ts";
 import { ruleRefs } from "../policy/refs.ts";
 import type { RulePreset } from "../policy/rules.ts";
 import { createRootRuleSet, createRuleSet, deleteRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
@@ -19,7 +20,7 @@ import { defaultOrgId } from "../storage/org.ts";
 import { encodeCursor } from "../util/cursor.ts";
 import { isUniqueViolation, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import { mcpSessionServers } from "./extension.ts";
+import { sessionExtensionViews } from "./extension.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
 import { setQuota } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
@@ -95,16 +96,16 @@ export async function createSession(
 	},
 ): Promise<SessionView> {
 	const model = host.models.resolveRef(input.model);
-	// The session selects the MCP servers its owner may use; the tool list is the same for its whole life
+	// The session selects the extensions its owner may use; the tool list is the same for its whole life
 	// (doc/design/extensions.md "Tools for the model").
-	const serverNames = await mcpServerNamesForUser(host.db, owner.userId);
+	const extensionNames = await extensionNamesForUser(host.db, owner.userId);
 	const conversation = await host.harness().createConversation(
 		{
 			ownership: { kind: "ownerless" },
 			agent: {
 				model: { provider: model.provider, modelId: model.modelId },
 				thinkingLevel: thinkingLevelOf(model),
-				extensions: host.extensionsFor(serverNames),
+				extensions: host.extensionsFor(extensionNames),
 				...(input.instructions ? { instructions: input.instructions } : {}),
 			},
 		},
@@ -154,7 +155,8 @@ export async function createSession(
 		throw err;
 	}
 	void host.audit?.record({
-		actor: { type: "user", id: owner.userId, onBehalfOfUserId: owner.userId },
+		// An internal api_request carries the agent session as its actor on behalf of the owner.
+		actor: userActor(owner),
 		action: "session.created",
 		target: { type: "session", id },
 		detail: { model, rule_preset: input.rulePreset },
@@ -306,14 +308,14 @@ export async function createScheduledSession(
 	const existing = await getSession(host, input.id);
 	if (existing) return existing;
 	const model = host.models.resolveRef(input.model);
-	const serverNames = await mcpServerNamesForUser(host.db, owner.userId);
+	const extensionNames = await extensionNamesForUser(host.db, owner.userId);
 	const conversation = await host.harness().createConversation(
 		{
 			ownership: { kind: "ownerless" },
 			agent: {
 				model: { provider: model.provider, modelId: model.modelId },
 				thinkingLevel: thinkingLevelOf(model),
-				extensions: host.extensionsFor(serverNames),
+				extensions: host.extensionsFor(extensionNames),
 			},
 		},
 		host.context,
@@ -412,10 +414,10 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 			promptTokens: Number(row.prompt_tokens),
 			cacheReadTokens: Number(row.cache_read_tokens),
 		},
-		mcpServers: await mcpSessionServers(
+		extensions: await sessionExtensionViews(
 			host.options,
 			row.owner_user_id,
-			parseDisabledServers(row.disabled_mcp_servers),
+			parseDisabledExtensionNames(row.disabled_extensions),
 		),
 	};
 }
@@ -428,30 +430,31 @@ export async function configure(
 		model?: ModelRef;
 		rulePreset?: RulePreset;
 		budgetRemaining?: number | null;
-		disabledMcpServers?: string[];
+		disabledExtensions?: string[];
 	},
 ): Promise<SessionView> {
 	const { row, conversation } = await loadConversation(host, sessionId);
 	// Only a chain root has a rule preset; a subagent's rules come from its parent (doc/design/access-control.md "Authorization rules").
 	if (change.rulePreset !== undefined && row.parent_session_id !== null)
 		throw new UserError("a subagent's rule preset is set by its parent");
-	let disabledMcpServers: string[] | undefined;
-	if (change.disabledMcpServers !== undefined) {
-		const granted = await mcpServerNamesForUser(host.db, row.owner_user_id);
-		disabledMcpServers = [...new Set(change.disabledMcpServers)];
-		for (const name of disabledMcpServers) {
-			if (!granted.includes(name)) throw new UserError(`no MCP server named ${name} is granted to the session's owner`);
+	let disabledExtensions: string[] | undefined;
+	if (change.disabledExtensions !== undefined) {
+		const available = await extensionNamesForUser(host.db, row.owner_user_id);
+		disabledExtensions = [...new Set(change.disabledExtensions)];
+		for (const name of disabledExtensions) {
+			if (!available.includes(name))
+				throw new UserError(`no extension named ${name} is available to the session's owner`);
 		}
 		if (row.parent_session_id !== null) {
-			// A subagent inherits its parent's set and can only turn more off (doc/design/extensions.md "MCP servers").
+			// A subagent inherits its parent's set and can only turn more off (doc/design/extensions.md "Extensions").
 			const parent = await host.db
 				.selectFrom("sessions")
-				.select("disabled_mcp_servers")
+				.select("disabled_extensions")
 				.where("id", "=", row.parent_session_id)
 				.executeTakeFirst();
-			for (const name of parseDisabledServers(parent?.disabled_mcp_servers ?? null)) {
-				if (!disabledMcpServers.includes(name))
-					throw new UserError(`the MCP server ${name} is turned off in the parent session`);
+			for (const name of parseDisabledExtensionNames(parent?.disabled_extensions ?? null)) {
+				if (!disabledExtensions.includes(name))
+					throw new UserError(`the extension ${name} is turned off in the parent session`);
 			}
 		}
 	}
@@ -470,7 +473,7 @@ export async function configure(
 		...(change.title === undefined ? {} : { title: row.title, title_pending: row.title_pending }),
 		...(model ? { model: row.model } : {}),
 		...(change.budgetRemaining === undefined ? {} : { quota_tokens: row.quota_tokens }),
-		...(disabledMcpServers === undefined ? {} : { disabled_mcp_servers: row.disabled_mcp_servers }),
+		...(disabledExtensions === undefined ? {} : { disabled_extensions: row.disabled_extensions }),
 		updated_at: row.updated_at,
 	};
 	// All SQL writes go in one transaction. The session's conversation lives in pi-durable's storage on another
@@ -486,9 +489,9 @@ export async function configure(
 				// Any manual title ends generation, a blank one included: null shows the default name and stays.
 				...(change.title === undefined ? {} : { title: change.title.trim() || null, title_pending: 0 }),
 				...(model ? { model: JSON.stringify(model) } : {}),
-				...(disabledMcpServers === undefined
+				...(disabledExtensions === undefined
 					? {}
-					: { disabled_mcp_servers: disabledMcpServers.length === 0 ? null : JSON.stringify(disabledMcpServers) }),
+					: { disabled_extensions: disabledExtensions.length === 0 ? null : JSON.stringify(disabledExtensions) }),
 				updated_at: new Date().toISOString(),
 			})
 			.where("id", "=", sessionId)
@@ -518,9 +521,9 @@ export async function configure(
 			throw err;
 		}
 	}
-	if (disabledMcpServers !== undefined) {
-		// The conversation's selected extensions follow the toggle; a server's tools appear once it is connected.
-		const names = await mcpServerNamesForUser(host.db, row.owner_user_id, disabledMcpServers);
+	if (disabledExtensions !== undefined) {
+		// The conversation's selected extensions follow the toggle; an MCP extension's tools appear once it is connected.
+		const names = await extensionNamesForUser(host.db, row.owner_user_id, disabledExtensions);
 		await conversation.configure({ extensions: host.extensionsFor(names) }, host.context);
 	}
 	if (change.budgetRemaining !== undefined) {

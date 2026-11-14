@@ -147,13 +147,15 @@ token measures and statistics ([Sessions](agent-runtime.md#sessions),
 Model providers store their configuration and a reference to the encrypted API key. Model presets are one
 row per kind.
 
-MCP servers store their URL, behaviour flags and grants, and a reference to one encrypted `secrets` row
-holding the request headers. `external_calls` is the small object an external approval belongs to: its id
-is derived from the durable tool call, and it carries the approval columns a task has, the server, tool,
-arguments, operation and the state that must survive while the call is in progress. A terminal row keeps
-only its state and `finished_at` as the "already ran" marker and clears its arguments; the result is in the
-transcript and the decision in the audit log. `sessions.disabled_mcp_servers` is the JSON list of servers
-the owner turned off ([Extensions](extensions.md)).
+`extensions` holds both kinds in one table, distinguished by `kind`: an MCP server's URL, behaviour flags,
+availability and a reference to one encrypted `secrets` row holding the request headers, or a built-in's
+row, which has no connection settings and is seeded by the migration. `extension_grants` says who may use
+an extension when its availability is `granted`. `external_calls` is the small object an external approval
+belongs to: its id is derived from the durable tool call, and it carries the approval columns a task has,
+the extension, tool, arguments, operation and the state that must survive while the call is in progress. A
+terminal row keeps only its state and `finished_at` as the "already ran" marker and clears its arguments;
+the result is in the transcript and the decision in the audit log. `sessions.disabled_extensions` is the
+JSON list of extensions the owner turned off ([Extensions](extensions.md)).
 
 ## Libraries
 

@@ -89,8 +89,17 @@ export class Audit {
 	}
 }
 
+/**
+ * The audit actor of a user's request. An internal `api_request` carries an actor override, so every route
+ * records the agent session as the actor on behalf of the owner without a per-route change.
+ */
 export function userActor(user: SessionUser): AuditActor {
-	return { type: "user", id: user.userId, onBehalfOfUserId: user.userId };
+	const actor = user.actor;
+	return {
+		type: actor?.type ?? "user",
+		id: actor?.id ?? user.userId,
+		onBehalfOfUserId: user.userId,
+	};
 }
 
 export interface AuditQuery {

@@ -84,22 +84,22 @@ describe("subagent request rendering", () => {
 		]);
 	});
 
-	it("renders an external call's server, tool, operation, annotations and arguments", () => {
+	it("renders an external call's extension, tool, operation, annotations and arguments", () => {
 		const externalCall = {
-			server: "github",
+			extension: "github",
 			tool: "create_issue",
-			operation: { method: "mcp.write" as const, target: "github/create_issue" },
+			operation: { method: "ext.write" as const, target: "github/create_issue" },
 			annotations: { readOnlyHint: false, destructiveHint: true },
 			arguments: { title: "bug", body: "details" },
 		};
 		const text = subagentRequestsBlock([
-			{ kind: "external_call", id: "e1", summary: "github/create_issue (mcp.write)", externalCall },
+			{ kind: "external_call", id: "e1", summary: "github/create_issue (ext.write)", externalCall },
 		]);
 		expect(JSON.parse(blockOf(text))).toEqual([
 			{
 				kind: "external_call",
 				id: "e1",
-				summary: "github/create_issue (mcp.write)",
+				summary: "github/create_issue (ext.write)",
 				external_call: externalCall,
 			},
 		]);

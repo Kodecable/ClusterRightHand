@@ -1,4 +1,4 @@
-import type { SessionView as ApiSessionView, McpToolAnnotations, Operation, SessionEvent } from "@crh/api";
+import type { SessionView as ApiSessionView, ExtensionToolAnnotations, Operation, SessionEvent } from "@crh/api";
 import type { Context } from "@earendil-works/chord/context";
 import type {
 	CompactionSettings,
@@ -38,12 +38,12 @@ import type { SessionListHub } from "./session-list-hub.ts";
 /** The session row without the per-caller decorations the API adds (relationship, capabilities, owner name). */
 export type SessionView = Omit<ApiSessionView, "relationship" | "capabilities" | "ownerUsername" | "shares">;
 
-/** An external MCP call as an ancestor agent decides it: the server, tool, operation, annotations and arguments. */
+/** An external call as an ancestor agent decides it: the extension, tool, operation, annotations and arguments. */
 export interface AgentRequestExternalCall {
-	server: string;
+	extension: string;
 	tool: string;
 	operation: Operation;
-	annotations: McpToolAnnotations | null;
+	annotations: ExtensionToolAnnotations | null;
 	arguments: Record<string, unknown>;
 }
 
@@ -56,7 +56,7 @@ export interface AgentRequestView {
 	summary: string;
 	nodeId: string | null;
 	createdAt: string;
-	/** The call's details; only for an external MCP call. */
+	/** The call's details; only for an external call. */
 	externalCall?: AgentRequestExternalCall;
 }
 
@@ -125,8 +125,8 @@ export interface RuntimeHost {
 	readonly sessionList: SessionListHub;
 	/** The cached model presets: prompt sections, Auto Review and title generation read them. */
 	readonly modelPresets: ModelPresets;
-	/** The extensions a session selects: the crh extension and the MCP server extensions it may use. */
-	extensionsFor(serverNames: readonly string[]): Extension[];
+	/** The extensions a session selects: the crh extension and the extension tools it may use. */
+	extensionsFor(extensionNames: readonly string[]): Extension[];
 	/** The open Harness; a failed one is replaced on reopen, so always read it through here. */
 	harness(): Harness;
 	/** Whether close() has begun: the Harness refuses every new operation from here on. */

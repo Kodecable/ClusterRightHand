@@ -25,8 +25,9 @@ import type {
 
 export type RuleAction = z.infer<typeof RuleActionSchema>;
 /**
- * What a rule matches on. `mcp.read` is a read-only external tool on a server whose annotations are trusted;
- * every other external tool is `mcp.write` (doc/design/extensions.md "Rules and approvals").
+ * What a rule matches on. `ext.read` is a read-only extension tool on an extension whose annotations are
+ * trusted; every other extension tool is `ext.write`. `api.read`/`api.write` are the built-in API request
+ * extension's own operations (doc/design/extensions.md "Rules and approvals").
  */
 export type RuleMethod = z.infer<typeof RuleMethodSchema>;
 export type RulePreset = z.infer<typeof RulePresetSchema>;

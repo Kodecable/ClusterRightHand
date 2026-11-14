@@ -86,7 +86,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/tokens", label: msg`API tokens`, icon: KeySquareIcon },
 			{ to: "/audit", label: msg`Audit`, icon: ScrollTextIcon },
 			{ to: "/settings/models", label: msg`Models`, icon: BoxesIcon, adminOnly: true },
-			{ to: "/settings/extensions", label: msg`MCP servers`, icon: BlocksIcon, adminOnly: true },
+			{ to: "/settings/extensions", label: msg`Extensions`, icon: BlocksIcon, adminOnly: true },
 			{ to: "/settings/system", label: msg`System settings`, icon: SettingsIcon, adminOnly: true },
 			{ to: "/users", label: msg`Users`, icon: UsersIcon, adminOnly: true, activeFor: ["/user-groups"] },
 		],

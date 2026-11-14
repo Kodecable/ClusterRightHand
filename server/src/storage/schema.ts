@@ -133,35 +133,44 @@ export interface NodeAccessGrantsTable {
 	created_at: CreatedAt;
 }
 
-/** An administrator-connected MCP server (doc/design/extensions.md "MCP servers"). */
-export interface McpServersTable {
+/**
+ * An extension (doc/design/extensions.md): an administrator-connected MCP server or a built-in of crhs.
+ * The two kinds share one namespace; `docs` and `api` are reserved for the built-ins.
+ */
+export interface ExtensionsTable {
 	id: string;
 	org_id: string;
-	/** Lowercase letters, digits and `-`, not starting with a digit; unique per organization. */
+	/** Lowercase letters, digits and `-`, not starting with a digit; unique across both kinds. */
 	name: string;
-	/** Shown to the model; null means the server's own instructions. */
+	kind: "mcp" | "builtin";
+	/** Shown to the model; null means the MCP server's own instructions or the built-in's default. */
 	description: string | null;
-	url: string;
+	/** The Streamable HTTP endpoint; null for a built-in extension. */
+	url: string | null;
 	/** The `secrets` row holding the JSON request headers, encrypted with the master key. */
 	headers_secret_id: string | null;
 	/** JSON { username?: string, session?: string }: headers that receive the CRH identity. */
 	identity_headers: string | null;
 	enabled: number;
 	list_directly: number;
-	trust_annotations: number;
-	timeout_ms: number;
+	/** `everyone` or `granted`; built-in extensions default to everyone. */
+	availability: "everyone" | "granted";
+	/** Whether `readOnlyHint` may make a tool `ext.read`; null for a built-in extension. */
+	trust_annotations: number | null;
+	/** The per-call timeout; null for a built-in extension. */
+	timeout_ms: number | null;
 	created_at: CreatedAt;
 	updated_at: string;
 }
 
 /**
- * Who may use an MCP server: a user or a user group, in the same polymorphic grant shape as node access.
- * No foreign keys; deleting a server or grantee deletes its grants explicitly.
+ * Who may use an extension: a user or a user group, in the same polymorphic grant shape as node access.
+ * No foreign keys; deleting an extension or grantee deletes its grants explicitly.
  */
-export interface McpServerGrantsTable {
+export interface ExtensionGrantsTable {
 	id: string;
 	org_id: string;
-	server_id: string;
+	extension_id: string;
 	grantee_type: "user" | "user_group";
 	grantee_id: string;
 	created_by_user_id: string;
@@ -191,11 +200,11 @@ export interface ExternalCallsTable extends ApprovalColumns {
 	actor_type: string;
 	actor_id: string;
 	on_behalf_of_user_id: string;
-	server_name: string;
+	extension_name: string;
 	tool_name: string;
 	/** JSON arguments as the model sent them; null once the call is terminal. */
 	arguments: string | null;
-	/** JSON { method, target }: `mcp.read` or `mcp.write` and `<server>/<tool>`. */
+	/** JSON { method, target }: `ext.read`/`ext.write` on `<extension>/<tool>`, or `api.read`/`api.write` on a route. */
 	operation: string;
 	/** JSON tool annotations, when the server listed any. */
 	annotations: string | null;
@@ -534,10 +543,10 @@ export interface SessionsTable {
 	/** Durable submission of the last input, for a parent waiting on this session's answer. */
 	last_submission_id: string | null;
 	/**
-	 * JSON string[] of MCP server names the owner turned off for this session
-	 * (doc/design/extensions.md "MCP servers"). A subagent copies its parent's list and may only add to it.
+	 * JSON string[] of extension names the owner turned off for this session
+	 * (doc/design/extensions.md "Extensions"). A subagent copies its parent's list and may only add to it.
 	 */
-	disabled_mcp_servers: string | null;
+	disabled_extensions: string | null;
 	/** The session's own run state (doc/design/agent-runtime.md "Session state"); the session list aggregates it over the tree. */
 	state: SessionState;
 	/** Why the session waits; null unless `state` is `awaiting`. */
@@ -673,8 +682,8 @@ export interface Database {
 	sessions: SessionsTable;
 	model_providers: ModelProvidersTable;
 	model_presets: ModelPresetsTable;
-	mcp_servers: McpServersTable;
-	mcp_server_grants: McpServerGrantsTable;
+	extensions: ExtensionsTable;
+	extension_grants: ExtensionGrantsTable;
 	external_calls: ExternalCallsTable;
 	schedules: SchedulesTable;
 	schedule_runs: ScheduleRunsTable;

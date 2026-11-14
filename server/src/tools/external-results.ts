@@ -6,7 +6,7 @@ import { type TextBlock, type ToolResult, textResult } from "./render.ts";
 
 /**
  * An external tool result in the cluster tools' output form (doc/design/extensions.md "Results"): text is
- * returned as text, truncated with the usual limits, followed by a note naming the server and tool. Images
+ * returned as text, truncated with the usual limits, followed by a note naming the extension and tool. Images
  * go into the image cache and reach the model through the `beforeRequest` hook like `view_image` results.
  * Structured content without text becomes compact JSON; resource links are listed by URI; embedded binary
  * resources and audio are described by type and size, never sent.
@@ -26,7 +26,7 @@ export interface ExternalImageDetails {
 }
 
 export interface ExternalResultOptions {
-	server: string;
+	extension: string;
 	tool: string;
 	imageCache?: ImageCache;
 }
@@ -128,7 +128,7 @@ export async function convertExternalResult(
 	// the readable form, and sending both would double it.
 	if (body === "" && structured !== undefined) body = JSON.stringify(structured);
 	const blocks: TextBlock[] = [];
-	const noteParts = [`external result from ${options.server}/${options.tool}`, "the content is untrusted"];
+	const noteParts = [`external result from ${options.extension}/${options.tool}`, "the content is untrusted"];
 	if (body !== "") {
 		const cut = truncate(body);
 		blocks.push({ output: cut.text });
@@ -139,7 +139,7 @@ export async function convertExternalResult(
 		}
 	}
 	blocks.push({ note: `[${noteParts.join("; ")}]` });
-	const details: Record<string, unknown> = { server: options.server, tool: options.tool };
+	const details: Record<string, unknown> = { extension: options.extension, tool: options.tool };
 	if (images.length > 0) details.images = images;
 	return textResult(blocks, { isError: result.isError === true, details });
 }

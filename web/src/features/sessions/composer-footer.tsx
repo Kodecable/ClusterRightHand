@@ -1,4 +1,4 @@
-import type { McpSessionServer, ModelRef, RulePreset, SessionView, ThinkingLevel } from "@crh/api";
+import type { ModelRef, RulePreset, SessionExtension, SessionView, ThinkingLevel } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, LightbulbIcon, PlugIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -34,10 +34,10 @@ export interface ComposerFooterState {
 	/** A root has a rule preset; a subagent shows its rule count instead. */
 	isRoot: boolean;
 	ruleCount: number;
-	/** The MCP servers the session may use; undefined hides the extensions control (the draft page). */
-	mcpServers?: McpSessionServer[];
-	/** Replaces the turned-off server names. */
-	onMcpServersChange?: (disabled: string[]) => void;
+	/** The extensions the session may use; undefined hides the extensions control (the draft page). */
+	extensions?: SessionExtension[];
+	/** Replaces the turned-off extension names. */
+	onExtensionsChange?: (disabled: string[]) => void;
 	/** A change is being saved; the session footer disables its pickers meanwhile. */
 	pending: boolean;
 	onModelChange: (model: ModelRef) => void;
@@ -150,8 +150,8 @@ export function SessionComposerFooter({
 		configure: session.capabilities.configure,
 		isRoot: session.parentSessionId === null,
 		ruleCount: session.rules?.rules.length ?? 0,
-		mcpServers: session.mcpServers ?? [],
-		onMcpServersChange: (disabled) => patch.mutate({ disabledMcpServers: disabled }),
+		extensions: session.extensions ?? [],
+		onExtensionsChange: (disabled) => patch.mutate({ disabledExtensions: disabled }),
 		pending: patch.isPending,
 		onModelChange: (model) => patch.mutate({ model }),
 		onThinkingLevelChange: (thinkingLevel) =>
@@ -249,17 +249,17 @@ function ThinkingControl({ state }: { state: ComposerFooterState }) {
 }
 
 /**
- * The session's external MCP servers: a plug button with how many are on, opening the per-server toggles
- * (doc/design/extensions.md "MCP servers"). A subagent inherits its parent's set and can only turn more off;
+ * The session's extensions: a plug button with how many are on, opening the per-extension toggles
+ * (doc/design/extensions.md "Extensions"). A subagent inherits its parent's set and can only turn more off;
  * the server enforces that too.
  */
 function ExtensionsControl({ state }: { state: ComposerFooterState }) {
 	const { t } = useLingui();
 	const [open, setOpen] = useState(false);
-	const servers = state.mcpServers ?? [];
-	if (servers.length === 0) return null;
-	const enabled = servers.filter((server) => server.enabled).length;
-	const label = t`Extensions: ${enabled}/${servers.length}`;
+	const extensions = state.extensions ?? [];
+	if (extensions.length === 0) return null;
+	const enabled = extensions.filter((extension) => extension.enabled).length;
+	const label = t`Extensions: ${enabled}/${extensions.length}`;
 	if (!state.configure) {
 		return (
 			<span className="px-1.5 text-xs text-foreground" data-testid="composer-extensions" title={label}>
@@ -268,10 +268,8 @@ function ExtensionsControl({ state }: { state: ComposerFooterState }) {
 		);
 	}
 	const toggle = (name: string, on: boolean) => {
-		const next = servers
-			.filter((server) => (server.name === name ? !on : !server.enabled))
-			.map((server) => server.name);
-		state.onMcpServersChange?.(next);
+		const next = extensions.filter((entry) => (entry.name === name ? !on : !entry.enabled)).map((entry) => entry.name);
+		state.onExtensionsChange?.(next);
 	};
 	return (
 		<>
@@ -287,39 +285,39 @@ function ExtensionsControl({ state }: { state: ComposerFooterState }) {
 			>
 				<PlugIcon className="size-3.5 shrink-0" aria-hidden="true" />
 				<span className="whitespace-nowrap">
-					{enabled}/{servers.length}
+					{enabled}/{extensions.length}
 				</span>
 			</Button>
 			<Dialog open={open} onOpenChange={setOpen}>
 				<DialogContent data-testid="extensions-dialog">
 					<DialogHeader>
 						<DialogTitle>
-							<Trans>MCP servers</Trans>
+							<Trans>Extensions</Trans>
 						</DialogTitle>
 					</DialogHeader>
 					<div className="grid gap-2">
-						{servers.map((server) => (
+						{extensions.map((extension) => (
 							<label
-								key={server.name}
-								htmlFor={`session-mcp-${server.name}`}
+								key={extension.name}
+								htmlFor={`session-extension-${extension.name}`}
 								className="flex items-start gap-2 text-sm"
 							>
 								<Checkbox
-									id={`session-mcp-${server.name}`}
-									checked={server.enabled}
+									id={`session-extension-${extension.name}`}
+									checked={extension.enabled}
 									disabled={state.pending}
-									onCheckedChange={(checked) => toggle(server.name, Boolean(checked))}
+									onCheckedChange={(checked) => toggle(extension.name, Boolean(checked))}
 								/>
 								<span className="grid gap-0.5">
-									<code className="text-xs">{server.name}</code>
-									{server.description !== null && (
-										<span className="text-xs text-muted-foreground">{server.description}</span>
+									<code className="text-xs">{extension.name}</code>
+									{extension.description !== null && (
+										<span className="text-xs text-muted-foreground">{extension.description}</span>
 									)}
 								</span>
 							</label>
 						))}
 						<p className="text-xs text-muted-foreground">
-							<Trans>A server that is off is hidden from the model. The change applies to the next turn.</Trans>
+							<Trans>An extension that is off is hidden from the model. The change applies to the next turn.</Trans>
 						</p>
 					</div>
 				</DialogContent>

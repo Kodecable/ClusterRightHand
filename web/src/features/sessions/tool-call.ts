@@ -47,17 +47,29 @@ const TOOL_SUBJECT_KEYS: Record<string, readonly string[]> = {
 	subagent_wait: ["id"],
 	subagent_cancel: ["id"],
 	subagent_decide: ["request_id"],
-	search_tools: ["query", "server"],
+	search_tools: ["query", "extension"],
 	node_info: [],
 };
 
 function toolSubject(name: string, args: JsonObject): string | undefined {
 	if (name === "exec") return firstString(args, ["cmd", "shell", "command"]) ?? argvLine(args);
 	if (name === "call_tool") {
-		const server = firstString(args, ["server"]);
+		const extension = firstString(args, ["extension"]);
 		const tool = firstString(args, ["tool"]);
-		return server !== undefined && tool !== undefined ? `${server}/${tool}` : (server ?? tool);
+		return extension !== undefined && tool !== undefined ? `${extension}/${tool}` : (extension ?? tool);
 	}
+	// A directly listed extension tool (`ext__<extension>__<tool>`): the built-ins name their subject.
+	if (name === "ext__api__api_request") {
+		const method = firstString(args, ["method"]);
+		const path = firstString(args, ["path"]);
+		return method !== undefined && path !== undefined ? `${method.toUpperCase()} ${path}` : path;
+	}
+	if (name === "ext__docs__read_doc") {
+		const path = firstString(args, ["path"]);
+		const section = firstString(args, ["section"]);
+		return path !== undefined && section !== undefined ? `${path} § ${section}` : path;
+	}
+	if (name === "ext__docs__search_docs") return firstString(args, ["query"]);
 	const keys = TOOL_SUBJECT_KEYS[name];
 	if (keys !== undefined) return firstString(args, keys);
 	return firstString(args, [

@@ -97,7 +97,13 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
 | `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `task_wait`, `task_cancel` | Follow or cancel an `exec` task or task group |
-| `search_tools`, `call_tool` | Find and call an external MCP server's tools ([Extensions](extensions.md)) |
+| `search_tools`, `call_tool` | Find and call an extension's tools, MCP or built-in ([Extensions](extensions.md)) |
+| `ext__<extension>__<tool>` | A "list directly" extension's tool, called without `call_tool` |
+| `search_docs`, `read_doc` | The built-in `docs` extension: search this version's documentation and API reference, and read a document or a section of it |
+| `api_request` | The built-in `api` extension: one crhs API request as the session owner, through the same routes and rules as the WebUI |
+
+Those rows are extension tools, not cluster tools: the tool list grows with the "list directly" flag and
+the built-in extensions, while `search_tools` and `call_tool` stay fixed ([Tools for the model](extensions.md#tools-for-the-model)).
 
 `task_wait` and `task_cancel` reach only tasks started by this session (or its subagents) or this API
 token, never another session of the same user, because a task belongs to the actor that started it.
@@ -142,7 +148,7 @@ node.
   finds the same task, running or finished, instead of starting it again.
 - An `unknown` task is reported as an error whose outcome is unknown, with the reason.
 - While a task waits for approval or a signature, an agent keeps waiting and shows the link in the UI;
-  an MCP call returns the waiting state and link after its `wait`.
+  an extension call returns the waiting state and link after its `wait`.
 
 ### Tool output
 
@@ -259,7 +265,7 @@ child keeps running, the parent decides, and then continues waiting with `subage
 
 ### Handling subagent requests
 
-- A task or external MCP call approval request from a subagent goes up the chain to the first ancestor
+- A task or external call approval request from a subagent goes up the chain to the first ancestor
   whose rules allow every operation in it; that agent approves, denies or escalates. If none allows it,
   or the agent escalates, Auto Review (for an Auto Review root) and otherwise the owner decides.
 - A quota request goes to the direct parent of the exhausted level, and to the owner for a root.

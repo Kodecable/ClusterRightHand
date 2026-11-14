@@ -144,6 +144,8 @@ async function packageCrhs(version: string): Promise<void> {
 	await mkdir(dir, { recursive: true });
 	await copyFile(join(crhsDir, "crhs.mjs"), join(dir, "crhs.mjs"));
 	await cp(join(crhsDir, "web"), join(dir, "web"), { recursive: true });
+	// The built-in docs extension reads this tree (doc/design/extensions.md "Documentation").
+	await cp(join(crhsDir, "doc"), join(dir, "doc"), { recursive: true });
 	await copyFile(join(crhsDir, "package.json"), join(dir, "package.json"));
 	await copyFile(join(crhsDir, "THIRD_PARTY_LICENSES.txt"), join(dir, "THIRD_PARTY_LICENSES.txt"));
 	await copyFile(join(root, "LICENSE"), join(dir, "LICENSE"));
@@ -169,6 +171,7 @@ async function packageCrhsWithNode(version: string, arch: Arch): Promise<void> {
 	await mkdir(join(dir, "bin"), { recursive: true });
 	await copyFile(join(crhsDir, "crhs.mjs"), join(dir, "crhs.mjs"));
 	await cp(join(crhsDir, "web"), join(dir, "web"), { recursive: true });
+	await cp(join(crhsDir, "doc"), join(dir, "doc"), { recursive: true });
 	for (const file of ["package.json", "re2.js", "LICENSE"]) {
 		await copyFile(join(crhsDir, "node_modules", "re2", file), join(re2Dir, file));
 	}

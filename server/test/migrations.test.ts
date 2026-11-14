@@ -86,12 +86,12 @@ const TABLES = [
 	"audit_events",
 	"authorizations",
 	"enrollment_tokens",
+	"extension_grants",
+	"extensions",
 	"external_calls",
 	"image_cache",
 	"libraries",
 	"library_files",
-	"mcp_server_grants",
-	"mcp_servers",
 	"model_presets",
 	"model_providers",
 	"node_access_grants",
@@ -127,7 +127,7 @@ const INDEXES = [
 	"sessions_state_live_idx",
 	"image_cache_last_used_idx",
 	"library_files_object_key_idx",
-	"mcp_server_grants_grantee_idx",
+	"extension_grants_grantee_idx",
 	"external_calls_actor_idx",
 	"external_calls_state_idx",
 	"tasks_handler_agent_idx",
@@ -169,7 +169,7 @@ describeBackends("initial migration", (backend) => {
 			"actor_type",
 			"actor_id",
 			"on_behalf_of_user_id",
-			"server_name",
+			"extension_name",
 			"tool_name",
 			"arguments",
 			"operation",
@@ -203,6 +203,18 @@ describeBackends("initial migration", (backend) => {
 			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose"]),
 		);
 		expect(await tableColumns(backend, db, "task_groups")).toContain("transfer");
+	});
+
+	it("seeds the built-in extensions", async () => {
+		const rows = await db
+			.selectFrom("extensions")
+			.select(["name", "kind", "enabled", "list_directly", "availability"])
+			.orderBy("name")
+			.execute();
+		expect(rows).toEqual([
+			{ name: "api", kind: "builtin", enabled: 1, list_directly: 1, availability: "everyone" },
+			{ name: "docs", kind: "builtin", enabled: 1, list_directly: 1, availability: "everyone" },
+		]);
 	});
 
 	it("is idempotent on a second run", async () => {

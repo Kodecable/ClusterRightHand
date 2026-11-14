@@ -11,7 +11,7 @@ import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { McpConnections } from "../src/extensions/connections.ts";
 import { decideExternalCall, pendingExternalCallRows } from "../src/extensions/external-calls.ts";
-import { saveMcpServer } from "../src/extensions/servers.ts";
+import { saveExtension } from "../src/extensions/store.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { appendRule } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -87,7 +87,7 @@ beforeAll(async () => {
 	});
 	const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
 	owner = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
-	const { row } = await saveMcpServer(
+	const { row } = await saveExtension(
 		db,
 		masterKey,
 		"fake",
@@ -98,7 +98,7 @@ beforeAll(async () => {
 		},
 		user.id,
 	);
-	runtime.installMcpServerTools(row, []);
+	runtime.installExtensionTools(row, []);
 	await mcp.ensureConnected("fake");
 });
 
@@ -134,7 +134,7 @@ async function startCall(
 	const child = await subagent(parentId, callKey, { default: "require-approval", rules: [] });
 	faux.setResponses([
 		fauxAssistantMessage(
-			[fauxToolCall("call_tool", { server: "fake", tool, arguments: args } as never, { id: `call-${callKey}` })],
+			[fauxToolCall("call_tool", { extension: "fake", tool, arguments: args } as never, { id: `call-${callKey}` })],
 			{ stopReason: "toolUse" },
 		),
 		fauxAssistantMessage([fauxText("noted")]),
@@ -174,9 +174,9 @@ it("hands a write call up to the nearest allowing ancestor's agent, which approv
 		);
 		expect(request).toMatchObject({ kind: "external_call", sessionId: call.actor_id });
 		expect(request.externalCall).toMatchObject({
-			server: "fake",
+			extension: "fake",
 			tool: "write_thing",
-			operation: { method: "mcp.write", target: "fake/write_thing" },
+			operation: { method: "ext.write", target: "fake/write_thing" },
 			arguments: { value: 7 },
 		});
 		expect(request.summary).toContain("fake/write_thing");
@@ -289,7 +289,7 @@ it("runs Auto Review for an escalated call of an auto_review root before the own
 		{ type: "session", id: parent.id },
 		{
 			action: "allow",
-			method: "mcp.write",
+			method: "ext.write",
 			exact: "fake/write_thing",
 		},
 	);

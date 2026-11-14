@@ -61,7 +61,7 @@ describe("ruleMatches", () => {
 		expect(m(["prod"])).toBe(false);
 	});
 
-	it("applies method matching exactly, except allow file.write also covers file.read", () => {
+	it("applies method matching exactly, except allow file.write/ext.write/api.write also cover the matching read", () => {
 		const cases: [Action, Method | undefined, Method, boolean][] = [
 			["allow", "file.write", "file.read", true],
 			["allow", "file.write", "file.write", true],
@@ -74,6 +74,13 @@ describe("ruleMatches", () => {
 			["deny", "file.read", "file.write", false],
 			["deny", undefined, "file.read", true],
 			["allow", "exec", "exec", true],
+			["allow", "ext.write", "ext.read", true],
+			["allow", "ext.read", "ext.write", false],
+			["allow", "api.write", "api.read", true],
+			["allow", "api.read", "api.write", false],
+			["deny", "ext.write", "ext.read", false],
+			["deny", "api.write", "api.read", false],
+			["allow", "ext.write", "api.read", false],
 		];
 		for (const [action, method, opMethod, expected] of cases) {
 			expect(ruleMatches({ action, method }, op(opMethod, "/etc/x")), `${action} ${method} vs ${opMethod}`).toBe(
@@ -260,23 +267,29 @@ describe("evaluate: chains", () => {
 });
 
 describe("rulePresetRuleSet", () => {
-	const methods: Method[] = ["exec", "file.read", "file.write", "mcp.read", "mcp.write"];
+	const methods: Method[] = ["exec", "file.read", "file.write", "ext.read", "ext.write", "api.read", "api.write"];
 	const table: [RulePreset, Method, Action][] = [
 		["ask", "exec", "require-approval"],
 		["ask", "file.read", "allow"],
 		["ask", "file.write", "require-approval"],
-		["ask", "mcp.read", "allow"],
-		["ask", "mcp.write", "require-approval"],
+		["ask", "ext.read", "allow"],
+		["ask", "ext.write", "require-approval"],
+		["ask", "api.read", "allow"],
+		["ask", "api.write", "require-approval"],
 		["auto_review", "exec", "require-approval"],
 		["auto_review", "file.read", "allow"],
 		["auto_review", "file.write", "require-approval"],
-		["auto_review", "mcp.read", "allow"],
-		["auto_review", "mcp.write", "require-approval"],
+		["auto_review", "ext.read", "allow"],
+		["auto_review", "ext.write", "require-approval"],
+		["auto_review", "api.read", "allow"],
+		["auto_review", "api.write", "require-approval"],
 		["yolo", "exec", "allow"],
 		["yolo", "file.read", "allow"],
 		["yolo", "file.write", "allow"],
-		["yolo", "mcp.read", "allow"],
-		["yolo", "mcp.write", "allow"],
+		["yolo", "ext.read", "allow"],
+		["yolo", "ext.write", "allow"],
+		["yolo", "api.read", "allow"],
+		["yolo", "api.write", "allow"],
 	];
 
 	it.each(table)("%s + %s -> %s", (rulePreset, method, expected) => {
@@ -296,7 +309,8 @@ describe("rulePresetRuleSet", () => {
 				default: "require-approval",
 				rules: [
 					{ action: "allow", method: "file.read", privileged: false },
-					{ action: "allow", method: "mcp.read", privileged: false },
+					{ action: "allow", method: "ext.read", privileged: false },
+					{ action: "allow", method: "api.read", privileged: false },
 				],
 			});
 		}
@@ -329,7 +343,7 @@ describe("rulePresetRuleSet", () => {
 	it("returns a fresh object each time", () => {
 		const a = rulePresetRuleSet("ask");
 		a.rules.push({ action: "deny" });
-		expect(rulePresetRuleSet("ask").rules).toHaveLength(2);
+		expect(rulePresetRuleSet("ask").rules).toHaveLength(3);
 	});
 });
 

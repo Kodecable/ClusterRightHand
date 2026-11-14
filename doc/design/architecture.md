@@ -53,7 +53,7 @@ mode has no network access and runs only authorized tasks ([Privilege](privilege
 
 ```text
 util, config.ts, version.ts, keys, storage → policy → auth → users →
-audit, settings, sessions → library → privilege → cluster, retention → tools → agent →
+audit, settings, sessions → library → privilege → cluster, retention → extensions → tools → agent →
 scheduler → mcp, api → setup, cli → main.ts
 ```
 
@@ -114,8 +114,8 @@ These are not implemented, but the design leaves room for them:
 - **OIDC login** ([Extension points: OIDC](access-control.md#extension-points-oidc)).
 - **Local crha policy**, limits in `crha.toml` that would hold even against a compromised crhs. crha
   rejects unknown configuration keys, so such keys fail rather than being silently ignored.
-- **Runbooks.** External tools themselves are no longer a future extension point: they are MCP
-  servers an administrator connects ([Extensions](extensions.md)).
+- **Runbooks.** External tools themselves are no longer a future extension point: they are extensions,
+  MCP servers an administrator connects or the built-in `docs` and `api` ([Extensions](extensions.md)).
 
 ## Known limitations
 

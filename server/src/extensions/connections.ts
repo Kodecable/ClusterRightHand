@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { McpToolAnnotations as ApiMcpToolAnnotations, McpServerStatus } from "@crh/api";
+import type { ExtensionStatus, ExtensionToolAnnotations } from "@crh/api";
 import {
 	Client,
 	type FetchLike,
@@ -11,10 +11,11 @@ import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { errorText } from "../util/errors.ts";
 import { CRH_VERSION } from "../version.ts";
-import { getMcpServerRow, type McpServerRow, mcpServerConfig } from "./servers.ts";
+import { ExtensionCallLostError, type ExtensionTool, ExtensionToolError, ExtensionUnavailableError } from "./model.ts";
+import { type ExtensionRow, getExtensionRow, mcpExtensionConfig } from "./store.ts";
 
 /**
- * The MCP client connections behind extensions (doc/design/extensions.md "Connections"): one connection per
+ * The MCP client connections behind extensions (doc/design/extensions.md "MCP connections"): one connection per
  * server for all sessions, opened when it is first needed, with the tool list cached and refreshed on
  * `notifications/tools/list_changed`, on reconnect and when an administrator asks. A failed connection is
  * retried with exponential backoff; while it is unavailable the last error is kept and its last tool list
@@ -23,29 +24,11 @@ import { getMcpServerRow, type McpServerRow, mcpServerConfig } from "./servers.t
  * The module holds no pi types: the agent layer installs the direct tools when a list changes.
  */
 
-/** One tool of a server, in the shape the agent layer and the API need. */
-export interface McpTool {
-	name: string;
-	title: string | null;
-	description: string | null;
-	inputSchema: Record<string, unknown>;
-	annotations: ApiMcpToolAnnotations | null;
-}
-
 /** The CRH identity sent to a server for one call; the identity headers are not authentication. */
 export interface McpIdentity {
 	username: string;
 	sessionId: string;
 }
-
-/** The call succeeded but a connection-level failure makes its outcome unknown. */
-export class McpCallLostError extends Error {}
-
-/** The call never reached the server: it is unavailable right now. */
-export class McpUnavailableError extends Error {}
-
-/** The server answered with a protocol error: the call did not run. */
-export class McpToolError extends Error {}
 
 /** How a server waits for its next automatic attempt (diagnostics and the settings page). */
 export interface McpConnectionOptions {
@@ -54,9 +37,9 @@ export interface McpConnectionOptions {
 	/** In-process fetch for tests; the global fetch otherwise. */
 	fetch?: FetchLike;
 	/** Called when a server's tool list changes, so the agent layer can reinstall its direct tools. */
-	onToolsChanged?: (server: McpServerRow, tools: readonly McpTool[]) => void;
+	onToolsChanged?: (server: ExtensionRow, tools: readonly ExtensionTool[]) => void;
 	/** Called when a server's connection state changes, for diagnostics. */
-	onStatusChanged?: (name: string, status: McpServerStatus) => void;
+	onStatusChanged?: (name: string, status: ExtensionStatus) => void;
 	/** Backoff base in milliseconds; tests shorten it. */
 	backoffBaseMs?: number;
 	/** Backoff cap in milliseconds (5 minutes by default). */
@@ -70,14 +53,14 @@ export interface McpConnectionOptions {
 }
 
 interface ServerState {
-	row: McpServerRow | null;
-	status: McpServerStatus["state"];
+	row: ExtensionRow | null;
+	status: ExtensionStatus["state"];
 	lastError: string | null;
 	nextAttemptAt: string | null;
 	attempt: number;
 	client?: Client;
 	transport?: StreamableHTTPClientTransport;
-	tools: McpTool[];
+	tools: ExtensionTool[];
 	instructions: string | null;
 	retryTimer?: ReturnType<typeof setTimeout>;
 	connecting?: Promise<void>;
@@ -90,15 +73,15 @@ const DEFAULT_BACKOFF_MAX_MS = 5 * 60_000;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 /**
  * A call on an unavailable server gives up at once when a connection attempt failed within this window
- * (doc/design/extensions.md "Connections"): one hung or looping model cannot hammer the server.
+ * (doc/design/extensions.md "MCP connections"): one hung or looping model cannot hammer the server.
  */
 const FAILED_ATTEMPT_WINDOW_MS = 10_000;
 /** The jitter band around a backoff delay: 80–120% of the exponential value. */
 const JITTER_LOW = 0.8;
 const JITTER_SPAN = 0.4;
 
-function toTool(tool: Tool): McpTool {
-	const annotations = (tool.annotations ?? null) as ApiMcpToolAnnotations | null;
+function toTool(tool: Tool): ExtensionTool {
+	const annotations = (tool.annotations ?? null) as ExtensionToolAnnotations | null;
 	return {
 		name: tool.name,
 		title: tool.title ?? annotations?.title ?? null,
@@ -124,7 +107,7 @@ export class McpConnections {
 	}
 
 	/** Lets the agent layer install the direct tools after the connections exist (runtime startup). */
-	setToolsChangedHandler(handler: (server: McpServerRow, tools: readonly McpTool[]) => void): void {
+	setToolsChangedHandler(handler: (server: ExtensionRow, tools: readonly ExtensionTool[]) => void): void {
 		this.#options.onToolsChanged = handler;
 	}
 
@@ -146,7 +129,7 @@ export class McpConnections {
 		return state;
 	}
 
-	#statusOf(state: ServerState): McpServerStatus {
+	#statusOf(state: ServerState): ExtensionStatus {
 		return {
 			state: state.status,
 			lastError: state.lastError,
@@ -156,16 +139,16 @@ export class McpConnections {
 	}
 
 	/** The status last known in this process; a server never connected here reports `unknown`. */
-	status(name: string): McpServerStatus {
+	status(name: string): ExtensionStatus {
 		return this.#statusOf(this.#state(name));
 	}
 
-	statuses(names: readonly string[]): Map<string, McpServerStatus> {
+	statuses(names: readonly string[]): Map<string, ExtensionStatus> {
 		return new Map(names.map((name) => [name, this.status(name)]));
 	}
 
 	/** The tool list last listed for a server; empty before the first successful connection. */
-	tools(name: string): readonly McpTool[] {
+	tools(name: string): readonly ExtensionTool[] {
 		return this.#state(name).tools;
 	}
 
@@ -173,7 +156,7 @@ export class McpConnections {
 		return this.#state(name).instructions;
 	}
 
-	#setStatus(state: ServerState, status: McpServerStatus["state"], error: string | null = null): void {
+	#setStatus(state: ServerState, status: ExtensionStatus["state"], error: string | null = null): void {
 		state.status = status;
 		state.lastError = error;
 		const name = state.row?.name;
@@ -244,8 +227,8 @@ export class McpConnections {
 	}
 
 	/** The server's row, read fresh at every connection so an edited URL or header is used at once. */
-	async #freshRow(name: string): Promise<McpServerRow | undefined> {
-		return getMcpServerRow(this.#options.db, name);
+	async #freshRow(name: string): Promise<ExtensionRow | undefined> {
+		return getExtensionRow(this.#options.db, name);
 	}
 
 	/**
@@ -258,7 +241,7 @@ export class McpConnections {
 		state: ServerState,
 		options: { keepSchedule?: boolean; timeoutMs?: number } = {},
 	): Promise<void> {
-		if (this.#closing) throw new McpUnavailableError("crhs is shutting down");
+		if (this.#closing) throw new ExtensionUnavailableError("crhs is shutting down");
 		if (state.connecting) return state.connecting;
 		const attempt = (async () => {
 			if (!options.keepSchedule) this.#clearRetry(state);
@@ -269,12 +252,12 @@ export class McpConnections {
 			state.transport = undefined;
 			if (previous) await previous.close().catch(() => undefined);
 			const row = await this.#freshRow(name);
-			if (!row) {
-				this.#setStatus(state, "unavailable", "no such MCP server");
-				throw new McpUnavailableError("no such MCP server");
+			if (row?.kind !== "mcp") {
+				this.#setStatus(state, "unavailable", "no such MCP extension");
+				throw new ExtensionUnavailableError("no such MCP extension");
 			}
 			state.row = row;
-			const config = await mcpServerConfig(this.#options.db, this.#options.masterKey, row);
+			const config = await mcpExtensionConfig(this.#options.db, this.#options.masterKey, row);
 			const identity = this.#identity;
 			const baseFetch = this.#fetch;
 			const fetchWithIdentity: FetchLike = async (input, init) => {
@@ -347,7 +330,7 @@ export class McpConnections {
 				// An on-demand attempt with a retry still scheduled leaves that schedule alone; otherwise
 				// this failure schedules the next one (scheduled attempt, administrator, first use).
 				if (!(options.keepSchedule === true && state.retryTimer !== undefined)) this.#scheduleRetry(name, state);
-				throw new McpUnavailableError(errorText(err));
+				throw new ExtensionUnavailableError(errorText(err));
 			}
 		})();
 		state.connecting = attempt;
@@ -371,7 +354,7 @@ export class McpConnections {
 				client.connect(transport),
 				new Promise<never>((_resolve, reject) => {
 					timer = setTimeout(
-						() => reject(new McpUnavailableError(`connecting to ${name} timed out after ${timeoutMs / 1000} s`)),
+						() => reject(new ExtensionUnavailableError(`connecting to ${name} timed out after ${timeoutMs / 1000} s`)),
 						timeoutMs,
 					);
 					timer.unref?.();
@@ -405,21 +388,22 @@ export class McpConnections {
 			return state;
 		}
 		if (!options.immediate) {
-			if (state.status === "unavailable") throw new McpUnavailableError(state.lastError ?? "the server is unavailable");
+			if (state.status === "unavailable")
+				throw new ExtensionUnavailableError(state.lastError ?? "the server is unavailable");
 			await this.#connect(name, state);
 			return state;
 		}
 		// A call right after a failed attempt fails at once instead of hammering the server; the scheduled
 		// retry is the next try.
 		if (state.lastFailureAt !== null && this.#now() - state.lastFailureAt < FAILED_ATTEMPT_WINDOW_MS) {
-			throw new McpUnavailableError(state.lastError ?? "the server is unavailable");
+			throw new ExtensionUnavailableError(state.lastError ?? "the server is unavailable");
 		}
 		await this.#connect(name, state, { keepSchedule: true });
 		return state;
 	}
 
 	/** An administrator asked: connect now and reload the tools, even when it was ready. */
-	async reconnect(name: string): Promise<McpServerStatus> {
+	async reconnect(name: string): Promise<ExtensionStatus> {
 		const state = this.#state(name);
 		this.#clearRetry(state);
 		await this.#closeState(state);
@@ -434,20 +418,20 @@ export class McpConnections {
 	}
 
 	/** Reloads the tool list of a connected server (the settings page's "view tools" also uses this). */
-	async refreshTools(name: string): Promise<readonly McpTool[]> {
+	async refreshTools(name: string): Promise<readonly ExtensionTool[]> {
 		const state = this.#state(name);
 		if (state.status !== "ready" || !state.client) {
 			await this.ensureConnected(name, { immediate: true });
 		}
 		const client = this.#state(name).client;
-		if (!client) throw new McpUnavailableError("the server is unavailable");
+		if (!client) throw new ExtensionUnavailableError("the server is unavailable");
 		const result = await client.listTools({}, { cacheMode: "refresh" });
 		await this.#setTools(state, result.tools);
 		return state.tools;
 	}
 
 	/** The tool's annotations from the last listing, if it is still listed. */
-	tool(name: string, toolName: string): McpTool | undefined {
+	tool(name: string, toolName: string): ExtensionTool | undefined {
 		return this.#states.get(name)?.tools.find((candidate) => candidate.name === toolName);
 	}
 
@@ -464,7 +448,7 @@ export class McpConnections {
 	): Promise<unknown> {
 		const state = await this.ensureConnected(name, { immediate: true });
 		const client = state.client;
-		if (!client) throw new McpUnavailableError("the server is unavailable");
+		if (!client) throw new ExtensionUnavailableError("the server is unavailable");
 		const timeoutMs = options.timeoutMs ?? state.row?.timeout_ms ?? 300_000;
 		const controller = new AbortController();
 		let timedOut = false;
@@ -480,9 +464,9 @@ export class McpConnections {
 			try {
 				return await client.callTool({ name: toolName, arguments: args }, { signal: controller.signal });
 			} catch (err) {
-				if (timedOut) throw new McpCallLostError(`the call timed out after ${timeoutMs / 1000} s`);
-				if (options.signal?.aborted) throw new McpCallLostError("the call was aborted");
-				if (err instanceof ProtocolError) throw new McpToolError(errorText(err));
+				if (timedOut) throw new ExtensionCallLostError(`the call timed out after ${timeoutMs / 1000} s`);
+				if (options.signal?.aborted) throw new ExtensionCallLostError("the call was aborted");
+				if (err instanceof ProtocolError) throw new ExtensionToolError(errorText(err));
 				// The request did not complete normally: its outcome is unknown, and the server is no longer
 				// trusted to be connected.
 				if (state.client === client) {
@@ -493,7 +477,7 @@ export class McpConnections {
 					this.#setStatus(state, "unavailable", errorText(err));
 					this.#scheduleRetry(name, state);
 				}
-				throw new McpCallLostError(errorText(err));
+				throw new ExtensionCallLostError(errorText(err));
 			} finally {
 				clearTimeout(timer);
 				options.signal?.removeEventListener("abort", onAbort);

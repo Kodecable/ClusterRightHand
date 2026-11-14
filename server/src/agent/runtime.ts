@@ -9,9 +9,10 @@ import {
 } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
 import { externalCallApproval, getExternalCall } from "../extensions/external-calls.ts";
-import { listMcpServerRows } from "../extensions/servers.ts";
+import { extensionOf } from "../extensions/registry.ts";
+import { listExtensionRows } from "../extensions/store.ts";
 import type { RulePreset } from "../policy/rules.ts";
-import { clusterExtension, mcpServerExtension, syncSessionMcpExtensions } from "./extension.ts";
+import { clusterExtension, directToolsExtension, syncSessionExtensions } from "./extension.ts";
 import { GenerationTimings } from "./latency.ts";
 import { ModelPresets } from "./model-presets.ts";
 import type { ModelRef } from "./models.ts";
@@ -85,7 +86,7 @@ export class AgentRuntime {
 	readonly modelPresets: ModelPresets;
 	/** The registry, so MCP server extensions can be installed and replaced when their tool list changes. */
 	readonly #registry: Registry<ToolRegistration>;
-	/** Every installed extension by name: `crh` and one `mcp:<server>` per server. */
+	/** Every installed extension by name: `crh` and one `ext:<extension>` per extension. */
 	readonly #extensions: Map<string, Extension>;
 
 	private constructor(
@@ -192,12 +193,13 @@ export class AgentRuntime {
 		);
 		runtime.#runtimeRef = ref;
 		ref.current = runtime;
-		// One extension per MCP server, empty until its first tool listing arrives: a session selects the
-		// servers it may use by name, and the tools appear once the server is connected (doc/design/extensions.md).
-		for (const row of await listMcpServerRows(options.db)) {
-			runtime.installMcpServerTools(row, options.mcp?.tools(row.name) ?? []);
+		// One extension per row, empty until its first tool listing arrives: a session selects the extensions
+		// it may use by name, and the tools appear once the MCP server is connected or the built-in supplies
+		// them (doc/design/extensions.md).
+		for (const row of await listExtensionRows(options.db)) {
+			runtime.installExtensionTools(row, extensionOf(row, options.mcp)?.tools() ?? []);
 		}
-		options.mcp?.setToolsChangedHandler((row, tools) => runtime.installMcpServerTools(row, tools));
+		options.mcp?.setToolsChangedHandler((row, tools) => runtime.installExtensionTools(row, tools));
 		// Resume only now: a resumed run must find the runtime (compaction and tool metering look it up).
 		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
 		// Auto Review for roots whose rule preset asks for it (tokens, sessions and schedules alike), then route child
@@ -298,58 +300,58 @@ export class AgentRuntime {
 		return this.#sessionList;
 	}
 
-	/** The extensions a session selects: the crh extension and the MCP servers it may use. */
-	#extensionsFor(serverNames: readonly string[]): Extension[] {
+	/** The extensions a session selects: the crh extension and the extensions it may use. */
+	#extensionsFor(extensionNames: readonly string[]): Extension[] {
 		const selected: Extension[] = [];
 		const crh = this.#extensions.get("crh");
 		if (crh) selected.push(crh);
-		for (const name of serverNames) {
-			const extension = this.#extensions.get(`mcp:${name}`);
+		for (const name of extensionNames) {
+			const extension = this.#extensions.get(`ext:${name}`);
 			if (extension) selected.push(extension);
 		}
 		return selected;
 	}
 
 	/**
-	 * Installs or replaces one MCP server's extension (doc/design/extensions.md "Tools for the model"). Only an
-	 * enabled server marked "list directly" contributes its tools; other servers keep an empty extension, so a
-	 * session can select the server by name and its tools never reach the model's tool list. A disabled server
-	 * loses its tools at once, even in a session whose selection has not been recomputed yet.
+	 * Installs or replaces one extension's direct tools (doc/design/extensions.md "Tools for the model"). Only an
+	 * enabled extension marked "list directly" contributes its tools; other extensions keep an empty
+	 * extension, so a session can select the extension by name and its tools never reach the model's tool
+	 * list. A disabled extension loses its tools at once, even in a session whose selection has not been
+	 * recomputed yet.
 	 */
-	installMcpServerTools(
+	installExtensionTools(
 		row: { name: string; list_directly: number; enabled: number },
-		tools: Parameters<typeof mcpServerExtension>[3],
+		tools: Parameters<typeof directToolsExtension>[3],
 	): void {
-		const extension = mcpServerExtension(
+		const extension = directToolsExtension(
 			this.#options,
 			this.#runtimeRef,
 			row.name,
 			row.list_directly === 1 && row.enabled === 1 ? tools : [],
 		);
 		this.#registry.install(extension);
-		this.#extensions.set(`mcp:${row.name}`, extension);
+		this.#extensions.set(`ext:${row.name}`, extension);
 	}
 
 	/**
-	 * Re-selects a session's MCP extensions from the rows read now, so a grant, an enable/disable or a session
-	 * change applies from the next request (doc/design/extensions.md "MCP servers"). The conversation is only
+	 * Re-selects a session's extensions from the rows read now, so a grant, an enable/disable or a session
+	 * change applies from the next request (doc/design/extensions.md "Extensions"). The conversation is only
 	 * written when the selection actually changed.
 	 */
-	async syncMcpServers(conversationId: string): Promise<void> {
-		if (!this.#options.mcp) return;
+	async syncExtensions(conversationId: string): Promise<void> {
 		const row = await this.#options.db
 			.selectFrom("sessions")
-			.select(["id", "conversation_id", "owner_user_id", "disabled_mcp_servers"])
+			.select(["id", "conversation_id", "owner_user_id", "disabled_extensions"])
 			.where("conversation_id", "=", conversationId)
 			.executeTakeFirst();
-		if (row) await syncSessionMcpExtensions(this.#host, row);
+		if (row) await syncSessionExtensions(this.#host, row);
 	}
 
-	/** Removes a server's extension after an administrator deletes it or turns it off for all sessions. */
-	removeMcpServerExtension(name: string): void {
-		const extension = this.#extensions.get(`mcp:${name}`);
+	/** Removes an extension's direct tools after an administrator deletes it or turns it off for all sessions. */
+	removeExtension(name: string): void {
+		const extension = this.#extensions.get(`ext:${name}`);
 		if (!extension) return;
-		this.#extensions.delete(`mcp:${name}`);
+		this.#extensions.delete(`ext:${name}`);
 		this.#registry.uninstall(extension);
 	}
 
@@ -405,7 +407,7 @@ export class AgentRuntime {
 			model?: ModelRef;
 			rulePreset?: RulePreset;
 			budgetRemaining?: number | null;
-			disabledMcpServers?: string[];
+			disabledExtensions?: string[];
 		},
 	): Promise<SessionView> {
 		return configure(this.#host, sessionId, change);
