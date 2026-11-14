@@ -17,9 +17,13 @@ privilege authorization and auditing.
   central server cannot become root on it.
 - **Two ways to reach a node.** Install the small `crha` agent, which dials out to crhs, or use plain
   SSH with nothing installed, through jump hosts if needed.
+- **It can operate CRH itself.** A session reads the documentation of the running version and makes
+  crhs API requests as its owner, under the same rules and approvals: ask it to create a node group,
+  review recent tasks or set up a schedule, and it works out how. It can also use tools from MCP servers
+  you connect as extensions.
 - **An MCP server too.** Plug it into your existing workflow: Claude Code, Codex and other MCP clients
   connect over MCP and get the same tools, under the same rules and approvals.
-- **Simple to run.** One Node.js process serves the WebUI, the API, MCP, the agents and the scheduler,
+- **Simple to run.** One Node.js process serves the WebUI, MCP, the agents and the scheduler,
   on SQLite or PostgreSQL. The WebUI is in English and Chinese.
 
 | Sessions                                                                            | Node trust                                                                             |

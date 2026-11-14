@@ -186,6 +186,10 @@ They are split so that an administrator can turn off API requests and keep the d
 
 ### API requests
 
+The API document is written for this tool: crhs offers no API to outside programs, and the API has no
+versioning policy or compatibility guarantee ([Layering principles](architecture.md#layering-principles)).
+The reference always matches the running version, so the model never relies on an older shape.
+
 `api_request(method, path, query, body)` runs the request inside crhs through the app's own router, not
 over the network, so the request passes the same route definition, validation, access checks and audit as
 a WebUI request.

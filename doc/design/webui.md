@@ -423,6 +423,9 @@ allow file uploads.
 
 ### Route definitions
 
+The API serves the WebUI and agents' `api_request`; it is not offered to outside programs and has no
+versioning policy or compatibility guarantee ([Layering principles](architecture.md#layering-principles)).
+
 Routes are defined with `defineRoute` (`server/src/api/openapi.ts`, on `@hono/zod-openapi`), so one
 definition validates the request, types the handler and produces the API document. Hand-written
 parsing and a separate document were rejected because they drift apart.

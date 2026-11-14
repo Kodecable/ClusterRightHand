@@ -41,6 +41,11 @@ mode has no network access and runs only authorized tasks ([Privilege](privilege
 - **The Cluster API is the only way to run anything.** WebUI actions, agent tools, MCP calls and
   scheduled runs all create tasks through it, so rules, approvals, signing and audit cannot be bypassed.
   An MCP mode without them would be an unaudited back door.
+- **The HTTP API is not a public interface.** crhs offers no API to outside programs. The HTTP API
+  exists for the WebUI, and its API document exists only so that agents can operate crhs through
+  `api_request` ([Built-in extensions](extensions.md#built-in-extensions)). It has no versioning policy
+  and no compatibility guarantee: routes and shapes change with the WebUI. Outside tools integrate
+  through MCP.
 - **The execution plane does not know the agent.** A node only knows task ids; crhs records which
   session, user or schedule a task came from.
 - **The agent layer is replaceable.** pi is isolated behind the agent runtime facade; the Cluster core
