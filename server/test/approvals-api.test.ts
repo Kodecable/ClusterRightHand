@@ -414,6 +414,19 @@ describe("approvals api (sqlite)", () => {
 		expect(((await r.json()) as { items: unknown[] }).items).toEqual([]);
 	});
 
+	it("rejects a decision body that does not match the route's schema", async () => {
+		const tok = await newToken();
+		const t = await mkTask(tok);
+		const res = await decide("alice", `/api/tasks/${t.id}/approval`, { decision: "maybe" });
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toMatch(/^decision: /);
+		await cluster.decide(t.id, {
+			decision: "rejected",
+			by: { type: "user", id: "x" },
+			at: new Date().toISOString(),
+		});
+	});
+
 	describe("task groups", () => {
 		const mkGroup = async (tok: string, spec = execSpec("grp")) =>
 			groups.create({

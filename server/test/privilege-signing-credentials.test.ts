@@ -129,6 +129,18 @@ describe("signing credentials API", () => {
 		expect(await auditRows("signing_credential.removed")).toHaveLength(1);
 	});
 
+	it("rejects bodies that do not match the route's schemas", async () => {
+		const ssh = await call(app, "/api/me/signing-credentials/ssh", { cookie, body: { publicKey: 42 } });
+		expect(ssh.status).toBe(400);
+		expect(((await ssh.json()) as { error: string }).error).toMatch(/^publicKey: /);
+		const webauthn = await call(app, "/api/me/signing-credentials/webauthn", {
+			cookie,
+			body: { response: "not a registration response" },
+		});
+		expect(webauthn.status).toBe(400);
+		expect(((await webauthn.json()) as { error: string }).error).toMatch(/^response: /);
+	});
+
 	it("registers a Passkey with P-256 and Ed25519 and records its RP", async () => {
 		const keys = {
 			ES256: new SoftwareAuthenticator({ alg: "ES256" }),

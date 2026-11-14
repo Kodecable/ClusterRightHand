@@ -1,22 +1,65 @@
-import { Hono } from "hono";
+import {
+	ErrorResponseSchema,
+	IdParamSchema,
+	NodeAccessGrantFilterSchema,
+	NodeAccessGrantInputSchema,
+	NodeAccessGrantListResponseSchema,
+	NodeAccessGrantResponseSchema,
+	OkResponseSchema,
+} from "@crh/api/schemas";
+import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
 import {
-	type AccessTargetType,
 	createNodeAccessGrant,
 	DuplicateGrantError,
 	deleteNodeAccessGrant,
-	type GranteeType,
 	getNodeAccessGrant,
 	listNodeAccessGrants,
 	type NodeAccessGrant,
 } from "../cluster/node-access.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
-import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { NotFoundError } from "../util/errors.ts";
 import { requireAdmin } from "./middleware.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
 
-const GRANTEE_TYPES: ReadonlySet<string> = new Set<GranteeType>(["user", "user_group"]);
-const TARGET_TYPES: ReadonlySet<string> = new Set<AccessTargetType>(["node", "node_group"]);
+const TAGS = ["Node access"];
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/node-access-grants",
+	tags: TAGS,
+	summary: "List node access grants, optionally only those of one grantee or target (administrators)",
+	agent: "allow",
+	middleware: [requireAdmin],
+	request: { query: NodeAccessGrantFilterSchema },
+	responses: { 200: { description: "The matching grants", ...json(NodeAccessGrantListResponseSchema) } },
+});
+
+const createRoute = defineRoute({
+	method: "post",
+	path: "/node-access-grants",
+	tags: TAGS,
+	summary: "Grant a user or user group access to a node or a node group (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	request: { body: { required: true, ...json(NodeAccessGrantInputSchema) } },
+	responses: {
+		201: { description: "The new grant", ...json(NodeAccessGrantResponseSchema) },
+		409: { description: "The same grant already exists", ...json(ErrorResponseSchema) },
+	},
+});
+
+const deleteRoute = defineRoute({
+	method: "delete",
+	path: "/node-access-grants/{id}",
+	tags: TAGS,
+	summary: "Delete a node access grant (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },
+});
 
 /**
  * Node access grants (doc/design/access-control.md "Ownership, access grants and sharing"): administrators list, create and delete
@@ -25,58 +68,35 @@ const TARGET_TYPES: ReadonlySet<string> = new Set<AccessTargetType>(["node", "no
  * Expects requireUser to have run.
  */
 export function nodeAccessRoutes(db: Db) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
-	app.use("/node-access-grants/*", requireAdmin);
-	app.use("/node-access-grants", requireAdmin);
-
-	app.get("/node-access-grants", async (c) => {
-		const targetType = c.req.query("targetType");
-		const granteeType = c.req.query("granteeType");
-		if (targetType !== undefined && !TARGET_TYPES.has(targetType)) {
-			return jsonError(c, 400, "targetType must be node or node_group");
-		}
-		if (granteeType !== undefined && !GRANTEE_TYPES.has(granteeType)) {
-			return jsonError(c, 400, "granteeType must be user or user_group");
-		}
+	app.openapi(listRoute, async (c) => {
+		const q = c.req.valid("query");
 		const grants = await listNodeAccessGrants(db, {
-			targetType: targetType as AccessTargetType | undefined,
-			targetId: c.req.query("targetId") || undefined,
-			granteeType: granteeType as GranteeType | undefined,
-			granteeId: c.req.query("granteeId") || undefined,
+			targetType: q.targetType,
+			targetId: q.targetId || undefined,
+			granteeType: q.granteeType,
+			granteeId: q.granteeId || undefined,
 		});
-		return c.json({ grants });
+		return c.json({ grants }, 200);
 	});
 
-	app.post("/node-access-grants", async (c) => {
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const granteeType = body.granteeType;
-		const granteeId = body.granteeId;
-		const targetType = body.targetType;
-		const targetId = body.targetId;
-		if (typeof granteeType !== "string" || !GRANTEE_TYPES.has(granteeType)) {
-			return jsonError(c, 400, "granteeType must be user or user_group");
-		}
-		if (typeof targetType !== "string" || !TARGET_TYPES.has(targetType)) {
-			return jsonError(c, 400, "targetType must be node or node_group");
-		}
-		if (typeof granteeId !== "string" || granteeId === "") return jsonError(c, 400, "granteeId is required");
-		if (typeof targetId !== "string" || targetId === "") return jsonError(c, 400, "targetId is required");
+	app.openapi(createRoute, async (c) => {
+		const body = c.req.valid("json");
 		const orgId = await defaultOrgId(db);
 		let grant: NodeAccessGrant;
 		try {
 			grant = await createNodeAccessGrant(db, {
 				orgId,
-				granteeType: granteeType as GranteeType,
-				granteeId,
-				targetType: targetType as AccessTargetType,
-				targetId,
+				granteeType: body.granteeType,
+				granteeId: body.granteeId,
+				targetType: body.targetType,
+				targetId: body.targetId,
 				createdByUserId: c.get("user").userId,
 			});
 		} catch (err) {
 			// A duplicate is a conflict, not a bad request: the same grant already exists.
-			if (err instanceof DuplicateGrantError) return jsonError(c, 409, err.message);
+			if (err instanceof DuplicateGrantError) throw new HTTPException(409, { message: err.message });
 			throw err;
 		}
 		void c.get("audit").record({
@@ -95,10 +115,10 @@ export function nodeAccessRoutes(db: Db) {
 		return c.json({ grant }, 201);
 	});
 
-	app.delete("/node-access-grants/:id", async (c) => {
-		const id = c.req.param("id");
+	app.openapi(deleteRoute, async (c) => {
+		const { id } = c.req.valid("param");
 		const grant = await getNodeAccessGrant(db, id);
-		if (!grant) return jsonError(c, 404, "no such grant");
+		if (!grant) throw new NotFoundError("no such grant");
 		await deleteNodeAccessGrant(db, id);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
@@ -113,7 +133,7 @@ export function nodeAccessRoutes(db: Db) {
 				target_name: grant.targetName,
 			},
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	return app;

@@ -116,6 +116,33 @@ describe("api node groups", () => {
 		expect((await req("member", `/api/node-groups/${id}/members`, { nodeIds: [] }, "PUT")).status).toBe(403);
 	});
 
+	it("rejects a body that does not match the route's schema", async () => {
+		const created = await req("root", "/api/node-groups", { name: "Schema" });
+		const id = ((await created.json()) as { group: { id: string } }).group.id;
+		const bad = await req("root", `/api/node-groups/${id}/members`, { nodeIds: "x" }, "PUT");
+		expect(bad.status).toBe(400);
+		expect(await bad.json()).toEqual({ error: "nodeIds: must be a list of node ids" });
+		const missing = await req("root", "/api/node-groups", {});
+		expect(missing.status).toBe(400);
+		expect(((await missing.json()) as { error: string }).error).toMatch(/^name: /);
+		const text = await call(app, "/api/node-groups", {
+			cookie: cookies.root,
+			body: "x",
+			headers: { "content-type": "text/plain" },
+		});
+		expect(text.status).toBe(400);
+		expect(((await text.json()) as { error: string }).error).toBeTruthy();
+		const broken = await app.request("/api/node-groups", {
+			method: "POST",
+			headers: { host: "localhost:8080", cookie: cookies.root as string, "content-type": "application/json" },
+			body: "{",
+		});
+		expect(broken.status).toBe(400);
+		expect(((await broken.json()) as { error: string }).error).toBeTruthy();
+		// A member is refused before the body is looked at.
+		expect((await req("member", `/api/node-groups/${id}/members`, { nodeIds: "x" }, "PUT")).status).toBe(403);
+	});
+
 	it("renames and deletes, auditing each change", async () => {
 		const created = await req("root", "/api/node-groups", { name: "Rename-Me" });
 		const id = ((await created.json()) as { group: { id: string } }).group.id;

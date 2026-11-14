@@ -1,12 +1,19 @@
-import { Hono } from "hono";
+import {
+	ErrorResponseSchema,
+	EventStreamBodySchema,
+	SessionEventStreamQuerySchema,
+	SessionIdParamSchema,
+} from "@crh/api/schemas";
+import { HTTPException } from "hono/http-exception";
 import { streamSSE } from "hono/streaming";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SessionListScope, SessionListSubscriber } from "../agent/session-list.ts";
 import { isAdmin, type SessionUser, webSessionAlive } from "../auth/sessions.ts";
 import { sessionCapabilities } from "../sessions/sharing.ts";
 import type { Db } from "../storage/db.ts";
-import { type AppEnv, jsonError } from "./context.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import type { RequestDrain } from "./drain.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
 import { SESSION_SCOPES, visibleSession } from "./session-routes.ts";
 
 type LiveStream = { user: SessionUser; sessionId: string; abort: () => void };
@@ -108,6 +115,37 @@ function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
 	});
 }
 
+const listStreamRoute = defineRoute({
+	method: "get",
+	path: "/sessions/stream",
+	tags: ["Sessions"],
+	summary: "Session list changes as server-sent events (WebUI only)",
+	agent: "deny", // a long-lived WebUI stream, not a one-shot request
+	request: { query: SessionEventStreamQuerySchema },
+	responses: {
+		200: {
+			description: "A `upsert`/`remove`/`ping` event stream",
+			content: { "text/event-stream": { schema: EventStreamBodySchema } },
+		},
+		403: { description: "`scope=all` is administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const eventsRoute = defineRoute({
+	method: "get",
+	path: "/sessions/{id}/events",
+	tags: ["Sessions"],
+	summary: "One session's events as server-sent events: a snapshot, then batches (WebUI only)",
+	agent: "deny", // a long-lived WebUI stream, not a one-shot request
+	request: { params: SessionIdParamSchema },
+	responses: {
+		200: {
+			description: "A `snapshot` event, then `events` batches and `ping`s",
+			content: { "text/event-stream": { schema: EventStreamBodySchema } },
+		},
+	},
+});
+
 /**
  * The server-sent event streams of sessions: the session list's changes and one session's events
  * (doc/design/webui.md "Session list API", doc/design/webui.md "Session event stream and history"). Expects requireUser. Registered before the session
@@ -115,21 +153,23 @@ function sleepFor(ms: number, signal: AbortSignal): Promise<void> {
  */
 export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 	const { runtime, streams, drain } = options;
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
 	/**
 	 * Session list changes as server-sent events (doc/design/webui.md "Session list API"): `upsert` carries the item as this
 	 * subscriber sees it, `remove` says the session is gone (deleted, no longer shared, archived), and `ping`
 	 * keeps the connection alive. No initial snapshot: the client fetches page one and reconnects after errors.
 	 */
-	app.get("/sessions/stream", (c) => {
+	app.openapi(listStreamRoute, (c) => {
 		// The stream takes the list's scopes; omitted keeps the historical audience (every administrator gets
 		// every root session). The WebUI asks for `visible` so its stream matches the list it patches.
-		const scope = c.req.query("scope");
+		const scope = c.req.valid("query").scope;
 		if (scope !== undefined && !SESSION_SCOPES.has(scope)) {
-			return jsonError(c, 400, "scope must be mine, shared, visible or all");
+			throw new UserError("scope must be mine, shared, visible or all");
 		}
-		if (scope === "all" && !isAdmin(c.get("user"))) return jsonError(c, 403, "administrators only");
+		if (scope === "all" && !isAdmin(c.get("user"))) {
+			throw new HTTPException(403, { message: "administrators only" });
+		}
 		// A HEAD probe checks access without opening a stream: Hono serves HEAD with this GET handler and
 		// drops the body, so `streamSSE` here would register and hold a stream nobody reads.
 		if (c.req.method === "HEAD") return c.body(null, 200);
@@ -175,9 +215,10 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 	});
 
 	/** Server-sent events: `snapshot` first, then `events` batches as the session changes. */
-	app.get("/sessions/:id/events", async (c) => {
-		const v = await visibleSession(db, runtime, c.get("user"), c.req.param("id"));
-		if (!v) return jsonError(c, 404, "no such session");
+	app.openapi(eventsRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await visibleSession(db, runtime, c.get("user"), id);
+		if (!v) throw new NotFoundError("no such session");
 		// A HEAD probe checks access without opening a stream: Hono serves HEAD with this GET handler and
 		// drops the body, so `streamSSE` here would register and hold a stream nobody reads.
 		if (c.req.method === "HEAD") return c.body(null, 200);

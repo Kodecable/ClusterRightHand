@@ -3,9 +3,20 @@
  * (pasted `crha grant` output or a Passkey assertion), the administrators' list, the pending payload
  * the waiting page shows its owner, and the owner rejecting the wait instead of signing it.
  */
-import type { AuthorizationSummary, RejectAuthorizationBody } from "@crh/api";
+import {
+	AuthorizationListResponseSchema,
+	AuthorizationSubmittedResponseSchema,
+	CursorQuerySchema,
+	ErrorResponseSchema,
+	IdParamSchema,
+	OkResponseSchema,
+	RejectAuthorizationBodySchema,
+	SubmitAuthorizationBodySchema,
+	TaskAuthorizationResponseSchema,
+	TaskGroupAuthorizationResponseSchema,
+} from "@crh/api/schemas";
 import { type AuthorizationPayload, decodeAuthorizationPayload } from "@crh/protocol";
-import { type Context, Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { Actor, Cluster } from "../cluster/cluster.ts";
 import { decodedPayloadOf, pendingForTask, pendingForTaskGroup } from "../cluster/pending.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
@@ -25,14 +36,105 @@ import {
 	encodeCursor,
 	parseLimit,
 } from "../util/cursor.ts";
-import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
+import type { AppEnv } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
+
+const TAGS = ["Authorizations"];
 
 /** `GET /authorizations` pages over `created_at desc, id desc` (doc/design/webui.md "API conventions"). */
 const AUTHORIZATIONS_CURSOR: CursorSpec = { columns: [{ name: "created_at", type: "string" }], idType: "string" };
 
 /** A rejection reason is stored as the task's error message; longer text is cut, not refused. */
 const MAX_REJECTION_REASON = 1000;
+
+const submitRoute = defineRoute({
+	method: "post",
+	path: "/authorizations",
+	tags: TAGS,
+	summary: "Submit a signed authorization (pasted `crha grant` output or a Passkey assertion)",
+	agent: "deny", // signature submission
+	request: { body: { required: true, ...json(SubmitAuthorizationBodySchema) } },
+	responses: {
+		200: { description: "The stored authorization's id", ...json(AuthorizationSubmittedResponseSchema) },
+		503: { description: "The cluster is not running", ...json(ErrorResponseSchema) },
+	},
+});
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/authorizations",
+	tags: TAGS,
+	summary: "Page through the organization's stored authorizations, newest first (administrators)",
+	agent: "deny", // the signing record is the user's security surface, not an agent's
+	middleware: [requireAdmin],
+	request: { query: CursorQuerySchema },
+	responses: {
+		200: { description: "One page of authorizations", ...json(AuthorizationListResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const taskAuthorizationRoute = defineRoute({
+	method: "get",
+	path: "/tasks/{id}/authorization",
+	tags: TAGS,
+	summary: "The pending payload a task's owner has to sign",
+	agent: "deny", // signing material and the challenge
+	request: { params: IdParamSchema },
+	responses: {
+		200: {
+			description: "The pending payload, or null when nothing is waiting",
+			...json(TaskAuthorizationResponseSchema),
+		},
+		403: { description: "Only the task's owner can authorize it", ...json(ErrorResponseSchema) },
+	},
+});
+
+const rejectTaskRoute = defineRoute({
+	method: "post",
+	path: "/tasks/{id}/authorization/reject",
+	tags: TAGS,
+	summary: "Reject a task's signature wait instead of signing it; the task ends `rejected`",
+	agent: "deny", // an authorization decision
+	request: { params: IdParamSchema, body: { required: true, ...json(RejectAuthorizationBodySchema) } },
+	responses: {
+		200: { description: "The wait was rejected", ...json(OkResponseSchema) },
+		409: { description: "The task is not waiting for authorization", ...json(ErrorResponseSchema) },
+		503: { description: "The cluster is not running", ...json(ErrorResponseSchema) },
+	},
+});
+
+const groupAuthorizationRoute = defineRoute({
+	method: "get",
+	path: "/task-groups/{id}/authorization",
+	tags: TAGS,
+	summary: "The shared payload of a task group's waiting tasks",
+	agent: "deny", // signing material and the challenge
+	request: { params: IdParamSchema },
+	responses: {
+		200: {
+			description: "The pending payload, or null when nothing is waiting",
+			...json(TaskGroupAuthorizationResponseSchema),
+		},
+		403: { description: "Only the task group's owner can authorize it", ...json(ErrorResponseSchema) },
+	},
+});
+
+const rejectGroupRoute = defineRoute({
+	method: "post",
+	path: "/task-groups/{id}/authorization/reject",
+	tags: TAGS,
+	summary: "Reject a task group's signature wait; every member still waiting ends `rejected`",
+	agent: "deny", // an authorization decision
+	request: { params: IdParamSchema, body: { required: true, ...json(RejectAuthorizationBodySchema) } },
+	responses: {
+		200: { description: "The wait was rejected", ...json(OkResponseSchema) },
+		409: { description: "The task group is not waiting for authorization", ...json(ErrorResponseSchema) },
+		503: { description: "The cluster is not running", ...json(ErrorResponseSchema) },
+	},
+});
 
 export interface AuthorizationRoutesOptions {
 	cluster?: Cluster;
@@ -41,17 +143,16 @@ export interface AuthorizationRoutesOptions {
 
 /** Expects requireUser to have run. */
 export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions = {}) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
 	/**
 	 * Accepts `{ authorization: base64 }` (CBOR Authorization, e.g. `crha grant` output) or
 	 * `{ payloadId, webauthn: AuthenticationResponseJSON }` from the waiting page's Passkey button.
 	 */
-	app.post("/authorizations", async (c) => {
+	app.openapi(submitRoute, async (c) => {
 		const user = c.get("user");
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		if (!options.cluster) return c.json({ error: "the cluster is not running" }, 503);
+		const body = c.req.valid("json");
+		if (!options.cluster) throw new HTTPException(503, { message: "the cluster is not running" });
 		const authorization = body.authorization;
 		const payloadId = body.payloadId;
 		let submitted: SubmittedAuthorization;
@@ -60,31 +161,30 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		} else if (typeof payloadId === "string" && typeof body.webauthn === "object" && body.webauthn !== null) {
 			submitted = await parseWebauthnSubmission(db, user.userId, payloadId, body.webauthn);
 		} else {
-			return jsonError(c, 400, "give authorization (base64) or payloadId and webauthn");
+			throw new UserError("give authorization (base64) or payloadId and webauthn");
 		}
 		const result = await options.cluster.submitAuthorization(user, submitted);
 		// The submission's dispatch continues in the background; its outcome shows up in the task states.
-		return c.json({ authorization: { id: result.id } });
+		return c.json({ authorization: { id: result.id } }, 200);
 	});
 
 	/**
 	 * The organization's authorizations; administrators only (doc/design/access-control.md "Audit").
 	 * Keyset paginated: the old hard cap of 200 rows is gone (doc/design/webui.md "API conventions").
 	 */
-	app.get("/authorizations", requireAdmin, async (c) => {
+	app.openapi(listRoute, async (c) => {
 		const user = c.get("user");
 		const orgId = await orgOf(db, user.userId);
-		if (orgId === undefined) {
-			return jsonError(c, 403, "only administrators can list authorizations");
-		}
-		const limit = parseLimit(c.req.query("limit"));
-		const rawCursor = c.req.query("cursor");
+		if (orgId === undefined) throw new HTTPException(403, { message: "only administrators can list authorizations" });
+		const query = c.req.valid("query");
+		const limit = parseLimit(query.limit);
+		const rawCursor = query.cursor;
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, AUTHORIZATIONS_CURSOR);
-		let query = db.selectFrom("authorizations").selectAll().where("org_id", "=", orgId);
-		if (cursor) query = query.where(descendingKeyset(["created_at"], cursor));
+		let select = db.selectFrom("authorizations").selectAll().where("org_id", "=", orgId);
+		if (cursor) select = select.where(descendingKeyset(["created_at"], cursor));
 		const page = await cursorRows(
 			limit,
-			(limitPlusOne) => query.orderBy("created_at", "desc").orderBy("id", "desc").limit(limitPlusOne).execute(),
+			(limitPlusOne) => select.orderBy("created_at", "desc").orderBy("id", "desc").limit(limitPlusOne).execute(),
 			(row) => encodeCursor([row.created_at], row.id),
 		);
 		// Name only the issuers of this page, not every user in the organization.
@@ -92,7 +192,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 			...new Set(page.rows.flatMap((row) => (row.issuer_user_id === null ? [] : [row.issuer_user_id]))),
 		];
 		const users = await usernamesById(db, issuerIds);
-		const items: AuthorizationSummary[] = page.rows.map((row) => {
+		const items = page.rows.map((row) => {
 			let decoded: ReturnType<typeof decodedPayloadOf> | null = null;
 			try {
 				decoded = decodedPayloadOf(parseStoredPayload(row.payload));
@@ -111,15 +211,15 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 				createdAt: row.created_at,
 			};
 		});
-		return c.json({ items, nextCursor: page.nextCursor });
+		return c.json({ items, nextCursor: page.nextCursor }, 200);
 	});
 
 	/** The pending payload of a task, for its owner (doc/design/privilege.md "Authorizations"); other users get a 403. */
-	app.get("/tasks/:id/authorization", async (c) => {
-		const found = await authorizationTask(db, c.get("user"), c.req.param("id"));
-		if ("error" in found) return jsonError(c, found.error.status, found.error.message);
-		if (!found.owner) return jsonError(c, 403, "only the task's owner can authorize it");
-		return c.json({ authorization: await pendingForTask(db, found.row) });
+	app.openapi(taskAuthorizationRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const found = await authorizationTask(db, c.get("user"), id);
+		if (!found.owner) throw new HTTPException(403, { message: "only the task's owner can authorize it" });
+		return c.json({ authorization: await pendingForTask(db, found.row) }, 200);
 	});
 
 	/**
@@ -127,30 +227,30 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 	 * the task ends `rejected` with `authorization_rejected` and the reason, or the default text. Only its
 	 * owner may answer; anyone else gets the same 404 as a task they cannot see.
 	 */
-	app.post("/tasks/:id/authorization/reject", async (c) => {
-		if (!options.cluster) return c.json({ error: "the cluster is not running" }, 503);
-		const found = await authorizationTask(db, c.get("user"), c.req.param("id"));
-		if ("error" in found) return jsonError(c, found.error.status, found.error.message);
-		if (!found.owner) return jsonError(c, 404, "no such task");
+	app.openapi(rejectTaskRoute, async (c) => {
+		if (!options.cluster) throw new HTTPException(503, { message: "the cluster is not running" });
+		const { id } = c.req.valid("param");
+		const found = await authorizationTask(db, c.get("user"), id);
+		if (!found.owner) throw new NotFoundError("no such task");
 		if (found.row.state !== "awaiting_authorization") {
-			return jsonError(c, 409, "the task is not waiting for authorization");
+			throw new HTTPException(409, { message: "the task is not waiting for authorization" });
 		}
 		const rejected = await options.cluster.rejectAuthorization(
 			found.row.id,
-			await rejectionReason(c),
+			rejectionReason(c.req.valid("json")),
 			rejectingActor(c.get("user")),
 		);
-		if (!rejected) return jsonError(c, 409, "the task is not waiting for authorization");
-		return c.json({ ok: true });
+		if (!rejected) throw new HTTPException(409, { message: "the task is not waiting for authorization" });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	/** The shared payload of a task group's waiting tasks; only the task group's owner may read it. */
-	app.get("/task-groups/:id/authorization", async (c) => {
+	app.openapi(groupAuthorizationRoute, async (c) => {
 		const user = c.get("user");
-		const found = await authorizationTaskGroup(db, user, c.req.param("id"));
-		if ("error" in found) return jsonError(c, found.error.status, found.error.message);
-		if (!found.owner) return jsonError(c, 403, "only the task group's owner can authorize it");
-		return c.json({ taskGroup: await pendingForTaskGroup(db, found.row.id, user.userId) });
+		const { id } = c.req.valid("param");
+		const found = await authorizationTaskGroup(db, user, id);
+		if (!found.owner) throw new HTTPException(403, { message: "only the task group's owner can authorize it" });
+		return c.json({ taskGroup: await pendingForTaskGroup(db, found.row.id, user.userId) }, 200);
 	});
 
 	/**
@@ -158,21 +258,21 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 	 * every member still waiting ends `rejected` with `authorization_rejected` and the reason, and the
 	 * group ends `rejected`. Members already finished are untouched, and only the owner may answer.
 	 */
-	app.post("/task-groups/:id/authorization/reject", async (c) => {
-		if (!options.taskGroups) return c.json({ error: "the cluster is not running" }, 503);
-		const found = await authorizationTaskGroup(db, c.get("user"), c.req.param("id"));
-		if ("error" in found) return jsonError(c, found.error.status, found.error.message);
-		if (!found.owner) return jsonError(c, 404, "no such task group");
+	app.openapi(rejectGroupRoute, async (c) => {
+		if (!options.taskGroups) throw new HTTPException(503, { message: "the cluster is not running" });
+		const { id } = c.req.valid("param");
+		const found = await authorizationTaskGroup(db, c.get("user"), id);
+		if (!found.owner) throw new NotFoundError("no such task group");
 		if (found.row.state !== "awaiting_authorization") {
-			return jsonError(c, 409, "the task group is not waiting for authorization");
+			throw new HTTPException(409, { message: "the task group is not waiting for authorization" });
 		}
 		const rejected = await options.taskGroups.rejectAuthorization(
 			found.row.id,
-			await rejectionReason(c),
+			rejectionReason(c.req.valid("json")),
 			rejectingActor(c.get("user")),
 		);
-		if (!rejected) return jsonError(c, 409, "the task group is not waiting for authorization");
-		return c.json({ ok: true });
+		if (!rejected) throw new HTTPException(409, { message: "the task group is not waiting for authorization" });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	return app;
@@ -197,8 +297,6 @@ type AuthorizationTaskGroupRow = {
 	actor_id: string;
 };
 
-type AuthorizationSubject<T> = { row: T; owner: boolean } | { error: { status: 404; message: string } };
-
 /**
  * A task the user can see, with whether they own it: an invisible task is 404, like every lookup, and
  * the endpoints decide their own answer for a visible task of another user (doc/design/privilege.md "Authorizations").
@@ -207,19 +305,19 @@ async function authorizationTask(
 	db: Db,
 	user: AppEnv["Variables"]["user"],
 	id: string,
-): Promise<AuthorizationSubject<AuthorizationTaskRow>> {
+): Promise<{ row: AuthorizationTaskRow; owner: boolean }> {
 	const row = await db
 		.selectFrom("tasks")
 		.select(["id", "state", "node_id", "on_behalf_of_user_id", "actor_type", "actor_id", "authorization"])
 		.where("id", "=", id)
 		.executeTakeFirst();
-	if (!row) return { error: { status: 404, message: "no such task" } };
+	if (!row) throw new NotFoundError("no such task");
 	const relation = await taskRelation(db, user, {
 		onBehalfOfUserId: row.on_behalf_of_user_id,
 		actorType: row.actor_type,
 		actorId: row.actor_id,
 	});
-	if (!relation.visible) return { error: { status: 404, message: "no such task" } };
+	if (!relation.visible) throw new NotFoundError("no such task");
 	return { row, owner: row.on_behalf_of_user_id === user.userId };
 }
 
@@ -228,26 +326,25 @@ async function authorizationTaskGroup(
 	db: Db,
 	user: AppEnv["Variables"]["user"],
 	id: string,
-): Promise<AuthorizationSubject<AuthorizationTaskGroupRow>> {
+): Promise<{ row: AuthorizationTaskGroupRow; owner: boolean }> {
 	const row = await db
 		.selectFrom("task_groups")
 		.select(["id", "state", "on_behalf_of_user_id", "actor_type", "actor_id"])
 		.where("id", "=", id)
 		.executeTakeFirst();
-	if (!row) return { error: { status: 404, message: "no such task group" } };
+	if (!row) throw new NotFoundError("no such task group");
 	const relation = await taskRelation(db, user, {
 		onBehalfOfUserId: row.on_behalf_of_user_id,
 		actorType: row.actor_type,
 		actorId: row.actor_id,
 	});
-	if (!relation.visible) return { error: { status: 404, message: "no such task group" } };
+	if (!relation.visible) throw new NotFoundError("no such task group");
 	return { row, owner: row.on_behalf_of_user_id === user.userId };
 }
 
 /** The body's reason, trimmed and bounded; an absent or empty one is no reason. */
-async function rejectionReason(c: Context<AppEnv>): Promise<string> {
-	const body = (await readJsonObject(c)) as RejectAuthorizationBody | undefined;
-	return typeof body?.reason === "string" ? body.reason.trim().slice(0, MAX_REJECTION_REASON) : "";
+function rejectionReason(body: { reason?: string }): string {
+	return typeof body.reason === "string" ? body.reason.trim().slice(0, MAX_REJECTION_REASON) : "";
 }
 
 /** The user answering for themselves: the actor the rejection audit names. */

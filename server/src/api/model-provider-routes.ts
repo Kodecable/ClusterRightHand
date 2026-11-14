@@ -1,4 +1,11 @@
-import { Hono } from "hono";
+import {
+	ModelProviderIdParamSchema,
+	ModelProviderInputSchema,
+	ModelProviderListResponseSchema,
+	ModelProviderResponseSchema,
+	ModelsResponseSchema,
+	OkResponseSchema,
+} from "@crh/api/schemas";
 import {
 	builtinProviderIds,
 	deleteModelProvider,
@@ -9,8 +16,51 @@ import {
 import { userActor } from "../audit/audit.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
-import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
+
+const TAGS = ["Models"];
+
+const listModelsRoute = defineRoute({
+	method: "get",
+	path: "/models",
+	tags: TAGS,
+	summary: "List the models a new session may choose",
+	agent: "allow",
+	responses: { 200: { description: "The available models", ...json(ModelsResponseSchema) } },
+});
+
+const listProvidersRoute = defineRoute({
+	method: "get",
+	path: "/model-providers",
+	tags: TAGS,
+	summary: "List the configured model providers; their API keys are never returned (administrators)",
+	agent: "allow",
+	middleware: [requireAdmin],
+	responses: { 200: { description: "The providers and the built-in ids", ...json(ModelProviderListResponseSchema) } },
+});
+
+const saveProviderRoute = defineRoute({
+	method: "put",
+	path: "/model-providers/{providerId}",
+	tags: TAGS,
+	summary: "Create or replace a model provider and its API key (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	request: { params: ModelProviderIdParamSchema, body: { required: true, ...json(ModelProviderInputSchema) } },
+	responses: { 200: { description: "The saved provider", ...json(ModelProviderResponseSchema) } },
+});
+
+const deleteProviderRoute = defineRoute({
+	method: "delete",
+	path: "/model-providers/{providerId}",
+	tags: TAGS,
+	summary: "Delete a model provider, its API key and its models (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	request: { params: ModelProviderIdParamSchema },
+	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },
+});
 
 export interface ModelProviderRoutesOptions {
 	models: ModelConfig;
@@ -23,29 +73,18 @@ export interface ModelProviderRoutesOptions {
  */
 export function modelProviderRoutes(db: Db, options: ModelProviderRoutesOptions) {
 	const { models } = options;
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
-	app.get("/models", (c) => c.json({ models: models.available() }));
+	app.openapi(listModelsRoute, (c) => c.json({ models: models.available() }, 200));
 
-	app.get("/model-providers", requireAdmin, async (c) => {
-		return c.json({ providers: await listModelProviders(db), builtin: builtinProviderIds() });
+	app.openapi(listProvidersRoute, async (c) => {
+		return c.json({ providers: await listModelProviders(db), builtin: builtinProviderIds() }, 200);
 	});
 
-	app.put("/model-providers/:providerId", requireAdmin, async (c) => {
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const has = (key: string) => Object.hasOwn(body, key);
-		const provider = await saveModelProvider(db, options.masterKey, {
-			providerId: c.req.param("providerId"),
-			kind: body.kind as "builtin" | "custom",
-			...(has("name") ? { name: body.name } : {}),
-			...(has("baseUrl") ? { baseUrl: body.baseUrl } : {}),
-			...(has("apiKey") ? { apiKey: body.apiKey } : {}),
-			...(has("models") ? { models: body.models } : {}),
-			...(has("headers") ? { headers: body.headers } : {}),
-			...(has("sessionId") ? { sessionId: body.sessionId } : {}),
-			...(has("enabled") ? { enabled: body.enabled } : {}),
-		});
+	app.openapi(saveProviderRoute, async (c) => {
+		const { providerId } = c.req.valid("param");
+		const body = c.req.valid("json");
+		const provider = await saveModelProvider(db, options.masterKey, { providerId, ...body });
 		await models.reload();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
@@ -58,18 +97,19 @@ export function modelProviderRoutes(db: Db, options: ModelProviderRoutesOptions)
 				enabled: provider.enabled,
 			},
 		});
-		return c.json({ provider });
+		return c.json({ provider }, 200);
 	});
 
-	app.delete("/model-providers/:providerId", requireAdmin, async (c) => {
-		await deleteModelProvider(db, c.req.param("providerId"));
+	app.openapi(deleteProviderRoute, async (c) => {
+		const { providerId } = c.req.valid("param");
+		await deleteModelProvider(db, providerId);
 		await models.reload();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "model_provider.deleted",
-			target: { type: "model_provider", id: c.req.param("providerId") },
+			target: { type: "model_provider", id: providerId },
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	return app;

@@ -237,6 +237,14 @@ describe("task routes: privileged (sqlite)", () => {
 		}
 	});
 
+	it("rejects a body that is not a JSON object", async () => {
+		for (const path of [`/api/nodes/${nodeId}/tasks`, "/api/task-groups"]) {
+			const res = await post(path, []);
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toBeTruthy();
+		}
+	});
+
 	it("records the flag in the task.created audit event", async () => {
 		const res = await post(`/api/nodes/${nodeId}/tasks`, {
 			kind: "exec",

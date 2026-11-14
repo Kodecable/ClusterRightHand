@@ -2,20 +2,12 @@
  * The audit log (`GET /api/audit`).
  */
 
+import type { z } from "zod";
 import type { CursorQuery } from "./common.ts";
+import type { AuditEventSchema } from "./schemas/audit.ts";
 
-export interface AuditEvent {
-	seq: number;
-	id: string;
-	ts: string;
-	actorType: string;
-	actorId: string;
-	onBehalfOfUserId: string | null;
-	action: string;
-	targetType: string | null;
-	targetId: string | null;
-	detail: Record<string, unknown>;
-}
+/** One audit event. */
+export type AuditEvent = z.infer<typeof AuditEventSchema>;
 
 export interface AuditQuery extends CursorQuery {
 	action?: string;

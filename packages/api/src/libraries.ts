@@ -5,83 +5,46 @@
  * accepts that reference wherever a route names a library.
  */
 
+import type { z } from "zod";
+import type {
+	LibraryCapabilitiesSchema,
+	LibraryFileSchema,
+	LibraryFilesResponseSchema,
+	LibraryLimitsPatchSchema,
+	LibraryLimitsSchema,
+	LibraryListResponseSchema,
+	LibraryResponseSchema,
+	LibraryUsageSchema,
+	LibraryViewSchema,
+	SystemSettingsLibrarySchema,
+} from "./schemas/libraries.ts";
+
 /** The three limits of a library; 0 allows nothing (doc/design/library.md "Limits"). */
-export interface LibraryLimits {
-	/** How many files the library may hold. */
-	files: number;
-	/** The largest single file, in bytes. */
-	fileBytes: number;
-	/** The largest total of all files, in bytes. */
-	totalBytes: number;
-}
+export type LibraryLimits = z.infer<typeof LibraryLimitsSchema>;
 
 /** Current usage, maintained with the file rows. */
-export interface LibraryUsage {
-	files: number;
-	bytes: number;
-}
+export type LibraryUsage = z.infer<typeof LibraryUsageSchema>;
 
 /** What the caller may do with a library. */
-export interface LibraryCapabilities {
-	/** Upload, overwrite, move and delete files. */
-	write: boolean;
-	/** Change the limits (administrators only). */
-	manage: boolean;
-}
+export type LibraryCapabilities = z.infer<typeof LibraryCapabilitiesSchema>;
 
 /** `GET /api/libraries` and `GET /api/libraries/:ref`. */
-export interface LibraryView {
-	id: string;
-	/** `user:<username>` or `user_group:<user group name>`. */
-	ref: string;
-	ownerKind: "user" | "user_group";
-	ownerId: string;
-	ownerName: string;
-	/** A user's display name; the user group name for a user group library. */
-	ownerDisplayName: string;
-	usage: LibraryUsage;
-	limits: LibraryLimits;
-	capabilities: LibraryCapabilities;
-}
+export type LibraryView = z.infer<typeof LibraryViewSchema>;
 
-export interface LibraryListResponse {
-	libraries: LibraryView[];
-}
+export type LibraryListResponse = z.infer<typeof LibraryListResponseSchema>;
 
-export interface LibraryResponse {
-	library: LibraryView;
-}
+export type LibraryResponse = z.infer<typeof LibraryResponseSchema>;
 
 /** One file of a library; `path` is the library-relative key (doc/design/library.md "Paths"). */
-export interface LibraryFile {
-	path: string;
-	size: number;
-	sha256: string;
-	mediaType: string;
-	createdAt: string;
-	updatedAt: string;
-}
+export type LibraryFile = z.infer<typeof LibraryFileSchema>;
 
 /** `GET /api/libraries/:ref/files`: the files directly under the prefix and the next-level directories. */
-export interface LibraryFilesResponse {
-	prefix: string;
-	files: LibraryFile[];
-	directories: string[];
-}
+export type LibraryFilesResponse = z.infer<typeof LibraryFilesResponseSchema>;
 
-export interface LibraryFileResponse {
-	file: LibraryFile;
-}
+export type LibraryFileResponse = { file: LibraryFile };
 
 /** `PATCH /api/libraries/:ref/limits`; omitted fields keep their value. */
-export interface LibraryLimitsPatch {
-	files?: number;
-	fileBytes?: number;
-	totalBytes?: number;
-}
+export type LibraryLimitsPatch = z.infer<typeof LibraryLimitsPatchSchema>;
 
 /** The default limits new libraries copy (doc/design/library.md "Limits"). */
-export interface SystemSettingsLibrary {
-	user: LibraryLimits;
-	userGroup: LibraryLimits;
-}
+export type SystemSettingsLibrary = z.infer<typeof SystemSettingsLibrarySchema>;

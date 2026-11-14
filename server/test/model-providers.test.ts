@@ -159,6 +159,15 @@ describeBackends("model providers api", (backend) => {
 		expect((await providers()).providers.map((p) => p.providerId)).not.toContain("bad-proxy");
 	});
 
+	it("rejects a provider body that does not match the route's schema", async () => {
+		const kind = await put("bad-proxy", { kind: "mystery" });
+		expect(kind.status).toBe(400);
+		expect(((await kind.json()) as { error: string }).error).toMatch(/^kind: /);
+		const models = await put("bad-proxy", { kind: "custom", models: "nope" });
+		expect(models.status).toBe(400);
+		expect(((await models.json()) as { error: string }).error).toMatch(/^models: /);
+	});
+
 	it("extra request headers: on the provider and its models, kept on update, cleared by null", async () => {
 		const headers = { "x-opencode-session": "crhs", "User-Agent": "crhs/0.1" };
 		expect((await put("my-proxy", proxy({ headers }))).status).toBe(200);

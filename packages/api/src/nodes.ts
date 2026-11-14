@@ -5,13 +5,37 @@
  */
 
 import type {
-	JsonFacts,
 	GuardRule as ProtocolGuardRule,
 	TrustEntry as ProtocolTrustEntry,
 	TrustSummary as ProtocolTrustSummary,
 	TrustKey,
 	TrustReport,
 } from "@crh/protocol";
+import type { z } from "zod";
+import type {
+	CrhsKeyResponseSchema,
+	CrhsKeySchema,
+	EnrollmentTokenResponseSchema,
+	NodeAccessGrantFilterSchema,
+	NodeAccessGrantSchema,
+	NodeFileEntrySchema,
+	NodeFileInfoSchema,
+	NodeFileResponseSchema,
+	NodeFilesResponseSchema,
+	NodeGroupListResponseSchema,
+	NodeGroupRefSchema,
+	NodeGroupSchema,
+	NodeListResponseSchema,
+	PublicNodeSchema,
+	SshCredentialSchema,
+	SshHopInputSchema,
+	SshHopSchema,
+	SshNodeDetailsSchema,
+	SshTargetInputSchema,
+	TrustWarningKindSchema,
+	TrustWarningSchema,
+	TrustWarningSeveritySchema,
+} from "./schemas/nodes.ts";
 
 /** How the caller reaches a node: administrators, or a granted user (one level). */
 export type NodeAccess = "admin" | "granted";
@@ -21,70 +45,34 @@ export type GranteeType = "user" | "user_group";
 export type AccessTargetType = "node" | "node_group";
 
 /** A node group as a node response names it. */
-export interface NodeGroupRef {
-	id: string;
-	name: string;
-}
+export type NodeGroupRef = z.infer<typeof NodeGroupRefSchema>;
 
 /** A node group and its members (`GET /api/node-groups`). */
-export interface NodeGroup extends NodeGroupRef {
-	memberIds: string[];
-}
+export type NodeGroup = z.infer<typeof NodeGroupSchema>;
 
 /**
  * `POST /api/enrollment-tokens` and `POST /api/nodes/:id/reenroll`: a one-time token, shown once.
  * A re-enrollment token also replaces an existing crha node's key.
  */
-export interface EnrollmentTokenResponse {
-	token: string;
-	expiresAt: string;
-}
+export type EnrollmentTokenResponse = z.infer<typeof EnrollmentTokenResponseSchema>;
 
 /** `GET /api/node-groups`; `more` is present only with `limit` (doc/design/webui.md "Entity search"). */
-export interface NodeGroupListResponse {
-	groups: NodeGroup[];
-	more?: boolean;
-}
+export type NodeGroupListResponse = z.infer<typeof NodeGroupListResponseSchema>;
 
 /**
  * One node access grant: a user or user group may see and run tasks on a node or on the nodes of a node group.
  * There is one level. `granteeName` / `targetName` are null when the grantee or target was deleted.
  */
-export interface NodeAccessGrant {
-	id: string;
-	granteeType: GranteeType;
-	granteeId: string;
-	granteeName: string | null;
-	targetType: AccessTargetType;
-	targetId: string;
-	targetName: string | null;
-	createdAt: string;
-	createdByUserId: string;
-}
+export type NodeAccessGrant = z.infer<typeof NodeAccessGrantSchema>;
 
 /** Query parameters of `GET /api/node-access-grants`. */
-export interface NodeAccessGrantFilter {
-	targetType?: AccessTargetType;
-	targetId?: string;
-	granteeType?: GranteeType;
-	granteeId?: string;
-}
+export type NodeAccessGrantFilter = z.infer<typeof NodeAccessGrantFilterSchema>;
 
 /** A trust alias or trust entry that is out of sync with crhs-managed node groups. */
-export type TrustWarningKind = "alias_superfluous" | "alias_unknown" | "alias_missing" | "trust_unknown";
-export type TrustWarningSeverity = "danger" | "warning" | "info";
+export type TrustWarningKind = z.infer<typeof TrustWarningKindSchema>;
+export type TrustWarningSeverity = z.infer<typeof TrustWarningSeveritySchema>;
 
-export interface TrustWarning {
-	kind: TrustWarningKind;
-	severity: TrustWarningSeverity;
-	/** The alias or node group UUID the warning is about; null for a trust entry. */
-	uuid: string | null;
-	/** The node group the UUID names, when it is one. */
-	nodeGroupName: string | null;
-	/** The trust entry name, for `trust_unknown`. */
-	trustName: string | null;
-	message: string;
-}
+export type TrustWarning = z.infer<typeof TrustWarningSchema>;
 
 export type TrustStatus = TrustReport["kind"];
 export type TrustEntryKey = TrustKey;
@@ -103,139 +91,46 @@ export interface NodeTrust {
 	summary: TrustSummary | null;
 }
 
-export interface PublicNode {
-	id: string;
-	name: string;
-	transport: "client" | "ssh";
-	status: "pending" | "active";
-	hostname: string | null;
-	clientVersion: string | null;
-	privilegedMode: string | null;
-	lastSeenAt: string | null;
-	createdAt: string;
-	approvedAt: string | null;
-	/** The crhs-managed node groups the node belongs to. */
-	nodeGroups: NodeGroupRef[];
-	access: NodeAccess;
-	facts: JsonFacts | null;
-	keyFingerprint: string | null;
-	/** Whether crha is connected now; null for SSH nodes (they connect per task). */
-	connected: boolean | null;
-	/**
-	 * The node's measured clock offset from crhs, when it exceeds the warning threshold
-	 * (doc/design/privilege.md "Clock"). `offsetMs` is local clock minus crhs (positive: the node is ahead);
-	 * null when the offset is within the threshold, the warning is off, or there is no measurement.
-	 */
-	clockWarning: { offsetMs: number; thresholdMs: number } | null;
-	/** Out-of-sync trust aliases and unknown trust entries (doc/design/privilege.md "Trust cache"). */
-	trustWarnings: TrustWarning[];
-}
+/** A node as the WebUI lists and opens it. */
+export type PublicNode = z.infer<typeof PublicNodeSchema>;
 
 /** `GET /api/nodes`; `more` is present only with `limit`. */
-export interface NodeListResponse {
-	nodes: PublicNode[];
-	more?: boolean;
-}
+export type NodeListResponse = z.infer<typeof NodeListResponseSchema>;
 
 /** What to paste into ~/privileged.toml as a crhs trust entry. */
-export interface CrhsKey {
-	authorizedKey: string;
-	fingerprint: string;
-}
+export type CrhsKey = z.infer<typeof CrhsKeySchema>;
 
 /**
  * `GET /api/privilege/crhs-key`: the newest key and every key, newest first
  * (doc/design/privilege.md "Authorization signing key").
  */
-export interface CrhsKeyResponse {
-	key: CrhsKey;
-	keys: CrhsKey[];
-}
+export type CrhsKeyResponse = z.infer<typeof CrhsKeyResponseSchema>;
 
-export interface SshCredential {
-	id: string;
-	name: string;
-	publicKey: string;
-	createdAt: string;
-	/** The nodes that use this credential on any hop of their route. */
-	usedBy: { id: string; name: string }[];
-}
+export type SshCredential = z.infer<typeof SshCredentialSchema>;
 
 /** One hop of a confirmed route (`GET /api/nodes/:id`'s `ssh`). */
-export interface SshHop {
-	host: string;
-	port: number;
-	user: string;
-	/** Pinned host fingerprint, "SHA256:<base64>" as OpenSSH prints it. Empty only while probing. */
-	hostFingerprint: string;
-	/** The credential that authenticates this hop. */
-	credentialId: string;
-	/** The same credential with its display name, when it still exists. */
-	credential: { id: string; name: string | null };
-}
+export type SshHop = z.infer<typeof SshHopSchema>;
 
 /** One hop as the route editor submits it; `hostFingerprint` is empty until the probe confirmed it. */
-export interface SshHopInput {
-	host: string;
-	port?: number;
-	user: string;
-	hostFingerprint?: string;
-	/** This hop's own credential. */
-	credentialId: string;
-}
+export type SshHopInput = z.infer<typeof SshHopInputSchema>;
 
 /** Body of `POST /api/ssh-nodes`, `/ssh-nodes/probe` and `/ssh-nodes/test`. */
-export interface SshTargetInput extends SshHopInput {
-	/** Jump hosts in order, then the node itself. The top-level hop is the target. */
-	jumps?: SshHopInput[];
-}
+export type SshTargetInput = z.infer<typeof SshTargetInputSchema>;
 
 /** How crhs reaches an SSH node (administrators only). */
-export interface SshNodeDetails {
-	/** Jump hosts in order, then the node itself; each carries its own credential. */
-	hops: SshHop[];
-}
+export type SshNodeDetails = z.infer<typeof SshNodeDetailsSchema>;
 
 /**
  * A node's file manager (doc/design/webui.md "Node pages"): listings and stats are `file.list` /
  * `file.stat` tasks with purpose `browse`, run as the signed-in user and unprivileged.
  */
-export interface NodeFileInfo {
-	/** The absolute path. */
-	path: string;
-	type: string;
-	size: number;
-	/** Octal permission bits as the node reports them. */
-	mode: number;
-	uid: number;
-	gid: number;
-	owner: string;
-	group: string;
-	/** ISO 8601. */
-	mtime: string;
-	linkTarget: string | null;
-}
+export type NodeFileInfo = z.infer<typeof NodeFileInfoSchema>;
 
 /** One entry of a node listing; the path is absolute. */
-export interface NodeFileEntry {
-	path: string;
-	name: string;
-	type: string;
-	size: number;
-	/** Undefined when the node's listing did not report it. */
-	mtime?: string;
-	linkTarget?: string | null;
-}
+export type NodeFileEntry = z.infer<typeof NodeFileEntrySchema>;
 
 /** `GET /api/nodes/:id/files?path=…`: the entries under an absolute directory path. */
-export interface NodeFilesResponse {
-	/** The listed absolute path. */
-	path: string;
-	entries: NodeFileEntry[];
-	truncated: boolean;
-}
+export type NodeFilesResponse = z.infer<typeof NodeFilesResponseSchema>;
 
 /** `GET /api/nodes/:id/stat?path=…`. */
-export interface NodeFileResponse {
-	file: NodeFileInfo;
-}
+export type NodeFileResponse = z.infer<typeof NodeFileResponseSchema>;

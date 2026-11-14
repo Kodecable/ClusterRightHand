@@ -1,4 +1,5 @@
 import type { Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { HashBusyError } from "../auth/hash-gate.ts";
 import { SshError } from "../cluster/ssh/connection.ts";
 import { WebauthnError } from "../privilege/webauthn.ts";
@@ -22,6 +23,12 @@ export function apiErrorHandler(options: { closing?: () => boolean } = {}) {
 				code: "hash_busy",
 				headers: { "Retry-After": "1" },
 			});
+		}
+		// Hono's own rejections, such as a malformed JSON body during schema validation: a prepared response is
+		// kept, anything else answers like a rejected request.
+		if (err instanceof HTTPException) {
+			if (err.res) return err.getResponse();
+			return c.json({ error: err.message }, err.status);
 		}
 		if (err instanceof NotFoundError) return jsonError(c, 404, err.message);
 		if (err instanceof UserError) return jsonError(c, 400, err.message);

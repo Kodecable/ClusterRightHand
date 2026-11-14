@@ -1,5 +1,33 @@
-import type { SessionView as ApiSessionView } from "@crh/api";
-import { type Context, Hono, type MiddlewareHandler } from "hono";
+import type { SessionView as ApiSessionView, SessionEntry } from "@crh/api";
+import {
+	ErrorResponseSchema,
+	OkResponseSchema,
+	SessionChildrenQuerySchema,
+	SessionChildrenSummarySchema,
+	SessionCompactBodySchema,
+	SessionCompactResponseSchema,
+	SessionCreateBodySchema,
+	SessionDetailResponseSchema,
+	SessionEntriesQuerySchema,
+	SessionEntriesResponseSchema,
+	SessionIdParamSchema,
+	SessionListQuerySchema,
+	SessionListResponseSchema,
+	SessionMessageBodySchema,
+	SessionMessageResponseSchema,
+	SessionPatchBodySchema,
+	SessionQuotaBodySchema,
+	SessionQuotaResponseSchema,
+	SessionResponseSchema,
+	SessionSearchQuerySchema,
+	SessionSearchResponseSchema,
+	SessionShareBodySchema,
+	SessionShareParamSchema,
+	SessionShareResponseSchema,
+	SessionSharesResponseSchema,
+} from "@crh/api/schemas";
+import type { Context, MiddlewareHandler } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { parseModelRef } from "../agent/models.ts";
 import { parseQuota } from "../agent/quota.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
@@ -36,10 +64,13 @@ import { DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES, DEFAULT_ATTACHMENT_INLINE_TOTAL_B
 import type { Db } from "../storage/db.ts";
 import { usernamesById } from "../users/service.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "../util/cursor.ts";
-import { UserError } from "../util/errors.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { reevaluateAfterRuleChange } from "./approval-routes.ts";
-import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import type { AppEnv } from "./context.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
 import type { SessionStreams } from "./session-events-routes.ts";
+
+const TAGS = ["Sessions"];
 
 export interface SessionRoutesOptions {
 	runtime: AgentRuntime;
@@ -92,10 +123,211 @@ export async function visibleSession(
  */
 export function refuseWhenClosing(runtime: AgentRuntime): MiddlewareHandler<AppEnv> {
 	return async (c, next) => {
-		if (runtime.closing) return jsonError(c, 503, "server is shutting down");
+		if (runtime.closing) return c.json({ error: "server is shutting down" }, 503);
 		await next();
 	};
 }
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/sessions",
+	tags: TAGS,
+	summary: "Page through root sessions, newest activity first; `scope=all` is administrators only",
+	agent: "allow",
+	request: { query: SessionListQuerySchema },
+	responses: {
+		200: { description: "One page of root sessions", ...json(SessionListResponseSchema) },
+		403: { description: "`scope=all` is administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const searchRoute = defineRoute({
+	method: "get",
+	path: "/sessions/search",
+	tags: TAGS,
+	summary: "Search root sessions by title and (on PostgreSQL) message text, newest activity first",
+	agent: "allow",
+	request: { query: SessionSearchQuerySchema },
+	responses: {
+		200: { description: "One page of matching root sessions and their hits", ...json(SessionSearchResponseSchema) },
+		403: { description: "`scope=all` is administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const createRoute = defineRoute({
+	method: "post",
+	path: "/sessions",
+	tags: TAGS,
+	summary: "Create a session and submit its first message; a repeated `requestId` returns the first session",
+	agent: "ask", // starting a run is a mutation the user should approve
+	request: { body: { required: true, ...json(SessionCreateBodySchema) } },
+	responses: {
+		201: { description: "The new session", ...json(SessionResponseSchema) },
+		200: { description: "The session a repeated request created before", ...json(SessionResponseSchema) },
+	},
+});
+
+const getRoute = defineRoute({
+	method: "get",
+	path: "/sessions/{id}",
+	tags: TAGS,
+	summary: "One session, the caller's relationship and capabilities, and the shares they may manage",
+	agent: "allow",
+	request: { params: SessionIdParamSchema },
+	responses: { 200: { description: "The session", ...json(SessionDetailResponseSchema) } },
+});
+
+const readRoute = defineRoute({
+	method: "post",
+	path: "/sessions/{id}/read",
+	tags: TAGS,
+	summary: "Mark a session tree read for its owner; `:id` may be any session of the tree",
+	agent: "ask", // a mutation, if a harmless one
+	request: { params: SessionIdParamSchema },
+	responses: { 204: { description: "Marked read" } },
+});
+
+const childrenRoute = defineRoute({
+	method: "get",
+	path: "/sessions/{id}/children",
+	tags: TAGS,
+	summary: "Page through a session's direct child sessions, newest activity first",
+	agent: "allow",
+	request: { params: SessionIdParamSchema, query: SessionChildrenQuerySchema },
+	responses: { 200: { description: "One page of child sessions", ...json(SessionListResponseSchema) } },
+});
+
+const childrenSummaryRoute = defineRoute({
+	method: "get",
+	path: "/sessions/{id}/children/summary",
+	tags: TAGS,
+	summary: "How many direct child sessions the session has, by their own state",
+	agent: "allow",
+	request: { params: SessionIdParamSchema },
+	responses: { 200: { description: "The child counts", ...json(SessionChildrenSummarySchema) } },
+});
+
+const sharesRoute = defineRoute({
+	method: "get",
+	path: "/sessions/{id}/shares",
+	tags: TAGS,
+	summary: "The session's shares (the owner and administrators)",
+	agent: "allow",
+	request: { params: SessionIdParamSchema },
+	responses: {
+		200: { description: "The shares", ...json(SessionSharesResponseSchema) },
+		403: { description: "The owner or an administrator", ...json(ErrorResponseSchema) },
+	},
+});
+
+const addShareRoute = defineRoute({
+	method: "put",
+	path: "/sessions/{id}/shares",
+	tags: TAGS,
+	summary: "Share a session with a user or a user group (only the owner)",
+	agent: "deny", // sharing changes who can see and drive the session
+	request: { params: SessionIdParamSchema, body: { required: true, ...json(SessionShareBodySchema) } },
+	responses: {
+		200: { description: "The added or strengthened share", ...json(SessionShareResponseSchema) },
+		403: { description: "Only the owner can share this session", ...json(ErrorResponseSchema) },
+	},
+});
+
+const removeShareRoute = defineRoute({
+	method: "delete",
+	path: "/sessions/{id}/shares/{shareId}",
+	tags: TAGS,
+	summary: "Revoke one session share (the owner and administrators)",
+	agent: "deny", // sharing changes who can see and drive the session
+	request: { params: SessionShareParamSchema },
+	responses: {
+		200: { description: "Revoked", ...json(OkResponseSchema) },
+		403: { description: "The owner or an administrator", ...json(ErrorResponseSchema) },
+	},
+});
+
+const patchRoute = defineRoute({
+	method: "patch",
+	path: "/sessions/{id}",
+	tags: TAGS,
+	summary: "Change a session's title, model, rule preset, budget or disabled MCP servers (only the owner)",
+	agent: "deny", // rule presets and the budget are guardrails
+	request: { params: SessionIdParamSchema, body: { required: true, ...json(SessionPatchBodySchema) } },
+	responses: {
+		200: { description: "The updated session", ...json(SessionResponseSchema) },
+		403: { description: "The owner only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const messagesRoute = defineRoute({
+	method: "post",
+	path: "/sessions/{id}/messages",
+	tags: TAGS,
+	summary: "Submit a user message; `requestId` makes a retried send land once",
+	agent: "ask", // sending a message starts work
+	request: { params: SessionIdParamSchema, body: { required: true, ...json(SessionMessageBodySchema) } },
+	responses: {
+		202: { description: "The accepted submission", ...json(SessionMessageResponseSchema) },
+		403: { description: "Chat access is required, or only the owner may attach files", ...json(ErrorResponseSchema) },
+	},
+});
+
+const compactRoute = defineRoute({
+	method: "post",
+	path: "/sessions/{id}/compact",
+	tags: TAGS,
+	summary: "Start a manual context compaction; the summary is made in the background",
+	agent: "ask",
+	request: {
+		params: SessionIdParamSchema,
+		body: { required: false, ...json(SessionCompactBodySchema) },
+	},
+	responses: {
+		202: { description: "The compaction task and its outcome", ...json(SessionCompactResponseSchema) },
+		403: { description: "Chat access is required", ...json(ErrorResponseSchema) },
+	},
+});
+
+const quotaRoute = defineRoute({
+	method: "post",
+	path: "/sessions/{id}/quota",
+	tags: TAGS,
+	summary: "Decide a used-up root token quota: add tokens or deny (only the owner)",
+	agent: "deny", // raising a budget is a guardrail decision
+	request: { params: SessionIdParamSchema, body: { required: true, ...json(SessionQuotaBodySchema) } },
+	responses: {
+		200: {
+			description: "The decision was recorded; these sessions left their quota wait",
+			...json(SessionQuotaResponseSchema),
+		},
+		403: { description: "The owner only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const abortRoute = defineRoute({
+	method: "post",
+	path: "/sessions/{id}/abort",
+	tags: TAGS,
+	summary: "Stop the session's run",
+	agent: "ask",
+	request: { params: SessionIdParamSchema },
+	responses: {
+		200: { description: "Stopped", ...json(OkResponseSchema) },
+		403: { description: "Chat access is required", ...json(ErrorResponseSchema) },
+	},
+});
+
+const entriesRoute = defineRoute({
+	method: "get",
+	path: "/sessions/{id}/entries",
+	tags: TAGS,
+	summary: "Page through the shown entries immediately before a history cursor, oldest first",
+	agent: "allow",
+	request: { params: SessionIdParamSchema, query: SessionEntriesQuerySchema },
+	responses: {
+		200: { description: "One page of older entries", ...json(SessionEntriesResponseSchema) },
+	},
+});
 
 /**
  * Sessions (chat with the agent); doc/design/agent-runtime.md. Expects requireUser and refuseWhenClosing; the
@@ -103,7 +335,7 @@ export function refuseWhenClosing(runtime: AgentRuntime): MiddlewareHandler<AppE
  */
 export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	const { runtime, streams } = options;
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
 	const attachmentLimits = (): AttachmentLimits => {
 		const configured = options.settings?.current().attachments;
@@ -111,23 +343,6 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			inlineTextBytes: configured?.inlineTextBytes ?? DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES,
 			inlineTotalBytes: configured?.inlineTotalBytes ?? DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES,
 		};
-	};
-
-	/** The attachment list of a request body; anything but `[{ library, path }]` is a 400. */
-	const parseAttachments = (body: Record<string, unknown> | undefined): { library: string; path: string }[] => {
-		const value = body?.attachments;
-		if (value === undefined) return [];
-		if (!Array.isArray(value)) throw new UserError("attachments must be an array", "invalid_argument");
-		return value.map((item) => {
-			if (typeof item !== "object" || item === null) {
-				throw new UserError("each attachment needs a library and a path", "invalid_argument");
-			}
-			const record = item as Record<string, unknown>;
-			if (typeof record.library !== "string" || typeof record.path !== "string") {
-				throw new UserError("each attachment needs a library and a path", "invalid_argument");
-			}
-			return { library: record.library, path: record.path };
-		});
 	};
 
 	// ---- sessions: the owner, users it is shared with (view / chat), and administrators (view unless shared chat) ----
@@ -143,22 +358,26 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		configure: "the owner only",
 	} as const;
 	/**
-	 * The session and the caller's capabilities, or the response the route returns instead: the visibility
-	 * 404, then the capability's 403. `"owner"` is the owner-only check for the paths no capability names
-	 * exactly (the root quota decision), answered "the owner only" like `configure`.
+	 * The session and the caller's capabilities, or the error the route answers with: the visibility 404,
+	 * then the capability's 403. `"owner"` is the owner-only check for the paths no capability names
+	 * exactly (the root quota decision and marking read), answered "the owner only" like `configure`.
 	 */
 	const requireSession = async (
 		c: Context<AppEnv>,
 		id: string,
 		capability?: keyof typeof CAPABILITY_DENIED | "owner",
-	): Promise<VisibleSession | Response> => {
+	): Promise<VisibleSession> => {
 		const v = await visible(c, id);
-		if (!v) return jsonError(c, 404, "no such session");
+		if (!v) throw new NotFoundError("no such session");
 		if (capability === undefined) return v;
 		if (capability === "owner") {
-			return v.session.ownerUserId === c.get("user").userId ? v : jsonError(c, 403, "the owner only");
+			if (v.session.ownerUserId !== c.get("user").userId) {
+				throw new HTTPException(403, { message: "the owner only" });
+			}
+			return v;
 		}
-		return v.capabilities[capability] ? v : jsonError(c, 403, CAPABILITY_DENIED[capability]);
+		if (!v.capabilities[capability]) throw new HTTPException(403, { message: CAPABILITY_DENIED[capability] });
+		return v;
 	};
 	const decorate = async (c: Context<AppEnv>, views: SessionView[]): Promise<ApiSessionView[]> => {
 		const user = c.get("user");
@@ -176,6 +395,11 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			};
 		});
 	};
+	const decorateOne = async (c: Context<AppEnv>, session: SessionView): Promise<ApiSessionView> => {
+		const [view] = await decorate(c, [session]);
+		if (!view) throw new NotFoundError("no such session");
+		return view;
+	};
 
 	/**
 	 * Root sessions as `SessionListItem`, newest activity first, one keyset page at a time
@@ -183,17 +407,18 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * not ownership; `visible` is the owner-and-shared union the WebUI lists. Default `mine`. `GET /sessions/:id`
 	 * stays the full SessionView.
 	 */
-	app.get("/sessions", async (c) => {
+	app.openapi(listRoute, async (c) => {
 		const user = c.get("user");
-		const scope = c.req.query("scope") ?? "mine";
-		if (!SESSION_SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared, visible or all");
-		if (scope === "all" && !isAdmin(user)) return jsonError(c, 403, "administrators only");
-		const limit = parseLimit(c.req.query("limit"));
-		const rawCursor = c.req.query("cursor");
+		const query = c.req.valid("query");
+		const scope = query.scope ?? "mine";
+		if (!SESSION_SCOPES.has(scope)) throw new UserError("scope must be mine, shared, visible or all");
+		if (scope === "all" && !isAdmin(user)) throw new HTTPException(403, { message: "administrators only" });
+		const limit = parseLimit(query.limit);
+		const rawCursor = query.cursor;
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
-		const q = c.req.query("q");
-		const scheduleId = c.req.query("scheduleId");
-		const ownerId = c.req.query("ownerId");
+		const q = query.q;
+		const scheduleId = query.scheduleId;
+		const ownerId = query.ownerId;
 		const page = await cursorRows(
 			limit,
 			async (limitPlusOne) =>
@@ -210,11 +435,14 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 					.execute(),
 			(row) => sessionListCursor(row.updated_at, row.id),
 		);
-		return c.json({
-			// The query's `shared` EXISTS is 0/1 on SQLite and a boolean on PostgreSQL.
-			items: page.rows.map((row) => sessionListItem(row, user.userId, Boolean(row.shared))),
-			nextCursor: page.nextCursor,
-		});
+		return c.json(
+			{
+				// The query's `shared` EXISTS is 0/1 on SQLite and a boolean on PostgreSQL.
+				items: page.rows.map((row) => sessionListItem(row, user.userId, Boolean(row.shared))),
+				nextCursor: page.nextCursor,
+			},
+			200,
+		);
 	});
 
 	/**
@@ -224,14 +452,15 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * So SQLite answers `contentSearch: false` and never fills `hits` or `hitCount`. The scope, visibility and
 	 * cursor are the session list's. Registered before `/sessions/:id`, which would otherwise read "search" as an id.
 	 */
-	app.get("/sessions/search", async (c) => {
+	app.openapi(searchRoute, async (c) => {
 		const user = c.get("user");
-		const scope = c.req.query("scope") ?? "mine";
-		if (!SESSION_SCOPES.has(scope)) return jsonError(c, 400, "scope must be mine, shared, visible or all");
-		if (scope === "all" && !isAdmin(user)) return jsonError(c, 403, "administrators only");
-		const keywords = parseSearchKeywords(c.req.query("q"));
-		const limit = parseSearchLimit(c.req.query("limit"));
-		const rawCursor = c.req.query("cursor");
+		const query = c.req.valid("query");
+		const scope = query.scope ?? "mine";
+		if (!SESSION_SCOPES.has(scope)) throw new UserError("scope must be mine, shared, visible or all");
+		if (scope === "all" && !isAdmin(user)) throw new HTTPException(403, { message: "administrators only" });
+		const keywords = parseSearchKeywords(query.q);
+		const limit = parseSearchLimit(query.limit);
+		const rawCursor = query.cursor;
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
 		const page = await sessionSearch(db, user, {
 			scope: scope as SessionListScope,
@@ -239,7 +468,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			limit,
 			...(cursor ? { cursor } : {}),
 		});
-		return c.json(page);
+		return c.json(page, 200);
 	});
 
 	/**
@@ -248,17 +477,17 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * attempt made (200) instead of creating another; a new session is 201. A failure to submit removes the
 	 * new session again.
 	 */
-	app.post("/sessions", async (c) => {
-		const body = (await readJsonObject(c)) ?? {};
-		const requestId = typeof body.requestId === "string" ? body.requestId.trim() : "";
+	app.openapi(createRoute, async (c) => {
+		const body = c.req.valid("json");
+		const requestId = body.requestId.trim();
 		if (requestId === "" || requestId.length > 128) {
-			return jsonError(c, 400, "requestId is required and must be at most 128 characters");
+			throw new UserError("requestId is required and must be at most 128 characters");
 		}
-		const message = typeof body.message === "string" ? body.message.trim() : "";
-		if (message === "") return jsonError(c, 400, "message is required");
+		const message = body.message.trim();
+		if (message === "") throw new UserError("message is required");
 		// Any level may have a remaining budget; null (or no field) is unlimited and never charged.
 		const budgetRemaining = body.budgetRemaining === undefined ? undefined : parseQuota(body.budgetRemaining);
-		const inputs = parseAttachments(body);
+		const inputs = body.attachments ?? [];
 		const resolved =
 			inputs.length === 0
 				? undefined
@@ -268,7 +497,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			message,
 			model: parseModelRef(body.model),
 			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
-			...(typeof body.title === "string" ? { title: body.title } : {}),
+			...(body.title === undefined ? {} : { title: body.title }),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
 			...(resolved
 				? {
@@ -277,22 +506,25 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 					}
 				: {}),
 		});
-		return c.json({ session: (await decorate(c, [session]))[0] }, created ? 201 : 200);
+		return c.json({ session: await decorateOne(c, session) }, created ? 201 : 200);
 	});
 
-	app.get("/sessions/:id", async (c) => {
-		const v = await requireSession(c, c.req.param("id"));
-		if (v instanceof Response) return v;
+	app.openapi(getRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id);
 		// The state is a cache of the run and its waits; refresh it from durable and the task table before showing it.
 		await runtime.refreshState(v.session.id);
 		const session = (await runtime.getSession(v.session.id)) ?? v.session;
 		const canShare = v.capabilities.manageShares;
 		// A subagent inherits its root's share; `decorate` only knows direct shares, so use what `visible` resolved.
-		const viewed = (await decorate(c, [session]))[0];
-		return c.json({
-			session: { ...viewed, relationship: v.relationship, capabilities: v.capabilities },
-			...(canShare ? { shares: await listSessionShares(db, session.id) } : {}),
-		});
+		const viewed = await decorateOne(c, session);
+		return c.json(
+			{
+				session: { ...viewed, relationship: v.relationship, capabilities: v.capabilities },
+				...(canShare ? { shares: await listSessionShares(db, session.id) } : {}),
+			},
+			200,
+		);
 	});
 
 	/**
@@ -301,11 +533,11 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * be any session of the tree, so opening a subagent marks its whole tree. Only the owner may mark a tree
 	 * read. `updated_at` is not touched: marking read must not reorder the list. Answers 204.
 	 */
-	app.post("/sessions/:id/read", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "owner");
-		if (v instanceof Response) return v;
+	app.openapi(readRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id, "owner");
 		const rootId = await rootSessionIdOf(db, v.session.id);
-		if (!rootId) return c.body(null, 404);
+		if (!rootId) throw new NotFoundError("no such session");
 		await db
 			.updateTable("sessions")
 			.set({ owner_read_at: new Date().toISOString() })
@@ -324,21 +556,25 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * `tool_execution_end` of the `subagent` tool (the update's `details.sessionId` names the new child), and on
 	 * its tree root's `upsert` on `/api/sessions/stream`, which every session in the tree republishes.
 	 */
-	app.get("/sessions/:id/children", async (c) => {
-		const v = await requireSession(c, c.req.param("id"));
-		if (v instanceof Response) return v;
-		const limit = parseLimit(c.req.query("limit"));
-		const rawCursor = c.req.query("cursor");
+	app.openapi(childrenRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const query = c.req.valid("query");
+		const v = await requireSession(c, id);
+		const limit = parseLimit(query.limit);
+		const rawCursor = query.cursor;
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
 		const page = await cursorRows(
 			limit,
 			async (limitPlusOne) => (await sessionChildrenQuery(db, v.session.id, cursor)).limit(limitPlusOne).execute(),
 			(row) => sessionListCursor(row.updated_at, row.id),
 		);
-		return c.json({
-			items: page.rows.map((row) => sessionChildItem(row, c.get("user").userId, v.shared)),
-			nextCursor: page.nextCursor,
-		});
+		return c.json(
+			{
+				items: page.rows.map((row) => sessionChildItem(row, c.get("user").userId, v.shared)),
+				nextCursor: page.nextCursor,
+			},
+			200,
+		);
 	});
 
 	/**
@@ -346,9 +582,9 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * (doc/design/webui.md "Subagent bar"). The count must not require every page of the children list, so it is its own
 	 * endpoint; visibility is `GET /sessions/:id`'s.
 	 */
-	app.get("/sessions/:id/children/summary", async (c) => {
-		const v = await requireSession(c, c.req.param("id"));
-		if (v instanceof Response) return v;
+	app.openapi(childrenSummaryRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id);
 		const rows = await db
 			.selectFrom("sessions")
 			.select(["state"])
@@ -363,27 +599,24 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			total += count;
 			if (row.state === "idle" || row.state === "running" || row.state === "awaiting") states[row.state] += count;
 		}
-		return c.json({ total, states });
+		return c.json({ total, states }, 200);
 	});
 
-	app.get("/sessions/:id/shares", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "manageShares");
-		if (v instanceof Response) return v;
-		return c.json({ shares: await listSessionShares(db, v.session.id) });
+	app.openapi(sharesRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id, "manageShares");
+		return c.json({ shares: await listSessionShares(db, v.session.id) }, 200);
 	});
 
-	app.put("/sessions/:id/shares", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "createShares");
-		if (v instanceof Response) return v;
-		const body = await readJsonObject(c);
-		if (body?.granteeType !== "user" && body?.granteeType !== "user_group")
-			return jsonError(c, 400, "granteeType must be user or user_group");
-		if (typeof body?.granteeId !== "string" || !body.granteeId) return jsonError(c, 400, "granteeId is required");
-		if (body?.access !== "view" && body?.access !== "chat") return jsonError(c, 400, "access must be view or chat");
+	app.openapi(addShareRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id, "createShares");
+		const body = c.req.valid("json");
+		if (!body.granteeId) throw new UserError("granteeId is required");
 		// A share to oneself would duplicate the caller's own access (and, for an administrator, turn a
 		// read-only relationship into a driveable one).
 		if (body.granteeType === "user" && body.granteeId === c.get("user").userId) {
-			return jsonError(c, 400, "a session cannot be shared with yourself");
+			throw new UserError("a session cannot be shared with yourself");
 		}
 		const share = await shareSession(db, {
 			sessionId: v.session.id,
@@ -402,18 +635,18 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			target: { type: "session", id: v.session.id },
 			detail: { grantee_type: body.granteeType, grantee_id: body.granteeId, access: body.access },
 		});
-		return c.json({ share });
+		return c.json({ share }, 200);
 	});
 
-	app.delete("/sessions/:id/shares/:shareId", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "manageShares");
-		if (v instanceof Response) return v;
-		const share = (await listSessionShares(db, v.session.id)).find((s) => s.id === c.req.param("shareId"));
+	app.openapi(removeShareRoute, async (c) => {
+		const { id, shareId } = c.req.valid("param");
+		const v = await requireSession(c, id, "manageShares");
+		const share = (await listSessionShares(db, v.session.id)).find((s) => s.id === shareId);
 		// Who the share reached, captured before the row goes: losing it may remove the session from their list.
 		const audience = share
 			? await shareAudienceUserIds(db, { granteeType: share.granteeType, granteeId: share.granteeId })
 			: [];
-		await unshareSession(db, v.session.id, c.req.param("shareId"));
+		await unshareSession(db, v.session.id, shareId);
 		await runtime.sessionList.publishShareRemoved(v.session.id, audience);
 		await streams.revalidate();
 		void c.get("audit").record({
@@ -421,24 +654,24 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			action: "session.unshared",
 			target: { type: "session", id: v.session.id },
 			detail: {
-				share_id: c.req.param("shareId"),
+				share_id: shareId,
 				grantee_type: share?.granteeType,
 				grantee_id: share?.granteeId,
 				access: share?.access,
 			},
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
-	app.patch("/sessions/:id", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "configure");
-		if (v instanceof Response) return v;
+	app.openapi(patchRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id, "configure");
 		const s = v.session;
-		const body = (await readJsonObject(c)) ?? {};
+		const body = c.req.valid("json");
 		const rulePreset = body.rulePreset === undefined ? undefined : parseRulePreset(body.rulePreset);
 		const session = await runtime.configure(s.id, {
-			...(typeof body.title === "string" ? { title: body.title } : {}),
-			...(body.model !== undefined ? { model: parseModelRef(body.model) } : {}),
+			...(body.title === undefined ? {} : { title: body.title }),
+			...(body.model === undefined ? {} : { model: parseModelRef(body.model) }),
 			...(rulePreset ? { rulePreset } : {}),
 			...(body.budgetRemaining !== undefined ? { budgetRemaining: parseQuota(body.budgetRemaining) } : {}),
 			...(body.disabledMcpServers !== undefined
@@ -463,21 +696,21 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			// Waiting tool calls may not need approval any more (doc/design/access-control.md "Approvals").
 			await reevaluateAfterRuleChange(db, options.cluster, options.taskGroups, { type: "session", id: s.id });
 		}
-		return c.json({ session: (await decorate(c, [session]))[0] });
+		return c.json({ session: await decorateOne(c, session) }, 200);
 	});
 
 	/** `{ text, requestId }`: requestId makes a retried send land once. The session acts for its owner. */
-	app.post("/sessions/:id/messages", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "chat");
-		if (v instanceof Response) return v;
-		const body = await readJsonObject(c);
-		const text = typeof body?.text === "string" ? body.text.trim() : "";
-		const requestId = typeof body?.requestId === "string" && body.requestId ? body.requestId.slice(0, 200) : undefined;
-		if (!text) return jsonError(c, 400, "text is required");
-		if (!requestId) return jsonError(c, 400, "requestId is required");
-		const inputs = parseAttachments(body ?? undefined);
+	app.openapi(messagesRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id, "chat");
+		const body = c.req.valid("json");
+		const text = body.text.trim();
+		const requestId = body.requestId ? body.requestId.slice(0, 200) : undefined;
+		if (!text) throw new UserError("text is required");
+		if (!requestId) throw new UserError("requestId is required");
+		const inputs = body.attachments ?? [];
 		if (inputs.length > 0 && v.session.ownerUserId !== c.get("user").userId) {
-			return jsonError(c, 403, "only the session owner can attach files");
+			throw new HTTPException(403, { message: "only the session owner can attach files" });
 		}
 		const resolved =
 			inputs.length === 0
@@ -494,12 +727,12 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	/** `{ instructions? }`: a manual compaction; the summary is made in the background (doc/design/agent-runtime.md "Sessions"). */
-	app.post("/sessions/:id/compact", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "chat");
-		if (v instanceof Response) return v;
-		const body = await readJsonObject(c);
-		const trimmed = typeof body?.instructions === "string" ? body.instructions.trim() : "";
-		if (trimmed.length > 2000) return jsonError(c, 400, "instructions must be at most 2000 characters");
+	app.openapi(compactRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id, "chat");
+		const body = c.req.valid("json");
+		const trimmed = body.instructions?.trim() ?? "";
+		if (trimmed.length > 2000) throw new UserError("instructions must be at most 2000 characters");
 		const instructions = trimmed || undefined;
 		const { taskId, outcome } = await runtime.compact(v.session.id, c.get("user"), instructions);
 		return c.json({ taskId, outcome }, 202);
@@ -509,20 +742,17 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * `{ decision: "approve" | "deny", tokens?, reason? }`: the owner's answer when a root's quota is used up
 	 * (doc/design/agent-runtime.md "Quota and token accounting"). Only the owner decides, like the approvals on the approvals page.
 	 */
-	app.post("/sessions/:id/quota", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "owner");
-		if (v instanceof Response) return v;
+	app.openapi(quotaRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id, "owner");
 		const user = c.get("user");
-		const body = await readJsonObject(c);
-		if (body?.decision !== "approve" && body?.decision !== "deny") {
-			return jsonError(c, 400, 'decision must be "approve" or "deny"');
-		}
+		const body = c.req.valid("json");
 		const reason =
 			typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 1000) : undefined;
 		let tokens: number | undefined;
 		if (body.decision === "approve") {
 			if (typeof body.tokens !== "number" || !Number.isInteger(body.tokens) || body.tokens <= 0) {
-				return jsonError(c, 400, "tokens must be a positive integer");
+				throw new UserError("tokens must be a positive integer");
 			}
 			tokens = body.tokens;
 		}
@@ -548,14 +778,14 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			target: { type: "session", id: v.session.id },
 			detail: { level: v.session.id, sessions, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
 		});
-		return c.json({ ok: true, sessions });
+		return c.json({ ok: true as const, sessions }, 200);
 	});
 
-	app.post("/sessions/:id/abort", async (c) => {
-		const v = await requireSession(c, c.req.param("id"), "chat");
-		if (v instanceof Response) return v;
+	app.openapi(abortRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const v = await requireSession(c, id, "chat");
 		await runtime.abort(v.session.id, c.get("user"));
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	/**
@@ -564,14 +794,16 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	 * `historyCursor` is the first `before`; a later page's `historyCursor` is the next. Visibility is the
 	 * same as for `/events`.
 	 */
-	app.get("/sessions/:id/entries", async (c) => {
-		const v = await requireSession(c, c.req.param("id"));
-		if (v instanceof Response) return v;
-		const limit = parseLimit(c.req.query("limit"), DEFAULT_HISTORY);
-		const before = c.req.query("before");
+	app.openapi(entriesRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const query = c.req.valid("query");
+		const v = await requireSession(c, id);
+		const limit = parseLimit(query.limit, DEFAULT_HISTORY);
+		const before = query.before;
 		const beforeId = before === undefined ? undefined : Number(decodeCursor(before, HISTORY_CURSOR).id);
 		const page = await runtime.entriesPage(v.session.id, beforeId, limit);
-		return c.json({ entries: page.entries, historyCursor: page.historyCursor });
+		const entries: SessionEntry[] = page.entries;
+		return c.json({ entries, historyCursor: page.historyCursor }, 200);
 	});
 
 	return app;

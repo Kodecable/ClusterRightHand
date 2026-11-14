@@ -1,5 +1,6 @@
+import { HealthResponseSchema } from "@crh/api/schemas";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { OpenAPIHono } from "@hono/zod-openapi";
 import { sql } from "kysely";
 import type { ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
@@ -31,6 +32,7 @@ import { modelProviderRoutes } from "./model-provider-routes.ts";
 import { nodeAccessRoutes } from "./node-access-routes.ts";
 import { nodeGroupRoutes } from "./node-group-routes.ts";
 import { nodeRoutes } from "./node-routes.ts";
+import { defineRoute, json } from "./openapi.ts";
 import { privilegeRoutes } from "./privilege-routes.ts";
 import { scheduleRoutes } from "./schedule-routes.ts";
 import { SessionStreams, sessionEventRoutes } from "./session-events-routes.ts";
@@ -40,6 +42,15 @@ import { signingCredentialRoutes } from "./signing-credential-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
 import { userRoutes } from "./user-routes.ts";
+
+const healthRoute = defineRoute({
+	method: "get",
+	path: "/api/health",
+	tags: ["Health"],
+	summary: "Whether crhs is up: the database answered",
+	agent: "allow",
+	responses: { 200: { description: "The database answered", ...json(HealthResponseSchema) } },
+});
 
 export interface AppOptions extends AuthRoutesOptions {
 	/** Embedded in enrollment tokens so crha can pin crhs's identity key. */
@@ -76,8 +87,9 @@ export interface AppOptions extends AuthRoutesOptions {
 	drain?: RequestDrain;
 }
 
-export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
-	const app = new Hono<AppEnv>();
+export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv> {
+	// OpenAPIHono collects the definitions of the route groups built with defineRoute (openapi.ts).
+	const app = new OpenAPIHono<AppEnv>();
 	const audit = options.audit ?? new Audit(db);
 	const drain = options.drain ?? new RequestDrain();
 	// The live key set: a caller may supply a single key, and an empty set has no crhs trust entry to show.
@@ -112,9 +124,9 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 		await next();
 	});
 
-	app.get("/api/health", async (c) => {
+	app.openapi(healthRoute, async (c) => {
 		await sql`select 1`.execute(db);
-		return c.json({ status: "ok" });
+		return c.json({ status: "ok" as const }, 200);
 	});
 
 	// Public: crha fetches this during enrollment and checks it against the token's fingerprint.
@@ -185,7 +197,8 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 			const { runtime, models } = options.agent;
 			// The session and model routes reach the agent runtime: during shutdown they answer with the shutdown
 			// rather than with the closed Harness's exception (main.ts). No other route group uses the runtime.
-			const sessions = new Hono<AppEnv>();
+			// OpenAPIHono, so the model route definitions are passed on to the API document when this group is mounted.
+			const sessions = new OpenAPIHono<AppEnv>();
 			sessions.onError(apiErrorHandler({ closing: () => options.agent?.runtime.closing === true }));
 			sessions.use("/sessions", refuseWhenClosing(runtime));
 			sessions.use("/sessions/*", refuseWhenClosing(runtime));

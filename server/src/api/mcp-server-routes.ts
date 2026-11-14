@@ -1,19 +1,89 @@
 import type { McpServerInput } from "@crh/api";
-import { Hono } from "hono";
+import {
+	McpServerInputSchema,
+	McpServerListResponseSchema,
+	McpServerNameParamSchema,
+	McpServerResponseSchema,
+	McpServerStatusResponseSchema,
+	McpServerToolsErrorSchema,
+	McpServerToolsResponseSchema,
+	OkResponseSchema,
+} from "@crh/api/schemas";
+import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
 import type { McpConnections } from "../extensions/connections.ts";
-import type { McpServerRow } from "../extensions/servers.ts";
 import {
 	deleteMcpServer,
 	getMcpServerRow,
 	listMcpServerRows,
+	type McpServerRow,
 	mcpServerView,
 	saveMcpServer,
 } from "../extensions/servers.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
-import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { NotFoundError } from "../util/errors.ts";
 import { requireAdmin } from "./middleware.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
+
+const TAGS = ["MCP servers"];
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/mcp-servers",
+	tags: TAGS,
+	summary: "List the connected MCP servers; header values are never returned (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	responses: { 200: { description: "The servers", ...json(McpServerListResponseSchema) } },
+});
+
+const saveRoute = defineRoute({
+	method: "put",
+	path: "/mcp-servers/{name}",
+	tags: TAGS,
+	summary: "Create or replace an MCP server, its header values and its grants (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	request: { params: McpServerNameParamSchema, body: { required: true, ...json(McpServerInputSchema) } },
+	responses: { 200: { description: "The saved server", ...json(McpServerResponseSchema) } },
+});
+
+const deleteRoute = defineRoute({
+	method: "delete",
+	path: "/mcp-servers/{name}",
+	tags: TAGS,
+	summary: "Delete an MCP server, its stored headers and its grants (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	request: { params: McpServerNameParamSchema },
+	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },
+});
+
+const toolsRoute = defineRoute({
+	method: "get",
+	path: "/mcp-servers/{name}/tools",
+	tags: TAGS,
+	summary: "Connect now and list an MCP server's tools, so an administrator can check it (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	request: { params: McpServerNameParamSchema },
+	responses: {
+		200: { description: "The tools and the connection status", ...json(McpServerToolsResponseSchema) },
+		502: { description: "The server could not be reached", ...json(McpServerToolsErrorSchema) },
+	},
+});
+
+const reconnectRoute = defineRoute({
+	method: "post",
+	path: "/mcp-servers/{name}/reconnect",
+	tags: TAGS,
+	summary: "Reconnect an MCP server now instead of waiting for the next backoff attempt (administrators)",
+	agent: "deny",
+	middleware: [requireAdmin],
+	request: { params: McpServerNameParamSchema },
+	responses: { 200: { description: "The connection status", ...json(McpServerStatusResponseSchema) } },
+});
 
 export interface McpServerRoutesOptions {
 	masterKey: MasterKey;
@@ -30,7 +100,7 @@ export interface McpServerRoutesOptions {
  * audited as configuration without header values. Requires a WebUI session and an administrator.
  */
 export function mcpServerRoutes(db: Db, options: McpServerRoutesOptions) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
 	const views = async () => {
 		const rows = await listMcpServerRows(db);
@@ -39,33 +109,14 @@ export function mcpServerRoutes(db: Db, options: McpServerRoutesOptions) {
 		);
 	};
 
-	app.get("/mcp-servers", requireAdmin, async (c) => {
-		return c.json({ servers: await views() });
+	app.openapi(listRoute, async (c) => {
+		return c.json({ servers: await views() }, 200);
 	});
 
-	app.put("/mcp-servers/:name", requireAdmin, async (c) => {
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const input: McpServerInput = {
-			url: body.url as string,
-			...(Object.hasOwn(body, "description") ? { description: body.description as string | null } : {}),
-			...(Object.hasOwn(body, "headers") ? { headers: body.headers as McpServerInput["headers"] } : {}),
-			...(Object.hasOwn(body, "identityHeaders")
-				? { identityHeaders: body.identityHeaders as McpServerInput["identityHeaders"] }
-				: {}),
-			...(Object.hasOwn(body, "enabled") ? { enabled: body.enabled as boolean } : {}),
-			...(Object.hasOwn(body, "listDirectly") ? { listDirectly: body.listDirectly as boolean } : {}),
-			...(Object.hasOwn(body, "trustAnnotations") ? { trustAnnotations: body.trustAnnotations as boolean } : {}),
-			...(Object.hasOwn(body, "timeoutSeconds") ? { timeoutSeconds: body.timeoutSeconds as number } : {}),
-			...(Object.hasOwn(body, "grants") ? { grants: body.grants as McpServerInput["grants"] } : {}),
-		};
-		const { row, created } = await saveMcpServer(
-			db,
-			options.masterKey,
-			c.req.param("name"),
-			input,
-			c.get("user").userId,
-		);
+	app.openapi(saveRoute, async (c) => {
+		const { name } = c.req.valid("param");
+		const input: McpServerInput = c.req.valid("json");
+		const { row, created } = await saveMcpServer(db, options.masterKey, name, input, c.get("user").userId);
 		// The old connection used the old URL and headers; the next use connects afresh. The last known tool
 		// list stays, so a run of setting changes does not hide the server's direct tools meanwhile.
 		await options.connections.invalidate(row.name, { keepTools: true });
@@ -87,13 +138,13 @@ export function mcpServerRoutes(db: Db, options: McpServerRoutesOptions) {
 				grants: view.grants,
 			},
 		});
-		return c.json({ server: view });
+		return c.json({ server: view }, 200);
 	});
 
-	app.delete("/mcp-servers/:name", requireAdmin, async (c) => {
-		const name = c.req.param("name");
+	app.openapi(deleteRoute, async (c) => {
+		const { name } = c.req.valid("param");
 		const row = await getMcpServerRow(db, name);
-		if (!row) return jsonError(c, 404, "no such MCP server");
+		if (!row) throw new NotFoundError("no such MCP server");
 		await deleteMcpServer(db, name);
 		await options.connections.invalidate(name);
 		options.onServerDeleted?.(name);
@@ -102,24 +153,20 @@ export function mcpServerRoutes(db: Db, options: McpServerRoutesOptions) {
 			action: "mcp_server.deleted",
 			target: { type: "mcp_server", id: name },
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	/** Test: connect now and list the tools, so the administrator can check a new server. */
-	app.get("/mcp-servers/:name/tools", requireAdmin, async (c) => {
-		const name = c.req.param("name");
+	app.openapi(toolsRoute, async (c) => {
+		const { name } = c.req.valid("param");
 		const row = await getMcpServerRow(db, name);
-		if (!row) return jsonError(c, 404, "no such MCP server");
+		if (!row) throw new NotFoundError("no such MCP server");
 		try {
 			await options.connections.refreshTools(name);
 		} catch (err) {
-			return c.json(
-				{
-					error: (err as Error).message,
-					status: options.connections.status(name),
-				},
-				502,
-			);
+			throw new HTTPException(502, {
+				res: c.json({ error: (err as Error).message, status: options.connections.status(name) }, 502),
+			});
 		}
 		const tools = options.connections.tools(name).map((tool) => ({
 			name: tool.name,
@@ -128,16 +175,16 @@ export function mcpServerRoutes(db: Db, options: McpServerRoutesOptions) {
 			inputSchema: tool.inputSchema,
 			annotations: tool.annotations,
 		}));
-		return c.json({ tools, status: options.connections.status(name) });
+		return c.json({ tools, status: options.connections.status(name) }, 200);
 	});
 
 	/** Reconnect now, instead of waiting for the next backoff attempt. */
-	app.post("/mcp-servers/:name/reconnect", requireAdmin, async (c) => {
-		const name = c.req.param("name");
+	app.openapi(reconnectRoute, async (c) => {
+		const { name } = c.req.valid("param");
 		const row = await getMcpServerRow(db, name);
-		if (!row) return jsonError(c, 404, "no such MCP server");
+		if (!row) throw new NotFoundError("no such MCP server");
 		const status = await options.connections.reconnect(name);
-		return c.json({ status });
+		return c.json({ status }, 200);
 	});
 
 	return app;

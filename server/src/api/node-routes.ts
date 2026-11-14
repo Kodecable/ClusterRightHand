@@ -1,6 +1,27 @@
 import { Readable } from "node:stream";
-import type { NodeFileInfo, NodeFilesResponse } from "@crh/api";
-import { type Context, Hono } from "hono";
+import {
+	BinaryBodySchema,
+	EnrollmentTokenBodySchema,
+	EnrollmentTokenResponseSchema,
+	ErrorResponseSchema,
+	IdParamSchema,
+	NodeDetailResponseSchema,
+	NodeFileQuerySchema,
+	NodeFileResponseSchema,
+	NodeFilesQuerySchema,
+	NodeFilesResponseSchema,
+	NodeGroupsBodySchema,
+	NodeGroupsResponseSchema,
+	NodeListQuerySchema,
+	NodeListResponseSchema,
+	NodeRenameBodySchema,
+	NodeResponseSchema,
+	NodeStatQuerySchema,
+	NodeTrustResponseSchema,
+	OkResponseSchema,
+} from "@crh/api/schemas";
+import type { Context, MiddlewareHandler } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
 import { isAdmin } from "../auth/sessions.ts";
 import { type TaskView, TERMINAL } from "../cluster/cluster.ts";
@@ -24,14 +45,158 @@ import { findUserLibrary } from "../library/library.ts";
 import { INLINE_MEDIA_TYPES, INLINE_PREVIEW_MAX_BYTES, sniffMagic } from "../library/media-type.ts";
 import { openTransferLocation, type TransferContext, type TransferLocationJson } from "../library/transfer-location.ts";
 import type { Db } from "../storage/db.ts";
-import { UserError } from "../util/errors.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import type { AppOptions } from "./app.ts";
-import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
+import type { AppEnv } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
+
+const TAGS = ["Nodes"];
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/nodes",
+	tags: TAGS,
+	summary: "List the nodes the caller can see, with their live connection state",
+	agent: "allow",
+	request: { query: NodeListQuerySchema },
+	responses: { 200: { description: "The nodes", ...json(NodeListResponseSchema) } },
+});
+
+const detailRoute = defineRoute({
+	method: "get",
+	path: "/nodes/{id}",
+	tags: TAGS,
+	summary: "One node, its trust warnings and, for administrators, its SSH route",
+	agent: "allow",
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "The node", ...json(NodeDetailResponseSchema) } },
+});
+
+const trustRoute = defineRoute({
+	method: "get",
+	path: "/nodes/{id}/trust",
+	tags: TAGS,
+	summary: "The node's last trust report, its digest and its entries",
+	agent: "allow",
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "The trust panel", ...json(NodeTrustResponseSchema) } },
+});
+
+const filesRoute = defineRoute({
+	method: "get",
+	path: "/nodes/{id}/files",
+	tags: TAGS,
+	summary: "List a directory on a node; the listing is an unprivileged `file.list` browse task",
+	agent: "ask",
+	request: { params: IdParamSchema, query: NodeFilesQuerySchema },
+	responses: {
+		200: { description: "The entries under the path", ...json(NodeFilesResponseSchema) },
+		403: { description: "The node denied the listing", ...json(ErrorResponseSchema) },
+		503: { description: "The cluster is not running", ...json(ErrorResponseSchema) },
+	},
+});
+
+const statRoute = defineRoute({
+	method: "get",
+	path: "/nodes/{id}/stat",
+	tags: TAGS,
+	summary: "Stat one path on a node; an unprivileged `file.stat` browse task",
+	agent: "ask",
+	request: { params: IdParamSchema, query: NodeStatQuerySchema },
+	responses: {
+		200: { description: "The file's metadata", ...json(NodeFileResponseSchema) },
+		403: { description: "The node denied the stat", ...json(ErrorResponseSchema) },
+		503: { description: "The cluster is not running", ...json(ErrorResponseSchema) },
+	},
+});
+
+const fileRoute = defineRoute({
+	method: "get",
+	path: "/nodes/{id}/file",
+	tags: TAGS,
+	summary: "Stream a node file as an attachment, or inline when `preview=1` and it is a supported image",
+	agent: "deny", // arbitrary file content: not something an agent may pull without the user
+	request: { params: IdParamSchema, query: NodeFileQuerySchema },
+	responses: {
+		200: {
+			description: "The file's bytes",
+			content: {
+				"application/octet-stream": { schema: BinaryBodySchema },
+				"image/png": { schema: BinaryBodySchema },
+				"image/jpeg": { schema: BinaryBodySchema },
+				"image/gif": { schema: BinaryBodySchema },
+				"image/webp": { schema: BinaryBodySchema },
+			},
+		},
+		403: { description: "The node denied the download", ...json(ErrorResponseSchema) },
+		409: {
+			description: "The file pull needs approval; the message carries the approval link",
+			...json(ErrorResponseSchema),
+		},
+		503: { description: "The cluster is not running", ...json(ErrorResponseSchema) },
+	},
+});
+
+const enrollmentTokenRoute = defineRoute({
+	method: "post",
+	path: "/enrollment-tokens",
+	tags: TAGS,
+	summary: "Issue a one-time enrollment token for a new node (administrators)",
+	agent: "deny", // a token enrolls a node: it grants infrastructure access
+	middleware: [requireAdmin],
+	request: { body: { required: true, ...json(EnrollmentTokenBodySchema) } },
+	responses: {
+		201: { description: "The token and its expiry", ...json(EnrollmentTokenResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+		500: { description: "No server fingerprint is configured", ...json(ErrorResponseSchema) },
+	},
+});
+
+const reenrollRoute = defineRoute({
+	method: "post",
+	path: "/nodes/{id}/reenroll",
+	tags: TAGS,
+	summary: "Issue a one-time token that replaces this node's key (administrators)",
+	agent: "deny", // replaces a node's identity
+	request: { params: IdParamSchema },
+	responses: {
+		201: { description: "The token and its expiry", ...json(EnrollmentTokenResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+		500: { description: "No server fingerprint is configured", ...json(ErrorResponseSchema) },
+	},
+});
+
+const approveRoute = defineRoute({
+	method: "post",
+	path: "/nodes/{id}/approve",
+	tags: TAGS,
+	summary: "Approve a pending node so it becomes active (administrators)",
+	agent: "deny", // an approval decision
+	request: { params: IdParamSchema },
+	responses: {
+		200: { description: "The approved node", ...json(NodeResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+		409: { description: "The node is not pending", ...json(ErrorResponseSchema) },
+	},
+});
+
+const deleteRoute = defineRoute({
+	method: "delete",
+	path: "/nodes/{id}",
+	tags: TAGS,
+	summary: "Delete a node, its grants and its enrollment token; its waiting tasks end (administrators)",
+	agent: "ask",
+	request: { params: IdParamSchema },
+	responses: {
+		200: { description: "Deleted", ...json(OkResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
 
 /** Expects requireUser to have run. */
 export function nodeRoutes(db: Db, options: AppOptions = {}) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
 	/** The caller's access to the node, or undefined when the node is hidden from them. */
 	const access = (c: { get(k: "user"): AppEnv["Variables"]["user"] }, id: string) => nodeAccess(db, c.get("user"), id);
@@ -46,39 +211,76 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		clockWarning: nodeClockWarning(n.facts, clockWarnMs()),
 	});
 
-	app.get("/nodes", async (c) => {
-		const params = {
-			q: c.req.query("q"),
-			limit: c.req.query("limit"),
-			ids: c.req.query("ids"),
-		};
-		const page = await queryNodesForUser(db, c.get("user"), params, { crhsFingerprints });
-		return c.json({
-			nodes: page.items.map(live),
-			...(params.limit === undefined ? {} : { more: page.more }),
-		});
+	const clusterUnavailable = () => new HTTPException(503, { message: "the cluster is not running" });
+
+	/** Hidden nodes answer 404 and other members 403 before a body is read, like every node management route. */
+	const requireManager: MiddlewareHandler<AppEnv> = async (c, next) => {
+		const level = await access(c, c.req.param("id") ?? "");
+		if (!level) return c.json({ error: "no such node" }, 404);
+		if (!isAdmin(c.get("user"))) return c.json({ error: "administrators only" }, 403);
+		await next();
+	};
+
+	const renameRoute = defineRoute({
+		method: "patch",
+		path: "/nodes/{id}",
+		tags: TAGS,
+		summary: "Rename a node (administrators)",
+		agent: "ask",
+		middleware: [requireManager],
+		request: { params: IdParamSchema, body: { required: true, ...json(NodeRenameBodySchema) } },
+		responses: {
+			200: { description: "The renamed node", ...json(NodeResponseSchema) },
+			403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+		},
 	});
 
-	app.get("/nodes/:id", async (c) => {
-		const id = c.req.param("id");
+	const nodeGroupsRoute = defineRoute({
+		method: "put",
+		path: "/nodes/{id}/node-groups",
+		tags: TAGS,
+		summary: "Replace a node's node groups; calls resolve names or ids (administrators)",
+		agent: "deny", // group membership widens who can reach the node
+		middleware: [requireManager],
+		request: { params: IdParamSchema, body: { required: true, ...json(NodeGroupsBodySchema) } },
+		responses: {
+			200: { description: "The node's new node groups", ...json(NodeGroupsResponseSchema) },
+			403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+		},
+	});
+
+	app.openapi(listRoute, async (c) => {
+		const params = c.req.valid("query");
+		const page = await queryNodesForUser(db, c.get("user"), params, { crhsFingerprints });
+		return c.json(
+			{
+				nodes: page.items.map(live),
+				...(params.limit === undefined ? {} : { more: page.more }),
+			},
+			200,
+		);
+	});
+
+	app.openapi(detailRoute, async (c) => {
+		const { id } = c.req.valid("param");
 		const level = await access(c, id);
 		const row = level ? await getNode(db, id) : undefined;
-		if (!level || !row) return jsonError(c, 404, "no such node");
+		if (!level || !row) throw new NotFoundError("no such node");
 		const nodeGroups = (await nodeGroupsForNodes(db, [id])).get(id) ?? [];
 		const trustWarnings =
 			(await trustWarningsForRows(db, [row], new Map([[id, nodeGroups]]), { crhsFingerprints })).get(id) ?? [];
 		const node = live(toPublicNode(row, level, nodeGroups, trustWarnings));
-		if (!isAdmin(c.get("user"))) return c.json({ node });
-		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null });
+		if (!isAdmin(c.get("user"))) return c.json({ node }, 200);
+		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null }, 200);
 	});
 
 	/** The node's trust panel (doc/design/privilege.md "Trust cache"): the last TrustReport, its digest and its entries. */
-	app.get("/nodes/:id/trust", async (c) => {
-		const id = c.req.param("id");
+	app.openapi(trustRoute, async (c) => {
+		const { id } = c.req.valid("param");
 		const level = await access(c, id);
 		const row = level ? await getNode(db, id) : undefined;
-		if (!level || !row) return jsonError(c, 404, "no such node");
-		return c.json({ trust: trustView(row, options.cluster?.trustFresh(id) ?? false) });
+		if (!level || !row) throw new NotFoundError("no such node");
+		return c.json({ trust: trustView(row, options.cluster?.trustFresh(id) ?? false) }, 200);
 	});
 
 	/**
@@ -110,15 +312,17 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return task;
 	};
 
-	/** The browse task's failure as an HTTP response; undefined when it succeeded. */
-	const browseFailure = (c: Parameters<typeof jsonError>[0], task: TaskView | undefined) => {
-		if (!task) return jsonError(c, 404, "no such node");
-		if (task.errorCode === "not_found") return jsonError(c, 404, task.errorMessage ?? "no such file");
-		if (task.errorCode === "permission_denied") return jsonError(c, 403, task.errorMessage ?? "permission denied");
-		if (task.state !== "exited" || task.result === null) {
-			return jsonError(c, 400, task.errorMessage ?? `the listing failed (${task.state})`);
+	/** Throws the browse task's failure as the API's usual error; returns the successful task. */
+	const browsed = (task: TaskView | undefined): TaskView => {
+		if (!task) throw new NotFoundError("no such node");
+		if (task.errorCode === "not_found") throw new NotFoundError(task.errorMessage ?? "no such file");
+		if (task.errorCode === "permission_denied") {
+			throw new HTTPException(403, { message: task.errorMessage ?? "permission denied" });
 		}
-		return undefined;
+		if (task.state !== "exited" || task.result === null) {
+			throw new UserError(task.errorMessage ?? `the listing failed (${task.state})`);
+		}
+		return task;
 	};
 
 	const browsePath = (value: string | undefined, fallback = "/"): string => {
@@ -127,22 +331,21 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return value;
 	};
 
-	app.get("/nodes/:id/files", async (c) => {
-		const nodeId = c.req.param("id");
-		if (!(await access(c, nodeId))) return jsonError(c, 404, "no such node");
-		if (!options.cluster) return jsonError(c, 503, "the cluster is not running");
-		const path = browsePath(c.req.query("path"));
+	app.openapi(filesRoute, async (c) => {
+		const { id: nodeId } = c.req.valid("param");
+		const params = c.req.valid("query");
+		if (!(await access(c, nodeId))) throw new NotFoundError("no such node");
+		if (!options.cluster) throw clusterUnavailable();
+		const path = browsePath(params.path);
 		const task = await options.cluster.createTask({
 			nodeId,
 			spec: { kind: "file.list", path, limit: 0 },
 			actor: browseActor(c),
 			purpose: "browse",
 		});
-		const done = await waitForBrowse(c, task.id);
-		const failure = browseFailure(c, done);
-		if (failure) return failure;
-		const result = done?.result;
-		if (result?.kind !== "file.list") return jsonError(c, 400, "the node reported no listing");
+		const done = browsed(await waitForBrowse(c, task.id));
+		const result = done.result;
+		if (result?.kind !== "file.list") throw new UserError("the node reported no listing");
 		const entries = result.entries.map((entry) => ({
 			path: path === "/" ? `/${entry.name}` : `${path}/${entry.name}`,
 			name: entry.name,
@@ -151,15 +354,15 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			mtime: entry.mtime,
 			linkTarget: null,
 		}));
-		const body: NodeFilesResponse = { path, entries, truncated: result.truncated };
-		return c.json(body);
+		return c.json({ path, entries, truncated: result.truncated }, 200);
 	});
 
-	app.get("/nodes/:id/stat", async (c) => {
-		const nodeId = c.req.param("id");
-		if (!(await access(c, nodeId))) return jsonError(c, 404, "no such node");
-		if (!options.cluster) return jsonError(c, 503, "the cluster is not running");
-		const path = browsePath(c.req.query("path"), "");
+	app.openapi(statRoute, async (c) => {
+		const { id: nodeId } = c.req.valid("param");
+		const params = c.req.valid("query");
+		if (!(await access(c, nodeId))) throw new NotFoundError("no such node");
+		if (!options.cluster) throw clusterUnavailable();
+		const path = browsePath(params.path, "");
 		if (path === "") throw new UserError("path is required");
 		const task = await options.cluster.createTask({
 			nodeId,
@@ -167,12 +370,10 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			actor: browseActor(c),
 			purpose: "browse",
 		});
-		const done = await waitForBrowse(c, task.id);
-		const failure = browseFailure(c, done);
-		if (failure) return failure;
-		const result = done?.result;
-		if (result?.kind !== "file.stat") return jsonError(c, 400, "the node reported no file");
-		const file: NodeFileInfo = {
+		const done = browsed(await waitForBrowse(c, task.id));
+		const result = done.result;
+		if (result?.kind !== "file.stat") throw new UserError("the node reported no file");
+		const file = {
 			path: result.path,
 			type: result.type,
 			size: result.size,
@@ -184,7 +385,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			mtime: result.mtime,
 			linkTarget: result.linkTarget,
 		};
-		return c.json({ file });
+		return c.json({ file }, 200);
 	});
 
 	/**
@@ -193,12 +394,13 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	 * `file.pull` with purpose `browse` into staging, as the signed-in user and unprivileged, so rules,
 	 * approvals and audit apply; a download is capped at the user's own library one-file limit.
 	 */
-	app.get("/nodes/:id/file", async (c) => {
-		const nodeId = c.req.param("id");
-		if (!(await access(c, nodeId))) return jsonError(c, 404, "no such node");
-		if (!options.cluster) return jsonError(c, 503, "the cluster is not running");
-		const preview = c.req.query("preview") === "1";
-		const path = browsePath(c.req.query("path"), "");
+	app.openapi(fileRoute, async (c) => {
+		const { id: nodeId } = c.req.valid("param");
+		const params = c.req.valid("query");
+		if (!(await access(c, nodeId))) throw new NotFoundError("no such node");
+		if (!options.cluster) throw clusterUnavailable();
+		const preview = params.preview === "1";
+		const path = browsePath(params.path, "");
 		if (path === "") throw new UserError("path is required");
 		const own = await findUserLibrary(db, c.get("user").userId);
 		if (!own) throw new UserError("the acting user has no library");
@@ -215,17 +417,21 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		if (done?.state === "awaiting_approval") {
 			await options.cluster.cancelTask(task.id, "the file browser request ended", browseActor(c));
 			await discardLocation(options.cluster.transferContext(), location);
-			return jsonError(c, 409, `the file pull needs approval; approve it at /approvals/tasks/${task.id}`);
+			throw new HTTPException(409, {
+				message: `the file pull needs approval; approve it at /approvals/tasks/${task.id}`,
+			});
 		}
-		const failure = browseFailure(c, done);
-		if (failure) {
+		let pulled: TaskView;
+		try {
+			pulled = browsed(done);
+		} catch (err) {
 			await discardLocation(options.cluster.transferContext(), location);
-			return failure;
+			throw err;
 		}
-		const result = done?.result;
+		const result = pulled.result;
 		if (result?.kind !== "file.pull") {
 			await discardLocation(options.cluster.transferContext(), location);
-			return jsonError(c, 400, "the node reported no file");
+			throw new UserError("the node reported no file");
 		}
 		const opened = openTransferLocation(options.cluster.transferContext(), location);
 		const stream = opened.openRead();
@@ -287,20 +493,21 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return c.body(Readable.toWeb(body) as unknown as ReadableStream);
 	});
 
-	app.post("/enrollment-tokens", requireAdmin, async (c) => {
-		if (!options.serverFingerprint) return c.json({ error: "server fingerprint is not configured" }, 500);
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
+	app.openapi(enrollmentTokenRoute, async (c) => {
+		if (!options.serverFingerprint) {
+			throw new HTTPException(500, { message: "server fingerprint is not configured" });
+		}
+		const { nameHint } = c.req.valid("json");
 		const created = await createEnrollmentToken(db, {
 			userId: c.get("user").userId,
-			nameHint: optionalString(body, "nameHint"),
+			nameHint,
 			serverFingerprint: options.serverFingerprint,
 		});
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "enrollment_token.created",
 			target: { type: "enrollment_token", id: created.id },
-			detail: { name_hint: optionalString(body, "nameHint"), expires_at: created.expiresAt },
+			detail: { name_hint: nameHint, expires_at: created.expiresAt },
 		});
 		return c.json({ token: created.token, expiresAt: created.expiresAt }, 201);
 	});
@@ -308,9 +515,9 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	/** Resolves the node for a manage-only route: 404 when hidden, 403 for a non-administrator. */
 	const manageable = async (c: Parameters<typeof access>[0], id: string) => {
 		const level = await access(c, id);
-		if (!level) return { error: { status: 404 as const, message: "no such node" } };
-		if (!isAdmin(c.get("user"))) return { error: { status: 403 as const, message: "administrators only" } };
-		return { level };
+		if (!level) throw new NotFoundError("no such node");
+		if (!isAdmin(c.get("user"))) throw new HTTPException(403, { message: "administrators only" });
+		return level;
 	};
 
 	/**
@@ -318,14 +525,15 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	 * (doc/design/protocol.md "Rotation and revocation"). The node keeps its id, name, node groups,
 	 * access grants and task history; it becomes pending again until the new key is approved.
 	 */
-	app.post("/nodes/:id/reenroll", async (c) => {
-		const id = c.req.param("id");
-		const m = await manageable(c, id);
-		if (m.error) return jsonError(c, m.error.status, m.error.message);
+	app.openapi(reenrollRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		await manageable(c, id);
 		const row = await getNode(db, id);
-		if (!row) return jsonError(c, 404, "no such node");
-		if (row.transport === "ssh") return jsonError(c, 400, "SSH nodes cannot be re-enrolled");
-		if (!options.serverFingerprint) return c.json({ error: "server fingerprint is not configured" }, 500);
+		if (!row) throw new NotFoundError("no such node");
+		if (row.transport === "ssh") throw new UserError("SSH nodes cannot be re-enrolled");
+		if (!options.serverFingerprint) {
+			throw new HTTPException(500, { message: "server fingerprint is not configured" });
+		}
 		const created = await createEnrollmentToken(db, {
 			userId: c.get("user").userId,
 			boundNodeId: id,
@@ -340,12 +548,11 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		return c.json({ token: created.token, expiresAt: created.expiresAt }, 201);
 	});
 
-	app.post("/nodes/:id/approve", async (c) => {
-		const id = c.req.param("id");
-		const m = await manageable(c, id);
-		if (m.error) return jsonError(c, m.error.status, m.error.message);
+	app.openapi(approveRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const level = await manageable(c, id);
 		const row = await getNode(db, id);
-		if (row?.status !== "pending") return jsonError(c, 409, "node is not pending");
+		if (row?.status !== "pending") throw new HTTPException(409, { message: "node is not pending" });
 		const node = await approveNode(db, id, c.get("user").userId);
 		// The pending connection only carried facts; tell crha, then let it reconnect as an active node.
 		options.cluster?.notifyNodeStatus(id, "active", "approved");
@@ -355,16 +562,14 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { name: node.name },
 		});
-		return c.json({ node: toPublicNode(node, m.level, (await nodeGroupsForNodes(db, [id])).get(id) ?? []) });
+		return c.json({ node: toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? []) }, 200);
 	});
 
-	app.patch("/nodes/:id", async (c) => {
-		const id = c.req.param("id");
-		const m = await manageable(c, id);
-		if (m.error) return jsonError(c, m.error.status, m.error.message);
-		const body = await readJsonObject(c);
-		const name = body ? optionalString(body, "name") : undefined;
-		if (!name) return jsonError(c, 400, "name is required");
+	app.openapi(renameRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const level = await manageable(c, id);
+		const { name } = c.req.valid("json");
+		if (!name) throw new UserError("name is required");
 		const before = await getNode(db, id);
 		const node = await renameNode(db, id, name);
 		void c.get("audit").record({
@@ -373,21 +578,16 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { old_name: before?.name, new_name: node.name },
 		});
-		return c.json({ node: live(toPublicNode(node, m.level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) });
+		return c.json({ node: live(toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) }, 200);
 	});
 
 	/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike. */
-	app.put("/nodes/:id/node-groups", async (c) => {
-		const id = c.req.param("id");
-		const m = await manageable(c, id);
-		if (m.error) return jsonError(c, m.error.status, m.error.message);
+	app.openapi(nodeGroupsRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		await manageable(c, id);
 		const row = await getNode(db, id);
-		if (!row) return jsonError(c, 404, "no such node");
-		const body = await readJsonObject(c);
-		const nodeGroups = body?.nodeGroups;
-		if (!Array.isArray(nodeGroups) || !nodeGroups.every((group) => typeof group === "string")) {
-			return jsonError(c, 400, "nodeGroups must be a list of node-group names or ids");
-		}
+		if (!row) throw new NotFoundError("no such node");
+		const { nodeGroups } = c.req.valid("json");
 		const nodeGroupIds = await resolveNodeGroupIds(db, row.org_id, nodeGroups);
 		const current = await setNodeGroupsForNode(db, id, nodeGroupIds);
 		void c.get("audit").record({
@@ -396,13 +596,12 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { node_group_ids: nodeGroupIds, node_groups: current.map((nodeGroup) => nodeGroup.name) },
 		});
-		return c.json({ nodeGroups: current });
+		return c.json({ nodeGroups: current }, 200);
 	});
 
-	app.delete("/nodes/:id", async (c) => {
-		const id = c.req.param("id");
-		const m = await manageable(c, id);
-		if (m.error) return jsonError(c, m.error.status, m.error.message);
+	app.openapi(deleteRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		await manageable(c, id);
 		const before = await getNode(db, id);
 		await deleteNode(db, id);
 		// tasks.node_id has no foreign key: a waiting task would survive its node and could never dispatch.
@@ -416,7 +615,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		// Deleting a pending node rejects its enrollment; deleting an active node disconnects it. Both get
 		// node.status{rejected} first, which tells crha to stop and not reconnect.
 		options.cluster?.notifyNodeStatus(id, "rejected", "node deleted");
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	return app;

@@ -3,48 +3,37 @@
  * administrator manages and the nodes whose cached trust report trusts each key.
  */
 
+import type { z } from "zod";
+import type {
+	SigningKeyCreateInputSchema,
+	SigningKeyCreateResponseSchema,
+	SigningKeyDeleteConflictSchema,
+	SigningKeyKindSchema,
+	SigningKeyListResponseSchema,
+	SigningKeySchema,
+	SigningKeyTrustSchema,
+} from "./schemas/signing-keys.ts";
+
 /** A crhs signing key's usable capabilities in a node's `privileged.toml` trust entry. */
-export type SigningKeyKind = "execute" | "cosign";
+export type SigningKeyKind = z.infer<typeof SigningKeyKindSchema>;
 
 /** One node whose cached trust report trusts a signing key, and with which kinds. */
-export interface SigningKeyTrust {
-	nodeId: string;
-	nodeName: string;
-	kinds: SigningKeyKind[];
-}
+export type SigningKeyTrust = z.infer<typeof SigningKeyTrustSchema>;
 
 /** One crhs authorization signing key. */
-export interface SigningKey {
-	/** The secret row id; `DELETE /api/privilege/signing-keys/:id` addresses the key by it. */
-	id: string;
-	/** The authorized_keys line (`ssh-ed25519 … crhs-signing`) to paste into a node's trust entry. */
-	publicKey: string;
-	/** OpenSSH `SHA256:…` fingerprint; it identifies the key everywhere. */
-	fingerprint: string;
-	/** The key's creation time; newer keys are preferred when a node trusts several. */
-	createdAt: string;
-	/** The nodes whose cached trust report trusts this key, with the kinds they trust it for. */
-	trustedBy: SigningKeyTrust[];
-}
+export type SigningKey = z.infer<typeof SigningKeySchema>;
 
 /** `GET /api/privilege/signing-keys`; newest first. */
-export interface SigningKeyListResponse {
-	keys: SigningKey[];
-}
+export type SigningKeyListResponse = z.infer<typeof SigningKeyListResponseSchema>;
 
 /** `POST /api/privilege/signing-keys` takes no body: a key is identified by its fingerprint. */
-export type SigningKeyCreateInput = Record<string, never>;
+export type SigningKeyCreateInput = z.infer<typeof SigningKeyCreateInputSchema>;
 
 /** The response of adding a key: its public parts, with an empty `trustedBy` until a node reloads. */
-export interface SigningKeyCreateResponse {
-	key: SigningKey;
-}
+export type SigningKeyCreateResponse = z.infer<typeof SigningKeyCreateResponseSchema>;
 
 /**
  * `DELETE /api/privilege/signing-keys/:id` without `?force=true` while nodes still trust the key: which
  * nodes stand in the way.
  */
-export interface SigningKeyDeleteConflict {
-	error: string;
-	nodes: SigningKeyTrust[];
-}
+export type SigningKeyDeleteConflict = z.infer<typeof SigningKeyDeleteConflictSchema>;

@@ -121,6 +121,15 @@ describeBackends("api auth", (backend) => {
 			expect(bad.status).toBe(400);
 		});
 
+		it("rejects a body that does not match the route's schema", async () => {
+			const wrongType = await call(app, "/api/auth/login", { body: { username: 5, password: "x" } });
+			expect(wrongType.status).toBe(400);
+			expect(((await wrongType.json()) as { error: string }).error).toMatch(/^username: /);
+			const challenge = await call(app, "/api/auth/login/challenge", { body: { username: "alice", tag: 5 } });
+			expect(challenge.status).toBe(400);
+			expect(((await challenge.json()) as { error: string }).error).toMatch(/^tag: /);
+		});
+
 		it("does not let a disabled user log in", async () => {
 			await createUser(db, { username: "dis", kind: "member", password: "dis-password" });
 			const patch = await call(app, "/api/users", { cookie: adminCookie });

@@ -1438,6 +1438,18 @@ describe("user authorizations", () => {
 		expect((await taskView(rejected.id)).state).toBe("rejected");
 	});
 
+	it("rejects a submission body that does not match the route's schema", async () => {
+		const res = await call(app, "/api/authorizations", { cookie: owner.cookie, body: { authorization: 5 } });
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toMatch(/^authorization: /);
+		const wrong = await call(app, "/api/tasks/none/authorization/reject", {
+			cookie: owner.cookie,
+			body: { reason: 5 },
+		});
+		expect(wrong.status).toBe(400);
+		expect(((await wrong.json()) as { error: string }).error).toMatch(/^reason: /);
+	});
+
 	it("rejects a signature wait with the owner's reason and audits it", async () => {
 		const { node } = await connect("reject-1", (id) => summaryOf(id, [ownerEntry()]));
 		const task = await createPrivileged(node.id);

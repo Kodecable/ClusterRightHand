@@ -209,6 +209,28 @@ describeBackends("api nodes", (backend) => {
 		expect((await patch(5)).status).toBe(400);
 	});
 
+	it("rejects a body that does not match the route's schema", async () => {
+		const n = await enrollFor("schema-reject");
+		const rename = await call(app, `/api/nodes/${n.id}`, { method: "PATCH", cookie: cookies.root, body: { name: 5 } });
+		expect(rename.status).toBe(400);
+		expect(((await rename.json()) as { error: string }).error).toMatch(/^name: /);
+		const groups = await call(app, `/api/nodes/${n.id}/node-groups`, {
+			method: "PUT",
+			cookie: cookies.root,
+			body: { nodeGroups: "x" },
+		});
+		expect(groups.status).toBe(400);
+		expect(((await groups.json()) as { error: string }).error).toMatch(/^nodeGroups: /);
+		// The administrator middleware runs before the schema, so a granted member sees 403 rather than 400.
+		await grant("root", { granteeType: "user", granteeId: ids.op, targetType: "node", targetId: n.id });
+		const denied = await call(app, `/api/nodes/${n.id}`, {
+			method: "PATCH",
+			cookie: cookies.op,
+			body: { name: 5 },
+		});
+		expect(denied.status).toBe(403);
+	});
+
 	it("delete works for pending and active nodes and removes grants", async () => {
 		const pending = await enrollFor("reject-me");
 		expect(

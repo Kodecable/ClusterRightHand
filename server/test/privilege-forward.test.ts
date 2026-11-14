@@ -921,6 +921,7 @@ describe("privileged forward dispatch", () => {
 				body: { name: "third" },
 			});
 			expect(named.status).toBe(400);
+			expect(((await named.json()) as { error: string }).error).toMatch(/name/);
 
 			const added = await call(app, "/api/privilege/signing-keys", {
 				method: "POST",

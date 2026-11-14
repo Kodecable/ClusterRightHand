@@ -1,8 +1,17 @@
-import type { ApprovalList, QuotaApproval } from "@crh/api";
-import { type Context, Hono } from "hono";
+import type { ApprovalBody } from "@crh/api";
+import {
+	ApprovalBodySchema,
+	ApprovalListSchema,
+	ErrorResponseSchema,
+	ExternalCallResponseSchema,
+	IdParamSchema,
+	OkResponseSchema,
+} from "@crh/api/schemas";
+import type { Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { type Audit, userActor } from "../audit/audit.ts";
-import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
-import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
+import type { ApprovalDecision, Cluster } from "../cluster/cluster.ts";
+import type { TaskGroups } from "../cluster/task-groups.ts";
 import {
 	decideExternalCall,
 	externalCallApproval,
@@ -16,10 +25,69 @@ import type { Rule } from "../policy/rules.ts";
 import { appendRule, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
-import { UserError } from "../util/errors.ts";
-import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
+import type { AppEnv } from "./context.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
 
-type QuotaRequest = QuotaApproval;
+const TAGS = ["Approvals"];
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/approvals",
+	tags: TAGS,
+	summary: "Everything waiting for the caller: approvals, external calls, signatures and exhausted quotas",
+	agent: "allow",
+	responses: { 200: { description: "The caller's waiting work", ...json(ApprovalListSchema) } },
+});
+
+const decideTaskRoute = defineRoute({
+	method: "post",
+	path: "/tasks/{id}/approval",
+	tags: TAGS,
+	summary: "Approve or reject a waiting task, optionally appending an allow rule",
+	agent: "deny", // an approval decision
+	request: { params: IdParamSchema, body: { required: true, ...json(ApprovalBodySchema) } },
+	responses: {
+		200: { description: "The decision was taken", ...json(OkResponseSchema) },
+		409: { description: "The request is no longer waiting for approval", ...json(ErrorResponseSchema) },
+	},
+});
+
+const decideGroupRoute = defineRoute({
+	method: "post",
+	path: "/task-groups/{id}/approval",
+	tags: TAGS,
+	summary: "Approve or reject a waiting task group, optionally appending an allow rule",
+	agent: "deny", // an approval decision
+	request: { params: IdParamSchema, body: { required: true, ...json(ApprovalBodySchema) } },
+	responses: {
+		200: { description: "The decision was taken", ...json(OkResponseSchema) },
+		409: { description: "The request is no longer waiting for approval", ...json(ErrorResponseSchema) },
+	},
+});
+
+const externalCallRoute = defineRoute({
+	method: "get",
+	path: "/external-calls/{id}",
+	tags: TAGS,
+	summary: "One waiting external call, for the approval detail page",
+	agent: "allow",
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "The external call", ...json(ExternalCallResponseSchema) } },
+});
+
+const decideExternalCallRoute = defineRoute({
+	method: "post",
+	path: "/external-calls/{id}/approval",
+	tags: TAGS,
+	summary: "Approve or reject a waiting external call, optionally appending an allow rule",
+	agent: "deny", // an approval decision
+	request: { params: IdParamSchema, body: { required: true, ...json(ApprovalBodySchema) } },
+	responses: {
+		200: { description: "The decision was taken", ...json(OkResponseSchema) },
+		409: { description: "The request is no longer waiting for approval", ...json(ErrorResponseSchema) },
+	},
+});
 
 /** After any rule change: settle what no longer needs approval, external calls included. */
 export async function reevaluateAfterRuleChange(
@@ -35,9 +103,9 @@ export async function reevaluateAfterRuleChange(
 
 /** Approvals: only the root's owner decides (doc/design/access-control.md "Approvals"). Expects requireUser. */
 export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, audit: Audit) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
-	app.get("/approvals", async (c) => {
+	app.openapi(listRoute, async (c) => {
 		const user = c.get("user");
 		const approvalRows = await approvalRequestRows(db, user.userId);
 		const signatureRows = await signatureRequestRows(db, user.userId);
@@ -47,14 +115,16 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const signatureTasks = await taskViews(cluster, signatureRows.tasks);
 		const signatureTaskGroups = await taskGroupViews(taskGroups, signatureRows.taskGroups);
 		const externalCalls = await externalCallViews(db, await pendingExternalCallRows(db, user.userId));
-		const body: ApprovalList = {
-			tasks,
-			taskGroups: approvalTaskGroups,
-			externalCalls,
-			authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
-			quotas,
-		};
-		return c.json(body);
+		return c.json(
+			{
+				tasks,
+				taskGroups: approvalTaskGroups,
+				externalCalls,
+				authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
+				quotas,
+			},
+			200,
+		);
 	});
 
 	/**
@@ -71,16 +141,15 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			waiting: boolean;
 			handlerType: "agent" | "user" | null;
 		},
+		body: ApprovalBody,
 	) => {
 		const user = c.get("user");
-		if (subject.userId !== user.userId || !subject.chain) return jsonError(c, 404, "no such approval");
-		if (!subject.waiting) return jsonError(c, 409, "it is no longer waiting for approval");
-		if (subject.handlerType === null) return jsonError(c, 409, "it is no longer waiting for approval");
-		if (subject.handlerType !== "user") return jsonError(c, 409, "an agent is handling this request");
-		const body = await readJsonObject(c);
-		if (!body || (body.decision !== "approve" && body.decision !== "reject")) {
-			return jsonError(c, 400, 'decision must be "approve" or "reject"');
+		if (subject.userId !== user.userId || !subject.chain) throw new NotFoundError("no such approval");
+		if (!subject.waiting) throw new HTTPException(409, { message: "it is no longer waiting for approval" });
+		if (subject.handlerType === null) {
+			throw new HTTPException(409, { message: "it is no longer waiting for approval" });
 		}
+		if (subject.handlerType !== "user") throw new HTTPException(409, { message: "an agent is handling this request" });
 		const reason =
 			typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 1000) : undefined;
 		const decision: ApprovalDecision = {
@@ -112,55 +181,72 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			});
 			await reevaluateAfterRuleChange(db, cluster, taskGroups, root);
 		}
-		if (!ok) return jsonError(c, 409, "it is no longer waiting for approval");
-		return c.json({ ok: true });
+		if (!ok) throw new HTTPException(409, { message: "it is no longer waiting for approval" });
+		return { ok: true as const };
 	};
 
-	app.post("/tasks/:id/approval", async (c) => {
-		const t = await cluster.getTask(c.req.param("id"));
-		if (!t) return jsonError(c, 404, "no such approval");
-		return decide(c, {
-			kind: "task",
-			id: t.id,
-			userId: t.onBehalfOfUserId,
-			chain: t.ruleChain,
-			waiting: t.state === "awaiting_approval",
-			handlerType: t.handlerType,
-		});
+	app.openapi(decideTaskRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const t = await cluster.getTask(id);
+		if (!t) throw new NotFoundError("no such approval");
+		return c.json(
+			await decide(
+				c,
+				{
+					kind: "task",
+					id: t.id,
+					userId: t.onBehalfOfUserId,
+					chain: t.ruleChain,
+					waiting: t.state === "awaiting_approval",
+					handlerType: t.handlerType,
+				},
+				c.req.valid("json"),
+			),
+			200,
+		);
 	});
 
-	app.post("/task-groups/:id/approval", async (c) => {
-		const g = await taskGroups.get(c.req.param("id"));
-		if (!g) return jsonError(c, 404, "no such approval");
-		return decide(c, {
-			kind: "task_group",
-			id: g.id,
-			userId: g.onBehalfOfUserId,
-			chain: g.ruleChain,
-			waiting: g.state === "awaiting_approval",
-			handlerType: g.handlerType,
-		});
+	app.openapi(decideGroupRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const g = await taskGroups.get(id);
+		if (!g) throw new NotFoundError("no such approval");
+		return c.json(
+			await decide(
+				c,
+				{
+					kind: "task_group",
+					id: g.id,
+					userId: g.onBehalfOfUserId,
+					chain: g.ruleChain,
+					waiting: g.state === "awaiting_approval",
+					handlerType: g.handlerType,
+				},
+				c.req.valid("json"),
+			),
+			200,
+		);
 	});
 
 	/** One waiting external call, for the approval detail page. */
-	app.get("/external-calls/:id", async (c) => {
+	app.openapi(externalCallRoute, async (c) => {
 		const user = c.get("user");
-		const row = await getExternalCall(db, c.req.param("id"));
-		if (!row || row.on_behalf_of_user_id !== user.userId) return jsonError(c, 404, "no such approval");
-		return c.json({ externalCall: (await externalCallViews(db, [row]))[0] });
+		const { id } = c.req.valid("param");
+		const row = await getExternalCall(db, id);
+		if (!row || row.on_behalf_of_user_id !== user.userId) throw new NotFoundError("no such approval");
+		const view = (await externalCallViews(db, [row]))[0];
+		if (!view) throw new NotFoundError("no such approval");
+		return c.json({ externalCall: view }, 200);
 	});
 
 	/** The owner approves or rejects a waiting external call; "always allow" writes an allow rule. */
-	app.post("/external-calls/:id/approval", async (c) => {
+	app.openapi(decideExternalCallRoute, async (c) => {
 		const user = c.get("user");
-		const row = await getExternalCall(db, c.req.param("id"));
-		if (!row || row.on_behalf_of_user_id !== user.userId) return jsonError(c, 404, "no such approval");
+		const { id } = c.req.valid("param");
+		const body = c.req.valid("json");
+		const row = await getExternalCall(db, id);
+		if (!row || row.on_behalf_of_user_id !== user.userId) throw new NotFoundError("no such approval");
 		if (row.state !== "awaiting_approval" || row.handler_type !== "user") {
-			return jsonError(c, 409, "it is no longer waiting for approval");
-		}
-		const body = await readJsonObject(c);
-		if (!body || (body.decision !== "approve" && body.decision !== "reject")) {
-			return jsonError(c, 400, 'decision must be "approve" or "reject"');
+			throw new HTTPException(409, { message: "it is no longer waiting for approval" });
 		}
 		const reason =
 			typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 1000) : undefined;
@@ -168,7 +254,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const root = chain?.[0];
 		let always: Rule | undefined;
 		if (body.decision === "approve" && body.always !== undefined) {
-			if (!root) return jsonError(c, 409, "the call has no rule chain");
+			if (!root) throw new HTTPException(409, { message: "the call has no rule chain" });
 			const [rule] = await parseRulesForWrite(db, await defaultOrgId(db), [body.always]);
 			if (rule?.action !== "allow") throw new UserError('an "always" rule must be an allow rule');
 			always = rule;
@@ -184,7 +270,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			},
 			reason,
 		);
-		if (!ok) return jsonError(c, 409, "it is no longer waiting for approval");
+		if (!ok) throw new HTTPException(409, { message: "it is no longer waiting for approval" });
 		void audit.record({
 			actor: userActor(user),
 			action: "external_call.approval",
@@ -207,7 +293,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			});
 			await reevaluateAfterRuleChange(db, cluster, taskGroups, root);
 		}
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	return app;
@@ -259,12 +345,12 @@ async function signatureRequestRows(db: Db, userId: string) {
 	return { tasks, taskGroups };
 }
 
-async function taskViews(cluster: Cluster, rows: { id: string }[]): Promise<TaskView[]> {
+async function taskViews(cluster: Cluster, rows: { id: string }[]) {
 	// One query for the whole list, not one per waiting row.
 	return cluster.getTasks(rows.map((row) => row.id));
 }
 
-async function taskGroupViews(taskGroups: TaskGroups, rows: { id: string }[]): Promise<TaskGroupView[]> {
+async function taskGroupViews(taskGroups: TaskGroups, rows: { id: string }[]) {
 	// One read for rows, members and reference names, not three per waiting group.
 	return taskGroups.getMany(rows.map((row) => row.id));
 }
@@ -274,7 +360,7 @@ async function taskGroupViews(taskGroups: TaskGroups, rows: { id: string }[]): P
  * same root are one request (doc/design/agent-runtime.md "Quota and token accounting"). Shared users cannot decide, so only the owner
  * sees them; admins see only their own, like the approvals above.
  */
-async function quotaRequests(db: Db, userId: string): Promise<QuotaRequest[]> {
+async function quotaRequests(db: Db, userId: string) {
 	// Only this user's paused rows; other users' rows never leave the database.
 	const pausedRows = await db
 		.selectFrom("sessions")
@@ -304,7 +390,14 @@ async function quotaRequests(db: Db, userId: string): Promise<QuotaRequest[]> {
 		.where("id", "in", levelIds)
 		.execute();
 	const byId = new Map(levels.map((level) => [level.id, level] as const));
-	const quotas: QuotaRequest[] = [];
+	const quotas: {
+		sessionId: string;
+		levelId: string;
+		title: string | null;
+		since: string;
+		budgetRemaining: number;
+		budgetUsedTokens: number;
+	}[] = [];
 	for (const levelId of levelIds) {
 		const level = byId.get(levelId);
 		if (!level || level.parent_session_id !== null || level.owner_user_id !== userId) continue;

@@ -5,13 +5,15 @@
 	"type": "module",
 	"license": "MIT",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./schemas": "./src/schemas/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run --passWithNoTests"
 	},
 	"dependencies": {
-		"@crh/protocol": "workspace:*"
+		"@crh/protocol": "workspace:*",
+		"zod": "4.6.7"
 	}
 }

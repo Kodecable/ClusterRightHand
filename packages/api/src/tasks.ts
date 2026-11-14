@@ -1,37 +1,28 @@
 /**
  * Tasks and task groups (doc/design/execution.md, doc/design/access-control.md "Approvals").
- * `TaskResultView` is the protocol's JSON task result, not a copy of it.
+ * `TaskResultView` is the protocol's JSON task result, not a copy of it; the view types are derived from
+ * their schemas, so the API document and the TypeScript types cannot drift.
  */
 
 import type { JsonFileListEntry, JsonTaskResult } from "@crh/protocol";
-import type { TaskAuthorizationView } from "./authorizations.ts";
-import type { CursorQuery, RefMap } from "./common.ts";
-import type { ApprovalRecord, Operation, RuleRef, TaskGroupApprovalRecord } from "./policy.ts";
+import type { z } from "zod";
+import type { CursorQuery } from "./common.ts";
+import type {
+	BatchOutputModeSchema,
+	OutputModeSchema,
+	TaskGroupStateSchema,
+	TaskStateSchema,
+} from "./schemas/task-state.ts";
+import type { TaskGroupViewSchema, TaskViewSchema } from "./schemas/tasks.ts";
 
-export type TaskState =
-	| "awaiting_approval"
-	| "awaiting_authorization"
-	| "denied"
-	| "dispatched"
-	| "running"
-	| "exited"
-	| "failed"
-	| "rejected"
-	| "unknown";
+export type TaskState = z.infer<typeof TaskStateSchema>;
 
 /** How much output crhs keeps for a task (doc/design/execution.md "Output"). */
-export type OutputMode = "full" | "text" | "status" | "head";
+export type OutputMode = z.infer<typeof OutputModeSchema>;
 /** A task group is a batch, so it chooses between the two batch modes only. */
-export type BatchOutputMode = "status" | "text" | "head";
+export type BatchOutputMode = z.infer<typeof BatchOutputModeSchema>;
 
-export type TaskGroupState =
-	| "awaiting_approval"
-	| "awaiting_authorization"
-	| "running"
-	| "finished"
-	| "interrupted"
-	| "rejected"
-	| "cancelled";
+export type TaskGroupState = z.infer<typeof TaskGroupStateSchema>;
 
 /** One entry of a `file.list` result (doc/design/protocol.md "Task results"). */
 export type FileListEntryView = JsonFileListEntry;
@@ -53,103 +44,11 @@ export interface TaskListQuery extends CursorQuery {
 	includePurpose?: boolean;
 }
 
-export interface TaskView {
-	id: string;
-	nodeId: string;
-	kind: string;
-	/** One line describing what ran: the command line or the path. */
-	summary: string;
-	/** What authorization rules match on: the rendered argv or the normalized path. */
-	operation: Operation | null;
-	actorType: string;
-	actorId: string;
-	onBehalfOfUserId: string;
-	state: TaskState;
-	exitCode: number | null;
-	signal: string | null;
-	timedOut: boolean;
-	cancelled: boolean;
-	/** The task's timeout in milliseconds; null when it had none. */
-	timeoutMs: number | null;
-	errorCode: string | null;
-	errorMessage: string | null;
-	/** Bytes of the single output stream. */
-	outputBytes: number;
-	/** The kept head of the output stream; text mode keeps only a tail, so this is "". */
-	outputHead: string;
-	/** The kept tail of the output stream (a single task's or a batch text node's). */
-	outputTail: string;
-	/** Lines shown by `outputTail`; a last line without a newline counts. */
-	outputTailLines: number;
-	/** Total lines of the output; null until the node reports it in task.exit. */
-	outputLines: number | null;
-	/** crhs's own note about the task (the SSH privileged notice); not part of the output. */
-	notice: string | null;
-	/** The task's output budget; null is the default for its mode. */
-	maxLines: number | null;
-	maxBytes: number | null;
-	outputFile: string | null;
-	/** full for a single task; text, status or head for a batch node (doc/design/execution.md "Output"). */
-	outputMode: OutputMode;
-	/** Whether this is a privileged task (doc/design/privilege.md). */
-	privileged: boolean;
-	/** The authorization plan and its history for a privileged task; null for the others. */
-	authorization: TaskAuthorizationView | null;
-	/** The task's structured result; null for a kind that reports none and for a task that failed. */
-	result: TaskResultView | null;
-	createdAt: string;
-	finishedAt: string | null;
-	taskGroupId: string | null;
-	ruleChain: RuleRef[] | null;
-	approval: ApprovalRecord | null;
-	/** The chain's first session, for grouping approvals by session tree. */
-	rootSessionId: string | null;
-	/** Who handles a waiting approval; null when it is not waiting. */
-	handlerType: "agent" | "user" | null;
-	handlerSessionId: string | null;
-	/** Why a dedicated feature created this task, such as `browse`; null for ordinary work (doc/design/execution.md "Task purpose"). */
-	purpose: string | null;
-}
+/** One task, as the task and approval pages show it. */
+export type TaskView = z.infer<typeof TaskViewSchema>;
 
-export interface TaskGroupView {
-	id: string;
-	state: TaskGroupState;
-	/** Stored target UUIDs or `_all`; the display names are in `refs`. */
-	targets: string[];
-	/** Display names for the UUID targets; null means the node or node group was deleted. */
-	refs: RefMap;
-	nodeIds: string[];
-	parallel: number;
-	failFast: boolean;
-	/** status or text for an exec group; head for a file operation (doc/design/execution.md "Output"). */
-	outputMode: BatchOutputMode;
-	/** Per-node output caps; null means the defaults, 8KB / 128 lines. */
-	nodeMaxLines: number | null;
-	nodeMaxBytes: number | null;
-	/** Whether the group's tasks are privileged tasks (doc/design/privilege.md). */
-	privileged: boolean;
-	skipped: string[];
-	tasks: TaskView[];
-	createdAt: string;
-	finishedAt: string | null;
-	/** What runs on each node, for display. */
-	summary: string;
-	kind: string;
-	ruleChain: RuleRef[] | null;
-	approval: TaskGroupApprovalRecord | null;
-	actorType: string;
-	actorId: string;
-	onBehalfOfUserId: string;
-	/** What authorization rules match on, the same for every node. */
-	operation: Operation | null;
-	/** Root session of the rule chain, for grouping approvals by session tree. */
-	rootSessionId: string | null;
-	/** Who handles a waiting approval; null when it is not waiting. */
-	handlerType: "agent" | "user" | null;
-	handlerSessionId: string | null;
-	/** Why a dedicated feature created this group; null for ordinary work (doc/design/execution.md "Task purpose"). */
-	purpose: string | null;
-}
+/** One batch: one task per target node (doc/design/agent-runtime.md "Batch execution"). */
+export type TaskGroupView = z.infer<typeof TaskGroupViewSchema>;
 
 /** Body of `POST /nodes/:id/tasks` and `POST /task-groups`: `kind` plus the kind's fields. */
 export type TaskRequest = {

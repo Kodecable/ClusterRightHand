@@ -1,4 +1,21 @@
-import { Hono } from "hono";
+import {
+	DirectoryResponseSchema,
+	EntityListQuerySchema,
+	ErrorResponseSchema,
+	IdParamSchema,
+	OkResponseSchema,
+	UserCreateBodySchema,
+	UserDetailSchema,
+	UserGroupDetailResponseSchema,
+	UserGroupListResponseSchema,
+	UserGroupMemberParamSchema,
+	UserGroupNameBodySchema,
+	UserGroupResponseSchema,
+	UserListResponseSchema,
+	UserPasswordBodySchema,
+	UserPatchBodySchema,
+	UserResponseSchema,
+} from "@crh/api/schemas";
 import type { SessionListHub } from "../agent/session-list.ts";
 import { userActor } from "../audit/audit.ts";
 import { revokeAllApiTokens } from "../auth/api-tokens.ts";
@@ -27,12 +44,196 @@ import {
 	removeUserGroupMember,
 	renameUserGroup,
 } from "../users/user-groups.ts";
+import { NotFoundError, UserError } from "../util/errors.ts";
 import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
-import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
 import { requireAdmin, requireAdminOrSelf } from "./middleware.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
 
-const KINDS = new Set(["admin", "member"]);
-const STATUSES = new Set(["active", "disabled"]);
+const TAGS = ["Users"];
+
+const meRoute = defineRoute({
+	method: "get",
+	path: "/me",
+	tags: TAGS,
+	summary: "The signed-in user",
+	agent: "allow",
+	responses: { 200: { description: "The caller", ...json(UserResponseSchema) } },
+});
+
+const directoryRoute = defineRoute({
+	method: "get",
+	path: "/directory",
+	tags: TAGS,
+	summary: "Search the users and user groups a share or rule may name; names only",
+	agent: "allow",
+	request: { query: EntityListQuerySchema },
+	responses: { 200: { description: "The matching users and user groups", ...json(DirectoryResponseSchema) } },
+});
+
+const detailRoute = defineRoute({
+	method: "get",
+	path: "/users/{id}",
+	tags: TAGS,
+	summary: "One user with the user groups it belongs to; administrators, or the user themselves",
+	agent: "allow",
+	middleware: [requireAdminOrSelf],
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "The user and its user groups", ...json(UserDetailSchema) } },
+});
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/users",
+	tags: TAGS,
+	summary: "List the organization's users (administrators)",
+	agent: "allow",
+	middleware: [requireAdmin],
+	request: { query: EntityListQuerySchema },
+	responses: {
+		200: { description: "The users", ...json(UserListResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const createRoute = defineRoute({
+	method: "post",
+	path: "/users",
+	tags: TAGS,
+	summary: "Create a user, optionally with a password (administrators)",
+	agent: "deny", // user management
+	middleware: [requireAdmin],
+	request: { body: { required: true, ...json(UserCreateBodySchema) } },
+	responses: {
+		201: { description: "The new user", ...json(UserResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const patchRoute = defineRoute({
+	method: "patch",
+	path: "/users/{id}",
+	tags: TAGS,
+	summary: "Change a user's display name, email, role or status (administrators)",
+	agent: "deny", // roles and status are access control
+	middleware: [requireAdmin],
+	request: { params: IdParamSchema, body: { required: true, ...json(UserPatchBodySchema) } },
+	responses: {
+		200: { description: "The updated user", ...json(UserResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const passwordRoute = defineRoute({
+	method: "post",
+	path: "/users/{id}/password",
+	tags: TAGS,
+	summary: "Reset a user's password and revoke their WebUI sessions (administrators)",
+	agent: "deny", // passwords
+	middleware: [requireAdmin],
+	request: { params: IdParamSchema, body: { required: true, ...json(UserPasswordBodySchema) } },
+	responses: {
+		200: { description: "The password was reset", ...json(OkResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const groupsRoute = defineRoute({
+	method: "get",
+	path: "/user-groups",
+	tags: TAGS,
+	summary: "List the organization's user groups (administrators)",
+	agent: "allow",
+	middleware: [requireAdmin],
+	request: { query: EntityListQuerySchema },
+	responses: {
+		200: { description: "The user groups", ...json(UserGroupListResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const groupRoute = defineRoute({
+	method: "get",
+	path: "/user-groups/{id}",
+	tags: TAGS,
+	summary: "One user group and its members (administrators)",
+	agent: "allow",
+	middleware: [requireAdmin],
+	request: { params: IdParamSchema },
+	responses: {
+		200: { description: "The user group", ...json(UserGroupDetailResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const createGroupRoute = defineRoute({
+	method: "post",
+	path: "/user-groups",
+	tags: TAGS,
+	summary: "Create an empty user group (administrators)",
+	agent: "deny", // group membership reaches shared resources
+	middleware: [requireAdmin],
+	request: { body: { required: true, ...json(UserGroupNameBodySchema) } },
+	responses: {
+		201: { description: "The new user group", ...json(UserGroupResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const renameGroupRoute = defineRoute({
+	method: "patch",
+	path: "/user-groups/{id}",
+	tags: TAGS,
+	summary: "Rename a user group (administrators)",
+	agent: "deny", // group management
+	middleware: [requireAdmin],
+	request: { params: IdParamSchema, body: { required: true, ...json(UserGroupNameBodySchema) } },
+	responses: {
+		200: { description: "The renamed user group", ...json(UserGroupResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const deleteGroupRoute = defineRoute({
+	method: "delete",
+	path: "/user-groups/{id}",
+	tags: TAGS,
+	summary: "Delete a user group, its memberships, its grants and its shares (administrators)",
+	agent: "deny", // group management
+	middleware: [requireAdmin],
+	request: { params: IdParamSchema },
+	responses: {
+		200: { description: "Deleted", ...json(OkResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const addMemberRoute = defineRoute({
+	method: "put",
+	path: "/user-groups/{id}/members/{userId}",
+	tags: TAGS,
+	summary: "Add a user to a user group; idempotent (administrators)",
+	agent: "deny", // membership grants access
+	middleware: [requireAdmin],
+	request: { params: UserGroupMemberParamSchema },
+	responses: {
+		200: { description: "The member is in the group", ...json(OkResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
+
+const removeMemberRoute = defineRoute({
+	method: "delete",
+	path: "/user-groups/{id}/members/{userId}",
+	tags: TAGS,
+	summary: "Remove a user from a user group; idempotent (administrators)",
+	agent: "deny", // membership grants access
+	middleware: [requireAdmin],
+	request: { params: UserGroupMemberParamSchema },
+	responses: {
+		200: { description: "The member is not in the group", ...json(OkResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
+	},
+});
 
 export interface UserRoutesOptions {
 	/** The session list stream: membership and account changes alter what a user may see. */
@@ -48,72 +249,60 @@ export interface UserRoutesOptions {
 
 /** Expects requireUser to have run. */
 export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
-	app.get("/me", async (c) => {
+	app.openapi(meRoute, async (c) => {
 		const row = await db.selectFrom("users").selectAll().where("id", "=", c.get("user").userId).executeTakeFirst();
-		if (!row) return jsonError(c, 404, "no such user");
+		if (!row) throw new NotFoundError("no such user");
 		const { password_hash: _, ...rest } = row;
-		return c.json({ user: toPublicUser(rest) });
+		return c.json({ user: toPublicUser(rest) }, 200);
 	});
 
 	// Everyone in the organization can look up whom to share with; only names, nothing else.
-	app.get("/directory", async (c) => {
-		const params = {
-			q: c.req.query("q"),
-			limit: c.req.query("limit"),
-			ids: c.req.query("ids"),
-		};
+	app.openapi(directoryRoute, async (c) => {
+		const params = c.req.valid("query");
 		const page = await queryDirectory(db, params);
-		return c.json({
-			users: page.users,
-			userGroups: page.userGroups,
-			...(params.limit === undefined ? {} : { more: page.more }),
-		});
+		return c.json(
+			{
+				users: page.users,
+				userGroups: page.userGroups,
+				...(params.limit === undefined ? {} : { more: page.more }),
+			},
+			200,
+		);
 	});
 
 	/**
 	 * One user's view. Administrators read anyone; everyone else only themselves, and any other id answers
 	 * the same 404 a missing user gets (an unprivileged caller never learns whether an account exists).
-	 * Registered before the admin middleware for `/users/*`; every other /users route stays admin-only.
+	 * The other /users routes are administrator-only.
 	 */
-	app.get("/users/:id", requireAdminOrSelf, async (c) => {
-		const detail = await getUserDetail(db, c.req.param("id"));
-		if (!detail) return jsonError(c, 404, "no such user");
-		return c.json(detail);
+	app.openapi(detailRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const detail = await getUserDetail(db, id);
+		if (!detail) throw new NotFoundError("no such user");
+		return c.json(detail, 200);
 	});
 
-	app.use("/users/*", requireAdmin);
-	app.use("/users", requireAdmin);
-	app.use("/user-groups/*", requireAdmin);
-	app.use("/user-groups", requireAdmin);
-
-	app.get("/users", async (c) => {
-		const params = {
-			q: c.req.query("q"),
-			limit: c.req.query("limit"),
-			ids: c.req.query("ids"),
-		};
+	app.openapi(listRoute, async (c) => {
+		const params = c.req.valid("query");
 		const page = await queryUsers(db, params);
-		return c.json({ users: page.items, ...(params.limit === undefined ? {} : { more: page.more }) });
+		return c.json({ users: page.items, ...(params.limit === undefined ? {} : { more: page.more }) }, 200);
 	});
 
-	app.post("/users", async (c) => {
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const username = optionalString(body, "username");
-		const kind = optionalString(body, "kind") ?? "member";
-		if (!username) return jsonError(c, 400, "username is required");
-		if (!KINDS.has(kind)) return jsonError(c, 400, "kind must be admin or member");
+	app.openapi(createRoute, async (c) => {
+		const body = c.req.valid("json");
+		const username = body.username;
+		if (!username) throw new UserError("username is required");
 		await options.settings?.ensureLoaded(db);
 		const user = await createUser(
 			db,
 			{
 				username,
-				kind: kind as "admin" | "member",
-				displayName: optionalString(body, "displayName"),
-				email: optionalString(body, "email"),
-				password: optionalString(body, "password"),
+				kind: body.kind ?? "member",
+				displayName: body.displayName,
+				email: body.email,
+				password: body.password,
 			},
 			options.settings ? { library: options.settings.current().library.user } : {},
 		);
@@ -126,26 +315,21 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		return c.json({ user }, 201);
 	});
 
-	app.patch("/users/:id", async (c) => {
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const kind = optionalString(body, "kind");
-		const status = optionalString(body, "status");
-		if (kind !== undefined && !KINDS.has(kind)) return jsonError(c, 400, "kind must be admin or member");
-		if (status !== undefined && !STATUSES.has(status)) return jsonError(c, 400, "status must be active or disabled");
-		const id = c.req.param("id");
+	app.openapi(patchRoute, async (c) => {
+		const body = c.req.valid("json");
+		const { id } = c.req.valid("param");
 		const user = await updateUser(
 			db,
 			id,
 			{
-				displayName: optionalString(body, "displayName"),
-				email: body.email === null ? null : optionalString(body, "email"),
-				kind: kind as "admin" | "member" | undefined,
-				status: status as "active" | "disabled" | undefined,
+				displayName: body.displayName,
+				email: body.email === null ? null : body.email,
+				kind: body.kind,
+				status: body.status,
 			},
 			{ by: c.get("user").userId },
 		);
-		if (status === "disabled") {
+		if (body.status === "disabled") {
 			await revokeUserWebSessions(db, id);
 			// A disabled user's streams end; their next request is a 401 and the client goes to login.
 			options.sessions?.endUserStreams(id);
@@ -155,7 +339,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			await Scheduler.disableForOwner(db, id, c.get("audit"), userActor(c.get("user")));
 		}
 		// Administrator and member see different sessions; a reconnect refetches under the new role.
-		if (kind !== undefined) {
+		if (body.kind !== undefined) {
 			options.sessions?.endUserStreams(id);
 			await options.sessions?.publishVisibilityChanged();
 		}
@@ -164,30 +348,26 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			action: "user.updated",
 			target: { type: "user", id },
 			detail: {
-				kind,
-				status,
+				kind: body.kind,
+				status: body.status,
 				display_name: body.displayName === undefined ? undefined : user.displayName,
 				email_changed: body.email === undefined ? undefined : true,
 			},
 		});
-		return c.json({ user });
+		return c.json({ user }, 200);
 	});
 
-	app.post("/users/:id/password", async (c) => {
-		const body = await readJsonObject(c);
-		const password = body ? optionalString(body, "password") : undefined;
-		if (!password) return jsonError(c, 400, "password is required");
-		if (body?.revokeApiTokens !== undefined && typeof body.revokeApiTokens !== "boolean") {
-			return jsonError(c, 400, "revokeApiTokens must be a boolean");
-		}
-		const id = c.req.param("id");
+	app.openapi(passwordRoute, async (c) => {
+		const body = c.req.valid("json");
+		if (!body.password) throw new UserError("password is required");
+		const { id } = c.req.valid("param");
 		const actor = c.get("user");
-		await setPassword(db, id, password);
+		await setPassword(db, id, body.password);
 		await revokeUserWebSessions(db, id);
 		// Every open stream of that user now holds a revoked WebUI session; end them with the reset.
 		await options.revalidateWebSessions?.(id);
 		// Tokens are opt-in: an administrator may reset a password without ending the user's MCP access.
-		const revokeApiTokens = body?.revokeApiTokens === true;
+		const revokeApiTokens = body.revokeApiTokens === true;
 		const revokedApiTokens = revokeApiTokens ? await revokeAllApiTokens(db, id) : [];
 		await rejectRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, actor.userId);
 		void c.get("audit").record({
@@ -196,29 +376,25 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			target: { type: "user", id },
 			detail: { revoke_api_tokens: revokeApiTokens, revoked_api_tokens: revokedApiTokens.length },
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
-	app.get("/user-groups", async (c) => {
-		const params = {
-			q: c.req.query("q"),
-			limit: c.req.query("limit"),
-			ids: c.req.query("ids"),
-		};
+	app.openapi(groupsRoute, async (c) => {
+		const params = c.req.valid("query");
 		const page = await queryUserGroups(db, params);
-		return c.json({ groups: page.items, ...(params.limit === undefined ? {} : { more: page.more }) });
+		return c.json({ groups: page.items, ...(params.limit === undefined ? {} : { more: page.more }) }, 200);
 	});
 
-	app.get("/user-groups/:id", async (c) => {
-		const group = await getUserGroupDetail(db, c.req.param("id"));
-		if (!group) return jsonError(c, 404, "no such user group");
-		return c.json({ group });
+	app.openapi(groupRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const group = await getUserGroupDetail(db, id);
+		if (!group) throw new NotFoundError("no such user group");
+		return c.json({ group }, 200);
 	});
 
-	app.post("/user-groups", async (c) => {
-		const body = await readJsonObject(c);
-		const name = body ? optionalString(body, "name") : undefined;
-		if (!name) return jsonError(c, 400, "name is required");
+	app.openapi(createGroupRoute, async (c) => {
+		const { name } = c.req.valid("json");
+		if (!name) throw new UserError("name is required");
 		await options.settings?.ensureLoaded(db);
 		const group = await createUserGroup(
 			db,
@@ -234,23 +410,23 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		return c.json({ group }, 201);
 	});
 
-	app.patch("/user-groups/:id", async (c) => {
-		const body = await readJsonObject(c);
-		const name = body ? optionalString(body, "name") : undefined;
-		if (!name) return jsonError(c, 400, "name is required");
-		const group = await renameUserGroup(db, c.req.param("id"), name);
-		if (!group) return jsonError(c, 404, "no such user group");
+	app.openapi(renameGroupRoute, async (c) => {
+		const { name } = c.req.valid("json");
+		if (!name) throw new UserError("name is required");
+		const { id } = c.req.valid("param");
+		const group = await renameUserGroup(db, id, name);
+		if (!group) throw new NotFoundError("no such user group");
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.renamed",
 			target: { type: "user_group", id: group.id },
 			detail: { name: group.name },
 		});
-		return c.json({ group });
+		return c.json({ group }, 200);
 	});
 
-	app.delete("/user-groups/:id", async (c) => {
-		const userGroupId = c.req.param("id");
+	app.openapi(deleteGroupRoute, async (c) => {
+		const { id: userGroupId } = c.req.valid("param");
 		// Capture who the user group's shares reached before deleting it: the share rows and memberships go with it.
 		const members = await db
 			.selectFrom("user_group_members")
@@ -274,35 +450,37 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.deleted",
-			target: { type: "user_group", id: c.req.param("id") },
+			target: { type: "user_group", id: userGroupId },
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
-	app.put("/user-groups/:id/members/:userId", async (c) => {
-		await addUserGroupMember(db, c.req.param("id"), c.req.param("userId"));
-		await options.sessions?.publishUserGroupMemberChanged(c.req.param("id"), c.req.param("userId"), true);
+	app.openapi(addMemberRoute, async (c) => {
+		const { id, userId } = c.req.valid("param");
+		await addUserGroupMember(db, id, userId);
+		await options.sessions?.publishUserGroupMemberChanged(id, userId, true);
 		await options.sessions?.publishVisibilityChanged();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.member_added",
-			target: { type: "user_group", id: c.req.param("id") },
-			detail: { user_id: c.req.param("userId") },
+			target: { type: "user_group", id },
+			detail: { user_id: userId },
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
-	app.delete("/user-groups/:id/members/:userId", async (c) => {
-		await removeUserGroupMember(db, c.req.param("id"), c.req.param("userId"));
-		await options.sessions?.publishUserGroupMemberChanged(c.req.param("id"), c.req.param("userId"), false);
+	app.openapi(removeMemberRoute, async (c) => {
+		const { id, userId } = c.req.valid("param");
+		await removeUserGroupMember(db, id, userId);
+		await options.sessions?.publishUserGroupMemberChanged(id, userId, false);
 		await options.sessions?.publishVisibilityChanged();
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
 			action: "user_group.member_removed",
-			target: { type: "user_group", id: c.req.param("id") },
-			detail: { user_id: c.req.param("userId") },
+			target: { type: "user_group", id },
+			detail: { user_id: userId },
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	return app;

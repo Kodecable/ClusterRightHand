@@ -1,7 +1,18 @@
-import type { ScheduleView } from "@crh/api";
-import { type Context, Hono } from "hono";
-import type { ModelConfig, ModelRef } from "../agent/models.ts";
-import { modelRefView, parseModelRef, thinkingLevelOf } from "../agent/models.ts";
+import {
+	CursorQuerySchema,
+	IdParamSchema,
+	OkResponseSchema,
+	ScheduleCreateBodySchema,
+	ScheduleListResponseSchema,
+	SchedulePatchBodySchema,
+	SchedulePreviewBodySchema,
+	SchedulePreviewResponseSchema,
+	ScheduleResponseSchema,
+	ScheduleRunResponseSchema,
+	ScheduleRunsResponseSchema,
+} from "@crh/api/schemas";
+import type { Context } from "hono";
+import { type ModelConfig, type ModelRef, modelRefView, parseModelRef, thinkingLevelOf } from "../agent/models.ts";
 import { userActor } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
@@ -26,11 +37,92 @@ import {
 import type { Db } from "../storage/db.ts";
 import { type CursorSpec, cursorRows, decodeCursor, encodeCursor, parseLimit } from "../util/cursor.ts";
 import { errorText, NotFoundError, UserError } from "../util/errors.ts";
-import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
+import type { AppEnv } from "./context.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
 
 /** `GET /schedules/:id/runs` pages over `fire_time desc, id desc`. */
 const RUNS_CURSOR: CursorSpec = { columns: [{ name: "fire_time", type: "string" }], idType: "string" };
 const PREVIEW_COUNT = 5;
+const TAGS = ["Schedules"];
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/schedules",
+	tags: TAGS,
+	summary: "The caller's own schedules; a schedule is never shared, and administrators see only theirs",
+	agent: "allow",
+	responses: { 200: { description: "The caller's schedules", ...json(ScheduleListResponseSchema) } },
+});
+
+const previewRoute = defineRoute({
+	method: "post",
+	path: "/schedules/preview",
+	tags: TAGS,
+	summary: "Compute the next fire times for a cron expression, without saving anything",
+	agent: "allow",
+	request: { body: { required: true, ...json(SchedulePreviewBodySchema) } },
+	responses: { 200: { description: "The computed fire times", ...json(SchedulePreviewResponseSchema) } },
+});
+
+const createRoute = defineRoute({
+	method: "post",
+	path: "/schedules",
+	tags: TAGS,
+	summary: "Create a schedule; it fires its prompt as the caller with its rule preset",
+	agent: "deny", // a schedule with a permissive preset authorizes future calls without the user present
+	request: { body: { required: true, ...json(ScheduleCreateBodySchema) } },
+	responses: { 201: { description: "The new schedule", ...json(ScheduleResponseSchema) } },
+});
+
+const getRoute = defineRoute({
+	method: "get",
+	path: "/schedules/{id}",
+	tags: TAGS,
+	summary: "One of the caller's schedules, with its preview and last run",
+	agent: "allow",
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "The schedule", ...json(ScheduleResponseSchema) } },
+});
+
+const patchRoute = defineRoute({
+	method: "patch",
+	path: "/schedules/{id}",
+	tags: TAGS,
+	summary: "Update a schedule; only cron, timezone and enabled change its next run",
+	agent: "deny", // a rule preset change re-arms future calls
+	request: { params: IdParamSchema, body: { required: true, ...json(SchedulePatchBodySchema) } },
+	responses: { 200: { description: "The updated schedule", ...json(ScheduleResponseSchema) } },
+});
+
+const deleteRoute = defineRoute({
+	method: "delete",
+	path: "/schedules/{id}",
+	tags: TAGS,
+	summary: "Delete a schedule, stop its running instance and remove its run history",
+	agent: "ask",
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },
+});
+
+const runRoute = defineRoute({
+	method: "post",
+	path: "/schedules/{id}/run",
+	tags: TAGS,
+	summary: "Run a schedule now, as a manual trigger with the caller as actor",
+	agent: "ask",
+	request: { params: IdParamSchema },
+	responses: { 202: { description: "The started run", ...json(ScheduleRunResponseSchema) } },
+});
+
+const runsRoute = defineRoute({
+	method: "get",
+	path: "/schedules/{id}/runs",
+	tags: TAGS,
+	summary: "Page through a schedule's runs, newest first",
+	agent: "allow",
+	request: { params: IdParamSchema, query: CursorQuerySchema },
+	responses: { 200: { description: "One page of runs", ...json(ScheduleRunsResponseSchema) } },
+});
 
 export interface ScheduleRoutesOptions {
 	scheduler: Scheduler;
@@ -41,10 +133,10 @@ export interface ScheduleRoutesOptions {
 
 /** Schedules (doc/design/scheduling.md); a schedule belongs to its creator, so administrators see only theirs too. */
 export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
 	/** The schedule's API shape, including what the list and form show about it. */
-	async function view(schedule: Schedule): Promise<ScheduleView> {
+	async function view(schedule: Schedule) {
 		const rules = await scheduleRuleSet(db, schedule.id);
 		const [last, running] = await Promise.all([latestRun(db, schedule.id), runInProgress(db, schedule.id)]);
 		// A row saved before cron/timezone were validated must not fail the list: an invalid stored
@@ -83,34 +175,33 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 	}
 
 	/** The caller's own schedule; 404 for anything else, like API tokens. */
-	async function own(c: Context<AppEnv>): Promise<Schedule> {
-		const schedule = await getSchedule(db, c.req.param("id") as string);
+	async function own(c: Context<AppEnv>, id: string): Promise<Schedule> {
+		const schedule = await getSchedule(db, id);
 		if (!schedule || schedule.ownerUserId !== c.get("user").userId) throw new NotFoundError("no such schedule");
 		return schedule;
 	}
 
-	app.get("/schedules", async (c) => {
+	app.openapi(listRoute, async (c) => {
 		const schedules = await listSchedules(db, c.get("user").userId);
-		return c.json({ schedules: await Promise.all(schedules.map(view)) });
+		return c.json({ schedules: await Promise.all(schedules.map(view)) }, 200);
 	});
 
 	/** Computes the next fire times for the form, without saving anything. */
-	app.post("/schedules/preview", async (c) => {
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
-		const cron = optionalString(body, "cron") ?? "";
-		const timezone = optionalString(body, "timezone") ?? "";
-		const count = typeof body.count === "number" ? body.count : PREVIEW_COUNT;
+	app.openapi(previewRoute, async (c) => {
+		const body = c.req.valid("json");
+		const cron = body.cron ?? "";
+		const timezone = body.timezone ?? "";
+		const count = body.count ?? PREVIEW_COUNT;
 		validateCron(cron, timezone);
-		return c.json({ times: previewRuns(cron, timezone, options.scheduler.now(), count) });
+		return c.json({ times: previewRuns(cron, timezone, options.scheduler.now(), count) }, 200);
 	});
 
-	app.post("/schedules", async (c) => {
+	app.openapi(createRoute, async (c) => {
 		const user = c.get("user");
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
+		const body = c.req.valid("json");
 		// Creating has no previous model: no level means off, an explicit level must be supported.
 		const model = options.models.resolveRef(parseModelRef(body.model));
+		const rulePreset = parseRulePreset(body.rulePreset ?? "ask");
 		const schedule = await createSchedule(
 			db,
 			user.userId,
@@ -118,7 +209,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				name: requiredString(body, "name"),
 				prompt: requiredString(body, "prompt"),
 				model,
-				rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
+				rulePreset,
 				tokenBudget: parseTokenBudget(body.tokenBudget),
 				cron: requiredString(body, "cron"),
 				timezone: requiredString(body, "timezone"),
@@ -131,21 +222,20 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			actor: userActor(user),
 			action: "schedule.created",
 			target: { type: "schedule", id: schedule.id },
-			detail: scheduleDetail(schedule, { rule_preset: parseRulePreset(body.rulePreset ?? "ask") }),
+			detail: scheduleDetail(schedule, { rule_preset: rulePreset }),
 		});
 		// The loop picks the new trigger up at once (doc/design/scheduling.md "Triggering and submission").
 		options.scheduler.wake();
 		return c.json({ schedule: await view(schedule) }, 201);
 	});
 
-	app.get("/schedules/:id", async (c) => c.json({ schedule: await view(await own(c)) }));
+	app.openapi(getRoute, async (c) => c.json({ schedule: await view(await own(c, c.req.valid("param").id)) }, 200));
 
 	/** `PATCH /api/schedules/:id`: any of the create fields; only cron/timezone/enabled change `next_run_at`. */
-	app.patch("/schedules/:id", async (c) => {
+	app.openapi(patchRoute, async (c) => {
 		const user = c.get("user");
-		const schedule = await own(c);
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
+		const schedule = await own(c, c.req.valid("param").id);
+		const body = c.req.valid("json");
 		// A model change without a level keeps the schedule's level, clamped to the new model.
 		const model: ModelRef | undefined =
 			body.model === undefined
@@ -156,15 +246,15 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			db,
 			schedule,
 			{
-				...(typeof body.name === "string" ? { name: body.name } : {}),
-				...(typeof body.prompt === "string" ? { prompt: body.prompt } : {}),
+				...(body.name === undefined ? {} : { name: body.name }),
+				...(body.prompt === undefined ? {} : { prompt: body.prompt }),
 				...(model ? { model } : {}),
 				...(rulePreset ? { rulePreset } : {}),
 				...(body.tokenBudget === undefined ? {} : { tokenBudget: parseTokenBudget(body.tokenBudget) }),
-				...(typeof body.cron === "string" ? { cron: body.cron } : {}),
-				...(typeof body.timezone === "string" ? { timezone: body.timezone } : {}),
-				...(typeof body.catchUp === "boolean" ? { catchUp: body.catchUp } : {}),
-				...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
+				...(body.cron === undefined ? {} : { cron: body.cron }),
+				...(body.timezone === undefined ? {} : { timezone: body.timezone }),
+				...(body.catchUp === undefined ? {} : { catchUp: body.catchUp }),
+				...(body.enabled === undefined ? {} : { enabled: body.enabled }),
 			},
 			options.scheduler.now(),
 		);
@@ -178,7 +268,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				next_run_at: updated.nextRunAt,
 			},
 		});
-		if (typeof body.enabled === "boolean" && body.enabled !== schedule.enabled) {
+		if (body.enabled !== undefined && body.enabled !== schedule.enabled) {
 			void c.get("audit").record({
 				actor: userActor(user),
 				action: body.enabled ? "schedule.enabled" : "schedule.disabled",
@@ -193,12 +283,12 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			await options.taskGroups.reevaluate(ref);
 		}
 		options.scheduler.wake();
-		return c.json({ schedule: await view(updated) });
+		return c.json({ schedule: await view(updated) }, 200);
 	});
 
-	app.delete("/schedules/:id", async (c) => {
+	app.openapi(deleteRoute, async (c) => {
 		const user = c.get("user");
-		const schedule = await own(c);
+		const schedule = await own(c, c.req.valid("param").id);
 		// Deleting stops the running instance and removes the runs; the sessions stay, unlinked (doc/design/scheduling.md).
 		await options.scheduler.remove(schedule.id);
 		void c.get("audit").record({
@@ -208,22 +298,23 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			detail: { name: schedule.name },
 		});
 		options.scheduler.wake();
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	/** Manual run: the same path as a trigger, with the user as actor and `manual = true`. */
-	app.post("/schedules/:id/run", async (c) => {
+	app.openapi(runRoute, async (c) => {
 		const user = c.get("user");
-		const schedule = await own(c);
+		const schedule = await own(c, c.req.valid("param").id);
 		const run = await options.scheduler.runNow(schedule.id, user);
 		return c.json({ run }, 202);
 	});
 
 	/** Run history, newest first, one keyset page at a time (doc/design/webui.md "API conventions"). */
-	app.get("/schedules/:id/runs", async (c) => {
-		const schedule = await own(c);
-		const limit = parseLimit(c.req.query("limit"));
-		const rawCursor = c.req.query("cursor");
+	app.openapi(runsRoute, async (c) => {
+		const schedule = await own(c, c.req.valid("param").id);
+		const query = c.req.valid("query");
+		const limit = parseLimit(query.limit);
+		const rawCursor = query.cursor;
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, RUNS_CURSOR);
 		const page = await cursorRows(
 			limit,
@@ -236,7 +327,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				),
 			(run) => encodeCursor([run.fireTime], run.id),
 		);
-		return c.json({ items: page.rows, nextCursor: page.nextCursor });
+		return c.json({ items: page.rows, nextCursor: page.nextCursor }, 200);
 	});
 
 	return app;

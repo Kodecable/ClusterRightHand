@@ -1262,6 +1262,13 @@ it("validates the API input and keeps schedules owner-only", async () => {
 		catchUp: false,
 		enabled: true,
 	};
+	const wrongType = await call(app, "/api/schedules", {
+		method: "POST",
+		cookie: ownerCookie,
+		body: { ...base, model: "x" },
+	});
+	expect(wrongType.status).toBe(400);
+	expect(((await wrongType.json()) as { error: string }).error).toMatch(/^model: /);
 	for (const bad of [
 		{ ...base, cron: "not a cron" },
 		{ ...base, cron: "0 0 * * * *" },

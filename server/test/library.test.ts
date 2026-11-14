@@ -164,6 +164,22 @@ describe("library API", () => {
 		]);
 	});
 
+	it("rejects a body that does not match the route's schema", async () => {
+		const move = await call(app, `${lib("user:alice")}/move`, {
+			cookie: alice,
+			body: { from: 5, to: "x.txt" },
+		});
+		expect(move.status).toBe(400);
+		expect(((await move.json()) as { error: string }).error).toMatch(/^from: /);
+		const limits = await call(app, `${lib("user:alice")}/limits`, {
+			method: "PATCH",
+			cookie: admin,
+			body: { files: "many" },
+		});
+		expect(limits.status).toBe(400);
+		expect(((await limits.json()) as { error: string }).error).toMatch(/^files: /);
+	});
+
 	it("uploads, lists by prefix, stats, downloads, renames and deletes", async () => {
 		const data = Buffer.from("hello world\n");
 		const uploaded = await upload(alice, "user:alice", "docs/notes/a.txt", data);

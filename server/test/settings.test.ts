@@ -288,6 +288,12 @@ describe("settings API", () => {
 		expect(((await (await get(admin)).json()) as { settings: SystemSettings }).settings).toEqual(before.settings);
 	});
 
+	it("rejects a patch body that is not a JSON object before the store sees it", async () => {
+		const res = await patch([1]);
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toBeTruthy();
+	});
+
 	it("records what changed in the audit log", async () => {
 		const before = await db
 			.selectFrom("audit_events")

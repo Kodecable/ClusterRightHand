@@ -144,6 +144,17 @@ describe("node access grants api (sqlite)", () => {
 		expect((await req(adminCookie, "/api/node-access-grants?targetType=bogus")).status).toBe(400);
 	});
 
+	it("rejects a grant body that does not match the route's schema", async () => {
+		const res = await req(
+			adminCookie,
+			"/api/node-access-grants",
+			{ granteeType: "user", granteeId: memberId, targetType: "node", targetId: 7 },
+			"POST",
+		);
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toMatch(/^targetId: /);
+	});
+
 	it("deletes a user group's grants with the user group", async () => {
 		expect((await req(adminCookie, `/api/user-groups/${userGroupId}`, {}, "DELETE")).status).toBe(200);
 		expect(

@@ -1,4 +1,12 @@
-import { Hono } from "hono";
+import {
+	ApiTokenCreateBodySchema,
+	ApiTokenCreatedResponseSchema,
+	ApiTokenListResponseSchema,
+	ApiTokenResponseSchema,
+	ApiTokenRulesBodySchema,
+	IdParamSchema,
+	OkResponseSchema,
+} from "@crh/api/schemas";
 import { type Audit, userActor } from "../audit/audit.ts";
 import {
 	createApiToken,
@@ -14,27 +22,78 @@ import { parseRulesForWrite } from "../policy/refs.ts";
 import { type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
+import { NotFoundError } from "../util/errors.ts";
 import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
 import { reevaluateAfterRuleChange } from "./approval-routes.ts";
-import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
+
+const TAGS = ["API tokens"];
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/api-tokens",
+	tags: TAGS,
+	summary: "List the caller's API tokens; the secrets are not included",
+	agent: "deny",
+	responses: { 200: { description: "The caller's tokens", ...json(ApiTokenListResponseSchema) } },
+});
+
+const createRoute = defineRoute({
+	method: "post",
+	path: "/api-tokens",
+	tags: TAGS,
+	summary: "Create an API token; the secret is returned only in this response",
+	agent: "deny",
+	request: { body: { required: true, ...json(ApiTokenCreateBodySchema) } },
+	responses: { 201: { description: "The new token and its secret", ...json(ApiTokenCreatedResponseSchema) } },
+});
+
+const revokeRoute = defineRoute({
+	method: "post",
+	path: "/api-tokens/{id}/revoke",
+	tags: TAGS,
+	summary: "Revoke an API token at once; what it was waiting to run is rejected",
+	agent: "deny",
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "The revoked token", ...json(ApiTokenResponseSchema) } },
+});
+
+const deleteRoute = defineRoute({
+	method: "delete",
+	path: "/api-tokens/{id}",
+	tags: TAGS,
+	summary: "Delete a revoked or expired API token and its rules for good",
+	agent: "deny",
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },
+});
+
+const rulesRoute = defineRoute({
+	method: "put",
+	path: "/api-tokens/{id}/rules",
+	tags: TAGS,
+	summary: "Replace an API token's rule preset and/or the rules added on top of it",
+	agent: "deny",
+	request: { params: IdParamSchema, body: { required: true, ...json(ApiTokenRulesBodySchema) } },
+	responses: { 200: { description: "The token with its new rules", ...json(ApiTokenResponseSchema) } },
+});
 
 /**
  * API tokens with their rules. Management needs a WebUI session: these routes sit behind requireUser, and
  * API tokens only work at /mcp.
  */
 export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, audit: Audit) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 
-	app.get("/api-tokens", async (c) => c.json({ tokens: await listApiTokens(db, c.get("user")) }));
+	app.openapi(listRoute, async (c) => c.json({ tokens: await listApiTokens(db, c.get("user")) }, 200));
 
-	app.post("/api-tokens", async (c) => {
+	app.openapi(createRoute, async (c) => {
 		const user = c.get("user");
-		const body = (await readJsonObject(c)) ?? {};
-		const days = body.days === null ? null : body.days === undefined ? undefined : Number(body.days);
+		const body = c.req.valid("json");
 		const { token, view } = await createApiToken(db, user, {
-			name: typeof body.name === "string" ? body.name : "",
+			name: body.name ?? "",
 			rulePreset: parseApiTokenRulePreset(body.rulePreset ?? "ask"),
-			days,
+			days: body.days,
 		});
 		void audit.record({
 			actor: userActor(user),
@@ -45,37 +104,40 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		return c.json({ token, apiToken: view }, 201);
 	});
 
-	app.post("/api-tokens/:id/revoke", async (c) => {
+	app.openapi(revokeRoute, async (c) => {
 		const user = c.get("user");
-		await revokeApiToken(db, user, c.req.param("id"));
+		const { id } = c.req.valid("param");
+		await revokeApiToken(db, user, id);
 		void audit.record({
 			actor: userActor(user),
 			action: "api_token.revoked",
-			target: { type: "api_token", id: c.req.param("id") },
+			target: { type: "api_token", id },
 		});
 		// What the token started and is still waiting for approval will not run; expiry sweeps the same rows.
-		await rejectRevokedTokenWaits(db, cluster, taskGroups, [c.req.param("id")], user.userId);
-		return c.json({ apiToken: await getApiToken(db, user, c.req.param("id")) });
+		await rejectRevokedTokenWaits(db, cluster, taskGroups, [id], user.userId);
+		const apiToken = await getApiToken(db, user, id);
+		if (!apiToken) throw new NotFoundError("no such token");
+		return c.json({ apiToken }, 200);
 	});
 
-	app.delete("/api-tokens/:id", async (c) => {
+	app.openapi(deleteRoute, async (c) => {
 		const user = c.get("user");
-		await deleteApiToken(db, user, c.req.param("id"));
+		const { id } = c.req.valid("param");
+		await deleteApiToken(db, user, id);
 		void audit.record({
 			actor: userActor(user),
 			action: "api_token.deleted",
-			target: { type: "api_token", id: c.req.param("id") },
+			target: { type: "api_token", id },
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	/** Changes a token's rule preset and/or the rules added on top; `{ rulePreset?, rules? }`. */
-	app.put("/api-tokens/:id/rules", async (c) => {
+	app.openapi(rulesRoute, async (c) => {
 		const user = c.get("user");
-		const id = c.req.param("id");
-		if (!(await getApiToken(db, user, id))) return jsonError(c, 404, "no such token");
-		const body = await readJsonObject(c);
-		if (!body) return jsonError(c, 400, "expected a JSON object");
+		const { id } = c.req.valid("param");
+		if (!(await getApiToken(db, user, id))) throw new NotFoundError("no such token");
+		const body = c.req.valid("json");
 		const ref: RuleRef = { type: "api_token", id };
 		const rulePreset = body.rulePreset === undefined ? undefined : parseApiTokenRulePreset(body.rulePreset);
 		const rules =
@@ -93,7 +155,9 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			detail: { rule_preset: rulePreset, rules },
 		});
 		await reevaluateAfterRuleChange(db, cluster, taskGroups, ref);
-		return c.json({ apiToken: await getApiToken(db, user, id) });
+		const apiToken = await getApiToken(db, user, id);
+		if (!apiToken) throw new NotFoundError("no such token");
+		return c.json({ apiToken }, 200);
 	});
 
 	return app;

@@ -205,6 +205,15 @@ describeBackends("api tokens", (backend) => {
 			expect((await create("alice", { name: "  " })).res.status).toBe(400);
 			expect((await create("alice", { name: "x".repeat(101) })).res.status).toBe(400);
 		});
+
+		it("rejects a body that does not match the route's schema", async () => {
+			const name = await create("alice", { name: 42 });
+			expect(name.res.status).toBe(400);
+			expect((name.body as unknown as { error: string }).error).toMatch(/^name: /);
+			const days = await create("alice", { name: "x", days: "7" });
+			expect(days.res.status).toBe(400);
+			expect((days.body as unknown as { error: string }).error).toMatch(/^days: /);
+		});
 	});
 
 	describe("resolveApiToken", () => {

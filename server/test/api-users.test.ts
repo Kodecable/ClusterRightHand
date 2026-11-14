@@ -85,6 +85,15 @@ describeBackends("api users", (backend) => {
 			expect(names).not.toContain("x3");
 		});
 
+		it("rejects a body that does not match the route's schema", async () => {
+			const created = await call(app, "/api/users", { cookie: admin, body: { username: 5 } });
+			expect(created.status).toBe(400);
+			expect(((await created.json()) as { error: string }).error).toMatch(/^username: /);
+			const patched = await call(app, `/api/users/${adminId}`, { method: "PATCH", cookie: admin, body: [] });
+			expect(patched.status).toBe(400);
+			expect(((await patched.json()) as { error: string }).error).toBeTruthy();
+		});
+
 		it("a user created with a password can log in", async () => {
 			const res = await call(app, "/api/users", {
 				cookie: admin,
@@ -472,7 +481,7 @@ describeBackends("api users", (backend) => {
 			// Validation still answers 400 with its message.
 			const bad = await patch((await byName("root")).id, { displayName: 5 });
 			expect(bad.status).toBe(400);
-			expect(((await bad.json()) as { error: string }).error).toContain("displayName must be a string");
+			expect(((await bad.json()) as { error: string }).error).toMatch(/^displayName: /);
 		});
 
 		it("members cannot touch groups", async () => {

@@ -187,6 +187,17 @@ describeBackends("api ssh nodes", (backend) => {
 			expect(res.status).toBe(400);
 		});
 
+		it("rejects a body that does not match the route's schema", async () => {
+			const host = await req("root", "/api/ssh-nodes", { ...target({ name: "schema" }), host: 42 });
+			expect(host.status).toBe(400);
+			expect(((await host.json()) as { error: string }).error).toMatch(/^host: /);
+			const groups = await req("root", "/api/ssh-nodes", {
+				...target({ hostFingerprint: KEY_B, name: "schema-groups" }),
+				nodeGroups: [],
+			});
+			expect(groups.status).toBe(400);
+		});
+
 		it("requires a credential on every hop", async () => {
 			expect((await req("root", "/api/ssh-nodes", target({ credentialId: "", name: "x" }))).status).toBe(400);
 			const res = await req("root", "/api/ssh-nodes", {

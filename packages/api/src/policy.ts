@@ -4,104 +4,63 @@
  * aliases of `RuleAction` / `RuleMethod`.
  */
 
-export type RuleAction = "allow" | "deny" | "require-approval";
+import type { z } from "zod";
+import type {
+	AgentRequestSchema,
+	ApprovalBodySchema,
+	ApprovalDecisionSchema,
+	ApprovalRecordSchema,
+	DefaultActionSchema,
+	EvaluationSchema,
+	LevelResultSchema,
+	OperationSchema,
+	RuleActionSchema,
+	RuleMethodSchema,
+	RulePresetSchema,
+	RuleRefSchema,
+	RuleSchema,
+	StoredRuleSetSchema,
+	TaskGroupApprovalRecordSchema,
+} from "./schemas/policy.ts";
+
+export type RuleAction = z.infer<typeof RuleActionSchema>;
 /**
  * What a rule matches on. `mcp.read` is a read-only external tool on a server whose annotations are trusted;
  * every other external tool is `mcp.write` (doc/design/extensions.md "Rules and approvals").
  */
-export type RuleMethod = "exec" | "file.read" | "file.write" | "mcp.read" | "mcp.write";
-export type RulePreset = "ask" | "auto_review" | "yolo";
+export type RuleMethod = z.infer<typeof RuleMethodSchema>;
+export type RulePreset = z.infer<typeof RulePresetSchema>;
 /** A level's own result; only a lower level than the root may inherit. */
-export type DefaultAction = RuleAction | "inherit";
+export type DefaultAction = z.infer<typeof DefaultActionSchema>;
 
-export interface Rule {
-	action: RuleAction;
-	method?: RuleMethod;
-	/** Node/node-group names or ids on input; the server stores UUIDs or `_all`. */
-	nodes?: string[];
-	/** true matches only privileged tasks, false only ordinary ones; omitted matches both. */
-	privileged?: boolean;
-	exact?: string;
-	prefix?: string;
-}
+export type Rule = z.infer<typeof RuleSchema>;
 
 /** One level of a rule chain, as stored on tasks: root first. */
-export interface RuleRef {
-	type: string;
-	id: string;
-}
+export type RuleRef = z.infer<typeof RuleRefSchema>;
 
-export interface StoredRuleSet {
-	scope: RuleRef;
-	rulePreset: RulePreset | null;
-	rules: Rule[];
-	default: DefaultAction;
-	updatedAt: string;
-}
+export type StoredRuleSet = z.infer<typeof StoredRuleSetSchema>;
 
 /** What a task does, in the terms rules match on. */
-export interface Operation {
-	method: RuleMethod;
-	target: string;
-}
+export type Operation = z.infer<typeof OperationSchema>;
 
-export interface LevelResult {
-	scope: RuleRef;
-	own: DefaultAction;
-	/** Index of the deciding rule in this level's rules; absent when the default applied. */
-	rule?: number;
-	/** The deciding rule itself, kept with the evaluation so later edits do not change history. */
-	matched?: Rule;
-	effective: RuleAction;
-}
+export type LevelResult = z.infer<typeof LevelResultSchema>;
 
-export interface Evaluation {
-	result: RuleAction;
-	levels: LevelResult[];
-}
+export type Evaluation = z.infer<typeof EvaluationSchema>;
 
 /** How an approval was settled. */
-export interface ApprovalDecision {
-	decision: "approved" | "rejected";
-	by: { type: string; id: string; onBehalfOfUserId?: string };
-	at: string;
-	reason?: string;
-	/** The task group whose approval covered this task. */
-	taskGroupId?: string;
-}
+export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>;
 
 /**
  * A request handed to the agent of an ancestor session instead of going
  * straight to the user (doc/design/agent-runtime.md "Handling subagent requests").
  */
-export interface AgentRequest {
-	/** The session whose agent decides; its agent calls subagent_decide. */
-	session: string;
-	/** `escalated`: its agent passed it on to the user. */
-	state: "pending" | "escalated";
-}
+export type AgentRequest = z.infer<typeof AgentRequestSchema>;
 
 /** The approval state of a tool call: how the rules judged it, then how it was settled. */
-export interface ApprovalRecord {
-	evaluation: Evaluation;
-	decision?: ApprovalDecision;
-	/** Auto Review's verdict, when the root's rule preset asked for one. */
-	review?: { decision: "approve" | "escalate"; reason: string; model: string };
-	/** Set while (or after) an ancestor's agent had the request. */
-	agent?: AgentRequest;
-}
+export type ApprovalRecord = z.infer<typeof ApprovalRecordSchema>;
 
 /** The approval record of a task group: one evaluation per target node, then one decision. */
-export interface TaskGroupApprovalRecord {
-	nodes: { nodeId: string; evaluation: Evaluation }[];
-	decision?: ApprovalDecision;
-	review?: { decision: "approve" | "escalate"; reason: string; model: string };
-	agent?: AgentRequest;
-}
+export type TaskGroupApprovalRecord = z.infer<typeof TaskGroupApprovalRecordSchema>;
 
 /** Body of `POST /tasks/:id/approval` and `POST /task-groups/:id/approval`. */
-export interface ApprovalBody {
-	decision: "approve" | "reject";
-	reason?: string;
-	always?: Rule;
-}
+export type ApprovalBody = z.infer<typeof ApprovalBodySchema>;

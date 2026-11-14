@@ -6,6 +6,9 @@
  * definition instead of two copies that drift.
  */
 
+import type { z } from "zod";
+import type { RefMapSchema, RefTargetSchema } from "./schemas/common.ts";
+
 /** One page of a keyset-cursor list (doc/design/webui.md "Cursor pagination"). */
 export interface CursorPage<T> {
 	items: T[];
@@ -38,10 +41,7 @@ export interface EntityListQuery {
 }
 
 /** The current name of a stored node/node-group reference; null when the object was deleted. */
-export interface RefTarget {
-	kind: "node" | "node_group";
-	name: string;
-}
+export type RefTarget = z.infer<typeof RefTargetSchema>;
 
 /** Display names for stored UUID references, keyed by id. */
-export type RefMap = Record<string, RefTarget | null>;
+export type RefMap = z.infer<typeof RefMapSchema>;

@@ -3,8 +3,16 @@
  * Passkeys, each ownable only by the user who registered it. A registered credential is what lets the
  * authorization planner match this user to a node's `user` trust entries.
  */
+import {
+	IdParamSchema,
+	OkResponseSchema,
+	SigningCredentialResponseSchema,
+	SigningCredentialsResponseSchema,
+	SshSigningCredentialBodySchema,
+	WebauthnOptionsResponseSchema,
+	WebauthnSigningCredentialBodySchema,
+} from "@crh/api/schemas";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
-import { Hono } from "hono";
 import { userActor } from "../audit/audit.ts";
 import { DEFAULT_RP_NAME, type WebauthnConfig } from "../config.ts";
 import {
@@ -17,8 +25,58 @@ import {
 import { RegistrationChallenges, rpForRequest, verifyRegistration } from "../privilege/webauthn.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
-import { errorText } from "../util/errors.ts";
-import { type AppEnv, jsonError, optionalString, readJsonObject } from "./context.ts";
+import { errorText, UserError } from "../util/errors.ts";
+import { apiRouter, defineRoute, json } from "./openapi.ts";
+
+const TAGS = ["Signing credentials"];
+
+const listRoute = defineRoute({
+	method: "get",
+	path: "/me/signing-credentials",
+	tags: TAGS,
+	summary: "List the caller's own signing credentials",
+	agent: "deny",
+	responses: { 200: { description: "The caller's credentials", ...json(SigningCredentialsResponseSchema) } },
+});
+
+const addSshRoute = defineRoute({
+	method: "post",
+	path: "/me/signing-credentials/ssh",
+	tags: TAGS,
+	summary: "Register an SSH public key as one of the caller's signing credentials",
+	agent: "deny",
+	request: { body: { required: true, ...json(SshSigningCredentialBodySchema) } },
+	responses: { 201: { description: "The registered credential", ...json(SigningCredentialResponseSchema) } },
+});
+
+const webauthnOptionsRoute = defineRoute({
+	method: "post",
+	path: "/me/signing-credentials/webauthn/options",
+	tags: TAGS,
+	summary: "Start a Passkey registration and return the options for the browser",
+	agent: "deny",
+	responses: { 200: { description: "The creation options", ...json(WebauthnOptionsResponseSchema) } },
+});
+
+const addWebauthnRoute = defineRoute({
+	method: "post",
+	path: "/me/signing-credentials/webauthn",
+	tags: TAGS,
+	summary: "Finish a Passkey registration with the authenticator's response",
+	agent: "deny",
+	request: { body: { required: true, ...json(WebauthnSigningCredentialBodySchema) } },
+	responses: { 201: { description: "The registered credential", ...json(SigningCredentialResponseSchema) } },
+});
+
+const deleteRoute = defineRoute({
+	method: "delete",
+	path: "/me/signing-credentials/{id}",
+	tags: TAGS,
+	summary: "Delete one of the caller's signing credentials",
+	agent: "deny",
+	request: { params: IdParamSchema },
+	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },
+});
 
 export interface SigningCredentialRoutesOptions {
 	/** `[webauthn]` fallback for tests; production passes `settings`. */
@@ -31,7 +89,7 @@ export interface SigningCredentialRoutesOptions {
 
 /** Expects requireUser to have run. Every route works on the caller's own credentials only. */
 export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutesOptions = {}) {
-	const app = new Hono<AppEnv>();
+	const app = apiRouter();
 	const webauthn = (): WebauthnConfig =>
 		options.settings?.current().webauthn ??
 		options.webauthn ?? {
@@ -41,18 +99,16 @@ export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutes
 		};
 	const challenges = options.challenges ?? new RegistrationChallenges();
 
-	app.get("/me/signing-credentials", async (c) =>
-		c.json({ signingCredentials: await listSigningCredentials(db, c.get("user").userId) }),
+	app.openapi(listRoute, async (c) =>
+		c.json({ signingCredentials: await listSigningCredentials(db, c.get("user").userId) }, 200),
 	);
 
-	app.post("/me/signing-credentials/ssh", async (c) => {
+	app.openapi(addSshRoute, async (c) => {
 		const user = c.get("user");
-		const body = await readJsonObject(c);
-		const publicKey = body ? optionalString(body, "publicKey") : undefined;
-		if (!publicKey) return jsonError(c, 400, "publicKey is required");
+		const body = c.req.valid("json");
 		const credential = await addSshSigningCredential(db, user.userId, {
-			publicKey,
-			name: optionalString(body as Record<string, unknown>, "name"),
+			publicKey: body.publicKey,
+			name: body.name,
 		});
 		void c.get("audit").record({
 			actor: userActor(user),
@@ -64,7 +120,7 @@ export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutes
 	});
 
 	/** Registration options for a new Passkey; the challenge is kept server-side and used once. */
-	app.post("/me/signing-credentials/webauthn/options", async (c) => {
+	app.openapi(webauthnOptionsRoute, async (c) => {
 		const user = c.get("user");
 		const rp = rpForRequest(webauthn(), c.req.header("origin"));
 		const existing = await webauthnSigningCredentials(db, user.userId);
@@ -75,14 +131,13 @@ export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutes
 			userDisplayName: user.username,
 			excludeCredentialIds: existing.map((credential) => credential.credentialId),
 		});
-		return c.json({ options: issued.options });
+		return c.json({ options: issued.options }, 200);
 	});
 
-	app.post("/me/signing-credentials/webauthn", async (c) => {
+	app.openapi(addWebauthnRoute, async (c) => {
 		const user = c.get("user");
-		const body = await readJsonObject(c);
-		const response = body?.response as RegistrationResponseJSON | undefined;
-		if (!response || typeof response !== "object") return jsonError(c, 400, "response is required");
+		const body = c.req.valid("json");
+		const response = body.response as unknown as RegistrationResponseJSON;
 		let challenge: string;
 		try {
 			const clientData = JSON.parse(Buffer.from(response.response.clientDataJSON, "base64url").toString("utf8")) as {
@@ -91,18 +146,18 @@ export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutes
 			if (typeof clientData.challenge !== "string") throw new Error("clientDataJSON has no challenge");
 			challenge = clientData.challenge;
 		} catch (err) {
-			return jsonError(c, 400, `clientDataJSON: ${errorText(err)}`);
+			throw new UserError(`clientDataJSON: ${errorText(err)}`);
 		}
 		const pending = challenges.take(challenge);
-		if (!pending) return jsonError(c, 400, "unknown, already used or expired registration challenge");
-		if (pending.userId !== user.userId) return jsonError(c, 400, "the registration belongs to another user");
+		if (!pending) throw new UserError("unknown, already used or expired registration challenge");
+		if (pending.userId !== user.userId) throw new UserError("the registration belongs to another user");
 		const origin = c.req.header("origin");
 		if (origin !== undefined && !pending.rp.origins.includes(origin)) {
-			return jsonError(c, 400, `origin ${origin} is not one the registration was started for`);
+			throw new UserError(`origin ${origin} is not one the registration was started for`);
 		}
 		const verified = await verifyRegistration({ response, challenge, rp: pending.rp });
 		const credential = await addWebauthnSigningCredential(db, user.userId, {
-			name: optionalString(body as Record<string, unknown>, "name"),
+			name: body.name,
 			credentialId: verified.credentialId,
 			coseKey: verified.coseKey,
 			rpId: pending.rp.rpId,
@@ -122,16 +177,17 @@ export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutes
 		return c.json({ signingCredential: credential }, 201);
 	});
 
-	app.delete("/me/signing-credentials/:id", async (c) => {
+	app.openapi(deleteRoute, async (c) => {
 		const user = c.get("user");
-		const credential = await deleteSigningCredential(db, user.userId, c.req.param("id"));
+		const { id } = c.req.valid("param");
+		const credential = await deleteSigningCredential(db, user.userId, id);
 		void c.get("audit").record({
 			actor: userActor(user),
 			action: "signing_credential.removed",
 			target: { type: "signing_credential", id: credential.id },
 			detail: { kind: credential.kind, name: credential.name, fingerprint: credential.fingerprint },
 		});
-		return c.json({ ok: true });
+		return c.json({ ok: true as const }, 200);
 	});
 
 	return app;

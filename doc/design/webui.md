@@ -419,6 +419,24 @@ check. Request bodies are size-limited, and the login body is limited before it 
 oversized login never reaches authentication or rate limiting. Task inputs have a larger limit to
 allow file uploads.
 
+### Route definitions
+
+Routes are defined with `defineRoute` (`server/src/api/openapi.ts`, on `@hono/zod-openapi`), so one
+definition validates the request, types the handler and produces the API document. Hand-written
+parsing and a separate document were rejected because they drift apart.
+
+- Request and response schemas are zod schemas in `@crh/api/schemas`. The wire types in `@crh/api` are
+  derived from them with `z.infer`, so the main entry stays types only and the WebUI never bundles zod.
+- Every route declares its agent access (`allow`, `ask` or `deny`) for `api_request`
+  ([Extensions](extensions.md)). The field is required, so a new route cannot skip the decision.
+- A request that fails its schema is a 400 whose message is the first problem, `<field>: <problem>`.
+  A handler returns only its successes; a missing object or a rejected request is thrown
+  (`NotFoundError`, `UserError`) and answered by the one error handler.
+- Descriptions on the schemas and the route summary are the documentation; they are written for a
+  reader who has only the document, including a model.
+- A test walks every route registered under `/api` on `createApp` and requires it in the document
+  with its agent access, so a new route cannot go undocumented.
+
 ### Cursor pagination
 
 Lists use keyset cursors rather than offsets, because an offset shifts when rows are inserted above the

@@ -1,9 +1,12 @@
 import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
+import type { OpenAPIHono } from "@hono/zod-openapi";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import type { ModelPresetView } from "../src/agent/model-presets.ts";
 import { ModelConfig, type ModelRef } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import type { AppEnv } from "../src/api/context.ts";
+import { AGENT_ACCESS_EXTENSION, apiDocument } from "../src/api/openapi.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
@@ -73,6 +76,14 @@ it("is for administrators only", async () => {
 	expect((await put("session", { systemPrompt: "hi" }, member)).status).toBe(403);
 });
 
+it("appears in the API document with its agent access", () => {
+	const doc = apiDocument(app as unknown as OpenAPIHono<AppEnv>);
+	expect(doc.paths?.["/api/model-presets"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
+	expect(doc.paths?.["/api/model-presets/{kind}"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
+	expect(doc.paths?.["/api/model-providers/{providerId}"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+	expect(doc.components?.schemas?.ModelPreset).toBeDefined();
+});
+
 it("lists all three presets with their fixed default prompt and protocol", async () => {
 	const presets = await list();
 	expect(presets.map((p) => p.kind)).toEqual(["session", "review", "title"]);
@@ -109,6 +120,15 @@ it("rejects a preset thinking level: it belongs in the model ref", async () => {
 		expect(((await res.json()) as { error: string }).error).toBe("thinkingLevel belongs in model");
 	}
 	expect((await put("review", { thinkingLevel: null })).status).toBe(400);
+});
+
+it("rejects a body that does not match the route's schema", async () => {
+	const model = await put("review", { model: { provider: 1, modelId: "m" } });
+	expect(model.status).toBe(400);
+	expect(((await model.json()) as { error: string }).error).toMatch(/^model\.provider: /);
+	const prompt = await put("review", { systemPrompt: 42 });
+	expect(prompt.status).toBe(400);
+	expect(((await prompt.json()) as { error: string }).error).toMatch(/^systemPrompt: /);
 });
 
 it("saves a review model with a thinking level and a custom prompt", async () => {
