@@ -13,6 +13,7 @@ import {
 	findSection,
 	loadDocs,
 	pageDocument,
+	prepareDocsSearch,
 	searchDocs,
 } from "./docs.ts";
 import { defaultDocsRoot } from "./docs-source.ts";
@@ -176,10 +177,15 @@ export function configureBuiltinExtensions(options: BuiltinOptions = {}): void {
 }
 
 function builtinDocuments(): Promise<DocDocument[]> {
-	documentCache ??= loadDocs(state.docsRoot, state.api?.reference).catch((err: unknown) => {
-		documentCache = undefined;
-		throw err;
-	});
+	documentCache ??= loadDocs(state.docsRoot, state.api?.reference)
+		.then((documents) => {
+			prepareDocsSearch(documents);
+			return documents;
+		})
+		.catch((err: unknown) => {
+			documentCache = undefined;
+			throw err;
+		});
 	return documentCache;
 }
 

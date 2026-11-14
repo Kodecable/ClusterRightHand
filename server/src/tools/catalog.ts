@@ -25,6 +25,7 @@ import {
 	ExtensionUnavailableError,
 	type SessionExtension,
 } from "../extensions/model.ts";
+import { buildSearchIndex, searchIndexRecord, searchQueryTerms } from "../extensions/search-index.ts";
 import { copyLibraryFile } from "../library/files.ts";
 import { type ImageCache, REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
@@ -1288,29 +1289,52 @@ function auditExternal(ctx: ToolContext, action: string, id: string, detail: Rec
 	});
 }
 
-function searchTokens(query: string): string[] {
-	return query
-		.toLowerCase()
-		.split(/[^a-z0-9]+/)
-		.filter((token) => token !== "");
+/** One indexed tool: the fields MiniSearch ranks, plus the tool the result names. */
+interface ToolSearchRecord {
+	id: string;
+	extension: string;
+	name: string;
+	title: string;
+	description: string;
+	tool: ExtensionTool;
 }
 
-/** Plain keyword scoring over name, title and description; a token must appear in at least one of them. */
-function scoreTool(tokens: readonly string[], tool: ExtensionTool): number {
-	const name = tool.name.toLowerCase();
-	const title = tool.title?.toLowerCase() ?? "";
-	const description = tool.description?.toLowerCase() ?? "";
-	let score = 0;
-	for (const token of tokens) {
-		const inName = name.includes(token);
-		const inTitle = title.includes(token);
-		const inDescription = description.includes(token);
-		if (!inName && !inTitle && !inDescription) return 0;
-		if (inName) score += 10 + (name === token ? 10 : 0);
-		if (inTitle) score += 4;
-		if (inDescription) score += 1;
+const TOOL_SEARCH_FIELDS = ["name", "title", "description", "extension"] as const;
+const TOOL_SEARCH_BOOST = { name: 3, title: 2, description: 1, extension: 1 } as const;
+
+/** BM25 search over the tools of `entries` (name, title, description and extension name). */
+function searchExtensionTools(
+	entries: readonly SessionExtension[],
+	query: string,
+): { extension: string; score: number; tool: ExtensionTool }[] {
+	if (searchQueryTerms(query).length === 0) return [];
+	const records: ToolSearchRecord[] = [];
+	for (const entry of entries) {
+		for (const tool of entry.extension.tools()) {
+			records.push({
+				id: JSON.stringify([entry.extension.name, tool.name]),
+				extension: entry.extension.name,
+				name: tool.name,
+				title: tool.title ?? "",
+				description: tool.description ?? "",
+				tool,
+			});
+		}
 	}
-	return score;
+	const search = buildSearchIndex(records, {
+		fields: TOOL_SEARCH_FIELDS,
+		storeFields: ["extension", "name"],
+		boost: TOOL_SEARCH_BOOST,
+	});
+	const matches: { extension: string; score: number; tool: ExtensionTool }[] = [];
+	for (const result of search.index.search(query)) {
+		const record = searchIndexRecord(search, result);
+		if (record) matches.push({ extension: record.extension, score: result.score, tool: record.tool });
+	}
+	matches.sort(
+		(a, b) => b.score - a.score || a.extension.localeCompare(b.extension) || a.tool.name.localeCompare(b.tool.name),
+	);
+	return matches;
 }
 
 /** The session's extension list, with the owner's on/off choice. */
@@ -1412,13 +1436,10 @@ const searchTools = define({
 					})),
 				});
 			}
-			const tokens = searchTokens(query);
-			const matches = entry.extension
-				.tools()
-				.map((tool) => ({ tool, score: scoreTool(tokens, tool) }))
-				.filter((match) => match.score > 0)
-				.sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
-				.slice(0, Math.min(args.limit ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS));
+			const matches = searchExtensionTools([entry], query).slice(
+				0,
+				Math.min(args.limit ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS),
+			);
 			return jsonResult({
 				extension: name,
 				stale: state.state === "unavailable",
@@ -1433,17 +1454,9 @@ const searchTools = define({
 			});
 		}
 		await prepareSearchExtensions(entries.filter((entry) => entry.enabled));
-		const tokens = searchTokens(query);
-		const matches: { extension: string; score: number; tool: ExtensionTool }[] = [];
-		for (const entry of entries) {
-			if (!entry.enabled) continue;
-			for (const tool of entry.extension.tools()) {
-				const score = scoreTool(tokens, tool);
-				if (score > 0) matches.push({ extension: entry.extension.name, score, tool });
-			}
-		}
-		matches.sort(
-			(a, b) => b.score - a.score || a.extension.localeCompare(b.extension) || a.tool.name.localeCompare(b.tool.name),
+		const matches = searchExtensionTools(
+			entries.filter((entry) => entry.enabled),
+			query,
 		);
 		const staleExtensions = entries
 			.filter((entry) => entry.extension.status().state === "unavailable")

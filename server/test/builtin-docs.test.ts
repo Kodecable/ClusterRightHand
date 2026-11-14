@@ -80,6 +80,61 @@ describe("docs extension", () => {
 		expect(searched).toContain("guide.md#known-heading");
 	});
 
+	it("ranks a natural-language query's node group section first", async () => {
+		configureBuiltinExtensions();
+		const found = await callDocs("search_docs", { query: "what is a node group and how do I create one" });
+		const first = found.split("\n")[0] ?? "";
+		expect(first).toContain("#node-groups");
+		expect(first).toContain("Node groups");
+	});
+
+	it("finds the API requests section from api_request and request", async () => {
+		configureBuiltinExtensions();
+		for (const query of ["api_request", "request"]) {
+			const found = await callDocs("search_docs", { query });
+			expect(found).toContain("design/extensions.md#api-requests");
+		}
+	});
+
+	it("stems plurals, tolerates a typo, and ranks a heading hit above a text-only hit", async () => {
+		const root = await tempDir();
+		await writeFile(
+			join(root, "guide.md"),
+			[
+				"# Guide",
+				"",
+				"## Widget controls",
+				"",
+				"Controls for the dashboard.",
+				"",
+				"## Other topic",
+				"",
+				"A widget appears here in the text once.",
+				"",
+				"## Node group",
+				"",
+				"A node group is a named set of nodes.",
+				"",
+			].join("\n"),
+		);
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const groups = await callDocs("search_docs", { query: "groups" });
+		expect(groups).toContain("guide.md#node-group");
+
+		const typo = await callDocs("search_docs", { query: "grup" });
+		expect(typo).toContain("guide.md#node-group");
+
+		const widget = await callDocs("search_docs", { query: "widget" });
+		expect(widget.split("\n")[0]).toContain("guide.md#widget-controls");
+	});
+
+	it("returns nothing for a stopword-only query", async () => {
+		configureBuiltinExtensions();
+		const found = await callDocs("search_docs", { query: "what is the" });
+		expect(found).toContain("No documentation section matched");
+	});
+
 	it("lists close matches for an unknown path", async () => {
 		configureBuiltinExtensions();
 		await expect(callDocs("read_doc", { path: "design/extension.md" })).rejects.toThrow(

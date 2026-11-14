@@ -91,8 +91,12 @@ reachable only through search. The direct set is computed from the current rows 
 built, so changing the flag, an extension's availability or enabled state, or its tool list changes the
 tool list of new requests, which costs one cache miss.
 
-Search is plain keyword scoring without embeddings: it needs no model call, is deterministic, and tool
-names and descriptions are short and written to be found.
+Search is lexical BM25 (MiniSearch) over section headings, paths/anchors and text, and over each tool's
+name, title, description and extension. Tokens split at anything but letters and numbers, identifiers also
+emit their parts (`api_request` → `api_request`, `api`, `request`; `nodeIds` → `nodeids`, `node`, `ids`),
+English words are stemmed and small stopwords dropped, and prefix and small-fuzzy matches count; any query
+term may match. It uses no embeddings and makes no model call, so it is deterministic, and tool names and
+descriptions are short and written to be found.
 
 ## Rules and approvals
 
@@ -181,8 +185,8 @@ They are split so that an administrator can turn off API requests and keep the d
   and the shared object shapes once. Routes marked `deny` are left out, so the model is not shown what
   it cannot use. The reference is offered even when the `api` extension is off, since it also explains
   what the WebUI does.
-- Search splits documents at headings and scores keywords against the heading and the text, like
-  `search_tools`.
+- Search splits documents at headings and indexes each section (heading, path/anchor and text) with
+  MiniSearch, like `search_tools` indexes each tool (name, title, description and extension).
 
 ### API requests
 

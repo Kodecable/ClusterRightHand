@@ -3,12 +3,13 @@ import { join } from "node:path";
 import { UserError } from "../util/errors.ts";
 import type { ApiReference } from "./api-reference.ts";
 import { markdownDocs } from "./docs-source.ts";
+import { buildSearchIndex, type SearchIndex, searchIndexRecord, searchQueryTerms } from "./search-index.ts";
 
 /**
  * The documentation index behind `search_docs` and `read_doc` (doc/design/extensions.md "Documentation"):
  * the `doc/` Markdown tree of the running version plus the API reference rendered from the app's document.
- * Documents are split at headings into sections; search scores keywords against a section's heading (weighted)
- * and text, and `read_doc` pages a whole document or one section line by line.
+ * Documents are split at headings into sections; search ranks sections with MiniSearch over their heading,
+ * path/anchor and text, and `read_doc` pages a whole document or one section line by line.
  */
 
 export interface DocSection {
@@ -105,11 +106,49 @@ function sectionText(document: DocDocument, section: DocSection): string {
 	return document.lines.slice(section.start + 1, section.end).join("\n");
 }
 
-function tokensOf(query: string): string[] {
-	return query
-		.toLowerCase()
-		.split(/[^a-z0-9]+/)
-		.filter((token) => token !== "");
+/** One indexed section: the fields MiniSearch ranks and the text a snippet is taken from. */
+interface DocSearchRecord {
+	id: string;
+	path: string;
+	anchor: string;
+	heading: string;
+	text: string;
+}
+
+const DOC_SEARCH_FIELDS = ["heading", "path", "anchor", "text"] as const;
+const DOC_SEARCH_BOOST = { heading: 3, path: 2, anchor: 2, text: 1 } as const;
+
+/** The index of a document list, built once when the docs load and reused by every search. */
+const docSearchIndexes = new WeakMap<readonly DocDocument[], SearchIndex<DocSearchRecord>>();
+
+function searchIndexFor(documents: readonly DocDocument[]): SearchIndex<DocSearchRecord> {
+	let search = docSearchIndexes.get(documents);
+	if (!search) {
+		const records: DocSearchRecord[] = [];
+		documents.forEach((document, documentIndex) => {
+			document.sections.forEach((section, sectionIndex) => {
+				records.push({
+					id: `${documentIndex}:${sectionIndex}`,
+					path: document.path,
+					anchor: section.anchor,
+					heading: section.heading,
+					text: sectionText(document, section),
+				});
+			});
+		});
+		search = buildSearchIndex(records, {
+			fields: DOC_SEARCH_FIELDS,
+			storeFields: ["path", "anchor", "heading"],
+			boost: DOC_SEARCH_BOOST,
+		});
+		docSearchIndexes.set(documents, search);
+	}
+	return search;
+}
+
+/** Builds the index when the docs load, so the first search does not pay for it. */
+export function prepareDocsSearch(documents: readonly DocDocument[]): void {
+	searchIndexFor(documents);
 }
 
 export interface DocSearchResult {
@@ -121,11 +160,11 @@ export interface DocSearchResult {
 	score: number;
 }
 
-function snippetOf(text: string, tokens: readonly string[]): string {
+function snippetOf(text: string, terms: readonly string[]): string {
 	const lower = text.toLowerCase();
 	let at = -1;
-	for (const token of tokens) {
-		const index = lower.indexOf(token);
+	for (const term of terms) {
+		const index = lower.indexOf(term);
 		if (index >= 0 && (at < 0 || index < at)) at = index;
 	}
 	if (at < 0) return "";
@@ -137,40 +176,23 @@ function snippetOf(text: string, tokens: readonly string[]): string {
 	return `${from > 0 ? "…" : ""}${chunk}${from + 220 < text.length ? "…" : ""}`;
 }
 
-/** Keyword search over the headings (weighted) and text of every section, like `search_tools`. */
+/** BM25 search over the heading (weighted), path/anchor and text of every section. */
 export function searchDocs(documents: readonly DocDocument[], query: string, limit: number): DocSearchResult[] {
-	const tokens = tokensOf(query);
-	if (tokens.length === 0) return [];
+	const terms = searchQueryTerms(query);
+	if (terms.length === 0) return [];
+	const search = searchIndexFor(documents);
 	const results: DocSearchResult[] = [];
-	for (const document of documents) {
-		for (const section of document.sections) {
-			const heading = section.heading.toLowerCase();
-			const anchor = section.anchor.toLowerCase();
-			const words = new Set(heading.split(/[^a-z0-9]+/));
-			const text = sectionText(document, section);
-			const lowerText = text.toLowerCase();
-			let score = 0;
-			let matched = true;
-			for (const token of tokens) {
-				const inHeading = heading.includes(token) || anchor.includes(token);
-				const inText = lowerText.includes(token);
-				if (!inHeading && !inText) {
-					matched = false;
-					break;
-				}
-				if (inHeading) score += words.has(token) ? 20 : 10;
-				if (inText) score += 1;
-			}
-			if (!matched) continue;
-			const snippet = snippetOf(text, tokens) || snippetOf(section.heading, tokens);
-			results.push({
-				path: document.path,
-				heading: section.anchor,
-				headingText: section.heading,
-				snippet,
-				score,
-			});
-		}
+	for (const result of search.index.search(query)) {
+		const record = searchIndexRecord(search, result);
+		if (!record) continue;
+		const snippet = snippetOf(record.text, terms) || snippetOf(record.heading, terms) || record.heading;
+		results.push({
+			path: record.path,
+			heading: record.anchor,
+			headingText: record.heading,
+			snippet,
+			score: result.score,
+		});
 	}
 	results.sort(
 		(left, right) =>

@@ -117,6 +117,18 @@ function fakeMcp(state: FakeState) {
 				return { content: [{ type: "text", text: "done" }] };
 			},
 		);
+		server.registerTool(
+			"nodeGroupLookup",
+			{
+				description: "Find one node group by name",
+				inputSchema: z.object({}),
+				annotations: { readOnlyHint: true },
+			},
+			async () => {
+				state.calls.push({ tool: "nodeGroupLookup", arguments: {} });
+				return { content: [{ type: "text", text: "found" }] };
+			},
+		);
 		return server;
 	});
 }
@@ -283,6 +295,14 @@ describe("MCP extensions", () => {
 		const row = await db.selectFrom("external_calls").selectAll().executeTakeFirst();
 		expect(row?.state).toBe("succeeded");
 		expect(state.calls).toEqual([{ tool: "echo", arguments: { message: "hi" } }]);
+	});
+
+	it("finds a tool by a description word and by a camelCase part of its name", async () => {
+		await addServer();
+		const byDescription = await search("name");
+		expect((byDescription.results as { tool: string }[]).map((entry) => entry.tool)).toEqual(["nodeGroupLookup"]);
+		const byNamePart = await search("lookup");
+		expect((byNamePart.results as { tool: string }[]).map((entry) => entry.tool)).toContain("nodeGroupLookup");
 	});
 
 	it("keeps only the marker of a finished call and never calls the server again", async () => {
