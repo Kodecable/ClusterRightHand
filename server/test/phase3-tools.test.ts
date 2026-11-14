@@ -326,7 +326,7 @@ describe("library tools", () => {
 			.insertInto("libraries")
 			.values({
 				id: newId(),
-				owner_kind: "group",
+				owner_kind: "user_group",
 				owner_id: groupId,
 				max_files: 10,
 				max_file_bytes: 1024 * 1024,
@@ -338,7 +338,7 @@ describe("library tools", () => {
 			.execute();
 		await put("user:alice", "docs/a.txt", Buffer.from("hello alice"));
 		await put("user:alice", "docs/images/pic.png", png(800, 600));
-		await put("group:team", "shared.txt", Buffer.from("hello team"));
+		await put("user_group:team", "shared.txt", Buffer.from("hello team"));
 		context = {
 			db,
 			cluster: { libraryBackend: backend } as unknown as Cluster,
@@ -366,7 +366,7 @@ describe("library tools", () => {
 			expect.objectContaining({ path: "docs/a.txt", name: "a.txt", size: 11, media_type: "text/plain" }),
 		]);
 		expect(listing.directories).toEqual(["docs/images"]);
-		const group = jsonOf(await tool("list_dir").handler({ library: "group:team", path: "" } as never, context));
+		const group = jsonOf(await tool("list_dir").handler({ library: "user_group:team", path: "" } as never, context));
 		expect(group.files).toEqual([expect.objectContaining({ path: "shared.txt" })]);
 		const stat = jsonOf(await tool("stat").handler({ library: "user:alice", path: "docs/a.txt" } as never, context));
 		expect(stat).toMatchObject({ path: "docs/a.txt", size: 11, media_type: "text/plain" });
@@ -382,13 +382,17 @@ describe("library tools", () => {
 		const copy = await tool("copy_file").handler(
 			{
 				source: { library: "user:alice", path: "/docs/a.txt" },
-				destination: { library: "group:team", path: "/docs/a.txt" },
+				destination: { library: "user_group:team", path: "/docs/a.txt" },
 			} as never,
 			context,
 		);
 		expect(copy.isError).toBe(false);
-		expect(jsonOf(copy)).toMatchObject({ library: "group:team", path: "docs/a.txt", size: 11 });
-		const row = await findLibraryFile(db, (await findLibraryByRef(db, "group:team"))?.row.id as string, "docs/a.txt");
+		expect(jsonOf(copy)).toMatchObject({ library: "user_group:team", path: "docs/a.txt", size: 11 });
+		const row = await findLibraryFile(
+			db,
+			(await findLibraryByRef(db, "user_group:team"))?.row.id as string,
+			"docs/a.txt",
+		);
 		expect(row?.sha256).toBe(sha256Hex(Buffer.from("hello alice")));
 	});
 
@@ -401,7 +405,7 @@ describe("library tools", () => {
 		).rejects.toThrow();
 		// A group library needs membership as well, for an administrator too.
 		await expect(
-			tool("stat").handler({ library: "group:team", path: "shared.txt" } as never, { ...context, user: bob }),
+			tool("stat").handler({ library: "user_group:team", path: "shared.txt" } as never, { ...context, user: bob }),
 		).rejects.toThrow();
 	});
 
@@ -409,19 +413,23 @@ describe("library tools", () => {
 		const copy = await tool("copy_file").handler(
 			{
 				source: { library: "user:alice", path: "docs/a.txt" },
-				destination: { library: "group:team", path: "docs/a.txt" },
+				destination: { library: "user_group:team", path: "docs/a.txt" },
 			} as never,
 			context,
 		);
 		const body = jsonOf(copy);
-		expect(body).toMatchObject({ library: "group:team", path: "docs/a.txt", size: 11 });
-		const row = await findLibraryFile(db, (await findLibraryByRef(db, "group:team"))?.row.id as string, "docs/a.txt");
+		expect(body).toMatchObject({ library: "user_group:team", path: "docs/a.txt", size: 11 });
+		const row = await findLibraryFile(
+			db,
+			(await findLibraryByRef(db, "user_group:team"))?.row.id as string,
+			"docs/a.txt",
+		);
 		expect(row?.sha256).toBe(sha256Hex(Buffer.from("hello alice")));
 
 		const overwrite = await tool("copy_file").handler(
 			{
 				source: { library: "user:alice", path: "docs/a.txt" },
-				destination: { library: "group:team", path: "docs/a.txt" },
+				destination: { library: "user_group:team", path: "docs/a.txt" },
 				overwrite: true,
 			} as never,
 			context,
@@ -431,13 +439,13 @@ describe("library tools", () => {
 			tool("copy_file").handler(
 				{
 					source: { library: "user:alice", path: "docs/a.txt" },
-					destination: { library: "group:team", path: "docs/a.txt" },
+					destination: { library: "user_group:team", path: "docs/a.txt" },
 				} as never,
 				context,
 			),
 		).rejects.toThrow("already exists");
 
-		const group = await findLibraryByRef(db, "group:team");
+		const group = await findLibraryByRef(db, "user_group:team");
 		await db
 			.updateTable("libraries")
 			.set({ max_file_bytes: 4 })
@@ -447,7 +455,7 @@ describe("library tools", () => {
 			tool("copy_file").handler(
 				{
 					source: { library: "user:alice", path: "docs/a.txt" },
-					destination: { library: "group:team", path: "small.txt" },
+					destination: { library: "user_group:team", path: "small.txt" },
 				} as never,
 				context,
 			),
@@ -455,16 +463,16 @@ describe("library tools", () => {
 	});
 
 	it("refuses a copy onto a directory or under a file", async () => {
-		await put("group:team", "dir/child.txt", Buffer.from("child"));
-		await put("group:team", "plain.txt", Buffer.from("plain"));
+		await put("user_group:team", "dir/child.txt", Buffer.from("child"));
+		await put("user_group:team", "plain.txt", Buffer.from("plain"));
 		const source = { library: "user:alice", path: "docs/a.txt" };
 
 		await expect(
-			tool("copy_file").handler({ source, destination: { library: "group:team", path: "dir" } } as never, context),
+			tool("copy_file").handler({ source, destination: { library: "user_group:team", path: "dir" } } as never, context),
 		).rejects.toThrow("a directory already exists at dir");
 		await expect(
 			tool("copy_file").handler(
-				{ source, destination: { library: "group:team", path: "plain.txt/child.txt" } } as never,
+				{ source, destination: { library: "user_group:team", path: "plain.txt/child.txt" } } as never,
 				context,
 			),
 		).rejects.toThrow("a file already exists at plain.txt");
@@ -491,7 +499,7 @@ describe("library tools", () => {
 		expect(withOverwrite.details?.delivery).toEqual(result.details?.delivery);
 		// Nothing was copied: the group library is untouched.
 		expect(
-			await findLibraryFile(db, (await findLibraryByRef(db, "group:team"))?.row.id as string, "a.txt"),
+			await findLibraryFile(db, (await findLibraryByRef(db, "user_group:team"))?.row.id as string, "a.txt"),
 		).toBeUndefined();
 
 		// A missing source is the ordinary stat refusal; no delivery is recorded for a file that is not there.
@@ -510,7 +518,7 @@ describe("library tools", () => {
 		expect(input.safeParse({ source, destination: { user_interface: true } }).success).toBe(true);
 		expect(input.safeParse({ source, destination: { user_interface: true, mode: "0644" } }).success).toBe(false);
 		expect(
-			input.safeParse({ source, destination: { library: "group:team", path: "a.txt", mode: "0644" } }).success,
+			input.safeParse({ source, destination: { library: "user_group:team", path: "a.txt", mode: "0644" } }).success,
 		).toBe(false);
 		expect(input.safeParse({ source, destination: { targets: ["web-1"], path: "/x" } }).success).toBe(true);
 		// overwrite is meaningless with user_interface and has no effect rather than erroring.

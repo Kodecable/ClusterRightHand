@@ -2,8 +2,9 @@ import type { SystemSettings } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
+import { ByteSizeInput } from "@/components/byte-size-input";
 import { FieldShell } from "@/components/form";
 import { Input } from "@/components/ui/input";
 import { formatBytes } from "@/lib/format";
@@ -23,13 +24,19 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 	const [error, setError] = useState<unknown>();
 	const schema = useMemo(() => {
 		const limit = z.number(t`Enter a whole number between 0 and ${MAX_LIMIT}.`).int().min(0).max(MAX_LIMIT);
+		const sizeMessage = t`Enter a size such as 32M or 1048576.`;
+		const size = z
+			.number(sizeMessage)
+			.int(sizeMessage)
+			.min(0, sizeMessage)
+			.max(MAX_LIMIT, t`Enter a size of at most ${MAX_LIMIT} bytes.`);
 		return z.object({
 			userFiles: limit,
-			userFileBytes: limit,
-			userTotalBytes: limit,
+			userFileBytes: size,
+			userTotalBytes: size,
 			groupFiles: limit,
-			groupFileBytes: limit,
-			groupTotalBytes: limit,
+			groupFileBytes: size,
+			groupTotalBytes: size,
 		});
 	}, [t]);
 	type Values = z.infer<typeof schema>;
@@ -120,26 +127,38 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 				</FieldShell>
 				<FieldShell
 					id="library-user-file-bytes"
-					label={t`One file for new users (bytes)`}
+					label={t`One file for new users`}
 					error={form.formState.errors.userFileBytes?.message}
 				>
-					<Input
-						id="library-user-file-bytes"
-						type="number"
-						min={0}
-						{...form.register("userFileBytes", { valueAsNumber: true })}
+					<Controller
+						control={form.control}
+						name="userFileBytes"
+						render={({ field }) => (
+							<ByteSizeInput
+								id="library-user-file-bytes"
+								value={field.value}
+								onChange={field.onChange}
+								onBlur={field.onBlur}
+							/>
+						)}
 					/>
 				</FieldShell>
 				<FieldShell
 					id="library-user-total-bytes"
-					label={t`Total size for new users (bytes)`}
+					label={t`Total size for new users`}
 					error={form.formState.errors.userTotalBytes?.message}
 				>
-					<Input
-						id="library-user-total-bytes"
-						type="number"
-						min={0}
-						{...form.register("userTotalBytes", { valueAsNumber: true })}
+					<Controller
+						control={form.control}
+						name="userTotalBytes"
+						render={({ field }) => (
+							<ByteSizeInput
+								id="library-user-total-bytes"
+								value={field.value}
+								onChange={field.onChange}
+								onBlur={field.onBlur}
+							/>
+						)}
 					/>
 				</FieldShell>
 			</fieldset>
@@ -149,7 +168,8 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 				</legend>
 				<p className="-mt-2 text-sm text-muted-foreground">
 					<Trans>
-						A limit of 0 allows nothing, so a new group library is unusable until an administrator raises its limits.
+						A limit of 0 allows nothing, so a new user group library is unusable until an administrator raises its
+						limits.
 					</Trans>
 				</p>
 				<FieldShell
@@ -166,26 +186,38 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 				</FieldShell>
 				<FieldShell
 					id="library-group-file-bytes"
-					label={t`One file for new groups (bytes)`}
+					label={t`One file for new groups`}
 					error={form.formState.errors.groupFileBytes?.message}
 				>
-					<Input
-						id="library-group-file-bytes"
-						type="number"
-						min={0}
-						{...form.register("groupFileBytes", { valueAsNumber: true })}
+					<Controller
+						control={form.control}
+						name="groupFileBytes"
+						render={({ field }) => (
+							<ByteSizeInput
+								id="library-group-file-bytes"
+								value={field.value}
+								onChange={field.onChange}
+								onBlur={field.onBlur}
+							/>
+						)}
 					/>
 				</FieldShell>
 				<FieldShell
 					id="library-group-total-bytes"
-					label={t`Total size for new groups (bytes)`}
+					label={t`Total size for new groups`}
 					error={form.formState.errors.groupTotalBytes?.message}
 				>
-					<Input
-						id="library-group-total-bytes"
-						type="number"
-						min={0}
-						{...form.register("groupTotalBytes", { valueAsNumber: true })}
+					<Controller
+						control={form.control}
+						name="groupTotalBytes"
+						render={({ field }) => (
+							<ByteSizeInput
+								id="library-group-total-bytes"
+								value={field.value}
+								onChange={field.onChange}
+								onBlur={field.onBlur}
+							/>
+						)}
 					/>
 				</FieldShell>
 			</fieldset>

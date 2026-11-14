@@ -108,7 +108,7 @@ export async function createUserGroup(db: Db, name: string, options: CreateUserG
 	};
 	await withTransaction(db, async (trx) => {
 		await trx.insertInto("user_groups").values(row).execute();
-		await insertLibrary(trx, "group", row.id, options.library ?? defaultLibraryLimits("group"));
+		await insertLibrary(trx, "user_group", row.id, options.library ?? defaultLibraryLimits("user_group"));
 	});
 	return { id: row.id, name: row.name, source: row.source, createdAt: row.created_at, memberIds: [] };
 }
@@ -190,7 +190,7 @@ export async function deleteUserGroup(
 		const library = await trx
 			.selectFrom("libraries")
 			.select(["id", "used_files"])
-			.where("owner_kind", "=", "group")
+			.where("owner_kind", "=", "user_group")
 			.where("owner_id", "=", userGroupId)
 			.executeTakeFirst();
 		if (library && library.used_files > 0) {

@@ -16,8 +16,8 @@ const OPS_LIBRARY: LibraryView = {
 
 const TEAM_LIBRARY: LibraryView = {
 	id: "lib-team",
-	ref: "group:ops-team",
-	ownerKind: "group",
+	ref: "user_group:ops-team",
+	ownerKind: "user_group",
 	ownerId: "group-1",
 	ownerName: "ops-team",
 	ownerDisplayName: "ops-team",
@@ -116,7 +116,7 @@ test("the one control switches to a user group library", async ({ page }) => {
 		user: { ...USER, kind: "member" },
 		state: {
 			libraries: [OPS_LIBRARY, TEAM_LIBRARY],
-			libraryFiles: { "user:ops": [PNG], "group:ops-team": [] },
+			libraryFiles: { "user:ops": [PNG], "user_group:ops-team": [] },
 		},
 	});
 	await login(page);
@@ -124,8 +124,8 @@ test("the one control switches to a user group library", async ({ page }) => {
 
 	await page.getByRole("combobox", { name: "Library" }).click();
 	await page.getByRole("option").filter({ hasText: "ops-team" }).click();
-	await expect(page.getByTestId("library-selector")).toContainText("Group ops-team's library");
-	await expect(page).toHaveURL(/group(%3A|:)ops-team/);
+	await expect(page.getByTestId("library-selector")).toContainText("User group ops-team's library");
+	await expect(page).toHaveURL(/user_group(%3A|:)ops-team/);
 });
 
 test("a refused upload is skipped and listed with its error", async ({ page }) => {

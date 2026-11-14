@@ -25,7 +25,7 @@ export function useLibraries(enabled = true) {
 	});
 }
 
-/** One library by its `user:<username>` / `group:<name>` reference. */
+/** One library by its `user:<username>` / `user_group:<name>` reference. */
 export function useLibrary(ref: string) {
 	return useQuery({
 		queryKey: libraryKeys.detail(ref),

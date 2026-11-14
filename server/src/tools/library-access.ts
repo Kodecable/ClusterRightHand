@@ -1,7 +1,7 @@
 /**
  * Libraries on the tool surfaces (doc/design/library.md "Agent tools"): a `library` argument names
- * `user:<username>` or `group:<group name>`, and an agent session or API token reaches the libraries of
- * the user it acts for only, never through the administrator bypass.
+ * `user:<username>` or `user_group:<user group name>`, and an agent session or API token reaches the
+ * libraries of the user it acts for only, never through the administrator bypass.
  */
 
 import { findLibraryFile, type LibraryFileRow, listLibraryFiles } from "../library/files.ts";

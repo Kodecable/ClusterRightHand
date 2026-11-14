@@ -10,7 +10,7 @@ import type { Db } from "./db.ts";
  */
 export async function insertLibrary(
 	db: Db,
-	ownerKind: "user" | "group",
+	ownerKind: "user" | "user_group",
 	ownerId: string,
 	limits: LibraryLimits,
 ): Promise<void> {
@@ -31,7 +31,7 @@ export async function insertLibrary(
 }
 
 /** The limits a new library of this kind starts with when the caller names none. */
-export function defaultLibraryLimits(ownerKind: "user" | "group"): LibraryLimits {
+export function defaultLibraryLimits(ownerKind: "user" | "user_group"): LibraryLimits {
 	return ownerKind === "user" ? DEFAULT_USER_LIBRARY_LIMITS : DEFAULT_GROUP_LIBRARY_LIMITS;
 }
 

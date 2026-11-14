@@ -349,20 +349,20 @@ describe("library backfill migration", () => {
 		);
 		expect(rows.rows).toEqual([
 			{
-				owner_kind: "group",
-				owner_id: "group-1",
-				max_files: 0,
-				max_file_bytes: 0,
-				max_total_bytes: 0,
-				created_at: "2026-01-02T00:00:00.000Z",
-			},
-			{
 				owner_kind: "user",
 				owner_id: "user-1",
 				max_files: 256,
 				max_file_bytes: 32 * 1024 * 1024,
 				max_total_bytes: 256 * 1024 * 1024,
 				created_at: "2026-01-01T00:00:00.000Z",
+			},
+			{
+				owner_kind: "user_group",
+				owner_id: "group-1",
+				max_files: 0,
+				max_file_bytes: 0,
+				max_total_bytes: 0,
+				created_at: "2026-01-02T00:00:00.000Z",
 			},
 		]);
 	});

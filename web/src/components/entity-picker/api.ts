@@ -276,7 +276,7 @@ async function fetchSearch(
 						disabled: user.status !== "active",
 					})),
 					...groups.groups.map((group) => ({
-						id: `group:${group.name}`,
+						id: `user_group:${group.name}`,
 						kind: "userGroup" as const,
 						primary: group.name,
 						secondary: i18n._(msg`User group`),
@@ -410,7 +410,7 @@ async function fetchLabelsChunk(
 				if (separator === -1) return [];
 				const kind = id.slice(0, separator);
 				const name = id.slice(separator + 1);
-				if ((kind !== "user" && kind !== "group") || name === "") return [];
+				if ((kind !== "user" && kind !== "user_group") || name === "") return [];
 				return [{ id, kind: kind === "user" ? ("user" as const) : ("userGroup" as const), primary: name }];
 			});
 		case "library": {

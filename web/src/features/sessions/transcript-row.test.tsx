@@ -831,15 +831,15 @@ describe("attachment chips and crh.user_input", () => {
 		expect(screen.queryByTestId("attachment-chip-link")).not.toBeInTheDocument();
 	});
 
-	test("an attachment with a library id links through a renamed group's current reference", async () => {
-		const renamed = { ...attachment, library: "group:team", libraryId: "lib-g1" };
+	test("an attachment with a library id links through a renamed user group's current reference", async () => {
+		const renamed = { ...attachment, library: "user_group:team", libraryId: "lib-g1" };
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(async (input: RequestInfo | URL) => {
 				const url = String(input);
 				const body = url.includes("/stat")
 					? { file: { path: attachment.path, size: attachment.bytes } }
-					: { libraries: [{ id: "lib-g1", ref: "group:team-renamed" }] };
+					: { libraries: [{ id: "lib-g1", ref: "user_group:team-renamed" }] };
 				return new Response(JSON.stringify(body), {
 					status: 200,
 					headers: { "content-type": "application/json" },
@@ -848,11 +848,11 @@ describe("attachment chips and crh.user_input", () => {
 		);
 		renderRow({ kind: "user", key: "u1", text: "", attachments: [renamed] });
 		const link = await screen.findByTestId("attachment-chip-link");
-		expect(link).toHaveAttribute("href", "/api/libraries/group%3Ateam-renamed/file?path=docs%2Freport.txt");
+		expect(link).toHaveAttribute("href", "/api/libraries/user_group%3Ateam-renamed/file?path=docs%2Freport.txt");
 	});
 
 	test("an attachment whose library id is not in the viewer's libraries is inactive", async () => {
-		const other = { ...attachment, library: "group:team", libraryId: "lib-g1" };
+		const other = { ...attachment, library: "user_group:team", libraryId: "lib-g1" };
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(

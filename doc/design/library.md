@@ -18,7 +18,7 @@ The scope is deliberately narrow:
 | Library | Name in tools and the API | Who can use it |
 |---|---|---|
 | A user's own | `user:<username>` | The user and administrators |
-| A user group's | `group:<group name>` | The group's members (read and write) and administrators |
+| A user group's | `user_group:<user group name>` | The user group's members (read and write) and administrators |
 
 - A library is created with its user or group. Existing users and groups get theirs in the migration
   that introduces libraries, with the defaults of that time.
@@ -98,7 +98,7 @@ and the total size. A new library copies them once from the defaults in System s
 | A user's | 256 | 32 MiB | 256 MiB |
 | A group's | 0 | 0 | 0 |
 
-- A limit of 0 allows nothing, so a group library is unusable until an administrator raises its limits.
+- A limit of 0 allows nothing, so a user group library is unusable until an administrator raises its limits.
 - A write (upload, overwrite, copy or move into the library) is allowed only if the library is within
   every limit after it. When a library is over a limit, for example after an administrator lowered it,
   nothing can be added or overwritten until files are deleted. Deletions are always allowed.
@@ -211,9 +211,9 @@ A copy has one source file and one or more destinations:
 
 The tools follow the existing naming and argument style ([Cluster tools](agent-runtime.md#cluster-tools)).
 A location is either a node (`node`, or `targets` where several are allowed) or a library (`library`,
-whose value is `user:<username>` or `group:<group name>`). The session's system prompt names the owner
-the session acts for; the MCP facade adds that name to the library tools' descriptions too (an agent
-session's tool descriptions are registered once per server, so its prompt carries the name).
+whose value is `user:<username>` or `user_group:<user group name>`). The session's system prompt names
+the owner the session acts for; the MCP facade adds that name to the library tools' descriptions too (an
+agent session's tool descriptions are registered once per server, so its prompt carries the name).
 
 | Tool | Behavior |
 |---|---|

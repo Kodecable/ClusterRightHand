@@ -1,8 +1,8 @@
 /**
  * Libraries and their files (doc/design/library.md "Libraries" and "WebUI and API").
  *
- * A library is named by its owner: `user:<username>` or `group:<group name>`. The API accepts that
- * reference wherever a route names a library.
+ * A library is named by its owner: `user:<username>` or `user_group:<user group name>`. The API
+ * accepts that reference wherever a route names a library.
  */
 
 /** The three limits of a library; 0 allows nothing (doc/design/library.md "Limits"). */
@@ -32,12 +32,12 @@ export interface LibraryCapabilities {
 /** `GET /api/libraries` and `GET /api/libraries/:ref`. */
 export interface LibraryView {
 	id: string;
-	/** `user:<username>` or `group:<group name>`. */
+	/** `user:<username>` or `user_group:<user group name>`. */
 	ref: string;
-	ownerKind: "user" | "group";
+	ownerKind: "user" | "user_group";
 	ownerId: string;
 	ownerName: string;
-	/** A user's display name; the group name for a group library. */
+	/** A user's display name; the user group name for a user group library. */
 	ownerDisplayName: string;
 	usage: LibraryUsage;
 	limits: LibraryLimits;

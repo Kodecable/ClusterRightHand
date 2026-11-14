@@ -23,13 +23,13 @@ function libraryLabel(library: LibraryView, i18n: ReturnType<typeof useLingui>["
 	const name = library.ownerDisplayName || library.ownerName;
 	return library.ownerKind === "user"
 		? i18n._(msg`User {name}'s library`.id, { name })
-		: i18n._(msg`Group {name}'s library`.id, { name });
+		: i18n._(msg`User group {name}'s library`.id, { name });
 }
 
 /**
  * One library at `/library/$library?path=…` (doc/design/webui.md "Library page"): the shared file
- * manager over the library, one control for the user's own and their groups' libraries (any user or
- * group for an administrator), and the usage against the limits in the toolbar.
+ * manager over the library, one control for the user's own and their user groups' libraries (any user
+ * or user group for an administrator), and the usage against the limits in the toolbar.
  */
 export function LibraryPage() {
 	const { t, i18n } = useLingui();

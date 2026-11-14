@@ -7,8 +7,8 @@ const item = sessionListItem({ id: "s1", title: "Delivery session", updatedAt: n
 /** The offered library was renamed after the tool call; the card resolves it by id. */
 const LIBRARY = {
 	id: "lib-team",
-	ref: "group:team-renamed",
-	ownerKind: "group" as const,
+	ref: "user_group:team-renamed",
+	ownerKind: "user_group" as const,
 	ownerId: "group-1",
 	ownerName: "team-renamed",
 	ownerDisplayName: "team-renamed",
@@ -33,7 +33,7 @@ function deliveryEntries(final = false): EntryRecord[] {
 							id: "call-1",
 							name: "copy_file",
 							arguments: {
-								source: { library: "group:team", path: "docs/report.txt" },
+								source: { library: "user_group:team", path: "docs/report.txt" },
 								destination: { user_interface: true },
 							},
 						},
@@ -54,7 +54,7 @@ function deliveryEntries(final = false): EntryRecord[] {
 					isError: false,
 					details: {
 						delivery: {
-							source: { library: "group:team", libraryId: "lib-team", path: "docs/report.txt" },
+							source: { library: "user_group:team", libraryId: "lib-team", path: "docs/report.txt" },
 							name: "report.txt",
 							bytes: 1234,
 						},
@@ -100,12 +100,12 @@ test("a copy_file delivery is an ordinary tool row plus one delivered-file box",
 
 	const delivery = page.getByTestId("delivery-box");
 	await expect(delivery).toContainText("report.txt");
-	await expect(delivery).toContainText("group:team");
+	await expect(delivery).toContainText("user_group:team");
 	await expect(delivery).toContainText("1.2 KiB");
 	// The link follows the library id to the current reference, not the stored one.
 	await expect(page.getByTestId("delivery-download")).toHaveAttribute(
 		"href",
-		"/api/libraries/group%3Ateam-renamed/file?path=docs%2Freport.txt",
+		"/api/libraries/user_group%3Ateam-renamed/file?path=docs%2Freport.txt",
 	);
 });
 
@@ -131,6 +131,6 @@ test("delivered files stay visible when the turn is folded", async ({ page }) =>
 	await expect(page.getByTestId("delivery-box")).toContainText("report.txt");
 	await expect(page.getByTestId("delivery-download")).toHaveAttribute(
 		"href",
-		"/api/libraries/group%3Ateam-renamed/file?path=docs%2Freport.txt",
+		"/api/libraries/user_group%3Ateam-renamed/file?path=docs%2Freport.txt",
 	);
 });

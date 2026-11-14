@@ -303,14 +303,14 @@ export function AttachmentPickerDialog({
 								const library = list.find((candidate) => candidate.ref === value);
 								return library === undefined
 									? ""
-									: `${library.ownerKind === "user" ? "User" : "Group"} ${library.ownerDisplayName || library.ownerName}`;
+									: `${library.ownerKind === "user" ? "User" : "User group"} ${library.ownerDisplayName || library.ownerName}`;
 							}}
 						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						{list.map((library) => (
 							<SelectItem key={library.ref} value={library.ref}>
-								{library.ownerKind === "user" ? "User" : "Group"} {library.ownerDisplayName || library.ownerName}
+								{library.ownerKind === "user" ? "User" : "User group"} {library.ownerDisplayName || library.ownerName}
 							</SelectItem>
 						))}
 					</SelectContent>

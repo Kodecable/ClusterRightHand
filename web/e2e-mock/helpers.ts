@@ -103,7 +103,7 @@ export interface FakeState {
 	sshRoutes: Record<string, SshNodeDetails["hops"]>;
 	authorizations: AuthorizationSummary[];
 	nodeTrust: Record<string, NodeTrust>;
-	/** Libraries the fake API exposes, and each library's files by its `user:…`/`group:…` reference. */
+	/** Libraries the fake API exposes, and each library's files by its `user:…`/`user_group:…` reference. */
 	libraries: LibraryView[];
 	libraryFiles: Record<string, LibraryFile[]>;
 	/** Uploads the fake server refuses, keyed by file path, with the reason it returns. */

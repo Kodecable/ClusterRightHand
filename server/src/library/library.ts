@@ -1,7 +1,7 @@
 /**
  * Libraries and their access rules (doc/design/library.md "Libraries"): a user library belongs to that
- * user, a group library to the group's members (read and write), and administrators reach every
- * library. A library is named `user:<username>` or `group:<group name>`.
+ * user, a user group library to the group's members (read and write), and administrators reach every
+ * library. A library is named `user:<username>` or `user_group:<user group name>`.
  */
 import type { LibraryCapabilities, LibraryLimits, LibraryUsage, LibraryView } from "@crh/api";
 import type { Selectable } from "kysely";
@@ -20,23 +20,23 @@ export interface LibraryRecord {
 }
 
 export interface LibraryRef {
-	kind: "user" | "group";
+	kind: "user" | "user_group";
 	name: string;
 }
 
-/** Parses `user:<username>` or `group:<group name>`. */
+/** Parses `user:<username>` or `user_group:<user group name>`. */
 export function parseLibraryRef(ref: string): LibraryRef {
 	if (ref.startsWith("user:")) {
 		const name = ref.slice("user:".length);
 		if (name === "") throw new UserError("a library reference must name a user");
 		return { kind: "user", name };
 	}
-	if (ref.startsWith("group:")) {
-		const name = ref.slice("group:".length);
+	if (ref.startsWith("user_group:")) {
+		const name = ref.slice("user_group:".length);
 		if (name === "") throw new UserError("a library reference must name a user group");
-		return { kind: "group", name };
+		return { kind: "user_group", name };
 	}
-	throw new UserError("a library reference must look like user:<username> or group:<group name>");
+	throw new UserError("a library reference must look like user:<username> or user_group:<user group name>");
 }
 
 /** The reference of a row and its owner's name. */
@@ -97,7 +97,7 @@ export async function findLibraryByRef(db: Db, ref: string): Promise<LibraryReco
 	const row = await db
 		.selectFrom("libraries")
 		.selectAll()
-		.where("owner_kind", "=", "group")
+		.where("owner_kind", "=", "user_group")
 		.where("owner_id", "=", owner.id)
 		.executeTakeFirst();
 	if (!row) return undefined;
@@ -192,7 +192,7 @@ export async function listAccessibleLibraries(db: Db, user: SessionUser): Promis
 			eb.or([
 				eb.and([eb("l.owner_kind", "=", "user"), eb("l.owner_id", "=", user.userId)]),
 				eb.and([
-					eb("l.owner_kind", "=", "group"),
+					eb("l.owner_kind", "=", "user_group"),
 					eb(
 						"l.owner_id",
 						"in",

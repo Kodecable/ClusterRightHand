@@ -6,7 +6,7 @@ import { DEFAULT_GROUP_LIBRARY_LIMITS, DEFAULT_USER_LIBRARY_LIMITS } from "../..
  * Libraries and their files (doc/design/library.md "Libraries" and "Metadata and objects").
  *
  * Every existing user and user group gets a library with the defaults of this release: a user's
- * 256 files / 32 MiB / 256 MiB, a group's 0/0/0. Later libraries copy the defaults from System
+ * 256 files / 32 MiB / 256 MiB, a user group's 0/0/0. Later libraries copy the defaults from System
  * settings when their owner is created.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
@@ -48,7 +48,14 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	const groups = (await sql<{ id: string; created_at: string }>`select id, created_at from user_groups`.execute(db))
 		.rows;
 	for (const group of groups) {
-		await insertLibraryRow(db, randomUUID(), "group", group.id, DEFAULT_GROUP_LIBRARY_LIMITS, group.created_at ?? now);
+		await insertLibraryRow(
+			db,
+			randomUUID(),
+			"user_group",
+			group.id,
+			DEFAULT_GROUP_LIBRARY_LIMITS,
+			group.created_at ?? now,
+		);
 	}
 }
 
@@ -56,7 +63,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 async function insertLibraryRow(
 	db: Kysely<unknown>,
 	id: string,
-	ownerKind: "user" | "group",
+	ownerKind: "user" | "user_group",
 	ownerId: string,
 	limits: { files: number; fileBytes: number; totalBytes: number },
 	createdAt: string,

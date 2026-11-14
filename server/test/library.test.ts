@@ -549,20 +549,20 @@ describe("library API", () => {
 		const group = ((await created.json()) as { group: { id: string; name: string } }).group;
 		expect(
 			(
-				await call(app, `${lib("group:team")}/limits`, {
+				await call(app, `${lib("user_group:team")}/limits`, {
 					method: "PATCH",
 					cookie: admin,
 					body: { files: 2, fileBytes: 16, totalBytes: 16 },
 				})
 			).status,
 		).toBe(200);
-		expect((await upload(admin, "group:team", "shared.txt", Buffer.from("shared"))).status).toBe(201);
+		expect((await upload(admin, "user_group:team", "shared.txt", Buffer.from("shared"))).status).toBe(201);
 
 		const refused = await call(app, `/api/user-groups/${group.id}`, { method: "DELETE", cookie: admin, body: {} });
 		expect(refused.status).toBe(400);
 		expect(await refused.json()).toMatchObject({ error: expect.stringContaining("1 file") });
 
-		const remove = await app.request(`${lib("group:team")}/file?path=shared.txt`, {
+		const remove = await app.request(`${lib("user_group:team")}/file?path=shared.txt`, {
 			method: "DELETE",
 			headers: { host: "localhost:8080", cookie: admin, "content-type": "application/json" },
 			body: "{}",
@@ -571,7 +571,7 @@ describe("library API", () => {
 		expect(
 			(await call(app, `/api/user-groups/${group.id}`, { method: "DELETE", cookie: admin, body: {} })).status,
 		).toBe(200);
-		expect(await db.selectFrom("libraries").select("id").where("owner_kind", "=", "group").execute()).toEqual([]);
+		expect(await db.selectFrom("libraries").select("id").where("owner_kind", "=", "user_group").execute()).toEqual([]);
 	});
 
 	it("refuses a group deletion racing a committed upload and keeps the file", async () => {
@@ -580,14 +580,14 @@ describe("library API", () => {
 		const group = ((await created.json()) as { group: { id: string; name: string } }).group;
 		expect(
 			(
-				await call(app, `${lib("group:racers")}/limits`, {
+				await call(app, `${lib("user_group:racers")}/limits`, {
 					method: "PATCH",
 					cookie: admin,
 					body: { files: 2, fileBytes: 16, totalBytes: 16 },
 				})
 			).status,
 		).toBe(200);
-		const record = await findLibraryByRef(db, "group:racers");
+		const record = await findLibraryByRef(db, "user_group:racers");
 		if (!record) throw new Error("the group has no library");
 		const upload = beginLibraryUpload(db, backend, {
 			library: record.row,
@@ -647,15 +647,15 @@ describe("library API", () => {
 		await call(app, `/api/user-groups/${group.id}/members/${aliceId}`, { method: "PUT", cookie: admin, body: {} });
 		expect(
 			(
-				await call(app, `${lib("group:team")}/limits`, {
+				await call(app, `${lib("user_group:team")}/limits`, {
 					method: "PATCH",
 					cookie: admin,
 					body: { files: 1, fileBytes: 8, totalBytes: 8 },
 				})
 			).status,
 		).toBe(200);
-		expect((await upload(alice, "group:team", "member.txt", Buffer.from("ok"))).status).toBe(201);
-		expect((await upload(bob, "group:team", "other.txt", Buffer.from("no"))).status).toBe(404);
+		expect((await upload(alice, "user_group:team", "member.txt", Buffer.from("ok"))).status).toBe(201);
+		expect((await upload(bob, "user_group:team", "other.txt", Buffer.from("no"))).status).toBe(404);
 	});
 
 	it("copies the System settings defaults when a user is created", async () => {

@@ -186,11 +186,11 @@ count and a link to the library ([Libraries](library.md#libraries)).
 
 **Library** in the Work group of the sidebar opens `/library/$library?path=…`, so a location can be
 linked and survives a reload. One control names the current library by its owner's display name
-(**User …'s library** / **Group …'s library**) and opens the entity picker: a member sees their own
-and their groups' libraries, an administrator any user or group. The page is the file manager over the
-library. Its toolbar shows the share of the total-size limit in use and a bar for the tighter of the
-file-count and total-size limits, with the exact ratios in a tooltip; the bar turns to a warning near a
-limit.
+(**User …'s library** / **User group …'s library**) and opens the entity picker: a member sees their
+own and their user groups' libraries, an administrator any user or user group. The page is the file
+manager over the library. Its toolbar shows the share of the total-size limit in use and a bar for the
+tighter of the file-count and total-size limits, with the exact ratios in a tooltip; the bar turns to a
+warning near a limit.
 Uploads take the button or a drop on the page, one at a time, in a dialog with the overall progress,
 the speed and the time left. A refused file is skipped and listed with the limit it hit, and cancel
 stops the remaining uploads. There are no folder objects: an upload goes to the current path, and a

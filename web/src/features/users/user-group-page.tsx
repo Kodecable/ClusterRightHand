@@ -154,7 +154,7 @@ export function UserGroupDetailPage() {
 
 			<KeyValueList items={[{ label: t`Created`, value: <DateTime value={details.createdAt} /> }]} />
 
-			<LibrarySection reference={`group:${details.name}`} />
+			<LibrarySection reference={`user_group:${details.name}`} />
 
 			<section className="grid gap-2" aria-labelledby="user-group-members-heading" data-testid="user-group-members">
 				<SectionHeader
@@ -240,7 +240,7 @@ export function UserGroupDetailPage() {
 						<ErrorState error={removeGroup.error} compact retry={() => void removeGroup.reset()} />
 						<Link
 							to="/library/$library"
-							params={{ library: `group:${details.name}` }}
+							params={{ library: `user_group:${details.name}` }}
 							search={{}}
 							className={linkClass}
 						>

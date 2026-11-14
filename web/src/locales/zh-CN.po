@@ -248,7 +248,7 @@ msgid "A label for this key, for example \"laptop\"."
 msgstr "此密钥的名称，例如“laptop”。"
 
 #: src/features/system-settings/library-section.tsx
-msgid "A limit of 0 allows nothing, so a new group library is unusable until an administrator raises its limits."
+msgid "A limit of 0 allows nothing, so a new user group library is unusable until an administrator raises its limits."
 msgstr "限制为 0 表示不允许任何文件，因此新的用户组资料库在管理员提高限制前无法使用。"
 
 #: src/features/library/limits-dialog.tsx
@@ -845,8 +845,8 @@ msgid "By"
 msgstr "操作者"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "Cache size on disk (bytes)"
-msgstr "磁盘缓存大小（字节）"
+msgid "Cache size on disk"
+msgstr "磁盘缓存大小"
 
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
@@ -1775,6 +1775,17 @@ msgstr "请输入时长，例如 7 天。"
 msgid "Enter a positive number of tokens to add."
 msgstr "请输入要添加的 token 数（正整数）。"
 
+#: src/features/library/limits-dialog.tsx
+#: src/features/system-settings/library-section.tsx
+msgid "Enter a size of at most {MAX_LIMIT} bytes."
+msgstr "请输入不超过 {MAX_LIMIT} 字节的大小。"
+
+#: src/features/library/limits-dialog.tsx
+#: src/features/system-settings/attachments-section.tsx
+#: src/features/system-settings/library-section.tsx
+msgid "Enter a size such as 32M or 1048576."
+msgstr "请输入大小，例如 32M 或 1048576。"
+
 #: src/components/file-manager/file-list.tsx
 msgid "Enter a valid path without a trailing /."
 msgstr "请输入有效路径，且结尾不能包含 /。"
@@ -1791,10 +1802,6 @@ msgstr "请输入大于等于 0 的整数。"
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Enter a whole number of at least 1."
 msgstr "请输入大于等于 1 的整数。"
-
-#: src/features/system-settings/attachments-section.tsx
-msgid "Enter a whole number of bytes."
-msgstr "请输入整数字节数。"
 
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
@@ -2038,10 +2045,6 @@ msgstr "被授权方"
 msgid "Group"
 msgstr "用户组"
 
-#: src/features/library/pages.tsx
-msgid "Group {name}'s library"
-msgstr "用户组 {name} 的资料库"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Header"
 msgstr "请求头"
@@ -2232,8 +2235,8 @@ msgid "Language"
 msgstr "语言"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "Largest file to inline (bytes)"
-msgstr "可内联的最大文件（字节）"
+msgid "Largest file to inline"
+msgstr "可内联的最大文件"
 
 #. placeholder {0}: record.lastRejection.code
 #. placeholder {1}: record.lastRejection.attempt
@@ -2486,8 +2489,8 @@ msgid "More results — keep typing to narrow down"
 msgstr "更多结果——请继续输入以缩小范围"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "Most inlined per message (bytes)"
-msgstr "每条消息最多内联（字节）"
+msgid "Most inlined per message"
+msgstr "每条消息最多内联"
 
 #: src/components/file-manager/file-list.tsx
 msgid "Move"
@@ -3005,20 +3008,17 @@ msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-
 msgstr "一行 authorized_keys 内容：ssh-ed25519、sk-ssh-ed25519@openssh.com、ecdsa-sha2-nistp256 或 sk-ecdsa-sha2-nistp256@openssh.com。"
 
 #: src/features/library/library-section.tsx
+#: src/features/library/limits-dialog.tsx
 msgid "One file"
 msgstr "单个文件"
 
-#: src/features/library/limits-dialog.tsx
-msgid "One file (bytes)"
-msgstr "单个文件（字节）"
+#: src/features/system-settings/library-section.tsx
+msgid "One file for new groups"
+msgstr "新用户组的单个文件"
 
 #: src/features/system-settings/library-section.tsx
-msgid "One file for new groups (bytes)"
-msgstr "新用户组的单个文件（字节）"
-
-#: src/features/system-settings/library-section.tsx
-msgid "One file for new users (bytes)"
-msgstr "新用户的单个文件（字节）"
+msgid "One file for new users"
+msgstr "新用户的单个文件"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
@@ -4655,20 +4655,17 @@ msgstr "工具结果"
 
 #: src/components/upload/upload-progress-dialog.tsx
 #: src/features/library/library-section.tsx
+#: src/features/library/limits-dialog.tsx
 msgid "Total size"
 msgstr "总大小"
 
-#: src/features/library/limits-dialog.tsx
-msgid "Total size (bytes)"
-msgstr "总大小（字节）"
+#: src/features/system-settings/library-section.tsx
+msgid "Total size for new groups"
+msgstr "新用户组的总大小"
 
 #: src/features/system-settings/library-section.tsx
-msgid "Total size for new groups (bytes)"
-msgstr "新用户组的总大小（字节）"
-
-#: src/features/system-settings/library-section.tsx
-msgid "Total size for new users (bytes)"
-msgstr "新用户的总大小（字节）"
+msgid "Total size for new users"
+msgstr "新用户的总大小"
 
 #: src/features/library/usage-indicator.tsx
 msgid "Total size limit: {bytesPercent} ({bytesUsed}/{bytesLimit})"
@@ -4823,6 +4820,10 @@ msgstr "用户 {name} 的资料库"
 #: src/features/users/user-group-page.tsx
 msgid "User group"
 msgstr "用户组"
+
+#: src/features/library/pages.tsx
+msgid "User group {name}'s library"
+msgstr "用户组 {name} 的资料库"
 
 #: src/features/users/user-group-dialogs.tsx
 msgid "User group name"

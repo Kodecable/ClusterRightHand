@@ -32,8 +32,8 @@ const OPS_LIBRARY: LibraryView = {
 
 const TEAM_LIBRARY: LibraryView = {
 	id: "lib-team",
-	ref: "group:team",
-	ownerKind: "group",
+	ref: "user_group:team",
+	ownerKind: "user_group",
 	ownerId: "group-1",
 	ownerName: "team",
 	ownerDisplayName: "team",
@@ -80,7 +80,7 @@ function mockApi({
 			const path = decodeURIComponent(url.pathname);
 			if (path === "/api/me") return json({ user });
 			if (path === "/api/libraries") return json({ libraries });
-			if (path === "/api/libraries/user:ops" || path === "/api/libraries/group:team") {
+			if (path === "/api/libraries/user:ops" || path === "/api/libraries/user_group:team") {
 				return json({ library: path.endsWith("team") ? TEAM_LIBRARY : library });
 			}
 			if (path === "/api/libraries/user:ops/files") {
@@ -126,7 +126,7 @@ describe("LibraryPage", () => {
 		await renderPage();
 		await userEvent.click(await screen.findByRole("combobox", { name: "Library" }));
 		await userEvent.click(await screen.findByRole("option", { name: /team/ }));
-		expect(await screen.findByTestId("library-selector")).toHaveTextContent("Group team's library");
+		expect(await screen.findByTestId("library-selector")).toHaveTextContent("User group team's library");
 	});
 
 	test("warns when a library is at a limit", async () => {

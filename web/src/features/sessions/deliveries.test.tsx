@@ -5,11 +5,11 @@ import { renderWithI18n } from "@/test/render";
 import { TurnDeliveries } from "./deliveries";
 import type { DeliveryDetails } from "./tool-details";
 
-const LIBRARIES = [{ id: "lib-1", ref: "group:team-renamed" }];
+const LIBRARIES = [{ id: "lib-1", ref: "user_group:team-renamed" }];
 
 /** The library was renamed after the tool call; the box resolves it by id. */
 const libraryDelivery: DeliveryDetails = {
-	source: { library: "group:team", libraryId: "lib-1", path: "docs/report.txt" },
+	source: { library: "user_group:team", libraryId: "lib-1", path: "docs/report.txt" },
 	name: "report.txt",
 	bytes: 1234,
 };
@@ -43,7 +43,7 @@ describe("TurnDeliveries", () => {
 		await waitFor(() =>
 			expect(screen.getByTestId("delivery-download")).toHaveAttribute(
 				"href",
-				"/api/libraries/group%3Ateam-renamed/file?path=docs%2Freport.txt",
+				"/api/libraries/user_group%3Ateam-renamed/file?path=docs%2Freport.txt",
 			),
 		);
 		expect(screen.getByTestId("delivery-download")).toHaveAttribute("title", "docs/report.txt");
@@ -79,7 +79,7 @@ describe("TurnDeliveries", () => {
 			<TurnDeliveries
 				deliveries={[
 					{
-						source: { library: "group:team", libraryId: "lib-1", path: "screens/pic.png" },
+						source: { library: "user_group:team", libraryId: "lib-1", path: "screens/pic.png" },
 						name: "pic.png",
 						bytes: 10,
 					},
@@ -92,7 +92,7 @@ describe("TurnDeliveries", () => {
 		expect(await screen.findByTestId("delivery-preview-image")).toHaveAttribute("src", "blob:delivery");
 		await waitFor(() =>
 			expect(fetch).toHaveBeenCalledWith(
-				"/api/libraries/group%3Ateam-renamed/file?path=screens%2Fpic.png&preview=1",
+				"/api/libraries/user_group%3Ateam-renamed/file?path=screens%2Fpic.png&preview=1",
 				expect.anything(),
 			),
 		);
@@ -116,7 +116,7 @@ describe("TurnDeliveries", () => {
 			<TurnDeliveries
 				deliveries={[
 					{
-						source: { library: "group:team", libraryId: "lib-1", path: "screens/pic.png" },
+						source: { library: "user_group:team", libraryId: "lib-1", path: "screens/pic.png" },
 						name: "pic.png",
 						bytes: 10,
 					},

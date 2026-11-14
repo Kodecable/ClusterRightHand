@@ -2,8 +2,9 @@ import type { SystemSettings } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
+import { ByteSizeInput } from "@/components/byte-size-input";
 import { FieldShell } from "@/components/form";
 import { Input } from "@/components/ui/input";
 import { useSaveSystemSettings } from "./api";
@@ -18,14 +19,14 @@ export function AttachmentsSection({ settings }: { settings: SystemSettings }) {
 	const { t } = useLingui();
 	const save = useSaveSystemSettings();
 	const [error, setError] = useState<unknown>();
-	const schema = useMemo(
-		() =>
-			z.object({
-				inlineTextBytes: z.number(t`Enter a whole number of bytes.`).int().min(0),
-				inlineTotalBytes: z.number(t`Enter a whole number of bytes.`).int().min(0),
-			}),
-		[t],
-	);
+	const schema = useMemo(() => {
+		const sizeMessage = t`Enter a size such as 32M or 1048576.`;
+		const size = z.number(sizeMessage).int(sizeMessage).min(0, sizeMessage);
+		return z.object({
+			inlineTextBytes: size,
+			inlineTotalBytes: size,
+		});
+	}, [t]);
 	type Values = z.infer<typeof schema>;
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
@@ -67,26 +68,38 @@ export function AttachmentsSection({ settings }: { settings: SystemSettings }) {
 		>
 			<FieldShell
 				id="attachments-inline-text-bytes"
-				label={t`Largest file to inline (bytes)`}
+				label={t`Largest file to inline`}
 				error={form.formState.errors.inlineTextBytes?.message}
 			>
-				<Input
-					id="attachments-inline-text-bytes"
-					type="number"
-					min={0}
-					{...form.register("inlineTextBytes", { valueAsNumber: true })}
+				<Controller
+					control={form.control}
+					name="inlineTextBytes"
+					render={({ field }) => (
+						<ByteSizeInput
+							id="attachments-inline-text-bytes"
+							value={field.value}
+							onChange={field.onChange}
+							onBlur={field.onBlur}
+						/>
+					)}
 				/>
 			</FieldShell>
 			<FieldShell
 				id="attachments-inline-total-bytes"
-				label={t`Most inlined per message (bytes)`}
+				label={t`Most inlined per message`}
 				error={form.formState.errors.inlineTotalBytes?.message}
 			>
-				<Input
-					id="attachments-inline-total-bytes"
-					type="number"
-					min={0}
-					{...form.register("inlineTotalBytes", { valueAsNumber: true })}
+				<Controller
+					control={form.control}
+					name="inlineTotalBytes"
+					render={({ field }) => (
+						<ByteSizeInput
+							id="attachments-inline-total-bytes"
+							value={field.value}
+							onChange={field.onChange}
+							onBlur={field.onBlur}
+						/>
+					)}
 				/>
 			</FieldShell>
 		</SettingsSection>
@@ -98,14 +111,13 @@ export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 	const { t } = useLingui();
 	const save = useSaveSystemSettings();
 	const [error, setError] = useState<unknown>();
-	const schema = useMemo(
-		() =>
-			z.object({
-				diskBytes: z.number(t`Enter a whole number of bytes.`).int().min(0),
-				ttl: z.string().trim().min(1, t`Enter a duration such as 7d.`),
-			}),
-		[t],
-	);
+	const schema = useMemo(() => {
+		const sizeMessage = t`Enter a size such as 32M or 1048576.`;
+		return z.object({
+			diskBytes: z.number(sizeMessage).int(sizeMessage).min(0, sizeMessage),
+			ttl: z.string().trim().min(1, t`Enter a duration such as 7d.`),
+		});
+	}, [t]);
 	type Values = z.infer<typeof schema>;
 	const form = useForm<Values>({
 		resolver: zodResolver(schema),
@@ -149,14 +161,20 @@ export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 		>
 			<FieldShell
 				id="image-cache-disk-bytes"
-				label={t`Cache size on disk (bytes)`}
+				label={t`Cache size on disk`}
 				error={form.formState.errors.diskBytes?.message}
 			>
-				<Input
-					id="image-cache-disk-bytes"
-					type="number"
-					min={0}
-					{...form.register("diskBytes", { valueAsNumber: true })}
+				<Controller
+					control={form.control}
+					name="diskBytes"
+					render={({ field }) => (
+						<ByteSizeInput
+							id="image-cache-disk-bytes"
+							value={field.value}
+							onChange={field.onChange}
+							onBlur={field.onBlur}
+						/>
+					)}
 				/>
 			</FieldShell>
 			<FieldShell id="image-cache-ttl" label={t`Time to live`} error={form.formState.errors.ttl?.message}>

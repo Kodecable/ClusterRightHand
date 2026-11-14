@@ -172,6 +172,16 @@ describe("SystemSettingsPage", () => {
 		expect(within(section("sign-in-section")).getByLabelText("Argon2 concurrency")).toHaveValue(2);
 		expect(within(section("sign-in-section")).getByLabelText("Argon2 queue")).toHaveValue(32);
 
+		const library = section("library-defaults-section");
+		expect(within(library).getByLabelText("One file for new users")).toHaveValue("32 MiB");
+		expect(within(library).getByLabelText("Total size for new users")).toHaveValue("256 MiB");
+		expect(within(library).getByLabelText("One file for new groups")).toHaveValue("0");
+		expect(within(library).getByLabelText("Total size for new groups")).toHaveValue("0");
+		const attachments = section("attachments-section");
+		expect(within(attachments).getByLabelText("Largest file to inline")).toHaveValue("32 KiB");
+		expect(within(attachments).getByLabelText("Most inlined per message")).toHaveValue("64 KiB");
+		expect(within(section("image-cache-section")).getByLabelText("Cache size on disk")).toHaveValue("1 GiB");
+
 		// The newest key comes first and is marked; it is the one crhs signs with. The table shows
 		// only how many nodes trust a key; their names are in the delete dialog.
 		await screen.findByRole("table", { name: "Authorization signing keys" });
@@ -304,17 +314,34 @@ describe("SystemSettingsPage", () => {
 
 		await userEvent.clear(within(library).getByLabelText("Files for new users"));
 		await userEvent.type(within(library).getByLabelText("Files for new users"), "10");
+		await userEvent.clear(within(library).getByLabelText("One file for new users"));
+		await userEvent.type(within(library).getByLabelText("One file for new users"), "48M");
 		await userEvent.clear(within(library).getByLabelText("Files for new groups"));
 		await userEvent.type(within(library).getByLabelText("Files for new groups"), "2");
+		await userEvent.clear(within(library).getByLabelText("Total size for new groups"));
+		await userEvent.type(within(library).getByLabelText("Total size for new groups"), "1G");
 		await userEvent.click(within(library).getByRole("button", { name: "Save" }));
 
 		await waitFor(() => expect(api.calls.some((call) => call.method === "PATCH")).toBe(true));
 		expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
 			library: {
-				user: { files: 10, fileBytes: 32 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 },
-				group: { files: 2, fileBytes: 0, totalBytes: 0 },
+				user: { files: 10, fileBytes: 48 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 },
+				group: { files: 2, fileBytes: 0, totalBytes: 1024 ** 3 },
 			},
 		});
+	});
+
+	test("does not save an unparseable size", async () => {
+		const api = mockApi();
+		await renderPage();
+		const library = section("library-defaults-section");
+
+		await userEvent.clear(within(library).getByLabelText("One file for new users"));
+		await userEvent.type(within(library).getByLabelText("One file for new users"), "a lot");
+		await userEvent.click(within(library).getByRole("button", { name: "Save" }));
+
+		expect(await within(library).findByText("Enter a size such as 32M or 1048576.")).toBeVisible();
+		expect(api.calls.some((call) => call.method === "PATCH")).toBe(false);
 	});
 
 	test("adds a signing key and shows its public key line to copy", async () => {

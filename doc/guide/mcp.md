@@ -88,9 +88,9 @@ once; `parallel` and `fail_fast` control the batch. A batch is limited to 512 no
 
 ### Libraries and images
 
-`list_dir` and `stat` accept `library` (`user:<username>` or `group:<group name>`) instead of `targets`;
-omit `targets` then. Library paths are relative to the library root; a leading `/` is optional and
-normalized away, including `/` for the root in `list_dir`. `copy_file` copies one file: the
+`list_dir` and `stat` accept `library` (`user:<username>` or `user_group:<user group name>`) instead of
+`targets`; omit `targets` then. Library paths are relative to the library root; a leading `/` is optional
+and normalized away, including `/` for the root in `list_dir`. `copy_file` copies one file: the
 source is `{ node, path }` or `{ library, path }`. The destination is a node
 `{ targets, path }` (with `create_parent_dirs`, `mode`, `owner`, `group` and `privileged`), a library
 `{ library, path }`, or `{ user_interface: true }`. An existing destination is refused unless

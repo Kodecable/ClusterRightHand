@@ -115,8 +115,8 @@ With PostgreSQL, search covers titles and message text. With SQLite, only titles
 Every user has a library, and so does every user group. A library holds whole files under paths; there
 are no folders, and a directory exists only while a file is under it. **Library** in the sidebar opens
 your own library. The control at the top right names the current library by its owner's display name
-and opens a picker of your own and your groups' libraries; administrators can pick any user's or user
-group's library there.
+and opens a picker of your own and your user groups' libraries; administrators can pick any user's or
+user group's library there.
 
 - The share of the total size limit in use is shown beside **Upload**, with a bar for the limit that
   is closest to being reached. Hover it for the file-count and total-size ratios; a warning appears near a limit, and when

@@ -99,8 +99,8 @@ export interface ImageLimits {
 /** The line that tells any surface whose library is whose (doc/design/library.md "Agent tools"). */
 export function actingUserNote(username: string): string {
 	return (
-		`You act for ${username}. user:${username} is that user's personal library; group:<name> is a library of a ` +
-		"group the user belongs to."
+		`You act for ${username}. user:${username} is that user's personal library; user_group:<name> is a library of ` +
+		"a user group the user belongs to."
 	);
 }
 
@@ -488,8 +488,8 @@ const listDir = define({
 	name: "list_dir",
 	description:
 		"List a directory on a node (or on several with targets), or a directory of a library with `library` " +
-		"instead of targets. A library is user:<username> or group:<group name>; you reach the libraries of the " +
-		"user you act for. A library directory exists only while some file is under it, so a library has no " +
+		"instead of targets. A library is user:<username> or user_group:<user group name>; you reach the libraries " +
+		"of the user you act for. A library directory exists only while some file is under it, so a library has no " +
 		"empty directories and none need creating. The call blocks until the task ends, approval included, " +
 		"and returns no task id.",
 	input: z.object({
@@ -497,7 +497,7 @@ const listDir = define({
 		library: z
 			.string()
 			.optional()
-			.describe("A library to list instead of nodes: user:<username> or group:<group name>"),
+			.describe("A library to list instead of nodes: user:<username> or user_group:<user group name>"),
 		path: z
 			.string()
 			.describe("A node's absolute path, or a library path relative to the library root (a leading / is optional)"),
@@ -538,7 +538,7 @@ const stat = define({
 		library: z
 			.string()
 			.optional()
-			.describe("A library to stat instead of nodes: user:<username> or group:<group name>"),
+			.describe("A library to stat instead of nodes: user:<username> or user_group:<user group name>"),
 		path: z
 			.string()
 			.describe("A node's absolute path, or a library path relative to the library root (a leading / is optional)"),
@@ -601,7 +601,7 @@ const sourceLocation = z
 			.strict(),
 		z
 			.object({
-				library: z.string().describe("A library: user:<username> or group:<group name>"),
+				library: z.string().describe("A library: user:<username> or user_group:<user group name>"),
 				path: z.string().describe("Path in the library relative to its root (a leading / is optional)"),
 			})
 			.strict(),
@@ -633,7 +633,7 @@ const nodeDestination = z
 /** A library destination: no directories and no node-only options. */
 const libraryDestination = z
 	.object({
-		library: z.string().describe("Destination library: user:<username> or group:<group name>"),
+		library: z.string().describe("Destination library: user:<username> or user_group:<user group name>"),
 		path: z.string().describe("Destination path in the library relative to its root (a leading / is optional)"),
 	})
 	.strict();
@@ -975,7 +975,7 @@ const viewImage = define({
 		"a node task ends, approval included.",
 	input: z.object({
 		node: z.string().optional().describe("A node name or id"),
-		library: z.string().optional().describe("A library: user:<username> or group:<group name>"),
+		library: z.string().optional().describe("A library: user:<username> or user_group:<user group name>"),
 		path: z
 			.string()
 			.describe("Absolute on a node; relative to the library root in a library (a leading / is optional)"),

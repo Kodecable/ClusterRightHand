@@ -248,8 +248,8 @@ msgid "A label for this key, for example \"laptop\"."
 msgstr "A label for this key, for example \"laptop\"."
 
 #: src/features/system-settings/library-section.tsx
-msgid "A limit of 0 allows nothing, so a new group library is unusable until an administrator raises its limits."
-msgstr "A limit of 0 allows nothing, so a new group library is unusable until an administrator raises its limits."
+msgid "A limit of 0 allows nothing, so a new user group library is unusable until an administrator raises its limits."
+msgstr "A limit of 0 allows nothing, so a new user group library is unusable until an administrator raises its limits."
 
 #: src/features/library/limits-dialog.tsx
 msgid "A limit of 0 allows nothing. Lowering a limit below the current usage keeps the files and refuses new writes until files are deleted."
@@ -845,8 +845,8 @@ msgid "By"
 msgstr "By"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "Cache size on disk (bytes)"
-msgstr "Cache size on disk (bytes)"
+msgid "Cache size on disk"
+msgstr "Cache size on disk"
 
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
@@ -1775,6 +1775,17 @@ msgstr "Enter a duration such as 7d."
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
 
+#: src/features/library/limits-dialog.tsx
+#: src/features/system-settings/library-section.tsx
+msgid "Enter a size of at most {MAX_LIMIT} bytes."
+msgstr "Enter a size of at most {MAX_LIMIT} bytes."
+
+#: src/features/library/limits-dialog.tsx
+#: src/features/system-settings/attachments-section.tsx
+#: src/features/system-settings/library-section.tsx
+msgid "Enter a size such as 32M or 1048576."
+msgstr "Enter a size such as 32M or 1048576."
+
 #: src/components/file-manager/file-list.tsx
 msgid "Enter a valid path without a trailing /."
 msgstr "Enter a valid path without a trailing /."
@@ -1791,10 +1802,6 @@ msgstr "Enter a whole number of 0 or more."
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Enter a whole number of at least 1."
 msgstr "Enter a whole number of at least 1."
-
-#: src/features/system-settings/attachments-section.tsx
-msgid "Enter a whole number of bytes."
-msgstr "Enter a whole number of bytes."
 
 #: src/features/schedules/scheduleForm.ts
 #: src/features/sessions/budget-dialog.tsx
@@ -2038,10 +2045,6 @@ msgstr "Grantee"
 msgid "Group"
 msgstr "Group"
 
-#: src/features/library/pages.tsx
-msgid "Group {name}'s library"
-msgstr "Group {name}'s library"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Header"
 msgstr "Header"
@@ -2232,8 +2235,8 @@ msgid "Language"
 msgstr "Language"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "Largest file to inline (bytes)"
-msgstr "Largest file to inline (bytes)"
+msgid "Largest file to inline"
+msgstr "Largest file to inline"
 
 #. placeholder {0}: record.lastRejection.code
 #. placeholder {1}: record.lastRejection.attempt
@@ -2486,8 +2489,8 @@ msgid "More results — keep typing to narrow down"
 msgstr "More results — keep typing to narrow down"
 
 #: src/features/system-settings/attachments-section.tsx
-msgid "Most inlined per message (bytes)"
-msgstr "Most inlined per message (bytes)"
+msgid "Most inlined per message"
+msgstr "Most inlined per message"
 
 #: src/components/file-manager/file-list.tsx
 msgid "Move"
@@ -3005,20 +3008,17 @@ msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-
 msgstr "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
 
 #: src/features/library/library-section.tsx
+#: src/features/library/limits-dialog.tsx
 msgid "One file"
 msgstr "One file"
 
-#: src/features/library/limits-dialog.tsx
-msgid "One file (bytes)"
-msgstr "One file (bytes)"
+#: src/features/system-settings/library-section.tsx
+msgid "One file for new groups"
+msgstr "One file for new groups"
 
 #: src/features/system-settings/library-section.tsx
-msgid "One file for new groups (bytes)"
-msgstr "One file for new groups (bytes)"
-
-#: src/features/system-settings/library-section.tsx
-msgid "One file for new users (bytes)"
-msgstr "One file for new users (bytes)"
+msgid "One file for new users"
+msgstr "One file for new users"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
@@ -4655,20 +4655,17 @@ msgstr "Tool result"
 
 #: src/components/upload/upload-progress-dialog.tsx
 #: src/features/library/library-section.tsx
+#: src/features/library/limits-dialog.tsx
 msgid "Total size"
 msgstr "Total size"
 
-#: src/features/library/limits-dialog.tsx
-msgid "Total size (bytes)"
-msgstr "Total size (bytes)"
+#: src/features/system-settings/library-section.tsx
+msgid "Total size for new groups"
+msgstr "Total size for new groups"
 
 #: src/features/system-settings/library-section.tsx
-msgid "Total size for new groups (bytes)"
-msgstr "Total size for new groups (bytes)"
-
-#: src/features/system-settings/library-section.tsx
-msgid "Total size for new users (bytes)"
-msgstr "Total size for new users (bytes)"
+msgid "Total size for new users"
+msgstr "Total size for new users"
 
 #: src/features/library/usage-indicator.tsx
 msgid "Total size limit: {bytesPercent} ({bytesUsed}/{bytesLimit})"
@@ -4823,6 +4820,10 @@ msgstr "User {name}'s library"
 #: src/features/users/user-group-page.tsx
 msgid "User group"
 msgstr "User group"
+
+#: src/features/library/pages.tsx
+msgid "User group {name}'s library"
+msgstr "User group {name}'s library"
 
 #: src/features/users/user-group-dialogs.tsx
 msgid "User group name"

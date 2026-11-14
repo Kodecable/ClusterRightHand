@@ -215,7 +215,7 @@ export interface QuotaApproval {
 
 /** One attachment the composer uploads to the owner's library or picks from it (doc/design/library.md "Chat attachments"). */
 export interface ChatAttachmentInput {
-	/** `user:<username>` or `group:<group name>`. */
+	/** `user:<username>` or `user_group:<user group name>`. */
 	library: string;
 	/** The path inside that library. */
 	path: string;

@@ -53,7 +53,7 @@ export interface UserGroupMembersTable {
 /** One user's or user group's library, with its limits and hot usage counters (doc/design/library.md "Libraries"). */
 export interface LibrariesTable {
 	id: string;
-	owner_kind: "user" | "group";
+	owner_kind: "user" | "user_group";
 	/** Points at users.id or user_groups.id depending on owner_kind; no foreign key, the owner row is created with it. */
 	owner_id: string;
 	max_files: number;
