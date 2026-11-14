@@ -106,7 +106,8 @@ export function buildAuthorization(input: BuildAuthorizationInput): BuiltAuthori
 			? null
 			: "exact" in input.command
 				? {
-						method: input.command.method,
+						// An authorization covers the task methods only; external MCP methods are never privileged.
+						method: input.command.method as "exec" | "file.read" | "file.write",
 						match: {
 							kind: "exact",
 							target: input.command.exact.target,
@@ -114,7 +115,7 @@ export function buildAuthorization(input: BuildAuthorizationInput): BuiltAuthori
 						},
 					}
 				: {
-						method: input.command.method,
+						method: input.command.method as "exec" | "file.read" | "file.write",
 						match: { kind: "prefix", target: input.command.prefix },
 					};
 	const payload: AuthorizationPayload = {

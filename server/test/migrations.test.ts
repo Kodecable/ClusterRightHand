@@ -86,9 +86,12 @@ const TABLES = [
 	"audit_events",
 	"authorizations",
 	"enrollment_tokens",
+	"external_calls",
 	"image_cache",
 	"libraries",
 	"library_files",
+	"mcp_server_grants",
+	"mcp_servers",
 	"model_presets",
 	"model_providers",
 	"node_access_grants",
@@ -124,6 +127,9 @@ const INDEXES = [
 	"sessions_state_live_idx",
 	"image_cache_last_used_idx",
 	"library_files_object_key_idx",
+	"mcp_server_grants_grantee_idx",
+	"external_calls_actor_idx",
+	"external_calls_state_idx",
 	"tasks_handler_agent_idx",
 	"user_group_members_user_id_idx",
 	"web_sessions_expires_at_idx",
@@ -157,6 +163,29 @@ describeBackends("initial migration", (backend) => {
 		]);
 		expect(await isNotNull(backend, db, "authorizations", "deadline")).toBe(true);
 		expect(await isNotNull(backend, db, "sessions", "title")).toBe(false);
+		expect(await tableColumns(backend, db, "external_calls")).toEqual([
+			"id",
+			"org_id",
+			"actor_type",
+			"actor_id",
+			"on_behalf_of_user_id",
+			"server_name",
+			"tool_name",
+			"arguments",
+			"operation",
+			"annotations",
+			"rule_chain",
+			"approval",
+			"pending_input",
+			"root_session_id",
+			"handler_type",
+			"handler_session_id",
+			"state",
+			"created_at",
+			"finished_at",
+		]);
+		// A terminal row clears its arguments, so the column is nullable.
+		expect(await isNotNull(backend, db, "external_calls", "arguments")).toBe(false);
 		expect(await tableColumns(backend, db, "image_cache")).toEqual([
 			"sha256",
 			"bytes",
@@ -191,6 +220,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0004_purpose_and_image_cache" },
 			{ name: "0005_task_group_transfer" },
 			{ name: "0006_image_state" },
+			{ name: "0007_extensions" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});

@@ -20,6 +20,8 @@ import { loadServerIdentity } from "./cluster/identity.ts";
 import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, type ConfigFile, DEFAULT_CONFIG_PATH, loadConfigFile } from "./config.ts";
+import { McpConnections } from "./extensions/connections.ts";
+import { recoverExternalCalls } from "./extensions/external-calls.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
 import { createLibraryBackend } from "./library/backend.ts";
 import { ImageCache, startImageCacheSweep } from "./library/image-cache.ts";
@@ -203,6 +205,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// The image cache is a local, disposable directory (doc/design/library.md "Image cache"); its limits are
 	// read at each use, so a System settings change applies without a restart.
 	const imageCache = new ImageCache(db, join(dataDir, "image-cache"), () => settings.current().imageCache);
+	// One connection per MCP server for all sessions (doc/design/extensions.md "Connections").
+	const mcp = new McpConnections({ db, masterKey });
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),
 		signingKeys,
@@ -229,8 +233,11 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		cluster,
 		taskGroups,
 		imageCache,
+		mcp,
 		audit,
 	});
+	// An external call that was in flight when the last process stopped ended unknown; it is never repeated.
+	await recoverExternalCalls(db);
 	// Signature waits that outlived their deadline while crhs was down end before requests are served.
 	await cluster.expireAuthorizationWaits();
 	// A token that expired while crhs was down must not leave its waiting work behind either.
@@ -249,6 +256,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		masterKey,
 		libraryBackend,
 		imageCache,
+		mcp,
 		webRoot: config.webRoot,
 		audit,
 		agent: { runtime, models },
@@ -310,6 +318,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		// would let the call return a non-final state, which durable records as its outcome.
 		await scheduler.stop();
 		await runtime.close();
+		await mcp.close();
 		await agentStorage.close();
 		// 3. Only HTTP and MCP waits are left: end them, so each returns its current state at once and step 4
 		// does not wait out its timeout.

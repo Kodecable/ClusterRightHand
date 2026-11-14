@@ -33,6 +33,7 @@ export type DataTableRowLink =
 	| { to: "/task-groups/$taskGroupId"; params: { taskGroupId: string } }
 	| { to: "/approvals/tasks/$taskId"; params: { taskId: string } }
 	| { to: "/approvals/task-groups/$taskGroupId"; params: { taskGroupId: string } }
+	| { to: "/approvals/external-calls/$externalCallId"; params: { externalCallId: string } }
 	| { to: "/users/$userId"; params: { userId: string } }
 	| { to: "/user-groups/$userGroupId"; params: { userGroupId: string } };
 

@@ -1,8 +1,8 @@
-import type { ApprovalList, PendingAuthorization, TaskGroupView, TaskView } from "@crh/api";
+import type { ApprovalList, ExternalCallView, PendingAuthorization, TaskGroupView, TaskView } from "@crh/api";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
-import { ApprovalsPage, ApprovalTaskGroupPage, ApprovalTaskPage } from "./pages";
+import { ApprovalsPage, ApprovalTaskGroupPage, ApprovalTaskPage, ExternalCallApprovalPage } from "./pages";
 
 const OPERATION = "systemctl restart nginx";
 
@@ -54,6 +54,7 @@ const group = (overrides: Partial<TaskGroupView> = {}): TaskGroupView =>
 const emptyApprovals = (): ApprovalList => ({
 	tasks: [],
 	taskGroups: [],
+	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
 });
@@ -61,6 +62,7 @@ const emptyApprovals = (): ApprovalList => ({
 const approvals = (): ApprovalList => ({
 	tasks: [task()],
 	taskGroups: [group()],
+	externalCalls: [],
 	authorizations: {
 		tasks: [task({ id: "auth-task", summary: "sign me", operation: null, state: "awaiting_authorization" })],
 		taskGroups: [],
@@ -103,6 +105,7 @@ interface MockState {
 	approvals: ApprovalList;
 	task?: TaskView;
 	taskGroup?: TaskGroupView;
+	externalCall?: ExternalCallView;
 	pending?: PendingAuthorization | null;
 	calls: { url: string; body: unknown }[];
 }
@@ -139,6 +142,16 @@ function mockApi(overrides: Partial<MockState> = {}): MockState {
 				return json({ taskGroup: state.taskGroup });
 			if (state.taskGroup !== undefined && path === `/api/task-groups/${state.taskGroup.id}/authorization`)
 				return json({ taskGroup: { authorization: state.pending ?? null, tasks: [] } });
+			const externalCall = path.match(/^\/api\/external-calls\/([^/]+)$/);
+			if (externalCall !== null) {
+				const id = decodeURIComponent(externalCall[1] ?? "");
+				return state.externalCall?.id === id
+					? json({ externalCall: state.externalCall })
+					: new Response(JSON.stringify({ error: "no such approval" }), {
+							status: 404,
+							headers: { "content-type": "application/json" },
+						});
+			}
 			if (method === "POST" && path === `/api/tasks/${state.task?.id}/approval`) {
 				if (state.task !== undefined) state.task = { ...state.task, state: "exited" };
 				state.approvals = emptyApprovals();
@@ -259,5 +272,19 @@ describe("ApprovalTaskGroupPage", () => {
 		expect(within(region).getByText("worker-01")).toBeInTheDocument();
 		expect(within(region).getByText("worker-02")).toBeInTheDocument();
 		expect(within(region).queryByText("node-2")).not.toBeInTheDocument();
+	});
+});
+
+describe("ExternalCallApprovalPage", () => {
+	test("a missing external call is an ordinary not-found page without retention wording", async () => {
+		mockApi();
+		await renderPage(
+			<ExternalCallApprovalPage />,
+			"/approvals/external-calls/$externalCallId",
+			"/approvals/external-calls/call-1",
+		);
+		expect(await screen.findByText("This external call doesn't exist or you don't have access.")).toBeInTheDocument();
+		expect(screen.queryByText(/cleaned up/i)).not.toBeInTheDocument();
+		expect(screen.queryByText(/retention/i)).not.toBeInTheDocument();
 	});
 });

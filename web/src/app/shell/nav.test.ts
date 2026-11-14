@@ -29,7 +29,8 @@ describe("admin navigation", () => {
 		const admin = NAV_ITEMS.map((item) => item.to);
 		const models = admin.indexOf("/settings/models");
 		expect(models).toBeGreaterThanOrEqual(0);
-		expect(admin[models + 1]).toBe("/settings/system");
+		expect(admin[models + 1]).toBe("/settings/extensions");
+		expect(admin[models + 2]).toBe("/settings/system");
 		expect(NAV_ITEMS.find((item) => item.to === "/settings/system")?.adminOnly).toBe(true);
 	});
 });

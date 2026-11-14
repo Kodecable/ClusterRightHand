@@ -47,11 +47,17 @@ const TOOL_SUBJECT_KEYS: Record<string, readonly string[]> = {
 	subagent_wait: ["id"],
 	subagent_cancel: ["id"],
 	subagent_decide: ["request_id"],
+	search_tools: ["query", "server"],
 	node_info: [],
 };
 
 function toolSubject(name: string, args: JsonObject): string | undefined {
 	if (name === "exec") return firstString(args, ["cmd", "shell", "command"]) ?? argvLine(args);
+	if (name === "call_tool") {
+		const server = firstString(args, ["server"]);
+		const tool = firstString(args, ["tool"]);
+		return server !== undefined && tool !== undefined ? `${server}/${tool}` : (server ?? tool);
+	}
 	const keys = TOOL_SUBJECT_KEYS[name];
 	if (keys !== undefined) return firstString(args, keys);
 	return firstString(args, [

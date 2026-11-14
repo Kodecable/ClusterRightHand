@@ -21,6 +21,26 @@ const task = (id: string, createdAt: string, rootSessionId: string | null = "roo
 const group = (id: string, createdAt: string): TaskGroupView =>
 	({ id, createdAt, rootSessionId: "root" }) as TaskGroupView;
 
+const externalCall = (id: string, createdAt: string, rootSessionId = "root") =>
+	({
+		id,
+		createdAt,
+		rootSessionId,
+		server: "github",
+		tool: "create_issue",
+		arguments: { title: "Bug" },
+		operation: { method: "mcp.write", target: "github/create_issue" },
+		annotations: null,
+		state: "awaiting_approval",
+		approval: { evaluation: { result: "require-approval", levels: [] } },
+		actorType: "session",
+		actorId: "s1",
+		onBehalfOfUserId: "u1",
+		handlerType: "user",
+		handlerSessionId: null,
+		finishedAt: null,
+	}) as never;
+
 const quota = (sessionId: string, since: string) => ({
 	sessionId,
 	levelId: sessionId,
@@ -38,6 +58,11 @@ const data = (): ApprovalList => ({
 		taskGroups: [group("sign-group", "2026-01-04T00:00:00.000Z")],
 	},
 	quotas: [quota("other", "2026-01-01T00:00:00.000Z"), quota("root", "2026-01-02T00:00:00.000Z")],
+	externalCalls: [
+		externalCall("call-later", "2026-01-02T00:00:00.000Z"),
+		externalCall("call-older", "2026-01-01T00:00:00.000Z"),
+		externalCall("call-other", "2026-01-01T00:00:00.000Z", "another-root"),
+	],
 });
 
 describe("sessionDecisions", () => {
@@ -47,6 +72,8 @@ describe("sessionDecisions", () => {
 			"quota",
 			"approval_task",
 			"approval_task",
+			"approval_external_call",
+			"approval_external_call",
 			"approval_task_group",
 			"signature_task",
 			"signature_task",
@@ -55,8 +82,10 @@ describe("sessionDecisions", () => {
 		expect(decisions[0]).toMatchObject({ kind: "quota", wait: { sessionId: "root" } });
 		expect(decisions[1]).toMatchObject({ kind: "approval_task", task: { id: "older" } });
 		expect(decisions[2]).toMatchObject({ kind: "approval_task", task: { id: "later" } });
-		expect(decisions[4]).toMatchObject({ kind: "signature_task", task: { id: "sign-older" } });
-		expect(decisions[5]).toMatchObject({ kind: "signature_task", task: { id: "sign-later" } });
+		expect(decisions[3]).toMatchObject({ kind: "approval_external_call", call: { id: "call-older" } });
+		expect(decisions[4]).toMatchObject({ kind: "approval_external_call", call: { id: "call-later" } });
+		expect(decisions[6]).toMatchObject({ kind: "signature_task", task: { id: "sign-older" } });
+		expect(decisions[7]).toMatchObject({ kind: "signature_task", task: { id: "sign-later" } });
 	});
 
 	test("keeps only what belongs to the given session tree", () => {
@@ -125,6 +154,19 @@ describe("SessionDecisionDock", () => {
 		fireEvent.click(screen.getByRole("button", { name: "resolve first" }));
 		await waitFor(() => expect(within(dock).getByTestId("decision-operation")).toHaveTextContent("echo second"));
 		expect(within(dock).queryByText("1 of 2")).not.toBeInTheDocument();
+	});
+});
+
+describe("external call decision", () => {
+	test("shows the server, tool and arguments in the dock", async () => {
+		mockLookups();
+		const call = externalCall("call-1", "2026-01-01T00:00:00.000Z");
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call }]} />);
+		const dock = await screen.findByTestId("session-decisions");
+		expect(within(dock).getByText("github")).toBeInTheDocument();
+		expect(within(dock).getByText("create_issue")).toBeInTheDocument();
+		expect(within(dock).getByTestId("external-call-arguments")).toHaveTextContent("Bug");
+		expect(within(dock).getByRole("button", { name: "Approve" })).toBeInTheDocument();
 	});
 });
 

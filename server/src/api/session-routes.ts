@@ -17,6 +17,7 @@ import { userActor } from "../audit/audit.ts";
 import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import { parseDisabledMcpServers } from "../extensions/servers.ts";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import { type AttachmentLimits, attachmentContent, resolveAttachments } from "../sessions/attachments.ts";
@@ -36,6 +37,7 @@ import type { Db } from "../storage/db.ts";
 import { usernamesById } from "../users/service.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "../util/cursor.ts";
 import { UserError } from "../util/errors.ts";
+import { reevaluateAfterRuleChange } from "./approval-routes.ts";
 import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 import type { SessionStreams } from "./session-events-routes.ts";
 
@@ -439,6 +441,9 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			...(body.model !== undefined ? { model: parseModelRef(body.model) } : {}),
 			...(rulePreset ? { rulePreset } : {}),
 			...(body.budgetRemaining !== undefined ? { budgetRemaining: parseQuota(body.budgetRemaining) } : {}),
+			...(body.disabledMcpServers !== undefined
+				? { disabledMcpServers: parseDisabledMcpServers(body.disabledMcpServers) }
+				: {}),
 		});
 		if (body.budgetRemaining !== undefined) {
 			void c.get("audit").record({
@@ -456,9 +461,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 				detail: { rule_preset: rulePreset },
 			});
 			// Waiting tool calls may not need approval any more (doc/design/access-control.md "Approvals").
-			const ref = { type: "session" as const, id: s.id };
-			await options.cluster.reevaluate(ref);
-			await options.taskGroups.reevaluate(ref);
+			await reevaluateAfterRuleChange(db, options.cluster, options.taskGroups, { type: "session", id: s.id });
 		}
 		return c.json({ session: (await decorate(c, [session]))[0] });
 	});

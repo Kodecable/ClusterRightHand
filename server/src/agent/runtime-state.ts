@@ -200,6 +200,19 @@ async function taskWaitKind(host: RuntimeHost, sessionId: string): Promise<"appr
 			const row = await query.limit(1).executeTakeFirst();
 			if (row) return true;
 		}
+		if (state === "awaiting_approval") {
+			// An external call waiting for the owner's decision counts like a waiting task (doc/design/extensions.md).
+			const call = await host.db
+				.selectFrom("external_calls")
+				.select("id")
+				.where("actor_type", "in", ["session", "subagent"])
+				.where("actor_id", "=", sessionId)
+				.where("state", "=", "awaiting_approval")
+				.where("handler_type", "is not", null)
+				.limit(1)
+				.executeTakeFirst();
+			if (call) return true;
+		}
 		return false;
 	};
 	if (await waiting("awaiting_approval")) return "approval";
@@ -233,6 +246,16 @@ async function taskWaitKinds(
 				out.set(row.actor_id, "authorization");
 			}
 		}
+	}
+	const calls = await db
+		.selectFrom("external_calls")
+		.select(["actor_id", "handler_type"])
+		.where("actor_type", "in", ["session", "subagent"])
+		.where("actor_id", "in", [...sessionIds])
+		.where("state", "=", "awaiting_approval")
+		.execute();
+	for (const call of calls) {
+		if (call.handler_type !== null) out.set(call.actor_id, "approval");
 	}
 	return out;
 }

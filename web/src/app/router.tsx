@@ -224,6 +224,12 @@ const approvalTaskGroupRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/approvals/pages"), "ApprovalTaskGroupPage"),
 });
 
+const approvalExternalCallRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/approvals/external-calls/$externalCallId",
+	component: lazyRouteComponent(() => import("@/features/approvals/pages"), "ExternalCallApprovalPage"),
+});
+
 // --- cluster --------------------------------------------------------------
 
 const nodesRoute = createRoute({
@@ -290,6 +296,13 @@ const modelSettingsRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/settings/pages"), "ModelSettingsPage"),
 });
 
+const mcpServersRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/settings/extensions",
+	beforeLoad: ({ context }) => requireAdmin(context),
+	component: lazyRouteComponent(() => import("@/features/settings/mcp-servers"), "McpServersPage"),
+});
+
 const systemSettingsRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/settings/system",
@@ -338,6 +351,7 @@ const routeTree = rootRoute.addChildren([
 		approvalsRoute,
 		approvalTaskRoute,
 		approvalTaskGroupRoute,
+		approvalExternalCallRoute,
 		nodesRoute,
 		nodeDetailRoute,
 		nodeGroupsRoute,
@@ -348,6 +362,7 @@ const routeTree = rootRoute.addChildren([
 		tokensRoute,
 		auditRoute,
 		modelSettingsRoute,
+		mcpServersRoute,
 		systemSettingsRoute,
 		usersRoute,
 		userDetailRoute,

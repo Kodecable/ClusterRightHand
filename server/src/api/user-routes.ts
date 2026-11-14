@@ -223,7 +223,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		const group = await createUserGroup(
 			db,
 			name,
-			options.settings ? { library: options.settings.current().library.group } : {},
+			options.settings ? { library: options.settings.current().library.userGroup } : {},
 		);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),

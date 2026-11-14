@@ -96,7 +96,7 @@ export interface SystemSettingsPatch {
 	realIpHeader?: string | null;
 	library?: {
 		user?: Partial<LibraryLimits>;
-		group?: Partial<LibraryLimits>;
+		userGroup?: Partial<LibraryLimits>;
 	};
 	attachments?: {
 		inlineTextBytes?: number;

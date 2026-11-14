@@ -5,7 +5,11 @@
  */
 
 export type RuleAction = "allow" | "deny" | "require-approval";
-export type RuleMethod = "exec" | "file.read" | "file.write";
+/**
+ * What a rule matches on. `mcp.read` is a read-only external tool on a server whose annotations are trusted;
+ * every other external tool is `mcp.write` (doc/design/extensions.md "Rules and approvals").
+ */
+export type RuleMethod = "exec" | "file.read" | "file.write" | "mcp.read" | "mcp.write";
 export type RulePreset = "ask" | "auto_review" | "yolo";
 /** A level's own result; only a lower level than the root may inherit. */
 export type DefaultAction = RuleAction | "inherit";

@@ -94,9 +94,9 @@ The low-frequency settings below are **not** in `crhs.toml`. Administrators edit
 | `library.user.files` | integer ≥ 0 | `256` | Files a new user library may hold. |
 | `library.user.file_bytes` | integer ≥ 0 | `33554432` | Largest single file in a new user library, in bytes (32 MiB). |
 | `library.user.total_bytes` | integer ≥ 0 | `268435456` | Total size of a new user library, in bytes (256 MiB). |
-| `library.group.files` | integer ≥ 0 | `0` | Files a new user group library may hold; `0` allows none. |
-| `library.group.file_bytes` | integer ≥ 0 | `0` | Largest single file in a new user group library, in bytes. |
-| `library.group.total_bytes` | integer ≥ 0 | `0` | Total size of a new user group library, in bytes. |
+| `library.user_group.files` | integer ≥ 0 | `0` | Files a new user group library may hold; `0` allows none. |
+| `library.user_group.file_bytes` | integer ≥ 0 | `0` | Largest single file in a new user group library, in bytes. |
+| `library.user_group.total_bytes` | integer ≥ 0 | `0` | Total size of a new user group library, in bytes. |
 | `attachments.inline_text_bytes` | integer ≥ 0 | `32768` | Largest attachment whose text content is included in the message (32 KiB). |
 | `attachments.inline_total_bytes` | integer ≥ 0 | `65536` | Most attachment text included over one message (64 KiB). |
 | `image_cache.disk_bytes` | integer ≥ 0 | `1073741824` | Image cache size on crhs's local disk (1 GiB). |

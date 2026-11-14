@@ -84,7 +84,8 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { baseUrl:
 		...(options.imageCache ? { imageCache: options.imageCache } : {}),
 		taskGroupUrl: (taskGroupId) => `${id.baseUrl}/task-groups/${taskGroupId}`,
 	};
-	for (const tool of TOOLS) {
+	// External tools live in agent sessions only; crhs's MCP clients connect to those servers themselves.
+	for (const tool of TOOLS.filter((candidate) => candidate.agentOnly !== true)) {
 		server.registerTool(
 			tool.name,
 			{

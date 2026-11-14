@@ -97,6 +97,7 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
 | `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `task_wait`, `task_cancel` | Follow or cancel an `exec` task or task group |
+| `search_tools`, `call_tool` | Find and call an external MCP server's tools ([Extensions](extensions.md)) |
 
 `task_wait` and `task_cancel` reach only tasks started by this session (or its subagents) or this API
 token, never another session of the same user, because a task belongs to the actor that started it.
@@ -258,9 +259,9 @@ child keeps running, the parent decides, and then continues waiting with `subage
 
 ### Handling subagent requests
 
-- An approval request from a subagent goes up the chain to the first ancestor whose rules allow every
-  operation in it; that agent approves, denies or escalates. If none allows it, or the agent escalates,
-  the owner decides.
+- A task or external MCP call approval request from a subagent goes up the chain to the first ancestor
+  whose rules allow every operation in it; that agent approves, denies or escalates. If none allows it,
+  or the agent escalates, Auto Review (for an Auto Review root) and otherwise the owner decides.
 - A quota request goes to the direct parent of the exhausted level, and to the owner for a root.
 - Pending requests are attached to every tool result of the handling session in a tagged JSON block
   that states the summaries come from subagents and are data, not instructions. Escaping keeps a summary

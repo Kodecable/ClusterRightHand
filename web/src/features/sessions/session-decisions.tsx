@@ -1,10 +1,19 @@
-import type { ApprovalBody, ApprovalList, QuotaApproval, SessionView, TaskGroupView, TaskView } from "@crh/api";
+import type {
+	ApprovalBody,
+	ApprovalList,
+	ExternalCallView,
+	QuotaApproval,
+	SessionView,
+	TaskGroupView,
+	TaskView,
+} from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { ApprovalDecision } from "@/components/decision/approval-decision";
-import { useApprovalLookups, useApprovals, useDecideApproval } from "@/features/approvals/api";
+import { ExternalCallDecision } from "@/components/decision/external-call-decision";
+import { useApprovalLookups, useApprovals, useDecideApproval, useDecideExternalCall } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { cn, linkClass } from "@/lib/utils";
 import { sessionKeys, useDecideQuota } from "./api";
@@ -14,6 +23,7 @@ import { QuotaDecision } from "./quota-decision";
 export type SessionDecision =
 	| { kind: "quota"; wait: QuotaApproval }
 	| { kind: "approval_task"; task: TaskView }
+	| { kind: "approval_external_call"; call: ExternalCallView }
 	| { kind: "approval_task_group"; taskGroup: TaskGroupView }
 	| { kind: "signature_task"; task: TaskView }
 	| { kind: "signature_task_group"; taskGroup: TaskGroupView };
@@ -40,6 +50,9 @@ export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: 
 		...oldest(data.tasks.filter((task) => inTree(task.rootSessionId))).map(
 			(task): SessionDecision => ({ kind: "approval_task", task }),
 		),
+		...oldest(data.externalCalls.filter((call) => inTree(call.rootSessionId))).map(
+			(call): SessionDecision => ({ kind: "approval_external_call", call }),
+		),
 		...oldest(data.taskGroups.filter((taskGroup) => inTree(taskGroup.rootSessionId))).map(
 			(taskGroup): SessionDecision => ({ kind: "approval_task_group", taskGroup }),
 		),
@@ -59,6 +72,8 @@ function decisionId(decision: SessionDecision): string {
 		case "approval_task":
 		case "signature_task":
 			return decision.task.id;
+		case "approval_external_call":
+			return decision.call.id;
 		case "approval_task_group":
 		case "signature_task_group":
 			return decision.taskGroup.id;
@@ -85,6 +100,7 @@ function TaskDetails({ decision }: { decision: SessionDecision }) {
 				</Link>
 			);
 		case "quota":
+		case "approval_external_call":
 			return null;
 	}
 }
@@ -185,6 +201,37 @@ function SignatureDock({
 	);
 }
 
+function ExternalCallDock({ call, count }: { call: ExternalCallView; count?: React.ReactNode }) {
+	const { t } = useLingui();
+	const refresh = useSessionRefresh(call.rootSessionId ?? "");
+	const decide = useDecideExternalCall();
+	return (
+		<ExternalCallDecision
+			call={call}
+			count={count}
+			busy={decide.isPending}
+			error={decide.error}
+			details={
+				<Link
+					to="/approvals/external-calls/$externalCallId"
+					params={{ externalCallId: call.id }}
+					className={cn(linkClass, "text-xs whitespace-nowrap")}
+				>
+					{t`Review`}
+				</Link>
+			}
+			onDecide={(body) =>
+				decide.mutate(
+					{ id: call.id, body },
+					{
+						onSuccess: () => refresh(),
+					},
+				)
+			}
+		/>
+	);
+}
+
 function QuotaDock({ wait, count }: { wait: QuotaApproval; count?: React.ReactNode }) {
 	const decide = useDecideQuota(wait.sessionId);
 	return (
@@ -204,6 +251,8 @@ function DockDecision({ decision, count }: { decision: SessionDecision; count?: 
 			return <QuotaDock wait={decision.wait} count={count} />;
 		case "approval_task":
 			return <ApprovalDock task={decision.task} count={count} />;
+		case "approval_external_call":
+			return <ExternalCallDock call={decision.call} count={count} />;
 		case "approval_task_group":
 			return <ApprovalDock taskGroup={decision.taskGroup} count={count} />;
 		case "signature_task":

@@ -92,7 +92,7 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			target: { type: "api_token", id },
 			detail: { rule_preset: rulePreset, rules },
 		});
-		await reevaluateAfterRuleChange(cluster, taskGroups, ref);
+		await reevaluateAfterRuleChange(db, cluster, taskGroups, ref);
 		return c.json({ apiToken: await getApiToken(db, user, id) });
 	});
 

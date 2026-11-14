@@ -1,9 +1,10 @@
-import type { SessionView as ApiSessionView, SessionEvent } from "@crh/api";
+import type { SessionView as ApiSessionView, McpToolAnnotations, Operation, SessionEvent } from "@crh/api";
 import type { Context } from "@earendil-works/chord/context";
 import type {
 	CompactionSettings,
 	Conversation,
 	ConversationId,
+	Extension,
 	Harness,
 	Storage,
 	ToolRegistration,
@@ -11,6 +12,7 @@ import type {
 import type { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { McpConnections } from "../extensions/connections.ts";
 import type { ImageCache } from "../library/image-cache.ts";
 import type { SessionRow } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
@@ -36,15 +38,26 @@ import type { SessionListHub } from "./session-list-hub.ts";
 /** The session row without the per-caller decorations the API adds (relationship, capabilities, owner name). */
 export type SessionView = Omit<ApiSessionView, "relationship" | "capabilities" | "ownerUsername" | "shares">;
 
+/** An external MCP call as an ancestor agent decides it: the server, tool, operation, annotations and arguments. */
+export interface AgentRequestExternalCall {
+	server: string;
+	tool: string;
+	operation: Operation;
+	annotations: McpToolAnnotations | null;
+	arguments: Record<string, unknown>;
+}
+
 /** An approval handed to an ancestor session's agent (doc/design/agent-runtime.md "Handling subagent requests"). */
 export interface AgentRequestView {
-	kind: "task" | "task_group" | "quota";
+	kind: "task" | "task_group" | "quota" | "external_call";
 	id: string;
 	/** The subagent session whose task waits. */
 	sessionId: string;
 	summary: string;
 	nodeId: string | null;
 	createdAt: string;
+	/** The call's details; only for an external MCP call. */
+	externalCall?: AgentRequestExternalCall;
 }
 
 /** What a UI receives: a snapshot to start from, then batches of the `@crh/api` session events (never pi's). */
@@ -71,6 +84,12 @@ export interface AgentRuntimeOptions {
 	audit?: Audit;
 	/** The image cache behind `view_image` (doc/design/library.md "Image cache"); required to use that tool. */
 	imageCache?: ImageCache;
+	/** The MCP client connections behind `search_tools` and `call_tool` (doc/design/extensions.md). */
+	mcp?: McpConnections;
+	/** Auto Review for one waiting external call; set by AgentRuntime. */
+	reviewExternalCall?: (id: string) => Promise<void>;
+	/** Routes a waiting external call up the rule chain; set by AgentRuntime. */
+	routeExternalCall?: (id: string) => Promise<boolean>;
 	/**
 	 * How long idle conversations keep their context and documents in memory (durable's default: 10 minutes).
 	 * Memory grows with what was active within this window (doc/design/testing/server.md "Server performance").
@@ -106,6 +125,8 @@ export interface RuntimeHost {
 	readonly sessionList: SessionListHub;
 	/** The cached model presets: prompt sections, Auto Review and title generation read them. */
 	readonly modelPresets: ModelPresets;
+	/** The extensions a session selects: the crh extension and the MCP server extensions it may use. */
+	extensionsFor(serverNames: readonly string[]): Extension[];
 	/** The open Harness; a failed one is replaced on reopen, so always read it through here. */
 	harness(): Harness;
 	/** Whether close() has begun: the Harness refuses every new operation from here on. */

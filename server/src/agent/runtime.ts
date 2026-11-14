@@ -1,9 +1,17 @@
 import type { ChatAttachment } from "@crh/api";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
-import { createRegistry, Harness } from "@earendil-works/pi-durable";
+import {
+	createRegistry,
+	type Extension,
+	Harness,
+	type Registry,
+	type ToolRegistration,
+} from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
+import { externalCallApproval, getExternalCall } from "../extensions/external-calls.ts";
+import { listMcpServerRows } from "../extensions/servers.ts";
 import type { RulePreset } from "../policy/rules.ts";
-import { clusterExtension } from "./extension.ts";
+import { clusterExtension, mcpServerExtension, syncSessionMcpExtensions } from "./extension.ts";
 import { GenerationTimings } from "./latency.ts";
 import { ModelPresets } from "./model-presets.ts";
 import type { ModelRef } from "./models.ts";
@@ -75,11 +83,23 @@ export class AgentRuntime {
 	readonly #sessionList: SessionListHub;
 	/** The cached model presets: the prompt sections and Auto Review read them synchronously. */
 	readonly modelPresets: ModelPresets;
+	/** The registry, so MCP server extensions can be installed and replaced when their tool list changes. */
+	readonly #registry: Registry<ToolRegistration>;
+	/** Every installed extension by name: `crh` and one `mcp:<server>` per server. */
+	readonly #extensions: Map<string, Extension>;
 
-	private constructor(harness: Harness, options: AgentRuntimeOptions, presets: ModelPresets) {
+	private constructor(
+		harness: Harness,
+		options: AgentRuntimeOptions,
+		presets: ModelPresets,
+		registry: Registry<ToolRegistration>,
+		extensions: Map<string, Extension>,
+	) {
 		this.#harness = harness;
 		this.#options = options;
 		this.modelPresets = presets;
+		this.#registry = registry;
+		this.#extensions = extensions;
 		this.#sessionList = new SessionListHub({ db: options.db, ...(options.sessionList ?? {}) });
 		this.#host = {
 			db: options.db,
@@ -101,6 +121,7 @@ export class AgentRuntime {
 			wakes: new HandlerWakes(),
 			sessionFlags: new SessionFlags(),
 			generationTimings: new GenerationTimings(),
+			extensionsFor: (serverNames) => this.#extensionsFor(serverNames),
 		};
 		// The extension is built before the runtime and the Harness's metered Models resolve the map per request;
 		// both read it through the options, so every Harness (a reopen included) shares this instance
@@ -119,9 +140,12 @@ export class AgentRuntime {
 		options: AgentRuntimeOptions,
 		ref: { current?: AgentRuntime },
 		presets: ModelPresets,
+		registry: Registry<ToolRegistration>,
+		extensions: Map<string, Extension>,
 	): Promise<Harness> {
-		const registry = createRegistry();
-		registry.install(clusterExtension(options, ref, presets));
+		const crh = clusterExtension(options, ref, presets);
+		registry.install(crh);
+		extensions.set("crh", crh);
 		const storage = typeof options.storage === "function" ? await options.storage() : options.storage;
 		const harness = await Harness.open(
 			storage,
@@ -157,14 +181,42 @@ export class AgentRuntime {
 		// and a write refreshes it.
 		const presets = new ModelPresets(options.db);
 		await presets.load();
-		const runtime = new AgentRuntime(await AgentRuntime.#openHarness(options, ref, presets), options, presets);
+		const registry = createRegistry();
+		const extensions = new Map<string, Extension>();
+		const runtime = new AgentRuntime(
+			await AgentRuntime.#openHarness(options, ref, presets, registry, extensions),
+			options,
+			presets,
+			registry,
+			extensions,
+		);
 		runtime.#runtimeRef = ref;
 		ref.current = runtime;
+		// One extension per MCP server, empty until its first tool listing arrives: a session selects the
+		// servers it may use by name, and the tools appear once the server is connected (doc/design/extensions.md).
+		for (const row of await listMcpServerRows(options.db)) {
+			runtime.installMcpServerTools(row, options.mcp?.tools(row.name) ?? []);
+		}
+		options.mcp?.setToolsChangedHandler((row, tools) => runtime.installMcpServerTools(row, tools));
 		// Resume only now: a resumed run must find the runtime (compaction and tool metering look it up).
 		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
 		// Auto Review for roots whose rule preset asks for it (tokens, sessions and schedules alike), then route child
 		// approvals to an ancestor's agent where the chain allows it.
 		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.taskGroups, presets);
+		options.reviewExternalCall = async (id) => {
+			await reviewer.reviewExternalCall(id);
+		};
+		// A waiting external call goes up the chain like a task; only when no ancestor agent takes it does
+		// Auto Review (and otherwise the owner) decide (doc/design/access-control.md "Approvals").
+		options.routeExternalCall = async (id) => {
+			const row = await getExternalCall(options.db, id);
+			if (row?.state !== "awaiting_approval") return row?.handler_type === "agent";
+			if (row.handler_type === "agent") return true;
+			const routed = await routeAwaiting(runtime.#host, "external_call", row.actor_id, id, externalCallApproval(row));
+			// The handler's cached request list did not have this request before it was routed.
+			if (routed) runtime.#host.inboxes.clear();
+			return routed;
+		};
 		options.cluster.onAwaitingApproval = async (task) => {
 			await reviewer.reviewTask(task);
 			await routeAwaiting(runtime.#host, "task", task.actorId, task.id, task.approval);
@@ -202,7 +254,13 @@ export class AgentRuntime {
 			for (let attempt = 0; !this.#closing; attempt++) {
 				await new Promise((r) => setTimeout(r, Math.min(30_000, 500 * 2 ** attempt)));
 				try {
-					this.#harness = await AgentRuntime.#openHarness(this.#options, this.#runtimeRef, this.modelPresets);
+					this.#harness = await AgentRuntime.#openHarness(
+						this.#options,
+						this.#runtimeRef,
+						this.modelPresets,
+						this.#registry,
+						this.#extensions,
+					);
 					this.#harness.resume();
 					this.#host.inboxes.clear();
 					this.reopened++;
@@ -238,6 +296,61 @@ export class AgentRuntime {
 	/** The session list's event hub, for `GET /api/sessions` and `GET /api/sessions/stream`. */
 	get sessionList(): SessionListHub {
 		return this.#sessionList;
+	}
+
+	/** The extensions a session selects: the crh extension and the MCP servers it may use. */
+	#extensionsFor(serverNames: readonly string[]): Extension[] {
+		const selected: Extension[] = [];
+		const crh = this.#extensions.get("crh");
+		if (crh) selected.push(crh);
+		for (const name of serverNames) {
+			const extension = this.#extensions.get(`mcp:${name}`);
+			if (extension) selected.push(extension);
+		}
+		return selected;
+	}
+
+	/**
+	 * Installs or replaces one MCP server's extension (doc/design/extensions.md "Tools for the model"). Only an
+	 * enabled server marked "list directly" contributes its tools; other servers keep an empty extension, so a
+	 * session can select the server by name and its tools never reach the model's tool list. A disabled server
+	 * loses its tools at once, even in a session whose selection has not been recomputed yet.
+	 */
+	installMcpServerTools(
+		row: { name: string; list_directly: number; enabled: number },
+		tools: Parameters<typeof mcpServerExtension>[3],
+	): void {
+		const extension = mcpServerExtension(
+			this.#options,
+			this.#runtimeRef,
+			row.name,
+			row.list_directly === 1 && row.enabled === 1 ? tools : [],
+		);
+		this.#registry.install(extension);
+		this.#extensions.set(`mcp:${row.name}`, extension);
+	}
+
+	/**
+	 * Re-selects a session's MCP extensions from the rows read now, so a grant, an enable/disable or a session
+	 * change applies from the next request (doc/design/extensions.md "MCP servers"). The conversation is only
+	 * written when the selection actually changed.
+	 */
+	async syncMcpServers(conversationId: string): Promise<void> {
+		if (!this.#options.mcp) return;
+		const row = await this.#options.db
+			.selectFrom("sessions")
+			.select(["id", "conversation_id", "owner_user_id", "disabled_mcp_servers"])
+			.where("conversation_id", "=", conversationId)
+			.executeTakeFirst();
+		if (row) await syncSessionMcpExtensions(this.#host, row);
+	}
+
+	/** Removes a server's extension after an administrator deletes it or turns it off for all sessions. */
+	removeMcpServerExtension(name: string): void {
+		const extension = this.#extensions.get(`mcp:${name}`);
+		if (!extension) return;
+		this.#extensions.delete(`mcp:${name}`);
+		this.#registry.uninstall(extension);
 	}
 
 	async close(): Promise<void> {
@@ -287,7 +400,13 @@ export class AgentRuntime {
 
 	async configure(
 		sessionId: string,
-		change: { title?: string; model?: ModelRef; rulePreset?: RulePreset; budgetRemaining?: number | null },
+		change: {
+			title?: string;
+			model?: ModelRef;
+			rulePreset?: RulePreset;
+			budgetRemaining?: number | null;
+			disabledMcpServers?: string[];
+		},
 	): Promise<SessionView> {
 		return configure(this.#host, sessionId, change);
 	}
@@ -431,7 +550,7 @@ export class AgentRuntime {
 		decision: "approve" | "deny" | "escalate",
 		reason?: string,
 		tokens?: number,
-	): Promise<"task" | "task_group" | "quota"> {
+	): Promise<"task" | "task_group" | "quota" | "external_call"> {
 		return decideAgentRequest(this.#host, sessionId, requestId, decision, reason, tokens);
 	}
 

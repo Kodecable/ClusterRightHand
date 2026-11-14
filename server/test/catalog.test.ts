@@ -259,6 +259,8 @@ describe("the tool catalog", () => {
 			"view_image",
 			"task_wait",
 			"task_cancel",
+			"search_tools",
+			"call_tool",
 		]);
 		expect(Object.fromEntries(TOOLS.map((entry) => [entry.name, entry.output]))).toMatchObject({
 			list_nodes: "json",
@@ -271,6 +273,8 @@ describe("the tool catalog", () => {
 			stat: "json",
 			task_wait: "text",
 			task_cancel: "json",
+			search_tools: "json",
+			call_tool: "text",
 		});
 	});
 

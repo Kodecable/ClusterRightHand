@@ -23,7 +23,7 @@ export type Method = RuleMethod;
 export type RulePreset = ApiRulePreset;
 
 export const RULE_PRESETS: readonly RulePreset[] = ["ask", "auto_review", "yolo"];
-const METHODS: readonly Method[] = ["exec", "file.read", "file.write"];
+const METHODS: readonly Method[] = ["exec", "file.read", "file.write", "mcp.read", "mcp.write"];
 const ACTIONS: readonly Action[] = ["allow", "deny", "require-approval"];
 const MAX_RULES = 200;
 const MAX_PATTERN = 1000;
@@ -44,9 +44,10 @@ export interface ChainLevel {
 /** What a task does, in the terms rules match on. */
 export interface Operation {
 	method: Method;
-	/** exec: the rendered argv; files: the normalized absolute path. */
+	/** exec: the rendered argv; files: the normalized absolute path; MCP: `<server>/<tool>`. */
 	target: string;
-	node: { id: string; groupIds: string[] };
+	/** The task's node; absent for an external MCP call, which no node rule matches. */
+	node?: { id: string; groupIds: string[] };
 	/** The task's privileged flag; a rule with `privileged` matches only that value. */
 	privileged: boolean;
 }
@@ -61,7 +62,12 @@ export function rulePresetRuleSet(rulePreset: RulePreset): RuleSet {
 	// privileged read still waits: native and ignore nodes have no other gate than these rules.
 	return {
 		default: "require-approval",
-		rules: [{ action: "allow", method: "file.read", privileged: false }],
+		rules: [
+			{ action: "allow", method: "file.read", privileged: false },
+			// A read-only external tool passes like a file read; a write still asks (doc/design/extensions.md
+			// "Rules and approvals"). External calls are never privileged, so the flag matches them.
+			{ action: "allow", method: "mcp.read", privileged: false },
+		],
 	};
 }
 
@@ -73,16 +79,21 @@ function stricter(a: Action, b: Action): Action {
 
 function methodMatches(rule: Rule, op: Operation): boolean {
 	if (!rule.method || rule.method === op.method) return true;
-	// Allowing file.write also allows reading (as in crha); deny and require-approval stay exact, so that
-	// "deny file.write /etc/x" does not hide the file from reading.
-	return rule.action === "allow" && rule.method === "file.write" && op.method === "file.read";
+	if (rule.action !== "allow") return false;
+	// Allowing file.write also allows reading (as in crha), and allowing mcp.write allows mcp.read on the
+	// same target. Deny and require-approval stay exact, so that "deny file.write /etc/x" does not hide the
+	// file from reading.
+	if (rule.method === "file.write" && op.method === "file.read") return true;
+	return rule.method === "mcp.write" && op.method === "mcp.read";
 }
 
 function nodeMatches(rule: Rule, op: Operation): boolean {
 	if (!rule.nodes) return true;
+	// A rule with nodes never matches an external MCP call; those have no node to check.
+	if (!op.node) return false;
 	// References are resolved to UUIDs at write time; `_all` matches every node the acting user can operate,
 	// which is every node evaluated here: access was checked before the task was created.
-	return rule.nodes.some((ref) => ref === ALL_TARGET || ref === op.node.id || op.node.groupIds.includes(ref));
+	return rule.nodes.some((ref) => ref === ALL_TARGET || ref === op.node?.id || op.node?.groupIds.includes(ref));
 }
 
 function targetMatches(rule: Rule, op: Operation): boolean {

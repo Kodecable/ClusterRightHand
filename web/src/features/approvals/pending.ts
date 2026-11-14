@@ -7,6 +7,7 @@
 export interface PendingLists {
 	tasks: readonly unknown[];
 	taskGroups: readonly unknown[];
+	externalCalls: readonly unknown[];
 	authorizations: { tasks: readonly unknown[]; taskGroups: readonly unknown[] };
 	quotas: readonly unknown[];
 }
@@ -16,6 +17,7 @@ export function pendingCount(data: PendingLists | undefined): number {
 	return (
 		data.tasks.length +
 		data.taskGroups.length +
+		data.externalCalls.length +
 		data.authorizations.tasks.length +
 		data.authorizations.taskGroups.length +
 		data.quotas.length

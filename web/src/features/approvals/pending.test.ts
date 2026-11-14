@@ -7,16 +7,23 @@ describe("pendingCount", () => {
 		const group = { id: "g1", nodeIds: ["n1", "n2", "n3"] };
 		// The server lists a waiting group, never its member tasks: three nodes are still one entry.
 		expect(
-			pendingCount({ tasks: [], taskGroups: [], authorizations: { tasks: [], taskGroups: [group] }, quotas: [] }),
+			pendingCount({
+				tasks: [],
+				taskGroups: [],
+				externalCalls: [],
+				authorizations: { tasks: [], taskGroups: [group] },
+				quotas: [],
+			}),
 		).toBe(1);
 		const quotas = [{ sessionId: "s1" }, { sessionId: "s2" }];
 		expect(
 			pendingCount({
 				tasks: [{}, {}],
 				taskGroups: [group],
+				externalCalls: [{}],
 				authorizations: { tasks: [{}], taskGroups: [group] },
 				quotas,
 			}),
-		).toBe(7);
+		).toBe(8);
 	});
 });

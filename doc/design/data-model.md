@@ -147,6 +147,14 @@ token measures and statistics ([Sessions](agent-runtime.md#sessions),
 Model providers store their configuration and a reference to the encrypted API key. Model presets are one
 row per kind.
 
+MCP servers store their URL, behaviour flags and grants, and a reference to one encrypted `secrets` row
+holding the request headers. `external_calls` is the small object an external approval belongs to: its id
+is derived from the durable tool call, and it carries the approval columns a task has, the server, tool,
+arguments, operation and the state that must survive while the call is in progress. A terminal row keeps
+only its state and `finished_at` as the "already ran" marker and clears its arguments; the result is in the
+transcript and the decision in the audit log. `sessions.disabled_mcp_servers` is the JSON list of servers
+the owner turned off ([Extensions](extensions.md)).
+
 ## Libraries
 
 `libraries` holds one row per user or user group library, with its limits and usage; `library_files`
@@ -177,6 +185,9 @@ startup and then hourly, in small batches, and each table is swept independently
 
 - Only finished tasks and task groups are deleted; anything still in progress is kept however old.
 - Authorizations are deleted after their deadline has passed by the retention period.
+- Terminal `external_calls` rows are always kept for one day after `finished_at`, independent of these
+  settings. The row is the replay marker a tool call that reruns after a crash finds by id; a waiting or
+  running call is never deleted ([External calls](extensions.md#external-calls)).
 - The newest 16384 audit sequence numbers are always kept. This prevents a large forward clock jump from
   wiping the log, and keeps SQLite from reusing sequence numbers.
 - Retention cannot be shorter than one day, because a tool call that reruns after a crash finds its task

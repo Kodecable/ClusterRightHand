@@ -1,4 +1,4 @@
-import type { QuotaApproval, RefMap, TaskGroupView, TaskView } from "@crh/api";
+import type { ExternalCallView, QuotaApproval, RefMap, TaskGroupView, TaskView } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -7,6 +7,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/components/data-table";
 import { ApprovalDecision } from "@/components/decision";
+import { ExternalCallDecision } from "@/components/decision/external-call-decision";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { NodeTargetList } from "@/components/node-targets";
@@ -19,10 +20,19 @@ import { UserLink } from "@/components/user-link";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { sessionTitle } from "@/features/sessions/session-item";
 import { TaskGroupStatus } from "@/features/tasks/task-group-result";
+import { isNotFound } from "@/lib/api/client";
 import { actorLabel } from "@/lib/approval-rules";
 import { taskTitle } from "@/lib/task-title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
-import { useApprovalLookups, useApprovals, useApprovalTask, useApprovalTaskGroup, useDecideApproval } from "./api";
+import {
+	useApprovalLookups,
+	useApprovals,
+	useApprovalTask,
+	useApprovalTaskGroup,
+	useDecideApproval,
+	useDecideExternalCall,
+	useExternalCall,
+} from "./api";
 
 /** What kind of decision a row holds; the table's first column. */
 type DecisionType = "approval" | "signature" | "quota";
@@ -70,6 +80,19 @@ function taskGroupRow(type: "approval" | "signature", taskGroup: TaskGroupView):
 		requestedAt: taskGroup.createdAt,
 		link: { to: "/approvals/task-groups/$taskGroupId", params: { taskGroupId: taskGroup.id } },
 		label: taskTitle(taskGroup),
+	};
+}
+
+function externalCallRow(call: ExternalCallView): DecisionRow {
+	return {
+		key: `approval:external-call:${call.id}`,
+		type: "approval",
+		operation: `${call.server}/${call.tool}`,
+		nodes: [],
+		actor: { type: call.actorType, id: call.actorId },
+		requestedAt: call.createdAt,
+		link: { to: "/approvals/external-calls/$externalCallId", params: { externalCallId: call.id } },
+		label: `${call.server}/${call.tool}`,
 	};
 }
 
@@ -125,6 +148,7 @@ export function ApprovalsPage() {
 		const quotaDefault = t`New Session`;
 		return [
 			...data.tasks.map((task) => taskRow("approval", task)),
+			...data.externalCalls.map((call) => externalCallRow(call)),
 			...data.taskGroups.map((taskGroup) => taskGroupRow("approval", taskGroup)),
 			...data.authorizations.tasks.map((task) => taskRow("signature", task)),
 			...data.authorizations.taskGroups.map((taskGroup) => taskGroupRow("signature", taskGroup)),
@@ -346,6 +370,58 @@ export function ApprovalTaskGroupPage() {
 						<Trans>Open the task group</Trans>
 					</Link>
 				</Settled>
+			)}
+		</Page>
+	);
+}
+
+/** The deep link the decision dock and the approvals table use for one external call. */
+export function ExternalCallApprovalPage() {
+	const { t } = useLingui();
+	const params = useParams({ strict: false }) as { externalCallId?: string };
+	const call = useExternalCall(params.externalCallId);
+	const decide = useDecideExternalCall();
+	if (call.isPending) return <DetailPending />;
+	if (call.error !== null && call.error !== undefined) {
+		// A missing row is an ordinary not-found page: retention is not a user-facing detail here.
+		if (isNotFound(call.error)) {
+			return (
+				<Page width="detail">
+					<ErrorState error={t`This external call doesn't exist or you don't have access.`} />
+				</Page>
+			);
+		}
+		return (
+			<Page width="detail">
+				<ErrorState error={call.error} retry={() => void call.refetch()} />
+			</Page>
+		);
+	}
+	if (!call.data) return null;
+	const view = call.data;
+	return (
+		<Page width="detail" data-testid="approval-detail">
+			<div>
+				<Link
+					to="/approvals"
+					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+				>
+					<ArrowLeftIcon className="size-3.5" />
+					<Trans>All approvals</Trans>
+				</Link>
+			</div>
+			{view.state === "awaiting_approval" ? (
+				<ExternalCallDecision
+					call={view}
+					busy={decide.isPending}
+					error={decide.error}
+					onDecide={(body) => decide.mutate({ id: view.id, body })}
+				/>
+			) : (
+				<Settled
+					status={<span className="font-mono text-xs">{view.state}</span>}
+					title={<Trans>Already settled</Trans>}
+				/>
 			)}
 		</Page>
 	);

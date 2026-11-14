@@ -114,7 +114,8 @@ These are not implemented, but the design leaves room for them:
 - **OIDC login** ([Extension points: OIDC](access-control.md#extension-points-oidc)).
 - **Local crha policy**, limits in `crha.toml` that would hold even against a compromised crhs. crha
   rejects unknown configuration keys, so such keys fail rather than being silently ignored.
-- **crhs as an MCP client** for external tools, and runbooks.
+- **Runbooks.** External tools themselves are no longer a future extension point: they are MCP
+  servers an administrator connects ([Extensions](extensions.md)).
 
 ## Known limitations
 

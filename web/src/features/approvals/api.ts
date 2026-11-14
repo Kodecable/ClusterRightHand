@@ -1,4 +1,12 @@
-import type { ApiTokenView, ApprovalBody, ApprovalList, PublicNode, TaskGroupView, TaskView } from "@crh/api";
+import type {
+	ApiTokenView,
+	ApprovalBody,
+	ApprovalList,
+	ExternalCallView,
+	PublicNode,
+	TaskGroupView,
+	TaskView,
+} from "@crh/api";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNodeGroups } from "@/features/node-groups/api";
 import { taskKeys } from "@/features/tasks/api";
@@ -60,6 +68,32 @@ export interface DecideInput {
 	kind: "task" | "task_group";
 	id: string;
 	body: ApprovalBody;
+}
+
+/** Approve or reject one waiting external call; "always allow" carries a rule. */
+export function useDecideExternalCall() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, body }: { id: string; body: ApprovalBody }) =>
+			http.post<{ ok: true }>(`/external-calls/${enc(id)}/approval`, body),
+		onSuccess: () => invalidatePendingDecisions(queryClient),
+		onError: (error) => {
+			if (typeof error === "object" && error !== null && "status" in error && error.status === 409) {
+				void queryClient.invalidateQueries({ queryKey: approvalKeys.all });
+			}
+		},
+	});
+}
+
+export function useExternalCall(id: string | undefined) {
+	return useQuery({
+		queryKey: ["external-calls", id ?? ""],
+		enabled: id !== undefined && id !== "",
+		queryFn: ({ signal }) =>
+			http
+				.get<{ externalCall: ExternalCallView }>(`/external-calls/${enc(id ?? "")}`, { signal })
+				.then((r) => r.externalCall),
+	});
 }
 
 /** Approve or reject a waiting task or task group (every decision component shares it). */

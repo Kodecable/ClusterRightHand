@@ -308,6 +308,14 @@ msgstr "A schedule creates a new session at each trigger and submits a fixed pro
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
 msgstr "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "A server is reached over Streamable HTTP with static headers. Only administrators connect servers; the grants decide which sessions may use it."
+msgstr "A server is reached over Streamable HTTP with static headers. Only administrators connect servers; the grants decide which sessions may use it."
+
+#: src/features/sessions/composer-footer.tsx
+msgid "A server that is off is hidden from the model. The change applies to the next turn."
+msgstr "A server that is off is hidden from the model. The change applies to the next turn."
+
 #: src/features/system-settings/attachments-section.tsx
 msgid "A text file up to the per-file limit has its content appended to its message block; no more than the per-message limit is inlined over one message. Images are never inlined."
 msgstr "A text file up to the per-file limit has its content appended to its message block; no more than the per-message limit is inlined over one message. Images are never inlined."
@@ -346,6 +354,8 @@ msgstr "A username is required."
 
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
+#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/mcp-servers.tsx
 msgid "Access"
 msgstr "Access"
 
@@ -420,6 +430,7 @@ msgstr "Add authorization signing key"
 msgid "Add field"
 msgstr "Add field"
 
+#: src/features/settings/mcp-server-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Add header"
 msgstr "Add header"
@@ -492,6 +503,10 @@ msgstr "After the node connects it appears as pending; compare its key fingerpri
 #: src/features/tasks/pages.tsx
 msgid "Agent"
 msgstr "Agent"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "Agent sessions reach these servers' tools through search_tools and call_tool, under the session's rules and approvals."
+msgstr "Agent sessions reach these servers' tools through search_tools and call_tool, under the session's rules and approvals."
 
 #: src/features/system-settings/retention-section.tsx
 msgid "Agent tool records"
@@ -570,6 +585,7 @@ msgid "Also revoke all of this user's API tokens"
 msgstr "Also revoke all of this user's API tokens"
 
 #: src/components/decision/approval-decision.tsx
+#: src/components/decision/external-call-decision.tsx
 msgid "Always allow"
 msgstr "Always allow"
 
@@ -589,9 +605,21 @@ msgstr "An administrator creates node groups."
 msgid "An administrator grants access to nodes."
 msgstr "An administrator grants access to nodes."
 
+#: src/components/decision/external-call-decision.tsx
+msgid "An external tool call needs approval"
+msgstr "An external tool call needs approval"
+
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "An SSH credential is required."
 msgstr "An SSH credential is required."
+
+#: src/components/decision/external-call-decision.tsx
+msgid "Annotations"
+msgstr "Annotations"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "Annotations untrusted"
+msgstr "Annotations untrusted"
 
 #: src/features/auth/api.ts
 msgid "Another sign-in from this address is already in progress. Try again."
@@ -653,12 +681,14 @@ msgid "Approvals"
 msgstr "Approvals"
 
 #: src/components/decision/approval-decision.tsx
+#: src/components/decision/external-call-decision.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve"
 msgstr "Approve"
 
 #: src/components/decision/approval-decision.tsx
+#: src/components/decision/external-call-decision.tsx
 msgid "Approve and always allow"
 msgstr "Approve and always allow"
 
@@ -678,6 +708,7 @@ msgstr "Argon2 concurrency"
 msgid "Argon2 queue"
 msgstr "Argon2 queue"
 
+#: src/components/decision/external-call-decision.tsx
 #: src/features/sessions/tool-dialog.tsx
 msgid "Arguments"
 msgstr "Arguments"
@@ -826,6 +857,10 @@ msgstr "Back to the session list"
 msgid "Base URL"
 msgstr "Base URL"
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Behavior"
+msgstr "Behavior"
+
 #: src/features/settings/provider-dialog.tsx
 msgid "Body fields"
 msgstr "Body fields"
@@ -929,6 +964,10 @@ msgstr "Changing the password signs out your other web sessions but does not rev
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Changing the RP ID invalidates the Passkeys registered for the old one."
 msgstr "Changing the RP ID invalidates the Passkeys registered for the old one."
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Changing the URL requires entering the headers again or removing them."
+msgstr "Changing the URL requires entering the headers again or removing them."
 
 #: src/features/library/library-section.tsx
 msgid "Changing them applies to this library only."
@@ -1164,6 +1203,10 @@ msgstr "Confirm"
 msgid "Confirm every host fingerprint first."
 msgstr "Confirm every host fingerprint first."
 
+#: src/features/settings/mcp-servers.tsx
+msgid "Connect a Streamable HTTP MCP server to give sessions external tools."
+msgstr "Connect a Streamable HTTP MCP server to give sessions external tools."
+
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Connect Claude Code with:"
 msgstr "Connect Claude Code with:"
@@ -1177,9 +1220,17 @@ msgstr "Connected"
 msgid "Connected since {0}"
 msgstr "Connected since {0}"
 
+#: src/features/settings/mcp-servers.tsx
+msgid "Connecting"
+msgstr "Connecting"
+
 #: src/features/sessions/session-banner.tsx
 msgid "Connecting…"
 msgstr "Connecting…"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "Connection"
+msgstr "Connection"
 
 #: src/components/test-connection.tsx
 msgid "Connection works."
@@ -1456,6 +1507,7 @@ msgstr "Defaults: {0} total."
 #: src/components/file-manager/file-list.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
+#: src/features/settings/mcp-servers.tsx
 #: src/features/settings/pages.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -1469,6 +1521,7 @@ msgstr "Delete"
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
 #: src/components/file-manager/file-list.tsx
+#: src/features/settings/mcp-servers.tsx
 #: src/features/settings/pages.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -1498,6 +1551,11 @@ msgstr "Delete authorization signing key?"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
 msgstr "Delete credential"
+
+#. placeholder {0}: deleting.name
+#: src/features/settings/mcp-servers.tsx
+msgid "Delete MCP server {0}?"
+msgstr "Delete MCP server {0}?"
 
 #: src/features/nodes/delete-node-dialog.tsx
 #: src/features/nodes/pages.tsx
@@ -1530,6 +1588,10 @@ msgstr "Delete provider {0}?"
 #: src/features/schedules/pages.tsx
 msgid "Delete schedule"
 msgstr "Delete schedule"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "Delete server"
+msgstr "Delete server"
 
 #: src/features/signing-credentials/pages.tsx
 msgid "Delete signing credential"
@@ -1596,6 +1658,10 @@ msgstr "Deny"
 msgid "Describe the route (jump hosts, then the target), pick each hop's credential and pin its host fingerprint, then test the connection and create the node."
 msgstr "Describe the route (jump hosts, then the target), pick each hop's credential and pin its host fingerprint, then test the connection and create the node."
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Description"
+msgstr "Description"
+
 #. placeholder {0}: event.seq
 #: src/features/audit/pages.tsx
 msgid "Detail of event {0}"
@@ -1623,6 +1689,7 @@ msgid "Disable user"
 msgstr "Disable user"
 
 #: src/features/schedules/pages.tsx
+#: src/features/settings/mcp-servers.tsx
 #: src/features/settings/pages.tsx
 #: src/features/users/pages.tsx
 #: src/features/users/user-group-page.tsx
@@ -1671,12 +1738,15 @@ msgstr "Each selected signing credential may authorize a task, and crhs must cou
 msgid "Each token has its own rules; what they do not allow waits for your approval."
 msgstr "Each token has its own rules; what they do not allow waits for your approval."
 
+#: src/features/settings/mcp-servers.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Edit"
 msgstr "Edit"
 
+#. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
+#: src/features/settings/mcp-servers.tsx
 #: src/features/settings/pages.tsx
 msgid "Edit {0}"
 msgstr "Edit {0}"
@@ -1689,6 +1759,11 @@ msgstr "Edit limits"
 #: src/features/library/limits-dialog.tsx
 msgid "Edit limits for {0}"
 msgstr "Edit limits for {0}"
+
+#. placeholder {0}: existing.name
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Edit MCP server {0}"
+msgstr "Edit MCP server {0}"
 
 #: src/features/node-groups/pages.tsx
 msgid "Edit members"
@@ -1728,10 +1803,15 @@ msgstr "Enable"
 
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/settings/mcp-servers.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Enabled"
 msgstr "Enabled"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Enabled (a disabled server is invisible to sessions)"
+msgstr "Enabled (a disabled server is invisible to sessions)"
 
 #. placeholder {0}: schedule.name
 #: src/features/schedules/schedule-actions.tsx
@@ -1924,6 +2004,15 @@ msgstr "Expires"
 msgid "Expires after"
 msgstr "Expires after"
 
+#. placeholder {0}: servers.length
+#: src/features/sessions/composer-footer.tsx
+msgid "Extensions: {enabled}/{0}"
+msgstr "Extensions: {enabled}/{0}"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "External tool servers"
+msgstr "External tool servers"
+
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "Extra headers"
@@ -2036,8 +2125,13 @@ msgstr "Generating…"
 msgid "Go to sessions"
 msgstr "Go to sessions"
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Grant"
+msgstr "Grant"
+
 #: src/components/share-editor.tsx
 #: src/features/nodes/access-grants.tsx
+#: src/features/settings/mcp-server-dialog.tsx
 msgid "Grantee"
 msgstr "Grantee"
 
@@ -2045,16 +2139,19 @@ msgstr "Grantee"
 msgid "Group"
 msgstr "Group"
 
+#: src/features/settings/mcp-server-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Header"
 msgstr "Header"
 
 #. placeholder {0}: index + 1
+#: src/features/settings/mcp-server-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Header {0} name"
 msgstr "Header {0} name"
 
 #. placeholder {0}: index + 1
+#: src/features/settings/mcp-server-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Header {0} value"
 msgstr "Header {0} value"
@@ -2099,6 +2196,7 @@ msgid "How long crhs keeps records after they finish. A duration of at least one
 msgstr "How long crhs keeps records after they finish. A duration of at least one day, or Keep forever."
 
 #: src/components/decision/approval-decision.tsx
+#: src/components/decision/external-call-decision.tsx
 #: src/features/sessions/quota-decision.tsx
 msgid "How to decide"
 msgstr "How to decide"
@@ -2112,6 +2210,10 @@ msgstr "How to sign"
 #: src/features/settings/provider-dialog.tsx
 msgid "Id"
 msgstr "Id"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Identity headers"
+msgstr "Identity headers"
 
 #: src/components/status-badge.tsx
 #: src/features/sessions/session-search-dialog.tsx
@@ -2177,6 +2279,10 @@ msgstr "Its members lose this node group. Rules and task groups that reference i
 #: src/features/settings/pages.tsx
 msgid "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 msgstr "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
+
+#: src/features/settings/mcp-servers.tsx
+msgid "Its tools disappear from sessions and its stored headers are deleted. Waiting calls of this server are not retried."
+msgstr "Its tools disappear from sessions and its stored headers are deleted. Waiting calls of this server are not retried."
 
 #. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
@@ -2319,6 +2425,14 @@ msgstr "Link target"
 msgid "List at least one model."
 msgstr "List at least one model."
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "List its tools directly in the model's tool list"
+msgstr "List its tools directly in the model's tool list"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "Listed directly"
+msgstr "Listed directly"
+
 #: src/components/data-table.tsx
 #: src/features/sessions/children-bar.tsx
 msgid "Load more"
@@ -2353,6 +2467,10 @@ msgstr "Loading shares…"
 msgid "Loading task…"
 msgstr "Loading task…"
 
+#: src/features/settings/mcp-servers.tsx
+msgid "Loading the tool list…"
+msgstr "Loading the tool list…"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Loading…"
 msgstr "Loading…"
@@ -2368,6 +2486,10 @@ msgstr "Log out"
 #: src/lib/thinking-level.ts
 msgid "Low"
 msgstr "Low"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Lowercase letters, digits and \"-\", not starting with a digit. Tools and rules use it."
+msgstr "Lowercase letters, digits and \"-\", not starting with a digit. Tools and rules use it."
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Lowercase letters, digits and dashes."
@@ -2404,6 +2526,12 @@ msgstr "Max output tokens"
 #: src/features/nodes/node-trust.tsx
 msgid "Max TTL"
 msgstr "Max TTL"
+
+#: src/app/shell/nav.ts
+#: src/features/sessions/composer-footer.tsx
+#: src/features/settings/mcp-servers.tsx
+msgid "MCP servers"
+msgstr "MCP servers"
 
 #: src/lib/thinking-level.ts
 msgid "Medium"
@@ -2513,6 +2641,8 @@ msgstr "Move or rename {0}"
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/mcp-servers.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/signing-credentials/pages.tsx
@@ -2536,6 +2666,10 @@ msgstr "Never"
 #: src/components/status-badge.tsx
 msgid "Never run"
 msgstr "Never run"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "New MCP server"
+msgstr "New MCP server"
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -2579,6 +2713,10 @@ msgstr "New requests appear here and in the sidebar badge."
 #: src/features/schedules/pages.tsx
 msgid "New schedule"
 msgstr "New schedule"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "New server"
+msgstr "New server"
 
 #: src/features/sessions/session-list.tsx
 msgid "New session"
@@ -2643,6 +2781,10 @@ msgstr "Next"
 msgid "Next run"
 msgstr "Next run"
 
+#: src/features/settings/mcp-servers.tsx
+msgid "Next try"
+msgstr "Next try"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
 msgstr "Nightly check"
@@ -2698,6 +2840,10 @@ msgstr "No matches"
 #: src/features/sessions/session-search-dialog.tsx
 msgid "No matching sessions"
 msgstr "No matching sessions"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "No MCP servers yet"
+msgstr "No MCP servers yet"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/users/user-group-page.tsx
@@ -2929,6 +3075,10 @@ msgstr "Not applicable"
 msgid "Not confirmed"
 msgstr "Not confirmed"
 
+#: src/features/settings/mcp-servers.tsx
+msgid "Not connected yet"
+msgstr "Not connected yet"
+
 #: src/features/nodes/node-trust.tsx
 msgid "not reported"
 msgstr "not reported"
@@ -3024,6 +3174,10 @@ msgstr "One file for new users"
 msgid "Only administrators can manage SSH credentials."
 msgstr "Only administrators can manage SSH credentials."
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Only granted users and members of granted user groups reach this server."
+msgstr "Only granted users and members of granted user groups reach this server."
+
 #: src/features/nodes/access-grants.tsx
 msgid "Only targets without an existing grant are listed."
 msgstr "Only targets without an existing grant are listed."
@@ -3075,6 +3229,14 @@ msgstr "Open the task group page"
 msgid "Operation"
 msgstr "Operation"
 
+#: src/components/decision/external-call-decision.tsx
+msgid "Operation: read"
+msgstr "Operation: read"
+
+#: src/components/decision/external-call-decision.tsx
+msgid "Operation: write"
+msgstr "Operation: write"
+
 #: src/app/shell/app-sidebar.tsx
 msgid "Ops console"
 msgstr "Ops console"
@@ -3083,6 +3245,10 @@ msgstr "Ops console"
 #: src/features/signing-credentials/pages.tsx
 msgid "Optional"
 msgstr "Optional"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Optional header names that receive the CRH username and session id. They are not authentication."
+msgstr "Optional header names that receive the CRH username and session id. They are not authentication."
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Optional, overrides the provider's default endpoint."
@@ -3363,6 +3529,15 @@ msgstr "Re-enroll node"
 msgid "Re-probe"
 msgstr "Re-probe"
 
+#: src/components/decision/external-call-decision.tsx
+#: src/features/settings/mcp-servers.tsx
+msgid "Read-only"
+msgstr "Read-only"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "Ready"
+msgstr "Ready"
+
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Real client IP header"
 msgstr "Real client IP header"
@@ -3389,6 +3564,15 @@ msgstr "Recent sessions"
 msgid "Recent tasks"
 msgstr "Recent tasks"
 
+#: src/features/settings/mcp-servers.tsx
+msgid "Reconnect"
+msgstr "Reconnect"
+
+#. placeholder {0}: row.original.name
+#: src/features/settings/mcp-servers.tsx
+msgid "Reconnect {0}"
+msgstr "Reconnect {0}"
+
 #: src/features/sessions/session-banner.tsx
 msgid "Reconnecting…"
 msgstr "Reconnecting…"
@@ -3398,6 +3582,7 @@ msgid "Register Passkey"
 msgstr "Register Passkey"
 
 #: src/components/decision/approval-decision.tsx
+#: src/components/decision/external-call-decision.tsx
 #: src/components/decision/reject.tsx
 #: src/features/authorizations/signature-decision.tsx
 #: src/features/nodes/pages.tsx
@@ -3433,12 +3618,13 @@ msgstr "Remaining budget tokens (empty = unlimited)"
 msgid "Remove"
 msgstr "Remove"
 
+#. placeholder {0}: directoryNames.get(key) ?? grant.granteeId
 #. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
 #. placeholder {0}: item.name
-#. placeholder {0}: option.primary
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 #: src/features/sessions/attachments.tsx
+#: src/features/settings/mcp-server-dialog.tsx
 msgid "Remove {0}"
 msgstr "Remove {0}"
 
@@ -3478,6 +3664,7 @@ msgid "Remove from {0}"
 msgstr "Remove from {0}"
 
 #. placeholder {0}: index + 1
+#: src/features/settings/mcp-server-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove header {0}"
 msgstr "Remove header {0}"
@@ -3505,6 +3692,10 @@ msgstr "Remove session id header {0}"
 #: src/features/sessions/share-dialog.tsx
 msgid "Remove share"
 msgstr "Remove share"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Remove stored headers"
+msgstr "Remove stored headers"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove the stored key"
@@ -3563,6 +3754,10 @@ msgstr "Request body overrides must be valid JSON."
 msgid "Request body per level"
 msgstr "Request body per level"
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Request headers"
+msgstr "Request headers"
+
 #: src/features/approvals/pages.tsx
 msgid "Requested"
 msgstr "Requested"
@@ -3606,6 +3801,10 @@ msgstr "Retrying after an error: {retry}"
 msgid "reusable"
 msgstr "reusable"
 
+#: src/features/sessions/session-decisions.tsx
+msgid "Review"
+msgstr "Review"
+
 #: src/features/sessions/tool-dialog.tsx
 msgid "Review and approve"
 msgstr "Review and approve"
@@ -3640,6 +3839,7 @@ msgstr "Route"
 
 #: src/components/decision/approval-decision.tsx
 #: src/components/decision/evaluation.tsx
+#: src/components/decision/external-call-decision.tsx
 #: src/components/task-result.tsx
 msgid "Rule chain evaluation"
 msgstr "Rule chain evaluation"
@@ -3900,6 +4100,14 @@ msgstr "Select {0} files"
 msgid "Send"
 msgstr "Send"
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."
+msgstr "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."
+
+#: src/components/decision/external-call-decision.tsx
+msgid "Server"
+msgstr "Server"
+
 #: src/components/decision/evaluation.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/model-presets.tsx
@@ -3916,6 +4124,10 @@ msgstr "Session id body field {0}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Session id fields"
 msgstr "Session id fields"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Session id header"
+msgstr "Session id header"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -3992,6 +4204,10 @@ msgstr "Show less"
 #: src/components/code-text.tsx
 msgid "Showing first {maxLines} of {lines} lines"
 msgstr "Showing first {maxLines} of {lines} lines"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Shown to the model; the server's own instructions otherwise"
+msgstr "Shown to the model; the server's own instructions otherwise"
 
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
@@ -4170,6 +4386,11 @@ msgstr "Stop the paused run instead of adding tokens."
 #: src/features/schedules/scheduleForm.ts
 msgid "stopped by the next run"
 msgstr "stopped by the next run"
+
+#. placeholder {0}: existing.headerNames.join(", ")
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Stored headers: {0}"
+msgstr "Stored headers: {0}"
 
 #: src/features/sessions/session-search-dialog.tsx
 #: src/features/tasks/pages.tsx
@@ -4433,6 +4654,10 @@ msgstr "The running instance, if any, is stopped, and the run history is deleted
 msgid "The server is busy. Try again later."
 msgstr "The server is busy. Try again later."
 
+#: src/features/settings/mcp-servers.tsx
+msgid "The server listed no tools."
+msgstr "The server listed no tools."
+
 #: src/features/sessions/session-banner.tsx
 msgid "The session is paused: its token quota is used up."
 msgstr "The session is paused: its token quota is used up."
@@ -4465,6 +4690,10 @@ msgstr "The text to replace is required."
 msgid "The timeout must be a non-negative whole number of seconds."
 msgstr "The timeout must be a non-negative whole number of seconds."
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "The timeout must be a whole number of seconds from 1 to 3600."
+msgstr "The timeout must be a whole number of seconds from 1 to 3600."
+
 #: src/features/nodes/add-node-dialog.tsx
 #: src/features/nodes/reenroll-node-dialog.tsx
 msgid "The token is shown once and expires <0/>."
@@ -4473,6 +4702,10 @@ msgstr "The token is shown once and expires <0/>."
 #: src/features/users/reset-password-dialog.tsx
 msgid "The user can sign in with this password immediately."
 msgstr "The user can sign in with this password immediately."
+
+#: src/components/decision/external-call-decision.tsx
+msgid "The whole server"
+msgstr "The whole server"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "The Yolo rule preset runs every action without asking or checking."
@@ -4539,6 +4772,10 @@ msgstr "This cannot be undone."
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "This credential is used by a node and cannot be deleted."
 
+#: src/features/approvals/pages.tsx
+msgid "This external call doesn't exist or you don't have access."
+msgstr "This external call doesn't exist or you don't have access."
+
 #: src/features/sessions/attachment-chip.tsx
 msgid "This file could not be checked."
 msgstr "This file could not be checked."
@@ -4579,6 +4816,10 @@ msgstr "This stops the current run. Its history will show it as preempted."
 msgid "This target is already granted to this user or user group."
 msgstr "This target is already granted to this user or user group."
 
+#: src/components/decision/external-call-decision.tsx
+msgid "This tool only"
+msgstr "This tool only"
+
 #: src/features/users/pages.tsx
 msgid "This user doesn't exist or you don't have access."
 msgstr "This user doesn't exist or you don't have access."
@@ -4603,6 +4844,10 @@ msgstr "Timed out"
 #: src/components/task-form-fields.tsx
 msgid "Timeout (s)"
 msgstr "Timeout (s)"
+
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Timeout (seconds)"
+msgstr "Timeout (seconds)"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Timezone"
@@ -4645,6 +4890,10 @@ msgstr "Tokens to add"
 msgid "Too many failed attempts. Try again later."
 msgstr "Too many failed attempts. Try again later."
 
+#: src/components/decision/external-call-decision.tsx
+msgid "Tool"
+msgstr "Tool"
+
 #: src/features/sessions/tool-dialog.tsx
 msgid "Tool arguments"
 msgstr "Tool arguments"
@@ -4652,6 +4901,15 @@ msgstr "Tool arguments"
 #: src/features/sessions/tool-dialog.tsx
 msgid "Tool result"
 msgstr "Tool result"
+
+#: src/features/settings/mcp-servers.tsx
+msgid "Tools"
+msgstr "Tools"
+
+#. placeholder {0}: server.name
+#: src/features/settings/mcp-servers.tsx
+msgid "Tools of {0}"
+msgstr "Tools of {0}"
 
 #: src/components/upload/upload-progress-dialog.tsx
 #: src/features/library/library-section.tsx
@@ -4692,6 +4950,10 @@ msgstr "Trust config"
 msgid "Trust entries"
 msgstr "Trust entries"
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Trust the server's annotations (a readOnly tool passes as mcp.read)"
+msgstr "Trust the server's annotations (a readOnly tool passes as mcp.read)"
+
 #: src/features/nodes/trust-warnings.tsx
 msgid "Trust warnings"
 msgstr "Trust warnings"
@@ -4714,6 +4976,7 @@ msgid "Type keywords separated by spaces"
 msgstr "Type keywords separated by spaces"
 
 #: src/features/nodes/node-trust.tsx
+#: src/features/settings/mcp-servers.tsx
 msgid "Unavailable"
 msgstr "Unavailable"
 
@@ -4767,6 +5030,11 @@ msgstr "Uploading"
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Uploading files"
 msgstr "Uploading files"
+
+#: src/features/settings/mcp-server-dialog.tsx
+#: src/features/settings/mcp-servers.tsx
+msgid "URL"
+msgstr "URL"
 
 #: src/features/nodes/pages.tsx
 msgid "Use \"New node\" to enrol a crha client, or \"New SSH node\" for an SSH target."
@@ -4857,11 +5125,16 @@ msgstr "User: {userName}"
 msgid "Username"
 msgstr "Username"
 
+#: src/features/settings/mcp-server-dialog.tsx
+msgid "Username header"
+msgstr "Username header"
+
 #: src/app/shell/nav.ts
 #: src/features/users/pages.tsx
 msgid "Users"
 msgstr "Users"
 
+#: src/features/settings/mcp-server-dialog.tsx
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Value"
@@ -4875,6 +5148,11 @@ msgstr "View"
 #: src/features/users/pages.tsx
 msgid "View all tasks"
 msgstr "View all tasks"
+
+#. placeholder {0}: row.original.name
+#: src/features/settings/mcp-servers.tsx
+msgid "View tools of {0}"
+msgstr "View tools of {0}"
 
 #: src/features/sessions/session-item.ts
 msgid "Waiting for a quota decision"

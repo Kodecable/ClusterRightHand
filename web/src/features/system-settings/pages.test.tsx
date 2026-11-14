@@ -14,7 +14,7 @@ const SETTINGS: SystemSettings = {
 	realIpHeader: null,
 	library: {
 		user: { files: 256, fileBytes: 32 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 },
-		group: { files: 0, fileBytes: 0, totalBytes: 0 },
+		userGroup: { files: 0, fileBytes: 0, totalBytes: 0 },
 	},
 	attachments: { inlineTextBytes: 32768, inlineTotalBytes: 65536 },
 	imageCache: { diskBytes: 1073741824, ttl: "7d" },
@@ -29,7 +29,7 @@ const DEFAULTS: SystemSettings = {
 	realIpHeader: null,
 	library: {
 		user: { files: 256, fileBytes: 32 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 },
-		group: { files: 0, fileBytes: 0, totalBytes: 0 },
+		userGroup: { files: 0, fileBytes: 0, totalBytes: 0 },
 	},
 	attachments: { inlineTextBytes: 32768, inlineTotalBytes: 65536 },
 	imageCache: { diskBytes: 1073741824, ttl: "7d" },
@@ -74,7 +74,10 @@ function mergeSettings(settings: SystemSettings, patch: Record<string, unknown>)
 			? {
 					library: {
 						user: { ...settings.library.user, ...((patch.library as { user?: object }).user ?? {}) },
-						group: { ...settings.library.group, ...((patch.library as { group?: object }).group ?? {}) },
+						userGroup: {
+							...settings.library.userGroup,
+							...((patch.library as { userGroup?: object }).userGroup ?? {}),
+						},
 					},
 				}
 			: {}),
@@ -326,7 +329,7 @@ describe("SystemSettingsPage", () => {
 		expect(api.calls.find((call) => call.method === "PATCH")?.body).toEqual({
 			library: {
 				user: { files: 10, fileBytes: 48 * 1024 * 1024, totalBytes: 256 * 1024 * 1024 },
-				group: { files: 2, fileBytes: 0, totalBytes: 1024 ** 3 },
+				userGroup: { files: 2, fileBytes: 0, totalBytes: 1024 ** 3 },
 			},
 		});
 	});

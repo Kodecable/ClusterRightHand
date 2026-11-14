@@ -133,6 +133,77 @@ export interface NodeAccessGrantsTable {
 	created_at: CreatedAt;
 }
 
+/** An administrator-connected MCP server (doc/design/extensions.md "MCP servers"). */
+export interface McpServersTable {
+	id: string;
+	org_id: string;
+	/** Lowercase letters, digits and `-`, not starting with a digit; unique per organization. */
+	name: string;
+	/** Shown to the model; null means the server's own instructions. */
+	description: string | null;
+	url: string;
+	/** The `secrets` row holding the JSON request headers, encrypted with the master key. */
+	headers_secret_id: string | null;
+	/** JSON { username?: string, session?: string }: headers that receive the CRH identity. */
+	identity_headers: string | null;
+	enabled: number;
+	list_directly: number;
+	trust_annotations: number;
+	timeout_ms: number;
+	created_at: CreatedAt;
+	updated_at: string;
+}
+
+/**
+ * Who may use an MCP server: a user or a user group, in the same polymorphic grant shape as node access.
+ * No foreign keys; deleting a server or grantee deletes its grants explicitly.
+ */
+export interface McpServerGrantsTable {
+	id: string;
+	org_id: string;
+	server_id: string;
+	grantee_type: "user" | "user_group";
+	grantee_id: string;
+	created_by_user_id: string;
+	created_at: CreatedAt;
+}
+
+/** The state of one external tool call (doc/design/extensions.md "External calls"). */
+export type ExternalCallState =
+	| "awaiting_approval"
+	| "running"
+	| "succeeded"
+	| "failed"
+	| "rejected"
+	| "cancelled"
+	| "unknown";
+
+/**
+ * One external MCP tool call, the object its approval belongs to. It carries the task approval columns,
+ * the server, tool, arguments and operation, and only the state that must survive while the call is in
+ * progress. Its id is derived from the durable tool call, so a replayed call finds this row instead of
+ * calling the server again; a terminal row keeps its state and `finished_at` as that marker and clears its
+ * arguments. The result is in the transcript and the decision in the audit log.
+ */
+export interface ExternalCallsTable extends ApprovalColumns {
+	id: string;
+	org_id: string;
+	actor_type: string;
+	actor_id: string;
+	on_behalf_of_user_id: string;
+	server_name: string;
+	tool_name: string;
+	/** JSON arguments as the model sent them; null once the call is terminal. */
+	arguments: string | null;
+	/** JSON { method, target }: `mcp.read` or `mcp.write` and `<server>/<tool>`. */
+	operation: string;
+	/** JSON tool annotations, when the server listed any. */
+	annotations: string | null;
+	state: ExternalCallState;
+	created_at: CreatedAt;
+	finished_at: string | null;
+}
+
 export interface ServerMetaTable {
 	key: string;
 	value: string;
@@ -462,6 +533,11 @@ export interface SessionsTable {
 	archived_at: string | null;
 	/** Durable submission of the last input, for a parent waiting on this session's answer. */
 	last_submission_id: string | null;
+	/**
+	 * JSON string[] of MCP server names the owner turned off for this session
+	 * (doc/design/extensions.md "MCP servers"). A subagent copies its parent's list and may only add to it.
+	 */
+	disabled_mcp_servers: string | null;
 	/** The session's own run state (doc/design/agent-runtime.md "Session state"); the session list aggregates it over the tree. */
 	state: SessionState;
 	/** Why the session waits; null unless `state` is `awaiting`. */
@@ -597,6 +673,9 @@ export interface Database {
 	sessions: SessionsTable;
 	model_providers: ModelProvidersTable;
 	model_presets: ModelPresetsTable;
+	mcp_servers: McpServersTable;
+	mcp_server_grants: McpServerGrantsTable;
+	external_calls: ExternalCallsTable;
 	schedules: SchedulesTable;
 	schedule_runs: ScheduleRunsTable;
 }

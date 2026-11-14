@@ -46,6 +46,7 @@ async function renderSidebar(pendingApprovals: number, user: User = ADMIN): Prom
 				return json({
 					tasks: Array.from({ length: pendingApprovals }, () => ({})),
 					taskGroups: [],
+					externalCalls: [],
 					authorizations: { tasks: [], taskGroups: [] },
 					quotas: [],
 				});

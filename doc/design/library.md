@@ -234,6 +234,8 @@ applies; `overwrite` is accepted and has no effect.
 - **Nothing is transferred.** The tool stats the source (a library stat, or a `file.stat` task on the node
   through the ordinary rules, approvals included) so the model learns whether the file exists and how
   large it is. A missing file is the ordinary error result.
+- At most five files can be offered in one turn (a turn starts at the last user input). The sixth is
+  refused with an error that states the limit, so a model cannot fill a session with download boxes.
 - The result carries `details.delivery = { source, name, bytes }`, where `source` is
   `{ library, libraryId, path }` or `{ node, nodeId, path }`; the model-facing text says the file was
   offered to the user for download.

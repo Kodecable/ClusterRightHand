@@ -11,6 +11,7 @@ import {
 import { sql } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
 import { UserError } from "../util/errors.ts";
+import { syncSessionMcpExtensions } from "./extension.ts";
 import { exhaustedLevel } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { loadConversation } from "./runtime-core.ts";
@@ -206,6 +207,8 @@ async function submitInput(
 ): Promise<string> {
 	const { row, conversation } = await loadConversation(host, sessionId);
 	if (row.status !== "active") throw new UserError("the session is archived");
+	// The next request selects its MCP servers from the rows read now (doc/design/extensions.md "MCP servers").
+	await syncSessionMcpExtensions(host, row);
 	if (checkQuota) {
 		const over = await exhaustedLevel(host.db, sessionId);
 		if (over) {

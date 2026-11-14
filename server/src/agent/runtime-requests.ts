@@ -1,5 +1,15 @@
 import { type ApprovalRecord, summarize } from "../cluster/cluster.ts";
 import type { TaskGroupApprovalRecord } from "../cluster/task-groups.ts";
+import {
+	decideExternalCall,
+	escalateAgentDecision as escalateExternalCall,
+	externalCallAnnotations,
+	externalCallApproval,
+	externalCallArguments,
+	externalCallOperation,
+	externalCallSummary,
+	requestAgentDecision as requestExternalCall,
+} from "../extensions/external-calls.ts";
 import { parentOf, sessionAncestors } from "../sessions/session-chain.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { awaitingQuotaChildren, grantQuota } from "./quota.ts";
@@ -24,6 +34,8 @@ export function wakeRequestKey(requestId: string): string | undefined {
 	if (requestId.startsWith("agent-request:task:")) return `task:${requestId.slice("agent-request:task:".length)}`;
 	if (requestId.startsWith("agent-request:task_group:"))
 		return `task_group:${requestId.slice("agent-request:task_group:".length)}`;
+	if (requestId.startsWith("agent-request:external_call:"))
+		return `external_call:${requestId.slice("agent-request:external_call:".length)}`;
 	if (requestId.startsWith("quota-request:")) {
 		const rest = requestId.slice("quota-request:".length);
 		const end = rest.indexOf(":");
@@ -90,6 +102,30 @@ async function queryRequests(host: RuntimeHost, handlerId: string): Promise<Agen
 			createdAt: row.created_at,
 		});
 	}
+	const calls = await host.db
+		.selectFrom("external_calls")
+		.selectAll()
+		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "=", "agent")
+		.where("handler_session_id", "=", handlerId)
+		.execute();
+	for (const row of calls) {
+		out.push({
+			kind: "external_call",
+			id: row.id,
+			sessionId: row.actor_id,
+			summary: externalCallSummary(row),
+			nodeId: null,
+			createdAt: row.created_at,
+			externalCall: {
+				server: row.server_name,
+				tool: row.tool_name,
+				operation: externalCallOperation(row),
+				annotations: externalCallAnnotations(row),
+				arguments: externalCallArguments(row),
+			},
+		});
+	}
 	for (const wait of await awaitingQuotaChildren(host.db, handlerId)) {
 		out.push({
 			kind: "quota",
@@ -143,7 +179,7 @@ export async function decideAgentRequest(
 	decision: "approve" | "deny" | "escalate",
 	reason?: string,
 	tokens?: number,
-): Promise<"task" | "task_group" | "quota"> {
+): Promise<"task" | "task_group" | "quota" | "external_call"> {
 	const session = await host.db.selectFrom("sessions").selectAll().where("id", "=", sessionId).executeTakeFirst();
 	if (!session) throw new NotFoundError("no such session");
 	const by = {
@@ -214,6 +250,53 @@ export async function decideAgentRequest(
 		if (decision === "deny") await refreshState(host, requestId);
 		return "quota";
 	}
+	const call = await host.db
+		.selectFrom("external_calls")
+		.select(["id", "state", "approval", "on_behalf_of_user_id", "actor_id", "server_name", "tool_name"])
+		.where("id", "=", requestId)
+		.executeTakeFirst();
+	if (call) {
+		const callApproval = externalCallApproval(call);
+		if (callApproval?.agent?.session !== sessionId || callApproval.agent.state !== "pending") {
+			throw new UserError("this request is not waiting for this session's agent");
+		}
+		if (decision === "escalate") {
+			if (!(await escalateExternalCall(host.db, requestId, sessionId)))
+				throw new UserError("the request is no longer waiting");
+			// The call is the user's now; for an Auto Review root the review model judges it first.
+			await host.options.reviewExternalCall?.(requestId);
+		} else {
+			const ok = await decideExternalCall(
+				host.db,
+				requestId,
+				{
+					decision: decision === "approve" ? "approved" : "rejected",
+					by: { ...by, onBehalfOfUserId: call.on_behalf_of_user_id },
+					at: new Date().toISOString(),
+					...(reason ? { reason } : {}),
+				},
+				null,
+				{ handlerType: "agent", handlerSessionId: sessionId },
+			);
+			if (!ok) throw new UserError("the request is no longer waiting");
+		}
+		void host.audit?.record({
+			actor: by,
+			action: decision === "escalate" ? "external_call.agent_escalated" : "external_call.approval",
+			target: { type: "external_call", id: requestId },
+			detail: {
+				decision,
+				server: call.server_name,
+				tool: call.tool_name,
+				...(reason ? { reason } : {}),
+			},
+		});
+		host.wakes.drop(sessionId, `agent-request:external_call:${requestId}`);
+		// The routing cache and the handler's waiting list both held the request.
+		host.inboxes.clear();
+		await refreshState(host, call.actor_id);
+		return "external_call";
+	}
 	const group = await host.db
 		.selectFrom("task_groups")
 		.select(["id", "state", "approval", "on_behalf_of_user_id", "actor_id"])
@@ -248,20 +331,21 @@ export async function decideAgentRequest(
 /**
  * Routes a waiting approval up the chain (doc/design/agent-runtime.md "Handling subagent requests"): the first ancestor whose effective
  * result is allow decides through its agent, the root session included; without one, the owner decides.
+ * Returns whether an ancestor's agent took the request (the external-call flow then runs Auto Review).
  */
 export async function routeAwaiting(
 	host: RuntimeHost,
-	kind: "task" | "task_group",
+	kind: "task" | "task_group" | "external_call",
 	actorId: string,
 	requestId: string,
 	approval: ApprovalRecord | TaskGroupApprovalRecord | null,
-): Promise<void> {
-	if (!approval) return;
+): Promise<boolean> {
+	if (!approval) return false;
 	const evaluations = "evaluation" in approval ? [approval.evaluation] : approval.nodes.map((n) => n.evaluation);
-	if (evaluations.length === 0) return;
+	if (evaluations.length === 0) return false;
 	const actor = await host.db.selectFrom("sessions").selectAll().where("id", "=", actorId).executeTakeFirst();
 	// A request raised by the root session itself has no ancestor, so its owner decides.
-	if (!actor?.parent_session_id) return;
+	if (!actor?.parent_session_id) return false;
 	// Walk up from the immediate parent; an ancestor that does not allow is skipped, and the root is an
 	// ordinary level of the same walk.
 	for await (const parent of sessionAncestors(host.db, actor.parent_session_id)) {
@@ -273,9 +357,15 @@ export async function routeAwaiting(
 			const routed =
 				kind === "task"
 					? await host.cluster.requestAgentDecision(requestId, parent.id)
-					: await host.taskGroups.requestAgentDecision(requestId, parent.id);
-			if (routed) await wakeParent(host, parent, kind, requestId);
-			return;
+					: kind === "task_group"
+						? await host.taskGroups.requestAgentDecision(requestId, parent.id)
+						: await requestExternalCall(host.db, requestId, parent.id);
+			if (routed) {
+				await wakeParent(host, parent, kind, requestId);
+				return true;
+			}
+			return false;
 		}
 	}
+	return false;
 }

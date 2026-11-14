@@ -43,12 +43,14 @@ function fakeHost(db: Db, models: ModelConfig, conversations: FakeConversation[]
 	};
 	return {
 		db,
+		options: { db },
 		models,
 		context: BACKGROUND_CONTEXT,
 		audit: undefined,
 		closing: () => false,
 		harness: () => harness,
 		sessionList: { publishSession: () => {} },
+		extensionsFor: () => [],
 	} as unknown as RuntimeHost;
 }
 

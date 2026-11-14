@@ -260,17 +260,23 @@ describe("evaluate: chains", () => {
 });
 
 describe("rulePresetRuleSet", () => {
-	const methods: Method[] = ["exec", "file.read", "file.write"];
+	const methods: Method[] = ["exec", "file.read", "file.write", "mcp.read", "mcp.write"];
 	const table: [RulePreset, Method, Action][] = [
 		["ask", "exec", "require-approval"],
 		["ask", "file.read", "allow"],
 		["ask", "file.write", "require-approval"],
+		["ask", "mcp.read", "allow"],
+		["ask", "mcp.write", "require-approval"],
 		["auto_review", "exec", "require-approval"],
 		["auto_review", "file.read", "allow"],
 		["auto_review", "file.write", "require-approval"],
+		["auto_review", "mcp.read", "allow"],
+		["auto_review", "mcp.write", "require-approval"],
 		["yolo", "exec", "allow"],
 		["yolo", "file.read", "allow"],
 		["yolo", "file.write", "allow"],
+		["yolo", "mcp.read", "allow"],
+		["yolo", "mcp.write", "allow"],
 	];
 
 	it.each(table)("%s + %s -> %s", (rulePreset, method, expected) => {
@@ -288,7 +294,10 @@ describe("rulePresetRuleSet", () => {
 		for (const p of ["ask", "auto_review"] as const) {
 			expect(rulePresetRuleSet(p)).toEqual({
 				default: "require-approval",
-				rules: [{ action: "allow", method: "file.read", privileged: false }],
+				rules: [
+					{ action: "allow", method: "file.read", privileged: false },
+					{ action: "allow", method: "mcp.read", privileged: false },
+				],
 			});
 		}
 	});
@@ -320,7 +329,7 @@ describe("rulePresetRuleSet", () => {
 	it("returns a fresh object each time", () => {
 		const a = rulePresetRuleSet("ask");
 		a.rules.push({ action: "deny" });
-		expect(rulePresetRuleSet("ask").rules).toHaveLength(1);
+		expect(rulePresetRuleSet("ask").rules).toHaveLength(2);
 	});
 });
 

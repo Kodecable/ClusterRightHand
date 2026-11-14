@@ -6,6 +6,7 @@ import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
+import type { McpConnections } from "../extensions/connections.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import type { ImageCache } from "../library/image-cache.ts";
@@ -23,6 +24,7 @@ import type { AppEnv } from "./context.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
 import { libraryRoutes } from "./library-routes.ts";
+import { mcpServerRoutes } from "./mcp-server-routes.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { modelPresetRoutes } from "./model-preset-routes.ts";
 import { modelProviderRoutes } from "./model-provider-routes.ts";
@@ -54,6 +56,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	libraryBackend?: LibraryBackend;
 	/** The image cache behind `view_image`; the tool reports that it is not configured without one. */
 	imageCache?: ImageCache;
+	/** The MCP client connections behind external tools (doc/design/extensions.md). */
+	mcp?: McpConnections;
 	/** `[webauthn]` fallback for tests; production passes `settings`. */
 	webauthn?: WebauthnConfig;
 	/** Clock-warning fallback for tests; production passes `settings` (doc/design/privilege.md "Clock"). */
@@ -157,6 +161,21 @@ export function createApp(db: Db, options: AppOptions = {}): Hono<AppEnv> {
 	);
 	app.route("/api", authorizationRoutes(db, { cluster, ...(taskGroups ? { taskGroups } : {}) }));
 	if (options.masterKey) app.route("/api", sshRoutes(db, options.masterKey, cluster));
+	if (options.masterKey && options.mcp) {
+		app.route(
+			"/api",
+			mcpServerRoutes(db, {
+				masterKey: options.masterKey,
+				connections: options.mcp,
+				onServerChanged: (row) => {
+					if (options.agent) options.agent.runtime.installMcpServerTools(row, options.mcp?.tools(row.name) ?? []);
+				},
+				onServerDeleted: (name) => {
+					options.agent?.runtime.removeMcpServerExtension(name);
+				},
+			}),
+		);
+	}
 	if (cluster && taskGroups) {
 		app.route("/api", taskRoutes(db, cluster, taskGroups));
 		app.route("/api", apiTokenRoutes(db, cluster, taskGroups, audit));

@@ -83,5 +83,5 @@ export interface LibraryLimitsPatch {
 /** The default limits new libraries copy (doc/design/library.md "Limits"). */
 export interface SystemSettingsLibrary {
 	user: LibraryLimits;
-	group: LibraryLimits;
+	userGroup: LibraryLimits;
 }

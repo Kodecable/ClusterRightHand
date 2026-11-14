@@ -10,6 +10,7 @@ import { publishSessionListUpsert } from "./list-stream-bus";
 const APPROVALS: ApprovalList = {
 	tasks: [],
 	taskGroups: [],
+	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
 };

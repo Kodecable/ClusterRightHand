@@ -22,7 +22,6 @@
 		"test:perf": "NODE_OPTIONS=--expose-gc vitest run test/perf --no-file-parallelism"
 	},
 	"devDependencies": {
-		"@modelcontextprotocol/client": "2.3.1",
 		"@types/pg": "^8.23.1",
 		"@types/ssh2": "^1.15.6",
 		"@types/ws": "^8.18.2"
@@ -35,6 +34,7 @@
 		"@earendil-works/pi-ai": "1.4.0",
 		"@earendil-works/pi-durable": "1.4.0",
 		"@hono/node-server": "^2.1.5",
+		"@modelcontextprotocol/client": "2.3.1",
 		"@modelcontextprotocol/server": "2.3.1",
 		"@simplewebauthn/server": "14.0.0",
 		"age-encryption": "0.3.1",

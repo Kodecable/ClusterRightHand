@@ -4,6 +4,7 @@
  */
 
 import type { CursorQuery, RefMap } from "./common.ts";
+import type { McpSessionServer } from "./extensions.ts";
 import type { ModelRef } from "./models.ts";
 import type { GranteeType } from "./nodes.ts";
 import type { RulePreset, StoredRuleSet } from "./policy.ts";
@@ -186,6 +187,8 @@ export interface SessionView {
 	contextTokens: number | null;
 	/** The session's own generation statistics; the token totals cover its whole tree. */
 	stats: SessionStats;
+	/** The MCP servers this session may use, with the owner's on/off choice (doc/design/extensions.md). */
+	mcpServers?: McpSessionServer[];
 	shares?: SessionShare[];
 }
 
@@ -196,6 +199,11 @@ export interface SessionPatch {
 	rulePreset?: RulePreset;
 	/** Replaces the remaining budget at any level (null: unlimited). */
 	budgetRemaining?: number | null;
+	/**
+	 * The MCP servers the owner turned off. A root may turn off any server it is granted; a subagent
+	 * inherits its parent's set and may only add more.
+	 */
+	disabledMcpServers?: string[];
 }
 
 /** A root whose token quota is used up and waits for the owner's decision (doc/design/agent-runtime.md "Quota and token accounting"). */

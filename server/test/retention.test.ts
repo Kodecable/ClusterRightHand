@@ -26,12 +26,17 @@ import { TaskGroups } from "../src/cluster/task-groups.ts";
 import type { RetentionConfig } from "../src/config.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { RetentionCounts, RetentionOptions } from "../src/retention/retention.ts";
-import { AUDIT_SEQ_FLOOR, runRetention, startRetentionSweep } from "../src/retention/retention.ts";
+import {
+	AUDIT_SEQ_FLOOR,
+	EXTERNAL_CALL_RETENTION_MS,
+	runRetention,
+	startRetentionSweep,
+} from "../src/retention/retention.ts";
 import { type Db, openAgentStorage, openDb } from "../src/storage/db.ts";
 import { migrateToLatest } from "../src/storage/migrate.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { PgStorage } from "../src/storage/pg-durable/index.ts";
-import type { TaskState as ClusterTaskState, TaskGroupState } from "../src/storage/schema.ts";
+import type { TaskState as ClusterTaskState, ExternalCallState, TaskGroupState } from "../src/storage/schema.ts";
 import { createUser } from "../src/users/service.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
@@ -45,8 +50,12 @@ const NOW_MS = NOW.getTime();
 const OLD = new Date(NOW_MS - 100 * DAY).toISOString();
 /** Newer than the 90-day retention. */
 const RECENT = new Date(NOW_MS - 1 * DAY).toISOString();
-/** Older than the default 180-day retention of audit events. */
+/** Older than the 180-day retention of audit events. */
 const AUDIT_OLD = new Date(NOW_MS - 200 * DAY).toISOString();
+/** Older than the built-in one-day retention of terminal external calls. */
+const EXTERNAL_OLD = new Date(NOW_MS - 2 * DAY).toISOString();
+/** Newer than it. */
+const EXTERNAL_RECENT = new Date(NOW_MS - 12 * 60 * 60 * 1000).toISOString();
 /** Older than the 7-day retention of durable tasks. */
 const PI_OLD = NOW_MS - 10 * DAY;
 /** Newer than the 7-day retention of durable tasks. */
@@ -237,6 +246,36 @@ describeBackends("retention sweep", (backend) => {
 	const authorizationIds = async (): Promise<string[]> =>
 		(await db.selectFrom("authorizations").select("id").orderBy("id").execute()).map((row) => row.id);
 
+	const insertExternalCall = async (id: string, state: ExternalCallState, finishedAt: string | null): Promise<void> => {
+		await db
+			.insertInto("external_calls")
+			.values({
+				id,
+				org_id: orgId,
+				actor_type: "user",
+				actor_id: "user-1",
+				on_behalf_of_user_id: "user-1",
+				server_name: "fake",
+				tool_name: "echo",
+				arguments: finishedAt === null ? "{}" : null,
+				operation: JSON.stringify({ method: "mcp.read", target: "fake/echo" }),
+				annotations: null,
+				rule_chain: null,
+				approval: null,
+				pending_input: null,
+				root_session_id: null,
+				handler_type: state === "awaiting_approval" ? "user" : null,
+				handler_session_id: null,
+				state,
+				created_at: OLD,
+				finished_at: finishedAt,
+			})
+			.execute();
+	};
+
+	const externalCallIds = async (): Promise<string[]> =>
+		(await db.selectFrom("external_calls").select("id").orderBy("id").execute()).map((row) => row.id);
+
 	const insertAuditEvent = async (seq: number, ts: string): Promise<void> => {
 		await db
 			.insertInto("audit_events")
@@ -408,6 +447,29 @@ describeBackends("retention sweep", (backend) => {
 		expect(await authorizationIds()).toEqual(["expired-recent", "future"]);
 	});
 
+	it("deletes old terminal external calls only, as built-in policy", async () => {
+		for (const state of ["succeeded", "failed", "rejected", "cancelled", "unknown"] as const) {
+			await insertExternalCall(`old-${state}`, state, EXTERNAL_OLD);
+		}
+		await insertExternalCall("recent-succeeded", "succeeded", EXTERNAL_RECENT);
+		await insertExternalCall("old-awaiting_approval", "awaiting_approval", null);
+		await insertExternalCall("old-running", "running", null);
+		// A terminal row without finished_at cannot prove it is old enough: it is kept.
+		await insertExternalCall("old-succeeded-without-finish", "succeeded", null);
+
+		// Every configurable retention is off; the external-call sweep still runs because it is built-in.
+		const counts = await runRetention(db, { tasksMs: null, auditMs: null, piTasksMs: null }, NOW);
+
+		expect(counts.externalCalls).toBe(5);
+		expect(await externalCallIds()).toEqual([
+			"old-awaiting_approval",
+			"old-running",
+			"old-succeeded-without-finish",
+			"recent-succeeded",
+		]);
+		expect(EXTERNAL_CALL_RETENTION_MS).toBe(DAY);
+	});
+
 	it("deletes old audit events only below max(seq) - 16384", async () => {
 		for (let seq = 1; seq <= 10; seq++) await insertAuditEvent(seq, AUDIT_OLD);
 		// Exactly on the floor (20000 - 16384 = 3616) is deletable; just above it is kept.
@@ -560,7 +622,14 @@ describeBackends("retention sweep", (backend) => {
 		const counts = await runRetention(db, RETENTION, NOW);
 		selectFrom.mockRestore();
 
-		expect(counts).toEqual({ tasks: 0, taskGroups: 1, authorizations: 1, auditEvents: 1, piTasks: 0 });
+		expect(counts).toEqual({
+			tasks: 0,
+			taskGroups: 1,
+			authorizations: 1,
+			auditEvents: 1,
+			externalCalls: 0,
+			piTasks: 0,
+		});
 		expect(await taskIds()).toEqual(["old-exited"]);
 		expect(await groupIds()).toEqual([]);
 		expect(await authorizationIds()).toEqual([]);
@@ -618,13 +687,27 @@ describeBackends("retention sweep", (backend) => {
 		const aborted = new AbortController();
 		aborted.abort();
 		const stopped = await runRetention(db, RETENTION, NOW, { signal: aborted.signal });
-		expect(stopped).toEqual({ tasks: 0, taskGroups: 0, authorizations: 0, auditEvents: 0, piTasks: 0 });
+		expect(stopped).toEqual({
+			tasks: 0,
+			taskGroups: 0,
+			authorizations: 0,
+			auditEvents: 0,
+			externalCalls: 0,
+			piTasks: 0,
+		});
 	});
 
 	it("logs nothing when no rows are deleted", async () => {
 		const counts = await runRetention(db, RETENTION, NOW);
 
-		expect(counts).toEqual({ tasks: 0, taskGroups: 0, authorizations: 0, auditEvents: 0, piTasks: 0 });
+		expect(counts).toEqual({
+			tasks: 0,
+			taskGroups: 0,
+			authorizations: 0,
+			auditEvents: 0,
+			externalCalls: 0,
+			piTasks: 0,
+		});
 		expect(console.log).not.toHaveBeenCalled();
 	});
 });
@@ -732,7 +815,14 @@ describeBackends("durable task retention and the agent runtime", (backend) => {
 
 describe("retention sweep scheduler", () => {
 	const CONFIG: RetentionConfig = { tasksMs: 90 * DAY, auditMs: 180 * DAY, piTasksMs: 7 * DAY };
-	const COUNTS: RetentionCounts = { tasks: 0, taskGroups: 0, authorizations: 0, auditEvents: 0, piTasks: 0 };
+	const COUNTS: RetentionCounts = {
+		tasks: 0,
+		taskGroups: 0,
+		authorizations: 0,
+		auditEvents: 0,
+		externalCalls: 0,
+		piTasks: 0,
+	};
 	const STARTUP_DELAY_MS = 5_000;
 	const INTERVAL_MS = 60_000;
 

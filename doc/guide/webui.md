@@ -36,6 +36,25 @@ language (English or Chinese); these are stored in your browser.
 
 Lists update by themselves; there is no refresh button. Editing happens on an object's own page.
 
+## MCP servers
+
+An administrator connects Streamable HTTP MCP servers under **System settings → MCP servers**. Each
+server needs a name (lowercase letters, digits and `-`), its URL and optionally fixed request headers,
+which are stored encrypted and never shown again. Changing a URL therefore asks for the headers again or
+for removing them. **Grants** choose the users and user groups whose sessions may use the server.
+
+The server list shows whether a server is connected, its last error and when crhs tries again;
+**Reconnect** tries at once and **Tools** lists what the server offers. **List directly** puts a small
+server's tools into the model's tool list; otherwise the agent finds them with search and calls them
+through the same rules and approvals as cluster tools. A change to the flag, the grants or the server's
+tool list applies from the session's next request.
+
+In a session, the plug control beside the composer turns single servers off. A new session has every
+granted server on, and a subagent cannot turn on what its parent turned off. External calls that need
+approval go up the session chain like task approvals: the nearest ancestor agent whose rules allow the
+call may approve, reject or pass it on; otherwise it appears in the session's decision panel and on the
+Approvals page, with the server, tool, annotations and arguments.
+
 ## Sessions
 
 The session list shows your sessions and those shared with you, grouped by last activity. A spinner

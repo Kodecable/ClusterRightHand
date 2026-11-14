@@ -60,9 +60,9 @@ export const SETTING_KEYS = [
 	"library.user_files",
 	"library.user_file_bytes",
 	"library.user_total_bytes",
-	"library.group_files",
-	"library.group_file_bytes",
-	"library.group_total_bytes",
+	"library.user_group_files",
+	"library.user_group_file_bytes",
+	"library.user_group_total_bytes",
 	"attachments.inline_text_bytes",
 	"attachments.inline_total_bytes",
 	"image_cache.disk_bytes",
@@ -96,7 +96,7 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
 	realIpHeader: null,
 	library: {
 		user: { ...DEFAULT_USER_LIBRARY_LIMITS },
-		group: { ...DEFAULT_GROUP_LIBRARY_LIMITS },
+		userGroup: { ...DEFAULT_GROUP_LIBRARY_LIMITS },
 	},
 	attachments: {
 		inlineTextBytes: DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES,
@@ -133,9 +133,9 @@ function defaultsByKey(): Record<SettingKey, unknown> {
 		"library.user_files": DEFAULT_SYSTEM_SETTINGS.library.user.files,
 		"library.user_file_bytes": DEFAULT_SYSTEM_SETTINGS.library.user.fileBytes,
 		"library.user_total_bytes": DEFAULT_SYSTEM_SETTINGS.library.user.totalBytes,
-		"library.group_files": DEFAULT_SYSTEM_SETTINGS.library.group.files,
-		"library.group_file_bytes": DEFAULT_SYSTEM_SETTINGS.library.group.fileBytes,
-		"library.group_total_bytes": DEFAULT_SYSTEM_SETTINGS.library.group.totalBytes,
+		"library.user_group_files": DEFAULT_SYSTEM_SETTINGS.library.userGroup.files,
+		"library.user_group_file_bytes": DEFAULT_SYSTEM_SETTINGS.library.userGroup.fileBytes,
+		"library.user_group_total_bytes": DEFAULT_SYSTEM_SETTINGS.library.userGroup.totalBytes,
 		"attachments.inline_text_bytes": DEFAULT_SYSTEM_SETTINGS.attachments.inlineTextBytes,
 		"attachments.inline_total_bytes": DEFAULT_SYSTEM_SETTINGS.attachments.inlineTotalBytes,
 		"image_cache.disk_bytes": DEFAULT_SYSTEM_SETTINGS.imageCache.diskBytes,
@@ -161,9 +161,9 @@ function flatten(settings: SystemSettings): Record<SettingKey, unknown> {
 		"library.user_files": settings.library.user.files,
 		"library.user_file_bytes": settings.library.user.fileBytes,
 		"library.user_total_bytes": settings.library.user.totalBytes,
-		"library.group_files": settings.library.group.files,
-		"library.group_file_bytes": settings.library.group.fileBytes,
-		"library.group_total_bytes": settings.library.group.totalBytes,
+		"library.user_group_files": settings.library.userGroup.files,
+		"library.user_group_file_bytes": settings.library.userGroup.fileBytes,
+		"library.user_group_total_bytes": settings.library.userGroup.totalBytes,
 		"attachments.inline_text_bytes": settings.attachments.inlineTextBytes,
 		"attachments.inline_total_bytes": settings.attachments.inlineTotalBytes,
 		"image_cache.disk_bytes": settings.imageCache.diskBytes,
@@ -198,10 +198,10 @@ function unflatten(values: Record<SettingKey, unknown>): SystemSettings {
 				fileBytes: values["library.user_file_bytes"] as number,
 				totalBytes: values["library.user_total_bytes"] as number,
 			},
-			group: {
-				files: values["library.group_files"] as number,
-				fileBytes: values["library.group_file_bytes"] as number,
-				totalBytes: values["library.group_total_bytes"] as number,
+			userGroup: {
+				files: values["library.user_group_files"] as number,
+				fileBytes: values["library.user_group_file_bytes"] as number,
+				totalBytes: values["library.user_group_total_bytes"] as number,
 			},
 		},
 		attachments: {
@@ -253,9 +253,9 @@ export function parseSettingValue(key: SettingKey, value: unknown): unknown {
 		case "library.user_files":
 		case "library.user_file_bytes":
 		case "library.user_total_bytes":
-		case "library.group_files":
-		case "library.group_file_bytes":
-		case "library.group_total_bytes":
+		case "library.user_group_files":
+		case "library.user_group_file_bytes":
+		case "library.user_group_total_bytes":
 			return parseLibraryLimit(value, key);
 		case "attachments.inline_text_bytes":
 		case "attachments.inline_total_bytes":
@@ -445,9 +445,9 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 		if (!group) fields.library = "library must be an object";
 		else {
 			for (const owner of Object.keys(group)) {
-				if (!["user", "group"].includes(owner)) fields[`library.${owner}`] = `unknown setting ${owner}`;
+				if (!["user", "userGroup"].includes(owner)) fields[`library.${owner}`] = `unknown setting ${owner}`;
 			}
-			for (const owner of ["user", "group"] as const) {
+			for (const owner of ["user", "userGroup"] as const) {
 				const valuesForOwner = group[owner];
 				if (valuesForOwner === undefined) continue;
 				const limits = plainObject(valuesForOwner);
@@ -460,14 +460,19 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 						fields[`library.${owner}.${key}`] = `unknown setting ${key}`;
 					}
 				}
+				// The stored setting keys spell the owner kind out: library.user_group_files.
+				const prefix = owner === "userGroup" ? "user_group" : "user";
 				for (const [field, setting] of [
-					["files", `${owner}_files`],
-					["fileBytes", `${owner}_file_bytes`],
-					["totalBytes", `${owner}_total_bytes`],
+					["files", "files"],
+					["fileBytes", "file_bytes"],
+					["totalBytes", "total_bytes"],
 				] as const) {
 					if (limits[field] === undefined) continue;
 					check(`library.${owner}.${field}`, () => {
-						values[`library.${setting}` as SettingKey] = parseLibraryLimit(limits[field], `library.${owner}.${field}`);
+						values[`library.${prefix}_${setting}` as SettingKey] = parseLibraryLimit(
+							limits[field],
+							`library.${owner}.${field}`,
+						);
 					});
 				}
 			}
@@ -541,7 +546,7 @@ function resolveSettings(wire: SystemSettings): RuntimeSettings {
 		realIpHeader: parseHeaderName(wire.realIpHeader, "listen.real_ip_header"),
 		library: {
 			user: validateLibraryLimits(wire.library.user, "library.user"),
-			group: validateLibraryLimits(wire.library.group, "library.group"),
+			userGroup: validateLibraryLimits(wire.library.userGroup, "library.userGroup"),
 		},
 		attachments: {
 			inlineTextBytes: parseInteger(wire.attachments.inlineTextBytes, "attachments.inlineTextBytes", 0),

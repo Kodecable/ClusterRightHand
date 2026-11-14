@@ -22,6 +22,22 @@ export function imageDetails(details: unknown): { sha256: string; mime: string; 
 	return { sha256: record.sha256, mime: record.mime, source: record.source };
 }
 
+/** Every image of a tool result: `view_image`'s one, or the list of a `call_tool` result. */
+export function resultImages(details: unknown): { sha256: string; mime: string; source: unknown }[] {
+	const one = imageDetails(details);
+	if (one !== undefined) return [one];
+	if (typeof details !== "object" || details === null) return [];
+	const images = (details as Record<string, unknown>).images;
+	if (!Array.isArray(images)) return [];
+	return images.flatMap((entry) => {
+		if (typeof entry !== "object" || entry === null) return [];
+		const record = entry as Record<string, unknown>;
+		return typeof record.sha256 === "string" && typeof record.mime === "string"
+			? [{ sha256: record.sha256, mime: record.mime, source: record.source }]
+			: [];
+	});
+}
+
 /** The HTTP status a provider error carries, from pi-ai's diagnostics or the error's leading status. */
 function providerErrorStatus(message: AssistantMessage): number | undefined {
 	for (const diagnostic of message.diagnostics ?? []) {
@@ -65,10 +81,13 @@ export function rejectedImageSha256s(entries: readonly EntryRecord[]): ReadonlyS
 	const rejected = new Set<string>();
 	for (let index = 0; index < entries.length; index++) {
 		for (const message of entries[index]?.model ?? []) {
-			if (message.role !== "toolResult" || message.toolName !== "view_image") continue;
-			const image = imageDetails(message.details);
-			if (image === undefined || rejected.has(image.sha256)) continue;
-			if (rejectedAfter(entries, index)) rejected.add(image.sha256);
+			if (message.role !== "toolResult") continue;
+			if (message.toolName !== "view_image" && message.toolName !== "call_tool") continue;
+			const images = message.toolName === "view_image" ? resultImages(message.details) : resultImages(message.details);
+			for (const image of images) {
+				if (rejected.has(image.sha256)) continue;
+				if (rejectedAfter(entries, index)) rejected.add(image.sha256);
+			}
 		}
 	}
 	return rejected;

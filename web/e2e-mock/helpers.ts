@@ -46,6 +46,7 @@ export const USER: User = {
 const QUOTA_APPROVALS: ApprovalList = {
 	tasks: [],
 	taskGroups: [],
+	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [
 		{
@@ -1429,7 +1430,7 @@ export async function openSession(page: Page, api: ApiMock, sessionId: string, e
 }
 
 export function emptyApprovals(): ApprovalList {
-	return { tasks: [], taskGroups: [], authorizations: { tasks: [], taskGroups: [] }, quotas: [] };
+	return { tasks: [], taskGroups: [], externalCalls: [], authorizations: { tasks: [], taskGroups: [] }, quotas: [] };
 }
 
 /** The trust report a client node has pushed in the fake server. */

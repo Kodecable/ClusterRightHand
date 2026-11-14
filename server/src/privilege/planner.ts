@@ -234,7 +234,10 @@ export function planAuthorization(input: PlannerInput): AuthorizationPlan {
 	let method: "exec" | "file.read" | "file.write";
 	let target: string;
 	try {
-		({ method, target } = privilegedTarget(input.task.spec));
+		({ method, target } = privilegedTarget(input.task.spec) as {
+			method: "exec" | "file.read" | "file.write";
+			target: string;
+		});
 	} catch (err) {
 		return { paths: [], reason: `${NOBODY}: ${err instanceof Error ? err.message : String(err)}` };
 	}

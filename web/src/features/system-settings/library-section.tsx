@@ -46,9 +46,9 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 			userFiles: settings.library.user.files,
 			userFileBytes: settings.library.user.fileBytes,
 			userTotalBytes: settings.library.user.totalBytes,
-			groupFiles: settings.library.group.files,
-			groupFileBytes: settings.library.group.fileBytes,
-			groupTotalBytes: settings.library.group.totalBytes,
+			groupFiles: settings.library.userGroup.files,
+			groupFileBytes: settings.library.userGroup.fileBytes,
+			groupTotalBytes: settings.library.userGroup.totalBytes,
 		},
 	});
 
@@ -62,7 +62,7 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 						fileBytes: values.userFileBytes,
 						totalBytes: values.userTotalBytes,
 					},
-					group: {
+					userGroup: {
 						files: values.groupFiles,
 						fileBytes: values.groupFileBytes,
 						totalBytes: values.groupTotalBytes,
@@ -73,9 +73,9 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 				userFiles: next.library.user.files,
 				userFileBytes: next.library.user.fileBytes,
 				userTotalBytes: next.library.user.totalBytes,
-				groupFiles: next.library.group.files,
-				groupFileBytes: next.library.group.fileBytes,
-				groupTotalBytes: next.library.group.totalBytes,
+				groupFiles: next.library.userGroup.files,
+				groupFileBytes: next.library.userGroup.fileBytes,
+				groupTotalBytes: next.library.userGroup.totalBytes,
 			});
 		} catch (failure) {
 			setError(
@@ -83,9 +83,9 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 					"library.user.files": "userFiles",
 					"library.user.fileBytes": "userFileBytes",
 					"library.user.totalBytes": "userTotalBytes",
-					"library.group.files": "groupFiles",
-					"library.group.fileBytes": "groupFileBytes",
-					"library.group.totalBytes": "groupTotalBytes",
+					"library.userGroup.files": "groupFiles",
+					"library.userGroup.fileBytes": "groupFileBytes",
+					"library.userGroup.totalBytes": "groupTotalBytes",
 				}),
 			);
 		}

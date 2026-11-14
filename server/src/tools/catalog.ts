@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
+import type { Evaluation, McpSessionServer, McpToolAnnotations, Operation } from "@crh/api";
 import type { TaskSpec } from "@crh/protocol";
+import type { CallToolResult } from "@modelcontextprotocol/client";
 import * as z from "zod/v4";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
@@ -7,17 +9,36 @@ import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../clu
 import { listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { resolveTargets } from "../cluster/task-groups.ts";
+import {
+	McpCallLostError,
+	type McpConnections,
+	type McpTool,
+	McpToolError,
+	McpUnavailableError,
+} from "../extensions/connections.ts";
+import {
+	createExternalCall,
+	type ExternalCallRow,
+	externalCallApproval,
+	externalCallId,
+	finishExternalCall,
+	getExternalCall,
+	waitExternalCall,
+} from "../extensions/external-calls.ts";
 import { copyLibraryFile } from "../library/files.ts";
 import { type ImageCache, REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
 import { findUserLibrary, libraryRef } from "../library/library.ts";
 import { validateLibraryPath, validateLibraryPrefix } from "../library/paths.ts";
 import { openTransferLocation, type TransferLocationJson } from "../library/transfer-location.ts";
-import type { RuleRef } from "../policy/store.ts";
+import { evaluate } from "../policy/rules.ts";
+import { loadChain, type RuleRef } from "../policy/store.ts";
 import { sessionDescendants } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
+import { defaultOrgId } from "../storage/org.ts";
 import { UserError } from "../util/errors.ts";
-import { derivedId } from "../util/id.ts";
+import { derivedId, newId } from "../util/id.ts";
+import { convertExternalResult } from "./external-results.ts";
 import { listToolLibrary, statToolLibrary, toolLibrary } from "./library-access.ts";
 import { nodeInfoFields, readNotes, readNotesBatch } from "./node-info.ts";
 import { errorResult, jsonResult, type ToolOutput, type ToolResult, textResult } from "./render.ts";
@@ -84,6 +105,22 @@ export interface ToolContext {
 	imageLimits?: ImageLimits;
 	/** The audit log, for the library copy `copy_file` records. */
 	audit?: Audit;
+	/** The MCP connections behind `search_tools` and `call_tool` (doc/design/extensions.md). */
+	mcp?: McpConnections;
+	/** The MCP servers this session may use, with its own on/off choice. */
+	mcpServers?: McpSessionServer[];
+	/** The session tree's root, for grouping external-call approvals. */
+	rootSessionId?: string;
+	/** The WebUI page where the owner decides a waiting external call. */
+	externalCallUrl?: (id: string) => string;
+	/** Auto Review for one waiting external call; settles it before the waiter looks again. */
+	reviewExternalCall?: (id: string) => Promise<void>;
+	/** Hands a waiting external call to an ancestor's agent; true when one took it. */
+	routeExternalCall?: (id: string) => Promise<boolean>;
+	/** Whether crhs is shutting down: a running external call then stays `running` for recovery. */
+	closing?: () => boolean;
+	/** How many files this turn has already offered through `copy_file` (at most 5). */
+	deliveryCount?: () => Promise<number>;
 }
 
 /** How large an image `view_image` accepts. */
@@ -119,6 +156,8 @@ export interface ClusterTool<S extends z.ZodType = z.ZodType> {
 	readOnly: boolean;
 	/** Text (raw + note blocks) or compact JSON; also picks the expected-error shape. */
 	output: ToolOutput;
+	/** Only agent sessions: crhs's own MCP endpoint does not forward external tools. */
+	agentOnly?: boolean;
 	handler: (args: z.infer<S>, ctx: ToolContext) => Promise<ToolResult>;
 }
 
@@ -660,7 +699,8 @@ const copyFile = define({
 		"library { library, path }, or { user_interface: true }. Node destinations create missing parent " +
 		"directories only with create_parent_dirs: true; a library has no directories, so any library path " +
 		"works. With user_interface nothing is copied: the file is offered to the people in the session and " +
-		"downloaded at click time. An existing destination is refused unless overwrite is true; overwrite " +
+		"downloaded at click time; at most 5 files can be offered in one turn, and the sixth is refused. An " +
+		"existing destination is refused unless overwrite is true; overwrite " +
 		"applies to node and library destinations and has no effect with user_interface. A library path reaches " +
 		"the libraries of the user you act for. The call blocks until every destination task ends, approval included.",
 	input: z.object({
@@ -887,6 +927,11 @@ async function offerToUser(
 	source: { node: string; path: string } | { library: string; path: string },
 	ctx: ToolContext,
 ): Promise<ToolResult> {
+	// At most five offers per turn: a turn starts at the last user input. The sixth is refused with the limit,
+	// so a model cannot flood the session with download boxes (doc/design/library.md "Deliveries").
+	if (ctx.deliveryCount !== undefined && (await ctx.deliveryCount()) >= 5) {
+		throw new UserError("at most 5 files can be offered to the user in one turn", "delivery_limit");
+	}
 	if ("library" in source) {
 		const path = validateLibraryPath(source.path);
 		const record = await toolLibrary(ctx, source.library);
@@ -1222,6 +1267,438 @@ async function mayActFor(ctx: ToolContext, actorType: string, actorId: string): 
 	return descendants.includes(actorId);
 }
 
+// ---- external MCP tools ----
+
+/** How much of a call's arguments the audit log keeps. */
+const AUDIT_ARGUMENTS_MAX = 2000;
+const DEFAULT_SEARCH_RESULTS = 8;
+const MAX_SEARCH_RESULTS = 25;
+const MAX_LISTED_TOOLS = 100;
+
+function auditArguments(args: unknown): string {
+	const text = JSON.stringify(args ?? {});
+	return text.length > AUDIT_ARGUMENTS_MAX ? `${text.slice(0, AUDIT_ARGUMENTS_MAX)}…` : text;
+}
+
+function auditExternal(ctx: ToolContext, action: string, id: string, detail: Record<string, unknown>): void {
+	if (!ctx.audit) return;
+	void ctx.audit.record({
+		actor: { type: ctx.actor.type, id: ctx.actor.id, onBehalfOfUserId: ctx.actor.onBehalfOfUserId },
+		action,
+		target: { type: "external_call", id },
+		detail,
+	});
+}
+
+/** The rule method of one external tool: a trusted read-only hint makes it a read, everything else a write. */
+function externalMethod(
+	annotations: McpToolAnnotations | null | undefined,
+	server: McpSessionServer,
+): "mcp.read" | "mcp.write" {
+	return annotations?.readOnlyHint === true && server.trustAnnotations ? "mcp.read" : "mcp.write";
+}
+
+async function evaluateExternal(
+	ctx: ToolContext,
+	server: McpSessionServer,
+	tool: string,
+	annotations: McpToolAnnotations | null | undefined,
+): Promise<{ operation: Operation; evaluation: Evaluation }> {
+	const method = externalMethod(annotations, server);
+	const operation: Operation = { method, target: `${server.name}/${tool}` };
+	let chain: Awaited<ReturnType<typeof loadChain>>;
+	try {
+		chain = await loadChain(ctx.db, ctx.chain);
+	} catch {
+		return { operation, evaluation: { result: "deny", levels: [] } };
+	}
+	const evaluation = evaluate(chain, { ...operation, privileged: false });
+	return { operation, evaluation };
+}
+
+function searchTokens(query: string): string[] {
+	return query
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((token) => token !== "");
+}
+
+/** Plain keyword scoring over name, title and description; a token must appear in at least one of them. */
+function scoreTool(tokens: readonly string[], tool: McpTool): number {
+	const name = tool.name.toLowerCase();
+	const title = tool.title?.toLowerCase() ?? "";
+	const description = tool.description?.toLowerCase() ?? "";
+	let score = 0;
+	for (const token of tokens) {
+		const inName = name.includes(token);
+		const inTitle = title.includes(token);
+		const inDescription = description.includes(token);
+		if (!inName && !inTitle && !inDescription) return 0;
+		if (inName) score += 10 + (name === token ? 10 : 0);
+		if (inTitle) score += 4;
+		if (inDescription) score += 1;
+	}
+	return score;
+}
+
+/** The session's MCP server list. */
+function sessionServers(ctx: ToolContext): McpSessionServer[] {
+	return ctx.mcpServers ?? [];
+}
+
+function serverOf(ctx: ToolContext, name: string): McpSessionServer {
+	const server = sessionServers(ctx).find((candidate) => candidate.name === name);
+	if (!server) throw new UserError(`no MCP server named ${name} is available to this session`, "not_found");
+	if (!server.enabled) throw new UserError(`the MCP server ${name} is turned off for this session`, "unavailable");
+	return server;
+}
+
+/** Connects the servers a search may use; failures leave them unavailable with their last known tools. */
+async function prepareSearchServers(ctx: ToolContext, servers: readonly McpSessionServer[]): Promise<void> {
+	const mcp = ctx.mcp;
+	if (!mcp) return;
+	await Promise.allSettled(
+		servers.filter((server) => server.available).map((server) => mcp.ensureConnected(server.name)),
+	);
+}
+
+const searchTools = define({
+	name: "search_tools",
+	description:
+		"Search the tools of the external MCP servers available to this session by keyword over their names, titles and " +
+		"descriptions. Returns the best matches with their full input schema and annotations. Give server to search one " +
+		"server; with server and no query it lists that server's tools by name and summary, paged with offset. Call a " +
+		"result with call_tool.",
+	input: z.object({
+		query: z.string().optional().describe('Keywords, e.g. "create issue" or "query database"'),
+		server: z.string().optional().describe("Restrict the search to one server"),
+		offset: z.number().int().min(0).optional().describe("Listing mode only: skip this many tools (default 0)"),
+		limit: z
+			.number()
+			.int()
+			.min(1)
+			.max(MAX_LISTED_TOOLS)
+			.optional()
+			.describe("How many results (default 8, at most 25 for a search)"),
+	}),
+	readOnly: true,
+	agentOnly: true,
+	output: "json",
+	handler: async (args, ctx) => {
+		if (!ctx.mcp) throw new UserError("external tools are not configured", "unavailable");
+		const servers = sessionServers(ctx).filter((server) => server.enabled);
+		const query = args.query?.trim() ?? "";
+		if (query === "" && args.server === undefined) {
+			// Nothing to search: show what exists, so the model can pick a server or write a query.
+			return jsonResult({
+				servers: sessionServers(ctx).map((server) => ({
+					name: server.name,
+					description: server.description,
+					enabled: server.enabled,
+					available: server.available,
+					tool_count: ctx.mcp?.status(server.name).toolCount ?? 0,
+				})),
+				hint: "Give query, or server with no query to list that server's tools.",
+			});
+		}
+		if (args.server !== undefined) {
+			const server = serverOf(ctx, args.server);
+			await prepareSearchServers(ctx, [server]);
+			const state = ctx.mcp.status(server.name);
+			if (query === "") {
+				const all = ctx.mcp.tools(server.name);
+				const offset = Math.min(args.offset ?? 0, all.length);
+				const limit = Math.min(args.limit ?? 25, MAX_LISTED_TOOLS);
+				const page = all.slice(offset, offset + limit);
+				return jsonResult({
+					server: server.name,
+					total: all.length,
+					offset,
+					next_offset: offset + page.length < all.length ? offset + page.length : null,
+					stale: state.state === "unavailable",
+					tools: page.map((tool) => ({
+						name: tool.name,
+						title: tool.title,
+						summary: tool.description === null ? null : tool.description.slice(0, 200),
+					})),
+				});
+			}
+			const tokens = searchTokens(query);
+			const matches = ctx.mcp
+				.tools(server.name)
+				.map((tool) => ({ tool, score: scoreTool(tokens, tool) }))
+				.filter((entry) => entry.score > 0)
+				.sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
+				.slice(0, Math.min(args.limit ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS));
+			return jsonResult({
+				server: server.name,
+				stale: state.state === "unavailable",
+				results: matches.map(({ tool }) => ({
+					server: server.name,
+					tool: tool.name,
+					title: tool.title,
+					description: tool.description,
+					annotations: tool.annotations,
+					input_schema: tool.inputSchema,
+				})),
+			});
+		}
+		await prepareSearchServers(ctx, servers);
+		const tokens = searchTokens(query);
+		const matches: { server: string; score: number; tool: McpTool }[] = [];
+		for (const server of servers) {
+			for (const tool of ctx.mcp.tools(server.name)) {
+				const score = scoreTool(tokens, tool);
+				if (score > 0) matches.push({ server: server.name, score, tool });
+			}
+		}
+		matches.sort(
+			(a, b) => b.score - a.score || a.server.localeCompare(b.server) || a.tool.name.localeCompare(b.tool.name),
+		);
+		const staleServers = servers
+			.filter((server) => ctx.mcp?.status(server.name).state === "unavailable")
+			.map((server) => server.name);
+		return jsonResult({
+			// The tool list is the last one listed: when a server is unavailable, its results may be stale.
+			...(staleServers.length > 0 ? { stale: true, stale_servers: staleServers } : {}),
+			results: matches
+				.slice(0, Math.min(args.limit ?? DEFAULT_SEARCH_RESULTS, MAX_SEARCH_RESULTS))
+				.map(({ server, tool }) => ({
+					server,
+					tool: tool.name,
+					title: tool.title,
+					description: tool.description,
+					annotations: tool.annotations,
+					input_schema: tool.inputSchema,
+				})),
+		});
+	},
+});
+
+/**
+ * The result of a tool call whose row is already terminal: the first attempt ended before this one, and its
+ * result was never kept. The call is not made again. An unknown outcome keeps its own wording.
+ */
+function replayedResult(row: ExternalCallRow, server: string, tool: string): ToolResult {
+	const details = { server, tool };
+	switch (row.state) {
+		case "running":
+			return errorResult(
+				"text",
+				"unknown",
+				"an earlier attempt of this call is still marked in flight; its outcome is unknown and it was not sent again",
+				details,
+			);
+		case "unknown":
+			return errorResult(
+				"text",
+				"unknown",
+				"crhs stopped while the call was in flight; its outcome is unknown and it was not sent again",
+				details,
+			);
+		default:
+			return textResult(
+				[
+					{
+						note: `[${server}/${tool}: the call finished before a restart; its result could not be kept, and the server was not called again]`,
+					},
+				],
+				{ details },
+			);
+	}
+}
+
+/** The result of a call settled while this tool call waited: rejected and cancelled end here, never at the server. */
+function settledResult(row: ExternalCallRow, server: string, tool: string): ToolResult {
+	const details = { server, tool };
+	if (row.state === "rejected") {
+		return errorResult(
+			"text",
+			"rejected",
+			externalCallApproval(row)?.decision?.reason ?? "rejected by the user",
+			details,
+		);
+	}
+	if (row.state === "cancelled") {
+		return errorResult("text", "cancelled", "the call was cancelled before it ran", details);
+	}
+	if (row.state === "awaiting_approval") {
+		// Only a shutdown leaves the waiting call in place after the wait returns; it was never sent.
+		return errorResult("text", "unknown", "the call is still waiting for approval; it was not sent", details);
+	}
+	return replayedResult(row, server, tool);
+}
+
+/**
+ * Runs one external call under the rules and approvals (doc/design/extensions.md "Rules and approvals" and
+ * "External calls"): a denied call never starts, an approval waits in the WebUI (or Auto Review settles it),
+ * and the call itself is never repeated after a connection loss or a restart.
+ */
+export async function runExternalTool(
+	ctx: ToolContext,
+	serverName: string,
+	toolName: string,
+	arguments_: Record<string, unknown>,
+): Promise<ToolResult> {
+	const mcp = ctx.mcp;
+	if (!mcp) throw new UserError("external tools are not configured", "unavailable");
+	const server = serverOf(ctx, serverName);
+	const callKey = ctx.callKey ?? newId();
+	const id = externalCallId(callKey);
+	// A replayed tool call finds its row and returns what the first attempt produced, without connecting again.
+	const existing = await getExternalCall(ctx.db, id);
+	// A replayed tool call finds its row: a running one is never sent again, and a terminal one already ran.
+	if (existing && existing.state !== "awaiting_approval") return replayedResult(existing, serverName, toolName);
+	try {
+		await mcp.ensureConnected(serverName, { immediate: true });
+	} catch (err) {
+		return errorResult(
+			"text",
+			"unavailable",
+			`the MCP server ${serverName} is unavailable: ${(err as Error).message}`,
+			{
+				server: serverName,
+			},
+		);
+	}
+	let tool = mcp.tool(serverName, toolName);
+	if (!tool) {
+		// A tool can be new since the last listing; one refresh makes a just-added tool callable.
+		try {
+			await mcp.refreshTools(serverName);
+			tool = mcp.tool(serverName, toolName);
+		} catch {
+			// The listing failed; the original "no such tool" is the useful answer.
+		}
+	}
+	if (!tool) {
+		return errorResult("text", "unknown_tool", `the MCP server ${serverName} has no tool named ${toolName}`, {
+			server: serverName,
+			tool: toolName,
+		});
+	}
+	const { operation, evaluation } = await evaluateExternal(ctx, server, toolName, tool.annotations);
+	if (evaluation.result === "deny") {
+		return errorResult("text", "policy_denied", "denied by the authorization rules", {
+			server: serverName,
+			tool: toolName,
+		});
+	}
+	let row: ExternalCallRow;
+	if (existing) {
+		row = existing;
+	} else {
+		const created = await createExternalCall(ctx.db, {
+			callKey,
+			orgId: await defaultOrgId(ctx.db),
+			actorType: ctx.actor.type,
+			actorId: ctx.actor.id,
+			onBehalfOfUserId: ctx.actor.onBehalfOfUserId,
+			server: serverName,
+			tool: toolName,
+			arguments: arguments_,
+			operation,
+			annotations: tool.annotations,
+			ruleChain: ctx.chain,
+			rootSessionId: ctx.rootSessionId ?? null,
+			approval: { evaluation },
+			state: evaluation.result === "allow" ? "running" : "awaiting_approval",
+		});
+		row = created.row;
+		if (created.created) {
+			auditExternal(ctx, "external_call.started", id, {
+				server: serverName,
+				tool: toolName,
+				arguments: auditArguments(arguments_),
+				state: row.state,
+			});
+		}
+	}
+	if (row.state === "awaiting_approval") {
+		// Up the chain first, like a task: an ancestor's agent decides; only when none takes it does Auto
+		// Review judge it (once), then the owner in the WebUI (doc/design/access-control.md "Approvals").
+		const routed = row.handler_type === "agent" || (await ctx.routeExternalCall?.(id)) === true;
+		if (!routed && !externalCallApproval(row)?.review) await ctx.reviewExternalCall?.(id);
+		await ctx.onStatus?.({
+			external_call_id: id,
+			state: "awaiting_approval",
+			approval_url: ctx.externalCallUrl?.(id) ?? `/approvals/external-calls/${id}`,
+		});
+		row = await waitExternalCall(ctx.db, id, {
+			...(ctx.signal ? { signal: ctx.signal } : {}),
+			cancelOnAbort: !ctx.closing?.(),
+			onWaiting: async () => {
+				await ctx.onStatus?.({
+					external_call_id: id,
+					state: "awaiting_approval",
+					approval_url: ctx.externalCallUrl?.(id) ?? `/approvals/external-calls/${id}`,
+				});
+			},
+		});
+		// The wait is over: the live details no longer carry the approval link, so a finished call's card
+		// cannot keep pointing at an approval that is already settled. A shutdown keeps the waiting state.
+		if (row.state !== "awaiting_approval") {
+			await ctx.onStatus?.({ external_call_id: id, state: row.state });
+		}
+	}
+	if (row.state !== "running") return settledResult(row, serverName, toolName);
+	try {
+		const resultValue = await mcp.callTool(serverName, toolName, arguments_, {
+			...(ctx.signal ? { signal: ctx.signal } : {}),
+			identity: { username: ctx.user.username, sessionId: ctx.actor.id },
+			timeoutMs: server.timeoutMs,
+		});
+		const converted = await convertExternalResult(resultValue as CallToolResult, {
+			server: serverName,
+			tool: toolName,
+			...(ctx.imageCache ? { imageCache: ctx.imageCache } : {}),
+		});
+		await finishExternalCall(ctx.db, id, { state: "succeeded" });
+		auditExternal(ctx, "external_call.finished", id, { server: serverName, tool: toolName, state: "succeeded" });
+		return converted;
+	} catch (err) {
+		if (err instanceof McpUnavailableError) {
+			await finishExternalCall(ctx.db, id, { state: "failed" });
+			auditExternal(ctx, "external_call.finished", id, { server: serverName, tool: toolName, state: "failed" });
+			return errorResult("text", "unavailable", err.message, { server: serverName, tool: toolName });
+		}
+		if (err instanceof McpToolError) {
+			await finishExternalCall(ctx.db, id, { state: "failed" });
+			auditExternal(ctx, "external_call.finished", id, { server: serverName, tool: toolName, state: "failed" });
+			return errorResult("text", "tool_error", err.message, { server: serverName, tool: toolName });
+		}
+		if (err instanceof McpCallLostError) {
+			// A lost call is not retried. On shutdown the row stays running so the next start recovers it as unknown.
+			if (!ctx.closing?.()) {
+				await finishExternalCall(ctx.db, id, { state: "unknown" });
+				auditExternal(ctx, "external_call.finished", id, { server: serverName, tool: toolName, state: "unknown" });
+			}
+			return errorResult("text", "unknown", `${err.message}; its outcome is unknown and it was not retried`, {
+				server: serverName,
+				tool: toolName,
+			});
+		}
+		throw err;
+	}
+}
+
+const callTool = define({
+	name: "call_tool",
+	description:
+		"Call a tool on an external MCP server with arguments (a JSON object matching the tool's input schema, as " +
+		"search_tools returns it). The call may wait for the user's approval. A call that ends unknown may have run on " +
+		"the server; it is not retried.",
+	input: z.object({
+		server: z.string().describe("The MCP server's name, as search_tools lists it"),
+		tool: z.string().describe("The tool's name on that server"),
+		arguments: z.record(z.string(), z.unknown()).optional().describe("The tool's arguments; omit for no arguments"),
+	}),
+	readOnly: false,
+	agentOnly: true,
+	output: "text",
+	handler: async (args, ctx) => runExternalTool(ctx, args.server, args.tool, args.arguments ?? {}),
+});
+
 /**
  * A task the caller may act on: started for the same user **and** for its own session or token (or a session
  * below it). Another session of the same user keeps its tasks (doc/design/agent-runtime.md "Cluster tools").
@@ -1247,4 +1724,6 @@ export const TOOLS: readonly ClusterTool[] = [
 	viewImage,
 	taskWait,
 	taskCancel,
+	searchTools,
+	callTool,
 ] as unknown as ClusterTool[];

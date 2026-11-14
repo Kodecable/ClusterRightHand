@@ -73,7 +73,7 @@ describe("system settings storage", () => {
 			realIpHeader: null,
 			library: {
 				user: { ...DEFAULT_USER_LIBRARY_LIMITS },
-				group: { ...DEFAULT_GROUP_LIBRARY_LIMITS },
+				userGroup: { ...DEFAULT_GROUP_LIBRARY_LIMITS },
 			},
 			attachments: {
 				inlineTextBytes: DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES,
@@ -228,7 +228,7 @@ describe("settings API", () => {
 			realIpHeader: "X-Real-IP",
 			library: {
 				user: { files: 5, fileBytes: 6, totalBytes: 7 },
-				group: { files: 1, fileBytes: 2, totalBytes: 3 },
+				userGroup: { files: 1, fileBytes: 2, totalBytes: 3 },
 			},
 		});
 		expect(res.status).toBe(200);
@@ -243,7 +243,7 @@ describe("settings API", () => {
 			webauthn: { rpId: "crh.example.com", rpName: "ClusterRightHand", origins: ["https://crh.example.com"] },
 			library: {
 				user: { files: 5, fileBytes: 6, totalBytes: 7 },
-				group: { files: 1, fileBytes: 2, totalBytes: 3 },
+				userGroup: { files: 1, fileBytes: 2, totalBytes: 3 },
 			},
 		});
 		// The live object the consumers read is replaced at once.
@@ -254,7 +254,7 @@ describe("settings API", () => {
 		expect(store.current().webauthn.origins).toEqual(["https://crh.example.com"]);
 		expect(store.current().realIpHeader).toBe("X-Real-IP");
 		expect(store.current().library.user).toEqual({ files: 5, fileBytes: 6, totalBytes: 7 });
-		expect(store.current().library.group).toEqual({ files: 1, fileBytes: 2, totalBytes: 3 });
+		expect(store.current().library.userGroup).toEqual({ files: 1, fileBytes: 2, totalBytes: 3 });
 	});
 
 	it("rejects bad values with a per-field message and writes nothing", async () => {
@@ -274,7 +274,7 @@ describe("settings API", () => {
 			[{ auth: { argon2Queue: -1 } }, "auth.argon2Queue"],
 			[{ realIpHeader: "X Forwarded For" }, "realIpHeader"],
 			[{ library: { user: { files: -1 } } }, "library.user.files"],
-			[{ library: { group: { nope: 1 } } }, "library.group.nope"],
+			[{ library: { userGroup: { nope: 1 } } }, "library.userGroup.nope"],
 			[{ nope: 1 }, "nope"],
 			[{ retention: "30d" }, "retention"],
 		];

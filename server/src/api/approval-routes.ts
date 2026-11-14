@@ -3,6 +3,14 @@ import { type Context, Hono } from "hono";
 import { type Audit, userActor } from "../audit/audit.ts";
 import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
+import {
+	decideExternalCall,
+	externalCallApproval,
+	externalCallViews,
+	getExternalCall,
+	pendingExternalCallRows,
+	reevaluateExternalCalls,
+} from "../extensions/external-calls.ts";
 import { parseRulesForWrite } from "../policy/refs.ts";
 import type { Rule } from "../policy/rules.ts";
 import { appendRule, type RuleRef } from "../policy/store.ts";
@@ -13,10 +21,16 @@ import { type AppEnv, jsonError, readJsonObject } from "./context.ts";
 
 type QuotaRequest = QuotaApproval;
 
-/** After any rule change: settle what no longer needs approval. */
-export async function reevaluateAfterRuleChange(cluster: Cluster, taskGroups: TaskGroups, ref: RuleRef): Promise<void> {
+/** After any rule change: settle what no longer needs approval, external calls included. */
+export async function reevaluateAfterRuleChange(
+	db: Db,
+	cluster: Cluster,
+	taskGroups: TaskGroups,
+	ref: RuleRef,
+): Promise<void> {
 	await cluster.reevaluate(ref);
 	await taskGroups.reevaluate(ref);
+	await reevaluateExternalCalls(db, ref);
 }
 
 /** Approvals: only the root's owner decides (doc/design/access-control.md "Approvals"). Expects requireUser. */
@@ -32,9 +46,11 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const quotas = await quotaRequests(db, user.userId);
 		const signatureTasks = await taskViews(cluster, signatureRows.tasks);
 		const signatureTaskGroups = await taskGroupViews(taskGroups, signatureRows.taskGroups);
+		const externalCalls = await externalCallViews(db, await pendingExternalCallRows(db, user.userId));
 		const body: ApprovalList = {
 			tasks,
 			taskGroups: approvalTaskGroups,
+			externalCalls,
 			authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
 			quotas,
 		};
@@ -94,7 +110,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 				target: root,
 				detail: { appended: always },
 			});
-			await reevaluateAfterRuleChange(cluster, taskGroups, root);
+			await reevaluateAfterRuleChange(db, cluster, taskGroups, root);
 		}
 		if (!ok) return jsonError(c, 409, "it is no longer waiting for approval");
 		return c.json({ ok: true });
@@ -124,6 +140,74 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			waiting: g.state === "awaiting_approval",
 			handlerType: g.handlerType,
 		});
+	});
+
+	/** One waiting external call, for the approval detail page. */
+	app.get("/external-calls/:id", async (c) => {
+		const user = c.get("user");
+		const row = await getExternalCall(db, c.req.param("id"));
+		if (!row || row.on_behalf_of_user_id !== user.userId) return jsonError(c, 404, "no such approval");
+		return c.json({ externalCall: (await externalCallViews(db, [row]))[0] });
+	});
+
+	/** The owner approves or rejects a waiting external call; "always allow" writes an allow rule. */
+	app.post("/external-calls/:id/approval", async (c) => {
+		const user = c.get("user");
+		const row = await getExternalCall(db, c.req.param("id"));
+		if (!row || row.on_behalf_of_user_id !== user.userId) return jsonError(c, 404, "no such approval");
+		if (row.state !== "awaiting_approval" || row.handler_type !== "user") {
+			return jsonError(c, 409, "it is no longer waiting for approval");
+		}
+		const body = await readJsonObject(c);
+		if (!body || (body.decision !== "approve" && body.decision !== "reject")) {
+			return jsonError(c, 400, 'decision must be "approve" or "reject"');
+		}
+		const reason =
+			typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 1000) : undefined;
+		const chain = row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null;
+		const root = chain?.[0];
+		let always: Rule | undefined;
+		if (body.decision === "approve" && body.always !== undefined) {
+			if (!root) return jsonError(c, 409, "the call has no rule chain");
+			const [rule] = await parseRulesForWrite(db, await defaultOrgId(db), [body.always]);
+			if (rule?.action !== "allow") throw new UserError('an "always" rule must be an allow rule');
+			always = rule;
+		}
+		const ok = await decideExternalCall(
+			db,
+			row.id,
+			{
+				decision: body.decision === "approve" ? "approved" : "rejected",
+				by: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+				at: new Date().toISOString(),
+				...(reason ? { reason } : {}),
+			},
+			reason,
+		);
+		if (!ok) return jsonError(c, 409, "it is no longer waiting for approval");
+		void audit.record({
+			actor: userActor(user),
+			action: "external_call.approval",
+			target: { type: "external_call", id: row.id },
+			detail: {
+				decision: body.decision,
+				server: row.server_name,
+				tool: row.tool_name,
+				grader: externalCallApproval(row)?.evaluation.result,
+				...(reason ? { reason } : {}),
+			},
+		});
+		if (always && root) {
+			await appendRule(db, root, always);
+			void audit.record({
+				actor: userActor(user),
+				action: "rules.changed",
+				target: root,
+				detail: { appended: always },
+			});
+			await reevaluateAfterRuleChange(db, cluster, taskGroups, root);
+		}
+		return c.json({ ok: true });
 	});
 
 	return app;

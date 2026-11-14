@@ -1,4 +1,5 @@
 import { parentOf, type SessionRow } from "../sessions/session-chain.ts";
+import { syncSessionMcpExtensions } from "./extension.ts";
 import { awaitingQuotaSessions } from "./quota.ts";
 import { conversationOf, type RuntimeHost } from "./runtime-core.ts";
 import { pendingAgentRequests, requestKey, wakeRequestKey } from "./runtime-requests.ts";
@@ -14,14 +15,15 @@ import { recordInput } from "./runtime-submissions.ts";
 export async function wakeParent(
 	host: RuntimeHost,
 	parent: Pick<SessionRow, "id">,
-	kind: "task" | "task_group",
+	kind: "task" | "task_group" | "external_call",
 	requestId: string,
 ): Promise<void> {
+	const what = kind === "task_group" ? "task group" : kind === "external_call" ? "external MCP call" : "task";
 	await wake(
 		host,
 		parent.id,
 		`agent-request:${kind}:${requestId}`,
-		`A subagent request is waiting for you: ${kind} ${requestId}. ` +
+		`A subagent request is waiting for you: ${what} ${requestId}. ` +
 			`Check it with subagent_list, then call subagent_decide("${requestId}", "approve" | "deny" | "escalate", reason?).`,
 	);
 }
@@ -69,6 +71,8 @@ async function submitWake(host: RuntimeHost, handlerId: string, requestId: strin
 	if (!row) return;
 	const conversation = await conversationOf(host, row);
 	if (!conversation) return;
+	// The wake starts the handler's next request, so its MCP server selection is recomputed first.
+	await syncSessionMcpExtensions(host, row);
 	const submission = await conversation.submit({ type: "input", content, requestId }, host.context);
 	await recordInput(host, handlerId, submission);
 }
@@ -131,7 +135,7 @@ async function flushWakes(host: RuntimeHost, handlerId: string): Promise<void> {
 
 /** After a restart, wakes the parents of requests that were already waiting (deduplicated by requestId). */
 export async function wakePendingAgents(host: RuntimeHost): Promise<void> {
-	const requests: { kind: "task" | "task_group"; id: string; session: string }[] = [];
+	const requests: { kind: "task" | "task_group" | "external_call"; id: string; session: string }[] = [];
 	const tasks = await host.db
 		.selectFrom("tasks")
 		.select(["id", "handler_session_id"])
@@ -149,6 +153,17 @@ export async function wakePendingAgents(host: RuntimeHost): Promise<void> {
 		.execute();
 	for (const row of groups) {
 		if (row.handler_session_id) requests.push({ kind: "task_group", id: row.id, session: row.handler_session_id });
+	}
+	const calls = await host.db
+		.selectFrom("external_calls")
+		.select(["id", "handler_session_id"])
+		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "=", "agent")
+		.execute();
+	for (const row of calls) {
+		if (row.handler_session_id) {
+			requests.push({ kind: "external_call", id: row.id, session: row.handler_session_id });
+		}
 	}
 	for (const request of requests) {
 		const parent = await host.db

@@ -9,6 +9,7 @@ import { authorizationKeys, useSubmitAuthorization } from "./api";
 const APPROVALS: ApprovalList = {
 	tasks: [],
 	taskGroups: [],
+	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
 };

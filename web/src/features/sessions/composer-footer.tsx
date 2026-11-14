@@ -1,12 +1,14 @@
-import type { ModelRef, RulePreset, SessionView, ThinkingLevel } from "@crh/api";
-import { useLingui } from "@lingui/react/macro";
-import { ArrowUpIcon, DropletIcon, LightbulbIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
+import type { McpSessionServer, ModelRef, RulePreset, SessionView, ThinkingLevel } from "@crh/api";
+import { Trans, useLingui } from "@lingui/react/macro";
+import { ArrowUpIcon, DropletIcon, LightbulbIcon, PlugIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { INLINE_CONTROL_CLASS } from "@/components/inline-control";
 import { ModelSelect } from "@/components/model-select";
 import { RulePresetSelect } from "@/components/rule-preset-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useModels } from "@/features/settings/api";
 import { formatNumber, formatTokens } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
@@ -32,6 +34,10 @@ export interface ComposerFooterState {
 	/** A root has a rule preset; a subagent shows its rule count instead. */
 	isRoot: boolean;
 	ruleCount: number;
+	/** The MCP servers the session may use; undefined hides the extensions control (the draft page). */
+	mcpServers?: McpSessionServer[];
+	/** Replaces the turned-off server names. */
+	onMcpServersChange?: (disabled: string[]) => void;
 	/** A change is being saved; the session footer disables its pickers meanwhile. */
 	pending: boolean;
 	onModelChange: (model: ModelRef) => void;
@@ -78,6 +84,7 @@ export function ComposerFooter({
 					<ModelControl state={state} />
 				</span>
 				<ThinkingControl state={state} />
+				<ExtensionsControl state={state} />
 				<span className="flex shrink-0 items-center">
 					<RulesControl state={state} />
 				</span>
@@ -143,6 +150,8 @@ export function SessionComposerFooter({
 		configure: session.capabilities.configure,
 		isRoot: session.parentSessionId === null,
 		ruleCount: session.rules?.rules.length ?? 0,
+		mcpServers: session.mcpServers ?? [],
+		onMcpServersChange: (disabled) => patch.mutate({ disabledMcpServers: disabled }),
 		pending: patch.isPending,
 		onModelChange: (model) => patch.mutate({ model }),
 		onThinkingLevelChange: (thinkingLevel) =>
@@ -236,6 +245,86 @@ function ThinkingControl({ state }: { state: ComposerFooterState }) {
 				onChange={state.onThinkingLevelChange}
 			/>
 		</span>
+	);
+}
+
+/**
+ * The session's external MCP servers: a plug button with how many are on, opening the per-server toggles
+ * (doc/design/extensions.md "MCP servers"). A subagent inherits its parent's set and can only turn more off;
+ * the server enforces that too.
+ */
+function ExtensionsControl({ state }: { state: ComposerFooterState }) {
+	const { t } = useLingui();
+	const [open, setOpen] = useState(false);
+	const servers = state.mcpServers ?? [];
+	if (servers.length === 0) return null;
+	const enabled = servers.filter((server) => server.enabled).length;
+	const label = t`Extensions: ${enabled}/${servers.length}`;
+	if (!state.configure) {
+		return (
+			<span className="px-1.5 text-xs text-foreground" data-testid="composer-extensions" title={label}>
+				<PlugIcon className="size-3.5 shrink-0" aria-hidden="true" />
+			</span>
+		);
+	}
+	const toggle = (name: string, on: boolean) => {
+		const next = servers
+			.filter((server) => (server.name === name ? !on : !server.enabled))
+			.map((server) => server.name);
+		state.onMcpServersChange?.(next);
+	};
+	return (
+		<>
+			<Button
+				type="button"
+				variant="ghost"
+				size="xs"
+				data-testid="composer-extensions"
+				title={label}
+				aria-label={label}
+				className={cn(INLINE_CONTROL_CLASS, "whitespace-nowrap")}
+				onClick={() => setOpen(true)}
+			>
+				<PlugIcon className="size-3.5 shrink-0" aria-hidden="true" />
+				<span className="whitespace-nowrap">
+					{enabled}/{servers.length}
+				</span>
+			</Button>
+			<Dialog open={open} onOpenChange={setOpen}>
+				<DialogContent data-testid="extensions-dialog">
+					<DialogHeader>
+						<DialogTitle>
+							<Trans>MCP servers</Trans>
+						</DialogTitle>
+					</DialogHeader>
+					<div className="grid gap-2">
+						{servers.map((server) => (
+							<label
+								key={server.name}
+								htmlFor={`session-mcp-${server.name}`}
+								className="flex items-start gap-2 text-sm"
+							>
+								<Checkbox
+									id={`session-mcp-${server.name}`}
+									checked={server.enabled}
+									disabled={state.pending}
+									onCheckedChange={(checked) => toggle(server.name, Boolean(checked))}
+								/>
+								<span className="grid gap-0.5">
+									<code className="text-xs">{server.name}</code>
+									{server.description !== null && (
+										<span className="text-xs text-muted-foreground">{server.description}</span>
+									)}
+								</span>
+							</label>
+						))}
+						<p className="text-xs text-muted-foreground">
+							<Trans>A server that is off is hidden from the model. The change applies to the next turn.</Trans>
+						</p>
+					</div>
+				</DialogContent>
+			</Dialog>
+		</>
 	);
 }
 

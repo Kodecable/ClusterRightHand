@@ -75,6 +75,7 @@ function buildRouter(ui: React.ReactElement, options: RenderRouterOptions = {}) 
 		"/approvals",
 		"/approvals/tasks/$taskId",
 		"/approvals/task-groups/$taskGroupId",
+		"/approvals/external-calls/$externalCallId",
 		"/nodes",
 		"/nodes/$nodeId",
 		"/node-groups",

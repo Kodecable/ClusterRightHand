@@ -1,10 +1,18 @@
 import { sql } from "kysely";
 import { GROUP_TERMINAL, TERMINAL } from "../cluster/types.ts";
 import type { RetentionConfig } from "../config.ts";
+import { EXTERNAL_CALL_TERMINAL } from "../extensions/external-calls.ts";
 import type { Db } from "../storage/db.ts";
 
 /** Rows selected and deleted per batch, so one statement never holds the database queue for long. */
 export const RETENTION_BATCH_SIZE = 1000;
+
+/**
+ * Terminal external calls are kept for one day, as built-in policy rather than a System setting. A tool call
+ * that reruns after a crash finds its row by id and must see that it already ran; deleting the row sooner
+ * would call the external tool again. A day is well past any restart, and recent calls stay inspectable.
+ */
+export const EXTERNAL_CALL_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Audit events keep the newest 16384 sequence numbers (a key distance, not a row count; gaps are fine). This
@@ -23,6 +31,7 @@ export interface RetentionCounts {
 	taskGroups: number;
 	authorizations: number;
 	auditEvents: number;
+	externalCalls: number;
 	piTasks: number;
 }
 
@@ -49,7 +58,14 @@ export async function runRetention(
 	now = new Date(),
 	options: RetentionOptions = {},
 ): Promise<RetentionCounts> {
-	const counts: RetentionCounts = { tasks: 0, taskGroups: 0, authorizations: 0, auditEvents: 0, piTasks: 0 };
+	const counts: RetentionCounts = {
+		tasks: 0,
+		taskGroups: 0,
+		authorizations: 0,
+		auditEvents: 0,
+		externalCalls: 0,
+		piTasks: 0,
+	};
 	const batchSize = options.batchSize ?? RETENTION_BATCH_SIZE;
 	const signal = options.signal;
 	try {
@@ -65,6 +81,12 @@ export async function runRetention(
 			const cutoff = cutoffIso(now, retention.auditMs);
 			counts.auditEvents = await deleteTable("audit_events", () => deleteOldAuditEvents(db, cutoff, batchSize, signal));
 		}
+		// Built-in policy, independent of the System settings: terminal external calls are the replay markers
+		// of tool calls, so they outlive their call by EXTERNAL_CALL_RETENTION_MS and no longer.
+		const externalCutoff = cutoffIso(now, EXTERNAL_CALL_RETENTION_MS);
+		counts.externalCalls = await deleteTable("external_calls", () =>
+			deleteOldExternalCalls(db, externalCutoff, batchSize, signal),
+		);
 		if (retention.piTasksMs !== null) {
 			const cutoff = now.getTime() - retention.piTasksMs;
 			counts.piTasks = await deleteTable("pi_tasks", () => deleteOldPiTasks(db, cutoff, batchSize, signal));
@@ -73,12 +95,18 @@ export async function runRetention(
 		console.error("retention sweep failed:", err);
 	}
 
-	const total = counts.tasks + counts.taskGroups + counts.authorizations + counts.auditEvents + counts.piTasks;
+	const total =
+		counts.tasks +
+		counts.taskGroups +
+		counts.authorizations +
+		counts.auditEvents +
+		counts.externalCalls +
+		counts.piTasks;
 	if (total > 0) {
 		console.log(
 			`retention: deleted ${counts.tasks} task(s), ${counts.taskGroups} task group(s), ` +
 				`${counts.authorizations} authorization(s), ${counts.auditEvents} audit event(s), ` +
-				`${counts.piTasks} durable task(s)`,
+				`${counts.externalCalls} external call(s), ${counts.piTasks} durable task(s)`,
 		);
 	}
 	return counts;
@@ -249,6 +277,40 @@ async function deleteExpiredAuthorizations(
 		async (rows) => {
 			const result = await db
 				.deleteFrom("authorizations")
+				.where(
+					"id",
+					"in",
+					rows.map((row) => row.id),
+				)
+				.executeTakeFirst();
+			return Number(result.numDeletedRows);
+		},
+	);
+}
+
+async function deleteOldExternalCalls(
+	db: Db,
+	cutoff: string,
+	batchSize: number,
+	signal: AbortSignal | undefined,
+): Promise<number> {
+	return deleteInBatches<{ id: string }>(
+		batchSize,
+		signal,
+		(limit) =>
+			db
+				.selectFrom("external_calls")
+				.select("id")
+				// Only a terminal row is a finished call; a waiting or running call is never deleted.
+				.where("state", "in", [...EXTERNAL_CALL_TERMINAL])
+				.where("finished_at", "is not", null)
+				.where("finished_at", "<", cutoff)
+				.orderBy("finished_at")
+				.limit(limit)
+				.execute(),
+		async (rows) => {
+			const result = await db
+				.deleteFrom("external_calls")
 				.where(
 					"id",
 					"in",

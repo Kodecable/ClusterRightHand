@@ -9,6 +9,7 @@ import { tokenKeys, useRevokeApiToken, useSetTokenRules } from "./api";
 const APPROVALS: ApprovalList = {
 	tasks: [],
 	taskGroups: [],
+	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
 };

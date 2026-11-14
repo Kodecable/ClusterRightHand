@@ -38,6 +38,7 @@ vi.mock("virtua", async () => {
 const APPROVALS: ApprovalList = {
 	tasks: [],
 	taskGroups: [],
+	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
 };
@@ -64,7 +65,7 @@ function approvalTask(overrides: Partial<TaskView> = {}): TaskView {
 
 /** The approvals list a test answers; every other category stays empty. */
 function waitingApprovals(tasks: TaskView[], quotas: ApprovalList["quotas"] = []): ApprovalList {
-	return { tasks, taskGroups: [], authorizations: { tasks: [], taskGroups: [] }, quotas };
+	return { tasks, taskGroups: [], externalCalls: [], authorizations: { tasks: [], taskGroups: [] }, quotas };
 }
 
 function sessionView(overrides: Partial<SessionView> = {}): SessionView {
