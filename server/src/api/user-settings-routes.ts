@@ -5,7 +5,7 @@ import { userActor } from "../audit/audit.ts";
 import { parseRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { getUserSettings, patchUserSettings } from "../users/settings.ts";
-import { errorText, UserError } from "../util/errors.ts";
+import { errorText, isForeignKeyViolation, UserError } from "../util/errors.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
 const TAGS = ["Settings"];
@@ -93,7 +93,17 @@ export function userSettingsRoutes(db: Db, options: UserSettingsRoutesOptions = 
 		}
 
 		const before = await getUserSettings(db, user.userId);
-		const after = await patchUserSettings(db, user.userId, change);
+		let after: UserSettings;
+		try {
+			after = await patchUserSettings(db, user.userId, change);
+		} catch (err) {
+			// The account check above and the write are separate statements: if the account is unlinked in
+			// between, the foreign key rejects the write and the caller gets the same refusal as a bad id.
+			if (isForeignKeyViolation(err)) {
+				throw new UserError("defaultChannelAccountId: no such linked chat account");
+			}
+			throw err;
+		}
 		const keys = Object.keys(change) as (keyof UserSettings)[];
 		const changed = keys.filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
 		if (changed.length > 0) {

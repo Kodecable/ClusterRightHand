@@ -663,7 +663,7 @@ export interface UserSettingsTable {
 	default_rule_preset: string | null;
 	/** 1 shows a progress status/draft in chat while a turn runs. */
 	show_progress: number;
-	/** A linked chat account notifications go to when the WebUI is not open; null means none. */
+	/** A linked chat account notifications go to when the WebUI is not open; FK channel_accounts.id, ON DELETE SET NULL. */
 	default_channel_account_id: string | null;
 	updated_at: string;
 }

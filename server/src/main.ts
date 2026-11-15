@@ -37,6 +37,7 @@ import { runInit } from "./setup/init.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
 import { UserError } from "./util/errors.ts";
+import { installProcessErrorHandlers } from "./util/process-errors.ts";
 import { CRH_VERSION } from "./version.ts";
 
 const USAGE = `usage: crhs [--config <path>] <command>
@@ -190,6 +191,9 @@ async function readExportPassphrase(): Promise<string> {
 }
 
 async function runServer(config: Config, db: Db, masterKey: MasterKey, settings: SettingsStore): Promise<void> {
+	// Last resort: a missed catch logs instead of ending the service. Commands run through runCommand's other
+	// branch and keep their normal exit behavior.
+	installProcessErrorHandlers();
 	const identity = await loadServerIdentity(db, masterKey);
 	// The first key is created on first start; its public key is what nodes put in a crhs trust entry.
 	// Administrators can add and delete keys while crhs runs (doc/design/privilege.md "Authorization signing key").

@@ -1,6 +1,7 @@
 import type { UserSettings } from "@crh/api";
 import { fauxProvider } from "@earendil-works/pi-ai/providers/faux";
 import { OpenAPIHono } from "@hono/zod-openapi";
+import { sql } from "kysely";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import type { AppEnv } from "../src/api/context.ts";
@@ -179,6 +180,22 @@ describe("GET/PATCH /api/me/settings", () => {
 			showProgress: true,
 			defaultChannelAccountId: null,
 		});
+	});
+
+	it("rejects a default account that is unlinked after the route checked it", async () => {
+		const accountId = await linkedAccount(user.userId);
+		// Move the account row as the setting is written, so both checks above still saw it but the foreign
+		// key rejects the write: the same refusal as an unknown account.
+		await sql`
+			create trigger user_settings_move_account before insert on user_settings
+			begin
+				update channel_accounts set id = 'moved-' || id where id = new.default_channel_account_id;
+			end`.execute(db);
+		const res = await patch({ defaultChannelAccountId: accountId });
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toBe(
+			"defaultChannelAccountId: no such linked chat account",
+		);
 	});
 
 	it("audits the changed fields without recording a no-op", async () => {

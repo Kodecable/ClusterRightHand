@@ -262,6 +262,22 @@ describeBackends("initial migration", (backend) => {
 		});
 	});
 
+	it("nulls a default notification account when the account is deleted", async () => {
+		await sql`
+			insert into channel_accounts (id, channel_id, platform, platform_user_id, user_id, linked_at)
+			values ('account-1', 'channel-1', 'telegram', 'tg-1', 'user-1', '2026-01-01T00:00:00.000Z')`.execute(db);
+		await sql`
+			insert into user_settings (user_id, default_channel_account_id, updated_at)
+			values ('user-1', 'account-1', '2026-01-01T00:00:00.000Z')`.execute(db);
+		await sql`delete from channel_accounts where id = 'account-1'`.execute(db);
+		const row = await db
+			.selectFrom("user_settings")
+			.select("default_channel_account_id")
+			.where("user_id", "=", "user-1")
+			.executeTakeFirstOrThrow();
+		expect(row.default_channel_account_id).toBeNull();
+	});
+
 	it("seeds the built-in extensions", async () => {
 		const rows = await db
 			.selectFrom("extensions")

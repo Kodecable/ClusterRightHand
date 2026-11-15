@@ -14,6 +14,19 @@ export function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
+ * Whether a database error is a foreign-key violation. SQLite's message says "FOREIGN KEY constraint
+ * failed" (node:sqlite reports errcode 787) and PostgreSQL uses SQLSTATE 23503 on the driver error.
+ */
+export function isForeignKeyViolation(err: unknown): boolean {
+	if (typeof err === "object" && err !== null && "code" in err) {
+		const code = (err as { code?: unknown }).code;
+		if (code === "23503" || code === "SQLITE_CONSTRAINT_FOREIGNKEY") return true;
+		if (code === "ERR_SQLITE_ERROR" && (err as { errcode?: unknown }).errcode === 787) return true;
+	}
+	return /foreign key constraint/i.test(errorText(err));
+}
+
+/**
  * An expected refusal, shown to the caller as a tool error (doc/design/agent-runtime.md "Tool output"). `code` is the
  * stable snake_case error code tools use; without one the adapter falls back to `invalid_argument`.
  *

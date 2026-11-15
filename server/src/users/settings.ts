@@ -62,7 +62,7 @@ export async function getUserSettings(db: Db, userId: string): Promise<UserSetti
 
 /**
  * Applies a partial change; an omitted field stays, null clears. A default notification account must be
- * one of the user's linked accounts, so a later unlink can only clear an account it actually removed.
+ * one of the user's linked accounts; the foreign key clears it when that account is deleted.
  */
 export async function patchUserSettings(db: Db, userId: string, change: UserSettingsUpdate): Promise<UserSettings> {
 	const current = await getUserSettings(db, userId);
@@ -98,26 +98,6 @@ export async function patchUserSettings(db: Db, userId: string, change: UserSett
 		.onConflict((oc) => oc.column("user_id").doUpdateSet(values))
 		.execute();
 	return next;
-}
-
-/** Clears a user's default notification account when it is the one being unlinked. */
-export async function clearDefaultChannelAccount(db: Db, userId: string, accountId: string): Promise<void> {
-	await db
-		.updateTable("user_settings")
-		.set({ default_channel_account_id: null, updated_at: new Date().toISOString() })
-		.where("user_id", "=", userId)
-		.where("default_channel_account_id", "=", accountId)
-		.execute();
-}
-
-/** Clears every default that points at one of the accounts of a deleted channel. */
-export async function clearDefaultChannelAccounts(db: Db, accountIds: readonly string[]): Promise<void> {
-	if (accountIds.length === 0) return;
-	await db
-		.updateTable("user_settings")
-		.set({ default_channel_account_id: null, updated_at: new Date().toISOString() })
-		.where("default_channel_account_id", "in", accountIds)
-		.execute();
 }
 
 /** Drops a disabled user's settings with their chat accounts (doc/design/channels.md "Accounts"). */

@@ -105,8 +105,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("default_rule_preset", "text")
 		/** 1 shows a progress status/draft in chat while a turn runs. */
 		.addColumn("show_progress", "integer", (c) => c.notNull().defaultTo(1))
-		/** A linked chat account notifications go to when the WebUI is not open; null means none. */
-		.addColumn("default_channel_account_id", "text")
+		/** A linked chat account notifications go to; null means none. FK channel_accounts.id, ON DELETE SET NULL. */
+		.addColumn("default_channel_account_id", "text", (c) => c.references("channel_accounts.id").onDelete("set null"))
 		.addColumn("updated_at", "text", (c) => c.notNull())
 		.execute();
 

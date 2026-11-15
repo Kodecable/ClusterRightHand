@@ -8,6 +8,7 @@ import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { ChannelManager } from "../src/channels/manager.ts";
+import { SatoriChannel } from "../src/channels/satori.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
@@ -451,6 +452,55 @@ describe("satori channels", () => {
 		expect(
 			fake.calls.filter((call) => call.method === "create" && contentOf(call).includes("reconnect answer")),
 		).toHaveLength(1);
+	});
+
+	it("waits for an in-flight event before reconnecting, so the gateway does not replay it", async () => {
+		const gateway = await startFakeSatori({ token: "satori-replay-token", replayOnIdentify: true });
+		let release = (): void => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const handled: number[] = [];
+		const cursors: number[] = [];
+		const channel = new SatoriChannel({
+			channelId: "replay-bot",
+			url: gateway.url,
+			token: gateway.token,
+			platform: "telegram",
+			botId: "424242",
+			initialCursor: 0,
+			onCursor: async (sn) => {
+				cursors.push(sn);
+			},
+			connection: { baseMs: 5, maxMs: 10, sleep: async () => {} },
+		});
+		channel.setHandlers({
+			onMessage: async (message) => {
+				handled.push(message.updateId);
+				if (handled.length === 1) await gate;
+			},
+			onButton: async () => {},
+			onGenerationStopped: async () => {},
+		});
+		channel.start();
+		try {
+			await gateway.waitForIdentify(1);
+			const sn = gateway.message("8301", "slow event");
+			await until(() => handled.length === 1);
+			// The socket goes while the handler still holds the event; the reconnect must wait for it and send
+			// the new sn, or the gateway replays this event and the handler runs it a second time.
+			gateway.closeSocket("connection dropped");
+			setTimeout(release, 50);
+			await gateway.waitForIdentify(2, 3_000);
+			expect(gateway.identifies[1]?.sn).toBe(sn);
+			await until(() => cursors.length === 1);
+			await new Promise((resolve) => setTimeout(resolve, 200));
+			expect(handled).toEqual([sn]);
+		} finally {
+			release();
+			await channel.stop();
+			await gateway.close();
+		}
 	});
 
 	it("sends bot texts as plain text without Markdown backslash escapes", async () => {

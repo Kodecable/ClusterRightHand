@@ -9,12 +9,7 @@ import { parseRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import type { ChannelAccountsTable, ChannelsTable, ChannelThreadsTable } from "../storage/schema.ts";
-import {
-	clearDefaultChannelAccount,
-	clearDefaultChannelAccounts,
-	deleteUserSettings,
-	getUserSettings,
-} from "../users/settings.ts";
+import { deleteUserSettings, getUserSettings } from "../users/settings.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 
@@ -246,13 +241,8 @@ export async function deleteChannel(db: Db, name: string): Promise<ChannelRow> {
 	const row = await getChannelRow(db, name);
 	if (!row) throw new NotFoundError("no such channel");
 	await db.transaction().execute(async (trx) => {
-		const accounts = await trx.selectFrom("channel_accounts").select("id").where("channel_id", "=", row.id).execute();
-		if (accounts.length > 0) {
-			await clearDefaultChannelAccounts(
-				trx,
-				accounts.map((account) => account.id),
-			);
-		}
+		// channel_accounts.id is a foreign key in user_settings with ON DELETE SET NULL: deleting the accounts
+		// clears any default that pointed at one of them.
 		await trx.deleteFrom("channel_accounts").where("channel_id", "=", row.id).execute();
 		await trx.deleteFrom("channel_threads").where("channel_id", "=", row.id).execute();
 		await trx.deleteFrom("channels").where("id", "=", row.id).execute();
@@ -410,10 +400,8 @@ export async function unlinkAccount(db: Db, userId: string, accountId: string): 
 		.where("user_id", "=", userId)
 		.executeTakeFirst();
 	if (!row) return undefined;
-	await db.transaction().execute(async (trx) => {
-		await trx.deleteFrom("channel_accounts").where("id", "=", accountId).execute();
-		await clearDefaultChannelAccount(trx, userId, accountId);
-	});
+	// The user_settings foreign key clears a default that pointed at this account.
+	await db.deleteFrom("channel_accounts").where("id", "=", accountId).execute();
 	return row;
 }
 

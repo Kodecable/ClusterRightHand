@@ -260,8 +260,13 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 				if (settled) return;
 				settled = true;
 				cleanup();
-				if (signal.aborted) resolve();
-				else reject(error ?? new Error("the satori gateway connection closed"));
+				// Do not reconnect until the frames this socket already delivered have been handled: #sn (and the
+				// stored cursor) must be current for the next IDENTIFY, or the gateway replays them and they run twice.
+				// A handler that never settles therefore holds the reconnect, which is the handler's own timeout to own.
+				void handling.then(() => {
+					if (signal.aborted) resolve();
+					else reject(error ?? new Error("the satori gateway connection closed"));
+				});
 			};
 			const abort = (): void => {
 				try {
@@ -294,6 +299,8 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 			});
 
 			socket.addEventListener("message", (event) => {
+				// The socket is finished: anything already queued on `handling` still runs, but no new frame is taken.
+				if (settled) return;
 				lastFrameAt = Date.now();
 				const raw = typeof event.data === "string" ? event.data : String(event.data ?? "");
 				handling = handling

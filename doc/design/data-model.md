@@ -102,8 +102,9 @@ defaults, so a user has no row until they change something. A default model that
 offers is not resolved by the server; the WebUI falls back to the session model preset and then to the
 first offered model.
 
-Unlinking an account clears a default that pointed at it, deleting a channel clears the defaults of all
-its accounts, and disabling a user removes the row with their accounts ([Channels](channels.md)).
+The default notification account is a foreign key to `channel_accounts` with `ON DELETE SET NULL`, so
+unlinking an account or deleting a channel clears a default that pointed at it; disabling a user removes
+the row with their accounts ([Channels](channels.md)).
 
 ## Nodes
 
