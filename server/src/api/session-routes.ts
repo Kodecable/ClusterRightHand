@@ -497,6 +497,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			message,
 			model: parseModelRef(body.model),
 			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
+			// The session records where its latest user message came from; an in-process api_request has an actor.
+			lastUsedFrom: c.get("user").actor === undefined ? "web" : null,
 			...(body.title === undefined ? {} : { title: body.title }),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
 			...(resolved
@@ -716,13 +718,11 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			inputs.length === 0
 				? undefined
 				: await resolveAttachments(db, options.cluster.libraryBackend, c.get("user"), inputs, attachmentLimits());
-		const submissionId = await runtime.submit(
-			v.session.id,
-			c.get("user"),
-			text,
-			requestId,
-			resolved ? { content: attachmentContent(text, resolved.blocks), attachments: resolved.attachments } : {},
-		);
+		const submissionId = await runtime.submit(v.session.id, c.get("user"), text, requestId, {
+			// The session records where its latest user message came from; an in-process api_request has an actor.
+			lastUsedFrom: c.get("user").actor === undefined ? "web" : null,
+			...(resolved ? { content: attachmentContent(text, resolved.blocks), attachments: resolved.attachments } : {}),
+		});
 		return c.json({ submissionId }, 202);
 	});
 

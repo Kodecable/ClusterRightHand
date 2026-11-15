@@ -94,6 +94,11 @@ msgstr "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
 msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgstr "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 
+#. placeholder {0}: account.platform
+#: src/features/channels/chat-accounts-section.tsx
+msgid "{0} · linked <0/>"
+msgstr "{0} · linked <0/>"
+
 #. placeholder {0}: key.fingerprint
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "{0} (newest)"
@@ -311,6 +316,10 @@ msgstr "A schedule creates a new session at each trigger and submits a fixed pro
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
 msgstr "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "A Telegram bot. Private chats only; a topic is its own session."
+msgstr "A Telegram bot. Private chats only; a topic is its own session."
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "A text file up to the per-file limit has its content appended to its message block; no more than the per-message limit is inlined over one message. Images are never inlined."
@@ -723,6 +732,14 @@ msgstr "Arguments"
 msgid "argv"
 msgstr "argv"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "Ask"
+msgstr "Ask"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Ask (default)"
+msgstr "Ask (default)"
+
 #: src/features/sessions/session-list.tsx
 msgid "Ask an administrator to configure one."
 msgstr "Ask an administrator to configure one."
@@ -829,6 +846,10 @@ msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoni
 msgid "Auto review"
 msgstr "Auto review"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "Auto Review"
+msgstr "Auto Review"
+
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Availability"
@@ -879,6 +900,14 @@ msgstr "Body"
 #: src/features/settings/provider-dialog.tsx
 msgid "Body fields"
 msgstr "Body fields"
+
+#: src/features/channels/channels-page.tsx
+msgid "Bot account"
+msgstr "Bot account"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Bot token"
+msgstr "Bot token"
 
 #: src/features/sessions/quota-decision.tsx
 msgid "Budget used up · {usedText} spent"
@@ -992,9 +1021,19 @@ msgstr "Changing the URL requires entering the headers again or removing them."
 msgid "Changing them applies to this library only."
 msgstr "Changing them applies to this library only."
 
+#: src/app/shell/nav.ts
+#: src/features/channels/channels-page.tsx
+msgid "Channels"
+msgstr "Channels"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
 msgstr "Chat"
+
+#: src/app/shell/nav.ts
+#: src/features/channels/chat-settings-page.tsx
+msgid "Chat accounts"
+msgstr "Chat accounts"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "Chat attachments"
@@ -1231,6 +1270,7 @@ msgid "Connect Claude Code with:"
 msgstr "Connect Claude Code with:"
 
 #: src/components/status-badge.tsx
+#: src/features/channels/channels-page.tsx
 msgid "Connected"
 msgstr "Connected"
 
@@ -1239,6 +1279,7 @@ msgstr "Connected"
 msgid "Connected since {0}"
 msgstr "Connected since {0}"
 
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 msgid "Connecting"
 msgstr "Connecting"
@@ -1379,6 +1420,14 @@ msgstr "Create a token to connect an MCP client."
 msgid "Create an enrollment token, then run the printed command on the node as root."
 msgstr "Create an enrollment token, then run the printed command on the node as root."
 
+#: src/features/channels/channel-dialog.tsx
+msgid "Create channel"
+msgstr "Create channel"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Create link code"
+msgstr "Create link code"
+
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Create one on the SSH credentials page."
 msgstr "Create one on the SSH credentials page."
@@ -1499,12 +1548,21 @@ msgid "Decode speed: {0} tok/s"
 msgstr "Decode speed: {0} tok/s"
 
 #: src/components/decision/evaluation.tsx
+#: src/features/channels/chat-accounts-section.tsx
 msgid "Default"
 msgstr "Default"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Default (omitted)"
 msgstr "Default (omitted)"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Default model"
+msgstr "Default model"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Default notification account"
+msgstr "Default notification account"
 
 #: src/features/settings/model-presets.tsx
 msgid "Default prompt"
@@ -1513,6 +1571,10 @@ msgstr "Default prompt"
 #: src/features/settings/model-presets.tsx
 msgid "Default prompt and protocol"
 msgstr "Default prompt and protocol"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Default rule preset"
+msgstr "Default rule preset"
 
 #: src/features/system-settings/retention-section.tsx
 msgid "Default: {defaultValue}."
@@ -1524,6 +1586,7 @@ msgid "Defaults: {0} total."
 msgstr "Defaults: {0} total."
 
 #: src/components/file-manager/file-list.tsx
+#: src/features/channels/channels-page.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/extensions.tsx
@@ -1540,6 +1603,7 @@ msgstr "Delete"
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
 #: src/components/file-manager/file-list.tsx
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/signing-credentials/pages.tsx
@@ -1566,6 +1630,15 @@ msgstr "Delete authorization signing key {0}"
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Delete authorization signing key?"
 msgstr "Delete authorization signing key?"
+
+#: src/features/channels/channels-page.tsx
+msgid "Delete channel"
+msgstr "Delete channel"
+
+#. placeholder {0}: deleting.name
+#: src/features/channels/channels-page.tsx
+msgid "Delete channel {0}?"
+msgstr "Delete channel {0}?"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
@@ -1707,6 +1780,7 @@ msgstr "Disable {0}?"
 msgid "Disable user"
 msgstr "Disable user"
 
+#: src/features/channels/channels-page.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
@@ -1714,6 +1788,10 @@ msgstr "Disable user"
 #: src/features/users/user-group-page.tsx
 msgid "Disabled"
 msgstr "Disabled"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Disabled channels stop polling."
+msgstr "Disabled channels stop polling."
 
 #: src/components/status-badge.tsx
 msgid "Dispatched"
@@ -1726,6 +1804,7 @@ msgstr "Dispatched"
 msgid "Display name"
 msgstr "Display name"
 
+#: src/features/channels/chat-accounts-section.tsx
 #: src/features/sessions/tool-card.tsx
 msgid "Done"
 msgstr "Done"
@@ -1757,6 +1836,7 @@ msgstr "Each selected signing credential may authorize a task, and crhs must cou
 msgid "Each token has its own rules; what they do not allow waits for your approval."
 msgstr "Each token has its own rules; what they do not allow waits for your approval."
 
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -1765,10 +1845,16 @@ msgstr "Edit"
 
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 msgid "Edit {0}"
 msgstr "Edit {0}"
+
+#. placeholder {0}: existing.name
+#: src/features/channels/channel-dialog.tsx
+msgid "Edit channel {0}"
+msgstr "Edit channel {0}"
 
 #. placeholder {0}: existing.name
 #: src/features/settings/extension-dialog.tsx
@@ -1820,6 +1906,7 @@ msgstr "Empty file."
 msgid "Enable"
 msgstr "Enable"
 
+#: src/features/channels/channel-dialog.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/settings/extensions.tsx
@@ -2028,6 +2115,10 @@ msgstr "Expired"
 msgid "Expires"
 msgstr "Expires"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Expires <0/>."
+msgstr "Expires <0/>."
+
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Expires after"
 msgstr "Expires after"
@@ -2141,6 +2232,10 @@ msgstr "For command limits, lifetimes, local approval and other advanced options
 #: src/features/nodes/node-trust.tsx
 msgid "Format"
 msgstr "Format"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "From BotFather. It is encrypted with the master key and never shown again."
+msgstr "From BotFather. It is encrypted with the master key and never shown again."
 
 #: src/features/system-settings/general-section.tsx
 msgid "General"
@@ -2306,6 +2401,10 @@ msgstr "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on 
 msgid "Its audit trail stays; the token itself is removed."
 msgstr "Its audit trail stays; the token itself is removed."
 
+#: src/features/channels/channels-page.tsx
+msgid "Its linked accounts and threads are removed, so people stop reaching crhs from that bot. Its stored token is deleted."
+msgstr "Its linked accounts and threads are removed, so people stop reaching crhs from that bot. Its stored token is deleted."
+
 #: src/features/node-groups/pages.tsx
 msgid "Its members lose this node group. Rules and task groups that reference it keep the reference and display it as deleted."
 msgstr "Its members lose this node group. Rules and task groups that reference it keep the reference and display it as deleted."
@@ -2353,6 +2452,7 @@ msgstr "Keys crhs signs authorizations with. The newest is used by default; a no
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -2378,6 +2478,10 @@ msgstr "Language"
 #: src/features/system-settings/attachments-section.tsx
 msgid "Largest file to inline"
 msgstr "Largest file to inline"
+
+#: src/features/channels/channels-page.tsx
+msgid "Last error"
+msgstr "Last error"
 
 #. placeholder {0}: record.lastRejection.code
 #. placeholder {1}: record.lastRejection.attempt
@@ -2405,6 +2509,10 @@ msgstr "Last used"
 #: src/features/settings/provider-dialog.tsx
 msgid "Leave empty to keep the current key"
 msgstr "Leave empty to keep the current key"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Leave empty to keep the current token"
+msgstr "Leave empty to keep the current token"
 
 #: src/features/settings/model-presets.tsx
 msgid "Leave empty to use the default prompt."
@@ -2452,9 +2560,21 @@ msgstr "Lines"
 msgid "Lines {from}–{to}"
 msgstr "Lines {from}–{to}"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Link a private chat to use your sessions and approvals from chat. A linked chat acts with your authority; protect it like your password."
+msgstr "Link a private chat to use your sessions and approvals from chat. A linked chat acts with your authority; protect it like your password."
+
 #: src/components/task-result.tsx
 msgid "Link target"
 msgstr "Link target"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Link this chat"
+msgstr "Link this chat"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Linked accounts"
+msgstr "Linked accounts"
 
 #: src/features/settings/providers.ts
 msgid "List at least one model."
@@ -2521,6 +2641,10 @@ msgstr "Log out"
 #: src/lib/thinking-level.ts
 msgid "Low"
 msgstr "Low"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Lowercase letters, digits and -, not starting with a digit."
+msgstr "Lowercase letters, digits and -, not starting with a digit."
 
 #: src/features/settings/extension-dialog.tsx
 msgid "Lowercase letters, digits and \"-\", not starting with a digit. Tools and rules use it."
@@ -2673,6 +2797,8 @@ msgstr "Move or rename {0}"
 
 #: src/components/file-manager/file-list.tsx
 #: src/components/task-result.tsx
+#: src/features/channels/channel-dialog.tsx
+#: src/features/channels/channels-page.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
@@ -2703,6 +2829,11 @@ msgstr "Never"
 #: src/components/status-badge.tsx
 msgid "Never run"
 msgstr "Never run"
+
+#: src/features/channels/channel-dialog.tsx
+#: src/features/channels/channels-page.tsx
+msgid "New channel"
+msgstr "New channel"
 
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
@@ -2811,6 +2942,10 @@ msgstr "Newest"
 msgid "Next"
 msgstr "Next"
 
+#: src/features/channels/channels-page.tsx
+msgid "Next attempt"
+msgstr "Next attempt"
+
 #: src/features/schedules/pages.tsx
 msgid "Next run"
 msgstr "Next run"
@@ -2854,6 +2989,18 @@ msgstr "No budget limit · {usedText} spent"
 #: src/features/system-settings/sign-in-section.tsx
 msgid "No captcha"
 msgstr "No captcha"
+
+#: src/features/channels/channels-page.tsx
+msgid "No channels yet"
+msgstr "No channels yet"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "No chat account is linked yet."
+msgstr "No chat account is linked yet."
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "No chat channel is set up; ask an administrator."
+msgstr "No chat channel is set up; ask an administrator."
 
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
@@ -3101,6 +3248,10 @@ msgstr "Nodes that trust it stop accepting its signatures. Authorizations it alr
 msgid "None"
 msgstr "None"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "None (WebUI only)"
+msgstr "None (WebUI only)"
+
 #: src/components/decision/approval-decision.tsx
 msgid "Not a valid rule: {error}"
 msgstr "Not a valid rule: {error}"
@@ -3229,6 +3380,16 @@ msgstr "Only targets without an existing grant are listed."
 #: src/features/audit/pages.tsx
 msgid "Open {0} {1}"
 msgstr "Open {0} {1}"
+
+#. placeholder {0}: channel.account
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Open a private chat with @{0}."
+msgstr "Open a private chat with @{0}."
+
+#. placeholder {0}: channel?.name
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Open a private chat with the bot named {0}."
+msgstr "Open a private chat with the bot named {0}."
 
 #: src/components/task-result.tsx
 msgid "Open approval page"
@@ -3991,6 +4152,7 @@ msgid "Runtime settings for this crhs. A save applies without a restart and is r
 msgstr "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
 
 #: src/components/dialogs.tsx
+#: src/features/channels/channel-dialog.tsx
 #: src/features/library/limits-dialog.tsx
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/rename-node-button.tsx
@@ -4147,6 +4309,10 @@ msgstr "Select {0} files"
 msgid "Send"
 msgstr "Send"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Send the command below to the bot in a private chat. The code works once and expires in 10 minutes."
+msgstr "Send the command below to the bot in a private chat. The code works once and expires in 10 minutes."
+
 #: src/features/settings/extension-dialog.tsx
 msgid "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."
 msgstr "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."
@@ -4243,6 +4409,14 @@ msgstr "Show all"
 #: src/components/code-text.tsx
 msgid "Show less"
 msgstr "Show less"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Show progress"
+msgstr "Show progress"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Show the current step while a turn runs; tool calls and thinking are never sent as messages."
+msgstr "Show the current step while a turn runs; tool calls and thinking are never sent as messages."
 
 #: src/components/code-text.tsx
 msgid "Showing first {maxLines} of {lines} lines"
@@ -4371,6 +4545,7 @@ msgstr "Start line"
 msgid "Start one, or wait for a scheduled run."
 msgstr "Start one, or wait for a scheduled run."
 
+#: src/features/channels/channels-page.tsx
 #: src/features/tasks/pages.tsx
 msgid "State"
 msgstr "State"
@@ -4470,6 +4645,10 @@ msgstr "Summary"
 msgid "System"
 msgstr "System"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "System default"
+msgstr "System default"
+
 #: src/features/settings/model-presets.tsx
 msgid "System prompt"
 msgstr "System prompt"
@@ -4558,6 +4737,10 @@ msgstr "The Ask rule preset can often pause the schedule while it waits for your
 #: src/features/settings/providers.ts
 msgid "The base URL must start with http:// or https://."
 msgstr "The base URL must start with http:// or https://."
+
+#: src/features/channels/channel-dialog.tsx
+msgid "The bot token is required."
+msgstr "The bot token is required."
 
 #: src/features/signing-credentials/pages.tsx
 msgid "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
@@ -5026,6 +5209,7 @@ msgstr "Type"
 msgid "Type keywords separated by spaces"
 msgstr "Type keywords separated by spaces"
 
+#: src/features/channels/channels-page.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/settings/extensions.tsx
 msgid "Unavailable"
@@ -5051,6 +5235,15 @@ msgstr "unlimited"
 #: src/features/sessions/budget-dialog.tsx
 msgid "Unlimited"
 msgstr "Unlimited"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Unlink"
+msgstr "Unlink"
+
+#. placeholder {0}: account.displayName ?? account.platformUserId
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Unlink {0}"
+msgstr "Unlink {0}"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Unprivileged identity"
@@ -5102,6 +5295,10 @@ msgstr "Use at least 8 characters, or leave it empty."
 #: src/features/users/reset-password-dialog.tsx
 msgid "Use at least 8 characters."
 msgstr "Use at least 8 characters."
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Use lowercase letters, digits and -, not starting with a digit."
+msgstr "Use lowercase letters, digits and -, not starting with a digit."
 
 #: src/features/settings/model-presets.tsx
 msgid "Use the session's model"
@@ -5257,6 +5454,10 @@ msgstr "What's on your plan today?"
 msgid "When"
 msgstr "When"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Where notifications go when you are not using the WebUI."
+msgstr "Where notifications go when you are not using the WebUI."
+
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Whether sign-in requires a proof of work. Default: {defaultCaptcha}."
 msgstr "Whether sign-in requires a proof of work. Default: {defaultCaptcha}."
@@ -5288,6 +5489,10 @@ msgstr "Yes"
 #: src/features/sessions/session-list.tsx
 msgid "Yesterday"
 msgstr "Yesterday"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Yolo"
+msgstr "Yolo"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Yolo lets this token run anything on your nodes without asking."

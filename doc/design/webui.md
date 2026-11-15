@@ -241,6 +241,20 @@ it has no **Reconnect** or **Delete**: built-ins exist from the start and are al
 opens the listed tools with their annotations. A failed connection shows its error and keeps the last tool
 list searchable ([Extensions](extensions.md#mcp-connections)).
 
+### Channels page
+
+**Admin → Channels** lists the chat channels with their kind, state, bot account, last error
+and next attempt. **New channel** creates a Telegram bot with its write-only token and the defaults for
+sessions started from chat; **Edit** changes them, and **Delete** also removes the channel's linked
+accounts and threads. The list refreshes while the page is open, like Extensions
+([Chat channels](channels.md#channels)).
+
+### Chat accounts page
+
+**Chat accounts** is the member's own page: the linked accounts, **Create link code** (the code, its
+expiry and instructions), **Unlink**, the default notification account and the **Show progress** toggle.
+A linked chat acts with the user's authority, so the page says so ([Accounts](channels.md#accounts)).
+
 ### Models page
 
 Administrators configure model providers and the three model presets here. API keys are never sent

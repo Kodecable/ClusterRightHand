@@ -27,9 +27,9 @@ your other browsers. Your API tokens keep working unless you tick **Also revoke 
 
 | Group | Items |
 |---|---|
-| **Work** | Sessions, Library, Schedules, Tasks, Approvals |
+| **Work** | Sessions, Library, Schedules, Tasks, Approvals, Chat accounts |
 | **Cluster** | Nodes, Node groups, SSH credentials (administrators), Signing credentials |
-| **Admin** | Authorizations (administrators), API tokens, Audit, Extensions (administrators), Models (administrators), System settings (administrators), Users (administrators) |
+| **Admin** | Authorizations (administrators), API tokens, Audit, Extensions (administrators), Channels (administrators), Models (administrators), System settings (administrators), Users (administrators) |
 
 The **Approvals** badge counts everything waiting for you. The user menu also sets the theme and the
 language (English or Chinese); these are stored in your browser.
@@ -313,6 +313,13 @@ and a link to the library. Administrators edit the limits there.
 node or node group. Removing a grant takes effect immediately; a task still waiting for a user who lost
 access ends without running.
 
+## Chat accounts
+
+**Chat accounts** links a private Telegram chat to your account, chooses the account notifications fall
+back to when you are not using the WebUI and toggles the progress status. A linked chat acts with your
+authority, including approvals that need no signature; the one-time code you create in the WebUI is what
+ties the two together. See [Using CRH from chat](channels.md).
+
 ## Approvals
 
 **Approvals** is one table of everything waiting for you, with its type, operation, target nodes and
@@ -327,6 +334,14 @@ when it was requested. Click a row to open it:
 **Always allow** adds an allow rule, prefilled from the operation, to the session, schedule or token
 that asked. A plain approval adds no rule. Approvals never expire; signature requests expire after 24
 hours.
+
+## Channels page
+
+**Admin → Channels** (administrators) lists the chat bots crhs runs as, their state, the bot
+account and the last error. **New channel** adds a Telegram bot: a name, the write-only bot token and
+the default model and rule preset for sessions started from chat. A disabled channel stops polling; a
+deleted one also removes its linked accounts and threads. A dropped connection is retried with the same
+backoff as an MCP extension, and the next attempt is shown. See [Chat channels](../design/channels.md).
 
 ## Authorizations
 

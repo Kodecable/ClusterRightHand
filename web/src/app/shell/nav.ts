@@ -40,6 +40,8 @@ export type NavPath =
 	| "/audit"
 	| "/settings/models"
 	| "/settings/extensions"
+	| "/settings/channels"
+	| "/settings/chats"
 	| "/settings/system"
 	| "/users";
 
@@ -68,6 +70,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/schedules", label: msg`Schedules`, icon: CalendarClockIcon },
 			{ to: "/tasks", label: msg`Tasks`, icon: ListChecksIcon, activeFor: ["/task-groups"] },
 			{ to: "/approvals", label: msg`Approvals`, icon: ShieldCheckIcon, badge: "approvals" },
+			{ to: "/settings/chats", label: msg`Chat accounts`, icon: MessageSquareIcon },
 		],
 	},
 	{
@@ -87,6 +90,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/audit", label: msg`Audit`, icon: ScrollTextIcon },
 			{ to: "/settings/models", label: msg`Models`, icon: BoxesIcon, adminOnly: true },
 			{ to: "/settings/extensions", label: msg`Extensions`, icon: BlocksIcon, adminOnly: true },
+			{ to: "/settings/channels", label: msg`Channels`, icon: MessageSquareIcon, adminOnly: true },
 			{ to: "/settings/system", label: msg`System settings`, icon: SettingsIcon, adminOnly: true },
 			{ to: "/users", label: msg`Users`, icon: UsersIcon, adminOnly: true, activeFor: ["/user-groups"] },
 		],

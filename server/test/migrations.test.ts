@@ -85,6 +85,11 @@ const TABLES = [
 	"api_tokens",
 	"audit_events",
 	"authorizations",
+	"channel_accounts",
+	"channel_link_codes",
+	"channel_threads",
+	"channel_user_settings",
+	"channels",
 	"enrollment_tokens",
 	"extension_grants",
 	"extensions",
@@ -120,6 +125,10 @@ const TABLES = [
 const INDEXES = [
 	"audit_events_ts_idx",
 	"authorizations_deadline_idx",
+	"channel_accounts_user_idx",
+	"channel_link_codes_user_idx",
+	"channel_threads_chat_idx",
+	"channel_threads_session_idx",
 	"node_access_grants_grantee_idx",
 	"nodes_org_name_key_unique",
 	"schedules_due_idx",
@@ -203,6 +212,13 @@ describeBackends("initial migration", (backend) => {
 			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose"]),
 		);
 		expect(await tableColumns(backend, db, "task_groups")).toContain("transfer");
+		expect(await tableColumns(backend, db, "sessions")).toContain("last_used_from");
+		expect(await tableColumns(backend, db, "channels")).toEqual(
+			expect.arrayContaining(["name", "kind", "enabled", "credentials_secret_id", "default_model", "cursor"]),
+		);
+		expect(await tableColumns(backend, db, "channel_threads")).toEqual(
+			expect.arrayContaining(["chat_id", "topic_id", "session_id", "current"]),
+		);
 	});
 
 	it("seeds the built-in extensions", async () => {
@@ -233,6 +249,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0005_task_group_transfer" },
 			{ name: "0006_image_state" },
 			{ name: "0007_extensions" },
+			{ name: "0008_channels" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});

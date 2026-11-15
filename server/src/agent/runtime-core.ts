@@ -145,6 +145,8 @@ export interface RuntimeHost {
 	readonly sessionFlags: SessionFlags;
 	/** The in-flight generation attempts, by provider session id (doc/design/agent-runtime.md "Session statistics"). */
 	readonly generationTimings: GenerationTimings;
+	/** Called after a session's run state changes, for hosts that follow waits (chat channels). */
+	stateChanged?: (sessionId: string) => void;
 }
 
 /** The session's row; `missing` words the NotFoundError (callers name what the user asked for). */

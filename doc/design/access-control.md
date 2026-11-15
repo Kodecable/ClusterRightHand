@@ -263,6 +263,10 @@ external call has its own small object, `external_calls`, and waits the same way
   approval still applies.
 - When a node trusts only the user's signature, that signature counts as the approval as well, so
   the user does not approve twice.
+- A waiting approval also reaches the owner in chat ([Approvals in chat](channels.md#approvals)): a
+  rule approval that needs no signature has Approve and Reject there, decided through the same checks
+  and audited with the channel. "Always allow" changes rules, so it stays in the WebUI; an approval
+  that needs a signature sends a link to its page.
 
 ## API tokens
 

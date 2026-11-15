@@ -12,6 +12,7 @@ import { RequestDrain } from "./api/drain.ts";
 import { Audit } from "./audit/audit.ts";
 import { configureHashGate } from "./auth/hash-gate.ts";
 import { deleteExpiredWebSessions } from "./auth/sessions.ts";
+import { ChannelManager } from "./channels/manager.ts";
 import { addUser, changePassword, exportKeys, importKeys, initKeys } from "./cli/commands.ts";
 import { readSecret } from "./cli/prompt.ts";
 import { AgentServer } from "./cluster/agent-server.ts";
@@ -244,6 +245,19 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	await rejectExpiredTokenWaits(db, cluster, taskGroups);
 	// Recovery (leftover pending runs, then runs that ended while the process was down) happens before the loop.
 	const scheduler = new Scheduler({ db, runtime, audit });
+	// Chat channels (doc/design/channels.md): adapters for the stored bots, started before requests arrive. The
+	// manager follows session state so approvals and progress reach the linked chat.
+	const channels = new ChannelManager({
+		db,
+		masterKey,
+		runtime,
+		cluster,
+		taskGroups,
+		audit,
+		libraryBackend,
+		settings,
+	});
+	await channels.start();
 	const drain = new RequestDrain();
 	const app = createApp(db, {
 		clientAddress: createClientAddress(() => settings.current().realIpHeader),
@@ -261,6 +275,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		audit,
 		agent: { runtime, models },
 		scheduler,
+		channels,
 		drain,
 	});
 	await scheduler.start();
@@ -317,6 +332,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		// a result, so after a restart it reruns and reattaches to the same cluster task. Ending the waits first
 		// would let the call return a non-final state, which durable records as its outcome.
 		await scheduler.stop();
+		// Stop polling and watching before the runtime goes: an adapter event must not reach a closed Harness.
+		await channels.stop();
 		await runtime.close();
 		await mcp.close();
 		await agentStorage.close();

@@ -44,6 +44,7 @@ export async function waitForQuota(host: RuntimeHost, sessionId: string, context
 			// row is still live (a run that ended while it waited must not be revived).
 			const { since } = await setSessionState(host.db, sessionId, "awaiting", quotaWait);
 			host.sessionList.publishSession(sessionId);
+			host.stateChanged?.(sessionId);
 			// A root level has no parent to handle its wait: the owner sees it in the approvals API, and the
 			// session paused on that level already carries the wait (doc/design/agent-runtime.md "Quota and token accounting").
 			// A deny/abort could have landed between the check and the write; do not wake for an ended wait.

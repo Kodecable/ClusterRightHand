@@ -33,6 +33,12 @@ Libraries are per-user and per-group file stores on crhs; whole files move betwe
 through crhs, on data connections separate from the control connection ([Libraries and file
 transfer](library.md)).
 
+Chat channels are outbound connections to chat platforms. The channel module owns the adapters (one per
+platform kind) and the platform-independent core: linking accounts, conversations, inbound messages and
+files, outbound text, notifications and approvals in chat. The core uses the agent runtime and the
+Cluster API like the WebUI does, so a chat decision passes the same checks and is audited
+([Chat channels](channels.md)).
+
 On a node, crha's unprivileged mode connects to crhs and runs ordinary tasks; its optional privileged
 mode has no network access and runs only authorized tasks ([Privilege](privilege.md)).
 
@@ -59,7 +65,7 @@ mode has no network access and runs only authorized tasks ([Privilege](privilege
 ```text
 util, config.ts, version.ts, keys, storage → policy → auth → users →
 audit, settings, sessions → library → privilege → cluster, retention → extensions → tools → agent →
-scheduler → mcp, api → setup, cli → main.ts
+scheduler → channels → mcp, api → setup, cli → main.ts
 ```
 
 A module may import only modules at or below its layer, and `pnpm check` rejects runtime module

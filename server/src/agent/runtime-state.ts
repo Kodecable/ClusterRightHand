@@ -64,6 +64,9 @@ async function refreshStateOnce(host: RuntimeHost, sessionId: string): Promise<S
 		row.waiting_kind !== (desired.wait?.kind ?? null) ||
 		row.waiting_level_id !== (desired.wait?.levelId ?? null);
 	if (changed) host.inboxes.clear();
+	// A refresh can change which waits exist while the session's state stays `awaiting` (one approval ends and
+	// another remains); the channel messages follow the rows, so every computation is reported.
+	host.stateChanged?.(sessionId);
 	return desired.state;
 }
 
@@ -298,6 +301,7 @@ export async function settleInput(
 		.execute();
 	if (row.state === "running") await recordTreeReply(host.db, sessionId, "running", "idle");
 	host.sessionList.publishSession(sessionId);
+	host.stateChanged?.(sessionId);
 	host.inboxes.forget(sessionId);
 	// A tool call that ended without its task (aborted by durable, abandoned after restarts) left the task
 	// waiting for a decision nobody will act on: the run is over, so end those waits too.

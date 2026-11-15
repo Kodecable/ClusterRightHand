@@ -20,6 +20,7 @@ import type { SessionListHub } from "../agent/session-list.ts";
 import { userActor } from "../audit/audit.ts";
 import { revokeAllApiTokens } from "../auth/api-tokens.ts";
 import { revokeUserWebSessions } from "../auth/sessions.ts";
+import type { ChannelManager } from "../channels/manager.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import { deleteGrantsForUserGroup } from "../cluster/node-access.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
@@ -245,6 +246,8 @@ export interface UserRoutesOptions {
 	revalidateWebSessions?: (userId: string) => Promise<void> | void;
 	/** System settings: a new user or user group copies the default library limits. */
 	settings?: SettingsStore;
+	/** Chat channels: a disabled user's linked accounts stop. */
+	channels?: ChannelManager;
 }
 
 /** Expects requireUser to have run. */
@@ -337,6 +340,8 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			await options.sessions?.publishVisibilityChanged();
 			// A disabled owner's schedules stop firing (doc/design/scheduling.md "Lifecycle").
 			await Scheduler.disableForOwner(db, id, c.get("audit"), userActor(c.get("user")));
+			// Their chat accounts are unlinked (doc/design/channels.md "Accounts").
+			await options.channels?.detachUser(id);
 		}
 		// Administrator and member see different sessions; a reconnect refetches under the new role.
 		if (body.kind !== undefined) {

@@ -560,6 +560,8 @@ export interface SessionsTable {
 	reply_at: string | null;
 	/** When the owner last opened the tree; `reply_at > owner_read_at` means unread; roots only. */
 	owner_read_at: string | null;
+	/** Where the session was last used (doc/design/channels.md "Notifications"): `web`, a channel thread id, or null. */
+	last_used_from: ColumnType<string | null, string | null | undefined, string | null>;
 	/** Remaining token quota at any level (doc/design/agent-runtime.md "Quota and token accounting"); null: unlimited. Signed: one call may overspend it. */
 	quota_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
 	/** The budget measure: output tokens spent by this session and its subagents. */
@@ -586,6 +588,75 @@ export interface SessionsTable {
 	prompt_tokens: ColumnType<string | number, string | number | undefined, string | number>;
 	/** Cache-read tokens of every call, accumulated up the tree. */
 	cache_read_tokens: ColumnType<string | number, string | number | undefined, string | number>;
+}
+
+/** One chat channel bot (doc/design/channels.md "Channels"). */
+export interface ChannelsTable {
+	id: string;
+	org_id: string;
+	/** Lowercase letters, digits and `-`, not starting with a digit; unique. */
+	name: string;
+	kind: "telegram" | "satori";
+	enabled: number;
+	/** The `secrets` row holding the credentials JSON, encrypted with the master key. */
+	credentials_secret_id: string | null;
+	/** JSON ModelRef for sessions a chat creates; null uses the session model preset. */
+	default_model: string | null;
+	/** RulePreset for sessions a chat creates; null means `ask`. */
+	default_rule_preset: string | null;
+	/** The last platform update id handled, so a restart does not handle an update twice. */
+	cursor: string | null;
+	created_at: CreatedAt;
+	updated_at: string;
+}
+
+/** One platform account linked to one CRH user (doc/design/channels.md "Accounts"). */
+export interface ChannelAccountsTable {
+	id: string;
+	channel_id: string;
+	platform: string;
+	platform_user_id: string;
+	/** The private chat to send to; Telegram's user id. */
+	platform_chat_id: string | null;
+	user_id: string;
+	display_name: string | null;
+	linked_at: string;
+}
+
+/** A one-time link code, stored hashed (doc/design/channels.md "Accounts"). */
+export interface ChannelLinkCodesTable {
+	id: string;
+	org_id: string;
+	user_id: string;
+	/** Hex SHA-256 of the code. */
+	code_hash: string;
+	expires_at: string;
+	used_at: string | null;
+	created_at: CreatedAt;
+}
+
+/** A private chat (and topic) mapped to one session (doc/design/channels.md "Conversations"). */
+export interface ChannelThreadsTable {
+	id: string;
+	channel_id: string;
+	platform: string;
+	chat_id: string;
+	topic_id: string | null;
+	session_id: string;
+	/** 1 for a chat's current session; platforms with topics keep 0. */
+	current: number;
+	created_at: CreatedAt;
+	updated_at: string;
+}
+
+/** One user's chat settings (doc/design/channels.md "Notifications"). */
+export interface ChannelUserSettingsTable {
+	user_id: string;
+	/** A linked account notifications go to when the WebUI is not open; null: no default. */
+	default_account_id: string | null;
+	/** 1 shows a progress status/draft while a turn runs. */
+	show_progress: number;
+	updated_at: string;
 }
 
 export interface ModelProvidersTable {
@@ -682,6 +753,11 @@ export interface Database {
 	sessions: SessionsTable;
 	model_providers: ModelProvidersTable;
 	model_presets: ModelPresetsTable;
+	channels: ChannelsTable;
+	channel_accounts: ChannelAccountsTable;
+	channel_link_codes: ChannelLinkCodesTable;
+	channel_threads: ChannelThreadsTable;
+	channel_user_settings: ChannelUserSettingsTable;
 	extensions: ExtensionsTable;
 	extension_grants: ExtensionGrantsTable;
 	external_calls: ExternalCallsTable;

@@ -94,6 +94,11 @@ msgstr "{0, plural, one {替换了 # 处} other {替换了 # 处}}"
 msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
 msgstr "{0, plural, one {写入了 # 字节} other {写入了 # 字节}}"
 
+#. placeholder {0}: account.platform
+#: src/features/channels/chat-accounts-section.tsx
+msgid "{0} · linked <0/>"
+msgstr "{0} · 关联于 <0/>"
+
 #. placeholder {0}: key.fingerprint
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "{0} (newest)"
@@ -311,6 +316,10 @@ msgstr "计划任务在每次触发时创建一个新会话并提交固定的提
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
 msgstr "计划运行走正常的授权路径：特权任务需要所有者签名。若要让固定命令无人值守地运行，请在"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "A Telegram bot. Private chats only; a topic is its own session."
+msgstr "一个 Telegram 机器人。仅限私聊；每个话题是独立的会话。"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "A text file up to the per-file limit has its content appended to its message block; no more than the per-message limit is inlined over one message. Images are never inlined."
@@ -723,6 +732,14 @@ msgstr "参数"
 msgid "argv"
 msgstr "argv"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "Ask"
+msgstr "询问"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Ask (default)"
+msgstr "询问（默认）"
+
 #: src/features/sessions/session-list.tsx
 msgid "Ask an administrator to configure one."
 msgstr "请让管理员配置一个。"
@@ -829,6 +846,10 @@ msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 re
 msgid "Auto review"
 msgstr "自动复核"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "Auto Review"
+msgstr "自动审查"
+
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Availability"
@@ -879,6 +900,14 @@ msgstr "正文"
 #: src/features/settings/provider-dialog.tsx
 msgid "Body fields"
 msgstr "请求体字段"
+
+#: src/features/channels/channels-page.tsx
+msgid "Bot account"
+msgstr "机器人账号"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Bot token"
+msgstr "机器人令牌"
 
 #: src/features/sessions/quota-decision.tsx
 msgid "Budget used up · {usedText} spent"
@@ -992,9 +1021,19 @@ msgstr "更改 URL 需要重新输入请求头或将其移除。"
 msgid "Changing them applies to this library only."
 msgstr "修改后仅影响此资料库。"
 
+#: src/app/shell/nav.ts
+#: src/features/channels/channels-page.tsx
+msgid "Channels"
+msgstr "渠道"
+
 #: src/features/sessions/share-dialog.tsx
 msgid "Chat"
 msgstr "聊天"
+
+#: src/app/shell/nav.ts
+#: src/features/channels/chat-settings-page.tsx
+msgid "Chat accounts"
+msgstr "聊天账号"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "Chat attachments"
@@ -1231,6 +1270,7 @@ msgid "Connect Claude Code with:"
 msgstr "用以下命令连接 Claude Code："
 
 #: src/components/status-badge.tsx
+#: src/features/channels/channels-page.tsx
 msgid "Connected"
 msgstr "已连接"
 
@@ -1239,6 +1279,7 @@ msgstr "已连接"
 msgid "Connected since {0}"
 msgstr "自 {0} 起连接"
 
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 msgid "Connecting"
 msgstr "正在连接"
@@ -1379,6 +1420,14 @@ msgstr "创建令牌以连接 MCP 客户端。"
 msgid "Create an enrollment token, then run the printed command on the node as root."
 msgstr "创建注册令牌，然后在节点上以 root 身份运行打印出的命令。"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "Create channel"
+msgstr "新建渠道"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Create link code"
+msgstr "创建关联码"
+
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Create one on the SSH credentials page."
 msgstr "在 SSH 凭据页面创建一个。"
@@ -1499,12 +1548,21 @@ msgid "Decode speed: {0} tok/s"
 msgstr "解码速度：{0} tok/s"
 
 #: src/components/decision/evaluation.tsx
+#: src/features/channels/chat-accounts-section.tsx
 msgid "Default"
 msgstr "默认"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Default (omitted)"
 msgstr "默认"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Default model"
+msgstr "默认模型"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Default notification account"
+msgstr "默认通知账号"
 
 #: src/features/settings/model-presets.tsx
 msgid "Default prompt"
@@ -1513,6 +1571,10 @@ msgstr "默认提示词"
 #: src/features/settings/model-presets.tsx
 msgid "Default prompt and protocol"
 msgstr "默认提示词与协议说明"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Default rule preset"
+msgstr "默认规则预设"
 
 #: src/features/system-settings/retention-section.tsx
 msgid "Default: {defaultValue}."
@@ -1524,6 +1586,7 @@ msgid "Defaults: {0} total."
 msgstr "默认值：总计 {0}。"
 
 #: src/components/file-manager/file-list.tsx
+#: src/features/channels/channels-page.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/extensions.tsx
@@ -1540,6 +1603,7 @@ msgstr "删除"
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
 #: src/components/file-manager/file-list.tsx
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/signing-credentials/pages.tsx
@@ -1566,6 +1630,15 @@ msgstr "删除授权签名密钥 {0}"
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Delete authorization signing key?"
 msgstr "删除授权签名密钥？"
+
+#: src/features/channels/channels-page.tsx
+msgid "Delete channel"
+msgstr "删除渠道"
+
+#. placeholder {0}: deleting.name
+#: src/features/channels/channels-page.tsx
+msgid "Delete channel {0}?"
+msgstr "删除渠道 {0}？"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Delete credential"
@@ -1707,6 +1780,7 @@ msgstr "禁用 {0}？"
 msgid "Disable user"
 msgstr "禁用用户"
 
+#: src/features/channels/channels-page.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
@@ -1714,6 +1788,10 @@ msgstr "禁用用户"
 #: src/features/users/user-group-page.tsx
 msgid "Disabled"
 msgstr "已禁用"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Disabled channels stop polling."
+msgstr "停用的渠道会停止轮询。"
 
 #: src/components/status-badge.tsx
 msgid "Dispatched"
@@ -1726,6 +1804,7 @@ msgstr "已派发"
 msgid "Display name"
 msgstr "显示名"
 
+#: src/features/channels/chat-accounts-section.tsx
 #: src/features/sessions/tool-card.tsx
 msgid "Done"
 msgstr "完成"
@@ -1757,6 +1836,7 @@ msgstr "每个选中的签名凭据都可以授权任务，且必须由 crhs 联
 msgid "Each token has its own rules; what they do not allow waits for your approval."
 msgstr "每个令牌有自己的规则；规则不允许的操作会等待你审批。"
 
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -1765,10 +1845,16 @@ msgstr "编辑"
 
 #. placeholder {0}: row.original.name
 #. placeholder {0}: row.original.providerId
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 msgid "Edit {0}"
 msgstr "编辑 {0}"
+
+#. placeholder {0}: existing.name
+#: src/features/channels/channel-dialog.tsx
+msgid "Edit channel {0}"
+msgstr "编辑渠道 {0}"
 
 #. placeholder {0}: existing.name
 #: src/features/settings/extension-dialog.tsx
@@ -1820,6 +1906,7 @@ msgstr "空文件。"
 msgid "Enable"
 msgstr "启用"
 
+#: src/features/channels/channel-dialog.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/settings/extensions.tsx
@@ -2028,6 +2115,10 @@ msgstr "已过期"
 msgid "Expires"
 msgstr "过期时间"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Expires <0/>."
+msgstr "到期时间 <0/>。"
+
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Expires after"
 msgstr "有效期"
@@ -2141,6 +2232,10 @@ msgstr "命令限制、有效期、本地批准等高级选项请参考文档，
 #: src/features/nodes/node-trust.tsx
 msgid "Format"
 msgstr "格式"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "From BotFather. It is encrypted with the master key and never shown again."
+msgstr "来自 BotFather。它使用主密钥加密，之后不再显示。"
 
 #: src/features/system-settings/general-section.tsx
 msgid "General"
@@ -2306,6 +2401,10 @@ msgstr "批准前，它必须与 <0>crha enroll</0> 打印的内容或节点上�
 msgid "Its audit trail stays; the token itself is removed."
 msgstr "审计记录会保留；令牌本身会被删除。"
 
+#: src/features/channels/channels-page.tsx
+msgid "Its linked accounts and threads are removed, so people stop reaching crhs from that bot. Its stored token is deleted."
+msgstr "它的关联账号和会话线程会被移除，人们将无法再通过该机器人访问 crhs。存储的令牌会被删除。"
+
 #: src/features/node-groups/pages.tsx
 msgid "Its members lose this node group. Rules and task groups that reference it keep the reference and display it as deleted."
 msgstr "成员将失去这个节点组。引用它的规则和任务组会保留该引用，并显示为已删除。"
@@ -2353,6 +2452,7 @@ msgstr "crhs 用于为授权签名的密钥。默认使用最新的密钥；节�
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
+#: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -2378,6 +2478,10 @@ msgstr "语言"
 #: src/features/system-settings/attachments-section.tsx
 msgid "Largest file to inline"
 msgstr "可内联的最大文件"
+
+#: src/features/channels/channels-page.tsx
+msgid "Last error"
+msgstr "最近错误"
 
 #. placeholder {0}: record.lastRejection.code
 #. placeholder {1}: record.lastRejection.attempt
@@ -2405,6 +2509,10 @@ msgstr "最后使用"
 #: src/features/settings/provider-dialog.tsx
 msgid "Leave empty to keep the current key"
 msgstr "留空以保留当前密钥"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Leave empty to keep the current token"
+msgstr "留空以保留当前令牌"
 
 #: src/features/settings/model-presets.tsx
 msgid "Leave empty to use the default prompt."
@@ -2452,9 +2560,21 @@ msgstr "行数"
 msgid "Lines {from}–{to}"
 msgstr "第 {from}–{to} 行"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Link a private chat to use your sessions and approvals from chat. A linked chat acts with your authority; protect it like your password."
+msgstr "关联一个私聊，以便在聊天中使用你的会话和审批。关联的聊天以你的权限行事；请像保护密码一样保护它。"
+
 #: src/components/task-result.tsx
 msgid "Link target"
 msgstr "链接目标"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Link this chat"
+msgstr "关联此聊天"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Linked accounts"
+msgstr "已关联的账号"
 
 #: src/features/settings/providers.ts
 msgid "List at least one model."
@@ -2521,6 +2641,10 @@ msgstr "退出登录"
 #: src/lib/thinking-level.ts
 msgid "Low"
 msgstr "低"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Lowercase letters, digits and -, not starting with a digit."
+msgstr "小写字母、数字和 -，且不能以数字开头。"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "Lowercase letters, digits and \"-\", not starting with a digit. Tools and rules use it."
@@ -2673,6 +2797,8 @@ msgstr "移动或重命名 {0}"
 
 #: src/components/file-manager/file-list.tsx
 #: src/components/task-result.tsx
+#: src/features/channels/channel-dialog.tsx
+#: src/features/channels/channels-page.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/nodes/pages.tsx
@@ -2703,6 +2829,11 @@ msgstr "永不过期"
 #: src/components/status-badge.tsx
 msgid "Never run"
 msgstr "从未运行"
+
+#: src/features/channels/channel-dialog.tsx
+#: src/features/channels/channels-page.tsx
+msgid "New channel"
+msgstr "新建渠道"
 
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
@@ -2811,6 +2942,10 @@ msgstr "最新"
 msgid "Next"
 msgstr "下一步"
 
+#: src/features/channels/channels-page.tsx
+msgid "Next attempt"
+msgstr "下次尝试"
+
 #: src/features/schedules/pages.tsx
 msgid "Next run"
 msgstr "下次运行"
@@ -2854,6 +2989,18 @@ msgstr "没有预算限制 · 已花 {usedText}"
 #: src/features/system-settings/sign-in-section.tsx
 msgid "No captcha"
 msgstr "无验证码"
+
+#: src/features/channels/channels-page.tsx
+msgid "No channels yet"
+msgstr "还没有渠道"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "No chat account is linked yet."
+msgstr "还没有关联聊天账号。"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "No chat channel is set up; ask an administrator."
+msgstr "尚未设置聊天渠道；请联系管理员。"
 
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "No crha runs on the host, so nothing is sent to it. Tasks waiting for this node are ended, and its access grants and node group memberships are removed. Its credential stays in SSH credentials."
@@ -3101,6 +3248,10 @@ msgstr "信任该凭据的节点会停止接受其签名。它已签发的授权
 msgid "None"
 msgstr "无"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "None (WebUI only)"
+msgstr "无（仅 WebUI）"
+
 #: src/components/decision/approval-decision.tsx
 msgid "Not a valid rule: {error}"
 msgstr "规则无效：{error}"
@@ -3229,6 +3380,16 @@ msgstr "只列出尚未授权的目标。"
 #: src/features/audit/pages.tsx
 msgid "Open {0} {1}"
 msgstr "打开 {0} {1}"
+
+#. placeholder {0}: channel.account
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Open a private chat with @{0}."
+msgstr "打开与 @{0} 的私聊。"
+
+#. placeholder {0}: channel?.name
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Open a private chat with the bot named {0}."
+msgstr "打开与名为 {0} 的机器人的私聊。"
 
 #: src/components/task-result.tsx
 msgid "Open approval page"
@@ -3991,6 +4152,7 @@ msgid "Runtime settings for this crhs. A save applies without a restart and is r
 msgstr "此 crhs 的运行时设置。保存后无需重启即可生效，并会记入审计日志。"
 
 #: src/components/dialogs.tsx
+#: src/features/channels/channel-dialog.tsx
 #: src/features/library/limits-dialog.tsx
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/rename-node-button.tsx
@@ -4147,6 +4309,10 @@ msgstr "选择 {0} 个文件"
 msgid "Send"
 msgstr "发送"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Send the command below to the bot in a private chat. The code works once and expires in 10 minutes."
+msgstr "在私聊中把下面的命令发送给机器人。关联码只能使用一次，10 分钟后过期。"
+
 #: src/features/settings/extension-dialog.tsx
 msgid "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."
 msgstr "每次请求都会发送，并加密存储；其值不会再次显示。更改 URL 需要重新输入或移除它们。"
@@ -4243,6 +4409,14 @@ msgstr "显示全部"
 #: src/components/code-text.tsx
 msgid "Show less"
 msgstr "收起"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Show progress"
+msgstr "显示进度"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Show the current step while a turn runs; tool calls and thinking are never sent as messages."
+msgstr "在回合运行时显示当前步骤；工具调用和思考内容不会作为消息发送。"
 
 #: src/components/code-text.tsx
 msgid "Showing first {maxLines} of {lines} lines"
@@ -4371,6 +4545,7 @@ msgstr "起始行"
 msgid "Start one, or wait for a scheduled run."
 msgstr "新建一个，或等待计划任务运行。"
 
+#: src/features/channels/channels-page.tsx
 #: src/features/tasks/pages.tsx
 msgid "State"
 msgstr "状态"
@@ -4470,6 +4645,10 @@ msgstr "摘要"
 msgid "System"
 msgstr "跟随系统"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "System default"
+msgstr "系统默认"
+
 #: src/features/settings/model-presets.tsx
 msgid "System prompt"
 msgstr "系统提示词"
@@ -4558,6 +4737,10 @@ msgstr "Ask 规则预设可能经常导致计划任务暂停等待您的确认�
 #: src/features/settings/providers.ts
 msgid "The base URL must start with http:// or https://."
 msgstr "Base URL 必须以 http:// 或 https:// 开头。"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "The bot token is required."
+msgstr "必须填写机器人令牌。"
 
 #: src/features/signing-credentials/pages.tsx
 msgid "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
@@ -5026,6 +5209,7 @@ msgstr "类型"
 msgid "Type keywords separated by spaces"
 msgstr "输入用空格分隔的关键词"
 
+#: src/features/channels/channels-page.tsx
 #: src/features/nodes/node-trust.tsx
 #: src/features/settings/extensions.tsx
 msgid "Unavailable"
@@ -5051,6 +5235,15 @@ msgstr "不限制"
 #: src/features/sessions/budget-dialog.tsx
 msgid "Unlimited"
 msgstr "不限"
+
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Unlink"
+msgstr "取消关联"
+
+#. placeholder {0}: account.displayName ?? account.platformUserId
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Unlink {0}"
+msgstr "取消关联 {0}"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Unprivileged identity"
@@ -5102,6 +5295,10 @@ msgstr "使用至少 8 个字符，或留空。"
 #: src/features/users/reset-password-dialog.tsx
 msgid "Use at least 8 characters."
 msgstr "至少使用 8 个字符。"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Use lowercase letters, digits and -, not starting with a digit."
+msgstr "使用小写字母、数字和 -，且不能以数字开头。"
 
 #: src/features/settings/model-presets.tsx
 msgid "Use the session's model"
@@ -5257,6 +5454,10 @@ msgstr "今天有什么安排？"
 msgid "When"
 msgstr "时间"
 
+#: src/features/channels/chat-accounts-section.tsx
+msgid "Where notifications go when you are not using the WebUI."
+msgstr "当你不使用 WebUI 时通知发送到的位置。"
+
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Whether sign-in requires a proof of work. Default: {defaultCaptcha}."
 msgstr "登录是否需要工作量证明。默认：{defaultCaptcha}。"
@@ -5288,6 +5489,10 @@ msgstr "是"
 #: src/features/sessions/session-list.tsx
 msgid "Yesterday"
 msgstr "昨天"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Yolo"
+msgstr "Yolo"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Yolo lets this token run anything on your nodes without asking."

@@ -28,7 +28,9 @@ import { chargeCompaction, decideRootQuota, rememberProviderSession, waitForQuot
 import { decideAgentRequest, pendingAgentRequests, routeAwaiting } from "./runtime-requests.ts";
 import {
 	abort,
+	type ChatHistoryMessage,
 	type CreateSessionWithMessageInput,
+	chatHistory,
 	configure,
 	createScheduledSession,
 	createSession,
@@ -380,6 +382,16 @@ export class AgentRuntime {
 	async getSession(id: string): Promise<SessionView | undefined> {
 		return getSession(this.#host, id);
 	}
+
+	/** The last messages a chat replays when it switches to a session (doc/design/channels.md "Conversations"). */
+	async chatHistory(id: string, limit = 10): Promise<ChatHistoryMessage[]> {
+		return chatHistory(this.#host, id, limit);
+	}
+
+	/** Follows session run-state changes, for chat channels that send approvals and progress. */
+	onSessionStateChanged(listener: ((sessionId: string) => void) | undefined): void {
+		this.#host.stateChanged = listener;
+	}
 	/** Creates a session and submits its first message in one idempotent request. */
 	async createSessionWithMessage(
 		owner: SessionUser,
@@ -455,14 +467,19 @@ export class AgentRuntime {
 
 	/**
 	 * Hands the user's message to the session; it runs at once or queues behind the current run. `requestId`
-	 * makes a retried submit find the first one.
+	 * makes a retried submit find the first one. `lastUsedFrom` says where the message came from: `web`, a
+	 * chat thread id, or null for a submitter that is neither the WebUI nor a chat.
 	 */
 	async submit(
 		sessionId: string,
 		by: SessionUser,
 		text: string,
 		requestId: string,
-		options: { content?: { type: "text"; text: string }[]; attachments?: ChatAttachment[] } = {},
+		options: {
+			content?: { type: "text"; text: string }[];
+			attachments?: ChatAttachment[];
+			lastUsedFrom?: string | null;
+		} = {},
 	): Promise<string> {
 		return submit(this.#host, sessionId, by, text, requestId, options);
 	}

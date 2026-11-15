@@ -24,7 +24,7 @@ import { sessionExtensionViews } from "./extension.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
 import { setQuota } from "./quota.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
-import { conversationOf, loadConversation } from "./runtime-core.ts";
+import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts";
 import { endSessionWork, refreshState } from "./runtime-state.ts";
 import { submit } from "./runtime-submissions.ts";
 import { toEntryRecord, toSessionEvent, toSnapshotEvent } from "./session-events.ts";
@@ -177,6 +177,8 @@ export interface CreateSessionWithMessageInput {
 	/** The first message's content blocks and attachments (doc/design/library.md "Chat attachments"). */
 	content?: { type: "text"; text: string }[];
 	attachments?: ChatAttachment[];
+	/** Where the first message came from: `web`, a chat thread id, or null. */
+	lastUsedFrom?: string | null;
 }
 
 /**
@@ -216,6 +218,7 @@ export async function createSessionWithMessage(
 		await submit(host, session.id, owner, input.message, submissionRequestIdFor(input.requestId), {
 			...(input.content ? { content: input.content } : {}),
 			...(input.attachments ? { attachments: input.attachments } : {}),
+			...(input.lastUsedFrom === undefined ? {} : { lastUsedFrom: input.lastUsedFrom }),
 		});
 	} catch (err) {
 		await removeCreatedSession(host, session.id).catch((cleanupError: unknown) => {
@@ -700,6 +703,77 @@ export async function transcriptEntries(host: RuntimeHost, conversationId: strin
 		if (!page.next) return entries;
 		cursor = page.next;
 	}
+}
+
+/** One message of a chat's history replay (doc/design/channels.md "Conversations"). */
+export interface ChatHistoryMessage {
+	role: "user" | "assistant";
+	text: string;
+}
+
+/**
+ * The last messages a chat shows when it switches to a session: user messages and each turn's final answer, without
+ * intermediate text, tool calls, thinking or attachments. A final answer is an assistant message with text and no
+ * tool call; a message that streams text before its tool call therefore does not count. `limit` counts messages.
+ */
+export async function chatHistory(host: RuntimeHost, sessionId: string, limit = 10): Promise<ChatHistoryMessage[]> {
+	const row = await loadSession(host, sessionId);
+	const entries = await transcriptEntries(host, row.conversation_id);
+	const messages: ChatHistoryMessage[] = [];
+	for (const entry of entries) {
+		const message = entry.model?.[0];
+		if (message === undefined) continue;
+		if (entry.kind === "pi.user" || entry.kind === "crh.user_input") {
+			const text = userText(message);
+			if (text !== null) messages.push({ role: "user", text });
+			continue;
+		}
+		if (entry.kind === "pi.assistant") {
+			const text = assistantFinalText(message);
+			if (text !== null) messages.push({ role: "assistant", text });
+		}
+	}
+	return messages.slice(-limit);
+}
+
+/** The typed text of a user message; an attachment's note is not part of it. */
+function userText(message: { readonly role?: string; readonly content?: unknown }): string | null {
+	if (message.role !== "user") return null;
+	const content = message.content;
+	if (typeof content === "string") return content.trim() === "" ? null : content;
+	if (!Array.isArray(content)) return null;
+	const first = content.find(
+		(block): block is { type: "text"; text: string } =>
+			typeof block === "object" &&
+			block !== null &&
+			(block as { type?: unknown }).type === "text" &&
+			typeof (block as { text?: unknown }).text === "string",
+	);
+	return first === undefined || first.text.trim() === "" ? null : first.text;
+}
+
+/** A final answer's text: text blocks when the message has no tool call and no error. */
+function assistantFinalText(message: {
+	readonly role?: string;
+	readonly content?: unknown;
+	readonly stopReason?: string;
+	readonly errorMessage?: string;
+}): string | null {
+	if (message.role !== "assistant" || message.errorMessage !== undefined) return null;
+	if (!Array.isArray(message.content)) return null;
+	const hasToolCall = message.content.some(
+		(block) => typeof block === "object" && block !== null && (block as { type?: unknown }).type === "toolCall",
+	);
+	if (hasToolCall) return null;
+	const text = message.content
+		.flatMap((block) => {
+			if (typeof block !== "object" || block === null) return [];
+			const typed = block as { type?: unknown; text?: unknown; thinking?: unknown };
+			if (typed.type === "thinking") return [];
+			return typed.type === "text" && typeof typed.text === "string" ? [typed.text] : [];
+		})
+		.join("");
+	return text.trim() === "" ? null : text;
 }
 
 /** The session a conversation belongs to, for tool calls that only know their conversation id. */

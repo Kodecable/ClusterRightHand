@@ -5,6 +5,7 @@ import { sql } from "kysely";
 import type { ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
+import type { ChannelManager } from "../channels/manager.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
 import { configureBuiltinExtensions } from "../extensions/builtin.ts";
@@ -22,6 +23,7 @@ import { approvalRoutes } from "./approval-routes.ts";
 import { auditRoutes } from "./audit-routes.ts";
 import { type AuthRoutesOptions, authRoutes } from "./auth-routes.ts";
 import { authorizationRoutes } from "./authorization-routes.ts";
+import { channelRoutes } from "./channel-routes.ts";
 import type { AppEnv } from "./context.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
@@ -70,6 +72,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	imageCache?: ImageCache;
 	/** The MCP client connections behind external tools (doc/design/extensions.md). */
 	mcp?: McpConnections;
+	/** Chat channels (doc/design/channels.md); without one the channel routes are absent. */
+	channels?: ChannelManager;
 	/** `[webauthn]` fallback for tests; production passes `settings`. */
 	webauthn?: WebauthnConfig;
 	/** Clock-warning fallback for tests; production passes `settings` (doc/design/privilege.md "Clock"). */
@@ -144,11 +148,19 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 		authRoutes(db, {
 			...options,
 			...(taskGroups ? { taskGroups } : {}),
+			...(options.channels ? { channels: options.channels } : {}),
 			revalidateWebSessions: onWebSessionsRevoked,
 		}),
 	);
 
 	app.use("/api/*", requireUser(db));
+	// Presence for chat notifications: a WebUI request in the last ten minutes counts as online. Internal
+	// `api_request` calls carry an actor and are not the WebUI.
+	app.use("/api/*", async (c, next) => {
+		const user = c.get("user");
+		if (user && user.actor === undefined) options.channels?.presence.touch(user.userId);
+		await next();
+	});
 	app.route(
 		"/api",
 		userRoutes(db, {
@@ -156,6 +168,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			...(options.agent ? { sessions: options.agent.runtime.sessionList } : {}),
 			...(cluster ? { cluster } : {}),
 			...(taskGroups ? { taskGroups } : {}),
+			...(options.channels ? { channels: options.channels } : {}),
 			revalidateWebSessions: onWebSessionsRevoked,
 		}),
 	);
@@ -189,6 +202,9 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			}),
 		);
 	}
+	if (options.masterKey && options.channels) {
+		app.route("/api", channelRoutes({ db, channels: options.channels, audit }));
+	}
 	if (cluster && taskGroups) {
 		app.route("/api", taskRoutes(db, cluster, taskGroups));
 		app.route("/api", apiTokenRoutes(db, cluster, taskGroups, audit));
@@ -211,7 +227,15 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 				await runtime.sessionList.revalidateWebSessions(userId);
 			};
 			// The event streams first: `GET /sessions/stream` must not be taken for `GET /sessions/:id`.
-			sessions.route("/", sessionEventRoutes(db, { runtime, streams, drain }));
+			sessions.route(
+				"/",
+				sessionEventRoutes(db, {
+					runtime,
+					streams,
+					drain,
+					...(options.channels ? { presence: options.channels.presence } : {}),
+				}),
+			);
 			sessions.route(
 				"/",
 				sessionRoutes(db, {

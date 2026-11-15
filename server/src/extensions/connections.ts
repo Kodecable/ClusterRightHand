@@ -9,6 +9,7 @@ import {
 } from "@modelcontextprotocol/client";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
+import { BACKOFF_BASE_MS, BACKOFF_MAX_MS, backoffDelay } from "../util/backoff.ts";
 import { errorText } from "../util/errors.ts";
 import { CRH_VERSION } from "../version.ts";
 import { ExtensionCallLostError, type ExtensionTool, ExtensionToolError, ExtensionUnavailableError } from "./model.ts";
@@ -68,18 +69,14 @@ interface ServerState {
 	lastFailureAt: number | null;
 }
 
-const DEFAULT_BACKOFF_BASE_MS = 1000;
-const DEFAULT_BACKOFF_MAX_MS = 5 * 60_000;
+const DEFAULT_BACKOFF_BASE_MS = BACKOFF_BASE_MS;
+const DEFAULT_BACKOFF_MAX_MS = BACKOFF_MAX_MS;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 /**
  * A call on an unavailable server gives up at once when a connection attempt failed within this window
  * (doc/design/extensions.md "MCP connections"): one hung or looping model cannot hammer the server.
  */
 const FAILED_ATTEMPT_WINDOW_MS = 10_000;
-/** The jitter band around a backoff delay: 80–120% of the exponential value. */
-const JITTER_LOW = 0.8;
-const JITTER_SPAN = 0.4;
-
 function toTool(tool: Tool): ExtensionTool {
 	const annotations = (tool.annotations ?? null) as ExtensionToolAnnotations | null;
 	return {
@@ -163,12 +160,12 @@ export class McpConnections {
 		if (name !== undefined) this.#options.onStatusChanged?.(name, this.#statusOf(state));
 	}
 
-	/** The delay before attempt number `attempt` (1-based): 1 s doubling with jitter, capped at 5 minutes. */
+	/** The delay before attempt number `attempt` (1-based), shared with chat channels. */
 	#backoffDelay(attempt: number): number {
-		const base = this.#options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
-		const max = this.#options.backoffMaxMs ?? DEFAULT_BACKOFF_MAX_MS;
-		const exponential = Math.min(base * 2 ** Math.max(0, attempt - 1), max);
-		return Math.round(exponential * (JITTER_LOW + Math.random() * JITTER_SPAN));
+		return backoffDelay(attempt, {
+			baseMs: this.#options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS,
+			maxMs: this.#options.backoffMaxMs ?? DEFAULT_BACKOFF_MAX_MS,
+		});
 	}
 
 	#clearRetry(state: ServerState): void {

@@ -9,6 +9,7 @@ import { streamSSE } from "hono/streaming";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SessionListScope, SessionListSubscriber } from "../agent/session-list.ts";
 import { isAdmin, type SessionUser, webSessionAlive } from "../auth/sessions.ts";
+import type { WebUiPresence } from "../channels/presence.ts";
 import { sessionCapabilities } from "../sessions/sharing.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
@@ -99,6 +100,8 @@ export interface SessionEventRoutesOptions {
 	streams: SessionStreams;
 	/** Shutdown bookkeeping: its abort ends the event streams, and each stream keeps shutdown waiting. */
 	drain?: RequestDrain;
+	/** WebUI presence: an open stream means the user is online for chat notifications. */
+	presence?: WebUiPresence;
 }
 
 /** `stream.sleep`, but wakes up when the stream ends, so shutdown need not wait out a ping interval. */
@@ -175,6 +178,9 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 		if (c.req.method === "HEAD") return c.body(null, 200);
 		return streamSSE(c, async (stream) => {
 			const abort = new AbortController();
+			const userId = c.get("user").userId;
+			options.presence?.touch(userId);
+			options.presence?.openStream(userId);
 			let queue: Promise<unknown> = Promise.resolve();
 			const subscriber: SessionListSubscriber = {
 				user: c.get("user"),
@@ -188,6 +194,7 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 			let unsubscribe: (() => void) | undefined;
 			stream.onAbort(() => {
 				unsubscribe?.();
+				options.presence?.closeStream(userId);
 				abort.abort();
 			});
 			// As with a session's event stream, the connection keeps shutdown waiting until it ends.
@@ -224,9 +231,13 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 		if (c.req.method === "HEAD") return c.body(null, 200);
 		return streamSSE(c, async (stream) => {
 			const abort = new AbortController();
+			const streamUserId = c.get("user").userId;
+			options.presence?.touch(streamUserId);
+			options.presence?.openStream(streamUserId);
 			const live: LiveStream = { user: c.get("user"), sessionId: v.session.id, abort: () => stream.abort() };
 			stream.onAbort(() => {
 				streams.delete(live);
+				options.presence?.closeStream(streamUserId);
 				abort.abort();
 			});
 			streams.add(live);

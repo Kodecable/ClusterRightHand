@@ -34,7 +34,12 @@ export async function submit(
 	by: SessionUser,
 	text: string,
 	requestId: string,
-	options: { content?: { type: "text"; text: string }[]; attachments?: ChatAttachment[] } = {},
+	options: {
+		content?: { type: "text"; text: string }[];
+		attachments?: ChatAttachment[];
+		/** Where the message came from: `web`, a chat thread id, or null for any other submitter. */
+		lastUsedFrom?: string | null;
+	} = {},
 ): Promise<string> {
 	// A user driving a session shared with them still acts on behalf of its owner (doc/design/access-control.md);
 	// an internal api_request carries the agent session as its actor.
@@ -188,6 +193,7 @@ export async function submitAsSchedule(
 	requestId: string,
 	options: { checkQuota?: boolean } = {},
 ): Promise<string> {
+	// A schedule is not the WebUI and not a chat thread: the message came from nowhere.
 	return submitInput(
 		host,
 		sessionId,
@@ -195,6 +201,7 @@ export async function submitAsSchedule(
 		requestId,
 		{ type: "schedule", id: scheduleId },
 		options.checkQuota !== false,
+		{ lastUsedFrom: null },
 	);
 }
 
@@ -205,7 +212,11 @@ async function submitInput(
 	requestId: string,
 	actor: { type: string; id: string },
 	checkQuota = true,
-	options: { content?: { type: "text"; text: string }[]; attachments?: ChatAttachment[] } = {},
+	options: {
+		content?: { type: "text"; text: string }[];
+		attachments?: ChatAttachment[];
+		lastUsedFrom?: string | null;
+	} = {},
 ): Promise<string> {
 	const { row, conversation } = await loadConversation(host, sessionId);
 	if (row.status !== "active") throw new UserError("the session is archived");
@@ -234,7 +245,7 @@ async function submitInput(
 			: { type: "input" as const, content: text, requestId };
 	// The entry's data is a plain JSON object; TypeScript only wants the index signature spelled out.
 	const submission = await conversation.submit(draft as unknown as SubmissionDraft, host.context);
-	await recordInput(host, sessionId, submission);
+	await recordInput(host, sessionId, submission, options.lastUsedFrom);
 	void host.audit?.record({
 		actor: { ...actor, onBehalfOfUserId: row.owner_user_id },
 		action: "session.message",
@@ -248,8 +259,16 @@ async function submitInput(
  * Records a new input and revives an idle session in one row update. A retried older submission is ignored,
  * so it cannot roll `last_submission_id` back or revive a session that a newer input is driving. An input
  * that queues behind a running one changes nothing: the session already runs or waits.
+ *
+ * `lastUsedFrom` is the source of the latest user message (`web`, a chat thread id, or null for a submitter
+ * that is neither the WebUI nor a chat); omitted when the input is not a user message (a subagent's wake).
  */
-export async function recordInput(host: RuntimeHost, sessionId: string, submission: Submission): Promise<boolean> {
+export async function recordInput(
+	host: RuntimeHost,
+	sessionId: string,
+	submission: Submission,
+	lastUsedFrom?: string | null,
+): Promise<boolean> {
 	const id = String(submission.id);
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const row = await host.db
@@ -263,6 +282,7 @@ export async function recordInput(host: RuntimeHost, sessionId: string, submissi
 			.updateTable("sessions")
 			.set({
 				last_submission_id: id,
+				...(lastUsedFrom === undefined ? {} : { last_used_from: lastUsedFrom }),
 				updated_at: at,
 				// Only a new input revives an idle session; a wait that is already there stays until it ends.
 				state: sql`case when state = 'idle' then 'running' else state end`,

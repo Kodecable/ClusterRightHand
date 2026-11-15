@@ -4,6 +4,9 @@ import type {
 	AuditEvent,
 	AuthorizationSummary,
 	AvailableModel,
+	ChannelAccountListResponse,
+	ChannelSettings,
+	ChannelView,
 	Directory,
 	LibraryFile,
 	LibraryView,
@@ -92,6 +95,9 @@ export interface FakeState {
 	schedules: ScheduleView[];
 	runs: Record<string, ScheduleRunView[]>;
 	tokens: ApiTokenView[];
+	channels: ChannelView[];
+	channelAccounts: ChannelAccountListResponse;
+	channelSettings: ChannelSettings;
 	providers: ModelProviderView[];
 	builtinProviders: string[];
 	presets: ModelPreset[];
@@ -341,6 +347,9 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		schedules: [],
 		runs: {},
 		tokens: [],
+		channels: [],
+		channelAccounts: { accounts: [], channels: [] },
+		channelSettings: { defaultAccountId: null, showProgress: true },
 		providers: [],
 		builtinProviders: ["faux"],
 		presets: [
@@ -1380,6 +1389,57 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		}
 		const groupAuthMatch = /^\/api\/task-groups\/([^/]+)\/authorization$/.exec(path);
 		if (groupAuthMatch) return json({ taskGroup: null });
+
+		if (path === "/api/channels" && method === "GET") return json({ channels: state.channels });
+		const channelMatch = /^\/api\/channels\/([^/]+)$/.exec(path);
+		if (channelMatch && method === "PUT") {
+			const name = decodeURIComponent(channelMatch[1] ?? "");
+			const input = body as Record<string, unknown>;
+			const existing = state.channels.find((channel) => channel.name === name);
+			const channel: ChannelView = {
+				id: existing?.id ?? `channel-${name}`,
+				name,
+				kind: "telegram",
+				enabled: input.enabled === false ? false : true,
+				hasCredentials: existing?.hasCredentials === true || typeof input.token === "string",
+				defaultModel: (input.defaultModel as ChannelView["defaultModel"]) ?? null,
+				defaultRulePreset: (input.defaultRulePreset as ChannelView["defaultRulePreset"]) ?? null,
+				status: existing?.status ?? { state: "connected", lastError: null, nextAttemptAt: null, account: "ops_bot" },
+				createdAt: existing?.createdAt ?? "2026-01-01T00:00:00.000Z",
+				updatedAt: "2026-01-01T00:00:00.000Z",
+			};
+			state.channels = existing
+				? state.channels.map((row) => (row.name === name ? channel : row))
+				: [...state.channels, channel];
+			return json({ channel });
+		}
+		if (channelMatch && method === "DELETE") {
+			const name = decodeURIComponent(channelMatch[1] ?? "");
+			state.channels = state.channels.filter((channel) => channel.name !== name);
+			return json({ ok: true });
+		}
+		if (path === "/api/channel-accounts" && method === "GET") return json(state.channelAccounts);
+		if (path === "/api/channel-link-codes" && method === "POST") {
+			return json({
+				code: "ABCD2345",
+				expiresAt: "2026-01-01T00:10:00.000Z",
+				...(state.channelAccounts.channels[0] ? { channel: state.channelAccounts.channels[0] } : {}),
+			});
+		}
+		if (path.startsWith("/api/channel-accounts/") && method === "DELETE") {
+			const id = decodeURIComponent(path.slice("/api/channel-accounts/".length));
+			state.channelAccounts = {
+				...state.channelAccounts,
+				accounts: state.channelAccounts.accounts.filter((account) => account.id !== id),
+			};
+			return json({ ok: true });
+		}
+		if (path === "/api/channel-settings" && method === "GET") return json({ settings: state.channelSettings });
+		if (path === "/api/channel-settings" && method === "PUT") {
+			const input = body as Partial<ChannelSettings>;
+			state.channelSettings = { ...state.channelSettings, ...input };
+			return json({ settings: state.channelSettings });
+		}
 
 		return json({});
 	});

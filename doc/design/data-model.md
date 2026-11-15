@@ -155,7 +155,20 @@ belongs to: its id is derived from the durable tool call, and it carries the app
 the extension, tool, arguments, operation and the state that must survive while the call is in progress. A
 terminal row keeps only its state and `finished_at` as the "already ran" marker and clears its arguments;
 the result is in the transcript and the decision in the audit log. `sessions.disabled_extensions` is the
-JSON list of extensions the owner turned off ([Extensions](extensions.md)).
+JSON list of extensions the owner turned off ([Extensions](extensions.md)). `sessions.last_used_from`
+is `web`, a `channel_threads.id`, or null, recording where the session's latest user message came from, so
+chat notifications can follow it ([Channels](channels.md#notifications)).
+
+## Channels
+
+`channels` holds one chat platform bot: its name, kind, enabled flag, a reference to one encrypted
+`secrets` row holding the credentials, the defaults for sessions started from chat and the last platform
+update id handled. `channel_accounts` links one platform account to one CRH user; the same platform
+account cannot belong to two users. `channel_link_codes` stores only a code's SHA-256 hash, its expiry and
+whether it was used, because the code is a one-time credential. `channel_threads` maps a private chat
+(and topic, when the platform has them) to a session; `current` marks the chat's current session where
+the platform has no topics. `channel_user_settings` holds a user's default notification account and the
+progress toggle. See [Chat channels](channels.md).
 
 ## Libraries
 
