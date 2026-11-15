@@ -175,6 +175,35 @@ describe("view_image beforeRequest hook", () => {
 		expect(block.data).toBe(image.toString("base64"));
 	});
 
+	it("restores an image of a directly listed extension tool", async () => {
+		const image = png();
+		const digest = sha256Hex(image);
+		await imageCache.put(digest, "image/png", image);
+		const session = await runtime.createSession(alice, {
+			model: { provider: faux.provider.id, modelId: "image-model" },
+			rulePreset: "ask",
+		});
+		const conversationId = await conversationIdOf(db, session.id);
+		const message: PiMessage = {
+			role: "toolResult",
+			toolCallId: "call-ext",
+			toolName: "ext__fake__show_picture",
+			content: [{ type: "text", text: "[external result from fake/show_picture]" }],
+			details: {
+				extension: "fake",
+				tool: "show_picture",
+				images: [{ sha256: digest, mime: "image/png" }],
+			} as never,
+			isError: false,
+			timestamp: Date.now(),
+		};
+		const replaced = await replaceViewImages(options, conversationId, [message]);
+		const block = replaced?.[0]?.content.at(-1);
+		if (!block || typeof block === "string") throw new Error("no content block");
+		expect(block).toMatchObject({ type: "image", mimeType: "image/png" });
+		expect(block.type === "image" ? block.data : undefined).toBe(image.toString("base64"));
+	});
+
 	it("checks a cached image against the current model's limits", async () => {
 		const image = png(40, 30);
 		const digest = sha256Hex(image);

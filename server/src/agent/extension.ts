@@ -295,10 +295,11 @@ function imageLimitsOf(options: AgentRuntimeOptions, modelJson: string | null): 
 const NO_REJECTED_IMAGES: ReadonlySet<string> = new Set();
 
 /**
- * The `view_image` results of one request as image blocks (doc/design/library.md "view_image"). It matches on
- * the tool name and the structured `details.image` only, never on the text. A cache miss for a library file
- * is re-read from its path and accepted only while the SHA-256 still matches; a node source is never read
- * again, because that would start a task during a model request. Anything unavailable becomes a placeholder.
+ * The `view_image` and extension results of one request as image blocks (doc/design/library.md "view_image",
+ * doc/design/extensions.md "Results"). It matches on the tool name and the structured `details.image` or
+ * `details.images` only, never on the text. A cache miss for a library file is re-read from its path and
+ * accepted only while the SHA-256 still matches; a node source is never read again, because that would start
+ * a task during a model request. Anything unavailable becomes a placeholder.
  */
 export async function replaceViewImages(
 	options: AgentRuntimeOptions,
@@ -310,7 +311,7 @@ export async function replaceViewImages(
 		(message) =>
 			message.role === "toolResult" &&
 			((message.toolName === "view_image" && imageDetails(message.details) !== undefined) ||
-				(message.toolName === "call_tool" && externalImageDetails(message.details).length > 0)),
+				(externalToolResult(message) && externalImageDetails(message.details).length > 0)),
 	);
 	if (!relevant) return undefined;
 	const session = await options.db
@@ -336,7 +337,7 @@ export async function replaceViewImages(
 	let changed = false;
 	const replaced: PiMessage[] = [];
 	for (const message of messages) {
-		if (message.role === "toolResult" && message.toolName === "call_tool") {
+		if (message.role === "toolResult" && externalToolResult(message)) {
 			const images = externalImageDetails(message.details);
 			if (images.length === 0) {
 				replaced.push(message);
@@ -452,7 +453,12 @@ async function imageContent(
 	return { type: "image", data: cached.bytes.toString("base64"), mimeType: cached.mime };
 }
 
-/** The images of a `call_tool` result (doc/design/extensions.md "Results"). */
+/** Whether a result came from an extension: `call_tool` or a directly listed `ext__<extension>__<tool>` tool. */
+function externalToolResult(message: PiMessage): boolean {
+	return message.role === "toolResult" && (message.toolName === "call_tool" || message.toolName.startsWith("ext__"));
+}
+
+/** The images of an extension result (doc/design/extensions.md "Results"). */
 function externalImageDetails(details: unknown): { sha256: string; mime: string }[] {
 	if (typeof details !== "object" || details === null) return [];
 	const images = (details as Record<string, unknown>).images;

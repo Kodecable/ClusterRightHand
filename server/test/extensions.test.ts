@@ -18,13 +18,20 @@ import {
 	externalCallApproval,
 	externalCallId,
 	externalCallViews,
+	finishExternalCall,
 	getExternalCall,
 	recoverExternalCalls,
 	reevaluateExternalCalls,
 	requestAgentDecision,
 	waitExternalCall,
 } from "../src/extensions/external-calls.ts";
-import { ExtensionCallLostError, type ExtensionTool, ExtensionUnavailableError } from "../src/extensions/model.ts";
+import {
+	ExtensionCallLostError,
+	type ExtensionTool,
+	ExtensionUnavailableError,
+	readyStatus,
+	type SessionExtension,
+} from "../src/extensions/model.ts";
 import { sessionExtensionsForUser } from "../src/extensions/registry.ts";
 import {
 	deleteExtension,
@@ -49,6 +56,8 @@ import { openTestDb } from "./helpers/db.ts";
 interface FakeState {
 	calls: { tool: string; arguments: Record<string, unknown> }[];
 	failConnections: boolean;
+	/** The message a failed connection throws; a URL with a token exercises redaction. */
+	failureMessage: string | null;
 	hangTools: boolean;
 	hangConnections: boolean;
 	/** Fetches that reached the fake endpoint, one per connection attempt plus its requests. */
@@ -138,7 +147,7 @@ function fakeFetch(state: FakeState, handler: ReturnType<typeof fakeMcp>) {
 		const url = input instanceof Request ? input.url : String(input);
 		if (!url.startsWith("http://mcp.test")) return fetch(input, init);
 		state.requests += 1;
-		if (state.failConnections) throw new Error("connection refused");
+		if (state.failConnections) throw new Error(state.failureMessage ?? "connection refused");
 		// A server that accepts the request but never answers: only the connect timeout ends the attempt.
 		if (state.hangConnections) return await new Promise<Response>(() => {});
 		return handler.fetch(new Request(url, init));
@@ -201,7 +210,14 @@ describe("MCP extensions", () => {
 			.execute();
 		masterKey = MasterKey.generate();
 		audit = new Audit(db);
-		state = { calls: [], failConnections: false, hangTools: false, hangConnections: false, requests: 0 };
+		state = {
+			calls: [],
+			failConnections: false,
+			failureMessage: null,
+			hangTools: false,
+			hangConnections: false,
+			requests: 0,
+		};
 		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)), backoffBaseMs: 1000 });
 		imageDir = await mkdtemp(join(tmpdir(), "crh-ext-"));
 	});
@@ -250,6 +266,55 @@ describe("MCP extensions", () => {
 			rootSessionId: sessionId,
 			extensions: entries,
 			audit,
+		};
+	}
+
+	/** A waiting call row left by an earlier process, as a replay would find it. */
+	async function waitingCall(callKey: string, tool: string) {
+		const { row } = await createExternalCall(db, {
+			callKey,
+			orgId: await defaultOrgId(db),
+			actorType: "session",
+			actorId: sessionId,
+			onBehalfOfUserId: user.userId,
+			extension: "fake",
+			tool,
+			arguments: { message: "hi" },
+			operation: { method: "ext.read", target: `fake/${tool}` },
+			annotations: { readOnlyHint: true },
+			ruleChain: [{ type: "session", id: sessionId }],
+			rootSessionId: sessionId,
+			approval: { evaluation: { result: "require-approval", levels: [] } },
+			state: "awaiting_approval",
+		});
+		return row;
+	}
+
+	/** A fake extension for the unexpected-exception paths, which the real registry never produces. */
+	function failingExtension(call: () => Promise<unknown>): SessionExtension {
+		const tool: ExtensionTool = {
+			name: "echo",
+			title: null,
+			description: null,
+			inputSchema: { type: "object" },
+			annotations: { readOnlyHint: true },
+		};
+		return {
+			enabled: true,
+			extension: {
+				name: "fake",
+				kind: "mcp",
+				description: null,
+				enabled: true,
+				listDirectly: false,
+				availability: "granted",
+				status: () => readyStatus(1),
+				tools: () => [tool],
+				ensureAvailable: async () => {},
+				refreshTools: async () => [tool],
+				call,
+				operation: () => ({ method: "ext.read", target: "fake/echo" }),
+			},
 		};
 	}
 
@@ -449,6 +514,10 @@ describe("MCP extensions", () => {
 			const unavailable = mcp.status("fake");
 			expect(unavailable.state).toBe("unavailable");
 			expect(unavailable.nextAttemptAt).not.toBeNull();
+			// The first retry waits the 1 s base delay (with its jitter band), not twice that.
+			const wait = Date.parse(unavailable.nextAttemptAt ?? "") - Date.now();
+			expect(wait).toBeGreaterThanOrEqual(800);
+			expect(wait).toBeLessThanOrEqual(1_200);
 			state.failConnections = false;
 			// The administrator's reconnect always tries at once and resets the backoff.
 			expect((await mcp.reconnect("fake")).state).toBe("ready");
@@ -492,6 +561,51 @@ describe("MCP extensions", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+
+	it("does not retry a server disabled while a connection attempt is in flight", async () => {
+		vi.useFakeTimers();
+		try {
+			await addServer();
+			state.hangConnections = true;
+			const attempt = mcp.ensureConnected("fake").then(
+				() => undefined,
+				() => undefined,
+			);
+			// Let the attempt reach the network, where it hangs until the connect timeout.
+			for (let i = 0; i < 100 && state.requests === 0; i += 1) await vi.advanceTimersByTimeAsync(0);
+			expect(state.requests).toBe(1);
+			await saveExtension(db, masterKey, "fake", { enabled: false }, user.userId);
+			const invalidation = mcp.invalidate("fake", { keepTools: true });
+			// The attempt fails while invalidate waits for it; its catch must not re-arm a retry.
+			await vi.advanceTimersByTimeAsync(10_000);
+			await invalidation;
+			await attempt;
+			expect(mcp.status("fake").state).toBe("unknown");
+			expect(mcp.status("fake").nextAttemptAt).toBeNull();
+			const requests = state.requests;
+			await vi.advanceTimersByTimeAsync(120_000);
+			expect(state.requests).toBe(requests);
+			expect(mcp.status("fake").nextAttemptAt).toBeNull();
+			// A direct attempt on the disabled server is refused without contacting it.
+			await expect(mcp.reconnect("fake")).resolves.toMatchObject({ state: "unavailable" });
+			expect(mcp.status("fake").lastError).toContain("disabled");
+			expect(state.requests).toBe(requests);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps a token in an MCP URL's query out of connection errors", async () => {
+		await saveExtension(db, masterKey, "fake", { url: "http://mcp.test/mcp?api_key=top-secret" }, user.userId);
+		state.failConnections = true;
+		state.failureMessage = "could not reach http://mcp.test/mcp?api_key=top-secret (connection refused)";
+		const error = await mcp.ensureConnected("fake").catch((err: unknown) => err);
+		expect(String(error)).not.toContain("top-secret");
+		const lastError = mcp.status("fake").lastError;
+		expect(lastError).not.toBeNull();
+		expect(lastError).not.toContain("top-secret");
+		expect(lastError).toContain("http://mcp.test/mcp");
 	});
 
 	it("bounds an on-demand connection at the connect timeout", async () => {
@@ -593,6 +707,115 @@ describe("MCP extensions", () => {
 		expect(replay.isError).toBe(true);
 		expect(replay.content.map((block) => block.text).join("\n")).toContain("unknown");
 		expect(state.calls.length).toBe(callsBefore);
+	});
+
+	it("finishes a replayed waiting call when the extension is unavailable", async () => {
+		await addServer();
+		const waiting = await waitingCall("orphan-unavailable", "echo");
+		state.failConnections = true;
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		const result = await runExtensionTool({ ...ctx, callKey: "orphan-unavailable" }, "fake", "echo", {
+			message: "hi",
+		});
+		expect(result.isError).toBe(true);
+		expect(result.content.map((block) => block.text).join("\n")).toContain("unavailable");
+		// The row is terminal and cleared like any finished call, so it leaves the approvals page.
+		expect(await getExternalCall(db, waiting.id)).toMatchObject({
+			state: "failed",
+			arguments: null,
+			handler_type: null,
+			handler_session_id: null,
+		});
+		expect((await getExternalCall(db, waiting.id))?.finished_at).not.toBeNull();
+	});
+
+	it("finishes a replayed waiting call when the tool is gone", async () => {
+		await addServer();
+		const waiting = await waitingCall("orphan-tool", "gone_tool");
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		const result = await runExtensionTool({ ...ctx, callKey: "orphan-tool" }, "fake", "gone_tool", {});
+		expect(result.isError).toBe(true);
+		expect(result.content.map((block) => block.text).join("\n")).toContain("has no tool named gone_tool");
+		expect(await getExternalCall(db, waiting.id)).toMatchObject({ state: "failed", arguments: null });
+	});
+
+	it("rejects a replayed waiting call that the rules now deny", async () => {
+		await addServer({ preset: "ask" });
+		const waiting = await waitingCall("orphan-deny", "echo");
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			chain: [{ type: "session" as const, id: "deleted-rule-set" }],
+		};
+		const result = await runExtensionTool({ ...ctx, callKey: "orphan-deny" }, "fake", "echo", { message: "hi" });
+		expect(result.isError).toBe(true);
+		expect(result.content.map((block) => block.text).join("\n")).toContain("denied by the authorization rules");
+		expect(await getExternalCall(db, waiting.id)).toMatchObject({ state: "rejected", arguments: null });
+	});
+
+	it("finishes a replayed waiting call whose extension left the session", async () => {
+		await addServer();
+		const waiting = await waitingCall("orphan-disabled", "echo");
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: false, available: false });
+		await expect(
+			runExtensionTool({ ...ctx, callKey: "orphan-disabled" }, "fake", "echo", { message: "hi" }),
+		).rejects.toThrow(/turned off/);
+		expect(await getExternalCall(db, waiting.id)).toMatchObject({ state: "failed", arguments: null });
+	});
+
+	it("finishes a call when the extension throws unexpectedly", async () => {
+		await addServer({ preset: "yolo" });
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			extensions: [
+				failingExtension(async () => {
+					throw new Error("boom");
+				}),
+			],
+		};
+		await expect(
+			runExtensionTool({ ...ctx, callKey: "orphan-throw" }, "fake", "echo", { message: "hi" }),
+		).rejects.toThrow("boom");
+		expect(await getExternalCall(db, externalCallId("orphan-throw"))).toMatchObject({
+			state: "unknown",
+			arguments: null,
+		});
+	});
+
+	it("finishes a call when its result cannot be converted", async () => {
+		await addServer({ preset: "yolo" });
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			extensions: [failingExtension(async () => null)],
+		};
+		await expect(
+			runExtensionTool({ ...ctx, callKey: "orphan-convert" }, "fake", "echo", { message: "hi" }),
+		).rejects.toThrow();
+		expect(await getExternalCall(db, externalCallId("orphan-convert"))).toMatchObject({
+			state: "unknown",
+			arguments: null,
+		});
+	});
+
+	it("does not overwrite a call recovered as unknown", async () => {
+		const call = await createExternalCall(db, {
+			callKey: "recovered",
+			orgId: await defaultOrgId(db),
+			actorType: "session",
+			actorId: sessionId,
+			onBehalfOfUserId: user.userId,
+			extension: "fake",
+			tool: "write_thing",
+			arguments: {},
+			operation: { method: "ext.write", target: "fake/write_thing" },
+			annotations: null,
+			ruleChain: [{ type: "session", id: sessionId }],
+			rootSessionId: sessionId,
+			approval: { evaluation: { result: "allow", levels: [] } },
+			state: "running",
+		});
+		await recoverExternalCalls(db);
+		await finishExternalCall(db, call.row.id, { state: "succeeded" });
+		expect((await getExternalCall(db, call.row.id))?.state).toBe("unknown");
 	});
 
 	it("applies grants and the session's own on/off choice", async () => {

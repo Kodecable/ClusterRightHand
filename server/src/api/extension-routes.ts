@@ -25,6 +25,7 @@ import {
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
+import { redactUrlsInText, urlWithoutSecrets } from "../util/url.ts";
 import { requireAdmin } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
@@ -150,10 +151,11 @@ export function extensionRoutes(db: Db, options: ExtensionRoutesOptions) {
 			actor: userActor(c.get("user")),
 			action: created ? "extension.created" : "extension.updated",
 			target: { type: "extension", id: row.name },
-			// Header values are never recorded, only their names.
+			// Header values are never recorded, only their names. An MCP URL often carries a credential in its
+			// query, so only the scheme, host and path are recorded.
 			detail: {
 				kind: row.kind,
-				url: row.url,
+				url: row.url === null ? null : urlWithoutSecrets(row.url),
 				enabled: row.enabled === 1,
 				list_directly: row.list_directly === 1,
 				availability: row.availability,
@@ -197,7 +199,7 @@ export function extensionRoutes(db: Db, options: ExtensionRoutesOptions) {
 			await options.connections.refreshTools(name);
 		} catch (err) {
 			throw new HTTPException(502, {
-				res: c.json({ error: (err as Error).message, status: options.connections.status(name) }, 502),
+				res: c.json({ error: redactUrlsInText((err as Error).message), status: options.connections.status(name) }, 502),
 			});
 		}
 		const tools = options.connections.tools(name).map((tool) => ({

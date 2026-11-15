@@ -20,5 +20,6 @@ export function backoffDelay(
 	const max = options.maxMs ?? BACKOFF_MAX_MS;
 	const exponential = Math.min(base * 2 ** Math.max(0, attempt - 1), max);
 	const random = options.random ?? Math.random;
-	return Math.round(exponential * (JITTER_LOW + random() * JITTER_SPAN));
+	// Jitter is applied before the cap, so the actual delay never exceeds it.
+	return Math.min(Math.round(exponential * (JITTER_LOW + random() * JITTER_SPAN)), max);
 }

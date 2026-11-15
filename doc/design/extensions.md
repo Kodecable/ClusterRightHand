@@ -55,8 +55,8 @@ crhs connects to an MCP server when it is first needed and keeps one connection 
 sessions. It caches the tool list, refreshes it on `notifications/tools/list_changed`, on reconnect and
 when an administrator asks. A built-in extension has no connection and is always ready.
 
-- **Disconnects.** A dropped or failed connection is retried with exponential backoff (1 s doubling,
-  with jitter, capped at 5 minutes); a successful connection resets it. An administrator's "reconnect"
+- **Disconnects.** A failed attempt is retried after 1 s, doubling, with jitter, capped at 5 minutes (the
+  jittered delay never exceeds the cap); a successful connection resets it. An administrator's "reconnect"
   tries at once.
 - **While unavailable.** The extension stays in the session's list marked unavailable rather than
   hidden, with the last error, so the model can tell the user. `search_tools` still searches the last
@@ -134,7 +134,9 @@ tasks use, plus only the state that must survive while the call is in progress.
 - When it ends, the row keeps only its state and `finished_at` and clears its arguments: it is the
   "already ran" marker. The result is in the transcript and who decided is in the audit log. A replay
   after a restart returns "the call finished before a restart; its result could not be kept" instead of
-  calling again.
+  calling again. A replay that finds the row still waiting but cannot run it — the extension was deleted,
+  disabled or is unavailable, the tool is no longer listed, or the rules now deny it — ends it `failed` or
+  `rejected`, so it does not stay on the approvals page without a waiter.
 - Terminal rows are kept for one day by a built-in retention policy, not a System setting, after which
   the sweep deletes them ([Retention](data-model.md#retention)). Rows still waiting or running are never
   deleted.
@@ -149,7 +151,8 @@ tasks use, plus only the state that must survive while the call is in progress.
   the exact target or a prefix: the whole extension, or for API requests the route.
 - Calls and their decisions are audited (`external_call.started`, `external_call.finished`, with the
   arguments truncated). Extension changes are audited as configuration (`extension.*`), without header
-  values.
+  values; the URL keeps only its scheme, host and path, never userinfo, query or fragment. A URL quoted in
+  an error keeps the same form.
 
 ## Results
 

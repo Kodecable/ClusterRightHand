@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AppEnv } from "../src/api/context.ts";
 import { AGENT_ACCESS_EXTENSION, apiDocument } from "../src/api/openapi.ts";
+import { Audit } from "../src/audit/audit.ts";
 import { McpConnections } from "../src/extensions/connections.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -13,13 +14,15 @@ describe("api extensions", () => {
 	let db: Db;
 	let app: App;
 	let mcp: McpConnections;
+	let audit: Audit;
 	let admin = "";
 
 	beforeAll(async () => {
 		db = await openTestDb("sqlite");
 		const masterKey = MasterKey.generate();
 		mcp = new McpConnections({ db, masterKey });
-		app = makeApp(db, undefined, { masterKey, mcp });
+		audit = new Audit(db);
+		app = makeApp(db, undefined, { masterKey, mcp, audit });
 		await createUser(db, { username: "root", kind: "admin", password: "password-123" });
 		admin = await login(app, "root", "password-123");
 	});
@@ -130,5 +133,25 @@ describe("api extensions", () => {
 	it("deletes an unknown extension as a 404, not a body error", async () => {
 		const res = await call(app, "/api/extensions/never-was", { method: "DELETE", cookie: admin, body: {} });
 		expect(res.status).toBe(404);
+	});
+
+	it("audits an MCP URL without its userinfo or query", async () => {
+		const res = await call(app, "/api/extensions/audited", {
+			method: "PUT",
+			cookie: admin,
+			body: { url: "http://user:pass@mcp.test:8080/path/mcp?api_key=top-secret" },
+		});
+		expect(res.status).toBe(200);
+		await audit.flush();
+		const event = await db
+			.selectFrom("audit_events")
+			.select(["action", "detail"])
+			.where("action", "=", "extension.created")
+			.orderBy("seq", "desc")
+			.executeTakeFirstOrThrow();
+		const detail = JSON.parse(event.detail ?? "{}") as { url?: string };
+		expect(detail.url).toBe("http://mcp.test:8080/path/mcp");
+		expect(event.detail).not.toContain("top-secret");
+		expect(event.detail).not.toContain("user:pass");
 	});
 });

@@ -227,6 +227,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	await models.reload();
 	// A function, so that a Harness a storage error closed is reopened on fresh storage.
 	const agentStorage = createStorageOpener(() => openAgentStorage(config.database));
+	// An external call that was in flight when the last process stopped ended unknown; it is never repeated.
+	// Recover before the runtime resumes runs, or a call a resumed run starts in that window is flipped to unknown.
+	await recoverExternalCalls(db);
 	const runtime = await AgentRuntime.open({
 		db,
 		storage: agentStorage.open,
@@ -237,8 +240,6 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		mcp,
 		audit,
 	});
-	// An external call that was in flight when the last process stopped ended unknown; it is never repeated.
-	await recoverExternalCalls(db);
 	// Signature waits that outlived their deadline while crhs was down end before requests are served.
 	await cluster.expireAuthorizationWaits();
 	// A token that expired while crhs was down must not leave its waiting work behind either.

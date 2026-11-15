@@ -306,23 +306,29 @@ export async function recordExternalCallReview(
 }
 
 /**
- * Marks a running call terminal. Only the state and `finished_at` are kept, plus the empty arguments: the
- * row is the "already ran" marker a replayed tool call finds, and the result itself is in the transcript.
+ * Marks a call terminal. Only the state, `finished_at` and the cleared arguments and handler are kept: the
+ * row is the "already ran" marker a replayed tool call finds, and the result itself is in the transcript. A
+ * waiting call ends this way when it will not run (the extension is gone or the rules deny it). A terminal
+ * row is never overwritten, so a late caller cannot replace a recovery's `unknown`.
  */
 export async function finishExternalCall(
 	db: Db,
 	id: string,
-	finish: { state: Extract<ExternalCallState, "succeeded" | "failed" | "cancelled" | "unknown"> },
+	finish: { state: Extract<ExternalCallState, "succeeded" | "failed" | "rejected" | "cancelled" | "unknown"> },
 ): Promise<void> {
-	await db
+	const result = await db
 		.updateTable("external_calls")
 		.set({
 			state: finish.state,
+			handler_type: null,
+			handler_session_id: null,
 			arguments: null,
 			finished_at: new Date().toISOString(),
 		})
 		.where("id", "=", id)
-		.execute();
+		.where("state", "not in", [...EXTERNAL_CALL_TERMINAL])
+		.executeTakeFirst();
+	if (result.numUpdatedRows > 0n) wakeExternalCall(id);
 }
 
 /** A call cancelled while it waited for approval; it never reached the server. */

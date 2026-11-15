@@ -1532,6 +1532,33 @@ function settledResult(row: ExternalCallRow, extension: string, tool: string): T
 	return replayedResult(row, extension, tool);
 }
 
+/** Finishes a call and records it; every terminal path goes through here so the audit cannot be forgotten. */
+async function finishCall(
+	ctx: ToolContext,
+	id: string,
+	extension: string,
+	tool: string,
+	state: "succeeded" | "failed" | "rejected" | "cancelled" | "unknown",
+): Promise<void> {
+	await finishExternalCall(ctx.db, id, { state });
+	auditExternal(ctx, "external_call.finished", id, { extension, tool, state });
+}
+
+/**
+ * Ends the earlier attempt of a replayed call that cannot run now, so its row does not stay on the approvals
+ * page without a waiter. The arguments go like any terminal row.
+ */
+async function finishOrphanedCall(
+	ctx: ToolContext,
+	existing: ExternalCallRow | undefined,
+	extension: string,
+	tool: string,
+	state: "failed" | "rejected",
+): Promise<void> {
+	if (!existing) return;
+	await finishCall(ctx, existing.id, extension, tool, state);
+}
+
 /**
  * Runs one extension call under the rules and approvals (doc/design/extensions.md "Rules and approvals" and
  * "External calls"): a denied call never starts, an approval waits in the WebUI (or Auto Review settles it),
@@ -1545,17 +1572,26 @@ export async function runExtensionTool(
 	arguments_: Record<string, unknown>,
 ): Promise<ToolResult> {
 	if (!ctx.extensions) throw new UserError("extensions are not configured", "unavailable");
-	const entry = extensionOf(ctx, extensionName);
-	const extension = entry.extension;
 	const callKey = ctx.callKey ?? newId();
 	const id = externalCallId(callKey);
 	// A replayed tool call finds its row and returns what the first attempt produced, without connecting again.
 	const existing = await getExternalCall(ctx.db, id);
 	// A replayed tool call finds its row: a running one is never sent again, and a terminal one already ran.
 	if (existing && existing.state !== "awaiting_approval") return replayedResult(existing, extensionName, toolName);
+	let entry: SessionExtension;
+	try {
+		entry = extensionOf(ctx, extensionName);
+	} catch (err) {
+		// The extension was disabled, deleted or ungranted since the first attempt, so its waiting row has
+		// nobody left to run it.
+		await finishOrphanedCall(ctx, existing, extensionName, toolName, "failed");
+		throw err;
+	}
+	const extension = entry.extension;
 	try {
 		await extension.ensureAvailable({ immediate: true });
 	} catch (err) {
+		await finishOrphanedCall(ctx, existing, extensionName, toolName, "failed");
 		return errorResult(
 			"text",
 			"unavailable",
@@ -1574,6 +1610,7 @@ export async function runExtensionTool(
 		}
 	}
 	if (!tool) {
+		await finishOrphanedCall(ctx, existing, extensionName, toolName, "failed");
 		return errorResult("text", "unknown_tool", `the extension ${extensionName} has no tool named ${toolName}`, {
 			extension: extensionName,
 			tool: toolName,
@@ -1587,12 +1624,14 @@ export async function runExtensionTool(
 		// A built-in extension refuses a call in its operation before any rule or external call exists, e.g. an
 		// API route its document marks deny (doc/design/extensions.md "API requests").
 		if (!(err instanceof UserError)) throw err;
+		await finishOrphanedCall(ctx, existing, extensionName, toolName, "failed");
 		return errorResult("text", err.code ?? "invalid_argument", err.message, {
 			extension: extensionName,
 			tool: toolName,
 		});
 	}
 	if (evaluation.result === "deny") {
+		await finishOrphanedCall(ctx, existing, extensionName, toolName, "rejected");
 		return errorResult("text", "policy_denied", "denied by the authorization rules", {
 			extension: extensionName,
 			tool: toolName,
@@ -1656,8 +1695,9 @@ export async function runExtensionTool(
 		}
 	}
 	if (row.state !== "running") return settledResult(row, extensionName, toolName);
+	let resultValue: unknown;
 	try {
-		const resultValue = await extension.call(toolName, arguments_, {
+		resultValue = await extension.call(toolName, arguments_, {
 			...(ctx.signal ? { signal: ctx.signal } : {}),
 			identity: { username: ctx.user.username, sessionId: ctx.actor.id },
 			builtin: {
@@ -1665,67 +1705,49 @@ export async function runExtensionTool(
 				actor: { type: ctx.actor.type, id: ctx.actor.id, onBehalfOfUserId: ctx.actor.onBehalfOfUserId },
 			},
 		});
-		const converted = await convertExternalResult(resultValue as CallToolResult, {
-			extension: extensionName,
-			tool: toolName,
-			...(ctx.imageCache ? { imageCache: ctx.imageCache } : {}),
-		});
-		await finishExternalCall(ctx.db, id, { state: "succeeded" });
-		auditExternal(ctx, "external_call.finished", id, {
-			extension: extensionName,
-			tool: toolName,
-			state: "succeeded",
-		});
-		return converted;
 	} catch (err) {
 		if (err instanceof UserError) {
 			// The built-in refused the call itself (a bad argument, an unknown document); it never ran.
-			await finishExternalCall(ctx.db, id, { state: "failed" });
-			auditExternal(ctx, "external_call.finished", id, {
-				extension: extensionName,
-				tool: toolName,
-				state: "failed",
-			});
+			await finishCall(ctx, id, extensionName, toolName, "failed");
 			return errorResult("text", err.code ?? "invalid_argument", err.message, {
 				extension: extensionName,
 				tool: toolName,
 			});
 		}
 		if (err instanceof ExtensionUnavailableError) {
-			await finishExternalCall(ctx.db, id, { state: "failed" });
-			auditExternal(ctx, "external_call.finished", id, {
-				extension: extensionName,
-				tool: toolName,
-				state: "failed",
-			});
+			await finishCall(ctx, id, extensionName, toolName, "failed");
 			return errorResult("text", "unavailable", err.message, { extension: extensionName, tool: toolName });
 		}
 		if (err instanceof ExtensionToolError) {
-			await finishExternalCall(ctx.db, id, { state: "failed" });
-			auditExternal(ctx, "external_call.finished", id, {
-				extension: extensionName,
-				tool: toolName,
-				state: "failed",
-			});
+			await finishCall(ctx, id, extensionName, toolName, "failed");
 			return errorResult("text", "tool_error", err.message, { extension: extensionName, tool: toolName });
 		}
 		if (err instanceof ExtensionCallLostError) {
 			// A lost call is not retried. On shutdown the row stays running so the next start recovers it as unknown.
-			if (!ctx.closing?.()) {
-				await finishExternalCall(ctx.db, id, { state: "unknown" });
-				auditExternal(ctx, "external_call.finished", id, {
-					extension: extensionName,
-					tool: toolName,
-					state: "unknown",
-				});
-			}
+			if (!ctx.closing?.()) await finishCall(ctx, id, extensionName, toolName, "unknown");
 			return errorResult("text", "unknown", `${err.message}; its outcome is unknown and it was not retried`, {
 				extension: extensionName,
 				tool: toolName,
 			});
 		}
+		// An unexpected exception may have reached the server, so the outcome is not known.
+		await finishCall(ctx, id, extensionName, toolName, "unknown");
 		throw err;
 	}
+	let converted: ToolResult;
+	try {
+		converted = await convertExternalResult(resultValue as CallToolResult, {
+			extension: extensionName,
+			tool: toolName,
+			...(ctx.imageCache ? { imageCache: ctx.imageCache } : {}),
+		});
+	} catch (err) {
+		// The call reached the server but its result could not be converted; it must not stay running.
+		await finishCall(ctx, id, extensionName, toolName, "unknown");
+		throw err;
+	}
+	await finishCall(ctx, id, extensionName, toolName, "succeeded");
+	return converted;
 }
 
 const callTool = define({

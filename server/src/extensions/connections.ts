@@ -11,6 +11,7 @@ import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { BACKOFF_BASE_MS, BACKOFF_MAX_MS, backoffDelay } from "../util/backoff.ts";
 import { errorText } from "../util/errors.ts";
+import { redactUrlsInText } from "../util/url.ts";
 import { CRH_VERSION } from "../version.ts";
 import { ExtensionCallLostError, type ExtensionTool, ExtensionToolError, ExtensionUnavailableError } from "./model.ts";
 import { type ExtensionRow, getExtensionRow, mcpExtensionConfig } from "./store.ts";
@@ -182,7 +183,8 @@ export class McpConnections {
 	#scheduleRetry(name: string, state: ServerState): void {
 		this.#clearRetry(state);
 		if (this.#closing) return;
-		const delay = this.#backoffDelay(state.attempt + 1);
+		// `attempt` is the number of the failed attempt, so the first retry waits the base delay (1 s).
+		const delay = this.#backoffDelay(state.attempt);
 		state.nextAttemptAt = new Date(this.#now() + delay).toISOString();
 		state.retryTimer = setTimeout(() => {
 			state.retryTimer = undefined;
@@ -203,6 +205,8 @@ export class McpConnections {
 		if (!state) return;
 		this.#clearRetry(state);
 		await this.#closeState(state);
+		// An attempt that failed while it was awaited scheduled its retry after the first clear.
+		this.#clearRetry(state);
 		if (!options.keepTools) {
 			this.#states.delete(name);
 			return;
@@ -249,9 +253,13 @@ export class McpConnections {
 			state.transport = undefined;
 			if (previous) await previous.close().catch(() => undefined);
 			const row = await this.#freshRow(name);
-			if (row?.kind !== "mcp") {
-				this.#setStatus(state, "unavailable", "no such MCP extension");
-				throw new ExtensionUnavailableError("no such MCP extension");
+			if (row?.kind !== "mcp" || row.enabled !== 1) {
+				// A disabled or deleted extension must not be contacted, even when a call or a stale retry asks
+				// for it (doc/design/extensions.md "MCP connections").
+				this.#clearRetry(state);
+				const message = row?.kind === "mcp" ? "the extension is disabled" : "no such MCP extension";
+				this.#setStatus(state, "unavailable", message);
+				throw new ExtensionUnavailableError(message);
 			}
 			state.row = row;
 			const config = await mcpExtensionConfig(this.#options.db, this.#options.masterKey, row);
@@ -273,7 +281,7 @@ export class McpConnections {
 							onChanged: (error, tools) => {
 								if (error || !tools) return;
 								this.#setTools(state, tools).catch((err: unknown) => {
-									console.error(`mcp: refreshing the tool list of ${name} failed:`, errorText(err));
+									console.error(`mcp: refreshing the tool list of ${name} failed:`, redactUrlsInText(errorText(err)));
 								});
 							},
 						},
@@ -323,11 +331,13 @@ export class McpConnections {
 				await client.close().catch(() => undefined);
 				state.attempt += 1;
 				state.lastFailureAt = this.#now();
-				this.#setStatus(state, "unavailable", errorText(err));
+				// A token in the endpoint's query must not reach the status page or a tool result.
+				const message = redactUrlsInText(errorText(err));
+				this.#setStatus(state, "unavailable", message);
 				// An on-demand attempt with a retry still scheduled leaves that schedule alone; otherwise
 				// this failure schedules the next one (scheduled attempt, administrator, first use).
 				if (!(options.keepSchedule === true && state.retryTimer !== undefined)) this.#scheduleRetry(name, state);
-				throw new ExtensionUnavailableError(errorText(err));
+				throw new ExtensionUnavailableError(message);
 			}
 		})();
 		state.connecting = attempt;
@@ -466,15 +476,16 @@ export class McpConnections {
 				if (err instanceof ProtocolError) throw new ExtensionToolError(errorText(err));
 				// The request did not complete normally: its outcome is unknown, and the server is no longer
 				// trusted to be connected.
+				const message = redactUrlsInText(errorText(err));
 				if (state.client === client) {
 					state.client = undefined;
 					state.transport = undefined;
 					state.attempt += 1;
 					state.lastFailureAt = this.#now();
-					this.#setStatus(state, "unavailable", errorText(err));
+					this.#setStatus(state, "unavailable", message);
 					this.#scheduleRetry(name, state);
 				}
-				throw new ExtensionCallLostError(errorText(err));
+				throw new ExtensionCallLostError(message);
 			} finally {
 				clearTimeout(timer);
 				options.signal?.removeEventListener("abort", onAbort);
