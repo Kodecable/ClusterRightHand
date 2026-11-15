@@ -63,7 +63,7 @@ const deleteRoute = defineRoute({
 	path: "/node-groups/{id}",
 	tags: TAGS,
 	summary: "Delete a node group; its nodes stay (administrators)",
-	agent: "ask",
+	agent: "deny", // rules match nodes by group; deleting a group widens access
 	middleware: [requireAdmin],
 	request: { params: IdParamSchema },
 	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },

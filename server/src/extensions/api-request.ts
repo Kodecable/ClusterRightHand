@@ -58,6 +58,9 @@ function invalid(message: string): UserError {
 }
 
 /** Validates and normalizes the tool's arguments; every refusal here happens before any rule or call row. */
+/** The origin in-process API requests are addressed to; never reached over the network. */
+const API_REQUEST_ORIGIN = "http://crh.internal";
+
 export function normalizeApiRequest(raw: unknown): NormalizedApiRequest {
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 		throw invalid("takes an object with method and path");
@@ -81,8 +84,21 @@ export function normalizeApiRequest(raw: unknown): NormalizedApiRequest {
 	if (path.includes("?") || path.includes("#")) {
 		throw invalid("put query parameters in query, not in path");
 	}
+	// The WHATWG URL parser turns `\` into `/` and resolves encoded dots as dot segments, so either could
+	// match one route's template while the router serves another. Refuse them before any route lookup.
+	if (/\\|%5c/i.test(path)) {
+		throw invalid("path must not contain backslashes or an encoded backslash (%5c)");
+	}
+	if (/%2e/i.test(path)) {
+		throw invalid("path must not contain an encoded dot (%2e)");
+	}
 	if (path.split("/").some((segment) => segment === "." || segment === "..")) {
 		throw invalid("path must not contain . or .. segments");
+	}
+	// Defence in depth: whatever else the URL parser would rewrite (a tab, a space) is refused here too, before
+	// any route lookup, so the route the rules judge is the route the router serves.
+	if (new URL(`${API_REQUEST_ORIGIN}${path}`).pathname !== path) {
+		throw invalid("path must be a literal API path; the URL parser would rewrite it");
 	}
 	if (parsed.data.body !== undefined && (method === "GET" || method === "HEAD")) {
 		throw invalid(`${method} requests have no body`);
@@ -188,8 +204,9 @@ export async function runApiRequest(
 ): Promise<CallToolResult> {
 	const parsed = normalizeApiRequest(raw);
 	const route = routeOf(routes, parsed);
-	const query = new URLSearchParams(parsed.query).toString();
-	const url = `http://crh.internal${parsed.path}${query === "" ? "" : `?${query}`}`;
+	// `normalizeApiRequest` already checked that the parser keeps the path as it is.
+	const url = new URL(`${API_REQUEST_ORIGIN}${parsed.path}`);
+	url.search = new URLSearchParams(parsed.query).toString();
 	const headers: Record<string, string> = { accept: "application/json" };
 	if (parsed.body !== undefined) headers["content-type"] = "application/json";
 	const response = await request(

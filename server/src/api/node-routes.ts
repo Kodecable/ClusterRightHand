@@ -88,7 +88,7 @@ const filesRoute = defineRoute({
 	path: "/nodes/{id}/files",
 	tags: TAGS,
 	summary: "List a directory on a node; the listing is an unprivileged `file.list` browse task",
-	agent: "ask",
+	agent: "deny", // it runs as the user, bypassing the session's file rules; the model has file tools
 	request: { params: IdParamSchema, query: NodeFilesQuerySchema },
 	responses: {
 		200: { description: "The entries under the path", ...json(NodeFilesResponseSchema) },
@@ -102,7 +102,7 @@ const statRoute = defineRoute({
 	path: "/nodes/{id}/stat",
 	tags: TAGS,
 	summary: "Stat one path on a node; an unprivileged `file.stat` browse task",
-	agent: "ask",
+	agent: "deny", // it runs as the user, bypassing the session's file rules; the model has file tools
 	request: { params: IdParamSchema, query: NodeStatQuerySchema },
 	responses: {
 		200: { description: "The file's metadata", ...json(NodeFileResponseSchema) },

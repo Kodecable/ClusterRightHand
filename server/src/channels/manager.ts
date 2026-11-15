@@ -217,6 +217,11 @@ function modelRefHash(model: ModelRef): string {
 	return listHash([`${model.provider}/${model.modelId}`]);
 }
 
+/** A short digest of the session or draft a settings button was shown for, so a press after `/sessions` does nothing. */
+function targetTag(state: Extract<ChatTarget, { state: "draft" | "session" }>): string {
+	return listHash([state.state === "draft" ? `${state.thread.id}draft` : state.session.id]);
+}
+
 interface ResolvedDefaults {
 	model: ModelRef | undefined;
 	thinkingLevel: ThinkingLevel;
@@ -746,14 +751,16 @@ export class ChannelManager {
 		if (thread.session_id === null) return;
 		try {
 			const text = message.text ?? "";
+			// The thread is the source only while its account belongs to the owner; a shared user's message
+			// counts as the WebUI, so notifications keep following the owner.
+			const owner = await sessionOwner(this.#options.db, thread.session_id);
 			await this.#options.runtime.submit(
 				thread.session_id,
 				user,
 				text,
 				`channel:${row.id}:${message.dedupeKey ?? message.updateId}`,
 				{
-					// The session records where its latest user message came from: this thread.
-					lastUsedFrom: thread.id,
+					lastUsedFrom: owner === user.userId ? thread.id : "web",
 					...(attachments
 						? {
 								content: attachmentContent(text, attachments.blocks),
@@ -1228,6 +1235,7 @@ export class ChannelManager {
 		current: ModelRef,
 		page: number,
 		m: BotMessages,
+		tag: string,
 	): {
 		text: string;
 		buttons: import("./model.ts").ChannelButton[][];
@@ -1241,12 +1249,12 @@ export class ChannelManager {
 		const buttons: import("./model.ts").ChannelButton[][] = models.map((model, index) => [
 			{
 				text: `${sameModel(model, current) ? "✓ " : ""}${clip(`${model.name} (${model.providerName})`, 60)}`,
-				data: `model:${currentPage}:${index}:${hash}`,
+				data: `model:${currentPage}:${index}:${hash}:${tag}`,
 			},
 		]);
 		const nav: import("./model.ts").ChannelButton[] = [];
-		if (currentPage > 1) nav.push({ text: m.previousPage, data: `modelp:${currentPage - 1}:${hash}` });
-		if (currentPage < pages) nav.push({ text: m.nextPage, data: `modelp:${currentPage + 1}:${hash}` });
+		if (currentPage > 1) nav.push({ text: m.previousPage, data: `modelp:${currentPage - 1}:${hash}:${tag}` });
+		if (currentPage < pages) nav.push({ text: m.nextPage, data: `modelp:${currentPage + 1}:${hash}:${tag}` });
 		if (nav.length > 0) buttons.push(nav);
 		const title = pages > 1 ? m.modelTitle(currentPage, pages) : m.modelTitleSingle;
 		const lines = models.map((model, index) =>
@@ -1328,7 +1336,7 @@ export class ChannelManager {
 			return;
 		}
 		const current = state.state === "draft" ? state.draft.model : state.session.model;
-		const view = this.#modelPage(available, current, parsed.page, m);
+		const view = this.#modelPage(available, current, parsed.page, m, targetTag(state));
 		await adapter.sendText(target, view.text, { buttons: view.buttons });
 	}
 
@@ -1341,7 +1349,7 @@ export class ChannelManager {
 		data: string,
 		m: BotMessages,
 	): Promise<void> {
-		const [, rawPage, rawIndex, hash] = data.split(":");
+		const [, rawPage, rawIndex, hash, tag] = data.split(":");
 		const page = Number.parseInt(rawPage ?? "", 10);
 		const index = Number.parseInt(rawIndex ?? "", 10);
 		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
@@ -1351,9 +1359,11 @@ export class ChannelManager {
 		}
 		const available = this.#options.models.available();
 		const current = state.state === "draft" ? state.draft.model : state.session.model;
-		const view = this.#modelPage(available, current, Number.isSafeInteger(page) ? page : 1, m);
-		// The offered list changed since the press: show the list as it is now instead of acting on an index.
-		if (hash !== modelListHash(available) || !Number.isSafeInteger(index)) {
+		const currentTag = targetTag(state);
+		const view = this.#modelPage(available, current, Number.isSafeInteger(page) ? page : 1, m, currentTag);
+		// The target switched or the offered list changed since the press: show the list as it is now instead
+		// of acting on an index that belonged to another session or another list.
+		if (tag !== currentTag || hash !== modelListHash(available) || !Number.isSafeInteger(index)) {
 			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
 			return;
 		}
@@ -1384,7 +1394,13 @@ export class ChannelManager {
 			return;
 		}
 		const current = state.state === "draft" ? state.draft.model : state.session.model;
-		const view = this.#modelPage(this.#options.models.available(), current, Number.isSafeInteger(page) ? page : 1, m);
+		const view = this.#modelPage(
+			this.#options.models.available(),
+			current,
+			Number.isSafeInteger(page) ? page : 1,
+			m,
+			targetTag(state),
+		);
 		await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
 	}
 
@@ -1420,7 +1436,7 @@ export class ChannelManager {
 			await adapter.sendText(target, m.thinkingNone(this.#modelName(model)));
 			return;
 		}
-		const view = this.#thinkingPage(model, offered, levels, m);
+		const view = this.#thinkingPage(model, offered, levels, m, targetTag(state));
 		await adapter.sendText(target, view.text, { buttons: view.buttons });
 	}
 
@@ -1429,13 +1445,14 @@ export class ChannelManager {
 		offered: AvailableModel | undefined,
 		levels: readonly ThinkingLevel[],
 		m: BotMessages,
+		tag: string,
 	): { text: string; buttons: import("./model.ts").ChannelButton[][] } {
 		const current = model.thinkingLevel ?? "off";
 		const hash = modelRefHash(model);
 		const buttons: import("./model.ts").ChannelButton[][] = levels.map((level) => [
 			{
 				text: `${level === current ? "✓ " : ""}${offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level)}`,
-				data: `think:${level}:${hash}`,
+				data: `think:${level}:${hash}:${tag}`,
 			},
 		]);
 		const lines = levels.map((level) => {
@@ -1487,7 +1504,7 @@ export class ChannelManager {
 		data: string,
 		m: BotMessages,
 	): Promise<void> {
-		const [, rawLevel, hash] = data.split(":");
+		const [, rawLevel, hash, tag] = data.split(":");
 		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
 		if (state.state !== "draft" && state.state !== "session") {
 			await this.#replyNoTarget(adapter, state.state, target, m);
@@ -1497,12 +1514,13 @@ export class ChannelManager {
 		const offered = this.#options.models.available().find((candidate) => sameModel(candidate, model));
 		const levels = offered?.thinkingLevels ?? ["off"];
 		const level = levels.find((candidate) => candidate === rawLevel);
-		if (hash !== modelRefHash(model) || level === undefined) {
-			// The model changed or the level is no longer offered: show the levels of the current model.
+		const currentTag = targetTag(state);
+		if (tag !== currentTag || hash !== modelRefHash(model) || level === undefined) {
+			// The target or model changed, or the level is no longer offered: show the current levels.
 			const view =
 				levels.length <= 1
 					? { text: m.thinkingNone(this.#modelName(model)), buttons: [] }
-					: this.#thinkingPage(model, offered, levels, m);
+					: this.#thinkingPage(model, offered, levels, m, currentTag);
 			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
 			return;
 		}
@@ -1541,13 +1559,22 @@ export class ChannelManager {
 			return;
 		}
 		const current = state.state === "draft" ? state.draft.rulePreset : (state.session.rules?.rulePreset ?? "ask");
+		const view = this.#rulesPage(current, m, targetTag(state));
+		await adapter.sendText(target, view.text, { buttons: view.buttons });
+	}
+
+	#rulesPage(
+		current: RulePreset,
+		m: BotMessages,
+		tag: string,
+	): { text: string; buttons: import("./model.ts").ChannelButton[][] } {
 		const buttons = RULE_PRESET_CHOICES.map((choice) => [
-			{ text: `${choice.value === current ? "✓ " : ""}${choice.label}`, data: `rules:${choice.value}` },
+			{ text: `${choice.value === current ? "✓ " : ""}${choice.label}`, data: `rules:${choice.value}:${tag}` },
 		]);
 		const lines = RULE_PRESET_CHOICES.map(
 			(choice) => `- ${choice.value === current ? "✓ " : ""}${escapeMarkdown(choice.label)} (${choice.value})`,
 		);
-		await adapter.sendText(target, `${m.rulesTitle}\n\n${lines.join("\n")}\n\n${m.rulesHint}`, { buttons });
+		return { text: `${m.rulesTitle}\n\n${lines.join("\n")}\n\n${m.rulesHint}`, buttons };
 	}
 
 	/** Writes a rule preset to the thread's draft and the user's defaults, or to the session. */
@@ -1603,12 +1630,19 @@ export class ChannelManager {
 		data: string,
 		m: BotMessages,
 	): Promise<void> {
-		const value = data.slice("rules:".length);
-		const choice = RULE_PRESET_CHOICES.find((candidate) => candidate.value === value);
-		if (!choice) return;
+		const [, value, tag] = data.split(":");
 		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
 		if (state.state !== "draft" && state.state !== "session") {
 			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const current = state.state === "draft" ? state.draft.rulePreset : (state.session.rules?.rulePreset ?? "ask");
+		const currentTag = targetTag(state);
+		const choice = RULE_PRESET_CHOICES.find((candidate) => candidate.value === value);
+		if (tag !== currentTag || !choice) {
+			// The chat now acts on another session, or the preset is unknown: show the current target's list.
+			const view = this.#rulesPage(current, m, currentTag);
+			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
 			return;
 		}
 		if (!(await this.#applyRules(row, adapter, user, state, choice.value, m, target))) return;
@@ -1649,7 +1683,7 @@ export class ChannelManager {
 			if (enabled !== undefined) await adapter.sendText(target, m.extensionSet(name, enabled));
 			return;
 		}
-		const view = this.#extensionPage(names, disabled, parsed.page, m);
+		const view = this.#extensionPage(names, disabled, parsed.page, m, targetTag(state));
 		await adapter.sendText(target, view.text, { buttons: view.buttons });
 	}
 
@@ -1706,6 +1740,7 @@ export class ChannelManager {
 		disabled: readonly string[],
 		page: number,
 		m: BotMessages,
+		tag: string,
 	): { text: string; buttons: import("./model.ts").ChannelButton[][]; names: readonly string[]; page: number } {
 		const pages = Math.max(1, Math.ceil(names.length / EXTENSION_PAGE_SIZE));
 		const currentPage = Math.min(Math.max(page, 1), pages);
@@ -1714,12 +1749,12 @@ export class ChannelManager {
 		const buttons: import("./model.ts").ChannelButton[][] = pageNames.map((name, index) => [
 			{
 				text: `${disabled.includes(name) ? "" : "✓ "}${clip(name, 60)}`,
-				data: `ext:${currentPage}:${index}:${hash}`,
+				data: `ext:${currentPage}:${index}:${hash}:${tag}`,
 			},
 		]);
 		const nav: import("./model.ts").ChannelButton[] = [];
-		if (currentPage > 1) nav.push({ text: m.previousPage, data: `extp:${currentPage - 1}:${hash}` });
-		if (currentPage < pages) nav.push({ text: m.nextPage, data: `extp:${currentPage + 1}:${hash}` });
+		if (currentPage > 1) nav.push({ text: m.previousPage, data: `extp:${currentPage - 1}:${hash}:${tag}` });
+		if (currentPage < pages) nav.push({ text: m.nextPage, data: `extp:${currentPage + 1}:${hash}:${tag}` });
 		if (nav.length > 0) buttons.push(nav);
 		const title = pages > 1 ? m.extensionsTitle(currentPage, pages) : m.extensionsTitleSingle;
 		const lines = pageNames.map((name, index) =>
@@ -1742,7 +1777,7 @@ export class ChannelManager {
 		data: string,
 		m: BotMessages,
 	): Promise<void> {
-		const [, rawPage, rawIndex, hash] = data.split(":");
+		const [, rawPage, rawIndex, hash, tag] = data.split(":");
 		const page = Number.parseInt(rawPage ?? "", 10);
 		const index = Number.parseInt(rawIndex ?? "", 10);
 		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
@@ -1752,9 +1787,10 @@ export class ChannelManager {
 		}
 		const names = await this.#extensionNames(user);
 		const disabled = await this.#disabledExtensions(state);
-		const view = this.#extensionPage(names, disabled, Number.isSafeInteger(page) ? page : 1, m);
+		const currentTag = targetTag(state);
+		const view = this.#extensionPage(names, disabled, Number.isSafeInteger(page) ? page : 1, m, currentTag);
 		const hashNow = listHash([...names, "|", ...[...disabled].sort()]);
-		if (hash !== hashNow || !Number.isSafeInteger(index)) {
+		if (tag !== currentTag || hash !== hashNow || !Number.isSafeInteger(index)) {
 			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
 			return;
 		}
@@ -1766,7 +1802,7 @@ export class ChannelManager {
 		const enabled = await this.#toggleExtension(row, adapter, user, state, name, disabled, m, target);
 		if (enabled === undefined) return;
 		const nextDisabled = enabled ? disabled.filter((entry) => entry !== name) : [...disabled, name];
-		const after = this.#extensionPage(names, nextDisabled, view.page, m);
+		const after = this.#extensionPage(names, nextDisabled, view.page, m, currentTag);
 		await this.#editPage(adapter, target, press.messageId, after.text, after.buttons);
 	}
 
@@ -1788,7 +1824,7 @@ export class ChannelManager {
 		}
 		const names = await this.#extensionNames(user);
 		const disabled = await this.#disabledExtensions(state);
-		const view = this.#extensionPage(names, disabled, Number.isSafeInteger(page) ? page : 1, m);
+		const view = this.#extensionPage(names, disabled, Number.isSafeInteger(page) ? page : 1, m, targetTag(state));
 		await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
 	}
 
@@ -2559,6 +2595,9 @@ export class ChannelManager {
 		if (!thread || thread.session_id === null) return;
 		const owner = await sessionOwner(this.#options.db, thread.session_id);
 		if (!owner) return;
+		// Only the owner's own linked account may stop the turn; a chat relinked to someone else cannot.
+		const presser = await accountByPlatform(this.#options.db, row.id, adapter.platform, stop.platformUserId);
+		if (!presser || presser.user_id !== owner) return;
 		const userRow = await this.#options.db
 			.selectFrom("users")
 			.select(["id", "username", "kind", "status"])
@@ -2585,7 +2624,9 @@ export class ChannelManager {
 		if (last !== null && last !== "web") {
 			const thread = await threadById(this.#options.db, last);
 			if (thread && thread.session_id === sessionId) {
-				const route = await this.#routeForThread(thread);
+				// A thread is the source only while the account linked for its chat is the session owner's;
+				// after a relink the session is treated as last used from the WebUI.
+				const route = await this.#routeForThread(thread, owner);
 				if (route) return route;
 			}
 		}
@@ -2629,7 +2670,7 @@ export class ChannelManager {
 		};
 	}
 
-	async #routeForThread(thread: ChannelThreadRow): Promise<Route | undefined> {
+	async #routeForThread(thread: ChannelThreadRow, owner: string): Promise<Route | undefined> {
 		for (const entry of this.#adapters.values()) {
 			if (entry.row.id !== thread.channel_id) continue;
 			const account = await this.#options.db
@@ -2641,7 +2682,7 @@ export class ChannelManager {
 					eb.or([eb("platform_chat_id", "=", thread.chat_id), eb("platform_user_id", "=", thread.chat_id)]),
 				)
 				.executeTakeFirst();
-			if (!account) continue;
+			if (!account || account.user_id !== owner) continue;
 			return {
 				adapterName: entry.row.name,
 				adapter: entry.adapter,

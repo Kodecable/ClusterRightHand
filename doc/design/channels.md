@@ -88,6 +88,9 @@ A conversation is one thread of a private chat, mapped to one session (`channel_
   current model supports, `/rules` the three rule presets, and `/extensions` the extensions available to
   the session five per page. Items are numbered globally across pages (page 2 starts at 6), and the list
   ends with a hint such as "Send /model and a number to choose, /model page 2 for the next page."
+- **Settings buttons are bound to their target.** Each `/model`, `/think`, `/rules` and `/extensions`
+  button carries a short digest of the session or draft it was shown for. Pressing one after `/sessions`
+  switched the chat re-renders the current target's list instead of changing the other session.
 - **Every choice is also a command.** `/sessions <n>` switches to the n-th session, `/model <n>` sets the
   n-th offered model, and `/extensions <n>` toggles the n-th extension, with the list re-computed when the
   command runs. `/<command> page <n>` shows another page. `/think <level>` and `/rules <preset>` take the
@@ -139,12 +142,12 @@ username, are escaped so they show literally; assistant text is not escaped.
   the text.
 - **Progress** (optional, per user, on by default where the kind has it). Tool calls and thinking are never
   sent as messages; they can only appear as a status. On Telegram the current step shows as a draft
-  (`sendMessageDraft`), whose stop control stops the turn; each real message starts a new draft, and a
-  shown draft is re-sent every 20 seconds while the run goes on so it does not expire. Elsewhere one
-  status message is edited at most every few seconds and removed when the turn ends. A kind without the
-  `progress` capability shows none, and one without `buttons` sends none: its approval texts already
-  carry `/approve <id>`/`/reject <id>`, and a notification without a thread appends the session link
-  where Telegram would show an **Open session** button.
+  (`sendMessageDraft`), whose stop control stops the turn when the account that pressed it belongs to the
+  session owner; each real message starts a new draft, and a shown draft is re-sent every 20 seconds while
+  the run goes on so it does not expire. Elsewhere one status message is edited at most every few seconds
+  and removed when the turn ends. A kind without the `progress` capability shows none, and one without
+  `buttons` sends none: its approval texts already carry `/approve <id>`/`/reject <id>`, and a notification
+  without a thread appends the session link where Telegram would show an **Open session** button.
 - **Delivered files** (`copy_file` to `user_interface`) are sent as WebUI download links, never as
   attachments. Opening one goes through the normal sign-in and access checks
   ([Deliveries](library.md#deliveries)).
@@ -164,6 +167,10 @@ a message a schedule submitted. Switching or attaching a session in a chat does 
   stream. crhs is one process, so presence is kept in memory.
 - A notification to the default channel goes to the session's thread there, creating one when needed:
   a new topic on Telegram, otherwise a message naming the session with a button to switch to it.
+- **A chat thread counts as the session's source only while the account linked for that chat belongs to
+  the session owner.** A session whose chat was unlinked and linked to another user is treated as last
+  used from the WebUI. A shared user's message also records the WebUI as the source, so notifications
+  keep following the owner.
 - Notifications follow the session owner. Users a session is shared with are not notified.
 
 ## Approvals

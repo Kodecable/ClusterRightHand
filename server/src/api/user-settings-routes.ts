@@ -24,7 +24,7 @@ const patchRoute = defineRoute({
 	path: "/me/settings",
 	tags: TAGS,
 	summary: "Change the caller's settings; omitted fields stay, null clears a field",
-	agent: "ask",
+	agent: "deny", // it sets the default rule preset for new sessions
 	request: { body: { required: true, ...json(UserSettingsUpdateSchema) } },
 	responses: { 200: { description: "The settings as they now are", ...json(UserSettingsResponseSchema) } },
 });

@@ -35,28 +35,32 @@ describe("API document", () => {
 		const groups = doc.paths?.["/api/node-groups"];
 		expect(groups?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(groups?.post?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
+		expect(doc.paths?.["/api/node-groups/{id}"]?.delete?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.components?.schemas?.NodeGroup).toBeDefined();
 		// A read is allowed, a settings mutation needs an approval and a signing credential is the owner's.
 		const settings = doc.paths?.["/api/settings"];
 		expect(settings?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(settings?.patch?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/me/signing-credentials"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
-		// A user's own settings are readable, but changing them needs an approval.
+		// A user's own settings are readable; changing the new-session defaults is a guardrail.
 		expect(doc.paths?.["/api/me/settings"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
-		expect(doc.paths?.["/api/me/settings"]?.patch?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
+		expect(doc.paths?.["/api/me/settings"]?.patch?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/node-access-grants"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		for (const schema of ["SystemSettings", "NodeAccessGrant", "SigningCredentialView", "UserSettings"]) {
 			expect(doc.components?.schemas?.[schema]).toBeDefined();
 		}
 
-		// Nodes: reading metadata is allowed; a file's contents, an approval and a group change are not.
+		// Nodes: reading metadata is allowed; file browsing, a file's contents, an approval and a group change are not.
 		expect(doc.paths?.["/api/nodes"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(doc.paths?.["/api/nodes/{id}"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
+		expect(doc.paths?.["/api/nodes/{id}/files"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		expect(doc.paths?.["/api/nodes/{id}/stat"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/nodes/{id}/file"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/nodes/{id}/approve"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/nodes/{id}/node-groups"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
-		// Tasks: running and cancelling one needs an approval; reading one does not.
-		expect(doc.paths?.["/api/nodes/{id}/tasks"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
+		// Tasks: starting one is a tool call; reading and cancelling one stay available.
+		expect(doc.paths?.["/api/nodes/{id}/tasks"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		expect(doc.paths?.["/api/task-groups"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/tasks/{id}/cancel"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
 		expect(doc.paths?.["/api/tasks"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		// Approvals and authorizations are decisions and signing material: an agent never makes them.
@@ -158,16 +162,16 @@ describe("API document", () => {
 		]) {
 			expect(seen.has(key), key).toBe(true);
 		}
-		// Session access: reads are allowed; messages need approval; guardrails, sharing and streams do not.
+		// Session access: reads are allowed; creating or driving one, guardrails, sharing and streams are not.
 		const agent = (path: string, method: string) =>
 			(doc.paths?.[path] as Record<string, Record<string, unknown> | undefined> | undefined)?.[method]?.[
 				AGENT_ACCESS_EXTENSION
 			];
 		expect(agent("/api/sessions", "get")).toBe("allow");
-		expect(agent("/api/sessions", "post")).toBe("ask");
+		expect(agent("/api/sessions", "post")).toBe("deny");
 		expect(agent("/api/sessions/{id}", "get")).toBe("allow");
 		expect(agent("/api/sessions/{id}", "patch")).toBe("deny");
-		expect(agent("/api/sessions/{id}/messages", "post")).toBe("ask");
+		expect(agent("/api/sessions/{id}/messages", "post")).toBe("deny");
 		expect(agent("/api/sessions/{id}/shares", "put")).toBe("deny");
 		expect(agent("/api/sessions/{id}/shares/{shareId}", "delete")).toBe("deny");
 		expect(agent("/api/sessions/{id}/quota", "post")).toBe("deny");

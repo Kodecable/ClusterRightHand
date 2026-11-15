@@ -28,7 +28,7 @@ const updateRoute = defineRoute({
 	path: "/model-presets/{kind}",
 	tags: TAGS,
 	summary: "Set a preset's model and/or custom system prompt; omitted fields stay, null clears (administrators)",
-	agent: "ask",
+	agent: "deny", // the review preset is the Auto Review guardrail
 	middleware: [requireAdmin],
 	request: { params: ModelPresetKindParamSchema, body: { required: true, ...json(ModelPresetInputSchema) } },
 	responses: { 200: { description: "The updated preset", ...json(ModelPresetResponseSchema) } },

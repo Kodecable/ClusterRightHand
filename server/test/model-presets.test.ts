@@ -79,7 +79,7 @@ it("is for administrators only", async () => {
 it("appears in the API document with its agent access", () => {
 	const doc = apiDocument(app as unknown as OpenAPIHono<AppEnv>);
 	expect(doc.paths?.["/api/model-presets"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
-	expect(doc.paths?.["/api/model-presets/{kind}"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
+	expect(doc.paths?.["/api/model-presets/{kind}"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 	expect(doc.paths?.["/api/model-providers/{providerId}"]?.put?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 	expect(doc.components?.schemas?.ModelPreset).toBeDefined();
 });

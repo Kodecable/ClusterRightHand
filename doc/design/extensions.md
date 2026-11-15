@@ -231,8 +231,11 @@ a WebUI request.
   | `ask` | `api.write` | the same |
 
   So the Ask preset lets the agent read and asks before every change, Yolo allows both, and a rule such as
-  `prefix: "POST /api/sessions"` allows a family of routes. `allow api.write` implies `api.read`, as for
+  `prefix: "POST /api/node-groups"` allows a family of routes. `allow api.write` implies `api.read`, as for
   files and extensions.
+- **Path.** A path is literal: no `\` or `%5c`, no percent-encoded dot (`%2e`, any case), no `.` or `..`
+  segment, and the pathname a URL parser computes from it must equal it exactly. Query parameters go in
+  `query`. This keeps the template the rules judge and the route the router serves the same.
 - **Approval.** A request that needs an approval waits in an external call ([External calls](#external-calls))
   and is decided like any other.
 - **Result.** The status and the JSON response, compact and truncated like other tool output. A binary or

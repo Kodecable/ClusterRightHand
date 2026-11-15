@@ -27,6 +27,8 @@ let db: Db;
 let audit: Audit;
 let app: CreatedApp;
 let owner: TestUser;
+/** Counts handler runs for the route a rewritten path would reach, so a test can prove it never did. */
+let rewrittenRouteHits = 0;
 
 /** Adds the routes these tests need; they do not exist on the ordinary app without a runtime. */
 function addTestRoutes(target: CreatedApp): void {
@@ -75,6 +77,32 @@ function addTestRoutes(target: CreatedApp): void {
 		}),
 		(c) => c.body(new Uint8Array([1, 2, 3, 4]), 200, { "content-type": "application/octet-stream" }),
 	);
+	// An allowed parameterised route and a deny route the URL parser would reach if it rewrote the path.
+	target.openapi(
+		defineRoute({
+			method: "get",
+			path: "/api/test-item/{id}",
+			tags: ["Test"],
+			summary: "One item",
+			agent: "allow",
+			responses: { 200: { description: "The item", ...json(z.object({ item: z.string() })) } },
+		}),
+		(c) => c.json({ item: c.req.param("id") }, 200),
+	);
+	target.openapi(
+		defineRoute({
+			method: "get",
+			path: "/api/test-rewritten",
+			tags: ["Test"],
+			summary: "A route a rewritten path would reach",
+			agent: "deny",
+			responses: { 200: { description: "Reached", ...json(z.object({ rewritten: z.boolean() })) } },
+		}),
+		(c) => {
+			rewrittenRouteHits += 1;
+			return c.json({ rewritten: true }, 200);
+		},
+	);
 }
 
 function useTestRoutes(target: CreatedApp): CreatedApp {
@@ -92,6 +120,7 @@ function useTestRoutes(target: CreatedApp): CreatedApp {
 beforeEach(async () => {
 	db = await openTestDb("sqlite");
 	audit = new Audit(db);
+	rewrittenRouteHits = 0;
 	app = useTestRoutes(createApp(db, { audit } satisfies AppOptions));
 	owner = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
 });
@@ -200,6 +229,44 @@ describe("api_request", () => {
 		expect(outside.isError).toBe(true);
 		expect(textOf(outside)).toContain("only paths under /api");
 		expect(await db.selectFrom("external_calls").select("id").execute()).toHaveLength(0);
+	});
+
+	it("refuses paths the URL parser would rewrite before any route or rule evaluation", async () => {
+		const ctx = await context();
+		const paths = [
+			// Backslashes and encoded backslashes become `/`, resolving dot segments on the way.
+			"/api/test-item/x\\..\\..\\test-rewritten",
+			"/api/test-item/x%5c..%5c..%5ctest-rewritten",
+			"/api/x/..\\..\\mcp",
+			// Encoded dots resolve like literal dot segments.
+			"/api/test-item/%2e%2e",
+			"/api/test-item/.%2e",
+			"/api/test-item/%2E%2E",
+			"/api/test-item/%2e%2e%2f%2e%2e%2fmcp",
+			"/api/test-item/../test-rewritten",
+		];
+		for (const path of paths) {
+			const result = await runExtensionTool(ctx, "api", "api_request", { method: "GET", path });
+			expect(result.isError, path).toBe(true);
+			expect(textOf(result), path).toContain("path must not contain");
+		}
+		// No template was matched, no external call row was made, and the route behind the rewrite never ran.
+		expect(rewrittenRouteHits).toBe(0);
+		expect(await db.selectFrom("external_calls").select("id").execute()).toHaveLength(0);
+
+		// Past the first checks, the round trip catches what the parser still rewrites: it drops a tab and
+		// percent-encodes a space, so the path it would serve is not the one the rules judged.
+		for (const path of ["/api/test-item/4\t2", "/api/test-item/4 2"]) {
+			const result = await runExtensionTool(ctx, "api", "api_request", { method: "GET", path });
+			expect(result.isError, path).toBe(true);
+			expect(textOf(result), path).toContain("the URL parser would rewrite it");
+		}
+		expect(rewrittenRouteHits).toBe(0);
+		expect(await db.selectFrom("external_calls").select("id").execute()).toHaveLength(0);
+
+		const normal = await runExtensionTool(ctx, "api", "api_request", { method: "GET", path: "/api/test-item/42" });
+		expect(normal.isError).toBe(false);
+		expect(textOf(normal)).toContain('"item":"42"');
 	});
 
 	it("records the audit event as the session, on behalf of the owner", async () => {

@@ -60,7 +60,7 @@ const createTaskRoute = defineRoute({
 	path: "/nodes/{id}/tasks",
 	tags: TAGS,
 	summary: "Run one task on a node; the body carries its kind and the kind's fields, and `waitMs` may wait",
-	agent: "ask",
+	agent: "deny", // a task as the user with no rule chain bypasses the session's exec rules; the model has task tools
 	middleware: [jsonBodyLimit(MAX_INPUT_BODY_BYTES)],
 	request: { params: IdParamSchema, body: { required: true, ...json(TaskRequestSchema) } },
 	responses: {
@@ -74,7 +74,7 @@ const createGroupRoute = defineRoute({
 	path: "/task-groups",
 	tags: TAGS,
 	summary: "Run one task on each target node or node group, as one batch",
-	agent: "ask",
+	agent: "deny", // a task group as the user with no rule chain bypasses the session's exec rules; the model has task tools
 	middleware: [jsonBodyLimit(MAX_INPUT_BODY_BYTES)],
 	request: { body: { required: true, ...json(TaskRequestSchema) } },
 	responses: {

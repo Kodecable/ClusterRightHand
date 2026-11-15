@@ -159,7 +159,7 @@ const createRoute = defineRoute({
 	path: "/sessions",
 	tags: TAGS,
 	summary: "Create a session and submit its first message; a repeated `requestId` returns the first session",
-	agent: "ask", // starting a run is a mutation the user should approve
+	agent: "deny", // it would create a Yolo or unlimited session past the session guardrails
 	request: { body: { required: true, ...json(SessionCreateBodySchema) } },
 	responses: {
 		201: { description: "The new session", ...json(SessionResponseSchema) },
@@ -264,7 +264,7 @@ const messagesRoute = defineRoute({
 	path: "/sessions/{id}/messages",
 	tags: TAGS,
 	summary: "Submit a user message; `requestId` makes a retried send land once",
-	agent: "ask", // sending a message starts work
+	agent: "deny", // it would drive another session past the session guardrails
 	request: { params: SessionIdParamSchema, body: { required: true, ...json(SessionMessageBodySchema) } },
 	responses: {
 		202: { description: "The accepted submission", ...json(SessionMessageResponseSchema) },
@@ -497,7 +497,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			message,
 			model: parseModelRef(body.model),
 			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
-			// The session records where its latest user message came from; an in-process api_request has an actor.
+			// The session records where its latest user message came from; the creator owns it, so the WebUI.
+			// An in-process api_request has an actor and records nowhere.
 			lastUsedFrom: c.get("user").actor === undefined ? "web" : null,
 			...(body.title === undefined ? {} : { title: body.title }),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
@@ -719,8 +720,9 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 				? undefined
 				: await resolveAttachments(db, options.cluster.libraryBackend, c.get("user"), inputs, attachmentLimits());
 		const submissionId = await runtime.submit(v.session.id, c.get("user"), text, requestId, {
-			// The session records where its latest user message came from; an in-process api_request has an actor.
-			lastUsedFrom: c.get("user").actor === undefined ? "web" : null,
+			// A shared user's message counts as the WebUI, so notifications never follow their chat; only
+			// the owner's in-process api_request records no source.
+			lastUsedFrom: c.get("user").actor === undefined || v.session.ownerUserId !== c.get("user").userId ? "web" : null,
 			...(resolved ? { content: attachmentContent(text, resolved.blocks), attachments: resolved.attachments } : {}),
 		});
 		return c.json({ submissionId }, 202);

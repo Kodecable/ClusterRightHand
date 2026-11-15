@@ -15,6 +15,7 @@ import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend, type LibraryBackend } from "../src/library/backend.ts";
 import { beginLibraryUpload } from "../src/library/files.ts";
 import { findUserLibrary } from "../src/library/library.ts";
+import { shareSession } from "../src/sessions/sharing.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
@@ -167,11 +168,12 @@ const linkAs = async (cookie: string, userId: number, expected: string): Promise
 		.where("platform_user_id", "=", String(userId))
 		.executeTakeFirst();
 	if (existing) return;
+	const before = fake.calls.length;
 	const res = await call(app, "/api/channel-link-codes", { method: "POST", cookie, body: {} });
 	expect(res.status).toBe(200);
 	const { code } = (await res.json()) as { code: string };
 	fake.text(userId, `/link ${code}`);
-	await fake.waitForSent((call) => sentText(call).includes(expected));
+	await fake.waitForSent((call) => fake.calls.indexOf(call) >= before && sentText(call).includes(expected));
 };
 
 const link = (userId: number): Promise<void> => linkAs(aliceCookie, userId, "Linked.");
@@ -847,6 +849,28 @@ describe("channels", () => {
 		channels.presence.forget(aliceId);
 	});
 
+	it("records a shared user's message as the WebUI source", async () => {
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		const session = await runtime.createSession(alice, { model: model(), rulePreset: "yolo" });
+		await db.updateTable("sessions").set({ last_used_from: "thread-before" }).where("id", "=", session.id).execute();
+		await shareSession(db, {
+			sessionId: session.id,
+			granteeType: "user",
+			granteeId: adminId,
+			access: "chat",
+			createdBy: aliceId,
+		});
+		faux.setResponses([fauxAssistantMessage("shared answer")]);
+		const sent = await call(app, `/api/sessions/${session.id}/messages`, {
+			method: "POST",
+			cookie: adminCookie,
+			body: { text: "from a shared user", requestId: "shared-web-source" },
+		});
+		expect(sent.status).toBe(202);
+		await settle();
+		expect(await lastUsed(session.id)).toBe("web");
+	});
+
 	it("records a chat message as the source and leaves it alone for /sessions, /new and switching", async () => {
 		const userId = 8701;
 		await link(userId);
@@ -934,6 +958,40 @@ describe("channels", () => {
 		await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
 	});
 
+	it("routes a session away from a chat relinked to another user", async () => {
+		const userId = 8501;
+		const fallbackId = 8502;
+		await link(userId);
+		const thread = await chatSession(userId);
+		await link(fallbackId);
+		const fallback = await db
+			.selectFrom("channel_accounts")
+			.select("id")
+			.where("platform_user_id", "=", String(fallbackId))
+			.executeTakeFirstOrThrow();
+		await patchUserSettings(db, aliceId, { defaultChannelAccountId: fallback.id, showProgress: false });
+		channels.presence.forget(aliceId);
+		try {
+			// The chat is no longer alice's: unlink it and link it to the administrator.
+			fake.text(userId, "/unlink");
+			await fake.waitForSent((call) => sentText(call).includes("Unlinked."));
+			await linkAs(adminCookie, userId, "Linked.");
+
+			// The session's last thread is that chat, but its account now belongs to someone else: route as WebUI.
+			const callId = await insertExternalCall(thread.sessionId, "call-relinked");
+			await wakeWait(thread.sessionId);
+			const sent = await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+			expect(sent.body.chat_id).toBe(String(fallbackId));
+			expect(
+				fake
+					.sentCalls()
+					.some((call) => call.body.chat_id === String(userId) && sentText(call).includes(`/approve ${callId}`)),
+			).toBe(false);
+		} finally {
+			await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
+		}
+	});
+
 	it("stops the running turn when the draft's stop control is pressed", async () => {
 		const userId = 8601;
 		await link(userId);
@@ -956,6 +1014,33 @@ describe("channels", () => {
 			}
 			expect(state).toBe("idle");
 		} finally {
+			await runtime.configure(thread.sessionId, { model: model() });
+		}
+	});
+
+	it("ignores a stop control from an account not linked to the session owner", async () => {
+		const userId = 8602;
+		await link(userId);
+		const thread = await chatSession(userId);
+		await runtime.configure(thread.sessionId, { model: slowModel() });
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		try {
+			slowFaux.setResponses([fauxAssistantMessage("slow ".repeat(200))]);
+			fake.text(userId, "hold on");
+			await fake.waitFor("sendMessageDraft");
+			// Relink the chat to the administrator, then press the draft's stop control from that account.
+			fake.text(userId, "/unlink");
+			await fake.waitForSent((call) => sentText(call).includes("Unlinked."));
+			await linkAs(adminCookie, userId, "Linked.");
+			fake.stopGeneration(userId);
+			await new Promise((resolve) => setTimeout(resolve, 1_000));
+			const state = (
+				await db.selectFrom("sessions").select("state").where("id", "=", thread.sessionId).executeTakeFirst()
+			)?.state;
+			expect(state).toBe("running");
+		} finally {
+			await runtime.abort(thread.sessionId, alice);
+			await runtime.waitForIdle();
 			await runtime.configure(thread.sessionId, { model: model() });
 		}
 	});
@@ -1229,7 +1314,7 @@ describe("channels", () => {
 		expect(firstModels).toHaveLength(5);
 		expect(firstButtons.some((button) => button.text === "‹ Previous")).toBe(false);
 		const next = firstButtons.find((button) => button.text === "Next ›");
-		expect(next?.callback_data).toMatch(/^modelp:2:[0-9a-f]{8}$/);
+		expect(next?.callback_data).toMatch(/^modelp:2:[0-9a-f]{8}:[0-9a-f]{8}$/);
 
 		const second = await pressButton(userId, next?.callback_data ?? "");
 		expect(second.body.message_id).toBe(7777);
@@ -1297,7 +1382,7 @@ describe("channels", () => {
 		fake.text(userId, "/think");
 		const thinking = await fake.waitForSent((call) => sentText(call).includes("Thinking level for"));
 		const medium = buttonsOf(thinking).find((button) => button.text.replace("✓ ", "") === "Medium");
-		expect(medium?.callback_data).toMatch(/^think:medium:[0-9a-f]{8}$/);
+		expect(medium?.callback_data).toMatch(/^think:medium:[0-9a-f]{8}:[0-9a-f]{8}$/);
 		const thinkingConfirmed = await pressButton(userId, medium?.callback_data ?? "");
 		expect(sentText(thinkingConfirmed)).toContain("Thinking level set to Medium.");
 		expect((await getUserSettings(db, aliceId)).defaultModel).toMatchObject({
@@ -1310,7 +1395,7 @@ describe("channels", () => {
 		fake.text(userId, "/rules");
 		const rules = await fake.waitForSent((call) => sentText(call).includes("Rule preset:"));
 		expect(buttonsOf(rules).find((button) => button.text === "✓ Ask")).toBeDefined();
-		const autoReview = buttonsOf(rules).find((button) => button.callback_data === "rules:auto_review");
+		const autoReview = buttonsOf(rules).find((button) => button.callback_data.startsWith("rules:auto_review:"));
 		const rulesConfirmed = await pressButton(userId, autoReview?.callback_data ?? "");
 		expect(sentText(rulesConfirmed)).toContain("Rule preset set to Auto Review.");
 		expect((await getUserSettings(db, aliceId)).defaultRulePreset).toBe("auto_review");
@@ -1319,7 +1404,7 @@ describe("channels", () => {
 		fake.text(userId, "/extensions");
 		const extensions = await fake.waitForSent((call) => sentText(call).includes("Extensions (page 1 of"));
 		const ext = buttonsOf(extensions).find((button) => button.text === "✓ ext-1");
-		expect(ext?.callback_data).toMatch(/^ext:1:\d+:[0-9a-f]{8}$/);
+		expect(ext?.callback_data).toMatch(/^ext:1:\d+:[0-9a-f]{8}:[0-9a-f]{8}$/);
 		const toggled = await pressButton(userId, ext?.callback_data ?? "");
 		expect(buttonsOf(toggled).some((button) => button.text === "ext-1")).toBe(true);
 
@@ -1396,7 +1481,7 @@ describe("channels", () => {
 		// /rules sets the session's preset and is audited like the WebUI's change.
 		fake.text(userId, "/rules");
 		const rules = await fake.waitForSent((call) => sentText(call).includes("Rule preset:"));
-		const yolo = buttonsOf(rules).find((button) => button.callback_data === "rules:yolo");
+		const yolo = buttonsOf(rules).find((button) => button.callback_data.startsWith("rules:yolo:"));
 		const rulesConfirmed = await pressButton(userId, yolo?.callback_data ?? "");
 		expect(sentText(rulesConfirmed)).toContain("Rule preset set to Yolo.");
 		expect((await runtime.getSession(thread.sessionId))?.rules?.rulePreset).toBe("yolo");
@@ -1423,6 +1508,35 @@ describe("channels", () => {
 			.where("id", "=", thread.sessionId)
 			.executeTakeFirst();
 		expect(JSON.parse(row?.disabled_extensions ?? "[]")).toEqual(["ext-4"]);
+	});
+
+	it("does not apply a settings button from another target after the chat switched", async () => {
+		const userId = 9312;
+		await link(userId);
+		const first = await chatSession(userId);
+		await runtime.configure(first.sessionId, { rulePreset: "ask" });
+		fake.text(userId, "/rules");
+		const firstRules = await fake.waitForSent((call) => sentText(call).includes("Rule preset:"));
+		const stale = buttonsOf(firstRules).find((button) => button.callback_data.startsWith("rules:yolo:"));
+		expect(stale).toBeDefined();
+		expect(stale?.callback_data.length).toBeLessThanOrEqual(64);
+
+		// A new session takes over the chat; the old button still names the first session.
+		await newSession(userId);
+		faux.setResponses([fauxAssistantMessage("second session ready")]);
+		fake.text(userId, "second session");
+		await fake.waitForSent((call) => sentText(call).includes("second session ready"));
+		await runtime.waitForIdle();
+		const second = await threadFor(userId);
+		if (!second) throw new Error("no second thread");
+		expect(second.session_id).not.toBe(first.sessionId);
+		await runtime.configure(second.session_id, { rulePreset: "auto_review" });
+
+		const rerendered = await pressButton(userId, stale?.callback_data ?? "");
+		expect(sentText(rerendered)).toContain("Rule preset:");
+		expect(buttonsOf(rerendered).find((button) => button.text === "✓ Auto Review")).toBeDefined();
+		expect((await runtime.getSession(second.session_id))?.rules?.rulePreset).toBe("auto_review");
+		expect((await runtime.getSession(first.sessionId))?.rules?.rulePreset).toBe("ask");
 	});
 
 	it("replies that there is no session yet to commands before a draft or a message", async () => {
