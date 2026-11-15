@@ -172,8 +172,8 @@ An extension result is converted to the cluster tools' output form ([Tool output
 
 | Extension | Tool | Purpose |
 |---|---|---|
-| `crhs-docs` | `search_docs` | Keyword search over the documentation and the API reference; returns the best sections with their path, heading and a snippet |
-| `crhs-docs` | `read_doc` | One document or one section of it (`path`, optional `section` heading), paged for long documents |
+| `crhs-docs` | `search_docs` | Keyword search over the documentation and the API reference; returns the best sections and text files with their path, heading and a snippet |
+| `crhs-docs` | `read_doc` | A directory listing, a Markdown outline or one section with its subsections, and whole text files (`path`, optional `section`), paged for long content |
 | `crhs-api` | `api_request` | One crhs API request as the session owner |
 
 They are split so that an administrator can turn off API requests and keep the documentation.
@@ -199,16 +199,33 @@ their own:
 
 ### Documentation
 
-- The documentation is the `doc/` tree of the running version: the release bundle carries its Markdown
-  files (images are left out), and an unbundled crhs reads the repository's. The tools can therefore never
-  describe a different version than the one answering.
+- The documentation is the `doc/` tree of the running version: the release bundle carries its Markdown and
+  other text files (`.toml`, `.yaml`, `.yml`, `.json`, `.sh`, `.txt` and `.conf`; images and other binary
+  files are left out), and an unbundled crhs reads the repository's. The tools can therefore never
+  describe a different version than the one answering. A file with a NUL byte in its first 8 KiB is
+  treated as binary and skipped.
 - The API reference is rendered from the API document at startup, one page per tag under `api/`. It lists
   each route the agent may call with its method, path, summary, parameters, body and response fields,
   and the shared object shapes once. Routes marked `deny` are left out, so the model is not shown what
   it cannot use. The reference is offered even when the `crhs-api` extension is off, since it also explains
   what the WebUI does.
-- Search splits documents at headings and indexes each section (heading, path/anchor and text) with
-  MiniSearch, like `search_tools` indexes each tool (name, title, description and extension).
+- `read_doc` picks its mode by path. A directory path, or the root (`""` or `"/"`), lists the immediate
+  subdirectories and documents, each document with its title: the first `#` heading of a Markdown file,
+  else its first heading, else its file name. A Markdown document without a section shows its outline:
+  every heading indented by level, with its anchor and the line count of its section including the
+  subsections, and a hint to read the whole document with the first-level heading's anchor (or the first
+  heading when there is no `#`). A section is read from its heading to the next heading of the same or a
+  higher level, so it includes its subsections instead of stopping at the first subheading. A
+  non-Markdown text file has no sections and is read whole. Listings, outlines and files share the same
+  `offset`/`limit` and byte budget.
+- Search splits Markdown documents at headings and indexes each section with MiniSearch over its heading,
+  path/anchor, its own text without the subsections, and its ancestor headings at a lower boost, like
+  `search_tools` indexes each tool (name, title, description and extension). A heading that only holds
+  subheadings has no text of its own and is not indexed; a query for the chapter finds its subsections
+  through their ancestor field, such as `Troubleshooting > crhs does not start`. A non-Markdown file is
+  one record with its path, whole text and file name as the heading, and its result has an empty section.
+  A snippet is located with the document terms the query actually matched, or taken from the start of the
+  section when none can be found, so a section with text never shows only its heading.
 
 ### API requests
 

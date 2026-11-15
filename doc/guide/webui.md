@@ -51,9 +51,10 @@ tool count, availability and whether they are enabled. There are two kinds:
   `crhs-api` lets a session make crhs API requests as its owner. They are always ready and cannot be
   deleted; an administrator can disable one, change whether its tools are listed directly, and set its
   availability and grants. `crhs-docs` offers `search_docs` (keyword search over the documentation and the
-  API reference, with the path, heading and a snippet of each match) and `read_doc` (a whole document or
-  one section by heading, paged when long). The API reference is rendered from the running version's API
-  document, one page per tag; routes an agent may not call are left out. It stays available when
+  API reference, with the path, heading and a snippet of each match) and `read_doc` (a directory listing, a
+  Markdown outline or one section with its subsections, and whole text files, paged when long). The API
+  reference is rendered from the running version's API document, one page per tag; routes an agent may not
+  call are left out. It stays available when
   `crhs-api` is turned off, because it also explains what the WebUI does. `crhs-api` offers `api_request`,
   which makes one API request (`method`, `path`, `query`, `body`) as the session's owner through the same
   routes, validation and audit as the WebUI; a request that needs approval shows its method, path, query

@@ -1,12 +1,12 @@
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/api/app.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { builtinProvider, configureBuiltinExtensions } from "../src/extensions/builtin.ts";
-import { copyDocMarkdown, defaultDocsRoot, markdownDocs } from "../src/extensions/docs-source.ts";
+import { copyDocFiles, defaultDocsRoot, docFiles } from "../src/extensions/docs-source.ts";
 import { sessionExtensionsForUser } from "../src/extensions/registry.ts";
 import { saveExtension } from "../src/extensions/store.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
@@ -29,6 +29,12 @@ async function tempDir(): Promise<string> {
 	return dir;
 }
 
+async function writeDoc(root: string, path: string, content: string): Promise<void> {
+	const target = join(root, ...path.split("/"));
+	await mkdir(dirname(target), { recursive: true });
+	await writeFile(target, content);
+}
+
 function textOf(result: CallToolResult): string {
 	return result.content
 		.map((block) => (block.type === "text" ? block.text : ""))
@@ -47,6 +53,62 @@ async function expectMissing(path: string): Promise<void> {
 	await expect(access(path)).rejects.toThrow();
 }
 
+const INSTALL_DOC = [
+	"# Install crhs",
+	"",
+	"crhs runs on the server host.",
+	"",
+	"## Prerequisites",
+	"",
+	"The server needs Linux.",
+	"",
+	"### Requirements",
+	"",
+	"- glibc Linux",
+	"",
+	"## Install crhs",
+	"",
+	"Unpack the archive.",
+	"",
+	"## Troubleshooting",
+	"",
+	"### crhs does not start",
+	"",
+	"Check the bundled Node.",
+].join("\n");
+
+const SEARCH_DOC = [
+	"# Guide",
+	"",
+	"## Widget controls",
+	"",
+	"Controls for the dashboard.",
+	"",
+	"## Extension approval",
+	"",
+	"An extension approval is required before use.",
+	"",
+	"## Troubleshooting",
+	"",
+	"### crhs does not start",
+	"",
+	"Check the crhs service.",
+	"",
+	"### Login fails",
+	"",
+	"Check the password.",
+].join("\n");
+
+async function docsFixture(): Promise<string> {
+	const root = await tempDir();
+	await writeDoc(root, "README.md", "# Documentation\n\nHow to read these docs.\n");
+	await writeDoc(root, "guide/install.md", INSTALL_DOC);
+	await writeDoc(root, "guide/reference/cli.md", "# Command line\n\nRun `crhs --help`.\n");
+	await writeDoc(root, "examples/crhs.toml", '[service]\nlisten = "0.0.0.0:8080"\ndatabase = "sqlite"\n');
+	await writeDoc(root, "images/session.png", "\x89PNG not really an image");
+	return root;
+}
+
 describe("crhs-docs extension", () => {
 	it("searches the running version's documentation for a known heading", async () => {
 		configureBuiltinExtensions();
@@ -55,29 +117,184 @@ describe("crhs-docs extension", () => {
 		expect(found).toContain("read one with read_doc");
 	});
 
-	it("reads a whole document, one section by anchor or heading, and pages long content", async () => {
-		const root = await tempDir();
-		const lines = ["# Guide", "", "The guide's introduction.", "", "## Known heading", ""];
-		for (let index = 1; index <= 30; index += 1) lines.push(`line ${index}`);
-		await writeFile(join(root, "guide.md"), `${lines.join("\n")}\n`);
+	it("lists a directory and its subdirectories with titles and without images", async () => {
+		const root = await docsFixture();
 		configureBuiltinExtensions({ docsRoot: root });
 
-		const whole = await callDocs("read_doc", { path: "guide.md", limit: 5 });
-		expect(whole).toContain("# Guide");
-		expect(whole).toContain("lines 1-5 of");
+		const top = await callDocs("read_doc", { path: "" });
+		expect(top).toContain("examples/");
+		expect(top).toContain("guide/");
+		expect(top).toContain("README.md — Documentation");
+		expect(top).not.toContain("images/");
+		expect(top).not.toContain("session.png");
+		expect(await callDocs("read_doc", { path: "/" })).toContain("README.md — Documentation");
 
-		const byAnchor = await callDocs("read_doc", { path: "guide.md", section: "known-heading", limit: 4 });
-		expect(byAnchor).toContain("## Known heading");
-		expect(byAnchor).not.toContain("The guide's introduction.");
-		expect(byAnchor).toContain("line 1");
-		expect(byAnchor).toContain("use offset=5 to continue");
+		const guide = await callDocs("read_doc", { path: "guide/" });
+		expect(guide).toContain("guide/reference/");
+		expect(guide).toContain("guide/install.md — Install crhs");
+		expect(guide).not.toContain("README.md");
+		// A directory path without the trailing slash is the same directory.
+		expect(await callDocs("read_doc", { path: "guide" })).toContain("guide/install.md — Install crhs");
 
-		const byHeading = await callDocs("read_doc", { path: "guide.md", section: "Known heading", offset: 31, limit: 10 });
-		expect(byHeading).toContain("line 29");
-		expect(byHeading).toContain("end of section");
+		const first = await callDocs("read_doc", { path: "guide/", limit: 1 });
+		expect(first).toContain("guide/reference/");
+		expect(first).not.toContain("guide/install.md");
+		expect(first).toContain("use offset=2 to continue");
+		const second = await callDocs("read_doc", { path: "guide/", offset: 2, limit: 1 });
+		expect(second).toContain("guide/install.md — Install crhs");
+		expect(second).toContain("end of directory");
+	});
 
-		const searched = await callDocs("search_docs", { query: "known heading" });
-		expect(searched).toContain("guide.md#known-heading");
+	it("rejects a section for a directory", async () => {
+		const root = await docsFixture();
+		configureBuiltinExtensions({ docsRoot: root });
+		await expect(callDocs("read_doc", { path: "guide/", section: "Install crhs" })).rejects.toThrow(
+			/directory has no sections/,
+		);
+	});
+
+	it("outlines a Markdown document with levels, anchors, line counts and a whole-document hint", async () => {
+		const root = await docsFixture();
+		await writeDoc(root, "guide/options.md", "## First option\n\nText.");
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const outline = await callDocs("read_doc", { path: "guide/install.md" });
+		expect(outline).toContain("# Install crhs [install-crhs] — 21 lines");
+		expect(outline).toContain("  ## Prerequisites [prerequisites] — 8 lines");
+		expect(outline).toContain("    ### Requirements [requirements] — 4 lines");
+		expect(outline).toContain("  ## Troubleshooting [troubleshooting] — 5 lines");
+		expect(outline).toContain("    ### crhs does not start [crhs-does-not-start] — 3 lines");
+		expect(outline).toContain('read the whole document with read_doc("guide/install.md", "install-crhs")');
+		expect(outline).not.toContain("The server needs Linux.");
+
+		const paged = await callDocs("read_doc", { path: "guide/install.md", offset: 2, limit: 2 });
+		expect(paged).toContain("## Prerequisites");
+		expect(paged).toContain("### Requirements");
+		expect(paged).toContain("use offset=4 to continue");
+		expect(paged).not.toContain("# Install crhs [install-crhs]");
+
+		// An empty section is the same as none.
+		const emptySection = await callDocs("read_doc", { path: "guide/install.md", section: "" });
+		expect(emptySection).toContain('read the whole document with read_doc("guide/install.md", "install-crhs")');
+
+		// Without a first-level heading, the hint uses the first heading.
+		const noTitle = await callDocs("read_doc", { path: "guide/options.md" });
+		expect(noTitle).toContain("## First option [first-option] — 3 lines");
+		expect(noTitle).toContain('read the whole document with read_doc("guide/options.md", "first-option")');
+	});
+
+	it("reads a section with its subsections and stops at the next heading of the same level", async () => {
+		const root = await docsFixture();
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const parent = await callDocs("read_doc", { path: "guide/install.md", section: "prerequisites" });
+		expect(parent).toContain("## Prerequisites");
+		expect(parent).toContain("The server needs Linux.");
+		expect(parent).toContain("### Requirements");
+		expect(parent).toContain("- glibc Linux");
+		expect(parent).not.toContain("Unpack the archive.");
+		expect(parent).toContain("end of section");
+
+		const byHeading = await callDocs("read_doc", { path: "guide/install.md", section: "Install crhs" });
+		expect(byHeading).toContain("Unpack the archive.");
+
+		// A parent heading directly followed by subheadings is not empty.
+		const troubleshooting = await callDocs("read_doc", { path: "guide/install.md", section: "Troubleshooting" });
+		expect(troubleshooting).toContain("### crhs does not start");
+		expect(troubleshooting).toContain("Check the bundled Node.");
+		expect(troubleshooting).toContain("end of section");
+	});
+
+	it("reads a non-Markdown text file whole and pages it, without sections", async () => {
+		const root = await docsFixture();
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const whole = await callDocs("read_doc", { path: "examples/crhs.toml" });
+		expect(whole).toContain("[service]");
+		expect(whole).toContain('listen = "0.0.0.0:8080"');
+		expect(whole).toContain('database = "sqlite"');
+		expect(whole).toContain("end of document");
+
+		const paged = await callDocs("read_doc", { path: "examples/crhs.toml", offset: 2, limit: 1 });
+		expect(paged).toContain('listen = "0.0.0.0:8080"');
+		expect(paged).toContain("lines 2-2 of 4");
+		expect(paged).toContain("use offset=3 to continue");
+
+		await expect(callDocs("read_doc", { path: "examples/crhs.toml", section: "service" })).rejects.toThrow(
+			/not a Markdown document/,
+		);
+	});
+
+	it("lists close matches for an unknown path, including directories", async () => {
+		const root = await docsFixture();
+		configureBuiltinExtensions({ docsRoot: root });
+		await expect(callDocs("read_doc", { path: "guide/instal.md" })).rejects.toThrow(
+			/close matches: .*guide\/install\.md/,
+		);
+		await expect(callDocs("read_doc", { path: "guied/" })).rejects.toThrow(/close matches: guide\//);
+	});
+
+	it("skips NUL-containing and unknown-extension files when loading", async () => {
+		const root = await tempDir();
+		await writeDoc(root, "guide.md", "# Guide\n\nReadable text.\n");
+		await writeDoc(root, "good.txt", "alpha\nbeta\n");
+		await writeDoc(root, "binary.txt", "nul\0here");
+		await writeDoc(root, "nul.md", "# Nul\n\0binary");
+		await writeDoc(root, "image.png", "not an image either");
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const listing = await callDocs("read_doc", { path: "" });
+		expect(listing).toContain("good.txt — good.txt");
+		expect(listing).toContain("guide.md — Guide");
+		expect(listing).not.toContain("binary.txt");
+		expect(listing).not.toContain("nul.md");
+		expect(listing).not.toContain("image.png");
+		expect(await callDocs("read_doc", { path: "good.txt" })).toContain("beta");
+	});
+
+	it("does not return a heading-only snippet when the section has text", async () => {
+		const root = await tempDir();
+		await writeDoc(root, "guide.md", SEARCH_DOC);
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const widget = await callDocs("search_docs", { query: "widget" });
+		expect(widget).toContain("guide.md#widget-controls");
+		expect(widget).toContain("Controls for the dashboard.");
+	});
+
+	it("finds a parent chapter's subsections and does not return the empty chapter", async () => {
+		const root = await tempDir();
+		await writeDoc(root, "guide.md", SEARCH_DOC);
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const found = await callDocs("search_docs", { query: "troubleshooting" });
+		expect(found).not.toContain("guide.md#troubleshooting");
+		expect(found).toContain("guide.md#crhs-does-not-start");
+		expect(found).toContain("guide.md#login-fails");
+		expect(found).toContain("Check the crhs service.");
+		expect(found).toContain("Check the password.");
+	});
+
+	it("takes a typo query's snippet from the text it actually matched", async () => {
+		const root = await tempDir();
+		await writeDoc(root, "guide.md", SEARCH_DOC);
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const found = await callDocs("search_docs", { query: "extention approvl" });
+		expect(found).toContain("guide.md#extension-approval");
+		expect(found).toContain("An extension approval is required before use.");
+	});
+
+	it("finds a non-Markdown file by its content and reads it without a section", async () => {
+		const root = await tempDir();
+		await writeDoc(root, "examples/crhs.toml", 'listen = "0.0.0.0:8080"\n');
+		configureBuiltinExtensions({ docsRoot: root });
+
+		const found = await callDocs("search_docs", { query: "listen", limit: 1 });
+		expect(found).toContain("examples/crhs.toml — crhs.toml");
+		expect(found).toContain('listen = "0.0.0.0:8080"');
+		expect(found).not.toContain("crhs.toml#");
+		expect(found).toContain('read_doc("examples/crhs.toml")');
 	});
 
 	it("ranks a natural-language query's node group section first", async () => {
@@ -135,13 +352,6 @@ describe("crhs-docs extension", () => {
 		expect(found).toContain("No documentation section matched");
 	});
 
-	it("lists close matches for an unknown path", async () => {
-		configureBuiltinExtensions();
-		await expect(callDocs("read_doc", { path: "design/extension.md" })).rejects.toThrow(
-			/close matches: design\/extensions\.md/,
-		);
-	});
-
 	it("renders the API reference with allow routes and without deny routes, even with crhs-api disabled", async () => {
 		const db: Db = await openTestDb("sqlite");
 		try {
@@ -154,13 +364,21 @@ describe("crhs-docs extension", () => {
 			expect(entries.map((entry) => entry.extension.name)).toContain("crhs-docs");
 			expect(entries.map((entry) => entry.extension.name)).not.toContain("crhs-api");
 
-			const nodes = await callDocs("read_doc", { path: "api/nodes.md", limit: 40 });
+			const api = await callDocs("read_doc", { path: "api/" });
+			expect(api).toContain("api/nodes.md — Nodes");
+			expect(api).toContain("api/schemas.md — Shared API schemas");
+
+			const outline = await callDocs("read_doc", { path: "api/nodes.md" });
+			expect(outline).toContain("# Nodes [nodes]");
+			expect(outline).toContain('read the whole document with read_doc("api/nodes.md", "nodes")');
+
+			const nodes = await callDocs("read_doc", { path: "api/nodes.md", section: "nodes", limit: 40 });
 			expect(nodes).toContain("GET /api/nodes");
 			expect(nodes).toContain("Agent access: read (allow)");
-			const users = await callDocs("read_doc", { path: "api/users.md" });
+			const users = await callDocs("read_doc", { path: "api/users.md", section: "users" });
 			expect(users).toContain("GET /api/users");
 			expect(users).not.toContain("POST /api/users");
-			const schemas = await callDocs("read_doc", { path: "api/schemas.md" });
+			const schemas = await callDocs("read_doc", { path: "api/schemas.md", section: "shared-api-schemas" });
 			expect(schemas).toContain("## NodeGroup");
 			expect(schemas).not.toContain("## SigningCredentialView");
 		} finally {
@@ -168,24 +386,31 @@ describe("crhs-docs extension", () => {
 		}
 	});
 
-	it("copies only Markdown into a bundle, preserving the tree", async () => {
+	it("copies the documentation text files into a bundle and leaves binary files out", async () => {
 		const root = await tempDir();
 		await mkdir(join(root, "nested"));
 		await mkdir(join(root, "images"));
+		await mkdir(join(root, "examples"));
 		await writeFile(join(root, "root.md"), "# Root\n");
 		await writeFile(join(root, "nested", "child.md"), "# Child\n");
+		await writeFile(join(root, "nested", "config.yaml"), "key: value\n");
+		await writeFile(join(root, "examples", "crhs.toml"), 'listen = "0.0.0.0:8080"\n');
 		await writeFile(join(root, "images", "picture.png"), "not markdown");
+		await writeFile(join(root, "notes.bin"), "not documentation");
 		const target = await tempDir();
-		const copied = await copyDocMarkdown(root, target);
-		expect(copied).toEqual(["nested/child.md", "root.md"]);
+		const copied = await copyDocFiles(root, target);
+		expect(copied).toEqual(["examples/crhs.toml", "nested/child.md", "nested/config.yaml", "root.md"]);
 		expect(await readFile(join(target, "nested", "child.md"), "utf8")).toBe("# Child\n");
-		expect(await readFile(join(target, "root.md"), "utf8")).toBe("# Root\n");
+		expect(await readFile(join(target, "nested", "config.yaml"), "utf8")).toBe("key: value\n");
+		expect(await readFile(join(target, "examples", "crhs.toml"), "utf8")).toBe('listen = "0.0.0.0:8080"\n');
 		await expectMissing(join(target, "images", "picture.png"));
+		await expectMissing(join(target, "notes.bin"));
 	});
 
 	it("resolves the repository's doc tree when unbundled", async () => {
-		const paths = await markdownDocs(defaultDocsRoot());
+		const paths = await docFiles(defaultDocsRoot());
 		expect(paths).toContain("design/extensions.md");
-		expect(paths.every((path) => path.endsWith(".md"))).toBe(true);
+		expect(paths.every((path) => /\.(md|toml|yaml|yml|json|sh|txt|conf)$/i.test(path))).toBe(true);
+		expect(paths.some((path) => path.startsWith("images/"))).toBe(false);
 	});
 });

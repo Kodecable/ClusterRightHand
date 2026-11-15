@@ -9,10 +9,14 @@ import {
 	closeSectionHeadings,
 	DOC_PAGE_LINES,
 	type DocDocument,
+	findDirectory,
 	findDocument,
 	findSection,
+	listDirectory,
 	loadDocs,
+	outlineLines,
 	pageDocument,
+	pageLines,
 	prepareDocsSearch,
 	searchDocs,
 } from "./docs.ts";
@@ -73,11 +77,15 @@ const READ_DOC_INPUT = {
 	properties: {
 		path: {
 			type: "string",
-			description: 'The document path as search_docs returns it, such as "design/extensions.md" or "api/nodes.md"',
+			description:
+				'A document, directory or text file path such as "design/extensions.md", "guide/" or "api/nodes.md"; ' +
+				'"" or "/" is the documentation root',
 		},
 		section: {
 			type: "string",
-			description: "A heading or its anchor; omit to read the whole document",
+			description:
+				"A heading or its anchor in a Markdown document, read with its subsections; omit for an outline, or to " +
+				"read a directory or a text file whole",
 		},
 		offset: { type: "integer", minimum: 1, description: "Line to start at (1-based; default 1)" },
 		limit: {
@@ -113,8 +121,8 @@ const DOCS_TOOLS: readonly ExtensionTool[] = [
 		name: "search_docs",
 		title: "Search the documentation",
 		description:
-			"Search the crhs documentation and API reference by keyword. Returns the best sections with their path, " +
-			"heading and a short snippet; read one with read_doc.",
+			"Search the crhs documentation and API reference by keyword. Returns matching sections and text files " +
+			"with their path, heading and a short snippet; read one with read_doc.",
 		inputSchema: SEARCH_DOCS_INPUT,
 		annotations: { readOnlyHint: true, idempotentHint: true },
 	},
@@ -122,8 +130,9 @@ const DOCS_TOOLS: readonly ExtensionTool[] = [
 		name: "read_doc",
 		title: "Read a document",
 		description:
-			"Read one document or one section of it by path, optionally with a section heading or anchor; long " +
-			"content is paged with offset and limit.",
+			"Read the documentation. A directory path, or the root, lists its documents; a Markdown document without " +
+			"a section shows its outline; a section reads with its subsections; a text file is read whole. Long " +
+			"output is paged with offset and limit.",
 		inputSchema: READ_DOC_INPUT,
 		annotations: { readOnlyHint: true, idempotentHint: true },
 	},
@@ -215,49 +224,114 @@ async function searchDocsCall(args: Record<string, unknown>): Promise<CallToolRe
 			"[docs search: no match; try fewer or different keywords]",
 		);
 	}
-	const lines = results.map(
-		(result, index) => `${index + 1}. ${result.path}#${result.heading} — ${result.headingText}\n   ${result.snippet}`,
-	);
+	const lines = results.map((result, index) => {
+		const location = result.heading === "" ? result.path : `${result.path}#${result.heading}`;
+		return `${index + 1}. ${location} — ${result.headingText}\n   ${result.snippet}`;
+	});
 	const first = results[0] as (typeof results)[number];
+	const target =
+		first.heading === ""
+			? JSON.stringify(first.path)
+			: `${JSON.stringify(first.path)}, ${JSON.stringify(first.heading)}`;
 	return textResult(
 		lines.join("\n\n"),
 		`[docs search: ${results.length} section${results.length === 1 ? "" : "s"} for ${JSON.stringify(query)}; ` +
-			`read one with read_doc(${JSON.stringify(first.path)}, ${JSON.stringify(first.heading)})]`,
+			`read one with read_doc(${target})]`,
 	);
+}
+
+/** A section argument: omitted and empty mean the same, and a non-string is a caller error. */
+function sectionArgument(value: unknown): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string") throw new UserError("section must be a string", "invalid_argument");
+	const wanted = value.trim();
+	return wanted === "" ? undefined : wanted;
+}
+
+function missingDoc(path: string, documents: readonly DocDocument[]): never {
+	const close = closeDocumentPaths(documents, path);
+	throw new UserError(
+		`no documentation at ${JSON.stringify(path)}${close.length === 0 ? "" : `; close matches: ${close.join(", ")}`}`,
+		"not_found",
+	);
+}
+
+/** A directory's immediate children: subdirectories first, then documents with their titles. */
+function directoryListingLines(documents: readonly DocDocument[], directory: string): string[] {
+	const entries = listDirectory(documents, directory);
+	return [
+		...entries.directories.map((child) => `${child}/`),
+		...entries.documents.map((document) => `${document.path} — ${document.title}`),
+	];
 }
 
 async function readDocCall(args: Record<string, unknown>): Promise<CallToolResult> {
 	const path = typeof args.path === "string" ? args.path.trim() : "";
-	if (path === "") throw new UserError("read_doc needs a path such as design/extensions.md", "invalid_argument");
+	const section = sectionArgument(args.section);
 	const loaded = await builtinDocuments();
-	const document = findDocument(loaded, path);
-	if (!document) {
-		const close = closeDocumentPaths(loaded, path);
-		throw new UserError(
-			`no documentation at ${JSON.stringify(path)}${close.length === 0 ? "" : `; close matches: ${close.join(", ")}`}`,
-			"not_found",
-		);
+	const explicitDirectory = path === "" || path === "/" || /[\\/]$/.test(path);
+	let document: DocDocument | undefined;
+	let directory: string | undefined;
+	if (explicitDirectory) {
+		directory = findDirectory(loaded, path);
+		if (directory === undefined) missingDoc(path, loaded);
+	} else {
+		document = findDocument(loaded, path);
+		if (!document) {
+			directory = findDirectory(loaded, path);
+			if (directory === undefined) missingDoc(path, loaded);
+		}
 	}
-	let section: ReturnType<typeof findSection>;
-	if (args.section !== undefined) {
-		if (typeof args.section !== "string") throw new UserError("section must be a string", "invalid_argument");
-		const wanted = args.section.trim();
-		if (wanted === "") throw new UserError("section must not be empty", "invalid_argument");
-		section = findSection(document, wanted);
-		if (!section) {
-			const close = closeSectionHeadings(document, wanted);
+	const offset = integer(args.offset, "offset", 1, 1, Number.MAX_SAFE_INTEGER);
+	const limit = integer(args.limit, "limit", DOC_PAGE_LINES, 1, DOC_PAGE_LINES);
+	if (directory !== undefined) {
+		if (section !== undefined) {
 			throw new UserError(
-				`${document.path} has no section ${JSON.stringify(wanted)}${
+				`${JSON.stringify(path)} is a directory; a directory has no sections, call read_doc without one`,
+				"invalid_argument",
+			);
+		}
+		const where = directory === "" ? "/" : `${directory}/`;
+		const page = pageLines(directoryListingLines(loaded, directory), where, "directory", offset, limit);
+		return textResult(page.output, page.note);
+	}
+	if (!document) missingDoc(path, loaded);
+	if (!document.markdown) {
+		if (section !== undefined) {
+			throw new UserError(
+				`${JSON.stringify(path)} is not a Markdown document; read it whole without a section`,
+				"invalid_argument",
+			);
+		}
+		const page = pageDocument(document, undefined, offset, limit);
+		return textResult(page.output, page.note);
+	}
+	if (section !== undefined) {
+		const found = findSection(document, section);
+		if (!found) {
+			const close = closeSectionHeadings(document, section);
+			throw new UserError(
+				`${document.path} has no section ${JSON.stringify(section)}${
 					close.length === 0 ? "" : `; close headings: ${close.join("; ")}`
 				}`,
 				"not_found",
 			);
 		}
+		const page = pageDocument(document, found, offset, limit);
+		return textResult(page.output, page.note);
 	}
-	const offset = integer(args.offset, "offset", 1, 1, Number.MAX_SAFE_INTEGER);
-	const limit = integer(args.limit, "limit", DOC_PAGE_LINES, 1, DOC_PAGE_LINES);
-	const page = pageDocument(document, section, offset, limit);
-	return textResult(page.output, page.note);
+	if (document.sections.length === 0) {
+		// A Markdown file without headings has no outline; the document itself is all there is to read.
+		const page = pageDocument(document, undefined, offset, limit);
+		return textResult(page.output, page.note);
+	}
+	const page = pageLines(outlineLines(document), `${document.path} (outline)`, "outline", offset, limit);
+	const whole = document.sections.find((candidate) => candidate.level === 1) ?? document.sections[0];
+	const hint =
+		whole === undefined
+			? ""
+			: `[read the whole document with read_doc(${JSON.stringify(document.path)}, ${JSON.stringify(whole.anchor)})]`;
+	return textResult(page.output, page.note, hint);
 }
 
 /** The documentation: `search_docs` and `read_doc`. */

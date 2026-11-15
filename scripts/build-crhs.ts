@@ -6,7 +6,7 @@ import { copyFile, cp, mkdir, readdir, readFile, realpath, rm, writeFile } from 
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { copyDocMarkdown } from "../server/src/extensions/docs-source.ts";
+import { copyDocFiles } from "../server/src/extensions/docs-source.ts";
 import { resolveVersion } from "./version.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -145,7 +145,7 @@ if (esbuildInputs.length > 0) throw new Error(`the bundle contains esbuild: ${es
 await cp(join(root, "web", "dist"), join(outDir, "web"), { recursive: true });
 // The built-in crhs-docs extension reads the documentation of the running version from the bundle
 // (doc/design/extensions.md "Documentation"); images are not copied, because the tools return text.
-await copyDocMarkdown(join(root, "doc"), join(outDir, "doc"));
+await copyDocFiles(join(root, "doc"), join(outDir, "doc"));
 
 const re2Source = await realpath(join(root, "server", "node_modules", "re2"));
 const re2 = await packageInfo(re2Source);
