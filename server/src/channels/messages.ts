@@ -101,8 +101,6 @@ export interface BotMessages {
 	thinking: string;
 	running: (toolName: string) => string;
 	retrying: (attempt: number) => string;
-	waitingApproval: string;
-	waitingSignature: string;
 	taskSignatureWait: (id: string, link: string | null) => string;
 	taskGroupSignatureWait: (id: string, link: string | null) => string;
 	taskApproval: (summary: string, id: string) => string;
@@ -209,8 +207,6 @@ const en: BotMessages = {
 	thinking: "Thinking…",
 	running: (toolName) => `Running ${toolName}…`,
 	retrying: (attempt) => `Retrying (attempt ${attempt})…`,
-	waitingApproval: "Waiting for approval…",
-	waitingSignature: "Waiting for a signature…",
 	taskSignatureWait: (id, link) => `Task ${id} waits for your signature.${link ? `\n\n${link}` : ""}`,
 	taskGroupSignatureWait: (id, link) => `Task group ${id} waits for your signature.${link ? `\n\n${link}` : ""}`,
 	taskApproval: (summary, id) =>
@@ -371,8 +367,6 @@ const zhCN: BotMessages = {
 	thinking: "思考中…",
 	running: (toolName) => `正在运行 ${toolName}…`,
 	retrying: (attempt) => `正在重试（第 ${attempt} 次）…`,
-	waitingApproval: "等待审批…",
-	waitingSignature: "等待签名…",
 	taskSignatureWait: (id, link) => `任务 ${id} 等待你的签名。${link ? `\n\n${link}` : ""}`,
 	taskGroupSignatureWait: (id, link) => `任务组 ${id} 等待你的签名。${link ? `\n\n${link}` : ""}`,
 	taskApproval: (summary, id) =>

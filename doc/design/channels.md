@@ -147,10 +147,13 @@ username, are escaped so they show literally; assistant text is not escaped.
   sent as messages; they can only appear as a status. On Telegram the current step shows as a draft
   (`sendMessageDraft`), whose stop control stops the turn when the account that pressed it belongs to the
   session owner; each real message starts a new draft, and a shown draft is re-sent every 20 seconds while
-  the run goes on so it does not expire. Elsewhere one status message is edited at most every few seconds
-  and removed when the turn ends. A kind without the `progress` capability shows none, and one without
-  `buttons` sends none: its approval texts already carry `/approve <id>`/`/reject <id>`, and a notification
-  without a thread appends the session link where Telegram would show an **Open session** button.
+  the run goes on so it does not expire. While the run waits for an approval or a signature, no draft is
+  kept: the wait's request message clears it, and neither the keep-alive nor a re-send follows, so it
+  expires on its own; when the wait ends and the run goes on, the next progress update starts a new draft
+  with a new id. Elsewhere one status message is edited at most every few seconds and removed when the
+  turn ends. A kind without the `progress` capability shows none, and one without `buttons` sends none: its
+  approval texts already carry `/approve <id>`/`/reject <id>`, and a notification without a thread appends
+  the session link where Telegram would show an **Open session** button.
 - **Delivered files** (`copy_file` to `user_interface`) are sent as WebUI download links, never as
   attachments. Opening one goes through the normal sign-in and access checks
   ([Deliveries](library.md#deliveries)).

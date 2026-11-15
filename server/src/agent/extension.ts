@@ -294,6 +294,9 @@ function imageLimitsOf(options: AgentRuntimeOptions, modelJson: string | null): 
 /** No image is rejected in a conversation; the default for callers that do not derive transcript state. */
 const NO_REJECTED_IMAGES: ReadonlySet<string> = new Set();
 
+/** Conversations whose rejected-image set stays cached; the oldest entry is dropped past it. */
+const REJECTED_IMAGES_LIMIT = 1000;
+
 /**
  * The `view_image` and extension results of one request as image blocks (doc/design/library.md "view_image",
  * doc/design/extensions.md "Results"). It matches on the tool name and the structured `details.image` or
@@ -562,6 +565,11 @@ export function clusterExtension(
 		const cached = rejectedImages.get(conversationId);
 		if (cached !== undefined && cached.latestEntryId === latestEntryId) return cached.sha256s;
 		const sha256s = rejectedImageSha256s(await runtime.transcriptEntries(conversationId));
+		// A conversation's entry is a cache, not state: bound the map so old conversations cannot grow it forever.
+		if (rejectedImages.size >= REJECTED_IMAGES_LIMIT && !rejectedImages.has(conversationId)) {
+			const oldest = rejectedImages.keys().next().value;
+			if (oldest !== undefined) rejectedImages.delete(oldest);
+		}
 		rejectedImages.set(conversationId, { latestEntryId, sha256s });
 		return sha256s;
 	};

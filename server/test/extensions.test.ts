@@ -52,6 +52,37 @@ import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
 
+/**
+ * A Db whose external-call finishes fail, as a busy database would. Reads and inserts still go through, so the
+ * only failure is the finish a catch path tries to make best-effort.
+ */
+function finishFailingDb(real: Db): Db {
+	const wrap = (builder: object): object =>
+		new Proxy(builder, {
+			get(target, property) {
+				if (property === "executeTakeFirst") return async () => Promise.reject(new Error("database is busy"));
+				const value = Reflect.get(target, property, target);
+				if (typeof value !== "function") return value;
+				return (...args: unknown[]) => {
+					const result = value.apply(target, args) as unknown;
+					return typeof result === "object" && result !== null && "executeTakeFirst" in result ? wrap(result) : result;
+				};
+			},
+		});
+	return new Proxy(real, {
+		get(target, property) {
+			if (property === "updateTable") {
+				return (table: string) => {
+					const update = target.updateTable(table as never);
+					return table === "external_calls" ? wrap(update) : update;
+				};
+			}
+			const value = Reflect.get(target, property, target);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	}) as Db;
+}
+
 /** What the fake server records and can be told to do. */
 interface FakeState {
 	calls: { tool: string; arguments: Record<string, unknown> }[];
@@ -779,6 +810,48 @@ describe("MCP extensions", () => {
 			state: "unknown",
 			arguments: null,
 		});
+	});
+
+	it("does not let a failed finish hide an unexpected extension error", async () => {
+		await addServer({ preset: "yolo" });
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			extensions: [
+				failingExtension(async () => {
+					throw new Error("boom");
+				}),
+			],
+		};
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await expect(
+				runExtensionTool({ ...ctx, db: finishFailingDb(db), callKey: "finish-db-fail" }, "fake", "echo", {
+					message: "hi",
+				}),
+			).rejects.toThrow("boom");
+			expect(spy).toHaveBeenCalledWith("tools: finishing an extension call failed:", expect.any(Error));
+		} finally {
+			spy.mockRestore();
+		}
+		expect(await getExternalCall(db, externalCallId("finish-db-fail"))).toMatchObject({ state: "running" });
+	});
+
+	it("does not let a failed orphan finish hide the original error", async () => {
+		await addServer();
+		const waiting = await waitingCall("finish-orphan-db-fail", "echo");
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: false, available: false });
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await expect(
+				runExtensionTool({ ...ctx, db: finishFailingDb(db), callKey: "finish-orphan-db-fail" }, "fake", "echo", {
+					message: "hi",
+				}),
+			).rejects.toThrow(/turned off/);
+			expect(spy).toHaveBeenCalledWith("tools: finishing an orphaned extension call failed:", expect.any(Error));
+		} finally {
+			spy.mockRestore();
+		}
+		expect(await getExternalCall(db, waiting.id)).toMatchObject({ state: "awaiting_approval" });
 	});
 
 	it("finishes a call when its result cannot be converted", async () => {

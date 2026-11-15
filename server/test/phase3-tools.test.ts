@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as z from "zod/v4";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { Cluster, TaskView } from "../src/cluster/cluster.ts";
@@ -92,11 +92,14 @@ function task(overrides: Partial<TaskView>): TaskView {
 function fakeCluster(transferRoot: string) {
 	const tasks = new Map<string, TaskView>();
 	const pushes: { path: string; location: unknown; createParentDirs?: boolean }[] = [];
-	const pulls: { path: string }[] = [];
+	const pulls: { path: string; location?: { kind: string; path: string } }[] = [];
 	const stats: { nodeId: string; path: string }[] = [];
 	let staged: Uint8Array = new Uint8Array(0);
 	let statSize = 0;
 	let statMissing = false;
+	let pullFailure = false;
+	let transferRootMode: number | null = null;
+	let stageSource: { kind: "staging"; path: string; size: number | null; sha256: string | null } | null = null;
 	const cluster = {
 		libraryBackend: undefined,
 		transferContext: () => ({ root: transferRoot }),
@@ -131,18 +134,33 @@ function fakeCluster(transferRoot: string) {
 			tasks.set(view.id, view);
 			return view;
 		},
-		async pullFile(input: { path: string; location: { path: string } }) {
-			pulls.push({ path: input.path });
+		async pullFile(input: { path: string; location: { kind: string; path: string } }) {
+			pulls.push({ path: input.path, location: input.location });
 			const target = join(transferRoot, input.location.path);
-			await import("node:fs/promises").then((fs) => fs.mkdir(transferRoot, { recursive: true }));
-			const { writeFile } = await import("node:fs/promises");
+			await mkdir(transferRoot, { recursive: true });
 			await writeFile(target, staged);
-			const view = task({
-				kind: "file.pull",
-				result: { kind: "file.pull", size: staged.length, sha256: sha256Hex(staged) },
-			});
+			if (transferRootMode !== null) await chmod(transferRoot, transferRootMode);
+			const view = pullFailure
+				? task({
+						kind: "file.pull",
+						state: "rejected",
+						errorCode: "not_found",
+						errorMessage: "no such file",
+					})
+				: task({
+						kind: "file.pull",
+						result: { kind: "file.pull", size: staged.length, sha256: sha256Hex(staged) },
+					});
 			tasks.set(view.id, view);
 			return view;
+		},
+		async stageLibrarySource() {
+			const location = newStagingLocation();
+			stageSource = location;
+			await mkdir(transferRoot, { recursive: true });
+			const target = join(transferRoot, location.path);
+			await writeFile(target, staged);
+			return { ...location, size: staged.length, sha256: sha256Hex(staged) };
 		},
 		async pushFile(input: { path: string; location: unknown }) {
 			pushes.push({ path: input.path, location: input.location });
@@ -226,6 +244,13 @@ function fakeCluster(transferRoot: string) {
 			statSize = size;
 			statMissing = missing;
 		},
+		setPullFailure(value: boolean) {
+			pullFailure = value;
+		},
+		setTransferRootMode(mode: number | null) {
+			transferRootMode = mode;
+		},
+		stageSourceLocation: () => stageSource,
 	};
 }
 
@@ -352,6 +377,74 @@ describe("library tools", () => {
 				ttlMs: 1000,
 			})),
 		};
+	});
+
+	it("discards the staged copy when a pull fails", async () => {
+		await addNode(db, alice.userId, "web-1");
+		await addNode(db, alice.userId, "web-2");
+		const transferRoot = join(root, "transfer-failed-pull");
+		const fake = fakeCluster(transferRoot);
+		fake.setStaged(Buffer.from("from node"));
+		fake.setPullFailure(true);
+		const result = await tool("copy_file").handler(
+			{
+				source: { node: "web-1", path: "/srv/a.txt" },
+				destination: { targets: ["web-1", "web-2"], path: "/tmp/copy.txt" },
+			} as never,
+			{ ...context, cluster: fake.cluster, taskGroups: fake.taskGroups as unknown as TaskGroups },
+		);
+		expect(result.isError).toBe(true);
+		const location = fake.pulls[0]?.location;
+		if (!location) throw new Error("no pull");
+		expect(await readFile(join(transferRoot, location.path)).catch(() => undefined)).toBeUndefined();
+	});
+
+	it("discards a staged library source when creating its task group fails", async () => {
+		await addNode(db, alice.userId, "web-1");
+		await addNode(db, alice.userId, "web-2");
+		const transferRoot = join(root, "transfer-group-failure");
+		const fake = fakeCluster(transferRoot);
+		fake.setStaged(Buffer.from("library bytes"));
+		const taskGroups = {
+			create: async () => {
+				throw new Error("group create failed");
+			},
+		} as unknown as TaskGroups;
+		await expect(
+			tool("copy_file").handler(
+				{
+					source: { library: "user:alice", path: "docs/a.txt" },
+					destination: { targets: ["web-1", "web-2"], path: "/tmp/copy.txt" },
+				} as never,
+				{ ...context, cluster: fake.cluster, taskGroups },
+			),
+		).rejects.toThrow("group create failed");
+		const location = fake.stageSourceLocation();
+		if (!location) throw new Error("no staged source");
+		expect(await readFile(join(transferRoot, location.path)).catch(() => undefined)).toBeUndefined();
+	});
+
+	it("logs a discard failure instead of failing a finished copy", async () => {
+		await addNode(db, alice.userId, "web-1");
+		const transferRoot = join(root, "transfer-discard-failure");
+		const fake = fakeCluster(transferRoot);
+		fake.setStaged(Buffer.from("from node"));
+		fake.setTransferRootMode(0o500);
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const result = await tool("copy_file").handler(
+				{
+					source: { node: "web-1", path: "/srv/a.txt" },
+					destination: { targets: ["web-1"], path: "/srv/a.txt" },
+				} as never,
+				{ ...context, cluster: fake.cluster },
+			);
+			expect(result.isError).toBe(false);
+			expect(spy).toHaveBeenCalledWith("tools: discarding staged transfer data failed:", expect.any(Error));
+		} finally {
+			await chmod(transferRoot, 0o700).catch(() => {});
+			spy.mockRestore();
+		}
 	});
 
 	afterEach(async () => {
@@ -744,5 +837,25 @@ describe("view_image", () => {
 		expect(fake.pulls.length).toBe(1);
 		const leftover = await readFile(join(root, newStagingLocation().path)).catch(() => undefined);
 		expect(leftover).toBeUndefined();
+	});
+
+	it("does not let a failed staging discard replace the image result", async () => {
+		await addNode(db, alice.userId, "web-1");
+		const transferRoot = join(root, "transfer-view-discard");
+		const fake = fakeCluster(transferRoot);
+		fake.setStaged(png(4, 4));
+		fake.setTransferRootMode(0o500);
+		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const result = await tool("view_image").handler({ node: "web-1", path: "/srv/pic.png" } as never, {
+				...context,
+				cluster: fake.cluster,
+			});
+			expect(result.isError).toBe(false);
+			expect(spy).toHaveBeenCalledWith("tools: discarding staged transfer data failed:", expect.any(Error));
+		} finally {
+			await chmod(transferRoot, 0o700).catch(() => {});
+			spy.mockRestore();
+		}
 	});
 });

@@ -683,6 +683,18 @@ const userInterfaceDestination = z
 	})
 	.strict();
 
+/**
+ * Removes staged transfer data without hiding the result the caller is returning: a discard failure is
+ * logged, because it must not turn a finished copy into an error or replace the error that caused it.
+ */
+async function discardStaged(ctx: ToolContext, location: TransferLocationJson): Promise<void> {
+	try {
+		await openTransferLocation(ctx.cluster.transferContext(), location).discard();
+	} catch (err) {
+		console.error("tools: discarding staged transfer data failed:", err);
+	}
+}
+
 const destinationLocation = z
 	.union([nodeDestination, libraryDestination, userInterfaceDestination])
 	.describe(
@@ -790,25 +802,32 @@ const copyFile = define({
 			}
 			const location = await ctx.cluster.stageLibrarySource(record.row.id, sourcePath);
 			const id = ctx.callKey ? derivedId(`copy-group:${ctx.callKey}`) : undefined;
-			const groupId = await ctx.taskGroups.create({
-				spec: pushSpec(
-					destinationPath,
-					location,
-					overwrite,
-					mode,
-					destination.owner ?? "",
-					destination.group ?? "",
-					createParentDirs,
-				),
-				targets: resolved.targets,
-				nodeIds: resolved.nodeIds,
-				transferLocation: location,
-				...(args.parallel === undefined ? {} : { parallel: args.parallel }),
-				actor,
-				chain,
-				privileged,
-				...(id ? { id } : {}),
-			});
+			let groupId: string;
+			try {
+				groupId = await ctx.taskGroups.create({
+					spec: pushSpec(
+						destinationPath,
+						location,
+						overwrite,
+						mode,
+						destination.owner ?? "",
+						destination.group ?? "",
+						createParentDirs,
+					),
+					targets: resolved.targets,
+					nodeIds: resolved.nodeIds,
+					transferLocation: location,
+					...(args.parallel === undefined ? {} : { parallel: args.parallel }),
+					actor,
+					chain,
+					privileged,
+					...(id ? { id } : {}),
+				});
+			} catch (err) {
+				// The group takes over the staged source once it exists; a failed create leaves it to discard.
+				await discardStaged(ctx, location);
+				throw err;
+			}
 			return fileJsonGroupResult(ctx, await waitBlockingGroup(ctx, groupId), names);
 		}
 
@@ -855,6 +874,8 @@ const copyFile = define({
 		});
 		const pulled = (await waitBlockingTask(ctx, pull.id)) ?? pull;
 		if (pulled.result?.kind !== "file.pull" || pulled.state !== "exited") {
+			// The pull kept whatever it staged; the failed copy is over and nothing else will read it.
+			await discardStaged(ctx, location);
 			return fileJsonResult(ctx, pulled, sourceName);
 		}
 		const staged = {
@@ -883,7 +904,7 @@ const copyFile = define({
 				const done = (await waitBlockingTask(ctx, task.id)) ?? task;
 				return fileJsonResult(ctx, done, names.get(nodeId) ?? nodeId);
 			} finally {
-				await openTransferLocation(ctx.cluster.transferContext(), location).discard();
+				await discardStaged(ctx, location);
 			}
 		}
 		// One group, one approval: every member streams from the same staged file, and the group
@@ -1090,7 +1111,12 @@ const viewImage = define({
 				}
 				bytes = await readAll(opened.openRead());
 			} finally {
-				await opened.discard();
+				// A discard failure must not replace the image result or the read error.
+				try {
+					await opened.discard();
+				} catch (err) {
+					console.error("tools: discarding staged transfer data failed:", err);
+				}
 			}
 			source = { node: name, path: args.path };
 			label = args.path.slice(args.path.lastIndexOf("/") + 1);
@@ -1559,6 +1585,36 @@ async function finishOrphanedCall(
 	await finishCall(ctx, existing.id, extension, tool, state);
 }
 
+/** Finishes a call on a failure path; a failed finish is logged instead of hiding the error being returned. */
+async function finishCallQuietly(
+	ctx: ToolContext,
+	id: string,
+	extension: string,
+	tool: string,
+	state: "succeeded" | "failed" | "rejected" | "cancelled" | "unknown",
+): Promise<void> {
+	try {
+		await finishCall(ctx, id, extension, tool, state);
+	} catch (err) {
+		console.error("tools: finishing an extension call failed:", err);
+	}
+}
+
+/** Ends an orphaned replay on a failure path; a failed finish is logged instead of hiding the original error. */
+async function finishOrphanedCallQuietly(
+	ctx: ToolContext,
+	existing: ExternalCallRow | undefined,
+	extension: string,
+	tool: string,
+	state: "failed" | "rejected",
+): Promise<void> {
+	try {
+		await finishOrphanedCall(ctx, existing, extension, tool, state);
+	} catch (err) {
+		console.error("tools: finishing an orphaned extension call failed:", err);
+	}
+}
+
 /**
  * Runs one extension call under the rules and approvals (doc/design/extensions.md "Rules and approvals" and
  * "External calls"): a denied call never starts, an approval waits in the WebUI (or Auto Review settles it),
@@ -1584,14 +1640,14 @@ export async function runExtensionTool(
 	} catch (err) {
 		// The extension was disabled, deleted or ungranted since the first attempt, so its waiting row has
 		// nobody left to run it.
-		await finishOrphanedCall(ctx, existing, extensionName, toolName, "failed");
+		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
 		throw err;
 	}
 	const extension = entry.extension;
 	try {
 		await extension.ensureAvailable({ immediate: true });
 	} catch (err) {
-		await finishOrphanedCall(ctx, existing, extensionName, toolName, "failed");
+		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
 		return errorResult(
 			"text",
 			"unavailable",
@@ -1610,7 +1666,7 @@ export async function runExtensionTool(
 		}
 	}
 	if (!tool) {
-		await finishOrphanedCall(ctx, existing, extensionName, toolName, "failed");
+		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
 		return errorResult("text", "unknown_tool", `the extension ${extensionName} has no tool named ${toolName}`, {
 			extension: extensionName,
 			tool: toolName,
@@ -1624,7 +1680,7 @@ export async function runExtensionTool(
 		// A built-in extension refuses a call in its operation before any rule or external call exists, e.g. an
 		// API route its document marks deny (doc/design/extensions.md "API requests").
 		if (!(err instanceof UserError)) throw err;
-		await finishOrphanedCall(ctx, existing, extensionName, toolName, "failed");
+		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
 		return errorResult("text", err.code ?? "invalid_argument", err.message, {
 			extension: extensionName,
 			tool: toolName,
@@ -1708,30 +1764,30 @@ export async function runExtensionTool(
 	} catch (err) {
 		if (err instanceof UserError) {
 			// The built-in refused the call itself (a bad argument, an unknown document); it never ran.
-			await finishCall(ctx, id, extensionName, toolName, "failed");
+			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
 			return errorResult("text", err.code ?? "invalid_argument", err.message, {
 				extension: extensionName,
 				tool: toolName,
 			});
 		}
 		if (err instanceof ExtensionUnavailableError) {
-			await finishCall(ctx, id, extensionName, toolName, "failed");
+			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
 			return errorResult("text", "unavailable", err.message, { extension: extensionName, tool: toolName });
 		}
 		if (err instanceof ExtensionToolError) {
-			await finishCall(ctx, id, extensionName, toolName, "failed");
+			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
 			return errorResult("text", "tool_error", err.message, { extension: extensionName, tool: toolName });
 		}
 		if (err instanceof ExtensionCallLostError) {
 			// A lost call is not retried. On shutdown the row stays running so the next start recovers it as unknown.
-			if (!ctx.closing?.()) await finishCall(ctx, id, extensionName, toolName, "unknown");
+			if (!ctx.closing?.()) await finishCallQuietly(ctx, id, extensionName, toolName, "unknown");
 			return errorResult("text", "unknown", `${err.message}; its outcome is unknown and it was not retried`, {
 				extension: extensionName,
 				tool: toolName,
 			});
 		}
 		// An unexpected exception may have reached the server, so the outcome is not known.
-		await finishCall(ctx, id, extensionName, toolName, "unknown");
+		await finishCallQuietly(ctx, id, extensionName, toolName, "unknown");
 		throw err;
 	}
 	let converted: ToolResult;
@@ -1743,7 +1799,7 @@ export async function runExtensionTool(
 		});
 	} catch (err) {
 		// The call reached the server but its result could not be converted; it must not stay running.
-		await finishCall(ctx, id, extensionName, toolName, "unknown");
+		await finishCallQuietly(ctx, id, extensionName, toolName, "unknown");
 		throw err;
 	}
 	await finishCall(ctx, id, extensionName, toolName, "succeeded");

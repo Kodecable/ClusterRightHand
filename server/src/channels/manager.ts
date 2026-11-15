@@ -12,7 +12,7 @@ import type {
 	UserSettingsLocale,
 	UserSettingsUpdate,
 } from "@crh/api";
-import { type ModelConfig, parseModelRef } from "../agent/models.ts";
+import type { ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/runtime.ts";
 import type { Audit } from "../audit/audit.ts";
 import { userActor } from "../audit/audit.ts";
@@ -165,12 +165,8 @@ interface DraftState {
 	target: ChannelTarget;
 	lastSentAt: number;
 	lastText: string;
-	/** The language the status was written in. */
-	locale: UserSettingsLocale;
-	/** The status of the current step, shown again when a wait is over. */
+	/** The status of the current step. */
 	step: string;
-	/** What the run waits for, if anything; its status replaces the step's while it waits. */
-	waiting: "approval" | "signature" | null;
 	/** The turn's last message went out; the draft is not shown again until progress does. */
 	suppressed: boolean;
 	/** Re-sends the shown status before the draft expires; absent while nothing is shown. */
@@ -203,6 +199,8 @@ const MODEL_PAGE_SIZE = 5;
 const EXTENSION_PAGE_SIZE = 5;
 /** Unlinked senders are answered once; the set is bounded so a busy bot cannot grow it without limit. */
 const UNLINKED_REPLY_LIMIT = 1000;
+/** Approval messages tracked for a final edit; a root that never changes state again must not grow it forever. */
+const TRACKED_MESSAGES_LIMIT = 1000;
 
 /** The rule presets with the WebUI's product names (doc/design/webui.md "Composer"); the raw values stay internal. */
 const RULE_PRESET_CHOICES: readonly { value: RulePreset; label: string }[] = [
@@ -344,30 +342,29 @@ function approvalKey(kind: "task" | "task_group" | "external_call", id: string):
 type WaitRow = { state: string; handler_type: string | null; on_behalf_of_user_id: string };
 
 /**
- * The wait a session's chat messages ask the user for, if any: a signature wins over an approval, and an
- * approval routed to an agent is not shown in the chat.
+ * Whether a session's chat messages wait for the user: an approval or signature that is shown in the chat.
+ * An approval routed to an agent is not shown there.
  */
-function waitKindOf(
+function hasWait(
 	tasks: readonly WaitRow[],
 	groups: readonly WaitRow[],
 	calls: readonly WaitRow[],
 	owner: string,
-): "approval" | "signature" | null {
-	let waiting: "approval" | "signature" | null = null;
+): boolean {
 	for (const task of tasks) {
 		if (task.on_behalf_of_user_id !== owner) continue;
-		if (task.state === "awaiting_authorization") waiting = "signature";
-		else if (task.state === "awaiting_approval" && task.handler_type === "user") waiting ??= "approval";
+		if (task.state === "awaiting_authorization") return true;
+		if (task.state === "awaiting_approval" && task.handler_type === "user") return true;
 	}
 	for (const group of groups) {
 		if (group.on_behalf_of_user_id !== owner) continue;
-		if (group.state === "awaiting_authorization") waiting = "signature";
-		else if (group.state === "awaiting_approval" && group.handler_type === "user") waiting ??= "approval";
+		if (group.state === "awaiting_authorization") return true;
+		if (group.state === "awaiting_approval" && group.handler_type === "user") return true;
 	}
 	for (const call of calls) {
-		if (call.on_behalf_of_user_id === owner && call.handler_type === "user") waiting ??= "approval";
+		if (call.on_behalf_of_user_id === owner && call.handler_type === "user") return true;
 	}
-	return waiting;
+	return false;
 }
 
 export class ChannelManager {
@@ -377,6 +374,8 @@ export class ChannelManager {
 	readonly #rowErrors = new Map<string, string>();
 	readonly #watchers = new Map<string, () => void>();
 	readonly #watchStarts = new Map<string, Promise<void>>();
+	/** The tail of each watched session's event handling; batches run one after another. */
+	readonly #eventQueues = new Map<string, Promise<void>>();
 	readonly #runs = new Map<string, RunState>();
 	readonly #drafts = new Map<string, DraftState>();
 	readonly #statuses = new Map<string, StatusState>();
@@ -440,7 +439,13 @@ export class ChannelManager {
 			} catch {}
 		}
 		this.#watchers.clear();
-		for (const entry of [...this.#adapters.values()]) await entry.adapter.stop();
+		for (const entry of [...this.#adapters.values()]) {
+			try {
+				await entry.adapter.stop();
+			} catch (err) {
+				console.error(`channels: stopping channel ${entry.row.name} failed:`, err);
+			}
+		}
 		this.#adapters.clear();
 		for (const draft of this.#drafts.values()) this.#clearDraftKeepalive(draft);
 		this.#drafts.clear();
@@ -2349,16 +2354,36 @@ export class ChannelManager {
 
 	// ---- outbound and notifications ----
 
+	#queueSessionEvents(sessionId: string, events: import("../agent/runtime.ts").SessionEvent[]): void {
+		const previous = this.#eventQueues.get(sessionId) ?? Promise.resolve();
+		const next = previous
+			.then(() => this.#onSessionEvents(sessionId, events))
+			.catch((err: unknown) => {
+				console.error("channels: handling session events failed:", err);
+			});
+		this.#eventQueues.set(sessionId, next);
+		void next.then(() => {
+			if (this.#eventQueues.get(sessionId) === next) this.#eventQueues.delete(sessionId);
+		});
+	}
+
+	/** Resolves once the session's queued event batches are handled (tests). */
+	async sessionEventsSettled(sessionId: string): Promise<void> {
+		await this.#eventQueues.get(sessionId);
+	}
+
 	async #ensureWatcher(sessionId: string): Promise<void> {
 		if (this.#watchers.has(sessionId) || this.#stopped) return;
 		const starting = this.#watchStarts.get(sessionId);
 		if (starting) return starting;
 		const start = (async () => {
 			try {
+				// The runtime awaits this callback: returning its promise keeps one session's batches in order.
+				// Batches of one session are handled in order through the manager's own queue, and the callback
+				// returns at once: a slow send must not hold up the watch, which past 100 pending batches replaces
+				// them with one snapshot event that carries no run_end or message_end.
 				const stop = await this.#options.runtime.watch(sessionId, (events) => {
-					void this.#onSessionEvents(sessionId, events).catch((err: unknown) => {
-						console.error("channels: handling session events failed:", err);
-					});
+					this.#queueSessionEvents(sessionId, events);
 				});
 				if (this.#stopped) {
 					stop();
@@ -2401,39 +2426,44 @@ export class ChannelManager {
 	/** Sends the assistant's text pieces and delivered-file links where the session's notifications go. */
 	async #onSessionEvents(sessionId: string, events: import("../agent/runtime.ts").SessionEvent[]): Promise<void> {
 		for (const event of events) {
-			if (event.type === "run_start") {
-				this.#runs.set(sessionId, { deliveries: [], seen: new Set() });
-				await this.#showProgress(sessionId, (m) => m.working);
-				continue;
-			}
-			if (event.type === "run_end") {
-				const run = this.#runs.get(sessionId);
-				this.#runs.delete(sessionId);
-				this.#dropDraft(sessionId);
-				await this.#clearProgress(sessionId);
-				if (run) await this.#sendDeliveries(sessionId, run);
-				// A chat that switched away while the turn ran keeps its watch only until the run ends.
-				await this.#releaseWatcherIfUnused(sessionId);
-				continue;
-			}
-			if (event.type === "message_start" && event.message.role === "assistant") {
-				await this.#showProgress(sessionId, (m) => m.thinking);
-				continue;
-			}
-			if (event.type === "tool_execution_start") {
-				await this.#showProgress(sessionId, (m) => m.running(event.toolName));
-				continue;
-			}
-			if (event.type === "auto_retry_start") {
-				await this.#showProgress(sessionId, (m) => m.retrying(event.attempt));
-				continue;
-			}
-			if (event.type === "message_end") {
-				await this.#onMessageEnd(sessionId, event.entry);
-				continue;
-			}
-			if (event.type === "tool_execution_end" && event.entry) {
-				this.#collectDelivery(sessionId, event.entry);
+			// One bad event must not skip the rest of the batch, above all its run_end cleanup.
+			try {
+				if (event.type === "run_start") {
+					this.#runs.set(sessionId, { deliveries: [], seen: new Set() });
+					await this.#showProgress(sessionId, (m) => m.working);
+					continue;
+				}
+				if (event.type === "run_end") {
+					const run = this.#runs.get(sessionId);
+					this.#runs.delete(sessionId);
+					this.#dropDraft(sessionId);
+					await this.#clearProgress(sessionId);
+					if (run) await this.#sendDeliveries(sessionId, run);
+					// A chat that switched away while the run ran keeps its watch only until the run ends.
+					await this.#releaseWatcherIfUnused(sessionId);
+					continue;
+				}
+				if (event.type === "message_start" && event.message.role === "assistant") {
+					await this.#showProgress(sessionId, (m) => m.thinking);
+					continue;
+				}
+				if (event.type === "tool_execution_start") {
+					await this.#showProgress(sessionId, (m) => m.running(event.toolName));
+					continue;
+				}
+				if (event.type === "auto_retry_start") {
+					await this.#showProgress(sessionId, (m) => m.retrying(event.attempt));
+					continue;
+				}
+				if (event.type === "message_end") {
+					await this.#onMessageEnd(sessionId, event.entry);
+					continue;
+				}
+				if (event.type === "tool_execution_end" && event.entry) {
+					this.#collectDelivery(sessionId, event.entry);
+				}
+			} catch (err) {
+				console.error(`channels: handling a ${event.type} event failed:`, err);
 			}
 		}
 	}
@@ -2533,8 +2563,6 @@ export class ChannelManager {
 			let draft = this.#drafts.get(sessionId);
 			if (draft) {
 				draft.step = text;
-				draft.locale = locale;
-				draft.waiting = null;
 				// The turn went on after its last message: show progress again without the old throttle or dedupe.
 				if (draft.suppressed) {
 					draft.suppressed = false;
@@ -2548,15 +2576,13 @@ export class ChannelManager {
 					target: route.target,
 					lastSentAt: 0,
 					lastText: "",
-					locale,
 					step: text,
-					waiting: null,
 					suppressed: false,
 				};
 				this.#drafts.set(sessionId, draft);
 			}
 			if (now - draft.lastSentAt < this.#progressIntervalMs) return;
-			const shown = this.#shownStatus(draft);
+			const shown = draft.step;
 			if (draft.lastText === shown) return;
 			try {
 				await route.adapter.sendDraft(route.target, draft.draftId, shown);
@@ -2599,14 +2625,6 @@ export class ChannelManager {
 		}
 	}
 
-	/** The status a draft shows: the wait it is in, or the current step. */
-	#shownStatus(draft: DraftState): string {
-		const m = messagesFor(draft.locale);
-		if (draft.waiting === "signature") return m.waitingSignature;
-		if (draft.waiting === "approval") return m.waitingApproval;
-		return draft.step;
-	}
-
 	/**
 	 * Shows a run's draft again after a real message cleared it, or keeps a long step's draft from expiring,
 	 * bypassing the throttle and the dedupe of `#showProgress`. A draft is never sent once the run ended or the
@@ -2619,7 +2637,7 @@ export class ChannelManager {
 		const adapter = this.#adapters.get(draft.adapterName)?.adapter;
 		const sendDraft = adapter?.sendDraft?.bind(adapter);
 		if (!sendDraft) return;
-		const shown = this.#shownStatus(draft);
+		const shown = draft.step;
 		try {
 			await sendDraft(draft.target, draft.draftId, shown);
 			draft.lastSentAt = this.#now();
@@ -2628,12 +2646,6 @@ export class ChannelManager {
 		} catch (err) {
 			console.error("channels: restoring a progress draft failed:", err);
 		}
-	}
-
-	/** Sets what a run waits for; a wait shows in its draft instead of the step it is on. */
-	#markWaiting(sessionId: string, waiting: "approval" | "signature" | null): void {
-		const draft = this.#drafts.get(sessionId);
-		if (draft) draft.waiting = waiting;
 	}
 
 	/** Removes the fallback status message a turn used; a draft disappears by itself. */
@@ -2664,7 +2676,11 @@ export class ChannelManager {
 		if (this.#drafts.get(sessionId) !== draft || draft.suppressed) return;
 		draft.keepalive = setTimeout(() => {
 			draft.keepalive = undefined;
-			if (this.#drafts.get(sessionId) === draft) void this.#resendDraft(sessionId);
+			if (this.#drafts.get(sessionId) === draft) {
+				void this.#resendDraft(sessionId).catch((err: unknown) => {
+					console.error("channels: keeping a progress draft alive failed:", err);
+				});
+			}
 		}, this.#draftKeepaliveMs);
 		draft.keepalive.unref();
 	}
@@ -2797,22 +2813,26 @@ export class ChannelManager {
 		const pending = this.#topicCreations.get(key);
 		if (pending) return pending;
 		const creating = (async () => {
-			const createTopic = adapter.createTopic?.bind(adapter);
-			if (!createTopic) return undefined;
-			const locale = botLocale(await this.#userLocale(account.user_id));
-			const title = clip(await this.#sessionTitle(sessionId, locale), 60);
+			// The entry is removed whatever fails here, including reading the locale or title before the topic is
+			// created: a rejected promise must not be cached for the rest of the process.
 			try {
-				const topicId = await createTopic(account.platform_chat_id ?? account.platform_user_id, `CRH: ${title}`);
-				return await bindThread(this.#options.db, {
-					channelId: row.id,
-					platform: adapter.platform,
-					chatId: account.platform_chat_id ?? account.platform_user_id,
-					topicId,
-					sessionId,
-				});
-			} catch (err) {
-				console.error("channels: creating a notification topic failed:", err);
-				return undefined;
+				const createTopic = adapter.createTopic?.bind(adapter);
+				if (!createTopic) return undefined;
+				const locale = botLocale(await this.#userLocale(account.user_id));
+				const title = clip(await this.#sessionTitle(sessionId, locale), 60);
+				try {
+					const topicId = await createTopic(account.platform_chat_id ?? account.platform_user_id, `CRH: ${title}`);
+					return await bindThread(this.#options.db, {
+						channelId: row.id,
+						platform: adapter.platform,
+						chatId: account.platform_chat_id ?? account.platform_user_id,
+						topicId,
+						sessionId,
+					});
+				} catch (err) {
+					console.error("channels: creating a notification topic failed:", err);
+					return undefined;
+				}
 			} finally {
 				this.#topicCreations.delete(key);
 			}
@@ -2876,16 +2896,8 @@ export class ChannelManager {
 			.execute();
 		for (const call of calls) await this.#syncCallWait(rootId, call, owner, route, locale, m);
 		await this.#syncQuotaWait(rootId, owner, route, locale, m);
-		// A wait that ended above returns the draft to the step; one still waiting keeps its wait status.
-		await this.#settleWaiting(rootId, waitKindOf(tasks, groups, calls, owner));
-	}
-
-	/** The status a run's draft shows while any of its waits need the user; a signature wins over an approval. */
-	async #settleWaiting(rootId: string, waiting: "approval" | "signature" | null): Promise<void> {
-		const draft = this.#drafts.get(rootId);
-		if (!draft || draft.waiting === waiting) return;
-		draft.waiting = waiting;
-		await this.#resendDraft(rootId);
+		// A run waiting for the user shows no draft: drop any draft that a progress update created before the wait.
+		if (hasWait(tasks, groups, calls, owner)) this.#dropDraft(rootId);
 	}
 
 	async #syncTaskWait(
@@ -2901,7 +2913,7 @@ export class ChannelManager {
 		if (task.state === "awaiting_authorization") {
 			if (!route || this.#tracked.has(key)) return;
 			const link = this.#webUrl(`/approvals/tasks/${task.id}`);
-			await this.#sendTracked(key, rootId, route, m.taskSignatureWait(task.id, link), [], locale, "signature");
+			await this.#sendTracked(key, rootId, route, m.taskSignatureWait(task.id, link), [], locale, true);
 			return;
 		}
 		if (task.handler_type !== "user") return;
@@ -2921,7 +2933,7 @@ export class ChannelManager {
 				],
 			],
 			locale,
-			"approval",
+			true,
 		);
 	}
 
@@ -2938,7 +2950,7 @@ export class ChannelManager {
 		if (group.state === "awaiting_authorization") {
 			if (!route || this.#tracked.has(key)) return;
 			const link = this.#webUrl(`/approvals/task-groups/${group.id}`);
-			await this.#sendTracked(key, rootId, route, m.taskGroupSignatureWait(group.id, link), [], locale, "signature");
+			await this.#sendTracked(key, rootId, route, m.taskGroupSignatureWait(group.id, link), [], locale, true);
 			return;
 		}
 		if (group.handler_type !== "user") return;
@@ -2958,7 +2970,7 @@ export class ChannelManager {
 				],
 			],
 			locale,
-			"approval",
+			true,
 		);
 	}
 
@@ -2990,7 +3002,7 @@ export class ChannelManager {
 				],
 			],
 			locale,
-			"approval",
+			true,
 		);
 	}
 
@@ -3031,8 +3043,10 @@ export class ChannelManager {
 		text: string,
 		buttons: readonly (readonly import("./model.ts").ChannelButton[])[],
 		locale: UserSettingsLocale,
-		waiting?: "approval" | "signature",
+		waiting?: boolean,
 	): Promise<void> {
+		// The run now waits for the user: its draft expires on its own and is not shown again until the run goes on.
+		if (waiting === true) this.#dropDraft(rootId);
 		const m = messagesFor(locale);
 		const buttonsOn = route.adapter.capabilities.buttons;
 		const withSwitch =
@@ -3043,13 +3057,15 @@ export class ChannelManager {
 		const link = route.thread === undefined && !buttonsOn ? this.#sessionLink(rootId) : null;
 		const body = link === null ? header : `${header}\n\n${m.openSessionLink(link)}`;
 		let sent: SentMessage;
-		// The wait's status is set before the send, so re-showing the cleared draft carries it.
-		if (waiting !== undefined) this.#markWaiting(rootId, waiting);
 		try {
 			sent = await route.adapter.sendText(route.target, body, { buttons: withSwitch });
 		} catch (err) {
 			console.error("channels: sending an approval message failed:", err);
 			return;
+		}
+		if (this.#tracked.size >= TRACKED_MESSAGES_LIMIT && !this.#tracked.has(key)) {
+			const oldest = this.#tracked.keys().next().value;
+			if (oldest !== undefined) this.#tracked.delete(oldest);
 		}
 		this.#tracked.set(key, {
 			key,

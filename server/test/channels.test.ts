@@ -8,6 +8,7 @@ import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { ChannelManager } from "../src/channels/manager.ts";
+import { TelegramChannel } from "../src/channels/telegram.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { decideExternalCall } from "../src/extensions/external-calls.ts";
@@ -993,6 +994,44 @@ describe("channels", () => {
 		}
 	});
 
+	it("retries a notification topic whose creation failed instead of caching the failure", async () => {
+		const userId = 8802;
+		await settle();
+		await link(userId);
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		const session = await runtime.createSession(alice, { model: model(), rulePreset: "yolo" });
+		const account = await db
+			.selectFrom("channel_accounts")
+			.select("id")
+			.where("platform_user_id", "=", String(userId))
+			.executeTakeFirstOrThrow();
+		await patchUserSettings(db, aliceId, { defaultChannelAccountId: account.id, showProgress: false });
+		channels.presence.forget(aliceId);
+		const callId = await insertExternalCall(session.id, "call-topic-retry");
+		const original = runtime.getSession.bind(runtime);
+		let failures = 1;
+		const spy = vi.spyOn(runtime, "getSession").mockImplementation(async (id: string) => {
+			if (id === session.id && failures > 0) {
+				failures -= 1;
+				throw new Error("database is busy");
+			}
+			return original(id);
+		});
+		try {
+			// Reading the session's title fails once while the topic is being created; the rejected creation must
+			// not stay cached, so the next notification can still create the topic and go to the chat.
+			await channels.refreshWaits(session.id);
+			expect(fake.sentCalls().some((call) => sentText(call).includes(`/approve ${callId}`))).toBe(false);
+			await channels.refreshWaits(session.id);
+			const sent = await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+			expect(sent.body.message_thread_id).toBeDefined();
+		} finally {
+			spy.mockRestore();
+			await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
+			await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", callId).execute();
+		}
+	});
+
 	it("stops the running turn when the draft's stop control is pressed", async () => {
 		const userId = 8601;
 		await link(userId);
@@ -1089,64 +1128,67 @@ describe("channels", () => {
 		).toHaveLength(0);
 	});
 
-	it("re-sends the progress draft after a wait message and returns to the step when the wait ends", async () => {
+	it("drops the progress draft while waiting and starts a new one when the run goes on", async () => {
 		const userId = 8801;
 		await settle();
 		await link(userId);
 		const thread = await chatSession(userId);
 		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
-		await runtime.configure(thread.sessionId, { model: slowModel() });
+		let release = (): void => {};
+		const gate = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		// The model answer stays gated, so the run is still going while the waits are set up and settled.
+		faux.setResponses([
+			async () => {
+				await gate;
+				return fauxAssistantMessage("after the wait");
+			},
+		]);
 		try {
-			slowFaux.setResponses([fauxAssistantMessage("slow draft answer")]);
+			const before = fake.calls.length;
 			fake.text(userId, "keep the draft");
-			await fake.waitFor("sendMessageDraft");
+			const first = await fake.waitFor("sendMessageDraft", (call) => fake.calls.indexOf(call) >= before);
+			const firstId = first.body.draft_id;
 
-			// A direct command reply clears the draft too; it is shown again at once.
+			// A direct command reply clears the draft too; it is shown again at once while no wait is active.
 			fake.text(userId, "/quota");
 			const quota = await fake.waitForSent((call) => sentText(call).includes("no token quota"));
-			const quotaDraft = await fake.waitFor(
-				"sendMessageDraft",
-				(call) => fake.calls.indexOf(call) > fake.calls.indexOf(quota),
-			);
-			expect(String(quotaDraft.body.text).length).toBeGreaterThan(0);
+			await fake.waitFor("sendMessageDraft", (call) => fake.calls.indexOf(call) > fake.calls.indexOf(quota));
 
-			// An approval request clears the chat's draft; the waiting status is sent again at once.
+			// The approval request clears the chat's draft; it is not shown again or kept alive.
 			const callId = await insertExternalCall(thread.sessionId, "call-draft-approval");
 			await wakeWait(thread.sessionId);
 			const approval = await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
-			const approvalDraft = await fake.waitFor(
-				"sendMessageDraft",
-				(call) =>
-					fake.calls.indexOf(call) > fake.calls.indexOf(approval) && sentText(call).includes("Waiting for approval"),
-			);
-			expect(String(approvalDraft.body.text)).toContain("Waiting for approval…");
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			expect(
+				fake.callsOf("sendMessageDraft").filter((call) => fake.calls.indexOf(call) > fake.calls.indexOf(approval)),
+			).toHaveLength(0);
 
-			// A signature wait reads differently.
+			// A signature wait behaves the same.
 			await insertSignatureTask(thread.sessionId, "sign-draft");
 			await wakeWait(thread.sessionId);
 			const signature = await fake.waitForSent((call) => sentText(call).includes("waits for your signature"));
-			const signatureDraft = await fake.waitFor(
-				"sendMessageDraft",
-				(call) =>
-					fake.calls.indexOf(call) > fake.calls.indexOf(signature) &&
-					sentText(call).includes("Waiting for a signature"),
-			);
-			expect(String(signatureDraft.body.text)).toContain("Waiting for a signature…");
+			await new Promise((resolve) => setTimeout(resolve, 250));
+			expect(
+				fake.callsOf("sendMessageDraft").filter((call) => fake.calls.indexOf(call) > fake.calls.indexOf(signature)),
+			).toHaveLength(0);
 
-			// Both waits end: the draft falls back to the step the run is on.
+			// Deciding both waits ends them; the next progress update starts a new draft with a new id.
 			await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", callId).execute();
 			await db.updateTable("tasks").set({ state: "rejected" }).where("id", "=", "sign-draft").execute();
 			await channels.refreshWaits(thread.sessionId);
-			const stepDraft = await fake.waitFor(
+			release();
+			const resumed = await fake.waitFor(
 				"sendMessageDraft",
-				(call) =>
-					fake.calls.indexOf(call) > fake.calls.indexOf(signatureDraft) && !sentText(call).includes("Waiting for"),
+				(call) => fake.calls.indexOf(call) > fake.calls.indexOf(signature) && call.body.draft_id !== firstId,
 			);
-			expect(String(stepDraft.body.text)).not.toContain("Waiting for");
+			expect(String(resumed.body.text)).not.toContain("Waiting for");
+			await fake.waitForSent((call) => sentText(call).includes("after the wait"));
 		} finally {
+			release();
 			await runtime.abort(thread.sessionId, alice).catch(() => {});
 			await runtime.waitForIdle();
-			await runtime.configure(thread.sessionId, { model: model() });
 		}
 	});
 
@@ -1286,6 +1328,47 @@ describe("channels", () => {
 		expect(channels.status("badbot").lastError).toBeNull();
 		// Leave no second bot polling the same fake server: it would consume later tests' updates.
 		await channels.deleteChannel(admin, "badbot");
+	});
+
+	it("stops every channel and clears drafts when one adapter's stop fails", async () => {
+		const admin = { sessionId: "test", userId: adminId, username: "admin", kind: "admin" as const };
+		const manager = new ChannelManager({
+			db,
+			masterKey,
+			runtime,
+			models,
+			cluster,
+			taskGroups,
+			audit,
+			libraryBackend: backend,
+			publicUrl: "https://crh.example",
+			telegramApiRoot: fake.apiRoot,
+			pollTimeoutSeconds: 1,
+			backoffBaseMs: 20,
+			backoffMaxMs: 100,
+		});
+		const firstToken = "111:STOP_A";
+		const secondToken = "222:STOP_B";
+		fake.allowToken(firstToken);
+		fake.allowToken(secondToken);
+		const first = await manager.saveChannel(admin, "stop-a", { kind: "telegram", token: firstToken });
+		const second = await manager.saveChannel(admin, "stop-b", { kind: "telegram", token: secondToken });
+		const stopped: string[] = [];
+		const originalStop = TelegramChannel.prototype.stop;
+		const spy = vi.spyOn(TelegramChannel.prototype, "stop").mockImplementation(async function (this: TelegramChannel) {
+			stopped.push(this.channelId);
+			await originalStop.call(this);
+			if (this.channelId === first.id) throw new Error("stopping this channel failed");
+		});
+		try {
+			await expect(manager.stop()).resolves.toBeUndefined();
+			expect(stopped).toContain(first.id);
+			expect(stopped).toContain(second.id);
+		} finally {
+			spy.mockRestore();
+			await manager.deleteChannel(admin, "stop-a").catch(() => {});
+			await manager.deleteChannel(admin, "stop-b").catch(() => {});
+		}
 	});
 
 	it("sends /help as a Markdown list with one command per item", async () => {
