@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
 import { type Insertable, sql } from "kysely";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { refreshGroupPending } from "../src/cluster/authorization/plan.ts";
 import {
 	parseTaskAuthorization,
@@ -278,6 +278,63 @@ describe("group payload refresh under concurrent member changes", () => {
 				pending: { attempt: 2 },
 			});
 		}
+	});
+	it("leaves a group parked when its shared payload cannot be built", async () => {
+		const groupId = "group-unbuildable";
+		// A readable spec with an empty argv: specFromRow accepts it, buildTaskGroupAuthorization throws.
+		const unbuildable = JSON.stringify(
+			taskSpecToJson({ kind: "exec", command: { argv: [] }, env: {}, cwd: "", stdin: null }),
+		);
+		await db
+			.insertInto("task_groups")
+			.values({
+				id: groupId,
+				org_id: orgId,
+				targets: "[]",
+				node_ids: "[]",
+				kind: "exec",
+				parallel: 1,
+				fail_fast: 0,
+				output_mode: "status",
+				privileged: 0,
+				skipped: "[]",
+				state: "awaiting_authorization",
+				actor_type: "user",
+				actor_id: "user-1",
+				on_behalf_of_user_id: "user-1",
+				created_at: NOW,
+				finished_at: null,
+				spec: unbuildable,
+				timeout_ms: null,
+				rule_chain: null,
+				approval: null,
+				pending_input: null,
+				root_session_id: null,
+				handler_type: null,
+				handler_session_id: null,
+			})
+			.execute();
+		await insertTask(
+			db,
+			taskValues("member-parked", orgId, "awaiting_authorization", {
+				task_group_id: groupId,
+				node_id: randomUUID(),
+				authorization: serializeTaskAuthorization(authorizationRecord(1, true)),
+			}),
+		);
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		let warned = false;
+		try {
+			await expect(refreshGroupPending(core, groupId)).resolves.toBeUndefined();
+			warned = warn.mock.calls.some((call) => String(call[0]).includes(groupId));
+		} finally {
+			warn.mockRestore();
+		}
+		const row = await db.selectFrom("tasks").selectAll().where("id", "=", "member-parked").executeTakeFirstOrThrow();
+		// The member keeps the payload it was parked with; the refresh did not reject the whole group.
+		expect(row).toMatchObject({ state: "awaiting_authorization", attempt: 1 });
+		expect(parseTaskAuthorization(row.authorization)).toMatchObject({ attempt: 1, pending: { attempt: 1 } });
+		expect(warned).toBe(true);
 	});
 	it("a cancel of a waiting task follows a row another path bumped in between", async () => {
 		await insertTask(db, taskValues("t-cancel", orgId, "awaiting_authorization"));

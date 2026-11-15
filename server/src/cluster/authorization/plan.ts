@@ -345,20 +345,21 @@ async function refreshGroupPendingRound(core: ClusterCore, groupId: string): Pro
 	// highest attempt (doc/design/protocol.md "Authorization object").
 	const attempt = Math.max(...withUser.map((entry) => entry.row.attempt));
 	const ttlMs = Math.min(...withUser.map((entry) => userPathTtl(entry.record)));
-	let spec: TaskSpec;
+	let authorization: BuiltAuthorization;
 	try {
-		spec = specFromRow(group.spec ?? withUser[0]?.row.spec ?? null, "task group");
+		const spec = specFromRow(group.spec ?? withUser[0]?.row.spec ?? null, "task group");
+		authorization = buildTaskGroupAuthorization({
+			nodeIds: withUser.map((entry) => entry.row.node_id),
+			taskIds: withUser.map((entry) => entry.row.id),
+			attempt,
+			spec,
+			ttlMs,
+		});
 	} catch (err) {
+		// A member stays parked on the payload it had; the next refresh tries again.
 		console.warn(`task group ${groupId}: ${err instanceof Error ? err.message : String(err)}`);
 		return true;
 	}
-	const authorization = buildTaskGroupAuthorization({
-		nodeIds: withUser.map((entry) => entry.row.node_id),
-		taskIds: withUser.map((entry) => entry.row.id),
-		attempt,
-		spec,
-		ttlMs,
-	});
 	const pending = pendingOf(authorization);
 	const covered = new Set(withUser.map((entry) => entry.row.id));
 	let settled = true;

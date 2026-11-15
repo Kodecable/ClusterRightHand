@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LoginLimiter, loginAttemptKeys } from "../src/auth/login-limiter.ts";
+import { LoginLimiter, loginAttemptKeys, MAX_LOGIN_FAILURES } from "../src/auth/login-limiter.ts";
 
 describe("loginAttemptKeys", () => {
 	it("uses the address key and the lowercased trimmed address+user key", () => {
@@ -62,5 +62,37 @@ describe("LoginLimiter", () => {
 		expect(limiter.isBlocked(keys, 500)).toBe(true);
 		expect(limiter.isBlocked(keys, 1_001)).toBe(false);
 		expect(limiter.reserve(keys, 1_001)).toBe(true);
+	});
+
+	it("evicts the oldest failure entry at the cap", () => {
+		const limiter = new LoginLimiter(1, 60_000, 2);
+		const first = loginAttemptKeys(undefined, "first");
+		const second = loginAttemptKeys(undefined, "second");
+		const third = loginAttemptKeys(undefined, "third");
+		for (const keys of [first, second, third]) limiter.recordFailure(keys.all, 1_000);
+		expect(limiter.size).toBe(2);
+		// The entry inserted first is gone; the two later keys are still limited.
+		expect(limiter.isBlocked(first.all, 1_000)).toBe(false);
+		expect(limiter.isBlocked(second.all, 1_000)).toBe(true);
+		expect(limiter.isBlocked(third.all, 1_000)).toBe(true);
+	});
+
+	it("bounds the failure map with rotating keys and still limits one repeated key", () => {
+		const limiter = new LoginLimiter(3, 60_000);
+		// An unauthenticated attacker controls the username: many distinct keys must not grow the map.
+		for (let index = 0; index < MAX_LOGIN_FAILURES + 500; index++) {
+			limiter.recordFailure(loginAttemptKeys(undefined, `rotated-${index}`).all, 1_000);
+		}
+		expect(limiter.size).toBe(MAX_LOGIN_FAILURES);
+		expect(limiter.isBlocked(loginAttemptKeys(undefined, "rotated-0").all, 1_000)).toBe(false);
+
+		// A real brute-force on one address+username still reaches the limit.
+		const keys = loginAttemptKeys("198.51.100.7", "alice");
+		expect(limiter.reserve(keys.all, 1_000)).toBe(true);
+		expect(limiter.reserve(keys.all, 1_000)).toBe(true);
+		expect(limiter.reserve(keys.all, 1_000)).toBe(true);
+		expect(limiter.isBlocked(keys.all, 1_000)).toBe(true);
+		expect(limiter.reserve(keys.all, 1_000)).toBe(false);
+		expect(limiter.size).toBeLessThanOrEqual(MAX_LOGIN_FAILURES);
 	});
 });

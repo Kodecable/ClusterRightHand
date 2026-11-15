@@ -15,9 +15,11 @@ import {
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
+import { claimOwnerAuthorization } from "../src/cluster/authorization/owner-authorizations.ts";
 import { Cluster, EMPTY_INPUT_REF } from "../src/cluster/cluster.ts";
 import { ClusterCore } from "../src/cluster/core.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
+import type { NodeLink } from "../src/cluster/links.ts";
 import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
@@ -57,6 +59,26 @@ const IDENTITIES = {
 
 const START = { tasks: [], taskKinds: [] };
 const HOUR = 3_600_000;
+
+// The trust-report phases are entered from a websocket event, so a phase-level failure can only be
+// injected at the module boundary. Everything else in local-approval stays real; the hook is inert
+// unless a test arms it, and it fires once.
+const phaseFailure = vi.hoisted(() => ({ resendLocal: null as Error | null }));
+
+vi.mock("../src/cluster/authorization/local-approval.ts", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/cluster/authorization/local-approval.ts")>();
+	return {
+		...actual,
+		resendLocalRequests: async (...args: Parameters<typeof actual.resendLocalRequests>) => {
+			const failure = phaseFailure.resendLocal;
+			if (failure) {
+				phaseFailure.resendLocal = null;
+				throw failure;
+			}
+			return actual.resendLocalRequests(...args);
+		},
+	};
+});
 
 describe("user authorizations", () => {
 	let db: Db;
@@ -111,6 +133,7 @@ describe("user authorizations", () => {
 	});
 
 	afterEach(async () => {
+		phaseFailure.resendLocal = null;
 		await cluster.close();
 		await agents.close();
 		await db.destroy();
@@ -460,6 +483,137 @@ describe("user authorizations", () => {
 		await waitFor("task.start after the reconnect", () => second.starts.length === 1);
 		expect(second.starts[0]?.authorizations).toHaveLength(1);
 		await waitState(task.id, "running");
+	});
+
+	it("runs every trust-report phase and the later waiting tasks despite a poison row and a failed phase", async () => {
+		const { node, crha } = await connect("trust-poison", (id) => summaryOf(id, [ownerEntry()]));
+		const poisoned = await createPrivileged(node.id);
+		await waitState(poisoned.id, "awaiting_authorization");
+		const stored = await createPrivileged(node.id);
+		await waitState(stored.id, "awaiting_authorization");
+		const replanned = await cluster.createTask({
+			nodeId: node.id,
+			spec: { ...EXEC, command: { argv: ["systemctl", "restart", "postgres"] } },
+			privileged: true,
+			actor: actor(),
+		});
+		await waitState(replanned.id, "awaiting_authorization");
+		// The first task's stored spec is unreadable. Every sweep that looks at it throws for it.
+		await db.updateTable("tasks").set({ spec: "not a task spec" }).where("id", "=", poisoned.id).execute();
+		// The second task's signature is already stored: the stored-authorization phase dispatches it.
+		await seedReusable({ nodes: [node.id] });
+
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			// Phase one fails outright; phases two and three must still run.
+			phaseFailure.resendLocal = new Error("the local-request sweep failed");
+			crha.trust({ kind: "ok", summary: summaryOf(node.id, [ownerEntry(), crhsTrustEntry()]) });
+			await waitState(stored.id, "running");
+			await waitState(replanned.id, "running");
+			// Both the stored-authorization sweep and the re-plan reached the poison row and moved on.
+			expect(error.mock.calls.filter((call) => String(call[0]).includes(poisoned.id)).length).toBeGreaterThanOrEqual(2);
+			expect(error.mock.calls.some((call) => String(call[0]).includes("resending local requests"))).toBe(true);
+		} finally {
+			error.mockRestore();
+		}
+		expect(crha.starts.map((start) => start.taskId).sort()).toEqual([stored.id, replanned.id].sort());
+		expect(await taskView(poisoned.id)).toMatchObject({ state: "awaiting_authorization" });
+	});
+
+	it("resends a later local request after one waiting task's spec cannot be read", async () => {
+		const { node, crha } = await connect("local-poison", (id) => summaryOf(id, [localTrustEntry()]));
+		const poisoned = await createPrivileged(node.id);
+		const later = await createPrivileged(node.id);
+		await waitState(poisoned.id, "awaiting_authorization");
+		await waitState(later.id, "awaiting_authorization");
+		await waitFor("both local requests", () => crha.localRequests.length === 2);
+		await db.updateTable("tasks").set({ spec: "not a task spec" }).where("id", "=", poisoned.id).execute();
+
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			// The node's privileged mode restarted and lost both requests: the report makes crhs resend them.
+			crha.trust({ kind: "ok", summary: summaryOf(node.id, [localTrustEntry()]) });
+			await waitFor(
+				"the later task's local request",
+				() => crha.localRequests.filter((request) => request.taskId === later.id).length === 2,
+			);
+			expect(error.mock.calls.some((call) => String(call[0]).includes(poisoned.id))).toBe(true);
+		} finally {
+			error.mockRestore();
+		}
+	});
+
+	it("judges the tasks a submitted authorization covers when another task cannot be judged", async () => {
+		const { node, crha } = await connect("submission-poison", (id) => summaryOf(id, [ownerEntry()]));
+		const other = await connect("submission-poison-2", (id) => summaryOf(id, [ownerEntry()]));
+		const poisoned = await createPrivileged(node.id);
+		const covered = await createPrivileged(other.node.id);
+		await waitState(poisoned.id, "awaiting_authorization");
+		await waitState(covered.id, "awaiting_authorization");
+		await db.updateTable("tasks").set({ spec: "not a task spec" }).where("id", "=", poisoned.id).execute();
+		const built = buildAuthorization({
+			nodes: [node.id, other.node.id],
+			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			issuedAtMs: Date.now(),
+			deadlineMs: Date.now() + HOUR,
+			taskIds: [poisoned.id, covered.id],
+			attempt: 1,
+		});
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		let logged = false;
+		try {
+			const res = await submit(signedAuthorization(built.bytes));
+			expect(res.status).toBe(200);
+			// The poison task's judgment throws; the covered task is still claimed and sent.
+			await waitState(covered.id, "running");
+			logged = error.mock.calls.some((call) => String(call[0]).includes(poisoned.id));
+		} finally {
+			error.mockRestore();
+		}
+		expect(other.crha.starts.map((start) => start.taskId)).toEqual([covered.id]);
+		expect(crha.starts).toHaveLength(0);
+		expect(await taskView(poisoned.id)).toMatchObject({ state: "awaiting_authorization" });
+		expect(logged).toBe(true);
+	});
+
+	it("does not claim a task whose stored spec cannot be read", async () => {
+		const { node } = await connect("claim-poison", (id) => summaryOf(id, [ownerEntry()]));
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		await db.updateTable("tasks").set({ spec: "not a task spec" }).where("id", "=", task.id).execute();
+		const built = buildAuthorization({
+			nodes: [node.id],
+			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			issuedAtMs: Date.now(),
+			deadlineMs: Date.now() + HOUR,
+			taskIds: [task.id],
+			attempt: 1,
+		});
+		const signature: Signature = { kind: "sshsig", blob: signSshsig(ownerKey.privateKey, ownerKey.blob, built.bytes) };
+		const row = await db.selectFrom("tasks").selectAll().where("id", "=", task.id).executeTakeFirstOrThrow();
+		const link = { conn: { closed: true } } as unknown as NodeLink;
+		const core = new ClusterCore(db);
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			// The claim runs in the task's turn, like every caller that is outside a planning turn.
+			const claim = await core.taskQueue.run(task.id, () =>
+				claimOwnerAuthorization(
+					core,
+					row,
+					node,
+					link,
+					{ payload: built.payload, payloadBytes: built.bytes, signatures: [signature], id: built.id },
+					false,
+				),
+			);
+			expect(claim).toBeNull();
+			expect(error.mock.calls.some((call) => String(call[0]).includes(task.id))).toBe(true);
+		} finally {
+			error.mockRestore();
+		}
+		// The claim write is what used to happen before the spec was read, leaving the task dispatched
+		// with no task.start.
+		expect(await taskView(task.id)).toMatchObject({ state: "awaiting_authorization" });
 	});
 
 	it("returns before an offline node's grace runs out, then fails the task in the background", async () => {

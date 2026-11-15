@@ -246,14 +246,19 @@ export async function resendLocalRequests(core: ClusterCore, link: NodeLink): Pr
 		.where("state", "=", "awaiting_authorization")
 		.execute();
 	for (const { id } of rows) {
-		const resend = await core.taskQueue.run(id, async (): Promise<Resend | null> => {
-			const row = await core.row(id);
-			if (row?.state !== "awaiting_authorization" || link.conn.closed || !link.ready) return null;
-			const record = parseTaskAuthorization(row.authorization);
-			if (!record || record.local === null) return null;
-			return { spec: specFromRow(row.spec, "task"), input: pendingInputOf(row), record };
-		});
-		if (resend) await sendLocalRequest(core, id, link, resend.spec, resend.input, resend.record);
+		try {
+			const resend = await core.taskQueue.run(id, async (): Promise<Resend | null> => {
+				const row = await core.row(id);
+				if (row?.state !== "awaiting_authorization" || link.conn.closed || !link.ready) return null;
+				const record = parseTaskAuthorization(row.authorization);
+				if (!record || record.local === null) return null;
+				return { spec: specFromRow(row.spec, "task"), input: pendingInputOf(row), record };
+			});
+			if (resend) await sendLocalRequest(core, id, link, resend.spec, resend.input, resend.record);
+		} catch (err) {
+			// A bad row or a transient database error must not skip every later waiting task.
+			console.error(`resending the local request for task ${id} failed:`, err);
+		}
 	}
 }
 

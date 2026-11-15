@@ -6,7 +6,14 @@
  * crhs. The attempt is reserved (counted as a failure) before Argon2id runs, so a burst of
  * concurrent requests cannot all pass the check. A successful login only clears the address+user
  * key and gives back its own reservation on the address key; other usernames stay limited.
+ *
+ * The failure map is bounded: an unauthenticated request controls the username part of its key, so
+ * rotating addresses and usernames must not grow it without limit. At the cap the oldest entry is
+ * evicted first, like the registration challenges.
  */
+
+/** The most failure entries kept across all keys; the oldest is evicted first. */
+export const MAX_LOGIN_FAILURES = 10_000;
 
 /** The keys one login attempt is counted under. */
 export interface LoginAttemptKeys {
@@ -38,13 +45,22 @@ export function passwordAttemptKeys(address: string | undefined, userId: string)
 export class LoginLimiter {
 	readonly #failures = new Map<string, { count: number; resetAt: number }>();
 	readonly #inFlight = new Set<string>();
+	/** When the next full scan for expired entries may run; eviction bounds the map in between. */
+	#nextPruneAt = 0;
 
 	readonly maxFailures: number;
 	readonly windowMs: number;
+	readonly maxEntries: number;
 
-	constructor(maxFailures = 10, windowMs = 15 * 60 * 1000) {
+	constructor(maxFailures = 10, windowMs = 15 * 60 * 1000, maxEntries = MAX_LOGIN_FAILURES) {
 		this.maxFailures = maxFailures;
 		this.windowMs = windowMs;
+		this.maxEntries = Math.max(1, maxEntries);
+	}
+
+	/** How many failure entries are stored; never more than maxEntries. */
+	get size(): number {
+		return this.#failures.size;
 	}
 
 	isBlocked(keys: string[], now = Date.now()): boolean {
@@ -68,12 +84,20 @@ export class LoginLimiter {
 		for (const key of keys) {
 			const entry = this.#failures.get(key);
 			if (!entry || entry.resetAt <= now) {
+				// Re-insert a reset key so insertion order follows its current failure window.
+				this.#failures.delete(key);
 				this.#failures.set(key, { count: 1, resetAt: now + this.windowMs });
 			} else {
 				entry.count++;
 			}
 		}
-		if (this.#failures.size > 10_000) this.#prune(now);
+		// A full scan on every failure would itself cost O(n) once the map is large: sweep expired
+		// entries only once per window, and bound the map by insertion order in between.
+		if (now >= this.#nextPruneAt) {
+			this.#prune(now);
+			this.#nextPruneAt = now + this.windowMs;
+		}
+		while (this.#failures.size > this.maxEntries) this.#evictOldest();
 	}
 
 	/** A successful login clears this address+username pair; the address key is left alone. */
@@ -109,5 +133,11 @@ export class LoginLimiter {
 		for (const [key, entry] of this.#failures) {
 			if (entry.resetAt <= now) this.#failures.delete(key);
 		}
+	}
+
+	/** Evicts the entry inserted first; the map's order is insertion order. */
+	#evictOldest(): void {
+		const oldest = this.#failures.keys().next();
+		if (!oldest.done) this.#failures.delete(oldest.value);
 	}
 }

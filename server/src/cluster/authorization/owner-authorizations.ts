@@ -349,6 +349,18 @@ export async function claimOwnerAuthorization(
 	const oneShot = submitted.payload.taskIds !== null;
 	const attempt = oneShot ? (submitted.payload.attempt as number) : row.attempt;
 	if (oneShot && attempt !== row.attempt) return null;
+	// Read the spec before the claim: a row left behind by an old migration must not be written
+	// `dispatched` with nothing to send. It stays waiting, as a local approval with such a spec does.
+	let spec: TaskSpec;
+	try {
+		spec = specFromRow(row.spec, "task");
+	} catch (err) {
+		console.error(`cannot claim the authorization for task ${row.id}: its stored spec cannot be read:`, err);
+		return null;
+	}
+	// A task that waited has its input in pending_input; a fresh one it only ever had in memory
+	// (doc/design/execution.md "State machine").
+	const input = inputBytes ?? pendingInputOf(row);
 	let encoded: Uint8Array;
 	try {
 		encoded = encodeAuthorization(submitted.payloadBytes, submitted.signatures);
@@ -399,10 +411,6 @@ export async function claimOwnerAuthorization(
 			detail: { node_id: node.id, task_id: row.id, attempt },
 		});
 	}
-	const spec = specFromRow(row.spec, "task");
-	// A task that waited has its input in pending_input; a fresh one it only ever had in memory
-	// (doc/design/execution.md "State machine").
-	const input = inputBytes ?? pendingInputOf(row);
 	const start = taskStartOf(row.id, row, spec, { privileged: true, attempt, authorizations: [encoded] });
 	return { start, record: updated, input, cosigned };
 }
@@ -474,11 +482,18 @@ async function dispatchSubmittedAuthorization(
 		.execute();
 	// The tasks are judged concurrently so a whole group on an offline node waits out one grace, not one
 	// grace per member. The judge waits for its node, so it runs outside the task turn; its failure
-	// writes run in a turn on a fresh read, and the claim below re-reads the row in a turn of its own
-	//.
-	const judged = (await Promise.all(rows.map(({ id }) => judgeSubmitted(core, id, submitted, material)))).filter(
-		(entry): entry is JudgedSubmission => entry !== null,
-	);
+	// writes run in a turn on a fresh read, and the claim below re-reads the row in a turn of its own.
+	// One task that cannot be judged (a damaged stored spec, a database error) is skipped: the tasks
+	// the authorization does cover are still claimed and sent.
+	const settled = await Promise.allSettled(rows.map(({ id }) => judgeSubmitted(core, id, submitted, material)));
+	const judged: JudgedSubmission[] = [];
+	for (const [index, result] of settled.entries()) {
+		if (result.status === "rejected") {
+			console.error(`judging the submission for task ${rows[index]?.id ?? "?"} failed:`, result.reason);
+			continue;
+		}
+		if (result.value) judged.push(result.value);
+	}
 	// The Authorization is one object for the whole group, so it carries the union of the
 	// cosignatures the covered nodes need; a node ignores a signature of a key it does not trust.
 	const cosignatures = newSignatures(

@@ -36,7 +36,14 @@ export async function useStoredAuthorizations(core: ClusterCore, nodeId: string)
 		.where("node_id", "=", nodeId)
 		.where("state", "=", "awaiting_authorization")
 		.execute();
-	for (const { id } of rows) await dispatchStored(core, id);
+	for (const { id } of rows) {
+		try {
+			await dispatchStored(core, id);
+		} catch (err) {
+			// A bad row or a transient database error must not skip every later waiting task.
+			console.error(`using the stored authorization for task ${id} failed:`, err);
+		}
+	}
 }
 
 /**
@@ -104,7 +111,14 @@ export async function replanAwaiting(core: ClusterCore, nodeId: string): Promise
 		.execute();
 	// replanWaiting waits for the node's trust report outside a turn and plans in one; the read
 	// below is only a pre-check, the planning turn re-checks the row.
-	for (const { id } of rows) await replan(core, id);
+	for (const { id } of rows) {
+		try {
+			await replan(core, id);
+		} catch (err) {
+			// A bad row or a transient database error must not skip every later waiting task.
+			console.error(`re-planning task ${id} failed:`, err);
+		}
+	}
 }
 
 async function replan(core: ClusterCore, id: string): Promise<void> {
@@ -122,23 +136,29 @@ export async function expireAuthorizationWaits(core: ClusterCore, nowMs: number 
 	const rows = await core.db.selectFrom("tasks").selectAll().where("state", "=", "awaiting_authorization").execute();
 	let ended = 0;
 	for (const row of rows) {
-		if (nowMs - authorizationWaitStart(row) < AUTHORIZATION_WAIT_MS) continue;
-		// The ending is a read-decide-write on the task's row: one turn, from a fresh read.
-		const finished = await core.taskQueue.run(row.id, async () => {
-			const current = await core.row(row.id);
-			if (current?.state !== "awaiting_authorization") return false;
-			if (nowMs - authorizationWaitStart(current) < AUTHORIZATION_WAIT_MS) return false;
-			return finishAuthorization(
-				core,
-				row.id,
-				current,
-				"rejected",
-				"authorization_wait_expired",
-				`no signature arrived within ${AUTHORIZATION_WAIT_MS / 3_600_000} hours`,
-				parseTaskAuthorization(current.authorization),
-			);
-		});
-		if (finished) ended++;
+		try {
+			if (nowMs - authorizationWaitStart(row) < AUTHORIZATION_WAIT_MS) continue;
+			// The ending is a read-decide-write on the task's row: one turn, from a fresh read.
+			const finished = await core.taskQueue.run(row.id, async () => {
+				const current = await core.row(row.id);
+				if (current?.state !== "awaiting_authorization") return false;
+				if (nowMs - authorizationWaitStart(current) < AUTHORIZATION_WAIT_MS) return false;
+				return finishAuthorization(
+					core,
+					row.id,
+					current,
+					"rejected",
+					"authorization_wait_expired",
+					`no signature arrived within ${AUTHORIZATION_WAIT_MS / 3_600_000} hours`,
+					parseTaskAuthorization(current.authorization),
+				);
+			});
+			if (finished) ended++;
+		} catch (err) {
+			// A row that cannot be ended (a bad row, or a transient database error) must not stop
+			// the expiry of every later row.
+			console.error(`expiring the authorization wait of task ${row.id} failed:`, err);
+		}
 	}
 	return ended;
 }

@@ -27,12 +27,27 @@ export async function onTrustSummary(core: ClusterCore, link: NodeLink, report: 
 		return result;
 	});
 	if (report.kind === "ok" && !link.conn.closed) {
+		// The phases run independently: one failing sweep must not skip the tasks of the next.
 		// A privileged mode that restarted lost its in-memory approval requests (doc/design/protocol.md "Privilege messages").
-		await resendLocalRequests(core, link);
+		try {
+			await resendLocalRequests(core, link);
+		} catch (err) {
+			console.error(`resending local requests for node ${nodeId} failed:`, err);
+		}
 		// A signature the owner submitted while the node was away is used now.
-		await useStoredAuthorizations(core, nodeId);
+		try {
+			await useStoredAuthorizations(core, nodeId);
+		} catch (err) {
+			console.error(`using stored authorizations for node ${nodeId} failed:`, err);
+		}
 	}
 	// Only an `ok` report carries a digest worth re-planning against: a privileged mode that went
 	// away must not fail the tasks that wait for a signature (it may come back with the same trust).
-	if (change.changed && report.kind === "ok") await replanAwaiting(core, nodeId);
+	if (change.changed && report.kind === "ok") {
+		try {
+			await replanAwaiting(core, nodeId);
+		} catch (err) {
+			console.error(`re-planning the waiting tasks of node ${nodeId} failed:`, err);
+		}
+	}
 }

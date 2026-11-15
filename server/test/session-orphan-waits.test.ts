@@ -257,6 +257,35 @@ it("a signature wait expires AUTHORIZATION_WAIT_MS after it began", async () => 
 	expect(await cluster.expireAuthorizationWaits(now + AUTHORIZATION_WAIT_MS)).toBe(2);
 });
 
+it("keeps expiring later signature waits when one row cannot be ended", async () => {
+	const failing = await waitingTask({ type: "user", id: owner.userId }, "awaiting_authorization");
+	const later = await waitingTask({ type: "user", id: owner.userId }, "awaiting_authorization");
+	const now = Date.now();
+	const iso = (ms: number) => new Date(ms).toISOString();
+	await db
+		.updateTable("tasks")
+		.set({ created_at: sql`${iso(now - AUTHORIZATION_WAIT_MS - 60_000)}` })
+		.where("id", "in", [failing, later])
+		.execute();
+	// The first ending fails at the database; the second row must still expire.
+	await sql
+		.raw(
+			`create trigger fail_expire before update on tasks when new.id = '${failing}' begin select raise(abort, 'database is busy'); end`,
+		)
+		.execute(db);
+	const error = vi.spyOn(console, "error").mockImplementation(() => {});
+	let logged = false;
+	try {
+		expect(await cluster.expireAuthorizationWaits(now)).toBe(1);
+		logged = error.mock.calls.some((call) => String(call[0]).includes(failing));
+	} finally {
+		error.mockRestore();
+	}
+	expect(await taskRow(later)).toMatchObject({ state: "rejected", error_code: "authorization_wait_expired" });
+	expect(await taskRow(failing)).toMatchObject({ state: "awaiting_authorization" });
+	expect(logged).toBe(true);
+});
+
 it("stops a subagent's freshly dispatched command instead of leaving it waiting", async () => {
 	const parent = await runtime.createSession(owner, { model: model(), rulePreset: "ask", title: "stop-parent" });
 	const child = await runtime.createSubagent(parent.id, {
