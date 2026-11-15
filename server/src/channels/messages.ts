@@ -7,7 +7,9 @@ import type { ThinkingLevel, UserSettingsLocale } from "@crh/api";
  *
  * The Telegram adapter sends these as rich Markdown, where a single newline is a soft break: multi-line
  * texts use blank lines between paragraphs and Markdown lists for commands, and values that come from a
- * user or a model are escaped so they show literally. A `draft` status is plain text and not escaped.
+ * user or a model are escaped so they show literally. The Satori adapter sends the same strings as plain
+ * text, XML-escaped, so Markdown syntax shows as written there. A `draft` status is plain text and not
+ * escaped.
  */
 
 export type BotLocale = UserSettingsLocale;
@@ -48,6 +50,15 @@ export interface BotMessages {
 	previousPage: string;
 	nextPage: string;
 	openSession: string;
+	/** A hint under a page of numbered choices: how to pick one and how to change the page. */
+	choiceHint: (command: string, page: number, pages: number) => string;
+	/** A short refusal for a number or id that is not in the current list. */
+	invalidChoice: (command: string) => string;
+	sessionSwitched: (title: string) => string;
+	extensionSet: (name: string, enabled: boolean) => string;
+	thinkingHint: string;
+	rulesHint: string;
+	openSessionLink: (link: string) => string;
 	noRunningSession: string;
 	stopped: string;
 	couldNotStop: (problem: string) => string;
@@ -141,6 +152,19 @@ const en: BotMessages = {
 	previousPage: "‹ Previous",
 	nextPage: "Next ›",
 	openSession: "Open session",
+	choiceHint: (command, page, pages) => {
+		const choose = `Send /${command} and a number to choose`;
+		if (pages <= 1) return `${choose}.`;
+		return page < pages
+			? `${choose}, /${command} page ${page + 1} for the next page.`
+			: `${choose}, /${command} page ${page - 1} for the previous page.`;
+	},
+	invalidChoice: (command) => `That is not a choice. Send /${command} for the list.`,
+	sessionSwitched: (title) => `Switched to "${escapeMarkdown(title)}".`,
+	extensionSet: (name, enabled) => `Extension ${escapeMarkdown(name)} is now ${enabled ? "on" : "off"}.`,
+	thinkingHint: "Send /think with a level id, such as /think medium.",
+	rulesHint: "Send /rules with a preset id, such as /rules yolo.",
+	openSessionLink: (link) => `Open it in the WebUI: ${link}`,
 	noRunningSession: "There is no running session in this chat.",
 	stopped: "Stopped.",
 	couldNotStop: (problem) => `Could not stop: ${escapeMarkdown(problem)}`,
@@ -232,11 +256,11 @@ const en: BotMessages = {
 		"- /link \\<code> — link this chat to your account",
 		"- /unlink — unlink this chat",
 		"- /new — start a new session",
-		"- /model — choose the session's model",
-		"- /think — choose its thinking level",
-		"- /rules — choose its rule preset",
-		"- /extensions — turn extensions on or off",
-		"- /sessions — switch to one of your sessions",
+		"- /model \\[n\\] — choose the session's model by number",
+		"- /think \\[level\\] — set its thinking level",
+		"- /rules \\[preset\\] — set its rule preset",
+		"- /extensions \\[n\\] — turn an extension on or off by number",
+		"- /sessions \\[n\\] — switch to a session by number",
 		"- /stop — stop the running turn",
 		"- /quota — show the session's token quota",
 		"- /quota add \\<tokens> — raise it and continue",
@@ -289,6 +313,19 @@ const zhCN: BotMessages = {
 	previousPage: "‹ 上一页",
 	nextPage: "下一页 ›",
 	openSession: "打开会话",
+	choiceHint: (command, page, pages) => {
+		const choose = `发送 /${command} 加序号进行选择`;
+		if (pages <= 1) return `${choose}。`;
+		return page < pages
+			? `${choose}，发送 /${command} page ${page + 1} 查看下一页。`
+			: `${choose}，发送 /${command} page ${page - 1} 查看上一页。`;
+	},
+	invalidChoice: (command) => `这不是有效的选项。发送 /${command} 查看列表。`,
+	sessionSwitched: (title) => `已切换到“${escapeMarkdown(title)}”。`,
+	extensionSet: (name, enabled) => `扩展 ${escapeMarkdown(name)} 已${enabled ? "开启" : "关闭"}。`,
+	thinkingHint: "发送 /think 并附上级别 id，例如 /think medium。",
+	rulesHint: "发送 /rules 并附上预设 id，例如 /rules yolo。",
+	openSessionLink: (link) => `在 WebUI 中打开：${link}`,
 	noRunningSession: "此聊天中没有正在运行的会话。",
 	stopped: "已停止。",
 	couldNotStop: (problem) => `无法停止：${escapeMarkdown(problem)}`,
@@ -379,11 +416,11 @@ const zhCN: BotMessages = {
 		"- /link \\<code> — 将此聊天与你的账户关联",
 		"- /unlink — 取消关联此聊天",
 		"- /new — 开始新会话",
-		"- /model — 选择会话的模型",
-		"- /think — 选择会话的思考级别",
-		"- /rules — 选择会话的规则预设",
-		"- /extensions — 开启或关闭扩展",
-		"- /sessions — 切换到你的某个会话",
+		"- /model \\[n\\] — 按序号选择会话的模型",
+		"- /think \\[level\\] — 设置会话的思考级别",
+		"- /rules \\[preset\\] — 设置会话的规则预设",
+		"- /extensions \\[n\\] — 按序号开启或关闭扩展",
+		"- /sessions \\[n\\] — 按序号切换到某个会话",
 		"- /stop — 停止正在运行的回合",
 		"- /quota — 查看会话的令牌配额",
 		"- /quota add \\<tokens> — 提高配额并继续",

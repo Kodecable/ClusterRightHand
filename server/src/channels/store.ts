@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import type { ChannelAccountView, ChannelPublicView, ChannelView, ModelRef, RulePreset } from "@crh/api";
+import type { ChannelAccountView, ChannelConfig, ChannelPublicView, ChannelView, ModelRef, RulePreset } from "@crh/api";
 import type { Selectable } from "kysely";
 import { parseModelRef } from "../agent/models.ts";
 import { hashToken } from "../auth/token-hash.ts";
@@ -32,11 +32,9 @@ const SECRET_KIND = "channel_credentials";
 export const CHANNEL_NAME_RE = /^[a-z-][a-z0-9-]{0,63}$/;
 export const LINK_CODE_TTL_MS = 10 * 60_000;
 
-/** The credentials a channel kind stores; Telegram only needs its bot token. */
+/** The credentials a channel kind stores: a Telegram bot token or a Satori gateway token (which may be empty). */
 export interface ChannelCredentials {
 	token?: string;
-	/** Satori only, when that kind is implemented. */
-	url?: string;
 }
 
 export function validateChannelName(raw: string): string {
@@ -96,16 +94,64 @@ export async function readTelegramToken(
 	return credentials.token.trim();
 }
 
+/** The Satori gateway token of a channel; without one the gateway is asked unauthenticated. */
+export async function readSatoriToken(
+	db: Db,
+	masterKey: MasterKey,
+	row: Pick<ChannelRow, "name" | "credentials_secret_id">,
+): Promise<string> {
+	const credentials = await readChannelCredentials(db, masterKey, row);
+	return typeof credentials.token === "string" ? credentials.token.trim() : "";
+}
+
+/** The stored non-secret settings of a Satori channel; null when the column is empty or unreadable. */
+export function parseChannelConfig(row: Pick<ChannelRow, "config">): ChannelConfig | null {
+	if (!row.config) return null;
+	try {
+		const value = JSON.parse(row.config) as { url?: unknown; platform?: unknown; botId?: unknown };
+		if (typeof value.url !== "string" || typeof value.platform !== "string" || typeof value.botId !== "string") {
+			return null;
+		}
+		return { url: value.url, platform: value.platform, botId: value.botId };
+	} catch {
+		return null;
+	}
+}
+
+function satoriConfig(input: unknown): ChannelConfig {
+	if (typeof input !== "object" || input === null) throw new UserError("the gateway settings are required");
+	const value = input as { url?: unknown; platform?: unknown; botId?: unknown };
+	const url = typeof value.url === "string" ? value.url.trim() : "";
+	const platform = typeof value.platform === "string" ? value.platform.trim() : "";
+	const botId = typeof value.botId === "string" ? value.botId.trim() : "";
+	if (platform === "") throw new UserError("the platform is required");
+	if (botId === "") throw new UserError("the bot id is required");
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		throw new UserError("the gateway URL must be an http or https URL");
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+		throw new UserError("the gateway URL must be an http or https URL");
+	}
+	return { url: url.replace(/\/+$/, ""), platform, botId };
+}
+
 export interface ChannelInput {
 	kind?: "telegram" | "satori";
 	enabled?: boolean;
 	/** Write-only; omitted keeps the stored credential. */
 	token?: string | null;
+	/** Satori only: the gateway URL, platform and bot id. */
+	config?: Partial<ChannelConfig> | null;
+	/** Satori only: how users reach the bot, shown on the link page. */
+	linkInstructions?: string | null;
 }
 
 /**
- * Creates or updates a channel. A new channel is Telegram; the Satori kind is a later task, so selecting it is
- * refused rather than stored as something no adapter can run.
+ * Creates or updates a channel. A new channel needs its kind; an existing channel keeps it, because its cursor and
+ * credentials belong to that platform. Choosing Satori requires the gateway settings; its token may be empty.
  */
 export async function saveChannel(
 	db: Db,
@@ -115,16 +161,35 @@ export async function saveChannel(
 ): Promise<{ row: ChannelRow; created: boolean }> {
 	validateChannelName(name);
 	const existing = await getChannelRow(db, name);
-	if (input.kind !== undefined && input.kind !== "telegram") {
-		throw new UserError("only the telegram channel kind is available");
+	if (!existing && input.kind === undefined) throw new UserError("kind is required to create a channel");
+	if (existing && input.kind !== undefined && input.kind !== existing.kind) {
+		throw new UserError("a channel's kind cannot be changed");
 	}
-	if (!existing && input.kind === undefined) {
-		throw new UserError("kind is required to create a channel");
-	}
+	const kind = existing?.kind ?? input.kind;
+	if (kind === undefined) throw new UserError("kind is required to create a channel");
 	const orgId = await defaultOrgId(db);
 	const now = new Date().toISOString();
 	const token = typeof input.token === "string" ? input.token.trim() : input.token === null ? "" : undefined;
-	if (!existing && (token === undefined || token === "")) throw new UserError("token is required to create a channel");
+	if (!existing && kind === "telegram" && (token === undefined || token === "")) {
+		throw new UserError("token is required to create a channel");
+	}
+	const config =
+		kind === "satori"
+			? input.config === undefined
+				? existing
+					? parseChannelConfig(existing)
+					: null
+				: satoriConfig(input.config)
+			: null;
+	if (!existing && kind === "satori" && config === null) {
+		throw new UserError("the gateway settings are required");
+	}
+	const linkInstructions =
+		input.linkInstructions === undefined
+			? (existing?.link_instructions ?? null)
+			: input.linkInstructions === null
+				? null
+				: input.linkInstructions.trim();
 	let created = false;
 	await db.transaction().execute(async (trx) => {
 		let secretId = existing?.credentials_secret_id ?? null;
@@ -149,9 +214,11 @@ export async function saveChannel(
 			}
 		}
 		const values = {
-			kind: "telegram" as const,
+			kind,
 			enabled: (input.enabled ?? (existing ? existing.enabled === 1 : true)) ? 1 : 0,
 			credentials_secret_id: secretId,
+			config: config === null ? null : JSON.stringify(config),
+			link_instructions: linkInstructions,
 			updated_at: now,
 		};
 		if (existing) {
@@ -213,6 +280,8 @@ export function channelView(row: ChannelRow, status: ChannelView["status"]): Cha
 		kind: row.kind,
 		enabled: row.enabled === 1,
 		hasCredentials: row.credentials_secret_id !== null,
+		config: parseChannelConfig(row),
+		linkInstructions: row.link_instructions,
 		status,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
@@ -221,7 +290,13 @@ export function channelView(row: ChannelRow, status: ChannelView["status"]): Cha
 
 /** A channel as a user's settings page sees it: only what linking needs. */
 export function channelPublicView(row: ChannelRow, account: string | null): ChannelPublicView {
-	return { id: row.id, name: row.name, kind: row.kind, account };
+	return {
+		id: row.id,
+		name: row.name,
+		kind: row.kind,
+		account,
+		linkInstructions: row.link_instructions,
+	};
 }
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -634,6 +709,8 @@ export async function defaultNotificationAccount(
 			"c.kind as c_kind",
 			"c.enabled as c_enabled",
 			"c.credentials_secret_id as c_credentials_secret_id",
+			"c.config as c_config",
+			"c.link_instructions as c_link_instructions",
 			"c.cursor as c_cursor",
 			"c.created_at as c_created_at",
 			"c.updated_at as c_updated_at",
@@ -661,6 +738,8 @@ export async function defaultNotificationAccount(
 			kind: row.c_kind,
 			enabled: row.c_enabled,
 			credentials_secret_id: row.c_credentials_secret_id,
+			config: row.c_config,
+			link_instructions: row.c_link_instructions,
 			cursor: row.c_cursor,
 			created_at: row.c_created_at,
 			updated_at: row.c_updated_at,

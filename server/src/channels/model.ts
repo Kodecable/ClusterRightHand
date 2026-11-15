@@ -1,8 +1,9 @@
 /**
  * The internal chat channel interface (doc/design/channels.md "Channel kinds"). A platform adapter receives
- * messages and button presses and can send, edit and delete messages; the optional capabilities `drafts` and
- * `topics` let the core use a better primitive when the platform has one. The core never talks to a platform
- * itself, so Satori only has to implement this interface.
+ * messages and button presses and can send, edit and delete messages; the optional capabilities `drafts`,
+ * `topics`, `buttons` and `progress` let the core use a better primitive when the platform has one, or fall
+ * back to text when it has not. The core never talks to a platform itself, so Satori only has to implement
+ * this interface.
  */
 
 /** The kinds of channel crhs knows; Satori is the later one. */
@@ -10,6 +11,15 @@ export type ChannelKind = "telegram" | "satori";
 
 /** What an adapter's connection is doing (the admin page's state). */
 export type ChannelState = "disabled" | "connecting" | "connected" | "unavailable";
+
+/** One login a Satori gateway's READY reported, for the admin page. */
+export interface ChannelLogin {
+	platform: string;
+	id: string;
+	name: string | null;
+	/** Whether the gateway reports the login as ONLINE. */
+	online: boolean;
+}
 
 export interface ChannelStatus {
 	state: ChannelState;
@@ -19,6 +29,8 @@ export interface ChannelStatus {
 	nextAttemptAt: string | null;
 	/** The bot's username or another platform label, once known; null before the first connection. */
 	account: string | null;
+	/** The logins a Satori gateway reported; present on Satori channels only. */
+	logins?: ChannelLogin[];
 }
 
 /** Where a message goes: the platform's chat and, when it has topics, the topic (thread). */
@@ -59,6 +71,8 @@ export interface InboundFile {
 export interface InboundMessage {
 	/** The platform's update id, for idempotent submissions and the cursor. */
 	updateId: number;
+	/** A stable id for idempotent submissions when the update id can repeat (Satori's sn restarts with the gateway). */
+	dedupeKey?: string;
 	platformUserId: string;
 	chatId: string;
 	topicId: string | null;
@@ -101,6 +115,10 @@ export interface ChannelCapabilities {
 	drafts: boolean;
 	/** Topics/threads in a private chat: one session per topic. */
 	topics: boolean;
+	/** Inline buttons; without them the manager sends no buttons and texts carry command hints. */
+	buttons: boolean;
+	/** A progress draft or status message while a turn runs; without it the manager shows no progress. */
+	progress: boolean;
 	/** The platform's message length limit; the adapter may split a longer Markdown text. */
 	maxTextLength: number;
 }

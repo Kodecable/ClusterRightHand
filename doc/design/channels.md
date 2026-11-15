@@ -26,10 +26,11 @@ Administrators add channels on the **Channels** page.
 | Name | Lowercase letters, digits and `-`, not starting with a digit; unique |
 | Kind | `telegram` or `satori` |
 | Enabled | A disabled channel stops polling or disconnects |
-| Credentials | Telegram: the bot token. Satori: the gateway URL and its token. Encrypted with the master key and never returned |
+| Credentials | Telegram: the bot token. Satori: the optional gateway token; its URL, platform and bot id are non-secret settings. Secrets are encrypted with the master key and never returned |
+| Link instructions | Satori only: plain text shown to users before they link, such as how to reach the bot |
 
 There can be several channels, such as two Telegram bots. The page shows each channel's state, the
-account it runs as (the bot's username, or the platforms the gateway reported) and the last error.
+account it runs as (the bot's username, or the logins the gateway reported with their online state) and the last error.
 A dropped connection is retried with the same backoff as MCP extensions
 ([MCP connections](extensions.md#mcp-connections)).
 
@@ -85,7 +86,16 @@ A conversation is one thread of a private chat, mapped to one session (`channel_
   and checks as the WebUI's session PATCH: only the owner may change a session, and a rule change may
   settle waiting approvals. `/model` lists the offered models five per page, `/think` the levels the
   current model supports, `/rules` the three rule presets, and `/extensions` the extensions available to
-  the session five per page. The current choice is marked `✓`; a model or extension press uses a short
+  the session five per page. Items are numbered globally across pages (page 2 starts at 6), and the list
+  ends with a hint such as "Send /model and a number to choose, /model page 2 for the next page."
+- **Every choice is also a command.** `/sessions <n>` switches to the n-th session, `/model <n>` sets the
+  n-th offered model, and `/extensions <n>` toggles the n-th extension, with the list re-computed when the
+  command runs. `/<command> page <n>` shows another page. `/think <level>` and `/rules <preset>` take the
+  level or preset id, case-insensitively. Without an argument they list the choices. The reply names what
+  was chosen (model, session title, extension, level or preset), so a changed list is noticed; an invalid
+  number or unknown id gets a short localized error with the hint. On Telegram the buttons remain
+  shortcuts for the same operations.
+- The current choice is marked `✓`; a model or extension press uses a short
   index and a digest of the list it showed, so a list that changed meanwhile is re-rendered instead of
   acting on the wrong entry. Changes are audited with the channel (`channel.settings_changed`); a
   session's rule change is also `rules.changed`, and a draft's write to the user's defaults is
@@ -120,16 +130,21 @@ username, are escaped so they show literally; assistant text is not escaped.
   lists, tables and quotes render; a text over about 32,000 characters is split at a paragraph or line
   boundary, keeping code fences balanced. If Telegram rejects the rich message with a 400 (an
   unsupported construct, too many blocks), the same text is sent as plain messages of at most 4096
-  characters. Telegram renders raw HTML in rich messages, so `<tg-button>` and `<tg-button-row>` tags
+  characters. On Satori the text is sent as plain text, XML-escaped with the element package's escape,
+  and split at 4,000 characters; Markdown is not converted, so its syntax shows literally. Telegram
+  renders raw HTML in rich messages, so `<tg-button>` and `<tg-button-row>` tags
   in model output are broken with a zero-width space everywhere, code included (telling code from HTML
   the way Telegram parses it is fragile); otherwise a prompt-injected answer could forge buttons
   carrying our approval or session-switch callbacks. Our own buttons travel in `reply_markup`, not in
   the text.
-- **Progress** (optional, per user, on by default). Tool calls and thinking are never sent as messages;
-  they can only appear as a status. On Telegram the current step shows as a draft (`sendMessageDraft`),
-  whose stop control stops the turn; each real message starts a new draft, and a shown draft is re-sent
-  every 20 seconds while the run goes on so it does not expire. Elsewhere one status message is edited at
-  most every few seconds and removed when the turn ends.
+- **Progress** (optional, per user, on by default where the kind has it). Tool calls and thinking are never
+  sent as messages; they can only appear as a status. On Telegram the current step shows as a draft
+  (`sendMessageDraft`), whose stop control stops the turn; each real message starts a new draft, and a
+  shown draft is re-sent every 20 seconds while the run goes on so it does not expire. Elsewhere one
+  status message is edited at most every few seconds and removed when the turn ends. A kind without the
+  `progress` capability shows none, and one without `buttons` sends none: its approval texts already
+  carry `/approve <id>`/`/reject <id>`, and a notification without a thread appends the session link
+  where Telegram would show an **Open session** button.
 - **Delivered files** (`copy_file` to `user_interface`) are sent as WebUI download links, never as
   attachments. Opening one goes through the normal sign-in and access checks
   ([Deliveries](library.md#deliveries)).
@@ -164,13 +179,14 @@ A waiting approval is sent where the session's notifications go, as a message de
 A button or command decides as the linked user through the same checks as the WebUI: only someone who
 may decide that approval can. "Always allow" is not offered, because it changes rules; that stays in the
 WebUI. The decision is audited with the channel. When the wait ends elsewhere, the message is edited to
-say how it ended.
+say how it ended. A kind without the `buttons` capability sends no buttons: the command forms above are
+the way to decide, and a notification outside a thread carries the session link.
 
 ## Channel kinds
 
 Both kinds implement one internal channel interface: receive messages and button presses; send, edit and
-delete messages; buttons; files; and the optional capabilities drafts and topics. The core uses an
-optional capability when the channel has it and falls back to sending and editing otherwise.
+delete messages; buttons; files; and the optional capabilities drafts, topics, buttons and progress. The
+core uses an optional capability when the channel has it and falls back to text otherwise.
 
 - **Telegram** uses grammY's API client and long polling, with Node's own `fetch`. It is confined to its
   channel module and uses no grammY middleware. The last handled update id is stored, so a restart does
@@ -180,8 +196,48 @@ optional capability when the channel has it and falls back to sending and editin
 - **Satori** is a small client written in crhs on the protocol's two official packages without cordis:
   `@satorijs/protocol` for the API types and `@satorijs/element` for message content. The rest of the
   satori.js stack is not used, because its stable line is rarely released, fixes merged upstream stay
-  unpublished, and it faces an incompatible move to cordis 4. A Koishi gateway must have its file proxy
-  (`selfUrl`) configured, or inbound files arrive without an address.
+  unpublished, and it faces an incompatible move to cordis 4 ([Satori](#satori)).
+
+## Satori
+
+A Satori channel is one bot behind a gateway such as Koishi or OneBots: the gateway reaches the actual
+platform (Telegram, Discord, …) and crhs dials the gateway, so no public webhook is needed. The
+administrator configures the gateway base URL (its API is under `<base>/v1/...`), an optional token, the
+platform (for example `telegram`) and the login's bot id, plus plain-text link instructions shown to
+users. One channel runs one bot; another bot is another channel. The token is encrypted like a Telegram
+bot token and never returned.
+
+The protocol is used directly:
+
+- **Events.** A WebSocket to `<base>/v1/events` (http → ws, https → wss). On open crhs sends IDENTIFY
+  (`{op: 3, body: {token, sn}}`) with the last handled `sn`, persisted in the channel cursor after each
+  event like Telegram's update id. READY (`op: 4`) lists the gateway's logins; the configured platform
+  and bot id must be there and ONLINE, otherwise the channel becomes unavailable with that error and is
+  retried with the usual backoff. The login's name is the channel's account. META (`op: 5`) updates the
+  proxy roots. A PING is sent every 10 seconds; without any frame for about 30 seconds the connection is
+  presumed dead and re-established. A gateway resumes only with events after the sent `sn`, so a lower
+  or equal `sn` means its counter restarted (Koishi keeps it in memory): the event is handled and the
+  cursor follows it. For the same reason submissions are deduplicated by the platform message id, not
+  the `sn`.
+- **Inbound.** Only `message-created` events whose login, platform and self id match the configured bot
+  and whose `channel.type` is DIRECT (1) are handled; guild messages, other events and other logins are
+  dropped before any file is touched. `message.content` is parsed with `@satorijs/element`: text
+  elements become text (`<br>`/`<p>` newlines, `<at>` a mention), and `img`, `audio`, `video` and `file`
+  elements become inbound files.
+- **Outbound.** `POST <base>/v1/<resource>.<method>` with the JSON body and the gateway's headers:
+  `Authorization: Bearer <token>` when set, `Satori-Platform`/`Satori-User-ID` and
+  `X-Platform`/`X-Self-ID`. Text is sent with `message.create` as plain, XML-escaped text (newlines
+  kept) and split above 4,000 characters; `message.update` and `message.delete` edit and remove it,
+  with failures logged and ignored.
+- **Files.** A message must not make crhs fetch an arbitrary address. A `data:` URL is decoded in place; an
+  http(s) `src` on the gateway's own origin is fetched directly, because Koishi's Telegram adapter serves
+  files from `<selfUrl>/telegram/...` without listing them as proxy roots; any other `src` goes through
+  the gateway proxy, `GET <base>/v1/proxy/<src>`, which checks it against its proxy roots. The same
+  attachment limits apply as for Telegram.
+- **No buttons, topics, drafts or progress.** Approvals travel as `/approve <id>` and `/reject <id>` in
+  the text; a notification without a thread appends the session's WebUI link instead of an **Open
+  session** button. The management command arguments described under [Conversations](#conversations)
+  are the only way to choose.
 
 ## Extension points
 
@@ -189,3 +245,9 @@ optional capability when the channel has it and falls back to sending and editin
 - Alerts and scheduled-run reports posted to a channel.
 - Shared limits on size and rate for every entry point.
 - Webhook mode for platforms that only offer webhooks.
+
+## Not yet
+
+- Markdown → Satori elements: Satori receives plain text, so framework Markdown shows as written.
+- Progress for Satori: the manager shows none while a turn runs.
+- Buttons for Satori: there are none; approvals and lists use commands.

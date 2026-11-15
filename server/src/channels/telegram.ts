@@ -114,6 +114,8 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 	readonly capabilities: ChannelCapabilities = {
 		drafts: true,
 		topics: true,
+		buttons: true,
+		progress: true,
 		maxTextLength: TELEGRAM_TEXT_LIMIT,
 	};
 	readonly #api: Api;

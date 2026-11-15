@@ -309,6 +309,10 @@ msgstr "提供方 ID 由小写字母、数字和短横线组成。"
 msgid "A public key is required."
 msgstr "必须填写公钥。"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id."
+msgstr "Satori 网关机器人。仅限私聊；每个频道一个机器人，需填写网关 URL、平台和机器人 id。"
+
 #: src/features/schedules/pages.tsx
 msgid "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
 msgstr "计划任务在每次触发时创建一个新会话并提交固定的提示词。每次运行都以所有者身份，经过与其他会话相同的规则、审批和限额。"
@@ -892,6 +896,10 @@ msgstr "请求体字段"
 #: src/features/channels/channels-page.tsx
 msgid "Bot account"
 msgstr "机器人账号"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Bot id"
+msgstr "机器人 id"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "Bot token"
@@ -1770,8 +1778,8 @@ msgid "Disabled"
 msgstr "已禁用"
 
 #: src/features/channels/channel-dialog.tsx
-msgid "Disabled channels stop polling."
-msgstr "停用的渠道会停止轮询。"
+msgid "Disabled channels stop polling or disconnect."
+msgstr "停用的频道会停止轮询或断开连接。"
 
 #: src/components/status-badge.tsx
 msgid "Dispatched"
@@ -2221,6 +2229,14 @@ msgstr "格式"
 msgid "From BotFather. It is encrypted with the master key and never shown again."
 msgstr "来自 BotFather。它使用主密钥加密，之后不再显示。"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "Gateway token"
+msgstr "网关令牌"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Gateway URL"
+msgstr "网关 URL"
+
 #: src/features/settings/user-settings-dialog.tsx
 #: src/features/system-settings/general-section.tsx
 msgid "General"
@@ -2437,6 +2453,7 @@ msgstr "crhs 用于为授权签名的密钥。默认使用最新的密钥；节�
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
+#: src/features/channels/channel-dialog.tsx
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
@@ -2544,6 +2561,10 @@ msgstr "行数"
 #: src/components/task-result.tsx
 msgid "Lines {from}–{to}"
 msgstr "第 {from}–{to} 行"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Link instructions"
+msgstr "关联说明"
 
 #: src/components/task-result.tsx
 msgid "Link target"
@@ -3312,6 +3333,7 @@ msgid "Off cannot be hidden; give it a display name."
 msgstr "off 档不能隐藏；请给它一个显示名。"
 
 #: src/components/status-badge.tsx
+#: src/features/channels/channels-page.tsx
 msgid "Offline"
 msgstr "离线"
 
@@ -3344,6 +3366,10 @@ msgstr "新用户组的单个文件"
 msgid "One file for new users"
 msgstr "新用户的单个文件"
 
+#: src/features/channels/channels-page.tsx
+msgid "Online"
+msgstr "在线"
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "只有管理员可以管理 SSH 凭据。"
@@ -3371,6 +3397,7 @@ msgstr "打开 {0} {1}"
 msgid "Open a private chat with @{0}."
 msgstr "打开与 @{0} 的私聊。"
 
+#. placeholder {0}: channel.name
 #. placeholder {0}: channel?.name
 #: src/features/channels/chat-accounts-section.tsx
 msgid "Open a private chat with the bot named {0}."
@@ -3457,6 +3484,10 @@ msgstr "可选；默认使用节点的主机名。"
 #: src/features/signing-credentials/pages.tsx
 msgid "Optional; it names the trust entry."
 msgstr "可选；用于命名信任条目。"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Optional. It is encrypted with the master key and never shown again."
+msgstr "可选。它会用主密钥加密，之后不再显示。"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
@@ -3605,6 +3636,14 @@ msgstr "Pi 内置提供方和自定义端点；密钥不会回显。"
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Pin the host fingerprint of the {0}?"
 msgstr "固定{0}的主机指纹？"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Plain text shown to users before they link a chat, such as how to reach the bot."
+msgstr "在用户关联聊天前显示的纯文本，例如如何找到机器人。"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Platform"
+msgstr "平台"
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Port"
@@ -4730,6 +4769,10 @@ msgid "The base URL must start with http:// or https://."
 msgstr "Base URL 必须以 http:// 或 https:// 开头。"
 
 #: src/features/channels/channel-dialog.tsx
+msgid "The bot id is required."
+msgstr "必须填写机器人 id。"
+
+#: src/features/channels/channel-dialog.tsx
 msgid "The bot token is required."
 msgstr "必须填写机器人令牌。"
 
@@ -4766,6 +4809,10 @@ msgstr "完整输出位于节点上的 <0>{0}</0>。"
 msgid "The full output stays on the node until the task exits."
 msgstr "完整输出会保留在节点上，直到任务退出。"
 
+#: src/features/channels/channel-dialog.tsx
+msgid "The gateway base URL; its API is under /v1."
+msgstr "网关的基础 URL；其 API 位于 /v1 下。"
+
 #: src/features/nodes/access-grants.tsx
 msgid "The grantee can see the node or every node in the node group and run tasks on them."
 msgstr "被授权者可以看到该节点或节点组中的每个节点，并在这些节点上运行任务。"
@@ -4785,6 +4832,10 @@ msgstr "新用户或用户组资料库创建时复制这些限制。修改后仅
 #: src/components/task-result.tsx
 msgid "The listing is truncated: the directory has more entries than are shown."
 msgstr "列表已截断：目录中的条目比显示的更多。"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "The login's user id in that platform; the channels page lists the ones the gateway reported."
+msgstr "机器人在该平台上的用户 id；频道页面会列出网关上报的登录。"
 
 #: src/features/settings/model-presets.tsx
 msgid "The model list could not be loaded."
@@ -4846,6 +4897,14 @@ msgstr "节点用新令牌注册后，旧密钥立即失效。如果密钥丢失
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
 msgstr "你访问的页面不存在。"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "The platform is required."
+msgstr "必须填写平台。"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "The platform the bot runs on at the gateway."
+msgstr "机器人在网关中所运行的平台。"
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "The port must be between 1 and 65535."
@@ -5278,6 +5337,10 @@ msgstr "使用“新建节点”注册 crha 客户端，或使用“新建 SSH �
 #: src/features/users/new-user-dialog.tsx
 msgid "Use 1–64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter."
 msgstr "使用 1–64 个字符，可为 a-z、0-9、'.'、'_' 或 '-'，且以字母开头。"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Use an http or https gateway URL."
+msgstr "请使用 http 或 https 网关 URL。"
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Use at least 8 characters, or leave it empty."

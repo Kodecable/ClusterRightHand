@@ -29,7 +29,7 @@ test("create a link code for the user's chat account", async ({ page }) => {
 		state: {
 			channelAccounts: {
 				accounts: [],
-				channels: [{ id: "channel-1", name: "opsbot", kind: "telegram", account: "ops_bot" }],
+				channels: [{ id: "channel-1", name: "opsbot", kind: "telegram", account: "ops_bot", linkInstructions: null }],
 			},
 		},
 	});

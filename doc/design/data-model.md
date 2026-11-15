@@ -174,8 +174,10 @@ chat notifications can follow it ([Channels](channels.md#notifications)).
 ## Channels
 
 `channels` holds one chat platform bot: its name, kind, enabled flag, a reference to one encrypted
-`secrets` row holding the credentials and the last platform update id handled; sessions a chat starts
-use the user's defaults from `user_settings`. `channel_accounts` links one platform account to one CRH
+`secrets` row holding the credentials, `config`, the JSON of kind-specific non-secret settings (a
+Satori gateway's URL, platform and bot id), `link_instructions`, the plain text shown to users before
+they link, and the last platform update id handled; sessions a chat starts use the user's defaults from
+`user_settings`. `channel_accounts` links one platform account to one CRH
 user; the same platform account cannot belong to two users. `channel_link_codes` stores only a code's
 SHA-256 hash, its expiry and whether it was used, because the code is a one-time credential.
 `channel_threads` maps a private chat (and topic, when the platform has them) to a session; while

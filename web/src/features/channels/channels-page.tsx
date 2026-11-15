@@ -62,13 +62,35 @@ export function ChannelsPage() {
 			{
 				id: "account",
 				header: t`Bot account`,
-				minSize: 120,
-				cell: ({ row }) =>
-					row.original.status.account === null ? (
+				minSize: 160,
+				cell: ({ row }) => {
+					const channel = row.original;
+					if (channel.kind === "satori" && channel.status.logins !== undefined) {
+						if (channel.status.logins.length === 0) {
+							return <span className="text-muted-foreground">–</span>;
+						}
+						return (
+							<span className="grid gap-0.5">
+								{channel.status.logins.map((login) => (
+									<span key={`${login.platform}:${login.id}`} className="flex flex-wrap items-center gap-1 text-xs">
+										<code className={MONO_CELL}>
+											{login.platform}:{login.id}
+										</code>
+										{login.name !== null && <span className="truncate">{login.name}</span>}
+										<StatusText tone={login.online ? "ok" : "muted"}>
+											{login.online ? <Trans>Online</Trans> : <Trans>Offline</Trans>}
+										</StatusText>
+									</span>
+								))}
+							</span>
+						);
+					}
+					return channel.status.account === null ? (
 						<span className="text-muted-foreground">–</span>
 					) : (
-						<code className={MONO_CELL}>{row.original.status.account}</code>
-					),
+						<code className={MONO_CELL}>{channel.status.account}</code>
+					);
+				},
 			},
 			{
 				id: "error",

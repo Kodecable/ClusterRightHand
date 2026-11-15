@@ -214,7 +214,15 @@ describeBackends("initial migration", (backend) => {
 		expect(await tableColumns(backend, db, "task_groups")).toContain("transfer");
 		expect(await tableColumns(backend, db, "sessions")).toContain("last_used_from");
 		expect(await tableColumns(backend, db, "channels")).toEqual(
-			expect.arrayContaining(["name", "kind", "enabled", "credentials_secret_id", "cursor"]),
+			expect.arrayContaining([
+				"name",
+				"kind",
+				"enabled",
+				"credentials_secret_id",
+				"config",
+				"link_instructions",
+				"cursor",
+			]),
 		);
 		expect(await tableColumns(backend, db, "channels")).not.toContain("default_model");
 		expect(await tableColumns(backend, db, "channels")).not.toContain("default_rule_preset");

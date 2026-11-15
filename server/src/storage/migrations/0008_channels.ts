@@ -4,8 +4,9 @@ import type { Kysely } from "kysely";
  * Chat channels (doc/design/channels.md).
  *
  * `channels` holds one connected chat platform bot: its kind, whether it runs, the encrypted credentials (a
- * `secrets` row, like an extension's headers) and `cursor`, the last platform update handled, so a restart does
- * not handle one twice.
+ * `secrets` row, like an extension's headers), `config`, the JSON of kind-specific non-secret settings (a Satori
+ * gateway's URL, platform and bot id), `link_instructions`, the text shown to users before they link, and
+ * `cursor`, the last platform update handled, so a restart does not handle one twice.
  *
  * `channel_accounts` links one platform account to one CRH user; the pair (channel, platform, platform user id)
  * is unique. `channel_link_codes` holds a one-time code's hash, its expiry and whether it was used.
@@ -30,6 +31,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("enabled", "integer", (c) => c.notNull())
 		/** The `secrets` row holding the credentials JSON, encrypted with the master key. */
 		.addColumn("credentials_secret_id", "text")
+		/** JSON of kind-specific non-secret settings; a Satori gateway's URL, platform and bot id. */
+		.addColumn("config", "text")
+		/** Plain text shown to users before they link a chat (seen with a Satori channel). */
+		.addColumn("link_instructions", "text")
 		/** The last platform update id handled. */
 		.addColumn("cursor", "text")
 		.addColumn("created_at", "text", (c) => c.notNull())

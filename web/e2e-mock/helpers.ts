@@ -1406,13 +1406,36 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const name = decodeURIComponent(channelMatch[1] ?? "");
 			const input = body as Record<string, unknown>;
 			const existing = state.channels.find((channel) => channel.name === name);
+			const kind = input.kind === "satori" ? "satori" : "telegram";
+			const config = input.config as { url: string; platform: string; botId: string } | undefined;
 			const channel: ChannelView = {
 				id: existing?.id ?? `channel-${name}`,
 				name,
-				kind: "telegram",
+				kind,
 				enabled: input.enabled !== false,
 				hasCredentials: existing?.hasCredentials === true || typeof input.token === "string",
-				status: existing?.status ?? { state: "connected", lastError: null, nextAttemptAt: null, account: "ops_bot" },
+				config: config ?? null,
+				linkInstructions: typeof input.linkInstructions === "string" ? input.linkInstructions : null,
+				status:
+					existing?.status ??
+					({
+						state: "connected",
+						lastError: null,
+						nextAttemptAt: null,
+						account: kind === "satori" ? null : "ops_bot",
+						...(kind === "satori"
+							? {
+									logins: [
+										{
+											platform: config?.platform ?? "telegram",
+											id: config?.botId ?? "",
+											name: "ops_bot",
+											online: true,
+										},
+									],
+								}
+							: {}),
+					} satisfies ChannelView["status"]),
 				createdAt: existing?.createdAt ?? "2026-01-01T00:00:00.000Z",
 				updatedAt: "2026-01-01T00:00:00.000Z",
 			};

@@ -37,6 +37,8 @@
 		"@hono/zod-openapi": "1.6.3",
 		"@modelcontextprotocol/client": "2.3.1",
 		"@modelcontextprotocol/server": "2.3.1",
+		"@satorijs/element": "3.2.0",
+		"@satorijs/protocol": "1.7.0",
 		"@simplewebauthn/server": "14.0.0",
 		"age-encryption": "0.3.1",
 		"capjs-core": "0.1.6",

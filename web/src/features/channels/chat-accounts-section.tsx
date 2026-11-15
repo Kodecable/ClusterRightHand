@@ -174,12 +174,22 @@ export function ChatAccountsSection() {
 							<code className="rounded-md border bg-muted p-3 font-mono text-sm" data-testid="link-code">
 								/link {createCode.data.code}
 							</code>
+							{channel?.kind === "satori" && channel.linkInstructions !== null && channel.linkInstructions !== "" ? (
+								<p className="whitespace-pre-wrap text-sm text-muted-foreground" data-testid="link-instructions">
+									{channel.linkInstructions}
+								</p>
+							) : (
+								<p className="text-sm text-muted-foreground">
+									{channel?.kind === "satori" ? (
+										<Trans>Open a private chat with the bot named {channel.name}.</Trans>
+									) : channel?.account === null || channel?.account === undefined ? (
+										<Trans>Open a private chat with the bot named {channel?.name}.</Trans>
+									) : (
+										<Trans>Open a private chat with @{channel.account}.</Trans>
+									)}
+								</p>
+							)}
 							<p className="text-sm text-muted-foreground">
-								{channel?.account === null || channel?.account === undefined ? (
-									<Trans>Open a private chat with the bot named {channel?.name}.</Trans>
-								) : (
-									<Trans>Open a private chat with @{channel.account}.</Trans>
-								)}{" "}
 								<Trans>
 									Expires <DateTime value={createCode.data.expiresAt} />.
 								</Trans>

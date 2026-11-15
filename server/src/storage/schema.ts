@@ -600,6 +600,10 @@ export interface ChannelsTable {
 	enabled: number;
 	/** The `secrets` row holding the credentials JSON, encrypted with the master key. */
 	credentials_secret_id: string | null;
+	/** JSON of kind-specific non-secret settings (a Satori gateway's URL, platform and bot id). */
+	config: string | null;
+	/** Plain text shown to users before they link a chat. */
+	link_instructions: string | null;
 	/** The last platform update id handled, so a restart does not handle an update twice. */
 	cursor: string | null;
 	created_at: CreatedAt;

@@ -39,9 +39,10 @@ import type { Db } from "../storage/db.ts";
 import { getUserSettings, patchUserSettings } from "../users/settings.ts";
 import { errorText, NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import { type BotMessages, botLocale, localeFromLanguageCode, messagesFor } from "./messages.ts";
+import { type BotMessages, botLocale, escapeMarkdown, localeFromLanguageCode, messagesFor } from "./messages.ts";
 import type { ChannelAdapter, ChannelHandlers, ChannelTarget, SentMessage } from "./model.ts";
 import { WebUiPresence } from "./presence.ts";
+import { SatoriChannel } from "./satori.ts";
 import {
 	accountByPlatform,
 	accountsForUser,
@@ -63,8 +64,10 @@ import {
 	linkAccount,
 	listChannelRows,
 	listThreads,
+	parseChannelConfig,
 	parseChannelCursor,
 	parseThreadDraft,
+	readSatoriToken,
 	readTelegramToken,
 	saveChannel as saveChannelRow,
 	saveDraftThread,
@@ -265,6 +268,33 @@ function parseCommand(text: string | null): { name: string; args: string[] } | u
 	return { name, args: rest };
 }
 
+/**
+ * The argument of a list command: none is the first page, `page <n>` is another page, and `<n>` is the n-th item of
+ * the whole list, which is numbered across pages. Anything else is refused with the command's hint.
+ */
+type ListArgs = { kind: "page"; page: number } | { kind: "index"; index: number } | { kind: "invalid" };
+
+function positiveNumber(raw: string | undefined): number | undefined {
+	if (raw === undefined || !/^\d+$/.test(raw)) return undefined;
+	const value = Number(raw);
+	return Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
+function parseListArgs(args: readonly string[]): ListArgs {
+	if (args.length === 0) return { kind: "page", page: 1 };
+	if (args[0]?.toLowerCase() === "page") {
+		const page = positiveNumber(args[1]);
+		return page === undefined ? { kind: "invalid" } : { kind: "page", page };
+	}
+	const index = positiveNumber(args[0]);
+	return index === undefined ? { kind: "invalid" } : { kind: "index", index };
+}
+
+/** A numbered line of a choice list; the number is global, so page 2 starts at 6. */
+function numberedItem(offset: number, text: string, selected: boolean): string {
+	return `${offset + 1}. ${selected ? "✓ " : ""}${escapeMarkdown(text)}`;
+}
+
 function clip(text: string, limit = CLIP_CHARS): string {
 	const flat = text.replace(/\s+/g, " ").trim();
 	return flat.length <= limit ? flat : `${flat.slice(0, limit - 1)}…`;
@@ -430,38 +460,77 @@ export class ChannelManager {
 
 	async #openRow(row: ChannelRow): Promise<void> {
 		if (row.enabled !== 1 || this.#stopped) return;
-		if (row.kind !== "telegram") {
-			// A Satori adapter implements ChannelAdapter and is constructed here; the kind is not available yet.
-			this.#rowErrors.set(row.name, "the satori channel kind is not available");
-			return;
+		let adapter: ChannelAdapter;
+		if (row.kind === "satori") {
+			const config = parseChannelConfig(row);
+			if (config === null) {
+				this.#rowErrors.set(row.name, `channel ${row.name} has no gateway settings`);
+				return;
+			}
+			let token: string;
+			try {
+				token = await readSatoriToken(this.#options.db, this.#options.masterKey, row);
+			} catch (err) {
+				this.#rowErrors.set(row.name, errorText(err));
+				return;
+			}
+			adapter = new SatoriChannel({
+				channelId: row.id,
+				...config,
+				token,
+				...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
+				initialCursor: parseChannelCursor(row),
+				onCursor: (updateId) => setChannelCursor(this.#options.db, row.id, updateId),
+				connection: {
+					...(this.#options.backoffBaseMs !== undefined ? { baseMs: this.#options.backoffBaseMs } : {}),
+					...(this.#options.backoffMaxMs !== undefined ? { maxMs: this.#options.backoffMaxMs } : {}),
+				},
+			});
+		} else {
+			let token: string;
+			try {
+				// The token is read through the store's helper so a broken or missing secret is reported, not thrown at startup.
+				token = await readTelegramToken(this.#options.db, this.#options.masterKey, row);
+			} catch (err) {
+				this.#rowErrors.set(row.name, errorText(err));
+				return;
+			}
+			adapter = new TelegramChannel({
+				channelId: row.id,
+				token,
+				...(this.#options.telegramApiRoot ? { apiRoot: this.#options.telegramApiRoot } : {}),
+				...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
+				...(this.#options.pollTimeoutSeconds !== undefined
+					? { pollTimeoutSeconds: this.#options.pollTimeoutSeconds }
+					: {}),
+				initialCursor: parseChannelCursor(row),
+				onCursor: (updateId) => setChannelCursor(this.#options.db, row.id, updateId),
+				connection: {
+					...(this.#options.backoffBaseMs !== undefined ? { baseMs: this.#options.backoffBaseMs } : {}),
+					...(this.#options.backoffMaxMs !== undefined ? { maxMs: this.#options.backoffMaxMs } : {}),
+				},
+			});
 		}
-		let token: string;
-		try {
-			// The token is read through the store's helper so a broken or missing secret is reported, not thrown at startup.
-			token = await readTelegramToken(this.#options.db, this.#options.masterKey, row);
-		} catch (err) {
-			this.#rowErrors.set(row.name, errorText(err));
-			return;
-		}
-		const adapter = new TelegramChannel({
-			channelId: row.id,
-			token,
-			...(this.#options.telegramApiRoot ? { apiRoot: this.#options.telegramApiRoot } : {}),
-			...(this.#options.fetch ? { fetch: this.#options.fetch } : {}),
-			...(this.#options.pollTimeoutSeconds !== undefined
-				? { pollTimeoutSeconds: this.#options.pollTimeoutSeconds }
-				: {}),
-			initialCursor: parseChannelCursor(row),
-			onCursor: (updateId) => setChannelCursor(this.#options.db, row.id, updateId),
-			connection: {
-				...(this.#options.backoffBaseMs !== undefined ? { baseMs: this.#options.backoffBaseMs } : {}),
-				...(this.#options.backoffMaxMs !== undefined ? { maxMs: this.#options.backoffMaxMs } : {}),
-			},
-		});
 		adapter.setHandlers(this.#handlers(row));
 		this.#adapters.set(row.name, { row, adapter });
 		this.#watchSends(adapter);
+		this.#withoutButtons(adapter);
 		adapter.start();
+	}
+
+	/**
+	 * A platform without inline buttons gets none from the manager, even where a caller passed them: the texts
+	 * that carry buttons also carry the equivalent command (`/approve <id>`) and, for a notification without a
+	 * thread, the session's link.
+	 */
+	#withoutButtons(adapter: ChannelAdapter): void {
+		if (adapter.capabilities.buttons) return;
+		const sendText = adapter.sendText.bind(adapter);
+		adapter.sendText = async (target, text, options) =>
+			sendText(target, text, options === undefined ? undefined : { ...options, buttons: undefined });
+		const editText = adapter.editText.bind(adapter);
+		adapter.editText = async (target, messageId, text, options) =>
+			editText(target, messageId, text, options === undefined ? undefined : { ...options, buttons: undefined });
 	}
 
 	/**
@@ -630,23 +699,23 @@ export class ChannelManager {
 			return;
 		}
 		if (command.name === "sessions") {
-			await this.#showSessions(adapter, row, message, user, target, m);
+			await this.#showSessions(adapter, row, message, user, target, m, command.args);
 			return;
 		}
 		if (command.name === "model") {
-			await this.#modelCommand(row, adapter, user, target, m);
+			await this.#modelCommand(row, adapter, user, target, m, command.args);
 			return;
 		}
 		if (command.name === "think") {
-			await this.#thinkCommand(row, adapter, user, target, m);
+			await this.#thinkCommand(row, adapter, user, target, m, command.args);
 			return;
 		}
 		if (command.name === "rules") {
-			await this.#rulesCommand(row, adapter, user, target, m);
+			await this.#rulesCommand(row, adapter, user, target, m, command.args);
 			return;
 		}
 		if (command.name === "extensions") {
-			await this.#extensionsCommand(row, adapter, user, target, m);
+			await this.#extensionsCommand(row, adapter, user, target, m, command.args);
 			return;
 		}
 		if (command.name === "new") {
@@ -677,16 +746,22 @@ export class ChannelManager {
 		if (thread.session_id === null) return;
 		try {
 			const text = message.text ?? "";
-			await this.#options.runtime.submit(thread.session_id, user, text, `channel:${row.id}:${message.updateId}`, {
-				// The session records where its latest user message came from: this thread.
-				lastUsedFrom: thread.id,
-				...(attachments
-					? {
-							content: attachmentContent(text, attachments.blocks),
-							attachments: attachments.attachments,
-						}
-					: {}),
-			});
+			await this.#options.runtime.submit(
+				thread.session_id,
+				user,
+				text,
+				`channel:${row.id}:${message.dedupeKey ?? message.updateId}`,
+				{
+					// The session records where its latest user message came from: this thread.
+					lastUsedFrom: thread.id,
+					...(attachments
+						? {
+								content: attachmentContent(text, attachments.blocks),
+								attachments: attachments.attachments,
+							}
+						: {}),
+				},
+			);
 		} catch (err) {
 			await adapter.sendText(target, messagesFor(locale).couldNotSendMessage(errorText(err)));
 		}
@@ -969,13 +1044,43 @@ export class ChannelManager {
 		user: SessionUser,
 		target: ChannelTarget,
 		m: BotMessages,
+		args: readonly string[] = [],
 	): Promise<void> {
-		const page = await this.#sessionPage(row, adapter, user, message.chatId, message.topicId, 1, m);
+		const parsed = parseListArgs(args);
+		if (parsed.kind === "invalid") {
+			await adapter.sendText(target, m.invalidChoice("sessions"));
+			return;
+		}
+		if (parsed.kind === "index") {
+			const session = await this.#sessionAt(user, parsed.index);
+			if (!session) {
+				await adapter.sendText(target, m.invalidChoice("sessions"));
+				return;
+			}
+			await this.#switchToSession(row, adapter, user, session.id, message.chatId, message.topicId, target, m);
+			return;
+		}
+		const page = await this.#sessionPage(row, adapter, user, message.chatId, message.topicId, parsed.page, m);
 		if (!page) {
 			await adapter.sendText(target, m.noSessions);
 			return;
 		}
 		await adapter.sendText(target, page.text, { buttons: page.buttons });
+	}
+
+	/** The n-th active root session of the user, in the same order `/sessions` lists them. */
+	async #sessionAt(user: SessionUser, index: number): Promise<{ id: string; title: string | null } | undefined> {
+		return this.#options.db
+			.selectFrom("sessions")
+			.select(["id", "title"])
+			.where("owner_user_id", "=", user.userId)
+			.where("parent_session_id", "is", null)
+			.where("status", "=", "active")
+			.orderBy("updated_at", "desc")
+			.orderBy("id")
+			.limit(1)
+			.offset(index - 1)
+			.executeTakeFirst();
 	}
 
 	/** One page of `/sessions`: the message text and its buttons, or undefined when the user has no sessions. */
@@ -1021,7 +1126,15 @@ export class ChannelManager {
 		if (currentPage > 1) nav.push({ text: m.previousPage, data: `sessions:${currentPage - 1}` });
 		if (currentPage < pages) nav.push({ text: m.nextPage, data: `sessions:${currentPage + 1}` });
 		if (nav.length > 0) buttons.push(nav);
-		const text = pages > 1 ? m.sessionsTitle(currentPage, pages) : m.sessionsTitleSingle;
+		const title = pages > 1 ? m.sessionsTitle(currentPage, pages) : m.sessionsTitleSingle;
+		const lines = sessions.map((session, index) =>
+			numberedItem(
+				(currentPage - 1) * SESSION_PAGE_SIZE + index,
+				clip(session.title || m.newSessionTitle, 40),
+				session.id === current?.session_id,
+			),
+		);
+		const text = `${title}\n\n${lines.join("\n")}\n\n${m.choiceHint("sessions", currentPage, pages)}`;
 		return { text, buttons };
 	}
 
@@ -1135,12 +1248,48 @@ export class ChannelManager {
 		if (currentPage > 1) nav.push({ text: m.previousPage, data: `modelp:${currentPage - 1}:${hash}` });
 		if (currentPage < pages) nav.push({ text: m.nextPage, data: `modelp:${currentPage + 1}:${hash}` });
 		if (nav.length > 0) buttons.push(nav);
+		const title = pages > 1 ? m.modelTitle(currentPage, pages) : m.modelTitleSingle;
+		const lines = models.map((model, index) =>
+			numberedItem(
+				(currentPage - 1) * MODEL_PAGE_SIZE + index,
+				`${model.name} (${model.providerName})`,
+				sameModel(model, current),
+			),
+		);
 		return {
-			text: pages > 1 ? m.modelTitle(currentPage, pages) : m.modelTitleSingle,
+			text: `${title}\n\n${lines.join("\n")}\n\n${m.choiceHint("model", currentPage, pages)}`,
 			buttons,
 			models,
 			page: currentPage,
 		};
+	}
+
+	/** Writes a model choice to the thread's draft and the user's defaults, or to the session. */
+	async #applyModel(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		state: Extract<ChatTarget, { state: "draft" | "session" }>,
+		ref: ModelRef,
+		m: BotMessages,
+		target: ChannelTarget,
+	): Promise<boolean> {
+		try {
+			if (state.state === "draft") {
+				await updateThreadDraft(this.#options.db, state.thread.id, { ...state.draft, model: ref });
+				await this.#writeUserDefaults(user, { defaultModel: ref }, row, adapter, state.thread);
+			} else {
+				await this.#options.runtime.configure(state.session.id, { model: ref });
+			}
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotChange(errorText(err)));
+			return false;
+		}
+		await this.#auditSettingsChange(user, row, adapter, state.thread, ref, {
+			model: ref,
+			...(state.state === "session" ? { draft: false } : { draft: true }),
+		});
+		return true;
 	}
 
 	async #modelCommand(
@@ -1149,6 +1298,7 @@ export class ChannelManager {
 		user: SessionUser,
 		target: ChannelTarget,
 		m: BotMessages,
+		args: readonly string[] = [],
 	): Promise<void> {
 		const state = await this.#chatTarget(adapter, row, user, target.chatId, target.topicId ?? null);
 		if (state.state !== "draft" && state.state !== "session") {
@@ -1160,8 +1310,25 @@ export class ChannelManager {
 			await adapter.sendText(target, m.noDefaultModel);
 			return;
 		}
+		const parsed = parseListArgs(args);
+		if (parsed.kind === "invalid") {
+			await adapter.sendText(target, m.invalidChoice("model"));
+			return;
+		}
+		if (parsed.kind === "index") {
+			const model = available[parsed.index - 1];
+			if (!model) {
+				await adapter.sendText(target, m.invalidChoice("model"));
+				return;
+			}
+			const ref: ModelRef = { provider: model.provider, modelId: model.modelId };
+			if (await this.#applyModel(row, adapter, user, state, ref, m, target)) {
+				await adapter.sendText(target, m.modelSet(this.#modelName(ref)));
+			}
+			return;
+		}
 		const current = state.state === "draft" ? state.draft.model : state.session.model;
-		const view = this.#modelPage(available, current, 1, m);
+		const view = this.#modelPage(available, current, parsed.page, m);
 		await adapter.sendText(target, view.text, { buttons: view.buttons });
 	}
 
@@ -1196,21 +1363,7 @@ export class ChannelManager {
 			return;
 		}
 		const ref: ModelRef = { provider: model.provider, modelId: model.modelId };
-		try {
-			if (state.state === "draft") {
-				await updateThreadDraft(this.#options.db, state.thread.id, { ...state.draft, model: ref });
-				await this.#writeUserDefaults(user, { defaultModel: ref }, row, adapter, state.thread);
-			} else {
-				await this.#options.runtime.configure(state.session.id, { model: ref });
-			}
-		} catch (err) {
-			await adapter.sendText(target, m.couldNotChange(errorText(err)));
-			return;
-		}
-		await this.#auditSettingsChange(user, row, adapter, state.thread, ref, {
-			model: ref,
-			...(state.state === "session" ? { draft: false } : { draft: true }),
-		});
+		if (!(await this.#applyModel(row, adapter, user, state, ref, m, target))) return;
 		await this.#editPage(adapter, target, press.messageId, m.modelSet(this.#modelName(ref)));
 	}
 
@@ -1241,6 +1394,7 @@ export class ChannelManager {
 		user: SessionUser,
 		target: ChannelTarget,
 		m: BotMessages,
+		args: readonly string[] = [],
 	): Promise<void> {
 		const state = await this.#chatTarget(adapter, row, user, target.chatId, target.topicId ?? null);
 		if (state.state !== "draft" && state.state !== "session") {
@@ -1250,6 +1404,18 @@ export class ChannelManager {
 		const model = state.state === "draft" ? state.draft.model : state.session.model;
 		const offered = this.#options.models.available().find((candidate) => sameModel(candidate, model));
 		const levels = offered?.thinkingLevels ?? ["off"];
+		const raw = args[0]?.toLowerCase();
+		if (raw !== undefined) {
+			const level = levels.find((candidate) => candidate.toLowerCase() === raw);
+			if (level === undefined) {
+				await adapter.sendText(target, m.invalidChoice("think"));
+				return;
+			}
+			if (await this.#applyThinking(row, adapter, user, state, level, m, target)) {
+				await adapter.sendText(target, m.thinkingSet(offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level)));
+			}
+			return;
+		}
 		if (levels.length <= 1) {
 			await adapter.sendText(target, m.thinkingNone(this.#modelName(model)));
 			return;
@@ -1272,7 +1438,44 @@ export class ChannelManager {
 				data: `think:${level}:${hash}`,
 			},
 		]);
-		return { text: m.thinkingTitle(this.#modelName(model)), buttons };
+		const lines = levels.map((level) => {
+			const label = offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level);
+			return `- ${level === current ? "✓ " : ""}${escapeMarkdown(label)} (${level})`;
+		});
+		const text = `${m.thinkingTitle(this.#modelName(model))}\n\n${lines.join("\n")}\n\n${m.thinkingHint}`;
+		return { text, buttons };
+	}
+
+	/** Writes a thinking level to the thread's draft and the user's defaults, or to the session. */
+	async #applyThinking(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		state: Extract<ChatTarget, { state: "draft" | "session" }>,
+		level: ThinkingLevel,
+		m: BotMessages,
+		target: ChannelTarget,
+	): Promise<boolean> {
+		const model = state.state === "draft" ? state.draft.model : state.session.model;
+		const next = withThinkingLevel(model, level);
+		try {
+			if (state.state === "draft") {
+				await updateThreadDraft(this.#options.db, state.thread.id, { ...state.draft, model: next });
+				await this.#writeUserDefaults(user, { defaultModel: next }, row, adapter, state.thread);
+			} else {
+				await this.#options.runtime.configure(state.session.id, {
+					model: { provider: model.provider, modelId: model.modelId, thinkingLevel: level },
+				});
+			}
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotChange(errorText(err)));
+			return false;
+		}
+		await this.#auditSettingsChange(user, row, adapter, state.thread, next, {
+			thinking_level: level,
+			draft: state.state === "draft",
+		});
+		return true;
 	}
 
 	async #pressThink(
@@ -1303,24 +1506,7 @@ export class ChannelManager {
 			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
 			return;
 		}
-		const next = withThinkingLevel(model, level);
-		try {
-			if (state.state === "draft") {
-				await updateThreadDraft(this.#options.db, state.thread.id, { ...state.draft, model: next });
-				await this.#writeUserDefaults(user, { defaultModel: next }, row, adapter, state.thread);
-			} else {
-				await this.#options.runtime.configure(state.session.id, {
-					model: { provider: model.provider, modelId: model.modelId, thinkingLevel: level },
-				});
-			}
-		} catch (err) {
-			await adapter.sendText(target, m.couldNotChange(errorText(err)));
-			return;
-		}
-		await this.#auditSettingsChange(user, row, adapter, state.thread, next, {
-			thinking_level: level,
-			draft: state.state === "draft",
-		});
+		if (!(await this.#applyThinking(row, adapter, user, state, level, m, target))) return;
 		await this.#editPage(
 			adapter,
 			target,
@@ -1335,17 +1521,77 @@ export class ChannelManager {
 		user: SessionUser,
 		target: ChannelTarget,
 		m: BotMessages,
+		args: readonly string[] = [],
 	): Promise<void> {
 		const state = await this.#chatTarget(adapter, row, user, target.chatId, target.topicId ?? null);
 		if (state.state !== "draft" && state.state !== "session") {
 			await this.#replyNoTarget(adapter, state.state, target, m);
 			return;
 		}
+		const raw = args[0]?.toLowerCase();
+		if (raw !== undefined) {
+			const choice = RULE_PRESET_CHOICES.find((candidate) => candidate.value === raw);
+			if (!choice) {
+				await adapter.sendText(target, m.invalidChoice("rules"));
+				return;
+			}
+			if (await this.#applyRules(row, adapter, user, state, choice.value, m, target)) {
+				await adapter.sendText(target, m.rulesSet(choice.label));
+			}
+			return;
+		}
 		const current = state.state === "draft" ? state.draft.rulePreset : (state.session.rules?.rulePreset ?? "ask");
 		const buttons = RULE_PRESET_CHOICES.map((choice) => [
 			{ text: `${choice.value === current ? "✓ " : ""}${choice.label}`, data: `rules:${choice.value}` },
 		]);
-		await adapter.sendText(target, m.rulesTitle, { buttons });
+		const lines = RULE_PRESET_CHOICES.map(
+			(choice) => `- ${choice.value === current ? "✓ " : ""}${escapeMarkdown(choice.label)} (${choice.value})`,
+		);
+		await adapter.sendText(target, `${m.rulesTitle}\n\n${lines.join("\n")}\n\n${m.rulesHint}`, { buttons });
+	}
+
+	/** Writes a rule preset to the thread's draft and the user's defaults, or to the session. */
+	async #applyRules(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		state: Extract<ChatTarget, { state: "draft" | "session" }>,
+		value: RulePreset,
+		m: BotMessages,
+		target: ChannelTarget,
+	): Promise<boolean> {
+		try {
+			if (state.state === "draft") {
+				await updateThreadDraft(this.#options.db, state.thread.id, {
+					...state.draft,
+					rulePreset: value,
+				});
+				await this.#writeUserDefaults(user, { defaultRulePreset: value }, row, adapter, state.thread);
+			} else {
+				await this.#options.runtime.configure(state.session.id, { rulePreset: value });
+				void this.#options.audit.record({
+					actor: userActor(user),
+					action: "rules.changed",
+					target: { type: "session", id: state.session.id },
+					detail: {
+						rule_preset: value,
+						channel: row.name,
+						via: adapter.platform,
+						thread_id: state.thread.id,
+					},
+				});
+				// Waiting work may not need approval any more (doc/design/access-control.md "Approvals").
+				await this.#reevaluateRules(state.session.id);
+			}
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotChange(errorText(err)));
+			return false;
+		}
+		await this.#auditSettingsChange(user, row, adapter, state.thread, value, {
+			rule_preset: value,
+			draft: state.state === "draft",
+		});
+		return true;
 	}
 
 	async #pressRules(
@@ -1365,37 +1611,7 @@ export class ChannelManager {
 			await this.#replyNoTarget(adapter, state.state, target, m);
 			return;
 		}
-		try {
-			if (state.state === "draft") {
-				await updateThreadDraft(this.#options.db, state.thread.id, {
-					...state.draft,
-					rulePreset: choice.value,
-				});
-				await this.#writeUserDefaults(user, { defaultRulePreset: choice.value }, row, adapter, state.thread);
-			} else {
-				await this.#options.runtime.configure(state.session.id, { rulePreset: choice.value });
-				void this.#options.audit.record({
-					actor: userActor(user),
-					action: "rules.changed",
-					target: { type: "session", id: state.session.id },
-					detail: {
-						rule_preset: choice.value,
-						channel: row.name,
-						via: adapter.platform,
-						thread_id: state.thread.id,
-					},
-				});
-				// Waiting work may not need approval any more (doc/design/access-control.md "Approvals").
-				await this.#reevaluateRules(state.session.id);
-			}
-		} catch (err) {
-			await adapter.sendText(target, m.couldNotChange(errorText(err)));
-			return;
-		}
-		await this.#auditSettingsChange(user, row, adapter, state.thread, choice.value, {
-			rule_preset: choice.value,
-			draft: state.state === "draft",
-		});
+		if (!(await this.#applyRules(row, adapter, user, state, choice.value, m, target))) return;
 		await this.#editPage(adapter, target, press.messageId, m.rulesSet(choice.label));
 	}
 
@@ -1405,6 +1621,7 @@ export class ChannelManager {
 		user: SessionUser,
 		target: ChannelTarget,
 		m: BotMessages,
+		args: readonly string[] = [],
 	): Promise<void> {
 		const state = await this.#chatTarget(adapter, row, user, target.chatId, target.topicId ?? null);
 		if (state.state !== "draft" && state.state !== "session") {
@@ -1416,9 +1633,58 @@ export class ChannelManager {
 			await adapter.sendText(target, m.noExtensions);
 			return;
 		}
+		const parsed = parseListArgs(args);
+		if (parsed.kind === "invalid") {
+			await adapter.sendText(target, m.invalidChoice("extensions"));
+			return;
+		}
 		const disabled = await this.#disabledExtensions(state);
-		const view = this.#extensionPage(names, disabled, 1, m);
+		if (parsed.kind === "index") {
+			const name = names[parsed.index - 1];
+			if (!name) {
+				await adapter.sendText(target, m.invalidChoice("extensions"));
+				return;
+			}
+			const enabled = await this.#toggleExtension(row, adapter, user, state, name, disabled, m, target);
+			if (enabled !== undefined) await adapter.sendText(target, m.extensionSet(name, enabled));
+			return;
+		}
+		const view = this.#extensionPage(names, disabled, parsed.page, m);
 		await adapter.sendText(target, view.text, { buttons: view.buttons });
+	}
+
+	/** Toggles one extension; undefined when the write failed (the user was told). */
+	async #toggleExtension(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		state: Extract<ChatTarget, { state: "draft" | "session" }>,
+		name: string,
+		disabled: readonly string[],
+		m: BotMessages,
+		target: ChannelTarget,
+	): Promise<boolean | undefined> {
+		const nextDisabled = disabled.includes(name) ? disabled.filter((entry) => entry !== name) : [...disabled, name];
+		try {
+			if (state.state === "draft") {
+				await updateThreadDraft(this.#options.db, state.thread.id, {
+					...state.draft,
+					disabledExtensions: nextDisabled,
+				});
+			} else {
+				await this.#options.runtime.configure(state.session.id, { disabledExtensions: nextDisabled });
+			}
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotChange(errorText(err)));
+			return undefined;
+		}
+		const enabled = !nextDisabled.includes(name);
+		await this.#auditSettingsChange(user, row, adapter, state.thread, name, {
+			extension: name,
+			enabled,
+			draft: state.state === "draft",
+		});
+		return enabled;
 	}
 
 	async #extensionNames(user: SessionUser): Promise<string[]> {
@@ -1455,8 +1721,12 @@ export class ChannelManager {
 		if (currentPage > 1) nav.push({ text: m.previousPage, data: `extp:${currentPage - 1}:${hash}` });
 		if (currentPage < pages) nav.push({ text: m.nextPage, data: `extp:${currentPage + 1}:${hash}` });
 		if (nav.length > 0) buttons.push(nav);
+		const title = pages > 1 ? m.extensionsTitle(currentPage, pages) : m.extensionsTitleSingle;
+		const lines = pageNames.map((name, index) =>
+			numberedItem((currentPage - 1) * EXTENSION_PAGE_SIZE + index, clip(name, 60), !disabled.includes(name)),
+		);
 		return {
-			text: pages > 1 ? m.extensionsTitle(currentPage, pages) : m.extensionsTitleSingle,
+			text: `${title}\n\n${lines.join("\n")}\n\n${m.choiceHint("extensions", currentPage, pages)}`,
 			buttons,
 			names: pageNames,
 			page: currentPage,
@@ -1493,25 +1763,9 @@ export class ChannelManager {
 			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
 			return;
 		}
-		const nextDisabled = disabled.includes(name) ? disabled.filter((entry) => entry !== name) : [...disabled, name];
-		try {
-			if (state.state === "draft") {
-				await updateThreadDraft(this.#options.db, state.thread.id, {
-					...state.draft,
-					disabledExtensions: nextDisabled,
-				});
-			} else {
-				await this.#options.runtime.configure(state.session.id, { disabledExtensions: nextDisabled });
-			}
-		} catch (err) {
-			await adapter.sendText(target, m.couldNotChange(errorText(err)));
-			return;
-		}
-		await this.#auditSettingsChange(user, row, adapter, state.thread, name, {
-			extension: name,
-			enabled: !nextDisabled.includes(name),
-			draft: state.state === "draft",
-		});
+		const enabled = await this.#toggleExtension(row, adapter, user, state, name, disabled, m, target);
+		if (enabled === undefined) return;
+		const nextDisabled = enabled ? disabled.filter((entry) => entry !== name) : [...disabled, name];
 		const after = this.#extensionPage(names, nextDisabled, view.page, m);
 		await this.#editPage(adapter, target, press.messageId, after.text, after.buttons);
 	}
@@ -1909,6 +2163,23 @@ export class ChannelManager {
 		target: ChannelTarget,
 		m: BotMessages,
 	): Promise<void> {
+		await this.#switchToSession(row, adapter, user, sessionId, press.chatId, press.topicId, target, m);
+	}
+
+	/**
+	 * Binds a chat to one of the user's sessions and replays its recent history. The reply names the session, so a
+	 * list that changed between showing and choosing is noticed.
+	 */
+	async #switchToSession(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		sessionId: string,
+		chatId: string,
+		topicId: string | null,
+		target: ChannelTarget,
+		m: BotMessages,
+	): Promise<void> {
 		const session = await this.#options.runtime.getSession(sessionId);
 		if (!session || session.ownerUserId !== user.userId || session.parentSessionId !== null) {
 			await adapter.sendText(target, m.sessionNotYours);
@@ -1917,11 +2188,12 @@ export class ChannelManager {
 		await bindThread(this.#options.db, {
 			channelId: row.id,
 			platform: adapter.platform,
-			chatId: press.chatId,
-			topicId: press.topicId,
+			chatId,
+			topicId,
 			sessionId: session.id,
 		});
 		await this.#ensureWatcher(session.id);
+		await adapter.sendText(target, m.sessionSwitched(session.title || m.newSessionTitle));
 		await this.#replayHistory(adapter, target, session.id, m);
 	}
 
@@ -2122,6 +2394,7 @@ export class ChannelManager {
 	async #showProgress(sessionId: string, status: (m: BotMessages) => string): Promise<void> {
 		const route = await this.#routeForSession(sessionId);
 		if (!route) return;
+		if (!route.adapter.capabilities.progress) return;
 		const settings = await getUserSettings(this.#options.db, route.account.user_id);
 		if (!settings.showProgress) return;
 		const locale = botLocale(settings.locale);
@@ -2628,9 +2901,14 @@ export class ChannelManager {
 		waiting?: "approval" | "signature",
 	): Promise<void> {
 		const m = messagesFor(locale);
+		const buttonsOn = route.adapter.capabilities.buttons;
 		const withSwitch =
-			route.thread === undefined ? [...buttons, [{ text: m.openSession, data: `switch:${rootId}` }]] : buttons;
-		const body = route.thread === undefined ? m.sessionBody(await this.#sessionTitle(rootId, locale), text) : text;
+			route.thread === undefined && buttonsOn
+				? [...buttons, [{ text: m.openSession, data: `switch:${rootId}` }]]
+				: buttons;
+		const header = route.thread === undefined ? m.sessionBody(await this.#sessionTitle(rootId, locale), text) : text;
+		const link = route.thread === undefined && !buttonsOn ? this.#sessionLink(rootId) : null;
+		const body = link === null ? header : `${header}\n\n${m.openSessionLink(link)}`;
 		let sent: SentMessage;
 		// The wait's status is set before the send, so re-showing the cleared draft carries it.
 		if (waiting !== undefined) this.#markWaiting(rootId, waiting);

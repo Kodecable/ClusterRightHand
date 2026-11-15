@@ -557,7 +557,8 @@ describe("channels", () => {
 		const smallButtons = buttonsOf(small);
 		expect(smallButtons.filter((button) => button.callback_data.startsWith("switch:"))).toHaveLength(2);
 		expect(smallButtons.some((button) => button.callback_data.startsWith("sessions:"))).toBe(false);
-		expect(sentText(small)).not.toContain("page");
+		expect(sentText(small)).not.toContain("page 2");
+		expect(sentText(small)).toContain("Send /sessions and a number to choose.");
 
 		// With no sessions left, a stale page button edits the message to say so.
 		await db.updateTable("sessions").set({ status: "archived" }).where("owner_user_id", "=", pager.id).execute();
@@ -1210,8 +1211,8 @@ describe("channels", () => {
 		const items = text.split("\n").filter((line) => line.startsWith("- "));
 		expect(items.length).toBeGreaterThanOrEqual(15);
 		for (const item of items) expect(item).toMatch(/^- \/[a-z]+/);
-		expect(text).toContain("- /model — choose the session's model");
-		expect(text).toContain("- /extensions — turn extensions on or off");
+		expect(text).toContain("- /model \\[n\\] — choose the session's model by number");
+		expect(text).toContain("- /extensions \\[n\\] — turn an extension on or off by number");
 	});
 
 	it("pages /model five at a time and sets the selected model on the session", async () => {
@@ -1475,6 +1476,204 @@ describe("channels", () => {
 		await channels.refreshWaits(thread.sessionId);
 		const wait = await fake.waitForSent((call) => sentText(call).includes("is used up"));
 		expect(sentText(wait)).toContain('"\\*x\\* \\[a\\]\\(b\\)"');
+	});
+
+	it("numbers model choices across pages and chooses one by number", async () => {
+		const userId = 9401;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const available = models.available();
+		expect(available.length).toBeGreaterThanOrEqual(12);
+
+		fake.text(userId, "/model");
+		const first = await fake.waitForSent((call) => sentText(call).includes("Choose a model (page 1 of"));
+		const firstText = sentText(first);
+		expect(firstText).toContain(available[0]?.name);
+		expect(firstText).toContain(`5. ${available[4]?.name}`);
+		expect(firstText).not.toContain("6. ");
+		expect(firstText).toContain("Send /model and a number to choose, /model page 2 for the next page.");
+
+		fake.text(userId, "/model page 2");
+		const second = await fake.waitForSent((call) => sentText(call).includes("Choose a model (page 2 of"));
+		expect(sentText(second)).toContain(`6. ${available[5]?.name}`);
+		expect(sentText(second)).toContain(`10. ${available[9]?.name}`);
+		expect(sentText(second)).toContain("/model page 3 for the next page.");
+
+		const target = available[6];
+		if (!target) throw new Error("no seventh offered model");
+		fake.text(userId, "/model 7");
+		const confirmed = await fake.waitForSent((call) => sentText(call).includes("Model set to"));
+		expect(sentText(confirmed)).toContain(target.name);
+		expect((await runtime.getSession(thread.sessionId))?.model).toMatchObject({
+			provider: target.provider,
+			modelId: target.modelId,
+		});
+
+		fake.text(userId, "/model 99");
+		await fake.waitForSent((call) => sentText(call).includes("That is not a choice. Send /model for the list."));
+		fake.text(userId, "/model page x");
+		await waitForMessage("That is not a choice. Send /model for the list.", 2);
+	});
+
+	it("switches sessions by number and names the session it chose", async () => {
+		const userId = 9402;
+		await link(userId);
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		const session = await runtime.createSession(alice, {
+			title: "numbered session",
+			model: model(),
+			rulePreset: "yolo",
+		});
+		await db
+			.updateTable("sessions")
+			.set({ updated_at: "2030-01-01T00:00:00.000Z" })
+			.where("id", "=", session.id)
+			.execute();
+		fake.text(userId, "/sessions");
+		const list = await fake.waitForSent((call) => sentText(call).includes("1. numbered session"));
+		expect(sentText(list)).toContain("Send /sessions and a number to choose");
+		fake.text(userId, "/sessions 1");
+		const switched = await fake.waitForSent((call) => sentText(call).includes('Switched to "numbered session".'));
+		expect(fake.calls.indexOf(switched)).toBeGreaterThan(fake.calls.indexOf(list));
+		const thread = await rawThreadFor(userId);
+		expect(thread?.session_id).toBe(session.id);
+	});
+
+	it("toggles an extension by its global number", async () => {
+		const userId = 9403;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const names = (
+			await db.selectFrom("extensions").select("name").where("enabled", "=", 1).orderBy("name").execute()
+		).map((row) => row.name);
+		expect(names.length).toBeGreaterThanOrEqual(7);
+		const sixth = names[5];
+		if (!sixth) throw new Error("no sixth extension");
+
+		fake.text(userId, "/extensions page 2");
+		const page = await fake.waitForSent((call) => sentText(call).includes("Extensions (page 2 of"));
+		expect(sentText(page)).toMatch(new RegExp(`6\\. (✓ )?${sixth}`));
+		expect(sentText(page)).toContain(
+			"Send /extensions and a number to choose, /extensions page 1 for the previous page.",
+		);
+
+		fake.text(userId, "/extensions 6");
+		const toggled = await fake.waitForSent((call) => sentText(call).includes(`Extension ${sixth} is now off.`));
+		expect(toggled).toBeDefined();
+		const row = await db
+			.selectFrom("sessions")
+			.select("disabled_extensions")
+			.where("id", "=", thread.sessionId)
+			.executeTakeFirst();
+		expect(JSON.parse(row?.disabled_extensions ?? "[]")).toContain(sixth);
+
+		fake.text(userId, "/extensions 99");
+		await fake.waitForSent((call) => sentText(call).includes("That is not a choice. Send /extensions for the list."));
+	});
+
+	it("sets the thinking level and rule preset by their ids and refuses unknown ones", async () => {
+		const userId = 9404;
+		await link(userId);
+		const thread = await chatSession(userId);
+		// The default model has no thinking levels; a model with several is needed to choose one.
+		fake.text(userId, "/model 4");
+		await fake.waitForSent((call) => sentText(call).includes("Model set to"));
+
+		fake.text(userId, "/think");
+		const thinking = await fake.waitForSent((call) => sentText(call).includes("Thinking level for"));
+		expect(sentText(thinking)).toContain("- Low (low)");
+		expect(sentText(thinking)).toContain("Send /think with a level id");
+		fake.text(userId, "/think HIGH");
+		const levelSet = await fake.waitForSent((call) => sentText(call).includes("Thinking level set to High."));
+		expect(levelSet).toBeDefined();
+		expect((await runtime.getSession(thread.sessionId))?.model.thinkingLevel).toBe("high");
+		fake.text(userId, "/think louder");
+		await fake.waitForSent((call) => sentText(call).includes("That is not a choice. Send /think for the list."));
+
+		fake.text(userId, "/rules");
+		const rules = await fake.waitForSent((call) => sentText(call).includes("Rule preset:"));
+		expect(sentText(rules)).toContain("Ask (ask)");
+		expect(sentText(rules)).toContain("Send /rules with a preset id");
+		fake.text(userId, "/rules YOLO");
+		const presetSet = await fake.waitForSent((call) => sentText(call).includes("Rule preset set to Yolo."));
+		expect(presetSet).toBeDefined();
+		expect((await runtime.getSession(thread.sessionId))?.rules?.rulePreset).toBe("yolo");
+		fake.text(userId, "/rules chaos");
+		await fake.waitForSent((call) => sentText(call).includes("That is not a choice. Send /rules for the list."));
+	});
+
+	it("validates Satori gateway settings on the admin route", async () => {
+		const invalidUrl = await call(app, "/api/channels/satori-bad-url", {
+			method: "PUT",
+			cookie: adminCookie,
+			body: {
+				kind: "satori",
+				token: "gateway-token",
+				config: { url: "ftp://example.test/satori", platform: "telegram", botId: "424242" },
+			},
+		});
+		expect(invalidUrl.status).toBe(400);
+		const emptyPlatform = await call(app, "/api/channels/satori-empty", {
+			method: "PUT",
+			cookie: adminCookie,
+			body: {
+				kind: "satori",
+				token: "gateway-token",
+				config: { url: "http://127.0.0.1:9/satori", platform: " ", botId: "424242" },
+			},
+		});
+		expect(emptyPlatform.status).toBe(400);
+		const missingConfig = await call(app, "/api/channels/satori-missing", {
+			method: "PUT",
+			cookie: adminCookie,
+			body: { kind: "satori", token: "gateway-token" },
+		});
+		expect(missingConfig.status).toBe(400);
+		const noKind = await call(app, "/api/channels/no-kind", {
+			method: "PUT",
+			cookie: adminCookie,
+			body: { id: "x" },
+		});
+		expect(noKind.status).toBe(400);
+
+		const saved = await call(app, "/api/channels/satori-disabled", {
+			method: "PUT",
+			cookie: adminCookie,
+			body: {
+				kind: "satori",
+				token: "gateway-token",
+				config: { url: "http://127.0.0.1:9/satori", platform: "telegram", botId: "424242" },
+				linkInstructions: "Open @ops_bot\nThen send /link <code>.",
+			},
+		});
+		expect(saved.status).toBe(200);
+		const body = (await saved.json()) as { channel: Record<string, unknown> };
+		expect(body.channel).toMatchObject({
+			kind: "satori",
+			enabled: true,
+			hasCredentials: true,
+			config: { url: "http://127.0.0.1:9/satori", platform: "telegram", botId: "424242" },
+			linkInstructions: "Open @ops_bot\nThen send /link <code>.",
+		});
+
+		const accounts = await call(app, "/api/channel-accounts", { cookie: adminCookie });
+		const accountsBody = (await accounts.json()) as {
+			channels: { name: string; linkInstructions: string | null }[];
+		};
+		expect(accountsBody.channels.find((channel) => channel.name === "satori-disabled")?.linkInstructions).toBe(
+			"Open @ops_bot\nThen send /link <code>.",
+		);
+		// The kind of an existing channel cannot change under it.
+		const changed = await call(app, "/api/channels/satori-disabled", {
+			method: "PUT",
+			cookie: adminCookie,
+			body: { kind: "telegram", token: fake.token },
+		});
+		expect(changed.status).toBe(400);
+		await channels.deleteChannel(
+			{ sessionId: "test", userId: adminId, username: "admin", kind: "admin" },
+			"satori-disabled",
+		);
 	});
 
 	it("ignores removed channel defaults and starts chat sessions from the user's settings", async () => {

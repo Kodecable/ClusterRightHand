@@ -309,6 +309,10 @@ msgstr "A provider id is lowercase letters, digits and dashes."
 msgid "A public key is required."
 msgstr "A public key is required."
 
+#: src/features/channels/channel-dialog.tsx
+msgid "A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id."
+msgstr "A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id."
+
 #: src/features/schedules/pages.tsx
 msgid "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
 msgstr "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
@@ -892,6 +896,10 @@ msgstr "Body fields"
 #: src/features/channels/channels-page.tsx
 msgid "Bot account"
 msgstr "Bot account"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Bot id"
+msgstr "Bot id"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "Bot token"
@@ -1770,8 +1778,8 @@ msgid "Disabled"
 msgstr "Disabled"
 
 #: src/features/channels/channel-dialog.tsx
-msgid "Disabled channels stop polling."
-msgstr "Disabled channels stop polling."
+msgid "Disabled channels stop polling or disconnect."
+msgstr "Disabled channels stop polling or disconnect."
 
 #: src/components/status-badge.tsx
 msgid "Dispatched"
@@ -2221,6 +2229,14 @@ msgstr "Format"
 msgid "From BotFather. It is encrypted with the master key and never shown again."
 msgstr "From BotFather. It is encrypted with the master key and never shown again."
 
+#: src/features/channels/channel-dialog.tsx
+msgid "Gateway token"
+msgstr "Gateway token"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Gateway URL"
+msgstr "Gateway URL"
+
 #: src/features/settings/user-settings-dialog.tsx
 #: src/features/system-settings/general-section.tsx
 msgid "General"
@@ -2437,6 +2453,7 @@ msgstr "Keys crhs signs authorizations with. The newest is used by default; a no
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
+#: src/features/channels/channel-dialog.tsx
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
@@ -2544,6 +2561,10 @@ msgstr "Lines"
 #: src/components/task-result.tsx
 msgid "Lines {from}–{to}"
 msgstr "Lines {from}–{to}"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Link instructions"
+msgstr "Link instructions"
 
 #: src/components/task-result.tsx
 msgid "Link target"
@@ -3312,6 +3333,7 @@ msgid "Off cannot be hidden; give it a display name."
 msgstr "Off cannot be hidden; give it a display name."
 
 #: src/components/status-badge.tsx
+#: src/features/channels/channels-page.tsx
 msgid "Offline"
 msgstr "Offline"
 
@@ -3344,6 +3366,10 @@ msgstr "One file for new groups"
 msgid "One file for new users"
 msgstr "One file for new users"
 
+#: src/features/channels/channels-page.tsx
+msgid "Online"
+msgstr "Online"
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "Only administrators can manage SSH credentials."
@@ -3371,6 +3397,7 @@ msgstr "Open {0} {1}"
 msgid "Open a private chat with @{0}."
 msgstr "Open a private chat with @{0}."
 
+#. placeholder {0}: channel.name
 #. placeholder {0}: channel?.name
 #: src/features/channels/chat-accounts-section.tsx
 msgid "Open a private chat with the bot named {0}."
@@ -3457,6 +3484,10 @@ msgstr "Optional; it defaults to the node's hostname."
 #: src/features/signing-credentials/pages.tsx
 msgid "Optional; it names the trust entry."
 msgstr "Optional; it names the trust entry."
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Optional. It is encrypted with the master key and never shown again."
+msgstr "Optional. It is encrypted with the master key and never shown again."
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
@@ -3605,6 +3636,14 @@ msgstr "Pi built-in providers and custom endpoints; their keys are never shown b
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Pin the host fingerprint of the {0}?"
 msgstr "Pin the host fingerprint of the {0}?"
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Plain text shown to users before they link a chat, such as how to reach the bot."
+msgstr "Plain text shown to users before they link a chat, such as how to reach the bot."
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Platform"
+msgstr "Platform"
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Port"
@@ -4730,6 +4769,10 @@ msgid "The base URL must start with http:// or https://."
 msgstr "The base URL must start with http:// or https://."
 
 #: src/features/channels/channel-dialog.tsx
+msgid "The bot id is required."
+msgstr "The bot id is required."
+
+#: src/features/channels/channel-dialog.tsx
 msgid "The bot token is required."
 msgstr "The bot token is required."
 
@@ -4766,6 +4809,10 @@ msgstr "The full output is in <0>{0}</0> on the node."
 msgid "The full output stays on the node until the task exits."
 msgstr "The full output stays on the node until the task exits."
 
+#: src/features/channels/channel-dialog.tsx
+msgid "The gateway base URL; its API is under /v1."
+msgstr "The gateway base URL; its API is under /v1."
+
 #: src/features/nodes/access-grants.tsx
 msgid "The grantee can see the node or every node in the node group and run tasks on them."
 msgstr "The grantee can see the node or every node in the node group and run tasks on them."
@@ -4785,6 +4832,10 @@ msgstr "The limits a new user or user group library copies when it is created. C
 #: src/components/task-result.tsx
 msgid "The listing is truncated: the directory has more entries than are shown."
 msgstr "The listing is truncated: the directory has more entries than are shown."
+
+#: src/features/channels/channel-dialog.tsx
+msgid "The login's user id in that platform; the channels page lists the ones the gateway reported."
+msgstr "The login's user id in that platform; the channels page lists the ones the gateway reported."
 
 #: src/features/settings/model-presets.tsx
 msgid "The model list could not be loaded."
@@ -4846,6 +4897,14 @@ msgstr "The old key stops working as soon as the node enrolls with the new token
 #: src/app/router.tsx
 msgid "The page you asked for does not exist."
 msgstr "The page you asked for does not exist."
+
+#: src/features/channels/channel-dialog.tsx
+msgid "The platform is required."
+msgstr "The platform is required."
+
+#: src/features/channels/channel-dialog.tsx
+msgid "The platform the bot runs on at the gateway."
+msgstr "The platform the bot runs on at the gateway."
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "The port must be between 1 and 65535."
@@ -5278,6 +5337,10 @@ msgstr "Use \"New node\" to enrol a crha client, or \"New SSH node\" for an SSH 
 #: src/features/users/new-user-dialog.tsx
 msgid "Use 1–64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter."
 msgstr "Use 1–64 characters of a-z, 0-9, '.', '_' or '-', starting with a letter."
+
+#: src/features/channels/channel-dialog.tsx
+msgid "Use an http or https gateway URL."
+msgstr "Use an http or https gateway URL."
 
 #: src/features/users/new-user-dialog.tsx
 msgid "Use at least 8 characters, or leave it empty."
