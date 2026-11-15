@@ -41,8 +41,11 @@ describe("API document", () => {
 		expect(settings?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(settings?.patch?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/me/signing-credentials"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		// A user's own settings are readable, but changing them needs an approval.
+		expect(doc.paths?.["/api/me/settings"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
+		expect(doc.paths?.["/api/me/settings"]?.patch?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
 		expect(doc.paths?.["/api/node-access-grants"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
-		for (const schema of ["SystemSettings", "NodeAccessGrant", "SigningCredentialView"]) {
+		for (const schema of ["SystemSettings", "NodeAccessGrant", "SigningCredentialView", "UserSettings"]) {
 			expect(doc.components?.schemas?.[schema]).toBeDefined();
 		}
 

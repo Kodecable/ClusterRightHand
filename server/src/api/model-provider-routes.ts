@@ -11,6 +11,7 @@ import {
 	deleteModelProvider,
 	listModelProviders,
 	type ModelConfig,
+	type ModelRef,
 	saveModelProvider,
 } from "../agent/models.ts";
 import { userActor } from "../audit/audit.ts";
@@ -65,6 +66,8 @@ const deleteProviderRoute = defineRoute({
 export interface ModelProviderRoutesOptions {
 	models: ModelConfig;
 	masterKey: MasterKey;
+	/** The session model preset's model; new sessions fall back to it after a user default. */
+	sessionModel?: () => ModelRef | null;
 }
 
 /**
@@ -75,7 +78,9 @@ export function modelProviderRoutes(db: Db, options: ModelProviderRoutesOptions)
 	const { models } = options;
 	const app = apiRouter();
 
-	app.openapi(listModelsRoute, (c) => c.json({ models: models.available() }, 200));
+	app.openapi(listModelsRoute, (c) =>
+		c.json({ models: models.available(), sessionModel: options.sessionModel?.() ?? null }, 200),
+	);
 
 	app.openapi(listProvidersRoute, async (c) => {
 		return c.json({ providers: await listModelProviders(db), builtin: builtinProviderIds() }, 200);

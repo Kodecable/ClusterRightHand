@@ -41,7 +41,6 @@ export type NavPath =
 	| "/settings/models"
 	| "/settings/extensions"
 	| "/settings/channels"
-	| "/settings/chats"
 	| "/settings/system"
 	| "/users";
 
@@ -70,7 +69,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/schedules", label: msg`Schedules`, icon: CalendarClockIcon },
 			{ to: "/tasks", label: msg`Tasks`, icon: ListChecksIcon, activeFor: ["/task-groups"] },
 			{ to: "/approvals", label: msg`Approvals`, icon: ShieldCheckIcon, badge: "approvals" },
-			{ to: "/settings/chats", label: msg`Chat accounts`, icon: MessageSquareIcon },
 		],
 	},
 	{

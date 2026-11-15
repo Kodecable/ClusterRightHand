@@ -8,8 +8,6 @@ import {
 	ChannelListResponseSchema,
 	ChannelNameParamSchema,
 	ChannelResponseSchema,
-	ChannelSettingsResponseSchema,
-	ChannelSettingsUpdateSchema,
 	OkResponseSchema,
 } from "@crh/api/schemas";
 import type { Audit } from "../audit/audit.ts";
@@ -89,25 +87,6 @@ const unlinkRoute = defineRoute({
 	responses: { 200: { description: "Unlinked", ...json(OkResponseSchema) } },
 });
 
-const settingsRoute = defineRoute({
-	method: "get",
-	path: "/channel-settings",
-	tags: TAGS,
-	summary: "The caller's chat settings: the default notification account and the progress toggle",
-	agent: "allow",
-	responses: { 200: { description: "The settings", ...json(ChannelSettingsResponseSchema) } },
-});
-
-const saveSettingsRoute = defineRoute({
-	method: "put",
-	path: "/channel-settings",
-	tags: TAGS,
-	summary: "Change the caller's default notification account or progress toggle",
-	agent: "deny",
-	request: { body: { required: true, ...json(ChannelSettingsUpdateSchema) } },
-	responses: { 200: { description: "The settings", ...json(ChannelSettingsResponseSchema) } },
-});
-
 export interface ChannelRoutesOptions {
 	db: Db;
 	channels: ChannelManager;
@@ -165,13 +144,6 @@ export function channelRoutes(options: ChannelRoutesOptions) {
 		const { id } = c.req.valid("param");
 		await channels.unlink(c.get("user"), id);
 		return c.json({ ok: true as const }, 200);
-	});
-
-	app.openapi(settingsRoute, async (c) => c.json({ settings: await channels.settings(c.get("user").userId) }, 200));
-
-	app.openapi(saveSettingsRoute, async (c) => {
-		const settings = await channels.saveSettings(c.get("user"), c.req.valid("json"));
-		return c.json({ settings }, 200);
 	});
 
 	return app;

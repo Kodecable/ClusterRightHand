@@ -1,4 +1,4 @@
-import type { AvailableModel, SessionView, User } from "@crh/api";
+import type { AvailableModel, ModelRef, SessionView, User, UserSettings } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -15,7 +15,7 @@ import { LocaleProvider } from "@/lib/i18n";
 import { authStore } from "@/lib/session";
 import { activateLocale } from "@/test/render";
 import { sessionKeys } from "./api";
-import { NEW_SESSION_MODEL_STORAGE_KEY, NewSessionPage } from "./new-session-page";
+import { NewSessionPage } from "./new-session-page";
 
 const ADMIN: User = {
 	id: "u1",
@@ -92,9 +92,28 @@ function SessionTarget() {
 	return <div data-testid="session-target">{params.sessionId}</div>;
 }
 
+const DEFAULT_SETTINGS: UserSettings = {
+	locale: null,
+	defaultModel: null,
+	defaultRulePreset: null,
+	showProgress: true,
+	defaultChannelAccountId: null,
+};
+
 /** The draft page at /sessions/new with a dummy session page that shows which id it was given. */
-async function renderDraft(options: { posts?: Post[]; createResponse?: () => Response; initialPath?: string } = {}) {
+async function renderDraft(
+	options: {
+		posts?: Post[];
+		patches?: Post[];
+		settings?: Partial<UserSettings>;
+		sessionModel?: ModelRef | null;
+		createResponse?: () => Response;
+		initialPath?: string;
+	} = {},
+) {
 	const posts = options.posts ?? [];
+	const patches = options.patches ?? [];
+	let settings: UserSettings = { ...DEFAULT_SETTINGS, ...options.settings };
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -102,7 +121,17 @@ async function renderDraft(options: { posts?: Post[]; createResponse?: () => Res
 			const json = (payload: unknown, status = 200) =>
 				new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
 			if (url.pathname === "/api/me") return json({ user: ADMIN });
-			if (url.pathname === "/api/models") return json({ models: MODELS });
+			if (url.pathname === "/api/models") {
+				return json({ models: MODELS, sessionModel: options.sessionModel ?? null });
+			}
+			if (url.pathname === "/api/me/settings") {
+				if (init?.method === "PATCH") {
+					const body = JSON.parse(String(init.body)) as Partial<UserSettings>;
+					patches.push({ path: url.pathname, body });
+					settings = { ...settings, ...body };
+				}
+				return json({ settings });
+			}
 			if (url.pathname === "/api/sessions" && init?.method === "POST") {
 				posts.push({ path: url.pathname, body: JSON.parse(String(init.body)) as Record<string, unknown> });
 				return options.createResponse?.() ?? json({ session: sessionView() }, 201);
@@ -152,12 +181,21 @@ afterEach(() => {
 });
 
 describe("NewSessionPage", () => {
-	test("defaults to the last model used, with Ask and an unlimited budget", async () => {
-		localStorage.setItem(NEW_SESSION_MODEL_STORAGE_KEY, JSON.stringify({ provider: "faux", modelId: "faux-2" }));
-		await renderDraft();
+	test("initialises the model, thinking level and rule preset from the user's settings", async () => {
+		const patches: Post[] = [];
+		await renderDraft({
+			patches,
+			settings: {
+				defaultModel: { provider: "faux", modelId: "faux-2", thinkingLevel: "low" },
+				defaultRulePreset: "yolo",
+			},
+		});
 		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux Two"));
-		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Ask");
+		expect(screen.getByTestId("composer-thinking")).toHaveTextContent("Low");
+		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Yolo");
 		expect(screen.getByTestId("composer-budget")).toHaveTextContent("∞");
+		// Opening the draft applies the settings but does not save them again.
+		expect(patches).toHaveLength(0);
 		// No header row: the empty transcript holds the centred prompt, and below `lg` the back button.
 		expect(screen.queryByTestId("session-header")).not.toBeInTheDocument();
 		expect(screen.getByTestId("new-session-prompt")).toHaveTextContent("What's on your plan today?");
@@ -168,8 +206,15 @@ describe("NewSessionPage", () => {
 		expect(screen.queryByTestId("session-title")).not.toBeInTheDocument();
 	});
 
-	test("falls back to the first available model when the stored one is gone", async () => {
-		localStorage.setItem(NEW_SESSION_MODEL_STORAGE_KEY, JSON.stringify({ provider: "gone", modelId: "nope" }));
+	test("falls back from a default no longer offered to the session model preset, then the first model", async () => {
+		await renderDraft({
+			settings: { defaultModel: { provider: "gone", modelId: "nope" } },
+			sessionModel: { provider: "faux", modelId: "faux-2" },
+		});
+		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux Two"));
+	});
+
+	test("uses the first available model when there is no default", async () => {
 		await renderDraft();
 		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux One"));
 	});
@@ -185,6 +230,31 @@ describe("NewSessionPage", () => {
 		await user.click(screen.getByTestId("composer-model"));
 		await user.click(await screen.findByRole("option", { name: "Faux Two" }));
 		await waitFor(() => expect(screen.getByTestId("composer-thinking")).toHaveTextContent("Off"));
+	});
+
+	test("saves every default changed on the draft", async () => {
+		const patches: Post[] = [];
+		const user = userEvent.setup();
+		await renderDraft({ patches });
+		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux One"));
+		expect(patches).toHaveLength(0);
+
+		await user.click(screen.getByTestId("composer-thinking"));
+		await user.click(await screen.findByRole("option", { name: "High" }));
+		await waitFor(() => expect(patches).toHaveLength(1));
+		expect(patches[0]?.body).toEqual({
+			defaultModel: { provider: "faux", modelId: "faux-1", thinkingLevel: "high" },
+		});
+
+		await user.click(screen.getByTestId("composer-model"));
+		await user.click(await screen.findByRole("option", { name: "Faux Two" }));
+		await waitFor(() => expect(patches).toHaveLength(2));
+		expect(patches[1]?.body).toEqual({ defaultModel: { provider: "faux", modelId: "faux-2" } });
+
+		await user.click(screen.getByTestId("composer-rules"));
+		await user.click(await screen.findByRole("option", { name: "Yolo" }));
+		await waitFor(() => expect(patches).toHaveLength(3));
+		expect(patches[2]?.body).toEqual({ defaultRulePreset: "yolo" });
 	});
 
 	test("sends the footer's model, thinking level, rule preset and budget with the message", async () => {
@@ -221,10 +291,6 @@ describe("NewSessionPage", () => {
 		expect(screen.getByTestId("session-target")).toHaveTextContent("s-new");
 		const list = client.getQueryData<{ pages: { items: { id: string }[] }[] }>(sessionKeys.listPage("visible", ""));
 		expect(list?.pages[0]?.items.map((item) => item.id)).toContain("s-new");
-		expect(JSON.parse(localStorage.getItem(NEW_SESSION_MODEL_STORAGE_KEY) ?? "{}")).toEqual({
-			provider: "faux",
-			modelId: "faux-1",
-		});
 	});
 
 	test("failure keeps the text and reuses the same requestId on retry", async () => {

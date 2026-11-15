@@ -16,25 +16,27 @@ because it is unclear whose account a group message would run as.
    settings. Each topic is then its own session. Without topics the chat has one current session and
    you switch between sessions with `/sessions`.
 
-An administrator adds the channel in **Admin → Channels**: the name, the bot token and the
-default model and rule preset for new sessions. The token is encrypted with the master key and never
-shown again. The page shows whether the bot is connected, its username and the last error. Links in
+An administrator adds the channel in **Admin → Channels**: the name and the bot token. The token is
+encrypted with the master key and never shown again. The page shows whether the bot is connected, its username and the last error. Links in
 chat open the WebUI, so the administrator should set its **Public URL** in **System settings**.
 
 ## Link your account
 
-1. Open **Chat accounts** in the sidebar.
+1. Open **Settings…** in the user menu and choose the **Chat** tab.
 2. Choose **Create link code**. The dialog shows a command such as `/link ABCD2345` and when the code
    expires.
 3. Open a private chat with the bot, send that command, and the chat is linked to your account.
 
 The code works once and expires after ten minutes. A linked chat acts with your authority for
 everything the chat can do, including approvals that need no signature, so protect it like your
-password. **Unlink** on the same page, or `/unlink` in the chat, removes the link.
+password. **Unlink** on the same tab, or `/unlink` in the chat, removes the link.
 
 You can choose one linked account as your **default notification account**. When you are not using the
 WebUI, notifications for your sessions go there. **Show progress** adds a short status while a turn
 runs; tool calls and thinking are never sent as messages.
+
+The bot's fixed messages follow your language from **Settings → General**. Before you link a chat it
+uses the language of your Telegram client, so `/start` or `/help` is in Chinese when Telegram is.
 
 ## Commands
 
@@ -45,7 +47,11 @@ command are not sent. An unknown command gets a short hint instead of being pass
 |---|---|
 | `/link <code>` | Links this private chat to your account |
 | `/unlink` | Unlinks this chat |
-| `/new` | Starts a new session |
+| `/new` | Starts a draft for a new session; its first message creates the session |
+| `/model` | Chooses the session's (or draft's) model, five per page |
+| `/think` | Chooses its thinking level |
+| `/rules` | Chooses its rule preset |
+| `/extensions` | Turns the session's extensions on or off, five per page |
 | `/sessions` | Lists your recent sessions, five per page, with buttons to switch to one |
 | `/stop` | Stops the running turn |
 | `/quota` | Shows the session's token quota |
@@ -55,13 +61,20 @@ command are not sent. An unknown command gets a short hint instead of being pass
 | `/reject <id> [reason]` | Rejects it |
 | `/help` | Lists the commands |
 
+A new session uses your defaults from **Settings → Sessions**, not the channel's: the default model
+with its thinking level, then the session model preset, then the first available model, and the default
+rule preset (Ask when unset). `/new` shows a draft first; `/model`, `/think` and `/rules` change it and
+save the choice as your default, while `/extensions` only affects that draft. The first message you
+send starts the session with the draft's settings. Switching to another session with `/sessions`
+discards the draft.
+
 ## What the chat shows
 
 - Each piece of the assistant's text arrives as its own message: the short comments between tool calls
   as well as the final answer. Telegram renders its Markdown formatting, and long text is split at
   Telegram's limit.
-- When a new session starts — with `/new`, in a new topic, or because the old session was archived or
-  is no longer yours — the chat announces it and links to it in the WebUI.
+- When a new session starts — with the first message after `/new`, in a new topic, or because the old
+  session was archived or is no longer yours — the chat announces it and links to it in the WebUI.
 - Files the assistant delivers are sent as links that open in the WebUI; opening one goes through the
   normal sign-in and access checks.
 - A failed turn sends the error.

@@ -22,6 +22,11 @@ describe("navItemForPath", () => {
 		expect(navItemForPath("/usersomething")).toBeUndefined();
 		expect(navItemForPath("/node-groups/group-1")?.to).toBe("/node-groups");
 	});
+
+	test("has no chat settings page; it lives in the user settings dialog", () => {
+		expect(NAV_ITEMS.map((item) => item.to)).not.toContain("/settings/chats");
+		expect(navItemForPath("/settings/chats")).toBeUndefined();
+	});
 });
 
 describe("admin navigation", () => {

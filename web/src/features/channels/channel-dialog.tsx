@@ -1,12 +1,12 @@
-import type { ChannelView, RulePreset } from "@crh/api";
+import type { ChannelView } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { FormDialog } from "@/components/dialogs";
-import { CheckboxField, SelectField, TextField } from "@/components/form";
-import { useAvailableModels, useSaveChannel } from "./api";
+import { CheckboxField, TextField } from "@/components/form";
+import { useSaveChannel } from "./api";
 
 const NAME_PATTERN = /^[a-z-][a-z0-9-]{0,63}$/;
 
@@ -15,8 +15,6 @@ function channelSchema(editing: boolean, messages: { name: string; token: string
 		.object({
 			name: z.string(),
 			token: z.string(),
-			model: z.string(),
-			rulePreset: z.string(),
 			enabled: z.boolean(),
 		})
 		.superRefine((values, context) => {
@@ -38,7 +36,6 @@ type Values = z.infer<ReturnType<typeof channelSchema>>;
 /** The administrator's create/edit dialog for one Telegram bot (doc/design/channels.md "Channels"). */
 export function ChannelDialog({ existing, onClose }: { existing: ChannelView | undefined; onClose: () => void }) {
 	const { t } = useLingui();
-	const models = useAvailableModels();
 	const save = useSaveChannel();
 	const editing = existing !== undefined;
 	const schema = useMemo(
@@ -54,30 +51,11 @@ export function ChannelDialog({ existing, onClose }: { existing: ChannelView | u
 		defaultValues: {
 			name: existing?.name ?? "",
 			token: "",
-			model:
-				existing?.defaultModel === null || existing?.defaultModel === undefined
-					? ""
-					: `${existing.defaultModel.provider}/${existing.defaultModel.modelId}`,
-			rulePreset: existing?.defaultRulePreset ?? "",
 			enabled: existing?.enabled ?? true,
 		},
 	});
-	const modelOptions = [
-		{ value: "", label: t`System default` },
-		...(models.data ?? []).map((model) => ({
-			value: `${model.provider}/${model.modelId}`,
-			label: `${model.name} (${model.provider})`,
-		})),
-	];
-	const ruleOptions = [
-		{ value: "", label: t`Ask (default)` },
-		{ value: "ask", label: t`Ask` },
-		{ value: "auto_review", label: t`Auto Review` },
-		{ value: "yolo", label: t`Yolo` },
-	];
 
 	const submit = form.handleSubmit((values) => {
-		const slash = values.model.indexOf("/");
 		save.mutate(
 			{
 				name: values.name,
@@ -85,14 +63,6 @@ export function ChannelDialog({ existing, onClose }: { existing: ChannelView | u
 					kind: "telegram",
 					enabled: values.enabled,
 					...(values.token.trim() === "" ? {} : { token: values.token.trim() }),
-					defaultModel:
-						values.model === ""
-							? null
-							: {
-									provider: values.model.slice(0, slash),
-									modelId: values.model.slice(slash + 1),
-								},
-					defaultRulePreset: values.rulePreset === "" ? null : (values.rulePreset as RulePreset),
 				},
 			},
 			{ onSuccess: onClose },
@@ -129,8 +99,6 @@ export function ChannelDialog({ existing, onClose }: { existing: ChannelView | u
 				placeholder={editing && existing.hasCredentials ? t`Leave empty to keep the current token` : undefined}
 				description={<Trans>From BotFather. It is encrypted with the master key and never shown again.</Trans>}
 			/>
-			<SelectField control={form.control} name="model" label={t`Default model`} options={modelOptions} />
-			<SelectField control={form.control} name="rulePreset" label={t`Default rule preset`} options={ruleOptions} />
 			<CheckboxField
 				control={form.control}
 				name="enabled"

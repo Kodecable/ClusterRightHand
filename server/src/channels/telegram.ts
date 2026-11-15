@@ -2,6 +2,7 @@ import { Api, GrammyError } from "grammy";
 import type { InlineKeyboardMarkup, Message, Update } from "grammy/types";
 import { errorText } from "../util/errors.ts";
 import { ChannelConnection, type ChannelConnectionOptions } from "./connection.ts";
+import { messagesFor } from "./messages.ts";
 import type {
 	ButtonPress,
 	ChannelAdapter,
@@ -152,6 +153,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 		const apiSignal = signal as unknown as never;
 		const me = await this.#api.getMe(apiSignal);
 		this.#account = me.username ?? me.first_name;
+		await this.#setCommands();
 		while (!signal.aborted) {
 			const updates = await this.#api.getUpdates(
 				{
@@ -176,6 +178,17 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 				this.#offset = update.update_id + 1;
 				await this.#onCursor(update.update_id);
 			}
+		}
+	}
+
+	async #setCommands(): Promise<void> {
+		try {
+			// English is the default menu; Telegram shows the zh menu to clients whose language starts with zh.
+			await this.#api.setMyCommands([...messagesFor("en").commandMenu]);
+			await this.#api.setMyCommands([...messagesFor("zh-CN").commandMenu], { language_code: "zh" });
+		} catch (err) {
+			// A menu is a convenience; a platform that refuses it must not keep the bot from polling.
+			this.markError(errorText(err));
 		}
 	}
 
@@ -217,6 +230,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 			chatId: chatIdOf(message.chat.id),
 			topicId: topicOf(message),
 			displayName: displayName(message.from),
+			languageCode: message.from.language_code ?? null,
 			text: message.text ?? message.caption ?? null,
 			files,
 		};
@@ -239,6 +253,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 			messageId: String(message.message_id),
 			data: query.data,
 			displayName: displayName(query.from),
+			languageCode: query.from.language_code ?? null,
 		};
 		await this.#handlers?.onButton(press);
 	}

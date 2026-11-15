@@ -18,6 +18,7 @@ import { findUserLibrary } from "../src/library/library.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
+import { getUserSettings, patchUserSettings } from "../src/users/settings.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { type FakeCall, type FakeTelegram, sentText, startFakeTelegram } from "./helpers/fake-telegram.ts";
@@ -30,6 +31,7 @@ let taskGroups: TaskGroups;
 let masterKey: MasterKey;
 let audit: Audit;
 let runtime: AgentRuntime;
+let models: ModelConfig;
 let orgId = "";
 let app: App;
 let fake: FakeTelegram;
@@ -40,9 +42,19 @@ let adminCookie = "";
 let aliceCookie = "";
 let aliceId = "";
 let adminId = "";
+let commandMenus: FakeCall[] = [];
 const faux = fauxProvider();
 const titleFaux = fauxProvider({ provider: "title-faux" });
 const slowFaux = fauxProvider({ provider: "slow-faux", tokensPerSecond: 1 });
+/** Twelve more offered models, so `/model` and `/extensions` paging have more than one page. */
+const manyFaux = fauxProvider({
+	provider: "many-faux",
+	models: Array.from({ length: 12 }, (_, index) => ({
+		id: `many-${index + 1}`,
+		name: `Many ${index + 1}`,
+		reasoning: index === 0,
+	})),
+});
 const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 const slowModel = () => ({ provider: slowFaux.provider.id, modelId: slowFaux.getModel().id });
 
@@ -55,10 +67,11 @@ beforeAll(async () => {
 	cluster = new Cluster(db, { audit, libraryBackend: backend });
 	taskGroups = new TaskGroups(db, cluster, { audit });
 	masterKey = MasterKey.generate();
-	const models = new ModelConfig(db, masterKey);
+	models = new ModelConfig(db, masterKey);
 	models.addProvider(faux.provider);
 	models.addProvider(titleFaux.provider);
 	models.addProvider(slowFaux.provider);
+	models.addProvider(manyFaux.provider);
 	await models.reload();
 	const storage = new MemoryStorage();
 	runtime = await AgentRuntime.open({ db, storage, models, cluster, taskGroups, audit });
@@ -70,11 +83,36 @@ beforeAll(async () => {
 	adminId = admin.id;
 	const alice = await createUser(db, { username: "alice", kind: "member", password: "password-123" });
 	aliceId = alice.id;
+	// Seven extensions besides the built-ins, so the toggles have a second page.
+	for (let index = 1; index <= 7; index++) {
+		const name = `ext-${index}`;
+		await db
+			.insertInto("extensions")
+			.values({
+				id: `extension-${name}`,
+				org_id: orgId,
+				name,
+				kind: "mcp",
+				description: null,
+				url: "https://example.test/mcp",
+				headers_secret_id: null,
+				identity_headers: null,
+				enabled: 1,
+				list_directly: 0,
+				availability: "everyone",
+				trust_annotations: null,
+				timeout_ms: null,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+			})
+			.execute();
+	}
 	fake = await startFakeTelegram({ token: "123456:TEST_TOKEN" });
 	channels = new ChannelManager({
 		db,
 		masterKey,
 		runtime,
+		models,
 		cluster,
 		taskGroups,
 		audit,
@@ -105,12 +143,12 @@ beforeAll(async () => {
 		body: {
 			kind: "telegram",
 			token: fake.token,
-			defaultModel: model(),
-			defaultRulePreset: "yolo",
 		},
 	});
 	expect(created.status).toBe(200);
 	await fake.waitFor("getMe");
+	// The adapter sets the default English menu and a zh variant once it knows the bot.
+	commandMenus = await fake.waitForCount("setMyCommands", 2);
 });
 
 afterAll(async () => {
@@ -138,13 +176,19 @@ const linkAs = async (cookie: string, userId: number, expected: string): Promise
 
 const link = (userId: number): Promise<void> => linkAs(aliceCookie, userId, "Linked.");
 
-const threadFor = async (userId: number) =>
-	db
-		.selectFrom("channel_threads")
-		.selectAll()
-		.where("chat_id", "=", String(userId))
-		.where("topic_id", "is", null)
-		.executeTakeFirst();
+const rawThreadFor = async (userId: number, topicId?: number) => {
+	let query = db.selectFrom("channel_threads").selectAll().where("chat_id", "=", String(userId));
+	query = topicId === undefined ? query.where("topic_id", "is", null) : query.where("topic_id", "=", String(topicId));
+	return query.executeTakeFirst();
+};
+
+/** The chat's thread; a draft thread (no session yet) is an error here, so a caller can use its session id. */
+const threadFor = async (userId: number, topicId?: number) => {
+	const row = await rawThreadFor(userId, topicId);
+	if (!row) return undefined;
+	if (row.session_id === null) throw new Error("the thread holds a draft, not a session");
+	return row as typeof row & { session_id: string };
+};
 
 /** Where the session's latest user message came from, as the channels record it. */
 const lastUsed = async (sessionId: string): Promise<string | null> =>
@@ -175,6 +219,34 @@ describe("channels", () => {
 		);
 	});
 
+	it("registers the Telegram command menu in English and Chinese", async () => {
+		expect(commandMenus[0]?.body.language_code).toBeUndefined();
+		expect(commandMenus[1]?.body.language_code).toBe("zh");
+		const menus = commandMenus.map((call) => call.body.commands as { command: string; description: string }[]);
+		expect(menus[0]).toContainEqual({ command: "help", description: "List the commands" });
+		expect(menus[1]).toContainEqual({ command: "help", description: "列出所有命令" });
+	});
+
+	it("answers a zh-CN user in Chinese", async () => {
+		const userId = 9204;
+		await link(userId);
+		await patchUserSettings(db, aliceId, { locale: "zh-CN" });
+		try {
+			fake.text(userId, "/help");
+			const help = await fake.waitForSent((call) => sentText(call).includes("ClusterRightHand 命令："));
+			expect(sentText(help)).toContain("/new — 开始新会话");
+		} finally {
+			await patchUserSettings(db, aliceId, { locale: null });
+		}
+	});
+
+	it("answers an unlinked user in the platform's Chinese language", async () => {
+		const userId = 9205;
+		fake.text(userId, "hello", { languageCode: "zh-hans" });
+		const reply = await fake.waitForSent((call) => sentText(call).includes("要在聊天中使用 ClusterRightHand"));
+		expect(sentText(reply)).toContain("WebUI 的设置");
+	});
+
 	it("runs a command in a file caption without downloading or sending the file", async () => {
 		const userId = 9202;
 		await link(userId);
@@ -182,14 +254,16 @@ describe("channels", () => {
 		const getFiles = fake.callsOf("getFile").length;
 		const downloads = fake.callsOf("fileDownload").length;
 		fake.photo(userId, "caption-photo", { caption: "/new" });
-		const notice = await fake.waitForSent((call) => sentText(call).includes("Started a new session."));
+		const draft = await fake.waitForSent((call) => sentText(call).startsWith("New session draft:"));
 		const filesNote = await fake.waitForSent((call) => sentText(call).includes("attached files were not sent"));
-		expect(fake.calls.indexOf(notice)).toBeLessThan(fake.calls.indexOf(filesNote));
+		expect(fake.calls.indexOf(draft)).toBeLessThan(fake.calls.indexOf(filesNote));
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(fake.callsOf("getFile").length).toBe(getFiles);
 		expect(fake.callsOf("fileDownload").length).toBe(downloads);
 		expect(fake.callsOf("sendMessageDraft").length).toBe(0);
-		expect(await threadFor(userId)).toBeDefined();
+		const thread = await rawThreadFor(userId);
+		expect(thread?.session_id).toBeNull();
+		expect(thread?.draft).toContain("rulePreset");
 	});
 
 	it("announces every session a chat starts and names a replaced one", async () => {
@@ -205,9 +279,15 @@ describe("channels", () => {
 		expect(sentText(firstNotice)).toContain("https://crh.example/sessions/");
 		await runtime.waitForIdle();
 
-		// /new sends the same notice.
+		// /new records a draft instead; its first message starts the session and sends the notice.
 		fake.text(userId, "/new");
+		await fake.waitForSent((call) => sentText(call).startsWith("New session draft:"));
+		expect((await rawThreadFor(userId))?.session_id).toBeNull();
+		faux.setResponses([fauxAssistantMessage("draft answer")]);
+		fake.text(userId, "from the draft");
 		await waitForMessage("Started a new session.", 2);
+		await fake.waitForSent((call) => sentText(call).includes("draft answer"));
+		await runtime.waitForIdle();
 
 		// A new topic starts its own session too.
 		faux.setResponses([fauxAssistantMessage("topic answer")]);
@@ -323,10 +403,24 @@ describe("channels", () => {
 		).toBeUndefined();
 	});
 
+	it("clears the default notification account when that account is unlinked", async () => {
+		const userId = 7251;
+		await link(userId);
+		const account = await db
+			.selectFrom("channel_accounts")
+			.select("id")
+			.where("platform_user_id", "=", String(userId))
+			.executeTakeFirstOrThrow();
+		await patchUserSettings(db, aliceId, { defaultChannelAccountId: account.id });
+		fake.text(userId, "/unlink");
+		await fake.waitForSent((call) => sentText(call).includes("Unlinked."));
+		expect((await getUserSettings(db, aliceId)).defaultChannelAccountId).toBeNull();
+	});
+
 	it("answers an unlinked account once and ignores a group", async () => {
 		const before = fake.sentCalls().length;
 		fake.text(7501, "hello");
-		await fake.waitForSent((call) => sentText(call).includes("open your user settings"));
+		await fake.waitForSent((call) => sentText(call).includes("open Settings in the WebUI"));
 		const afterFirst = fake.sentCalls().length;
 		fake.text(7501, "hello again");
 		await new Promise((resolve) => setTimeout(resolve, 100));
@@ -362,7 +456,7 @@ describe("channels", () => {
 				document: { file_id: "group-doc", file_unique_id: "u-group-doc", file_name: "b.txt", file_size: 3 },
 			},
 		});
-		await fake.waitForSent((call) => sentText(call).includes("open your user settings"));
+		await fake.waitForSent((call) => sentText(call).includes("open Settings in the WebUI"));
 		await new Promise((resolve) => setTimeout(resolve, 200));
 		expect(fake.callsOf("getFile").length).toBe(getFiles);
 		expect(fake.callsOf("fileDownload").length).toBe(downloads);
@@ -384,12 +478,12 @@ describe("channels", () => {
 		expect(await threadFor(userId)).toBeUndefined();
 
 		await newSession(userId, { topicId: 11 });
-		const afterNew = await db
-			.selectFrom("channel_threads")
-			.selectAll()
-			.where("chat_id", "=", String(userId))
-			.where("topic_id", "=", "11")
-			.executeTakeFirst();
+		expect((await rawThreadFor(userId, 11))?.session_id).toBeNull();
+		faux.setResponses([fauxAssistantMessage("second topic answer")]);
+		fake.text(userId, "second topic", { topicId: 11 });
+		await fake.waitForSent((call) => sentText(call).includes("second topic answer"));
+		await runtime.waitForIdle();
+		const afterNew = await rawThreadFor(userId, 11);
 		expect(afterNew?.session_id).not.toBe(topicThread?.session_id);
 
 		fake.text(userId, "/sessions", { topicId: 11 });
@@ -482,6 +576,12 @@ describe("channels", () => {
 		expect(first?.current).toBe(1);
 		expect(first?.topic_id).toBeNull();
 		await newSession(userId);
+		const draft = await rawThreadFor(userId);
+		expect(draft?.session_id).toBeNull();
+		faux.setResponses([fauxAssistantMessage("second plain answer")]);
+		fake.text(userId, "plain second");
+		await fake.waitForSent((call) => sentText(call).includes("second plain answer"));
+		await runtime.waitForIdle();
 		const rows = await db.selectFrom("channel_threads").selectAll().where("chat_id", "=", String(userId)).execute();
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.session_id).not.toBe(first?.session_id);
@@ -641,11 +741,15 @@ describe("channels", () => {
 
 		// A second session: /quota stop ends the turn.
 		fake.text(userId, "/new");
-		await waitForMessage("Started a new session.", 2);
-		const next = await threadFor(userId);
+		await fake.waitForSent((call) => sentText(call).startsWith("New session draft:"));
+		// A draft has no session to stop or report a quota for.
+		fake.text(userId, "/quota");
+		await fake.waitForSent((call) => sentText(call).includes("no running session"));
 		faux.setResponses([fauxAssistantMessage("second session ready")]);
 		fake.text(userId, "second session");
+		await waitForMessage("Started a new session.", 2);
 		await fake.waitForSent((call) => sentText(call).includes("second session ready"));
+		const next = await threadFor(userId);
 		await runtime.waitForIdle();
 		await db
 			.updateTable("sessions")
@@ -757,13 +861,11 @@ describe("channels", () => {
 		await fake.waitForSent((call) => sentText(call).includes("Switch this chat to a session"));
 		expect(await lastUsed(first.session_id)).toBe(first.id);
 
-		// Starting a session without a message leaves it without a source.
+		// A draft replaces the thread but starts no session and records no source.
 		await newSession(userId);
-		const next = await threadFor(userId);
-		expect(next?.session_id).not.toBe(first.session_id);
-		expect(await lastUsed(next?.session_id ?? "")).toBeNull();
+		expect((await rawThreadFor(userId))?.session_id).toBeNull();
 
-		// Attaching the first session again does not change it either.
+		// Attaching the first session again discards the draft and does not change its source.
 		fake.text(userId, "/sessions");
 		await waitForMessage("Switch this chat to a session", 2);
 		const list = fake
@@ -809,7 +911,10 @@ describe("channels", () => {
 			.select("id")
 			.where("platform_user_id", "=", String(userId))
 			.executeTakeFirst();
-		await channels.saveSettings(alice, { defaultAccountId: account?.id ?? null, showProgress: false });
+		await patchUserSettings(db, aliceId, {
+			defaultChannelAccountId: account?.id ?? null,
+			showProgress: false,
+		});
 		channels.presence.touch(aliceId);
 		await db.updateTable("sessions").set({ state: "running" }).where("id", "=", plain.id).execute();
 		const onlineCall = await insertExternalCall(plain.id, "call-online");
@@ -825,7 +930,7 @@ describe("channels", () => {
 		const sent = await fake.waitForSent((call) => sentText(call).includes(`/approve ${offlineCall}`));
 		expect(fake.callsOf("createForumTopic").length).toBeGreaterThan(0);
 		expect(sent.body.message_thread_id).toBeDefined();
-		await channels.saveSettings(alice, { defaultAccountId: null, showProgress: true });
+		await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
 	});
 
 	it("stops the running turn when the draft's stop control is pressed", async () => {
@@ -1056,6 +1161,7 @@ describe("channels", () => {
 			db,
 			masterKey,
 			runtime,
+			models,
 			cluster,
 			taskGroups,
 			audit,
@@ -1074,10 +1180,15 @@ describe("channels", () => {
 		const bad = await channels.saveChannel(admin, "badbot", {
 			kind: "telegram",
 			token: "bad-token",
-			defaultModel: model(),
 		});
 		expect(bad.name).toBe("badbot");
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		const deadline = Date.now() + 2_000;
+		while (
+			(channels.status("badbot").lastError === null || channels.status("badbot").nextAttemptAt === null) &&
+			Date.now() < deadline
+		) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
 		expect(channels.status("badbot").lastError).not.toBeNull();
 		expect(channels.status("badbot").nextAttemptAt).not.toBeNull();
 		fake.calls.length = 0;
@@ -1085,15 +1196,325 @@ describe("channels", () => {
 		await fake.waitFor("getMe");
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(channels.status("badbot").lastError).toBeNull();
+		// Leave no second bot polling the same fake server: it would consume later tests' updates.
+		await channels.deleteChannel(admin, "badbot");
+	});
+
+	it("sends /help as a Markdown list with one command per item", async () => {
+		const userId = 9301;
+		await link(userId);
+		fake.text(userId, "/help");
+		const help = await fake.waitForSent((call) => sentText(call).includes("ClusterRightHand commands:"));
+		const text = sentText(help);
+		expect(text.startsWith("ClusterRightHand commands:\n\n")).toBe(true);
+		const items = text.split("\n").filter((line) => line.startsWith("- "));
+		expect(items.length).toBeGreaterThanOrEqual(15);
+		for (const item of items) expect(item).toMatch(/^- \/[a-z]+/);
+		expect(text).toContain("- /model — choose the session's model");
+		expect(text).toContain("- /extensions — turn extensions on or off");
+	});
+
+	it("pages /model five at a time and sets the selected model on the session", async () => {
+		const userId = 9302;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const available = models.available();
+		expect(available.length).toBeGreaterThanOrEqual(12);
+
+		fake.text(userId, "/model");
+		const first = await fake.waitForSent((call) => sentText(call).includes("Choose a model (page 1 of"));
+		const firstButtons = buttonsOf(first);
+		const firstModels = firstButtons.filter((button) => button.callback_data.startsWith("model:"));
+		expect(firstModels).toHaveLength(5);
+		expect(firstButtons.some((button) => button.text === "‹ Previous")).toBe(false);
+		const next = firstButtons.find((button) => button.text === "Next ›");
+		expect(next?.callback_data).toMatch(/^modelp:2:[0-9a-f]{8}$/);
+
+		const second = await pressButton(userId, next?.callback_data ?? "");
+		expect(second.body.message_id).toBe(7777);
+		expect(sentText(second)).toContain("page 2 of");
+		const secondButtons = buttonsOf(second);
+		expect(secondButtons.filter((button) => button.callback_data.startsWith("model:"))).toHaveLength(5);
+		expect(secondButtons.some((button) => button.text === "‹ Previous")).toBe(true);
+
+		// The index names the page it appeared on, never the model id, and stays inside Telegram's callback limit.
+		const target = available[6];
+		if (!target) throw new Error("no seventh offered model");
+		const choice = secondButtons.find((button) => button.callback_data.startsWith("model:2:1:"));
+		expect(choice).toBeDefined();
+		expect(choice?.callback_data.length).toBeLessThanOrEqual(64);
+		expect(choice?.callback_data).not.toContain(target.modelId);
+
+		const confirmed = await pressButton(userId, choice?.callback_data ?? "");
+		expect(sentText(confirmed)).toContain("Model set to");
+		const session = await runtime.getSession(thread.sessionId);
+		expect(session?.model).toMatchObject({ provider: target.provider, modelId: target.modelId });
+	});
+
+	it("keeps a draft, writes its changes to the user defaults and starts its first message with them", async () => {
+		const userId = 9303;
+		await link(userId);
+		const sessionsBefore = await db.selectFrom("sessions").select("id").where("owner_user_id", "=", aliceId).execute();
+		fake.text(userId, "/new");
+		const draftMessage = await fake.waitForSent((call) => sentText(call).startsWith("New session draft:"));
+		const text = sentText(draftMessage);
+		expect(text).toContain("- Model:");
+		expect(text).toContain("- Thinking:");
+		expect(text).toContain("- Rules: Ask");
+		expect(text).toContain("/model, /think, /rules or /extensions");
+		const draftThread = await rawThreadFor(userId);
+		expect(draftThread?.session_id).toBeNull();
+		const draft = JSON.parse(draftThread?.draft ?? "{}") as {
+			model: { provider: string; modelId: string };
+			rulePreset: string;
+			disabledExtensions: string[];
+		};
+		expect(draft.rulePreset).toBe("ask");
+		expect(draft.disabledExtensions).toEqual([]);
+		expect(await db.selectFrom("sessions").select("id").where("owner_user_id", "=", aliceId).execute()).toHaveLength(
+			sessionsBefore.length,
+		);
+		// A draft has no running turn to stop.
+		fake.text(userId, "/stop");
+		await fake.waitForSent((call) => sentText(call).includes("no running session"));
+
+		// /model picks a page and a slot, and the draft's model becomes the user's default.
+		const available = models.available();
+		const picked = available[3];
+		if (!picked) throw new Error("no fourth offered model");
+		fake.text(userId, "/model");
+		const list = await fake.waitForSent((call) => sentText(call).includes("Choose a model (page 1 of"));
+		const choose = buttonsOf(list).find((button) => button.callback_data.startsWith("model:1:3:"));
+		expect(choose).toBeDefined();
+		await pressButton(userId, choose?.callback_data ?? "");
+		expect((await getUserSettings(db, aliceId)).defaultModel).toMatchObject({
+			provider: picked.provider,
+			modelId: picked.modelId,
+		});
+
+		// /think offers only the levels of that model and also writes the user default.
+		fake.text(userId, "/think");
+		const thinking = await fake.waitForSent((call) => sentText(call).includes("Thinking level for"));
+		const medium = buttonsOf(thinking).find((button) => button.text.replace("✓ ", "") === "Medium");
+		expect(medium?.callback_data).toMatch(/^think:medium:[0-9a-f]{8}$/);
+		const thinkingConfirmed = await pressButton(userId, medium?.callback_data ?? "");
+		expect(sentText(thinkingConfirmed)).toContain("Thinking level set to Medium.");
+		expect((await getUserSettings(db, aliceId)).defaultModel).toMatchObject({
+			provider: picked.provider,
+			modelId: picked.modelId,
+			thinkingLevel: "medium",
+		});
+
+		// /rules writes the draft and the user default.
+		fake.text(userId, "/rules");
+		const rules = await fake.waitForSent((call) => sentText(call).includes("Rule preset:"));
+		expect(buttonsOf(rules).find((button) => button.text === "✓ Ask")).toBeDefined();
+		const autoReview = buttonsOf(rules).find((button) => button.callback_data === "rules:auto_review");
+		const rulesConfirmed = await pressButton(userId, autoReview?.callback_data ?? "");
+		expect(sentText(rulesConfirmed)).toContain("Rule preset set to Auto Review.");
+		expect((await getUserSettings(db, aliceId)).defaultRulePreset).toBe("auto_review");
+
+		// /extensions changes only the draft; it toggles in place.
+		fake.text(userId, "/extensions");
+		const extensions = await fake.waitForSent((call) => sentText(call).includes("Extensions (page 1 of"));
+		const ext = buttonsOf(extensions).find((button) => button.text === "✓ ext-1");
+		expect(ext?.callback_data).toMatch(/^ext:1:\d+:[0-9a-f]{8}$/);
+		const toggled = await pressButton(userId, ext?.callback_data ?? "");
+		expect(buttonsOf(toggled).some((button) => button.text === "ext-1")).toBe(true);
+
+		const savedDraft = JSON.parse((await rawThreadFor(userId))?.draft ?? "{}") as {
+			model: { provider: string; modelId: string; thinkingLevel?: string };
+			rulePreset: string;
+			disabledExtensions: string[];
+		};
+		expect(savedDraft.model).toEqual({ provider: picked.provider, modelId: picked.modelId, thinkingLevel: "medium" });
+		expect(savedDraft.rulePreset).toBe("auto_review");
+		expect(savedDraft.disabledExtensions).toContain("ext-1");
+
+		// The first ordinary message creates the session with the draft and sends the notice before the answer.
+		manyFaux.setResponses([fauxAssistantMessage("draft started answer")]);
+		const before = fake.calls.length;
+		fake.text(userId, "start it");
+		const notice = await fake.waitForSent(
+			(call) => fake.calls.indexOf(call) >= before && sentText(call).includes("Started a new session."),
+		);
+		const answer = await fake.waitForSent(
+			(call) =>
+				fake.calls.indexOf(call) > fake.calls.indexOf(notice) && sentText(call).includes("draft started answer"),
+		);
+		expect(fake.calls.indexOf(notice)).toBeLessThan(fake.calls.indexOf(answer));
+		await runtime.waitForIdle();
+		const thread = await threadFor(userId);
+		const session = await runtime.getSession(thread?.session_id ?? "");
+		expect(session?.model).toMatchObject({
+			provider: picked.provider,
+			modelId: picked.modelId,
+			thinkingLevel: "medium",
+		});
+		expect(session?.rules?.rulePreset).toBe("auto_review");
+		const row = await db
+			.selectFrom("sessions")
+			.select("disabled_extensions")
+			.where("id", "=", thread?.session_id ?? "")
+			.executeTakeFirst();
+		expect(JSON.parse(row?.disabled_extensions ?? "[]")).toEqual(["ext-1"]);
+		await patchUserSettings(db, aliceId, { defaultModel: null, defaultRulePreset: null });
+	});
+
+	it("changes a session's model, thinking level, rules and extensions from chat", async () => {
+		const userId = 9304;
+		await link(userId);
+		const thread = await chatSession(userId);
+
+		// /model on the session.
+		const available = models.available();
+		const picked = available[3];
+		if (!picked) throw new Error("no fourth offered model");
+		fake.text(userId, "/model");
+		const list = await fake.waitForSent((call) => sentText(call).includes("Choose a model (page 1 of"));
+		const choose = buttonsOf(list).find((button) => button.callback_data.startsWith("model:1:3:"));
+		await pressButton(userId, choose?.callback_data ?? "");
+		expect((await runtime.getSession(thread.sessionId))?.model).toMatchObject({
+			provider: picked.provider,
+			modelId: picked.modelId,
+		});
+
+		// /think of that model; a level press edits the message to confirm.
+		fake.text(userId, "/think");
+		const thinking = await fake.waitForSent((call) => sentText(call).includes("Thinking level for"));
+		const high = buttonsOf(thinking).find((button) => button.text.replace("✓ ", "") === "High");
+		const levelConfirmed = await pressButton(userId, high?.callback_data ?? "");
+		expect(sentText(levelConfirmed)).toContain("Thinking level set to High.");
+		expect((await runtime.getSession(thread.sessionId))?.model.thinkingLevel).toBe("high");
+
+		// A model without levels gets a short message.
+		await runtime.configure(thread.sessionId, { model: model() });
+		fake.text(userId, "/think");
+		await fake.waitForSent((call) => sentText(call).includes("has no thinking levels."));
+
+		// /rules sets the session's preset and is audited like the WebUI's change.
+		fake.text(userId, "/rules");
+		const rules = await fake.waitForSent((call) => sentText(call).includes("Rule preset:"));
+		const yolo = buttonsOf(rules).find((button) => button.callback_data === "rules:yolo");
+		const rulesConfirmed = await pressButton(userId, yolo?.callback_data ?? "");
+		expect(sentText(rulesConfirmed)).toContain("Rule preset set to Yolo.");
+		expect((await runtime.getSession(thread.sessionId))?.rules?.rulePreset).toBe("yolo");
+		const changed = await db
+			.selectFrom("audit_events")
+			.select(["action", "detail"])
+			.where("action", "=", "rules.changed")
+			.where("target_id", "=", thread.sessionId)
+			.executeTakeFirst();
+		expect(JSON.parse(changed?.detail ?? "{}")).toMatchObject({ channel: "testbot", via: "telegram" });
+
+		// /extensions pages, toggles in place and writes sessions.disabled_extensions.
+		fake.text(userId, "/extensions");
+		const first = await fake.waitForSent((call) => sentText(call).includes("Extensions (page 1 of"));
+		const next = buttonsOf(first).find((button) => button.text === "Next ›");
+		const second = await pressButton(userId, next?.callback_data ?? "");
+		expect(sentText(second)).toContain("page 2 of");
+		const ext = buttonsOf(second).find((button) => button.text === "✓ ext-4");
+		const toggled = await pressButton(userId, ext?.callback_data ?? "");
+		expect(buttonsOf(toggled).some((button) => button.text === "ext-4")).toBe(true);
+		const row = await db
+			.selectFrom("sessions")
+			.select("disabled_extensions")
+			.where("id", "=", thread.sessionId)
+			.executeTakeFirst();
+		expect(JSON.parse(row?.disabled_extensions ?? "[]")).toEqual(["ext-4"]);
+	});
+
+	it("replies that there is no session yet to commands before a draft or a message", async () => {
+		const userId = 9305;
+		await link(userId);
+		for (const [index, command] of ["/model", "/think", "/rules", "/extensions"].entries()) {
+			fake.text(userId, command);
+			await waitForMessage("There is no session in this chat yet.", index + 1);
+		}
+	});
+
+	it("discards a draft when /sessions switches the chat to a session", async () => {
+		const userId = 9306;
+		await link(userId);
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		const session = await runtime.createSession(alice, { model: model(), rulePreset: "yolo" });
+		fake.text(userId, "/new");
+		await fake.waitForSent((call) => sentText(call).startsWith("New session draft:"));
+		expect((await rawThreadFor(userId))?.session_id).toBeNull();
+		fake.text(userId, "/sessions");
+		const list = await fake.waitForSent((call) => sentText(call).includes("Switch this chat to a session"));
+		const button = buttonsOf(list).find((entry) => entry.callback_data === `switch:${session.id}`);
+		expect(button).toBeDefined();
+		fake.callback(userId, button?.callback_data ?? "", {});
+		const deadline = Date.now() + 5_000;
+		while ((await rawThreadFor(userId))?.session_id !== session.id && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
+		const thread = await rawThreadFor(userId);
+		expect(thread?.session_id).toBe(session.id);
+		expect(thread?.draft).toBeNull();
+	});
+
+	it("escapes a session title interpolated into a framework text", async () => {
+		const userId = 9307;
+		await link(userId);
+		const thread = await chatSession(userId);
+		await db.updateTable("sessions").set({ title: "*x* [a](b)" }).where("id", "=", thread.sessionId).execute();
+		await db
+			.updateTable("sessions")
+			.set({
+				quota_tokens: -1,
+				state: "awaiting",
+				waiting_kind: "quota",
+				waiting_level_id: thread.sessionId,
+				waiting_handler_id: null,
+				state_changed_at: new Date().toISOString(),
+			})
+			.where("id", "=", thread.sessionId)
+			.execute();
+		await channels.refreshWaits(thread.sessionId);
+		const wait = await fake.waitForSent((call) => sentText(call).includes("is used up"));
+		expect(sentText(wait)).toContain('"\\*x\\* \\[a\\]\\(b\\)"');
+	});
+
+	it("ignores removed channel defaults and starts chat sessions from the user's settings", async () => {
+		const res = await call(app, "/api/channels/testbot", {
+			method: "PUT",
+			cookie: adminCookie,
+			body: { token: fake.token, defaultModel: model(), defaultRulePreset: "yolo" },
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { channel: Record<string, unknown> };
+		expect(body.channel).not.toHaveProperty("defaultModel");
+		expect(body.channel).not.toHaveProperty("defaultRulePreset");
+
+		await patchUserSettings(db, aliceId, {
+			defaultModel: { provider: manyFaux.provider.id, modelId: "many-1", thinkingLevel: "high" },
+			defaultRulePreset: "yolo",
+		});
+		try {
+			const userId = 9308;
+			await link(userId);
+			manyFaux.setResponses([fauxAssistantMessage("user defaults answer")]);
+			fake.text(userId, "use my defaults");
+			await fake.waitForSent((call) => sentText(call).includes("user defaults answer"));
+			await runtime.waitForIdle();
+			const thread = await threadFor(userId);
+			const session = await runtime.getSession(thread?.session_id ?? "");
+			expect(session?.model).toMatchObject({ provider: "many-faux", modelId: "many-1", thinkingLevel: "high" });
+			expect(session?.rules?.rulePreset).toBe("yolo");
+		} finally {
+			await patchUserSettings(db, aliceId, { defaultModel: null, defaultRulePreset: null });
+		}
 	});
 });
 
-/** Sends /new and waits for the notice it sends, not for an earlier session's notice. */
+/** Sends /new and waits for the draft it records, not for an earlier message. */
 async function newSession(userId: number, options?: { topicId?: number }): Promise<void> {
 	const before = fake.calls.length;
 	fake.text(userId, "/new", options);
 	await fake.waitForSent(
-		(call) => fake.calls.indexOf(call) >= before && sentText(call).includes("Started a new session."),
+		(call) => fake.calls.indexOf(call) >= before && sentText(call).startsWith("New session draft:"),
 	);
 }
 
@@ -1123,16 +1544,21 @@ async function pressPage(userId: number, data: string): Promise<FakeCall> {
 	return fake.waitFor("editMessageText", (call) => fake.calls.indexOf(call) >= before);
 }
 
+/** Presses a management button on message 7777 and returns the edit it made. */
+async function pressButton(userId: number, data: string): Promise<FakeCall> {
+	return pressPage(userId, data);
+}
+
 /** Creates a chat session with one message and returns its thread row, with that message as the session's source. */
 async function chatSession(userId: number) {
 	await newSession(userId);
-	const thread = await threadFor(userId);
-	if (!thread) throw new Error("no thread");
-	// A message makes the thread the source of the session's latest user message, as a real chat would.
+	// The draft's first ordinary message creates its session and makes the thread the message's source.
 	faux.setResponses([fauxAssistantMessage("chat session ready")]);
 	fake.text(userId, "ready");
 	await fake.waitForSent((call) => sentText(call).includes("chat session ready"));
 	await runtime.waitForIdle();
+	const thread = await threadFor(userId);
+	if (!thread) throw new Error("no thread");
 	return { ...thread, sessionId: thread.session_id };
 }
 

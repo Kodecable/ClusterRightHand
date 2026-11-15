@@ -27,12 +27,13 @@ your other browsers. Your API tokens keep working unless you tick **Also revoke 
 
 | Group | Items |
 |---|---|
-| **Work** | Sessions, Library, Schedules, Tasks, Approvals, Chat accounts |
+| **Work** | Sessions, Library, Schedules, Tasks, Approvals |
 | **Cluster** | Nodes, Node groups, SSH credentials (administrators), Signing credentials |
 | **Admin** | Authorizations (administrators), API tokens, Audit, Extensions (administrators), Channels (administrators), Models (administrators), System settings (administrators), Users (administrators) |
 
-The **Approvals** badge counts everything waiting for you. The user menu also sets the theme and the
-language (English or Chinese); these are stored in your browser.
+The **Approvals** badge counts everything waiting for you. **Settings…** in the user menu sets your
+language (English or Chinese) and your defaults for new sessions; the language follows your account, so
+it is the same in every browser. The theme stays in the user menu and is stored in your browser.
 
 Lists update by themselves; there is no refresh button. Editing happens on an object's own page.
 
@@ -80,8 +81,11 @@ shared with you.
 
 ### Starting a session
 
-Choose **New session**, pick a model, and send your first message; the session is created with it. If
-no model is configured, an administrator must add one first ([Models](#models)).
+Choose **New session** and send your first message; the session is created with it. The draft starts
+with your default model and rule preset from **Settings → Sessions**, or with the first available model
+when you have not chosen one. Changing the model, thinking level or rule preset on the draft saves that
+choice as your new default. If no model is configured, an administrator must add one first
+([Models](#models)).
 
 ### The session page
 
@@ -313,12 +317,15 @@ and a link to the library. Administrators edit the limits there.
 node or node group. Removing a grant takes effect immediately; a task still waiting for a user who lost
 access ends without running.
 
-## Chat accounts
+## Settings
 
-**Chat accounts** links a private Telegram chat to your account, chooses the account notifications fall
-back to when you are not using the WebUI and toggles the progress status. A linked chat acts with your
-authority, including approvals that need no signature; the one-time code you create in the WebUI is what
-ties the two together. See [Using CRH from chat](channels.md).
+**Settings…** at the bottom of the sidebar has three tabs. **General** chooses your language, which
+also sets the language of the chat bot's messages. **Sessions** sets the default model, its thinking
+level and the default rule preset for new sessions. **Chat** links a private Telegram chat to your
+account, chooses the account notifications fall back to when you are not using the WebUI, and toggles
+the progress status. A linked chat acts with your authority, including approvals that need no signature;
+the one-time link code you create here is what ties the two together. See
+[Using CRH from chat](channels.md).
 
 ## Approvals
 
@@ -338,8 +345,8 @@ hours.
 ## Channels page
 
 **Admin → Channels** (administrators) lists the chat bots crhs runs as, their state, the bot
-account and the last error. **New channel** adds a Telegram bot: a name, the write-only bot token and
-the default model and rule preset for sessions started from chat. A disabled channel stops polling; a
+account and the last error. **New channel** adds a Telegram bot: a name and the write-only bot token. Sessions
+started from chat use your own defaults from **Settings → Sessions**. A disabled channel stops polling; a
 deleted one also removes its linked accounts and threads. A dropped connection is retried with the same
 backoff as an MCP extension, and the next attempt is shown. See [Chat channels](../design/channels.md).
 

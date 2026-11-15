@@ -57,10 +57,14 @@ export interface FakeTelegram {
 	readonly files: Map<string, FakeFile>;
 	/** Queue an update verbatim; its update_id is assigned. */
 	inject(update: Record<string, unknown>): number;
-	text(userId: number, text: string, options?: { chatId?: number; topicId?: number }): number;
+	text(userId: number, text: string, options?: { chatId?: number; topicId?: number; languageCode?: string }): number;
 	photo(userId: number, fileId: string, options?: { topicId?: number; caption?: string }): number;
 	document(userId: number, fileId: string, name: string, options?: { topicId?: number; caption?: string }): number;
-	callback(userId: number, data: string, options?: { messageId?: number; topicId?: number }): number;
+	callback(
+		userId: number,
+		data: string,
+		options?: { messageId?: number; topicId?: number; languageCode?: string },
+	): number;
 	stopGeneration(userId: number, options?: { topicId?: number }): number;
 	addFile(fileId: string, file: Partial<FakeFile> & { bytes: Uint8Array }): void;
 	/** Makes the next sendRichMessage fail with a 400, for the adapter's plain-text fallback. */
@@ -126,11 +130,18 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		return updateId;
 	};
 
-	const text = (userId: number, body: string, opts: { chatId?: number; topicId?: number } = {}): number =>
+	const text = (
+		userId: number,
+		body: string,
+		opts: { chatId?: number; topicId?: number; languageCode?: string } = {},
+	): number =>
 		inject({
 			message: message(opts.chatId ?? userId, {
 				text: body,
 				...(opts.topicId !== undefined ? { message_thread_id: opts.topicId, is_topic_message: true } : {}),
+				...(opts.languageCode !== undefined
+					? { from: { id: userId, is_bot: false, first_name: "Tester", language_code: opts.languageCode } }
+					: {}),
 			}),
 		});
 
@@ -163,7 +174,11 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 			}),
 		});
 
-	const callback = (userId: number, data: string, opts: { messageId?: number; topicId?: number } = {}): number => {
+	const callback = (
+		userId: number,
+		data: string,
+		opts: { messageId?: number; topicId?: number; languageCode?: string } = {},
+	): number => {
 		const target = message(userId, {
 			message_id: opts.messageId ?? ++nextMessageId,
 			...(opts.topicId !== undefined ? { message_thread_id: opts.topicId, is_topic_message: true } : {}),
@@ -171,7 +186,12 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		return inject({
 			callback_query: {
 				id: `cb-${Math.random().toString(36).slice(2)}`,
-				from: { id: userId, is_bot: false, first_name: "Tester" },
+				from: {
+					id: userId,
+					is_bot: false,
+					first_name: "Tester",
+					...(opts.languageCode !== undefined ? { language_code: opts.languageCode } : {}),
+				},
 				chat_instance: "ci",
 				data,
 				message: target,
@@ -217,6 +237,8 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 					});
 					available = pick();
 				}
+				// A real client cancels a long poll when it stops; the fake server must not consume updates for it.
+				if (res.destroyed || res.socket?.destroyed) return;
 				for (const update of available) {
 					const index = updates.indexOf(update);
 					if (index >= 0) updates.splice(index, 1);

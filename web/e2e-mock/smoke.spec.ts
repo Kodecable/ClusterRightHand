@@ -81,18 +81,21 @@ test("collapsing the sidebar persists across a reload and shows tooltips", async
 
 test("theme and language switch without reloading the app", async ({ page }) => {
 	await login(page);
+	// The theme is per device and stays in the menu; the language lives in Settings.
 	await openUserMenuWithKeyboard(page);
 	await openMenuSection(page, "menu-theme");
 	await page.getByTestId("theme-dark").click();
 	await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 	expect(await page.evaluate(() => window.localStorage.getItem("crh.theme"))).toBe("dark");
 
-	// The menu stays open after a radio choice; the language submenu is next to
-	// the theme one, so switch to it in place instead of reopening the menu.
-	await openMenuSection(page, "menu-language");
-	await page.getByTestId("language-zh").click();
+	await page.keyboard.press("Escape");
+	await page.getByTestId("menu-settings").click();
+	const dialog = page.getByTestId("user-settings-dialog");
+	await expect(dialog).toBeVisible();
+	await page.getByTestId("settings-language-zh").click();
 	await expect(page.getByTestId("page-title")).toHaveText("会话");
 	await expect(page.locator("html")).toHaveAttribute("lang", "zh-CN");
+	expect(await page.evaluate(() => window.localStorage.getItem("crh.locale"))).toBe("zh-CN");
 	expect(await page.evaluate(() => window.__crhAppMounts)).toBe(1);
 });
 

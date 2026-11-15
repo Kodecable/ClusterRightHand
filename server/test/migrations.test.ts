@@ -88,7 +88,6 @@ const TABLES = [
 	"channel_accounts",
 	"channel_link_codes",
 	"channel_threads",
-	"channel_user_settings",
 	"channels",
 	"enrollment_tokens",
 	"extension_grants",
@@ -118,6 +117,7 @@ const TABLES = [
 	"tasks",
 	"user_group_members",
 	"user_groups",
+	"user_settings",
 	"users",
 	"web_sessions",
 ];
@@ -214,11 +214,44 @@ describeBackends("initial migration", (backend) => {
 		expect(await tableColumns(backend, db, "task_groups")).toContain("transfer");
 		expect(await tableColumns(backend, db, "sessions")).toContain("last_used_from");
 		expect(await tableColumns(backend, db, "channels")).toEqual(
-			expect.arrayContaining(["name", "kind", "enabled", "credentials_secret_id", "default_model", "cursor"]),
+			expect.arrayContaining(["name", "kind", "enabled", "credentials_secret_id", "cursor"]),
 		);
+		expect(await tableColumns(backend, db, "channels")).not.toContain("default_model");
+		expect(await tableColumns(backend, db, "channels")).not.toContain("default_rule_preset");
 		expect(await tableColumns(backend, db, "channel_threads")).toEqual(
-			expect.arrayContaining(["chat_id", "topic_id", "session_id", "current"]),
+			expect.arrayContaining(["chat_id", "topic_id", "session_id", "draft", "current"]),
 		);
+		// A thread without a session holds a draft until its first message starts the session.
+		expect(await isNotNull(backend, db, "channel_threads", "session_id")).toBe(false);
+		expect(await tableColumns(backend, db, "user_settings")).toEqual([
+			"user_id",
+			"locale",
+			"default_model",
+			"default_rule_preset",
+			"show_progress",
+			"default_channel_account_id",
+			"updated_at",
+		]);
+		expect(await isNotNull(backend, db, "user_settings", "show_progress")).toBe(true);
+	});
+
+	it("defaults a user settings row to showing chat progress", async () => {
+		await sql`
+			insert into user_settings (user_id, updated_at) values ('user-1', '2026-01-01T00:00:00.000Z')`.execute(db);
+		const row = await db
+			.selectFrom("user_settings")
+			.selectAll()
+			.where("user_id", "=", "user-1")
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({
+			user_id: "user-1",
+			locale: null,
+			default_model: null,
+			default_rule_preset: null,
+			show_progress: 1,
+			default_channel_account_id: null,
+			updated_at: "2026-01-01T00:00:00.000Z",
+		});
 	});
 
 	it("seeds the built-in extensions", async () => {

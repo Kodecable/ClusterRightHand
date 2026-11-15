@@ -1,31 +1,13 @@
-import type {
-	AvailableModel,
-	ChannelAccountListResponse,
-	ChannelInput,
-	ChannelLinkCodeResponse,
-	ChannelSettings,
-	ChannelSettingsUpdate,
-	ChannelView,
-} from "@crh/api";
+import type { ChannelAccountListResponse, ChannelInput, ChannelLinkCodeResponse, ChannelView } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { userSettingsKey } from "@/hooks/use-user-settings";
 import { enc, http } from "@/lib/api/client";
 
 export const channelKeys = {
 	all: ["channels"] as const,
 	list: () => ["channels", "list"] as const,
 	accounts: () => ["channels", "accounts"] as const,
-	settings: () => ["channels", "settings"] as const,
-	models: () => ["channels", "models"] as const,
 };
-
-/** The models the server offers, for a channel's default. */
-export function useAvailableModels() {
-	return useQuery({
-		queryKey: channelKeys.models(),
-		queryFn: ({ signal }) => http.get<{ models: AvailableModel[] }>("/models", { signal }).then((r) => r.models),
-		staleTime: 5 * 60_000,
-	});
-}
 
 /** The administrator's channels (doc/design/channels.md "Channels"). */
 export function useChannels() {
@@ -75,26 +57,10 @@ export function useUnlinkAccount() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (id: string) => http.del<{ ok: true }>(`/channel-accounts/${enc(id)}`),
-		onSuccess: () => void queryClient.invalidateQueries({ queryKey: channelKeys.accounts() }),
-	});
-}
-
-export function useChannelSettings() {
-	return useQuery({
-		queryKey: channelKeys.settings(),
-		queryFn: ({ signal }) =>
-			http.get<{ settings: ChannelSettings }>("/channel-settings", { signal }).then((r) => r.settings),
-	});
-}
-
-export function useSaveChannelSettings() {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (body: ChannelSettingsUpdate) =>
-			http.put<{ settings: ChannelSettings }>("/channel-settings", body).then((r) => r.settings),
 		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: channelKeys.settings() });
 			void queryClient.invalidateQueries({ queryKey: channelKeys.accounts() });
+			// Unlinking the account notifications fell back to also clears that default on the server.
+			void queryClient.invalidateQueries({ queryKey: userSettingsKey });
 		},
 	});
 }

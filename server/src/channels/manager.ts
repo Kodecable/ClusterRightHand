@@ -1,12 +1,31 @@
-import { randomInt } from "node:crypto";
-import type { ChannelAccountView, ChannelPublicView, ChannelSettings, ChannelStatus, ChannelView } from "@crh/api";
-import type { AgentRuntime } from "../agent/runtime.ts";
+import { createHash, randomInt } from "node:crypto";
+import type {
+	AvailableModel,
+	ChannelAccountView,
+	ChannelPublicView,
+	ChannelStatus,
+	ChannelView,
+	ModelRef,
+	RulePreset,
+	ThinkingLevel,
+	UserSettings,
+	UserSettingsLocale,
+	UserSettingsUpdate,
+} from "@crh/api";
+import { type ModelConfig, parseModelRef } from "../agent/models.ts";
+import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/runtime.ts";
 import type { Audit } from "../audit/audit.ts";
 import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
-import { decideExternalCall, externalCallViews, getExternalCall } from "../extensions/external-calls.ts";
+import {
+	decideExternalCall,
+	externalCallViews,
+	getExternalCall,
+	reevaluateExternalCalls,
+} from "../extensions/external-calls.ts";
+import { extensionsForUser, parseDisabledExtensionNames } from "../extensions/store.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import { beginLibraryUpload } from "../library/files.ts";
@@ -17,8 +36,10 @@ import { rootSessionIdOf } from "../sessions/session-chain.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import { DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES, DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
+import { getUserSettings, patchUserSettings } from "../users/settings.ts";
 import { errorText, NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
+import { type BotMessages, botLocale, localeFromLanguageCode, messagesFor } from "./messages.ts";
 import type { ChannelAdapter, ChannelHandlers, ChannelTarget, SentMessage } from "./model.ts";
 import { WebUiPresence } from "./presence.ts";
 import {
@@ -27,10 +48,9 @@ import {
 	accountView,
 	bindThread,
 	type ChannelAccountRow,
+	type ChannelDraft,
 	type ChannelRow,
 	type ChannelThreadRow,
-	channelDefaultModel,
-	channelDefaultRulePreset,
 	channelPublicView,
 	channelThread,
 	channelView,
@@ -44,16 +64,17 @@ import {
 	listChannelRows,
 	listThreads,
 	parseChannelCursor,
+	parseThreadDraft,
 	readTelegramToken,
 	saveChannel as saveChannelRow,
-	saveUserChannelSettings,
+	saveDraftThread,
 	sessionOwner,
 	setChannelCursor,
 	threadById,
 	threadForSession,
 	unlinkAccount,
 	unlinkUserAccounts,
-	userChannelSettings,
+	updateThreadDraft,
 } from "./store.ts";
 import { TelegramChannel } from "./telegram.ts";
 
@@ -67,6 +88,8 @@ export interface ChannelManagerOptions {
 	db: Db;
 	masterKey: MasterKey;
 	runtime: AgentRuntime;
+	/** The offered models, for `/model` and for a draft's defaults. */
+	models: ModelConfig;
 	cluster: Cluster;
 	taskGroups: TaskGroups;
 	audit: Audit;
@@ -103,6 +126,8 @@ interface TrackedMessage {
 	messageId: string;
 	/** What the message currently says, so a final edit can append how it ended. */
 	text: string;
+	/** The language the message was written in; its ending is written in the same one. */
+	locale: UserSettingsLocale;
 }
 
 interface Route {
@@ -121,6 +146,8 @@ interface DraftState {
 	target: ChannelTarget;
 	lastSentAt: number;
 	lastText: string;
+	/** The language the status was written in. */
+	locale: UserSettingsLocale;
 	/** The status of the current step, shown again when a wait is over. */
 	step: string;
 	/** What the run waits for, if anything; its status replaces the step's while it waits. */
@@ -138,6 +165,7 @@ interface StatusState {
 	messageId: string;
 	lastSentAt: number;
 	lastText: string;
+	locale: UserSettingsLocale;
 }
 
 interface RunState {
@@ -146,17 +174,87 @@ interface RunState {
 	seen: Set<string>;
 }
 
-const UNSUPPORTED = "Only text, files and photos are supported.";
-const FILES_NOT_SENT = "The attached files were not sent.";
-const LINK_HELP =
-	"To use ClusterRightHand from this chat, open your user settings in the WebUI, create a link code and send /link <code> here.";
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_PROGRESS_INTERVAL_MS = 1_500;
 /** A draft expires after 30 s without an update; it is re-sent well before that. */
 const DRAFT_KEEPALIVE_MS = 20_000;
 const CLIP_CHARS = 500;
 const SESSION_PAGE_SIZE = 5;
-const NO_SESSIONS = "You have no sessions yet. Send /new to start one.";
+const MODEL_PAGE_SIZE = 5;
+const EXTENSION_PAGE_SIZE = 5;
+
+/** The rule presets with the WebUI's product names (doc/design/webui.md "Composer"); the raw values stay internal. */
+const RULE_PRESET_CHOICES: readonly { value: RulePreset; label: string }[] = [
+	{ value: "ask", label: "Ask" },
+	{ value: "auto_review", label: "Auto Review" },
+	{ value: "yolo", label: "Yolo" },
+];
+
+const sameModel = (a: ModelRef, b: ModelRef): boolean => a.provider === b.provider && a.modelId === b.modelId;
+
+/** A ModelRef with an explicit level; `off` is omitted, matching the stored shape. */
+function withThinkingLevel(model: ModelRef, level: ThinkingLevel): ModelRef {
+	return {
+		provider: model.provider,
+		modelId: model.modelId,
+		...(level === "off" ? {} : { thinkingLevel: level }),
+	};
+}
+
+/** A short, stable digest of a list a button's page showed, so a press after the list changed acts on nothing. */
+function listHash(parts: readonly string[]): string {
+	return createHash("sha256").update(parts.join("\n")).digest("hex").slice(0, 8);
+}
+
+function modelListHash(available: readonly AvailableModel[]): string {
+	return listHash(available.map((model) => `${model.provider}/${model.modelId}`));
+}
+
+function modelRefHash(model: ModelRef): string {
+	return listHash([`${model.provider}/${model.modelId}`]);
+}
+
+interface ResolvedDefaults {
+	model: ModelRef | undefined;
+	thinkingLevel: ThinkingLevel;
+}
+
+/**
+ * A new session's defaults, the WebUI new-session page's resolution (doc/design/webui.md "New session"): the
+ * user's default model, then the session model preset, then the first offered model. A default a provider no
+ * longer offers falls through; the thinking level comes with that model and is dropped when the model changed
+ * its levels.
+ */
+function resolveNewSessionDefaults(
+	available: readonly AvailableModel[],
+	settings: UserSettings | null,
+	sessionModel: ModelRef | null,
+): ResolvedDefaults {
+	const offered = (candidate: ModelRef | null | undefined): AvailableModel | undefined =>
+		candidate === null || candidate === undefined ? undefined : available.find((model) => sameModel(model, candidate));
+	for (const candidate of [settings?.defaultModel, sessionModel]) {
+		const found = offered(candidate);
+		if (found === undefined || candidate === null || candidate === undefined) continue;
+		const level =
+			candidate.thinkingLevel !== undefined && found.thinkingLevels.includes(candidate.thinkingLevel)
+				? candidate.thinkingLevel
+				: "off";
+		return { model: { provider: found.provider, modelId: found.modelId }, thinkingLevel: level };
+	}
+	const first = available[0];
+	return {
+		model: first === undefined ? undefined : { provider: first.provider, modelId: first.modelId },
+		thinkingLevel: "off",
+	};
+}
+
+/** A chat thread with the session or draft its commands act on. */
+type ChatTarget =
+	| { state: "none" }
+	| { state: "missing" }
+	| { state: "notYours" }
+	| { state: "draft"; thread: ChannelThreadRow; draft: ChannelDraft }
+	| { state: "session"; thread: ChannelThreadRow; session: AgentSessionView };
 
 /** Parses `/command@bot args`; undefined when the text is not a command. */
 function parseCommand(text: string | null): { name: string; args: string[] } | undefined {
@@ -270,7 +368,7 @@ export class ChannelManager {
 		});
 		// A thread's session may be mid-run when crh restarts; watch it so its output still reaches the chat.
 		for (const thread of await listThreads(this.#options.db))
-			if (thread.current === 1 || thread.topic_id !== null) {
+			if (thread.session_id !== null && (thread.current === 1 || thread.topic_id !== null)) {
 				await this.#ensureWatcher(thread.session_id);
 			}
 	}
@@ -404,9 +502,9 @@ export class ChannelManager {
 	}
 
 	async accounts(userId: string): Promise<ChannelAccountView[]> {
-		const settings = await userChannelSettings(this.#options.db, userId);
+		const settings = await getUserSettings(this.#options.db, userId);
 		return (await accountsForUser(this.#options.db, userId)).map((item) =>
-			accountView(item.account, item.channelName, settings.defaultAccountId === item.account.id),
+			accountView(item.account, item.channelName, settings.defaultChannelAccountId === item.account.id),
 		);
 	}
 
@@ -423,31 +521,6 @@ export class ChannelManager {
 			target: { type: "channel_account", id: row.id },
 			detail: { channel_account: row.id, platform: row.platform, reason: "user" },
 		});
-	}
-
-	async settings(userId: string): Promise<ChannelSettings> {
-		const settings = await userChannelSettings(this.#options.db, userId);
-		return { defaultAccountId: settings.defaultAccountId, showProgress: settings.showProgress };
-	}
-
-	async saveSettings(
-		user: SessionUser,
-		change: { defaultAccountId?: string | null; showProgress?: boolean },
-	): Promise<ChannelSettings> {
-		const before = await userChannelSettings(this.#options.db, user.userId);
-		const after = await saveUserChannelSettings(this.#options.db, user.userId, change);
-		if (before.defaultAccountId !== after.defaultAccountId) {
-			void this.#options.audit.record({
-				actor: userActor(user),
-				action: "channel_account.default_changed",
-				target: { type: "channel_account", id: after.defaultAccountId ?? before.defaultAccountId ?? "" },
-				detail: {
-					default_account_id: after.defaultAccountId,
-					...(after.defaultAccountId ? {} : { cleared: true }),
-				},
-			});
-		}
-		return { defaultAccountId: after.defaultAccountId, showProgress: after.showProgress };
 	}
 
 	/** A disabled or deleted user stops all of their chat accounts (doc/design/channels.md "Accounts"). */
@@ -474,7 +547,13 @@ export class ChannelManager {
 		if (command !== undefined) {
 			await this.#runCommand(adapter, row, message, command, target);
 			// A command never sends its attachments: they are not downloaded, and the user is told so.
-			if (message.files.length > 0) await adapter.sendText(target, FILES_NOT_SENT);
+			if (message.files.length > 0) {
+				const account = await accountByPlatform(this.#options.db, row.id, adapter.platform, message.platformUserId);
+				const locale = account
+					? await this.#localeForAccount(account, message.languageCode)
+					: localeFromLanguageCode(message.languageCode);
+				await adapter.sendText(target, messagesFor(locale).filesNotSent);
+			}
 			return;
 		}
 		const account = await accountByPlatform(this.#options.db, row.id, adapter.platform, message.platformUserId);
@@ -487,8 +566,10 @@ export class ChannelManager {
 			await this.#replyUnlinked(adapter, row, message);
 			return;
 		}
+		const locale = await this.#localeForAccount(account, message.languageCode);
+		const m = messagesFor(locale);
 		if (message.text === null && message.files.length === 0) {
-			await adapter.sendText(target, UNSUPPORTED);
+			await adapter.sendText(target, m.unsupported);
 			return;
 		}
 		// Files go to the library before a session exists, so a failed upload leaves no empty session.
@@ -497,14 +578,19 @@ export class ChannelManager {
 			try {
 				attachments = await this.#downloadAttachments(user, message.files, adapter);
 			} catch (err) {
-				await adapter.sendText(target, `Could not save the file: ${errorText(err)}`);
+				await adapter.sendText(target, m.couldNotSaveFile(errorText(err)));
 				return;
 			}
 		}
-		const thread = await this.#threadFor(row, message, user, adapter, target);
-		if (!thread) return;
+		const found = await this.#threadFor(row, message, user, adapter, target, locale);
+		if (!found) return;
+		const thread =
+			found.draft === null
+				? found.thread
+				: await this.#startDraftSession(row, found.thread, found.draft, user, adapter, target, locale);
+		if (!thread || thread.session_id === null) return;
 		await this.#ensureWatcher(thread.session_id);
-		await this.#submitMessage(row, thread, user, message, attachments, adapter, target);
+		await this.#submitMessage(row, thread, user, message, attachments, adapter, target, locale);
 	}
 
 	/** Runs a command; a leading `/` is always a command, and an unknown one is answered with a hint. */
@@ -529,38 +615,53 @@ export class ChannelManager {
 			await this.#replyUnlinked(adapter, row, message);
 			return;
 		}
+		const locale = await this.#localeForAccount(account, message.languageCode);
+		const m = messagesFor(locale);
 		if (command.name === "unlink") {
-			await this.#unlinkFromChat(adapter, account, user, target);
+			await this.#unlinkFromChat(adapter, account, user, target, m);
 			return;
 		}
 		if (command.name === "help" || command.name === "start") {
-			await adapter.sendText(target, this.#helpText());
+			await adapter.sendText(target, m.help);
 			return;
 		}
 		if (command.name === "approve" || command.name === "reject") {
-			await this.#decideFromCommand(adapter, row, message, user, target, command);
+			await this.#decideFromCommand(adapter, row, message, user, target, command, m);
 			return;
 		}
 		if (command.name === "sessions") {
-			await this.#showSessions(adapter, row, message, user, target);
+			await this.#showSessions(adapter, row, message, user, target, m);
+			return;
+		}
+		if (command.name === "model") {
+			await this.#modelCommand(row, adapter, user, target, m);
+			return;
+		}
+		if (command.name === "think") {
+			await this.#thinkCommand(row, adapter, user, target, m);
+			return;
+		}
+		if (command.name === "rules") {
+			await this.#rulesCommand(row, adapter, user, target, m);
+			return;
+		}
+		if (command.name === "extensions") {
+			await this.#extensionsCommand(row, adapter, user, target, m);
 			return;
 		}
 		if (command.name === "new") {
-			await this.#newSession(adapter, row, message, user, target);
+			await this.#newSession(adapter, row, message, user, target, locale);
 			return;
 		}
 		if (command.name === "quota") {
-			await this.#quotaCommand(adapter, row, message, user, target, command.args);
+			await this.#quotaCommand(adapter, row, message, user, target, command.args, m);
 			return;
 		}
 		if (command.name === "stop") {
-			await this.#stopCommand(adapter, row, message, user, target);
+			await this.#stopCommand(adapter, row, message, user, target, m);
 			return;
 		}
-		await adapter.sendText(
-			target,
-			`Unknown command /${command.name}. Send /help for the list of commands. To send a message that starts with "/", begin it with another character.`,
-		);
+		await adapter.sendText(target, m.unknownCommand(command.name));
 	}
 
 	async #submitMessage(
@@ -571,7 +672,9 @@ export class ChannelManager {
 		attachments: Awaited<ReturnType<typeof resolveAttachments>> | undefined,
 		adapter: ChannelAdapter,
 		target: ChannelTarget,
+		locale: UserSettingsLocale,
 	): Promise<void> {
+		if (thread.session_id === null) return;
 		try {
 			const text = message.text ?? "";
 			await this.#options.runtime.submit(thread.session_id, user, text, `channel:${row.id}:${message.updateId}`, {
@@ -585,7 +688,7 @@ export class ChannelManager {
 					: {}),
 			});
 		} catch (err) {
-			await adapter.sendText(target, `Could not send the message: ${errorText(err)}`);
+			await adapter.sendText(target, messagesFor(locale).couldNotSendMessage(errorText(err)));
 		}
 	}
 
@@ -595,17 +698,48 @@ export class ChannelManager {
 		user: SessionUser,
 		adapter: ChannelAdapter,
 		target: ChannelTarget,
-	): Promise<ChannelThreadRow | undefined> {
+		locale: UserSettingsLocale,
+	): Promise<{ thread: ChannelThreadRow; draft: ChannelDraft | null } | undefined> {
 		const existing = await channelThread(this.#options.db, row.id, adapter.platform, message.chatId, message.topicId);
 		let previous: "archived" | "unavailable" | undefined;
 		if (existing) {
-			const session = await this.#options.runtime.getSession(existing.session_id);
-			if (session && session.ownerUserId === user.userId && session.status === "active") return existing;
-			previous = session?.status === "archived" ? "archived" : "unavailable";
+			if (existing.session_id === null) {
+				// A draft waits for its first ordinary message to create the session it starts.
+				const draft = parseThreadDraft(existing.draft);
+				if (draft) return { thread: existing, draft };
+			} else {
+				const session = await this.#options.runtime.getSession(existing.session_id);
+				if (session && session.ownerUserId === user.userId && session.status === "active") {
+					return { thread: existing, draft: null };
+				}
+				previous = session?.status === "archived" ? "archived" : "unavailable";
+			}
 		}
-		return this.#createSessionThread(row, message.chatId, message.topicId, user, adapter, target, previous);
+		const thread = await this.#createSessionThread(
+			row,
+			message.chatId,
+			message.topicId,
+			user,
+			adapter,
+			target,
+			locale,
+			previous,
+		);
+		return thread ? { thread, draft: null } : undefined;
 	}
 
+	/** A new session's settings from the user's defaults; the chat no longer has defaults of its own. */
+	async #sessionDefaults(user: SessionUser): Promise<ResolvedDefaults & { rulePreset: RulePreset }> {
+		const settings = await getUserSettings(this.#options.db, user.userId);
+		const resolved = resolveNewSessionDefaults(
+			this.#options.models.available(),
+			settings,
+			this.#options.runtime.modelPresets.get("session").model,
+		);
+		return { ...resolved, rulePreset: settings.defaultRulePreset ?? "ask" };
+	}
+
+	/** Creates a session directly, for a chat or topic with no thread at all or a thread whose session went away. */
 	async #createSessionThread(
 		row: ChannelRow,
 		chatId: string,
@@ -613,20 +747,19 @@ export class ChannelManager {
 		user: SessionUser,
 		adapter: ChannelAdapter,
 		target: ChannelTarget,
+		locale: UserSettingsLocale,
 		previous?: "archived" | "unavailable",
 	): Promise<ChannelThreadRow | undefined> {
-		const model = channelDefaultModel(row) ?? this.#options.runtime.modelPresets.get("session").model;
-		if (!model) {
-			await adapter.sendText(
-				target,
-				"This channel has no default model and the session model preset is unset; ask an administrator to set one.",
-			);
+		const m = messagesFor(locale);
+		const defaults = await this.#sessionDefaults(user);
+		if (!defaults.model) {
+			await adapter.sendText(target, m.noDefaultModel);
 			return undefined;
 		}
 		try {
 			const session = await this.#options.runtime.createSession(user, {
-				model,
-				rulePreset: channelDefaultRulePreset(row) ?? "ask",
+				model: withThinkingLevel(defaults.model, defaults.thinkingLevel),
+				rulePreset: defaults.rulePreset,
 			});
 			const thread = await bindThread(this.#options.db, {
 				channelId: row.id,
@@ -635,10 +768,61 @@ export class ChannelManager {
 				topicId,
 				sessionId: session.id,
 			});
-			await this.#announceSession(adapter, target, session.id, previous);
+			await this.#announceSession(adapter, target, session.id, m, previous);
 			return thread;
 		} catch (err) {
-			await adapter.sendText(target, `Could not start a session: ${errorText(err)}`);
+			await adapter.sendText(target, m.couldNotStartSession(errorText(err)));
+			return undefined;
+		}
+	}
+
+	/** Starts the session a draft holds, with its model, thinking level, rule preset and disabled extensions. */
+	async #startDraftSession(
+		row: ChannelRow,
+		thread: ChannelThreadRow,
+		draft: ChannelDraft,
+		user: SessionUser,
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		locale: UserSettingsLocale,
+	): Promise<ChannelThreadRow | undefined> {
+		const m = messagesFor(locale);
+		let model = draft.model;
+		try {
+			const ref = { provider: model.provider, modelId: model.modelId };
+			this.#options.models.assertAvailable(ref);
+			// A level the model no longer supports is clamped, as a WebUI model change would be.
+			model = this.#options.models.resolveRef(ref, model.thinkingLevel);
+		} catch {
+			// The draft's model is gone: fall back to the defaults the WebUI would open with.
+			const defaults = await this.#sessionDefaults(user);
+			if (!defaults.model) {
+				await adapter.sendText(target, m.noDefaultModel);
+				return undefined;
+			}
+			model = withThinkingLevel(defaults.model, defaults.thinkingLevel);
+		}
+		const availableExtensions = (await extensionsForUser(this.#options.db, user.userId)).map((row) => row.name);
+		const disabledExtensions = draft.disabledExtensions.filter((name) => availableExtensions.includes(name));
+		try {
+			const session = await this.#options.runtime.createSession(user, {
+				model,
+				rulePreset: draft.rulePreset,
+			});
+			if (disabledExtensions.length > 0) {
+				await this.#options.runtime.configure(session.id, { disabledExtensions });
+			}
+			const bound = await bindThread(this.#options.db, {
+				channelId: row.id,
+				platform: adapter.platform,
+				chatId: thread.chat_id,
+				topicId: thread.topic_id,
+				sessionId: session.id,
+			});
+			await this.#announceSession(adapter, target, session.id, m);
+			return bound;
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotStartSession(errorText(err)));
 			return undefined;
 		}
 	}
@@ -648,16 +832,12 @@ export class ChannelManager {
 		adapter: ChannelAdapter,
 		target: ChannelTarget,
 		sessionId: string,
+		m: BotMessages,
 		previous?: "archived" | "unavailable",
 	): Promise<void> {
 		const prefix =
-			previous === "archived"
-				? "The previous session is archived. "
-				: previous === "unavailable"
-					? "The previous session is no longer available. "
-					: "";
-		const link = this.#sessionLink(sessionId);
-		await adapter.sendText(target, `${prefix}Started a new session.${link ? ` ${link}` : ""}`);
+			previous === "archived" ? m.previousArchived : previous === "unavailable" ? m.previousUnavailable : "";
+		await adapter.sendText(target, `${prefix}${m.newSessionStarted(this.#sessionLink(sessionId))}`);
 	}
 
 	async #downloadAttachments(
@@ -714,7 +894,8 @@ export class ChannelManager {
 		const key = `${row.id}:${message.platformUserId}`;
 		if (this.#unlinkedReplied.has(key)) return;
 		this.#unlinkedReplied.add(key);
-		await adapter.sendText({ chatId: message.chatId, topicId: message.topicId }, LINK_HELP);
+		const m = messagesFor(localeFromLanguageCode(message.languageCode));
+		await adapter.sendText({ chatId: message.chatId, topicId: message.topicId }, m.linkHelp);
 	}
 
 	async #link(
@@ -724,13 +905,14 @@ export class ChannelManager {
 		code: string,
 	): Promise<void> {
 		const target: ChannelTarget = { chatId: message.chatId, topicId: message.topicId };
+		const platform = messagesFor(localeFromLanguageCode(message.languageCode));
 		if (code.trim() === "") {
-			await adapter.sendText(target, "Send /link <code> with the code from your settings page.");
+			await adapter.sendText(target, platform.linkMissingCode);
 			return;
 		}
 		const userId = await consumeLinkCode(this.#options.db, code);
 		if (!userId) {
-			await adapter.sendText(target, "The link code is invalid, expired or already used.");
+			await adapter.sendText(target, platform.linkInvalidCode);
 			return;
 		}
 		const userRow = await this.#options.db
@@ -739,9 +921,10 @@ export class ChannelManager {
 			.where("id", "=", userId)
 			.executeTakeFirst();
 		if (!userRow || userRow.status !== "active") {
-			await adapter.sendText(target, "That account is not active.");
+			await adapter.sendText(target, platform.accountNotActive);
 			return;
 		}
+		const m = messagesFor(botLocale(await this.#userLocale(userId), message.languageCode));
 		try {
 			const { account, created } = await linkAccount(
 				this.#options.db,
@@ -761,10 +944,7 @@ export class ChannelManager {
 				});
 			}
 			this.#unlinkedReplied.delete(`${row.id}:${message.platformUserId}`);
-			await adapter.sendText(
-				target,
-				created ? "Linked. You can use this chat now. /help lists the commands." : "This chat is already linked.",
-			);
+			await adapter.sendText(target, created ? m.linked : m.alreadyLinked);
 		} catch (err) {
 			await adapter.sendText(target, errorText(err));
 		}
@@ -775,10 +955,11 @@ export class ChannelManager {
 		account: ChannelAccountRow,
 		user: SessionUser,
 		target: ChannelTarget,
+		m: BotMessages,
 	): Promise<void> {
 		await this.unlink(user, account.id);
 		this.#unlinkedReplied.delete(`${account.channel_id}:${account.platform_user_id}`);
-		await adapter.sendText(target, "Unlinked. Send /link <code> to link this chat again.");
+		await adapter.sendText(target, m.unlinked);
 	}
 
 	async #showSessions(
@@ -787,10 +968,11 @@ export class ChannelManager {
 		message: import("./model.ts").InboundMessage,
 		user: SessionUser,
 		target: ChannelTarget,
+		m: BotMessages,
 	): Promise<void> {
-		const page = await this.#sessionPage(row, adapter, user, message.chatId, message.topicId, 1);
+		const page = await this.#sessionPage(row, adapter, user, message.chatId, message.topicId, 1, m);
 		if (!page) {
-			await adapter.sendText(target, NO_SESSIONS);
+			await adapter.sendText(target, m.noSessions);
 			return;
 		}
 		await adapter.sendText(target, page.text, { buttons: page.buttons });
@@ -804,6 +986,7 @@ export class ChannelManager {
 		chatId: string,
 		topicId: string | null,
 		page: number,
+		m: BotMessages,
 	): Promise<{ text: string; buttons: import("./model.ts").ChannelButton[][] } | undefined> {
 		const count = await this.#options.db
 			.selectFrom("sessions")
@@ -830,28 +1013,606 @@ export class ChannelManager {
 		const current = await channelThread(this.#options.db, row.id, adapter.platform, chatId, topicId);
 		const buttons: import("./model.ts").ChannelButton[][] = sessions.map((session) => [
 			{
-				text: `${session.id === current?.session_id ? "✓ " : ""}${clip(session.title || "New session", 40)}`,
+				text: `${session.id === current?.session_id ? "✓ " : ""}${clip(session.title || m.newSessionTitle, 40)}`,
 				data: `switch:${session.id}`,
 			},
 		]);
 		const nav: import("./model.ts").ChannelButton[] = [];
-		if (currentPage > 1) nav.push({ text: "‹ Previous", data: `sessions:${currentPage - 1}` });
-		if (currentPage < pages) nav.push({ text: "Next ›", data: `sessions:${currentPage + 1}` });
+		if (currentPage > 1) nav.push({ text: m.previousPage, data: `sessions:${currentPage - 1}` });
+		if (currentPage < pages) nav.push({ text: m.nextPage, data: `sessions:${currentPage + 1}` });
 		if (nav.length > 0) buttons.push(nav);
-		const text =
-			pages > 1 ? `Switch this chat to a session (page ${currentPage} of ${pages}):` : "Switch this chat to a session:";
+		const text = pages > 1 ? m.sessionsTitle(currentPage, pages) : m.sessionsTitleSingle;
 		return { text, buttons };
 	}
 
+	/** `/new` records a draft, like the WebUI's new-session page; the first message creates the session. */
 	async #newSession(
 		adapter: ChannelAdapter,
 		row: ChannelRow,
 		message: import("./model.ts").InboundMessage,
 		user: SessionUser,
 		target: ChannelTarget,
+		locale: UserSettingsLocale,
 	): Promise<void> {
-		const thread = await this.#createSessionThread(row, message.chatId, message.topicId, user, adapter, target);
-		if (thread) await this.#ensureWatcher(thread.session_id);
+		const m = messagesFor(locale);
+		const defaults = await this.#sessionDefaults(user);
+		if (!defaults.model) {
+			await adapter.sendText(target, m.noDefaultModel);
+			return;
+		}
+		const draft: ChannelDraft = {
+			model: withThinkingLevel(defaults.model, defaults.thinkingLevel),
+			rulePreset: defaults.rulePreset,
+			disabledExtensions: [],
+		};
+		await saveDraftThread(this.#options.db, {
+			channelId: row.id,
+			platform: adapter.platform,
+			chatId: message.chatId,
+			topicId: message.topicId,
+			draft,
+		});
+		await adapter.sendText(
+			target,
+			m.draftStarted(
+				this.#modelName(draft.model),
+				this.#thinkingLevelName(draft.model, draft.model.thinkingLevel ?? "off", m),
+				this.#rulePresetName(draft.rulePreset),
+			),
+		);
+	}
+
+	// ---- chat management commands: the thread's session, or its draft ----
+
+	/** The session or draft this chat's management commands act on. */
+	async #chatTarget(
+		adapter: ChannelAdapter,
+		row: ChannelRow,
+		user: SessionUser,
+		chatId: string,
+		topicId: string | null,
+	): Promise<ChatTarget> {
+		const thread = await channelThread(this.#options.db, row.id, adapter.platform, chatId, topicId);
+		if (!thread) return { state: "none" };
+		if (thread.session_id === null) {
+			const draft = parseThreadDraft(thread.draft);
+			return draft ? { state: "draft", thread, draft } : { state: "none" };
+		}
+		const session = await this.#options.runtime.getSession(thread.session_id);
+		if (!session) return { state: "missing" };
+		if (session.ownerUserId !== user.userId) return { state: "notYours" };
+		return { state: "session", thread, session };
+	}
+
+	/** The reply a management command sends when the chat has no session or draft to act on. */
+	async #replyNoTarget(
+		adapter: ChannelAdapter,
+		state: ChatTarget["state"],
+		target: ChannelTarget,
+		m: BotMessages,
+	): Promise<void> {
+		const text = state === "missing" ? m.noSessionInChat : state === "notYours" ? m.sessionNotYours : m.noSessionYet;
+		await adapter.sendText(target, text);
+	}
+
+	#modelName(model: ModelRef): string {
+		const offered = this.#options.models.available().find((candidate) => sameModel(candidate, model));
+		return offered ? `${offered.name} (${offered.providerName})` : `${model.provider}/${model.modelId}`;
+	}
+
+	#thinkingLevelName(model: ModelRef, level: ThinkingLevel, m: BotMessages): string {
+		const offered = this.#options.models.available().find((candidate) => sameModel(candidate, model));
+		return offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level);
+	}
+
+	#rulePresetName(rulePreset: RulePreset): string {
+		return RULE_PRESET_CHOICES.find((choice) => choice.value === rulePreset)?.label ?? rulePreset;
+	}
+
+	/** One page of offered models with the current one marked; the page a press showed is digested in each button. */
+	#modelPage(
+		available: readonly AvailableModel[],
+		current: ModelRef,
+		page: number,
+		m: BotMessages,
+	): {
+		text: string;
+		buttons: import("./model.ts").ChannelButton[][];
+		models: readonly AvailableModel[];
+		page: number;
+	} {
+		const pages = Math.max(1, Math.ceil(available.length / MODEL_PAGE_SIZE));
+		const currentPage = Math.min(Math.max(page, 1), pages);
+		const models = available.slice((currentPage - 1) * MODEL_PAGE_SIZE, currentPage * MODEL_PAGE_SIZE);
+		const hash = modelListHash(available);
+		const buttons: import("./model.ts").ChannelButton[][] = models.map((model, index) => [
+			{
+				text: `${sameModel(model, current) ? "✓ " : ""}${clip(`${model.name} (${model.providerName})`, 60)}`,
+				data: `model:${currentPage}:${index}:${hash}`,
+			},
+		]);
+		const nav: import("./model.ts").ChannelButton[] = [];
+		if (currentPage > 1) nav.push({ text: m.previousPage, data: `modelp:${currentPage - 1}:${hash}` });
+		if (currentPage < pages) nav.push({ text: m.nextPage, data: `modelp:${currentPage + 1}:${hash}` });
+		if (nav.length > 0) buttons.push(nav);
+		return {
+			text: pages > 1 ? m.modelTitle(currentPage, pages) : m.modelTitleSingle,
+			buttons,
+			models,
+			page: currentPage,
+		};
+	}
+
+	async #modelCommand(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		target: ChannelTarget,
+		m: BotMessages,
+	): Promise<void> {
+		const state = await this.#chatTarget(adapter, row, user, target.chatId, target.topicId ?? null);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const available = this.#options.models.available();
+		if (available.length === 0) {
+			await adapter.sendText(target, m.noDefaultModel);
+			return;
+		}
+		const current = state.state === "draft" ? state.draft.model : state.session.model;
+		const view = this.#modelPage(available, current, 1, m);
+		await adapter.sendText(target, view.text, { buttons: view.buttons });
+	}
+
+	async #pressModel(
+		row: ChannelRow,
+		press: import("./model.ts").ButtonPress,
+		user: SessionUser,
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		data: string,
+		m: BotMessages,
+	): Promise<void> {
+		const [, rawPage, rawIndex, hash] = data.split(":");
+		const page = Number.parseInt(rawPage ?? "", 10);
+		const index = Number.parseInt(rawIndex ?? "", 10);
+		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const available = this.#options.models.available();
+		const current = state.state === "draft" ? state.draft.model : state.session.model;
+		const view = this.#modelPage(available, current, Number.isSafeInteger(page) ? page : 1, m);
+		// The offered list changed since the press: show the list as it is now instead of acting on an index.
+		if (hash !== modelListHash(available) || !Number.isSafeInteger(index)) {
+			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
+			return;
+		}
+		const model = view.models[index];
+		if (!model) {
+			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
+			return;
+		}
+		const ref: ModelRef = { provider: model.provider, modelId: model.modelId };
+		try {
+			if (state.state === "draft") {
+				await updateThreadDraft(this.#options.db, state.thread.id, { ...state.draft, model: ref });
+				await this.#writeUserDefaults(user, { defaultModel: ref }, row, adapter, state.thread);
+			} else {
+				await this.#options.runtime.configure(state.session.id, { model: ref });
+			}
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotChange(errorText(err)));
+			return;
+		}
+		await this.#auditSettingsChange(user, row, adapter, state.thread, ref, {
+			model: ref,
+			...(state.state === "session" ? { draft: false } : { draft: true }),
+		});
+		await this.#editPage(adapter, target, press.messageId, m.modelSet(this.#modelName(ref)));
+	}
+
+	async #pressModelPage(
+		row: ChannelRow,
+		press: import("./model.ts").ButtonPress,
+		user: SessionUser,
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		data: string,
+		m: BotMessages,
+	): Promise<void> {
+		const [, rawPage] = data.split(":");
+		const page = Number.parseInt(rawPage ?? "", 10);
+		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const current = state.state === "draft" ? state.draft.model : state.session.model;
+		const view = this.#modelPage(this.#options.models.available(), current, Number.isSafeInteger(page) ? page : 1, m);
+		await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
+	}
+
+	async #thinkCommand(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		target: ChannelTarget,
+		m: BotMessages,
+	): Promise<void> {
+		const state = await this.#chatTarget(adapter, row, user, target.chatId, target.topicId ?? null);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const model = state.state === "draft" ? state.draft.model : state.session.model;
+		const offered = this.#options.models.available().find((candidate) => sameModel(candidate, model));
+		const levels = offered?.thinkingLevels ?? ["off"];
+		if (levels.length <= 1) {
+			await adapter.sendText(target, m.thinkingNone(this.#modelName(model)));
+			return;
+		}
+		const view = this.#thinkingPage(model, offered, levels, m);
+		await adapter.sendText(target, view.text, { buttons: view.buttons });
+	}
+
+	#thinkingPage(
+		model: ModelRef,
+		offered: AvailableModel | undefined,
+		levels: readonly ThinkingLevel[],
+		m: BotMessages,
+	): { text: string; buttons: import("./model.ts").ChannelButton[][] } {
+		const current = model.thinkingLevel ?? "off";
+		const hash = modelRefHash(model);
+		const buttons: import("./model.ts").ChannelButton[][] = levels.map((level) => [
+			{
+				text: `${level === current ? "✓ " : ""}${offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level)}`,
+				data: `think:${level}:${hash}`,
+			},
+		]);
+		return { text: m.thinkingTitle(this.#modelName(model)), buttons };
+	}
+
+	async #pressThink(
+		row: ChannelRow,
+		press: import("./model.ts").ButtonPress,
+		user: SessionUser,
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		data: string,
+		m: BotMessages,
+	): Promise<void> {
+		const [, rawLevel, hash] = data.split(":");
+		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const model = state.state === "draft" ? state.draft.model : state.session.model;
+		const offered = this.#options.models.available().find((candidate) => sameModel(candidate, model));
+		const levels = offered?.thinkingLevels ?? ["off"];
+		const level = levels.find((candidate) => candidate === rawLevel);
+		if (hash !== modelRefHash(model) || level === undefined) {
+			// The model changed or the level is no longer offered: show the levels of the current model.
+			const view =
+				levels.length <= 1
+					? { text: m.thinkingNone(this.#modelName(model)), buttons: [] }
+					: this.#thinkingPage(model, offered, levels, m);
+			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
+			return;
+		}
+		const next = withThinkingLevel(model, level);
+		try {
+			if (state.state === "draft") {
+				await updateThreadDraft(this.#options.db, state.thread.id, { ...state.draft, model: next });
+				await this.#writeUserDefaults(user, { defaultModel: next }, row, adapter, state.thread);
+			} else {
+				await this.#options.runtime.configure(state.session.id, {
+					model: { provider: model.provider, modelId: model.modelId, thinkingLevel: level },
+				});
+			}
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotChange(errorText(err)));
+			return;
+		}
+		await this.#auditSettingsChange(user, row, adapter, state.thread, next, {
+			thinking_level: level,
+			draft: state.state === "draft",
+		});
+		await this.#editPage(
+			adapter,
+			target,
+			press.messageId,
+			m.thinkingSet(offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level)),
+		);
+	}
+
+	async #rulesCommand(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		target: ChannelTarget,
+		m: BotMessages,
+	): Promise<void> {
+		const state = await this.#chatTarget(adapter, row, user, target.chatId, target.topicId ?? null);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const current = state.state === "draft" ? state.draft.rulePreset : (state.session.rules?.rulePreset ?? "ask");
+		const buttons = RULE_PRESET_CHOICES.map((choice) => [
+			{ text: `${choice.value === current ? "✓ " : ""}${choice.label}`, data: `rules:${choice.value}` },
+		]);
+		await adapter.sendText(target, m.rulesTitle, { buttons });
+	}
+
+	async #pressRules(
+		row: ChannelRow,
+		press: import("./model.ts").ButtonPress,
+		user: SessionUser,
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		data: string,
+		m: BotMessages,
+	): Promise<void> {
+		const value = data.slice("rules:".length);
+		const choice = RULE_PRESET_CHOICES.find((candidate) => candidate.value === value);
+		if (!choice) return;
+		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		try {
+			if (state.state === "draft") {
+				await updateThreadDraft(this.#options.db, state.thread.id, {
+					...state.draft,
+					rulePreset: choice.value,
+				});
+				await this.#writeUserDefaults(user, { defaultRulePreset: choice.value }, row, adapter, state.thread);
+			} else {
+				await this.#options.runtime.configure(state.session.id, { rulePreset: choice.value });
+				void this.#options.audit.record({
+					actor: userActor(user),
+					action: "rules.changed",
+					target: { type: "session", id: state.session.id },
+					detail: {
+						rule_preset: choice.value,
+						channel: row.name,
+						via: adapter.platform,
+						thread_id: state.thread.id,
+					},
+				});
+				// Waiting work may not need approval any more (doc/design/access-control.md "Approvals").
+				await this.#reevaluateRules(state.session.id);
+			}
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotChange(errorText(err)));
+			return;
+		}
+		await this.#auditSettingsChange(user, row, adapter, state.thread, choice.value, {
+			rule_preset: choice.value,
+			draft: state.state === "draft",
+		});
+		await this.#editPage(adapter, target, press.messageId, m.rulesSet(choice.label));
+	}
+
+	async #extensionsCommand(
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		user: SessionUser,
+		target: ChannelTarget,
+		m: BotMessages,
+	): Promise<void> {
+		const state = await this.#chatTarget(adapter, row, user, target.chatId, target.topicId ?? null);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const names = await this.#extensionNames(user);
+		if (names.length === 0) {
+			await adapter.sendText(target, m.noExtensions);
+			return;
+		}
+		const disabled = await this.#disabledExtensions(state);
+		const view = this.#extensionPage(names, disabled, 1, m);
+		await adapter.sendText(target, view.text, { buttons: view.buttons });
+	}
+
+	async #extensionNames(user: SessionUser): Promise<string[]> {
+		return (await extensionsForUser(this.#options.db, user.userId)).map((row) => row.name);
+	}
+
+	async #disabledExtensions(state: Extract<ChatTarget, { state: "draft" | "session" }>): Promise<string[]> {
+		if (state.state === "draft") return state.draft.disabledExtensions;
+		const row = await this.#options.db
+			.selectFrom("sessions")
+			.select("disabled_extensions")
+			.where("id", "=", state.session.id)
+			.executeTakeFirst();
+		return parseDisabledExtensionNames(row?.disabled_extensions ?? null);
+	}
+
+	#extensionPage(
+		names: readonly string[],
+		disabled: readonly string[],
+		page: number,
+		m: BotMessages,
+	): { text: string; buttons: import("./model.ts").ChannelButton[][]; names: readonly string[]; page: number } {
+		const pages = Math.max(1, Math.ceil(names.length / EXTENSION_PAGE_SIZE));
+		const currentPage = Math.min(Math.max(page, 1), pages);
+		const pageNames = names.slice((currentPage - 1) * EXTENSION_PAGE_SIZE, currentPage * EXTENSION_PAGE_SIZE);
+		const hash = listHash([...names, "|", ...[...disabled].sort()]);
+		const buttons: import("./model.ts").ChannelButton[][] = pageNames.map((name, index) => [
+			{
+				text: `${disabled.includes(name) ? "" : "✓ "}${clip(name, 60)}`,
+				data: `ext:${currentPage}:${index}:${hash}`,
+			},
+		]);
+		const nav: import("./model.ts").ChannelButton[] = [];
+		if (currentPage > 1) nav.push({ text: m.previousPage, data: `extp:${currentPage - 1}:${hash}` });
+		if (currentPage < pages) nav.push({ text: m.nextPage, data: `extp:${currentPage + 1}:${hash}` });
+		if (nav.length > 0) buttons.push(nav);
+		return {
+			text: pages > 1 ? m.extensionsTitle(currentPage, pages) : m.extensionsTitleSingle,
+			buttons,
+			names: pageNames,
+			page: currentPage,
+		};
+	}
+
+	async #pressExtension(
+		row: ChannelRow,
+		press: import("./model.ts").ButtonPress,
+		user: SessionUser,
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		data: string,
+		m: BotMessages,
+	): Promise<void> {
+		const [, rawPage, rawIndex, hash] = data.split(":");
+		const page = Number.parseInt(rawPage ?? "", 10);
+		const index = Number.parseInt(rawIndex ?? "", 10);
+		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const names = await this.#extensionNames(user);
+		const disabled = await this.#disabledExtensions(state);
+		const view = this.#extensionPage(names, disabled, Number.isSafeInteger(page) ? page : 1, m);
+		const hashNow = listHash([...names, "|", ...[...disabled].sort()]);
+		if (hash !== hashNow || !Number.isSafeInteger(index)) {
+			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
+			return;
+		}
+		const name = view.names[index];
+		if (!name) {
+			await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
+			return;
+		}
+		const nextDisabled = disabled.includes(name) ? disabled.filter((entry) => entry !== name) : [...disabled, name];
+		try {
+			if (state.state === "draft") {
+				await updateThreadDraft(this.#options.db, state.thread.id, {
+					...state.draft,
+					disabledExtensions: nextDisabled,
+				});
+			} else {
+				await this.#options.runtime.configure(state.session.id, { disabledExtensions: nextDisabled });
+			}
+		} catch (err) {
+			await adapter.sendText(target, m.couldNotChange(errorText(err)));
+			return;
+		}
+		await this.#auditSettingsChange(user, row, adapter, state.thread, name, {
+			extension: name,
+			enabled: !nextDisabled.includes(name),
+			draft: state.state === "draft",
+		});
+		const after = this.#extensionPage(names, nextDisabled, view.page, m);
+		await this.#editPage(adapter, target, press.messageId, after.text, after.buttons);
+	}
+
+	async #pressExtensionPage(
+		row: ChannelRow,
+		press: import("./model.ts").ButtonPress,
+		user: SessionUser,
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		data: string,
+		m: BotMessages,
+	): Promise<void> {
+		const [, rawPage] = data.split(":");
+		const page = Number.parseInt(rawPage ?? "", 10);
+		const state = await this.#chatTarget(adapter, row, user, press.chatId, press.topicId);
+		if (state.state !== "draft" && state.state !== "session") {
+			await this.#replyNoTarget(adapter, state.state, target, m);
+			return;
+		}
+		const names = await this.#extensionNames(user);
+		const disabled = await this.#disabledExtensions(state);
+		const view = this.#extensionPage(names, disabled, Number.isSafeInteger(page) ? page : 1, m);
+		await this.#editPage(adapter, target, press.messageId, view.text, view.buttons);
+	}
+
+	async #editPage(
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		messageId: string,
+		text: string,
+		buttons?: readonly (readonly import("./model.ts").ChannelButton[])[],
+	): Promise<void> {
+		try {
+			await adapter.editText(target, messageId, text, buttons ? { buttons } : {});
+		} catch (err) {
+			console.error("channels: editing a settings message failed:", err);
+		}
+	}
+
+	/** Writes a draft's change to the user's defaults, like the WebUI new-session page, and audits it. */
+	async #writeUserDefaults(
+		user: SessionUser,
+		change: UserSettingsUpdate,
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		thread: ChannelThreadRow,
+	): Promise<void> {
+		const before = await getUserSettings(this.#options.db, user.userId);
+		const after = await patchUserSettings(this.#options.db, user.userId, change);
+		const keys = Object.keys(change) as (keyof UserSettings)[];
+		const changed = keys.filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+		if (changed.length === 0) return;
+		const oldValues: Record<string, unknown> = {};
+		const newValues: Record<string, unknown> = {};
+		for (const key of changed) {
+			oldValues[key] = before[key];
+			newValues[key] = after[key];
+		}
+		void this.#options.audit.record({
+			actor: userActor(user),
+			action: "user_settings.changed",
+			target: { type: "user", id: user.userId },
+			detail: {
+				changed,
+				old: oldValues,
+				new: newValues,
+				channel: row.name,
+				via: adapter.platform,
+				thread_id: thread.id,
+				draft: true,
+			},
+		});
+	}
+
+	/** Records a settings change made from chat, with the channel like the other chat decisions. */
+	async #auditSettingsChange(
+		user: SessionUser,
+		row: ChannelRow,
+		adapter: ChannelAdapter,
+		thread: ChannelThreadRow,
+		target: unknown,
+		detail: Record<string, unknown>,
+	): Promise<void> {
+		void this.#options.audit.record({
+			actor: userActor(user),
+			action: "channel.settings_changed",
+			target:
+				thread.session_id === null
+					? { type: "channel_thread", id: thread.id }
+					: { type: "session", id: thread.session_id },
+			detail: { channel: row.name, via: adapter.platform, thread_id: thread.id, target, ...detail },
+		});
+	}
+
+	/** A rule change may settle what was waiting for approval (doc/design/access-control.md "Approvals"). */
+	async #reevaluateRules(sessionId: string): Promise<void> {
+		const ref = { type: "session" as const, id: sessionId };
+		await this.#options.cluster.reevaluate(ref);
+		await this.#options.taskGroups.reevaluate(ref);
+		await reevaluateExternalCalls(this.#options.db, ref);
 	}
 
 	async #stopCommand(
@@ -860,17 +1621,22 @@ export class ChannelManager {
 		message: import("./model.ts").InboundMessage,
 		user: SessionUser,
 		target: ChannelTarget,
+		m: BotMessages,
 	): Promise<void> {
 		const thread = await channelThread(this.#options.db, row.id, adapter.platform, message.chatId, message.topicId);
-		if (!thread || (await sessionOwner(this.#options.db, thread.session_id)) !== user.userId) {
-			await adapter.sendText(target, "There is no running session in this chat.");
+		if (
+			!thread ||
+			thread.session_id === null ||
+			(await sessionOwner(this.#options.db, thread.session_id)) !== user.userId
+		) {
+			await adapter.sendText(target, m.noRunningSession);
 			return;
 		}
 		try {
 			await this.#options.runtime.abort(thread.session_id, user);
-			await adapter.sendText(target, "Stopped.");
+			await adapter.sendText(target, m.stopped);
 		} catch (err) {
-			await adapter.sendText(target, `Could not stop: ${errorText(err)}`);
+			await adapter.sendText(target, m.couldNotStop(errorText(err)));
 		}
 	}
 
@@ -881,10 +1647,20 @@ export class ChannelManager {
 		user: SessionUser,
 		target: ChannelTarget,
 		args: readonly string[],
+		m: BotMessages,
 	): Promise<void> {
 		const thread = await channelThread(this.#options.db, row.id, adapter.platform, message.chatId, message.topicId);
-		if (!thread || (await sessionOwner(this.#options.db, thread.session_id)) !== user.userId) {
-			await adapter.sendText(target, "There is no session in this chat.");
+		if (!thread) {
+			await adapter.sendText(target, m.noSessionInChat);
+			return;
+		}
+		if (thread.session_id === null) {
+			// A draft has no session and so nothing that could run or wait.
+			await adapter.sendText(target, m.noRunningSession);
+			return;
+		}
+		if ((await sessionOwner(this.#options.db, thread.session_id)) !== user.userId) {
+			await adapter.sendText(target, m.noSessionInChat);
 			return;
 		}
 		const rootId = (await rootSessionIdOf(this.#options.db, thread.session_id)) ?? thread.session_id;
@@ -894,20 +1670,20 @@ export class ChannelManager {
 			.where("id", "=", rootId)
 			.executeTakeFirst();
 		if (!root) {
-			await adapter.sendText(target, "There is no session in this chat.");
+			await adapter.sendText(target, m.noSessionInChat);
 			return;
 		}
 		const sub = args[0]?.toLowerCase();
 		if (sub === "add") {
 			const tokens = Number(args[1]);
 			if (!Number.isSafeInteger(tokens) || tokens <= 0) {
-				await adapter.sendText(target, "Use /quota add <tokens> with a positive whole number of tokens.");
+				await adapter.sendText(target, m.quotaAddUsage);
 				return;
 			}
 			try {
 				await this.#options.runtime.decideRootQuota(rootId, "approve", tokens);
 				await this.#auditChannelApproval(user, "quota", rootId, "approved", row.name, adapter.platform, thread.id);
-				await adapter.sendText(target, `Added ${tokens} tokens to the session's quota.`);
+				await adapter.sendText(target, m.quotaAdded(tokens));
 			} catch (err) {
 				await adapter.sendText(target, errorText(err));
 			}
@@ -917,26 +1693,19 @@ export class ChannelManager {
 			try {
 				await this.#options.runtime.decideRootQuota(rootId, "deny");
 				await this.#auditChannelApproval(user, "quota", rootId, "rejected", row.name, adapter.platform, thread.id);
-				await adapter.sendText(target, "Ended the turn.");
+				await adapter.sendText(target, m.quotaEnded);
 			} catch (err) {
 				await adapter.sendText(target, errorText(err));
 			}
 			return;
 		}
 		if (root.quota_tokens === null) {
-			await adapter.sendText(target, "This session has no token quota.");
+			await adapter.sendText(target, m.noQuota);
 			return;
 		}
 		const remaining = Number(root.quota_tokens);
 		const used = Number(root.budget_used_tokens);
-		if (remaining <= 0) {
-			await adapter.sendText(
-				target,
-				`This session's token quota is used up (${remaining} remaining, ${used} used).\n/quota add <tokens> raises it and continues; /quota stop ends the turn.`,
-			);
-		} else {
-			await adapter.sendText(target, `This session has ${remaining} tokens left (${used} used).`);
-		}
+		await adapter.sendText(target, remaining <= 0 ? m.quotaUsedUp(remaining, used) : m.quotaRemaining(remaining, used));
 	}
 
 	async #decideFromCommand(
@@ -946,10 +1715,11 @@ export class ChannelManager {
 		user: SessionUser,
 		target: ChannelTarget,
 		command: { name: string; args: string[] },
+		m: BotMessages,
 	): Promise<void> {
 		const id = command.args[0];
 		if (!id) {
-			await adapter.sendText(target, `Use /${command.name} <id>${command.name === "reject" ? " [reason]" : ""}.`);
+			await adapter.sendText(target, m.decideUsage(command.name, command.name === "reject"));
 			return;
 		}
 		const decision = command.name === "approve" ? "approved" : "rejected";
@@ -957,12 +1727,12 @@ export class ChannelManager {
 		const thread = await channelThread(this.#options.db, row.id, adapter.platform, message.chatId, message.topicId);
 		const result = await this.#decideApproval(user, id, decision, reason || undefined);
 		if (!result) {
-			await adapter.sendText(target, "No waiting approval with that id is yours to decide.");
+			await adapter.sendText(target, m.noWaitingApproval);
 			return;
 		}
 		await this.#auditChannelApproval(user, result.kind, id, decision, row.name, adapter.platform, thread?.id);
 		await this.#editDecided(result.key, decision, user.username, reason || undefined);
-		await adapter.sendText(target, decision === "approved" ? "Approved." : "Rejected.");
+		await adapter.sendText(target, decision === "approved" ? m.approved : m.rejected);
 	}
 
 	async #decideApproval(
@@ -1042,13 +1812,19 @@ export class ChannelManager {
 		});
 	}
 
-	async #editDecided(key: string, decision: "approved" | "rejected", by: string, reason?: string): Promise<void> {
+	async #editDecided(
+		key: string,
+		decision: "approved" | "rejected",
+		by: string,
+		reason: string | undefined,
+	): Promise<void> {
 		const tracked = this.#tracked.get(key);
 		if (!tracked) return;
 		this.#tracked.delete(key);
 		const entry = this.#adapters.get(tracked.adapterName);
 		if (!entry) return;
-		const ending = decision === "approved" ? `Approved by ${by}.` : `Rejected by ${by}${reason ? `: ${reason}` : ""}.`;
+		const m = messagesFor(tracked.locale);
+		const ending = decision === "approved" ? m.approvedBy(by) : m.rejectedBy(by, reason ?? null);
 		try {
 			await entry.adapter.editText(tracked.target, tracked.messageId, `${tracked.text}\n\n${ending}`);
 		} catch (err) {
@@ -1064,18 +1840,43 @@ export class ChannelManager {
 		const target: ChannelTarget = { chatId: press.chatId, topicId: press.topicId };
 		const account = await accountByPlatform(this.#options.db, row.id, adapter.platform, press.platformUserId);
 		const user = account ? await this.#sessionUser(account) : undefined;
-		if (!user) {
-			await adapter.sendText(target, LINK_HELP);
+		if (!user || !account) {
+			await adapter.sendText(target, messagesFor(localeFromLanguageCode(press.languageCode)).linkHelp);
 			return;
 		}
+		const m = messagesFor(await this.#localeForAccount(account, press.languageCode));
 		if (press.data.startsWith("switch:")) {
 			const sessionId = press.data.slice("switch:".length);
-			await this.#switchSession(row, press, user, sessionId, adapter, target);
+			await this.#switchSession(row, press, user, sessionId, adapter, target, m);
 			return;
 		}
 		if (press.data.startsWith("sessions:")) {
 			const page = Number.parseInt(press.data.slice("sessions:".length), 10);
-			await this.#editSessionPage(row, adapter, press, user, target, Number.isSafeInteger(page) ? page : 1);
+			await this.#editSessionPage(row, adapter, press, user, target, Number.isSafeInteger(page) ? page : 1, m);
+			return;
+		}
+		if (press.data.startsWith("model:")) {
+			await this.#pressModel(row, press, user, adapter, target, press.data, m);
+			return;
+		}
+		if (press.data.startsWith("modelp:")) {
+			await this.#pressModelPage(row, press, user, adapter, target, press.data, m);
+			return;
+		}
+		if (press.data.startsWith("think:")) {
+			await this.#pressThink(row, press, user, adapter, target, press.data, m);
+			return;
+		}
+		if (press.data.startsWith("rules:")) {
+			await this.#pressRules(row, press, user, adapter, target, press.data, m);
+			return;
+		}
+		if (press.data.startsWith("ext:")) {
+			await this.#pressExtension(row, press, user, adapter, target, press.data, m);
+			return;
+		}
+		if (press.data.startsWith("extp:")) {
+			await this.#pressExtensionPage(row, press, user, adapter, target, press.data, m);
 			return;
 		}
 		if (press.data.startsWith("ap:")) {
@@ -1088,13 +1889,13 @@ export class ChannelManager {
 			const thread = await channelThread(this.#options.db, row.id, adapter.platform, press.chatId, press.topicId);
 			const result = await this.#decideApproval(user, id, decision);
 			if (!result) {
-				await adapter.sendText(target, "That approval is no longer waiting, or you may not decide it.");
+				await adapter.sendText(target, m.approvalNoLongerWaiting);
 				return;
 			}
 			await this.#auditChannelApproval(user, result.kind, id, decision, row.name, adapter.platform, thread?.id);
-			await this.#editDecided(result.key, decision, user.username);
+			await this.#editDecided(result.key, decision, user.username, undefined);
 			try {
-				await adapter.editText(target, press.messageId, decision === "approved" ? "Approved." : "Rejected.");
+				await adapter.editText(target, press.messageId, decision === "approved" ? m.approved : m.rejected);
 			} catch {}
 		}
 	}
@@ -1106,10 +1907,11 @@ export class ChannelManager {
 		sessionId: string,
 		adapter: ChannelAdapter,
 		target: ChannelTarget,
+		m: BotMessages,
 	): Promise<void> {
 		const session = await this.#options.runtime.getSession(sessionId);
 		if (!session || session.ownerUserId !== user.userId || session.parentSessionId !== null) {
-			await adapter.sendText(target, "That session is not yours to attach.");
+			await adapter.sendText(target, m.sessionNotYours);
 			return;
 		}
 		await bindThread(this.#options.db, {
@@ -1120,7 +1922,7 @@ export class ChannelManager {
 			sessionId: session.id,
 		});
 		await this.#ensureWatcher(session.id);
-		await this.#replayHistory(adapter, target, session.id);
+		await this.#replayHistory(adapter, target, session.id, m);
 	}
 
 	/** A page press edits the list message it came from rather than sending another one. */
@@ -1131,30 +1933,36 @@ export class ChannelManager {
 		user: SessionUser,
 		target: ChannelTarget,
 		page: number,
+		m: BotMessages,
 	): Promise<void> {
-		const view = await this.#sessionPage(row, adapter, user, press.chatId, press.topicId, page);
+		const view = await this.#sessionPage(row, adapter, user, press.chatId, press.topicId, page, m);
 		try {
-			if (!view) await adapter.editText(target, press.messageId, NO_SESSIONS);
+			if (!view) await adapter.editText(target, press.messageId, m.noSessions);
 			else await adapter.editText(target, press.messageId, view.text, { buttons: view.buttons });
 		} catch (err) {
 			console.error("channels: editing the session list failed:", err);
 		}
 	}
 
-	async #replayHistory(adapter: ChannelAdapter, target: ChannelTarget, sessionId: string): Promise<void> {
+	async #replayHistory(
+		adapter: ChannelAdapter,
+		target: ChannelTarget,
+		sessionId: string,
+		m: BotMessages,
+	): Promise<void> {
 		let messages: Awaited<ReturnType<AgentRuntime["chatHistory"]>>;
 		try {
 			messages = await this.#options.runtime.chatHistory(sessionId, this.#historyLimit);
 		} catch (err) {
-			await adapter.sendText(target, `Could not read the session's history: ${errorText(err)}`);
+			await adapter.sendText(target, m.couldNotReadHistory(errorText(err)));
 			return;
 		}
 		const link = this.#sessionLink(sessionId);
 		for (const message of messages) {
-			const label = message.role === "user" ? "You" : "Assistant";
+			const label = message.role === "user" ? m.historyUser : m.historyAssistant;
 			const text = clip(message.text);
 			const cut = text.length < message.text.replace(/\s+/g, " ").trim().length;
-			const body = `${label}: ${text}${cut && link ? `\n${link}` : ""}`;
+			const body = `${label}: ${text}${cut && link ? `\n\n${link}` : ""}`;
 			try {
 				await adapter.sendText(target, body, { disablePreview: true });
 			} catch (err) {
@@ -1197,7 +2005,7 @@ export class ChannelManager {
 		for (const event of events) {
 			if (event.type === "run_start") {
 				this.#runs.set(sessionId, { deliveries: [], seen: new Set() });
-				await this.#showProgress(sessionId, "Working…");
+				await this.#showProgress(sessionId, (m) => m.working);
 				continue;
 			}
 			if (event.type === "run_end") {
@@ -1209,15 +2017,15 @@ export class ChannelManager {
 				continue;
 			}
 			if (event.type === "message_start" && event.message.role === "assistant") {
-				await this.#showProgress(sessionId, "Thinking…");
+				await this.#showProgress(sessionId, (m) => m.thinking);
 				continue;
 			}
 			if (event.type === "tool_execution_start") {
-				await this.#showProgress(sessionId, `Running ${event.toolName}…`);
+				await this.#showProgress(sessionId, (m) => m.running(event.toolName));
 				continue;
 			}
 			if (event.type === "auto_retry_start") {
-				await this.#showProgress(sessionId, `Retrying (attempt ${event.attempt})…`);
+				await this.#showProgress(sessionId, (m) => m.retrying(event.attempt));
 				continue;
 			}
 			if (event.type === "message_end") {
@@ -1239,7 +2047,8 @@ export class ChannelManager {
 			)
 			.join("");
 		if (message.errorMessage) {
-			await this.#sendFinal(sessionId, `The turn failed: ${message.errorMessage}`);
+			const m = await this.#messagesForSession(sessionId);
+			await this.#sendFinal(sessionId, m.turnFailed(message.errorMessage));
 			return;
 		}
 		if (text.trim() === "") return;
@@ -1274,8 +2083,9 @@ export class ChannelManager {
 	}
 
 	async #sendDeliveries(sessionId: string, run: RunState): Promise<void> {
+		const m = await this.#messagesForSession(sessionId);
 		for (const delivery of run.deliveries) {
-			await this.#send(sessionId, `File offered: ${delivery.name}\n${delivery.source}`);
+			await this.#send(sessionId, m.fileOffered(delivery.name, delivery.source));
 		}
 	}
 
@@ -1286,7 +2096,9 @@ export class ChannelManager {
 	): Promise<void> {
 		const route = await this.#routeForSession(sessionId);
 		if (!route) return;
-		const body = route.thread === undefined ? `Session "${await this.#sessionTitle(sessionId)}":\n${text}` : text;
+		const locale = botLocale(await this.#userLocale(route.account.user_id));
+		const m = messagesFor(locale);
+		const body = route.thread === undefined ? m.sessionBody(await this.#sessionTitle(sessionId, locale), text) : text;
 		try {
 			await route.adapter.sendText(route.target, body, options);
 		} catch (err) {
@@ -1307,16 +2119,20 @@ export class ChannelManager {
 		await this.#send(sessionId, text);
 	}
 
-	async #showProgress(sessionId: string, text: string): Promise<void> {
+	async #showProgress(sessionId: string, status: (m: BotMessages) => string): Promise<void> {
 		const route = await this.#routeForSession(sessionId);
 		if (!route) return;
-		const settings = await userChannelSettings(this.#options.db, route.account.user_id);
+		const settings = await getUserSettings(this.#options.db, route.account.user_id);
 		if (!settings.showProgress) return;
+		const locale = botLocale(settings.locale);
+		const m = messagesFor(locale);
+		const text = status(m);
 		const now = this.#now();
 		if (route.adapter.capabilities.drafts && route.adapter.sendDraft && route.thread) {
 			let draft = this.#drafts.get(sessionId);
 			if (draft) {
 				draft.step = text;
+				draft.locale = locale;
 				draft.waiting = null;
 				// The turn went on after its last message: show progress again without the old throttle or dedupe.
 				if (draft.suppressed) {
@@ -1331,6 +2147,7 @@ export class ChannelManager {
 					target: route.target,
 					lastSentAt: 0,
 					lastText: "",
+					locale,
 					step: text,
 					waiting: null,
 					suppressed: false,
@@ -1360,7 +2177,7 @@ export class ChannelManager {
 			if (!existing) {
 				const sent = await route.adapter.sendText(
 					route.target,
-					route.thread ? text : `${text}\nThis is the session "${await this.#sessionTitle(sessionId)}".`,
+					route.thread ? text : m.statusUntrackedSession(text, await this.#sessionTitle(sessionId, locale)),
 					{ disablePreview: true },
 				);
 				this.#statuses.set(sessionId, {
@@ -1369,6 +2186,7 @@ export class ChannelManager {
 					messageId: sent.messageId,
 					lastSentAt: now,
 					lastText: text,
+					locale,
 				});
 			} else {
 				await route.adapter.editText(existing.target, existing.messageId, text, { disablePreview: true });
@@ -1382,8 +2200,9 @@ export class ChannelManager {
 
 	/** The status a draft shows: the wait it is in, or the current step. */
 	#shownStatus(draft: DraftState): string {
-		if (draft.waiting === "signature") return "Waiting for a signature…";
-		if (draft.waiting === "approval") return "Waiting for approval…";
+		const m = messagesFor(draft.locale);
+		if (draft.waiting === "signature") return m.waitingSignature;
+		if (draft.waiting === "approval") return m.waitingApproval;
 		return draft.step;
 	}
 
@@ -1464,7 +2283,7 @@ export class ChannelManager {
 		const adapter = this.#adapters.get(row.name)?.adapter;
 		if (!adapter) return;
 		const thread = await channelThread(this.#options.db, row.id, adapter.platform, stop.chatId, stop.topicId);
-		if (!thread) return;
+		if (!thread || thread.session_id === null) return;
 		const owner = await sessionOwner(this.#options.db, thread.session_id);
 		if (!owner) return;
 		const userRow = await this.#options.db
@@ -1574,8 +2393,8 @@ export class ChannelManager {
 		const creating = (async () => {
 			const createTopic = adapter.createTopic?.bind(adapter);
 			if (!createTopic) return undefined;
-			const session = await this.#options.runtime.getSession(sessionId);
-			const title = clip(session?.title ?? "New session", 60);
+			const locale = botLocale(await this.#userLocale(account.user_id));
+			const title = clip(await this.#sessionTitle(sessionId, locale), 60);
 			try {
 				const topicId = await createTopic(account.platform_chat_id ?? account.platform_user_id, `CRH: ${title}`);
 				return await bindThread(this.#options.db, {
@@ -1626,6 +2445,8 @@ export class ChannelManager {
 		await this.#settleTracked(rootId);
 		const owner = await sessionOwner(this.#options.db, rootId);
 		if (!owner) return;
+		const locale = botLocale(await this.#userLocale(owner));
+		const m = messagesFor(locale);
 		const route = await this.#routeForSession(rootId);
 		const tasks = await this.#options.db
 			.selectFrom("tasks")
@@ -1633,22 +2454,22 @@ export class ChannelManager {
 			.where("root_session_id", "=", rootId)
 			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
 			.execute();
-		for (const task of tasks) await this.#syncTaskWait(rootId, task, owner, route);
+		for (const task of tasks) await this.#syncTaskWait(rootId, task, owner, route, locale, m);
 		const groups = await this.#options.db
 			.selectFrom("task_groups")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id"])
 			.where("root_session_id", "=", rootId)
 			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
 			.execute();
-		for (const group of groups) await this.#syncGroupWait(rootId, group, owner, route);
+		for (const group of groups) await this.#syncGroupWait(rootId, group, owner, route, locale, m);
 		const calls = await this.#options.db
 			.selectFrom("external_calls")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id"])
 			.where("root_session_id", "=", rootId)
 			.where("state", "=", "awaiting_approval")
 			.execute();
-		for (const call of calls) await this.#syncCallWait(rootId, call, owner, route);
-		await this.#syncQuotaWait(rootId, owner, route);
+		for (const call of calls) await this.#syncCallWait(rootId, call, owner, route, locale, m);
+		await this.#syncQuotaWait(rootId, owner, route, locale, m);
 		// A wait that ended above returns the draft to the step; one still waiting keeps its wait status.
 		await this.#settleWaiting(rootId, waitKindOf(tasks, groups, calls, owner));
 	}
@@ -1666,27 +2487,22 @@ export class ChannelManager {
 		task: { id: string; state: string; handler_type: string | null; on_behalf_of_user_id: string },
 		owner: string,
 		route: Route | undefined,
+		locale: UserSettingsLocale,
+		m: BotMessages,
 	): Promise<void> {
 		if (task.on_behalf_of_user_id !== owner) return;
 		const key = approvalKey("task", task.id);
 		if (task.state === "awaiting_authorization") {
 			if (!route || this.#tracked.has(key)) return;
 			const link = this.#webUrl(`/approvals/tasks/${task.id}`);
-			await this.#sendTracked(
-				key,
-				rootId,
-				route,
-				`Task ${task.id} waits for your signature.${link ? `\n${link}` : ""}`,
-				[],
-				"signature",
-			);
+			await this.#sendTracked(key, rootId, route, m.taskSignatureWait(task.id, link), [], locale, "signature");
 			return;
 		}
 		if (task.handler_type !== "user") return;
 		if (!route || this.#tracked.has(key)) return;
 		const view = await this.#options.cluster.getTask(task.id);
 		if (!view) return;
-		const text = `Approval needed for a task:\n${clip(view.summary || view.kind, 300)}\n\n/approve ${task.id}\n/reject ${task.id} [reason]`;
+		const text = m.taskApproval(clip(view.summary || view.kind, 300), task.id);
 		await this.#sendTracked(
 			key,
 			rootId,
@@ -1694,10 +2510,11 @@ export class ChannelManager {
 			text,
 			[
 				[
-					{ text: "Approve", data: `ap:t:${task.id}:a` },
-					{ text: "Reject", data: `ap:t:${task.id}:r` },
+					{ text: m.approveButton, data: `ap:t:${task.id}:a` },
+					{ text: m.rejectButton, data: `ap:t:${task.id}:r` },
 				],
 			],
+			locale,
 			"approval",
 		);
 	}
@@ -1707,27 +2524,22 @@ export class ChannelManager {
 		group: { id: string; state: string; handler_type: string | null; on_behalf_of_user_id: string },
 		owner: string,
 		route: Route | undefined,
+		locale: UserSettingsLocale,
+		m: BotMessages,
 	): Promise<void> {
 		if (group.on_behalf_of_user_id !== owner) return;
 		const key = approvalKey("task_group", group.id);
 		if (group.state === "awaiting_authorization") {
 			if (!route || this.#tracked.has(key)) return;
 			const link = this.#webUrl(`/approvals/task-groups/${group.id}`);
-			await this.#sendTracked(
-				key,
-				rootId,
-				route,
-				`Task group ${group.id} waits for your signature.${link ? `\n${link}` : ""}`,
-				[],
-				"signature",
-			);
+			await this.#sendTracked(key, rootId, route, m.taskGroupSignatureWait(group.id, link), [], locale, "signature");
 			return;
 		}
 		if (group.handler_type !== "user") return;
 		if (!route || this.#tracked.has(key)) return;
 		const view = await this.#options.taskGroups.get(group.id);
 		if (!view) return;
-		const text = `Approval needed for a task group:\n${clip(view.summary || view.kind, 300)}\n\n/approve ${group.id}\n/reject ${group.id} [reason]`;
+		const text = m.taskGroupApproval(clip(view.summary || view.kind, 300), group.id);
 		await this.#sendTracked(
 			key,
 			rootId,
@@ -1735,10 +2547,11 @@ export class ChannelManager {
 			text,
 			[
 				[
-					{ text: "Approve", data: `ap:g:${group.id}:a` },
-					{ text: "Reject", data: `ap:g:${group.id}:r` },
+					{ text: m.approveButton, data: `ap:g:${group.id}:a` },
+					{ text: m.rejectButton, data: `ap:g:${group.id}:r` },
 				],
 			],
+			locale,
 			"approval",
 		);
 	}
@@ -1748,6 +2561,8 @@ export class ChannelManager {
 		call: { id: string; state: string; handler_type: string | null; on_behalf_of_user_id: string },
 		owner: string,
 		route: Route | undefined,
+		locale: UserSettingsLocale,
+		m: BotMessages,
 	): Promise<void> {
 		if (call.on_behalf_of_user_id !== owner || call.handler_type !== "user") return;
 		const key = approvalKey("external_call", call.id);
@@ -1756,7 +2571,7 @@ export class ChannelManager {
 		if (!row) return;
 		const view = (await externalCallViews(this.#options.db, [row]))[0];
 		const what = view ? `${view.extension}/${view.tool}` : `${row.extension_name}/${row.tool_name}`;
-		const text = `Approval needed for an extension call:\n${what}\n\n/approve ${call.id}\n/reject ${call.id} [reason]`;
+		const text = m.callApproval(what, call.id);
 		await this.#sendTracked(
 			key,
 			rootId,
@@ -1764,15 +2579,22 @@ export class ChannelManager {
 			text,
 			[
 				[
-					{ text: "Approve", data: `ap:e:${call.id}:a` },
-					{ text: "Reject", data: `ap:e:${call.id}:r` },
+					{ text: m.approveButton, data: `ap:e:${call.id}:a` },
+					{ text: m.rejectButton, data: `ap:e:${call.id}:r` },
 				],
 			],
+			locale,
 			"approval",
 		);
 	}
 
-	async #syncQuotaWait(rootId: string, owner: string, route: Route | undefined): Promise<void> {
+	async #syncQuotaWait(
+		rootId: string,
+		owner: string,
+		route: Route | undefined,
+		locale: UserSettingsLocale,
+		m: BotMessages,
+	): Promise<void> {
 		const key = `quota:${rootId}`;
 		const root = await this.#options.db
 			.selectFrom("sessions")
@@ -1792,8 +2614,8 @@ export class ChannelManager {
 		if (!route || this.#tracked.has(key)) return;
 		const remaining = root.quota_tokens === null ? 0 : Number(root.quota_tokens);
 		const used = Number(root.budget_used_tokens);
-		const text = `The token quota of "${clip(root.title || "this session", 80)}" is used up (${remaining} remaining, ${used} used).\n\n/quota add <tokens> continues\n/quota stop ends the turn`;
-		await this.#sendTracked(key, rootId, route, text, []);
+		const text = m.quotaWait(clip(root.title || m.newSessionTitle, 80), remaining, used);
+		await this.#sendTracked(key, rootId, route, text, [], locale);
 	}
 
 	async #sendTracked(
@@ -1802,11 +2624,13 @@ export class ChannelManager {
 		route: Route,
 		text: string,
 		buttons: readonly (readonly import("./model.ts").ChannelButton[])[],
+		locale: UserSettingsLocale,
 		waiting?: "approval" | "signature",
 	): Promise<void> {
+		const m = messagesFor(locale);
 		const withSwitch =
-			route.thread === undefined ? [...buttons, [{ text: "Open session", data: `switch:${rootId}` }]] : buttons;
-		const body = route.thread === undefined ? `Session "${await this.#sessionTitle(rootId)}":\n${text}` : text;
+			route.thread === undefined ? [...buttons, [{ text: m.openSession, data: `switch:${rootId}` }]] : buttons;
+		const body = route.thread === undefined ? m.sessionBody(await this.#sessionTitle(rootId, locale), text) : text;
 		let sent: SentMessage;
 		// The wait's status is set before the send, so re-showing the cleared draft carries it.
 		if (waiting !== undefined) this.#markWaiting(rootId, waiting);
@@ -1823,6 +2647,7 @@ export class ChannelManager {
 			target: route.target,
 			messageId: sent.messageId,
 			text: body,
+			locale,
 		});
 	}
 
@@ -1830,7 +2655,7 @@ export class ChannelManager {
 	async #settleTracked(rootId: string): Promise<void> {
 		for (const [key, tracked] of [...this.#tracked]) {
 			if (tracked.rootSessionId !== rootId) continue;
-			const ending = await this.#waitEnding(key);
+			const ending = await this.#waitEnding(key, messagesFor(tracked.locale));
 			if (ending === undefined) continue;
 			this.#tracked.delete(key);
 			const entry = this.#adapters.get(tracked.adapterName);
@@ -1844,7 +2669,7 @@ export class ChannelManager {
 	}
 
 	/** `undefined` while the wait goes on; otherwise how it ended. */
-	async #waitEnding(key: string): Promise<string | undefined> {
+	async #waitEnding(key: string, m: BotMessages): Promise<string | undefined> {
 		if (key.startsWith("quota:")) {
 			const rootId = key.slice("quota:".length);
 			const row = await this.#options.db
@@ -1852,7 +2677,7 @@ export class ChannelManager {
 				.select("state")
 				.where("id", "=", rootId)
 				.executeTakeFirst();
-			if (!row) return "The session is gone.";
+			if (!row) return m.sessionGone;
 			if (row.state === "awaiting") {
 				const paused = await this.#options.db
 					.selectFrom("sessions")
@@ -1862,21 +2687,21 @@ export class ChannelManager {
 					.where("state", "=", "awaiting")
 					.limit(1)
 					.executeTakeFirst();
-				return paused ? undefined : "The quota wait ended.";
+				return paused ? undefined : m.quotaWaitEnded;
 			}
-			return "The quota wait ended.";
+			return m.quotaWaitEnded;
 		}
 		const [kind, id] = key.split(":");
-		if (!kind || !id) return "The wait ended.";
+		if (!kind || !id) return m.waitEnded;
 		if (kind === "task") {
 			const row = await this.#options.db
 				.selectFrom("tasks")
 				.select(["state", "approval"])
 				.where("id", "=", id)
 				.executeTakeFirst();
-			if (!row) return "The task is gone.";
+			if (!row) return m.taskGone;
 			if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") return undefined;
-			return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined);
+			return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined, m);
 		}
 		if (kind === "task_group") {
 			const row = await this.#options.db
@@ -1884,28 +2709,28 @@ export class ChannelManager {
 				.select(["state", "approval"])
 				.where("id", "=", id)
 				.executeTakeFirst();
-			if (!row) return "The task group is gone.";
+			if (!row) return m.taskGroupGone;
 			if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") return undefined;
-			return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined);
+			return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined, m);
 		}
 		const row = await getExternalCall(this.#options.db, id);
-		if (!row) return "The call is gone.";
+		if (!row) return m.callGone;
 		if (row.state === "awaiting_approval") return undefined;
-		return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined);
+		return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined, m);
 	}
 
-	#decisionEnding(approvalJson: string | null, fallback: "rejected" | undefined): string {
+	#decisionEnding(approvalJson: string | null, fallback: "rejected" | undefined, m: BotMessages): string {
 		if (approvalJson) {
 			try {
 				const record = JSON.parse(approvalJson) as {
 					decision?: { decision?: string; reason?: string; by?: { id?: string } };
 				};
 				const decision = record.decision;
-				if (decision?.decision === "approved") return "Approved.";
-				if (decision?.decision === "rejected") return `Rejected${decision.reason ? `: ${decision.reason}` : "."}`;
+				if (decision?.decision === "approved") return m.approvedEnding;
+				if (decision?.decision === "rejected") return m.rejectedEnding(decision.reason ?? null);
 			} catch {}
 		}
-		return fallback === "rejected" ? "Rejected." : "The wait ended.";
+		return fallback === "rejected" ? m.rejected : m.waitEnded;
 	}
 
 	/** Re-reads a session's waiting approvals and quota waits (its state change, or a test setup). */
@@ -1930,36 +2755,36 @@ export class ChannelManager {
 		};
 	}
 
+	/** A user's stored locale; null means their platform's language or English decides. */
+	async #userLocale(userId: string): Promise<UserSettingsLocale | null> {
+		return (await getUserSettings(this.#options.db, userId)).locale;
+	}
+
+	async #localeForAccount(
+		account: ChannelAccountRow,
+		languageCode: string | null | undefined,
+	): Promise<UserSettingsLocale> {
+		return botLocale(await this.#userLocale(account.user_id), languageCode);
+	}
+
+	async #messagesForSession(sessionId: string): Promise<BotMessages> {
+		const owner = await sessionOwner(this.#options.db, sessionId);
+		return messagesFor(owner ? botLocale(await this.#userLocale(owner)) : "en");
+	}
+
 	#sessionLink(sessionId: string): string | null {
 		return this.#webUrl(`/sessions/${sessionId}`);
 	}
 
-	async #sessionTitle(sessionId: string): Promise<string> {
+	async #sessionTitle(sessionId: string, locale: UserSettingsLocale): Promise<string> {
 		const session = await this.#options.runtime.getSession(sessionId);
-		return clip(session?.title ?? "New session", 80);
+		return clip(session?.title ?? messagesFor(locale).newSessionTitle, 80);
 	}
 
 	#webUrl(path: string): string | null {
 		const base = this.#options.settings?.current().publicUrl ?? this.#options.publicUrl ?? null;
 		if (!base) return null;
 		return `${base.replace(/\/+$/, "")}${path}`;
-	}
-
-	#helpText(): string {
-		return [
-			"ClusterRightHand commands:",
-			"/link <code> — link this chat to your account",
-			"/unlink — unlink this chat",
-			"/new — start a new session",
-			"/sessions — switch to one of your sessions",
-			"/stop — stop the running turn",
-			"/quota — show the session's token quota",
-			"/quota add <tokens> — raise it and continue",
-			"/quota stop — end the turn waiting for tokens",
-			"/approve <id> — approve a waiting request",
-			"/reject <id> [reason] — reject it",
-			"/help — this list",
-		].join("\n");
 	}
 
 	// ---- admin operations used by the routes ----

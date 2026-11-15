@@ -303,12 +303,6 @@ const extensionsRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/settings/extensions"), "ExtensionsPage"),
 });
 
-const chatSettingsRoute = createRoute({
-	getParentRoute: () => authenticatedRoute,
-	path: "/settings/chats",
-	component: lazyRouteComponent(() => import("@/features/channels/chat-settings-page"), "ChatSettingsPage"),
-});
-
 const channelsSettingsRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/settings/channels",
@@ -376,7 +370,6 @@ const routeTree = rootRoute.addChildren([
 		auditRoute,
 		modelSettingsRoute,
 		extensionsRoute,
-		chatSettingsRoute,
 		channelsSettingsRoute,
 		systemSettingsRoute,
 		usersRoute,

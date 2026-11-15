@@ -16,14 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useSaveUserSettings, useUserSettings } from "@/hooks/use-user-settings";
 import { MONO_CELL } from "@/lib/utils";
-import {
-	useChannelAccounts,
-	useChannelSettings,
-	useCreateLinkCode,
-	useSaveChannelSettings,
-	useUnlinkAccount,
-} from "./api";
+import { useChannelAccounts, useCreateLinkCode, useUnlinkAccount } from "./api";
 
 /**
  * A user's own chat accounts (doc/design/channels.md "Accounts"): link a private chat with a one-time code,
@@ -32,14 +27,14 @@ import {
 export function ChatAccountsSection() {
 	const { t } = useLingui();
 	const accounts = useChannelAccounts();
-	const settings = useChannelSettings();
+	const settings = useUserSettings();
 	const createCode = useCreateLinkCode();
 	const unlink = useUnlinkAccount();
-	const saveSettings = useSaveChannelSettings();
+	const saveSettings = useSaveUserSettings();
 	const [codeOpen, setCodeOpen] = useState(false);
 	const channel = accounts.data?.channels[0];
 	const rows = accounts.data?.accounts ?? [];
-	const defaultAccountId = settings.data?.defaultAccountId ?? null;
+	const defaultAccountId = settings.data?.defaultChannelAccountId ?? null;
 
 	const create = () => {
 		createCode.mutate(channel?.id, { onSuccess: () => setCodeOpen(true) });
@@ -64,12 +59,6 @@ export function ChatAccountsSection() {
 					</Button>
 				}
 			/>
-			<p className="text-sm text-muted-foreground">
-				<Trans>
-					Link a private chat to use your sessions and approvals from chat. A linked chat acts with your authority;
-					protect it like your password.
-				</Trans>
-			</p>
 			{rows.length === 0 ? (
 				<p className="text-sm text-muted-foreground">
 					{channel === undefined ? (
@@ -87,7 +76,7 @@ export function ChatAccountsSection() {
 									<Link2Icon className="size-3.5" />
 									<span className="font-medium">{account.displayName ?? account.platformUserId}</span>
 									<code className={MONO_CELL}>{account.channelName}</code>
-									{account.isDefault && (
+									{defaultAccountId === account.id && (
 										<StatusText tone="info">
 											<Trans>Default</Trans>
 										</StatusText>
@@ -121,7 +110,7 @@ export function ChatAccountsSection() {
 					</Label>
 					<Select
 						value={defaultAccountId ?? "none"}
-						onValueChange={(value) => saveSettings.mutate({ defaultAccountId: value === "none" ? null : value })}
+						onValueChange={(value) => saveSettings.mutate({ defaultChannelAccountId: value === "none" ? null : value })}
 						disabled={rows.length === 0 || saveSettings.isPending}
 					>
 						<SelectTrigger id="default-chat-account" className="w-full">

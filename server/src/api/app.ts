@@ -45,6 +45,7 @@ import { signingCredentialRoutes } from "./signing-credential-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
 import { userRoutes } from "./user-routes.ts";
+import { userSettingsRoutes } from "./user-settings-routes.ts";
 
 const healthRoute = defineRoute({
 	method: "get",
@@ -172,6 +173,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			revalidateWebSessions: onWebSessionsRevoked,
 		}),
 	);
+	app.route("/api", userSettingsRoutes(db, options.agent ? { models: options.agent.models } : {}));
 	app.route("/api", settingsRoutes(db, options.settings ? { settings: options.settings } : {}));
 	app.route("/api", libraryRoutes(db, options.libraryBackend ? { backend: options.libraryBackend } : {}));
 	app.route("/api", nodeRoutes(db, { ...options, signingKeys }));
@@ -219,7 +221,14 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			sessions.onError(apiErrorHandler({ closing: () => options.agent?.runtime.closing === true }));
 			sessions.use("/sessions", refuseWhenClosing(runtime));
 			sessions.use("/sessions/*", refuseWhenClosing(runtime));
-			sessions.route("/", modelProviderRoutes(db, { models, masterKey: options.masterKey }));
+			sessions.route(
+				"/",
+				modelProviderRoutes(db, {
+					models,
+					masterKey: options.masterKey,
+					sessionModel: () => runtime.modelPresets.get("session").model,
+				}),
+			);
 			sessions.route("/", modelPresetRoutes({ runtime, models }));
 			const streams = new SessionStreams(db, runtime, drain);
 			revalidateWebSessions = async (userId) => {

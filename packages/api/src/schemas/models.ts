@@ -101,7 +101,12 @@ export const AvailableModelSchema = z
 	})
 	.meta({ id: "AvailableModel" });
 
-export const ModelsResponseSchema = z.object({ models: z.array(AvailableModelSchema) });
+export const ModelsResponseSchema = z.object({
+	models: z.array(AvailableModelSchema),
+	sessionModel: ModelRefSchema.nullable().describe(
+		"The session model preset's model when one is set; new sessions default to it before the first offered model.",
+	),
+});
 
 /** A model provider as administrators see it; its API key is never returned. */
 export const ModelProviderViewSchema = z

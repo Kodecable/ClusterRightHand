@@ -600,10 +600,6 @@ export interface ChannelsTable {
 	enabled: number;
 	/** The `secrets` row holding the credentials JSON, encrypted with the master key. */
 	credentials_secret_id: string | null;
-	/** JSON ModelRef for sessions a chat creates; null uses the session model preset. */
-	default_model: string | null;
-	/** RulePreset for sessions a chat creates; null means `ask`. */
-	default_rule_preset: string | null;
 	/** The last platform update id handled, so a restart does not handle an update twice. */
 	cursor: string | null;
 	created_at: CreatedAt;
@@ -642,20 +638,29 @@ export interface ChannelThreadsTable {
 	platform: string;
 	chat_id: string;
 	topic_id: string | null;
-	session_id: string;
+	/** The session the thread is on; null while the thread holds a draft. */
+	session_id: string | null;
+	/** JSON draft settings before the first message starts a session; null on a thread with a session. */
+	draft: string | null;
 	/** 1 for a chat's current session; platforms with topics keep 0. */
 	current: number;
 	created_at: CreatedAt;
 	updated_at: string;
 }
 
-/** One user's chat settings (doc/design/channels.md "Notifications"). */
-export interface ChannelUserSettingsTable {
+/** One user's preferences (doc/design/data-model.md "User settings"). */
+export interface UserSettingsTable {
 	user_id: string;
-	/** A linked account notifications go to when the WebUI is not open; null: no default. */
-	default_account_id: string | null;
-	/** 1 shows a progress status/draft while a turn runs. */
+	/** The UI and chat-bot language; null uses the browser's choice. */
+	locale: "en" | "zh-CN" | null;
+	/** JSON ModelRef for new sessions, thinking level included; null uses the session model preset. */
+	default_model: string | null;
+	/** RulePreset for new sessions; null means `ask`. */
+	default_rule_preset: string | null;
+	/** 1 shows a progress status/draft in chat while a turn runs. */
 	show_progress: number;
+	/** A linked chat account notifications go to when the WebUI is not open; null means none. */
+	default_channel_account_id: string | null;
 	updated_at: string;
 }
 
@@ -757,7 +762,7 @@ export interface Database {
 	channel_accounts: ChannelAccountsTable;
 	channel_link_codes: ChannelLinkCodesTable;
 	channel_threads: ChannelThreadsTable;
-	channel_user_settings: ChannelUserSettingsTable;
+	user_settings: UserSettingsTable;
 	extensions: ExtensionsTable;
 	extension_grants: ExtensionGrantsTable;
 	external_calls: ExternalCallsTable;

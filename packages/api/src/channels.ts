@@ -1,6 +1,6 @@
 /**
- * Chat channels (doc/design/channels.md): administrators connect a bot; users link a chat account, choose the
- * account notifications fall back to and toggle progress.
+ * Chat channels (doc/design/channels.md): administrators connect a bot; users link a chat account and
+ * choose the account notifications fall back to in their own settings.
  */
 
 import type { z } from "zod";
@@ -13,8 +13,6 @@ import type {
 	ChannelListResponseSchema,
 	ChannelPublicViewSchema,
 	ChannelResponseSchema,
-	ChannelSettingsSchema,
-	ChannelSettingsUpdateSchema,
 	ChannelStateSchema,
 	ChannelStatusSchema,
 	ChannelViewSchema,
@@ -44,7 +42,3 @@ export type ChannelAccountView = z.infer<typeof ChannelAccountViewSchema>;
 export type ChannelAccountListResponse = z.infer<typeof ChannelAccountListResponseSchema>;
 
 export type ChannelLinkCodeResponse = z.infer<typeof ChannelLinkCodeResponseSchema>;
-
-export type ChannelSettings = z.infer<typeof ChannelSettingsSchema>;
-
-export type ChannelSettingsUpdate = z.infer<typeof ChannelSettingsUpdateSchema>;

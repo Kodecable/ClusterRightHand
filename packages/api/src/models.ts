@@ -14,6 +14,7 @@ import type {
 	ModelProviderInputSchema,
 	ModelProviderViewSchema,
 	ModelRefSchema,
+	ModelsResponseSchema,
 	SessionIdConfigSchema,
 	ThinkingBodyConfigSchema,
 	ThinkingConfigSchema,
@@ -31,6 +32,9 @@ export type ModelRef = z.infer<typeof ModelRefSchema>;
 
 /** One entry of `GET /api/models`. */
 export type AvailableModel = z.infer<typeof AvailableModelSchema>;
+
+/** `GET /api/models`: the offered models and the session model preset's model, when set. */
+export type ModelsResponse = z.infer<typeof ModelsResponseSchema>;
 
 /** The protocol a custom model speaks. */
 export type CustomApi = z.infer<typeof CustomApiSchema>;

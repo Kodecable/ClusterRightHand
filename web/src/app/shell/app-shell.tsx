@@ -6,6 +6,7 @@ import { navItemForPath } from "@/app/shell/nav";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { SessionSearchDialog } from "@/features/sessions/session-search-dialog";
+import { useServerLocaleSync } from "@/hooks/use-user-settings";
 import { APP_NAME } from "@/lib/meta";
 import { PageTitleProvider } from "@/lib/page-title";
 import { useAuth } from "@/lib/session";
@@ -34,6 +35,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 	// A detail page may title the shell with the object's own summary (a task's
 	// command) instead of the navigation item; see `usePageTitle`.
 	const [pageTitle, setPageTitle] = useState<string>();
+	// The server's language wins once the settings load (doc/design/webui.md "Settings dialog").
+	useServerLocaleSync();
 
 	const current = navItemForPath(pathname);
 	const fallbackTitle = current ? i18n._(current.label) : APP_NAME;

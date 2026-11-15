@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import type { ChannelAccountView, ChannelPublicView, ChannelView } from "@crh/api";
+import type { ChannelAccountView, ChannelPublicView, ChannelView, ModelRef, RulePreset } from "@crh/api";
 import type { Selectable } from "kysely";
 import { parseModelRef } from "../agent/models.ts";
 import { hashToken } from "../auth/token-hash.ts";
@@ -9,6 +9,12 @@ import { parseRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import type { ChannelAccountsTable, ChannelsTable, ChannelThreadsTable } from "../storage/schema.ts";
+import {
+	clearDefaultChannelAccount,
+	clearDefaultChannelAccounts,
+	deleteUserSettings,
+	getUserSettings,
+} from "../users/settings.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 
@@ -95,19 +101,6 @@ export interface ChannelInput {
 	enabled?: boolean;
 	/** Write-only; omitted keeps the stored credential. */
 	token?: string | null;
-	defaultModel?: unknown;
-	defaultRulePreset?: unknown;
-}
-
-function parseDefaultModel(value: unknown): string | null {
-	if (value === undefined) return null;
-	if (value === null) return null;
-	return JSON.stringify(parseModelRef(value));
-}
-
-function parseDefaultRulePreset(value: unknown): string | null {
-	if (value === undefined || value === null) return null;
-	return parseRulePreset(value);
 }
 
 /**
@@ -132,12 +125,6 @@ export async function saveChannel(
 	const now = new Date().toISOString();
 	const token = typeof input.token === "string" ? input.token.trim() : input.token === null ? "" : undefined;
 	if (!existing && (token === undefined || token === "")) throw new UserError("token is required to create a channel");
-	const defaultModel =
-		input.defaultModel === undefined ? (existing?.default_model ?? null) : parseDefaultModel(input.defaultModel);
-	const defaultRulePreset =
-		input.defaultRulePreset === undefined
-			? (existing?.default_rule_preset ?? null)
-			: parseDefaultRulePreset(input.defaultRulePreset);
 	let created = false;
 	await db.transaction().execute(async (trx) => {
 		let secretId = existing?.credentials_secret_id ?? null;
@@ -165,8 +152,6 @@ export async function saveChannel(
 			kind: "telegram" as const,
 			enabled: (input.enabled ?? (existing ? existing.enabled === 1 : true)) ? 1 : 0,
 			credentials_secret_id: secretId,
-			default_model: defaultModel,
-			default_rule_preset: defaultRulePreset,
 			updated_at: now,
 		};
 		if (existing) {
@@ -190,15 +175,10 @@ export async function deleteChannel(db: Db, name: string): Promise<ChannelRow> {
 	await db.transaction().execute(async (trx) => {
 		const accounts = await trx.selectFrom("channel_accounts").select("id").where("channel_id", "=", row.id).execute();
 		if (accounts.length > 0) {
-			await trx
-				.updateTable("channel_user_settings")
-				.set({ default_account_id: null, updated_at: new Date().toISOString() })
-				.where(
-					"default_account_id",
-					"in",
-					accounts.map((account) => account.id),
-				)
-				.execute();
+			await clearDefaultChannelAccounts(
+				trx,
+				accounts.map((account) => account.id),
+			);
 		}
 		await trx.deleteFrom("channel_accounts").where("channel_id", "=", row.id).execute();
 		await trx.deleteFrom("channel_threads").where("channel_id", "=", row.id).execute();
@@ -225,24 +205,6 @@ export function parseChannelCursor(row: Pick<ChannelRow, "cursor">): number {
 	return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
-export function channelDefaultModel(row: ChannelRow): ReturnType<typeof parseModelRef> | null {
-	if (!row.default_model) return null;
-	try {
-		return parseModelRef(JSON.parse(row.default_model));
-	} catch {
-		return null;
-	}
-}
-
-export function channelDefaultRulePreset(row: ChannelRow) {
-	if (!row.default_rule_preset) return null;
-	try {
-		return parseRulePreset(row.default_rule_preset);
-	} catch {
-		return null;
-	}
-}
-
 /** The administrator's view of a channel, with its live status. */
 export function channelView(row: ChannelRow, status: ChannelView["status"]): ChannelView {
 	return {
@@ -251,8 +213,6 @@ export function channelView(row: ChannelRow, status: ChannelView["status"]): Cha
 		kind: row.kind,
 		enabled: row.enabled === 1,
 		hasCredentials: row.credentials_secret_id !== null,
-		defaultModel: channelDefaultModel(row),
-		defaultRulePreset: channelDefaultRulePreset(row),
 		status,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
@@ -371,12 +331,7 @@ export async function unlinkAccount(db: Db, userId: string, accountId: string): 
 	if (!row) return undefined;
 	await db.transaction().execute(async (trx) => {
 		await trx.deleteFrom("channel_accounts").where("id", "=", accountId).execute();
-		await trx
-			.updateTable("channel_user_settings")
-			.set({ default_account_id: null, updated_at: new Date().toISOString() })
-			.where("user_id", "=", userId)
-			.where("default_account_id", "=", accountId)
-			.execute();
+		await clearDefaultChannelAccount(trx, userId, accountId);
 	});
 	return row;
 }
@@ -387,7 +342,7 @@ export async function unlinkUserAccounts(db: Db, userId: string): Promise<Channe
 	if (rows.length === 0) return [];
 	await db.transaction().execute(async (trx) => {
 		await trx.deleteFrom("channel_accounts").where("user_id", "=", userId).execute();
-		await trx.deleteFrom("channel_user_settings").where("user_id", "=", userId).execute();
+		await deleteUserSettings(trx, userId);
 	});
 	return rows;
 }
@@ -530,10 +485,10 @@ export async function bindThread(
 		if (existing) {
 			await trx
 				.updateTable("channel_threads")
-				.set({ session_id: sessionId, current: topicId === null ? 1 : 0, updated_at: now })
+				.set({ session_id: sessionId, draft: null, current: topicId === null ? 1 : 0, updated_at: now })
 				.where("id", "=", existing.id)
 				.execute();
-			return { ...existing, session_id: sessionId, current: topicId === null ? 1 : 0, updated_at: now };
+			return { ...existing, session_id: sessionId, draft: null, current: topicId === null ? 1 : 0, updated_at: now };
 		}
 		const row = {
 			id: newId(),
@@ -542,6 +497,7 @@ export async function bindThread(
 			chat_id: chatId,
 			topic_id: topicId,
 			session_id: sessionId,
+			draft: null,
 			current: topicId === null ? 1 : 0,
 			created_at: now,
 			updated_at: now,
@@ -551,61 +507,106 @@ export async function bindThread(
 	});
 }
 
-export interface ChannelUserSettings {
-	defaultAccountId: string | null;
-	showProgress: boolean;
+/** A thread's draft settings before its first message starts the session (doc/design/channels.md "Conversations"). */
+export interface ChannelDraft {
+	model: ModelRef;
+	rulePreset: RulePreset;
+	/** The extensions the session starts with turned off. */
+	disabledExtensions: string[];
 }
 
-export async function userChannelSettings(db: Db, userId: string): Promise<ChannelUserSettings> {
-	const row = await db
-		.selectFrom("channel_user_settings")
-		.select(["default_account_id", "show_progress"])
-		.where("user_id", "=", userId)
-		.executeTakeFirst();
-	return {
-		defaultAccountId: row?.default_account_id ?? null,
-		showProgress: row?.show_progress !== 0,
-	};
-}
-
-/** Saves any of the caller's chat settings; an account chosen as default must belong to the user. */
-export async function saveUserChannelSettings(
-	db: Db,
-	userId: string,
-	change: { defaultAccountId?: string | null; showProgress?: boolean },
-): Promise<ChannelUserSettings> {
-	const current = await userChannelSettings(db, userId);
-	if (change.defaultAccountId !== undefined && change.defaultAccountId !== null) {
-		const account = await db
-			.selectFrom("channel_accounts")
-			.select("id")
-			.where("id", "=", change.defaultAccountId)
-			.where("user_id", "=", userId)
-			.executeTakeFirst();
-		if (!account) throw new UserError("no such linked chat account");
+/** The stored draft; null when there is none or it cannot be read. */
+export function parseThreadDraft(raw: string | null): ChannelDraft | null {
+	if (!raw) return null;
+	try {
+		const value = JSON.parse(raw) as { model?: unknown; rulePreset?: unknown; disabledExtensions?: unknown };
+		const disabled = Array.isArray(value.disabledExtensions)
+			? value.disabledExtensions.filter((name): name is string => typeof name === "string")
+			: [];
+		return {
+			model: parseModelRef(value.model),
+			rulePreset: parseRulePreset(value.rulePreset),
+			disabledExtensions: [...new Set(disabled)],
+		};
+	} catch {
+		return null;
 	}
-	const next = {
-		defaultAccountId: change.defaultAccountId === undefined ? current.defaultAccountId : change.defaultAccountId,
-		showProgress: change.showProgress === undefined ? current.showProgress : change.showProgress,
-	};
-	const now = new Date().toISOString();
-	await db
-		.insertInto("channel_user_settings")
-		.values({
-			user_id: userId,
-			default_account_id: next.defaultAccountId,
-			show_progress: next.showProgress ? 1 : 0,
+}
+
+/**
+ * Records a draft in a thread, replacing any session it was on and discarding a previous draft. A thread without
+ * a topic is the chat's current one, like `bindThread`.
+ */
+export async function saveDraftThread(
+	db: Db,
+	options: {
+		channelId: string;
+		platform: string;
+		chatId: string;
+		topicId: string | null;
+		draft: ChannelDraft;
+	},
+): Promise<ChannelThreadRow> {
+	const { channelId, platform, chatId, topicId, draft } = options;
+	const encoded = JSON.stringify(draft);
+	return db.transaction().execute(async (trx) => {
+		if (topicId === null) {
+			await trx
+				.updateTable("channel_threads")
+				.set({ current: 0, updated_at: new Date().toISOString() })
+				.where("channel_id", "=", channelId)
+				.where("platform", "=", platform)
+				.where("chat_id", "=", chatId)
+				.where("topic_id", "is", null)
+				.where("current", "=", 1)
+				.execute();
+		}
+		let threadQuery = trx
+			.selectFrom("channel_threads")
+			.selectAll()
+			.where("channel_id", "=", channelId)
+			.where("platform", "=", platform)
+			.where("chat_id", "=", chatId);
+		threadQuery =
+			topicId === null ? threadQuery.where("topic_id", "is", null) : threadQuery.where("topic_id", "=", topicId);
+		const existing = await threadQuery.executeTakeFirst();
+		const now = new Date().toISOString();
+		if (existing) {
+			await trx
+				.updateTable("channel_threads")
+				.set({ session_id: null, draft: encoded, current: topicId === null ? 1 : 0, updated_at: now })
+				.where("id", "=", existing.id)
+				.execute();
+			return { ...existing, session_id: null, draft: encoded, current: topicId === null ? 1 : 0, updated_at: now };
+		}
+		const row = {
+			id: newId(),
+			channel_id: channelId,
+			platform,
+			chat_id: chatId,
+			topic_id: topicId,
+			session_id: null,
+			draft: encoded,
+			current: topicId === null ? 1 : 0,
+			created_at: now,
 			updated_at: now,
-		})
-		.onConflict((oc) =>
-			oc.column("user_id").doUpdateSet({
-				default_account_id: next.defaultAccountId,
-				show_progress: next.showProgress ? 1 : 0,
-				updated_at: now,
-			}),
-		)
+		};
+		await trx.insertInto("channel_threads").values(row).execute();
+		return row;
+	});
+}
+
+/** Replaces a draft's settings; the thread stays on no session. */
+export async function updateThreadDraft(db: Db, id: string, draft: ChannelDraft): Promise<ChannelThreadRow> {
+	const draftJson = JSON.stringify(draft);
+	await db
+		.updateTable("channel_threads")
+		.set({ draft: draftJson, updated_at: new Date().toISOString() })
+		.where("id", "=", id)
 		.execute();
-	return next;
+	const row = await threadById(db, id);
+	if (!row) throw new NotFoundError("no such channel thread");
+	return row;
 }
 
 /** The account notifications go to when the WebUI is not open; an account of a disabled channel is skipped. */
@@ -613,8 +614,8 @@ export async function defaultNotificationAccount(
 	db: Db,
 	userId: string,
 ): Promise<{ account: ChannelAccountRow; channel: ChannelRow } | undefined> {
-	const settings = await userChannelSettings(db, userId);
-	if (settings.defaultAccountId === null) return undefined;
+	const settings = await getUserSettings(db, userId);
+	if (settings.defaultChannelAccountId === null) return undefined;
 	const row = await db
 		.selectFrom("channel_accounts as a")
 		.innerJoin("channels as c", "c.id", "a.channel_id")
@@ -633,13 +634,11 @@ export async function defaultNotificationAccount(
 			"c.kind as c_kind",
 			"c.enabled as c_enabled",
 			"c.credentials_secret_id as c_credentials_secret_id",
-			"c.default_model as c_default_model",
-			"c.default_rule_preset as c_default_rule_preset",
 			"c.cursor as c_cursor",
 			"c.created_at as c_created_at",
 			"c.updated_at as c_updated_at",
 		])
-		.where("a.id", "=", settings.defaultAccountId)
+		.where("a.id", "=", settings.defaultChannelAccountId)
 		.where("a.user_id", "=", userId)
 		.where("c.enabled", "=", 1)
 		.executeTakeFirst();
@@ -662,8 +661,6 @@ export async function defaultNotificationAccount(
 			kind: row.c_kind,
 			enabled: row.c_enabled,
 			credentials_secret_id: row.c_credentials_secret_id,
-			default_model: row.c_default_model,
-			default_rule_preset: row.c_default_rule_preset,
 			cursor: row.c_cursor,
 			created_at: row.c_created_at,
 			updated_at: row.c_updated_at,

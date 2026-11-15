@@ -175,6 +175,25 @@ An extension result is converted to the cluster tools' output form ([Tool output
 
 They are split so that an administrator can turn off API requests and keep the documentation.
 
+The model gets the whole documentation and the whole API instead of a curated set of tools with metadata of
+their own:
+
+- **One source.** The documentation is the one users read, and the API reference is generated from the
+  route schemas, so nothing written only for the model can drift from what crhs does. A new route is usable
+  as soon as it exists.
+- **Teach and do.** With the full documentation the model can explain how to do something to a user who
+  does not know, and with the API it can do what the WebUI has no screen for, such as a batch of the same
+  change. The core loop (tasks, files, sessions) keeps dedicated tools; `api` covers the long tail.
+- **No second permission model.** The route's agent access and the same server-side checks as the WebUI
+  decide, so the model can never do more than its owner, and sensitive routes are `deny`. For batches,
+  Auto Review is the intended preset: the review model passes routine writes and hands the risky or
+  unclear ones to the user, instead of one approval per request.
+- **Where it stops.** Work on a node itself (installing crha, privileged mode) is outside the crhs API. The
+  model prepares the configuration or a script, and the user runs or signs it.
+- **Session history.** The session read routes let the model read its own and other sessions the owner can
+  read, such as details from before a compaction. What it reads there, tool output included, is untrusted
+  data like any other tool result.
+
 ### Documentation
 
 - The documentation is the `doc/` tree of the running version: the release bundle carries its Markdown

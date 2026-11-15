@@ -65,7 +65,8 @@ describe("LocaleProvider", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "zh" }));
 		await waitFor(() => expect(screen.getByText("主题")).toBeInTheDocument());
-		expect(screen.getByTestId("locale")).toHaveTextContent("zh-CN");
+		// The catalogue activates before the provider commits the new locale and the cache.
+		await waitFor(() => expect(screen.getByTestId("locale")).toHaveTextContent("zh-CN"));
 		expect(document.documentElement.lang).toBe("zh-CN");
 		expect(window.localStorage.getItem("crh.locale")).toBe("zh-CN");
 

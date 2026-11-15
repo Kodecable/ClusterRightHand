@@ -5,7 +5,6 @@ import type {
 	AuthorizationSummary,
 	AvailableModel,
 	ChannelAccountListResponse,
-	ChannelSettings,
 	ChannelView,
 	Directory,
 	LibraryFile,
@@ -15,6 +14,7 @@ import type {
 	ModelPresetKind,
 	ModelProviderInput,
 	ModelProviderView,
+	ModelRef,
 	NodeAccessGrant,
 	NodeGroup,
 	NodeTrust,
@@ -32,6 +32,7 @@ import type {
 	TaskView,
 	User,
 	UserGroup,
+	UserSettings,
 } from "@crh/api";
 import { expect, type Page } from "@playwright/test";
 import type { EntryRecord as SessionEntry, SessionEvent } from "../src/features/sessions/session-events";
@@ -88,6 +89,8 @@ export interface FakeState {
 	tasks: TaskView[];
 	nodes: PublicNode[];
 	models: AvailableModel[];
+	/** The session model preset's model, when the fake server has one. */
+	sessionModel: ModelRef | null;
 	directory: Directory;
 	taskGroups: Record<string, { taskGroup: TaskGroupView; polls: number }>;
 	nodeGroups: NodeGroup[];
@@ -97,7 +100,7 @@ export interface FakeState {
 	tokens: ApiTokenView[];
 	channels: ChannelView[];
 	channelAccounts: ChannelAccountListResponse;
-	channelSettings: ChannelSettings;
+	userSettings: UserSettings;
 	providers: ModelProviderView[];
 	builtinProviders: string[];
 	presets: ModelPreset[];
@@ -340,6 +343,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		tasks: [],
 		nodes: [],
 		models: [],
+		sessionModel: null,
 		directory: { users: [], userGroups: [] },
 		taskGroups: {},
 		nodeGroups: [],
@@ -349,7 +353,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		tokens: [],
 		channels: [],
 		channelAccounts: { accounts: [], channels: [] },
-		channelSettings: { defaultAccountId: null, showProgress: true },
+		userSettings: {
+			locale: null,
+			defaultModel: null,
+			defaultRulePreset: null,
+			showProgress: true,
+			defaultChannelAccountId: null,
+		},
 		providers: [],
 		builtinProviders: ["faux"],
 		presets: [
@@ -577,7 +587,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			state.nodeAccessGrants = state.nodeAccessGrants.filter((grant) => grant.id !== id);
 			return json({ ok: true });
 		}
-		if (path === "/api/models") return json({ models: state.models });
+		if (path === "/api/models") return json({ models: state.models, sessionModel: state.sessionModel });
 		if (path === "/api/directory") return json(state.directory);
 		if (path === "/api/privilege/crhs-key") {
 			return json({ key: { authorizedKey: "ssh-ed25519 AAAAcrhs crhs", fingerprint: "SHA256:crhs" } });
@@ -1400,10 +1410,8 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				id: existing?.id ?? `channel-${name}`,
 				name,
 				kind: "telegram",
-				enabled: input.enabled === false ? false : true,
+				enabled: input.enabled !== false,
 				hasCredentials: existing?.hasCredentials === true || typeof input.token === "string",
-				defaultModel: (input.defaultModel as ChannelView["defaultModel"]) ?? null,
-				defaultRulePreset: (input.defaultRulePreset as ChannelView["defaultRulePreset"]) ?? null,
 				status: existing?.status ?? { state: "connected", lastError: null, nextAttemptAt: null, account: "ops_bot" },
 				createdAt: existing?.createdAt ?? "2026-01-01T00:00:00.000Z",
 				updatedAt: "2026-01-01T00:00:00.000Z",
@@ -1434,11 +1442,11 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			};
 			return json({ ok: true });
 		}
-		if (path === "/api/channel-settings" && method === "GET") return json({ settings: state.channelSettings });
-		if (path === "/api/channel-settings" && method === "PUT") {
-			const input = body as Partial<ChannelSettings>;
-			state.channelSettings = { ...state.channelSettings, ...input };
-			return json({ settings: state.channelSettings });
+		if (path === "/api/me/settings" && method === "GET") return json({ settings: state.userSettings });
+		if (path === "/api/me/settings" && method === "PATCH") {
+			const input = body as Partial<UserSettings>;
+			state.userSettings = { ...state.userSettings, ...input };
+			return json({ settings: state.userSettings });
 		}
 
 		return json({});

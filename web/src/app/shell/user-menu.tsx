@@ -2,10 +2,10 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import {
 	ChevronsUpDownIcon,
 	KeyRoundIcon,
-	LanguagesIcon,
 	LogOutIcon,
 	MonitorIcon,
 	MoonIcon,
+	SettingsIcon,
 	SunIcon,
 } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
@@ -24,15 +24,17 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useLogout } from "@/features/auth/api";
-import { useLocale } from "@/lib/i18n";
 import { useAuth } from "@/lib/session";
 import type { ThemePreference } from "@/lib/theme";
 import { useTheme } from "@/lib/theme";
 
-// The dialog is the only user of react-hook-form and zod; keep them out of the
-// entry chunk by loading it when the menu item is used (WU2a audit fix).
+// The dialogs are the only users of react-hook-form and the settings queries;
+// keep them out of the entry chunk by loading them when a menu item is used.
 const ChangePasswordDialog = lazy(() =>
 	import("@/features/auth/change-password-dialog").then((module) => ({ default: module.ChangePasswordDialog })),
+);
+const UserSettingsDialog = lazy(() =>
+	import("@/features/settings/user-settings-dialog").then((module) => ({ default: module.UserSettingsDialog })),
 );
 
 function initials(name: string): string {
@@ -43,7 +45,7 @@ function initials(name: string): string {
 }
 
 /**
- * The user menu at the bottom of the sidebar: theme, language, change password
+ * The user menu at the bottom of the sidebar: theme, settings, change password
  * and log out (doc/design/webui.md "Shell, theme and language"). The trigger is a native button composed via
  * Base UI's `render` prop; the generated `SidebarMenuButton` is not forwarded as
  * a menu trigger because Base UI merges the trigger's props and ref into the
@@ -52,10 +54,10 @@ function initials(name: string): string {
 export function UserMenu() {
 	const { t } = useLingui();
 	const auth = useAuth();
-	const { locale, setLocale, switching } = useLocale();
 	const { preference, setPreference } = useTheme();
 	const logout = useLogout();
 	const [passwordOpen, setPasswordOpen] = useState(false);
+	const [settingsOpen, setSettingsOpen] = useState(false);
 
 	const user = auth.user;
 	const name = user?.displayName ?? user?.username ?? "";
@@ -122,29 +124,12 @@ export function UserMenu() {
 						</DropdownMenuSubContent>
 					</DropdownMenuSub>
 
-					<DropdownMenuSub>
-						<DropdownMenuSubTrigger data-testid="menu-language">
-							<LanguagesIcon />
-							<Trans>Language</Trans>
-						</DropdownMenuSubTrigger>
-						<DropdownMenuSubContent>
-							<DropdownMenuRadioGroup
-								value={locale}
-								onValueChange={(value) => setLocale(value === "zh-CN" ? "zh-CN" : "en")}
-								disabled={switching}
-							>
-								<DropdownMenuRadioItem value="en" data-testid="language-en">
-									English
-								</DropdownMenuRadioItem>
-								<DropdownMenuRadioItem value="zh-CN" data-testid="language-zh">
-									中文 (简体)
-								</DropdownMenuRadioItem>
-							</DropdownMenuRadioGroup>
-						</DropdownMenuSubContent>
-					</DropdownMenuSub>
-
 					<DropdownMenuSeparator />
 					<DropdownMenuGroup>
+						<DropdownMenuItem data-testid="menu-settings" onClick={() => setSettingsOpen(true)}>
+							<SettingsIcon />
+							<Trans>Settings…</Trans>
+						</DropdownMenuItem>
 						<DropdownMenuItem data-testid="menu-change-password" onClick={() => setPasswordOpen(true)}>
 							<KeyRoundIcon />
 							<Trans>Change password</Trans>
@@ -160,6 +145,12 @@ export function UserMenu() {
 			{passwordOpen && (
 				<Suspense fallback={null}>
 					<ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
+				</Suspense>
+			)}
+
+			{settingsOpen && (
+				<Suspense fallback={null}>
+					<UserSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 				</Suspense>
 			)}
 		</>

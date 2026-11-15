@@ -63,6 +63,8 @@ export interface InboundMessage {
 	chatId: string;
 	topicId: string | null;
 	displayName: string;
+	/** The platform's language (`zh-hans`, `en`), for a reply before the user is linked. */
+	languageCode?: string | null;
 	text: string | null;
 	files: InboundFile[];
 }
@@ -76,6 +78,7 @@ export interface ButtonPress {
 	messageId: string;
 	data: string;
 	displayName: string;
+	languageCode?: string | null;
 }
 
 /** The platform told us the user pressed the draft's stop control. */

@@ -732,14 +732,6 @@ msgstr "Arguments"
 msgid "argv"
 msgstr "argv"
 
-#: src/features/channels/channel-dialog.tsx
-msgid "Ask"
-msgstr "Ask"
-
-#: src/features/channels/channel-dialog.tsx
-msgid "Ask (default)"
-msgstr "Ask (default)"
-
 #: src/features/sessions/session-list.tsx
 msgid "Ask an administrator to configure one."
 msgstr "Ask an administrator to configure one."
@@ -845,10 +837,6 @@ msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoni
 #: src/features/settings/model-presets.tsx
 msgid "Auto review"
 msgstr "Auto review"
-
-#: src/features/channels/channel-dialog.tsx
-msgid "Auto Review"
-msgstr "Auto Review"
 
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
@@ -1027,13 +1015,9 @@ msgid "Channels"
 msgstr "Channels"
 
 #: src/features/sessions/share-dialog.tsx
+#: src/features/settings/user-settings-dialog.tsx
 msgid "Chat"
 msgstr "Chat"
-
-#: src/app/shell/nav.ts
-#: src/features/channels/chat-settings-page.tsx
-msgid "Chat accounts"
-msgstr "Chat accounts"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "Chat attachments"
@@ -1556,7 +1540,7 @@ msgstr "Default"
 msgid "Default (omitted)"
 msgstr "Default (omitted)"
 
-#: src/features/channels/channel-dialog.tsx
+#: src/features/settings/user-settings-dialog.tsx
 msgid "Default model"
 msgstr "Default model"
 
@@ -1571,10 +1555,6 @@ msgstr "Default prompt"
 #: src/features/settings/model-presets.tsx
 msgid "Default prompt and protocol"
 msgstr "Default prompt and protocol"
-
-#: src/features/channels/channel-dialog.tsx
-msgid "Default rule preset"
-msgstr "Default rule preset"
 
 #: src/features/system-settings/retention-section.tsx
 msgid "Default: {defaultValue}."
@@ -2217,6 +2197,10 @@ msgstr "Finished"
 msgid "Finished at"
 msgstr "Finished at"
 
+#: src/features/settings/user-settings-dialog.tsx
+msgid "First available model"
+msgstr "First available model"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Five fields: minute hour day-of-month month day-of-week, in the chosen IANA timezone."
 msgstr "Five fields: minute hour day-of-month month day-of-week, in the chosen IANA timezone."
@@ -2237,6 +2221,7 @@ msgstr "Format"
 msgid "From BotFather. It is encrypted with the master key and never shown again."
 msgstr "From BotFather. It is encrypted with the master key and never shown again."
 
+#: src/features/settings/user-settings-dialog.tsx
 #: src/features/system-settings/general-section.tsx
 msgid "General"
 msgstr "General"
@@ -2471,7 +2456,7 @@ msgstr "Kind of {0}"
 msgid "Kinds"
 msgstr "Kinds"
 
-#: src/app/shell/user-menu.tsx
+#: src/features/settings/user-settings-dialog.tsx
 msgid "Language"
 msgstr "Language"
 
@@ -2559,10 +2544,6 @@ msgstr "Lines"
 #: src/components/task-result.tsx
 msgid "Lines {from}–{to}"
 msgstr "Lines {from}–{to}"
-
-#: src/features/channels/chat-accounts-section.tsx
-msgid "Link a private chat to use your sessions and approvals from chat. A linked chat acts with your authority; protect it like your password."
-msgstr "Link a private chat to use your sessions and approvals from chat. A linked chat acts with your authority; protect it like your password."
 
 #: src/components/task-result.tsx
 msgid "Link target"
@@ -2896,6 +2877,10 @@ msgstr "New session"
 #: src/features/users/pages.tsx
 msgid "New Session"
 msgstr "New Session"
+
+#: src/features/settings/user-settings-dialog.tsx
+msgid "New session defaults"
+msgstr "New session defaults"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "New SSH credential"
@@ -4054,6 +4039,7 @@ msgstr "Rule chain evaluation"
 
 #: src/components/rule-preset-select.tsx
 #: src/features/schedules/schedule-form.tsx
+#: src/features/settings/user-settings-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 #: src/features/tokens/pages.tsx
 #: src/features/tokens/rules-dialog.tsx
@@ -4354,6 +4340,7 @@ msgstr "Session title"
 #: src/app/shell/nav.ts
 #: src/features/sessions/session-header.tsx
 #: src/features/sessions/session-list.tsx
+#: src/features/settings/user-settings-dialog.tsx
 msgid "Sessions"
 msgstr "Sessions"
 
@@ -4373,6 +4360,14 @@ msgstr "Set password"
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Set the RP ID and at least one allowed origin together, or leave both empty."
 msgstr "Set the RP ID and at least one allowed origin together, or leave both empty."
+
+#: src/features/settings/user-settings-dialog.tsx
+msgid "Settings"
+msgstr "Settings"
+
+#: src/app/shell/user-menu.tsx
+msgid "Settings…"
+msgstr "Settings…"
 
 #: src/features/sessions/session-header.tsx
 msgid "Share"
@@ -4644,10 +4639,6 @@ msgstr "Summary"
 #: src/app/shell/user-menu.tsx
 msgid "System"
 msgstr "System"
-
-#: src/features/channels/channel-dialog.tsx
-msgid "System default"
-msgstr "System default"
 
 #: src/features/settings/model-presets.tsx
 msgid "System prompt"
@@ -4975,6 +4966,7 @@ msgstr "Thinking format"
 #: src/components/thinking-level-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/settings/model-presets.tsx
+#: src/features/settings/user-settings-dialog.tsx
 msgid "Thinking level"
 msgstr "Thinking level"
 
@@ -5300,6 +5292,10 @@ msgstr "Use at least 8 characters."
 msgid "Use lowercase letters, digits and -, not starting with a digit."
 msgstr "Use lowercase letters, digits and -, not starting with a digit."
 
+#: src/features/settings/user-settings-dialog.tsx
+msgid "Use the first available model"
+msgstr "Use the first available model"
+
 #: src/features/settings/model-presets.tsx
 msgid "Use the session's model"
 msgstr "Use the session's model"
@@ -5489,10 +5485,6 @@ msgstr "Yes"
 #: src/features/sessions/session-list.tsx
 msgid "Yesterday"
 msgstr "Yesterday"
-
-#: src/features/channels/channel-dialog.tsx
-msgid "Yolo"
-msgstr "Yolo"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Yolo lets this token run anything on your nodes without asking."

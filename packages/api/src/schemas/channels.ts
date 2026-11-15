@@ -3,8 +3,6 @@
  * administrator's view says only whether they are set.
  */
 import { z } from "zod";
-import { ModelRefSchema } from "./models.ts";
-import { RulePresetSchema } from "./policy.ts";
 
 /** The chat platforms crhs can talk to; Satori is the later kind. */
 export const ChannelKindSchema = z.enum(["telegram", "satori"]);
@@ -29,8 +27,6 @@ export const ChannelViewSchema = z
 		kind: ChannelKindSchema,
 		enabled: z.boolean(),
 		hasCredentials: z.boolean().describe("Whether credentials are stored; their values are never returned."),
-		defaultModel: ModelRefSchema.nullable().describe("New sessions' model; null uses the session model preset."),
-		defaultRulePreset: RulePresetSchema.nullable().describe("New sessions' rule preset; null means ask."),
 		status: ChannelStatusSchema,
 		createdAt: z.string(),
 		updatedAt: z.string(),
@@ -52,8 +48,6 @@ export const ChannelInputSchema = z.object({
 	kind: ChannelKindSchema.optional(),
 	enabled: z.boolean().optional(),
 	token: z.string().nullable().optional().describe("Telegram bot token; write-only and encrypted with the master key."),
-	defaultModel: ModelRefSchema.nullable().optional(),
-	defaultRulePreset: RulePresetSchema.nullable().optional(),
 });
 
 export const ChannelNameParamSchema = z.object({ name: z.string() });
@@ -94,22 +88,6 @@ export const ChannelLinkCodeResponseSchema = z
 		channel: ChannelPublicViewSchema.optional(),
 	})
 	.meta({ id: "ChannelLinkCodeResponse" });
-
-/** The caller's chat settings. */
-export const ChannelSettingsSchema = z
-	.object({
-		defaultAccountId: z.string().nullable().describe("The account notifications fall back to; null means none."),
-		showProgress: z.boolean().describe("Whether a progress status/draft is shown while a turn runs."),
-	})
-	.meta({ id: "ChannelSettings" });
-
-/** `PUT /api/channel-settings`; omitted fields stay unchanged. */
-export const ChannelSettingsUpdateSchema = z.object({
-	defaultAccountId: z.string().nullable().optional(),
-	showProgress: z.boolean().optional(),
-});
-
-export const ChannelSettingsResponseSchema = z.object({ settings: ChannelSettingsSchema });
 
 /** Path parameter of `DELETE /api/channel-accounts/{id}`. */
 export const ChannelAccountParamSchema = z.object({ id: z.string() });

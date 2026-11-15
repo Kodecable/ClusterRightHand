@@ -27,7 +27,6 @@ Administrators add channels on the **Channels** page.
 | Kind | `telegram` or `satori` |
 | Enabled | A disabled channel stops polling or disconnects |
 | Credentials | Telegram: the bot token. Satori: the gateway URL and its token. Encrypted with the master key and never returned |
-| Defaults | The model preset and rule preset of sessions a chat creates; the system defaults unless set |
 
 There can be several channels, such as two Telegram bots. The page shows each channel's state, the
 account it runs as (the bot's username, or the platforms the gateway reported) and the last error.
@@ -39,27 +38,40 @@ A dropped connection is retried with the same backoff as MCP extensions
 A chat account is linked to exactly one CRH user; messages from accounts that are not linked are
 answered once with how to link and otherwise ignored.
 
-- **Linking.** On their own settings page a user creates a one-time link code (valid for 10 minutes) and
-  sends `/link <code>` to the bot in a private chat. The account is identified by channel, platform and
-  the platform's user id. A code is single use and bound to the user who created it.
+- **Linking.** In the WebUI's **Settings → Chat** a user creates a one-time link code (valid for 10
+  minutes) and sends `/link <code>` to the bot in a private chat. The account is identified by channel,
+  platform and the platform's user id. A code is single use and bound to the user who created it.
 - **Unlinking** is possible from the WebUI and with `/unlink` in the chat. Disabling a CRH user stops
   all of their accounts.
 - A linked account acts with the user's authority for everything a chat can do, including approvals
   that need no signature ([Approvals](#approvals)). The one-time code from a signed-in WebUI is what
   ties the two together, so the chat account should be protected like the login.
-- A user may choose one linked account as their **default notification channel** ([Notifications](#notifications)).
-- Linking, unlinking and the default are audited (`channel_account.*`).
+- The user's chat settings, including their **default notification channel**, **Show progress** and the
+  bot language, are in `user_settings`, edited in the WebUI's settings dialog
+  ([Notifications](#notifications)).
+- Linking and unlinking are audited (`channel_account.*`); a change of the settings, including the
+  default notification account, is audited as `user_settings.changed`.
 
 ## Conversations
 
 A conversation is one thread of a private chat, mapped to one session (`channel_threads`).
 
-- **Telegram** uses topics in private chats: each topic is one session, and a new topic starts a new
-  session. Without topics, the chat has one current session; `/new` starts another and `/sessions`
-  switches between the user's active sessions, five per page.
+- **Telegram** uses topics in private chats: each topic is one session, and the first message in a new
+  topic starts a session. Without topics, the chat has one current session; `/new` starts a draft and
+  `/sessions` switches between the user's active sessions, five per page.
 - **Satori** has no topics; it uses the current-session commands.
-- A session created from a chat belongs to the linked user and uses the channel's defaults. `/sessions`
-  can also attach an existing session of that user to the thread.
+- **A session created from a chat uses the user's defaults**, the same resolution as the WebUI's new
+  session page: the default model (with its thinking level), then the session model preset, then the
+  first offered model, and the default rule preset, else Ask. A chat or topic with no thread yet creates
+  the session directly on the first message and sends the usual notice. `/sessions` can also attach an
+  existing session of that user to the thread.
+- **`/new` records a draft** instead of creating a session at once (`session_id` null and the `draft`
+  column set), like the WebUI's new-session page. The reply shows the draft's model, thinking level and
+  rule preset and points to the management commands. `/model`, `/think` and `/rules` change the draft
+  and write the same choice to the user's defaults; `/extensions` changes only the draft's disabled
+  extensions. The first ordinary message creates the session with the draft's settings, sends the
+  notice, then submits the message. `/sessions` switching to a session discards the draft, and `/stop`
+  or `/quota` on a draft reply that there is no running session.
 - **Commands are strict.** Any text that starts with `/`, including a file's caption, is a command; an
   unknown one is answered with a hint instead of being sent to the session. Files attached to a command
   are not downloaded or sent.
@@ -68,7 +80,16 @@ A conversation is one thread of a private chat, mapped to one session (`channel_
   the session's WebUI link. When the old session is archived or unavailable, the notice says so. It is
   sent before the user's message is submitted, so it appears before the reply.
 - `/stop` stops the running turn, `/quota` shows the session's token quota, and `/help` lists the
-  commands.
+  commands as a Markdown list.
+- **Management commands** act on the thread's session, or its draft, through the same runtime functions
+  and checks as the WebUI's session PATCH: only the owner may change a session, and a rule change may
+  settle waiting approvals. `/model` lists the offered models five per page, `/think` the levels the
+  current model supports, `/rules` the three rule presets, and `/extensions` the extensions available to
+  the session five per page. The current choice is marked `✓`; a model or extension press uses a short
+  index and a digest of the list it showed, so a list that changed meanwhile is re-rendered instead of
+  acting on the wrong entry. Changes are audited with the channel (`channel.settings_changed`); a
+  session's rule change is also `rules.changed`, and a draft's write to the user's defaults is
+  `user_settings.changed`.
 - **History on switching.** A bot cannot read a chat's history, and the chat shows only what the bot
   sent there. When a thread switches to or attaches a session, the last 10 messages of that session are
   sent first: the user's messages and each turn's final answer, without intermediate text, tool calls,
@@ -76,9 +97,20 @@ A conversation is one thread of a private chat, mapped to one session (`channel_
 
 ## Messages
 
+**Language.** Every fixed text the bot sends has an English and a Chinese catalogue in the server, so
+the model's output is never translated. A linked user's `locale` decides; when it is unset, and for a
+message from an account that is not linked yet, the platform's language decides (`zh*` → Chinese,
+everything else → English). Notifications sent without an inbound message use the user's locale, else
+English. The Telegram command menu is registered twice, in English and with `language_code: "zh"`.
+
 **Inbound.** A text message is the user's message to the session. Files and photos become chat
 attachments in the user's library, as in the WebUI ([Chat attachments](library.md#chat-attachments)).
 Other kinds (voice, stickers) are answered with what is supported.
+
+**Markdown.** Framework texts are rendered as rich Markdown, where one newline is a soft break: lists
+of commands are Markdown lists and separate lines are separated by a blank line. Values a user, an
+administrator or a model supplies, such as a session title, a model name, an extension name or a
+username, are escaped so they show literally; assistant text is not escaped.
 
 **Outbound**, to the thread a session's notifications go to ([Notifications](#notifications)):
 
@@ -142,7 +174,9 @@ optional capability when the channel has it and falls back to sending and editin
 
 - **Telegram** uses grammY's API client and long polling, with Node's own `fetch`. It is confined to its
   channel module and uses no grammY middleware. The last handled update id is stored, so a restart does
-  not handle an update twice.
+  not handle an update twice. On connect it registers the `/link`, `/unlink`, `/new`, `/model`, `/think`,
+  `/rules`, `/extensions`, `/sessions`, `/stop`, `/quota`, `/approve`, `/reject`, `/help` and `/start`
+  menu in English and Chinese.
 - **Satori** is a small client written in crhs on the protocol's two official packages without cordis:
   `@satorijs/protocol` for the API types and `@satorijs/element` for message content. The rest of the
   satori.js stack is not used, because its stable line is rarely released, fixes merged upstream stay

@@ -251,6 +251,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		db,
 		masterKey,
 		runtime,
+		models,
 		cluster,
 		taskGroups,
 		audit,

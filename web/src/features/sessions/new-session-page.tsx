@@ -1,4 +1,4 @@
-import type { ModelRef, RulePreset, ThinkingLevel } from "@crh/api";
+import type { AvailableModel, ModelRef, RulePreset, ThinkingLevel, UserSettings } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -7,10 +7,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ErrorText } from "@/components/error-state";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useModels } from "@/features/settings/api";
+import { useModels, useSessionModelPreset } from "@/features/settings/api";
+import { useSaveUserSettings, useUserSettings } from "@/hooks/use-user-settings";
 import { errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/session";
-import { readStorage, writeStorage } from "@/lib/storage";
 import { supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
 import { insertSessionIntoListCaches, useCreateSession } from "./api";
 import { AttachmentChips, AttachmentMenu, AttachmentPickerDialog, useComposerAttachments } from "./attachments";
@@ -18,34 +18,46 @@ import { ComposerFooter, type ComposerFooterState } from "./composer-footer";
 import { ComposerShell, handleComposerKey, UnknownCommandHint, useTextareaAutosize } from "./composer-input";
 import { isUnknownSlashCommand, parseSlashCommand } from "./slash-commands";
 
-/** Where the draft remembers the model of the last session it created. */
-export const NEW_SESSION_MODEL_STORAGE_KEY = "crh.newSession.model";
-
-function readStoredModel(): ModelRef | undefined {
-	const raw = readStorage(NEW_SESSION_MODEL_STORAGE_KEY);
-	if (raw === null) return undefined;
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch {
-		return undefined;
-	}
-	if (parsed === null || typeof parsed !== "object") return undefined;
-	const record = parsed as Record<string, unknown>;
-	if (typeof record.provider !== "string" || typeof record.modelId !== "string") return undefined;
-	return { provider: record.provider, modelId: record.modelId };
-}
-
-/** `writeStorage` never throws: a disabled or full localStorage must not stop a session from being created. */
-function writeStoredModel(model: ModelRef): void {
-	writeStorage(NEW_SESSION_MODEL_STORAGE_KEY, JSON.stringify({ provider: model.provider, modelId: model.modelId }));
-}
-
 /** The draft's textarea grows up to half of the window. */
 const halfWindowHeight = (): number => Math.floor(window.innerHeight / 2);
 
 const sameModel = (a: ModelRef | undefined, b: ModelRef): boolean =>
 	a !== undefined && a.provider === b.provider && a.modelId === b.modelId;
+
+interface ResolvedDefaults {
+	model: ModelRef | undefined;
+	thinkingLevel: ThinkingLevel;
+}
+
+/**
+ * A new session's defaults (doc/design/webui.md "New session"): the user's default model, then the session
+ * model preset, then the first offered model. A default a provider no longer offers falls through to the next
+ * step; the thinking level comes with the model it belonged to and is dropped when that model changed levels.
+ */
+export function resolveNewSessionDefaults(
+	available: readonly AvailableModel[],
+	settings: UserSettings | null,
+	sessionModel: ModelRef | null,
+): ResolvedDefaults {
+	const offered = (candidate: ModelRef | null | undefined): AvailableModel | undefined =>
+		candidate === null || candidate === undefined
+			? undefined
+			: available.find((model) => model.provider === candidate.provider && model.modelId === candidate.modelId);
+	for (const candidate of [settings?.defaultModel, sessionModel]) {
+		const found = offered(candidate);
+		if (found === undefined || candidate === null || candidate === undefined) continue;
+		const level =
+			candidate.thinkingLevel !== undefined && found.thinkingLevels.includes(candidate.thinkingLevel)
+				? candidate.thinkingLevel
+				: "off";
+		return { model: { provider: found.provider, modelId: found.modelId }, thinkingLevel: level };
+	}
+	const first = available[0];
+	return {
+		model: first === undefined ? undefined : { provider: first.provider, modelId: first.modelId },
+		thinkingLevel: "off",
+	};
+}
 
 /**
  * The blank draft page (doc/design/webui.md "New session"): no transcript and no session yet, just the centred
@@ -58,9 +70,12 @@ export function NewSessionPage() {
 	const auth = useAuth();
 	const queryClient = useQueryClient();
 	const models = useModels();
+	const settings = useUserSettings();
+	const sessionPreset = useSessionModelPreset();
+	const saveSettings = useSaveUserSettings();
 	const create = useCreateSession();
 	const available = useMemo(() => models.data ?? [], [models.data]);
-	const [model, setModel] = useState<ModelRef | undefined>(() => readStoredModel());
+	const [model, setModel] = useState<ModelRef | undefined>();
 	const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("off");
 	const [rulePreset, setRulePreset] = useState<RulePreset>("ask");
 	const [budgetRemaining, setBudgetRemaining] = useState<number | null>(null);
@@ -72,6 +87,11 @@ export function NewSessionPage() {
 	// attempt made instead of creating a second one.
 	const [requestId] = useState(() => crypto.randomUUID());
 	const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+	// The draft starts from the settings once, not again whenever a settings change arrives.
+	const initialised = useRef(false);
+	// A model change also resets the thinking level, and the level picker may report that reset as a
+	// change of its own; skip the duplicate save so one action is one request.
+	const lastSavedModel = useRef<string | undefined>(undefined);
 
 	const chosen = useMemo(() => {
 		if (model !== undefined && available.some((candidate) => sameModel(model, candidate))) return model;
@@ -80,8 +100,19 @@ export function NewSessionPage() {
 	}, [model, available]);
 	const levels = useMemo(() => supportedThinkingLevels(available, chosen), [available, chosen]);
 
-	// The stored model may not be offered, and a model change may not support the current level. The list
-	// always includes `off`; falling back to it keeps the draft valid.
+	// Opening the page applies the user's defaults; a failed settings request just leaves the first model.
+	useEffect(() => {
+		if (initialised.current || models.data === undefined) return;
+		if (settings.isPending || sessionPreset.isPending) return;
+		initialised.current = true;
+		const resolved = resolveNewSessionDefaults(available, settings.data ?? null, sessionPreset.data ?? null);
+		setModel(resolved.model);
+		setThinkingLevel(resolved.thinkingLevel);
+		setRulePreset(settings.data?.defaultRulePreset ?? "ask");
+	}, [available, models.data, settings.data, settings.isPending, sessionPreset.data, sessionPreset.isPending]);
+
+	// A model change may not support the current level. The list always includes `off`; falling back to it
+	// keeps the draft valid.
 	useEffect(() => {
 		if (levels.includes(thinkingLevel)) return;
 		setThinkingLevel(levels.includes("off") ? "off" : (levels[0] ?? "off"));
@@ -119,7 +150,6 @@ export function NewSessionPage() {
 				rulePreset,
 				budgetRemaining,
 			});
-			writeStoredModel(chosen);
 			if (auth.user !== null) {
 				insertSessionIntoListCaches(queryClient, session, {
 					id: auth.user.id,
@@ -131,6 +161,13 @@ export function NewSessionPage() {
 			// Stay on the draft with the text and the same request id: the retry is deduplicated by the server.
 			setSendError(errorMessage(err));
 		}
+	};
+
+	const saveDefaultModel = (next: ModelRef) => {
+		const key = JSON.stringify(next);
+		if (lastSavedModel.current === key) return;
+		lastSavedModel.current = key;
+		saveSettings.mutate({ defaultModel: next });
 	};
 
 	const footer: ComposerFooterState = {
@@ -147,9 +184,16 @@ export function NewSessionPage() {
 			// A level the new model does not support is not part of the request; start from off as the
 			// session footer does when a model is picked.
 			setThinkingLevel("off");
+			saveDefaultModel(withThinkingLevel(next, "off"));
 		},
-		onThinkingLevelChange: setThinkingLevel,
-		onRulePresetChange: setRulePreset,
+		onThinkingLevelChange: (level) => {
+			setThinkingLevel(level);
+			if (chosen !== undefined) saveDefaultModel(withThinkingLevel(chosen, level));
+		},
+		onRulePresetChange: (next) => {
+			setRulePreset(next);
+			saveSettings.mutate({ defaultRulePreset: next });
+		},
 		onBudgetChange: setBudgetRemaining,
 	};
 

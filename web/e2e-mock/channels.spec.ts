@@ -31,12 +31,14 @@ test("create a link code for the user's chat account", async ({ page }) => {
 				accounts: [],
 				channels: [{ id: "channel-1", name: "opsbot", kind: "telegram", account: "ops_bot" }],
 			},
-			channelSettings: { defaultAccountId: null, showProgress: true },
 		},
 	});
 	await login(page);
-	await page.goto("/settings/chats");
-	await expect(page.getByTestId("chat-settings-page")).toBeVisible();
+	await page.getByTestId("user-menu-trigger").click();
+	await page.getByTestId("menu-settings").click();
+	await expect(page.getByTestId("user-settings-dialog")).toBeVisible();
+	await page.getByTestId("settings-tab-chat").click();
+	await expect(page.getByTestId("chat-accounts")).toBeVisible();
 	await page.getByTestId("create-link-code").click();
 	const dialog = page.getByTestId("link-code-dialog");
 	await expect(dialog).toBeVisible();

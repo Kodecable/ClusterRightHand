@@ -1,5 +1,4 @@
 import type {
-	AvailableModel,
 	ExtensionInput,
 	ExtensionStatus,
 	ExtensionToolView,
@@ -9,6 +8,7 @@ import type {
 	ModelPresetKind,
 	ModelProviderInput,
 	ModelProviderView,
+	ModelsResponse,
 } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http } from "@/lib/api/client";
@@ -20,10 +20,22 @@ export const settingsKeys = {
 	presets: () => ["settings", "model-presets"] as const,
 };
 
+/** The offered models; the session model preset is read separately with `useSessionModelPreset`. */
 export function useModels() {
 	return useQuery({
 		queryKey: settingsKeys.models(),
-		queryFn: ({ signal }) => http.get<{ models: AvailableModel[] }>("/models", { signal }).then((r) => r.models),
+		queryFn: ({ signal }) => http.get<ModelsResponse>("/models", { signal }),
+		select: (data) => data.models,
+		staleTime: 5 * 60_000,
+	});
+}
+
+/** The session model preset's model, if an administrator ever sets one; it is the second new-session default. */
+export function useSessionModelPreset() {
+	return useQuery({
+		queryKey: settingsKeys.models(),
+		queryFn: ({ signal }) => http.get<ModelsResponse>("/models", { signal }),
+		select: (data) => data.sessionModel ?? null,
 		staleTime: 5 * 60_000,
 	});
 }

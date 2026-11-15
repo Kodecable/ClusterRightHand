@@ -93,6 +93,18 @@ The `settings` table holds one validated JSON value per org-scoped key (the low-
 settings); a missing row means the default. crhs loads it at startup and replaces the in-memory object
 on each write, so changes apply without a restart.
 
+## User settings
+
+`user_settings` holds one row per user: the UI and chat-bot language (`en` or `zh-CN`; null follows the
+browser), the default model for new sessions (a JSON ModelRef with its thinking level), the default rule
+preset, whether chat progress is shown, and the default notification account. A missing row is the
+defaults, so a user has no row until they change something. A default model that a provider no longer
+offers is not resolved by the server; the WebUI falls back to the session model preset and then to the
+first offered model.
+
+Unlinking an account clears a default that pointed at it, deleting a channel clears the defaults of all
+its accounts, and disabling a user removes the row with their accounts ([Channels](channels.md)).
+
 ## Nodes
 
 A node row holds the node's registration state (pending or active), its Noise public key for crha nodes,
@@ -162,13 +174,15 @@ chat notifications can follow it ([Channels](channels.md#notifications)).
 ## Channels
 
 `channels` holds one chat platform bot: its name, kind, enabled flag, a reference to one encrypted
-`secrets` row holding the credentials, the defaults for sessions started from chat and the last platform
-update id handled. `channel_accounts` links one platform account to one CRH user; the same platform
-account cannot belong to two users. `channel_link_codes` stores only a code's SHA-256 hash, its expiry and
-whether it was used, because the code is a one-time credential. `channel_threads` maps a private chat
-(and topic, when the platform has them) to a session; `current` marks the chat's current session where
-the platform has no topics. `channel_user_settings` holds a user's default notification account and the
-progress toggle. See [Chat channels](channels.md).
+`secrets` row holding the credentials and the last platform update id handled; sessions a chat starts
+use the user's defaults from `user_settings`. `channel_accounts` links one platform account to one CRH
+user; the same platform account cannot belong to two users. `channel_link_codes` stores only a code's
+SHA-256 hash, its expiry and whether it was used, because the code is a one-time credential.
+`channel_threads` maps a private chat (and topic, when the platform has them) to a session; while
+`/new` holds a draft, `session_id` is null and `draft` is the JSON of its model, rule preset and
+disabled extensions. `current` marks the chat's current session where the platform has no topics. The
+user's chat preferences and session defaults are in `user_settings` ([User settings](#user-settings)).
+See [Chat channels](channels.md).
 
 ## Libraries
 

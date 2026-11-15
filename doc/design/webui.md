@@ -78,9 +78,13 @@ Colors, radii and spacing come from semantic design tokens. Depth is expressed o
 in the same direction in light and dark themes. The theme is applied by an inline script before the
 first paint, so a dark page never flashes light.
 
-The UI is available in English and Chinese. Labels for server enums (task states, presets, audit
-actions) are translated; an unknown value is shown raw, so a new server state is visible before its
-translation exists. Server error messages and agent output are not translated.
+The UI is available in English and Chinese. The theme is a per-device choice in localStorage. The
+language is the user's account setting: after login the server's value wins and the client switches to
+it, writing the `crh.locale` cache that the login page and the first paint use. A user whose server value
+is null keeps the stored or browser choice, and nothing is written to the server implicitly. Labels for
+server enums (task states, presets, audit actions) are translated; an unknown value is shown raw, so a
+new server state is visible before its translation exists. Server error messages and agent output are not
+translated.
 
 ### List navigation, links and refresh
 
@@ -244,16 +248,19 @@ list searchable ([Extensions](extensions.md#mcp-connections)).
 ### Channels page
 
 **Admin → Channels** lists the chat channels with their kind, state, bot account, last error
-and next attempt. **New channel** creates a Telegram bot with its write-only token and the defaults for
-sessions started from chat; **Edit** changes them, and **Delete** also removes the channel's linked
-accounts and threads. The list refreshes while the page is open, like Extensions
+and next attempt. **New channel** creates a Telegram bot with its write-only token; **Edit** changes
+it, and **Delete** also removes the channel's linked accounts and threads. The list refreshes while the page is open, like Extensions
 ([Chat channels](channels.md#channels)).
 
-### Chat accounts page
+### Settings dialog
 
-**Chat accounts** is the member's own page: the linked accounts, **Create link code** (the code, its
-expiry and instructions), **Unlink**, the default notification account and the **Show progress** toggle.
-A linked chat acts with the user's authority, so the page says so ([Accounts](channels.md#accounts)).
+**Settings…** in the user menu opens one dialog with three tabs. **General** chooses the language.
+**Sessions** sets the default model, its thinking level and the default rule preset, and a default model
+offers only the levels the model supports. **Chat** holds the linked chat accounts, **Create link code**,
+**Unlink**, the default notification account and **Show progress** ([Accounts](channels.md#accounts)).
+A change is saved immediately; the dialog has no Save button, and the language changes as soon as its
+PATCH succeeds. The theme stays in the user menu and remains per device; the old chat settings page is
+gone.
 
 ### Models page
 
@@ -393,6 +400,13 @@ hold one of the browser's few connections to the origin.
 The new-session page is a draft: it calls no API until the first message is sent. Sending creates the
 session and its first message in one request with its own request id, then replaces the draft in the
 browser history, so Back does not return to it.
+
+Opening the draft applies the user's defaults: the default model, then the session model preset, then
+the first offered model; a default model a provider no longer offers falls through to the next step. The
+thinking level comes from that model and the rule preset from the user's setting, falling back to `off`
+and Ask. Every change of the model, thinking level or rule preset on the draft immediately PATCHes the
+corresponding user setting, so the next draft opens with it. The last-used model is not stored in
+localStorage.
 
 ## Markdown rendering
 

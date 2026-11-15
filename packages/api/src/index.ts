@@ -20,4 +20,5 @@ export * from "./settings.ts";
 export * from "./signing-keys.ts";
 export * from "./tasks.ts";
 export * from "./tokens.ts";
+export * from "./user-settings.ts";
 export * from "./users.ts";
