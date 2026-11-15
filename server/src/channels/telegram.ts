@@ -11,10 +11,12 @@ import type {
 	ChannelSendOptions,
 	ChannelStatus,
 	ChannelTarget,
+	DownloadFileOptions,
 	InboundFile,
 	InboundMessage,
 	SentMessage,
 } from "./model.ts";
+import { FileTooLargeError, readResponseBytes } from "./model.ts";
 import {
 	neutralizeTelegramButtons,
 	splitMarkdown,
@@ -371,13 +373,18 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 		return this.#token === "" ? message : message.replaceAll(this.#token, "<bot token>");
 	}
 
-	async downloadFile(file: InboundFile): Promise<{ bytes: Uint8Array; name: string; mediaType: string }> {
+	async downloadFile(
+		file: InboundFile,
+		options: DownloadFileOptions,
+	): Promise<{ bytes: Uint8Array; name: string; mediaType: string }> {
+		// Telegram's file_size is authoritative enough to refuse a large file before getFile even names it.
+		if (file.bytes !== null && file.bytes > options.maxBytes) throw new FileTooLargeError(options.maxBytes);
 		const info = await this.#api.getFile(file.fileId);
 		if (!info.file_path) throw new Error("Telegram did not give the file's path");
 		const url = `${this.#apiRoot}/file/bot${this.#token}/${info.file_path}`;
 		const response = await this.#fetchImpl(url);
 		if (!response.ok) throw new Error(`Telegram file download failed with ${response.status}`);
-		const bytes = new Uint8Array(await response.arrayBuffer());
+		const bytes = await readResponseBytes(response, options.maxBytes);
 		const fromPath = info.file_path.slice(info.file_path.lastIndexOf("/") + 1);
 		return {
 			bytes,

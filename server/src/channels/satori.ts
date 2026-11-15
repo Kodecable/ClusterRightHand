@@ -10,10 +10,12 @@ import type {
 	ChannelSendOptions,
 	ChannelStatus,
 	ChannelTarget,
+	DownloadFileOptions,
 	InboundFile,
 	InboundMessage,
 	SentMessage,
 } from "./model.ts";
+import { FileTooLargeError, readResponseBytes } from "./model.ts";
 import { splitMarkdown } from "./telegram-format.ts";
 
 /**
@@ -509,7 +511,10 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 	 * serves files from `<selfUrl>/telegram/...` without listing them as proxy roots), and anything else goes
 	 * through the gateway's proxy, which checks it against its proxy roots.
 	 */
-	async downloadFile(file: InboundFile): Promise<{ bytes: Uint8Array; name: string; mediaType: string }> {
+	async downloadFile(
+		file: InboundFile,
+		options: DownloadFileOptions,
+	): Promise<{ bytes: Uint8Array; name: string; mediaType: string }> {
 		const src = file.fileId;
 		if (src.startsWith("data:")) {
 			const match = /^data:([^;,]*)(;base64)?,(.*)$/s.exec(src);
@@ -518,6 +523,7 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 			const bytes = match[2]
 				? new Uint8Array(Buffer.from(body, "base64"))
 				: new TextEncoder().encode(decodeURIComponent(body));
+			if (bytes.byteLength > options.maxBytes) throw new FileTooLargeError(options.maxBytes);
 			const name = file.name ?? "file";
 			return { bytes, name, mediaType: mediaTypeOf(name, file.mediaType, match[1] || null) };
 		}
@@ -530,7 +536,7 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 				this.redact(`satori file download failed with ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`),
 			);
 		}
-		const bytes = new Uint8Array(await response.arrayBuffer());
+		const bytes = await readResponseBytes(response, options.maxBytes);
 		const name = file.name ?? fileNameOf(src) ?? "file";
 		return {
 			bytes,

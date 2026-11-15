@@ -10,6 +10,8 @@ import type { AddressInfo } from "node:net";
 export interface FakeCall {
 	method: string;
 	body: Record<string, unknown>;
+	/** The bot token in the request URL. */
+	token: string;
 	at: string;
 }
 
@@ -17,6 +19,8 @@ export interface FakeFile {
 	bytes: Uint8Array;
 	name: string;
 	mediaType: string;
+	/** Serve without a content-length, so a download must stop reading at the limit. */
+	chunked?: boolean;
 }
 
 const PNG_1PX = Buffer.from(
@@ -55,21 +59,30 @@ export interface FakeTelegram {
 	readonly token: string;
 	readonly calls: FakeCall[];
 	readonly files: Map<string, FakeFile>;
-	/** Queue an update verbatim; its update_id is assigned. */
-	inject(update: Record<string, unknown>): number;
+	/** Queue an update verbatim; its update_id is assigned, or the given one is used. */
+	inject(update: Record<string, unknown>, updateId?: number): number;
 	text(userId: number, text: string, options?: { chatId?: number; topicId?: number; languageCode?: string }): number;
-	photo(userId: number, fileId: string, options?: { topicId?: number; caption?: string }): number;
-	document(userId: number, fileId: string, name: string, options?: { topicId?: number; caption?: string }): number;
+	photo(userId: number, fileId: string, options?: { topicId?: number; caption?: string; fileSize?: number }): number;
+	document(
+		userId: number,
+		fileId: string,
+		name: string,
+		options?: { topicId?: number; caption?: string; fileSize?: number },
+	): number;
 	callback(
 		userId: number,
 		data: string,
 		options?: { messageId?: number; topicId?: number; languageCode?: string },
 	): number;
 	stopGeneration(userId: number, options?: { topicId?: number }): number;
+	/** Lets a second bot token talk to this fake server, for a channel under test beside the main one. */
+	allowToken(token: string): void;
 	addFile(fileId: string, file: Partial<FakeFile> & { bytes: Uint8Array }): void;
 	/** Makes the next sendRichMessage fail with a 400, for the adapter's plain-text fallback. */
 	failNextRichMessage(description?: string): void;
 	callsOf(method: string): FakeCall[];
+	/** The most getUpdates requests in flight at once for a token; overlapping adapters would raise it. */
+	maxConcurrentPolls(token?: string): number;
 	/** Calls that sent a message, as plain text or as a rich message. */
 	sentCalls(): FakeCall[];
 	waitFor(method: string, predicate?: (call: FakeCall) => boolean, timeoutMs?: number): Promise<FakeCall>;
@@ -88,9 +101,11 @@ export function sentText(call: FakeCall): string {
 
 export async function startFakeTelegram(options: FakeTelegramOptions = {}): Promise<FakeTelegram> {
 	const token = options.token ?? "123456:TEST_TOKEN";
+	const extraTokens = new Set<string>();
 	const calls: FakeCall[] = [];
 	const updates: { update_id: number; [key: string]: unknown }[] = [];
 	const files = new Map<string, FakeFile>();
+	const polls = new Map<string, { active: number; max: number }>();
 	let nextUpdateId = 1;
 	let nextMessageId = 1000;
 	let nextTopicId = 500;
@@ -99,11 +114,21 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 	let server: Server;
 	let apiRoot = "";
 
+	const knownToken = (candidate: string): boolean => candidate === token || extraTokens.has(candidate);
+	const pollState = (botToken: string): { active: number; max: number } => {
+		let state = polls.get(botToken);
+		if (!state) {
+			state = { active: 0, max: 0 };
+			polls.set(botToken, state);
+		}
+		return state;
+	};
+
 	const sent = (): FakeCall[] =>
 		calls.filter((call) => call.method === "sendMessage" || call.method === "sendRichMessage");
 
-	const record = (method: string, body: Record<string, unknown>): FakeCall => {
-		const call = { method, body, at: new Date().toISOString() };
+	const record = (method: string, body: Record<string, unknown>, botToken: string): FakeCall => {
+		const call = { method, body, token: botToken, at: new Date().toISOString() };
 		calls.push(call);
 		return call;
 	};
@@ -123,11 +148,13 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		...extra,
 	});
 
-	const inject = (update: Record<string, unknown>): number => {
-		const updateId = nextUpdateId++;
-		updates.push({ update_id: updateId, ...update });
+	const inject = (update: Record<string, unknown>, updateId?: number): number => {
+		const id = updateId ?? nextUpdateId;
+		if (updateId === undefined) nextUpdateId += 1;
+		else nextUpdateId = Math.max(nextUpdateId, updateId + 1);
+		updates.push({ update_id: id, ...update });
 		wake();
-		return updateId;
+		return id;
 	};
 
 	const text = (
@@ -145,10 +172,22 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 			}),
 		});
 
-	const photo = (userId: number, fileId: string, opts: { topicId?: number; caption?: string } = {}): number =>
+	const photo = (
+		userId: number,
+		fileId: string,
+		opts: { topicId?: number; caption?: string; fileSize?: number } = {},
+	): number =>
 		inject({
 			message: message(userId, {
-				photo: [{ file_id: fileId, file_unique_id: `u-${fileId}`, width: 1, height: 1, file_size: 68 }],
+				photo: [
+					{
+						file_id: fileId,
+						file_unique_id: `u-${fileId}`,
+						width: 1,
+						height: 1,
+						file_size: opts.fileSize ?? files.get(fileId)?.bytes.length ?? 68,
+					},
+				],
 				...(opts.caption ? { caption: opts.caption } : {}),
 				...(opts.topicId !== undefined ? { message_thread_id: opts.topicId, is_topic_message: true } : {}),
 			}),
@@ -158,7 +197,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		userId: number,
 		fileId: string,
 		name: string,
-		opts: { topicId?: number; caption?: string } = {},
+		opts: { topicId?: number; caption?: string; fileSize?: number } = {},
 	): number =>
 		inject({
 			message: message(userId, {
@@ -167,7 +206,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 					file_unique_id: `u-${fileId}`,
 					file_name: name,
 					mime_type: "text/plain",
-					file_size: 12,
+					file_size: opts.fileSize ?? files.get(fileId)?.bytes.length ?? 12,
 				},
 				...(opts.caption ? { caption: opts.caption } : {}),
 				...(opts.topicId !== undefined ? { message_thread_id: opts.topicId, is_topic_message: true } : {}),
@@ -213,37 +252,58 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 			bytes: file.bytes,
 			name: file.name ?? `${fileId}.png`,
 			mediaType: file.mediaType ?? "image/png",
+			...(file.chunked !== undefined ? { chunked: file.chunked } : {}),
 		});
 	};
 
-	const api = async (method: string, body: Record<string, unknown>, res: ServerResponse): Promise<void> => {
-		record(method, body);
+	const api = async (
+		botToken: string,
+		method: string,
+		body: Record<string, unknown>,
+		res: ServerResponse,
+	): Promise<void> => {
+		record(method, body, botToken);
 		switch (method) {
 			case "getMe":
 				return json(res, { ok: true, result: BOT });
 			case "getUpdates": {
-				const offset = Number(body.offset ?? 0);
-				const timeout = Number(body.timeout ?? 0);
-				const pick = () => updates.filter((update) => update.update_id >= offset);
-				let available = pick();
-				if (available.length === 0 && timeout > 0) {
-					await new Promise<void>((resolve) => {
-						const done = () => {
-							clearTimeout(timer);
-							resolve();
-						};
-						const timer = setTimeout(done, Math.min(timeout * 1000, 30_000));
-						waiters.add(done);
-					});
-					available = pick();
+				const poll = pollState(botToken);
+				poll.active += 1;
+				poll.max = Math.max(poll.max, poll.active);
+				let finished = false;
+				const finish = (): void => {
+					if (finished) return;
+					finished = true;
+					poll.active -= 1;
+				};
+				res.once("close", finish);
+				try {
+					const offset = Number(body.offset ?? 0);
+					const timeout = Number(body.timeout ?? 0);
+					const pick = () => updates.filter((update) => update.update_id >= offset);
+					let available = pick();
+					if (available.length === 0 && timeout > 0) {
+						await new Promise<void>((resolve) => {
+							const done = () => {
+								clearTimeout(timer);
+								resolve();
+							};
+							const timer = setTimeout(done, Math.min(timeout * 1000, 30_000));
+							waiters.add(done);
+						});
+						available = pick();
+					}
+					// A real client cancels a long poll when it stops; the fake server must not consume updates for it.
+					if (res.destroyed || res.socket?.destroyed) return;
+					for (const update of available) {
+						const index = updates.indexOf(update);
+						if (index >= 0) updates.splice(index, 1);
+					}
+					json(res, { ok: true, result: available });
+				} finally {
+					finish();
 				}
-				// A real client cancels a long poll when it stops; the fake server must not consume updates for it.
-				if (res.destroyed || res.socket?.destroyed) return;
-				for (const update of available) {
-					const index = updates.indexOf(update);
-					if (index >= 0) updates.splice(index, 1);
-				}
-				return json(res, { ok: true, result: available });
+				return;
 			}
 			case "sendRichMessage": {
 				if (richFailure !== null) {
@@ -292,7 +352,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 			case "getFile": {
 				const file = files.get(String(body.file_id));
 				if (!file) return json(res, { ok: false, error_code: 400, description: "Bad Request: file not found" }, 400);
-				record("getFilePath", { file_id: body.file_id, path: `documents/${body.file_id}` });
+				record("getFilePath", { file_id: body.file_id, path: `documents/${body.file_id}` }, botToken);
 				return json(res, {
 					ok: true,
 					result: {
@@ -312,16 +372,22 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		const url = new URL(req.url ?? "/", "http://localhost");
 		const fileMatch = /^\/file\/bot([^/]+)\/(.+)$/.exec(url.pathname);
 		if (fileMatch) {
-			if (fileMatch[1] !== token) return json(res, { ok: false }, 401);
+			const botToken = fileMatch[1] ?? "";
+			if (!knownToken(botToken)) return json(res, { ok: false }, 401);
 			const path = decodeURIComponent(fileMatch[2] ?? "");
-			record("fileDownload", { path });
+			record("fileDownload", { path }, botToken);
 			const file = files.get(path.split("/").pop() ?? "");
 			if (!file) {
 				res.writeHead(404);
 				res.end("not found");
 				return;
 			}
-			res.writeHead(200, { "content-type": file.mediaType, "content-length": file.bytes.length });
+			res.writeHead(
+				200,
+				file.chunked
+					? { "content-type": file.mediaType }
+					: { "content-type": file.mediaType, "content-length": file.bytes.length },
+			);
 			res.end(file.bytes);
 			return;
 		}
@@ -331,8 +397,9 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 			res.end("not found");
 			return;
 		}
-		if (apiMatch[1] !== token) return json(res, { ok: false, error_code: 401, description: "Unauthorized" }, 401);
-		await api(apiMatch[2] ?? "", await readBody(req), res);
+		if (!knownToken(apiMatch[1] ?? ""))
+			return json(res, { ok: false, error_code: 401, description: "Unauthorized" }, 401);
+		await api(apiMatch[1] ?? "", apiMatch[2] ?? "", await readBody(req), res);
 	});
 
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -349,11 +416,15 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		document,
 		callback,
 		stopGeneration,
+		allowToken: (next) => {
+			extraTokens.add(next);
+		},
 		addFile,
 		failNextRichMessage: (description = "Bad Request: can't parse rich message") => {
 			richFailure = description;
 		},
 		callsOf: (method) => calls.filter((call) => call.method === method),
+		maxConcurrentPolls: (botToken = token) => polls.get(botToken)?.max ?? 0,
 		sentCalls: sent,
 		waitFor: async (method, predicate = () => true, timeoutMs = 5_000) => {
 			const deadline = Date.now() + timeoutMs;

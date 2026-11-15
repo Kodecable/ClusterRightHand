@@ -190,6 +190,11 @@ export async function saveChannel(
 			: input.linkInstructions === null
 				? null
 				: input.linkInstructions.trim();
+	// Telegram update ids and Satori sn values belong to one bot or gateway: another identity would drop its
+	// lower ids while the new adapter resumed from the old cursor (doc/design/channels.md "Channel kinds").
+	const resetCursor =
+		existing !== undefined &&
+		(input.token !== undefined || (kind === "satori" && config !== null && existing.config !== JSON.stringify(config)));
 	let created = false;
 	await db.transaction().execute(async (trx) => {
 		let secretId = existing?.credentials_secret_id ?? null;
@@ -220,6 +225,7 @@ export async function saveChannel(
 			config: config === null ? null : JSON.stringify(config),
 			link_instructions: linkInstructions,
 			updated_at: now,
+			...(resetCursor ? { cursor: null } : {}),
 		};
 		if (existing) {
 			await trx.updateTable("channels").set(values).where("id", "=", existing.id).execute();

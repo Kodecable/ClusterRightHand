@@ -12,6 +12,8 @@ import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend, type LibraryBackend } from "../src/library/backend.ts";
+import { updateLibraryLimits } from "../src/library/files.ts";
+import { findUserLibrary } from "../src/library/library.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
@@ -459,6 +461,113 @@ describe("satori channels", () => {
 		expect(contentOf(sent)).not.toContain("\\");
 	});
 
+	it("resets the stored sn when the gateway URL or bot id changes", async () => {
+		const admin = { sessionId: "test", userId: adminId, username: "admin", kind: "admin" as const };
+		const first = await startFakeSatori({ token: fake.token });
+		const second = await startFakeSatori({ token: fake.token });
+		try {
+			await channels.saveChannel(admin, "satori-reset", {
+				kind: "satori",
+				token: fake.token,
+				config: { url: first.url, platform: "telegram", botId: "424242" },
+			});
+			await waitForState("satori-reset", "connected");
+			expect((await first.waitForIdentify()).sn).toBe(0);
+
+			// A stored sn from the first gateway must not resume a different gateway.
+			await db.updateTable("channels").set({ cursor: "77" }).where("name", "=", "satori-reset").execute();
+			await channels.saveChannel(admin, "satori-reset", {
+				config: { url: second.url, platform: "telegram", botId: "424242" },
+			});
+			await waitForState("satori-reset", "connected");
+			expect((await second.waitForIdentify()).sn).toBe(0);
+			const stored = await db
+				.selectFrom("channels")
+				.select("cursor")
+				.where("name", "=", "satori-reset")
+				.executeTakeFirst();
+			expect(stored?.cursor).toBeNull();
+
+			// The bot id names the login on that gateway; another one is another identity.
+			await db.updateTable("channels").set({ cursor: "77" }).where("name", "=", "satori-reset").execute();
+			second.setLogins([{ platform: "telegram", id: "555", name: "Other Bot", nick: "other_bot", status: 1 }]);
+			await channels.saveChannel(admin, "satori-reset", {
+				config: { url: second.url, platform: "telegram", botId: "555" },
+			});
+			await waitForState("satori-reset", "connected");
+			expect((await second.waitForIdentify(2)).sn).toBe(0);
+		} finally {
+			await channels.deleteChannel(admin, "satori-reset").catch(() => {});
+			await first.close();
+			await second.close();
+		}
+	});
+
+	it("limits a proxied or inline file by the user's library single-file limit", async () => {
+		const userId = "7201";
+		await link(userId);
+		await chatSession(userId);
+		const library = await findUserLibrary(db, aliceId);
+		if (!library) throw new Error("alice has no library");
+		const previousLimit = library.row.max_file_bytes;
+		await updateLibraryLimits(db, library.row.id, { fileBytes: 1024 });
+		try {
+			const src = "https://cdn.example/huge.bin";
+			fake.addFile(src, {
+				bytes: new Uint8Array(2048),
+				name: "huge.bin",
+				mediaType: "application/octet-stream",
+				chunked: true,
+			});
+			fake.sendEvent({
+				channel: { id: userId, type: 1 },
+				user: { id: userId, name: "Tester", nick: "Tester" },
+				message: { id: "big-1", content: `<file src="${src}" title="huge.bin"/>` },
+			});
+			await waitForContent("The file is larger than your library's limit of 1 KiB.");
+			// The proxy download started but was stopped at the limit, and nothing reached the library.
+			await fake.waitForProxy((path) => path === src);
+			expect(
+				await db.selectFrom("library_files").select("path").where("path", "like", "%huge.bin").executeTakeFirst(),
+			).toBeUndefined();
+
+			// A data URL is already in memory; its decoded length is what the limit checks.
+			const inline = `data:application/octet-stream;base64,${Buffer.alloc(2048).toString("base64")}`;
+			fake.sendEvent({
+				channel: { id: userId, type: 1 },
+				user: { id: userId, name: "Tester", nick: "Tester" },
+				message: { id: "big-2", content: `<file src="${inline}" title="inline.bin"/>` },
+			});
+			await until(
+				() =>
+					fake.calls.filter(
+						(call) =>
+							call.method === "create" && contentOf(call).includes("The file is larger than your library's limit"),
+					).length >= 2,
+			);
+
+			// Under the limit the file is stored and the message runs.
+			const small = "https://cdn.example/small.bin";
+			fake.addFile(small, { bytes: new Uint8Array(512), name: "small.bin", mediaType: "application/octet-stream" });
+			faux.setResponses([fauxAssistantMessage("small satori file")]);
+			fake.sendEvent({
+				channel: { id: userId, type: 1 },
+				user: { id: userId, name: "Tester", nick: "Tester" },
+				message: { id: "small-1", content: `<file src="${small}" title="small.bin"/>` },
+			});
+			await waitForContent("small satori file");
+			const saved = await db
+				.selectFrom("library_files")
+				.select("path")
+				.where("path", "like", "%small.bin")
+				.executeTakeFirst();
+			expect(saved?.path).toContain("attachments/");
+			await runtime.waitForIdle();
+		} finally {
+			await updateLibraryLimits(db, library.row.id, { fileBytes: previousLimit });
+		}
+	});
+
 	it("handles events after a gateway restart resets its sn, without treating them as duplicates", async () => {
 		const userId = "7108";
 		await link(userId);
@@ -479,6 +588,15 @@ describe("satori channels", () => {
 		expect(cursor).toBe(1);
 	});
 });
+
+/** Polls a condition until it holds; a test uses it for state that changes after a reply was sent. */
+async function until(check: () => boolean | Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!(await check())) {
+		if (Date.now() > deadline) throw new Error("timed out waiting for a condition");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
 
 /** Wakes the runtime's state computation so the channel manager sees a newly inserted wait. */
 async function wakeWait(sessionId: string): Promise<void> {

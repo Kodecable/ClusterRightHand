@@ -6,6 +6,8 @@
  * this interface.
  */
 
+import { UserError } from "../util/errors.ts";
+
 /** The kinds of channel crhs knows; Satori is the later one. */
 export type ChannelKind = "telegram" | "satori";
 
@@ -65,6 +67,59 @@ export interface InboundFile {
 	name: string | null;
 	mediaType: string | null;
 	bytes: number | null;
+}
+
+export interface DownloadFileOptions {
+	/** The user's library single-file limit; a larger file is refused instead of being read whole. */
+	maxBytes: number;
+}
+
+/** An inbound file the user's library would not accept; the manager words the refusal in the user's locale. */
+export class FileTooLargeError extends UserError {
+	readonly maxBytes: number;
+
+	constructor(maxBytes: number) {
+		super("the file is larger than the library's one-file size limit");
+		this.maxBytes = maxBytes;
+	}
+}
+
+/**
+ * Reads a response body, stopping as soon as it passes `maxBytes`: a declared length is refused before the body is
+ * read, and a longer stream is cancelled rather than buffered (doc/design/channels.md "Messages").
+ */
+export async function readResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+	const declared = response.headers.get("content-length");
+	if (declared !== null && Number(declared) > maxBytes) {
+		await response.body?.cancel().catch(() => {});
+		throw new FileTooLargeError(maxBytes);
+	}
+	if (!response.body) {
+		const bytes = new Uint8Array(await response.arrayBuffer());
+		if (bytes.byteLength > maxBytes) throw new FileTooLargeError(maxBytes);
+		return bytes;
+	}
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		if (!value) continue;
+		total += value.byteLength;
+		if (total > maxBytes) {
+			await reader.cancel().catch(() => {});
+			throw new FileTooLargeError(maxBytes);
+		}
+		chunks.push(value);
+	}
+	const bytes = new Uint8Array(total);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes;
 }
 
 /** A private-chat message as the core sees it. */
@@ -143,8 +198,11 @@ export interface ChannelAdapter {
 	deleteMessage(target: ChannelTarget, messageId: string): Promise<void>;
 	/** Shows a progress draft; present when `capabilities.drafts`. */
 	sendDraft?(target: ChannelTarget, draftId: number, text: string): Promise<void>;
-	/** Reads an inbound file's bytes and the metadata the library needs. */
-	downloadFile(file: InboundFile): Promise<{ bytes: Uint8Array; name: string; mediaType: string }>;
+	/** Reads an inbound file's bytes and the metadata the library needs, within the user's file size limit. */
+	downloadFile(
+		file: InboundFile,
+		options: DownloadFileOptions,
+	): Promise<{ bytes: Uint8Array; name: string; mediaType: string }>;
 	/** Creates a topic in a private chat and returns its id; present when `capabilities.topics`. */
 	createTopic?(chatId: string, name: string): Promise<string>;
 }

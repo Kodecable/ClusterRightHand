@@ -13,7 +13,7 @@ import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { decideExternalCall } from "../src/extensions/external-calls.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend, type LibraryBackend } from "../src/library/backend.ts";
-import { beginLibraryUpload } from "../src/library/files.ts";
+import { beginLibraryUpload, updateLibraryLimits } from "../src/library/files.ts";
 import { findUserLibrary } from "../src/library/library.ts";
 import { shareSession } from "../src/sessions/sharing.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -125,6 +125,7 @@ beforeAll(async () => {
 		backoffMaxMs: 100,
 		progressIntervalMs: 0,
 		draftKeepaliveMs: 50,
+		unlinkedReplyLimit: 5,
 	});
 	await channels.start();
 	app = makeApp(db, undefined, {
@@ -1257,6 +1258,7 @@ describe("channels", () => {
 			pollTimeoutSeconds: 1,
 			backoffBaseMs: 20,
 			backoffMaxMs: 100,
+			unlinkedReplyLimit: 5,
 		});
 		await channels.start();
 		await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1820,6 +1822,203 @@ describe("channels", () => {
 			await patchUserSettings(db, aliceId, { defaultModel: null, defaultRulePreset: null });
 		}
 	});
+
+	it("resets the stored cursor when a Telegram bot token changes", async () => {
+		const admin = { sessionId: "test", userId: adminId, username: "admin", kind: "admin" as const };
+		const oldToken = "880001:OLD_BOT";
+		const newToken = "880002:NEW_BOT";
+		fake.allowToken(oldToken);
+		fake.allowToken(newToken);
+		try {
+			await channels.saveChannel(admin, "resetbot", { kind: "telegram", token: oldToken });
+			await fake.waitFor("getMe", (call) => call.token === oldToken);
+			// The old bot handled updates up to this id; another bot's numbering starts over.
+			await db.updateTable("channels").set({ cursor: "500" }).where("name", "=", "resetbot").execute();
+
+			// Stop the main bot meanwhile, so the low update below reaches the channel under test.
+			await channels.saveChannel(admin, "testbot", { enabled: false });
+			const before = fake.calls.length;
+			await channels.saveChannel(admin, "resetbot", { token: newToken });
+			await fake.waitFor(
+				"getUpdates",
+				(call) => call.token === newToken && call.body.offset === 1 && fake.calls.indexOf(call) >= before,
+			);
+			const stored = await db.selectFrom("channels").select("cursor").where("name", "=", "resetbot").executeTakeFirst();
+			expect(stored?.cursor).toBeNull();
+
+			// An update below the old cursor is new to this bot and is handled.
+			const injected = fake.calls.length;
+			fake.inject(
+				{
+					message: {
+						message_id: 8801,
+						date: Math.floor(Date.now() / 1000),
+						chat: { id: 9551, type: "private", first_name: "Tester" },
+						from: { id: 9551, is_bot: false, first_name: "Tester" },
+						text: "hello low id",
+					},
+				},
+				10,
+			);
+			await fake.waitForSent((call) => fake.calls.indexOf(call) >= injected && String(call.body.chat_id) === "9551");
+			await until(async () => {
+				const row = await db.selectFrom("channels").select("cursor").where("name", "=", "resetbot").executeTakeFirst();
+				return Number(row?.cursor) === 10;
+			});
+		} finally {
+			await channels.deleteChannel(admin, "resetbot").catch(() => {});
+			await channels.saveChannel(admin, "testbot", { enabled: true });
+			await fake.waitFor("getMe", (call) => call.token === fake.token);
+		}
+	});
+
+	it("serializes reloads of one channel and leaves no orphan adapter after delete", async () => {
+		const admin = { sessionId: "test", userId: adminId, username: "admin", kind: "admin" as const };
+		const serialToken = "880010:SERIAL_BOT";
+		fake.allowToken(serialToken);
+		try {
+			await channels.saveChannel(admin, "serialbot", { kind: "telegram", token: serialToken });
+			await fake.waitFor("getMe", (call) => call.token === serialToken);
+			// Two overlapping saves both restart the channel; the second must stop the first before starting.
+			const restarted = fake.calls.length;
+			await Promise.all([
+				channels.saveChannel(admin, "serialbot", { token: serialToken }),
+				channels.saveChannel(admin, "serialbot", { token: serialToken }),
+			]);
+			await fake.waitFor("getUpdates", (call) => call.token === serialToken && fake.calls.indexOf(call) >= restarted);
+			expect(fake.maxConcurrentPolls(serialToken)).toBe(1);
+
+			// Nothing is left polling after the delete.
+			await channels.deleteChannel(admin, "serialbot");
+			const polls = () =>
+				fake.calls.filter((call) => call.token === serialToken && call.method === "getUpdates").length;
+			const afterDelete = polls();
+			await new Promise((resolve) => setTimeout(resolve, 1_300));
+			expect(polls()).toBe(afterDelete);
+			expect(channels.status("serialbot").state).toBe("disabled");
+		} finally {
+			await channels.deleteChannel(admin, "serialbot").catch(() => {});
+		}
+	});
+
+	it("releases a session's watcher when no thread needs it and its run ended", async () => {
+		const userId = 9601;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		const other = await runtime.createSession(alice, {
+			title: "watcher target",
+			model: model(),
+			rulePreset: "yolo",
+		});
+		expect(channels.watchesSession(thread.sessionId)).toBe(true);
+		await runtime.configure(thread.sessionId, { model: slowModel() });
+		try {
+			slowFaux.setResponses([fauxAssistantMessage("a slow watched run")]);
+			fake.text(userId, "run while switching");
+			await fake.waitFor("sendMessageDraft");
+			fake.text(userId, "/sessions");
+			const list = await fake.waitForSent((call) =>
+				buttonsOf(call).some((button) => button.callback_data === `switch:${other.id}`),
+			);
+			const button = buttonsOf(list).find((entry) => entry.callback_data === `switch:${other.id}`);
+			fake.callback(userId, button?.callback_data ?? "", {});
+			await until(async () => (await rawThreadFor(userId))?.session_id === other.id);
+			// The old session still runs, so its watch outlives the switch ...
+			expect(channels.watchesSession(thread.sessionId)).toBe(true);
+			await runtime.abort(thread.sessionId, alice);
+			await runtime.waitForIdle();
+			await until(async () => !channels.watchesSession(thread.sessionId));
+			// ... and is dropped when the run ends; the session the chat switched to keeps its own.
+			expect(channels.watchesSession(thread.sessionId)).toBe(false);
+			expect(channels.watchesSession(other.id)).toBe(true);
+
+			// /new with no run going drops the current session's watch at once.
+			fake.text(userId, "/new");
+			await fake.waitForSent((call) => sentText(call).startsWith("New session draft:"));
+			await until(async () => !channels.watchesSession(other.id));
+			expect(channels.watchesSession(other.id)).toBe(false);
+		} finally {
+			await runtime.abort(thread.sessionId, alice).catch(() => {});
+			await runtime.waitForIdle();
+			await runtime.configure(thread.sessionId, { model: model() });
+		}
+	});
+
+	it("keeps the unlinked replies bounded and answers an evicted sender again", async () => {
+		for (let index = 0; index < 6; index++) fake.text(200001 + index, "hello from an unlinked chat");
+		await fake.waitForSent(
+			(call) => String(call.body.chat_id) === "200006" && sentText(call).includes("open Settings in the WebUI"),
+		);
+		expect(channels.unlinkedReplyCount()).toBe(5);
+
+		const before = fake.calls.length;
+		fake.text(200001, "hello again");
+		await fake.waitForSent(
+			(call) =>
+				fake.calls.indexOf(call) >= before &&
+				String(call.body.chat_id) === "200001" &&
+				sentText(call).includes("open Settings in the WebUI"),
+		);
+		expect(channels.unlinkedReplyCount()).toBe(5);
+	});
+
+	it("limits a chat download by the user's library single-file limit", async () => {
+		const userId = 9501;
+		await link(userId);
+		const library = await findUserLibrary(db, aliceId);
+		if (!library) throw new Error("alice has no library");
+		const previousLimit = library.row.max_file_bytes;
+		await updateLibraryLimits(db, library.row.id, { fileBytes: 1024 });
+		try {
+			// A known size over the limit is refused before the file is even named.
+			fake.addFile("too-big-known", {
+				bytes: new Uint8Array(2048),
+				name: "known.bin",
+				mediaType: "application/octet-stream",
+			});
+			const getFiles = fake.callsOf("getFile").length;
+			const downloads = fake.callsOf("fileDownload").length;
+			fake.document(userId, "too-big-known", "known.bin", { fileSize: 2048 });
+			await fake.waitForSent((call) =>
+				sentText(call).includes("The file is larger than your library's limit of 1 KiB."),
+			);
+			expect(fake.callsOf("getFile").length).toBe(getFiles);
+			expect(fake.callsOf("fileDownload").length).toBe(downloads);
+
+			// An announced size under the limit is stopped while streaming, and nothing is stored.
+			fake.addFile("too-big-streamed", {
+				bytes: new Uint8Array(2048),
+				name: "streamed.bin",
+				mediaType: "application/octet-stream",
+				chunked: true,
+			});
+			fake.document(userId, "too-big-streamed", "streamed.bin", { fileSize: 5 });
+			await waitForMessage("The file is larger than your library's limit of 1 KiB.", 2);
+			expect(
+				await db.selectFrom("library_files").select("path").where("path", "like", "%streamed.bin").executeTakeFirst(),
+			).toBeUndefined();
+
+			// A file under the limit is stored and the message runs.
+			fake.addFile("small-ok", {
+				bytes: new Uint8Array(512),
+				name: "small.bin",
+				mediaType: "application/octet-stream",
+			});
+			faux.setResponses([fauxAssistantMessage("small file answer")]);
+			fake.document(userId, "small-ok", "small.bin", { fileSize: 512, caption: "a small file" });
+			await fake.waitForSent((call) => sentText(call).includes("small file answer"));
+			const saved = await db
+				.selectFrom("library_files")
+				.select("path")
+				.where("path", "like", "%small.bin")
+				.executeTakeFirst();
+			expect(saved?.path).toContain("attachments/");
+			await waitIdle();
+		} finally {
+			await updateLibraryLimits(db, library.row.id, { fileBytes: previousLimit });
+		}
+	});
 });
 
 /** Sends /new and waits for the draft it records, not for an earlier message. */
@@ -1838,6 +2037,15 @@ async function waitForMessage(needle: string, occurrence = 1): Promise<void> {
 		const found = fake.sentCalls().filter((call) => sentText(call).includes(needle));
 		if (found.length >= occurrence) return;
 		if (Date.now() > deadline) throw new Error(`timed out waiting for message ${occurrence} containing ${needle}`);
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}
+
+/** Polls a condition until it holds; a test uses it for state that changes after a reply was sent. */
+async function until(check: () => boolean | Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!(await check())) {
+		if (Date.now() > deadline) throw new Error("timed out waiting for a condition");
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
 }

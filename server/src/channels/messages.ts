@@ -19,6 +19,18 @@ export function escapeMarkdown(text: string): string {
 	return text.replace(/\r?\n/g, " ").replace(/([\\`*_[\]()~<>#|!])/g, "\\$1");
 }
 
+/** A byte count the way the WebUI shows it: the largest binary unit, such as "32 MiB". */
+export function formatBytes(bytes: number): string {
+	const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+	let amount = Number.isFinite(bytes) ? Math.max(0, bytes) : 0;
+	let unit = 0;
+	while (amount >= 1024 && unit < units.length - 1) {
+		amount /= 1024;
+		unit += 1;
+	}
+	return `${Number(amount.toFixed(unit === 0 ? 0 : 1))} ${units[unit]}`;
+}
+
 export interface BotCommandMenuEntry {
 	command: string;
 	description: string;
@@ -32,6 +44,8 @@ export interface BotMessages {
 	noSessions: string;
 	unknownCommand: (name: string) => string;
 	couldNotSaveFile: (problem: string) => string;
+	/** A file the user's library single-file limit refuses; the limit is already formatted. */
+	fileTooLarge: (limit: string) => string;
 	couldNotSendMessage: (problem: string) => string;
 	noDefaultModel: string;
 	couldNotStartSession: (problem: string) => string;
@@ -134,6 +148,7 @@ const en: BotMessages = {
 	unknownCommand: (name) =>
 		`Unknown command /${escapeMarkdown(name)}. Send /help for the list of commands. To send a message that starts with "/", begin it with another character.`,
 	couldNotSaveFile: (problem) => `Could not save the file: ${escapeMarkdown(problem)}`,
+	fileTooLarge: (limit) => `The file is larger than your library's limit of ${limit}.`,
 	couldNotSendMessage: (problem) => `Could not send the message: ${escapeMarkdown(problem)}`,
 	noDefaultModel: "No model is configured; ask an administrator to add one.",
 	couldNotStartSession: (problem) => `Could not start a session: ${escapeMarkdown(problem)}`,
@@ -295,6 +310,7 @@ const zhCN: BotMessages = {
 	unknownCommand: (name) =>
 		`未知命令 /${escapeMarkdown(name)}。发送 /help 查看命令列表。要发送以“/”开头的消息，请在开头再加一个字符。`,
 	couldNotSaveFile: (problem) => `无法保存文件：${escapeMarkdown(problem)}`,
+	fileTooLarge: (limit) => `文件超过了你的库的单文件上限（${limit}）。`,
 	couldNotSendMessage: (problem) => `无法发送消息：${escapeMarkdown(problem)}`,
 	noDefaultModel: "尚未配置模型；请联系管理员添加。",
 	couldNotStartSession: (problem) => `无法开始会话：${escapeMarkdown(problem)}`,

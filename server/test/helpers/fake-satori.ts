@@ -27,6 +27,8 @@ export interface FakeSatoriFile {
 	bytes: Uint8Array;
 	name: string;
 	mediaType: string;
+	/** Serve without a content-length, so a download must stop reading at the limit. */
+	chunked?: boolean;
 }
 
 export interface FakeSatoriIdentify {
@@ -329,7 +331,12 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 			const own = files.get(`${origin}${path}`);
 			if (own) {
 				directRequests.push(path);
-				res.writeHead(200, { "content-type": own.mediaType, "content-length": own.bytes.length });
+				res.writeHead(
+					200,
+					own.chunked
+						? { "content-type": own.mediaType }
+						: { "content-type": own.mediaType, "content-length": own.bytes.length },
+				);
 				res.end(own.bytes);
 				return;
 			}
@@ -351,7 +358,12 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 				json(res, { code: 404, message: "file not found" }, 404);
 				return;
 			}
-			res.writeHead(200, { "content-type": file.mediaType, "content-length": file.bytes.length });
+			res.writeHead(
+				200,
+				file.chunked
+					? { "content-type": file.mediaType }
+					: { "content-type": file.mediaType, "content-length": file.bytes.length },
+			);
 			res.end(file.bytes);
 			return;
 		}
@@ -395,6 +407,7 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 				bytes: file.bytes,
 				name: file.name ?? src.split("/").pop() ?? "file",
 				mediaType: file.mediaType ?? "application/octet-stream",
+				...(file.chunked !== undefined ? { chunked: file.chunked } : {}),
 			});
 		},
 		restart: () => {

@@ -13,8 +13,8 @@ The scope of the first version:
   ([Channel kinds](#channel-kinds)).
 - **Outbound connections only.** crhs polls Telegram and dials the Satori gateway; it needs no public
   webhook address.
-- **No limits of its own.** A channel adds no size or rate limits beyond the platform's; shared limits
-  for all entry points may come later.
+- **No limits of its own.** A channel adds no size or rate limits beyond the platform's and the user's
+  library single-file limit; shared limits for all entry points may come later.
 - **Signatures stay in the WebUI.** An approval that needs a signature is answered with a link.
 
 ## Channels
@@ -32,7 +32,8 @@ Administrators add channels on the **Channels** page.
 There can be several channels, such as two Telegram bots. The page shows each channel's state, the
 account it runs as (the bot's username, or the logins the gateway reported with their online state) and the last error.
 A dropped connection is retried with the same backoff as MCP extensions
-([MCP connections](extensions.md#mcp-connections)).
+([MCP connections](extensions.md#mcp-connections)). An administrator's save or delete is applied one
+operation at a time, so two overlapping changes cannot leave a second adapter running.
 
 ## Accounts
 
@@ -118,7 +119,9 @@ English. The Telegram command menu is registered twice, in English and with `lan
 
 **Inbound.** A text message is the user's message to the session. Files and photos become chat
 attachments in the user's library, as in the WebUI ([Chat attachments](library.md#chat-attachments)).
-Other kinds (voice, stickers) are answered with what is supported.
+An inbound file is limited to at least the user's library single-file limit (`libraries.max_file_bytes`):
+a larger one is refused before or while it is downloaded. Other kinds (voice, stickers) are answered with
+what is supported.
 
 **Markdown.** Framework texts are rendered as rich Markdown, where one newline is a soft break: lists
 of commands are Markdown lists and separate lines are separated by a blank line. Values a user, an
@@ -172,6 +175,7 @@ a message a schedule submitted. Switching or attaching a session in a chat does 
   used from the WebUI. A shared user's message also records the WebUI as the source, so notifications
   keep following the owner.
 - Notifications follow the session owner. Users a session is shared with are not notified.
+- A session's event watch is released when no chat thread points at it and it has no run or draft state.
 
 ## Approvals
 
@@ -197,9 +201,9 @@ core uses an optional capability when the channel has it and falls back to text 
 
 - **Telegram** uses grammY's API client and long polling, with Node's own `fetch`. It is confined to its
   channel module and uses no grammY middleware. The last handled update id is stored, so a restart does
-  not handle an update twice. On connect it registers the `/link`, `/unlink`, `/new`, `/model`, `/think`,
-  `/rules`, `/extensions`, `/sessions`, `/stop`, `/quota`, `/approve`, `/reject`, `/help` and `/start`
-  menu in English and Chinese.
+  not handle an update twice; submitting the bot token resets it, because update ids belong to one bot.
+  On connect it registers the `/link`, `/unlink`, `/new`, `/model`, `/think`, `/rules`, `/extensions`,
+  `/sessions`, `/stop`, `/quota`, `/approve`, `/reject`, `/help` and `/start` menu in English and Chinese.
 - **Satori** is a small client written in crhs on the protocol's two official packages without cordis:
   `@satorijs/protocol` for the API types and `@satorijs/element` for message content. The rest of the
   satori.js stack is not used, because its stable line is rarely released, fixes merged upstream stay
@@ -218,10 +222,11 @@ The protocol is used directly:
 
 - **Events.** A WebSocket to `<base>/v1/events` (http → ws, https → wss). On open crhs sends IDENTIFY
   (`{op: 3, body: {token, sn}}`) with the last handled `sn`, persisted in the channel cursor after each
-  event like Telegram's update id. READY (`op: 4`) lists the gateway's logins; the configured platform
-  and bot id must be there and ONLINE, otherwise the channel becomes unavailable with that error and is
-  retried with the usual backoff. The login's name is the channel's account. META (`op: 5`) updates the
-  proxy roots. A PING is sent every 10 seconds; without any frame for about 30 seconds the connection is
+  event like Telegram's update id. A change of the gateway URL, platform or bot id, or a submitted token,
+  resets it, because `sn` belongs to one gateway. READY (`op: 4`) lists the gateway's logins; the
+  configured platform and bot id must be there and ONLINE, otherwise the channel becomes unavailable with
+  that error and is retried with the usual backoff. The login's name is the channel's account. META
+  (`op: 5`) updates the proxy roots. A PING is sent every 10 seconds; without any frame for about 30 seconds the connection is
   presumed dead and re-established. A gateway resumes only with events after the sent `sn`, so a lower
   or equal `sn` means its counter restarted (Koishi keeps it in memory): the event is handled and the
   cursor follows it. For the same reason submissions are deduplicated by the platform message id, not

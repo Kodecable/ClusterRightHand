@@ -39,8 +39,21 @@ import type { Db } from "../storage/db.ts";
 import { getUserSettings, patchUserSettings } from "../users/settings.ts";
 import { errorText, NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import { type BotMessages, botLocale, escapeMarkdown, localeFromLanguageCode, messagesFor } from "./messages.ts";
-import type { ChannelAdapter, ChannelHandlers, ChannelTarget, SentMessage } from "./model.ts";
+import {
+	type BotMessages,
+	botLocale,
+	escapeMarkdown,
+	formatBytes,
+	localeFromLanguageCode,
+	messagesFor,
+} from "./messages.ts";
+import {
+	type ChannelAdapter,
+	type ChannelHandlers,
+	type ChannelTarget,
+	FileTooLargeError,
+	type SentMessage,
+} from "./model.ts";
 import { WebUiPresence } from "./presence.ts";
 import { SatoriChannel } from "./satori.ts";
 import {
@@ -75,6 +88,7 @@ import {
 	setChannelCursor,
 	threadById,
 	threadForSession,
+	threadsForSession,
 	unlinkAccount,
 	unlinkUserAccounts,
 	updateThreadDraft,
@@ -113,6 +127,8 @@ export interface ChannelManagerOptions {
 	progressIntervalMs?: number;
 	/** A shown draft is re-sent at this interval so it does not expire (20 s by default). */
 	draftKeepaliveMs?: number;
+	/** Unlinked senders remembered as already answered (1000 by default); the oldest is dropped past it. */
+	unlinkedReplyLimit?: number;
 	now?: () => number;
 }
 
@@ -185,6 +201,8 @@ const CLIP_CHARS = 500;
 const SESSION_PAGE_SIZE = 5;
 const MODEL_PAGE_SIZE = 5;
 const EXTENSION_PAGE_SIZE = 5;
+/** Unlinked senders are answered once; the set is bounded so a busy bot cannot grow it without limit. */
+const UNLINKED_REPLY_LIMIT = 1000;
 
 /** The rule presets with the WebUI's product names (doc/design/webui.md "Composer"); the raw values stay internal. */
 const RULE_PRESET_CHOICES: readonly { value: RulePreset; label: string }[] = [
@@ -364,11 +382,14 @@ export class ChannelManager {
 	readonly #statuses = new Map<string, StatusState>();
 	readonly #tracked = new Map<string, TrackedMessage>();
 	readonly #unlinkedReplied = new Set<string>();
+	/** The tail of each channel's admin operations, so a reload never overlaps another for the same name. */
+	readonly #channelOps = new Map<string, Promise<void>>();
 	readonly #waitSyncs = new Map<string, Promise<void>>();
 	readonly #topicCreations = new Map<string, Promise<ChannelThreadRow | undefined>>();
 	readonly #historyLimit: number;
 	readonly #progressIntervalMs: number;
 	readonly #draftKeepaliveMs: number;
+	readonly #unlinkedReplyLimit: number;
 	readonly #now: () => number;
 	#started = false;
 	#stopped = false;
@@ -380,6 +401,7 @@ export class ChannelManager {
 		this.#historyLimit = options.historyLimit ?? DEFAULT_HISTORY_LIMIT;
 		this.#progressIntervalMs = options.progressIntervalMs ?? DEFAULT_PROGRESS_INTERVAL_MS;
 		this.#draftKeepaliveMs = options.draftKeepaliveMs ?? DRAFT_KEEPALIVE_MS;
+		this.#unlinkedReplyLimit = options.unlinkedReplyLimit ?? UNLINKED_REPLY_LIMIT;
 		this.#now = options.now ?? Date.now;
 	}
 
@@ -440,8 +462,30 @@ export class ChannelManager {
 		return { state: "disabled", lastError: null, nextAttemptAt: null, account: null };
 	}
 
+	/**
+	 * Runs an admin operation after the previous one for the same channel, so two overlapping saves cannot open
+	 * two adapters and lose the reference to one of them (doc/design/channels.md "Channels").
+	 */
+	#serialized<T>(name: string, operation: () => Promise<T>): Promise<T> {
+		const previous = this.#channelOps.get(name) ?? Promise.resolve();
+		const run = previous.then(operation, operation);
+		const settled = run.then(
+			() => {},
+			() => {},
+		);
+		this.#channelOps.set(name, settled);
+		void settled.then(() => {
+			if (this.#channelOps.get(name) === settled) this.#channelOps.delete(name);
+		});
+		return run;
+	}
+
 	/** Re-reads one channel after an admin change, starting or stopping its adapter. */
 	async reload(name: string): Promise<void> {
+		await this.#serialized(name, () => this.#reloadNow(name));
+	}
+
+	async #reloadNow(name: string): Promise<void> {
 		const existing = this.#adapters.get(name);
 		if (existing) {
 			this.#adapters.delete(name);
@@ -455,12 +499,18 @@ export class ChannelManager {
 
 	/** Drops a deleted channel's adapter and state. */
 	async remove(name: string): Promise<void> {
+		await this.#serialized(name, () => this.#removeNow(name));
+	}
+
+	async #removeNow(name: string): Promise<void> {
 		const existing = this.#adapters.get(name);
 		if (existing) {
 			this.#adapters.delete(name);
 			await existing.adapter.stop();
 		}
 		this.#rowErrors.delete(name);
+		// The channel's thread rows are gone, so a session only it reached no longer needs its event watch.
+		await this.#releaseUnusedWatchers();
 	}
 
 	async #openRow(row: ChannelRow): Promise<void> {
@@ -652,7 +702,11 @@ export class ChannelManager {
 			try {
 				attachments = await this.#downloadAttachments(user, message.files, adapter);
 			} catch (err) {
-				await adapter.sendText(target, m.couldNotSaveFile(errorText(err)));
+				const text =
+					err instanceof FileTooLargeError
+						? m.fileTooLarge(formatBytes(err.maxBytes))
+						: m.couldNotSaveFile(errorText(err));
+				await adapter.sendText(target, text);
 				return;
 			}
 		}
@@ -784,6 +838,7 @@ export class ChannelManager {
 	): Promise<{ thread: ChannelThreadRow; draft: ChannelDraft | null } | undefined> {
 		const existing = await channelThread(this.#options.db, row.id, adapter.platform, message.chatId, message.topicId);
 		let previous: "archived" | "unavailable" | undefined;
+		let replacedSessionId: string | null = null;
 		if (existing) {
 			if (existing.session_id === null) {
 				// A draft waits for its first ordinary message to create the session it starts.
@@ -795,6 +850,7 @@ export class ChannelManager {
 					return { thread: existing, draft: null };
 				}
 				previous = session?.status === "archived" ? "archived" : "unavailable";
+				replacedSessionId = existing.session_id;
 			}
 		}
 		const thread = await this.#createSessionThread(
@@ -807,6 +863,7 @@ export class ChannelManager {
 			locale,
 			previous,
 		);
+		if (replacedSessionId !== null) await this.#releaseWatcherIfUnused(replacedSessionId);
 		return thread ? { thread, draft: null } : undefined;
 	}
 
@@ -934,7 +991,7 @@ export class ChannelManager {
 		const now = new Date();
 		const downloaded: { library: string; path: string }[] = [];
 		for (const file of files) {
-			const content = await adapter.downloadFile(file);
+			const content = await adapter.downloadFile(file, { maxBytes: library.row.max_file_bytes });
 			const fallback = file.fileId.replace(/[^A-Za-z0-9._-]/g, "_") || `${newId()}.bin`;
 			const name = fileBaseName(content.name || file.name || fallback, fallback);
 			const path = validateLibraryPath(`attachments/${monthPath(now)}/${name}`);
@@ -976,6 +1033,10 @@ export class ChannelManager {
 		const key = `${row.id}:${message.platformUserId}`;
 		if (this.#unlinkedReplied.has(key)) return;
 		this.#unlinkedReplied.add(key);
+		if (this.#unlinkedReplied.size > this.#unlinkedReplyLimit) {
+			const oldest = this.#unlinkedReplied.values().next().value;
+			if (oldest !== undefined) this.#unlinkedReplied.delete(oldest);
+		}
 		const m = messagesFor(localeFromLanguageCode(message.languageCode));
 		await adapter.sendText({ chatId: message.chatId, topicId: message.topicId }, m.linkHelp);
 	}
@@ -1165,6 +1226,7 @@ export class ChannelManager {
 			rulePreset: defaults.rulePreset,
 			disabledExtensions: [],
 		};
+		const previous = await channelThread(this.#options.db, row.id, adapter.platform, message.chatId, message.topicId);
 		await saveDraftThread(this.#options.db, {
 			channelId: row.id,
 			platform: adapter.platform,
@@ -1172,6 +1234,7 @@ export class ChannelManager {
 			topicId: message.topicId,
 			draft,
 		});
+		if (previous?.session_id) await this.#releaseWatcherIfUnused(previous.session_id);
 		await adapter.sendText(
 			target,
 			m.draftStarted(
@@ -2221,6 +2284,7 @@ export class ChannelManager {
 			await adapter.sendText(target, m.sessionNotYours);
 			return;
 		}
+		const previous = await channelThread(this.#options.db, row.id, adapter.platform, chatId, topicId);
 		await bindThread(this.#options.db, {
 			channelId: row.id,
 			platform: adapter.platform,
@@ -2229,6 +2293,9 @@ export class ChannelManager {
 			sessionId: session.id,
 		});
 		await this.#ensureWatcher(session.id);
+		if (previous?.session_id && previous.session_id !== session.id) {
+			await this.#releaseWatcherIfUnused(previous.session_id);
+		}
 		await adapter.sendText(target, m.sessionSwitched(session.title || m.newSessionTitle));
 		await this.#replayHistory(adapter, target, session.id, m);
 	}
@@ -2308,6 +2375,29 @@ export class ChannelManager {
 		return start;
 	}
 
+	/**
+	 * Drops a session's event watch once nothing needs it any more: no chat thread points at the session and the
+	 * manager holds no run or draft for it. Watches are otherwise kept for the life of the process.
+	 */
+	async #releaseWatcherIfUnused(sessionId: string): Promise<void> {
+		if (this.#runs.has(sessionId) || this.#drafts.has(sessionId) || !this.#watchers.has(sessionId)) return;
+		const starting = this.#watchStarts.get(sessionId);
+		if (starting) await starting;
+		if (!this.#watchers.has(sessionId) || this.#runs.has(sessionId) || this.#drafts.has(sessionId)) return;
+		if ((await threadsForSession(this.#options.db, sessionId)).length > 0) return;
+		const stop = this.#watchers.get(sessionId);
+		if (!stop) return;
+		this.#watchers.delete(sessionId);
+		try {
+			stop();
+		} catch {}
+	}
+
+	/** Releases every watch whose session no thread references any more, after a channel's threads went away. */
+	async #releaseUnusedWatchers(): Promise<void> {
+		for (const sessionId of [...this.#watchers.keys()]) await this.#releaseWatcherIfUnused(sessionId);
+	}
+
 	/** Sends the assistant's text pieces and delivered-file links where the session's notifications go. */
 	async #onSessionEvents(sessionId: string, events: import("../agent/runtime.ts").SessionEvent[]): Promise<void> {
 		for (const event of events) {
@@ -2322,6 +2412,8 @@ export class ChannelManager {
 				this.#dropDraft(sessionId);
 				await this.#clearProgress(sessionId);
 				if (run) await this.#sendDeliveries(sessionId, run);
+				// A chat that switched away while the turn ran keeps its watch only until the run ends.
+				await this.#releaseWatcherIfUnused(sessionId);
 				continue;
 			}
 			if (event.type === "message_start" && event.message.role === "assistant") {
@@ -3057,6 +3149,16 @@ export class ChannelManager {
 		await this.#stateChanged(sessionId);
 	}
 
+	/** Test-only: whether a runtime event watch is held for the session. */
+	watchesSession(sessionId: string): boolean {
+		return this.#watchers.has(sessionId);
+	}
+
+	/** Test-only: how many unlinked senders are remembered as answered; the set is bounded. */
+	unlinkedReplyCount(): number {
+		return this.#unlinkedReplied.size;
+	}
+
 	// ---- helpers ----
 
 	async #sessionUser(account: ChannelAccountRow): Promise<SessionUser | undefined> {
@@ -3121,8 +3223,11 @@ export class ChannelManager {
 	}
 
 	async deleteChannel(user: SessionUser, name: string): Promise<void> {
-		const row = await deleteChannelRow(this.#options.db, name);
-		await this.remove(name);
+		const row = await this.#serialized(name, async () => {
+			const row = await deleteChannelRow(this.#options.db, name);
+			await this.#removeNow(name);
+			return row;
+		});
 		void this.#options.audit.record({
 			actor: userActor(user),
 			action: "channel.deleted",

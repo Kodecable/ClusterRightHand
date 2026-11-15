@@ -106,6 +106,8 @@ discards the draft.
   approvals use the commands above. Its files arrive through the gateway's file proxy.
 - When a new session starts — with the first message after `/new`, in a new topic, or because the old
   session was archived or is no longer yours — the chat announces it and links to it in the WebUI.
+- Files you send must fit your library's single-file limit set by an administrator; a larger one is
+  refused with a message.
 - Files the assistant delivers are sent as links that open in the WebUI; opening one goes through the
   normal sign-in and access checks.
 - A failed turn sends the error.
