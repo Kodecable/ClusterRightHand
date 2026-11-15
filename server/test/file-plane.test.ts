@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPair } from "@crh/noise";
 import { RemoteError, type TaskSpec } from "@crh/protocol";
 import { sql } from "kysely";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cluster, specFromRow } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
@@ -268,6 +268,28 @@ describe("file plane transfers", () => {
 		crha.ws.close();
 		await waitFor("pull task unknown", async () => (await cluster.getTask(task.id))?.state === "unknown");
 		await waitFor("staged bytes discarded", async () => (await readdir(transferRoot)).length === 0);
+	});
+
+	it("logs a discard that fails at shutdown instead of rejecting unhandled", async () => {
+		const { node, key } = await addNode("web-1");
+		const crha = await connect(node, key);
+		const task = await cluster.pullFile({ nodeId: node.id, path: "/etc/app.conf", maxBytes: 1024, actor: actor() });
+		await waitFor("pull task.start", () => crha.starts.length === 1);
+		const start = crha.starts[0];
+		if (start?.spec.kind !== "file.pull") throw new Error("no pull spec");
+		const data = await agents.connectData(key, task.id, start.spec.endpoint.transferId);
+		data.send({ kind: "data", bytes: Buffer.from("partial bytes") });
+		await waitFor("staging part", async () => (await readdir(transferRoot)).length === 1);
+		// Replace the staging root with a file: the shutdown discard's `rm(root/temp)` fails with ENOTDIR.
+		await rm(transferRoot, { recursive: true, force: true });
+		await writeFile(transferRoot, "");
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await cluster.close();
+			expect(log).toHaveBeenCalledWith("discarding a transfer failed:", expect.any(Error));
+		} finally {
+			log.mockRestore();
+		}
 	});
 
 	it("retries a transfer start the node refuses with busy", async () => {

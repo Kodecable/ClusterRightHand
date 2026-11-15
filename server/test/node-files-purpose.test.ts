@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, readlink, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TaskListQuery } from "@crh/api";
@@ -17,6 +17,15 @@ import { call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
 
 const sha256Hex = (data: Uint8Array): string => createHash("sha256").update(data).digest("hex");
+
+/** The descriptors this process holds on `path`; /proc is Linux-only, other platforms report none. */
+async function openDescriptors(path: string): Promise<string[]> {
+	if (process.platform !== "linux") return [];
+	const dir = "/proc/self/fd";
+	const names = await readdir(dir);
+	const links = await Promise.all(names.map((name) => readlink(join(dir, name)).catch(() => "")));
+	return links.filter((link) => link === path);
+}
 
 function view(overrides: Partial<TaskView>): TaskView {
 	return {
@@ -68,6 +77,7 @@ function fakeCluster(root: string) {
 	const cancelled: string[] = [];
 	let pulled: Buffer = Buffer.from("png");
 	let awaitingApproval = false;
+	let removePulled = false;
 	const createTask = async (input: CreateTaskInput) => {
 		created.push(input);
 		const id = newId();
@@ -126,6 +136,8 @@ function fakeCluster(root: string) {
 			return waiting;
 		}
 		await writeFile(join(root, input.location.path), pulled);
+		// Simulates the staged bytes vanishing before the route opens its read stream.
+		if (removePulled) await rm(join(root, input.location.path), { force: true });
 		const task = view({
 			id: newId(),
 			kind: "file.pull",
@@ -166,6 +178,9 @@ function fakeCluster(root: string) {
 		},
 		setAwaitingApproval(value: boolean) {
 			awaitingApproval = value;
+		},
+		setRemovePulled(value: boolean) {
+			removePulled = value;
 		},
 	};
 }
@@ -331,6 +346,47 @@ describe("node file browsing", () => {
 		const denied = await call(app, `/api/nodes/${nodeId}/file?path=/srv/report.txt`, { cookie: bobCookie });
 		expect(denied.status).toBe(404);
 		expect(fake.created).toHaveLength(1);
+	});
+
+	it("answers HEAD with headers only, cleaning staging and opening no stream", async () => {
+		const bytes = Buffer.from("hello node");
+		fake.setPulled(bytes);
+		const stagingOf = (index: number) =>
+			join(root, (fake.created[index] as unknown as { location: { path: string } }).location.path);
+
+		const res = await call(app, `/api/nodes/${nodeId}/file?path=/srv/report.txt`, { method: "HEAD", cookie });
+		expect(res.status).toBe(200);
+		expect(res.body).toBeNull();
+		expect(res.headers.get("content-type")).toBe("application/octet-stream");
+		expect(res.headers.get("content-length")).toBe(String(bytes.length));
+		expect(res.headers.get("content-disposition")).toContain("attachment");
+		expect(res.headers.get("content-disposition")).toContain("report.txt");
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(res.headers.get("content-security-policy")).toBe("sandbox");
+		// The body is never consumed on HEAD, so the route itself must discard the staged bytes.
+		await expect(readFile(stagingOf(0))).rejects.toThrow();
+		expect(await openDescriptors(stagingOf(0))).toEqual([]);
+
+		// A preview HEAD has no body to sniff; it still answers with headers and cleans up.
+		const preview = await call(app, `/api/nodes/${nodeId}/file?path=/srv/pic.png&preview=1`, {
+			method: "HEAD",
+			cookie,
+		});
+		expect(preview.status).toBe(200);
+		expect(preview.headers.get("content-length")).toBe(String(bytes.length));
+		await expect(readFile(stagingOf(1))).rejects.toThrow();
+	});
+
+	it("does not crash when a staged file disappears before the read stream opens", async () => {
+		fake.setPulled(Buffer.from("gone"));
+		fake.setRemovePulled(true);
+		const res = await call(app, `/api/nodes/${nodeId}/file?path=/srv/gone.txt`, { cookie });
+		expect(res.status).toBe(200);
+		// The read stream's ENOENT is a response-body error, not an uncaught stream 'error' event.
+		await expect(res.arrayBuffer()).rejects.toThrow();
+		// The server still answers: the vanished file did not take it down.
+		const ok = await call(app, `/api/nodes/${nodeId}/files?path=/etc`, { cookie });
+		expect(ok.status).toBe(200);
 	});
 
 	it("points at the approval when the pull cannot run yet", async () => {

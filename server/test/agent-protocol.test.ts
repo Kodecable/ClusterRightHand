@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import net from "node:net";
 import { generateKeyPair } from "@crh/noise";
 import {
 	encode as encodeCbor,
@@ -13,6 +14,7 @@ import {
 	type TaskStart,
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { negotiateCommands } from "../src/cluster/agent-server.ts";
 import { BATCH_GROUP_BYTES, BATCH_NODE_BYTES } from "../src/cluster/batch-output.ts";
@@ -274,6 +276,63 @@ describe("agent wire protocol", () => {
 			expect(closed.code).toBe(1000);
 			expect(Buffer.byteLength(closed.reason, "utf8")).toBeLessThanOrEqual(123);
 			expect(closed.reason.startsWith("protocol error: invalid task.output event body:")).toBe(true);
+		});
+	});
+
+	describe("unauthenticated crash paths", () => {
+		const upgradeRequest = (target: string): string =>
+			`GET ${target} HTTP/1.1\r\n` +
+			"Host: x\r\n" +
+			"Upgrade: websocket\r\n" +
+			"Connection: Upgrade\r\n" +
+			`Sec-WebSocket-Key: ${randomBytes(16).toString("base64")}\r\n` +
+			"Sec-WebSocket-Version: 13\r\n\r\n";
+
+		/** A normal node connection proves the server survived the malformed one. */
+		const assertServing = async (name: string): Promise<void> => {
+			const key = generateKeyPair();
+			const node = await addNode(name, "active", key.publicKey);
+			const crha = await agents.connect(key, handshakeInit());
+			expect(await crha.peer.request("hello", HELLO)).toEqual({ acks: [] });
+			expect(await crha.peer.request("ping", { seq: 1 })).toEqual({ seq: 1 });
+			await waitFor("link ready after malformed upgrade", () => cluster.isConnected(node.id));
+		};
+
+		it("survives an oversized frame on an unauthenticated handshake socket", async () => {
+			const ws = new WebSocket(agents.url);
+			ws.on("error", () => {});
+			await new Promise<void>((resolve, reject) => {
+				ws.once("open", () => resolve());
+				ws.once("error", reject);
+			});
+			const closed = new Promise<void>((resolve) => ws.once("close", () => resolve()));
+			// Over the server's maxPayload: ws emits 'error' and a 1009 close on the server's socket.
+			ws.send(Buffer.alloc(70 * 1024));
+			await closed;
+			await assertServing("after-oversize");
+		});
+
+		it("survives a TCP reset in the middle of the handshake", async () => {
+			const socket = net.connect(agents.port, "127.0.0.1");
+			socket.on("error", () => {});
+			await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+			const upgraded = new Promise<void>((resolve) => socket.once("data", () => resolve()));
+			socket.write(upgradeRequest("/agent"));
+			await upgraded;
+			// The upgrade and the challenge were accepted; the Noise message never comes.
+			socket.resetAndDestroy();
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			await assertServing("after-reset");
+		});
+
+		it("survives an upgrade request whose target new URL() rejects", async () => {
+			const socket = net.connect(agents.port, "127.0.0.1");
+			socket.on("error", () => {});
+			const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+			socket.write(upgradeRequest("//"));
+			// handleUpgrade answers false for it, so the upgrade listener destroys the socket.
+			await closed;
+			await assertServing("after-bad-url");
 		});
 	});
 

@@ -292,7 +292,13 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		);
 	}) as Server;
 	server.on("upgrade", (req, socket, head) => {
-		if (!agents.handleUpgrade(req, socket, head)) socket.destroy();
+		try {
+			if (!agents.handleUpgrade(req, socket, head)) socket.destroy();
+		} catch (err) {
+			// This listener runs inside the HTTP server's `upgrade` emit: a throw here is uncaught.
+			console.error("agent upgrade failed:", err);
+			socket.destroy();
+		}
 	});
 	// The last sweeps are awaited at shutdown, so they cannot write after the database is destroyed.
 	let sweepRun: Promise<void> = Promise.resolve();

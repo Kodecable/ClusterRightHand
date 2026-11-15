@@ -13,6 +13,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
 import type { LibraryBackend } from "./backend.ts";
@@ -148,14 +149,17 @@ async function writeTo(file: string, chunks: Readable): Promise<{ size: number; 
 	const out = createWriteStream(file, { mode: 0o600 });
 	const hash = createHash("sha256");
 	let size = 0;
-	for await (const chunk of chunks) {
-		const data = chunk as Buffer;
-		size += data.length;
-		hash.update(data);
-		if (!out.write(data)) await once(out, "drain");
-	}
-	out.end();
-	await once(out, "finish");
+	// pipeline owns the write stream's errors: an asynchronous fs error between chunks rejects here
+	// instead of being emitted unhandled.
+	const source = (async function* () {
+		for await (const chunk of chunks) {
+			const data = chunk as Buffer;
+			size += data.length;
+			hash.update(data);
+			yield data;
+		}
+	})();
+	await pipeline(source, out);
 	return { size, sha256: hash.digest("hex") };
 }
 
@@ -165,28 +169,44 @@ function stagingWrite(root: string, spec: StagingLocationJson): TransferWrite {
 	const hash = createHash("sha256");
 	let size = 0;
 	let stream: ReturnType<typeof createWriteStream> | undefined;
+	let failure: Error | undefined;
 	let finished: { size: number; sha256: string } | undefined;
 	let discarded = false;
 
 	const openStream = async (): Promise<ReturnType<typeof createWriteStream>> => {
 		if (stream) return stream;
 		await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-		stream = createWriteStream(temp, { mode: 0o600 });
-		return stream;
+		const out = createWriteStream(temp, { mode: 0o600 });
+		// The file opens asynchronously, so between two writes an fs error (ENOSPC, EIO, EACCES) has no
+		// listener of its own; record it and let the next write/finish throw it.
+		out.on("error", (err) => {
+			failure ??= err;
+		});
+		stream = out;
+		return out;
+	};
+	const openedStream = async (): Promise<ReturnType<typeof createWriteStream>> => {
+		const out = await openStream();
+		if (failure) throw failure;
+		return out;
 	};
 
 	return {
 		async write(chunk) {
-			const out = await openStream();
+			const out = await openedStream();
 			size += chunk.length;
 			hash.update(chunk);
-			if (!out.write(chunk)) await once(out, "drain");
+			if (!out.write(chunk)) {
+				await once(out, "drain");
+				if (failure) throw failure;
+			}
 		},
 		async finish() {
 			if (finished) return finished;
-			const out = await openStream();
+			const out = await openedStream();
 			out.end();
 			await once(out, "finish");
+			if (failure) throw failure;
 			finished = { size, sha256: hash.digest("hex") };
 			return finished;
 		},

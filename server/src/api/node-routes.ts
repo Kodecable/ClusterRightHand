@@ -434,14 +434,30 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			throw new UserError("the node reported no file");
 		}
 		const opened = openTransferLocation(options.cluster.transferContext(), location);
-		const stream = opened.openRead();
 		const name = path.slice(path.lastIndexOf("/") + 1);
-		if (!preview) {
+		/** The headers of a streamed file: untrusted bytes never get a page context. */
+		const fileHeaders = (mime: string, disposition: "attachment" | "inline"): void => {
 			c.header("Content-Length", String(result.size));
 			c.header("X-Content-Type-Options", "nosniff");
 			c.header("Content-Security-Policy", "sandbox");
-			c.header("Content-Type", "application/octet-stream");
-			c.header("Content-Disposition", contentDisposition("attachment", name));
+			c.header("Content-Type", mime);
+			c.header("Content-Disposition", contentDisposition(disposition, name));
+		};
+		// Hono serves HEAD through this GET handler and drops the body, so opening the read stream would
+		// leak its descriptor and the staging file (the body's discard would never run): answer with the
+		// headers only and clean up here. Without the body there is nothing to sniff, so preview is an
+		// attachment on HEAD.
+		if (c.req.method === "HEAD") {
+			await opened.discard();
+			fileHeaders("application/octet-stream", "attachment");
+			return c.body(null, 200);
+		}
+		const stream = opened.openRead();
+		// The file opens (and can fail) before the body pulls from it; an unhandled 'error' event would
+		// end the process, so the stream always has a listener.
+		stream.on("error", () => {});
+		if (!preview) {
+			fileHeaders("application/octet-stream", "attachment");
 			const body = Readable.from(
 				(async function* () {
 					try {
@@ -471,11 +487,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		}
 		// Only a preview that passed the sniff is an image: headers set before the check would ride
 		// along on the JSON refusal with the file's Content-Length.
-		c.header("Content-Length", String(result.size));
-		c.header("X-Content-Type-Options", "nosniff");
-		c.header("Content-Security-Policy", "sandbox");
-		c.header("Content-Type", mime);
-		c.header("Content-Disposition", contentDisposition("inline", name));
+		fileHeaders(mime, "inline");
 		const body = Readable.from(
 			(async function* () {
 				try {

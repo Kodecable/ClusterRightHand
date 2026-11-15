@@ -57,10 +57,13 @@ export function openDb(config: DatabaseConfig): Db {
 	switch (config.driver) {
 		case "sqlite":
 			return new Kysely<Database>({ dialect: openSqliteDialect(config.path) });
-		case "postgres":
-			return new Kysely<Database>({
-				dialect: new PostgresDialect({ pool: new pg.Pool({ connectionString: config.url }) }),
-			});
+		case "postgres": {
+			const pool = new pg.Pool({ connectionString: config.url });
+			// An idle client error (a restart, idle_session_timeout, pg_terminate_backend, a reset) is
+			// emitted on the pool; without a listener it would be an unhandled 'error' event.
+			pool.on("error", (err) => console.error("postgres pool:", err));
+			return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+		}
 	}
 }
 
@@ -80,6 +83,8 @@ export async function openAgentStorage(config: DatabaseConfig): Promise<OpenedAg
 		};
 	}
 	const pool = new pg.Pool({ connectionString: config.url, max: 4 });
+	// Same as the main pool: an idle client error must be logged, not thrown from EventEmitter.
+	pool.on("error", (err) => console.error("postgres pool:", err));
 	let storage: PgStorage;
 	try {
 		storage = await PgStorage.open(pool, { prefix: "pi_" });

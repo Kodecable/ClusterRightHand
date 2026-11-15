@@ -76,10 +76,20 @@ export class AgentServer {
 	/** Attach to the HTTP server's `upgrade` event. Returns false for other paths. */
 	handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): boolean {
 		if (!this.#accepting) return false;
-		const path = new URL(req.url ?? "/", "http://x").pathname;
+		let path: string;
+		try {
+			path = new URL(req.url ?? "/", "http://x").pathname;
+		} catch {
+			// Request targets like `//` throw here. This runs synchronously inside the HTTP server's
+			// `upgrade` emit, where a throw is an uncaught exception: refuse the upgrade instead.
+			return false;
+		}
 		if (path !== AGENT_PATH && path !== AGENT_DATA_PATH) return false;
 		const data = path === AGENT_DATA_PATH;
 		this.#wss.handleUpgrade(req, socket, head, (ws) => {
+			// Until the handshake attaches a message listener nothing owns this socket's protocol errors
+			// (an oversized frame, a bad frame, a reset), and an unhandled ws `error` event ends the process.
+			ws.on("error", () => {});
 			const accepted: Promise<void> = (data ? this.#acceptData(ws) : this.#accept(ws))
 				.catch((err: unknown) => {
 					console.error("agent connection failed:", err);

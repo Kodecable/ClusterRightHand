@@ -194,7 +194,10 @@ export class Cluster {
 			this.#core.cancelledBy.clear();
 			for (const transfer of this.#core.dataTransfers.values()) {
 				transfer.close();
-				void transfer.write?.discard();
+				// The discard can fail (the file's directory is gone); it is still tracked so close()
+				// waits for it and its failure is logged instead of rejecting unhandled.
+				const write = transfer.write;
+				if (write) this.#core.background("discarding a transfer failed", write.discard());
 			}
 			this.#core.dataTransfers.clear();
 			// Let waitTask callers (task groups, tools) return instead of holding a timer for an hour.

@@ -92,7 +92,14 @@ export class SshSession {
 		return new Promise((resolve, reject) => {
 			if (this.#closed) return reject(new SshError("connect_failed", "connection closed"));
 			try {
-				this.#target.sftp((err, sftp) => (err ? reject(err) : resolve(sftp)));
+				this.#target.sftp((err, sftp) => {
+					if (err) return reject(err);
+					// ssh2 removes its own error listener after the open; a later fatal SFTP error must
+					// close the session rather than become an unhandled 'error' event (the operations in
+					// flight fail through their own callbacks).
+					sftp.on("error", () => this.close());
+					resolve(sftp);
+				});
 			} catch (err) {
 				this.close();
 				reject(new SshError("connect_failed", (err as Error).message));
@@ -226,8 +233,16 @@ function connectHop(hop: SshRouteHop, sock: Duplex | undefined, verify: (key: Bu
 			},
 			...(sock ? { sock } : {}),
 		};
-		client.once("ready", () => resolve(client));
-		client.once("error", (err) => {
+		let settled = false;
+		client.once("ready", () => {
+			settled = true;
+			resolve(client);
+		});
+		// Persistent: after `ready` the session (SshSession) owns later errors, but this promise has
+		// already settled, and a second `once` listener would be gone, making the next error throw.
+		client.on("error", (err) => {
+			if (settled) return;
+			settled = true;
 			client.end();
 			reject(verifyError ?? new SshError("connect_failed", `${hop.user}@${hop.host}:${hop.port}: ${err.message}`));
 		});

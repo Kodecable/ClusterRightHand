@@ -140,31 +140,36 @@ export async function acceptDataConnection(
 	};
 	core.dataTransfers.set(row.id, transfer);
 	const transferId = row.id;
-	void runTransfer(transfer, spec, storage, core.dataIdleTimeoutMs).then(
-		() => {
-			transfer.close();
-			resolveDone();
-		},
-		async (err: unknown) => {
-			// The task.exit handler settles a transfer while holding the task queue, so the transfer
-			// side must resolve before failing the task through that same queue.
-			resolveDone();
-			if (core.dataTransfers.get(transferId) !== transfer) return;
-			// A closed connection without an abort frame usually means the node refused the bytes; its
-			// task.exit carries the precise code (input_mismatch, ...), so give it a moment to arrive.
-			// failTransfer leaves a task that already ended alone. An idle timeout has no exit coming.
-			if (!(err instanceof TransferAborted) && transfer.idle !== true) {
-				await new Promise<void>((resolve) => setTimeout(resolve, EXIT_GRACE_MS).unref());
-			}
-			const code = err instanceof TransferAborted ? err.code : "io_error";
-			const message =
-				transfer.idle === true
-					? "the data connection was idle for too long"
-					: err instanceof Error
-						? err.message
-						: String(err);
-			await failTransfer(core, transferId, nodeId, code, message);
-		},
+	// Tracked like every other background write: the failure handler below can itself fail (the
+	// database may be gone), and close() must wait for it before the database is destroyed.
+	core.background(
+		"failing a transfer failed",
+		runTransfer(transfer, spec, storage, core.dataIdleTimeoutMs).then(
+			() => {
+				transfer.close();
+				resolveDone();
+			},
+			async (err: unknown) => {
+				// The task.exit handler settles a transfer while holding the task queue, so the transfer
+				// side must resolve before failing the task through that same queue.
+				resolveDone();
+				if (core.dataTransfers.get(transferId) !== transfer) return;
+				// A closed connection without an abort frame usually means the node refused the bytes; its
+				// task.exit carries the precise code (input_mismatch, ...), so give it a moment to arrive.
+				// failTransfer leaves a task that already ended alone. An idle timeout has no exit coming.
+				if (!(err instanceof TransferAborted) && transfer.idle !== true) {
+					await new Promise<void>((resolve) => setTimeout(resolve, EXIT_GRACE_MS).unref());
+				}
+				const code = err instanceof TransferAborted ? err.code : "io_error";
+				const message =
+					transfer.idle === true
+						? "the data connection was idle for too long"
+						: err instanceof Error
+							? err.message
+							: String(err);
+				await failTransfer(core, transferId, nodeId, code, message);
+			},
+		),
 	);
 }
 
