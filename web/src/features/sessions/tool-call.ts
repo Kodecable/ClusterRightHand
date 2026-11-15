@@ -59,17 +59,17 @@ function toolSubject(name: string, args: JsonObject): string | undefined {
 		return extension !== undefined && tool !== undefined ? `${extension}/${tool}` : (extension ?? tool);
 	}
 	// A directly listed extension tool (`ext__<extension>__<tool>`): the built-ins name their subject.
-	if (name === "ext__api__api_request") {
+	if (name === "ext__crhs-api__api_request") {
 		const method = firstString(args, ["method"]);
 		const path = firstString(args, ["path"]);
 		return method !== undefined && path !== undefined ? `${method.toUpperCase()} ${path}` : path;
 	}
-	if (name === "ext__docs__read_doc") {
+	if (name === "ext__crhs-docs__read_doc") {
 		const path = firstString(args, ["path"]);
 		const section = firstString(args, ["section"]);
 		return path !== undefined && section !== undefined ? `${path} § ${section}` : path;
 	}
-	if (name === "ext__docs__search_docs") return firstString(args, ["query"]);
+	if (name === "ext__crhs-docs__search_docs") return firstString(args, ["query"]);
 	const keys = TOOL_SUBJECT_KEYS[name];
 	if (keys !== undefined) return firstString(args, keys);
 	return firstString(args, [

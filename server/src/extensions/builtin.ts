@@ -26,9 +26,10 @@ import {
 
 /**
  * The built-in extension providers (doc/design/extensions.md "Built-in extensions"). A provider is code
- * that ships with crhs: `docs` serves the documentation and the API reference, `api` runs one API request
- * as the session owner. Their rows live in the same `extensions` table as MCP servers, so an administrator
- * can disable one, change its availability or turn "list directly" off like any other extension.
+ * that ships with crhs: `crhs-docs` serves the documentation and the API reference, `crhs-api` runs one
+ * API request as the session owner. Their rows live in the same `extensions` table as MCP servers, so an
+ * administrator can disable one, change its availability or turn "list directly" off like any other
+ * extension.
  *
  * A provider states its own rule operations, which is what lets `api_request` become an `api.read`/`api.write`
  * operation on the request's route rather than an `ext.*` one. `createApp` configures the API document and the
@@ -261,37 +262,37 @@ async function readDocCall(args: Record<string, unknown>): Promise<CallToolResul
 
 /** The documentation: `search_docs` and `read_doc`. */
 const docs: BuiltinExtensionProvider = {
-	name: "docs",
+	name: "crhs-docs",
 	description: DOCS_DESCRIPTION,
 	tools: () => DOCS_TOOLS,
 	async call(tool, args) {
 		if (tool === "search_docs") return searchDocsCall(args);
 		if (tool === "read_doc") return readDocCall(args);
-		throw new ExtensionToolError(`the docs extension has no tool named ${tool}`);
+		throw new ExtensionToolError(`the crhs-docs extension has no tool named ${tool}`);
 	},
-	operation: (tool) => ({ method: "ext.read", target: `docs/${tool}` }),
+	operation: (tool) => ({ method: "ext.read", target: `crhs-docs/${tool}` }),
 };
 
 /** The crhs API: `api_request`, which states its own `api.read`/`api.write` operation on the route. */
 const api: BuiltinExtensionProvider = {
-	name: "api",
+	name: "crhs-api",
 	description: API_DESCRIPTION,
 	tools: () => API_TOOLS,
 	async call(tool, args, context) {
-		if (tool !== "api_request") throw new ExtensionToolError(`the api extension has no tool named ${tool}`);
-		if (!state.api) throw new ExtensionUnavailableError("the api extension is not available in this process");
+		if (tool !== "api_request") throw new ExtensionToolError(`the crhs-api extension has no tool named ${tool}`);
+		if (!state.api) throw new ExtensionUnavailableError("the crhs-api extension is not available in this process");
 		const actor = context.builtin?.actor;
-		if (!actor) throw new ExtensionUnavailableError("the api extension needs an agent session");
+		if (!actor) throw new ExtensionUnavailableError("the crhs-api extension needs an agent session");
 		return runApiRequest(state.api.request, state.api.reference.routes, args, actor);
 	},
 	operation(tool, args) {
-		if (tool !== "api_request") return { method: "ext.write", target: `api/${tool}` };
-		if (!state.api) throw new UserError("the api extension is not available in this process", "unavailable");
+		if (tool !== "api_request") return { method: "ext.write", target: `crhs-api/${tool}` };
+		if (!state.api) throw new UserError("the crhs-api extension is not available in this process", "unavailable");
 		return apiRequestOperation(state.api.reference.routes, args);
 	},
 };
 
-/** The built-in extensions this crhs ships; the names `docs` and `api` are reserved for them. */
+/** The built-in extensions this crhs ships; the names `crhs-docs` and `crhs-api` are reserved for them. */
 export const BUILTIN_EXTENSIONS: readonly BuiltinExtensionProvider[] = [docs, api];
 
 /** The reserved names, for validation when an MCP extension is created. */

@@ -6,7 +6,7 @@ import { UserError } from "../util/errors.ts";
 import { type ApiRoute, matchApiRoute } from "./api-reference.ts";
 
 /**
- * `api_request`, the `api` extension's tool (doc/design/extensions.md "API requests"). A request runs through
+ * `api_request`, the `crhs-api` extension's tool (doc/design/extensions.md "API requests"). A request runs through
  * the app's own router instead of the network, as the session owner, so it passes the same route definition,
  * validation, access checks and audit as a WebUI request. The route's declared agent access is the first
  * gate: `deny`, an unknown route and a path outside `/api` are refused without rules; `allow` becomes an

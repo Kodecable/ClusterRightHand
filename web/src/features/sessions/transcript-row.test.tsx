@@ -166,11 +166,11 @@ describe("TranscriptRow", () => {
 			}),
 		).toBe("read_file · db-1 · /var/lib/crha/output/bb2a1eb5-305c-8a8a-80c3-49dc0b2598a5.log");
 		expect(toolLine("subagent", { task: "restart nginx", background: true })).toBe("subagent · restart nginx");
-		expect(toolLine("ext__api__api_request", { method: "post", path: "/api/node-groups", body: {} })).toBe(
-			"ext__api__api_request · POST /api/node-groups",
+		expect(toolLine("ext__crhs-api__api_request", { method: "post", path: "/api/node-groups", body: {} })).toBe(
+			"ext__crhs-api__api_request · POST /api/node-groups",
 		);
-		expect(toolLine("ext__docs__read_doc", { path: "guide/concepts.md", section: "Node groups" })).toBe(
-			"ext__docs__read_doc · guide/concepts.md § Node groups",
+		expect(toolLine("ext__crhs-docs__read_doc", { path: "guide/concepts.md", section: "Node groups" })).toBe(
+			"ext__crhs-docs__read_doc · guide/concepts.md § Node groups",
 		);
 		expect(toolLine("task_wait", { task_id: "d33dae4a-c1a3-8a94-9cf7-099289eb5dc2", wait: 30 })).toBe(
 			"task_wait · d33dae4a-c1a3-8a94-9cf7-099289eb5dc2",

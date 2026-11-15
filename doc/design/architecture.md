@@ -126,7 +126,7 @@ These are not implemented, but the design leaves room for them:
 - **Local crha policy**, limits in `crha.toml` that would hold even against a compromised crhs. crha
   rejects unknown configuration keys, so such keys fail rather than being silently ignored.
 - **Runbooks.** External tools themselves are no longer a future extension point: they are extensions,
-  MCP servers an administrator connects or the built-in `docs` and `api` ([Extensions](extensions.md)).
+  MCP servers an administrator connects or the built-in `crhs-docs` and `crhs-api` ([Extensions](extensions.md)).
 
 ## Known limitations
 

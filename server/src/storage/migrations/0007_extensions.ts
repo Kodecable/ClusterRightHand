@@ -5,9 +5,9 @@ import { newId } from "../../util/id.ts";
  * Extensions, their grants and external calls (doc/design/extensions.md).
  *
  * `extensions` holds both kinds: MCP servers an administrator connected (`kind = 'mcp'`) and crhs's built-in
- * extensions (`kind = 'builtin'`). The two kinds share one name namespace, so `docs` and `api` are reserved
- * for the built-ins, which are seeded here and cannot be deleted. An MCP server's request headers are in one
- * `secrets` row referenced by `headers_secret_id`, like a model provider's API key. `availability` says
+ * extensions (`kind = 'builtin'`). The two kinds share one name namespace, so `crhs-docs` and `crhs-api` are
+ * reserved for the built-ins, which are seeded here and cannot be deleted. An MCP server's request headers are
+ * in one `secrets` row referenced by `headers_secret_id`, like a model provider's API key. `availability` says
  * whether every user reaches the extension or only the grants do; built-ins default to everyone, MCP
  * extensions to granted only. A built-in has no URL, headers, identity headers, annotation trust or timeout,
  * so those columns are null for it.
@@ -104,9 +104,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	const orgId = org?.id ?? newId();
 	if (!org) await sql`insert into orgs (id, name, created_at) values (${orgId}, 'default', ${now})`.execute(db);
 	const builtins = [
-		{ name: "docs", description: "The documentation and the API reference of this crhs version" },
+		{ name: "crhs-docs", description: "The documentation and the API reference of this crhs version" },
 		{
-			name: "api",
+			name: "crhs-api",
 			description: "The crhs API as the session owner, through the same routes and rules as the WebUI",
 		},
 	];

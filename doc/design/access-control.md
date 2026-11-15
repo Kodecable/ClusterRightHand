@@ -205,7 +205,7 @@ level also has a default for obligations no rule matches. The schema is in `pack
 
 Extension calls use `ext.read` (a read-only tool on an extension whose annotations are trusted) and
 `ext.write` (every other tool). Their target is `<extension>/<tool>`, so `prefix: "github/"` covers an
-extension ([Rules and approvals](extensions.md#rules-and-approvals)). The built-in `api` extension states
+extension ([Rules and approvals](extensions.md#rules-and-approvals)). The built-in `crhs-api` extension states
 its own `api.read`/`api.write` operations on the request's route (`<METHOD> <path template>`), so a rule
 such as `prefix: "POST /api/node-groups"` covers a family of routes. A rule with `nodes` never matches an
 external call, external calls are never privileged, and `allow ext.write` or `allow api.write` also

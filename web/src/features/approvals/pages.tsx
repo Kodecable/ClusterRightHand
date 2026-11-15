@@ -90,7 +90,7 @@ function externalCallRow(call: ExternalCallView): DecisionRow {
 			? (call.arguments as Record<string, unknown>)
 			: {};
 	const request =
-		call.extension === "api" && call.tool === "api_request"
+		call.extension === "crhs-api" && call.tool === "api_request"
 			? [args.method, args.path].filter((value): value is string => typeof value === "string" && value !== "").join(" ")
 			: "";
 	const label = request === "" ? `${call.extension}/${call.tool}` : request;

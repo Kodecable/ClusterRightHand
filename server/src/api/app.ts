@@ -293,9 +293,9 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 		);
 	}
 
-	// The built-in extensions read this app's routes: `docs` renders the API reference from the same document,
-	// and `api_request` runs through this router as the session owner (doc/design/extensions.md "Built-in
-	// extensions"). All routes are mounted at this point.
+	// The built-in extensions read this app's routes: `crhs-docs` renders the API reference from the same
+	// document, and `api_request` runs through this router as the session owner (doc/design/extensions.md
+	// "Built-in extensions"). All routes are mounted at this point.
 	configureBuiltinExtensions({
 		api: {
 			document: apiDocument(app),

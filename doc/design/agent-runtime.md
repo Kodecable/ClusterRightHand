@@ -68,8 +68,8 @@ and compaction uses the session's own model.
 ### Custom providers
 
 A custom provider can add request headers for gateway routing (stored in plain text, not for secrets)
-and can name headers or body fields that receive the CRH session id, for gateways that group requests by
-session. Changing the base URL of a provider with a stored key requires entering the key again or
+and can name headers or body fields that receive a session id, which some upstreams require (OpenCode) or
+recommend (OpenRouter) for prompt caching and session affinity. Changing the base URL of a provider with a stored key requires entering the key again or
 removing it, so a key cannot be sent to a new endpoint without the administrator re-entering it.
 
 Each model declares its protocol, context window, maximum output, image support, thinking support and
@@ -99,8 +99,8 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `task_wait`, `task_cancel` | Follow or cancel an `exec` task or task group |
 | `search_tools`, `call_tool` | Find and call an extension's tools, MCP or built-in ([Extensions](extensions.md)) |
 | `ext__<extension>__<tool>` | A "list directly" extension's tool, called without `call_tool` |
-| `search_docs`, `read_doc` | The built-in `docs` extension: search this version's documentation and API reference, and read a document or a section of it |
-| `api_request` | The built-in `api` extension: one crhs API request as the session owner, through the same routes and rules as the WebUI |
+| `search_docs`, `read_doc` | The built-in `crhs-docs` extension: search this version's documentation and API reference, and read a document or a section of it |
+| `api_request` | The built-in `crhs-api` extension: one crhs API request as the session owner, through the same routes and rules as the WebUI |
 
 Those rows are extension tools, not cluster tools: the tool list grows with the "list directly" flag and
 the built-in extensions, while `search_tools` and `call_tool` stay fixed ([Tools for the model](extensions.md#tools-for-the-model)).

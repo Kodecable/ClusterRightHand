@@ -78,8 +78,8 @@ afterAll(async () => {
 /** The extension list the session guide appends: both built-ins are available to everyone. */
 const BUILTIN_GUIDE =
 	"\n\nExtensions you can use with search_tools and call_tool:" +
-	"\n- api: The crhs API as the session owner, through the same routes and rules as the WebUI (1 tool)" +
-	"\n- docs: The documentation and the API reference of this crhs version (2 tools)";
+	"\n- crhs-api: The crhs API as the session owner, through the same routes and rules as the WebUI (1 tool)" +
+	"\n- crhs-docs: The documentation and the API reference of this crhs version (2 tools)";
 
 it("appends the tool guide to the default prompt and to a custom prompt, exactly once", async () => {
 	const session = await runtime.createSession(alice, { title: "prompt", model: model(), rulePreset: "ask" });

@@ -285,8 +285,8 @@ describeBackends("initial migration", (backend) => {
 			.orderBy("name")
 			.execute();
 		expect(rows).toEqual([
-			{ name: "api", kind: "builtin", enabled: 1, list_directly: 1, availability: "everyone" },
-			{ name: "docs", kind: "builtin", enabled: 1, list_directly: 1, availability: "everyone" },
+			{ name: "crhs-api", kind: "builtin", enabled: 1, list_directly: 1, availability: "everyone" },
+			{ name: "crhs-docs", kind: "builtin", enabled: 1, list_directly: 1, availability: "everyone" },
 		]);
 	});
 

@@ -1,6 +1,6 @@
 /**
  * Tools beyond the cluster tools, called "extensions" (doc/design/extensions.md). An extension is either an
- * MCP server an administrator connected or one of crhs's built-in extensions (`docs`, `api`). Agent
+ * MCP server an administrator connected or one of crhs's built-in extensions (`crhs-docs`, `crhs-api`). Agent
  * sessions reach their tools through `search_tools` and `call_tool`, and every call goes through the same
  * rules, approvals and audit log as a cluster task.
  */

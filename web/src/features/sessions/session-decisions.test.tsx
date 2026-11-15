@@ -44,7 +44,7 @@ const externalCall = (id: string, createdAt: string, rootSessionId = "root"): Ex
 const apiRequestCall = (id: string) =>
 	({
 		...externalCall(id, "2026-01-01T00:00:00.000Z"),
-		extension: "api",
+		extension: "crhs-api",
 		tool: "api_request",
 		arguments: {
 			method: "POST",

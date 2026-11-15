@@ -47,16 +47,17 @@ tool count, availability and whether they are enabled. There are two kinds:
   digits and `-`), its URL and optionally fixed request headers, which are stored encrypted and never
   shown again. Changing a URL therefore asks for the headers again or for removing them. **Reconnect**
   tries the connection at once; **Tools** lists what the server offers.
-- **Built-in extensions** ship with crhs: `docs` serves the documentation and the API reference, and `api`
-  lets a session make crhs API requests as its owner. They are always ready and cannot be deleted; an
-  administrator can disable one, change whether its tools are listed directly, and set its availability
-  and grants. `docs` offers `search_docs` (keyword search over the documentation and the API reference,
-  with the path, heading and a snippet of each match) and `read_doc` (a whole document or one section by
-  heading, paged when long). The API reference is rendered from the running version's API document, one
-  page per tag; routes an agent may not call are left out. It stays available when `api` is turned off,
-  because it also explains what the WebUI does. `api` offers `api_request`, which makes one API request
-  (`method`, `path`, `query`, `body`) as the session's owner through the same routes, validation and
-  audit as the WebUI; a request that needs approval shows its method, path, query and body.
+- **Built-in extensions** ship with crhs: `crhs-docs` serves the documentation and the API reference, and
+  `crhs-api` lets a session make crhs API requests as its owner. They are always ready and cannot be
+  deleted; an administrator can disable one, change whether its tools are listed directly, and set its
+  availability and grants. `crhs-docs` offers `search_docs` (keyword search over the documentation and the
+  API reference, with the path, heading and a snippet of each match) and `read_doc` (a whole document or
+  one section by heading, paged when long). The API reference is rendered from the running version's API
+  document, one page per tag; routes an agent may not call are left out. It stays available when
+  `crhs-api` is turned off, because it also explains what the WebUI does. `crhs-api` offers `api_request`,
+  which makes one API request (`method`, `path`, `query`, `body`) as the session's owner through the same
+  routes, validation and audit as the WebUI; a request that needs approval shows its method, path, query
+  and body.
 
 **Availability** decides who may use an extension: **Everyone**, or only the granted users and user
 groups. Built-in extensions default to everyone; MCP extensions to granted only. **List directly** puts

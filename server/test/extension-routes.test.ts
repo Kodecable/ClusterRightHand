@@ -37,8 +37,8 @@ describe("api extensions", () => {
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { extensions: { name: string; kind: string }[] };
 		expect(body.extensions.map((extension) => [extension.name, extension.kind])).toEqual([
-			["api", "builtin"],
-			["docs", "builtin"],
+			["crhs-api", "builtin"],
+			["crhs-docs", "builtin"],
 		]);
 	});
 
@@ -90,11 +90,11 @@ describe("api extensions", () => {
 	});
 
 	it("refuses to delete a built-in and allows only its own fields", async () => {
-		const deleted = await call(app, "/api/extensions/docs", { method: "DELETE", cookie: admin, body: {} });
+		const deleted = await call(app, "/api/extensions/crhs-docs", { method: "DELETE", cookie: admin, body: {} });
 		expect(deleted.status).toBe(400);
 		expect(((await deleted.json()) as { error: string }).error).toMatch(/built-in extensions cannot be deleted/);
 
-		const url = await call(app, "/api/extensions/docs", {
+		const url = await call(app, "/api/extensions/crhs-docs", {
 			method: "PUT",
 			cookie: admin,
 			body: { url: "http://mcp.test/mcp" },
@@ -102,7 +102,7 @@ describe("api extensions", () => {
 		expect(url.status).toBe(400);
 		expect(((await url.json()) as { error: string }).error).toMatch(/url cannot be set on a built-in extension/);
 
-		const saved = await call(app, "/api/extensions/docs", {
+		const saved = await call(app, "/api/extensions/crhs-docs", {
 			method: "PUT",
 			cookie: admin,
 			body: { description: "Our documentation", availability: "granted", enabled: false },

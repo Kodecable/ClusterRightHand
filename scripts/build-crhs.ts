@@ -143,7 +143,7 @@ const esbuildInputs = inputs.filter((input) => `/${input.replaceAll("\\", "/")}`
 if (esbuildInputs.length > 0) throw new Error(`the bundle contains esbuild: ${esbuildInputs.join(", ")}`);
 
 await cp(join(root, "web", "dist"), join(outDir, "web"), { recursive: true });
-// The built-in docs extension reads the documentation of the running version from the bundle
+// The built-in crhs-docs extension reads the documentation of the running version from the bundle
 // (doc/design/extensions.md "Documentation"); images are not copied, because the tools return text.
 await copyDocMarkdown(join(root, "doc"), join(outDir, "doc"));
 

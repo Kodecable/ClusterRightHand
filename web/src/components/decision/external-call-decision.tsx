@@ -41,8 +41,8 @@ export function ExternalCallDecision({
 	const [always, setAlways] = useState<"tool" | "extension">("tool");
 	const method = call.operation.method;
 	// `api_request` is one built-in tool whose target is the route it calls, so "always allow" is about that
-	// route, not about `api/api_request` (doc/design/extensions.md "Rules and approvals").
-	const apiRequest = call.extension === "api" && call.tool === "api_request";
+	// route, not about `crhs-api/api_request` (doc/design/extensions.md "Rules and approvals").
+	const apiRequest = call.extension === "crhs-api" && call.tool === "api_request";
 	const target = apiRequest ? call.operation.target : `${call.extension}/${call.tool}`;
 	const rule = (scope: "tool" | "extension"): Rule =>
 		apiRequest

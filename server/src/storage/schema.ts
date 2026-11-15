@@ -135,7 +135,7 @@ export interface NodeAccessGrantsTable {
 
 /**
  * An extension (doc/design/extensions.md): an administrator-connected MCP server or a built-in of crhs.
- * The two kinds share one namespace; `docs` and `api` are reserved for the built-ins.
+ * The two kinds share one namespace; `crhs-docs` and `crhs-api` are reserved for the built-ins.
  */
 export interface ExtensionsTable {
 	id: string;

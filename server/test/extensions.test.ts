@@ -905,7 +905,7 @@ describe("MCP extensions", () => {
 			.execute();
 		// The direct grant already covers the user; drop it to prove the group grant is what reaches them.
 		await db.deleteFrom("extension_grants").execute();
-		expect((await extensionsForUser(db, user.userId)).map((row) => row.name)).toEqual(["api", "docs"]);
+		expect((await extensionsForUser(db, user.userId)).map((row) => row.name)).toEqual(["crhs-api", "crhs-docs"]);
 		const row = await db.selectFrom("extensions").selectAll().where("name", "=", "fake").executeTakeFirst();
 		await db
 			.insertInto("extension_grants")
@@ -919,8 +919,8 @@ describe("MCP extensions", () => {
 				created_at: new Date().toISOString(),
 			})
 			.execute();
-		expect(await extensionNamesForUser(db, user.userId)).toEqual(["api", "docs", "fake"]);
-		expect(await extensionNamesForUser(db, user.userId, ["fake"])).toEqual(["api", "docs"]);
+		expect(await extensionNamesForUser(db, user.userId)).toEqual(["crhs-api", "crhs-docs", "fake"]);
+		expect(await extensionNamesForUser(db, user.userId, ["fake"])).toEqual(["crhs-api", "crhs-docs"]);
 		expect(parseDisabledExtensionNames('["fake"]')).toEqual(["fake"]);
 	});
 
@@ -929,7 +929,7 @@ describe("MCP extensions", () => {
 		const extensions = await sessionExtensionViews({ db, mcp } as AgentRuntimeOptions, user.userId, []);
 		expect(extensions).toEqual([
 			{
-				name: "api",
+				name: "crhs-api",
 				kind: "builtin",
 				description: "The crhs API as the session owner, through the same routes and rules as the WebUI",
 				enabled: true,
@@ -937,7 +937,7 @@ describe("MCP extensions", () => {
 				listDirectly: true,
 			},
 			{
-				name: "docs",
+				name: "crhs-docs",
 				kind: "builtin",
 				description: "The documentation and the API reference of this crhs version",
 				enabled: true,

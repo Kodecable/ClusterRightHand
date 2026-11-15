@@ -29,7 +29,7 @@ const MCP: ExtensionView = {
 
 const BUILTIN: ExtensionView = {
 	id: "srv-docs",
-	name: "docs",
+	name: "crhs-docs",
 	kind: "builtin",
 	description: "The documentation",
 	url: null,
@@ -93,7 +93,7 @@ function mockApi(options: MockOptions = {}) {
 				status: MCP.status,
 			});
 		}
-		if (path === "/api/extensions/docs/tools") {
+		if (path === "/api/extensions/crhs-docs/tools") {
 			return json({ tools: [], status: BUILTIN.status });
 		}
 		if (path === "/api/directory") {
@@ -128,10 +128,10 @@ describe("extensions settings page", () => {
 		expect(screen.getByRole("button", { name: "View tools of github" })).toHaveAttribute("title", "Tools");
 		expect(screen.getByRole("button", { name: "Reconnect github" })).toHaveAttribute("title", "Reconnect");
 		expect(screen.getByRole("button", { name: "Delete github" })).toHaveAttribute("title", "Delete");
-		expect(screen.getByRole("button", { name: "Edit docs" })).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "View tools of docs" })).toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Reconnect docs" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Delete docs" })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Edit crhs-docs" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "View tools of crhs-docs" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Reconnect crhs-docs" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Delete crhs-docs" })).not.toBeInTheDocument();
 	});
 
 	test("opens the tools and the create dialog, with the availability control", async () => {
@@ -156,8 +156,8 @@ describe("extensions settings page", () => {
 	test("edits a built-in without the MCP-only fields", async () => {
 		mockApi();
 		await renderWithRouter(<ExtensionsPage />);
-		expect(await screen.findByText("docs")).toBeInTheDocument();
-		fireEvent.click(screen.getByRole("button", { name: "Edit docs" }));
+		expect(await screen.findByText("crhs-docs")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Edit crhs-docs" }));
 		await waitFor(() => expect(screen.getByTestId("extension-dialog")).toBeInTheDocument());
 		expect(screen.queryByLabelText("URL")).not.toBeInTheDocument();
 		expect(screen.queryByLabelText("Timeout (seconds)")).not.toBeInTheDocument();

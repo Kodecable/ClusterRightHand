@@ -7,8 +7,8 @@ and audited the same way. There are two kinds:
 - **MCP extensions** connect to an MCP server an administrator added. There are no in-process plugins
   from outside: those would need a sandbox, a compatibility promise and their own audit path, and MCP
   already is the extension protocol.
-- **Built-in extensions** ship with crhs and run inside it: `docs` (the documentation) and `api` (the
-  crhs API) ([Built-in extensions](#built-in-extensions)).
+- **Built-in extensions** ship with crhs and run inside it: `crhs-docs` (the documentation) and `crhs-api`
+  (the crhs API) ([Built-in extensions](#built-in-extensions)).
 
 The scope of the first version:
 
@@ -24,7 +24,7 @@ The scope of the first version:
 
 | Field | Kind | Meaning |
 |---|---|---|
-| Name | both | Lowercase letters, digits and `-`, not starting with a digit; unique across both kinds. Tools and rules use it. `docs` and `api` are reserved |
+| Name | both | Lowercase letters, digits and `-`, not starting with a digit; unique across both kinds. Tools and rules use it. `crhs-docs` and `crhs-api` are reserved |
 | Description | both | Shown to the model with the extension; an MCP extension defaults to the server's own `instructions` |
 | Enabled | both | A disabled extension is invisible to sessions |
 | List directly | both | Its tools appear in the model's tool list instead of only through search; on by default for built-in extensions |
@@ -117,7 +117,7 @@ never privileged. As with files, `allow ext.write` also allows `ext.read` on the
 - Annotations are trusted because an administrator chose to connect the server. An MCP extension whose
   annotations are not trustworthy can be switched to "trust annotations: off", which makes all its
   tools `ext.write`.
-- A built-in extension states its own operations: the `docs` tools are `ext.read`, and `api_request`
+- A built-in extension states its own operations: the `crhs-docs` tools are `ext.read`, and `api_request`
   becomes an `api.read` or `api.write` operation on the route ([API requests](#api-requests)). There is
   no second approval for the tool call itself.
 - Auto Review sees the extension, the tool, its annotations and the arguments, never the conversation.
@@ -172,9 +172,9 @@ An extension result is converted to the cluster tools' output form ([Tool output
 
 | Extension | Tool | Purpose |
 |---|---|---|
-| `docs` | `search_docs` | Keyword search over the documentation and the API reference; returns the best sections with their path, heading and a snippet |
-| `docs` | `read_doc` | One document or one section of it (`path`, optional `section` heading), paged for long documents |
-| `api` | `api_request` | One crhs API request as the session owner |
+| `crhs-docs` | `search_docs` | Keyword search over the documentation and the API reference; returns the best sections with their path, heading and a snippet |
+| `crhs-docs` | `read_doc` | One document or one section of it (`path`, optional `section` heading), paged for long documents |
+| `crhs-api` | `api_request` | One crhs API request as the session owner |
 
 They are split so that an administrator can turn off API requests and keep the documentation.
 
@@ -186,7 +186,7 @@ their own:
   as soon as it exists.
 - **Teach and do.** With the full documentation the model can explain how to do something to a user who
   does not know, and with the API it can do what the WebUI has no screen for, such as a batch of the same
-  change. The core loop (tasks, files, sessions) keeps dedicated tools; `api` covers the long tail.
+  change. The core loop (tasks, files, sessions) keeps dedicated tools; `crhs-api` covers the long tail.
 - **No second permission model.** The route's agent access and the same server-side checks as the WebUI
   decide, so the model can never do more than its owner, and sensitive routes are `deny`. For batches,
   Auto Review is the intended preset: the review model passes routine writes and hands the risky or
@@ -205,7 +205,7 @@ their own:
 - The API reference is rendered from the API document at startup, one page per tag under `api/`. It lists
   each route the agent may call with its method, path, summary, parameters, body and response fields,
   and the shared object shapes once. Routes marked `deny` are left out, so the model is not shown what
-  it cannot use. The reference is offered even when the `api` extension is off, since it also explains
+  it cannot use. The reference is offered even when the `crhs-api` extension is off, since it also explains
   what the WebUI does.
 - Search splits documents at headings and indexes each section (heading, path/anchor and text) with
   MiniSearch, like `search_tools` indexes each tool (name, title, description and extension).

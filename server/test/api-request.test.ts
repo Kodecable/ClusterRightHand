@@ -16,7 +16,7 @@ import { runExtensionTool } from "../src/tools/catalog.ts";
 import { createUser } from "../src/users/service.ts";
 import { openTestDb } from "./helpers/db.ts";
 
-/** `api_request`, the built-in `api` extension (doc/design/extensions.md "API requests"). */
+/** `api_request`, the built-in `crhs-api` extension (doc/design/extensions.md "API requests"). */
 
 type CreatedApp = ReturnType<typeof createApp>;
 type TestUser = Awaited<ReturnType<typeof createUser>>;
@@ -174,7 +174,10 @@ describe("api_request", () => {
 	});
 
 	it("runs an allowed GET as the session owner and the Ask preset allows the read", async () => {
-		const result = await runExtensionTool(await context(), "api", "api_request", { method: "GET", path: "/api/me" });
+		const result = await runExtensionTool(await context(), "crhs-api", "api_request", {
+			method: "GET",
+			path: "/api/me",
+		});
 		expect(result.isError).toBe(false);
 		expect(textOf(result)).toContain("HTTP 200");
 		expect(textOf(result)).toContain(`"username":"${owner.username}"`);
@@ -189,7 +192,7 @@ describe("api_request", () => {
 		ctx.user = { ...ctx.user, userId: admin.id, username: admin.username, kind: admin.kind };
 		ctx.actor = { ...ctx.actor, onBehalfOfUserId: admin.id };
 		ctx.extensions = await sessionExtensionsForUser(db, admin.id, [], undefined);
-		const pending = runExtensionTool(ctx, "api", "api_request", {
+		const pending = runExtensionTool(ctx, "crhs-api", "api_request", {
 			method: "POST",
 			path: "/api/node-groups",
 			body: { name: "team" },
@@ -215,17 +218,20 @@ describe("api_request", () => {
 
 	it("refuses a deny route, an unknown route and a path outside /api without creating a call", async () => {
 		const ctx = await context();
-		const denied = await runExtensionTool(ctx, "api", "api_request", {
+		const denied = await runExtensionTool(ctx, "crhs-api", "api_request", {
 			method: "POST",
 			path: "/api/users",
 			body: { username: "x" },
 		});
 		expect(denied.isError).toBe(true);
 		expect(textOf(denied)).toContain("not available to agents");
-		const unknown = await runExtensionTool(ctx, "api", "api_request", { method: "GET", path: "/api/no-such-route" });
+		const unknown = await runExtensionTool(ctx, "crhs-api", "api_request", {
+			method: "GET",
+			path: "/api/no-such-route",
+		});
 		expect(unknown.isError).toBe(true);
 		expect(textOf(unknown)).toContain("no API route");
-		const outside = await runExtensionTool(ctx, "api", "api_request", { method: "GET", path: "/etc/passwd" });
+		const outside = await runExtensionTool(ctx, "crhs-api", "api_request", { method: "GET", path: "/etc/passwd" });
 		expect(outside.isError).toBe(true);
 		expect(textOf(outside)).toContain("only paths under /api");
 		expect(await db.selectFrom("external_calls").select("id").execute()).toHaveLength(0);
@@ -246,7 +252,7 @@ describe("api_request", () => {
 			"/api/test-item/../test-rewritten",
 		];
 		for (const path of paths) {
-			const result = await runExtensionTool(ctx, "api", "api_request", { method: "GET", path });
+			const result = await runExtensionTool(ctx, "crhs-api", "api_request", { method: "GET", path });
 			expect(result.isError, path).toBe(true);
 			expect(textOf(result), path).toContain("path must not contain");
 		}
@@ -257,21 +263,21 @@ describe("api_request", () => {
 		// Past the first checks, the round trip catches what the parser still rewrites: it drops a tab and
 		// percent-encodes a space, so the path it would serve is not the one the rules judged.
 		for (const path of ["/api/test-item/4\t2", "/api/test-item/4 2"]) {
-			const result = await runExtensionTool(ctx, "api", "api_request", { method: "GET", path });
+			const result = await runExtensionTool(ctx, "crhs-api", "api_request", { method: "GET", path });
 			expect(result.isError, path).toBe(true);
 			expect(textOf(result), path).toContain("the URL parser would rewrite it");
 		}
 		expect(rewrittenRouteHits).toBe(0);
 		expect(await db.selectFrom("external_calls").select("id").execute()).toHaveLength(0);
 
-		const normal = await runExtensionTool(ctx, "api", "api_request", { method: "GET", path: "/api/test-item/42" });
+		const normal = await runExtensionTool(ctx, "crhs-api", "api_request", { method: "GET", path: "/api/test-item/42" });
 		expect(normal.isError).toBe(false);
 		expect(textOf(normal)).toContain('"item":"42"');
 	});
 
 	it("records the audit event as the session, on behalf of the owner", async () => {
 		const ctx = await context([{ action: "allow", method: "api.write", exact: "POST /api/test-audit" }]);
-		const result = await runExtensionTool(ctx, "api", "api_request", { method: "POST", path: "/api/test-audit" });
+		const result = await runExtensionTool(ctx, "crhs-api", "api_request", { method: "POST", path: "/api/test-audit" });
 		expect(result.isError).toBe(false);
 		await audit.flush();
 		const event = await db
@@ -297,7 +303,7 @@ describe("api_request", () => {
 
 	it("refuses a body larger than 1 MiB before creating a call", async () => {
 		const ctx = await context();
-		const result = await runExtensionTool(ctx, "api", "api_request", {
+		const result = await runExtensionTool(ctx, "crhs-api", "api_request", {
 			method: "POST",
 			path: "/api/test-audit",
 			body: { data: "x".repeat(1024 * 1024) },
@@ -308,7 +314,7 @@ describe("api_request", () => {
 	});
 
 	it("describes a binary response by type and size instead of returning it", async () => {
-		const result = await runExtensionTool(await context(), "api", "api_request", {
+		const result = await runExtensionTool(await context(), "crhs-api", "api_request", {
 			method: "GET",
 			path: "/api/test-binary",
 		});
@@ -320,7 +326,7 @@ describe("api_request", () => {
 	it("allows a route family with a prefix rule such as POST /api/sessions", async () => {
 		const result = await runExtensionTool(
 			await context([{ action: "allow", method: "api.write", prefix: "POST /api/sessions" }]),
-			"api",
+			"crhs-api",
 			"api_request",
 			{ method: "POST", path: "/api/sessions" },
 		);
@@ -333,7 +339,7 @@ describe("api_request", () => {
 	});
 
 	it("matches a parameterised route by its template and passes query parameters", async () => {
-		const result = await runExtensionTool(await context(), "api", "api_request", {
+		const result = await runExtensionTool(await context(), "crhs-api", "api_request", {
 			method: "GET",
 			path: "/api/node-groups",
 			query: { q: "team", limit: 5 },

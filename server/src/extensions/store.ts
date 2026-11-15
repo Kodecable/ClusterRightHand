@@ -436,7 +436,7 @@ export async function saveExtension(
 	validateExtensionName(name);
 	const existing = await getExtensionRow(db, name);
 	if (!existing && RESERVED_EXTENSION_NAMES.has(name)) {
-		throw new UserError("the extension names docs and api are reserved for the built-in extensions");
+		throw new UserError("the extension names crhs-docs and crhs-api are reserved for the built-in extensions");
 	}
 	if (existing?.kind === "builtin") return saveBuiltin(db, existing, input, adminUserId);
 	const orgId = await defaultOrgId(db);

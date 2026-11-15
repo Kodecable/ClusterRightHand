@@ -1,5 +1,5 @@
 /**
- * The API reference the `docs` extension offers (doc/design/extensions.md "Documentation"): the OpenAPI
+ * The API reference the `crhs-docs` extension offers (doc/design/extensions.md "Documentation"): the OpenAPI
  * document of the running app rendered into Markdown, one page per tag, plus one page of the shared object
  * shapes. Only routes an agent may call are shown (`allow` and `ask`); a `deny` route is left out, so the
  * model is not shown what it cannot use. The route index built here is also what `api_request` matches on.

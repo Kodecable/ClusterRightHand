@@ -14,7 +14,7 @@ import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
 import { openTestDb } from "./helpers/db.ts";
 
-/** The built-in `docs` extension (doc/design/extensions.md "Documentation"). */
+/** The built-in `crhs-docs` extension (doc/design/extensions.md "Documentation"). */
 
 const temporary: string[] = [];
 
@@ -37,8 +37,8 @@ function textOf(result: CallToolResult): string {
 }
 
 async function callDocs(tool: string, args: Record<string, unknown>): Promise<string> {
-	const provider = builtinProvider("docs");
-	if (!provider) throw new Error("no docs extension");
+	const provider = builtinProvider("crhs-docs");
+	if (!provider) throw new Error("no crhs-docs extension");
 	const result = (await provider.call(tool, args, {})) as CallToolResult;
 	return textOf(result);
 }
@@ -47,7 +47,7 @@ async function expectMissing(path: string): Promise<void> {
 	await expect(access(path)).rejects.toThrow();
 }
 
-describe("docs extension", () => {
+describe("crhs-docs extension", () => {
 	it("searches the running version's documentation for a known heading", async () => {
 		configureBuiltinExtensions();
 		const found = await callDocs("search_docs", { query: "Built-in extensions" });
@@ -142,17 +142,17 @@ describe("docs extension", () => {
 		);
 	});
 
-	it("renders the API reference with allow routes and without deny routes, even with api disabled", async () => {
+	it("renders the API reference with allow routes and without deny routes, even with crhs-api disabled", async () => {
 		const db: Db = await openTestDb("sqlite");
 		try {
 			const audit = new Audit(db);
 			createApp(db, { audit });
 			const admin = await createUser(db, { username: "admin", kind: "admin", password: "password-123" });
-			await saveExtension(db, MasterKey.generate(), "api", { enabled: false }, admin.id);
+			await saveExtension(db, MasterKey.generate(), "crhs-api", { enabled: false }, admin.id);
 
 			const entries = await sessionExtensionsForUser(db, admin.id, [], undefined);
-			expect(entries.map((entry) => entry.extension.name)).toContain("docs");
-			expect(entries.map((entry) => entry.extension.name)).not.toContain("api");
+			expect(entries.map((entry) => entry.extension.name)).toContain("crhs-docs");
+			expect(entries.map((entry) => entry.extension.name)).not.toContain("crhs-api");
 
 			const nodes = await callDocs("read_doc", { path: "api/nodes.md", limit: 40 });
 			expect(nodes).toContain("GET /api/nodes");
