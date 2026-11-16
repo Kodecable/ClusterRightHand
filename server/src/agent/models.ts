@@ -96,7 +96,7 @@ export class ModelConfig {
 		return this.#providerSessionId(providerSessionId);
 	}
 
-	/** The provider session id of a crh session, for callers outside a durable conversation (Auto Review). */
+	/** The provider session id of a crh session, for callers outside a durable conversation (generation timing). */
 	providerSessionIdFor(sessionId: string): string | undefined {
 		return this.#providerSessionFor(sessionId);
 	}
@@ -119,10 +119,15 @@ export class ModelConfig {
 	/**
 	 * The registry the Harness gets, wrapped so its compaction calls are metered (doc/design/agent-runtime.md "Quota and token accounting")
 	 * and its generation streams are timed (doc/design/agent-runtime.md "Session statistics"). `timing` is resolved per call: the
-	 * runtime is built after the Harness, and a reopen must share the same map.
+	 * runtime is built after the Harness, and a reopen must share the same map. `compactionSessionId` replaces
+	 * durable's provider session id with the compaction stream's own derived id.
 	 */
-	metered(onComplete: CompleteMeter, timing: () => TimingSink | undefined): Models {
-		return meteredModels(this.#models, onComplete, timing);
+	metered(
+		onComplete: CompleteMeter,
+		timing: () => TimingSink | undefined,
+		compactionSessionId?: (providerSessionId: string) => string,
+	): Models {
+		return meteredModels(this.#models, onComplete, timing, compactionSessionId);
 	}
 
 	/**

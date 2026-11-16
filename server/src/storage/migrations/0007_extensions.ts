@@ -78,6 +78,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("approval", "text")
 		.addColumn("pending_input", "text")
 		.addColumn("root_session_id", "text")
+		.addColumn("source_call_id", "text")
 		.addColumn("handler_type", "text")
 		.addColumn("handler_session_id", "text")
 		.addColumn("state", "text", (c) => c.notNull())

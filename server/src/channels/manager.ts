@@ -39,6 +39,9 @@ import type { Db } from "../storage/db.ts";
 import { getUserSettings, patchUserSettings } from "../users/settings.ts";
 import { errorText, NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
+import { KeyedQueue } from "../util/keyed-queue.ts";
+import { KeyedReconciler } from "../util/keyed-reconciler.ts";
+import { SingleFlight } from "../util/single-flight.ts";
 import {
 	type BotMessages,
 	botLocale,
@@ -373,18 +376,19 @@ export class ChannelManager {
 	readonly #adapters = new Map<string, AdapterEntry>();
 	readonly #rowErrors = new Map<string, string>();
 	readonly #watchers = new Map<string, () => void>();
-	readonly #watchStarts = new Map<string, Promise<void>>();
-	/** The tail of each watched session's event handling; batches run one after another. */
-	readonly #eventQueues = new Map<string, Promise<void>>();
+	readonly #watchStarts = new SingleFlight<void>();
+	/** Each watched session's event batches, handled one after another. */
+	readonly #eventQueue = new KeyedQueue("channel event queue");
 	readonly #runs = new Map<string, RunState>();
 	readonly #drafts = new Map<string, DraftState>();
 	readonly #statuses = new Map<string, StatusState>();
 	readonly #tracked = new Map<string, TrackedMessage>();
 	readonly #unlinkedReplied = new Set<string>();
-	/** The tail of each channel's admin operations, so a reload never overlaps another for the same name. */
-	readonly #channelOps = new Map<string, Promise<void>>();
-	readonly #waitSyncs = new Map<string, Promise<void>>();
-	readonly #topicCreations = new Map<string, Promise<ChannelThreadRow | undefined>>();
+	/** Each channel's admin operations, so a reload never overlaps another for the same name. */
+	readonly #channelOps = new KeyedQueue("channel admin queue");
+	/** Wait syncs per root: a state change during a sync asks for one more pass that reads the newer waits. */
+	readonly #waitSyncs = new KeyedReconciler<void>();
+	readonly #topicCreations = new SingleFlight<ChannelThreadRow | undefined>();
 	readonly #historyLimit: number;
 	readonly #progressIntervalMs: number;
 	readonly #draftKeepaliveMs: number;
@@ -472,17 +476,7 @@ export class ChannelManager {
 	 * two adapters and lose the reference to one of them (doc/design/channels.md "Channels").
 	 */
 	#serialized<T>(name: string, operation: () => Promise<T>): Promise<T> {
-		const previous = this.#channelOps.get(name) ?? Promise.resolve();
-		const run = previous.then(operation, operation);
-		const settled = run.then(
-			() => {},
-			() => {},
-		);
-		this.#channelOps.set(name, settled);
-		void settled.then(() => {
-			if (this.#channelOps.get(name) === settled) this.#channelOps.delete(name);
-		});
-		return run;
+		return this.#channelOps.run(name, operation);
 	}
 
 	/** Re-reads one channel after an admin change, starting or stopping its adapter. */
@@ -2355,28 +2349,23 @@ export class ChannelManager {
 	// ---- outbound and notifications ----
 
 	#queueSessionEvents(sessionId: string, events: import("../agent/runtime.ts").SessionEvent[]): void {
-		const previous = this.#eventQueues.get(sessionId) ?? Promise.resolve();
-		const next = previous
-			.then(() => this.#onSessionEvents(sessionId, events))
+		void this.#eventQueue
+			.run(sessionId, () => this.#onSessionEvents(sessionId, events))
 			.catch((err: unknown) => {
 				console.error("channels: handling session events failed:", err);
 			});
-		this.#eventQueues.set(sessionId, next);
-		void next.then(() => {
-			if (this.#eventQueues.get(sessionId) === next) this.#eventQueues.delete(sessionId);
-		});
 	}
 
 	/** Resolves once the session's queued event batches are handled (tests). */
 	async sessionEventsSettled(sessionId: string): Promise<void> {
-		await this.#eventQueues.get(sessionId);
+		await this.#eventQueue.tail(sessionId);
 	}
 
 	async #ensureWatcher(sessionId: string): Promise<void> {
 		if (this.#watchers.has(sessionId) || this.#stopped) return;
-		const starting = this.#watchStarts.get(sessionId);
+		const starting = this.#watchStarts.current(sessionId);
 		if (starting) return starting;
-		const start = (async () => {
+		return this.#watchStarts.run(sessionId, async () => {
 			try {
 				// The runtime awaits this callback: returning its promise keeps one session's batches in order.
 				// Batches of one session are handled in order through the manager's own queue, and the callback
@@ -2392,12 +2381,8 @@ export class ChannelManager {
 				this.#watchers.set(sessionId, stop);
 			} catch (err) {
 				if (!this.#options.runtime.closing) console.error("channels: watching a session failed:", err);
-			} finally {
-				this.#watchStarts.delete(sessionId);
 			}
-		})();
-		this.#watchStarts.set(sessionId, start);
-		return start;
+		});
 	}
 
 	/**
@@ -2406,7 +2391,7 @@ export class ChannelManager {
 	 */
 	async #releaseWatcherIfUnused(sessionId: string): Promise<void> {
 		if (this.#runs.has(sessionId) || this.#drafts.has(sessionId) || !this.#watchers.has(sessionId)) return;
-		const starting = this.#watchStarts.get(sessionId);
+		const starting = this.#watchStarts.current(sessionId);
 		if (starting) await starting;
 		if (!this.#watchers.has(sessionId) || this.#runs.has(sessionId) || this.#drafts.has(sessionId)) return;
 		if ((await threadsForSession(this.#options.db, sessionId)).length > 0) return;
@@ -2810,50 +2795,39 @@ export class ChannelManager {
 		sessionId: string,
 	): Promise<ChannelThreadRow | undefined> {
 		const key = `${row.id}:${sessionId}`;
-		const pending = this.#topicCreations.get(key);
-		if (pending) return pending;
-		const creating = (async () => {
-			// The entry is removed whatever fails here, including reading the locale or title before the topic is
-			// created: a rejected promise must not be cached for the rest of the process.
+		return this.#topicCreations.run(key, async () => {
+			// A rejected creation must not be cached: SingleFlight removes the entry when it settles, also on throw.
+			const createTopic = adapter.createTopic?.bind(adapter);
+			if (!createTopic) return undefined;
+			const locale = botLocale(await this.#userLocale(account.user_id));
+			const title = clip(await this.#sessionTitle(sessionId, locale), 60);
 			try {
-				const createTopic = adapter.createTopic?.bind(adapter);
-				if (!createTopic) return undefined;
-				const locale = botLocale(await this.#userLocale(account.user_id));
-				const title = clip(await this.#sessionTitle(sessionId, locale), 60);
-				try {
-					const topicId = await createTopic(account.platform_chat_id ?? account.platform_user_id, `CRH: ${title}`);
-					return await bindThread(this.#options.db, {
-						channelId: row.id,
-						platform: adapter.platform,
-						chatId: account.platform_chat_id ?? account.platform_user_id,
-						topicId,
-						sessionId,
-					});
-				} catch (err) {
-					console.error("channels: creating a notification topic failed:", err);
-					return undefined;
-				}
-			} finally {
-				this.#topicCreations.delete(key);
+				const topicId = await createTopic(account.platform_chat_id ?? account.platform_user_id, `CRH: ${title}`);
+				return await bindThread(this.#options.db, {
+					channelId: row.id,
+					platform: adapter.platform,
+					chatId: account.platform_chat_id ?? account.platform_user_id,
+					topicId,
+					sessionId,
+				});
+			} catch (err) {
+				console.error("channels: creating a notification topic failed:", err);
+				return undefined;
 			}
-		})();
-		this.#topicCreations.set(key, creating);
-		return creating;
+		});
 	}
 
 	// ---- approvals and quota waits in chat ----
 
 	async #stateChanged(sessionId: string): Promise<void> {
 		const rootId = (await rootSessionIdOf(this.#options.db, sessionId)) ?? sessionId;
-		const pending = this.#waitSyncs.get(rootId);
-		if (pending) return pending;
-		const sync = this.#syncRootWaits(rootId)
-			.catch((err: unknown) => {
-				console.error(`channels: syncing waits of root ${rootId} failed:`, err);
-			})
-			.finally(() => this.#waitSyncs.delete(rootId));
-		this.#waitSyncs.set(rootId, sync);
-		return sync;
+		try {
+			// A state change during a sync is a hint that the waits changed again: the reconciler runs the sync
+			// once more after the current pass, so the last pass reads data newer than the last request.
+			await this.#waitSyncs.run(rootId, () => this.#syncRootWaits(rootId));
+		} catch (err) {
+			console.error(`channels: syncing waits of root ${rootId} failed:`, err);
+		}
 	}
 
 	async #syncAllWaits(): Promise<void> {
@@ -2864,7 +2838,13 @@ export class ChannelManager {
 			.where("state", "=", "awaiting")
 			.groupBy("root_session_id")
 			.execute();
-		for (const row of rows) await this.#syncRootWaits(row.root_session_id);
+		for (const row of rows) {
+			try {
+				await this.#waitSyncs.run(row.root_session_id, () => this.#syncRootWaits(row.root_session_id));
+			} catch (err) {
+				console.error(`channels: syncing waits of root ${row.root_session_id} failed:`, err);
+			}
+		}
 	}
 
 	async #syncRootWaits(rootId: string): Promise<void> {

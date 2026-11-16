@@ -211,6 +211,7 @@ export function directToolsExtension(
 					const ctx: ToolContext = {
 						...base,
 						callKey: String(api.taskId),
+						callId: api.callId,
 						closing: () => runtimeRef.current?.closing === true,
 						...(context.abortSignal ? { signal: context.abortSignal } : {}),
 						onStatus: (status) => api.details(status as never, context),
@@ -712,6 +713,7 @@ export function clusterExtension(
 				const ctx: ToolContext = {
 					...base,
 					callKey: String(api.taskId),
+					callId: api.callId,
 					closing: () => runtimeRef.current?.closing === true,
 					deliveryCount: () => deliveryCountFor(runtimeRef.current, conversationId),
 					...(context.abortSignal ? { signal: context.abortSignal } : {}),

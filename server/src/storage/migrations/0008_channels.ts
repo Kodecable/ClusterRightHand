@@ -20,6 +20,9 @@ import type { Kysely } from "kysely";
  *
  * `sessions.last_used_from` says where a session's latest user message came from: `web`, a `channel_threads.id`,
  * or null when a schedule (or another non-WebUI, non-chat submitter) sent it.
+ *
+ * `tasks.source_call_id` and `task_groups.source_call_id` hold the durable tool call that created the work, so
+ * Auto Review can read the call as the model made it (doc/design/access-control.md "Auto Review").
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
 	await db.schema
@@ -111,9 +114,15 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.execute();
 
 	await db.schema.alterTable("sessions").addColumn("last_used_from", "text").execute();
+	// The durable tool call that created a task or task group, for Auto Review's operation block
+	// (doc/design/access-control.md "Auto Review"). Null when no tool call created it (API token, MCP, WebUI).
+	await db.schema.alterTable("tasks").addColumn("source_call_id", "text").execute();
+	await db.schema.alterTable("task_groups").addColumn("source_call_id", "text").execute();
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
+	await db.schema.alterTable("task_groups").dropColumn("source_call_id").execute();
+	await db.schema.alterTable("tasks").dropColumn("source_call_id").execute();
 	await db.schema.alterTable("sessions").dropColumn("last_used_from").execute();
 	await db.schema.dropTable("user_settings").execute();
 	await db.schema.dropTable("channel_threads").execute();

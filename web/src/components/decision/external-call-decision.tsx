@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
 import { MONO_CELL } from "@/lib/utils";
 import { DecisionFrame, DecisionTab, DecisionTabList, DecisionTabs } from "./decision";
-import { EvaluationTable } from "./evaluation";
+import { EvaluationTable, ReviewSummary } from "./evaluation";
 import { RejectDecision } from "./reject";
 
 /** One waiting external call as the session dock and the approvals page show it. */
@@ -28,6 +28,7 @@ export function ExternalCallDecision({
 	error,
 	count,
 	details,
+	showReview = false,
 	onDecide,
 }: {
 	call: ExternalCallView;
@@ -35,6 +36,8 @@ export function ExternalCallDecision({
 	error?: unknown;
 	count?: ReactNode;
 	details?: ReactNode;
+	/** Show Auto Review's compact verdict under the summary (the session dock does; approval pages show it in full). */
+	showReview?: boolean;
 	onDecide: (body: ApprovalBody) => void;
 }) {
 	const { t } = useLingui();
@@ -129,6 +132,7 @@ export function ExternalCallDecision({
 							</pre>
 						</>
 					)}
+					{showReview && <ReviewSummary review={call.approval?.review} />}
 				</div>
 			}
 			details={details}

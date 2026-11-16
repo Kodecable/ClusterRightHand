@@ -80,6 +80,11 @@ export interface FakeTelegram {
 	addFile(fileId: string, file: Partial<FakeFile> & { bytes: Uint8Array }): void;
 	/** Makes the next sendRichMessage fail with a 400, for the adapter's plain-text fallback. */
 	failNextRichMessage(description?: string): void;
+	/**
+	 * Holds the next message send in flight until `release()`: `held` resolves once the request reached the
+	 * server, so a test can let the state change that sends it race with another.
+	 */
+	holdNextSend(): { held: Promise<void>; release: () => void };
 	callsOf(method: string): FakeCall[];
 	/** The most getUpdates requests in flight at once for a token; overlapping adapters would raise it. */
 	maxConcurrentPolls(token?: string): number;
@@ -110,6 +115,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 	let nextMessageId = 1000;
 	let nextTopicId = 500;
 	let richFailure: string | null = null;
+	let sendHold: { reached: () => void; wait: Promise<void> } | null = null;
 	const waiters = new Set<() => void>();
 	let server: Server;
 	let apiRoot = "";
@@ -263,6 +269,12 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		res: ServerResponse,
 	): Promise<void> => {
 		record(method, body, botToken);
+		if ((method === "sendMessage" || method === "sendRichMessage") && sendHold) {
+			const hold = sendHold;
+			sendHold = null;
+			hold.reached();
+			await hold.wait;
+		}
 		switch (method) {
 			case "getMe":
 				return json(res, { ok: true, result: BOT });
@@ -422,6 +434,19 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		addFile,
 		failNextRichMessage: (description = "Bad Request: can't parse rich message") => {
 			richFailure = description;
+		},
+		holdNextSend: () => {
+			if (sendHold) throw new Error("a send is already held");
+			let reached!: () => void;
+			let release!: () => void;
+			const held = new Promise<void>((resolve) => {
+				reached = resolve;
+			});
+			const wait = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			sendHold = { reached, wait };
+			return { held, release: () => release() };
 		},
 		callsOf: (method) => calls.filter((call) => call.method === method),
 		maxConcurrentPolls: (botToken = token) => polls.get(botToken)?.max ?? 0,

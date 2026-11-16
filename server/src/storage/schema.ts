@@ -208,6 +208,8 @@ export interface ExternalCallsTable extends ApprovalColumns {
 	operation: string;
 	/** JSON tool annotations, when the server listed any. */
 	annotations: string | null;
+	/** The transcript id of the tool call that made it (model-supplied, not unique), for Auto Review. */
+	source_call_id: string | null;
 	state: ExternalCallState;
 	created_at: CreatedAt;
 	finished_at: string | null;
@@ -386,6 +388,11 @@ export interface TasksTable extends ApprovalColumns {
 	 * (doc/design/execution.md "Task purpose"). Null for ordinary tasks; the task API never sets it.
 	 */
 	purpose: string | null;
+	/**
+	 * The durable tool call that created the task, when a tool call did: Auto Review reads its name and
+	 * arguments from the session transcript. Null for tasks created by an API token, MCP or a WebUI action.
+	 */
+	source_call_id: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 export interface TaskGroupsTable extends ApprovalColumns {
@@ -415,6 +422,11 @@ export interface TaskGroupsTable extends ApprovalColumns {
 	timeout_ms: number | null;
 	/** Why a dedicated feature created this group; null for ordinary work (doc/design/execution.md "Task purpose"). */
 	purpose: string | null;
+	/**
+	 * The durable tool call that created the group, when a tool call did: Auto Review reads its name and
+	 * arguments from the session transcript. Null for groups created by an API token, MCP or a WebUI action.
+	 */
+	source_call_id: ColumnType<string | null, string | null | undefined, string | null>;
 	/**
 	 * A transfer group's crhs-side source location (JSON), shared by every member; null for other groups
 	 * (doc/design/library.md "Copies"). Members are created only once the group is approved, so a group

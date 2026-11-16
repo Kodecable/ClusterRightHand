@@ -170,3 +170,81 @@ export function DecisionView({
 		/>
 	);
 }
+
+/** Risk levels of an Auto Review answer; an unknown value stays visible raw. */
+const RISK_LABELS: Record<string, MessageDescriptor> = {
+	low: msg`Low`,
+	medium: msg`Medium`,
+	high: msg`High`,
+};
+
+/** The risk of an Auto Review answer as text. */
+function riskLabel(i18n: I18n, risk: string): string {
+	const descriptor = RISK_LABELS[risk];
+	return descriptor === undefined ? risk : i18n._(descriptor);
+}
+
+/** The tone of a risk level: the higher, the louder. */
+function riskTone(risk: string): "muted" | "warn" | "danger" {
+	if (risk === "high") return "danger";
+	if (risk === "medium") return "warn";
+	return "muted";
+}
+
+/** Auto Review's verdict on an approval: its decision, risk, reason and model. */
+export function ReviewView({ review }: { review: NonNullable<TaskView["approval"]>["review"] }) {
+	const { i18n } = useLingui();
+	if (!review) return null;
+	return (
+		<KeyValueList
+			items={[
+				{
+					label: <Trans>Auto review</Trans>,
+					value: (
+						<StatusText tone={review.decision === "approve" ? "ok" : "warn"}>
+							{review.decision === "approve" ? <Trans>Approved</Trans> : <Trans>Escalated</Trans>}
+						</StatusText>
+					),
+				},
+				{
+					label: <Trans>Risk</Trans>,
+					value: <StatusText tone={riskTone(review.risk)}>{riskLabel(i18n, review.risk)}</StatusText>,
+				},
+				{ label: <Trans>Reason</Trans>, value: review.reason },
+				{ label: <Trans>Model</Trans>, value: <span className={MONO_CELL}>{review.model}</span> },
+			]}
+		/>
+	);
+}
+
+/**
+ * Auto Review's verdict in one compact line for a decision card on the session page: the decision, risk,
+ * reason and model without the full label/value list an approval page shows.
+ */
+export function ReviewSummary({ review }: { review: NonNullable<TaskView["approval"]>["review"] }) {
+	const { i18n } = useLingui();
+	if (!review) return null;
+	return (
+		<div
+			data-testid="decision-review"
+			className="grid min-w-0 gap-0.5 rounded-md border bg-muted/40 px-2 py-1 text-xs text-muted-foreground"
+		>
+			<div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+				<span className="font-medium text-foreground">
+					<Trans>Auto review</Trans>
+				</span>
+				<span>
+					<Trans>Decision</Trans>:{" "}
+					<StatusText tone={review.decision === "approve" ? "ok" : "warn"}>
+						{review.decision === "approve" ? <Trans>Approved</Trans> : <Trans>Escalated</Trans>}
+					</StatusText>
+				</span>
+				<span>
+					<Trans>Risk</Trans>: <StatusText tone={riskTone(review.risk)}>{riskLabel(i18n, review.risk)}</StatusText>
+				</span>
+				<span className={cn(MONO_CELL, "text-[11px]")}>{review.model}</span>
+			</div>
+			<p className="min-w-0 break-words [overflow-wrap:anywhere]">{review.reason}</p>
+		</div>
+	);
+}

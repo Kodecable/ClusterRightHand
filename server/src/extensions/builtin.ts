@@ -2,7 +2,7 @@ import type { Operation } from "@crh/api";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import type { InternalRequestIdentity } from "../api/context.ts";
 import { UserError } from "../util/errors.ts";
-import { type ApiDocumentLike, type ApiReference, buildApiReference } from "./api-reference.ts";
+import { type ApiDocumentLike, type ApiReference, type ApiRoute, buildApiReference } from "./api-reference.ts";
 import { apiRequestOperation, runApiRequest } from "./api-request.ts";
 import {
 	closeDocumentPaths,
@@ -374,4 +374,9 @@ export const RESERVED_EXTENSION_NAMES: ReadonlySet<string> = new Set(BUILTIN_EXT
 
 export function builtinProvider(name: string): BuiltinExtensionProvider | undefined {
 	return BUILTIN_EXTENSIONS.find((entry) => entry.name === name);
+}
+
+/** The API routes the running app exposes, for callers that describe them outside a tool call (Auto Review). */
+export function apiRoutesForReview(): readonly ApiRoute[] {
+	return state.api?.reference.routes ?? [];
 }

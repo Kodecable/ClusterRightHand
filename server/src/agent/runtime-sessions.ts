@@ -23,6 +23,12 @@ import { newId } from "../util/id.ts";
 import { sessionExtensionViews } from "./extension.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
 import { setQuota } from "./quota.ts";
+import {
+	type ReviewHistoryEntry,
+	type ReviewToolCallRecord,
+	reviewHistoryEntries,
+	reviewToolCalls as reviewToolCallsOf,
+} from "./review-history.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts";
 import { endSessionWork, refreshState } from "./runtime-state.ts";
@@ -703,6 +709,28 @@ export async function transcriptEntries(host: RuntimeHost, conversationId: strin
 		if (!page.next) return entries;
 		cursor = page.next;
 	}
+}
+
+/** The reviewer's ordered history of a session: user instructions, the latest checkpoint and tool calls only. */
+export async function reviewHistory(host: RuntimeHost, sessionId: string): Promise<ReviewHistoryEntry[]> {
+	const row = await host.db
+		.selectFrom("sessions")
+		.select("conversation_id")
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
+	if (!row) return [];
+	return reviewHistoryEntries(await transcriptEntries(host, row.conversation_id));
+}
+
+/** The session transcript's tool calls, pending ones included, for the reviewer's operation block. */
+export async function reviewToolCalls(host: RuntimeHost, sessionId: string): Promise<ReviewToolCallRecord[]> {
+	const row = await host.db
+		.selectFrom("sessions")
+		.select("conversation_id")
+		.where("id", "=", sessionId)
+		.executeTakeFirst();
+	if (!row) return [];
+	return reviewToolCallsOf(await transcriptEntries(host, row.conversation_id));
 }
 
 /** One message of a chat's history replay (doc/design/channels.md "Conversations"). */

@@ -6,7 +6,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon } from "lucide-react";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/components/data-table";
-import { ApprovalDecision } from "@/components/decision";
+import { ApprovalDecision, ReviewView } from "@/components/decision";
 import { ExternalCallDecision } from "@/components/decision/external-call-decision";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -14,6 +14,7 @@ import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
+import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { UserLink } from "@/components/user-link";
@@ -276,6 +277,7 @@ function DetailPending() {
 
 /** A deep link to one task's approval or signature wait (MCP returns these paths). */
 export function ApprovalTaskPage() {
+	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { taskId?: string };
 	const task = useApprovalTask(params.taskId);
 	const lookups = useApprovalLookups();
@@ -301,6 +303,11 @@ export function ApprovalTaskPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
+			{view.approval?.review && (
+				<Panel as="section" aria-label={t`Auto review`}>
+					<ReviewView review={view.approval.review} />
+				</Panel>
+			)}
 			{view.state === "awaiting_approval" ? (
 				<ApprovalDecision
 					item={{ kind: "task", task: view }}
@@ -331,6 +338,7 @@ export function ApprovalTaskPage() {
 }
 
 export function ApprovalTaskGroupPage() {
+	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { taskGroupId?: string };
 	const taskGroup = useApprovalTaskGroup(params.taskGroupId);
 	const lookups = useApprovalLookups();
@@ -356,6 +364,11 @@ export function ApprovalTaskGroupPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
+			{view.approval?.review && (
+				<Panel as="section" aria-label={t`Auto review`}>
+					<ReviewView review={view.approval.review} />
+				</Panel>
+			)}
 			{view.state === "awaiting_approval" ? (
 				<ApprovalDecision
 					item={{ kind: "task_group", taskGroup: view }}
@@ -420,6 +433,11 @@ export function ExternalCallApprovalPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
+			{view.approval?.review && (
+				<Panel as="section" aria-label={t`Auto review`}>
+					<ReviewView review={view.approval.review} />
+				</Panel>
+			)}
 			{view.state === "awaiting_approval" ? (
 				<ExternalCallDecision
 					call={view}

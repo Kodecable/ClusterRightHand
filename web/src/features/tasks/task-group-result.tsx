@@ -3,7 +3,7 @@ import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ApprovalDecision, DecisionView } from "@/components/decision";
+import { ApprovalDecision, DecisionView, ReviewView } from "@/components/decision";
 import { StatusText, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
@@ -113,6 +113,8 @@ export function TaskGroupResult({
 					onChanged={onChanged}
 				/>
 			)}
+
+			{taskGroup.approval?.review && <ReviewView review={taskGroup.approval.review} />}
 
 			{taskGroup.state === "rejected" && taskGroup.approval?.decision && (
 				<DecisionView

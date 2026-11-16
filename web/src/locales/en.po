@@ -838,7 +838,10 @@ msgstr "Auto (omit)"
 msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
 msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
 
+#: src/components/decision/evaluation.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/settings/model-presets.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Auto review"
 msgstr "Auto review"
 
@@ -2019,6 +2022,10 @@ msgstr "Environment"
 msgid "Error"
 msgstr "Error"
 
+#: src/components/decision/evaluation.tsx
+msgid "Escalated"
+msgstr "Escalated"
+
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "ETA"
 msgstr "ETA"
@@ -2294,6 +2301,7 @@ msgstr "Headers"
 msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 msgstr "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 
+#: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "High"
 msgstr "High"
@@ -2640,6 +2648,7 @@ msgstr "Local approval"
 msgid "Log out"
 msgstr "Log out"
 
+#: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "Low"
 msgstr "Low"
@@ -2692,6 +2701,7 @@ msgstr "Max TTL"
 msgid "MCP"
 msgstr "MCP"
 
+#: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "Medium"
 msgstr "Medium"
@@ -2739,6 +2749,7 @@ msgstr "Minimal"
 msgid "Mode"
 msgstr "Mode"
 
+#: src/components/decision/evaluation.tsx
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/settings/model-presets.tsx
@@ -4057,6 +4068,10 @@ msgstr "Revoke token {0}?"
 #: src/components/status-badge.tsx
 msgid "Revoked"
 msgstr "Revoked"
+
+#: src/components/decision/evaluation.tsx
+msgid "Risk"
+msgstr "Risk"
 
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx

@@ -162,10 +162,12 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 					fauxAssistantMessage([fauxToolCall("exec", { targets: [nodeName], argv: ["uptime"] }, { id: "c1" })], {
 						stopReason: "toolUse",
 					}),
-					// the reviewer, which sees only the operation
+					// the reviewer
 					(context) => {
 						prompts.push(JSON.stringify(context.messages));
-						return fauxAssistantMessage([fauxToolCall("submit_review", { decision: "approve", reason: "read-only" })]);
+						return fauxAssistantMessage([
+							fauxToolCall("submit_review", { decision: "approve", risk: "low", reason: "read-only" }),
+						]);
 					},
 					fauxAssistantMessage(
 						[fauxToolCall("exec", { targets: [nodeName], argv: ["rm", "-rf", "/tmp/x"] }, { id: "c2" })],
@@ -173,7 +175,9 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 							stopReason: "toolUse",
 						},
 					),
-					fauxAssistantMessage([fauxToolCall("submit_review", { decision: "escalate", reason: "deletes files" })]),
+					fauxAssistantMessage([
+						fauxToolCall("submit_review", { decision: "escalate", risk: "medium", reason: "deletes files" }),
+					]),
 					fauxAssistantMessage([fauxText("all done")]),
 				]);
 				const sub = await runtime.submit(session.id, owner, "check and clean", "r1");
@@ -193,9 +197,10 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 					.executeTakeFirstOrThrow();
 				expect(first.state).toBe("exited");
 				expect(JSON.parse(first.approval ?? "{}").decision).toMatchObject({ by: { id: "auto-review" } });
-				// The reviewer saw the operation only, not the conversation.
+				// The reviewer sees the user's instruction and the operation, never the assistant's text or tool output.
 				expect(prompts[0]).toContain("uptime");
-				expect(prompts[0]).not.toContain("check and clean");
+				expect(prompts[0]).toContain("check and clean");
+				expect(prompts[0]).not.toContain('"role": "tool-call"');
 				await env.crhs.api(`/api/tasks/${waiting.id}/approval`, { body: { decision: "approve" } });
 				expect(await waitSubmission(runtime, session.id, sub)).toEqual({ status: "done", answer: "all done" });
 			} finally {

@@ -215,8 +215,9 @@ function withNetworkFetch<O extends FetchOptions | undefined>(
  * (`streamSimple`) while context compaction summarizes with `completeSimple`, and the compaction task is the only
  * caller of `completeSimple` inside a Harness (doc/design/agent-runtime.md "Quota and token accounting"). The request carries the
  * conversation's provider session id, which identifies the session to charge; Auto Review calls its own `Models`
- * and is charged where it runs. The request (system prompt plus messages) goes along, so the call's input tokens
- * can be estimated from exactly what was sent when the upstream reports no usage.
+ * and is charged where it runs. The summary is a separate request stream with a different prefix, so its
+ * `sessionId` is replaced by `compactionSessionId` (doc/design/agent-runtime.md "Custom providers"); metering still
+ * reports the original id, which is the one the session mapping knows.
  *
  * Generation streams are also timed here (doc/design/agent-runtime.md "Session statistics"): `begin` at the call, `noteFirst` on
  * the first event carrying content and `finish` at done/error. Timing therefore needs no viewer and records
@@ -224,7 +225,12 @@ function withNetworkFetch<O extends FetchOptions | undefined>(
  * generation and Auto Review through their own registry) starts no entry, so it can never be read as a step's
  * timing; neither can `streamDeferred`, whose polls produce no new generation.
  */
-export function meteredModels(models: Models, onComplete: CompleteMeter, timing: () => TimingSink | undefined): Models {
+export function meteredModels(
+	models: Models,
+	onComplete: CompleteMeter,
+	timing: () => TimingSink | undefined,
+	compactionSessionId?: (providerSessionId: string) => string,
+): Models {
 	return new Proxy(models, {
 		get(target, property) {
 			const value = Reflect.get(target, property, target);
@@ -233,10 +239,14 @@ export function meteredModels(models: Models, onComplete: CompleteMeter, timing:
 				return async (...args: Parameters<Models["completeSimple"]>) => {
 					const failure: NetworkFailure = { error: undefined };
 					const options = withNetworkFetch(args[0], args[2], failure);
-					const result = await target.completeSimple(args[0], args[1], options);
+					const providerSessionId = options?.sessionId;
+					const requestOptions =
+						providerSessionId !== undefined && compactionSessionId !== undefined
+							? { ...options, sessionId: compactionSessionId(providerSessionId) }
+							: options;
+					const result = await target.completeSimple(args[0], args[1], requestOptions);
 					const message = withFailureMessage(result, failure);
-					const sessionId = options?.sessionId;
-					if (sessionId) await onComplete(sessionId, message, args[1]);
+					if (providerSessionId) await onComplete(providerSessionId, message, args[1]);
 					return message;
 				};
 			}

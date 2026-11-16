@@ -201,7 +201,9 @@ export function customProvider(
 
 	/** Per-request options: session headers and a payload hook for session fields / body-mode thinking. */
 	const adapt = (model: Model<Api>, options: RequestOptions | undefined, simple: boolean): RequestOptions => {
-		const session = options?.sessionId ? resolveSession(options.sessionId) : undefined;
+		// The configured fields carry the request stream's id: the crh session for the main conversation, and a
+		// derived id for compaction, review and title. An unresolved id is itself the stream's identity.
+		const session = options?.sessionId ? (resolveSession(options.sessionId) ?? options.sessionId) : undefined;
 		const config = configs.get(model.id);
 		const level: ModelThinkingLevel = simple
 			? options?.reasoning

@@ -6,6 +6,7 @@ import type { ModelRef } from "./models.ts";
 import { chargeCall, exhaustedLevel } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { conversationOf } from "./runtime-core.ts";
+import { streamSessionId } from "./stream-session-id.ts";
 import { callTokens, estimateRequestTokens } from "./tokens.ts";
 
 /**
@@ -203,13 +204,13 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 		},
 	];
 	const { level, maxTokens } = titleThinking(resolved);
-	const providerSessionId = host.models.providerSessionIdFor(sessionId);
 	const answer = await host.models.completeSimple(
 		resolved,
 		{ systemPrompt, messages },
 		{
-			// A custom provider's session fields resolve from the crh session, as Auto Review passes it.
-			sessionId: providerSessionId ?? sessionId,
+			// Title generation is its own request stream, with a prefix unlike the conversation's
+			// (doc/design/agent-runtime.md "Custom providers").
+			sessionId: streamSessionId(sessionId, "title"),
 			maxTokens,
 			...(level === "off" ? {} : { reasoning: level }),
 			timeoutMs: TITLE_TIMEOUT_MS,

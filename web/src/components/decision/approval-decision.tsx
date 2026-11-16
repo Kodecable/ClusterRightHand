@@ -8,7 +8,7 @@ import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { alwaysRule } from "@/lib/approval-rules";
 import { DecisionFrame, DecisionTab, DecisionTabList, DecisionTabs, PrivilegedMark } from "./decision";
-import { EvaluationTable } from "./evaluation";
+import { EvaluationTable, ReviewSummary } from "./evaluation";
 import { RejectDecision } from "./reject";
 import { DecisionSummary, operationText } from "./summary";
 import type { ApprovalItem } from "./types";
@@ -118,6 +118,7 @@ export function ApprovalDecision({
 	error,
 	details,
 	count,
+	showReview = false,
 	onDecide,
 	className,
 }: {
@@ -130,6 +131,8 @@ export function ApprovalDecision({
 	error?: unknown;
 	details?: ReactNode;
 	count?: ReactNode;
+	/** Show Auto Review's compact verdict under the summary (the session dock does; approval pages show it in full). */
+	showReview?: boolean;
 	onDecide: (body: ApprovalBody) => void;
 	className?: string;
 }) {
@@ -167,13 +170,16 @@ export function ApprovalDecision({
 			title={t`Your approval is needed`}
 			badge={subject.privileged ? <PrivilegedMark /> : undefined}
 			summary={
-				<DecisionSummary
-					ids={ids}
-					refs={item.kind === "task_group" ? item.taskGroup.refs : undefined}
-					nodeNames={nodeNames}
-					operation={operationText(subject.kind, subject.operation, subject.summary)}
-					purpose={item.kind === "task_group" ? item.taskGroup.purpose : item.task.purpose}
-				/>
+				<>
+					<DecisionSummary
+						ids={ids}
+						refs={item.kind === "task_group" ? item.taskGroup.refs : undefined}
+						nodeNames={nodeNames}
+						operation={operationText(subject.kind, subject.operation, subject.summary)}
+						purpose={item.kind === "task_group" ? item.taskGroup.purpose : item.task.purpose}
+					/>
+					{showReview && <ReviewSummary review={subject.approval?.review} />}
+				</>
 			}
 			details={details}
 			count={count}

@@ -187,6 +187,7 @@ describeBackends("initial migration", (backend) => {
 			"approval",
 			"pending_input",
 			"root_session_id",
+			"source_call_id",
 			"handler_type",
 			"handler_session_id",
 			"state",
@@ -209,9 +210,11 @@ describeBackends("initial migration", (backend) => {
 		expect(sessions).toContain("counted_submission_id");
 		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_fingerprint");
 		expect(await tableColumns(backend, db, "tasks")).toEqual(
-			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose"]),
+			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose", "source_call_id"]),
 		);
-		expect(await tableColumns(backend, db, "task_groups")).toContain("transfer");
+		expect(await tableColumns(backend, db, "task_groups")).toEqual(
+			expect.arrayContaining(["transfer", "source_call_id"]),
+		);
 		expect(await tableColumns(backend, db, "sessions")).toContain("last_used_from");
 		expect(await tableColumns(backend, db, "channels")).toEqual(
 			expect.arrayContaining([

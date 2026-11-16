@@ -401,6 +401,24 @@ describe("MCP extensions", () => {
 		expect((byNamePart.results as { tool: string }[]).map((entry) => entry.tool)).toContain("nodeGroupLookup");
 	});
 
+	it("runs two calls whose model call ids repeat, keyed by durable's call key", async () => {
+		await addServer();
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		// Some providers reuse call ids such as "call_0" across turns; only durable's key identifies a call.
+		const first = await runExtensionTool({ ...ctx, callKey: "turn-1", callId: "call_0" }, "fake", "echo", {
+			message: "one",
+		});
+		const second = await runExtensionTool({ ...ctx, callKey: "turn-2", callId: "call_0" }, "fake", "echo", {
+			message: "two",
+		});
+		expect(first.content.map((block) => block.text).join("\n")).toContain("echo: one");
+		expect(second.content.map((block) => block.text).join("\n")).toContain("echo: two");
+		expect(await getExternalCall(db, externalCallId("turn-2"))).toMatchObject({
+			state: "succeeded",
+			source_call_id: "call_0",
+		});
+	});
+
 	it("keeps only the marker of a finished call and never calls the server again", async () => {
 		await addServer();
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });

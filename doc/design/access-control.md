@@ -252,8 +252,9 @@ external call has its own small object, `external_calls`, and waits the same way
   lift it, but the root preset still bounds the root agent.
 - If no agent may decide or the agent escalates, the review model decides first for Auto Review, and
   otherwise the root's owner decides in the WebUI.
-- The review model sees only the operation, never the conversation or node output, and can approve or
-  escalate but never deny.
+- The review model sees the session's instructions and tool calls plus the operation, never assistant
+  text, tool results or node output, and can approve or escalate but never deny
+  ([Auto Review](#auto-review)).
 - An approval has no deadline. It waits until someone decides, a rule change removes the need, or the
   API token that started it is revoked or expires. The system does not give up a user's decision for
   them.
@@ -268,6 +269,61 @@ external call has its own small object, `external_calls`, and waits the same way
   and audited with the channel. "Always allow" changes rules, so it stays in the WebUI; an approval
   that needs a signature sends a link to its page.
 
+### Auto Review
+
+Auto Review stands in for the user's decision on an Auto Review root: the review model approves what is
+clearly safe and escalates the rest; it can never deny. It sees the requesting session's history and the
+operation, each as data in a fenced JSON block whose content cannot close the fence:
+
+- **user-instruction**: every user message of that session, whoever sent it (the owner, a shared user,
+  a schedule's prompt, a parent's task for a subagent). Only a user instruction can authorize an
+  action, and a later one overrides an earlier one only when it explicitly revokes or replaces it.
+- **checkpoint**: the latest compaction summary, at its position. It restores context but never carries
+  instruction authority.
+- **facts**: earlier tool calls that already have a result, with their name and arguments (the call
+  under review and others of its round have not run yet). They establish facts and never authorize a
+  medium-risk action.
+
+Assistant text and thinking, tool results, node output and system messages are excluded entirely. The
+history keeps the most recent 20 user instructions and the most recent 32 KiB of serialized tool calls;
+one call's arguments are cut to 4 KiB with a note of the original size, and the cut counts toward the
+budget. Tool calls older than the oldest kept instruction are dropped even when budget remains. Omitted
+ranges are marked in place: a leading `[earlier history omitted]`, and `[N earlier tool calls omitted
+here]` where tool calls were dropped between kept entries.
+
+The operation block is the original tool call, not a summary: the tool's name and arguments exactly as
+the model requested them, plus the tool's description (a cluster tool's, an MCP tool's from its
+extension's list, and for `crhs-api`'s `api_request` the matched API route's summary). Arguments above
+16 KiB are cut with a note of the original size.
+
+crhs resolves the trusted context: every target node's id, name and node group names, and the part the
+rules flagged for approval — the method and target of a task, or one method/target per flagged member
+of a task group.
+
+A task, task group or external call records the transcript id of the tool call that created it
+(`source_call_id`), and the reviewer reads that call from the requesting session's transcript. A model may
+reuse call ids, so the latest call with that id is taken; row ids stay derived from durable's own tool call
+key, which is unique. When no call is recorded or the transcript no longer has it (an API token or MCP
+request, which do not get Auto Review, or work created by the WebUI), the block falls back to the
+recorded method/target summary and says so. The call under review has no result yet, so it stays out of
+the history facts above.
+
+The reviewer assigns one of three risk levels:
+
+| Level | Covers | Decision |
+|---|---|---|
+| low | Reads and ordinary non-destructive work, and exact cleanup of objects this session's earlier tool calls created | Approve |
+| medium | Deleting or overwriting pre-existing data, production changes or deployments, service stops or restarts, package installs or removals, security, credential, user, firewall, network or permission changes, and external writes | Approve only when a user instruction explicitly authorizes this action, this target and this scope, with no unresolved conflict |
+| high | Sending credentials, secrets or private data to an external or untrusted destination, and equivalents | Always escalate |
+
+Node names and node groups can tell production from test. The reviewer answers through the
+`submit_review` tool with a decision and a risk; only low+approve, medium+approve, medium+escalate and
+high+escalate are valid. A high-risk approval, a missing or invalid risk and any other inconsistent
+answer escalate with an invalid-answer reason. No instruction can lower a risk level, and a high-risk
+operation is always escalated even when a user instruction asks for it. The fixed protocol text states
+these rules; only the preset's prompt is replaceable ([Model presets](agent-runtime.md#model-presets)).
+The risk is stored with the verdict and shown next to its reason on the approval pages.
+
 ## API tokens
 
 An API token belongs to its creator, is shown once, and is stored only as a hash. It expires after a
@@ -276,8 +332,8 @@ revocation and expiry take effect at once, and both reject the tasks the token s
 wait for approval.
 
 A token is the root of the MCP rule chain and can use only Ask or Yolo. Auto Review was excluded
-because the review model sees only the operation, and a token has no session or user instruction
-behind it, so a review cannot stand in for the user. A token reaches the same nodes as its owner but
+because it needs a session's user instructions to authorize medium-risk actions, and a token has none,
+so a review cannot stand in for the user. A token reaches the same nodes as its owner but
 authenticates only `/mcp`: no administrative action is possible with a token, even an administrator's.
 
 A password change ends the user's other WebUI sessions but does not revoke their tokens. A token can

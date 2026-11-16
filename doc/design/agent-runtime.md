@@ -72,6 +72,15 @@ and can name headers or body fields that receive a session id, which some upstre
 recommend (OpenRouter) for prompt caching and session affinity. Changing the base URL of a provider with a stored key requires entering the key again or
 removing it, so a key cannot be sent to a new endpoint without the administrator re-entering it.
 
+Each request stream of a session has its own provider session id: the main conversation keeps durable's
+provider session id, and compaction, Auto Review and title generation derive a deterministic UUIDv5 from
+the crh session id and their purpose. The custom session id fields therefore carry a different value for
+the four streams — the main stream's crh session id, or the derived id itself when the value is not a
+session in the map. Upstreams use this id for cache keys and affinity, so requests whose prompts have
+completely different prefixes (a summarization prompt, a review, a title) must not share the main
+conversation's cache identity. A derived id is stable across calls and restarts. A compaction whose
+conversation is not mapped yet derives from durable's provider session id instead, never reusing it.
+
 Each model declares its protocol, context window, maximum output, image support, thinking support and
 optional pi-ai compat settings. Thinking is either standard (pi-ai builds the parameters in a chosen
 format, with a per-level mapping) or custom (a JSON body merged into the request per level). Levels can
@@ -203,9 +212,11 @@ three administrator settings:
 Each preset's prompt is the custom prompt or a built-in default, followed by fixed protocol text that the
 model needs to use the tools or answer in a parseable form. Changes apply to the next model request.
 
-Auto Review answers through a `submit_review` tool call with `approve` or `escalate`. Only an explicit,
-schema-valid `approve` approves; any other answer escalates to the user, and the runtime never parses a
-decision out of prose. API token roots never use Auto Review.
+Auto Review answers through a `submit_review` tool call with a decision and a risk level: `approve` or
+`escalate`, and `low`, `medium` or `high`. Only a consistent, schema-valid answer can approve — low+approve,
+medium+approve, medium+escalate or high+escalate; a high-risk approval, a missing or invalid risk and any
+other answer escalate, and the runtime never parses a decision out of prose
+([Auto Review](access-control.md#auto-review)). API token roots never use Auto Review.
 
 Model requests are retried up to three times by the harness. There is no extra timeout beyond the
 provider's, except for title generation.
@@ -355,7 +366,8 @@ Logs, files and command output can be controlled by an attacker and still reach 
 is not a security boundary:
 
 - What may run, and with what privilege, is decided by crhs rules and the node, outside the model.
-- Auto Review sees only the operation, never the conversation or node output, so one injected text
+- Auto Review sees the session's user instructions and tool calls plus the operation, never assistant
+  text, tool results or node output, and each part is data in a fenced JSON block, so one injected text
   cannot steer both the agent and its reviewer.
 - Subagent requests reach the parent as data in a tagged block that a summary cannot close.
 

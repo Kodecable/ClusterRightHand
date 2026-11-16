@@ -1,8 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { TaskSpec } from "@crh/protocol";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { MemoryStorage } from "@earendil-works/pi-durable";
+import { type ConversationId, type EntryId, MemoryStorage, type StorageWrite } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig, saveModelProvider } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
@@ -17,13 +18,14 @@ import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 const faux = fauxProvider({ models: [{ id: "reviewer", reasoning: true }] });
 const model = () => ({ provider: faux.provider.id, modelId: "reviewer" });
-const REVIEW_ANSWER = (decision: "approve" | "escalate", reason: string) =>
-	fauxAssistantMessage([fauxToolCall("submit_review", { decision, reason })]);
+const REVIEW_ANSWER = (decision: "approve" | "escalate", risk: "low" | "medium" | "high", reason: string) =>
+	fauxAssistantMessage([fauxToolCall("submit_review", { decision, risk, reason })]);
 
 interface Recorded {
 	url: string;
@@ -59,7 +61,7 @@ function startStub(): Promise<{ server: Server; url: string; requests: Recorded[
 						index: 0,
 						id: "call_1",
 						type: "function",
-						function: { name: "submit_review", arguments: '{"decision":"approve",' },
+						function: { name: "submit_review", arguments: '{"decision":"approve","risk":"low",' },
 					},
 				],
 			});
@@ -91,6 +93,7 @@ let cluster: Cluster;
 let runtime: AgentRuntime;
 let models: ModelConfig;
 let masterKey: MasterKey;
+let storage: MemoryStorage;
 let stub: { server: Server; url: string; requests: Recorded[] };
 let owner: SessionUser;
 let nodeId = "";
@@ -153,9 +156,10 @@ beforeAll(async () => {
 	models = new ModelConfig(db, masterKey);
 	models.addProvider(faux.provider);
 	await models.reload();
+	storage = new MemoryStorage();
 	runtime = await AgentRuntime.open({
 		db,
-		storage: new MemoryStorage(),
+		storage,
 		models,
 		cluster,
 		taskGroups: new TaskGroups(db, cluster, { audit }),
@@ -213,7 +217,7 @@ afterAll(async () => {
 
 it("approves through the submit_review tool call and passes the thinking level", async () => {
 	const sessionId = await autoReviewSession("tool approve");
-	const { reviewed, seen } = await review(sessionId, REVIEW_ANSWER("approve", "only reads"));
+	const { reviewed, seen } = await review(sessionId, REVIEW_ANSWER("approve", "low", "only reads"));
 	expect(reviewed.approval?.review).toMatchObject({ decision: "approve", reason: "only reads" });
 	expect(reviewed.approval?.decision?.decision).toBe("approved");
 	const call = seen[0] as { options: { reasoning?: string; toolChoice?: unknown }; context: { messages: unknown[] } };
@@ -227,7 +231,7 @@ it("approves through the submit_review tool call and passes the thinking level",
 it("escalates from the tool call and truncates the reason to 300 characters", async () => {
 	const sessionId = await autoReviewSession("tool escalate");
 	const long = "x".repeat(400);
-	const { reviewed } = await review(sessionId, REVIEW_ANSWER("escalate", long));
+	const { reviewed } = await review(sessionId, REVIEW_ANSWER("escalate", "high", long));
 	expect(reviewed.approval?.review?.decision).toBe("escalate");
 	expect(reviewed.approval?.review?.reason).toHaveLength(300);
 	expect(reviewed.approval?.decision).toBeUndefined();
@@ -281,7 +285,7 @@ it("keeps a target's newline and forged On: lines inside the JSON block", async 
 		cwd: "",
 		stdin: null,
 	};
-	const { reviewed, seen } = await review(sessionId, REVIEW_ANSWER("approve", "safe"), forged);
+	const { reviewed, seen } = await review(sessionId, REVIEW_ANSWER("approve", "low", "safe"), forged);
 	expect(reviewed.approval?.review).toMatchObject({ decision: "approve", reason: "safe" });
 
 	const messages = (seen[0] as { context: { messages: { role: string; content: string }[] } }).context.messages;
@@ -289,7 +293,7 @@ it("keeps a target's newline and forged On: lines inside the JSON block", async 
 	if (content === undefined) throw new Error("no review prompt");
 	const block = /```json\n([\s\S]*?)\n```/.exec(content)?.[1];
 	expect(block).toBeTruthy();
-	expect(JSON.parse(block ?? "{}")).toMatchObject({ operation: "exec", on: nodeId });
+	expect(JSON.parse(block ?? "{}")).toMatchObject({ operation: "exec", on: [{ id: nodeId, name: "review-node" }] });
 	expect((JSON.parse(block ?? "{}") as { target: string }).target).toContain("On: 198.51.100.9");
 	// The newline is escaped inside the JSON string; it cannot start a line of the prompt.
 	expect(content).not.toContain("\nOn: 198.51.100.9");
@@ -334,12 +338,247 @@ it("follows the session's own level when the review preset has no model", async 
 
 	// With no review model, the root session's model and level are used as-is: no fixed, clamped level.
 	await runtime.modelPresets.update("review", { model: null });
-	const high = await review(await autoReviewSession("follow high level", "high"), REVIEW_ANSWER("approve", "safe"));
+	const high = await review(
+		await autoReviewSession("follow high level", "high"),
+		REVIEW_ANSWER("approve", "low", "safe"),
+	);
 	expect(levelOf(high.seen)).toBe("high");
 
-	const low = await review(await autoReviewSession("follow low level", "low"), REVIEW_ANSWER("approve", "safe"));
+	const low = await review(await autoReviewSession("follow low level", "low"), REVIEW_ANSWER("approve", "low", "safe"));
 	expect(levelOf(low.seen)).toBe("low");
 
-	const off = await review(await autoReviewSession("follow off level"), REVIEW_ANSWER("approve", "safe"));
+	const off = await review(await autoReviewSession("follow off level"), REVIEW_ANSWER("approve", "low", "safe"));
 	expect(levelOf(off.seen)).toBeUndefined();
+});
+
+it("stores the risk with the review verdict", async () => {
+	const sessionId = await autoReviewSession("risk stored");
+	const { reviewed } = await review(sessionId, REVIEW_ANSWER("approve", "low", "only reads"));
+	expect(reviewed.approval?.review).toEqual({
+		decision: "approve",
+		risk: "low",
+		reason: "only reads",
+		model: `${faux.provider.id}/reviewer`,
+	});
+});
+
+it("approves a medium-risk operation when a user instruction explicitly authorizes it", async () => {
+	const session = await runtime.createSession(owner, {
+		model: { ...model(), thinkingLevel: "high" },
+		rulePreset: "auto_review",
+		title: "authorized deletion",
+	});
+	faux.setResponses([fauxAssistantMessage([fauxText("ok")])]);
+	const submission = await runtime.submit(
+		session.id,
+		owner,
+		"Delete the staging volumes on review-node; this session is authorized to remove them.",
+		"review-authorized-medium",
+	);
+	expect((await waitSubmission(runtime, session.id, submission)).status).toBe("done");
+
+	const { reviewed } = await review(
+		session.id,
+		REVIEW_ANSWER("approve", "medium", "the user instruction authorizes this deletion"),
+	);
+	expect(reviewed.approval?.review).toMatchObject({ decision: "approve", risk: "medium" });
+	expect(reviewed.approval?.decision?.decision).toBe("approved");
+});
+
+it("escalates a high-risk approval and a missing risk as invalid answers", async () => {
+	await runtime.modelPresets.update("review", { model: { ...model(), thinkingLevel: "high" } });
+	const highSession = await autoReviewSession("high approved");
+	const high = await review(highSession, REVIEW_ANSWER("approve", "high", "send the credentials"));
+	expect(high.reviewed.approval?.review).toMatchObject({
+		decision: "escalate",
+		risk: "high",
+		reason: "invalid review answer",
+	});
+	expect(high.reviewed.approval?.decision).toBeUndefined();
+
+	const missingSession = await autoReviewSession("missing risk");
+	const missing = await review(
+		missingSession,
+		fauxAssistantMessage([fauxToolCall("submit_review", { decision: "approve", reason: "no risk given" })]),
+	);
+	expect(missing.reviewed.approval?.review).toMatchObject({
+		decision: "escalate",
+		risk: "high",
+		reason: "invalid review answer",
+	});
+	expect(missing.reviewed.approval?.decision).toBeUndefined();
+});
+
+it("shows the session's instruction and tool calls, and never its assistant text", async () => {
+	const session = await runtime.createSession(owner, {
+		model: { ...model(), thinkingLevel: "high" },
+		rulePreset: "auto_review",
+		title: "review history",
+	});
+	const now = new Date().toISOString();
+	const groupId = newId();
+	await db
+		.insertInto("node_groups")
+		.values({
+			id: groupId,
+			org_id: await defaultOrgId(db),
+			name: "staging",
+			name_key: "staging",
+			created_at: now,
+			updated_at: now,
+		})
+		.execute();
+	await db.insertInto("node_group_members").values({ node_group_id: groupId, node_id: nodeId }).execute();
+
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "history-read" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxText("ASSISTANT-SECRET-ANSWER")]),
+	]);
+	const submission = await runtime.submit(
+		session.id,
+		owner,
+		"USER-INSTRUCTION-MARKER: inspect the nodes before the cleanup.",
+		"review-history",
+	);
+	expect((await waitSubmission(runtime, session.id, submission)).status).toBe("done");
+
+	const { reviewed, seen } = await review(session.id, REVIEW_ANSWER("approve", "low", "only reads"));
+	expect(reviewed.approval?.review).toMatchObject({ decision: "approve" });
+	const messages = (seen[0] as { context: { messages: { role: string; content: string }[] } }).context.messages;
+	const content = messages.find((message) => message.role === "user")?.content;
+	if (content === undefined) throw new Error("no review input");
+	expect(content).toContain("USER-INSTRUCTION-MARKER");
+	expect(content).toContain('"role": "tool-call"');
+	expect(content).toContain("list_nodes");
+	expect(content).toContain('"name": "review-node"');
+	expect(content).toContain('"groups": [\n        "staging"\n      ]');
+	expect(content).not.toContain("ASSISTANT-SECRET-ANSWER");
+});
+
+/** The operation block of a review input, as the reviewer parses it (the history blocks, if any, come first). */
+function operationBlock(content: string): Record<string, unknown> {
+	const blocks = [...content.matchAll(/```json\n([\s\S]*?)\n```/g)];
+	const raw = blocks.at(-1)?.[1];
+	if (raw === undefined) throw new Error("the review input has no operation block");
+	return JSON.parse(raw) as Record<string, unknown>;
+}
+
+it("reviews the original tool call, and falls back to the summary when no call was recorded", async () => {
+	const sessionId = await autoReviewSession("original call");
+	const session = await db
+		.selectFrom("sessions")
+		.select("conversation_id")
+		.where("id", "=", sessionId)
+		.executeTakeFirstOrThrow();
+	const now = new Date().toISOString();
+	const groupId = newId();
+	await db
+		.insertInto("node_groups")
+		.values({
+			id: groupId,
+			org_id: await defaultOrgId(db),
+			name: "review-original",
+			name_key: "review-original",
+			created_at: now,
+			updated_at: now,
+		})
+		.execute();
+	await db.insertInto("node_group_members").values({ node_group_id: groupId, node_id: nodeId }).execute();
+
+	// The transcript holds the call exactly as the model requested it; a pending call has no tool result.
+	const written = { targets: ["review-node"], path: "/etc/app.conf", content: "listen 80;\n", overwrite: false };
+	const entryId = 900_000 + Math.floor(Math.random() * 100_000);
+	await storage.commit(
+		[
+			{
+				type: "entry",
+				value: {
+					id: entryId as EntryId,
+					conversationId: Number(session.conversation_id) as ConversationId,
+					kind: "pi.assistant",
+					model: [
+						{
+							role: "assistant",
+							content: [{ type: "toolCall", id: "write-call-original", name: "write_file", arguments: written }],
+							timestamp: Date.now(),
+						},
+					],
+				},
+			},
+		] as unknown as StorageWrite[],
+		BACKGROUND_CONTEXT,
+	);
+
+	const seen: unknown[] = [];
+	faux.setResponses([
+		(context) => {
+			seen.push(context);
+			return REVIEW_ANSWER("escalate", "medium", "a person should decide");
+		},
+	]);
+	const fileSpec: TaskSpec = {
+		kind: "file.write",
+		path: "/etc/app.conf",
+		content: { size: 0, sha256: new Uint8Array(32) },
+		overwrite: false,
+		mode: 0o644,
+		owner: "",
+		group: "",
+		createParentDirs: false,
+	};
+	const task = await cluster.createTask({
+		nodeId,
+		spec: fileSpec,
+		sourceCallId: "write-call-original",
+		chain: [{ type: "session", id: sessionId }],
+		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
+	});
+	await waitFor("the original-call review", async () =>
+		(await cluster.getTask(task.id))?.approval?.review ? true : undefined,
+	);
+	const messages = (seen[0] as { messages: { role: string; content: string }[] }).messages;
+	const content = messages.find((message) => message.role === "user")?.content;
+	if (content === undefined) throw new Error("no review input");
+	const operation = operationBlock(content);
+	expect(operation.tool_call).toEqual({ name: "write_file", arguments: written });
+	expect(operation.tool_description).toContain("Fails if the file exists unless overwrite is true");
+	expect(operation.trusted_context).toMatchObject({
+		nodes: [
+			expect.objectContaining({
+				id: nodeId,
+				name: "review-node",
+				groups: expect.arrayContaining(["review-original"]),
+			}),
+		],
+		flagged: [{ node: nodeId, method: "file.write", target: "/etc/app.conf" }],
+	});
+	expect(operation.note).toBeUndefined();
+
+	// A task with no recorded call (an API token, MCP or a WebUI action) shows the recorded summary and says so.
+	seen.length = 0;
+	faux.setResponses([
+		(context) => {
+			seen.push(context);
+			return REVIEW_ANSWER("escalate", "medium", "a person should decide");
+		},
+	]);
+	const plain = await cluster.createTask({
+		nodeId,
+		spec,
+		chain: [{ type: "session", id: sessionId }],
+		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
+	});
+	await waitFor("the fallback review", async () =>
+		(await cluster.getTask(plain.id))?.approval?.review ? true : undefined,
+	);
+	const fallbackMessages = (seen[0] as { messages: { role: string; content: string }[] }).messages;
+	const fallbackContent = fallbackMessages.find((message) => message.role === "user")?.content;
+	if (fallbackContent === undefined) throw new Error("no fallback review input");
+	const fallback = operationBlock(fallbackContent);
+	expect(fallback.tool_call).toBeUndefined();
+	expect(fallback).toMatchObject({ operation: "exec", target: "echo hi", on: [{ id: nodeId, name: "review-node" }] });
+	expect(fallback.note).toContain("the original tool call was not found");
+	expect(fallback.trusted_context).toMatchObject({
+		flagged: [{ node: nodeId, method: "exec", target: "echo hi" }],
+	});
 });

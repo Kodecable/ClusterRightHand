@@ -411,7 +411,7 @@ describeBackends("custom model providers", (backend) => {
 		expect(request.body.metadata).toEqual({ session_id: "crh-session-1" });
 	});
 
-	it("an unresolved provider session id omits the session fields", async () => {
+	it("an unresolved provider session id is itself the session field value", async () => {
 		const provider = await configure(
 			[
 				{
@@ -424,9 +424,10 @@ describeBackends("custom model providers", (backend) => {
 			],
 			{ sessionId: { headers: ["x-crh-session"], body: ["metadata.session_id"] } },
 		);
+		// A derived stream id is not in the session map; the configured fields still carry the stream's identity.
 		const request = await ask(provider, "m-1", { sessionId: "provider-unknown" });
-		expect(request.headers["x-crh-session"]).toBeUndefined();
-		expect(request.body.metadata).toBeUndefined();
+		expect(request.headers["x-crh-session"]).toBe("provider-unknown");
+		expect(request.body.metadata).toEqual({ session_id: "provider-unknown" });
 	});
 
 	it("a Responses body-mode session id is deep-set as well", async () => {

@@ -10,8 +10,9 @@ import {
 import type { SessionUser } from "../auth/sessions.ts";
 import { externalCallApproval, getExternalCall } from "../extensions/external-calls.ts";
 import { extensionOf } from "../extensions/registry.ts";
-import { listExtensionRows } from "../extensions/store.ts";
+import { getExtensionRow, listExtensionRows } from "../extensions/store.ts";
 import type { RulePreset } from "../policy/rules.ts";
+import { TOOLS } from "../tools/catalog.ts";
 import { clusterExtension, directToolsExtension, syncSessionExtensions } from "./extension.ts";
 import { GenerationTimings } from "./latency.ts";
 import { ModelPresets } from "./model-presets.ts";
@@ -40,6 +41,8 @@ import {
 	getSession,
 	hasSubagents,
 	latestEntryId,
+	reviewHistory,
+	reviewToolCalls,
 	sessionAt,
 	transcriptEntries,
 	watch,
@@ -56,6 +59,7 @@ import {
 } from "./runtime-submissions.ts";
 import { SessionListHub } from "./session-list-hub.ts";
 import type { SessionState } from "./session-state.ts";
+import { streamSessionId } from "./stream-session-id.ts";
 import { wakePendingAgents } from "./wakes.ts";
 
 /**
@@ -161,6 +165,10 @@ export class AgentRuntime {
 						await ref.current?.chargeCompaction(providerSessionId, message, context);
 					},
 					() => options.generationTimings,
+					// Compaction is its own request stream: durable's provider session id becomes the session's
+					// compaction id, or a derived id while the mapping is unknown.
+					(providerSessionId) =>
+						ref.current?.compactionStreamId(providerSessionId) ?? streamSessionId(providerSessionId, "compaction"),
 				),
 				registry,
 				identity: { attribution: { name: "ClusterRightHand", url: "https://github.com/Kodecable/ClusterRightHand" } },
@@ -206,7 +214,21 @@ export class AgentRuntime {
 		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
 		// Auto Review for roots whose rule preset asks for it (tokens, sessions and schedules alike), then route child
 		// approvals to an ancestor's agent where the chain allows it.
-		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.taskGroups, presets);
+		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.taskGroups, presets, {
+			history: (sessionId) => reviewHistory(runtime.#host, sessionId),
+			toolCalls: (sessionId) => reviewToolCalls(runtime.#host, sessionId),
+			builtinToolDescription: async (toolName) => {
+				return TOOLS.find((tool) => tool.name === toolName)?.description ?? null;
+			},
+			toolDescription: async (extensionName, toolName) => {
+				const row = await getExtensionRow(options.db, extensionName);
+				return row
+					? (extensionOf(row, options.mcp)
+							?.tools()
+							.find((tool) => tool.name === toolName)?.description ?? null)
+					: null;
+			},
+		});
 		options.reviewExternalCall = async (id) => {
 			await reviewer.reviewExternalCall(id);
 		};
@@ -588,6 +610,17 @@ export class AgentRuntime {
 	/** Remembers which session owns a conversation's provider session id, for metering its compaction. */
 	async rememberProviderSession(conversationId: string): Promise<void> {
 		return rememberProviderSession(this.#host, conversationId);
+	}
+
+	/**
+	 * The compaction stream id of a provider session id: the mapped crh session's derived id, else one derived
+	 * from the provider session id itself (doc/design/agent-runtime.md "Custom providers").
+	 */
+	compactionStreamId(providerSessionId: string): string {
+		return streamSessionId(
+			this.#host.sessionCaches.providerSessionOf(providerSessionId) ?? providerSessionId,
+			"compaction",
+		);
 	}
 
 	/** Charges a compaction's summarization to the session it compacted. */

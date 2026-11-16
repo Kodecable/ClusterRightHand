@@ -838,7 +838,10 @@ msgstr "自动（不指定）"
 msgid "Auto lets pi-ai decide from the base URL. Responses always sends reasoning.effort."
 msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 reasoning.effort。"
 
+#: src/components/decision/evaluation.tsx
+#: src/features/approvals/pages.tsx
 #: src/features/settings/model-presets.tsx
+#: src/features/tasks/task-page.tsx
 msgid "Auto review"
 msgstr "自动复核"
 
@@ -2019,6 +2022,10 @@ msgstr "环境变量"
 msgid "Error"
 msgstr "错误"
 
+#: src/components/decision/evaluation.tsx
+msgid "Escalated"
+msgstr "已升级"
+
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "ETA"
 msgstr "预计剩余"
@@ -2294,6 +2301,7 @@ msgstr "请求头"
 msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 msgstr "请求头以明文存储和显示，不当作机密；不要在这里填写 API 密钥或 Authorization 令牌，请使用 API 密钥字段。"
 
+#: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "High"
 msgstr "高"
@@ -2640,6 +2648,7 @@ msgstr "本地批准"
 msgid "Log out"
 msgstr "退出登录"
 
+#: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "Low"
 msgstr "低"
@@ -2692,6 +2701,7 @@ msgstr "最大 TTL"
 msgid "MCP"
 msgstr "MCP"
 
+#: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "Medium"
 msgstr "中"
@@ -2739,6 +2749,7 @@ msgstr "最低"
 msgid "Mode"
 msgstr "权限"
 
+#: src/components/decision/evaluation.tsx
 #: src/components/model-select.tsx
 #: src/features/schedules/schedule-form.tsx
 #: src/features/settings/model-presets.tsx
@@ -4057,6 +4068,10 @@ msgstr "吊销令牌 {0}？"
 #: src/components/status-badge.tsx
 msgid "Revoked"
 msgstr "已吊销"
+
+#: src/components/decision/evaluation.tsx
+msgid "Risk"
+msgstr "风险"
 
 #: src/features/nodes/node-trust.tsx
 #: src/features/users/pages.tsx

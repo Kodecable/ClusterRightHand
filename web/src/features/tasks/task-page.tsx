@@ -3,7 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, SquareIcon } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
-import { ApprovalDecision, DecisionView } from "@/components/decision";
+import { ApprovalDecision, DecisionView, ReviewView } from "@/components/decision";
 import { ErrorState } from "@/components/error-state";
 import type { KeyValueItem } from "@/components/key-value";
 import { Page } from "@/components/page";
@@ -209,6 +209,12 @@ export function TaskPage() {
 					nodeNames={names}
 					onChanged={() => void task.refetch()}
 				/>
+			)}
+
+			{view.approval?.review && (
+				<Panel as="section" aria-label={t`Auto review`}>
+					<ReviewView review={view.approval.review} />
+				</Panel>
 			)}
 
 			{view.approval?.decision && (

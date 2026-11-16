@@ -71,6 +71,28 @@ scheduler → channels → mcp, api → setup, cli → main.ts
 A module may import only modules at or below its layer, and `pnpm check` rejects runtime module
 cycles (type-only imports do not count) so the layering cannot erode through a local shortcut.
 
+## Concurrency
+
+Most shared state is per key (a session, a task, a channel), and the bugs that kept coming back were
+hand-rolled `Map<string, Promise<…>>` helpers that looked alike but differed in whether they queued,
+coalesced or dropped a request. Three primitives in `server/src/util` cover the shapes:
+
+- `KeyedReconciler.run(key, compute)` serializes passes for one key and coalesces requests: a request
+  during a pass shares its promise and asks for exactly one more pass, which reads data newer than the
+  latest request. A throwing pass still removes its entry. Use it for state-change notifications:
+  a notification is only a hint, and the pass reads the current state and compares it with what it
+  already did, so a missed notification cannot lose the change and a duplicate one is harmless.
+- `KeyedQueue.run(key, fn)` runs every operation for a key in order, and a failing operation does not
+  stop the later ones. Use it when every operation must run (a task row's writes, a channel's admin
+  actions).
+- `SingleFlight.run(key, create)` shares one in-flight creation and forgets it when it settles. Use it
+  only for an idempotent creation, where running it twice is wrong and skipping it is not needed.
+
+Persisted state transitions still use rev-checked (compare-and-set) writes: these primitives order
+work inside one process, they do not replace the database's conditional write. Do not add a new
+per-key promise map: pick one of the three, or say in one line why the map is something else (a
+registry of live runs, a connection cache). `StateRefreshes` is built on `KeyedReconciler`.
+
 ## Technology choices
 
 - **crhs in TypeScript on Node.js**, because the pi agent SDK runs there directly. **crha in Go**,

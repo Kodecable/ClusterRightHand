@@ -538,7 +538,9 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 		(await runOf(autoRun.id))?.status === "succeeded" ? true : undefined,
 	);
 	faux.setResponses([
-		fauxAssistantMessage([fauxToolCall("submit_review", { decision: "approve", reason: "only lists nodes" })]),
+		fauxAssistantMessage([
+			fauxToolCall("submit_review", { decision: "approve", risk: "low", reason: "only lists nodes" }),
+		]),
 	]);
 	const reviewed = await cluster.createTask({
 		nodeId,

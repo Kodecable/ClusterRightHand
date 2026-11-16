@@ -87,6 +87,8 @@ export async function refreshStates(host: RuntimeHost, rows: readonly StateRow[]
 
 	// A recompute already running for a row must be shared, not duplicated: refreshState coalesces it and reads
 	// the latest data itself.
+	// A result accumulator for this one call, not a shared per-key promise map: refreshState's StateRefreshes
+	// already serializes and coalesces the actual recomputes.
 	const pending = new Map<string, Promise<SessionState>>();
 	const batched: StateRow[] = [];
 	for (const row of live) {

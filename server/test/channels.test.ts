@@ -711,6 +711,27 @@ describe("channels", () => {
 		expect(sentText(ended)).toContain("Approved.");
 	});
 
+	it("runs one more wait sync when a state change lands during a sync, so a new approval still reaches chat", async () => {
+		const userId = 8051;
+		await link(userId);
+		const thread = await chatSession(userId);
+		// The first sync reads its waits, then blocks sending the signature message.
+		const hold = fake.holdNextSend();
+		await insertSignatureTask(thread.sessionId, "sync-sign-a");
+		const firstSync = channels.refreshWaits(thread.sessionId);
+		await hold.held;
+
+		// A state change arrives while that sync is in flight: the approval did not exist when it read its waits.
+		const approvalId = await insertExternalCall(thread.sessionId, "sync-call-b");
+		const secondSync = channels.refreshWaits(thread.sessionId);
+		hold.release();
+		await Promise.all([firstSync, secondSync]);
+
+		// The change was not lost: the reconciler ran one more pass, which read and sent the new approval.
+		const sent = await fake.waitForSent((call) => sentText(call).includes(`/approve ${approvalId}`));
+		expect(sentText(sent)).toContain(approvalId);
+	});
+
 	it("sends a signature wait as a WebUI link and handles quota commands", async () => {
 		const userId = 8201;
 		await link(userId);

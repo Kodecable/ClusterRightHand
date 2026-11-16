@@ -308,6 +308,7 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 		actor: ctx.actor,
 		chain: ctx.chain,
 		privileged: args.privileged === true,
+		sourceCallId: ctx.callId,
 	};
 	if (resolved.singleNode) {
 		const nodeId = resolved.nodeIds[0] as string;
@@ -324,6 +325,7 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 			actor: ctx.actor,
 			chain: ctx.chain,
 			privileged: args.privileged === true,
+			sourceCallId: ctx.callId,
 			...(id ? { id } : {}),
 		});
 		const info = (await nodeInfos(ctx, [nodeId])).get(nodeId);

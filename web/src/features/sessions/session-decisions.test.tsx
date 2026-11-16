@@ -154,6 +154,25 @@ function Harness({ decisions, next }: { decisions: SessionDecision[]; next: Sess
 }
 
 describe("SessionDecisionDock", () => {
+	test("shows Auto Review's verdict compactly on a waiting task card", async () => {
+		mockLookups();
+		const reviewed = {
+			...task("reviewed", "2026-01-01T00:00:00.000Z"),
+			approval: {
+				evaluation: { result: "require-approval", levels: [] },
+				review: { decision: "escalate", risk: "high", reason: "sends a credential", model: "test/reviewer" },
+			},
+		} as TaskView;
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_task", task: reviewed }]} />);
+		const dock = await screen.findByTestId("session-decisions");
+		const review = within(dock).getByTestId("decision-review");
+		expect(review).toHaveTextContent("Auto review");
+		expect(review).toHaveTextContent("Escalated");
+		expect(review).toHaveTextContent("High");
+		expect(review).toHaveTextContent("sends a credential");
+		expect(review).toHaveTextContent("test/reviewer");
+	});
+
 	test("shows the first decision, its count, and the next one after it is resolved", async () => {
 		mockLookups();
 		const first: SessionDecision = { kind: "approval_task", task: task("first", "2026-01-01T00:00:00.000Z") };
@@ -181,6 +200,24 @@ describe("external call decision", () => {
 		expect(within(dock).getByText("create_issue")).toBeInTheDocument();
 		expect(within(dock).getByTestId("external-call-arguments")).toHaveTextContent("Bug");
 		expect(within(dock).getByRole("button", { name: "Approve" })).toBeInTheDocument();
+	});
+
+	test("shows Auto Review's verdict compactly on a waiting external call", async () => {
+		mockLookups();
+		const call = {
+			...externalCall("call-review", "2026-01-01T00:00:00.000Z"),
+			approval: {
+				evaluation: { result: "require-approval", levels: [] },
+				review: { decision: "approve", risk: "low", reason: "a read", model: "test/reviewer" },
+			},
+		} as ExternalCallView;
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call }]} />);
+		const dock = await screen.findByTestId("session-decisions");
+		const review = within(dock).getByTestId("decision-review");
+		expect(review).toHaveTextContent("Approved");
+		expect(review).toHaveTextContent("Low");
+		expect(review).toHaveTextContent("a read");
+		expect(review).toHaveTextContent("test/reviewer");
 	});
 
 	test("shows an api_request's method, path, query and body, and offers the route rule", async () => {

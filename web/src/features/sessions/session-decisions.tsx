@@ -149,6 +149,7 @@ function ApprovalDock({
 			refNames={lookups.refNames}
 			tokenNames={lookups.tokenNames}
 			count={count}
+			showReview
 			details={
 				<TaskDetails
 					decision={
@@ -211,6 +212,7 @@ function ExternalCallDock({ call, count }: { call: ExternalCallView; count?: Rea
 			count={count}
 			busy={decide.isPending}
 			error={decide.error}
+			showReview
 			details={
 				<Link
 					to="/approvals/external-calls/$externalCallId"

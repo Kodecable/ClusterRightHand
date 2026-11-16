@@ -300,8 +300,14 @@ it("runs Auto Review for an escalated call of an auto_review root before the own
 			(await runtime.pendingAgentRequests(parent.id)).find((entry) => entry.id === call.id),
 		);
 		await rootWokeUp(parent.id);
+		let reviewContext: unknown;
 		faux.setResponses([
-			fauxAssistantMessage([fauxToolCall("submit_review", { decision: "approve", reason: "a small change" })]),
+			(context) => {
+				reviewContext = context;
+				return fauxAssistantMessage([
+					fauxToolCall("submit_review", { decision: "approve", risk: "low", reason: "a small change" }),
+				]);
+			},
 		]);
 		expect(await runtime.decideAgentRequest(parent.id, call.id, "escalate")).toBe("external_call");
 		const finished = await waitFor("the reviewed call", async () => {
@@ -313,7 +319,16 @@ it("runs Auto Review for an escalated call of an auto_review root before the own
 			return row?.state === "succeeded" ? row : undefined;
 		});
 		expect(finished.state).toBe("succeeded");
-		expect(JSON.parse(finished.approval ?? "{}").review).toMatchObject({ decision: "approve" });
+		expect(JSON.parse(finished.approval ?? "{}").review).toMatchObject({ decision: "approve", risk: "low" });
+		// The reviewer sees the tool's description as trusted context, not just its name.
+		expect(JSON.stringify(reviewContext)).toContain("Change one thing");
+		// It also sees the original tool call exactly as the model made it, not only the stored extension arguments.
+		const input = (reviewContext as { messages: { role: string; content: string }[] }).messages.find(
+			(message) => message.role === "user",
+		)?.content;
+		expect(input).toContain('"tool_call"');
+		expect(input).toContain('"name": "call_tool"');
+		expect(input).toContain('"value": 9');
 		expect(state.calls).toEqual([{ tool: "write_thing", arguments: { value: 9 } }]);
 	} finally {
 		await runtime.abort(parent.id).catch(() => {});

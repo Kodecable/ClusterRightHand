@@ -229,6 +229,24 @@ describe("ApprovalTaskPage", () => {
 		expect(await screen.findByText("Already settled")).toBeInTheDocument();
 	});
 
+	test("shows the Auto Review risk and reason next to the verdict", async () => {
+		mockApi({
+			task: task({
+				approval: {
+					evaluation: { result: "require-approval", levels: [] },
+					review: { decision: "escalate", risk: "high", reason: "sends a credential", model: "test/reviewer" },
+				},
+			}),
+			approvals: approvals(),
+		});
+		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
+		const region = await screen.findByRole("region", { name: "Auto review" });
+		expect(within(region).getByText("Escalated")).toBeVisible();
+		expect(within(region).getByText("High")).toBeVisible();
+		expect(within(region).getByText("sends a credential")).toBeVisible();
+		expect(within(region).getByText("test/reviewer")).toBeVisible();
+	});
+
 	test("a task waiting for its signature shows the signature decision and rejects through the new endpoint", async () => {
 		const state = mockApi({
 			task: task({ state: "awaiting_authorization" }),

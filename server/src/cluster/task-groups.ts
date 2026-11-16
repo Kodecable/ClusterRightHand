@@ -157,6 +157,10 @@ export class TaskGroups {
 	readonly #db: Db;
 	readonly #cluster: Cluster;
 	readonly #audit: Audit | undefined;
+	/**
+	 * The live run of each group: a registry, not a coalescing promise map. A second start is refused by the
+	 * callers, never joined, so SingleFlight (which shares one creation) would be wrong here.
+	 */
 	readonly #running = new Map<string, Promise<void>>();
 	/**
 	 * In-memory stop flag per group, set by cancel() or by a worker that threw. A flag is enough even when
@@ -466,6 +470,7 @@ export class TaskGroups {
 				handler_session_id: null,
 				purpose: input.purpose ?? null,
 				transfer: input.transferLocation ? JSON.stringify(input.transferLocation) : null,
+				source_call_id: input.sourceCallId ?? null,
 			})
 			.execute();
 		this.#auditLater({

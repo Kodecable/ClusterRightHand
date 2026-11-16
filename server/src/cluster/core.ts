@@ -69,7 +69,10 @@ export class ClusterCore {
 
 	/** The live connection of each node (one at a time). */
 	readonly links = new Map<string, NodeLink>();
-	/** The pooled SSH connection of each SSH node, created on its first task. */
+	/**
+	 * The pooled SSH connection of each SSH node, created on its first task: a connection cache whose entry
+	 * lives as long as the session, so not SingleFlight (that forgets the entry when creation settles).
+	 */
 	readonly sshSessions = new Map<string, Promise<SshConnection>>();
 	/** The abort of each running SSH task, so a cancel can stop it. */
 	readonly sshCancels = new Map<string, AbortController>();

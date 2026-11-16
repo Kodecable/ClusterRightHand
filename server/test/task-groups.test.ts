@@ -602,7 +602,7 @@ describeBackends("task groups", (backend) => {
 				await db.updateTable("task_groups").set({ state: "finished" }).where("id", "=", id).execute();
 			},
 		);
-		await groups.recordReview(id, { decision: "approve", reason: "looks safe", model: "test-model" });
+		await groups.recordReview(id, { decision: "approve", risk: "low", reason: "looks safe", model: "test-model" });
 		await audit.flush();
 
 		const settled = await db

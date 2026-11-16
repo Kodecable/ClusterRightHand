@@ -1,3 +1,4 @@
+import { KeyedReconciler } from "../../util/keyed-reconciler.ts";
 import type { SessionState } from "../session-state.ts";
 
 /**
@@ -8,36 +9,15 @@ import type { SessionState } from "../session-state.ts";
  * computed from data read after the latest request. A throwing recompute still removes its entry.
  */
 export class StateRefreshes {
-	readonly #running = new Map<string, { again: boolean; done: Promise<SessionState> }>();
+	readonly #reconciler = new KeyedReconciler<SessionState>();
 
 	/** Recomputes `sessionId` with `compute`, or joins the recompute already running for it. */
 	run(sessionId: string, compute: (sessionId: string) => Promise<SessionState>): Promise<SessionState> {
-		const running = this.#running.get(sessionId);
-		if (running) {
-			running.again = true;
-			return running.done;
-		}
-		// The entry is in the map before the first read suspends, so a concurrent request marks it instead of
-		// starting its own recompute. A second pass runs only when a request arrived during the first.
-		const entry = { again: false, done: Promise.resolve<SessionState>("idle") };
-		entry.done = (async () => {
-			try {
-				let state: SessionState = "idle";
-				do {
-					entry.again = false;
-					state = await compute(sessionId);
-				} while (entry.again);
-				return state;
-			} finally {
-				this.#running.delete(sessionId);
-			}
-		})();
-		this.#running.set(sessionId, entry);
-		return entry.done;
+		return this.#reconciler.run(sessionId, compute);
 	}
 
 	/** Whether a recompute of the session is in flight. */
 	isRunning(sessionId: string): boolean {
-		return this.#running.has(sessionId);
+		return this.#reconciler.isRunning(sessionId);
 	}
 }

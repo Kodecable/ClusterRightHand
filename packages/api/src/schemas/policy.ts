@@ -98,6 +98,7 @@ export const AgentRequestSchema = z
 const ReviewSchema = z
 	.object({
 		decision: z.enum(["approve", "escalate"]),
+		risk: z.enum(["low", "medium", "high"]).describe("The risk level the reviewer assigned."),
 		reason: z.string(),
 		model: z.string(),
 	})

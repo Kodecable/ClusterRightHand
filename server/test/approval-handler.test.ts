@@ -205,7 +205,7 @@ describe("approval handlers and task decisions (sqlite)", () => {
 		expect((await pending()).tasks.map((task) => task.id)).not.toContain(t.id);
 		// A late agent routing or Auto Review must not re-open the row either.
 		expect(await cluster.requestAgentDecision(t.id, "agent-1")).toBe(false);
-		await cluster.recordReview(t.id, { decision: "approve", reason: "late review", model: "test-model" });
+		await cluster.recordReview(t.id, { decision: "approve", risk: "low", reason: "late review", model: "test-model" });
 		const untouched = await rowOf(t.id);
 		expect(untouched).toMatchObject({ handler_type: null });
 		expect(JSON.parse(untouched?.approval ?? "{}").review).toBeUndefined();
