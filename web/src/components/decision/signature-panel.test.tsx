@@ -1,12 +1,11 @@
-import type { PendingAuthorization, PendingPasskey, TaskGroupView, TaskView } from "@crh/api";
+import type { ApprovalRequest, PendingAuthorization, PendingPasskey } from "@crh/api";
 import { startAuthentication } from "@simplewebauthn/browser";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import type { SubmitAuthorizationInput } from "@/features/authorizations/api";
-import { grantCommand, sshKeygenRecipe } from "@/features/authorizations/authorization";
+import { grantCommand, sshKeygenRecipe } from "@/lib/authorization";
 import { copyText } from "@/lib/clipboard";
 import { renderWithRouter } from "@/test/render";
-import { SignatureDecision } from "./signature-decision";
+import { SignaturePanel, type SubmitSignature } from "./signature-panel";
 
 vi.mock("@simplewebauthn/browser", () => ({
 	startAuthentication: vi.fn(async () => ({ id: "credential-1", response: { clientDataJSON: "x" } })),
@@ -45,23 +44,17 @@ const pending = (overrides: Partial<PendingAuthorization> = {}): PendingAuthoriz
 	...overrides,
 });
 
-const task = (overrides: Partial<TaskView> = {}): TaskView =>
-	({
-		id: "task-1",
-		nodeId: "node-1",
-		kind: "exec",
-		summary: OPERATION,
-		operation: { method: "exec", target: OPERATION },
-		actorType: "user",
-		actorId: "u1",
-		onBehalfOfUserId: "u1",
-		state: "awaiting_authorization",
-		privileged: true,
-		createdAt: "2026-01-01T00:00:00.000Z",
-		...overrides,
-	}) as TaskView;
-
-const nodeNames = new Map([["node-1", "worker-01"]]);
+const request = (overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => ({
+	kind: "task",
+	id: "task-1",
+	phase: "awaiting_signature",
+	requester: { type: "session", sessionId: "root-1", title: "Clean up" },
+	action: { type: "exec", command: OPERATION },
+	nodes: ["worker-01"],
+	privileged: true,
+	alwaysAllow: [],
+	...overrides,
+});
 
 const passkey = (overrides: Partial<PendingPasskey> = {}): PendingPasskey => ({
 	credentialId: "Y3JlZA",
@@ -73,35 +66,44 @@ const passkey = (overrides: Partial<PendingPasskey> = {}): PendingPasskey => ({
 	...overrides,
 });
 
-function renderDecision(overrides: {
+function renderPanel(overrides: {
 	pending?: PendingAuthorization;
-	item?: { kind: "task"; task: TaskView } | { kind: "task_group"; taskGroup: TaskGroupView };
-	onSubmit?: (input: SubmitAuthorizationInput) => Promise<unknown>;
+	request?: ApprovalRequest;
+	onSubmit?: (input: SubmitSignature) => Promise<unknown>;
 	onReject?: (reason: string) => void;
+	variant?: "inline" | "page";
 }) {
 	return renderWithRouter(
-		<SignatureDecision
-			item={overrides.item ?? { kind: "task", task: task() }}
+		<SignaturePanel
+			request={overrides.request ?? request()}
+			variant={overrides.variant}
 			pending={overrides.pending ?? pending()}
-			nodeNames={nodeNames}
 			onSubmit={overrides.onSubmit ?? (async () => {})}
 			onReject={overrides.onReject ?? (() => {})}
 		/>,
 	);
 }
 
-describe("SignatureDecision", () => {
-	test("defaults to crha grant when no trusted Passkey exists", async () => {
-		await renderDecision({});
-		expect(screen.getByRole("region", { name: "Sign to approve" })).toBeInTheDocument();
+describe("SignaturePanel", () => {
+	test("renders the compact ApprovalRequest as its summary and defaults to crha grant", async () => {
+		await renderPanel({});
+		const card = screen.getByRole("region", { name: "Your signature is needed" });
+		expect(within(card).getByTestId("decision-detail")).toHaveTextContent(OPERATION);
+		expect(within(card).getByTestId("decision-meta")).toHaveTextContent("Nodes: worker-01");
+		expect(within(card).getByText("Privileged")).toBeInTheDocument();
 		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("crha grant");
 		expect(screen.queryByRole("tab", { name: "Passkey" })).not.toBeInTheDocument();
-		expect(screen.getByTestId("decision-operation").textContent).toBe(`exec  ${OPERATION}`);
-		expect(screen.getByRole("link", { name: "worker-01" })).toBeInTheDocument();
+		// An inline signature wait never shows the requester.
+		expect(screen.queryByText(/From session/)).not.toBeInTheDocument();
+	});
+
+	test("the page variant links the requesting session", async () => {
+		await renderPanel({ variant: "page" });
+		expect(screen.getByRole("link", { name: "Clean up" })).toHaveAttribute("href", "/sessions/root-1");
 	});
 
 	test("the copy button copies the full crha grant command", async () => {
-		await renderDecision({});
+		await renderPanel({});
 		fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
 		await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(grantCommand(PAYLOAD)));
 		// The visible line truncates; the full command stays in the title.
@@ -109,7 +111,7 @@ describe("SignatureDecision", () => {
 	});
 
 	test("the ssh-keygen tab copies the full manual recipe", async () => {
-		await renderDecision({});
+		await renderPanel({});
 		fireEvent.click(screen.getByRole("tab", { name: "ssh-keygen" }));
 		// The old panel stays mounted for its exit transition; wait until only the new one is visible.
 		await waitFor(() => expect(screen.getAllByRole("button", { name: "Copy command" })).toHaveLength(1));
@@ -118,8 +120,8 @@ describe("SignatureDecision", () => {
 	});
 
 	test("a trusted Passkey is the default tab, one button per credential", async () => {
-		const onSubmit = vi.fn(async (_input: SubmitAuthorizationInput) => {});
-		await renderDecision({
+		const onSubmit = vi.fn(async (_input: SubmitSignature) => {});
+		await renderPanel({
 			pending: pending({
 				passkeys: [passkey(), passkey({ credentialId: "b3RoZXI", name: "Backup", rpId: "other.example.com" })],
 			}),
@@ -146,8 +148,8 @@ describe("SignatureDecision", () => {
 	});
 
 	test("the pasted authorization is submitted from the crha grant tab", async () => {
-		const onSubmit = vi.fn(async (_input: SubmitAuthorizationInput) => {});
-		await renderDecision({ onSubmit });
+		const onSubmit = vi.fn(async (_input: SubmitSignature) => {});
+		await renderPanel({ onSubmit });
 		fireEvent.change(screen.getByLabelText("Signature"), {
 			target: { value: "  signed-payload  " },
 		});
@@ -157,56 +159,41 @@ describe("SignatureDecision", () => {
 	});
 
 	test("no Local approval tab is offered when the payload does not allow one", async () => {
-		await renderDecision({});
+		await renderPanel({});
 		expect(screen.queryByRole("tab", { name: "Local approval" })).not.toBeInTheDocument();
 	});
 
 	test("the Local approval tab shows the crha approve command when it is available", async () => {
-		await renderDecision({ pending: pending({ localRequested: true }) });
+		await renderPanel({ pending: pending({ localRequested: true }) });
 		fireEvent.click(screen.getByRole("tab", { name: "Local approval" }));
 		await waitFor(() => expect(screen.getAllByRole("button", { name: "Copy command" })).toHaveLength(1));
 		expect(screen.getByText(/crha approve task-1/)).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Copy command" })).toBeInTheDocument();
 	});
 
+	test("a task group's signature request names its nodes, not the stored UUIDs", async () => {
+		await renderPanel({
+			request: request({
+				kind: "task_group",
+				id: "group-1",
+				nodes: ["worker-01", "worker-02"],
+			}),
+		});
+		expect(screen.getByTestId("decision-meta")).toHaveTextContent("Nodes: worker-01, worker-02");
+		expect(screen.queryByText(/node-2/)).not.toBeInTheDocument();
+	});
+
 	test("Reject sends the trimmed reason to the shared reject tab", async () => {
 		const onReject = vi.fn<(reason: string) => void>();
-		await renderDecision({ onReject });
+		await renderPanel({ onReject });
 		fireEvent.click(screen.getByRole("tab", { name: "Reject" }));
 		fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "  not signing  " } });
 		fireEvent.click(screen.getByRole("button", { name: "Reject" }));
 		expect(onReject).toHaveBeenCalledWith("not signing");
 	});
 
-	test("a task group shows its target names, not the stored UUIDs", async () => {
-		const taskGroup = {
-			id: "group-1",
-			kind: "exec",
-			summary: "restart",
-			targets: ["node-1", "node-2"],
-			refs: { "node-1": { kind: "node", name: "worker-01" }, "node-2": { kind: "node", name: "worker-02" } },
-			privileged: true,
-			createdAt: "2026-01-01T00:00:00.000Z",
-			actorType: "user",
-			actorId: "u1",
-			operation: { method: "exec", target: "systemctl restart nginx" },
-			tasks: [],
-		} as unknown as TaskGroupView;
-		await renderDecision({ item: { kind: "task_group", taskGroup } });
-		expect(screen.getAllByRole("link", { name: "worker-01" }).length).toBeGreaterThan(0);
-		expect(screen.getAllByRole("link", { name: "worker-02" }).length).toBeGreaterThan(0);
-		expect(screen.queryByText(/node-2/)).not.toBeInTheDocument();
-	});
-
 	test("without a payload the waiting message is shown but Reject is still available", async () => {
-		await renderWithRouter(
-			<SignatureDecision
-				item={{ kind: "task", task: task() }}
-				nodeNames={nodeNames}
-				onSubmit={async () => {}}
-				onReject={() => {}}
-			/>,
-		);
+		await renderWithRouter(<SignaturePanel request={request()} onSubmit={async () => {}} onReject={() => {}} />);
 		expect(screen.getByText("Preparing the payload to sign…")).toBeInTheDocument();
 		expect(screen.getByRole("tab", { name: "Reject" })).toBeInTheDocument();
 	});

@@ -3,7 +3,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, SquareIcon } from "lucide-react";
 import { useMemo } from "react";
 import { toast } from "sonner";
-import { ApprovalDecision, DecisionView, ReviewView } from "@/components/decision";
+import { ApprovalPanel, DecisionView, RequestDetails } from "@/components/decision";
 import { ErrorState } from "@/components/error-state";
 import type { KeyValueItem } from "@/components/key-value";
 import { Page } from "@/components/page";
@@ -12,14 +12,7 @@ import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskGone } from "@/components/task-gone";
-import {
-	hasTaskOutcome,
-	hasTaskOutput,
-	TaskEvaluation,
-	TaskFacts,
-	TaskOutcomeText,
-	TaskOutput,
-} from "@/components/task-result";
+import { hasTaskOutcome, hasTaskOutput, TaskFacts, TaskOutcomeText, TaskOutput } from "@/components/task-result";
 import { Button } from "@/components/ui/button";
 import { UserLink } from "@/components/user-link";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
@@ -185,12 +178,9 @@ export function TaskPage() {
 			</Panel>
 
 			{view.state === "awaiting_approval" && request !== undefined && (canAct || reviewing) && (
-				<ApprovalDecision
+				<ApprovalPanel
 					request={request}
-					evaluations={view.approval ? [{ evaluation: view.approval.evaluation }] : undefined}
-					nodeNames={looks.nodeNames}
-					refNames={looks.refNames}
-					tokenNames={looks.tokenNames}
+					variant="page"
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) =>
@@ -206,30 +196,23 @@ export function TaskPage() {
 				/>
 			)}
 
-			{view.state === "awaiting_authorization" && canSign && (
-				<SignatureWait
-					kind="task"
-					id={view.id}
-					item={{ kind: "task", task: view }}
-					nodeNames={names}
-					onChanged={() => void task.refetch()}
-				/>
+			{view.state === "awaiting_authorization" && canSign && request !== undefined && (
+				<SignatureWait request={request} variant="page" onChanged={() => void task.refetch()} />
 			)}
 
-			{view.approval?.review && !reviewing && (
-				<Panel as="section" aria-label={t`Auto review`}>
-					<ReviewView review={view.approval.review} />
-				</Panel>
+			{view.approval && (
+				<RequestDetails
+					source={{ kind: "task", task: view }}
+					nodeNames={looks.nodeNames}
+					refNames={looks.refNames}
+					tokenNames={looks.tokenNames}
+				/>
 			)}
 
 			{view.approval?.decision && (
 				<Panel as="section" aria-label={t`Approval`}>
 					<DecisionView decision={view.approval.decision} tokenNames={looks.tokenNames} userNames={userNames} />
 				</Panel>
-			)}
-
-			{view.state !== "awaiting_approval" && (
-				<TaskEvaluation task={view} tokenNames={looks.tokenNames} className="rounded-lg border p-4" />
 			)}
 
 			{hasTaskOutput(view) && (

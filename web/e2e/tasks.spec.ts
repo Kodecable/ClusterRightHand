@@ -45,7 +45,7 @@ test("lists a task waiting for the user's signature on the approvals page", asyn
 	await row.getByRole("link", { name: /sign-me/ }).click();
 	await expect(page).toHaveURL(new RegExp(`/approvals/tasks/${t.id}$`));
 	// The deep link opens the signature variant; the payload endpoint answers nothing for this row.
-	const signature = page.getByRole("region", { name: "Sign to approve" });
+	const signature = page.getByRole("region", { name: "Your signature is needed" });
 	await expect(signature).toContainText("sign-me");
 	await expect(signature).toContainText("Preparing the payload to sign…");
 });

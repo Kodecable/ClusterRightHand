@@ -1,39 +1,38 @@
+import type { ApprovalRequest } from "@crh/api";
 import type { ReactNode } from "react";
-import type { ApprovalItem } from "@/components/decision/types";
+import type { DecisionVariant } from "@/components/decision/content";
+import { SignaturePanel } from "@/components/decision/signature-panel";
 import { usePendingAuthorization, useRejectAuthorization, useSubmitAuthorization } from "./api";
-import { SignatureDecision } from "./signature-decision";
 
 /**
- * Wires a waiting task or task group to the shared signature decision: the
- * polled `GET .../authorization` query, the submit and reject mutations, and
- * the caller's own refresh after the wait ends.
+ * Wires a waiting task or task group to the shared signature panel: the polled `GET .../authorization`
+ * query, the submit and reject mutations, and the caller's own refresh after the wait ends. The request is
+ * the server-built compact model, so the panel's summary is the same one the approval card renders.
  */
 export function SignatureWait({
-	kind,
-	id,
-	item,
-	nodeNames,
+	request,
+	variant = "inline",
 	onChanged,
 	details,
 	count,
 }: {
-	kind: "task" | "task_group";
-	id: string | undefined;
-	item: ApprovalItem;
-	nodeNames?: Map<string, string>;
+	request: ApprovalRequest;
+	variant?: DecisionVariant;
 	/** Extra refresh after a successful signature or a rejection (the caller's own query). */
 	onChanged?: () => void;
 	details?: ReactNode;
 	count?: ReactNode;
 }) {
-	const pending = usePendingAuthorization(kind, id);
+	// A request that waits for a signature is always a task or a task group.
+	const kind = request.kind === "task_group" ? "task_group" : "task";
+	const pending = usePendingAuthorization(kind, request.id);
 	const submit = useSubmitAuthorization();
 	const reject = useRejectAuthorization();
 
 	return (
-		<SignatureDecision
-			item={item}
-			nodeNames={nodeNames}
+		<SignaturePanel
+			request={request}
+			variant={variant}
 			pending={pending.data?.pending ?? undefined}
 			pendingError={pending.isError ? pending.error : undefined}
 			details={details}
@@ -44,9 +43,8 @@ export function SignatureWait({
 				onChanged?.();
 			}}
 			onReject={(reason) => {
-				if (id === undefined) return;
 				reject.mutate(
-					{ kind, id, reason },
+					{ kind, id: request.id, reason },
 					{
 						onSuccess: () => {
 							void pending.refetch();

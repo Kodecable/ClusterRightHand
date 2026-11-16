@@ -23,6 +23,13 @@ test("an approval decision from the Approvals page updates the list and the badg
 
 	const decision = page.getByRole("region", { name: "Your approval is needed" });
 	await expect(decision).toBeVisible();
+	await expect(decision.getByTestId("decision-meta")).toContainText("Nodes: worker-01");
+	await expect(decision.getByTestId("decision-detail")).toHaveText("systemctl restart nginx");
+	// The page keeps the request details below the card, not inside it.
+	const details = page.getByRole("region", { name: "Request details" });
+	await expect(details).toBeVisible();
+	await expect(details.getByTestId("request-content")).toContainText("systemctl restart nginx");
+	await expect(decision.getByTestId("request-content")).toHaveCount(0);
 	await decision.getByRole("button", { name: "Approve", exact: true }).click();
 
 	await expect

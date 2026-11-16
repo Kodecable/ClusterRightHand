@@ -228,7 +228,7 @@ export function approvalRequestForTask(
 	return {
 		kind: "task",
 		id: task.id,
-		phase: task.phase ?? "awaiting_user",
+		phase: task.phase ?? (task.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
 		requester:
 			task.actorType === "user"
 				? { type: "user", userId: task.actorId, username: options.username ?? task.actorId }
@@ -258,7 +258,7 @@ export function approvalRequestForTaskGroup(group: TaskGroupView): ApprovalReque
 	return {
 		kind: "task_group",
 		id: group.id,
-		phase: group.phase ?? "awaiting_user",
+		phase: group.phase ?? (group.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
 		requester:
 			group.actorType === "user"
 				? { type: "user", userId: group.actorId, username: group.actorId }

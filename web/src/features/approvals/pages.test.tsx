@@ -77,7 +77,7 @@ const reviewed = (view: {
 const taskRequest = (view: TaskView, overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => ({
 	kind: "task",
 	id: view.id,
-	phase: view.phase ?? "awaiting_user",
+	phase: view.phase ?? (view.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
 	requester: { type: "user", userId: "u1", username: "ada" },
 	action: { type: "exec", command: view.summary || view.id },
 	nodes: ["worker-01"],
@@ -94,7 +94,7 @@ const taskRequest = (view: TaskView, overrides: Partial<ApprovalRequest> = {}): 
 const groupRequest = (view: TaskGroupView, overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => ({
 	kind: "task_group",
 	id: view.id,
-	phase: view.phase ?? "awaiting_user",
+	phase: view.phase ?? (view.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
 	requester: { type: "user", userId: "u1", username: "ada" },
 	action: { type: "exec", command: view.summary || view.id },
 	nodes: ["worker-01", "worker-02"],
@@ -359,19 +359,25 @@ describe("ApprovalTaskPage", () => {
 			approvals: approvals(),
 		});
 		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
-		const region = await screen.findByRole("region", { name: "Auto review" });
-		expect(within(region).getByText("Escalated")).toBeVisible();
-		expect(within(region).getByText("High")).toBeVisible();
-		expect(within(region).getByText("sends a credential")).toBeVisible();
-		expect(within(region).getByText("test/reviewer")).toBeVisible();
+		const details = await screen.findByRole("region", { name: "Request details" });
+		expect(within(details).getByTestId("request-review")).toHaveTextContent("Escalated");
+		expect(within(details).getByTestId("request-review")).toHaveTextContent("High");
+		expect(within(details).getByTestId("request-review")).toHaveTextContent("sends a credential");
+		expect(within(details).getByTestId("request-review")).toHaveTextContent("test/reviewer");
+		// The rule chain stays folded on the page too.
+		expect(within(details).getByText("Rule chain evaluation").closest("details")).not.toHaveAttribute("open");
 	});
 
 	test("a task Auto Review is reviewing shows the notice instead of the decision", async () => {
 		mockApi({ task: task({ phase: "reviewing" }), approvals: approvals() });
 		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
-		expect(await screen.findByTestId("reviewing-notice")).toHaveTextContent("Auto Review is reviewing this request");
-		expect(screen.queryByRole("region", { name: "Your approval is needed" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+		const notice = await screen.findByTestId("reviewing-notice");
+		expect(notice).toHaveTextContent("Auto Review is reviewing this request");
+		// The reviewing notice keeps the same card layout but offers no decision controls.
+		const card = screen.getByRole("region", { name: "Your approval is needed" });
+		expect(card).toContainElement(notice);
+		expect(within(card).queryByRole("tab")).not.toBeInTheDocument();
+		expect(within(card).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
 	});
 
 	test("a task waiting for its signature shows the signature decision and rejects through the new endpoint", async () => {
@@ -381,7 +387,7 @@ describe("ApprovalTaskPage", () => {
 			approvals: emptyApprovals(),
 		});
 		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
-		const region = await screen.findByRole("region", { name: "Sign to approve" });
+		const region = await screen.findByRole("region", { name: "Your signature is needed" });
 		expect(within(region).getByRole("tab", { name: "crha grant" })).toHaveAttribute("aria-selected", "true");
 		fireEvent.click(within(region).getByRole("tab", { name: "Reject" }));
 		fireEvent.change(within(region).getByLabelText("Reason (optional)"), {
@@ -395,6 +401,17 @@ describe("ApprovalTaskPage", () => {
 		expect(rejection?.body).toEqual({ reason: "not signing" });
 	});
 
+	test("the task page shows the shared request details below the card", async () => {
+		mockApi({
+			task: task({ approval: { evaluation: { result: "require-approval", levels: [] } } }),
+			approvals: approvals(),
+		});
+		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
+		expect(await screen.findByRole("region", { name: "Your approval is needed" })).toBeInTheDocument();
+		const details = screen.getByRole("region", { name: "Request details" });
+		expect(within(details).getByTestId("request-evaluations")).toBeInTheDocument();
+	});
+
 	test("a settled task shows Already settled", async () => {
 		mockApi({ task: task({ state: "exited" }) });
 		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
@@ -402,7 +419,63 @@ describe("ApprovalTaskPage", () => {
 	});
 });
 
+describe("approval detail pages", () => {
+	test("the task, task group and external call pages share the card and request details structure", async () => {
+		mockApi({
+			task: task({ approval: { evaluation: { result: "require-approval", levels: [] } } }),
+			approvals: approvals(),
+		});
+		const taskPage = await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
+		expect(await screen.findByRole("region", { name: "Your approval is needed" })).toBeInTheDocument();
+		expect(screen.getByRole("region", { name: "Request details" })).toBeInTheDocument();
+		taskPage.unmount();
+
+		mockApi({
+			taskGroup: group({
+				approval: {
+					nodes: [{ nodeId: "node-1", evaluation: { result: "require-approval", levels: [] } }],
+				},
+			}),
+		});
+		const groupPage = await renderPage(
+			<ApprovalTaskGroupPage />,
+			"/approvals/task-groups/$taskGroupId",
+			"/approvals/task-groups/group-1",
+		);
+		expect(await screen.findByRole("region", { name: "Your approval is needed" })).toBeInTheDocument();
+		expect(screen.getByRole("region", { name: "Request details" })).toBeInTheDocument();
+		groupPage.unmount();
+
+		mockApi({ externalCall: externalCall() });
+		await renderPage(
+			<ExternalCallApprovalPage />,
+			"/approvals/external-calls/$externalCallId",
+			"/approvals/external-calls/call-1",
+		);
+		expect(await screen.findByRole("region", { name: "Your approval is needed" })).toBeInTheDocument();
+		expect(screen.getByRole("region", { name: "Request details" })).toBeInTheDocument();
+	});
+});
+
 describe("ApprovalTaskGroupPage", () => {
+	test("the task group page shows its operation in the shared request details", async () => {
+		mockApi({
+			taskGroup: group({
+				approval: {
+					nodes: [{ nodeId: "node-1", evaluation: { result: "require-approval", levels: [] } }],
+				},
+			}),
+		});
+		await renderPage(
+			<ApprovalTaskGroupPage />,
+			"/approvals/task-groups/$taskGroupId",
+			"/approvals/task-groups/group-1",
+		);
+		const details = await screen.findByRole("region", { name: "Request details" });
+		expect(within(details).getByTestId("request-content")).toHaveTextContent("Operation");
+		expect(within(details).getByTestId("request-evaluations")).toBeInTheDocument();
+	});
+
 	test("a task group waiting for its signature shows the same signature decision", async () => {
 		mockApi({
 			taskGroup: group({ state: "awaiting_authorization" }),
@@ -413,9 +486,10 @@ describe("ApprovalTaskGroupPage", () => {
 			"/approvals/task-groups/$taskGroupId",
 			"/approvals/task-groups/group-1",
 		);
-		const region = await screen.findByRole("region", { name: "Sign to approve" });
-		expect(within(region).getByText("worker-01")).toBeInTheDocument();
-		expect(within(region).getByText("worker-02")).toBeInTheDocument();
+		const region = await screen.findByRole("region", { name: "Your signature is needed" });
+		const meta = within(region).getByTestId("decision-meta");
+		expect(meta).toHaveTextContent("worker-01");
+		expect(meta).toHaveTextContent("worker-02");
 		expect(within(region).queryByText("node-2")).not.toBeInTheDocument();
 	});
 });
@@ -429,11 +503,14 @@ describe("ExternalCallApprovalPage", () => {
 			"/approvals/external-calls/call-1",
 		);
 		expect(await screen.findByRole("region", { name: "Your approval is needed" })).toBeInTheDocument();
-		expect(screen.getByTestId("approval-action")).toHaveTextContent("Call extension");
-		expect(screen.getByTestId("approval-action")).toHaveTextContent("github/create_issue");
+		const card = screen.getByRole("region", { name: "Your approval is needed" });
+		expect(within(card).getByTestId("decision-detail")).toHaveTextContent("github/create_issue");
 		// The details behind the one-line action stay on this page, not in the panel.
-		expect(screen.getByTestId("external-call-arguments")).toHaveTextContent("Bug");
-		expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+		const details = screen.getByRole("region", { name: "Request details" });
+		expect(details).toHaveTextContent("Bug");
+		expect(within(details).getByText("Arguments")).toBeInTheDocument();
+		expect(within(card).queryByTestId("request-content")).not.toBeInTheDocument();
+		expect(within(card).getByRole("button", { name: "Approve" })).toBeInTheDocument();
 	});
 
 	test("an external call Auto Review is reviewing shows the notice instead of the decision", async () => {
@@ -443,9 +520,28 @@ describe("ExternalCallApprovalPage", () => {
 			"/approvals/external-calls/$externalCallId",
 			"/approvals/external-calls/call-1",
 		);
-		expect(await screen.findByTestId("reviewing-notice")).toHaveTextContent("Auto Review is reviewing this request");
-		expect(screen.queryByRole("region", { name: "Your approval is needed" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+		const notice = await screen.findByTestId("reviewing-notice");
+		expect(notice).toHaveTextContent("Auto Review is reviewing this request");
+		// The reviewing notice keeps the same card layout but offers no decision controls.
+		const card = screen.getByRole("region", { name: "Your approval is needed" });
+		expect(card).toContainElement(notice);
+		expect(within(card).queryByRole("tab")).not.toBeInTheDocument();
+		expect(within(card).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+	});
+
+	test("a settled external call shows the same status badge and request details", async () => {
+		mockApi({
+			externalCall: externalCall({ state: "succeeded", rootSessionId: "s1", finishedAt: "2026-01-01T00:01:00.000Z" }),
+		});
+		await renderPage(
+			<ExternalCallApprovalPage />,
+			"/approvals/external-calls/$externalCallId",
+			"/approvals/external-calls/call-1",
+		);
+		expect(await screen.findByText("Already settled")).toBeInTheDocument();
+		expect(screen.getByText("Succeeded")).toBeInTheDocument();
+		expect(screen.getByRole("link", { name: "Open the session" })).toHaveAttribute("href", "/sessions/s1");
+		expect(screen.getByRole("region", { name: "Request details" })).toBeInTheDocument();
 	});
 
 	test("a missing external call is an ordinary not-found page without retention wording", async () => {

@@ -69,6 +69,28 @@ export function taskGroupStatusTone(state: string): StatusTone {
 	}
 }
 
+/**
+ * External tool calls: waiting and running are informational; succeeded is ok; failed, rejected and unknown
+ * are dangerous; cancelled is muted.
+ */
+export function externalCallStatusTone(state: string): StatusTone {
+	switch (state) {
+		case "succeeded":
+			return "ok";
+		case "awaiting_approval":
+		case "running":
+			return "info";
+		case "failed":
+		case "rejected":
+		case "unknown":
+			return "danger";
+		case "cancelled":
+			return "muted";
+		default:
+			return "muted";
+	}
+}
+
 /** One level's own or effective rule result, as the approval card shows it. */
 export function ruleResultTone(result: string): StatusTone {
 	switch (result) {

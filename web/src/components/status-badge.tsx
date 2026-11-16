@@ -2,6 +2,7 @@ import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import {
+	externalCallStatusTone,
 	nodeStatusTone,
 	type StatusTone,
 	scheduleStatusTone,
@@ -169,6 +170,26 @@ export function TaskStatusBadge({ state, className }: { state: string; className
 	return (
 		<StatusText tone={taskStatusTone(state)} className={className}>
 			{statusLabel(i18n, TASK_LABELS, state)}
+		</StatusText>
+	);
+}
+
+const EXTERNAL_CALL_LABELS: Record<string, MessageDescriptor> = {
+	awaiting_approval: msg`Awaiting approval`,
+	running: msg`Running`,
+	succeeded: msg`Succeeded`,
+	failed: msg`Failed`,
+	rejected: msg`Rejected`,
+	cancelled: msg`Cancelled`,
+	unknown: msg`Unknown`,
+};
+
+/** An external tool call's state, with its own words instead of a raw state name. */
+export function ExternalCallStatusBadge({ state, className }: { state: string; className?: string }) {
+	const { i18n } = useLingui();
+	return (
+		<StatusText tone={externalCallStatusTone(state)} className={className}>
+			{statusLabel(i18n, EXTERNAL_CALL_LABELS, state)}
 		</StatusText>
 	);
 }

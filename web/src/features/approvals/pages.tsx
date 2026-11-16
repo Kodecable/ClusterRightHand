@@ -14,17 +14,15 @@ import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon } from "lucide-react";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/components/data-table";
-import { ApprovalDecision, ReviewView } from "@/components/decision";
-import { approvalActionDetail } from "@/components/decision/approval-summary";
+import { ApprovalPanel, approvalActionDetail, RequestDetails } from "@/components/decision";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
-import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
-import { TaskStatusBadge } from "@/components/status-badge";
+import { ExternalCallStatusBadge, TaskStatusBadge } from "@/components/status-badge";
 import { UserLink } from "@/components/user-link";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { sessionTitle } from "@/features/sessions/session-item";
@@ -42,7 +40,6 @@ import {
 	useDecideExternalCall,
 	useExternalCall,
 } from "./api";
-import { ExternalCallDetails } from "./external-call-details";
 
 /** What kind of decision a row holds; the table's first column. */
 type DecisionType = "approval" | "signature" | "quota";
@@ -347,6 +344,20 @@ export function ApprovalsPage() {
 	);
 }
 
+function DetailBackLink() {
+	return (
+		<div>
+			<Link
+				to="/approvals"
+				className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+			>
+				<ArrowLeftIcon className="size-3.5" />
+				<Trans>All approvals</Trans>
+			</Link>
+		</div>
+	);
+}
+
 function Settled({
 	status,
 	title,
@@ -377,7 +388,6 @@ function DetailPending() {
 
 /** A deep link to one task's approval or signature wait (MCP returns these paths). */
 export function ApprovalTaskPage() {
-	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { taskId?: string };
 	const task = useApprovalTask(params.taskId);
 	const lookups = useApprovalLookups();
@@ -393,54 +403,39 @@ export function ApprovalTaskPage() {
 	if (!task.data) return null;
 	const view = task.data;
 	const request = view.request ?? undefined;
+	const awaitingApproval = view.state === "awaiting_approval";
+	const awaitingSignature = view.state === "awaiting_authorization";
 	return (
 		<Page width="detail" data-testid="approval-detail">
-			<div>
-				<Link
-					to="/approvals"
-					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-				>
-					<ArrowLeftIcon className="size-3.5" />
-					<Trans>All approvals</Trans>
-				</Link>
-			</div>
-			{view.approval?.review && view.phase !== "reviewing" && (
-				<Panel as="section" aria-label={t`Auto review`}>
-					<ReviewView review={view.approval.review} />
-				</Panel>
-			)}
-			{view.state === "awaiting_approval" && request !== undefined ? (
-				<ApprovalDecision
+			<DetailBackLink />
+			{awaitingApproval && request !== undefined ? (
+				<ApprovalPanel
 					request={request}
-					evaluations={view.approval ? [{ evaluation: view.approval.evaluation }] : undefined}
-					nodeNames={lookups.nodeNames}
-					refNames={lookups.refNames}
-					tokenNames={lookups.tokenNames}
+					variant="page"
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ kind: "task", id: view.id, body })}
 				/>
-			) : view.state === "awaiting_authorization" ? (
-				<SignatureWait
-					kind="task"
-					id={view.id}
-					item={{ kind: "task", task: view }}
-					nodeNames={lookups.nodeNames}
-					onChanged={() => void task.refetch()}
-				/>
-			) : (
+			) : awaitingSignature && request !== undefined ? (
+				<SignatureWait request={request} variant="page" onChanged={() => void task.refetch()} />
+			) : !awaitingApproval && !awaitingSignature ? (
 				<Settled status={<TaskStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
 					<Link to="/tasks/$taskId" params={{ taskId: view.id }} className={linkClass}>
 						<Trans>Open the task</Trans>
 					</Link>
 				</Settled>
-			)}
+			) : null}
+			<RequestDetails
+				source={{ kind: "task", task: view }}
+				nodeNames={lookups.nodeNames}
+				refNames={lookups.refNames}
+				tokenNames={lookups.tokenNames}
+			/>
 		</Page>
 	);
 }
 
 export function ApprovalTaskGroupPage() {
-	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { taskGroupId?: string };
 	const taskGroup = useApprovalTaskGroup(params.taskGroupId);
 	const lookups = useApprovalLookups();
@@ -456,51 +451,34 @@ export function ApprovalTaskGroupPage() {
 	if (!taskGroup.data) return null;
 	const view = taskGroup.data;
 	const request = view.request ?? undefined;
+	const awaitingApproval = view.state === "awaiting_approval";
+	const awaitingSignature = view.state === "awaiting_authorization";
 	return (
 		<Page width="detail" data-testid="approval-detail">
-			<div>
-				<Link
-					to="/approvals"
-					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-				>
-					<ArrowLeftIcon className="size-3.5" />
-					<Trans>All approvals</Trans>
-				</Link>
-			</div>
-			{view.approval?.review && view.phase !== "reviewing" && (
-				<Panel as="section" aria-label={t`Auto review`}>
-					<ReviewView review={view.approval.review} />
-				</Panel>
-			)}
-			{view.state === "awaiting_approval" && request !== undefined ? (
-				<ApprovalDecision
+			<DetailBackLink />
+			{awaitingApproval && request !== undefined ? (
+				<ApprovalPanel
 					request={request}
-					evaluations={(view.approval?.nodes ?? []).map((node) => ({
-						label: lookups.nodeNames.get(node.nodeId) ?? node.nodeId,
-						evaluation: node.evaluation,
-					}))}
-					nodeNames={lookups.nodeNames}
-					refNames={lookups.refNames}
-					tokenNames={lookups.tokenNames}
+					variant="page"
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ kind: "task_group", id: view.id, body })}
 				/>
-			) : view.state === "awaiting_authorization" ? (
-				<SignatureWait
-					kind="task_group"
-					id={view.id}
-					item={{ kind: "task_group", taskGroup: view }}
-					nodeNames={lookups.nodeNames}
-					onChanged={() => void taskGroup.refetch()}
-				/>
-			) : (
+			) : awaitingSignature && request !== undefined ? (
+				<SignatureWait request={request} variant="page" onChanged={() => void taskGroup.refetch()} />
+			) : !awaitingApproval && !awaitingSignature ? (
 				<Settled status={<TaskGroupStatus state={view.state} />} title={<Trans>Already settled</Trans>}>
 					<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: view.id }} className={linkClass}>
 						<Trans>Open the task group</Trans>
 					</Link>
 				</Settled>
-			)}
+			) : null}
+			<RequestDetails
+				source={{ kind: "task_group", taskGroup: view }}
+				nodeNames={lookups.nodeNames}
+				refNames={lookups.refNames}
+				tokenNames={lookups.tokenNames}
+			/>
 		</Page>
 	);
 }
@@ -510,6 +488,7 @@ export function ExternalCallApprovalPage() {
 	const { t } = useLingui();
 	const params = useParams({ strict: false }) as { externalCallId?: string };
 	const call = useExternalCall(params.externalCallId);
+	const lookups = useApprovalLookups();
 	const decide = useDecideExternalCall();
 	if (call.isPending) return <DetailPending />;
 	if (call.error !== null && call.error !== undefined) {
@@ -530,38 +509,33 @@ export function ExternalCallApprovalPage() {
 	if (!call.data) return null;
 	const view = call.data;
 	const request = view.request ?? undefined;
+	const awaitingApproval = view.state === "awaiting_approval";
 	return (
 		<Page width="detail" data-testid="approval-detail">
-			<div>
-				<Link
-					to="/approvals"
-					className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-				>
-					<ArrowLeftIcon className="size-3.5" />
-					<Trans>All approvals</Trans>
-				</Link>
-			</div>
-			{/* The request's details live on this page, never in the compact approval panel. */}
-			<ExternalCallDetails call={view} />
-			{view.approval?.review && view.phase !== "reviewing" && (
-				<Panel as="section" aria-label={t`Auto review`}>
-					<ReviewView review={view.approval.review} />
-				</Panel>
-			)}
-			{view.state === "awaiting_approval" && request !== undefined ? (
-				<ApprovalDecision
+			<DetailBackLink />
+			{awaitingApproval && request !== undefined ? (
+				<ApprovalPanel
 					request={request}
-					evaluations={view.approval ? [{ evaluation: view.approval.evaluation }] : undefined}
+					variant="page"
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ id: view.id, body })}
 				/>
-			) : view.state === "awaiting_approval" ? null : (
-				<Settled
-					status={<span className="font-mono text-xs">{view.state}</span>}
-					title={<Trans>Already settled</Trans>}
-				/>
-			)}
+			) : !awaitingApproval ? (
+				<Settled status={<ExternalCallStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
+					{view.rootSessionId !== null && (
+						<Link to="/sessions/$sessionId" params={{ sessionId: view.rootSessionId }} className={linkClass}>
+							<Trans>Open the session</Trans>
+						</Link>
+					)}
+				</Settled>
+			) : null}
+			<RequestDetails
+				source={{ kind: "external_call", call: view }}
+				nodeNames={lookups.nodeNames}
+				refNames={lookups.refNames}
+				tokenNames={lookups.tokenNames}
+			/>
 		</Page>
 	);
 }

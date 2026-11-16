@@ -49,8 +49,10 @@ test("approve and always allow adds a rule to the token and runs the task", asyn
 
 	const card = page.getByRole("region", { name: "Your approval is needed" });
 	await expect(card).toContainText("echo hi");
-	await card.getByText("Rule chain evaluation").click();
-	await expect(card.getByRole("table", { name: "Rule chain evaluation" })).toContainText("Require approval");
+	// The rule chain and the request content live in the shared details section below the card.
+	const details = page.getByRole("region", { name: "Request details" });
+	await details.getByText("Rule chain evaluation").click();
+	await expect(details.getByRole("table", { name: "Rule chain evaluation" })).toContainText("Require approval");
 	await card.getByRole("tab", { name: "Always allow" }).click();
 	const rule = card.getByLabel("Rule to add to the caller's rule set");
 	await expect(rule).toHaveValue(/"exact": "echo hi"/);

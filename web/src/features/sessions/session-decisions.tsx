@@ -12,21 +12,21 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { ApprovalDecision } from "@/components/decision/approval-decision";
-import { useApprovalLookups, useApprovals, useDecideApproval, useDecideExternalCall } from "@/features/approvals/api";
+import { ApprovalPanel } from "@/components/decision/approval-panel";
+import { useApprovals, useDecideApproval, useDecideExternalCall } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { cn, linkClass } from "@/lib/utils";
 import { sessionKeys, useDecideQuota } from "./api";
 import { Composer } from "./composer";
-import { QuotaDecision } from "./quota-decision";
+import { QuotaPanel } from "./quota-panel";
 
 export type SessionDecision =
 	| { kind: "quota"; wait: QuotaApproval }
 	| { kind: "approval_task"; task: TaskView; request?: ApprovalRequest }
 	| { kind: "approval_external_call"; call: ExternalCallView; request?: ApprovalRequest }
 	| { kind: "approval_task_group"; taskGroup: TaskGroupView; request?: ApprovalRequest }
-	| { kind: "signature_task"; task: TaskView }
-	| { kind: "signature_task_group"; taskGroup: TaskGroupView };
+	| { kind: "signature_task"; task: TaskView; request?: ApprovalRequest }
+	| { kind: "signature_task_group"; taskGroup: TaskGroupView; request?: ApprovalRequest };
 
 function oldest<T extends { createdAt: string }>(items: T[]): T[] {
 	return [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
@@ -71,10 +71,18 @@ export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: 
 			}),
 		),
 		...oldest(data.authorizations.tasks.filter((task) => inTree(task.rootSessionId))).map(
-			(task): SessionDecision => ({ kind: "signature_task", task }),
+			(task): SessionDecision => ({
+				kind: "signature_task",
+				task,
+				request: requestFor("task", task.id),
+			}),
 		),
 		...oldest(data.authorizations.taskGroups.filter((taskGroup) => inTree(taskGroup.rootSessionId))).map(
-			(taskGroup): SessionDecision => ({ kind: "signature_task_group", taskGroup }),
+			(taskGroup): SessionDecision => ({
+				kind: "signature_task_group",
+				taskGroup,
+				request: requestFor("task_group", taskGroup.id),
+			}),
 		),
 	];
 }
@@ -142,21 +150,12 @@ function ApprovalDock({
 }) {
 	const sessionId = task?.rootSessionId ?? taskGroup?.rootSessionId ?? "";
 	const refresh = useSessionRefresh(sessionId);
-	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
-	const id = task?.id ?? taskGroup?.id ?? "";
-	const evaluations =
-		task !== undefined
-			? task.approval
-				? [{ evaluation: task.approval.evaluation }]
-				: undefined
-			: (taskGroup?.approval?.nodes ?? []).map((node) => ({
-					label: lookups.nodeNames.get(node.nodeId) ?? node.nodeId,
-					evaluation: node.evaluation,
-				}));
+	if (request === undefined) return null;
+	const kind = request.kind === "task_group" ? "task_group" : "task";
 	const onDecide = (body: ApprovalBody) => {
 		decide.mutate(
-			{ kind: task !== undefined ? "task" : "task_group", id, body },
+			{ kind, id: request.id, body },
 			{
 				onSuccess: () => {
 					refresh();
@@ -164,14 +163,10 @@ function ApprovalDock({
 			},
 		);
 	};
-	if (request === undefined) return null;
 	return (
-		<ApprovalDecision
+		<ApprovalPanel
 			request={request}
-			evaluations={evaluations}
-			nodeNames={lookups.nodeNames}
-			refNames={lookups.refNames}
-			tokenNames={lookups.tokenNames}
+			variant="inline"
 			count={count}
 			details={
 				<TaskDetails
@@ -192,24 +187,20 @@ function ApprovalDock({
 function SignatureDock({
 	task,
 	taskGroup,
+	request,
 	count,
 }: {
 	task?: TaskView;
 	taskGroup?: TaskGroupView;
+	request: ApprovalRequest | undefined;
 	count?: React.ReactNode;
 }) {
-	const lookups = useApprovalLookups();
-	const item =
-		task !== undefined
-			? ({ kind: "task", task } as const)
-			: ({ kind: "task_group", taskGroup: taskGroup as TaskGroupView } as const);
 	const refresh = useSessionRefresh(task?.rootSessionId ?? taskGroup?.rootSessionId ?? "");
+	if (request === undefined) return null;
 	return (
 		<SignatureWait
-			kind={task !== undefined ? "task" : "task_group"}
-			id={task?.id ?? taskGroup?.id}
-			item={item}
-			nodeNames={lookups.nodeNames}
+			request={request}
+			variant="inline"
 			count={count}
 			details={
 				<TaskDetails
@@ -239,9 +230,9 @@ function ExternalCallDock({
 	const decide = useDecideExternalCall();
 	if (request === undefined) return null;
 	return (
-		<ApprovalDecision
+		<ApprovalPanel
 			request={request}
-			evaluations={call.approval ? [{ evaluation: call.approval.evaluation }] : undefined}
+			variant="inline"
 			count={count}
 			busy={decide.isPending}
 			error={decide.error}
@@ -269,7 +260,7 @@ function ExternalCallDock({
 function QuotaDock({ wait, count }: { wait: QuotaApproval; count?: React.ReactNode }) {
 	const decide = useDecideQuota(wait.sessionId);
 	return (
-		<QuotaDecision
+		<QuotaPanel
 			wait={wait}
 			count={count}
 			busy={decide.isPending}
@@ -290,9 +281,9 @@ function DockDecision({ decision, count }: { decision: SessionDecision; count?: 
 		case "approval_task_group":
 			return <ApprovalDock taskGroup={decision.taskGroup} request={decision.request} count={count} />;
 		case "signature_task":
-			return <SignatureDock task={decision.task} count={count} />;
+			return <SignatureDock task={decision.task} request={decision.request} count={count} />;
 		case "signature_task_group":
-			return <SignatureDock taskGroup={decision.taskGroup} count={count} />;
+			return <SignatureDock taskGroup={decision.taskGroup} request={decision.request} count={count} />;
 	}
 }
 

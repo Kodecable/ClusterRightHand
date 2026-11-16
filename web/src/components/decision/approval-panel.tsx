@@ -1,4 +1,4 @@
-import type { ApprovalAlwaysAllow, ApprovalBody, ApprovalRequest, Evaluation, Rule } from "@crh/api";
+import type { ApprovalAlwaysAllow, ApprovalBody, ApprovalRequest, Rule } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -8,9 +8,8 @@ import { ErrorText } from "@/components/error-state";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { ApprovalSummary } from "./approval-summary";
-import { DecisionFrame, DecisionTab, DecisionTabList, DecisionTabs } from "./decision";
-import { EvaluationTable } from "./evaluation";
+import { type DecisionVariant, requestCardContent } from "./content";
+import { DecisionCard, DecisionTab, DecisionTabList, DecisionTabs } from "./decision";
 import { RejectDecision } from "./reject";
 import { ReviewingNotice } from "./reviewing-notice";
 
@@ -36,12 +35,6 @@ function alwaysCandidates(request: ApprovalRequest, i18n: I18n): AlwaysCandidate
 		label: i18n._(ALWAYS_OPTION_LABELS[candidate.option]),
 		rule: candidate.rule,
 	}));
-}
-
-/** One folded rule chain level: one evaluation, or one per task-group node. */
-export interface ApprovalEvaluation {
-	label?: string;
-	evaluation: Evaluation;
 }
 
 /** The one Always allow form: the candidate radios and the editable rule JSON they submit. */
@@ -117,18 +110,13 @@ function AlwaysAllowForm({
 }
 
 /**
- * The one pending approval panel (doc/design/webui.md "Shared components"): the server-built compact
- * request, then the Approve, Always allow and Reject tabs. The summary is requester, action, nodes and
- * privileged, and Auto Review's verdict — the same information every display surface shows. The rule chain
- * is folded away until asked for. The parent supplies the mutation and the name lookups; the component
- * stays presentational.
+ * The one pending rule approval (doc/design/webui.md "Shared components"): the server-built compact request
+ * in the shared card layout, then the Approve, Always allow and Reject tabs. Auto Review's verdict sits in
+ * the card; the rule chain and payload details belong to the page's RequestDetails, never to the panel.
  */
-export function ApprovalDecision({
+export function ApprovalPanel({
 	request,
-	evaluations,
-	nodeNames = new Map(),
-	refNames,
-	tokenNames = new Map(),
+	variant = "inline",
 	busy = false,
 	error,
 	details,
@@ -137,15 +125,12 @@ export function ApprovalDecision({
 	className,
 }: {
 	request: ApprovalRequest;
-	/** The rule chain evaluation(s) behind the request, folded away until asked for. */
-	evaluations?: readonly ApprovalEvaluation[];
-	nodeNames?: Map<string, string>;
-	/** Current node and node-group names for UUIDs in rules; defaults to `nodeNames`. */
-	refNames?: Map<string, string>;
-	tokenNames?: Map<string, string>;
+	variant?: DecisionVariant;
 	busy?: boolean;
 	error?: unknown;
+	/** A link to the task, task group or external call the decision belongs to. */
 	details?: ReactNode;
+	/** e.g. "1 of 3" while more decisions wait behind this one. */
 	count?: ReactNode;
 	/** The body of the approve/reject decision; `always` carries the edited allow rule. */
 	onDecide: (body: ApprovalBody) => void;
@@ -154,9 +139,21 @@ export function ApprovalDecision({
 	const { t, i18n } = useLingui();
 	const candidates = alwaysCandidates(request, i18n);
 	const itemKey = `${request.kind}:${request.id}`;
+	const content = requestCardContent(request, { variant, i18n });
 
 	if (request.phase === "reviewing") {
-		return <ReviewingNotice summary={<ApprovalSummary request={request} />} className={className} />;
+		return (
+			<DecisionCard
+				{...content}
+				kind="approval"
+				variant={variant}
+				count={count}
+				details={details}
+				className={className}
+			>
+				<ReviewingNotice />
+			</DecisionCard>
+		);
 	}
 
 	const decide = (decision: "approve" | "reject", rule?: Rule, reason?: string) => {
@@ -169,14 +166,7 @@ export function ApprovalDecision({
 	};
 
 	return (
-		<DecisionFrame
-			kind="approval"
-			title={t`Your approval is needed`}
-			summary={<ApprovalSummary request={request} />}
-			details={details}
-			count={count}
-			className={className}
-		>
+		<DecisionCard {...content} kind="approval" variant={variant} count={count} details={details} className={className}>
 			<DecisionTabs defaultValue="approve">
 				<DecisionTabList label={t`How to decide`}>
 					<DecisionTab value="approve">
@@ -195,27 +185,6 @@ export function ApprovalDecision({
 							<Trans>Approve</Trans>
 						</Button>
 					</div>
-					{evaluations !== undefined && evaluations.length > 0 && (
-						<details className="w-full min-w-0 rounded-md border p-2">
-							<summary className="cursor-pointer text-xs font-medium text-muted-foreground">
-								<Trans>Rule chain evaluation</Trans>
-							</summary>
-							<div className="mt-2 grid gap-3">
-								{evaluations.map((entry) => (
-									<div key={entry.label ?? "task"} className="grid min-w-0 gap-1">
-										{entry.label !== undefined && (
-											<h3 className="text-xs font-medium text-muted-foreground">{entry.label}</h3>
-										)}
-										<EvaluationTable
-											evaluation={entry.evaluation}
-											tokenNames={tokenNames}
-											refNames={refNames ?? nodeNames}
-										/>
-									</div>
-								))}
-							</div>
-						</details>
-					)}
 				</TabsContent>
 				<TabsContent value="always" className="min-w-0 pt-1">
 					<AlwaysAllowForm
@@ -230,6 +199,6 @@ export function ApprovalDecision({
 				</TabsContent>
 			</DecisionTabs>
 			{error !== undefined && <ErrorText error={error} />}
-		</DecisionFrame>
+		</DecisionCard>
 	);
 }

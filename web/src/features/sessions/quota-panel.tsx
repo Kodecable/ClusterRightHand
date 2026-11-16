@@ -1,65 +1,24 @@
 import type { QuotaApproval } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { type ReactNode, useId, useState } from "react";
-import { DecisionFrame, DecisionTab, DecisionTabList, DecisionTabs } from "@/components/decision/decision";
+import { quotaCardContent } from "@/components/decision/content";
+import { DecisionCard, DecisionTab, DecisionTabList, DecisionTabs } from "@/components/decision/decision";
 import { ErrorText } from "@/components/error-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TabsContent } from "@/components/ui/tabs";
-import { formatNumber } from "@/lib/format";
-import { useLocale } from "@/lib/i18n";
-import { parseGrantInput, type QuotaError, quotaStatus } from "@/lib/quota";
-import { sessionTitle } from "./session-item";
-
-/**
- * The remaining-budget line (doc/design/agent-runtime.md "Quota and token accounting"): no limit,
- * remaining, or used up. The numbers are the budget measure — output tokens —
- * never the usage statistic.
- */
-function BudgetSummaryLine({
-	budgetRemaining,
-	budgetUsedTokens,
-}: {
-	budgetRemaining: number | null;
-	budgetUsedTokens: number;
-}) {
-	const { locale } = useLocale();
-	const status = quotaStatus(budgetRemaining, budgetUsedTokens);
-	const usedText = formatNumber(status.used, locale);
-	switch (status.kind) {
-		case "unlimited":
-			return <Trans>No budget limit · {usedText} spent</Trans>;
-		case "remaining":
-			return (
-				<Trans>
-					{formatNumber(status.remaining, locale)} tokens left · {usedText} spent
-				</Trans>
-			);
-		case "exhausted":
-			return (
-				<span className="text-danger">
-					{status.over > 0 ? (
-						<Trans>
-							Budget used up ({formatNumber(status.over, locale)} over) · {usedText} spent
-						</Trans>
-					) : (
-						<Trans>Budget used up · {usedText} spent</Trans>
-					)}
-				</span>
-			);
-	}
-}
+import { parseGrantInput, type QuotaError } from "@/lib/quota";
 
 /** The owner's answer to a used-up token quota. */
 export type QuotaAnswer = { decision: "approve"; tokens: number } | { decision: "deny"; reason?: string };
 
 /**
- * A root whose token quota is used up (doc/design/webui.md "Shared components"): add tokens in the
- * matching units or stop the paused run. Only the owner sees this, in the
- * session's docked decision panel.
+ * A root whose token quota is used up (doc/design/webui.md "Shared components"): the same decision card as
+ * every other wait, with the session's title as meta and the budget as its detail, then Add tokens and
+ * Stop. Only the owner sees this, in the session's docked decision panel.
  */
-export function QuotaDecision({
+export function QuotaPanel({
 	wait,
 	onDecide,
 	busy = false,
@@ -76,10 +35,11 @@ export function QuotaDecision({
 	count?: ReactNode;
 	className?: string;
 }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const id = useId();
 	const [tokens, setTokens] = useState("");
 	const [localError, setLocalError] = useState<string>();
+	const content = quotaCardContent(wait, i18n);
 
 	const quotaErrorText = (quotaError: QuotaError): string => {
 		switch (quotaError) {
@@ -104,21 +64,7 @@ export function QuotaDecision({
 	};
 
 	return (
-		<DecisionFrame
-			kind="quota"
-			title={t`Token quota used up`}
-			summary={
-				<div className="grid min-w-0 gap-1 text-xs">
-					<p className="min-w-0 truncate font-medium text-foreground">{sessionTitle(wait, t`New Session`)}</p>
-					<p className="min-w-0 text-muted-foreground">
-						<BudgetSummaryLine budgetRemaining={wait.budgetRemaining} budgetUsedTokens={wait.budgetUsedTokens} />
-					</p>
-				</div>
-			}
-			details={details}
-			count={count}
-			className={className}
-		>
+		<DecisionCard {...content} kind="quota" count={count} details={details} className={className}>
 			<DecisionTabs defaultValue="add">
 				<DecisionTabList label={t`How to decide`}>
 					<DecisionTab value="add">
@@ -168,6 +114,6 @@ export function QuotaDecision({
 				</TabsContent>
 			</DecisionTabs>
 			{error !== undefined && <ErrorText error={error} />}
-		</DecisionFrame>
+		</DecisionCard>
 	);
 }

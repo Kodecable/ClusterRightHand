@@ -1,25 +1,20 @@
-import type { PendingAuthorization, PendingPasskey } from "@crh/api";
+import type { ApprovalRequest, PendingAuthorization, PendingPasskey } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
-import {
-	DecisionFrame,
-	DecisionTab,
-	DecisionTabList,
-	DecisionTabs,
-	PrivilegedMark,
-} from "@/components/decision/decision";
-import { RejectDecision } from "@/components/decision/reject";
-import { DecisionSummary, operationText } from "@/components/decision/summary";
-import type { ApprovalItem } from "@/components/decision/types";
 import { ErrorText } from "@/components/error-state";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/api/client";
-import type { SubmitAuthorizationInput } from "./api";
-import { grantCommand, sshKeygenRecipe } from "./authorization";
+import { grantCommand, sshKeygenRecipe } from "@/lib/authorization";
+import { type DecisionVariant, requestCardContent } from "./content";
+import { DecisionCard, DecisionTab, DecisionTabList, DecisionTabs } from "./decision";
+import { RejectDecision } from "./reject";
+
+/** The pasted output of a signing recipe or a Passkey assertion, as the authorization endpoint takes it. */
+export type SubmitSignature = { authorization: string } | { payloadId: string; webauthn: unknown };
 
 /** A one-line command with the copy button that puts the whole command on the clipboard. */
 function CommandLine({ text, label }: { text: string; label: string }) {
@@ -65,16 +60,16 @@ function PasteBox({
 }
 
 /**
- * A pending signature wait (doc/design/webui.md "Shared components"): the target nodes and the
- * operation, then how to sign it — a trusted Passkey, `crha grant`, the
- * `ssh-keygen` recipe, a local `crha approve`, or Reject. The full command and
- * recipe stay on one truncated line; the copy buttons copy every character.
+ * A pending signature wait (doc/design/webui.md "Shared components"): the same compact ApprovalRequest and
+ * card layout as an approval, then how to sign it — a trusted Passkey, `crha grant`, the `ssh-keygen`
+ * recipe, a local `crha approve`, or Reject. The full command and recipe stay on one truncated line; the
+ * copy buttons copy every character.
  */
-export function SignatureDecision({
-	item,
+export function SignaturePanel({
+	request,
+	variant = "inline",
 	pending,
 	pendingError,
-	nodeNames = new Map(),
 	onSubmit,
 	onChanged,
 	onReject,
@@ -86,13 +81,13 @@ export function SignatureDecision({
 	count,
 	className,
 }: {
-	item: ApprovalItem;
+	request: ApprovalRequest;
+	variant?: DecisionVariant;
 	/** Undefined while the server prepares the payload. */
 	pending?: PendingAuthorization;
 	/** The pending payload could not be read (for example by a viewer who may not sign). */
 	pendingError?: unknown;
-	nodeNames?: Map<string, string>;
-	onSubmit: (input: SubmitAuthorizationInput) => Promise<unknown>;
+	onSubmit: (input: SubmitSignature) => Promise<unknown>;
 	onChanged?: () => void;
 	onReject: (reason: string) => void;
 	busy?: boolean;
@@ -103,7 +98,7 @@ export function SignatureDecision({
 	count?: ReactNode;
 	className?: string;
 }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const [pasted, setPasted] = useState("");
 	const [working, setWorking] = useState(false);
 	const [localError, setLocalError] = useState<string>();
@@ -119,11 +114,10 @@ export function SignatureDecision({
 
 	const disabled = busy || working;
 	const passkeys = pending?.passkeys ?? [];
-	const localAvailable = pending?.localRequested === true && item.kind === "task";
-	const localTaskId = pending?.taskIds[0] ?? (item.kind === "task" ? item.task.id : "");
+	const localAvailable = pending?.localRequested === true && request.kind === "task";
+	const localTaskId = pending?.taskIds[0] ?? request.id;
 	const localCommand = `crha approve ${localTaskId}`;
-	const subject = item.kind === "task" ? item.task : item.taskGroup;
-	const ids = item.kind === "task" ? [item.task.nodeId] : item.taskGroup.targets;
+	const content = requestCardContent(request, { variant, i18n });
 
 	const submitPaste = async () => {
 		if (pasted.trim() === "") return;
@@ -176,23 +170,7 @@ export function SignatureDecision({
 	);
 
 	return (
-		<DecisionFrame
-			kind="signature"
-			title={t`Sign to approve`}
-			badge={subject.privileged ? <PrivilegedMark /> : undefined}
-			summary={
-				<DecisionSummary
-					ids={ids}
-					refs={item.kind === "task_group" ? item.taskGroup.refs : undefined}
-					nodeNames={nodeNames}
-					operation={operationText(subject.kind, subject.operation, subject.summary)}
-					purpose={item.kind === "task_group" ? item.taskGroup.purpose : item.task.purpose}
-				/>
-			}
-			details={details}
-			count={count}
-			className={className}
-		>
+		<DecisionCard {...content} kind="signature" variant={variant} count={count} details={details} className={className}>
 			{pendingError !== undefined ? (
 				<ErrorText error={pendingError} />
 			) : (
@@ -285,6 +263,6 @@ export function SignatureDecision({
 					)}
 				</>
 			)}
-		</DecisionFrame>
+		</DecisionCard>
 	);
 }

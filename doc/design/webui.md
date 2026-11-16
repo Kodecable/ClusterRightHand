@@ -136,23 +136,32 @@ behaves the same on every page:
 - **`EntityPicker`** is the only control for choosing users, user groups, nodes or node groups. It
   searches on the server and resolves already selected ids separately, so no page downloads a full
   list of users or nodes ([Entity search](#entity-search)).
-- **Decision component.** One frame with a tab bar for the answer: **Approve / Always allow / Reject**
-  for a rule approval, **Passkey / `crha grant` / `ssh-keygen` / Local approval / Reject** for a
-  signature wait, **Add tokens / Stop** for an exhausted quota. The Passkey tab exists only when a
-  trusted Passkey does. One approval component covers every kind — a task, a task group and an
-  external call — with the same title, **Your approval is needed**. Its summary renders only the
-  server-built compact `ApprovalRequest` and mirrors the chat card: the requester (a session title
-  links to the session, or a token, user or schedule), the action on one line (the command, the file
-  operation with its path and line range, the API method and path, or the extension tool), the target
-  node names with "and N more", the privileged badge, and Auto Review's settled risk and reason.
+- **Decision component.** One card layout for every wait, mirroring the chat card's line order: the
+  title with its privileged mark, a grey meta line, Auto Review's risk badge and reason, the one-line
+  monospace detail, a divider with room on both sides, then the panel's own tabs. Every slot except the
+  title and the tabs is optional, and the truncated meta and reason lines show their full text on hover.
+  Three panels share it: **ApprovalPanel** (**Approve / Always allow / Reject**), **SignaturePanel**
+  (**Passkey / `crha grant` / `ssh-keygen` / Local approval / Reject**; the Passkey tab exists only
+  when a trusted Passkey does) and **QuotaPanel** (**Add tokens / Stop**). The approval and signature
+  panels render only the server-built compact `ApprovalRequest` through one mapper: the target node
+  names with "and N more", Auto Review's settled risk and reason, and the action on one line (the
+  command, the file operation with its path and line range, the API method and path, or the extension
+  tool). The title is **Your approval is needed** for a rule approval, **Your signature is needed**
+  for a signature wait and **Token quota used up** for an exhausted quota. The requester (a session
+  title links to the session, or a token or user) appears only in the page variant; the inline variant
+  used by the session dock shows neither the requester nor the rule chain evaluation. The quota panel
+  uses the session title and "used N · remaining M" instead.
   **Always allow** offers the request's server-built candidates (exact or prefix, this tool or the
   whole extension, this request or this route) as radios over editable rule JSON. Session pages,
-  approvals deep links, task pages and external call pages render the same component, so a decision
-  made in one place updates the others; the rule chain stays behind a collapsed block, and per-kind
-  payload details (arguments, request bodies, queries, annotations, purpose) live on the task, task
-  group and external call pages, never in the panel. A request Auto Review is still judging shows the
-  reviewing notice instead of decision controls and looks like a tool call in progress in the
-  transcript.
+  approvals deep links, task pages and external call pages render the same components, so a decision
+  made in one place updates the others. The page variant adds the shared **RequestDetails** section
+  below the card: Auto Review's full verdict (decision, risk, reason and model), the rule chain
+  evaluation folded away (one table per node for a task group), and the request content as JSON code
+  blocks (the operation, an external call's arguments or annotations, or an API request's query and
+  body). Task, task group and external call pages use that same section instead of separate review and
+  external call detail panels, and a settled request on the approval pages shows one status badge and
+  a link to its object. A request Auto Review is still judging shows the reviewing notice inside the
+  same card and offers no decision controls; in the transcript it looks like a tool call in progress.
 - **`FileManager`** is the only file browser. It knows nothing of libraries or nodes: it takes a
   `FileSource` with `list` and `stat`, and optionally `download`, `upload`, `delete`, `rename` and
   `preview`. A missing operation hides its action. Its toolbar (a home icon, the path breadcrumb and
@@ -175,10 +184,10 @@ creates a task, anything else (a node group, several targets, or all accessible 
 group, and the dialog then opens the new task or group. Results are always read on the task or task
 group page, never in the dialog.
 
-The task page shows the outcome next to the state in its header. It shows the rule chain evaluation
-whenever an approval was evaluated, and a result panel only when the task produced output. While Auto
-Review is judging a task or task group, its page shows the reviewing notice instead of decision
-controls. The task
+The task page shows the outcome next to the state in its header. Its shared request details show the
+rule chain evaluation whenever an approval was evaluated and Auto Review's verdict when it ran, and a
+result panel appears only when the task produced output. While Auto Review is judging a task or task
+group, its page shows the reviewing notice inside the decision card and offers no controls. The task
 list can be filtered by node and by user through the URL, so other pages link to a pre-filtered list
 (**View all tasks**) instead of paging through tasks themselves; their recent lists show only the
 newest ten.
@@ -245,11 +254,13 @@ group approvals, tasks waiting for the user's signature, and sessions whose toke
 columns are the type, the operation, the target nodes by name, who asked and when, read from the compact
 `ApprovalRequest` the server returns beside every waiting item (a signature wait's phase is
 `awaiting_signature`); the whole row opens its detail. A task, task group or
-external call detail shows the same approval component inline (a task in `awaiting_authorization` shows
-the signature variant), and a quota row opens its session, where the docked decision panel holds it. A
+external call detail shows the same decision card (a task in `awaiting_authorization` shows the
+signature variant) with the shared request details below it, and a quota row opens its session, where
+the docked decision panel holds it. A
 task group counts once. A request Auto Review is still judging is not listed and does not count; its
-direct page shows the reviewing notice until the review escalates it. The deep links that extension and
-agent tools return open one approval and show "Already settled" once it has been decided.
+direct page shows the reviewing notice in the decision card until the review escalates it. The deep
+links that extension and agent tools return open one approval and show the same status badge, a link
+to the object and "Already settled" once it has been decided.
 
 ### Extensions page
 
@@ -353,8 +364,10 @@ The root session page shows the approvals, signatures and quota waits of the who
 decision panel docked where the composer sits, so a user can answer them without opening each subagent.
 The panel is not collapsible: it shows the first pending decision only (quota, then rule approvals,
 task-group approvals and signature waits, oldest first), its own scroll and at most half of the session
-pane, and a small count while more wait. The composer returns as soon as nothing waits for this viewer;
-a session that waits only for someone else keeps the normal composer and the waiting reason.
+pane, and a small count while more wait. Its card is the inline variant: it names the nodes and the
+action but not the requester, and keeps the rule chain evaluation off the dock. The composer returns as
+soon as nothing waits for this viewer; a session that waits only for someone else keeps the normal
+composer and the waiting reason.
 
 ### Composer
 

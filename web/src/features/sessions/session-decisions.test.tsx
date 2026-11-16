@@ -163,6 +163,19 @@ describe("sessionDecisions", () => {
 		expect(sessionDecisions(undefined, "root")).toEqual([]);
 	});
 
+	test("the inline dock shows neither the requester nor the rule chain evaluation", async () => {
+		mockLookups();
+		const waiting = task("inline", "2026-01-01T00:00:00.000Z");
+		const request = taskRequest("inline", { risk: "low", reason: "a read" });
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_task", task: waiting, request }]} />);
+		const dock = await screen.findByTestId("session-decisions");
+		const meta = within(dock).getByTestId("decision-meta");
+		expect(meta).toHaveTextContent("Nodes: worker-01");
+		expect(meta).not.toHaveTextContent("From session");
+		expect(within(dock).queryByText("Rule chain evaluation")).not.toBeInTheDocument();
+		expect(within(dock).queryByText(/Session inline/)).not.toBeInTheDocument();
+	});
+
 	test("a request Auto Review is still judging never becomes a decision panel", () => {
 		const list = data();
 		list.tasks.push({ ...task("reviewing-task", "2026-01-01T00:00:00.000Z"), phase: "reviewing" });
@@ -233,10 +246,10 @@ describe("SessionDecisionDock", () => {
 		const request = taskRequest("reviewed", { risk: "high", reason: "sends a credential" });
 		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_task", task: reviewed, request }]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		// The dock draws Auto Review's line from the compact request, not from the view's full review record.
-		const review = within(dock).getByTestId("approval-review");
-		expect(review).toHaveTextContent("Auto Review: High risk · sends a credential");
-		expect(within(dock).queryByTestId("decision-review")).not.toBeInTheDocument();
+		// The dock draws Auto Review's risk and reason from the compact request, not from the view's review record.
+		expect(within(dock).getByTestId("decision-risk")).toHaveTextContent("High risk");
+		expect(within(dock).getByTestId("decision-reason")).toHaveTextContent("sends a credential");
+		expect(within(dock).queryByTestId("request-review")).not.toBeInTheDocument();
 	});
 
 	test("shows the first decision, its count, and the next one after it is resolved", async () => {
@@ -254,12 +267,12 @@ describe("SessionDecisionDock", () => {
 		await renderWithRouter(<Harness decisions={[first, second]} next={[second]} />);
 		const dock = await screen.findByTestId("session-decisions");
 		expect(dock).toHaveAttribute("data-decision", "approval_task");
-		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("echo first");
+		expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("echo first");
 		expect(within(dock).getByText("1 of 2")).toBeInTheDocument();
 		expect(within(dock).queryByText("echo second")).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "resolve first" }));
-		await waitFor(() => expect(within(dock).getByTestId("approval-action")).toHaveTextContent("echo second"));
+		await waitFor(() => expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("echo second"));
 		expect(within(dock).queryByText("1 of 2")).not.toBeInTheDocument();
 	});
 });
@@ -271,8 +284,7 @@ describe("external call decision", () => {
 		const request = callRequest("call-1", { type: "extension_tool", extension: "github", tool: "create_issue" });
 		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call, request }]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("Call extension");
-		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("github/create_issue");
+		expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("github/create_issue");
 		expect(within(dock).getByRole("button", { name: "Approve" })).toBeInTheDocument();
 	});
 
@@ -292,7 +304,8 @@ describe("external call decision", () => {
 		);
 		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call, request }]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		expect(within(dock).getByTestId("approval-review")).toHaveTextContent("Auto Review: Low risk · a read");
+		expect(within(dock).getByTestId("decision-risk")).toHaveTextContent("Low risk");
+		expect(within(dock).getByTestId("decision-reason")).toHaveTextContent("a read");
 	});
 
 	test("shows an api_request's method, path, query and body, and offers the route rule", async () => {
@@ -301,10 +314,9 @@ describe("external call decision", () => {
 		const request = callRequest("api-1", { type: "api_request", method: "POST", path: "/api/sessions" });
 		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call, request }]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("Call API");
-		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("POST /api/sessions");
+		expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("POST /api/sessions");
 		// The request's query and body belong to the detail page, not the dock.
-		expect(within(dock).queryByTestId("external-call-body")).not.toBeInTheDocument();
+		expect(within(dock).queryByTestId("request-content")).not.toBeInTheDocument();
 		fireEvent.click(within(dock).getByRole("tab", { name: "Always allow" }));
 		const rule = within(dock).getByLabelText("Rule to add to the caller's rule set") as HTMLTextAreaElement;
 		expect(rule.value).toContain('"exact": "POST /api/sessions"');

@@ -3,7 +3,7 @@ import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
-import { ApprovalDecision, DecisionView, ReviewView } from "@/components/decision";
+import { ApprovalPanel, DecisionView, RequestDetails } from "@/components/decision";
 import { StatusText, TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeText } from "@/components/task-result";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
@@ -106,32 +106,27 @@ export function TaskGroupResult({
 				request !== undefined &&
 				request !== null &&
 				(canAct || reviewing) && (
-					<ApprovalDecision
+					<ApprovalPanel
 						request={request}
-						evaluations={(taskGroup.approval?.nodes ?? []).map((node) => ({
-							label: nodeName(node.nodeId),
-							evaluation: node.evaluation,
-						}))}
-						nodeNames={lookups.nodeNames}
-						refNames={lookups.refNames}
-						tokenNames={lookups.tokenNames}
+						variant="page"
 						busy={decide.isPending}
 						error={decide.error}
 						onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.id, body })}
 					/>
 				)}
 
-			{taskGroup.state === "awaiting_authorization" && canSign && (
-				<SignatureWait
-					kind="task_group"
-					id={taskGroup.id}
-					item={{ kind: "task_group", taskGroup }}
-					nodeNames={names}
-					onChanged={onChanged}
-				/>
+			{taskGroup.state === "awaiting_authorization" && canSign && request !== undefined && request !== null && (
+				<SignatureWait request={request} variant="page" onChanged={onChanged} />
 			)}
 
-			{taskGroup.approval?.review && !reviewing && <ReviewView review={taskGroup.approval.review} />}
+			{taskGroup.approval && (
+				<RequestDetails
+					source={{ kind: "task_group", taskGroup }}
+					nodeNames={lookups.nodeNames}
+					refNames={lookups.refNames}
+					tokenNames={lookups.tokenNames}
+				/>
+			)}
 
 			{taskGroup.state === "rejected" && taskGroup.approval?.decision && (
 				<DecisionView

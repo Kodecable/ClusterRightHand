@@ -167,7 +167,7 @@ const requestFor = (view: TaskView | TaskGroupView, kind: "task" | "task_group")
 	return {
 		kind,
 		id: view.id,
-		phase: view.phase ?? "awaiting_user",
+		phase: view.phase ?? (view.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
 		requester: { type: "user", userId: "u1", username: "ada" },
 		action: { type: "exec", command: view.summary },
 		nodes,
@@ -381,8 +381,11 @@ describe("TaskPage and TaskGroupPage", () => {
 
 		const notice = await screen.findByTestId("reviewing-notice");
 		expect(notice).toHaveTextContent("Auto Review is reviewing this request");
-		expect(screen.queryByRole("region", { name: "Your approval is needed" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+		// The reviewing notice keeps the same card layout but offers no decision controls.
+		const card = screen.getByRole("region", { name: "Your approval is needed" });
+		expect(card).toContainElement(notice);
+		expect(within(card).queryByRole("tab")).not.toBeInTheDocument();
+		expect(within(card).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
 	});
 
 	test("a task group Auto Review is reviewing shows the notice instead of decision controls", async () => {
@@ -392,17 +395,20 @@ describe("TaskPage and TaskGroupPage", () => {
 
 		const notice = await screen.findByTestId("reviewing-notice");
 		expect(notice).toHaveTextContent("Auto Review is reviewing this request");
-		expect(screen.queryByRole("region", { name: "Your approval is needed" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+		// The reviewing notice keeps the same card layout but offers no decision controls.
+		const card = screen.getByRole("region", { name: "Your approval is needed" });
+		expect(card).toContainElement(notice);
+		expect(within(card).queryByRole("tab")).not.toBeInTheDocument();
+		expect(within(card).queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
 	});
 
 	test("a task waiting for its signature shows the signature decision inline", async () => {
 		route.params = { taskId: "t1" };
-		mockTask({ ...TASK, state: "awaiting_authorization", finishedAt: null });
+		mockTask({ ...TASK, state: "awaiting_authorization", finishedAt: null, phase: "awaiting_signature" });
 		await authStore.load();
 		await renderPage(<TaskPage />);
 
-		const decision = await screen.findByRole("region", { name: "Sign to approve" });
+		const decision = await screen.findByRole("region", { name: "Your signature is needed" });
 		expect(within(decision).getByRole("tab", { name: "crha grant" })).toBeInTheDocument();
 		expect(within(decision).getByRole("tab", { name: "Reject" })).toBeInTheDocument();
 	});

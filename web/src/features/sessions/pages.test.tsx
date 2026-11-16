@@ -493,7 +493,7 @@ describe("SessionPage layout", () => {
 		});
 		await screen.findByTestId("session-page");
 		const dock = await screen.findByTestId("session-decisions");
-		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("echo first");
+		expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("echo first");
 		expect(within(dock).getByText("1 of 2")).toBeInTheDocument();
 		expect(within(dock).queryByText("echo second")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();

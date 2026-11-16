@@ -1,13 +1,12 @@
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import type { ReactNode } from "react";
 import { Panel } from "@/components/section";
+import { StatusBadge } from "@/components/status-badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { DECISION_RISK_LABELS } from "./content";
 
-/**
- * The small "Privileged" pill beside a decision title. It is deliberately
- * smaller than the title and never stretches it.
- */
+/** The small "Privileged" pill beside a decision title. It is deliberately smaller than the title. */
 export function PrivilegedMark() {
 	return (
 		<span className="inline-flex shrink-0 items-center rounded-full bg-warn-bg px-2 py-0.5 text-xs leading-none font-medium text-warn">
@@ -16,48 +15,69 @@ export function PrivilegedMark() {
 	);
 }
 
+const RISK_TONES = { low: "muted", medium: "warn", high: "danger" } as const;
+
 /**
- * The frame of every pending decision (doc/design/webui.md "Shared components"): what is asked,
- * what it is about, and the tabs that choose how to answer. The caller
- * supplies the tab bar and its panels; this frame only arranges the header,
- * the summary and the count a session dock adds.
+ * The one decision card (doc/design/webui.md "Shared components"): the title and its privileged mark, the
+ * grey meta line, Auto Review's risk badge and reason, and the monochrome detail line, then a divider and
+ * the panel's own tabs. It mirrors the chat card's line order, so an approval reads the same in the WebUI
+ * and in a channel. Every slot is optional; the truncated lines carry their full text in `title`.
  */
-export function DecisionFrame({
-	kind,
+export function DecisionCard({
 	title,
-	badge,
-	summary,
+	privileged = false,
+	meta,
+	metaText,
+	risk,
+	reason,
+	detail,
+	kind,
+	variant = "inline",
 	count,
 	details,
 	children,
 	className,
+	...props
 }: {
-	kind: "approval" | "signature" | "quota";
 	/** The one heading of the decision, also its accessible region name. */
 	title: string;
-	/** A small status beside the title, e.g. the privileged marker. */
-	badge?: ReactNode;
-	summary?: ReactNode;
+	/** The privileged mark beside the title. */
+	privileged?: boolean;
+	/** The grey information line. */
+	meta?: ReactNode;
+	/** The same line as plain text for its hover title. */
+	metaText?: string;
+	risk?: "low" | "medium" | "high";
+	/** Auto Review's reason, shown after the risk badge. */
+	reason?: string;
+	/** The monochrome one-line detail block. */
+	detail?: string;
+	kind?: "approval" | "signature" | "quota";
+	variant?: "inline" | "page";
 	/** e.g. "1 of 3" while more decisions wait behind this one. */
 	count?: ReactNode;
-	/** A link to the task or task group the decision belongs to. */
+	/** A link to the object the decision belongs to (a task, a task group or the requester). */
 	details?: ReactNode;
+	/** The panel's own tabs. */
 	children: ReactNode;
 	className?: string;
-}) {
+} & Omit<React.ComponentProps<"div">, "title" | "children">) {
+	const { i18n } = useLingui();
 	return (
 		<Panel
 			as="section"
 			data-slot="decision"
 			data-kind={kind}
+			data-variant={variant}
 			aria-label={title}
-			className={cn("grid min-w-0 gap-1 bg-card text-card-foreground", className)}
+			className={cn("grid min-w-0 gap-3 bg-card text-card-foreground", className)}
+			{...props}
 		>
 			<div className="grid min-w-0 gap-1.5">
 				<div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
 					<div className="flex min-w-0 flex-wrap items-center gap-2">
 						<h2 className="min-w-0 text-sm font-medium">{title}</h2>
-						{badge}
+						{privileged && <PrivilegedMark />}
 					</div>
 					{(count !== undefined || details !== undefined) && (
 						<div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -66,9 +86,40 @@ export function DecisionFrame({
 						</div>
 					)}
 				</div>
-				{summary}
+				{meta !== undefined && (
+					<p data-testid="decision-meta" title={metaText} className="min-w-0 truncate text-xs text-muted-foreground">
+						{meta}
+					</p>
+				)}
+				{risk !== undefined && (
+					<div className="flex min-w-0 items-center gap-2">
+						<span data-testid="decision-risk" className="shrink-0">
+							<StatusBadge tone={RISK_TONES[risk]}>{i18n._(DECISION_RISK_LABELS[risk])}</StatusBadge>
+						</span>
+						{reason !== undefined && reason !== "" && (
+							<p
+								data-testid="decision-reason"
+								title={reason}
+								className="min-w-0 truncate text-xs text-muted-foreground"
+							>
+								{reason}
+							</p>
+						)}
+					</div>
+				)}
+				{detail !== undefined && detail !== "" && (
+					<code
+						data-testid="decision-detail"
+						title={detail}
+						className="block w-full min-w-0 truncate rounded bg-[var(--code)] px-2 py-1 font-mono text-xs leading-5"
+					>
+						{detail}
+					</code>
+				)}
 			</div>
-			<div className="-mx-4 grid min-w-0 gap-2 border-t px-4 pt-1">{children}</div>
+			<div data-slot="decision-tabs" className="min-w-0 border-t pt-3">
+				{children}
+			</div>
 		</Panel>
 	);
 }
