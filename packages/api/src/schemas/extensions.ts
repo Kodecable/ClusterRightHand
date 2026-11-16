@@ -4,7 +4,7 @@
  * crhs's built-in extensions; header values are write-only.
  */
 import { z } from "zod";
-import { ApprovalRecordSchema, OperationSchema } from "./policy.ts";
+import { ApprovalPhaseSchema, ApprovalRecordSchema, OperationSchema } from "./policy.ts";
 
 /** What an extension is: a connected MCP server or one that ships with crhs. */
 export const ExtensionKindSchema = z.enum(["mcp", "builtin"]);
@@ -184,5 +184,6 @@ export const ExternalCallViewSchema = z
 		handlerSessionId: z.string().nullable(),
 		createdAt: z.string(),
 		finishedAt: z.string().nullable(),
+		phase: ApprovalPhaseSchema.describe("`reviewing` while Auto Review decides; otherwise `awaiting_user`."),
 	})
 	.meta({ id: "ExternalCallView" });

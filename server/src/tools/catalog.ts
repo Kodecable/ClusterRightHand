@@ -5,6 +5,7 @@ import type { CallToolResult } from "@modelcontextprotocol/client";
 import * as z from "zod/v4";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
+import { isPendingReview, pendingReview } from "../cluster/approval.ts";
 import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
@@ -115,7 +116,11 @@ export interface ToolContext {
 	/** The WebUI page where the owner decides a waiting external call. */
 	externalCallUrl?: (id: string) => string;
 	/** Auto Review for one waiting external call; settles it before the waiter looks again. */
-	reviewExternalCall?: (id: string) => Promise<void>;
+	reviewExternalCall?: (id: string, signal?: AbortSignal) => Promise<void>;
+	/** Whether Auto Review will judge a request on this chain; the call then enters awaiting approval marked reviewing. */
+	willReview?: (chain: RuleRef[]) => Promise<boolean>;
+	/** The session state may now follow a wait; the runtime refreshes it and the chat notifications. */
+	onApprovalChange?: (actorId: string) => void;
 	/** Hands a waiting external call to an ancestor's agent; true when one took it. */
 	routeExternalCall?: (id: string) => Promise<boolean>;
 	/** Whether crhs is shutting down: a running external call then stays `running` for recovery. */
@@ -1709,6 +1714,9 @@ export async function runExtensionTool(
 	if (existing) {
 		row = existing;
 	} else {
+		// Auto Review judging this call must not look like a user-facing approval: the pending marker is
+		// written with the row, and only a routing to an agent or the final verdict replaces it.
+		const reviewPlanned = evaluation.result === "require-approval" && (await ctx.willReview?.(ctx.chain)) === true;
 		const created = await createExternalCall(ctx.db, {
 			callKey,
 			sourceCallId: ctx.callId ?? null,
@@ -1723,7 +1731,7 @@ export async function runExtensionTool(
 			annotations: tool.annotations,
 			ruleChain: ctx.chain,
 			rootSessionId: ctx.rootSessionId ?? null,
-			approval: { evaluation },
+			approval: { evaluation, ...(reviewPlanned ? { review: pendingReview(new Date().toISOString()) } : {}) },
 			state: evaluation.result === "allow" ? "running" : "awaiting_approval",
 		});
 		row = created.row;
@@ -1739,8 +1747,15 @@ export async function runExtensionTool(
 	if (row.state === "awaiting_approval") {
 		// Up the chain first, like a task: an ancestor's agent decides; only when none takes it does Auto
 		// Review judge it (once), then the owner in the WebUI (doc/design/access-control.md "Approvals").
+		// A call that is not being reviewed is a user-facing wait, so the session may now follow it.
+		const reviewPending = isPendingReview(externalCallApproval(row)?.review);
 		const routed = row.handler_type === "agent" || (await ctx.routeExternalCall?.(id)) === true;
-		if (!routed && !externalCallApproval(row)?.review) await ctx.reviewExternalCall?.(id);
+		const existingReview = externalCallApproval(row)?.review;
+		// A pending marker is a review the last process did not finish: run it again (the reviewer is single-flight).
+		if (!routed && (existingReview === undefined || isPendingReview(existingReview))) {
+			await ctx.reviewExternalCall?.(id, ctx.signal);
+		}
+		if (!routed && !reviewPending) ctx.onApprovalChange?.(ctx.actor.id);
 		await ctx.onStatus?.({
 			external_call_id: id,
 			state: "awaiting_approval",
@@ -1749,6 +1764,15 @@ export async function runExtensionTool(
 		row = await waitExternalCall(ctx.db, id, {
 			...(ctx.signal ? { signal: ctx.signal } : {}),
 			cancelOnAbort: !ctx.closing?.(),
+			onCancelled: () => {
+				// A call aborted before it ran never reached the extension; record that like any other end.
+				auditExternal(ctx, "external_call.finished", id, {
+					extension: extensionName,
+					tool: toolName,
+					state: "cancelled",
+					reason: "the tool call was aborted",
+				});
+			},
 			onWaiting: async () => {
 				await ctx.onStatus?.({
 					external_call_id: id,
@@ -1761,6 +1785,7 @@ export async function runExtensionTool(
 		// cannot keep pointing at an approval that is already settled. A shutdown keeps the waiting state.
 		if (row.state !== "awaiting_approval") {
 			await ctx.onStatus?.({ external_call_id: id, state: row.state });
+			ctx.onApprovalChange?.(ctx.actor.id);
 		}
 	}
 	if (row.state !== "running") return settledResult(row, extensionName, toolName);

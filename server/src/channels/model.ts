@@ -156,6 +156,11 @@ export interface GenerationStopped {
 	platformUserId: string;
 	chatId: string;
 	topicId: string | null;
+	/**
+	 * The draft the user stopped. Telegram keeps stale drafts around for hours, so the manager only stops a turn
+	 * when this is its current live draft (`null` on a platform whose stop control carries no draft id).
+	 */
+	draftId: number | null;
 }
 
 export interface ChannelHandlers {

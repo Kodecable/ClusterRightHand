@@ -209,6 +209,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 				platformUserId: chatIdOf(stopped.chat.id),
 				chatId: chatIdOf(stopped.chat.id),
 				topicId: stopped.message_thread_id === undefined ? null : String(stopped.message_thread_id),
+				draftId: stopped.draft_id,
 			});
 			return;
 		}

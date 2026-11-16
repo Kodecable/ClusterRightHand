@@ -545,8 +545,25 @@ export async function configure(
 	return (await getSession(host, sessionId)) as SessionView;
 }
 
+/** Where a stop came from, recorded as `session.stop`'s source (doc/design/access-control.md "Recorded events"). */
+export type SessionStopSource = "web" | "channel_command" | "channel_draft_stop" | "internal";
+
+export interface SessionStopOptions {
+	source?: SessionStopSource;
+	/** The channel and chat account/thread the stop came from, when it came from a chat. */
+	channel?: string;
+	platform?: string;
+	accountId?: string;
+	threadId?: string;
+}
+
 /** Stops the current run: queued inputs are withdrawn and running tool calls aborted. */
-export async function abort(host: RuntimeHost, sessionId: string, by?: SessionUser): Promise<void> {
+export async function abort(
+	host: RuntimeHost,
+	sessionId: string,
+	by?: SessionUser,
+	stop: SessionStopOptions = {},
+): Promise<void> {
 	const { conversation } = await loadConversation(host, sessionId);
 	const sessions = [sessionId, ...(await sessionDescendants(host.db, sessionId))];
 	// A stopped message produces no timing; its attempt must not be read by a later run.
@@ -581,6 +598,20 @@ export async function abort(host: RuntimeHost, sessionId: string, by?: SessionUs
 		host.quotaWaits.wakeAll();
 		host.inboxes.clear();
 		for (const id of sessions) host.wakes.dropAll(id);
+		// One event for every stop path: the WebUI, /stop, a stopped progress draft and internal stops alike.
+		void host.audit?.record({
+			actor: by ? userActor(by) : { type: "system", id: "system" },
+			action: "session.stop",
+			target: { type: "session", id: sessionId },
+			detail: {
+				source: stop.source ?? "internal",
+				...(stop.channel ? { channel: stop.channel } : {}),
+				...(stop.platform ? { via: stop.platform } : {}),
+				...(stop.accountId ? { channel_account: stop.accountId } : {}),
+				...(stop.threadId ? { thread_id: stop.threadId } : {}),
+				...(sessions.length > 1 ? { subagents: sessions.slice(1) } : {}),
+			},
+		});
 	} finally {
 		for (const id of sessions) host.sessionFlags.endStop(id);
 		// A stream event may have landed after the first clear; nothing will read it for this stopped run.

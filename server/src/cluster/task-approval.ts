@@ -15,6 +15,7 @@ import {
 	agentRoutingAudit,
 	approvalAudit,
 	chainWith,
+	isPendingReview,
 	mergeApproval,
 	reviewAudit,
 	rulesApproval,
@@ -183,6 +184,27 @@ export async function recordReview(core: ClusterCore, id: string, review: Approv
 		);
 		if (!recorded) return;
 		core.auditLater(reviewAudit("task", id, row.on_behalf_of_user_id, review));
+	});
+}
+
+/**
+ * Drops the pending-review marker when Auto Review will not run after all (the preset changed, the model is
+ * gone). The task becomes a user-facing approval again; a settled or agent-handled row is left alone.
+ */
+export async function abandonReview(core: ClusterCore, id: string): Promise<void> {
+	await core.taskQueue.run(id, async () => {
+		const row = await core.row(id);
+		if (row?.state !== "awaiting_approval" || row.handler_type === null) return;
+		const record = JSON.parse(row.approval ?? "{}") as ApprovalRecord;
+		if (!isPendingReview(record.review)) return;
+		const { review: _pending, ...rest } = record;
+		const recorded = await writeTask(
+			core.db,
+			id,
+			{ states: ["awaiting_approval"], rev: row.rev },
+			{ approval: JSON.stringify(rest) },
+		);
+		if (recorded) core.onChange?.(row.actor_id);
 	});
 }
 

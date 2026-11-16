@@ -141,6 +141,10 @@ nodes, the batch settings, its state and a single approval for the whole group.
   session transcript. It is null when an API token, MCP or the WebUI
   created the work, and the review then falls back to the recorded summary
   ([Auto Review](access-control.md#auto-review)).
+- The approval record's `review` is either Auto Review's pending marker
+  (`{ status: "pending", startedAt }`) or its settled verdict. The marker is written into the same JSON
+  column as the rest of the record, so no schema change is needed, and the derived `phase` is computed
+  for the API rather than stored ([Reviewing](access-control.md#auto-review)).
 
 ## Rules and authorizations
 

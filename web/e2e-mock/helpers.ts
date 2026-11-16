@@ -1367,6 +1367,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				handlerType: null,
 				handlerSessionId: null,
 				purpose: null,
+				phase: "awaiting_user",
 			};
 			state.taskGroups[groupId] = { taskGroup: group, polls: 0 };
 			return json({ taskGroup: group });

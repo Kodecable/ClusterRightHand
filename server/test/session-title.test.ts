@@ -2,13 +2,15 @@ import type { AssistantMessage, Model, ModelThinkingLevel } from "@earendil-work
 import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { DEFAULT_LLM_TIMEOUTS } from "../src/agent/llm-timeout.ts";
 import { DEFAULT_TITLE_PROMPT, TITLE_PROTOCOL } from "../src/agent/model-presets.ts";
 import { ModelConfig } from "../src/agent/models.ts";
 import { budgetUsedTokens, contextTokens, usageTokens } from "../src/agent/quota.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import type { SessionListItem } from "../src/agent/session-list.ts";
 import { sessionStateOf } from "../src/agent/session-state.ts";
-import { sanitizeTitle, TITLE_TIMEOUT_MS, titleThinking } from "../src/agent/title.ts";
+import { streamSessionId } from "../src/agent/stream-session-id.ts";
+import { sanitizeTitle, titleThinking } from "../src/agent/title.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -32,13 +34,14 @@ const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id }
 
 let db: Db;
 let runtime: AgentRuntime;
+let models: ModelConfig;
 let owner: SessionUser;
 
 beforeAll(async () => {
 	db = await openTestDb("sqlite");
 	const audit = new Audit(db);
 	const cluster = new Cluster(db, { audit });
-	const models = new ModelConfig(db, MasterKey.generate());
+	models = new ModelConfig(db, MasterKey.generate());
 	models.addProvider(faux.provider);
 	await models.reload();
 	runtime = await AgentRuntime.open({
@@ -281,14 +284,10 @@ it("keeps pending after a failed generation and retries at the next run end", as
 	expect(await sessionRow(session.id)).toEqual({ title: "Recovered title", title_pending: 0 });
 });
 
-it("cuts a hanging generation at the title limit and retries at the next run end", async () => {
+it("cuts a stalled generation at the idle limit and retries at the next run end", async () => {
 	faux.setResponses([]);
+	models.llmTimeouts = { idleMs: 20, overallMs: 500 };
 	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
-	const originalTimeout = AbortSignal.timeout.bind(AbortSignal);
-	const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
-		expect(ms).toBe(TITLE_TIMEOUT_MS);
-		return originalTimeout(20);
-	});
 	const errors = vi.spyOn(console, "error").mockImplementation(() => {});
 	let titleOptions: { timeoutMs?: number; signal?: AbortSignal } | undefined;
 	let started: (() => void) | undefined;
@@ -309,7 +308,7 @@ it("cuts a hanging generation at the title limit and retries at the next run end
 		const first = await runtime.submit(session.id, owner, "First input", "title-timeout");
 		expect((await waitSubmission(runtime, session.id, first)).status).toBe("done");
 		await generationStarted;
-		expect(titleOptions?.timeoutMs).toBe(TITLE_TIMEOUT_MS);
+		expect(titleOptions?.timeoutMs).toBeUndefined();
 		expect(titleOptions?.signal).toBeInstanceOf(AbortSignal);
 		await vi.waitFor(
 			() => {
@@ -326,7 +325,7 @@ it("cuts a hanging generation at the title limit and retries at the next run end
 		await waitTitle(session.id, "Recovered title");
 		expect(await sessionRow(session.id)).toEqual({ title: "Recovered title", title_pending: 0 });
 	} finally {
-		timeoutSpy.mockRestore();
+		models.llmTimeouts = { ...DEFAULT_LLM_TIMEOUTS };
 		errors.mockRestore();
 	}
 });
@@ -433,7 +432,7 @@ it("uses the custom title prompt and protocol and charges the call without touch
 	expect(JSON.stringify(userMessage?.content)).toContain("The assistant's final answer");
 	// The plain faux model supports only off, so the request asks for no reasoning and a small budget.
 	expect(titleOptions).toMatchObject({ maxTokens: 256 });
-	expect(typeof titleOptions?.sessionId).toBe("string");
+	expect(titleOptions?.sessionId).toBe(streamSessionId(session.id, "title"));
 	expect(titleOptions?.reasoning).toBeUndefined();
 	expect(after.budget - before.budget).toBe(Math.ceil(titleText.length / 4));
 	expect(after.usage).toBeGreaterThan(before.usage);

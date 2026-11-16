@@ -162,6 +162,8 @@ async function toolContextFor(
 		rootSessionId: session.root_session_id,
 		...(options.mcp ? { externalCallUrl: (id: string) => `/approvals/external-calls/${id}` } : {}),
 		...(options.reviewExternalCall ? { reviewExternalCall: options.reviewExternalCall } : {}),
+		...(options.willReview ? { willReview: options.willReview } : {}),
+		...(options.approvalChanged ? { onApprovalChange: options.approvalChanged } : {}),
 		...(options.routeExternalCall ? { routeExternalCall: options.routeExternalCall } : {}),
 	};
 }

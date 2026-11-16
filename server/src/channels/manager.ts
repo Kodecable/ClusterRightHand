@@ -17,6 +17,7 @@ import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/run
 import type { Audit } from "../audit/audit.ts";
 import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
+import { approvalPhaseOf } from "../cluster/approval.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import {
@@ -342,7 +343,7 @@ function approvalKey(kind: "task" | "task_group" | "external_call", id: string):
 	return `${kind}:${id}`;
 }
 
-type WaitRow = { state: string; handler_type: string | null; on_behalf_of_user_id: string };
+type WaitRow = { state: string; handler_type: string | null; on_behalf_of_user_id: string; approval: string | null };
 
 /**
  * Whether a session's chat messages wait for the user: an approval or signature that is shown in the chat.
@@ -357,15 +358,33 @@ function hasWait(
 	for (const task of tasks) {
 		if (task.on_behalf_of_user_id !== owner) continue;
 		if (task.state === "awaiting_authorization") return true;
-		if (task.state === "awaiting_approval" && task.handler_type === "user") return true;
+		if (
+			task.state === "awaiting_approval" &&
+			task.handler_type === "user" &&
+			approvalPhaseOf(task.state, task.handler_type, task.approval) === "awaiting_user"
+		) {
+			return true;
+		}
 	}
 	for (const group of groups) {
 		if (group.on_behalf_of_user_id !== owner) continue;
 		if (group.state === "awaiting_authorization") return true;
-		if (group.state === "awaiting_approval" && group.handler_type === "user") return true;
+		if (
+			group.state === "awaiting_approval" &&
+			group.handler_type === "user" &&
+			approvalPhaseOf(group.state, group.handler_type, group.approval) === "awaiting_user"
+		) {
+			return true;
+		}
 	}
 	for (const call of calls) {
-		if (call.on_behalf_of_user_id === owner && call.handler_type === "user") return true;
+		if (call.on_behalf_of_user_id !== owner) continue;
+		if (
+			call.handler_type !== null &&
+			approvalPhaseOf(call.state, call.handler_type, call.approval) === "awaiting_user"
+		) {
+			return true;
+		}
 	}
 	return false;
 }
@@ -1985,7 +2004,14 @@ export class ChannelManager {
 			return;
 		}
 		try {
-			await this.#options.runtime.abort(thread.session_id, user);
+			const account = await accountByPlatform(this.#options.db, row.id, adapter.platform, message.platformUserId);
+			await this.#options.runtime.abort(thread.session_id, user, {
+				source: "channel_command",
+				channel: row.name,
+				platform: adapter.platform,
+				...(account ? { accountId: account.id } : {}),
+				threadId: thread.id,
+			});
 			await adapter.sendText(target, m.stopped);
 		} catch (err) {
 			await adapter.sendText(target, m.couldNotStop(errorText(err)));
@@ -2105,6 +2131,7 @@ export class ChannelManager {
 			task.onBehalfOfUserId === user.userId &&
 			task.state === "awaiting_approval" &&
 			task.handlerType === "user" &&
+			task.phase !== "reviewing" &&
 			task.ruleChain
 		) {
 			const ok = await this.#options.cluster.decide(id, record, { handlerType: "user" });
@@ -2117,6 +2144,7 @@ export class ChannelManager {
 			group.onBehalfOfUserId === user.userId &&
 			group.state === "awaiting_approval" &&
 			group.handlerType === "user" &&
+			group.phase !== "reviewing" &&
 			group.ruleChain
 		) {
 			const ok = await this.#options.taskGroups.decide(id, record, { handlerType: "user" });
@@ -2129,6 +2157,7 @@ export class ChannelManager {
 			call.on_behalf_of_user_id === user.userId &&
 			call.state === "awaiting_approval" &&
 			call.handler_type === "user" &&
+			approvalPhaseOf(call.state, call.handler_type, call.approval) === "awaiting_user" &&
 			call.rule_chain
 		) {
 			const ok = await decideExternalCall(this.#options.db, id, record, reason, { handlerType: "user" });
@@ -2162,6 +2191,15 @@ export class ChannelManager {
 				decision,
 			},
 		});
+		// An external call's decision is the call's own event too, like the WebUI route's (doc/design/extensions.md).
+		if (kind === "external_call") {
+			await this.#options.audit.record({
+				actor: userActor(user),
+				action: "external_call.approval",
+				target: { type: "external_call", id },
+				detail: { decision, channel, via: platform, ...(threadId ? { thread_id: threadId } : {}) },
+			});
+		}
 	}
 
 	async #editDecided(
@@ -2686,7 +2724,27 @@ export class ChannelManager {
 		if (!adapter) return;
 		const thread = await channelThread(this.#options.db, row.id, adapter.platform, stop.chatId, stop.topicId);
 		if (!thread || thread.session_id === null) return;
-		const owner = await sessionOwner(this.#options.db, thread.session_id);
+		const sessionId = thread.session_id;
+		// Telegram keeps stopped drafts around for hours. Only the session's current live draft may stop the
+		// turn: a stale or unknown id is ignored instead of aborting a run that has moved on
+		// (doc/design/channels.md "Messages").
+		const draft = this.#drafts.get(sessionId);
+		const live =
+			draft !== undefined &&
+			stop.draftId !== null &&
+			draft.draftId === stop.draftId &&
+			draft.adapterName === row.name &&
+			draft.target.chatId === stop.chatId &&
+			(draft.target.topicId ?? null) === stop.topicId &&
+			!draft.suppressed &&
+			this.#runs.has(sessionId);
+		if (!live) {
+			console.log(
+				`channels: ignoring a generation stop for draft ${stop.draftId ?? "?"} on session ${sessionId}: it is not the live draft`,
+			);
+			return;
+		}
+		const owner = await sessionOwner(this.#options.db, sessionId);
 		if (!owner) return;
 		// Only the owner's own linked account may stop the turn; a chat relinked to someone else cannot.
 		const presser = await accountByPlatform(this.#options.db, row.id, adapter.platform, stop.platformUserId);
@@ -2697,13 +2755,27 @@ export class ChannelManager {
 			.where("id", "=", owner)
 			.executeTakeFirst();
 		if (!userRow || userRow.status !== "active") return;
+		const locale = botLocale(await this.#userLocale(owner));
+		const m = messagesFor(locale);
 		try {
-			await this.#options.runtime.abort(thread.session_id, {
-				sessionId: `channel:${thread.id}`,
-				userId: userRow.id,
-				username: userRow.username,
-				kind: userRow.kind,
-			});
+			await this.#options.runtime.abort(
+				sessionId,
+				{
+					sessionId: `channel:${thread.id}`,
+					userId: userRow.id,
+					username: userRow.username,
+					kind: userRow.kind,
+				},
+				{
+					source: "channel_draft_stop",
+					channel: row.name,
+					platform: adapter.platform,
+					accountId: presser.id,
+					threadId: thread.id,
+				},
+			);
+			// Stopping from the draft's control answers like /stop does.
+			await adapter.sendText({ chatId: stop.chatId, topicId: stop.topicId }, m.stopped);
 		} catch (err) {
 			console.error("channels: stopping a turn from a draft failed:", err);
 		}
@@ -2856,21 +2928,21 @@ export class ChannelManager {
 		const route = await this.#routeForSession(rootId);
 		const tasks = await this.#options.db
 			.selectFrom("tasks")
-			.select(["id", "state", "handler_type", "on_behalf_of_user_id"])
+			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
 			.where("root_session_id", "=", rootId)
 			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
 			.execute();
 		for (const task of tasks) await this.#syncTaskWait(rootId, task, owner, route, locale, m);
 		const groups = await this.#options.db
 			.selectFrom("task_groups")
-			.select(["id", "state", "handler_type", "on_behalf_of_user_id"])
+			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
 			.where("root_session_id", "=", rootId)
 			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
 			.execute();
 		for (const group of groups) await this.#syncGroupWait(rootId, group, owner, route, locale, m);
 		const calls = await this.#options.db
 			.selectFrom("external_calls")
-			.select(["id", "state", "handler_type", "on_behalf_of_user_id"])
+			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
 			.where("root_session_id", "=", rootId)
 			.where("state", "=", "awaiting_approval")
 			.execute();
@@ -2882,7 +2954,13 @@ export class ChannelManager {
 
 	async #syncTaskWait(
 		rootId: string,
-		task: { id: string; state: string; handler_type: string | null; on_behalf_of_user_id: string },
+		task: {
+			id: string;
+			state: string;
+			handler_type: string | null;
+			on_behalf_of_user_id: string;
+			approval: string | null;
+		},
 		owner: string,
 		route: Route | undefined,
 		locale: UserSettingsLocale,
@@ -2897,6 +2975,7 @@ export class ChannelManager {
 			return;
 		}
 		if (task.handler_type !== "user") return;
+		if (approvalPhaseOf(task.state, task.handler_type, task.approval) === "reviewing") return;
 		if (!route || this.#tracked.has(key)) return;
 		const view = await this.#options.cluster.getTask(task.id);
 		if (!view) return;
@@ -2919,7 +2998,13 @@ export class ChannelManager {
 
 	async #syncGroupWait(
 		rootId: string,
-		group: { id: string; state: string; handler_type: string | null; on_behalf_of_user_id: string },
+		group: {
+			id: string;
+			state: string;
+			handler_type: string | null;
+			on_behalf_of_user_id: string;
+			approval: string | null;
+		},
 		owner: string,
 		route: Route | undefined,
 		locale: UserSettingsLocale,
@@ -2934,6 +3019,7 @@ export class ChannelManager {
 			return;
 		}
 		if (group.handler_type !== "user") return;
+		if (approvalPhaseOf(group.state, group.handler_type, group.approval) === "reviewing") return;
 		if (!route || this.#tracked.has(key)) return;
 		const view = await this.#options.taskGroups.get(group.id);
 		if (!view) return;
@@ -2956,13 +3042,20 @@ export class ChannelManager {
 
 	async #syncCallWait(
 		rootId: string,
-		call: { id: string; state: string; handler_type: string | null; on_behalf_of_user_id: string },
+		call: {
+			id: string;
+			state: string;
+			handler_type: string | null;
+			on_behalf_of_user_id: string;
+			approval: string | null;
+		},
 		owner: string,
 		route: Route | undefined,
 		locale: UserSettingsLocale,
 		m: BotMessages,
 	): Promise<void> {
 		if (call.on_behalf_of_user_id !== owner || call.handler_type !== "user") return;
+		if (approvalPhaseOf(call.state, call.handler_type, call.approval) === "reviewing") return;
 		const key = approvalKey("external_call", call.id);
 		if (!route || this.#tracked.has(key)) return;
 		const row = await getExternalCall(this.#options.db, call.id);

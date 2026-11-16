@@ -14,6 +14,7 @@ import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { McpConnections } from "../extensions/connections.ts";
 import type { ImageCache } from "../library/image-cache.ts";
+import type { RuleRef } from "../policy/store.ts";
 import type { SessionRow } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../util/errors.ts";
@@ -87,7 +88,11 @@ export interface AgentRuntimeOptions {
 	/** The MCP client connections behind `search_tools` and `call_tool` (doc/design/extensions.md). */
 	mcp?: McpConnections;
 	/** Auto Review for one waiting external call; set by AgentRuntime. */
-	reviewExternalCall?: (id: string) => Promise<void>;
+	reviewExternalCall?: (id: string, signal?: AbortSignal) => Promise<void>;
+	/** Whether Auto Review will judge a request on this chain; set by AgentRuntime for the marker at creation. */
+	willReview?: (chain: RuleRef[] | null) => Promise<boolean>;
+	/** A session's wait may have changed (an external call entered or left a wait); set by AgentRuntime. */
+	approvalChanged?: (actorId: string) => void;
 	/** Routes a waiting external call up the rule chain; set by AgentRuntime. */
 	routeExternalCall?: (id: string) => Promise<boolean>;
 	/**

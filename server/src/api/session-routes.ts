@@ -786,7 +786,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	app.openapi(abortRoute, async (c) => {
 		const { id } = c.req.valid("param");
 		const v = await requireSession(c, id, "chat");
-		await runtime.abort(v.session.id, c.get("user"));
+		await runtime.abort(v.session.id, c.get("user"), { source: "web" });
 		return c.json({ ok: true as const }, 200);
 	});
 

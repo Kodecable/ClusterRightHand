@@ -115,6 +115,7 @@ describe("MCP links", () => {
 			handlerType: "user",
 			handlerSessionId: null,
 			purpose: null,
+			phase: "awaiting_user",
 		};
 		const cluster = {
 			createTask: async () => task,

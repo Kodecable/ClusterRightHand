@@ -10,11 +10,13 @@ import {
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { type Audit, userActor } from "../audit/audit.ts";
+import { pendingReviewIn } from "../cluster/approval.ts";
 import type { ApprovalDecision, Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import {
 	decideExternalCall,
 	externalCallApproval,
+	externalCallPhase,
 	externalCallViews,
 	getExternalCall,
 	pendingExternalCallRows,
@@ -140,6 +142,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			chain: RuleRef[] | null;
 			waiting: boolean;
 			handlerType: "agent" | "user" | null;
+			phase: "reviewing" | "awaiting_user";
 		},
 		body: ApprovalBody,
 	) => {
@@ -150,6 +153,10 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			throw new HTTPException(409, { message: "it is no longer waiting for approval" });
 		}
 		if (subject.handlerType !== "user") throw new HTTPException(409, { message: "an agent is handling this request" });
+		// The decision belongs to the reviewer until it settles; a rule change or its verdict is the way out.
+		if (subject.phase === "reviewing") {
+			throw new HTTPException(409, { message: "Auto Review is still reviewing this request" });
+		}
 		const reason =
 			typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 1000) : undefined;
 		const decision: ApprovalDecision = {
@@ -199,6 +206,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 					chain: t.ruleChain,
 					waiting: t.state === "awaiting_approval",
 					handlerType: t.handlerType,
+					phase: t.phase,
 				},
 				c.req.valid("json"),
 			),
@@ -220,6 +228,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 					chain: g.ruleChain,
 					waiting: g.state === "awaiting_approval",
 					handlerType: g.handlerType,
+					phase: g.phase,
 				},
 				c.req.valid("json"),
 			),
@@ -247,6 +256,9 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		if (!row || row.on_behalf_of_user_id !== user.userId) throw new NotFoundError("no such approval");
 		if (row.state !== "awaiting_approval" || row.handler_type !== "user") {
 			throw new HTTPException(409, { message: "it is no longer waiting for approval" });
+		}
+		if (externalCallPhase(row) === "reviewing") {
+			throw new HTTPException(409, { message: "Auto Review is still reviewing this request" });
 		}
 		const reason =
 			typeof body.reason === "string" && body.reason.trim() ? body.reason.trim().slice(0, 1000) : undefined;
@@ -303,7 +315,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 async function approvalRequestRows(db: Db, userId: string) {
 	const tasks = await db
 		.selectFrom("tasks")
-		.select("id")
+		.select(["id", "approval"])
 		.where("state", "=", "awaiting_approval")
 		.where("handler_type", "=", "user")
 		.where("on_behalf_of_user_id", "=", userId)
@@ -311,13 +323,17 @@ async function approvalRequestRows(db: Db, userId: string) {
 		.execute();
 	const taskGroups = await db
 		.selectFrom("task_groups")
-		.select("id")
+		.select(["id", "approval"])
 		.where("state", "=", "awaiting_approval")
 		.where("handler_type", "=", "user")
 		.where("on_behalf_of_user_id", "=", userId)
 		.orderBy("created_at")
 		.execute();
-	return { tasks, taskGroups };
+	// A request Auto Review is still judging is not a user-facing approval yet (doc/design/access-control.md "Auto Review").
+	return {
+		tasks: tasks.filter((row) => !pendingReviewIn(row.approval)),
+		taskGroups: taskGroups.filter((row) => !pendingReviewIn(row.approval)),
+	};
 }
 
 /**

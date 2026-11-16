@@ -22,6 +22,7 @@ import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { SubmittedAuthorization } from "../privilege/submission.ts";
 import type { Db } from "../storage/db.ts";
+import type { ApprovalReview } from "./approval.ts";
 import * as authorizations from "./authorization-flow.ts";
 import type { NodeConnection } from "./connection.ts";
 import { ClusterCore } from "./core.ts";
@@ -42,12 +43,12 @@ import {
 import * as links from "./links.ts";
 import type { NodeRow } from "./nodes.ts";
 import { closeSsh, closeSshNode } from "./ssh-runner.ts";
+import { abandonReview as abandonTaskReview } from "./task-approval.ts";
 import * as tasks from "./task-state.ts";
 import type {
 	Actor,
 	ApprovalDecision,
 	ApprovalExpect,
-	ApprovalRecord,
 	ClusterOptions,
 	CreateTaskInput,
 	DecisionResult,
@@ -88,12 +89,31 @@ export class Cluster {
 	}
 
 	/** Called once for every task that starts waiting for approval (Auto Review hooks in here). */
-	get onAwaitingApproval(): ((task: TaskView) => Promise<void>) | undefined {
+	get onAwaitingApproval(): ((task: TaskView, signal?: AbortSignal) => Promise<void>) | undefined {
 		return this.#core.onAwaitingApproval;
 	}
 
-	set onAwaitingApproval(hook: ((task: TaskView) => Promise<void>) | undefined) {
+	set onAwaitingApproval(hook: ((task: TaskView, signal?: AbortSignal) => Promise<void>) | undefined) {
 		this.#core.onAwaitingApproval = hook;
+	}
+
+	/** Whether Auto Review will judge a request on this chain; the row gets the pending marker before it is written. */
+	get onReviewPlanned(): ((chain: RuleRef[] | null) => Promise<boolean>) | undefined {
+		return this.#core.onReviewPlanned;
+	}
+
+	set onReviewPlanned(hook: ((chain: RuleRef[] | null) => Promise<boolean>) | undefined) {
+		this.#core.onReviewPlanned = hook;
+	}
+
+	/** Whether Auto Review will judge a request on this chain (see `onReviewPlanned`). */
+	async willReview(chain: RuleRef[] | null): Promise<boolean> {
+		return (await this.#core.onReviewPlanned?.(chain)) ?? false;
+	}
+
+	/** Drops a pending Auto Review marker when the review will not run; the task then waits for the user. */
+	abandonReview(id: string): Promise<void> {
+		return abandonTaskReview(this.#core, id);
 	}
 
 	/** Called after a task starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
@@ -316,7 +336,7 @@ export class Cluster {
 	}
 
 	/** Stores Auto Review's verdict on a waiting task. */
-	recordReview(id: string, review: NonNullable<ApprovalRecord["review"]>): Promise<void> {
+	recordReview(id: string, review: ApprovalReview): Promise<void> {
 		return tasks.recordReview(this.#core, id, review);
 	}
 

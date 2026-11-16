@@ -9,11 +9,15 @@ import type {
 	AgentRequestSchema,
 	ApprovalBodySchema,
 	ApprovalDecisionSchema,
+	ApprovalPhaseSchema,
 	ApprovalRecordSchema,
 	DefaultActionSchema,
 	EvaluationSchema,
 	LevelResultSchema,
 	OperationSchema,
+	ReviewPendingSchema,
+	ReviewSchema,
+	ReviewVerdictSchema,
 	RuleActionSchema,
 	RuleMethodSchema,
 	RulePresetSchema,
@@ -56,6 +60,16 @@ export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>;
  * straight to the user (doc/design/agent-runtime.md "Handling subagent requests").
  */
 export type AgentRequest = z.infer<typeof AgentRequestSchema>;
+
+/** A review record: either Auto Review's pending marker or its settled verdict. */
+export type Review = z.infer<typeof ReviewSchema>;
+
+/** Auto Review's settled answer; the pending marker is `ReviewPending`. */
+export type ReviewVerdict = z.infer<typeof ReviewVerdictSchema>;
+export type ReviewPending = z.infer<typeof ReviewPendingSchema>;
+
+/** `reviewing` while Auto Review decides, otherwise `awaiting_user` (only meaningful while awaiting approval). */
+export type ApprovalPhase = z.infer<typeof ApprovalPhaseSchema>;
 
 /** The approval state of a tool call: how the rules judged it, then how it was settled. */
 export type ApprovalRecord = z.infer<typeof ApprovalRecordSchema>;

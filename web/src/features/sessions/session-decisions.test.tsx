@@ -38,6 +38,7 @@ const externalCall = (id: string, createdAt: string, rootSessionId = "root"): Ex
 		onBehalfOfUserId: "u1",
 		handlerType: "user",
 		handlerSessionId: null,
+		phase: "awaiting_user",
 		finishedAt: null,
 	}) as ExternalCallView;
 

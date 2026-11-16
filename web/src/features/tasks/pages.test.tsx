@@ -46,6 +46,7 @@ const TASK: TaskView = {
 	handlerType: null,
 	handlerSessionId: null,
 	purpose: null,
+	phase: "awaiting_user",
 };
 
 interface MockOptions {

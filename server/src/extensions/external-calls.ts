@@ -1,13 +1,15 @@
 import type {
 	ApprovalDecision,
+	ApprovalPhase,
 	ApprovalRecord,
 	ExtensionToolAnnotations,
 	ExternalCallState,
 	ExternalCallView,
 	Operation,
+	Review,
 } from "@crh/api";
 import type { Selectable } from "kysely";
-import { agentRouting } from "../cluster/approval.ts";
+import { agentRouting, approvalPhase, isPendingReview, mergeApproval, pendingReview } from "../cluster/approval.ts";
 import { type ChainLevel, evaluate } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
@@ -128,9 +130,12 @@ export async function getExternalCall(db: Db, id: string): Promise<ExternalCallR
 	return db.selectFrom("external_calls").selectAll().where("id", "=", id).executeTakeFirst();
 }
 
-/** The calls waiting for this user's decision, oldest first. */
+/**
+ * The calls waiting for this user's decision, oldest first. A call Auto Review is still judging is hidden:
+ * it is not a user-facing approval yet (doc/design/access-control.md "Auto Review").
+ */
 export async function pendingExternalCallRows(db: Db, userId: string): Promise<ExternalCallRow[]> {
-	return db
+	const rows = await db
 		.selectFrom("external_calls")
 		.selectAll()
 		.where("state", "=", "awaiting_approval")
@@ -138,6 +143,7 @@ export async function pendingExternalCallRows(db: Db, userId: string): Promise<E
 		.where("on_behalf_of_user_id", "=", userId)
 		.orderBy("created_at")
 		.execute();
+	return rows.filter((row) => !isPendingReview(externalCallApproval(row)?.review));
 }
 
 export function externalCallOperation(row: ExternalCallRow): Operation {
@@ -168,7 +174,13 @@ export function externalCallSummary(row: ExternalCallRow): string {
 	);
 }
 
+/** The phase of one call: `reviewing` while Auto Review decides, else `awaiting_user`. */
+export function externalCallPhase(row: ExternalCallRow): ApprovalPhase {
+	return approvalPhase(row.state, row.handler_type, externalCallApproval(row)?.review);
+}
+
 function toView(row: ExternalCallRow): ExternalCallView {
+	const approval = externalCallApproval(row);
 	return {
 		id: row.id,
 		extension: row.extension_name,
@@ -177,7 +189,7 @@ function toView(row: ExternalCallRow): ExternalCallView {
 		operation: externalCallOperation(row),
 		annotations: parseJson<ExtensionToolAnnotations>(row.annotations),
 		state: row.state,
-		approval: externalCallApproval(row),
+		approval,
 		actorType: row.actor_type,
 		actorId: row.actor_id,
 		onBehalfOfUserId: row.on_behalf_of_user_id,
@@ -186,6 +198,7 @@ function toView(row: ExternalCallRow): ExternalCallView {
 		handlerSessionId: row.handler_session_id,
 		createdAt: row.created_at,
 		finishedAt: row.finished_at,
+		phase: externalCallPhase(row),
 	};
 }
 
@@ -274,8 +287,12 @@ async function routeAgentDecision(
 	if (state === "pending" && externalCallApproval(row)?.agent?.state === "escalated") return false;
 	if (state === "escalated" && (row.handler_type !== "agent" || row.handler_session_id !== session)) return false;
 	const routing = agentRouting(session, state);
+	const current = externalCallApproval(row) ?? { evaluation: { result: "require-approval", levels: [] } };
+	// A call routed to an agent is that agent's request, not one Auto Review is judging: drop a pending marker
+	// here, so a restart does not try to review it and the phase reads `awaiting_user` if it is read at all.
+	const { review: _pending, ...withoutReview } = current;
 	const approval = {
-		...(externalCallApproval(row) ?? { evaluation: { result: "require-approval", levels: [] } }),
+		...(state === "pending" ? withoutReview : current),
 		agent: routing.agent,
 	};
 	let update = db
@@ -291,21 +308,62 @@ async function routeAgentDecision(
 	return result.numUpdatedRows > 0n;
 }
 
-/** Records Auto Review's verdict on a waiting call; the decision itself follows separately. */
-export async function recordExternalCallReview(
-	db: Db,
-	id: string,
-	review: NonNullable<ApprovalRecord["review"]>,
-): Promise<void> {
+/**
+ * Marks a waiting call as under Auto Review. The write is guarded on the state and handler, so a settled call
+ * is never reopened; a call routed to an agent drops the marker in the same write that routes it.
+ */
+export async function markExternalCallReviewPending(db: Db, id: string): Promise<boolean> {
 	const row = await getExternalCall(db, id);
-	if (row?.state !== "awaiting_approval") return;
-	const approval = { ...(externalCallApproval(row) ?? {}), review } as ApprovalRecord;
-	await db
+	if (row?.state !== "awaiting_approval" || row.handler_type !== "user") return false;
+	const current = externalCallApproval(row);
+	if (current?.review && !isPendingReview(current.review)) return false;
+	const approval = {
+		...(current ?? { evaluation: { result: "require-approval", levels: [] } }),
+		review: pendingReview(new Date().toISOString()),
+	} as ApprovalRecord;
+	const result = await db
 		.updateTable("external_calls")
 		.set({ approval: JSON.stringify(approval) })
 		.where("id", "=", id)
 		.where("state", "=", "awaiting_approval")
-		.execute();
+		.where("handler_type", "=", "user")
+		.executeTakeFirst();
+	return result.numUpdatedRows > 0n;
+}
+
+/** Drops the pending marker when Auto Review will not run; the call becomes a user-facing approval. */
+export async function clearExternalCallReviewPending(db: Db, id: string): Promise<boolean> {
+	const row = await getExternalCall(db, id);
+	if (row?.state !== "awaiting_approval" || row.handler_type !== "user") return false;
+	const current = externalCallApproval(row);
+	if (!isPendingReview(current?.review)) return false;
+	const { review: _pending, ...rest } = current as ApprovalRecord;
+	const result = await db
+		.updateTable("external_calls")
+		.set({ approval: JSON.stringify(rest) })
+		.where("id", "=", id)
+		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "=", "user")
+		.executeTakeFirst();
+	return result.numUpdatedRows > 0n;
+}
+
+/**
+ * Records Auto Review's verdict on a waiting call; the decision itself follows separately. Returns false when
+ * the call was settled while the review ran, so a late verdict (and its audit) is dropped.
+ */
+export async function recordExternalCallReview(db: Db, id: string, review: Review): Promise<boolean> {
+	const row = await getExternalCall(db, id);
+	if (row?.state !== "awaiting_approval" || row.handler_type === null) return false;
+	const approval = mergeApproval<ApprovalRecord>(row.approval, { review } as Partial<ApprovalRecord>);
+	const result = await db
+		.updateTable("external_calls")
+		.set({ approval: JSON.stringify(approval) })
+		.where("id", "=", id)
+		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "is not", null)
+		.executeTakeFirst();
+	return result.numUpdatedRows > 0n;
 }
 
 /**
@@ -361,7 +419,13 @@ export async function cancelWaitingExternalCall(db: Db, id: string): Promise<boo
 export async function waitExternalCall(
 	db: Db,
 	id: string,
-	options: { signal?: AbortSignal; cancelOnAbort?: boolean; onWaiting?: () => Promise<void> | void } = {},
+	options: {
+		signal?: AbortSignal;
+		cancelOnAbort?: boolean;
+		onWaiting?: () => Promise<void> | void;
+		/** Called after an aborted wait cancelled the call, so the caller can audit the cancellation. */
+		onCancelled?: (row: ExternalCallRow) => Promise<void> | void;
+	} = {},
 ): Promise<ExternalCallRow> {
 	let announced = false;
 	for (;;) {
@@ -390,8 +454,10 @@ export async function waitExternalCall(
 			const outcome = await Promise.race([changed.then(() => "changed" as const), aborted]);
 			if (outcome === "aborted") {
 				if (options.cancelOnAbort !== false) {
-					await cancelWaitingExternalCall(db, id);
-					return (await getExternalCall(db, id)) ?? row;
+					const cancelled = await cancelWaitingExternalCall(db, id);
+					const current = (await getExternalCall(db, id)) ?? row;
+					if (cancelled) await options.onCancelled?.(current);
+					return current;
 				}
 				return row;
 			}

@@ -1,6 +1,7 @@
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import type { SubmissionId } from "@earendil-works/pi-durable";
+import { streamSimpleWithTimeouts } from "./llm-timeout.ts";
 import { DEFAULT_TITLE_PROMPT, TITLE_PROTOCOL } from "./model-presets.ts";
 import type { ModelRef } from "./models.ts";
 import { chargeCall, exhaustedLevel } from "./quota.ts";
@@ -124,13 +125,6 @@ function truncate(text: string): string {
 }
 
 /**
- * The title call's time limit, in milliseconds. `timeoutMs` bounds each provider SDK request, and the abort
- * signal also stops a stream that stalls after the response has started. A call cut by this limit follows the
- * ordinary failure path: the generating state is cleared and the session stays pending for the next run.
- */
-export const TITLE_TIMEOUT_MS = 180_000;
-
-/**
  * Generates a title for the run that just ended, if the session still needs one. The caller must not await this
  * on the run's end path: it returns at once and generation continues in the background. `sessionId` is only a
  * hint for an overlapping trigger; every check is repeated from the database.
@@ -204,18 +198,24 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 		},
 	];
 	const { level, maxTokens } = titleThinking(resolved);
-	const answer = await host.models.completeSimple(
-		resolved,
-		{ systemPrompt, messages },
-		{
-			// Title generation is its own request stream, with a prefix unlike the conversation's
-			// (doc/design/agent-runtime.md "Custom providers").
-			sessionId: streamSessionId(sessionId, "title"),
-			maxTokens,
-			...(level === "off" ? {} : { reasoning: level }),
-			timeoutMs: TITLE_TIMEOUT_MS,
-			signal: AbortSignal.timeout(TITLE_TIMEOUT_MS),
-		},
+	// The stream is driven event by event so a provider that stalls after its headers cannot hold the
+	// title forever; a failure leaves the session pending for the next run (doc/design/agent-runtime.md
+	// "Title generation").
+	const answer = await streamSimpleWithTimeouts(
+		(streamSignal) =>
+			host.models.streamSimple(
+				resolved,
+				{ systemPrompt, messages },
+				{
+					// Title generation is its own request stream, with a prefix unlike the conversation's
+					// (doc/design/agent-runtime.md "Custom providers").
+					sessionId: streamSessionId(sessionId, "title"),
+					maxTokens,
+					...(level === "off" ? {} : { reasoning: level }),
+					signal: streamSignal,
+				},
+			),
+		{ limits: host.models.llmTimeouts },
 	);
 	await chargeCall(host.db, sessionId, callTokens(answer, estimateRequestTokens({ systemPrompt, messages })));
 

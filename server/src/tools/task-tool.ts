@@ -307,6 +307,7 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 		input: options.input,
 		actor: ctx.actor,
 		chain: ctx.chain,
+		...(ctx.signal ? { signal: ctx.signal } : {}),
 		privileged: args.privileged === true,
 		sourceCallId: ctx.callId,
 	};
@@ -324,6 +325,7 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 			...(options.outputMode === "status" ? { outputMode: "status" as const } : {}),
 			actor: ctx.actor,
 			chain: ctx.chain,
+			...(ctx.signal ? { signal: ctx.signal } : {}),
 			privileged: args.privileged === true,
 			sourceCallId: ctx.callId,
 			...(id ? { id } : {}),

@@ -1,6 +1,7 @@
 import type { SubmissionId } from "@earendil-works/pi-durable";
 import { sql } from "kysely";
 import type { SessionUser } from "../auth/sessions.ts";
+import { approvalPhaseOf } from "../cluster/approval.ts";
 import { parentOf, type SessionRow } from "../sessions/session-chain.ts";
 import { exhaustedLevel, exhaustedLevels } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
@@ -190,33 +191,43 @@ async function quotaWaitLevel(
  * What the session's own tool calls wait for: an approval outranks a signature (doc/design/agent-runtime.md "Session state").
  * An approval counts only when a handler is assigned: a task that passed its rules passes through
  * `awaiting_approval` for the instant before dispatch without one (doc/design/execution.md "State machine"), and that
- * transient row is nothing anyone could approve.
+ * transient row is nothing anyone could approve. A request Auto Review is still judging is not a wait either:
+ * the session stays running while the reviewer decides (doc/design/access-control.md "Auto Review").
  */
 async function taskWaitKind(host: RuntimeHost, sessionId: string): Promise<"approval" | "authorization" | undefined> {
 	const waiting = async (state: "awaiting_approval" | "awaiting_authorization"): Promise<boolean> => {
 		for (const table of ["tasks", "task_groups"] as const) {
 			let query = host.db
 				.selectFrom(table)
-				.select("id")
+				.select(["id", "handler_type", "approval"])
 				.where("actor_type", "in", ["session", "subagent"])
 				.where("actor_id", "=", sessionId)
 				.where("state", "=", state);
 			if (state === "awaiting_approval") query = query.where("handler_type", "is not", null);
-			const row = await query.limit(1).executeTakeFirst();
-			if (row) return true;
+			const rows = await query.execute();
+			if (state === "awaiting_authorization") {
+				if (rows.length > 0) return true;
+				continue;
+			}
+			if (rows.some((row) => approvalPhaseOf(state, row.handler_type, row.approval) === "awaiting_user")) {
+				return true;
+			}
 		}
 		if (state === "awaiting_approval") {
 			// An external call waiting for the owner's decision counts like a waiting task (doc/design/extensions.md).
-			const call = await host.db
+			const calls = await host.db
 				.selectFrom("external_calls")
-				.select("id")
+				.select(["id", "handler_type", "approval"])
 				.where("actor_type", "in", ["session", "subagent"])
 				.where("actor_id", "=", sessionId)
 				.where("state", "=", "awaiting_approval")
 				.where("handler_type", "is not", null)
-				.limit(1)
-				.executeTakeFirst();
-			if (call) return true;
+				.execute();
+			if (
+				calls.some((call) => approvalPhaseOf("awaiting_approval", call.handler_type, call.approval) === "awaiting_user")
+			) {
+				return true;
+			}
 		}
 		return false;
 	};
@@ -238,15 +249,21 @@ async function taskWaitKinds(
 	for (const table of ["tasks", "task_groups"] as const) {
 		const rows = await db
 			.selectFrom(table)
-			.select(["actor_id", "state", "handler_type"])
+			.select(["actor_id", "state", "handler_type", "approval"])
 			.where("actor_type", "in", ["session", "subagent"])
 			.where("actor_id", "in", [...sessionIds])
 			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
 			.execute();
 		for (const row of rows) {
 			if (row.state === "awaiting_approval") {
-				// A row without a handler is the instant before dispatch, not an approval anyone can decide.
-				if (row.handler_type !== null) out.set(row.actor_id, "approval");
+				// A row without a handler is the instant before dispatch, not an approval anyone can decide;
+				// one still being reviewed is not a wait either.
+				if (
+					row.handler_type !== null &&
+					approvalPhaseOf(row.state, row.handler_type, row.approval) === "awaiting_user"
+				) {
+					out.set(row.actor_id, "approval");
+				}
 			} else if (out.get(row.actor_id) !== "approval") {
 				out.set(row.actor_id, "authorization");
 			}
@@ -254,13 +271,18 @@ async function taskWaitKinds(
 	}
 	const calls = await db
 		.selectFrom("external_calls")
-		.select(["actor_id", "handler_type"])
+		.select(["actor_id", "handler_type", "approval"])
 		.where("actor_type", "in", ["session", "subagent"])
 		.where("actor_id", "in", [...sessionIds])
 		.where("state", "=", "awaiting_approval")
 		.execute();
 	for (const call of calls) {
-		if (call.handler_type !== null) out.set(call.actor_id, "approval");
+		if (
+			call.handler_type !== null &&
+			approvalPhaseOf("awaiting_approval", call.handler_type, call.approval) === "awaiting_user"
+		) {
+			out.set(call.actor_id, "approval");
+		}
 	}
 	return out;
 }

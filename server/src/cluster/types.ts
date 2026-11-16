@@ -61,6 +61,11 @@ export interface CreateTaskInput {
 	 */
 	transfer?: string;
 	/**
+	 * The tool call's abort signal, when a tool started the task: it also aborts Auto Review, so a stopped turn
+	 * does not keep a reviewer running (doc/design/access-control.md "Auto Review").
+	 */
+	signal?: AbortSignal;
+	/**
 	 * Why a dedicated feature creates this task, such as `browse` for the node file manager
 	 * (doc/design/execution.md "Task purpose"). Only such endpoints set it; the task API, tools and MCP never do.
 	 */

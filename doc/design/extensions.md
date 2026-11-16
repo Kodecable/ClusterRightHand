@@ -146,13 +146,20 @@ tasks use, plus only the state that must survive while the call is in progress.
 - A waiting call goes up the chain like a task ([Approvals](access-control.md#approvals)): the nearest
   ancestor agent whose cumulative result is `allow` may approve, reject or escalate it. Auto Review, for
   an Auto Review root, and otherwise the owner answer when no agent may decide or the agent escalates.
+  A call waiting for the user while Auto Review runs carries the pending-review marker and is
+  `reviewing`: it is not listed or shown as an approval yet, and a decision endpoint refuses it until the
+  verdict escalates it ([Auto Review](access-control.md#auto-review)). A call routed to an agent is that
+  agent's request, not a review. The marker survives a restart, and a replayed tool call (or startup)
+  reviews the call again; the reviewer is single-flight per call, so it is judged once.
 - The decision panel and the approvals page show extension calls next to tasks, with the extension, tool,
   annotations and arguments (for `api_request`, the method, path, query and body). "Always allow" offers
   the exact target or a prefix: the whole extension, or for API requests the route.
-- Calls and their decisions are audited (`external_call.started`, `external_call.finished`, with the
-  arguments truncated). Extension changes are audited as configuration (`extension.*`), without header
-  values; the URL keeps only its scheme, host and path, never userinfo, query or fragment. A URL quoted in
-  an error keeps the same form.
+- Calls and their decisions are audited: `external_call.started`, `external_call.finished` (with the
+  arguments truncated; a waiting call aborted before it ran is recorded with state `cancelled`),
+  `external_call.review` for Auto Review's verdict, and `external_call.approval` for a user's decision.
+  Extension changes are audited as configuration (`extension.*`), without header values; the URL keeps
+  only its scheme, host and path, never userinfo, query or fragment. A URL quoted in an error keeps the
+  same form.
 
 ## Results
 

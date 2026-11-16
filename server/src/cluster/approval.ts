@@ -5,15 +5,61 @@
  * routing. Each side keeps its own row writes and its own serialization: a task's approval runs on
  * core.taskQueue (task-approval.ts), a group's on TaskGroups' per-group approval queue (task-groups.ts).
  */
+import type { ApprovalPhase, Review, ReviewPending, ReviewVerdict } from "@crh/api";
 import type { AuditInput } from "../audit/audit.ts";
 import type { RuleRef } from "../policy/store.ts";
-import type { AgentRequest, ApprovalDecision, ApprovalRecord } from "./types.ts";
+import type { AgentRequest, ApprovalDecision } from "./types.ts";
 
 /** What waits for the approval: names the audit actions (`task.*`, `task_group.*`) and their target. */
-export type ApprovalSubject = "task" | "task_group";
+export type ApprovalSubject = "task" | "task_group" | "external_call";
 
-/** Auto Review's verdict on a waiting request. */
-export type ApprovalReview = NonNullable<ApprovalRecord["review"]>;
+/** Auto Review's settled verdict on a waiting request. */
+export type ApprovalReview = ReviewVerdict;
+
+/** The marker written with the row that enters awaiting approval while Auto Review will judge it. */
+export function pendingReview(at: string): ReviewPending {
+	return { status: "pending", startedAt: at };
+}
+
+/** Whether a stored review is the pending marker rather than a settled verdict. */
+export function isPendingReview(review: Review | null | undefined): boolean {
+	return review !== null && review !== undefined && "status" in review && review.status === "pending";
+}
+
+/** Whether an approval JSON carries the pending-review marker; unreadable JSON has none. */
+export function pendingReviewIn(json: string | null | undefined): boolean {
+	if (!json) return false;
+	try {
+		return isPendingReview((JSON.parse(json) as { review?: Review }).review);
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * What the API shows for one approval (doc/design/access-control.md "Auto Review"): `reviewing` while Auto
+ * Review decides and the request is still a user's to receive, `awaiting_user` for every other wait. The phase
+ * is only meaningful while the row is in `awaiting_approval`; every terminal row reports `awaiting_user`.
+ */
+export function approvalPhase(
+	state: string,
+	handlerType: string | null,
+	review: Review | null | undefined,
+): ApprovalPhase {
+	return state === "awaiting_approval" && handlerType === "user" && isPendingReview(review)
+		? "reviewing"
+		: "awaiting_user";
+}
+
+/** The same phase from a stored approval JSON, for callers that read rows rather than views. */
+export function approvalPhaseOf(state: string, handlerType: string | null, approvalJson: string | null): ApprovalPhase {
+	if (state !== "awaiting_approval" || handlerType !== "user" || !approvalJson) return "awaiting_user";
+	try {
+		return approvalPhase(state, handlerType, (JSON.parse(approvalJson) as { review?: Review }).review);
+	} catch {
+		return "awaiting_user";
+	}
+}
 
 /** The stored approval JSON (`{}` when there is none) with `change` merged in. */
 export function mergeApproval<T extends object>(json: string | null, change: Partial<T>): T {

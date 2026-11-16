@@ -16,11 +16,15 @@ import { derivedId, newId } from "../util/id.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
 import { ALL_TARGET, nameKey } from "../util/names.ts";
 import {
+	type ApprovalReview,
 	agentRouting,
 	agentRoutingAudit,
 	approvalAudit,
+	approvalPhase,
 	chainWith,
+	isPendingReview,
 	mergeApproval,
+	pendingReview,
 	reviewAudit,
 	rulesApproval,
 	rulesRejection,
@@ -175,7 +179,7 @@ export class TaskGroups {
 	 */
 	readonly #authorizationRejected = new Map<string, { reason: string; by: Actor }>();
 	/** Called once for every group that starts waiting for approval (Auto Review hooks in here). */
-	onAwaitingApproval: ((group: TaskGroupView) => Promise<void>) | undefined;
+	onAwaitingApproval: ((group: TaskGroupView, signal?: AbortSignal) => Promise<void>) | undefined;
 	/** Called after a group starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
 	onChange: ((actorId: string) => void) | undefined;
 	/** Resolved when a waiting group is settled. */
@@ -435,6 +439,11 @@ export class TaskGroups {
 			approval = { nodes: nodes.map((node) => ({ nodeId: node.id, evaluation: judged.get(node.id) as Evaluation })) };
 		}
 		const waiting = approval?.nodes.some((n) => n.evaluation.result === "require-approval") ?? false;
+		// Auto Review will judge this group: mark it in the same write that enters awaiting_approval, so no
+		// user-facing approval appears while the reviewer decides (doc/design/access-control.md "Auto Review").
+		if (waiting && approval && (await this.#cluster.willReview(input.chain ?? null))) {
+			approval.review = pendingReview(now());
+		}
 		// Group waiting approvals by session tree: the first session of the chain (a schedule comes before it).
 		const root = input.chain?.find((ref) => ref.type === "session");
 		await this.#db
@@ -494,7 +503,7 @@ export class TaskGroups {
 			const hook = this.onAwaitingApproval;
 			if (hook) {
 				const view = await this.get(id);
-				if (view) void hook(view).catch((err: unknown) => console.error("review:", err));
+				if (view) void hook(view, input.signal).catch((err: unknown) => console.error("review:", err));
 			}
 		} else {
 			// Every member is judged again when it is created, even though this group runs at once: a rule
@@ -811,8 +820,29 @@ export class TaskGroups {
 		return true;
 	}
 
+	/**
+	 * Drops the pending-review marker when Auto Review will not run after all (the preset changed, the model is
+	 * gone). The group becomes a user-facing approval again; a settled or agent-handled row is left alone.
+	 */
+	async abandonReview(id: string): Promise<void> {
+		await this.#approvalQueue.run(id, async () => {
+			const row = await this.#row(id);
+			if (row?.state !== "awaiting_approval" || row.handler_type === null) return;
+			const record = JSON.parse(row.approval ?? "{}") as TaskGroupApprovalRecord;
+			if (!isPendingReview(record.review)) return;
+			const { review: _pending, ...rest } = record;
+			const res = await this.#db
+				.updateTable("task_groups")
+				.set({ approval: JSON.stringify(rest) })
+				.where("id", "=", id)
+				.where("state", "=", "awaiting_approval")
+				.executeTakeFirst();
+			if (res.numUpdatedRows > 0n) this.onChange?.(row.actor_id);
+		});
+	}
+
 	/** Stores Auto Review's verdict on a waiting group, on the group's approval queue. */
-	async recordReview(id: string, review: NonNullable<TaskGroupApprovalRecord["review"]>): Promise<void> {
+	async recordReview(id: string, review: ApprovalReview): Promise<void> {
 		await this.#approvalQueue.run(id, async () => {
 			const row = await this.#row(id);
 			// A settled or approved group is no longer a request; a late review must not write it.
@@ -988,6 +1018,7 @@ export class TaskGroups {
 	/** One group's view; `refs` is passed when a caller resolved several groups' targets in one query. */
 	async #view(row: Selectable<TaskGroupsTable>, tasks: TaskView[], refs?: RefMap): Promise<TaskGroupView> {
 		const targets = JSON.parse(row.targets) as string[];
+		const approval = row.approval ? (JSON.parse(row.approval) as TaskGroupApprovalRecord) : null;
 		return {
 			id: row.id,
 			state: row.state,
@@ -1007,7 +1038,7 @@ export class TaskGroups {
 			summary: row.spec ? summarize(row.spec) : "",
 			kind: row.kind,
 			ruleChain: row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null,
-			approval: row.approval ? (JSON.parse(row.approval) as TaskGroupApprovalRecord) : null,
+			approval,
 			actorType: row.actor_type,
 			actorId: row.actor_id,
 			onBehalfOfUserId: row.on_behalf_of_user_id,
@@ -1016,6 +1047,7 @@ export class TaskGroups {
 			handlerType: row.handler_type,
 			handlerSessionId: row.handler_session_id,
 			purpose: row.purpose,
+			phase: approvalPhase(row.state, row.handler_type, approval?.review),
 		};
 	}
 

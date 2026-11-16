@@ -1061,10 +1061,13 @@ describe("channels", () => {
 			model: { provider: slowFaux.provider.id, modelId: slowFaux.getModel().id },
 		});
 		try {
+			const before = fake.callsOf("sendMessageDraft").length;
 			slowFaux.setResponses([fauxAssistantMessage("slow answer")]);
 			fake.text(userId, "take your time");
-			await fake.waitFor("sendMessageDraft");
-			fake.stopGeneration(userId);
+			const drafts = await fake.waitForCount("sendMessageDraft", before + 1);
+			const draftId = Number(drafts[before]?.body.draft_id);
+			fake.stopGeneration(userId, { draftId });
+			await fake.waitForSent((call) => sentText(call) === "Stopped.");
 			const deadline = Date.now() + 5_000;
 			let state: string | undefined;
 			while (Date.now() < deadline) {
@@ -1074,8 +1077,58 @@ describe("channels", () => {
 				await new Promise((resolve) => setTimeout(resolve, 20));
 			}
 			expect(state).toBe("idle");
+			await audit.flush();
+			const events = await db
+				.selectFrom("audit_events")
+				.select("detail")
+				.where("action", "=", "session.stop")
+				.where("target_id", "=", thread.sessionId)
+				.execute();
+			expect(JSON.parse(events.at(-1)?.detail ?? "{}")).toMatchObject({
+				source: "channel_draft_stop",
+				channel: "testbot",
+				via: "telegram",
+			});
 		} finally {
 			await runtime.configure(thread.sessionId, { model: model() });
+		}
+	});
+
+	it("ignores a stop for a stale or unknown draft and keeps the run going", async () => {
+		const userId = 8611;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		let release!: () => void;
+		const hanging = new Promise<never>((_resolve, reject) => {
+			release = () => reject(new Error("the run was stopped"));
+		});
+		try {
+			const before = fake.callsOf("sendMessageDraft").length;
+			faux.setResponses([
+				(_context: unknown, options?: { signal?: AbortSignal }) => {
+					options?.signal?.addEventListener("abort", release, { once: true });
+					return hanging;
+				},
+			]);
+			fake.text(userId, "keep going");
+			const drafts = await fake.waitForCount("sendMessageDraft", before + 1);
+			const draftId = Number(drafts[before]?.body.draft_id);
+			// Telegram Desktop keeps old drafts for hours: an unknown id must not abort this turn.
+			fake.stopGeneration(userId, { draftId: draftId + 1 });
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			const state = (
+				await db.selectFrom("sessions").select("state").where("id", "=", thread.sessionId).executeTakeFirst()
+			)?.state;
+			expect(state).toBe("running");
+			const startedAt = drafts[before]?.at ?? "";
+			expect(fake.sentCalls().some((call) => sentText(call) === "Stopped." && call.at > startedAt)).toBe(false);
+			// The live draft still stops it, and the reply is the /stop one.
+			fake.stopGeneration(userId, { draftId });
+			await fake.waitForSent((call) => sentText(call) === "Stopped.");
+		} finally {
+			await runtime.abort(thread.sessionId, alice).catch(() => {});
+			await runtime.waitForIdle();
 		}
 	});
 
@@ -1086,14 +1139,15 @@ describe("channels", () => {
 		await runtime.configure(thread.sessionId, { model: slowModel() });
 		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
 		try {
+			const before = fake.callsOf("sendMessageDraft").length;
 			slowFaux.setResponses([fauxAssistantMessage("slow ".repeat(200))]);
 			fake.text(userId, "hold on");
-			await fake.waitFor("sendMessageDraft");
+			const drafts = await fake.waitForCount("sendMessageDraft", before + 1);
 			// Relink the chat to the administrator, then press the draft's stop control from that account.
 			fake.text(userId, "/unlink");
 			await fake.waitForSent((call) => sentText(call).includes("Unlinked."));
 			await linkAs(adminCookie, userId, "Linked.");
-			fake.stopGeneration(userId);
+			fake.stopGeneration(userId, { draftId: Number(drafts[before]?.body.draft_id) });
 			await new Promise((resolve) => setTimeout(resolve, 1_000));
 			const state = (
 				await db.selectFrom("sessions").select("state").where("id", "=", thread.sessionId).executeTakeFirst()
@@ -1104,6 +1158,41 @@ describe("channels", () => {
 			await runtime.waitForIdle();
 			await runtime.configure(thread.sessionId, { model: model() });
 		}
+	});
+
+	it("shows no approval card while Auto Review is still judging a call", async () => {
+		const userId = 8002;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const callId = await insertExternalCall(thread.sessionId, "call-reviewing");
+		const evaluation = { result: "require-approval", levels: [] };
+		await db
+			.updateTable("external_calls")
+			.set({
+				approval: JSON.stringify({
+					evaluation,
+					review: { status: "pending", startedAt: new Date().toISOString() },
+				}),
+			})
+			.where("id", "=", callId)
+			.execute();
+		await wakeWait(thread.sessionId);
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(fake.sentCalls().some((call) => sentText(call).includes(`/approve ${callId}`))).toBe(false);
+		// Escalation makes it a user-facing wait, and the card goes out with the same refresh.
+		await db
+			.updateTable("external_calls")
+			.set({
+				approval: JSON.stringify({
+					evaluation,
+					review: { decision: "escalate", risk: "high", reason: "judge it", model: "test/model" },
+				}),
+			})
+			.where("id", "=", callId)
+			.execute();
+		await channels.refreshWaits(thread.sessionId);
+		await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+		await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", callId).execute();
 	});
 
 	it("sends a delivered file as a WebUI link", async () => {
@@ -1295,6 +1384,67 @@ describe("channels", () => {
 		const sent = fake.callsOf("sendMessageDraft").length;
 		await new Promise((resolve) => setTimeout(resolve, 150));
 		expect(fake.callsOf("sendMessageDraft").length).toBe(sent);
+	});
+
+	it("keeps drafting while Auto Review runs and stops when it escalates", async () => {
+		const userId = 8903;
+		await settle();
+		await link(userId);
+		const thread = await chatSession(userId);
+		let release = (): void => {};
+		const paused = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		faux.setResponses([
+			async () => {
+				await paused;
+				return fauxAssistantMessage("review kept drafting");
+			},
+		]);
+		try {
+			const before = fake.calls.length;
+			fake.text(userId, "review this while I wait");
+			const first = await fake.waitFor("sendMessageDraft", (call) => fake.calls.indexOf(call) >= before);
+			const callId = await insertExternalCall(thread.sessionId, "call-draft-review");
+			const evaluation = { result: "require-approval", levels: [] };
+			await db
+				.updateTable("external_calls")
+				.set({
+					approval: JSON.stringify({
+						evaluation,
+						review: { status: "pending", startedAt: new Date().toISOString() },
+					}),
+				})
+				.where("id", "=", callId)
+				.execute();
+			await wakeWait(thread.sessionId);
+			// Reviewing is running: the keep-alive still renews the same draft.
+			const kept = await fake.waitFor(
+				"sendMessageDraft",
+				(call) => fake.calls.indexOf(call) > fake.calls.indexOf(first) && call.body.draft_id === first.body.draft_id,
+			);
+			expect(kept.body.draft_id).toBe(first.body.draft_id);
+			// Escalation is a wait: the draft goes and is not renewed.
+			await db
+				.updateTable("external_calls")
+				.set({
+					approval: JSON.stringify({
+						evaluation,
+						review: { decision: "escalate", risk: "high", reason: "judge it", model: "test/model" },
+					}),
+				})
+				.where("id", "=", callId)
+				.execute();
+			await channels.refreshWaits(thread.sessionId);
+			await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+			const sent = fake.callsOf("sendMessageDraft").length;
+			await new Promise((resolve) => setTimeout(resolve, 150));
+			expect(fake.callsOf("sendMessageDraft").length).toBe(sent);
+		} finally {
+			release();
+			await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", "call-draft-review").execute();
+			await channels.refreshWaits(thread.sessionId);
+		}
 	});
 
 	it("keeps the handled update id across a restart and backs off on a rejected token", async () => {
@@ -2045,7 +2195,6 @@ describe("channels", () => {
 		} finally {
 			await runtime.abort(thread.sessionId, alice).catch(() => {});
 			await runtime.waitForIdle();
-			await runtime.configure(thread.sessionId, { model: model() });
 		}
 	});
 

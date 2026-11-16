@@ -216,10 +216,19 @@ Auto Review answers through a `submit_review` tool call with a decision and a ri
 `escalate`, and `low`, `medium` or `high`. Only a consistent, schema-valid answer can approve — low+approve,
 medium+approve, medium+escalate or high+escalate; a high-risk approval, a missing or invalid risk and any
 other answer escalate, and the runtime never parses a decision out of prose
-([Auto Review](access-control.md#auto-review)). API token roots never use Auto Review.
+([Auto Review](access-control.md#auto-review)). Reviews run at `temperature: 0`. A configured Auto Review
+model preset keeps its own model and thinking level; when the review falls back to the session's or
+schedule's model it does not inherit that model's conversation thinking level but runs at `low`, clamped
+to the nearest level the model supports. API token roots never use Auto Review.
 
 Model requests are retried up to three times by the harness. There is no extra timeout beyond the
-provider's, except for title generation.
+provider's for conversation calls. Auto Review and title generation drive `streamSimple` directly and
+bound it themselves: an idle limit of 300 seconds (reset on every stream event, thinking deltas
+included) and an overall limit of 600 seconds, both aborting the provider request through an
+`AbortSignal` (combined with the tool call's or turn's own signal). The limits are in
+`server/src/agent/llm-timeout.ts` and are injectable for tests. A review cut by a limit escalates with
+the reason "Auto Review timed out"; a title call that fails leaves the session untitled until its next
+run ends.
 
 ### Title generation
 
@@ -263,6 +272,11 @@ Every session has a stored run state, so lists can filter and sort in SQL withou
   order.
 - At startup, after durable resumes runs and before crhs accepts requests, every stored state is
   reconciled with durable.
+- **Reviewing is not waiting.** A task, task group or external call whose Auto Review marker is pending
+  is not a wait yet: the session stays `running` while the reviewer decides, so no chat notification or
+  approval badge appears. Only a verdict that sends the request to the user (escalation, failure or a
+  timeout) makes the session `awaiting/approval`; the review hook refreshes the state at that point.
+  Stopping the session or ending its run still rejects reviewing requests like any other wait.
 - **Waits nobody will handle.** Stopping a session rejects its approval waits, cancels its signature
   waits and cancels its running tasks. When a run ends, or at startup, waits left by tool calls that no
   longer exist are ended the same way. Tasks that belong to no session are not affected; their signature

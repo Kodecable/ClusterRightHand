@@ -6,6 +6,7 @@ import type { AvailableModel } from "@crh/api";
 import type {
 	Api,
 	AssistantMessage,
+	AssistantMessageEventStream,
 	Context,
 	Model,
 	ModelsSimpleStreamOptions,
@@ -26,6 +27,7 @@ import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
 import { customProvider, type ProviderSessionResolver, withKey } from "./custom-provider.ts";
 import type { TimingSink } from "./latency.ts";
+import { DEFAULT_LLM_TIMEOUTS, type LlmTimeoutLimits } from "./llm-timeout.ts";
 import { type CompleteMeter, meteredModels } from "./metering.ts";
 import { parseJson } from "./model-providers.ts";
 import { type CustomModel, levelDisplayName, type ModelRef, type ThinkingLevelLabels } from "./model-types.ts";
@@ -69,6 +71,11 @@ export class ModelConfig {
 	readonly #extra: Provider[] = [];
 	/** Custom models by `provider/modelId`, for their per-level display names (`available`). */
 	readonly #customModels = new Map<string, CustomModel>();
+	/**
+	 * Idle and overall limits of the auxiliary streams (Auto Review and title generation). Tests shorten
+	 * them; production keeps the constants (doc/design/agent-runtime.md "Title generation").
+	 */
+	llmTimeouts: LlmTimeoutLimits = { ...DEFAULT_LLM_TIMEOUTS };
 	/** Installed by the runtime: provider session id -> crh session id (doc/design/agent-runtime.md "Custom providers"). */
 	#providerSessionId: ProviderSessionResolver = () => undefined;
 	#providerSessionFor: (sessionId: string) => string | undefined = () => undefined;
@@ -114,6 +121,15 @@ export class ModelConfig {
 	/** The one-shot completion Auto Review and title generation use, on the configured registry. */
 	completeSimple(model: Model<Api>, context: Context, options?: ModelsSimpleStreamOptions): Promise<AssistantMessage> {
 		return this.#models.completeSimple(model, context, options);
+	}
+
+	/**
+	 * The stream behind a one-shot completion. Auto Review and title generation drive it event by event so
+	 * they can enforce an idle timeout; the per-stream provider session id and metering behave as they did
+	 * through `completeSimple` (doc/design/agent-runtime.md "Custom providers").
+	 */
+	streamSimple(model: Model<Api>, context: Context, options?: ModelsSimpleStreamOptions): AssistantMessageEventStream {
+		return this.#models.streamSimple(model, context, options);
 	}
 
 	/**

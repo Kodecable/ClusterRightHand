@@ -95,21 +95,45 @@ export const AgentRequestSchema = z
 	})
 	.meta({ id: "AgentRequest" });
 
-const ReviewSchema = z
+/**
+ * Auto Review in progress: written in the same row write that enters `awaiting_approval`, so a request that
+ * the reviewer will judge is not shown to the user (doc/design/access-control.md "Auto Review"). The verdict
+ * replaces it; a request whose review never ran drops it and becomes a user-facing approval again.
+ */
+export const ReviewPendingSchema = z
+	.object({
+		status: z.literal("pending"),
+		startedAt: z.string(),
+	})
+	.meta({ id: "ReviewPending" });
+
+/** Auto Review's answer: the decision, risk, reason and the model that gave it. */
+export const ReviewVerdictSchema = z
 	.object({
 		decision: z.enum(["approve", "escalate"]),
 		risk: z.enum(["low", "medium", "high"]).describe("The risk level the reviewer assigned."),
 		reason: z.string(),
 		model: z.string(),
 	})
-	.meta({ id: "Review" });
+	.meta({ id: "ReviewVerdict" });
+
+/** A stored review: pending or settled. The older settled shape has no `status` field. */
+export const ReviewSchema = z.union([ReviewPendingSchema, ReviewVerdictSchema]).meta({ id: "Review" });
+
+/**
+ * What a waiting approval looks like from outside. `reviewing` means Auto Review is still deciding, so the
+ * operation counts as running and is not yet a user-facing approval; `awaiting_user` is the ordinary wait.
+ */
+export const ApprovalPhaseSchema = z
+	.enum(["reviewing", "awaiting_user"])
+	.describe("`reviewing` only while awaiting_approval with Auto Review still deciding.");
 
 /** The approval state of a tool call: how the rules judged it, then how it was settled. */
 export const ApprovalRecordSchema = z
 	.object({
 		evaluation: EvaluationSchema,
 		decision: ApprovalDecisionSchema.optional(),
-		review: ReviewSchema.optional().describe("Auto Review's verdict, when the root's rule preset asked for one."),
+		review: ReviewSchema.optional().describe("Auto Review's pending marker or its verdict, when it applies."),
 		agent: AgentRequestSchema.optional(),
 	})
 	.meta({ id: "ApprovalRecord" });

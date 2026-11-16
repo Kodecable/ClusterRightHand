@@ -75,6 +75,7 @@ function task(overrides: Partial<TaskView>): TaskView {
 		handlerType: null,
 		handlerSessionId: null,
 		purpose: null,
+		phase: "awaiting_user",
 		...overrides,
 	};
 }
@@ -108,6 +109,7 @@ function group(overrides: Partial<TaskGroupView>): TaskGroupView {
 		handlerType: null,
 		handlerSessionId: null,
 		purpose: null,
+		phase: "awaiting_user",
 		...overrides,
 	};
 }

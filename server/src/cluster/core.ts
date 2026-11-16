@@ -11,6 +11,7 @@ import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import type { TransferContext } from "../library/transfer-location.ts";
+import type { RuleRef } from "../policy/store.ts";
 import { AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
 import type { TasksTable } from "../storage/schema.ts";
@@ -63,7 +64,12 @@ export class ClusterCore {
 	readonly #clockWarnMs: number;
 
 	/** Called once for every task that starts waiting for approval (Auto Review hooks in here). */
-	onAwaitingApproval: ((task: TaskView) => Promise<void>) | undefined;
+	onAwaitingApproval: ((task: TaskView, signal?: AbortSignal) => Promise<void>) | undefined;
+	/**
+	 * Whether Auto Review will judge a request on this chain (its root preset and model are resolved here), so
+	 * the row that enters awaiting approval already carries the pending-review marker.
+	 */
+	onReviewPlanned: ((chain: RuleRef[] | null) => Promise<boolean>) | undefined;
 	/** Called after a task starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
 	onChange: ((actorId: string) => void) | undefined;
 

@@ -145,15 +145,21 @@ username, are escaped so they show literally; assistant text is not escaped.
   the text.
 - **Progress** (optional, per user, on by default where the kind has it). Tool calls and thinking are never
   sent as messages; they can only appear as a status. On Telegram the current step shows as a draft
-  (`sendMessageDraft`), whose stop control stops the turn when the account that pressed it belongs to the
-  session owner; each real message starts a new draft, and a shown draft is re-sent every 20 seconds while
-  the run goes on so it does not expire. While the run waits for an approval or a signature, no draft is
-  kept: the wait's request message clears it, and neither the keep-alive nor a re-send follows, so it
-  expires on its own; when the wait ends and the run goes on, the next progress update starts a new draft
-  with a new id. Elsewhere one status message is edited at most every few seconds and removed when the
-  turn ends. A kind without the `progress` capability shows none, and one without `buttons` sends none: its
-  approval texts already carry `/approve <id>`/`/reject <id>`, and a notification without a thread appends
-  the session link where Telegram would show an **Open session** button.
+  (`sendMessageDraft`), and each real message starts a new draft. A shown draft is re-sent every 20 seconds
+  while the run goes on so it does not expire. While the run waits **for the user** — an approval or a
+  signature — no draft is kept: the wait's request message clears it, and neither the keep-alive nor a
+  re-send follows, so it expires on its own; when the wait ends and the run goes on, the next progress
+  update starts a new draft with a new id. A request Auto Review is still judging is not a
+  wait, so it counts as running and drafting continues ([Reviewing](access-control.md#auto-review)).
+  Elsewhere one status message is edited at most every few seconds and removed when the turn ends. A kind
+  without the `progress` capability shows none, and one without `buttons` sends none: its approval texts
+  already carry `/approve <id>`/`/reject <id>`, and a notification without a thread appends the session
+  link where Telegram would show an **Open session** button.
+- **The draft's stop control is bound to that draft.** Telegram keeps stopped drafts around for hours, so
+  the stop update carries the draft id it belongs to. The manager stops the turn only when that id is the
+  session's current live draft, the session is running and drafting is active; a stale or unknown id is
+  ignored with a log line instead of aborting a turn that moved on. A real stop answers with the same
+  `Stopped.` message as `/stop` and is audited as `session.stop` with source `channel_draft_stop`.
 - **Delivered files** (`copy_file` to `user_interface`) are sent as WebUI download links, never as
   attachments. Opening one goes through the normal sign-in and access checks
   ([Deliveries](library.md#deliveries)).
@@ -182,7 +188,9 @@ a message a schedule submitted. Switching or attaching a session in a chat does 
 
 ## Approvals
 
-A waiting approval is sent where the session's notifications go, as a message describing what waits:
+A waiting approval is sent where the session's notifications go, as a message describing what waits.
+A request Auto Review is still reviewing is not sent: the card appears only when the review escalates it
+to the user, and not when the review approves it (the operation simply runs).
 
 | Wait | In the chat |
 |---|---|

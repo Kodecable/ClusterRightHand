@@ -195,6 +195,8 @@ function riskTone(risk: string): "muted" | "warn" | "danger" {
 export function ReviewView({ review }: { review: NonNullable<TaskView["approval"]>["review"] }) {
 	const { i18n } = useLingui();
 	if (!review) return null;
+	// A pending marker is not a verdict yet; the page shows the reviewing state instead.
+	if ("status" in review) return null;
 	return (
 		<KeyValueList
 			items={[
@@ -224,6 +226,7 @@ export function ReviewView({ review }: { review: NonNullable<TaskView["approval"
 export function ReviewSummary({ review }: { review: NonNullable<TaskView["approval"]>["review"] }) {
 	const { i18n } = useLingui();
 	if (!review) return null;
+	if ("status" in review) return null;
 	return (
 		<div
 			data-testid="decision-review"

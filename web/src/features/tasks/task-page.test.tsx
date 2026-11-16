@@ -91,6 +91,7 @@ const GROUP_TASK = {
 	handlerType: null,
 	handlerSessionId: null,
 	purpose: null,
+	phase: "awaiting_user",
 } as TaskView;
 
 const GROUP = {
@@ -124,6 +125,7 @@ const GROUP = {
 	handlerType: null,
 	handlerSessionId: null,
 	purpose: null,
+	phase: "awaiting_user",
 } as TaskGroupView;
 
 /** Answers a successful task-group read plus the page's auxiliary lookups. */

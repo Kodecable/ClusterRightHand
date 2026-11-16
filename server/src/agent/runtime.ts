@@ -8,6 +8,7 @@ import {
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
+import { pendingReviewIn } from "../cluster/approval.ts";
 import { externalCallApproval, getExternalCall } from "../extensions/external-calls.ts";
 import { extensionOf } from "../extensions/registry.ts";
 import { getExtensionRow, listExtensionRows } from "../extensions/store.ts";
@@ -43,6 +44,7 @@ import {
 	latestEntryId,
 	reviewHistory,
 	reviewToolCalls,
+	type SessionStopOptions,
 	sessionAt,
 	transcriptEntries,
 	watch,
@@ -210,27 +212,47 @@ export class AgentRuntime {
 			runtime.installExtensionTools(row, extensionOf(row, options.mcp)?.tools() ?? []);
 		}
 		options.mcp?.setToolsChangedHandler((row, tools) => runtime.installExtensionTools(row, tools));
-		// Resume only now: a resumed run must find the runtime (compaction and tool metering look it up).
-		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
 		// Auto Review for roots whose rule preset asks for it (tokens, sessions and schedules alike), then route child
 		// approvals to an ancestor's agent where the chain allows it.
-		const reviewer = new Reviewer(options.db, options.models, options.cluster, options.taskGroups, presets, {
-			history: (sessionId) => reviewHistory(runtime.#host, sessionId),
-			toolCalls: (sessionId) => reviewToolCalls(runtime.#host, sessionId),
-			builtinToolDescription: async (toolName) => {
-				return TOOLS.find((tool) => tool.name === toolName)?.description ?? null;
+		const reviewer = new Reviewer(
+			options.db,
+			options.models,
+			options.cluster,
+			options.taskGroups,
+			presets,
+			{
+				history: (sessionId) => reviewHistory(runtime.#host, sessionId),
+				toolCalls: (sessionId) => reviewToolCalls(runtime.#host, sessionId),
+				builtinToolDescription: async (toolName) => {
+					return TOOLS.find((tool) => tool.name === toolName)?.description ?? null;
+				},
+				toolDescription: async (extensionName, toolName) => {
+					const row = await getExtensionRow(options.db, extensionName);
+					return row
+						? (extensionOf(row, options.mcp)
+								?.tools()
+								.find((tool) => tool.name === toolName)?.description ?? null)
+						: null;
+				},
 			},
-			toolDescription: async (extensionName, toolName) => {
-				const row = await getExtensionRow(options.db, extensionName);
-				return row
-					? (extensionOf(row, options.mcp)
-							?.tools()
-							.find((tool) => tool.name === toolName)?.description ?? null)
-					: null;
-			},
-		});
-		options.reviewExternalCall = async (id) => {
-			await reviewer.reviewExternalCall(id);
+			options.audit,
+		);
+		// The cluster owns the durable approval rows; refresh the actor's cached state and request lists.
+		const approvalChanged = (actorId: string) => {
+			runtime.#host.inboxes.clear();
+			void runtime.refreshState(actorId).catch((err: unknown) => {
+				console.error("agent runtime: refreshing a subagent after an approval change failed:", err);
+			});
+		};
+		options.approvalChanged = approvalChanged;
+		options.willReview = (chain) => reviewer.willReview(chain);
+		options.cluster.onReviewPlanned = options.willReview;
+		options.reviewExternalCall = async (id, signal) => {
+			await reviewer.reviewExternalCall(id, signal);
+			// The call may have been approved (running), escalated or dropped its marker: the session's
+			// wait and the chat notification follow the row now (doc/design/agent-runtime.md "Session state").
+			const row = await getExternalCall(options.db, id);
+			if (row?.actor_type === "session" || row?.actor_type === "subagent") approvalChanged(row.actor_id);
 		};
 		// A waiting external call goes up the chain like a task; only when no ancestor agent takes it does
 		// Auto Review (and otherwise the owner) decide (doc/design/access-control.md "Approvals").
@@ -243,30 +265,30 @@ export class AgentRuntime {
 			if (routed) runtime.#host.inboxes.clear();
 			return routed;
 		};
-		options.cluster.onAwaitingApproval = async (task) => {
-			await reviewer.reviewTask(task);
+		options.cluster.onAwaitingApproval = async (task, signal) => {
+			await reviewer.reviewTask(task, signal);
 			await routeAwaiting(runtime.#host, "task", task.actorId, task.id, task.approval);
 			await runtime.refreshState(task.actorId);
 		};
-		options.taskGroups.onAwaitingApproval = async (group) => {
-			await reviewer.reviewGroup(group);
+		options.taskGroups.onAwaitingApproval = async (group, signal) => {
+			await reviewer.reviewGroup(group, signal);
 			await routeAwaiting(runtime.#host, "task_group", group.actorId, group.id, group.approval);
 			await runtime.refreshState(group.actorId);
 		};
-		// The cluster owns the durable approval rows; refresh the actor's cached state and request lists.
-		const approvalChanged = (actorId: string) => {
-			runtime.#host.inboxes.clear();
-			void runtime.refreshState(actorId).catch((err: unknown) => {
-				console.error("agent runtime: refreshing a subagent after an approval change failed:", err);
-			});
-		};
 		options.cluster.onChange = approvalChanged;
 		options.taskGroups.onChange = approvalChanged;
+		// Resume only now: a resumed run finds the runtime (compaction and tool metering look it up) and the
+		// review hooks above, so it cannot create a marked request nobody reviews.
+		runtime.#harness.resume(); // runs and tool calls the last process left unfinished
 		runtime.#supervise();
 		// Durable has resumed the runs; correct every cached session state before requests are accepted.
 		await reconcileSessionStates(runtime.#host);
 		// Waits whose session's run is over (stopped or ended while crhs was down) can never be acted on.
 		await endOrphanWaits(runtime.#host);
+		// Reviews cut short by the last process run again: a pending marker is durable, the review is not.
+		void resumePendingReviews(options).catch((err: unknown) => {
+			console.error("agent runtime: resuming pending reviews failed:", err);
+		});
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
 		await wakePendingAgents(runtime.#host);
 		return runtime;
@@ -301,6 +323,9 @@ export class AgentRuntime {
 				try {
 					await reconcileSessionStates(this.#host);
 					await endOrphanWaits(this.#host);
+					void resumePendingReviews(this.#options).catch((err: unknown) => {
+						console.error("agent runtime: resuming pending reviews failed:", err);
+					});
 				} catch (err) {
 					console.error("agent runtime: reconciling after a reopen failed:", err);
 				}
@@ -448,8 +473,8 @@ export class AgentRuntime {
 	}
 
 	/** Stops the current run: queued inputs are withdrawn and running tool calls aborted. */
-	async abort(sessionId: string, by?: SessionUser): Promise<void> {
-		return abort(this.#host, sessionId, by);
+	async abort(sessionId: string, by?: SessionUser, stop?: SessionStopOptions): Promise<void> {
+		return abort(this.#host, sessionId, by, stop);
 	}
 
 	/**
@@ -525,6 +550,11 @@ export class AgentRuntime {
 	/** Recomputes a session's state from durable and its wait sources (doc/design/agent-runtime.md "Session state"). */
 	async refreshState(sessionId: string): Promise<SessionState> {
 		return refreshState(this.#host, sessionId);
+	}
+
+	/** Runs the reviews a previous process left pending; startup calls this, and so may a reopened runtime. */
+	async resumePendingReviews(): Promise<void> {
+		return resumePendingReviews(this.#options);
 	}
 
 	/** Waits for a submission to settle and says how it ended, without reading or committing its answer. */
@@ -635,5 +665,67 @@ export class AgentRuntime {
 	/** Waits until nothing in the Harness runs (tests). */
 	async waitForIdle(): Promise<void> {
 		await this.#harness.waitForIdle(this.#host.context);
+	}
+}
+
+/**
+ * Replays the reviews a previous process did not finish: a task, task group or external call still in
+ * `awaiting_approval` with the pending marker is judged again through the ordinary hook (which also routes it
+ * and refreshes its session). The reviewer's single-flight keeps a tool call that replays at the same time from
+ * judging it twice (doc/design/access-control.md "Auto Review"). Startup does not wait for the review: it may
+ * take until the stream limits.
+ */
+async function resumePendingReviews(options: AgentRuntimeOptions): Promise<void> {
+	const tasks = await options.db
+		.selectFrom("tasks")
+		.select(["id", "approval"])
+		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "=", "user")
+		.execute();
+	for (const row of tasks) {
+		if (!pendingReviewIn(row.approval)) continue;
+		const view = await options.cluster.getTask(row.id);
+		if (view) {
+			void options.cluster.onAwaitingApproval?.(view).catch((err: unknown) => {
+				console.error(`agent runtime: resuming the review of task ${row.id} failed:`, err);
+			});
+		}
+	}
+	const groups = await options.db
+		.selectFrom("task_groups")
+		.select(["id", "approval"])
+		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "=", "user")
+		.execute();
+	for (const row of groups) {
+		if (!pendingReviewIn(row.approval)) continue;
+		const view = await options.taskGroups.get(row.id);
+		if (view) {
+			void options.taskGroups.onAwaitingApproval?.(view).catch((err: unknown) => {
+				console.error(`agent runtime: resuming the review of task group ${row.id} failed:`, err);
+			});
+		}
+	}
+	const calls = await options.db
+		.selectFrom("external_calls")
+		.select(["id", "approval"])
+		.where("state", "=", "awaiting_approval")
+		.where("handler_type", "=", "user")
+		.execute();
+	for (const row of calls) {
+		if (!pendingReviewIn(row.approval)) continue;
+		// A call goes up the chain first, as it does when it is created: an ancestor agent may take it,
+		// and Auto Review only judges it when none does.
+		void (async () => {
+			if (await options.routeExternalCall?.(row.id)) {
+				const routed = await getExternalCall(options.db, row.id);
+				if (routed?.actor_type === "session" || routed?.actor_type === "subagent")
+					options.approvalChanged?.(routed.actor_id);
+				return;
+			}
+			await options.reviewExternalCall?.(row.id);
+		})().catch((err: unknown) => {
+			console.error(`agent runtime: resuming the review of external call ${row.id} failed:`, err);
+		});
 	}
 }

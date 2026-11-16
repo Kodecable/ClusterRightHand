@@ -258,6 +258,12 @@ external call has its own small object, `external_calls`, and waits the same way
 - An approval has no deadline. It waits until someone decides, a rule change removes the need, or the
   API token that started it is revoked or expires. The system does not give up a user's decision for
   them.
+- A request Auto Review will judge is written in `awaiting_approval` with a pending-review marker
+  (`review: { status: "pending", startedAt }`) in the same write. Until the verdict arrives it is
+  **reviewing**: the operation looks like a tool call still in progress, the session stays `running`, it
+  is not listed as a pending approval or sent to chat, and a decision endpoint refuses it with a conflict.
+  The verdict replaces the marker; an escalated request, a failed or timed-out review, and a review that
+  does not run after all become an ordinary user-facing approval (`awaiting_user`, the default phase).
 - Changing any rule on the chain re-evaluates every waiting task on that chain. A one-off decision
   does not create a rule; only "always allow" does.
 - An approved task group is still checked per member when it runs, so a deny rule added after the
@@ -308,6 +314,12 @@ request, which do not get Auto Review, or work created by the WebUI), the block 
 recorded method/target summary and says so. The call under review has no result yet, so it stays out of
 the history facts above.
 
+A task, task group or external call records the pending marker only when the root's preset is Auto
+Review and a review model resolves, so other requests are user-facing from the start. The marker is
+durable while the review call is not: after a restart every request still carrying it is reviewed
+again, and a replaying tool call joins that review instead of starting a second one
+([Session state](agent-runtime.md#session-state)).
+
 The reviewer assigns one of three risk levels:
 
 | Level | Covers | Decision |
@@ -349,11 +361,14 @@ messages, which stay in their own tables.
 ### Recorded events
 
 Events cover authentication, nodes and node groups, tasks and approvals, external calls
-(`external_call.started`, `external_call.finished`, with arguments truncated), extension changes
-(`extension.created`, `extension.updated`, `extension.deleted`, without header values), sessions and
-tool calls, users and sharing, configuration, and the `crhs` CLI. Action names are dotted verbs such as
-`node.approved` or `task.approval`. Model calls are not audited; their usage is part of
-[session statistics](agent-runtime.md#session-statistics).
+(`external_call.started`, `external_call.finished` — including a waiting call whose tool call was
+aborted, recorded with state `cancelled` — `external_call.review`, and `external_call.approval` for a
+decision, all with arguments truncated), extension changes (`extension.created`, `extension.updated`,
+`extension.deleted`, without header values), sessions and tool calls (`session.stop` records its
+`source`: `web`, `channel_command` or `channel_draft_stop`, plus the channel account and thread for a
+chat stop), users and sharing, configuration, and the `crhs` CLI. Action names are dotted verbs such as
+`node.approved`, `task.approval` or `external_call.review`. Model calls are not audited; their usage is
+part of [session statistics](agent-runtime.md#session-statistics).
 
 The CLI writes with the actor `system:cli` and adds `via: "cli"`, the OS user, uid and host to the
 detail. It records `keys.initialized`, `keys.imported`, `keys.exported` (the key fingerprints and the

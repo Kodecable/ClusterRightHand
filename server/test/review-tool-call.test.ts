@@ -7,8 +7,10 @@ import { type ConversationId, type EntryId, MemoryStorage, type StorageWrite } f
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig, saveModelProvider } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import { streamSessionId } from "../src/agent/stream-session-id.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
+import { isPendingReview } from "../src/cluster/approval.ts";
 import type { TaskView } from "../src/cluster/cluster.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
@@ -143,7 +145,8 @@ async function review(
 	});
 	const reviewed = await waitFor("the review", async () => {
 		const view = await cluster.getTask(task.id);
-		return view?.approval?.review ? view : undefined;
+		const state = view?.approval?.review;
+		return state && !isPendingReview(state) ? view : undefined;
 	});
 	return { task, reviewed, seen };
 }
@@ -232,8 +235,10 @@ it("escalates from the tool call and truncates the reason to 300 characters", as
 	const sessionId = await autoReviewSession("tool escalate");
 	const long = "x".repeat(400);
 	const { reviewed } = await review(sessionId, REVIEW_ANSWER("escalate", "high", long));
-	expect(reviewed.approval?.review?.decision).toBe("escalate");
-	expect(reviewed.approval?.review?.reason).toHaveLength(300);
+	const reviewRecord = reviewed.approval?.review;
+	if (!reviewRecord || "status" in reviewRecord) throw new Error("the review was not settled");
+	expect(reviewRecord.decision).toBe("escalate");
+	expect(reviewRecord.reason).toHaveLength(300);
 	expect(reviewed.approval?.decision).toBeUndefined();
 });
 
@@ -312,7 +317,8 @@ it("sends the tool and a forced tool_choice on the wire", async () => {
 	});
 	const reviewed = await waitFor("the stub review", async () => {
 		const view = await cluster.getTask(task.id);
-		return view?.approval?.review ? view : undefined;
+		const state = view?.approval?.review;
+		return state && !isPendingReview(state) ? view : undefined;
 	});
 	expect(reviewed.approval?.review).toMatchObject({ decision: "approve", reason: "only reads" });
 	const [request] = stub.requests;
@@ -332,23 +338,34 @@ it("sends the tool and a forced tool_choice on the wire", async () => {
 	expect(body.messages[0]?.content).not.toContain("Answer with exactly one line of JSON");
 });
 
-it("follows the session's own level when the review preset has no model", async () => {
-	const levelOf = (seen: unknown[]) =>
-		(seen[0] as { options: { reasoning?: string; toolChoice?: unknown } }).options.reasoning;
+it("keeps the review's own provider session id on the streamSimple call", async () => {
+	await runtime.modelPresets.update("review", { model: model() });
+	const sessionId = await autoReviewSession("stream id");
+	const { seen } = await review(sessionId, REVIEW_ANSWER("approve", "low", "safe"));
+	const options = (seen[0] as { options: { sessionId?: string; temperature?: number } }).options;
+	expect(options.sessionId).toBe(streamSessionId(sessionId, "review"));
+	expect(options.temperature).toBe(0);
+});
 
-	// With no review model, the root session's model and level are used as-is: no fixed, clamped level.
+it("runs at low, not the session's level, when the review preset has no model", async () => {
+	const optionsOf = (seen: unknown[]) =>
+		(seen[0] as { options: { reasoning?: string; toolChoice?: unknown; temperature?: number } }).options;
+
+	// With no review model the root's model is used, but never its conversation thinking level: a review
+	// is a cheap judgment and runs at `low`, clamped to what the model supports.
 	await runtime.modelPresets.update("review", { model: null });
 	const high = await review(
 		await autoReviewSession("follow high level", "high"),
 		REVIEW_ANSWER("approve", "low", "safe"),
 	);
-	expect(levelOf(high.seen)).toBe("high");
+	expect(optionsOf(high.seen)).toMatchObject({ reasoning: "low", temperature: 0, toolChoice: "auto" });
 
 	const low = await review(await autoReviewSession("follow low level", "low"), REVIEW_ANSWER("approve", "low", "safe"));
-	expect(levelOf(low.seen)).toBe("low");
+	expect(optionsOf(low.seen)).toMatchObject({ reasoning: "low", temperature: 0, toolChoice: "auto" });
 
+	// A session with thinking off still reviews at low; the level is the reviewer's, not the conversation's.
 	const off = await review(await autoReviewSession("follow off level"), REVIEW_ANSWER("approve", "low", "safe"));
-	expect(levelOf(off.seen)).toBeUndefined();
+	expect(optionsOf(off.seen)).toMatchObject({ reasoning: "low", temperature: 0, toolChoice: "auto" });
 });
 
 it("stores the risk with the review verdict", async () => {
@@ -533,9 +550,10 @@ it("reviews the original tool call, and falls back to the summary when no call w
 		chain: [{ type: "session", id: sessionId }],
 		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
 	});
-	await waitFor("the original-call review", async () =>
-		(await cluster.getTask(task.id))?.approval?.review ? true : undefined,
-	);
+	await waitFor("the original-call review", async () => {
+		const state = (await cluster.getTask(task.id))?.approval?.review;
+		return state && !isPendingReview(state) ? true : undefined;
+	});
 	const messages = (seen[0] as { messages: { role: string; content: string }[] }).messages;
 	const content = messages.find((message) => message.role === "user")?.content;
 	if (content === undefined) throw new Error("no review input");
@@ -568,9 +586,10 @@ it("reviews the original tool call, and falls back to the summary when no call w
 		chain: [{ type: "session", id: sessionId }],
 		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
 	});
-	await waitFor("the fallback review", async () =>
-		(await cluster.getTask(plain.id))?.approval?.review ? true : undefined,
-	);
+	await waitFor("the fallback review", async () => {
+		const state = (await cluster.getTask(plain.id))?.approval?.review;
+		return state && !isPendingReview(state) ? true : undefined;
+	});
 	const fallbackMessages = (seen[0] as { messages: { role: string; content: string }[] }).messages;
 	const fallbackContent = fallbackMessages.find((message) => message.role === "user")?.content;
 	if (fallbackContent === undefined) throw new Error("no fallback review input");

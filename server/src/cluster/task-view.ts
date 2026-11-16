@@ -6,6 +6,7 @@ import { type JsonTaskResult, taskResultFromJson, taskResultToJson } from "@crh/
 import type { Selectable } from "kysely";
 import type { RuleRef } from "../policy/store.ts";
 import type { TasksTable } from "../storage/schema.ts";
+import { approvalPhase } from "./approval.ts";
 import { authorizationView } from "./authorization.ts";
 import type { OutputSnapshot } from "./batch-output.ts";
 import type { Live } from "./live-output.ts";
@@ -19,6 +20,7 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined): Tas
 	const text = (b: Buffer | null) => (b ? b.toString("utf8") : "");
 	const output = fromLive ? live.output.snapshot() : undefined;
 	const outputTail = output ? text(output.outputTail) : b64(row.output_tail);
+	const approval = row.approval ? (JSON.parse(row.approval) as ApprovalRecord) : null;
 	return {
 		id: row.id,
 		nodeId: row.node_id,
@@ -54,11 +56,12 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined): Tas
 		finishedAt: row.finished_at,
 		taskGroupId: row.task_group_id,
 		ruleChain: row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null,
-		approval: row.approval ? (JSON.parse(row.approval) as ApprovalRecord) : null,
+		approval,
 		rootSessionId: row.root_session_id,
 		handlerType: row.handler_type,
 		handlerSessionId: row.handler_session_id,
 		purpose: row.purpose,
+		phase: approvalPhase(row.state, row.handler_type, approval?.review),
 	};
 }
 

@@ -10,6 +10,7 @@ import { type Evaluation, evaluate, operationOf } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import { newId } from "../util/id.ts";
+import { pendingReview } from "./approval.ts";
 import { planPrivileged } from "./authorization/plan.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
@@ -114,6 +115,11 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		}
 	}
 	const waiting = verdict === "require-approval" && input.noWait !== true;
+	// Auto Review will judge this request: mark it in the same write that enters awaiting_approval, so no
+	// user-facing approval appears while the reviewer decides (doc/design/access-control.md "Auto Review").
+	if (waiting && approval && (await core.onReviewPlanned?.(input.chain ?? null)) === true) {
+		approval.review = pendingReview(now());
+	}
 	// A group member that cannot wait ends here instead of parking inside a group that already started:
 	// nobody would ever decide it, and the group would wait for it forever (doc/design/execution.md "State machine").
 	const rejected = verdict === "require-approval" && input.noWait === true;
@@ -212,7 +218,7 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	if (waiting) {
 		core.onChange?.(view.actorId);
 		if (core.onAwaitingApproval) {
-			void core.onAwaitingApproval(view).catch((err: unknown) => console.error("review:", err));
+			void core.onAwaitingApproval(view, input.signal).catch((err: unknown) => console.error("review:", err));
 		}
 	}
 	return view;

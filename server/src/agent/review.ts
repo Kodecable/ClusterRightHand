@@ -1,19 +1,26 @@
 import type { Api, Model, TextContent, ThinkingContent, Tool, ToolCall, ToolChoice } from "@earendil-works/pi-ai";
+import { clampThinkingLevel } from "@earendil-works/pi-ai/models";
 import { Type } from "typebox";
+import type { Audit } from "../audit/audit.ts";
+import { reviewAudit } from "../cluster/approval.ts";
 import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
 import { nodeGroupsForNodes } from "../cluster/node-groups.ts";
 import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
 import { matchApiRoute } from "../extensions/api-reference.ts";
 import { apiRoutesForReview } from "../extensions/builtin.ts";
 import {
+	clearExternalCallReviewPending,
 	decideExternalCall,
 	externalCallArguments,
 	externalCallOperation,
 	getExternalCall,
+	markExternalCallReviewPending,
 	recordExternalCallReview,
 } from "../extensions/external-calls.ts";
 import { getRuleSet, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
+import { SingleFlight } from "../util/single-flight.ts";
+import { LlmTimeoutError, streamSimpleWithTimeouts } from "./llm-timeout.ts";
 import type { ModelPresets } from "./model-presets.ts";
 import { type ModelConfig, type ModelRef, thinkingLevelOf } from "./models.ts";
 import { chargeCall } from "./quota.ts";
@@ -353,6 +360,9 @@ export class Reviewer {
 	readonly #taskGroups: TaskGroups;
 	readonly #presets: ModelPresets;
 	readonly #deps: ReviewDependencies;
+	readonly #audit: Audit | undefined;
+	/** One review per request: a restart sweep and a live hook (or a replay) must not judge the same row twice. */
+	readonly #flights = new SingleFlight<void>();
 
 	constructor(
 		db: Db,
@@ -361,6 +371,7 @@ export class Reviewer {
 		taskGroups: TaskGroups,
 		presets: ModelPresets,
 		deps: ReviewDependencies,
+		audit?: Audit,
 	) {
 		this.#db = db;
 		this.#models = models;
@@ -368,6 +379,7 @@ export class Reviewer {
 		this.#taskGroups = taskGroups;
 		this.#presets = presets;
 		this.#deps = deps;
+		this.#audit = audit;
 	}
 
 	/** The model for one root: the configured review model, else (for a session or schedule) the root's own model. */
@@ -396,6 +408,7 @@ export class Reviewer {
 		model: ModelRef,
 		input: string,
 		sessionId: string | undefined,
+		signal?: AbortSignal,
 	): Promise<{ outcome: ReviewOutcome; tokens: CallTokens }> {
 		const resolved = this.#models.getModel(model.provider, model.modelId);
 		const name = `${model.provider}/${model.modelId}`;
@@ -410,15 +423,26 @@ export class Reviewer {
 				messages: [{ role: "user" as const, content: input, timestamp: Date.now() }],
 				tools: [REVIEW_TOOL],
 			};
-			const level = thinkingLevelOf(model);
-			const answer = await this.#models.completeSimple(resolved, request, {
-				...(sessionId === undefined ? {} : { sessionId: streamSessionId(sessionId, "review") }),
-				// The review runs at the review model's thinking level; `off` is pi-ai's "no reasoning" option.
-				...(level === "off" ? {} : { reasoning: level }),
-				// Anthropic rejects a forced tool together with extended thinking. Only a no-thinking review
-				// forces submit_review; with thinking on the tool stays offered and a text-only answer escalates.
-				toolChoice: level === "off" ? forcedToolChoice(resolved, REVIEW_TOOL_NAME) : "auto",
-			});
+			// A configured review preset keeps its own model and thinking level. Falling back to the root's
+			// model must not inherit that model's conversation-thinking level: a review is a cheap judgment,
+			// so it runs at `low`, clamped to the nearest level the model supports.
+			const preset = this.#presets.get("review");
+			const level = preset.model ? thinkingLevelOf(model) : clampThinkingLevel(resolved, "low");
+			const answer = await streamSimpleWithTimeouts(
+				(streamSignal) =>
+					this.#models.streamSimple(resolved, request, {
+						...(sessionId === undefined ? {} : { sessionId: streamSessionId(sessionId, "review") }),
+						// The review runs at the review model's thinking level; `off` is pi-ai's "no reasoning" option.
+						...(level === "off" ? {} : { reasoning: level }),
+						// The reviewer must be deterministic, and a temperature can only add noise to the verdict.
+						temperature: 0,
+						// Anthropic rejects a forced tool together with extended thinking. Only a no-thinking review
+						// forces submit_review; with thinking on the tool stays offered and a text-only answer escalates.
+						toolChoice: level === "off" ? forcedToolChoice(resolved, REVIEW_TOOL_NAME) : "auto",
+						signal: streamSignal,
+					}),
+				{ limits: this.#models.llmTimeouts, ...(signal ? { signal } : {}) },
+			);
 			const outcome = outcomeFromToolCalls(answer.content) ?? {
 				decision: "escalate" as const,
 				risk: "high" as const,
@@ -437,11 +461,38 @@ export class Reviewer {
 				outcome: {
 					decision: "escalate",
 					risk: "high",
-					reason: `review failed: ${(err as Error).message}`.slice(0, 300),
+					reason: (err instanceof LlmTimeoutError
+						? "Auto Review timed out"
+						: `review failed: ${(err as Error).message}`
+					).slice(0, 300),
 					model: name,
 				},
 				tokens: { budget: 0, usage: 0, context: 0 },
 			};
+		}
+	}
+
+	/**
+	 * Runs one review; when it throws outside the model call (reading the history, charging, writing), the
+	 * request is escalated with the error as the reason. A pending marker left behind would keep the request
+	 * hidden from the user and the session looking busy until the next restart.
+	 */
+	async #escalateOnFailure(
+		kind: "task" | "task_group" | "external_call",
+		id: string,
+		record: (outcome: ReviewOutcome) => Promise<unknown>,
+		review: () => Promise<void>,
+	): Promise<void> {
+		try {
+			await review();
+		} catch (err) {
+			console.error(`review: reviewing ${kind} ${id} failed:`, err);
+			await record({
+				decision: "escalate",
+				risk: "high",
+				reason: `review failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 300),
+				model: "auto-review",
+			});
 		}
 	}
 
@@ -481,101 +532,175 @@ export class Reviewer {
 		return row?.source_call_id ?? null;
 	}
 
-	/** Called for a task that just started waiting; settles it if the reviewer approves. */
-	async reviewTask(task: TaskView): Promise<void> {
-		const model = await this.#wanted(task.ruleChain);
-		if (!model || !task.operation) return;
-		const sessionId = sessionOfActor(task.actorType, task.actorId);
-		const [entries, calls, on, sourceCallId] = await Promise.all([
-			sessionId ? this.#deps.history(sessionId) : Promise.resolve([]),
-			sessionId ? this.#deps.toolCalls(sessionId) : Promise.resolve([]),
-			nodeFacts(this.#db, [task.nodeId]),
-			this.#taskCallId(task.id),
-		]);
-		const call = sourceCallId === null ? null : (calls.findLast((candidate) => candidate.id === sourceCallId) ?? null);
-		const description = call ? await this.#deps.builtinToolDescription(call.name) : null;
-		const input = reviewInput(entries, reviewTaskOperation(task, call, description, on));
-		const { outcome, tokens } = await this.#ask(model, input, sessionId);
-		await this.#charge(task.actorType, task.actorId, tokens);
-		await this.#cluster.recordReview(task.id, outcome);
-		if (outcome.decision === "approve") await this.#cluster.decide(task.id, decision(outcome));
+	/** Whether Auto Review will judge a request on this chain; the caller marks the row before writing it. */
+	async willReview(chain: RuleRef[] | null): Promise<boolean> {
+		return (await this.#wanted(chain)) !== null;
 	}
 
-	/** Called for an external call that just started waiting; approves it when the reviewer says so. */
-	async reviewExternalCall(id: string): Promise<void> {
-		const row = await getExternalCall(this.#db, id);
-		// A request routed to an agent is that agent's; the review model only stands in for the user.
-		if (row?.state !== "awaiting_approval" || row.handler_type !== "user") return;
-		let chain: RuleRef[] | null = null;
-		try {
-			chain = row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null;
-		} catch {
-			chain = null;
-		}
-		const model = await this.#wanted(chain);
-		if (!model) return;
-		const sessionId = sessionOfActor(row.actor_type, row.actor_id);
-		const args = externalCallArguments(row);
-		const [entries, calls, description] = await Promise.all([
-			sessionId ? this.#deps.history(sessionId) : Promise.resolve([]),
-			sessionId ? this.#deps.toolCalls(sessionId) : Promise.resolve([]),
-			this.#deps.toolDescription(row.extension_name, row.tool_name),
-		]);
-		// The row records the transcript id of the call that made it; a model may reuse ids, so the latest wins.
-		const call =
-			row.source_call_id === null ? null : (calls.findLast((candidate) => candidate.id === row.source_call_id) ?? null);
-		let annotations: unknown = null;
-		try {
-			annotations = row.annotations ? JSON.parse(row.annotations) : null;
-		} catch {
-			annotations = null;
-		}
-		const routeSummary = apiRouteSummary(row.extension_name, row.tool_name, args);
-		const operation = externalCallOperation(row);
-		const block: Record<string, unknown> = {
-			requested_by: row.actor_id,
-			extension: row.extension_name,
-			tool: row.tool_name,
-			...(call === null ? {} : { tool_call: reviewCall(call) }),
-			...(description === null ? {} : { tool_description: description }),
-			...(routeSummary === null ? {} : { route_summary: routeSummary }),
-			annotations,
-			trusted_context: {
-				nodes: [],
-				flagged: [{ method: operation.method, target: operation.target }],
-			},
-		};
-		if (call === null) {
-			Object.assign(block, {
-				operation,
-				arguments: args,
-				note: CALL_UNAVAILABLE,
-			});
-		}
-		const input = reviewInput(entries, block);
-		const { outcome, tokens } = await this.#ask(model, input, sessionId);
-		await this.#charge(row.actor_type, row.actor_id, tokens);
-		await recordExternalCallReview(this.#db, id, outcome);
-		if (outcome.decision === "approve") await decideExternalCall(this.#db, id, decision(outcome));
+	/**
+	 * Called for a task that just started waiting; settles it if the reviewer approves. Concurrent calls for the
+	 * same task share one review, so a restart sweep and a live hook cannot judge it twice.
+	 */
+	reviewTask(task: TaskView, signal?: AbortSignal): Promise<void> {
+		return this.#flights.run(`task:${task.id}`, () =>
+			this.#escalateOnFailure(
+				"task",
+				task.id,
+				(outcome) => this.#cluster.recordReview(task.id, outcome),
+				async () => {
+					const model = await this.#wanted(task.ruleChain);
+					if (!model || !task.operation) {
+						// Auto Review will not run after all (its preset or model changed between the marker and now).
+						await this.#cluster.abandonReview(task.id);
+						return;
+					}
+					const sessionId = sessionOfActor(task.actorType, task.actorId);
+					const [entries, calls, on, sourceCallId] = await Promise.all([
+						sessionId ? this.#deps.history(sessionId) : Promise.resolve([]),
+						sessionId ? this.#deps.toolCalls(sessionId) : Promise.resolve([]),
+						nodeFacts(this.#db, [task.nodeId]),
+						this.#taskCallId(task.id),
+					]);
+					const call =
+						sourceCallId === null ? null : (calls.findLast((candidate) => candidate.id === sourceCallId) ?? null);
+					const description = call ? await this.#deps.builtinToolDescription(call.name) : null;
+					const input = reviewInput(entries, reviewTaskOperation(task, call, description, on));
+					const { outcome, tokens } = await this.#ask(model, input, sessionId, signal);
+					await this.#charge(task.actorType, task.actorId, tokens);
+					await this.#cluster.recordReview(task.id, outcome);
+					if (outcome.decision === "approve") await this.#cluster.decide(task.id, decision(outcome));
+				},
+			),
+		);
 	}
 
-	async reviewGroup(group: TaskGroupView): Promise<void> {
-		const model = await this.#wanted(group.ruleChain);
-		if (!model || !group.operation) return;
-		const sessionId = sessionOfActor(group.actorType, group.actorId);
-		const [entries, calls, on, sourceCallId] = await Promise.all([
-			sessionId ? this.#deps.history(sessionId) : Promise.resolve([]),
-			sessionId ? this.#deps.toolCalls(sessionId) : Promise.resolve([]),
-			nodeFacts(this.#db, group.nodeIds),
-			this.#groupCallId(group.id),
-		]);
-		const call = sourceCallId === null ? null : (calls.findLast((candidate) => candidate.id === sourceCallId) ?? null);
-		const description = call ? await this.#deps.builtinToolDescription(call.name) : null;
-		const input = reviewInput(entries, reviewGroupOperation(group, call, description, on));
-		const { outcome, tokens } = await this.#ask(model, input, sessionId);
-		await this.#charge(group.actorType, group.actorId, tokens);
-		await this.#taskGroups.recordReview(group.id, outcome);
-		if (outcome.decision === "approve") await this.#taskGroups.decide(group.id, decision(outcome));
+	/**
+	 * Called for an external call that just started waiting; approves it when the reviewer says so. The pending
+	 * marker is set when the review starts (a call routed to an agent is not reviewed), so the call looks like a
+	 * tool call still in progress only while it really is being judged.
+	 */
+	reviewExternalCall(id: string, signal?: AbortSignal): Promise<void> {
+		return this.#flights.run(`external_call:${id}`, () =>
+			this.#escalateOnFailure(
+				"external_call",
+				id,
+				async (outcome) => {
+					await recordExternalCallReview(this.#db, id, outcome);
+				},
+				async () => {
+					const row = await getExternalCall(this.#db, id);
+					// A request routed to an agent is that agent's; the review model only stands in for the user.
+					if (row?.state !== "awaiting_approval" || row.handler_type !== "user") return;
+					let chain: RuleRef[] | null = null;
+					try {
+						chain = row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null;
+					} catch {
+						chain = null;
+					}
+					const model = await this.#wanted(chain);
+					if (!model) {
+						// Auto Review is not enabled for this call after all: drop the marker and let the user decide.
+						await clearExternalCallReviewPending(this.#db, id);
+						return;
+					}
+					// The write is guarded on the state and handler, so a decision that landed meanwhile wins.
+					if (!(await markExternalCallReviewPending(this.#db, id))) return;
+					const sessionId = sessionOfActor(row.actor_type, row.actor_id);
+					const args = externalCallArguments(row);
+					const [entries, calls, description] = await Promise.all([
+						sessionId ? this.#deps.history(sessionId) : Promise.resolve([]),
+						sessionId ? this.#deps.toolCalls(sessionId) : Promise.resolve([]),
+						this.#deps.toolDescription(row.extension_name, row.tool_name),
+					]);
+					// The row records the transcript id of the call that made it; a model may reuse ids, so the latest wins.
+					const call =
+						row.source_call_id === null
+							? null
+							: (calls.findLast((candidate) => candidate.id === row.source_call_id) ?? null);
+					let annotations: unknown = null;
+					try {
+						annotations = row.annotations ? JSON.parse(row.annotations) : null;
+					} catch {
+						annotations = null;
+					}
+					const routeSummary = apiRouteSummary(row.extension_name, row.tool_name, args);
+					const operation = externalCallOperation(row);
+					const block: Record<string, unknown> = {
+						requested_by: row.actor_id,
+						extension: row.extension_name,
+						tool: row.tool_name,
+						...(call === null ? {} : { tool_call: reviewCall(call) }),
+						...(description === null ? {} : { tool_description: description }),
+						...(routeSummary === null ? {} : { route_summary: routeSummary }),
+						annotations,
+						trusted_context: {
+							nodes: [],
+							flagged: [{ method: operation.method, target: operation.target }],
+						},
+					};
+					if (call === null) {
+						Object.assign(block, {
+							operation,
+							arguments: args,
+							note: CALL_UNAVAILABLE,
+						});
+					}
+					const input = reviewInput(entries, block);
+					const { outcome, tokens } = await this.#ask(model, input, sessionId, signal);
+					await this.#charge(row.actor_type, row.actor_id, tokens);
+					if (!(await recordExternalCallReview(this.#db, id, outcome))) return;
+					void this.#audit?.record(reviewAudit("external_call", id, row.on_behalf_of_user_id, outcome));
+					if (outcome.decision === "approve") {
+						const decided = await decideExternalCall(this.#db, id, decision(outcome));
+						if (decided) {
+							void this.#audit?.record({
+								actor: { type: "system", id: "auto-review", onBehalfOfUserId: row.on_behalf_of_user_id },
+								action: "external_call.approval",
+								target: { type: "external_call", id },
+								detail: {
+									decision: "approved",
+									extension: row.extension_name,
+									tool: row.tool_name,
+									reason: `auto review (${outcome.model}): ${outcome.reason}`,
+								},
+							});
+						}
+					}
+				},
+			),
+		);
+	}
+
+	async reviewGroup(group: TaskGroupView, signal?: AbortSignal): Promise<void> {
+		return this.#flights.run(`task_group:${group.id}`, () =>
+			this.#escalateOnFailure(
+				"task_group",
+				group.id,
+				(outcome) => this.#taskGroups.recordReview(group.id, outcome),
+				async () => {
+					const model = await this.#wanted(group.ruleChain);
+					if (!model || !group.operation) {
+						await this.#taskGroups.abandonReview(group.id);
+						return;
+					}
+					const sessionId = sessionOfActor(group.actorType, group.actorId);
+					const [entries, calls, on, sourceCallId] = await Promise.all([
+						sessionId ? this.#deps.history(sessionId) : Promise.resolve([]),
+						sessionId ? this.#deps.toolCalls(sessionId) : Promise.resolve([]),
+						nodeFacts(this.#db, group.nodeIds),
+						this.#groupCallId(group.id),
+					]);
+					const call =
+						sourceCallId === null ? null : (calls.findLast((candidate) => candidate.id === sourceCallId) ?? null);
+					const description = call ? await this.#deps.builtinToolDescription(call.name) : null;
+					const input = reviewInput(entries, reviewGroupOperation(group, call, description, on));
+					const { outcome, tokens } = await this.#ask(model, input, sessionId, signal);
+					await this.#charge(group.actorType, group.actorId, tokens);
+					await this.#taskGroups.recordReview(group.id, outcome);
+					if (outcome.decision === "approve") await this.#taskGroups.decide(group.id, decision(outcome));
+				},
+			),
+		);
 	}
 }
 
