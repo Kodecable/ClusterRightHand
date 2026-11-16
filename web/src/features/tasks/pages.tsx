@@ -98,7 +98,7 @@ export function TasksPage() {
 		[directory.data],
 	);
 	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
-	const columns = useTaskColumns({ users, nodeNames: names });
+	const columns = useTaskColumns({ nodeNames: names });
 
 	const setNode = (value: string) => {
 		void navigate({
@@ -198,7 +198,7 @@ export function TasksPage() {
 				loadingMore={tasks.isFetchingNextPage}
 				onLoadMore={() => void tasks.fetchNextPage()}
 				rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
-				rowLabel={(task) => taskTitle(task)}
+				rowLabel={(task) => taskTitle(i18n, task)}
 				rowLinkColumn="task"
 				empty={
 					<EmptyState

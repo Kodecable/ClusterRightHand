@@ -189,10 +189,6 @@ msgstr "{lines, plural, one {# 行} other {# 行}}"
 msgid "{queued, plural, one {# message queued} other {# messages queued}}"
 msgstr "{queued, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
 
-#: src/features/sessions/composer-footer.tsx
-msgid "{remaining, plural, one {# token left} other {# tokens left}}"
-msgstr "{remaining, plural, one {还剩 # 个令牌} other {还剩 # 个令牌}}"
-
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
 msgstr "{running} 个运行中"
@@ -673,10 +669,10 @@ msgstr "API 密钥"
 msgid "API token"
 msgstr "API 令牌"
 
-#. placeholder {0}: row.requester.name
-#: src/features/approvals/pages.tsx
-msgid "API token “{0}”"
-msgstr "API 令牌“{0}”"
+#. placeholder {0}: source.name
+#: src/components/request-source.tsx
+msgid "API token {0}"
+msgstr "API 令牌 {0}"
 
 #: src/app/shell/nav.ts
 #: src/features/tokens/pages.tsx
@@ -755,11 +751,6 @@ msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
 #: src/features/tokens/rule-preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 msgstr "Ask：普通读取直接执行，其他操作（包括所有特权任务）都等待你审批。"
-
-#: src/components/task-result.tsx
-#: src/features/approvals/pages.tsx
-msgid "Asked by"
-msgstr "请求者"
 
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Assistant"
@@ -846,6 +837,10 @@ msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 re
 msgid "Auto review"
 msgstr "自动复核"
 
+#: src/components/request-source.tsx
+msgid "Auto Review"
+msgstr "Auto Review"
+
 #: src/components/decision/reviewing-notice.tsx
 msgid "Auto Review is reviewing this request"
 msgstr "Auto Review 正在审查此请求"
@@ -921,11 +916,6 @@ msgstr "机器人令牌"
 msgid "Built-in"
 msgstr "内置"
 
-#: src/features/audit/pages.tsx
-#: src/features/tasks/task-columns.tsx
-msgid "By"
-msgstr "操作者"
-
 #. placeholder {0}: formatNumber(cacheReadTokens, locale)
 #. placeholder {1}: formatNumber(promptTokens, locale)
 #: src/features/sessions/composer-meta.tsx
@@ -962,8 +952,7 @@ msgid "Cancellation requested."
 msgstr "已请求取消任务"
 
 #: src/components/status-badge.tsx
-#: src/components/task-result.tsx
-#: src/features/sessions/tool-card.tsx
+#: src/components/task-outcome.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Cancelled"
 msgstr "已取消"
@@ -1739,6 +1728,10 @@ msgstr "已删除的用户组"
 msgid "Denied"
 msgstr "已拒绝"
 
+#: src/components/task-outcome.tsx
+msgid "Denied by rules"
+msgstr "被规则拒绝"
+
 #: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
 msgid "Deny"
@@ -1802,6 +1795,7 @@ msgstr "已派发"
 msgid "Display name"
 msgstr "显示名"
 
+#: src/components/task-outcome.tsx
 #: src/features/channels/chat-accounts-section.tsx
 #: src/features/sessions/tool-card.tsx
 msgid "Done"
@@ -1859,13 +1853,13 @@ msgstr "编辑渠道 {0}"
 msgid "Edit extension {0}"
 msgstr "编辑扩展 {0}"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Edit file {path}"
 msgstr "编辑文件 {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Edit file {path} (lines {0}-{1})"
 msgstr "编辑文件 {path}（第 {0}-{1} 行）"
 
@@ -2085,17 +2079,13 @@ msgstr "所有人"
 msgid "exact"
 msgstr "精确匹配"
 
-#. placeholder {0}: value.exitCode ?? ""
-#: src/features/sessions/tool-card.tsx
-msgid "Exit {0}"
-msgstr "退出码 {0}"
-
 #: src/components/task-result.tsx
 msgid "Exit code"
 msgstr "退出码"
 
-#. placeholder {0}: outcome.code ?? "?"
-#: src/components/task-result.tsx
+#. placeholder {0}: outcome.exitCode
+#. placeholder {0}: outcome.exitCode ?? "?"
+#: src/components/task-outcome.tsx
 msgid "Exit code {0}"
 msgstr "退出码 {0}"
 
@@ -2168,6 +2158,7 @@ msgid "failed"
 msgstr "失败"
 
 #: src/components/status-badge.tsx
+#: src/components/task-outcome.tsx
 #: src/features/sessions/tool-card.tsx
 msgid "Failed"
 msgstr "失败"
@@ -2245,25 +2236,9 @@ msgstr "命令限制、有效期、本地批准等高级选项请参考文档，
 msgid "Format"
 msgstr "格式"
 
-#. placeholder {0}: oneLine(requester.name)
-#. placeholder {0}: requester.name
-#: src/components/decision/content.tsx
-msgid "From API token “{0}”"
-msgstr "来自 API 令牌“{0}”"
-
 #: src/features/channels/channel-dialog.tsx
 msgid "From BotFather. It is encrypted with the master key and never shown again."
 msgstr "来自 BotFather。它使用主密钥加密，之后不再显示。"
-
-#: src/components/decision/content.tsx
-msgid "From session “{title}”"
-msgstr "来自会话“{title}”"
-
-#. placeholder {0}: oneLine(requester.username)
-#. placeholder {0}: requester.username
-#: src/components/decision/content.tsx
-msgid "From user {0}"
-msgstr "来自用户 {0}"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "Gateway token"
@@ -2422,6 +2397,7 @@ msgid "Inherit"
 msgstr "继承"
 
 #: src/features/tasks/task-group-result.tsx
+#: src/lib/task-output.ts
 msgid "Interrupted"
 msgstr "已中断"
 
@@ -2497,6 +2473,11 @@ msgstr "密钥标识"
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
 msgstr "crhs 用于为授权签名的密钥。默认使用最新的密钥；节点仅当其 privileged.toml 列出该密钥时才会信任它。"
+
+#. placeholder {0}: outcome.signal ?? "?"
+#: src/components/task-outcome.tsx
+msgid "Killed by signal {0}"
+msgstr "被信号 {0} 终止"
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
@@ -2634,13 +2615,13 @@ msgstr "已关联的账号"
 msgid "List at least one model."
 msgstr "至少列出一个模型。"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "List directory {path}"
 msgstr "列出目录 {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "List directory {path} (lines {0}-{1})"
 msgstr "列出目录 {path}（第 {0}-{1} 行）"
 
@@ -2959,6 +2940,7 @@ msgid "New session"
 msgstr "新会话"
 
 #: src/components/decision/content.tsx
+#: src/components/request-source.tsx
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
@@ -3565,6 +3547,7 @@ msgstr "允许使用 Passkey 的源，例如 https://crh.example.com。留空则
 msgid "OS"
 msgstr "操作系统"
 
+#: src/components/task-result.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Outcome"
@@ -3798,13 +3781,13 @@ msgstr "公钥"
 msgid "Public URL"
 msgstr "公开 URL"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Pull file {path}"
 msgstr "拉取文件 {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Pull file {path} (lines {0}-{1})"
 msgstr "拉取文件 {path}（第 {0}-{1} 行）"
 
@@ -3821,13 +3804,13 @@ msgstr "用途：{0}"
 msgid "Purpose: File browsing"
 msgstr "用途：文件浏览"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Push file {path}"
 msgstr "推送文件 {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Push file {path} (lines {0}-{1})"
 msgstr "推送文件 {path}（第 {0}-{1} 行）"
 
@@ -3864,13 +3847,13 @@ msgstr "重新探测"
 msgid "Re-probe — {0}"
 msgstr "重新探测：{0}"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Read file {path}"
 msgstr "读取文件 {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Read file {path} (lines {0}-{1})"
 msgstr "读取文件 {path}（第 {0}-{1} 行）"
 
@@ -3951,6 +3934,7 @@ msgstr "拒绝节点"
 
 #: src/components/decision/evaluation.tsx
 #: src/components/status-badge.tsx
+#: src/components/task-outcome.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
 msgstr "已拒绝"
@@ -4143,6 +4127,10 @@ msgstr "Responses"
 #: src/features/tasks/task-page.tsx
 msgid "Result"
 msgstr "结果"
+
+#: src/components/task-outcome.tsx
+msgid "Result unknown"
+msgstr "结果未知"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Retrying (attempt {attempt})…"
@@ -4350,6 +4338,11 @@ msgstr "保存会关闭连接；在此节点上运行的任务将变为未知状
 msgid "Schedule"
 msgstr "计划任务"
 
+#. placeholder {0}: source.name
+#: src/components/request-source.tsx
+msgid "Schedule {0}"
+msgstr "计划任务 {0}"
+
 #: src/features/schedules/pages.tsx
 msgid "Schedule form"
 msgstr "计划任务表单"
@@ -4467,9 +4460,15 @@ msgstr "每次请求都会发送，并加密存储；其值不会再次显示。
 msgid "Session"
 msgstr "会话"
 
-#: src/features/approvals/pages.tsx
-msgid "Session “{title}”"
-msgstr "会话“{title}”"
+#. placeholder {0}: sourceSessionName(i18n, source.title)
+#: src/components/request-source.tsx
+msgid "Session {0}"
+msgstr "会话 {0}"
+
+#. placeholder {0}: sourceSessionName(i18n, source.title)
+#: src/components/request-source.tsx
+msgid "Session <0>{0}</0>"
+msgstr "会话 <0>{0}</0>"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -4610,11 +4609,6 @@ msgstr "无法完成登录，请检查网络后重试。"
 msgid "Signal"
 msgstr "信号"
 
-#. placeholder {0}: outcome.signal
-#: src/components/task-result.tsx
-msgid "Signal {0}"
-msgstr "信号 {0}"
-
 #: src/components/decision/signature-panel.tsx
 #: src/features/approvals/pages.tsx
 msgid "Signature"
@@ -4663,6 +4657,23 @@ msgstr "有些规则引用了已删除的节点或节点组。保存前请移除
 msgid "Something went wrong"
 msgstr "出错了"
 
+#: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
+#: src/features/audit/pages.tsx
+#: src/features/tasks/task-columns.tsx
+#: src/features/tasks/task-group-page.tsx
+msgid "Source"
+msgstr "请求源"
+
+#. placeholder {0}: requestSourceText(i18n, request.source)
+#: src/components/decision/content.tsx
+msgid "Source: {0}"
+msgstr "请求源：{0}"
+
+#: src/components/decision/content.tsx
+msgid "Source: <0/>"
+msgstr "请求源：<0/>"
+
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Speed"
 msgstr "速度"
@@ -4704,13 +4715,13 @@ msgstr "起始行"
 msgid "Start one, or wait for a scheduled run."
 msgstr "新建一个，或等待计划任务运行。"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Stat file {path}"
 msgstr "查看文件 {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Stat file {path} (lines {0}-{1})"
 msgstr "查看文件 {path}（第 {0}-{1} 行）"
 
@@ -4811,7 +4822,6 @@ msgid "Submit authorization"
 msgstr "提交授权"
 
 #: src/components/status-badge.tsx
-#: src/components/task-result.tsx
 msgid "Succeeded"
 msgstr "成功"
 
@@ -4824,6 +4834,7 @@ msgid "Summary"
 msgstr "摘要"
 
 #: src/app/shell/user-menu.tsx
+#: src/components/request-source.tsx
 msgid "System"
 msgstr "跟随系统"
 
@@ -4874,6 +4885,10 @@ msgstr "任务详情"
 msgid "Task group"
 msgstr "任务组"
 
+#: src/features/tasks/task-group-page.tsx
+msgid "Task group details"
+msgstr "任务组详情"
+
 #: src/app/shell/nav.ts
 #: src/features/authorizations/pages.tsx
 #: src/features/system-settings/retention-section.tsx
@@ -4923,10 +4938,6 @@ msgstr "必须填写机器人令牌。"
 #: src/features/signing-credentials/pages.tsx
 msgid "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 msgstr "浏览器会提供平台认证器（Touch ID、Windows Hello）或安全密钥。只请求 ES256、EdDSA 和 RS256，因此注册的 Passkey 能被节点的特权模式验证。"
-
-#: src/features/sessions/composer-footer.tsx
-msgid "The budget is used up."
-msgstr "预算已用尽。"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted least recently used, and dropped after the time to live."
@@ -5252,8 +5263,7 @@ msgstr "时间"
 msgid "Time to live"
 msgstr "存活时间"
 
-#: src/components/task-result.tsx
-#: src/features/sessions/tool-card.tsx
+#: src/components/task-outcome.tsx
 msgid "Timed out"
 msgstr "已超时"
 
@@ -5490,9 +5500,14 @@ msgstr "使用第一个可用的模型"
 msgid "Use the session's model"
 msgstr "使用会话的模型"
 
-#: src/components/decision/content.tsx
-msgid "used {used} · remaining {remaining}"
-msgstr "已用 {used} · 剩余 {remaining}"
+#. placeholder {0}: formatNumber(status.remaining, i18n.locale)
+#: src/lib/quota.ts
+msgid "Used {used} · {0} left"
+msgstr "已用 {used} · 剩余 {0}"
+
+#: src/lib/quota.ts
+msgid "Used {used} · Unlimited"
+msgstr "已用 {used} · 不限"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Used by"
@@ -5501,6 +5516,11 @@ msgstr "使用节点"
 #: src/features/system-settings/general-section.tsx
 msgid "Used for links crhs returns, e.g. in MCP results. Empty uses the address of the request (the default)."
 msgstr "用于 crhs 返回的链接，例如在 MCP 结果中。留空则使用请求的地址（默认）。"
+
+#. placeholder {0}: formatNumber(status.over, i18n.locale)
+#: src/lib/quota.ts
+msgid "Used up, over by {0}"
+msgstr "已用完，超出 {0}"
 
 #: src/components/entity-picker/api.ts
 #: src/components/entity-picker/entity-picker.tsx
@@ -5518,6 +5538,8 @@ msgid "User — {0}"
 msgstr "用户：{0}"
 
 #. placeholder {0}: library.ownerDisplayName || library.ownerName
+#. placeholder {0}: source.username
+#: src/components/request-source.tsx
 #: src/features/sessions/attachments.tsx
 msgid "User {0}"
 msgstr "用户 {0}"
@@ -5529,6 +5551,10 @@ msgstr "用户 {name}"
 #: src/features/library/pages.tsx
 msgid "User {name}'s library"
 msgstr "用户 {name} 的资料库"
+
+#: src/components/request-source.tsx
+msgid "User <0/>"
+msgstr "用户 <0/>"
 
 #. placeholder {0}: item.granteeName ?? item.granteeId
 #: src/features/sessions/share-dialog.tsx
@@ -5706,13 +5732,13 @@ msgstr "工作"
 msgid "Working directory (optional)"
 msgstr "工作目录（可选）"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Write file {path}"
 msgstr "写入文件 {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Write file {path} (lines {0}-{1})"
 msgstr "写入文件 {path}（第 {0}-{1} 行）"
 

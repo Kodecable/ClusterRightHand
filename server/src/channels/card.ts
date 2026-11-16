@@ -17,7 +17,7 @@ export interface ChatCard {
 	title: string;
 	/** " · privileged" after the title. */
 	privileged: boolean;
-	/** The grey info line: the nodes, the quota's session title, and the requester without a thread. */
+	/** The grey info line: the nodes, the quota's session title, and the source without a thread. */
 	meta?: string;
 	risk?: ChatCardRisk;
 	/** Auto Review's reason, after the risk: "🟡 Medium risk · <reason>". */

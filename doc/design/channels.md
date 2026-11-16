@@ -208,11 +208,12 @@ a message a schedule submitted. Switching or attaching a session in a chat does 
 Every display surface renders one compact, locale-free `ApprovalRequest` built by the server
 (`server/src/approvals/request.ts`): its kind and id, the phase (`reviewing` while Auto Review decides,
 `awaiting_signature` while a task or task group waits for the user's signature, otherwise
-`awaiting_user`), the requester (a subagent's request resolves to its root session; an API
-token, a user acting directly and a schedule are named as themselves), a structured action (exec
-command, file operation and path with an optional line range, API request, or extension tool), the node
-names that need approval (at most 10 with a `moreNodes` count), whether it is privileged, the settled
-Auto Review risk and reason when one exists, and the "always allow" rule candidates the server can build.
+`awaiting_user`), the source (a subagent's request resolves to its root session; an API token or a user
+acting directly is named as itself, and a task or schedule resolves to the user it acted for), a
+structured action (exec command, file operation and path with an optional line range, API request, or
+extension tool), the node names that need approval (at most 10 with a `moreNodes` count), whether it is
+privileged, the settled Auto Review risk and reason when one exists, and the "always allow" rule
+candidates the server can build.
 Telegram, Satori and the WebUI render this model; details beyond it belong on the task, task group and
 external call pages. The approvals API returns one per waiting item beside the kind-specific view,
 including tasks and task groups waiting for a signature; task, task group and external-call detail
@@ -226,7 +227,7 @@ lines are, in order:
   or `Token quota used up`, localized;
 - the meta line: `Nodes: app-1, db-1` with `and N more` for a capped list, or the quota's session
   title; and, only when a default notification account routed the card rather than a chat thread,
-  ` · From session “…”`, ` · From API token “…”` or ` · From user …`;
+  ` · Source: Session …`, ` · Source: API token …` or ` · Source: User …`;
 - `🟡 Medium risk · …` (🟢 low, 🔴 high) only when Auto Review settled a review;
 - the action detail: the command, `Read file /etc/hosts (lines 2-4)`, `GET /api/nodes`, or
   `github/create_issue`;
@@ -235,7 +236,8 @@ lines are, in order:
 
 A signature card carries the same body and the one hint `Sign in the WebUI: <link>`; it offers no
 approve or reject. A quota card's meta is the session title (or the localized new-session name), its
-detail `used N · remaining M`, and its hints `Continue: /quota add <tokens>` and `End this turn:
+detail used first (`Used N · N left`, or `Used up, over by N` when exhausted, with full separators and
+never a negative remaining), and its hints `Continue: /quota add <tokens>` and `End this turn:
 /quota stop`; it is never wrapped in the session title again.
 
 A waiting approval is sent where the session's notifications go. A request Auto Review is still

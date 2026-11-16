@@ -1,5 +1,4 @@
 import type { ModelRef, RulePreset, SessionExtension, SessionView, ThinkingLevel } from "@crh/api";
-import { plural } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, LightbulbIcon, PlugIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -13,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useModels } from "@/features/settings/api";
 import { formatTokens } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
+import { quotaDetailText, quotaStatus } from "@/lib/quota";
 import { rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
 import { availableModel, supportedThinkingLevels, thinkingLevelName } from "@/lib/thinking-level";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,8 @@ export interface ComposerFooterState {
 	thinkingLevel: ThinkingLevel;
 	rulePreset: RulePreset;
 	budgetRemaining: number | null;
+	/** What the session tree has used, for the one used-first quota line. */
+	budgetUsedTokens: number;
 	/** Whether the caller may change model, thinking level and rules. */
 	configure: boolean;
 	/** A root has a rule preset; a subagent shows its rule count instead. */
@@ -148,6 +150,7 @@ export function SessionComposerFooter({
 		thinkingLevel: session.model.thinkingLevel ?? "off",
 		rulePreset: (session.rules?.rulePreset ?? "ask") as RulePreset,
 		budgetRemaining: session.budgetRemaining,
+		budgetUsedTokens: session.budgetUsedTokens,
 		configure: session.capabilities.configure,
 		isRoot: session.parentSessionId === null,
 		ruleCount: session.rules?.rules.length ?? 0,
@@ -374,15 +377,11 @@ function BudgetControl({ state }: { state: ComposerFooterState }) {
 	const { t, i18n } = useLingui();
 	const { locale } = useLocale();
 	const [open, setOpen] = useState(false);
-	const remaining = state.budgetRemaining;
-	const exhausted = remaining !== null && remaining <= 0;
-	const label = remaining === null ? "∞" : formatTokens(Math.max(0, remaining), locale);
-	const title =
-		remaining === null
-			? t`No budget limit`
-			: exhausted
-				? t`The budget is used up.`
-				: i18n._(plural(remaining, { one: "# token left", other: "# tokens left" }));
+	const status = quotaStatus(state.budgetRemaining, state.budgetUsedTokens);
+	const exhausted = status.kind === "exhausted";
+	// Only the compact label uses K/M units; every other surface and this control's title show full numbers.
+	const label = status.kind === "unlimited" ? "∞" : formatTokens(status.remaining, locale);
+	const title = status.kind === "unlimited" ? t`No budget limit` : quotaDetailText(i18n, status);
 
 	if (!state.configure) {
 		return (
@@ -416,7 +415,7 @@ function BudgetControl({ state }: { state: ComposerFooterState }) {
 			<BudgetDialog
 				open={open}
 				onOpenChange={setOpen}
-				value={remaining}
+				value={state.budgetRemaining}
 				busy={state.pending}
 				onSave={(quota) => {
 					// A local draft save resolves at once; a session PATCH closes when it succeeds.

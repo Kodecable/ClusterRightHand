@@ -9,6 +9,7 @@ import { FieldShell } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
+import { RequestSource } from "@/components/request-source";
 import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -18,14 +19,9 @@ import { useDirectory } from "@/features/users/api";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useAuditEvents } from "./api";
 
-/** The actor's id, as a tooltip: the cell itself shows the display name when the directory has one. */
+/** The actor's raw id, as a tooltip: the cell reads the server's displayable source. */
 function actorId(event: AuditEvent): string {
 	return `${event.actorType}:${event.actorId}`;
-}
-
-function actorText(event: AuditEvent, userName: (id: string) => string | undefined): string {
-	if (event.actorType === "user") return userName(event.actorId) ?? actorId(event);
-	return actorId(event);
 }
 
 function TargetCell({ event }: { event: AuditEvent }) {
@@ -96,17 +92,15 @@ export function AuditPage() {
 				meta: { title: (event: AuditEvent) => event.action },
 			},
 			{
-				id: "actor",
-				header: t`By`,
-				size: 140,
+				id: "source",
+				header: t`Source`,
+				size: 160,
 				cell: ({ row }) => (
-					<span className="block truncate leading-5" title={actorId(row.original)}>
-						{row.original.actorType === "user" ? (
-							<UserLink id={row.original.actorId} name={userName(row.original.actorId)} />
-						) : (
-							actorText(row.original, userName)
-						)}
-					</span>
+					<RequestSource
+						source={row.original.source}
+						title={actorId(row.original)}
+						className="block truncate leading-5"
+					/>
 				),
 			},
 			{

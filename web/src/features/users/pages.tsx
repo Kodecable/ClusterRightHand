@@ -128,17 +128,13 @@ export function UsersPage() {
 
 /** The user's recent sessions and tasks; rendered only for an administrator or the user themselves. */
 function UserActivity({ user }: { user: User }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const admin = useAuth().user?.kind === "admin";
 	const sessions = useSessions({ scope: admin ? "all" : "visible", ownerId: user.id, limit: 10 });
 	const tasks = useTasks({ userId: user.id, limit: 10 });
 	const nodes = useNodes();
 	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
-	const users = useMemo(
-		() => new Map([[user.id, user.displayName || user.username]]),
-		[user.displayName, user.id, user.username],
-	);
-	const taskColumns = useTaskColumns({ users, nodeNames: names });
+	const taskColumns = useTaskColumns({ nodeNames: names });
 	// Only the first page: these are a summary of the account, not another list page.
 	const sessionRows = sessions.data?.pages[0]?.items ?? [];
 	const taskRows = tasks.data?.pages[0]?.items ?? [];
@@ -208,7 +204,7 @@ function UserActivity({ user }: { user: User }) {
 					error={tasks.isError ? tasks.error : undefined}
 					onRetry={() => void tasks.refetch()}
 					rowLink={(task) => ({ to: "/tasks/$taskId", params: { taskId: task.id } })}
-					rowLabel={(task) => taskTitle(task)}
+					rowLabel={(task) => taskTitle(i18n, task)}
 					rowLinkColumn="task"
 					empty={
 						<TableEmpty>

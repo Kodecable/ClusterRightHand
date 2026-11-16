@@ -21,7 +21,7 @@ const request = (overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => (
 	kind: "task",
 	id: "task-1",
 	phase: "awaiting_user",
-	requester: { type: "session", sessionId: "root-1", title: "Clean up" },
+	source: { type: "session", sessionId: "root-1", title: "Clean up" },
 	action: { type: "exec", command: COMMAND },
 	nodes: ["worker-01"],
 	privileged: false,
@@ -36,11 +36,11 @@ describe("ApprovalPanel", () => {
 		expect(card).toHaveAttribute("data-variant", "inline");
 		expect(within(card).getByTestId("decision-meta")).toHaveTextContent("Nodes: worker-01");
 		expect(within(card).getByTestId("decision-detail")).toHaveTextContent(COMMAND);
-		expect(within(card).queryByTestId("decision-requester")).not.toBeInTheDocument();
+		expect(within(card).queryByText(/Source:/)).not.toBeInTheDocument();
 		expect(within(card).queryByText(/Issued|Deadline|Attempt/)).not.toBeInTheDocument();
 	});
 
-	test("a page card adds the requester and the privileged mark; a live card shares the same layout", async () => {
+	test("a page card adds the source and the privileged mark; a live card shares the same layout", async () => {
 		const { unmount } = await renderWithRouter(
 			<ApprovalPanel request={request({ privileged: true })} variant="page" onDecide={() => {}} />,
 		);

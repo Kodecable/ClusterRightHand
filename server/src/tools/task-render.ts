@@ -6,6 +6,7 @@
  */
 import type { JsonTaskResult } from "@crh/protocol";
 import { countOutputLines, type TaskView } from "../cluster/cluster.ts";
+import { taskOutcome } from "../cluster/outcome.ts";
 import type { TaskGroupView } from "../cluster/task-groups.ts";
 import { GROUP_TERMINAL } from "../cluster/types.ts";
 import type { ToolContext } from "./catalog.ts";
@@ -17,6 +18,8 @@ import { MAX_OUTPUT_BYTES, type NodePrivilege, type NodeTransport, type Started 
 /** One task's details, the shape the WebUI's tool cards read today (doc/design/agent-runtime.md "Tool output"). */
 export function taskDetails(task: TaskView, nodeName: string): Record<string, unknown> {
 	const out: Record<string, unknown> = { task_id: task.id, node: nodeName, state: task.state };
+	// The card colours its result from the server's own classification, never from the raw flags.
+	if (task.outcome !== null) out.outcome = task.outcome;
 	if (task.privileged) out.privileged = true;
 	if (task.exitCode !== null) out.exit_code = task.exitCode;
 	if (task.signal !== null) out.signal = task.signal;
@@ -33,6 +36,7 @@ export function groupDetails(group: TaskGroupView, names: Map<string, string>): 
 		state: group.state,
 		nodes: group.tasks.map((task) => taskDetails(task, names.get(task.nodeId) ?? task.nodeId)),
 	};
+	if (group.outcome !== null) out.outcome = group.outcome;
 	if (group.privileged) out.privileged = true;
 	if (group.skipped.length > 0) out.skipped = group.skipped.map((id) => names.get(id) ?? id);
 	return out;
@@ -40,43 +44,51 @@ export function groupDetails(group: TaskGroupView, names: Map<string, string>): 
 
 // ---- failure classification ----
 
-/** Whether a task result counts as failed (doc/design/agent-runtime.md "Tool output"): denied/rejected/unknown, a nonzero exit, a signal, a timeout or a cancel. */
+/** Whether a task result counts as failed, from the one server-side outcome (doc/design/execution.md "State machine"). */
 export function taskFailed(task: TaskView): boolean {
-	if (task.state === "failed" || task.state === "denied" || task.state === "rejected" || task.state === "unknown")
-		return true;
-	if (task.errorCode !== null) return true;
-	if (task.cancelled || task.timedOut) return true;
-	if (task.signal !== null && task.signal !== "") return true;
-	return task.exitCode !== null && task.exitCode !== 0;
+	return (task.outcome ?? taskOutcome(task))?.failed === true;
 }
 
 function groupFailed(group: TaskGroupView): boolean {
-	return GROUP_TERMINAL.has(group.state) && group.state !== "finished"
-		? true
-		: group.tasks.some((task) => taskFailed(task));
+	return group.outcome?.failed === true;
 }
 
 /** The stable code and message of a failed task; undefined for one that did not fail. */
 export function taskError(task: TaskView): { code: string; message: string } | undefined {
-	if (task.errorCode !== null) return { code: task.errorCode, message: task.errorMessage ?? "" };
-	if (task.timedOut) {
-		return {
-			code: "timed_out",
-			message: `the task timed out${task.timeoutMs === null ? "" : ` after ${seconds(task.timeoutMs)}`}`,
-		};
+	const outcome = task.outcome ?? taskOutcome(task);
+	if (outcome === null) return undefined;
+	switch (outcome.kind) {
+		case "timed_out":
+			return {
+				code: "timed_out",
+				message: `the task timed out${task.timeoutMs === null ? "" : ` after ${seconds(task.timeoutMs)}`}`,
+			};
+		case "signal":
+			return { code: "signal", message: `the process was killed by ${outcome.signal ?? task.signal ?? "a signal"}` };
+		case "exit":
+			return { code: "exit_code", message: `the process exited with code ${outcome.exitCode ?? task.exitCode ?? "?"}` };
+		case "rejected":
+			return {
+				code: outcome.errorCode ?? "rejected",
+				message: outcome.errorMessage ?? "the task was rejected",
+			};
+		case "denied":
+			return {
+				code: outcome.errorCode ?? "denied",
+				message: outcome.errorMessage ?? "the task was denied by a rule",
+			};
+		case "unknown":
+			return { code: "unknown", message: "the outcome of the task is unknown" };
+		case "error":
+			return {
+				code: outcome.errorCode ?? "unknown",
+				message: outcome.errorMessage ?? "the task failed",
+			};
+		case "cancelled":
+			return { code: "cancelled", message: task.errorMessage ?? "the task was cancelled" };
+		case "succeeded":
+			return undefined;
 	}
-	if (task.cancelled) return { code: "cancelled", message: "the task was cancelled" };
-	if (task.signal !== null && task.signal !== "") {
-		return { code: "signal", message: `the process was killed by ${task.signal}` };
-	}
-	if (task.exitCode !== null && task.exitCode !== 0) {
-		return { code: "exit_code", message: `the process exited with code ${task.exitCode}` };
-	}
-	if (task.state === "unknown") return { code: "unknown", message: "the outcome of the task is unknown" };
-	if (task.state === "failed" || task.state === "denied" || task.state === "rejected") {
-		return { code: task.state, message: `the task ended ${task.state}` };
-	}
-	return undefined;
 }
 
 function seconds(ms: number): string {
@@ -103,37 +115,44 @@ function privilegeField(task: TaskView, info: NodePrivilege | undefined): string
 	return "privileged";
 }
 
-/** `<node, exit 0>`, `<node, error <code>: <message>>`, and the waiting variants. */
+/** `<node, exit 0>`, `<node, error <code>: <message>>`, and the waiting variants, in the outcome's order. */
 function taskStatusLine(task: TaskView, label: string, info?: NodePrivilege): string {
 	const privilege = privilegeField(task, info);
 	const withPrivilege = (fields: string[]): string =>
 		noteLine(privilege === undefined ? fields : [...fields, privilege]);
-	if (task.timedOut) {
-		const timeout = task.timeoutMs === null ? "timed out" : `timed out after ${seconds(task.timeoutMs)}`;
-		return withPrivilege([label, timeout]);
+	const outcome = task.outcome ?? taskOutcome(task);
+	if (outcome === null) return withPrivilege([label, task.state]);
+	switch (outcome.kind) {
+		case "cancelled":
+			return withPrivilege(
+				task.exitCode === null ? [label, "cancelled"] : [label, `exit ${task.exitCode}`, "cancelled"],
+			);
+		case "timed_out": {
+			const timeout = task.timeoutMs === null ? "timed out" : `timed out after ${seconds(task.timeoutMs)}`;
+			return withPrivilege([label, timeout]);
+		}
+		case "signal":
+			return withPrivilege([label, `killed by ${outcome.signal ?? task.signal ?? "a signal"}`]);
+		case "rejected":
+		case "denied": {
+			const error = taskError(task);
+			return withPrivilege([label, `error ${error?.code ?? outcome.kind}: ${error?.message ?? ""}`]);
+		}
+		case "error": {
+			const code = outcome.errorCode ?? "unknown";
+			const message = outcome.errorMessage ?? "";
+			return withPrivilege([label, `error ${code}: ${message}`]);
+		}
+		case "unknown": {
+			const code = task.errorCode ?? "unknown";
+			const reason = task.errorMessage === null ? "" : ` (${task.errorMessage})`;
+			return withPrivilege([label, `error ${code}: execution failed; the outcome is unknown${reason}`]);
+		}
+		case "exit":
+			return withPrivilege([label, `exit ${outcome.exitCode ?? 0}`]);
+		case "succeeded":
+			return withPrivilege([label, `exit ${outcome.exitCode ?? task.exitCode ?? 0}`]);
 	}
-	if (task.signal !== null && task.signal !== "") return withPrivilege([label, `killed by ${task.signal}`]);
-	if (task.state === "unknown") {
-		const code = task.errorCode ?? "unknown";
-		const reason = task.errorMessage === null ? "" : ` (${task.errorMessage})`;
-		return withPrivilege([label, `error ${code}: execution failed; the outcome is unknown${reason}`]);
-	}
-	if (task.errorCode !== null) return withPrivilege([label, `error ${task.errorCode}: ${task.errorMessage ?? ""}`]);
-	if (task.state === "exited") {
-		const fields = [label, `exit ${task.exitCode ?? 0}`];
-		if (task.cancelled) fields.push("cancelled");
-		return withPrivilege(fields);
-	}
-	if (task.exitCode !== null) {
-		const fields = [label, `exit ${task.exitCode}`];
-		if (task.cancelled) fields.push("cancelled");
-		return withPrivilege(fields);
-	}
-	if (task.state === "failed" || task.state === "denied" || task.state === "rejected") {
-		const error = taskError(task);
-		return withPrivilege([label, `error ${error?.code ?? task.state}: ${error?.message ?? ""}`]);
-	}
-	return withPrivilege([label, task.state]);
 }
 
 function isWaiting(task: TaskView): boolean {
@@ -251,8 +270,8 @@ export function groupTextNote(
 	counts?: { succeeded: number; failed: number },
 ): string {
 	const succeeded =
-		counts?.succeeded ?? group.tasks.filter((task) => task.state === "exited" && !taskFailed(task)).length;
-	const failed = counts?.failed ?? group.tasks.filter((task) => taskFailed(task)).length;
+		counts?.succeeded ?? group.tasks.filter((task) => (task.outcome ?? taskOutcome(task))?.kind === "succeeded").length;
+	const failed = counts?.failed ?? group.tasks.filter((task) => task.outcome?.failed ?? taskFailed(task)).length;
 	// A waiting group has no tasks yet but already knows its nodes: count the nodes it targets.
 	const fields = [`task group${exposeId ? ` ${group.id}` : ""}`, `${group.nodeIds.length} nodes`];
 	fields.push(`${succeeded} succeeded`, `${failed} failed`);

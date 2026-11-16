@@ -175,6 +175,7 @@ export function NewSessionPage() {
 		thinkingLevel,
 		rulePreset,
 		budgetRemaining,
+		budgetUsedTokens: 0,
 		configure: true,
 		isRoot: true,
 		ruleCount: 0,

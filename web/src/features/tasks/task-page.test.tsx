@@ -57,6 +57,9 @@ const GROUP_TASK = {
 	nodeId: "node-1",
 	kind: "exec",
 	summary: GROUP_SUMMARY,
+	action: { type: "exec", command: GROUP_SUMMARY },
+	source: { type: "user", userId: "u1", username: "ada" },
+	outcome: null,
 	operation: null,
 	actorType: "user",
 	actorId: "u1",
@@ -114,6 +117,9 @@ const GROUP = {
 	createdAt: "2026-01-01T00:00:00.000Z",
 	finishedAt: "2026-01-01T00:00:01.000Z",
 	summary: GROUP_SUMMARY,
+	action: { type: "exec", command: GROUP_SUMMARY },
+	source: { type: "user", userId: "u1", username: "ada" },
+	outcome: null,
 	kind: "exec",
 	ruleChain: null,
 	approval: null,
@@ -129,7 +135,8 @@ const GROUP = {
 } as TaskGroupView;
 
 /** Answers a successful task-group read plus the page's auxiliary lookups. */
-function mockGroup(group: TaskGroupView = GROUP): void {
+function mockGroup(groupView: TaskGroupView = GROUP): void {
+	const group = withGroupOutcome(groupView);
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL) => {
@@ -161,6 +168,57 @@ function mockGroup(group: TaskGroupView = GROUP): void {
 
 const TASK = { ...GROUP_TASK, id: "t1", taskGroupId: null } as TaskView;
 
+/** The fake server's copy of the terminal classification, so an override of a flag updates the outcome. */
+function withTaskOutcome(task: TaskView): TaskView {
+	if (!["exited", "failed", "rejected", "unknown", "denied"].includes(task.state)) {
+		return { ...task, outcome: null };
+	}
+	if (task.cancelled) return { ...task, outcome: { kind: "cancelled", failed: false } };
+	if (task.timedOut) return { ...task, outcome: { kind: "timed_out", failed: true } };
+	if (task.signal !== null) return { ...task, outcome: { kind: "signal", failed: true, signal: task.signal } };
+	if (task.state === "rejected") return { ...task, outcome: { kind: "rejected", failed: true } };
+	if (task.state === "denied") return { ...task, outcome: { kind: "denied", failed: true } };
+	if (task.errorCode !== null) {
+		return {
+			...task,
+			outcome: { kind: "error", failed: true, errorCode: task.errorCode, errorMessage: task.errorMessage },
+		};
+	}
+	if (task.state === "unknown") return { ...task, outcome: { kind: "unknown", failed: true } };
+	if (task.exitCode !== null) {
+		if (task.exitCode === 0) {
+			return {
+				...task,
+				outcome:
+					task.kind === "exec"
+						? { kind: "succeeded", failed: false, exitCode: 0 }
+						: { kind: "succeeded", failed: false },
+			};
+		}
+		return { ...task, outcome: { kind: "exit", failed: true, exitCode: task.exitCode } };
+	}
+	return { ...task, outcome: { kind: "unknown", failed: true } };
+}
+
+function withGroupOutcome(group: TaskGroupView): TaskGroupView {
+	if (!["finished", "interrupted", "rejected", "cancelled"].includes(group.state)) {
+		return { ...group, outcome: null };
+	}
+	if (group.state === "cancelled") return { ...group, outcome: { kind: "cancelled", failed: false } };
+	if (group.state === "rejected") return { ...group, outcome: { kind: "rejected", failed: true } };
+	if (group.state === "interrupted") {
+		return { ...group, outcome: { kind: "error", failed: true, errorCode: "interrupted", errorMessage: null } };
+	}
+	const failed = group.tasks.some((task) => task.outcome?.failed === true);
+	return {
+		...group,
+		tasks: group.tasks.map(withTaskOutcome),
+		outcome: failed
+			? { kind: "error", failed: true, errorCode: null, errorMessage: null }
+			: { kind: "succeeded", failed: false },
+	};
+}
+
 /** The compact request a detail response carries while the task or group waits. */
 const requestFor = (view: TaskView | TaskGroupView, kind: "task" | "task_group"): ApprovalRequest => {
 	const nodes = kind === "task" ? ["worker-01"] : ["worker-01", "worker-02"];
@@ -168,7 +226,7 @@ const requestFor = (view: TaskView | TaskGroupView, kind: "task" | "task_group")
 		kind,
 		id: view.id,
 		phase: view.phase ?? (view.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
-		requester: { type: "user", userId: "u1", username: "ada" },
+		source: { type: "user", userId: "u1", username: "ada" },
 		action: { type: "exec", command: view.summary },
 		nodes,
 		privileged: view.privileged,
@@ -180,7 +238,8 @@ const requestFor = (view: TaskView | TaskGroupView, kind: "task" | "task_group")
 };
 
 /** Answers a successful task read plus the page's auxiliary lookups. */
-function mockTask(task: TaskView = TASK): void {
+function mockTask(taskView: TaskView = TASK): void {
+	const task = withTaskOutcome(taskView);
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL) => {
@@ -300,7 +359,7 @@ describe("TaskPage and TaskGroupPage", () => {
 		expect(header).toHaveTextContent("Finished · Exit code 3");
 		const outcome = within(header).getByTestId("task-outcome");
 		expect(outcome).toHaveTextContent("Exit code 3");
-		expect(outcome).toHaveClass("text-foreground");
+		expect(outcome).toHaveAttribute("data-tone", "danger");
 	});
 
 	test("the header says a task timed out", async () => {

@@ -4,6 +4,7 @@ import type * as z from "zod/v4";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
 import { type Cluster, countOutputLines, type TaskView } from "../src/cluster/cluster.ts";
+import { taskGroupOutcome, taskOutcome } from "../src/cluster/outcome.ts";
 import type { TaskGroups, TaskGroupView } from "../src/cluster/task-groups.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -36,11 +37,14 @@ const ctx = {
 } as unknown as ToolContext;
 
 function task(overrides: Partial<TaskView>): TaskView {
-	return {
+	const base: TaskView = {
 		id: "t1",
 		nodeId: "n1",
 		kind: "exec",
 		summary: "true",
+		action: { type: "exec", command: "true" },
+		source: { type: "user", userId: "u1", username: "u1" },
+		outcome: null,
 		operation: null,
 		actorType: "user",
 		actorId: "u1",
@@ -78,10 +82,12 @@ function task(overrides: Partial<TaskView>): TaskView {
 		phase: "awaiting_user",
 		...overrides,
 	};
+	base.outcome = overrides.outcome ?? taskOutcome(base);
+	return base;
 }
 
 function group(overrides: Partial<TaskGroupView>): TaskGroupView {
-	return {
+	const base: TaskGroupView = {
 		id: "g1",
 		state: "finished",
 		targets: ["n1"],
@@ -98,6 +104,9 @@ function group(overrides: Partial<TaskGroupView>): TaskGroupView {
 		createdAt: "2026-01-01T00:00:00.000Z",
 		finishedAt: "2026-01-01T00:00:00.000Z",
 		summary: "true",
+		action: { type: "exec", command: "true" },
+		source: { type: "user", userId: "u1", username: "u1" },
+		outcome: null,
 		kind: "exec",
 		ruleChain: null,
 		approval: null,
@@ -112,6 +121,8 @@ function group(overrides: Partial<TaskGroupView>): TaskGroupView {
 		phase: "awaiting_user",
 		...overrides,
 	};
+	base.outcome = overrides.outcome ?? taskGroupOutcome(base);
+	return base;
 }
 
 function jsonOf(result: ToolResult): Record<string, unknown> {

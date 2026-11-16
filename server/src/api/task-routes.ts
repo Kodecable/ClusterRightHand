@@ -273,8 +273,8 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 			.limit(10);
 		if (!isAdmin(user)) query = query.where("on_behalf_of_user_id", "=", user.userId);
 		const rows = await query.execute();
-		const tasks = await Promise.all(rows.map((r) => cluster.getTask(r.id)));
-		return c.json({ tasks: tasks.filter((task): task is TaskView => task !== undefined) }, 200);
+		const tasks = await cluster.getTasks(rows.map((row) => row.id));
+		return c.json({ tasks }, 200);
 	});
 
 	const visibleTask = async (user: AppEnv["Variables"]["user"], id: string) => {
@@ -316,7 +316,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		// Session viewers reach a shared session's task by id, not through this list.
 		if (!isAdmin(user)) select = select.where("on_behalf_of_user_id", "=", user.userId);
 		if (filterNode !== undefined) select = select.where("node_id", "=", filterNode);
-		// The "By" column shows `on_behalf_of_user_id`, so that is what a user's own task filter matches (a
+		// The on-behalf user is what a user's own task filter matches (a
 		// session or token task still acts for its owner). Applied after the visibility rule above.
 		if (filterUser !== undefined && filterUser !== "") select = select.where("on_behalf_of_user_id", "=", filterUser);
 		if (!includePurpose) select = select.where("purpose", "is", null);
@@ -328,9 +328,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 			(limitPlusOne) => select.orderBy("created_at", "desc").orderBy("id", "desc").limit(limitPlusOne).execute(),
 			(row) => encodeCursor([row.created_at], row.id),
 		);
-		const tasks = (await Promise.all(page.rows.map((r) => cluster.getTask(r.id)))).filter(
-			(task): task is TaskView => task !== undefined,
-		);
+		const tasks = await cluster.getTasks(page.rows.map((row) => row.id));
 		return c.json({ items: tasks, nextCursor: page.nextCursor }, 200);
 	});
 

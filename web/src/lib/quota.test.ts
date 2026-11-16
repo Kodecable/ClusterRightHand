@@ -1,5 +1,7 @@
-import { describe, expect, test } from "vitest";
-import { parseGrantInput, parseQuotaInput, quotaStatus } from "./quota";
+import { i18n } from "@lingui/core";
+import { beforeAll, describe, expect, test } from "vitest";
+import { activateLocale } from "@/lib/i18n";
+import { parseGrantInput, parseQuotaInput, quotaDetailText, quotaStatus } from "./quota";
 
 describe("parseQuotaInput", () => {
 	test("leaves the quota unlimited on an empty field", () => {
@@ -34,5 +36,18 @@ describe("quotaStatus", () => {
 		expect(quotaStatus(5000, 20)).toEqual({ kind: "remaining", remaining: 5000, over: 0, used: 20 });
 		expect(quotaStatus(0, 20)).toEqual({ kind: "exhausted", remaining: 0, over: 0, used: 20 });
 		expect(quotaStatus(-300, 20)).toEqual({ kind: "exhausted", remaining: 0, over: 300, used: 20 });
+	});
+});
+
+describe("quotaDetailText", () => {
+	beforeAll(async () => {
+		await activateLocale("en");
+	});
+
+	test("uses one used-first order and full separators, never a negative remaining", () => {
+		expect(quotaDetailText(i18n, quotaStatus(null, 1234))).toBe("Used 1,234 · Unlimited");
+		expect(quotaDetailText(i18n, quotaStatus(5000, 20))).toBe("Used 20 · 5,000 left");
+		expect(quotaDetailText(i18n, quotaStatus(-300, 12_000))).toBe("Used up, over by 300");
+		expect(quotaDetailText(i18n, quotaStatus(0, 12_000))).toBe("Used up, over by 0");
 	});
 });

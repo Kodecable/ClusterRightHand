@@ -1,4 +1,7 @@
 /** Reading a task, waiting for its end and cancelling it (doc/design/execution.md "State machine"). */
+import type { Selectable } from "kysely";
+import { requestSourceFor, requestSourcesFor, sourceActorKey } from "../request-source.ts";
+import type { TasksTable } from "../storage/schema.ts";
 import { withdrawLocal } from "./authorization/common.ts";
 import { parseTaskAuthorization } from "./authorization.ts";
 import type { ClusterCore } from "./core.ts";
@@ -9,7 +12,26 @@ import { type Actor, type TaskView, TERMINAL } from "./types.ts";
 
 export async function getTask(core: ClusterCore, id: string): Promise<TaskView | undefined> {
 	const row = await core.row(id);
-	return row ? toView(row, core.live.get(id)) : undefined;
+	if (!row) return undefined;
+	const source = await requestSourceFor(core.db, row.actor_type, row.actor_id, row.on_behalf_of_user_id);
+	return toView(row, core.live.get(id), source);
+}
+
+/** Several rows as views, resolving each distinct request source once instead of one query per row. */
+async function viewsOf(core: ClusterCore, rows: readonly Selectable<TasksTable>[]): Promise<TaskView[]> {
+	const sources = await requestSourcesFor(
+		core.db,
+		rows.map((row) => ({
+			actorType: row.actor_type,
+			actorId: row.actor_id,
+			onBehalfOfUserId: row.on_behalf_of_user_id,
+		})),
+	);
+	return rows.map((row) => {
+		const source = sources.get(sourceActorKey(row.actor_type, row.actor_id, row.on_behalf_of_user_id));
+		if (source === undefined) throw new Error("the task's request source was not resolved");
+		return toView(row, core.live.get(row.id), source);
+	});
 }
 
 /**
@@ -23,7 +45,8 @@ export async function getTasks(core: ClusterCore, ids: readonly string[]): Promi
 		.selectAll()
 		.where("id", "in", [...new Set(ids)])
 		.execute();
-	const byId = new Map(rows.map((row) => [row.id, toView(row, core.live.get(row.id))]));
+	const views = await viewsOf(core, rows);
+	const byId = new Map(views.map((view) => [view.id, view] as const));
 	const out: TaskView[] = [];
 	for (const id of ids) {
 		const view = byId.get(id);
@@ -41,7 +64,7 @@ export async function groupTasks(core: ClusterCore, groupId: string): Promise<Ta
 		.orderBy("created_at")
 		.orderBy("id")
 		.execute();
-	return rows.map((row) => toView(row, core.live.get(row.id)));
+	return viewsOf(core, rows);
 }
 
 /** Several groups' tasks in one query, each group in creation order; a group with no rows has no entry. */
@@ -56,9 +79,10 @@ export async function groupTasksMany(core: ClusterCore, groupIds: readonly strin
 		.orderBy("id")
 		.execute();
 	const byGroup = new Map<string, TaskView[]>();
-	for (const row of rows) {
-		if (row.task_group_id === null) continue;
-		const view = toView(row, core.live.get(row.id));
+	const views = await viewsOf(core, rows);
+	for (const [index, row] of rows.entries()) {
+		const view = views[index];
+		if (row.task_group_id === null || view === undefined) continue;
 		const group = byGroup.get(row.task_group_id);
 		if (group) group.push(view);
 		else byGroup.set(row.task_group_id, [view]);

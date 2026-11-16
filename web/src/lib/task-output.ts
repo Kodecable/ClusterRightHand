@@ -63,32 +63,6 @@ export function statusOutputNoteKey(task: Pick<TaskView, "state" | "exitCode" | 
 	return "ssh";
 }
 
-/** How a task ended, structured so the UI can translate it. */
-export type TaskOutcome =
-	| { kind: "succeeded" }
-	| { kind: "exit"; code: number | null }
-	| { kind: "signal"; signal: string }
-	| { kind: "timed-out" }
-	| { kind: "cancelled" }
-	| { kind: "error"; code: string | null; message: string | null }
-	| { kind: "state"; state: string };
-
-export function taskOutcome(task: TaskView): TaskOutcome {
-	if (task.state === "exited") {
-		if (task.timedOut) return { kind: "timed-out" };
-		if (task.cancelled) return { kind: "cancelled" };
-		if (task.signal !== null) return { kind: "signal", signal: task.signal };
-		// A file operation has no meaningful exit code: exit 0 is simply success,
-		// while exec tasks keep their code in the outcome line.
-		if (task.kind !== "exec" && task.exitCode === 0) return { kind: "succeeded" };
-		return { kind: "exit", code: task.exitCode };
-	}
-	if (task.errorCode !== null || task.errorMessage !== null) {
-		return { kind: "error", code: task.errorCode, message: task.errorMessage };
-	}
-	return { kind: "state", state: task.state };
-}
-
 /**
  * The task error codes the UI explains in words. An unknown code stays visible
  * next to the server's message, so a new platform error is still diagnosable
@@ -97,6 +71,8 @@ export function taskOutcome(task: TaskView): TaskOutcome {
 const TASK_ERROR_LABELS: Record<string, MessageDescriptor> = {
 	alias_missing: msg`The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again.`,
 	node_access_revoked: msg`Access to the node was revoked before the task was dispatched.`,
+	/** A task group's own outcome code; it has no platform error behind it. */
+	interrupted: msg`Interrupted`,
 };
 
 /** One readable line for a task's platform error (doc/design/access-control.md "Ownership, access grants and sharing"). */

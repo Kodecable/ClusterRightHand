@@ -48,7 +48,7 @@ test("the composer shows the model, the rule preset and the budget in the footer
 	await expect(page.getByTestId("composer-budget")).toHaveText("12.3K");
 	await expect(page.getByTestId("composer-context")).toHaveText("50%");
 	await expect(page.getByTestId("composer-usage")).toHaveText("1.5M");
-	await expect(page.getByTestId("composer-budget")).toHaveAttribute("title", "12,345 tokens left");
+	await expect(page.getByTestId("composer-budget")).toHaveAttribute("title", "Used 1,000 · 12,345 left");
 	await expect(page.getByTestId("composer-context")).toHaveAttribute("title", "64,000 / 128,000");
 	await expect(page.getByTestId("composer-usage")).toHaveAttribute("title", "1,500,000 tokens in total");
 	// The header keeps only the title and the share button.

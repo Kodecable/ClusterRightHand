@@ -1,60 +1,65 @@
-import type { TaskGroupView, TaskView } from "@crh/api";
+import type { TaskGroupView, TaskOutcome, TaskView } from "@crh/api";
 import type { Json, JsonObject } from "./session-events";
 import { prettyJson } from "./tool-details";
 
 /**
- * The failure a tool result reports (doc/design/webui.md "Message rendering"): the one badge a tool card shows beyond its call
- * status. It is read from the result `details` or, for a transcript recorded before they existed,
- * from the result JSON, never from a live lookup, so a card keeps the verdict its call had at the time. A
- * result marked `isError` without a task verdict is a failure too.
+ * The failure a tool result reports (doc/design/webui.md "Message rendering"): the one badge a tool card
+ * shows beyond its call status. The server classifies every task result and puts its `outcome` in the result
+ * details, so this module only reads that flag; it no longer re-derives exit codes, signals or timeouts.
  *
- * A single task result carries `task_id` and `state`; a task group carries `task_group_id` and `nodes` with one
- * such result per node. The failure rule is the same for both:
- *
- * - `failed`, `denied`, `rejected` and `unknown` are failures;
- * - `exited` is a failure with a non-zero `exit_code`, a `signal`, `timed_out` or `cancelled`, so a
- *   user-cancelled task counts as failed;
- * - anything else (`running`, `dispatched`, `exited` with 0) is not.
+ * A single task result carries `task_id` and `outcome`; a task group carries `task_group_id`, its own
+ * `outcome` and one such result per node. A result marked `isError` without a task outcome is a failure
+ * too: that is the non-task failure handling.
  */
-export type ToolFailure =
-	| {
-			kind: "failed";
-			reason: "cancelled" | "timed-out" | "signal" | "exit" | "state";
-			/** For `reason: "exit"`: the non-zero exit code. */
-			exitCode?: number;
-	  }
-	| { kind: "partly-failed" };
+export type ToolFailure = { kind: "failed"; outcome: TaskOutcome } | { kind: "partly-failed"; outcome: TaskOutcome };
 
-const FAILED_STATES = new Set(["failed", "denied", "rejected", "unknown"]);
-const FAILED_GROUP_STATES = new Set(["interrupted", "rejected", "cancelled"]);
-
-/** The failure of one task result (`{ task_id, state, ... }`), or undefined when it did not fail. */
-export function taskFailure(value: JsonObject): ToolFailure | undefined {
-	const state = typeof value.state === "string" ? value.state : undefined;
-	if (state === undefined) return undefined;
-	// The explicit flags decide the label before the state, so a cancelled or timed-out run reads as such.
-	if (value.cancelled === true) return { kind: "failed", reason: "cancelled" };
-	if (value.timed_out === true) return { kind: "failed", reason: "timed-out" };
-	if (FAILED_STATES.has(state)) return { kind: "failed", reason: "state" };
-	if (state !== "exited") return undefined;
-	if (typeof value.signal === "string" && value.signal !== "") return { kind: "failed", reason: "signal" };
-	const exitCode = typeof value.exit_code === "number" ? value.exit_code : undefined;
-	if (exitCode !== undefined && exitCode !== 0) return { kind: "failed", reason: "exit", exitCode };
-	return undefined;
+function isOutcome(value: unknown): value is TaskOutcome {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		!Array.isArray(value) &&
+		typeof (value as { kind?: unknown }).kind === "string" &&
+		typeof (value as { failed?: unknown }).failed === "boolean"
+	);
 }
 
-/** The failure a returned tool result reports (doc/design/webui.md "Message rendering"), or undefined when it did not fail. */
+/** The failure of a task's or task group's outcome, or undefined when it did not fail. */
+export function outcomeFailure(outcome: TaskOutcome | null | undefined): ToolFailure | undefined {
+	if (outcome === null || outcome === undefined || !outcome.failed) return undefined;
+	return { kind: "failed", outcome };
+}
+
+/** The failure a returned tool result reports, or undefined when it did not fail. */
 export function toolResultFailure(result: {
 	text: string;
 	isError: boolean;
 	details: Json | undefined;
 }): ToolFailure | undefined {
-	// The details carry the same fields as the JSON the old results put in the text. Only a call
-	// recorded before that change has no details, so its text is parsed as the fallback.
+	// The details carry the server's outcome. Only a call recorded before that field existed has no
+	// details, so its text is parsed as the fallback.
 	const failure =
 		result.details === undefined || result.details === null ? toolFailure(result.text) : detailsFailure(result.details);
 	if (failure !== undefined) return failure;
-	return result.isError ? { kind: "failed", reason: "state" } : undefined;
+	return result.isError
+		? { kind: "failed", outcome: { kind: "error", failed: true, errorCode: null, errorMessage: null } }
+		: undefined;
+}
+
+/** The task outcome a returned result carries, or undefined when it is not a task result. */
+export function toolResultOutcome(result: { text: string; details: Json | undefined }): TaskOutcome | undefined {
+	if (result.details !== undefined && result.details !== null) {
+		const outcome = detailsOutcome(result.details);
+		if (outcome !== undefined) return outcome;
+	}
+	const parsed = prettyJson(result.text);
+	const value = parsed && !Array.isArray(parsed.value) ? parsed.value : undefined;
+	if (!value) return undefined;
+	return isOutcome(value.outcome) ? value.outcome : undefined;
+}
+
+function detailsOutcome(details: Json): TaskOutcome | undefined {
+	if (details === null || typeof details !== "object" || Array.isArray(details)) return undefined;
+	return isOutcome((details as JsonObject).outcome) ? ((details as JsonObject).outcome as TaskOutcome) : undefined;
 }
 
 /** The failure of a tool result's details: a single task or a task group, or undefined for no failure. */
@@ -64,7 +69,7 @@ export function detailsFailure(details: Json): ToolFailure | undefined {
 	const nodes = groupNodes(value);
 	if (nodes !== undefined) return groupFailure(value, nodes);
 	if (typeof value.task_id !== "string") return undefined;
-	return taskFailure(value);
+	return isOutcome(value.outcome) ? outcomeFailure(value.outcome) : undefined;
 }
 
 /** The failure of a tool result's JSON text: a single task or a task group, or undefined for no failure. */
@@ -74,31 +79,27 @@ export function toolFailure(text: string): ToolFailure | undefined {
 	if (!value) return undefined;
 	const nodes = groupNodes(value);
 	if (nodes !== undefined) return groupFailure(value, nodes);
-	if (typeof value.task_id !== "string") return undefined;
-	return taskFailure(value);
+	if (!isOutcome(value.outcome)) return undefined;
+	return outcomeFailure(value.outcome);
+}
+
+/** The failure of a task view the card followed instead of a result (doc/design/webui.md "Message rendering"). */
+export function taskViewFailure(task: TaskView): ToolFailure | undefined {
+	return outcomeFailure(task.outcome);
 }
 
 /**
- * The failure of a task view the card followed instead of a result (doc/design/webui.md "Message rendering"): the same
- * meaning as `taskFailure`, read from the stored fields. Only the states that are final can fail.
+ * The failure of a task group view: a cancelled group is not a failure; a rejected or interrupted group
+ * is; a finished group partly failed when some, but not all, members failed.
  */
-export function taskViewFailure(task: TaskView): ToolFailure | undefined {
-	if (task.cancelled) return { kind: "failed", reason: "cancelled" };
-	if (task.timedOut) return { kind: "failed", reason: "timed-out" };
-	if (FAILED_STATES.has(task.state)) return { kind: "failed", reason: "state" };
-	if (task.state !== "exited") return undefined;
-	if (task.signal !== null && task.signal !== "") return { kind: "failed", reason: "signal" };
-	const exitCode = task.exitCode;
-	if (exitCode !== null && exitCode !== 0) return { kind: "failed", reason: "exit", exitCode };
-	return undefined;
-}
-
-/** The failure of a task group view: interrupted, rejected or cancelled, or members that partly failed. */
 export function taskGroupViewFailure(group: TaskGroupView): ToolFailure | undefined {
-	if (FAILED_GROUP_STATES.has(group.state)) return { kind: "failed", reason: "state" };
-	const failed = group.tasks.filter((task) => taskViewFailure(task) !== undefined).length;
-	if (failed === 0) return undefined;
-	return failed === group.tasks.length ? { kind: "failed", reason: "state" } : { kind: "partly-failed" };
+	const failure = outcomeFailure(group.outcome);
+	if (failure === undefined) return undefined;
+	const failed = group.tasks.filter((task) => task.outcome?.failed === true).length;
+	if (group.state === "finished" && failed > 0 && failed < group.tasks.length) {
+		return { kind: "partly-failed", outcome: group.outcome as TaskOutcome };
+	}
+	return failure;
 }
 
 /** The member results of a task group result; undefined for a single task. */
@@ -109,12 +110,14 @@ function groupNodes(value: JsonObject): JsonObject[] | undefined {
 	);
 }
 
-/** Partly failed when some members failed, failed when all did or the group was interrupted, rejected or cancelled. */
+/** The group's own outcome, partly failed when its members disagree. */
 function groupFailure(value: JsonObject, nodes: readonly JsonObject[]): ToolFailure | undefined {
-	const state = typeof value.state === "string" ? value.state : undefined;
-	if (state !== undefined && FAILED_GROUP_STATES.has(state)) return { kind: "failed", reason: "state" };
-	const failed = nodes.filter((node) => taskFailure(node) !== undefined).length;
-	if (failed === 0) return undefined;
-	if (failed === nodes.length) return { kind: "failed", reason: "state" };
-	return { kind: "partly-failed" };
+	if (!isOutcome(value.outcome)) return undefined;
+	const failure = outcomeFailure(value.outcome);
+	if (failure === undefined) return undefined;
+	const failed = nodes.filter((node) => isOutcome(node.outcome) && node.outcome.failed).length;
+	if (value.state === "finished" && failed > 0 && failed < nodes.length) {
+		return { kind: "partly-failed", outcome: value.outcome };
+	}
+	return failure;
 }

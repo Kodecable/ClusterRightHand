@@ -1,6 +1,6 @@
 export { ApprovalPanel } from "./approval-panel";
 export type { DecisionCardContent, DecisionVariant } from "./content";
-export { actionDetail, approvalActionDetail, quotaCardContent, requestCardContent } from "./content";
+export { quotaCardContent, requestCardContent } from "./content";
 export { DecisionCard, DecisionTab, DecisionTabList, DecisionTabs, PrivilegedMark } from "./decision";
 export { DecisionView, EvaluationTable, ReviewView } from "./evaluation";
 export type {

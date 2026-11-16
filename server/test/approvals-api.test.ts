@@ -438,7 +438,7 @@ describe("approvals api (sqlite)", () => {
 			kind: "task",
 			id: t.id,
 			phase: "awaiting_user",
-			requester: { type: "api_token", tokenId: tok, name: "t" },
+			source: { type: "api_token", tokenId: tok, name: "t" },
 			action: { type: "exec", command: "echo hi" },
 			nodes: ["n1"],
 			privileged: false,
@@ -537,7 +537,7 @@ describe("approvals api (sqlite)", () => {
 		expect(res.request).toMatchObject({
 			kind: "external_call",
 			id: "api-call-request",
-			requester: { type: "user", userId: uid.alice, username: "alice" },
+			source: { type: "user", userId: uid.alice, username: "alice" },
 			action: { type: "api_request", method: "POST", path: "/api/node-groups" },
 		});
 		expect(res.request?.alwaysAllow.map((candidate) => candidate.option)).toEqual(["request", "route"]);

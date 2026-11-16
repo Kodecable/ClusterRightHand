@@ -5,6 +5,7 @@
  */
 import { z } from "zod";
 import { ApprovalPhaseSchema, ApprovalRecordSchema, OperationSchema } from "./policy.ts";
+import { RequestSourceSchema } from "./request-source.ts";
 
 /** What an extension is: a connected MCP server or one that ships with crhs. */
 export const ExtensionKindSchema = z.enum(["mcp", "builtin"]);
@@ -178,6 +179,7 @@ export const ExternalCallViewSchema = z
 		approval: ApprovalRecordSchema.nullable(),
 		actorType: z.string(),
 		actorId: z.string(),
+		source: RequestSourceSchema.describe("Who made the call (the request source)."),
 		onBehalfOfUserId: z.string(),
 		rootSessionId: z.string().nullable(),
 		handlerType: z.enum(["agent", "user"]).nullable(),

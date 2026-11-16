@@ -13,6 +13,9 @@ const task = (id: string, createdAt: string, rootSessionId: string | null = "roo
 		approval: null,
 		kind: "exec",
 		summary: `echo ${id}`,
+		action: { type: "exec", command: `echo ${id}` },
+		source: { type: "session", sessionId: "root", title: "root" },
+		outcome: null,
 		operation: { method: "exec", target: `echo ${id}` },
 		nodeId: "node-1",
 		privileged: false,
@@ -20,7 +23,15 @@ const task = (id: string, createdAt: string, rootSessionId: string | null = "roo
 	}) as TaskView;
 
 const group = (id: string, createdAt: string): TaskGroupView =>
-	({ id, createdAt, rootSessionId: "root", phase: "awaiting_user" }) as TaskGroupView;
+	({
+		id,
+		createdAt,
+		rootSessionId: "root",
+		phase: "awaiting_user",
+		action: { type: "exec", command: "restart all" },
+		source: { type: "session", sessionId: "root", title: "root" },
+		outcome: null,
+	}) as TaskGroupView;
 
 const externalCall = (id: string, createdAt: string, rootSessionId = "root"): ExternalCallView =>
 	({
@@ -36,6 +47,7 @@ const externalCall = (id: string, createdAt: string, rootSessionId = "root"): Ex
 		approval: { evaluation: { result: "require-approval", levels: [] } },
 		actorType: "session",
 		actorId: "s1",
+		source: { type: "session", sessionId: "root", title: "root" },
 		onBehalfOfUserId: "u1",
 		handlerType: "user",
 		handlerSessionId: null,
@@ -70,7 +82,7 @@ const taskRequest = (id: string, review?: ApprovalRequest["review"]): ApprovalRe
 	kind: "task",
 	id,
 	phase: "awaiting_user",
-	requester: { type: "session", sessionId: "root", title: `Session ${id}` },
+	source: { type: "session", sessionId: "root", title: `Session ${id}` },
 	action: { type: "exec", command: `echo ${id}` },
 	nodes: ["worker-01"],
 	privileged: false,
@@ -89,7 +101,7 @@ const callRequest = (
 	kind: "external_call",
 	id,
 	phase: "awaiting_user",
-	requester: { type: "session", sessionId: "root", title: "Clean up" },
+	source: { type: "session", sessionId: "root", title: "Clean up" },
 	action,
 	privileged: false,
 	...(review === undefined ? {} : { review }),
@@ -163,7 +175,7 @@ describe("sessionDecisions", () => {
 		expect(sessionDecisions(undefined, "root")).toEqual([]);
 	});
 
-	test("the inline dock shows neither the requester nor the rule chain evaluation", async () => {
+	test("the inline dock shows neither the source nor the rule chain evaluation", async () => {
 		mockLookups();
 		const waiting = task("inline", "2026-01-01T00:00:00.000Z");
 		const request = taskRequest("inline", { risk: "low", reason: "a read" });
@@ -171,7 +183,7 @@ describe("sessionDecisions", () => {
 		const dock = await screen.findByTestId("session-decisions");
 		const meta = within(dock).getByTestId("decision-meta");
 		expect(meta).toHaveTextContent("Nodes: worker-01");
-		expect(meta).not.toHaveTextContent("From session");
+		expect(meta).not.toHaveTextContent("Source:");
 		expect(within(dock).queryByText("Rule chain evaluation")).not.toBeInTheDocument();
 		expect(within(dock).queryByText(/Session inline/)).not.toBeInTheDocument();
 	});

@@ -106,17 +106,23 @@ sense in bulk, such as approving a pending node.
 
 ### Status, time and task results
 
-A status is coloured text with a tone (ok, warn, danger, info, muted), the same everywhere. Dots are
-used only in the session list.
+A status is coloured text with a tone (ok, warn, danger, info, muted), the same everywhere. A task
+outcome is the one exception that also carries a dot, so its green, red or muted colour reads before
+its text.
 
 Lists show relative times, with the absolute time in the tooltip. Detail pages and security-relevant
 lists (audit, authorizations, approvals, tokens, signing credentials) show absolute times with seconds. All
 times use the browser's time zone.
 
-A task in state `exited` reads **Finished** whatever its exit code; the outcome (exit code, signal,
-timeout, cancellation, or **Succeeded** for a successful file task) is shown separately. Every page
-derives these labels from the same functions, and a task's title always comes from `taskTitle`: its
-summary, or its kind when there is none.
+A task in state `exited` reads **Finished** whatever its exit code. The server classifies the result once
+and every page renders that same `outcome` through **`TaskOutcomeBadge`**: **Exit code N** (an exec task
+keeps `Exit code 0`), **Done** for a successful file operation, **Killed by signal …**, **Timed out**,
+**Cancelled**, **Rejected**, **Denied by rules**, the platform error text, or **Result unknown**. A
+terminal status takes its tone from `outcome.failed`, so a non-zero exit is never green beside a red
+result; a cancellation is muted, not failed. A task group has the same outcome: cancelled is not failed,
+rejected and interrupted are, and a finished group fails when any member did. A task's title always comes
+from `taskTitle`: the server-built action (the command or the file operation with its path), or its kind
+when the row has no readable action.
 
 ### Shared components
 
@@ -147,10 +153,11 @@ behaves the same on every page:
   names with "and N more", Auto Review's settled risk and reason, and the action on one line (the
   command, the file operation with its path and line range, the API method and path, or the extension
   tool). The title is **Your approval is needed** for a rule approval, **Your signature is needed**
-  for a signature wait and **Token quota used up** for an exhausted quota. The requester (a session
-  title links to the session, or a token or user) appears only in the page variant; the inline variant
-  used by the session dock shows neither the requester nor the rule chain evaluation. The quota panel
-  uses the session title and "used N · remaining M" instead.
+  for a signature wait and **Token quota used up** for an exhausted quota. The source (a session title
+  links to the session, an API token or a user) appears only in the page variant as
+  **Nodes: … · Source: Session …**; the inline variant used by the session dock shows neither the source
+  nor the rule chain evaluation. Every quota surface shows used first and never a negative remaining:
+  **Used N · N left**, or **Used up, over by N** when exhausted.
   **Always allow** offers the request's server-built candidates (exact or prefix, this tool or the
   whole extension, this request or this route) as radios over editable rule JSON. Session pages,
   approvals deep links, task pages and external call pages render the same components, so a decision
@@ -162,6 +169,14 @@ behaves the same on every page:
   external call detail panels, and a settled request on the approval pages shows one status badge and
   a link to its object. A request Auto Review is still judging shows the reviewing notice inside the
   same card and offers no decision controls; in the transcript it looks like a tool call in progress.
+- **`RequestSource`** is the only way a request's origin is shown: **Session …** (the title links to the
+  session), **User …** (linked to the user page) or **API token …**; audit events also carry **System**,
+  **Auto Review** and **Schedule …**. There is no second wording for the same person. The one shared
+  `actionText` names what a task or approval does, so a task titled **Write file /etc/x** in the tasks
+  list reads the same in approvals and decision cards.
+- **`TaskOutcomeBadge`** is the only way a finished task, task group or node result is shown: its dot and
+  one localized line come from the server's `outcome` ([Status, time and task results](#status-time-and-task-results)).
+  Session tool cards read the same outcome from the result details instead of re-deriving failure.
 - **`FileManager`** is the only file browser. It knows nothing of libraries or nodes: it takes a
   `FileSource` with `list` and `stat`, and optionally `download`, `upload`, `delete`, `rename` and
   `preview`. A missing operation hides its action. Its toolbar (a home icon, the path breadcrumb and
@@ -184,7 +199,9 @@ creates a task, anything else (a node group, several targets, or all accessible 
 group, and the dialog then opens the new task or group. Results are always read on the task or task
 group page, never in the dialog.
 
-The task page shows the outcome next to the state in its header. Its shared request details show the
+The task page shows the outcome badge next to the state in its header, and its shared facts name the
+source. The task group page shows the group's outcome beside its state and names its source above the
+member rows. Its shared request details show the
 rule chain evaluation whenever an approval was evaluated and Auto Review's verdict when it ran, and a
 result panel appears only when the task produced output. While Auto Review is judging a task or task
 group, its page shows the reviewing notice inside the decision card and offers no controls. The task
@@ -251,9 +268,10 @@ nodes come later.
 
 The approvals page is one table of everything waiting for the signed-in user: task approvals, task
 group approvals, tasks waiting for the user's signature, and sessions whose token quota ran out. The
-columns are the type, the operation, the target nodes by name, who asked and when, read from the compact
+columns are the type, the operation, the target nodes by name, the source and when, read from the compact
 `ApprovalRequest` the server returns beside every waiting item (a signature wait's phase is
-`awaiting_signature`); the whole row opens its detail. A task, task group or
+`awaiting_signature`); the whole row opens its detail. The source column header is **Source**, never a
+raw `api_token:<uuid>`. A task, task group or
 external call detail shows the same decision card (a task in `awaiting_authorization` shows the
 signature variant) with the shared request details below it, and a quota row opens its session, where
 the docked decision panel holds it. A
@@ -365,7 +383,7 @@ decision panel docked where the composer sits, so a user can answer them without
 The panel is not collapsible: it shows the first pending decision only (quota, then rule approvals,
 task-group approvals and signature waits, oldest first), its own scroll and at most half of the session
 pane, and a small count while more wait. Its card is the inline variant: it names the nodes and the
-action but not the requester, and keeps the rule chain evaluation off the dock. The composer returns as
+action but not the source, and keeps the rule chain evaluation off the dock. The composer returns as
 soon as nothing waits for this viewer; a session that waits only for someone else keeps the normal
 composer and the waiting reason.
 

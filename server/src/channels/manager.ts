@@ -12,6 +12,7 @@ import type {
 	UserSettingsLocale,
 	UserSettingsUpdate,
 } from "@crh/api";
+import { quotaStatus } from "@crh/api";
 import type { ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/runtime.ts";
 import {
@@ -2126,9 +2127,13 @@ export class ChannelManager {
 			await adapter.sendText(target, m.noQuota);
 			return;
 		}
-		const remaining = Number(root.quota_tokens);
-		const used = Number(root.budget_used_tokens);
-		await adapter.sendText(target, remaining <= 0 ? m.quotaUsedUp(remaining, used) : m.quotaRemaining(remaining, used));
+		const status = quotaStatus(Number(root.quota_tokens), Number(root.budget_used_tokens));
+		await adapter.sendText(
+			target,
+			status.kind === "exhausted"
+				? m.quotaUsedUp(status.over, status.used)
+				: m.quotaRemaining(status.used, status.remaining),
+		);
 	}
 
 	async #decideFromCommand(
@@ -3180,7 +3185,7 @@ export class ChannelManager {
 			if (!view) return;
 			const request = await approvalRequestForTask(this.#options.db, view);
 			const link = this.#webUrl(`/approvals/tasks/${task.id}`);
-			const card = m.signatureCard(request, link, { withRequester: route.notification === true });
+			const card = m.signatureCard(request, link, { withSource: route.notification === true });
 			// The signature hint already carries the WebUI link; do not append the session link again.
 			await this.#sendTracked(key, rootId, route, card, [], locale, true, false);
 			return;
@@ -3193,7 +3198,7 @@ export class ChannelManager {
 		const request = await approvalRequestForTask(this.#options.db, view);
 		const card = m.approvalCard(request, {
 			withButtons: route.adapter.capabilities.buttons,
-			withRequester: route.notification === true,
+			withSource: route.notification === true,
 		});
 		const buttons = route.adapter.capabilities.buttons
 			? [
@@ -3228,7 +3233,7 @@ export class ChannelManager {
 			if (!view) return;
 			const request = await approvalRequestForTaskGroup(this.#options.db, view);
 			const link = this.#webUrl(`/approvals/task-groups/${group.id}`);
-			const card = m.signatureCard(request, link, { withRequester: route.notification === true });
+			const card = m.signatureCard(request, link, { withSource: route.notification === true });
 			await this.#sendTracked(key, rootId, route, card, [], locale, true, false);
 			return;
 		}
@@ -3240,7 +3245,7 @@ export class ChannelManager {
 		const request = await approvalRequestForTaskGroup(this.#options.db, view);
 		const card = m.approvalCard(request, {
 			withButtons: route.adapter.capabilities.buttons,
-			withRequester: route.notification === true,
+			withSource: route.notification === true,
 		});
 		const buttons = route.adapter.capabilities.buttons
 			? [
@@ -3278,7 +3283,7 @@ export class ChannelManager {
 		const request = await approvalRequestForExternalCall(this.#options.db, view);
 		const card = m.approvalCard(request, {
 			withButtons: route.adapter.capabilities.buttons,
-			withRequester: route.notification === true,
+			withSource: route.notification === true,
 		});
 		const buttons = route.adapter.capabilities.buttons
 			? [
@@ -3334,11 +3339,11 @@ export class ChannelManager {
 			const request = await approvalRequestForTask(this.#options.db, view);
 			const card = signature
 				? sent.m.signatureCard(request, this.#webUrl(`/approvals/tasks/${task.id}`), {
-						withRequester: sent.route.notification === true,
+						withSource: sent.route.notification === true,
 					})
 				: sent.m.approvalCard(request, {
 						withButtons: sent.route.adapter.capabilities.buttons,
-						withRequester: sent.route.notification === true,
+						withSource: sent.route.notification === true,
 					});
 			const buttons =
 				!signature && sent.route.adapter.capabilities.buttons
@@ -3372,11 +3377,11 @@ export class ChannelManager {
 			const request = await approvalRequestForTaskGroup(this.#options.db, view);
 			const card = signature
 				? sent.m.signatureCard(request, this.#webUrl(`/approvals/task-groups/${group.id}`), {
-						withRequester: sent.route.notification === true,
+						withSource: sent.route.notification === true,
 					})
 				: sent.m.approvalCard(request, {
 						withButtons: sent.route.adapter.capabilities.buttons,
-						withRequester: sent.route.notification === true,
+						withSource: sent.route.notification === true,
 					});
 			const buttons =
 				!signature && sent.route.adapter.capabilities.buttons
@@ -3404,7 +3409,7 @@ export class ChannelManager {
 			const request = await approvalRequestForExternalCall(this.#options.db, view);
 			const card = sent.m.approvalCard(request, {
 				withButtons: sent.route.adapter.capabilities.buttons,
-				withRequester: sent.route.notification === true,
+				withSource: sent.route.notification === true,
 			});
 			const buttons = sent.route.adapter.capabilities.buttons
 				? [
@@ -3442,9 +3447,10 @@ export class ChannelManager {
 			.executeTakeFirst();
 		if (!paused) return;
 		if (!route || this.#tracked.has(key)) return;
-		const remaining = root.quota_tokens === null ? 0 : Number(root.quota_tokens);
-		const used = Number(root.budget_used_tokens);
-		const card = m.quotaCard(clip(root.title || m.newSessionTitle, 80), remaining, used);
+		const card = m.quotaCard(
+			clip(root.title || m.newSessionTitle, 80),
+			quotaStatus(root.quota_tokens === null ? null : Number(root.quota_tokens), Number(root.budget_used_tokens)),
+		);
 		await this.#sendTracked(key, rootId, route, card, [], locale);
 	}
 

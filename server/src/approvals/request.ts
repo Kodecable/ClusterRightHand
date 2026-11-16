@@ -4,24 +4,18 @@
  * summary. It is built here from the task, task group or external call row and view, never from prose.
  */
 import type {
-	ApprovalAction,
 	ApprovalAlwaysAllow,
 	ApprovalRequest,
-	ApprovalRequester,
 	ApprovalReviewSummary,
 	ExternalCallView,
 	Operation,
 	Rule,
+	TaskAction,
 	TaskGroupView,
 	TaskView,
 } from "@crh/api";
-import { taskSpecFromJson } from "@crh/protocol";
-import { rootSessionIdOf } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
-import { shellQuote } from "../util/shell-quote.ts";
 
-/** Commands and paths stay one line in chat; the command itself is capped as the model asks. */
-const COMMAND_LIMIT = 300;
 /** A chat card names at most this many nodes; `moreNodes` carries the rest. */
 const NODE_LIMIT = 10;
 
@@ -36,79 +30,6 @@ function reviewSummary(approval: ReviewShape): ApprovalReviewSummary | undefined
 	if (risk !== "low" && risk !== "medium" && risk !== "high") return undefined;
 	if (typeof reason !== "string") return undefined;
 	return { risk, reason };
-}
-
-function clipCommand(command: string): string {
-	const oneLine = command.replace(/[\r\n]+/g, " ").trim();
-	return oneLine.length <= COMMAND_LIMIT ? oneLine : `${oneLine.slice(0, COMMAND_LIMIT - 1)}…`;
-}
-
-function execCommand(spec: { command: { argv: string[] } | { shell: string } }): string {
-	return "argv" in spec.command ? spec.command.argv.map((arg) => shellQuote(arg)).join(" ") : spec.command.shell;
-}
-
-function actionOfSpec(specJson: string | null, fallbackKind: string, fallbackSummary: string): ApprovalAction {
-	let spec: ReturnType<typeof taskSpecFromJson> | undefined;
-	try {
-		spec = taskSpecFromJson(JSON.parse(specJson ?? "null"));
-	} catch {
-		spec = undefined;
-	}
-	if (!spec) {
-		// An unreadable stored spec is still worth showing; the approval pages carry the exact row.
-		return { type: "exec", command: clipCommand(fallbackSummary || fallbackKind) };
-	}
-	switch (spec.kind) {
-		case "exec":
-			return { type: "exec", command: clipCommand(execCommand(spec)) };
-		case "file.read":
-			return {
-				type: "file",
-				operation: "read",
-				path: spec.path,
-				lines: { start: spec.startLine, end: spec.startLine + spec.lineCount - 1 },
-			};
-		case "file.write":
-			return { type: "file", operation: "write", path: spec.path };
-		case "file.push":
-			return { type: "file", operation: "push", path: spec.path };
-		case "file.pull":
-			return { type: "file", operation: "pull", path: spec.path };
-		case "file.edit":
-			return { type: "file", operation: "edit", path: spec.path };
-		case "file.stat":
-			return { type: "file", operation: "stat", path: spec.path };
-		case "file.list":
-			return { type: "file", operation: "list", path: spec.path };
-	}
-}
-
-async function requesterFor(
-	db: Db,
-	actorType: string,
-	actorId: string,
-	onBehalfOfUserId: string,
-): Promise<ApprovalRequester> {
-	if (actorType === "session" || actorType === "subagent") {
-		// A subagent's request is shown against the root session the user knows; the stored title may be empty.
-		const rootId = (await rootSessionIdOf(db, actorId)) ?? actorId;
-		const session = await db.selectFrom("sessions").select(["id", "title"]).where("id", "=", rootId).executeTakeFirst();
-		if (session) return { type: "session", sessionId: session.id, title: session.title ?? "" };
-	}
-	if (actorType === "api_token") {
-		const token = await db.selectFrom("api_tokens").select(["id", "name"]).where("id", "=", actorId).executeTakeFirst();
-		return { type: "api_token", tokenId: actorId, name: token?.name ?? actorId };
-	}
-	const user = await db
-		.selectFrom("users")
-		.select(["id", "username"])
-		.where("id", "=", actorType === "user" ? actorId : onBehalfOfUserId)
-		.executeTakeFirst();
-	return {
-		type: "user",
-		userId: user?.id ?? onBehalfOfUserId,
-		username: user?.username ?? (actorType === "user" ? actorId : onBehalfOfUserId),
-	};
 }
 
 /** Node names in the order given; a deleted or unknown node keeps its id so the card still names it. */
@@ -160,7 +81,7 @@ function externalCallAlwaysAllow(call: ExternalCallView, apiRequest: boolean): A
 }
 
 /** `api_request` arguments as the tool receives them; the model may send them as a JSON string. */
-function apiRequestAction(call: ExternalCallView): ApprovalAction | undefined {
+function apiRequestAction(call: ExternalCallView): TaskAction | undefined {
 	if (call.extension !== "crhs-api" || call.tool !== "api_request") return undefined;
 	let args = call.arguments;
 	if (typeof args === "string") {
@@ -178,8 +99,6 @@ function apiRequestAction(call: ExternalCallView): ApprovalAction | undefined {
 }
 
 export async function approvalRequestForTask(db: Db, task: TaskView): Promise<ApprovalRequest> {
-	const stored = await db.selectFrom("tasks").select("spec").where("id", "=", task.id).executeTakeFirst();
-	const action = actionOfSpec(stored?.spec ?? null, task.kind, task.summary);
 	const names = await nodeNames(db, [task.nodeId]);
 	const nodeList = cappedNodes(names);
 	const review = reviewSummary(task.approval);
@@ -187,8 +106,8 @@ export async function approvalRequestForTask(db: Db, task: TaskView): Promise<Ap
 		kind: "task",
 		id: task.id,
 		phase: task.phase,
-		requester: await requesterFor(db, task.actorType, task.actorId, task.onBehalfOfUserId),
-		action,
+		source: task.source,
+		action: task.action,
 		...nodeList,
 		privileged: task.privileged,
 		...(review ? { review } : {}),
@@ -197,8 +116,6 @@ export async function approvalRequestForTask(db: Db, task: TaskView): Promise<Ap
 }
 
 export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView): Promise<ApprovalRequest> {
-	const stored = await db.selectFrom("task_groups").select("spec").where("id", "=", group.id).executeTakeFirst();
-	const action = actionOfSpec(stored?.spec ?? null, group.kind, group.summary);
 	// Only the nodes whose rule result needs approval are named; the group is approved once for all of them.
 	const needing = group.approval
 		? group.approval.nodes.filter((node) => node.evaluation.result === "require-approval").map((node) => node.nodeId)
@@ -210,8 +127,8 @@ export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView):
 		kind: "task_group",
 		id: group.id,
 		phase: group.phase,
-		requester: await requesterFor(db, group.actorType, group.actorId, group.onBehalfOfUserId),
-		action,
+		source: group.source,
+		action: group.action,
 		...nodeList,
 		privileged: group.privileged,
 		...(review ? { review } : {}),
@@ -221,13 +138,13 @@ export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView):
 
 export async function approvalRequestForExternalCall(db: Db, call: ExternalCallView): Promise<ApprovalRequest> {
 	const apiAction = apiRequestAction(call);
-	const action: ApprovalAction = apiAction ?? { type: "extension_tool", extension: call.extension, tool: call.tool };
+	const action: TaskAction = apiAction ?? { type: "extension_tool", extension: call.extension, tool: call.tool };
 	const review = reviewSummary(call.approval);
 	return {
 		kind: "external_call",
 		id: call.id,
 		phase: call.phase,
-		requester: await requesterFor(db, call.actorType, call.actorId, call.onBehalfOfUserId),
+		source: call.source,
 		action,
 		privileged: false,
 		...(review ? { review } : {}),

@@ -12,6 +12,7 @@ const EVENT: AuditEvent = {
 	ts: "2026-01-01T00:00:00.000Z",
 	actorType: "user",
 	actorId: "user-1",
+	source: { type: "user", userId: "user-1", username: "ops" },
 	onBehalfOfUserId: null,
 	action: "task.approval",
 	targetType: "task",
@@ -60,8 +61,10 @@ describe("AuditPage filters", () => {
 		const { urls } = mockAudit();
 		await renderPage();
 		await screen.findByText("task.approval");
-		// A user actor and the on-behalf-of user are links to their pages.
-		expect(screen.getByRole("link", { name: "Ada Ops" })).toHaveAttribute("href", "/users/user-1");
+		expect(screen.getByRole("columnheader", { name: "Source" })).toBeInTheDocument();
+		expect(screen.queryByRole("columnheader", { name: "By" })).not.toBeInTheDocument();
+		// The source cell reads the user from the server's source model; the on-behalf-of user links too.
+		expect(screen.getByRole("link", { name: "ops" })).toHaveAttribute("href", "/users/user-1");
 
 		const user = userEvent.setup();
 		await user.type(screen.getByLabelText("Action"), "task.");
@@ -88,10 +91,19 @@ describe("AuditPage filters", () => {
 	});
 
 	test("links the on-behalf-of user even when the actor is not a user", async () => {
-		mockAudit([{ ...EVENT, actorType: "api_token", actorId: "tok-1", onBehalfOfUserId: "user-1" }]);
+		mockAudit([
+			{
+				...EVENT,
+				actorType: "api_token",
+				actorId: "tok-1",
+				source: { type: "api_token", tokenId: "tok-1", name: "deploy" },
+				onBehalfOfUserId: "user-1",
+			},
+		]);
 		await renderPage();
 		await screen.findByText("task.approval");
-		expect(screen.getByText("api_token:tok-1")).toBeInTheDocument();
+		expect(screen.getByText("API token deploy")).toBeInTheDocument();
+		expect(screen.queryByText("api_token:tok-1")).not.toBeInTheDocument();
 		expect(screen.getByRole("link", { name: "Ada Ops" })).toHaveAttribute("href", "/users/user-1");
 	});
 
@@ -101,6 +113,7 @@ describe("AuditPage filters", () => {
 				...EVENT,
 				actorType: "system",
 				actorId: "cli",
+				source: { type: "system" },
 				action: "keys.exported",
 				targetType: null,
 				targetId: null,
@@ -109,7 +122,7 @@ describe("AuditPage filters", () => {
 		]);
 		await renderPage();
 		await screen.findByText("keys.exported");
-		expect(screen.getByText("system:cli")).toBeInTheDocument();
+		expect(screen.getByText("System")).toBeInTheDocument();
 	});
 
 	test("activating a row opens the event detail dialog", async () => {

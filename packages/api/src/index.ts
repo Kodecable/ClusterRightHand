@@ -1,7 +1,8 @@
 /**
  * `@crh/api`: the wire types of the crhs HTTP API, shared by the server and the
  * WebUI, plus the small locale registry both need at runtime. Everything else is
- * types only, so the WebUI bundles no zod and no server code.
+ * types plus the small locale registry and quota classifier both need at runtime; the WebUI still bundles
+ * no zod and no server code.
  */
 
 export * from "./approval-request.ts";
@@ -17,11 +18,15 @@ export * from "./locales.ts";
 export * from "./models.ts";
 export * from "./nodes.ts";
 export * from "./policy.ts";
+export * from "./quota.ts";
+export * from "./request-source.ts";
 export * from "./schedules.ts";
 export * from "./session-events.ts";
 export * from "./sessions.ts";
 export * from "./settings.ts";
 export * from "./signing-keys.ts";
+export * from "./task-action.ts";
+export * from "./task-outcome.ts";
 export * from "./tasks.ts";
 export * from "./tokens.ts";
 export * from "./user-settings.ts";

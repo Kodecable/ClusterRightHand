@@ -189,10 +189,6 @@ msgstr "{lines, plural, one {# line} other {# lines}}"
 msgid "{queued, plural, one {# message queued} other {# messages queued}}"
 msgstr "{queued, plural, one {# message queued} other {# messages queued}}"
 
-#: src/features/sessions/composer-footer.tsx
-msgid "{remaining, plural, one {# token left} other {# tokens left}}"
-msgstr "{remaining, plural, one {# token left} other {# tokens left}}"
-
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
 msgstr "{running} running"
@@ -673,10 +669,10 @@ msgstr "API key"
 msgid "API token"
 msgstr "API token"
 
-#. placeholder {0}: row.requester.name
-#: src/features/approvals/pages.tsx
-msgid "API token “{0}”"
-msgstr "API token “{0}”"
+#. placeholder {0}: source.name
+#: src/components/request-source.tsx
+msgid "API token {0}"
+msgstr "API token {0}"
 
 #: src/app/shell/nav.ts
 #: src/features/tokens/pages.tsx
@@ -755,11 +751,6 @@ msgstr "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
 #: src/features/tokens/rule-preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
 msgstr "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
-
-#: src/components/task-result.tsx
-#: src/features/approvals/pages.tsx
-msgid "Asked by"
-msgstr "Asked by"
 
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Assistant"
@@ -846,6 +837,10 @@ msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoni
 msgid "Auto review"
 msgstr "Auto review"
 
+#: src/components/request-source.tsx
+msgid "Auto Review"
+msgstr "Auto Review"
+
 #: src/components/decision/reviewing-notice.tsx
 msgid "Auto Review is reviewing this request"
 msgstr "Auto Review is reviewing this request"
@@ -921,11 +916,6 @@ msgstr "Bot token"
 msgid "Built-in"
 msgstr "Built-in"
 
-#: src/features/audit/pages.tsx
-#: src/features/tasks/task-columns.tsx
-msgid "By"
-msgstr "By"
-
 #. placeholder {0}: formatNumber(cacheReadTokens, locale)
 #. placeholder {1}: formatNumber(promptTokens, locale)
 #: src/features/sessions/composer-meta.tsx
@@ -962,8 +952,7 @@ msgid "Cancellation requested."
 msgstr "Cancellation requested."
 
 #: src/components/status-badge.tsx
-#: src/components/task-result.tsx
-#: src/features/sessions/tool-card.tsx
+#: src/components/task-outcome.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Cancelled"
 msgstr "Cancelled"
@@ -1739,6 +1728,10 @@ msgstr "Deleted user group"
 msgid "Denied"
 msgstr "Denied"
 
+#: src/components/task-outcome.tsx
+msgid "Denied by rules"
+msgstr "Denied by rules"
+
 #: src/components/decision/evaluation.tsx
 #: src/features/nodes/node-trust.tsx
 msgid "Deny"
@@ -1802,6 +1795,7 @@ msgstr "Dispatched"
 msgid "Display name"
 msgstr "Display name"
 
+#: src/components/task-outcome.tsx
 #: src/features/channels/chat-accounts-section.tsx
 #: src/features/sessions/tool-card.tsx
 msgid "Done"
@@ -1859,13 +1853,13 @@ msgstr "Edit channel {0}"
 msgid "Edit extension {0}"
 msgstr "Edit extension {0}"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Edit file {path}"
 msgstr "Edit file {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Edit file {path} (lines {0}-{1})"
 msgstr "Edit file {path} (lines {0}-{1})"
 
@@ -2085,17 +2079,13 @@ msgstr "Everyone"
 msgid "exact"
 msgstr "exact"
 
-#. placeholder {0}: value.exitCode ?? ""
-#: src/features/sessions/tool-card.tsx
-msgid "Exit {0}"
-msgstr "Exit {0}"
-
 #: src/components/task-result.tsx
 msgid "Exit code"
 msgstr "Exit code"
 
-#. placeholder {0}: outcome.code ?? "?"
-#: src/components/task-result.tsx
+#. placeholder {0}: outcome.exitCode
+#. placeholder {0}: outcome.exitCode ?? "?"
+#: src/components/task-outcome.tsx
 msgid "Exit code {0}"
 msgstr "Exit code {0}"
 
@@ -2168,6 +2158,7 @@ msgid "failed"
 msgstr "failed"
 
 #: src/components/status-badge.tsx
+#: src/components/task-outcome.tsx
 #: src/features/sessions/tool-card.tsx
 msgid "Failed"
 msgstr "Failed"
@@ -2245,25 +2236,9 @@ msgstr "For command limits, lifetimes, local approval and other advanced options
 msgid "Format"
 msgstr "Format"
 
-#. placeholder {0}: oneLine(requester.name)
-#. placeholder {0}: requester.name
-#: src/components/decision/content.tsx
-msgid "From API token “{0}”"
-msgstr "From API token “{0}”"
-
 #: src/features/channels/channel-dialog.tsx
 msgid "From BotFather. It is encrypted with the master key and never shown again."
 msgstr "From BotFather. It is encrypted with the master key and never shown again."
-
-#: src/components/decision/content.tsx
-msgid "From session “{title}”"
-msgstr "From session “{title}”"
-
-#. placeholder {0}: oneLine(requester.username)
-#. placeholder {0}: requester.username
-#: src/components/decision/content.tsx
-msgid "From user {0}"
-msgstr "From user {0}"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "Gateway token"
@@ -2422,6 +2397,7 @@ msgid "Inherit"
 msgstr "Inherit"
 
 #: src/features/tasks/task-group-result.tsx
+#: src/lib/task-output.ts
 msgid "Interrupted"
 msgstr "Interrupted"
 
@@ -2497,6 +2473,11 @@ msgstr "Key ID"
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
 msgstr "Keys crhs signs authorizations with. The newest is used by default; a node trusts a key only when its privileged.toml lists it."
+
+#. placeholder {0}: outcome.signal ?? "?"
+#: src/components/task-outcome.tsx
+msgid "Killed by signal {0}"
+msgstr "Killed by signal {0}"
 
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
@@ -2634,13 +2615,13 @@ msgstr "Linked accounts"
 msgid "List at least one model."
 msgstr "List at least one model."
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "List directory {path}"
 msgstr "List directory {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "List directory {path} (lines {0}-{1})"
 msgstr "List directory {path} (lines {0}-{1})"
 
@@ -2959,6 +2940,7 @@ msgid "New session"
 msgstr "New session"
 
 #: src/components/decision/content.tsx
+#: src/components/request-source.tsx
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
@@ -3565,6 +3547,7 @@ msgstr "Origins allowed to use Passkeys, such as https://crh.example.com. Empty 
 msgid "OS"
 msgstr "OS"
 
+#: src/components/task-result.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Outcome"
@@ -3798,13 +3781,13 @@ msgstr "Public key"
 msgid "Public URL"
 msgstr "Public URL"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Pull file {path}"
 msgstr "Pull file {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Pull file {path} (lines {0}-{1})"
 msgstr "Pull file {path} (lines {0}-{1})"
 
@@ -3821,13 +3804,13 @@ msgstr "Purpose: {0}"
 msgid "Purpose: File browsing"
 msgstr "Purpose: File browsing"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Push file {path}"
 msgstr "Push file {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Push file {path} (lines {0}-{1})"
 msgstr "Push file {path} (lines {0}-{1})"
 
@@ -3864,13 +3847,13 @@ msgstr "Re-probe"
 msgid "Re-probe — {0}"
 msgstr "Re-probe — {0}"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Read file {path}"
 msgstr "Read file {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Read file {path} (lines {0}-{1})"
 msgstr "Read file {path} (lines {0}-{1})"
 
@@ -3951,6 +3934,7 @@ msgstr "Reject node"
 
 #: src/components/decision/evaluation.tsx
 #: src/components/status-badge.tsx
+#: src/components/task-outcome.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
 msgstr "Rejected"
@@ -4143,6 +4127,10 @@ msgstr "Responses"
 #: src/features/tasks/task-page.tsx
 msgid "Result"
 msgstr "Result"
+
+#: src/components/task-outcome.tsx
+msgid "Result unknown"
+msgstr "Result unknown"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Retrying (attempt {attempt})…"
@@ -4350,6 +4338,11 @@ msgstr "Saving closes the connection; tasks running on this node become unknown.
 msgid "Schedule"
 msgstr "Schedule"
 
+#. placeholder {0}: source.name
+#: src/components/request-source.tsx
+msgid "Schedule {0}"
+msgstr "Schedule {0}"
+
 #: src/features/schedules/pages.tsx
 msgid "Schedule form"
 msgstr "Schedule form"
@@ -4467,9 +4460,15 @@ msgstr "Sent on every request and stored encrypted; the values are never shown a
 msgid "Session"
 msgstr "Session"
 
-#: src/features/approvals/pages.tsx
-msgid "Session “{title}”"
-msgstr "Session “{title}”"
+#. placeholder {0}: sourceSessionName(i18n, source.title)
+#: src/components/request-source.tsx
+msgid "Session {0}"
+msgstr "Session {0}"
+
+#. placeholder {0}: sourceSessionName(i18n, source.title)
+#: src/components/request-source.tsx
+msgid "Session <0>{0}</0>"
+msgstr "Session <0>{0}</0>"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -4610,11 +4609,6 @@ msgstr "Sign-in could not be completed. Check your connection and try again."
 msgid "Signal"
 msgstr "Signal"
 
-#. placeholder {0}: outcome.signal
-#: src/components/task-result.tsx
-msgid "Signal {0}"
-msgstr "Signal {0}"
-
 #: src/components/decision/signature-panel.tsx
 #: src/features/approvals/pages.tsx
 msgid "Signature"
@@ -4663,6 +4657,23 @@ msgstr "Some rules reference deleted nodes or node groups. Remove or replace tho
 msgid "Something went wrong"
 msgstr "Something went wrong"
 
+#: src/components/task-result.tsx
+#: src/features/approvals/pages.tsx
+#: src/features/audit/pages.tsx
+#: src/features/tasks/task-columns.tsx
+#: src/features/tasks/task-group-page.tsx
+msgid "Source"
+msgstr "Source"
+
+#. placeholder {0}: requestSourceText(i18n, request.source)
+#: src/components/decision/content.tsx
+msgid "Source: {0}"
+msgstr "Source: {0}"
+
+#: src/components/decision/content.tsx
+msgid "Source: <0/>"
+msgstr "Source: <0/>"
+
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Speed"
 msgstr "Speed"
@@ -4704,13 +4715,13 @@ msgstr "Start line"
 msgid "Start one, or wait for a scheduled run."
 msgstr "Start one, or wait for a scheduled run."
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Stat file {path}"
 msgstr "Stat file {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Stat file {path} (lines {0}-{1})"
 msgstr "Stat file {path} (lines {0}-{1})"
 
@@ -4811,7 +4822,6 @@ msgid "Submit authorization"
 msgstr "Submit authorization"
 
 #: src/components/status-badge.tsx
-#: src/components/task-result.tsx
 msgid "Succeeded"
 msgstr "Succeeded"
 
@@ -4824,6 +4834,7 @@ msgid "Summary"
 msgstr "Summary"
 
 #: src/app/shell/user-menu.tsx
+#: src/components/request-source.tsx
 msgid "System"
 msgstr "System"
 
@@ -4874,6 +4885,10 @@ msgstr "Task details"
 msgid "Task group"
 msgstr "Task group"
 
+#: src/features/tasks/task-group-page.tsx
+msgid "Task group details"
+msgstr "Task group details"
+
 #: src/app/shell/nav.ts
 #: src/features/authorizations/pages.tsx
 #: src/features/system-settings/retention-section.tsx
@@ -4923,10 +4938,6 @@ msgstr "The bot token is required."
 #: src/features/signing-credentials/pages.tsx
 msgid "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
 msgstr "The browser offers a platform authenticator (Touch ID, Windows Hello) or a security key. Only ES256, EdDSA and RS256 are requested, so a registered Passkey is one the node's privileged mode can verify."
-
-#: src/features/sessions/composer-footer.tsx
-msgid "The budget is used up."
-msgstr "The budget is used up."
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted least recently used, and dropped after the time to live."
@@ -5252,8 +5263,7 @@ msgstr "Time"
 msgid "Time to live"
 msgstr "Time to live"
 
-#: src/components/task-result.tsx
-#: src/features/sessions/tool-card.tsx
+#: src/components/task-outcome.tsx
 msgid "Timed out"
 msgstr "Timed out"
 
@@ -5490,9 +5500,14 @@ msgstr "Use the first available model"
 msgid "Use the session's model"
 msgstr "Use the session's model"
 
-#: src/components/decision/content.tsx
-msgid "used {used} · remaining {remaining}"
-msgstr "used {used} · remaining {remaining}"
+#. placeholder {0}: formatNumber(status.remaining, i18n.locale)
+#: src/lib/quota.ts
+msgid "Used {used} · {0} left"
+msgstr "Used {used} · {0} left"
+
+#: src/lib/quota.ts
+msgid "Used {used} · Unlimited"
+msgstr "Used {used} · Unlimited"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Used by"
@@ -5501,6 +5516,11 @@ msgstr "Used by"
 #: src/features/system-settings/general-section.tsx
 msgid "Used for links crhs returns, e.g. in MCP results. Empty uses the address of the request (the default)."
 msgstr "Used for links crhs returns, e.g. in MCP results. Empty uses the address of the request (the default)."
+
+#. placeholder {0}: formatNumber(status.over, i18n.locale)
+#: src/lib/quota.ts
+msgid "Used up, over by {0}"
+msgstr "Used up, over by {0}"
 
 #: src/components/entity-picker/api.ts
 #: src/components/entity-picker/entity-picker.tsx
@@ -5518,6 +5538,8 @@ msgid "User — {0}"
 msgstr "User — {0}"
 
 #. placeholder {0}: library.ownerDisplayName || library.ownerName
+#. placeholder {0}: source.username
+#: src/components/request-source.tsx
 #: src/features/sessions/attachments.tsx
 msgid "User {0}"
 msgstr "User {0}"
@@ -5529,6 +5551,10 @@ msgstr "User {name}"
 #: src/features/library/pages.tsx
 msgid "User {name}'s library"
 msgstr "User {name}'s library"
+
+#: src/components/request-source.tsx
+msgid "User <0/>"
+msgstr "User <0/>"
 
 #. placeholder {0}: item.granteeName ?? item.granteeId
 #: src/features/sessions/share-dialog.tsx
@@ -5706,13 +5732,13 @@ msgstr "Work"
 msgid "Working directory (optional)"
 msgstr "Working directory (optional)"
 
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Write file {path}"
 msgstr "Write file {path}"
 
 #. placeholder {0}: lines.start
 #. placeholder {1}: lines.end
-#: src/components/decision/content.tsx
+#: src/lib/action-text.ts
 msgid "Write file {path} (lines {0}-{1})"
 msgstr "Write file {path} (lines {0}-{1})"
 

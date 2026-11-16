@@ -9,7 +9,7 @@ const request = (overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => (
 	kind: "task",
 	id: "task-1",
 	phase: "awaiting_user",
-	requester: { type: "session", sessionId: "root-1", title: "Clean up" },
+	source: { type: "session", sessionId: "root-1", title: "Clean up" },
 	action: { type: "exec", command: "systemctl restart nginx" },
 	nodes: ["worker-01"],
 	privileged: false,
@@ -66,15 +66,15 @@ describe("requestCardContent", () => {
 		expect(content({ phase: "awaiting_signature" }).title).toBe("Your signature is needed");
 	});
 
-	test("an inline card never shows the requester", () => {
+	test("an inline card never shows the source", () => {
 		const card = content();
-		expect(card.metaText).not.toContain("From session");
+		expect(card.metaText).not.toContain("Source:");
 		expect(card.metaText).toBe("Nodes: worker-01");
 	});
 
-	test("a page card appends the requester to the meta line and links a session title", async () => {
+	test("a page card appends the source to the meta line and links a session title", async () => {
 		const card = content({}, "page");
-		expect(card.metaText).toBe("Nodes: worker-01 · From session “Clean up”");
+		expect(card.metaText).toBe("Nodes: worker-01 · Source: Session Clean up");
 		await renderWithRouter(
 			<p data-testid="decision-meta" title={card.metaText}>
 				{card.meta}
@@ -82,23 +82,23 @@ describe("requestCardContent", () => {
 		);
 		const link = screen.getByRole("link", { name: "Clean up" });
 		expect(link).toHaveAttribute("href", "/sessions/root-1");
-		expect(screen.getByTestId("decision-meta")).toHaveAttribute("title", "Nodes: worker-01 · From session “Clean up”");
+		expect(screen.getByTestId("decision-meta")).toHaveAttribute("title", "Nodes: worker-01 · Source: Session Clean up");
 	});
 
-	test("a page card names an API token or a user requester, and the untitled session", async () => {
-		const token = content({ requester: { type: "api_token", tokenId: "t1", name: "deploy" } }, "page");
-		expect(token.metaText).toContain("From API token “deploy”");
-		const user = content({ requester: { type: "user", userId: "u1", username: "alice" } }, "page");
-		expect(user.metaText).toContain("From user alice");
-		const untitled = content({ requester: { type: "session", sessionId: "root-1", title: "" } }, "page");
-		expect(untitled.metaText).toContain("From session “New Session”");
+	test("a page card names an API token or a user source, and the untitled session", async () => {
+		const token = content({ source: { type: "api_token", tokenId: "t1", name: "deploy" } }, "page");
+		expect(token.metaText).toContain("Source: API token deploy");
+		const user = content({ source: { type: "user", userId: "u1", username: "alice" } }, "page");
+		expect(user.metaText).toContain("Source: User alice");
+		const untitled = content({ source: { type: "session", sessionId: "root-1", title: "" } }, "page");
+		expect(untitled.metaText).toContain("Source: Session New Session");
 		await renderWithRouter(<div>{untitled.meta}</div>);
 		expect(screen.getByRole("link", { name: "New Session" })).toHaveAttribute("href", "/sessions/root-1");
 	});
 
-	test("a page card with no nodes still shows the requester", () => {
+	test("a page card with no nodes still shows the source", () => {
 		const card = content({ nodes: undefined }, "page");
-		expect(card.metaText).toBe("From session “Clean up”");
+		expect(card.metaText).toBe("Source: Session Clean up");
 	});
 });
 
@@ -117,7 +117,7 @@ describe("quotaCardContent", () => {
 		expect(card.title).toBe("Token quota used up");
 		expect(card.meta).toBe("Nightly cluster check");
 		expect(card.metaText).toBe("Nightly cluster check");
-		expect(card.detail).toBe("used 12,000 · remaining -300");
+		expect(card.detail).toBe("Used up, over by 300");
 		expect(card.risk).toBeUndefined();
 	});
 

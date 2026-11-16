@@ -5,7 +5,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ApprovalPanel, DecisionView, RequestDetails } from "@/components/decision";
 import { StatusText, TaskStatusBadge } from "@/components/status-badge";
-import { TaskOutcomeText } from "@/components/task-result";
+import { TaskOutcomeBadge } from "@/components/task-outcome";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { useAuth } from "@/lib/session";
@@ -22,10 +22,12 @@ const GROUP_STATES: Record<string, MessageDescriptor> = {
 };
 
 /** The status of a task group; an unknown state keeps its raw name visible. */
-export function TaskGroupStatus({ state }: { state: string }) {
+export function TaskGroupStatus({ state, outcome }: { state: string; outcome?: TaskGroupView["outcome"] }) {
 	const { i18n } = useLingui();
 	const label = GROUP_STATES[state];
-	return <StatusText tone={taskGroupStatusTone(state)}>{label === undefined ? state : i18n._(label)}</StatusText>;
+	return (
+		<StatusText tone={taskGroupStatusTone(state, outcome)}>{label === undefined ? state : i18n._(label)}</StatusText>
+	);
 }
 
 /**
@@ -93,13 +95,13 @@ export function TaskGroupResult({
 			id: "state",
 			header: t`Status`,
 			size: 90,
-			cell: ({ row }) => <TaskStatusBadge state={row.original.state} />,
+			cell: ({ row }) => <TaskStatusBadge state={row.original.state} outcome={row.original.outcome} />,
 		},
 		{
 			id: "outcome",
 			header: t`Outcome`,
 			minSize: 140,
-			cell: ({ row }) => <TaskOutcomeText task={row.original} />,
+			cell: ({ row }) => <TaskOutcomeBadge outcome={row.original.outcome} />,
 		},
 	];
 

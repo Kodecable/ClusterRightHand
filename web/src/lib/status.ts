@@ -5,6 +5,7 @@
  * of inventing its own colours, so a status means the same thing everywhere
  * (doc/design/webui.md "Shared components").
  */
+import type { TaskOutcome } from "@crh/api";
 
 export type StatusTone = "ok" | "warn" | "danger" | "info" | "muted";
 
@@ -21,10 +22,14 @@ export function nodeStatusTone(status: string): StatusTone {
 }
 
 /**
- * Task status. `exited` is a normal end (Finished) whatever the exit code or
- * signal; the outcome column carries the exit code, so the state never does.
+ * Task status. A terminal status takes its tone from the server's outcome, so an exit code that failed
+ * is not shown green beside a red outcome. The state text still reads Finished for `exited`.
  */
-export function taskStatusTone(state: string): StatusTone {
+export function taskStatusTone(state: string, outcome?: TaskOutcome | null): StatusTone {
+	if (outcome !== null && outcome !== undefined) {
+		if (outcome.failed) return "danger";
+		return outcome.kind === "cancelled" ? "muted" : "ok";
+	}
 	switch (state) {
 		case "exited":
 			return "ok";
@@ -50,7 +55,11 @@ export function taskStatusTone(state: string): StatusTone {
  * informational like a waiting task, running is informational, cancelled is
  * muted like a cancelled task, and only rejected/interrupted are dangerous.
  */
-export function taskGroupStatusTone(state: string): StatusTone {
+export function taskGroupStatusTone(state: string, outcome?: TaskOutcome | null): StatusTone {
+	if (outcome !== null && outcome !== undefined) {
+		if (outcome.failed) return "danger";
+		return outcome.kind === "cancelled" ? "muted" : "ok";
+	}
 	switch (state) {
 		case "finished":
 			return "ok";

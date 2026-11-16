@@ -1,3 +1,4 @@
+import type { TaskOutcome } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -165,10 +166,19 @@ export function taskStateLabel(i18n: I18n, state: string): string {
  * The task's state. `exited` always reads Finished, whatever the exit code or
  * signal; the outcome column is the one place the command's result appears.
  */
-export function TaskStatusBadge({ state, className }: { state: string; className?: string }) {
+export function TaskStatusBadge({
+	state,
+	outcome,
+	className,
+}: {
+	state: string;
+	/** The server's classification; a terminal status takes its tone from it. */
+	outcome?: TaskOutcome | null;
+	className?: string;
+}) {
 	const { i18n } = useLingui();
 	return (
-		<StatusText tone={taskStatusTone(state)} className={className}>
+		<StatusText tone={taskStatusTone(state, outcome)} className={className}>
 			{statusLabel(i18n, TASK_LABELS, state)}
 		</StatusText>
 	);

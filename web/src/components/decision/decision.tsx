@@ -56,7 +56,7 @@ export function DecisionCard({
 	variant?: "inline" | "page";
 	/** e.g. "1 of 3" while more decisions wait behind this one. */
 	count?: ReactNode;
-	/** A link to the object the decision belongs to (a task, a task group or the requester). */
+	/** A link to the object the decision belongs to (a task, a task group or its source). */
 	details?: ReactNode;
 	/** The panel's own tabs. */
 	children: ReactNode;

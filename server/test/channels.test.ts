@@ -991,7 +991,7 @@ describe("channels", () => {
 		expect(fake.callsOf("createForumTopic").length).toBeGreaterThan(0);
 		expect(sent.body.message_thread_id).toBeDefined();
 		// A notification topic is still the default account, not the session's source thread.
-		expect(plainText(sent)).toContain("From session “");
+		expect(plainText(sent)).toContain("Source: Session ");
 		await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
 	});
 
@@ -2540,7 +2540,7 @@ it("pushes an approval without a session only while its owner is offline, in the
 		await channels.refreshAllWaits();
 		const card = await fake.waitForSent((call) => plainText(call).includes(`/reject ${offlineTask} 原因`));
 		expect(plainText(card)).toContain("需要你的审批");
-		expect(plainText(card)).toContain("来自 API 令牌“deploy”");
+		expect(plainText(card)).toContain("请求源：API 令牌 deploy");
 		expect(plainText(card)).toContain("`uptime`");
 		const deletesBefore = fake.callsOf("deleteMessage").length;
 		const decided = await call(app, `/api/tasks/${offlineTask}/approval`, {

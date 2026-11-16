@@ -1,6 +1,6 @@
 import type { TaskView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
@@ -12,6 +12,9 @@ const TASK: TaskView = {
 	nodeId: "node-1",
 	kind: "exec",
 	summary: "echo hi",
+	action: { type: "exec", command: "echo hi" },
+	source: { type: "user", userId: "u1", username: "ops" },
+	outcome: { kind: "succeeded", failed: false, exitCode: 0 },
 	operation: null,
 	actorType: "user",
 	actorId: "u1",
@@ -116,6 +119,15 @@ describe("TasksPage filters", () => {
 		expect(link).toHaveAttribute("href", "/tasks/task-1");
 		// The first column is Created, so the summary cell carries the row link.
 		expect(screen.getByText("echo hi").closest("a")).toBe(link);
+	});
+
+	test("the Source column reads the server's request source instead of the old By actor", async () => {
+		mockApi({ items: [TASK], users: [{ id: "u1", username: "ops", displayName: "Ada Ops" }] });
+		await renderPage();
+		const table = await screen.findByRole("table", { name: "Tasks" });
+		expect(within(table).getByRole("columnheader", { name: "Source" })).toBeInTheDocument();
+		expect(within(table).queryByRole("columnheader", { name: "By" })).not.toBeInTheDocument();
+		expect(within(table).getByRole("link", { name: "ops" })).toHaveAttribute("href", "/users/u1");
 	});
 
 	test("includes file browsing tasks only when the toggle is on", async () => {

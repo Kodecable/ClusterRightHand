@@ -1,9 +1,15 @@
 /**
  * Token quotas (doc/design/agent-runtime.md "Quota and token accounting").
  *
- * The parsing helpers are pure so the quota card and the session page share
- * exactly one validation rule. Display text lives in the components (Lingui).
+ * Classification lives in `@crh/api` so the chat replies and every WebUI surface agree. The parsing helpers
+ * are pure, and the display text keeps one order everywhere: used first, never a negative remaining.
  */
+import { type QuotaStatus, quotaStatus } from "@crh/api";
+import type { I18n } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
+import { formatNumber } from "@/lib/format";
+
+export { type QuotaStatus, quotaStatus };
 
 /** Validation failures; the UI translates them with Lingui. */
 export type QuotaError = "whole-number" | "too-large" | "positive-required";
@@ -28,18 +34,14 @@ export function parseGrantInput(text: string): { tokens: number } | { error: Quo
 	return { tokens: parsed.quota };
 }
 
-export interface QuotaStatus {
-	kind: "unlimited" | "remaining" | "exhausted";
-	/** Remaining tokens when positive, 0 otherwise. */
-	remaining: number;
-	/** How many tokens the level is over budget (0 unless exhausted below zero). */
-	over: number;
-	used: number;
-}
-
-/** Remaining quota against what the session and its subagents have used. */
-export function quotaStatus(quota: number | null, used: number): QuotaStatus {
-	if (quota === null) return { kind: "unlimited", remaining: 0, over: 0, used };
-	if (quota <= 0) return { kind: "exhausted", remaining: 0, over: Math.abs(quota), used };
-	return { kind: "remaining", remaining: quota, over: 0, used };
+/**
+ * The one quota line for a surface that can afford full numbers: "Used N · N left", "Used N · Unlimited",
+ * or "Used up, over by N". The composer footer may use compact units for its label, but its title and every
+ * other surface use this.
+ */
+export function quotaDetailText(i18n: I18n, status: QuotaStatus): string {
+	const used = formatNumber(status.used, i18n.locale);
+	if (status.kind === "exhausted") return i18n._(msg`Used up, over by ${formatNumber(status.over, i18n.locale)}`);
+	if (status.kind === "unlimited") return i18n._(msg`Used ${used} · Unlimited`);
+	return i18n._(msg`Used ${used} · ${formatNumber(status.remaining, i18n.locale)} left`);
 }

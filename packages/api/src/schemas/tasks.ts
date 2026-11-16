@@ -14,6 +14,9 @@ import {
 	RuleRefSchema,
 	TaskGroupApprovalRecordSchema,
 } from "./policy.ts";
+import { RequestSourceSchema } from "./request-source.ts";
+import { TaskActionSchema } from "./task-action.ts";
+import { TaskOutcomeSchema } from "./task-outcome.ts";
 import { BatchOutputModeSchema, OutputModeSchema, TaskGroupStateSchema, TaskStateSchema } from "./task-state.ts";
 
 /** One entry of a `file.list` result (doc/design/protocol.md "Task results"). */
@@ -68,6 +71,9 @@ export const TaskViewSchema = z
 		nodeId: z.string(),
 		kind: z.string(),
 		summary: z.string().describe("One line describing what ran: the command line or the path."),
+		action: TaskActionSchema.describe("What the task does, as every display surface renders it."),
+		source: RequestSourceSchema.describe("Who started the task (the request source)."),
+		outcome: TaskOutcomeSchema.nullable().describe("The classified result; null while the task is not terminal."),
 		operation: OperationSchema.nullable().describe("What authorization rules match on."),
 		actorType: z.string(),
 		actorId: z.string(),
@@ -129,6 +135,9 @@ export const TaskGroupViewSchema = z
 		createdAt: z.string(),
 		finishedAt: z.string().nullable(),
 		summary: z.string().describe("What runs on each node, for display."),
+		action: TaskActionSchema.describe("What runs on each node, as every display surface renders it."),
+		source: RequestSourceSchema.describe("Who started the task group (the request source)."),
+		outcome: TaskOutcomeSchema.nullable().describe("The group's classified result; null while it is not terminal."),
 		kind: z.string(),
 		ruleChain: z.array(RuleRefSchema).nullable(),
 		approval: TaskGroupApprovalRecordSchema.nullable(),
@@ -165,7 +174,7 @@ export const TaskListQuerySchema = z.object({
 	state: TaskStateSchema.optional(),
 	actorType: z.string().optional(),
 	nodeId: z.string().optional(),
-	userId: z.string().optional().describe('Tasks whose requesting user (the "By" column) is this user.'),
+	userId: z.string().optional().describe("Tasks whose acting user (`onBehalfOfUserId`) is this user."),
 	includePurpose: z.string().optional().describe("`true` or `1` includes tasks a dedicated feature created."),
 });
 

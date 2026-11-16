@@ -342,7 +342,7 @@ describe("TranscriptRow tool status icon", () => {
 		rerender(
 			<TranscriptRow
 				item={toolItem({
-					text: '{"task_group_id":"g1","state":"finished","nodes":[{"task_id":"a","state":"exited","exit_code":0},{"task_id":"b","state":"exited","exit_code":0}]}',
+					text: '{"task_group_id":"g1","state":"finished","outcome":{"kind":"succeeded","failed":false},"nodes":[{"task_id":"a","state":"exited","exit_code":0,"outcome":{"kind":"succeeded","failed":false,"exitCode":0}},{"task_id":"b","state":"exited","exit_code":0,"outcome":{"kind":"succeeded","failed":false,"exitCode":0}}]}',
 				})}
 				streams={new TranscriptStreams()}
 				sessionActive
@@ -353,32 +353,44 @@ describe("TranscriptRow tool status icon", () => {
 	});
 
 	test("a failed task marks the card failed and names the reason on the icon", () => {
-		renderRow(toolItem({ text: '{"task_id":"t1","state":"failed","error":{"code":"exec_failed"}}' }));
+		renderRow(
+			toolItem({
+				text: '{"task_id":"t1","state":"failed","outcome":{"kind":"error","failed":true,"errorCode":"exec_failed"}}',
+			}),
+		);
 		expect(card()).toHaveAttribute("data-tool-status", "failed");
-		expect(icon()).toHaveAccessibleName("Failed");
+		expect(icon()).toHaveAccessibleName("exec_failed");
 		expect(icon()).toHaveClass("text-danger");
 	});
 
 	test("a non-zero exit code and a cancelled task use their specific labels", () => {
-		const { rerender } = renderRow(toolItem({ text: '{"task_id":"t1","state":"exited","exit_code":2}' }));
+		const { rerender } = renderRow(
+			toolItem({
+				text: '{"task_id":"t1","state":"exited","exit_code":2,"outcome":{"kind":"exit","failed":true,"exitCode":2}}',
+			}),
+		);
 		expect(card()).toHaveAttribute("data-tool-status", "failed");
-		expect(icon()).toHaveAccessibleName("Exit 2");
+		expect(icon()).toHaveAccessibleName("Exit code 2");
 		expect(screen.queryByTestId("tool-failure")).toBeNull();
 		rerender(
 			<TranscriptRow
-				item={toolItem({ text: '{"task_id":"t1","state":"exited","exit_code":0,"cancelled":true}' })}
+				item={toolItem({
+					text: '{"task_id":"t1","state":"exited","exit_code":0,"cancelled":true,"outcome":{"kind":"cancelled","failed":false}}',
+				})}
 				streams={new TranscriptStreams()}
 				sessionActive
 			/>,
 		);
 		expect(icon()).toHaveAccessibleName("Cancelled");
-		expect(card()).toHaveAttribute("data-tool-status", "failed");
+		// A cancellation is not a failure: the wrench stays muted and the card is done.
+		expect(card()).toHaveAttribute("data-tool-status", "done");
+		expect(icon()).not.toHaveClass("text-danger");
 	});
 
 	test("a group with one failed member is partly failed", () => {
 		renderRow(
 			toolItem({
-				text: '{"task_group_id":"g1","state":"finished","nodes":[{"task_id":"a","state":"exited","exit_code":0},{"task_id":"b","state":"exited","exit_code":1}]}',
+				text: '{"task_group_id":"g1","state":"finished","outcome":{"kind":"error","failed":true,"errorCode":null,"errorMessage":null},"nodes":[{"task_id":"a","state":"exited","exit_code":0,"outcome":{"kind":"succeeded","failed":false,"exitCode":0}},{"task_id":"b","state":"exited","exit_code":1,"outcome":{"kind":"exit","failed":true,"exitCode":1}}]}',
 			}),
 		);
 		expect(card()).toHaveAttribute("data-tool-status", "failed");
@@ -391,11 +403,17 @@ describe("TranscriptRow tool status icon", () => {
 			toolItem({
 				text: "web-1 · exit 2",
 				isError: true,
-				details: { task_id: "t1", node: "web-1", state: "exited", exit_code: 2 },
+				details: {
+					task_id: "t1",
+					node: "web-1",
+					state: "exited",
+					exit_code: 2,
+					outcome: { kind: "exit", failed: true, exitCode: 2 },
+				},
 			}),
 		);
 		expect(card()).toHaveAttribute("data-tool-status", "failed");
-		expect(icon()).toHaveAccessibleName("Exit 2");
+		expect(icon()).toHaveAccessibleName("Exit code 2");
 		expect(icon()).toHaveClass("text-danger");
 	});
 
@@ -407,9 +425,22 @@ describe("TranscriptRow tool status icon", () => {
 				details: {
 					task_group_id: "g1",
 					state: "finished",
+					outcome: { kind: "error", failed: true, errorCode: null, errorMessage: null },
 					nodes: [
-						{ task_id: "a", node: "web-1", state: "exited", exit_code: 0 },
-						{ task_id: "b", node: "web-2", state: "exited", exit_code: 1 },
+						{
+							task_id: "a",
+							node: "web-1",
+							state: "exited",
+							exit_code: 0,
+							outcome: { kind: "succeeded", failed: false, exitCode: 0 },
+						},
+						{
+							task_id: "b",
+							node: "web-2",
+							state: "exited",
+							exit_code: 1,
+							outcome: { kind: "exit", failed: true, exitCode: 1 },
+						},
 					],
 				},
 			}),
@@ -426,12 +457,48 @@ describe("TranscriptRow tool status icon", () => {
 	});
 });
 
-const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
-	({
+function testOutcome(task: TaskView): TaskView["outcome"] {
+	if (!["exited", "failed", "rejected", "unknown", "denied"].includes(task.state)) return null;
+	if (task.cancelled) return { kind: "cancelled", failed: false };
+	if (task.timedOut) return { kind: "timed_out", failed: true };
+	if (task.signal !== null) return { kind: "signal", failed: true, signal: task.signal };
+	if (task.state === "rejected") return { kind: "rejected", failed: true };
+	if (task.state === "denied") return { kind: "denied", failed: true };
+	if (task.errorCode !== null)
+		return { kind: "error", failed: true, errorCode: task.errorCode, errorMessage: task.errorMessage };
+	if (task.state === "unknown") return { kind: "unknown", failed: true };
+	if (task.exitCode !== null) {
+		if (task.exitCode === 0) {
+			return task.kind === "exec"
+				? { kind: "succeeded", failed: false, exitCode: 0 }
+				: { kind: "succeeded", failed: false };
+		}
+		return { kind: "exit", failed: true, exitCode: task.exitCode };
+	}
+	return { kind: "unknown", failed: true };
+}
+
+function testGroupOutcome(group: TaskGroupView): TaskGroupView["outcome"] {
+	if (!["finished", "interrupted", "rejected", "cancelled"].includes(group.state)) return null;
+	if (group.state === "cancelled") return { kind: "cancelled", failed: false };
+	if (group.state === "rejected") return { kind: "rejected", failed: true };
+	if (group.state === "interrupted")
+		return { kind: "error", failed: true, errorCode: "interrupted", errorMessage: null };
+	const failed = group.tasks.some((task) => task.outcome?.failed === true);
+	return failed
+		? { kind: "error", failed: true, errorCode: null, errorMessage: null }
+		: { kind: "succeeded", failed: false };
+}
+
+const baseTask = (overrides: Partial<TaskView> = {}): TaskView => {
+	const view = {
 		id: "t1",
 		nodeId: "n1",
 		kind: "exec",
 		summary: "true",
+		action: { type: "exec", command: "true" },
+		source: { type: "session", sessionId: "s1", title: "s1" },
+		outcome: null,
 		operation: null,
 		actorType: "session",
 		actorId: "s1",
@@ -457,10 +524,13 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 		finishedAt: "2026-01-01T00:00:01.000Z",
 		phase: "awaiting_user",
 		...overrides,
-	}) as TaskView;
+	} as TaskView;
+	view.outcome = overrides.outcome ?? testOutcome(view);
+	return view;
+};
 
-const baseGroup = (overrides: Partial<TaskGroupView> = {}): TaskGroupView =>
-	({
+const baseGroup = (overrides: Partial<TaskGroupView> = {}): TaskGroupView => {
+	const view = {
 		id: "g1",
 		state: "finished",
 		targets: ["n1"],
@@ -475,7 +545,15 @@ const baseGroup = (overrides: Partial<TaskGroupView> = {}): TaskGroupView =>
 		finishedAt: "2026-01-01T00:00:01.000Z",
 		phase: "awaiting_user",
 		...overrides,
-	}) as TaskGroupView;
+	} as TaskGroupView;
+	view.tasks = groupTasksOutcome(view.tasks);
+	view.outcome = overrides.outcome ?? testGroupOutcome(view);
+	return view;
+};
+
+function groupTasksOutcome(tasks: TaskView[]): TaskView[] {
+	return tasks.map((task) => (task.outcome === null ? { ...task, outcome: testOutcome(task) } : task));
+}
 
 describe("callStillOpen", () => {
 	test("a call stays open while the session runs and its task or group is open", () => {
@@ -540,7 +618,7 @@ describe("a tool card whose call cannot return", () => {
 		client.setQueryData(taskKeys.detail("t1"), baseTask());
 		renderRow(unreturned({ task_id: "t1", state: "running" }), new TranscriptStreams(), client);
 		expect(icon().querySelector(".animate-spin")).toBeNull();
-		expect(icon()).toHaveAccessibleName("Done");
+		expect(icon()).toHaveAccessibleName("Exit code 0");
 		expect(icon()).not.toHaveClass("text-danger");
 		// A stopped card has no result of its own: its status stays `empty`.
 		expect(card()).toHaveAttribute("data-tool-status", "empty");
@@ -551,7 +629,7 @@ describe("a tool card whose call cannot return", () => {
 		client.setQueryData(taskKeys.detail("t1"), baseTask({ exitCode: 2 }));
 		renderRow(unreturned({ task_id: "t1", state: "running" }), new TranscriptStreams(), client);
 		expect(icon().querySelector(".animate-spin")).toBeNull();
-		expect(icon()).toHaveAccessibleName("Exit 2");
+		expect(icon()).toHaveAccessibleName("Exit code 2");
 		expect(icon()).toHaveClass("text-danger");
 		expect(card()).toHaveAttribute("data-tool-status", "failed");
 	});
@@ -570,7 +648,7 @@ describe("a tool card whose call cannot return", () => {
 		client.setQueryData(taskKeys.taskGroup("g1"), baseGroup({ state: "interrupted" }));
 		renderRow(unreturned({ task_group_id: "g1", state: "running" }), new TranscriptStreams(), client);
 		expect(icon().querySelector(".animate-spin")).toBeNull();
-		expect(icon()).toHaveAccessibleName("Failed");
+		expect(icon()).toHaveAccessibleName("Interrupted");
 		expect(icon()).toHaveClass("text-danger");
 		expect(card()).toHaveAttribute("data-tool-status", "failed");
 	});

@@ -8,6 +8,7 @@ import { openTransferLocation, type TransferLocationJson } from "../library/tran
 import { targetRefs } from "../policy/refs.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
+import { requestSourceFor } from "../request-source.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import type { BatchOutputMode, TaskGroupsTable } from "../storage/schema.ts";
@@ -15,6 +16,7 @@ import { UserError } from "../util/errors.ts";
 import { derivedId, newId } from "../util/id.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
 import { ALL_TARGET, nameKey } from "../util/names.ts";
+import { taskActionView } from "./action.ts";
 import {
 	type ApprovalReview,
 	agentRouting,
@@ -33,7 +35,8 @@ import { rejectionMessage } from "./authorization/reject.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
 import type { Cluster } from "./cluster.ts";
 import { listNodesForUser } from "./nodes.ts";
-import { operationOfJson, specFromRow, summarize } from "./spec.ts";
+import { taskGroupOutcome } from "./outcome.ts";
+import { operationOfJson, specFromRow } from "./spec.ts";
 import { pendingInputColumn, pendingInputOf } from "./task-start.ts";
 import {
 	type Actor,
@@ -1019,7 +1022,9 @@ export class TaskGroups {
 	async #view(row: Selectable<TaskGroupsTable>, tasks: TaskView[], refs?: RefMap): Promise<TaskGroupView> {
 		const targets = JSON.parse(row.targets) as string[];
 		const approval = row.approval ? (JSON.parse(row.approval) as TaskGroupApprovalRecord) : null;
-		return {
+		const { action, summary } = taskActionView(row.spec, row.kind);
+		const source = await requestSourceFor(this.#db, row.actor_type, row.actor_id, row.on_behalf_of_user_id);
+		const view: TaskGroupView = {
 			id: row.id,
 			state: row.state,
 			targets,
@@ -1035,7 +1040,10 @@ export class TaskGroups {
 			tasks,
 			createdAt: row.created_at,
 			finishedAt: row.finished_at,
-			summary: row.spec ? summarize(row.spec) : "",
+			summary,
+			action,
+			source,
+			outcome: null,
 			kind: row.kind,
 			ruleChain: row.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null,
 			approval,
@@ -1049,6 +1057,8 @@ export class TaskGroups {
 			purpose: row.purpose,
 			phase: approvalPhase(row.state, row.handler_type, approval?.review),
 		};
+		view.outcome = taskGroupOutcome(view);
+		return view;
 	}
 
 	/**

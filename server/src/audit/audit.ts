@@ -1,5 +1,6 @@
 import type { AuditEvent } from "@crh/api";
 import { isAdmin, type SessionUser } from "../auth/sessions.ts";
+import { auditSourceKey, auditSourcesFor } from "../request-source.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import { newId } from "../util/id.ts";
@@ -127,17 +128,27 @@ export async function listAuditEvents(db: Db, user: SessionUser, q: AuditQuery):
 	if (q.targetType) sel = sel.where("target_type", "=", q.targetType);
 	if (q.targetId) sel = sel.where("target_id", "=", q.targetId);
 	if (q.before) sel = sel.where("seq", "<", q.before.seq);
-	return (await sel.execute()).map((r) => ({
-		// PostgreSQL returns bigint as a string; the API's seq is a number.
-		seq: Number(r.seq),
-		id: r.id,
-		ts: r.ts,
-		actorType: r.actor_type,
-		actorId: r.actor_id,
-		onBehalfOfUserId: r.on_behalf_of_user_id,
-		action: r.action,
-		targetType: r.target_type,
-		targetId: r.target_id,
-		detail: JSON.parse(r.detail) as Record<string, unknown>,
-	}));
+	const rows = await sel.execute();
+	const sources = await auditSourcesFor(
+		db,
+		rows.map((row) => ({ actorType: row.actor_type, actorId: row.actor_id })),
+	);
+	return rows.map((r) => {
+		const source = sources.get(auditSourceKey(r.actor_type, r.actor_id));
+		if (source === undefined) throw new Error("the audit event's source was not resolved");
+		return {
+			// PostgreSQL returns bigint as a string; the API's seq is a number.
+			seq: Number(r.seq),
+			id: r.id,
+			ts: r.ts,
+			actorType: r.actor_type,
+			actorId: r.actor_id,
+			source,
+			onBehalfOfUserId: r.on_behalf_of_user_id,
+			action: r.action,
+			targetType: r.target_type,
+			targetId: r.target_id,
+			detail: JSON.parse(r.detail) as Record<string, unknown>,
+		};
+	});
 }

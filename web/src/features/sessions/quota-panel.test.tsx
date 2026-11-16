@@ -17,7 +17,7 @@ describe("QuotaPanel", () => {
 		await renderWithRouter(<QuotaPanel wait={wait} onDecide={() => {}} />);
 		const card = screen.getByRole("region", { name: "Token quota used up" });
 		expect(within(card).getByTestId("decision-meta")).toHaveTextContent("Nightly cluster check");
-		expect(within(card).getByTestId("decision-detail")).toHaveTextContent("used 12,000 · remaining -300");
+		expect(within(card).getByTestId("decision-detail")).toHaveTextContent("Used up, over by 300");
 		expect(within(card).queryByTestId("decision-risk")).not.toBeInTheDocument();
 		// The level id and the request time are technical fields, not part of the decision.
 		expect(screen.queryByText("lvl-root")).not.toBeInTheDocument();

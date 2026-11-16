@@ -48,7 +48,7 @@ const request = (overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => (
 	kind: "task",
 	id: "task-1",
 	phase: "awaiting_signature",
-	requester: { type: "session", sessionId: "root-1", title: "Clean up" },
+	source: { type: "session", sessionId: "root-1", title: "Clean up" },
 	action: { type: "exec", command: OPERATION },
 	nodes: ["worker-01"],
 	privileged: true,
@@ -93,8 +93,8 @@ describe("SignaturePanel", () => {
 		expect(within(card).getByText("Privileged")).toBeInTheDocument();
 		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("crha grant");
 		expect(screen.queryByRole("tab", { name: "Passkey" })).not.toBeInTheDocument();
-		// An inline signature wait never shows the requester.
-		expect(screen.queryByText(/From session/)).not.toBeInTheDocument();
+		// An inline signature wait never shows the source.
+		expect(screen.queryByText(/Source:/)).not.toBeInTheDocument();
 	});
 
 	test("the page variant links the requesting session", async () => {

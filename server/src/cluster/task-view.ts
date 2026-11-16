@@ -1,31 +1,39 @@
 /**
  * A task row as the API and the tools see it (doc/design/protocol.md "Task results"): the stored columns, with
- * the output of a running task taken from its live record when there is one.
+ * the output of a running task taken from its live record when there is one. The view also carries the one
+ * structured action, request source and terminal outcome, so no surface derives them again.
  */
+import type { RequestSource } from "@crh/api";
 import { type JsonTaskResult, taskResultFromJson, taskResultToJson } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import type { RuleRef } from "../policy/store.ts";
 import type { TasksTable } from "../storage/schema.ts";
+import { taskActionView } from "./action.ts";
 import { approvalPhase } from "./approval.ts";
 import { authorizationView } from "./authorization.ts";
 import type { OutputSnapshot } from "./batch-output.ts";
 import type { Live } from "./live-output.ts";
+import { taskOutcome } from "./outcome.ts";
 import { countOutputLines } from "./output.ts";
-import { operationOfJson, summarize } from "./spec.ts";
+import { operationOfJson } from "./spec.ts";
 import { type ApprovalRecord, type TaskView, TERMINAL } from "./types.ts";
 
-export function toView(row: Selectable<TasksTable>, live: Live | undefined): TaskView {
+export function toView(row: Selectable<TasksTable>, live: Live | undefined, source: RequestSource): TaskView {
 	const b64 = (s: string | null) => (s ? Buffer.from(s, "base64").toString("utf8") : "");
 	const fromLive = live && !TERMINAL.has(row.state);
 	const text = (b: Buffer | null) => (b ? b.toString("utf8") : "");
 	const output = fromLive ? live.output.snapshot() : undefined;
 	const outputTail = output ? text(output.outputTail) : b64(row.output_tail);
 	const approval = row.approval ? (JSON.parse(row.approval) as ApprovalRecord) : null;
-	return {
+	const { action, summary } = taskActionView(row.spec, row.kind);
+	const view: TaskView = {
 		id: row.id,
 		nodeId: row.node_id,
 		kind: row.kind,
-		summary: summarize(row.spec),
+		summary,
+		action,
+		source,
+		outcome: null,
 		operation: operationOfJson(row.spec),
 		actorType: row.actor_type,
 		actorId: row.actor_id,
@@ -63,6 +71,8 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined): Tas
 		purpose: row.purpose,
 		phase: approvalPhase(row.state, row.handler_type, approval?.review),
 	};
+	view.outcome = taskOutcome(view);
+	return view;
 }
 
 /**

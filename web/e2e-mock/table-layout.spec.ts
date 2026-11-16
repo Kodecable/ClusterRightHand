@@ -64,7 +64,18 @@ for (const [name, path] of TABLE_PAGES) {
 test("a very long task title wraps instead of widening the page", async ({ page }) => {
 	const summary = `rm -f /tmp/${"a".repeat(180)}; ls -la /var/log/${"b".repeat(180)}`;
 	await mockApi(page, {
-		state: { ...state, tasks: [taskView({ id: "task-long", state: "exited", exitCode: 0, summary })] },
+		state: {
+			...state,
+			tasks: [
+				taskView({
+					id: "task-long",
+					state: "exited",
+					exitCode: 0,
+					summary,
+					action: { type: "exec", command: summary },
+				}),
+			],
+		},
 	});
 	await login(page);
 	await page.goto("/tasks/task-long");

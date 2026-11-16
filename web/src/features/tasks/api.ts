@@ -45,7 +45,7 @@ export interface TaskFilters extends CursorQuery {
 	state?: string;
 	actorType?: string;
 	nodeId?: string;
-	/** Tasks whose requesting user (the "By" column) is this user. */
+	/** Tasks whose acting user (`onBehalfOfUserId`) is this user. */
 	userId?: string;
 	/** Include tasks with a purpose, such as the node file manager's browse tasks. */
 	includePurpose?: boolean;

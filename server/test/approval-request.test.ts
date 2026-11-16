@@ -224,7 +224,7 @@ describe("approval request model (sqlite)", () => {
 		await db.destroy();
 	});
 
-	it("builds a task request from the stored spec, requester and review", async () => {
+	it("builds a task request from the stored spec, source and review", async () => {
 		const rootId = "session-root";
 		const childId = "session-child";
 		await addSession(rootId, null, null, rootId);
@@ -245,7 +245,7 @@ describe("approval request model (sqlite)", () => {
 			kind: "task",
 			id,
 			phase: "awaiting_user",
-			requester: { type: "session", sessionId: rootId, title: "" },
+			source: { type: "session", sessionId: rootId, title: "" },
 			action: { type: "file", operation: "read", path: "/etc/hosts", lines: { start: 5, end: 7 } },
 			nodes: ["node-1"],
 			privileged: true,
@@ -281,7 +281,7 @@ describe("approval request model (sqlite)", () => {
 		const task = (await cluster.getTask(awaiting.id)) as TaskView;
 		const request = await approvalRequestForTask(db, task);
 		expect(request.phase).toBe("reviewing");
-		expect(request.requester).toEqual({ type: "api_token", tokenId: view.id, name: "deploy" });
+		expect(request.source).toEqual({ type: "api_token", tokenId: view.id, name: "deploy" });
 		expect(request.action).toEqual({ type: "exec", command: "uptime" });
 		expect(request.review).toBeUndefined();
 		expect(request.alwaysAllow.map((candidate) => candidate.option)).toEqual(["exact", "prefix"]);
@@ -333,7 +333,7 @@ describe("approval request model (sqlite)", () => {
 			kind: "external_call",
 			id: "call-tool",
 			phase: "awaiting_user",
-			requester: { type: "session", sessionId: rootId, title: "cleanup" },
+			source: { type: "session", sessionId: rootId, title: "cleanup" },
 			action: { type: "extension_tool", extension: "github", tool: "create_issue" },
 			privileged: false,
 		});
@@ -363,7 +363,7 @@ describe("approval request model (sqlite)", () => {
 		expect(request.review).toEqual({ risk: "high", reason: "creates a node group" });
 	});
 
-	it("names a scheduled run's session, not the schedule, as the requester", async () => {
+	it("names a scheduled run's session, not the schedule, as the source", async () => {
 		const now = new Date().toISOString();
 		await db
 			.insertInto("schedules")
@@ -397,7 +397,7 @@ describe("approval request model (sqlite)", () => {
 			actorId: "session-scheduled",
 			approval: { evaluation },
 		});
-		expect((await approvalRequestForExternalCall(db, call)).requester).toEqual({
+		expect((await approvalRequestForExternalCall(db, call)).source).toEqual({
 			type: "session",
 			sessionId: "session-scheduled",
 			title: "nightly run",
@@ -433,7 +433,7 @@ describe("approval request model (sqlite)", () => {
 			actorId: aliceId,
 			approval: { evaluation },
 		});
-		expect((await approvalRequestForExternalCall(db, userCall)).requester).toEqual({
+		expect((await approvalRequestForExternalCall(db, userCall)).source).toEqual({
 			type: "user",
 			userId: aliceId,
 			username: "alice",

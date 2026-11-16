@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { type InputRef, type TaskSpec, taskSpecFromJson } from "@crh/protocol";
 import { type Method, operationOf } from "../policy/rules.ts";
 import { UserError } from "../util/errors.ts";
-import { shellQuote } from "../util/shell-quote.ts";
+import { summarizeAction, taskActionOfJson, taskActionOfSpec } from "./action.ts";
 
 /**
  * The ref of an empty input. file.write always carries one; callers set it and createTask overwrites it
@@ -47,40 +47,16 @@ export function operationOfJson(specJson: string): { method: Method; target: str
 	}
 }
 
-/** Spec JSON (doc/design/protocol.md "JSON storage forms") to a short description. */
+/** Spec JSON (doc/design/protocol.md "JSON storage forms") to a short description derived from its action. */
 export function summarize(specJson: string): string {
+	const action = taskActionOfJson(specJson);
+	if (action === undefined) return "";
+	let spec: TaskSpec | undefined;
 	try {
-		const spec = JSON.parse(specJson) as {
-			kind?: unknown;
-			command?: { argv?: unknown; shell?: unknown };
-			path?: unknown;
-			startLine?: unknown;
-			lineCount?: unknown;
-			size?: unknown;
-			maxBytes?: unknown;
-			sha256?: unknown;
-		};
-		if (spec.kind === "exec") {
-			const command = spec.command ?? {};
-			if (Array.isArray(command.argv)) return command.argv.map((arg) => shellQuote(String(arg))).join(" ");
-			if (typeof command.shell === "string") return command.shell;
-			return "";
-		}
-		// A read names the lines it asks for, so an approver sees the range and not just the path.
-		if (spec.kind === "file.read" && typeof spec.startLine === "number" && typeof spec.lineCount === "number") {
-			return `${String(spec.path)} (lines ${spec.startLine}-${spec.startLine + spec.lineCount - 1})`;
-		}
-		// A transfer shows what an approver needs to bind: direction, path, size and digest, never
-		// the content (doc/design/library.md "File plane").
-		if (spec.kind === "file.push" && typeof spec.path === "string") {
-			const size = typeof spec.size === "number" ? spec.size : "?";
-			const sha = typeof spec.sha256 === "string" ? spec.sha256 : "?";
-			return `push ${String(spec.path)} (${size} bytes, sha256 ${sha})`;
-		}
-		if (spec.kind === "file.pull" && typeof spec.path === "string") {
-			return `pull ${String(spec.path)} (at most ${typeof spec.maxBytes === "number" ? spec.maxBytes : "?"} bytes)`;
-		}
-		if (typeof spec.path === "string") return spec.path;
-	} catch {}
-	return "";
+		spec = taskSpecFromJson(JSON.parse(specJson));
+	} catch {
+		spec = undefined;
+	}
+	if (spec !== undefined) return summarizeAction(taskActionOfSpec(spec), spec);
+	return summarizeAction(action);
 }

@@ -1,5 +1,5 @@
-import type { ApprovalAction, ApprovalRequest, ThinkingLevel, UserSettingsLocale } from "@crh/api";
-import { formatList, matchLocale } from "@crh/api";
+import type { ApprovalRequest, QuotaStatus, TaskAction, ThinkingLevel, UserSettingsLocale } from "@crh/api";
+import { formatList, matchLocale, quotaStatus } from "@crh/api";
 import type { CardLabels, ChatCard } from "./card.ts";
 
 /**
@@ -66,7 +66,25 @@ export interface BotCommandMenuEntry {
 }
 
 /** The `/help` list and the Telegram command menu share these commands. */
-type ApprovalFileOperation = Extract<ApprovalAction, { type: "file" }>["operation"];
+type ApprovalFileOperation = Extract<TaskAction, { type: "file" }>["operation"];
+
+/** A token count the way every chat line shows it: the reader's locale's grouping, never a raw negative. */
+function tokenCount(value: number, locale: "en" | "zh-CN"): string {
+	return new Intl.NumberFormat(locale).format(value);
+}
+
+/** The one quota line: used first and never a negative remaining (doc/design/channels.md "Approvals"). */
+function quotaLine(status: QuotaStatus, locale: "en" | "zh-CN"): string {
+	if (status.kind === "exhausted") {
+		return locale === "zh-CN"
+			? `已用完，超出 ${tokenCount(status.over, locale)}`
+			: `Used up, over by ${tokenCount(status.over, locale)}`;
+	}
+	const used = tokenCount(status.used, locale);
+	if (status.kind === "unlimited") return locale === "zh-CN" ? `已用 ${used} · 不限` : `Used ${used} · Unlimited`;
+	const remaining = tokenCount(status.remaining, locale);
+	return locale === "zh-CN" ? `已用 ${used} · 剩余 ${remaining}` : `Used ${used} · ${remaining} left`;
+}
 
 /**
  * The localized words a card is built from. The layout itself lives in `card.ts`, so Telegram and Satori
@@ -77,10 +95,14 @@ interface CardText extends CardLabels {
 	signatureTitle: string;
 	quotaTitle: string;
 	untitledSession: string;
-	requester: {
+	/** The one source line, used only when the default notification account routed the card. */
+	source: {
 		session: (title: string) => string;
 		apiToken: (name: string) => string;
 		user: (username: string) => string;
+		system: () => string;
+		autoReview: () => string;
+		schedule: (name: string) => string;
 	};
 	actions: {
 		file: (operation: ApprovalFileOperation, path: string, lines: { start: number; end: number } | undefined) => string;
@@ -91,7 +113,7 @@ interface CardText extends CardLabels {
 	approveHint: (id: string) => string;
 	rejectHint: (id: string) => string;
 	signatureHint: (link: string | null) => string;
-	quotaDetail: (used: number, remaining: number) => string;
+	quotaDetail: (status: QuotaStatus) => string;
 	quotaContinue: string;
 	quotaStop: string;
 	approvedResult: (by: string) => string;
@@ -106,10 +128,13 @@ const EN_CARD: CardText = {
 	signatureTitle: "Signature needed",
 	quotaTitle: "Token quota used up",
 	untitledSession: "New session",
-	requester: {
-		session: (title) => `From session “${title}”`,
-		apiToken: (name) => `From API token “${name}”`,
-		user: (username) => `From user ${username}`,
+	source: {
+		session: (title) => `Source: Session ${title}`,
+		apiToken: (name) => `Source: API token ${name}`,
+		user: (username) => `Source: User ${username}`,
+		system: () => "Source: System",
+		autoReview: () => "Source: Auto Review",
+		schedule: (name) => `Source: Schedule ${name}`,
 	},
 	actions: {
 		file: (operation, path, lines) =>
@@ -125,7 +150,7 @@ const EN_CARD: CardText = {
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [reason]`,
 	signatureHint: (link) => `Sign in the WebUI${link ? `: ${link}` : ""}`,
-	quotaDetail: (used, remaining) => `used ${used} · remaining ${remaining}`,
+	quotaDetail: (status) => quotaLine(status, "en"),
 	quotaContinue: "Continue: /quota add <tokens>",
 	quotaStop: "End this turn: /quota stop",
 	approvedResult: (by) => `✅ Approved · by ${oneLine(by)}`,
@@ -139,10 +164,13 @@ const ZH_CARD: CardText = {
 	signatureTitle: "需要你的签名",
 	quotaTitle: "令牌配额已用完",
 	untitledSession: "新会话",
-	requester: {
-		session: (title) => `来自会话“${title}”`,
-		apiToken: (name) => `来自 API 令牌“${name}”`,
-		user: (username) => `来自用户 ${username}`,
+	source: {
+		session: (title) => `请求源：会话 ${title}`,
+		apiToken: (name) => `请求源：API 令牌 ${name}`,
+		user: (username) => `请求源：用户 ${username}`,
+		system: () => "请求源：系统",
+		autoReview: () => "请求源：Auto Review",
+		schedule: (name) => `请求源：计划任务 ${name}`,
 	},
 	actions: {
 		file: (operation, path, lines) =>
@@ -158,7 +186,7 @@ const ZH_CARD: CardText = {
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [原因]`,
 	signatureHint: (link) => `在 WebUI 中签名${link ? `：${link}` : ""}`,
-	quotaDetail: (used, remaining) => `已用 ${used} · 剩余 ${remaining}`,
+	quotaDetail: (status) => quotaLine(status, "zh-CN"),
 	quotaContinue: "继续：/quota add <tokens>",
 	quotaStop: "结束本回合：/quota stop",
 	approvedResult: (by) => `✅ 已批准 · 由 ${oneLine(by)}`,
@@ -173,7 +201,7 @@ function oneLine(value: string): string {
 }
 
 /** The action's one-line detail, localized only where it has a verb (a file operation). */
-function actionDetail(action: ApprovalAction, labels: CardText): string {
+function actionDetail(action: TaskAction, labels: CardText): string {
 	switch (action.type) {
 		case "exec":
 			return oneLine(action.command);
@@ -186,33 +214,39 @@ function actionDetail(action: ApprovalAction, labels: CardText): string {
 	}
 }
 
-function requesterText(request: ApprovalRequest, labels: CardText): string {
-	const requester = request.requester;
-	switch (requester.type) {
+function sourceText(request: ApprovalRequest, labels: CardText): string {
+	const source = request.source;
+	switch (source.type) {
 		case "session":
-			return labels.requester.session(oneLine(requester.title) || labels.untitledSession);
+			return labels.source.session(oneLine(source.title) || labels.untitledSession);
 		case "api_token":
-			return labels.requester.apiToken(oneLine(requester.name));
+			return labels.source.apiToken(oneLine(source.name));
 		case "user":
-			return labels.requester.user(oneLine(requester.username));
+			return labels.source.user(oneLine(source.username));
+		case "system":
+			return labels.source.system();
+		case "auto_review":
+			return labels.source.autoReview();
+		case "schedule":
+			return labels.source.schedule(oneLine(source.name));
 	}
 }
 
 /** The nodes and, only when a default notification account routed the card, where the request came from. */
-function metaText(request: ApprovalRequest, withRequester: boolean, labels: CardText): string | undefined {
+function metaText(request: ApprovalRequest, withSource: boolean, labels: CardText): string | undefined {
 	const parts: string[] = [];
 	if (request.nodes !== undefined && request.nodes.length > 0)
 		parts.push(labels.nodes(request.nodes.map(oneLine), request.moreNodes));
-	if (withRequester) parts.push(requesterText(request, labels));
+	if (withSource) parts.push(sourceText(request, labels));
 	return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
 function approvalCardFor(
 	request: ApprovalRequest,
-	options: { withButtons: boolean; withRequester: boolean },
+	options: { withButtons: boolean; withSource: boolean },
 	labels: CardText,
 ): ChatCard {
-	const meta = metaText(request, options.withRequester, labels);
+	const meta = metaText(request, options.withSource, labels);
 	const card: ChatCard = {
 		title: labels.approvalTitle,
 		privileged: request.privileged,
@@ -233,10 +267,10 @@ function approvalCardFor(
 function signatureCardFor(
 	request: ApprovalRequest,
 	link: string | null,
-	options: { withRequester: boolean },
+	options: { withSource: boolean },
 	labels: CardText,
 ): ChatCard {
-	const meta = metaText(request, options.withRequester, labels);
+	const meta = metaText(request, options.withSource, labels);
 	const card: ChatCard = {
 		title: labels.signatureTitle,
 		privileged: request.privileged,
@@ -252,12 +286,12 @@ function signatureCardFor(
 }
 
 /** The quota card: the session's title as meta, its usage as detail, and how to go on or end the turn. */
-function quotaCardFor(title: string, remaining: number, used: number, labels: CardText): ChatCard {
+function quotaCardFor(title: string, status: QuotaStatus, labels: CardText): ChatCard {
 	return {
 		title: labels.quotaTitle,
 		privileged: false,
 		meta: title.trim() === "" ? labels.untitledSession : oneLine(title),
-		detail: labels.quotaDetail(used, remaining),
+		detail: labels.quotaDetail(status),
 		hints: [labels.quotaContinue, labels.quotaStop],
 	};
 }
@@ -307,17 +341,17 @@ export interface BotMessages {
 	quotaAdded: (tokens: number) => string;
 	quotaEnded: string;
 	noQuota: string;
-	quotaUsedUp: (remaining: number, used: number) => string;
-	quotaRemaining: (remaining: number, used: number) => string;
+	quotaUsedUp: (over: number, used: number) => string;
+	quotaRemaining: (used: number, remaining: number) => string;
 	decideUsage: (name: string, withReason: boolean) => string;
 	noWaitingApproval: string;
 	approvalNoLongerWaiting: string;
 	/** The localized words of every card (title, labels, result lines). */
 	card: CardText;
 	/** The one approval card every channel renders (doc/design/channels.md "Approvals"). */
-	approvalCard: (request: ApprovalRequest, options: { withButtons: boolean; withRequester: boolean }) => ChatCard;
-	signatureCard: (request: ApprovalRequest, link: string | null, options: { withRequester: boolean }) => ChatCard;
-	quotaCard: (title: string, remaining: number, used: number) => ChatCard;
+	approvalCard: (request: ApprovalRequest, options: { withButtons: boolean; withSource: boolean }) => ChatCard;
+	signatureCard: (request: ApprovalRequest, link: string | null, options: { withSource: boolean }) => ChatCard;
+	quotaCard: (title: string, status: QuotaStatus) => ChatCard;
 	approvedResult: (by: string) => string;
 	rejectedResult: (by: string, reason: string | null) => string;
 	expiredResult: string;
@@ -402,16 +436,16 @@ const en: BotMessages = {
 	quotaAdded: (tokens) => `Added ${tokens} tokens to the session's quota.`,
 	quotaEnded: "Ended the turn.",
 	noQuota: "This session has no token quota.",
-	quotaUsedUp: (remaining, used) =>
-		`This session's token quota is used up (${remaining} remaining, ${used} used).\n\n/quota add \\<tokens> raises it and continues\n\n/quota stop ends the turn.`,
-	quotaRemaining: (remaining, used) => `This session has ${remaining} tokens left (${used} used).`,
+	quotaUsedUp: (over, used) =>
+		`Used up, over by ${tokenCount(over, "en")} tokens (${tokenCount(used, "en")} used).\n\n/quota add \\<tokens> raises it and continues\n\n/quota stop ends the turn.`,
+	quotaRemaining: (used, remaining) => `Used ${tokenCount(used, "en")} · ${tokenCount(remaining, "en")} left.`,
 	decideUsage: (name, withReason) => `Use /${name} \\<id>${withReason ? " [reason]" : ""}.`,
 	noWaitingApproval: "No waiting approval with that id is yours to decide.",
 	approvalNoLongerWaiting: "That approval is no longer waiting, or you may not decide it.",
 	card: EN_CARD,
 	approvalCard: (request, options) => approvalCardFor(request, options, EN_CARD),
 	signatureCard: (request, link, options) => signatureCardFor(request, link, options, EN_CARD),
-	quotaCard: (title, remaining, used) => quotaCardFor(title, remaining, used, EN_CARD),
+	quotaCard: (title, status) => quotaCardFor(title, status, EN_CARD),
 	approvedResult: (by) => EN_CARD.approvedResult(by),
 	rejectedResult: (by, reason) => EN_CARD.rejectedResult(by, reason),
 	expiredResult: EN_CARD.expired,
@@ -546,16 +580,16 @@ const zhCN: BotMessages = {
 	quotaAdded: (tokens) => `已向该会话的配额增加 ${tokens} 个令牌。`,
 	quotaEnded: "已结束本回合。",
 	noQuota: "此会话没有令牌配额。",
-	quotaUsedUp: (remaining, used) =>
-		`此会话的令牌配额已用完（剩余 ${remaining}，已用 ${used}）。\n\n/quota add \\<tokens> 可提高配额并继续\n\n/quota stop 结束本回合。`,
-	quotaRemaining: (remaining, used) => `此会话还剩 ${remaining} 个令牌（已用 ${used}）。`,
+	quotaUsedUp: (over, used) =>
+		`已用完，超出 ${tokenCount(over, "zh-CN")} 个令牌（已用 ${tokenCount(used, "zh-CN")}）。\n\n/quota add \\<tokens> 可提高配额并继续\n\n/quota stop 结束本回合。`,
+	quotaRemaining: (used, remaining) => `已用 ${tokenCount(used, "zh-CN")} · 剩余 ${tokenCount(remaining, "zh-CN")}。`,
 	decideUsage: (name, withReason) => `请使用 /${name} \\<id>${withReason ? " [原因]" : ""}。`,
 	noWaitingApproval: "没有属于你、等待审批且 id 相符的请求。",
 	approvalNoLongerWaiting: "该审批已不再等待，或你无权决定。",
 	card: ZH_CARD,
 	approvalCard: (request, options) => approvalCardFor(request, options, ZH_CARD),
 	signatureCard: (request, link, options) => signatureCardFor(request, link, options, ZH_CARD),
-	quotaCard: (title, remaining, used) => quotaCardFor(title, remaining, used, ZH_CARD),
+	quotaCard: (title, status) => quotaCardFor(title, status, ZH_CARD),
 	approvedResult: (by) => ZH_CARD.approvedResult(by),
 	rejectedResult: (by, reason) => ZH_CARD.rejectedResult(by, reason),
 	expiredResult: ZH_CARD.expired,

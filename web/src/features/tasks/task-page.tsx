@@ -8,13 +8,14 @@ import { ErrorState } from "@/components/error-state";
 import type { KeyValueItem } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
+import { RequestSource } from "@/components/request-source";
 import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskGone } from "@/components/task-gone";
-import { hasTaskOutcome, hasTaskOutput, TaskFacts, TaskOutcomeText, TaskOutput } from "@/components/task-result";
+import { TaskOutcomeBadge } from "@/components/task-outcome";
+import { hasTaskOutput, TaskFacts, TaskOutput } from "@/components/task-result";
 import { Button } from "@/components/ui/button";
-import { UserLink } from "@/components/user-link";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { useNodes } from "@/features/nodes/api";
@@ -25,7 +26,6 @@ import { useAuth } from "@/lib/session";
 import { isTerminal } from "@/lib/task-output";
 import { taskTitle } from "@/lib/task-title";
 import { linkClass } from "@/lib/utils";
-import { taskActor } from "./actor";
 import { useCancelTask, useTask } from "./api";
 
 /** A node link that shows the node's name, falling back to its id while the list loads. */
@@ -39,7 +39,7 @@ function NodeLink({ nodeId, names }: { nodeId: string; names: Map<string, string
 
 /** One task: header, one facts block, the approval or signature decision, then the result (doc/design/webui.md "Task and task group pages"). */
 export function TaskPage() {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const params = useParams({ strict: false }) as { taskId?: string };
 	const id = params.taskId ?? "";
 	const task = useTask(id, true);
@@ -55,7 +55,7 @@ export function TaskPage() {
 		[directory.data],
 	);
 	// The shell title names the task by its command, like the page heading does.
-	usePageTitle(task.data === undefined ? undefined : taskTitle(task.data));
+	usePageTitle(task.data === undefined ? undefined : taskTitle(i18n, task.data));
 
 	if (task.isPending) {
 		return (
@@ -82,7 +82,6 @@ export function TaskPage() {
 	const view = task.data;
 	// The server sends the compact request with the task while it waits; the panel renders only that model.
 	const request = view.request ?? undefined;
-	const actor = taskActor(view, (uid) => (directory.data?.users ?? []).find((user) => user.id === uid)?.displayName);
 	const running = !isTerminal(view.state);
 	// Only an administrator and the task's on_behalf_of user may cancel or decide (doc/design/access-control.md).
 	const canAct = currentUser?.kind === "admin" || view.onBehalfOfUserId === currentUser?.id;
@@ -132,17 +131,15 @@ export function TaskPage() {
 				</Link>
 			</div>
 			<PageHeader
-				title={<span className="font-mono">{taskTitle(view)}</span>}
-				titleText={taskTitle(view)}
+				title={<span className="font-mono">{taskTitle(i18n, view)}</span>}
+				titleText={taskTitle(i18n, view)}
 				description={
-					<span>
-						<TaskStatusBadge state={view.state} />
-						{hasTaskOutcome(view) && (
+					<span className="inline-flex flex-wrap items-center gap-1">
+						<TaskStatusBadge state={view.state} outcome={view.outcome} />
+						{view.outcome !== null && (
 							<>
-								{" · "}
-								<span data-testid="task-outcome" className="text-foreground">
-									<TaskOutcomeText task={view} />
-								</span>
+								<span className="text-muted-foreground">{" · "}</span>
+								<TaskOutcomeBadge outcome={view.outcome} />
 							</>
 						)}
 					</span>
@@ -168,10 +165,11 @@ export function TaskPage() {
 					task={view}
 					showSummary={false}
 					showState={false}
+					showOutcome={false}
 					showWaiting={false}
 					showDecision={false}
 					node={<NodeLink nodeId={view.nodeId} names={names} />}
-					askedBy={<UserLink id={actor.id} name={actor.name} />}
+					source={<RequestSource source={view.source} />}
 					userNames={userNames}
 					extra={links}
 				/>

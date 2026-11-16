@@ -5,39 +5,8 @@
  */
 import { z } from "zod";
 import { ApprovalPhaseSchema, RuleSchema } from "./policy.ts";
-
-/** Who asked for the waiting operation. A subagent's request resolves to its root session. */
-export const ApprovalRequesterSchema = z
-	.discriminatedUnion("type", [
-		z.object({
-			type: z.literal("session"),
-			sessionId: z.string().describe("The root session's id."),
-			title: z
-				.string()
-				.describe("The stored title; empty when the session has none, so the renderer uses its untitled name."),
-		}),
-		z.object({ type: z.literal("api_token"), tokenId: z.string(), name: z.string() }),
-		z.object({ type: z.literal("user"), userId: z.string(), username: z.string() }),
-	])
-	.meta({ id: "ApprovalRequester" });
-
-/** What waits, as data rather than prose. */
-export const ApprovalActionSchema = z
-	.discriminatedUnion("type", [
-		z.object({
-			type: z.literal("exec"),
-			command: z.string().describe("The command line, shell-quoted for argv and clipped to 300 characters."),
-		}),
-		z.object({
-			type: z.literal("file"),
-			operation: z.enum(["read", "write", "push", "pull", "edit", "stat", "list"]),
-			path: z.string(),
-			lines: z.object({ start: z.number(), end: z.number() }).optional(),
-		}),
-		z.object({ type: z.literal("api_request"), method: z.string(), path: z.string() }),
-		z.object({ type: z.literal("extension_tool"), extension: z.string(), tool: z.string() }),
-	])
-	.meta({ id: "ApprovalAction" });
+import { RequestSourceSchema } from "./request-source.ts";
+import { TaskActionSchema } from "./task-action.ts";
 
 /** A candidate "always allow" rule, with the stable key its renderer labels. */
 export const ApprovalAlwaysAllowSchema = z
@@ -67,8 +36,8 @@ export const ApprovalRequestSchema = z
 		kind: z.enum(["task", "task_group", "external_call"]),
 		id: z.string(),
 		phase: ApprovalPhaseSchema,
-		requester: ApprovalRequesterSchema,
-		action: ApprovalActionSchema,
+		source: RequestSourceSchema,
+		action: TaskActionSchema,
 		nodes: z.array(z.string()).optional().describe("Node names, capped; absent when the operation has no node."),
 		moreNodes: z.number().optional().describe("How many more nodes a capped `nodes` list leaves out."),
 		privileged: z.boolean(),

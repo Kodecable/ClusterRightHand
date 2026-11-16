@@ -151,7 +151,19 @@ async function waitingGroup(sessionId: string): Promise<{ groupId: string; membe
 		taskGroupId: groupId,
 		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
 	});
-	await db.updateTable("tasks").set({ state: "awaiting_authorization" }).where("id", "=", member.id).execute();
+	// Let the group's own dispatch finish before parking the group: a worker still running would write the
+	// group's real state over the parked one, and this test is about ending waits, not about that race.
+	await waitFor("the group's own run ended", async () => {
+		const row = await db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirst();
+		return row && (row.state === "finished" || row.state === "cancelled" || row.state === "interrupted")
+			? true
+			: undefined;
+	});
+	await db
+		.updateTable("tasks")
+		.set({ state: "awaiting_authorization", error_code: null, error_message: null, cancelled: 0 })
+		.where("id", "=", member.id)
+		.execute();
 	await db.updateTable("task_groups").set({ state: "awaiting_authorization" }).where("id", "=", groupId).execute();
 	return { groupId, memberId: member.id };
 }

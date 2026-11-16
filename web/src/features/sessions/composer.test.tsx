@@ -497,7 +497,7 @@ describe("ComposerFooter", () => {
 		expect(screen.getByTestId("composer-budget")).toHaveTextContent("12.3K");
 		expect(screen.getByTestId("composer-usage")).toHaveTextContent("1.5M");
 		// The exact numbers are the tooltips.
-		expect(screen.getByTestId("composer-budget")).toHaveAttribute("title", "12,345 tokens left");
+		expect(screen.getByTestId("composer-budget")).toHaveAttribute("title", "Used 0 · 12,345 left");
 		expect(screen.getByTestId("composer-context")).toHaveAttribute("title", "64,000 / 128,000");
 		expect(screen.getByTestId("composer-usage")).toHaveAttribute("title", "1,500,000 tokens in total");
 		expect(screen.getByTestId("composer-rules").querySelector(".lucide-shield-alert")).not.toBeNull();
@@ -660,6 +660,7 @@ describe("ComposerFooter", () => {
 		);
 		const budget = screen.getByTestId("composer-budget");
 		expect(budget).toHaveTextContent("0");
+		expect(budget).toHaveAttribute("title", "Used up, over by 5");
 		expect(budget.className).toContain("text-danger");
 	});
 

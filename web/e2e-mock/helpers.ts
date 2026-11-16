@@ -30,6 +30,7 @@ import type {
 	SshNodeDetails,
 	SshTargetInput,
 	TaskGroupView,
+	TaskOutcome,
 	TaskView,
 	User,
 	UserGroup,
@@ -229,10 +230,7 @@ export function approvalRequestForTask(
 		kind: "task",
 		id: task.id,
 		phase: task.phase ?? (task.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
-		requester:
-			task.actorType === "user"
-				? { type: "user", userId: task.actorId, username: options.username ?? task.actorId }
-				: { type: "session", sessionId: task.rootSessionId ?? task.actorId, title: "" },
+		source: task.source,
 		action,
 		nodes: [node],
 		privileged: task.privileged,
@@ -259,11 +257,8 @@ export function approvalRequestForTaskGroup(group: TaskGroupView): ApprovalReque
 		kind: "task_group",
 		id: group.id,
 		phase: group.phase ?? (group.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
-		requester:
-			group.actorType === "user"
-				? { type: "user", userId: group.actorId, username: group.actorId }
-				: { type: "session", sessionId: group.rootSessionId ?? group.actorId, title: "" },
-		action: { type: "exec", command: group.summary ?? group.id },
+		source: group.source,
+		action: group.action,
 		nodes: nodes.slice(0, 10),
 		...(nodes.length > 10 ? { moreNodes: nodes.length - 10 } : {}),
 		privileged: group.privileged,
@@ -292,12 +287,46 @@ export function approvalRequestForTaskGroup(group: TaskGroupView): ApprovalReque
 	};
 }
 
+/** The fake server's copy of the terminal classification, enough for list and page fixtures. */
+function fixtureOutcome(task: Partial<TaskView>): TaskOutcome | null {
+	if (
+		task.state !== "exited" &&
+		task.state !== "failed" &&
+		task.state !== "rejected" &&
+		task.state !== "unknown" &&
+		task.state !== "denied"
+	) {
+		return null;
+	}
+	if (task.cancelled === true) return { kind: "cancelled", failed: false };
+	if (task.timedOut === true) return { kind: "timed_out", failed: true };
+	if (task.signal !== null && task.signal !== undefined && task.signal !== "")
+		return { kind: "signal", failed: true, signal: task.signal };
+	if (task.state === "rejected") return { kind: "rejected", failed: true };
+	if (task.state === "denied") return { kind: "denied", failed: true };
+	if (task.errorCode !== null && task.errorCode !== undefined)
+		return { kind: "error", failed: true, errorCode: task.errorCode, errorMessage: task.errorMessage ?? null };
+	if (task.state === "unknown") return { kind: "unknown", failed: true };
+	if (task.exitCode !== null && task.exitCode !== undefined) {
+		if (task.exitCode === 0) {
+			return task.kind === "exec"
+				? { kind: "succeeded", failed: false, exitCode: 0 }
+				: { kind: "succeeded", failed: false };
+		}
+		return { kind: "exit", failed: true, exitCode: task.exitCode };
+	}
+	return { kind: "unknown", failed: true };
+}
+
 export function taskView(overrides: Partial<TaskView> = {}): TaskView {
-	return {
+	const view = {
 		id: "task-1",
 		nodeId: "node-1",
 		kind: "exec",
 		summary: "systemctl restart nginx",
+		action: { type: "exec", command: "systemctl restart nginx" },
+		source: { type: "user", userId: USER.id, username: USER.username },
+		outcome: null,
 		operation: { method: "exec", target: "systemctl restart nginx" },
 		actorType: "user",
 		actorId: USER.id,
@@ -323,6 +352,8 @@ export function taskView(overrides: Partial<TaskView> = {}): TaskView {
 		phase: "awaiting_user",
 		...overrides,
 	} as TaskView;
+	view.outcome = overrides.outcome ?? fixtureOutcome(view);
+	return view;
 }
 
 export function nodeView(overrides: Partial<PublicNode> = {}): PublicNode {
@@ -1463,6 +1494,9 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				createdAt: "2026-01-01T00:00:00.000Z",
 				finishedAt: null,
 				summary: "batch run",
+				action: { type: "exec", command: "batch run" },
+				source: { type: "user", userId: state.user.id, username: state.user.username },
+				outcome: null,
 				kind: "exec",
 				ruleChain: null,
 				approval: null,
@@ -1501,6 +1535,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 							finishedAt: "2026-01-01T00:01:00.000Z",
 						}),
 					),
+					outcome: { kind: "error", failed: true, errorCode: null, errorMessage: null },
 				};
 				stored.taskGroup = finished;
 				return json({ taskGroup: finished, request: null });
@@ -1725,6 +1760,7 @@ export function auditEvent(overrides: Partial<AuditEvent> = {}): AuditEvent {
 		ts: "2026-01-01T00:00:00.000Z",
 		actorType: "user",
 		actorId: USER.id,
+		source: { type: "user", userId: USER.id, username: USER.username },
 		onBehalfOfUserId: null,
 		action: "task.approval",
 		targetType: "task",

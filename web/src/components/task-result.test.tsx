@@ -1,8 +1,9 @@
 import type { Evaluation, TaskView } from "@crh/api";
 import { screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
-import { renderWithI18n, renderWithRouter } from "@/test/render";
-import { hasTaskOutput, TaskEvaluation, TaskOutcomeText, TaskResult, TaskSummary } from "./task-result";
+import { renderWithRouter } from "@/test/render";
+import { TaskOutcomeBadge } from "./task-outcome";
+import { hasTaskOutput, TaskEvaluation, TaskResult, TaskSummary } from "./task-result";
 
 const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 	({
@@ -10,6 +11,9 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 		nodeId: "node-1",
 		kind: "exec",
 		summary: "systemctl restart nginx",
+		action: { type: "exec", command: "systemctl restart nginx" },
+		source: { type: "user", userId: "u1", username: "ada" },
+		outcome: { kind: "succeeded", failed: false, exitCode: 0 },
 		operation: { method: "exec", target: "systemctl restart nginx" },
 		actorType: "user",
 		actorId: "u1",
@@ -45,35 +49,50 @@ describe("TaskResult", () => {
 		expect(screen.getByLabelText("output")).toHaveTextContent("hello world");
 	});
 
-	test("the state stays Finished for a non-zero exit, with no code in its text", async () => {
-		await renderWithRouter(<TaskResult task={baseTask({ exitCode: 2 })} />);
-		expect(screen.getByText("Finished")).toHaveAttribute("data-tone", "ok");
+	test("the state stays Finished for a non-zero exit, toned by the failed outcome", async () => {
+		await renderWithRouter(
+			<TaskResult task={baseTask({ exitCode: 2, outcome: { kind: "exit", failed: true, exitCode: 2 } })} />,
+		);
+		expect(screen.getByText("Finished")).toHaveAttribute("data-tone", "danger");
 		expect(screen.queryByText("Exited (2)")).not.toBeInTheDocument();
-		await renderWithRouter(<TaskOutcomeText task={baseTask({ exitCode: 2 })} />);
-		expect(screen.getByText("Exit code 2")).toBeInTheDocument();
+		expect(screen.getByTestId("task-outcome")).toHaveTextContent("Exit code 2");
 	});
 
-	test("a file operation that exited cleanly shows Succeeded, not an exit code", async () => {
-		await renderWithRouter(<TaskResult task={baseTask({ kind: "file.read", summary: "/etc/hosts" })} />);
+	test("a file operation that exited cleanly shows Done, not an exit code", async () => {
+		await renderWithRouter(
+			<TaskResult
+				task={baseTask({
+					kind: "file.read",
+					summary: "/etc/hosts",
+					action: { type: "file", operation: "read", path: "/etc/hosts" },
+					outcome: { kind: "succeeded", failed: false },
+				})}
+			/>,
+		);
 		expect(screen.getByText("Finished")).toBeInTheDocument();
-		await renderWithRouter(<TaskOutcomeText task={baseTask({ kind: "file.read" })} />);
-		expect(screen.getByText("Succeeded")).toBeInTheDocument();
+		expect(screen.getByTestId("task-outcome")).toHaveTextContent("Done");
 		expect(screen.queryByText("Exit code 0")).not.toBeInTheDocument();
 	});
 
 	test("an exec task that exited cleanly keeps Exit code 0", async () => {
-		await renderWithRouter(<TaskOutcomeText task={baseTask()} />);
+		await renderWithRouter(<TaskOutcomeBadge outcome={{ kind: "succeeded", failed: false, exitCode: 0 }} />);
 		expect(screen.getByText("Exit code 0")).toBeInTheDocument();
 	});
 
 	test("a failing task shows the platform error", async () => {
 		await renderWithRouter(
 			<TaskResult
-				task={baseTask({ state: "failed", exitCode: null, errorCode: "node_offline", errorMessage: "gone" })}
+				task={baseTask({
+					state: "failed",
+					exitCode: null,
+					errorCode: "node_offline",
+					errorMessage: "gone",
+					outcome: { kind: "error", failed: true, errorCode: "node_offline", errorMessage: "gone" },
+				})}
 			/>,
 		);
 		expect(screen.getByText("Failed")).toBeInTheDocument();
-		expect(screen.getByText(/node_offline/)).toBeInTheDocument();
+		expect(screen.getAllByText(/node_offline/).length).toBeGreaterThan(0);
 	});
 
 	test("a revoked access error is explained in words, not as a code", async () => {
@@ -82,30 +101,39 @@ describe("TaskResult", () => {
 			exitCode: null,
 			errorCode: "node_access_revoked",
 			errorMessage: "access to the node was revoked before the task was dispatched",
+			outcome: {
+				kind: "error",
+				failed: true,
+				errorCode: "node_access_revoked",
+				errorMessage: "access to the node was revoked before the task was dispatched",
+			},
 		});
 		await renderWithRouter(<TaskResult task={revoked} />);
-		expect(screen.getByText("Access to the node was revoked before the task was dispatched.")).toBeInTheDocument();
+		expect(
+			screen.getAllByText("Access to the node was revoked before the task was dispatched.").length,
+		).toBeGreaterThan(0);
 		expect(screen.queryByText(/node_access_revoked/)).not.toBeInTheDocument();
 	});
 
-	test("an outcome with nothing to say is an en dash", async () => {
-		await renderWithRouter(<TaskOutcomeText task={baseTask({ state: "running", exitCode: null })} />);
-		const dash = screen.getByText("–");
-		expect(dash).toHaveClass("text-muted-foreground");
+	test("no outcome renders no badge", async () => {
+		const { container } = await renderWithRouter(<TaskOutcomeBadge outcome={null} />);
+		expect(container).toBeEmptyDOMElement();
 	});
 
 	test("the outcome line of a revoked access task is readable too", async () => {
 		await renderWithRouter(
-			<TaskOutcomeText
-				task={baseTask({
-					state: "failed",
-					exitCode: null,
+			<TaskOutcomeBadge
+				outcome={{
+					kind: "error",
+					failed: true,
 					errorCode: "node_access_revoked",
 					errorMessage: "access to the node was revoked before the task was dispatched",
-				})}
+				}}
 			/>,
 		);
-		expect(screen.getByText("Access to the node was revoked before the task was dispatched.")).toBeInTheDocument();
+		expect(
+			screen.getAllByText("Access to the node was revoked before the task was dispatched.").length,
+		).toBeGreaterThan(0);
 		expect(screen.queryByText(/node_access_revoked/)).not.toBeInTheDocument();
 	});
 
@@ -117,14 +145,20 @@ describe("TaskResult", () => {
 					exitCode: null,
 					errorCode: "alias_missing",
 					errorMessage: "this node does not trust node group web as an alias",
+					outcome: {
+						kind: "error",
+						failed: true,
+						errorCode: "alias_missing",
+						errorMessage: "this node does not trust node group web as an alias",
+					},
 				})}
 			/>,
 		);
 		expect(
-			screen.getByText(
+			screen.getAllByText(
 				"The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again.",
-			),
-		).toBeInTheDocument();
+			).length,
+		).toBeGreaterThan(0);
 		expect(screen.queryByText(/alias_missing/)).not.toBeInTheDocument();
 	});
 
@@ -423,14 +457,14 @@ describe("TaskEvaluation", () => {
 		],
 	};
 
-	test("an exited task keeps the rule chain it was evaluated with", () => {
-		renderWithI18n(<TaskEvaluation task={baseTask({ state: "exited", approval: { evaluation } })} />);
+	test("an exited task keeps the rule chain it was evaluated with", async () => {
+		await renderWithRouter(<TaskEvaluation task={baseTask({ state: "exited", approval: { evaluation } })} />);
 		expect(screen.getByText("Rule chain evaluation")).toBeInTheDocument();
 		expect(screen.getByRole("table", { name: "Rule chain evaluation" })).toBeInTheDocument();
 	});
 
-	test("a task without an approval has no evaluation", () => {
-		const { container } = renderWithI18n(<TaskEvaluation task={baseTask()} />);
+	test("a task without an approval has no evaluation", async () => {
+		const { container } = await renderWithRouter(<TaskEvaluation task={baseTask()} />);
 		expect(container).toBeEmptyDOMElement();
 	});
 });

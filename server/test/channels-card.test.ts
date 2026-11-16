@@ -1,4 +1,4 @@
-import type { ApprovalRequest } from "@crh/api";
+import { type ApprovalRequest, quotaStatus } from "@crh/api";
 import { describe, expect, it } from "vitest";
 import { type ChatCard, renderCard, renderCardLine, TELEGRAM_LINE_BREAK } from "../src/channels/card.ts";
 import { messagesFor } from "../src/channels/messages.ts";
@@ -7,7 +7,7 @@ const request = (overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => (
 	kind: "task",
 	id: "task-1",
 	phase: "awaiting_user",
-	requester: { type: "session", sessionId: "s1", title: "cleanup" },
+	source: { type: "session", sessionId: "s1", title: "cleanup" },
 	action: { type: "exec", command: "rm -rf /var/log/old/*.gz" },
 	nodes: ["app-1", "db-1"],
 	privileged: true,
@@ -22,7 +22,7 @@ const plain = (card: ChatCard, locale: "en" | "zh-CN" = "en") => renderCard(card
 
 describe("chat cards", () => {
 	it("renders an approval card with a bold title, hard breaks and one inline-code detail on Telegram", () => {
-		const card = messagesFor("en").approvalCard(request(), { withButtons: true, withRequester: false });
+		const card = messagesFor("en").approvalCard(request(), { withButtons: true, withSource: false });
 		expect(card).toEqual({
 			title: "Approval needed",
 			privileged: true,
@@ -33,17 +33,17 @@ describe("chat cards", () => {
 			hints: ["Reject with a reason: /reject task-1 reason"],
 		});
 		expect(telegram(card)).toBe(
-			[
+			`${[
 				"**Approval needed** · privileged",
 				"Nodes\\: app\\-1\\, db\\-1",
 				"🟡 Medium risk · deletion exceeds the instruction",
 				"`rm -rf /var/log/old/*.gz`",
-			].join(TELEGRAM_LINE_BREAK) + `\n\nReject with a reason: /reject task-1 reason`,
+			].join(TELEGRAM_LINE_BREAK)}\n\nReject with a reason: /reject task-1 reason`,
 		);
 	});
 
 	it("renders the same card as plain text on Satori, with no Markdown syntax", () => {
-		const card = messagesFor("en").approvalCard(request(), { withButtons: false, withRequester: false });
+		const card = messagesFor("en").approvalCard(request(), { withButtons: false, withSource: false });
 		expect(plain(card)).toBe(
 			[
 				"Approval needed · privileged",
@@ -60,46 +60,46 @@ describe("chat cards", () => {
 		expect(telegram(card)).not.toContain("**Approval needed** · privileged\\\nNodes:\\");
 	});
 
-	it("adds the requester only when no source thread routed the card", () => {
-		const withoutRequester = messagesFor("en").approvalCard(request(), {
+	it("adds the source only when no source thread routed the card", () => {
+		const withoutSource = messagesFor("en").approvalCard(request(), {
 			withButtons: false,
-			withRequester: false,
+			withSource: false,
 		});
-		expect(withoutRequester.meta).toBe("Nodes: app-1, db-1");
-		const withRequester = messagesFor("en").approvalCard(request(), {
+		expect(withoutSource.meta).toBe("Nodes: app-1, db-1");
+		const withSource = messagesFor("en").approvalCard(request(), {
 			withButtons: false,
-			withRequester: true,
+			withSource: true,
 		});
-		expect(withRequester.meta).toBe("Nodes: app-1, db-1 · From session “cleanup”");
-		expect(plain(withRequester)).toContain("Nodes: app-1, db-1 · From session “cleanup”");
-		expect(telegram(withRequester)).toContain("Nodes\\: app\\-1\\, db\\-1 · From session “cleanup”");
+		expect(withSource.meta).toBe("Nodes: app-1, db-1 · Source: Session cleanup");
+		expect(plain(withSource)).toContain("Nodes: app-1, db-1 · Source: Session cleanup");
+		expect(telegram(withSource)).toContain("Nodes\\: app\\-1\\, db\\-1 · Source\\: Session cleanup");
 
 		const token = messagesFor("en").approvalCard(
 			request({
-				requester: { type: "api_token", tokenId: "t1", name: "deploy" },
+				source: { type: "api_token", tokenId: "t1", name: "deploy" },
 				nodes: undefined,
 				review: undefined,
 			}),
-			{ withButtons: false, withRequester: true },
+			{ withButtons: false, withSource: true },
 		);
-		expect(token.meta).toBe("From API token “deploy”");
+		expect(token.meta).toBe("Source: API token deploy");
 		expect(token.risk).toBeUndefined();
 	});
 
 	it("shows the review risk with its emoji and localized level, and no review line without one", () => {
 		const low = messagesFor("en").approvalCard(request({ review: { risk: "low", reason: "read-only" } }), {
 			withButtons: false,
-			withRequester: false,
+			withSource: false,
 		});
 		expect(plain(low)).toContain("🟢 Low risk · read-only");
 		const high = messagesFor("zh-CN").approvalCard(request({ review: { risk: "high", reason: "删除系统文件" } }), {
 			withButtons: false,
-			withRequester: false,
+			withSource: false,
 		});
 		expect(plain(high, "zh-CN")).toContain("🔴 高风险 · 删除系统文件");
 		const none = messagesFor("en").approvalCard(request({ review: undefined }), {
 			withButtons: false,
-			withRequester: false,
+			withSource: false,
 		});
 		expect(none.risk).toBeUndefined();
 		expect(plain(none)).not.toContain("risk");
@@ -114,28 +114,28 @@ describe("chat cards", () => {
 				privileged: false,
 				review: undefined,
 			}),
-			{ withButtons: false, withRequester: false },
+			{ withButtons: false, withSource: false },
 		);
 		expect(file.detail).toBe("Read file /etc/hosts (lines 2-4)");
 		const api = labels.approvalCard(request({ action: { type: "api_request", method: "GET", path: "/api/nodes" } }), {
 			withButtons: false,
-			withRequester: false,
+			withSource: false,
 		});
 		expect(api.detail).toBe("GET /api/nodes");
 		const tool = labels.approvalCard(
 			request({ action: { type: "extension_tool", extension: "github", tool: "create_issue" } }),
-			{ withButtons: false, withRequester: false },
+			{ withButtons: false, withSource: false },
 		);
 		expect(tool.detail).toBe("github/create_issue");
 		expect(plain(file)).toContain("Read file /etc/hosts (lines 2-4)");
 	});
 
 	it("renders the Chinese approval card", () => {
-		const card = messagesFor("zh-CN").approvalCard(request(), { withButtons: true, withRequester: true });
+		const card = messagesFor("zh-CN").approvalCard(request(), { withButtons: true, withSource: true });
 		expect(plain(card, "zh-CN")).toBe(
 			[
 				"需要你的审批 · 特权",
-				"节点：app-1、db-1 · 来自会话“cleanup”",
+				"节点：app-1、db-1 · 请求源：会话 cleanup",
 				"🟡 中风险 · deletion exceeds the instruction",
 				"rm -rf /var/log/old/*.gz",
 				"",
@@ -154,7 +154,7 @@ describe("chat cards", () => {
 				review: undefined,
 			}),
 			"https://crh.example/approvals/tasks/task-1",
-			{ withRequester: false },
+			{ withSource: false },
 		);
 		expect(card.title).toBe("Signature needed");
 		expect(card.hints).toEqual(["Sign in the WebUI: https://crh.example/approvals/tasks/task-1"]);
@@ -172,17 +172,17 @@ describe("chat cards", () => {
 	});
 
 	it("renders the quota card with the session title once, never wrapped in sessionBody", () => {
-		const card = messagesFor("en").quotaCard("Clean up", 0, 120);
+		const card = messagesFor("en").quotaCard("Clean up", quotaStatus(0, 120));
 		expect(card).toEqual({
 			title: "Token quota used up",
 			privileged: false,
 			meta: "Clean up",
-			detail: "used 120 · remaining 0",
+			detail: "Used up, over by 0",
 			hints: ["Continue: /quota add <tokens>", "End this turn: /quota stop"],
 		});
 		const text = telegram(card);
 		expect(text).toBe(
-			["**Token quota used up**", "Clean up", "`used 120 · remaining 0`"].join(TELEGRAM_LINE_BREAK) +
+			["**Token quota used up**", "Clean up", "`Used up, over by 0`"].join(TELEGRAM_LINE_BREAK) +
 				`\n\nContinue: /quota add \\<tokens\\>\\\nEnd this turn: /quota stop`,
 		);
 		expect(text.split("Clean up")).toHaveLength(2);
@@ -191,18 +191,30 @@ describe("chat cards", () => {
 			[
 				"Token quota used up",
 				"Clean up",
-				"used 120 · remaining 0",
+				"Used up, over by 0",
 				"",
 				"Continue: /quota add <tokens>",
 				"End this turn: /quota stop",
 			].join("\n"),
 		);
-		const zh = messagesFor("zh-CN").quotaCard("", 3, 42);
+		const zh = messagesFor("zh-CN").quotaCard("", quotaStatus(3, 42));
 		expect(plain(zh, "zh-CN")).toBe(
 			["令牌配额已用完", "新会话", "已用 42 · 剩余 3", "", "继续：/quota add <tokens>", "结束本回合：/quota stop"].join(
 				"\n",
 			),
 		);
+	});
+
+	it("words a used-up and a remaining quota with one order and full separators", () => {
+		const en = messagesFor("en");
+		expect(en.quotaUsedUp(1234, 5678)).toContain("Used up, over by 1,234 tokens (5,678 used).");
+		expect(en.quotaRemaining(5678, 1234)).toBe("Used 5,678 · 1,234 left.");
+		expect(en.quotaCard("Clean up", quotaStatus(-300, 12_000)).detail).toBe("Used up, over by 300");
+		expect(en.quotaCard("Clean up", quotaStatus(3, 12_000)).detail).toBe("Used 12,000 · 3 left");
+		const zh = messagesFor("zh-CN");
+		expect(zh.quotaUsedUp(1234, 5678)).toContain("已用完，超出 1,234 个令牌（已用 5,678）。");
+		expect(zh.quotaRemaining(5678, 1234)).toBe("已用 5,678 · 剩余 1,234。");
+		expect(zh.quotaCard("", quotaStatus(-300, 12_000)).detail).toBe("已用完，超出 300");
 	});
 
 	it("renders every result line and its localization", () => {

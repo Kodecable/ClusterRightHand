@@ -104,6 +104,21 @@ denied (by a rule, at creation)
 - `exited` means the command ran and reported an exit code, including non-zero codes. `failed` means
   it could not run or complete.
 
+### Task outcome
+
+The server classifies every terminal task once, and the API view carries that `outcome`. Priority when
+several flags hold: cancelled > timed out > signal > rejected/denied > platform error > unknown > exit
+code. Cancelled is not a failure (it is muted), while rejected, denied, timed out, signalled, errored
+and unknown are. Exit 0 succeeds; an exec task keeps its code (`Exit code 0`), a file operation just
+reads **Done**. A task group's outcome follows the same rules: cancelled is not failed, rejected and
+interrupted are, and a finished group fails when any member failed. The model-facing task text and every
+WebUI surface read the same classification, so one result cannot be green in one place and red in another.
+
+The view also carries the one structured task action (exec command, file operation with an optional line
+range, API request, or extension tool) built from the stored spec. The tasks list, the task page, the
+approvals table, decision cards and the chat cards all render that model through one function; `summarize`
+keeps the model-facing and log text but derives it from the same action.
+
 `unknown` is the only state for "the outcome is not known": the connection was lost and could not be
 recovered, the node restarted and no longer knows the task, or the node never confirmed that it
 accepted the task. crhs does not guess; the agent or user decides whether to inspect the machine and

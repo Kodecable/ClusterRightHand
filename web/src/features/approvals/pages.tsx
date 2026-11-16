@@ -1,9 +1,9 @@
 import type {
 	ApprovalRequest,
-	ApprovalRequester,
 	ExternalCallView,
 	QuotaApproval,
 	RefMap,
+	RequestSource as RequestSourceValue,
 	TaskGroupView,
 	TaskView,
 } from "@crh/api";
@@ -15,21 +15,21 @@ import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon } from "lucide-react";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/components/data-table";
-import { ApprovalPanel, approvalActionDetail, RequestDetails } from "@/components/decision";
+import { ApprovalPanel, RequestDetails } from "@/components/decision";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
+import { RequestSource } from "@/components/request-source";
 import { PageSkeleton } from "@/components/skeletons";
 import { ExternalCallStatusBadge, TaskStatusBadge } from "@/components/status-badge";
-import { UserLink } from "@/components/user-link";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { sessionTitle } from "@/features/sessions/session-item";
 import { TaskGroupStatus } from "@/features/tasks/task-group-result";
+import { actionText } from "@/lib/action-text";
 import { isNotFound } from "@/lib/api/client";
-import { actorLabel } from "@/lib/approval-rules";
 import { taskTitle } from "@/lib/task-title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import {
@@ -61,9 +61,8 @@ interface DecisionRow {
 	nodeIds?: string[];
 	moreNodes?: number;
 	refs?: RefMap;
-	/** The requester from the compact request, when the server returned one. */
-	requester?: ApprovalRequester;
-	actor?: { type: string; id: string };
+	/** Who asked; every endpoint returns it, either on the request or on the view. */
+	source?: RequestSourceValue;
 	requestedAt: string;
 	link: DataTableRowLink;
 	label: string;
@@ -82,15 +81,15 @@ function taskRow(
 	request: ApprovalRequest | undefined,
 	i18n: I18n,
 ): DecisionRow {
-	const operation = request !== undefined ? approvalActionDetail(i18n, request.action) : taskTitle(task);
+	const operation = request !== undefined ? actionText(i18n, request.action) : taskTitle(i18n, task);
 	return {
 		key: `${type}:task:${task.id}`,
 		type,
 		operation,
 		...(request !== undefined
-			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes, requester: request.requester }
+			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes }
 			: { nodeIds: [task.nodeId] }),
-		actor: { type: task.actorType, id: task.actorId },
+		source: request?.source ?? task.source,
 		requestedAt: task.createdAt,
 		link: { to: "/approvals/tasks/$taskId", params: { taskId: task.id } },
 		label: operation,
@@ -103,15 +102,15 @@ function taskGroupRow(
 	request: ApprovalRequest | undefined,
 	i18n: I18n,
 ): DecisionRow {
-	const operation = request !== undefined ? approvalActionDetail(i18n, request.action) : taskTitle(taskGroup);
+	const operation = request !== undefined ? actionText(i18n, request.action) : taskTitle(i18n, taskGroup);
 	return {
 		key: `${type}:task-group:${taskGroup.id}`,
 		type,
 		operation,
 		...(request !== undefined
-			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes, requester: request.requester }
+			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes }
 			: { nodeIds: taskGroup.targets, refs: taskGroup.refs }),
-		actor: { type: taskGroup.actorType, id: taskGroup.actorId },
+		source: request?.source ?? taskGroup.source,
 		requestedAt: taskGroup.createdAt,
 		link: { to: "/approvals/task-groups/$taskGroupId", params: { taskGroupId: taskGroup.id } },
 		label: operation,
@@ -130,7 +129,7 @@ function externalCallRow(call: ExternalCallView, request: ApprovalRequest | unde
 			: "";
 	const operation =
 		request !== undefined
-			? approvalActionDetail(i18n, request.action)
+			? actionText(i18n, request.action)
 			: legacy === ""
 				? `${call.extension}/${call.tool}`
 				: legacy;
@@ -138,10 +137,8 @@ function externalCallRow(call: ExternalCallView, request: ApprovalRequest | unde
 		key: `approval:external-call:${call.id}`,
 		type: "approval",
 		operation,
-		...(request !== undefined
-			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes, requester: request.requester }
-			: {}),
-		actor: { type: call.actorType, id: call.actorId },
+		...(request !== undefined ? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes } : {}),
+		source: request?.source ?? call.source,
 		requestedAt: call.createdAt,
 		link: { to: "/approvals/external-calls/$externalCallId", params: { externalCallId: call.id } },
 		label: operation,
@@ -167,50 +164,10 @@ function nodeNamesText(names: readonly string[], moreNodes: number | undefined, 
 	return moreNodes === undefined || moreNodes === 0 ? text : `${text} +${moreNodes}`;
 }
 
-/** The requester from the compact request, or the old actor fields when an endpoint has no model. */
-function AskedBy({
-	row,
-	userNames,
-	tokenNames,
-}: {
-	row: DecisionRow;
-	userNames: Map<string, string>;
-	tokenNames: Map<string, string>;
-}) {
-	const { t } = useLingui();
-	if (row.requester !== undefined) {
-		switch (row.requester.type) {
-			case "session": {
-				const title = (
-					<Link
-						to="/sessions/$sessionId"
-						params={{ sessionId: row.requester.sessionId }}
-						className="underline underline-offset-2"
-					>
-						{row.requester.title.trim() === "" ? t`New Session` : row.requester.title}
-					</Link>
-				);
-				return (
-					<span className="truncate">
-						<Trans>Session “{title}”</Trans>
-					</span>
-				);
-			}
-			case "api_token":
-				return (
-					<span className="truncate">
-						<Trans>API token “{row.requester.name}”</Trans>
-					</span>
-				);
-			case "user":
-				return (
-					<UserLink id={row.requester.userId} name={userNames.get(row.requester.userId) ?? row.requester.username} />
-				);
-		}
-	}
-	if (row.actor === undefined) return <>–</>;
-	if (row.actor.type === "user") return <UserLink id={row.actor.id} name={userNames.get(row.actor.id)} />;
-	return <span className="truncate">{actorLabel(row.actor.type, row.actor.id, tokenNames)}</span>;
+/** The source cell every row reads from the same model. */
+function SourceCell({ row }: { row: DecisionRow }) {
+	if (row.source === undefined) return <span className="text-muted-foreground">–</span>;
+	return <RequestSource source={row.source} className="block truncate leading-5" />;
 }
 
 /**
@@ -305,10 +262,10 @@ export function ApprovalsPage() {
 				},
 			},
 			{
-				id: "asked-by",
-				header: t`Asked by`,
-				size: 140,
-				cell: ({ row }) => <AskedBy row={row.original} userNames={lookups.userNames} tokenNames={lookups.tokenNames} />,
+				id: "source",
+				header: t`Source`,
+				size: 160,
+				cell: ({ row }) => <SourceCell row={row.original} />,
 			},
 			{
 				id: "requested",
@@ -317,7 +274,7 @@ export function ApprovalsPage() {
 				cell: ({ row }) => <RelativeTime value={row.original.requestedAt} />,
 			},
 		],
-		[t, i18n, lookups.nodeNames, lookups.userNames, lookups.tokenNames],
+		[t, i18n, lookups.nodeNames],
 	);
 
 	return (
@@ -421,7 +378,10 @@ export function ApprovalTaskPage() {
 			) : awaitingSignature && request !== undefined ? (
 				<SignatureWait request={request} variant="page" onChanged={() => void task.refetch()} />
 			) : !awaitingApproval && !awaitingSignature ? (
-				<Settled status={<TaskStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
+				<Settled
+					status={<TaskStatusBadge state={view.state} outcome={view.outcome} />}
+					title={<Trans>Already settled</Trans>}
+				>
 					<Link to="/tasks/$taskId" params={{ taskId: view.id }} className={linkClass}>
 						<Trans>Open the task</Trans>
 					</Link>
@@ -469,7 +429,10 @@ export function ApprovalTaskGroupPage() {
 			) : awaitingSignature && request !== undefined ? (
 				<SignatureWait request={request} variant="page" onChanged={() => void taskGroup.refetch()} />
 			) : !awaitingApproval && !awaitingSignature ? (
-				<Settled status={<TaskGroupStatus state={view.state} />} title={<Trans>Already settled</Trans>}>
+				<Settled
+					status={<TaskGroupStatus state={view.state} outcome={view.outcome} />}
+					title={<Trans>Already settled</Trans>}
+				>
 					<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: view.id }} className={linkClass}>
 						<Trans>Open the task group</Trans>
 					</Link>

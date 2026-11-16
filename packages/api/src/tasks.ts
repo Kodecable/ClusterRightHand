@@ -24,6 +24,9 @@ export type BatchOutputMode = z.infer<typeof BatchOutputModeSchema>;
 
 export type TaskGroupState = z.infer<typeof TaskGroupStateSchema>;
 
+export type { TaskAction } from "./task-action.ts";
+export type { TaskOutcome } from "./task-outcome.ts";
+
 /** One entry of a `file.list` result (doc/design/protocol.md "Task results"). */
 export type FileListEntryView = JsonFileListEntry;
 
@@ -38,7 +41,7 @@ export interface TaskListQuery extends CursorQuery {
 	state?: TaskState;
 	actorType?: string;
 	nodeId?: string;
-	/** Tasks whose requesting user (`onBehalfOfUserId`, the "By" column) is this user. */
+	/** Tasks whose acting user (`onBehalfOfUserId`) is this user. */
 	userId?: string;
 	/** Include tasks a dedicated feature created, such as node file browsing (doc/design/execution.md "Task purpose"). */
 	includePurpose?: boolean;

@@ -19,6 +19,9 @@ const task = (overrides: Partial<TaskView> = {}): TaskView =>
 		nodeId: "node-1",
 		kind: "exec",
 		summary: OPERATION,
+		action: { type: "exec", command: OPERATION },
+		source: { type: "user", userId: "u1", username: "ada" },
+		outcome: null,
 		operation: { method: "exec", target: OPERATION },
 		actorType: "user",
 		actorId: "u1",
@@ -39,6 +42,9 @@ const group = (overrides: Partial<TaskGroupView> = {}): TaskGroupView =>
 		state: "awaiting_approval",
 		kind: "exec",
 		summary: "restart all",
+		action: { type: "exec", command: "restart all" },
+		source: { type: "user", userId: "u1", username: "ada" },
+		outcome: null,
 		targets: ["node-1", "node-2"],
 		refs: { "node-1": { kind: "node", name: "worker-01" }, "node-2": { kind: "node", name: "worker-02" } },
 		nodeIds: ["node-1", "node-2"],
@@ -78,7 +84,7 @@ const taskRequest = (view: TaskView, overrides: Partial<ApprovalRequest> = {}): 
 	kind: "task",
 	id: view.id,
 	phase: view.phase ?? (view.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
-	requester: { type: "user", userId: "u1", username: "ada" },
+	source: { type: "user", userId: "u1", username: "ada" },
 	action: { type: "exec", command: view.summary || view.id },
 	nodes: ["worker-01"],
 	moreNodes: 2,
@@ -95,7 +101,7 @@ const groupRequest = (view: TaskGroupView, overrides: Partial<ApprovalRequest> =
 	kind: "task_group",
 	id: view.id,
 	phase: view.phase ?? (view.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
-	requester: { type: "user", userId: "u1", username: "ada" },
+	source: { type: "user", userId: "u1", username: "ada" },
 	action: { type: "exec", command: view.summary || view.id },
 	nodes: ["worker-01", "worker-02"],
 	privileged: view.privileged,
@@ -119,7 +125,7 @@ const callRequest = (view: ExternalCallView, overrides: Partial<ApprovalRequest>
 		kind: "external_call",
 		id: view.id,
 		phase: view.phase,
-		requester: { type: "user", userId: "u1", username: "ada" },
+		source: { type: "user", userId: "u1", username: "ada" },
 		action: apiRequest
 			? { type: "api_request", method: "POST", path: "/api/sessions" }
 			: { type: "extension_tool", extension: view.extension, tool: view.tool },
@@ -157,7 +163,7 @@ const approvals = (): ApprovalList => {
 			taskGroups: [],
 		},
 		requests: [
-			taskRequest(taskView, { requester: { type: "session", sessionId: "s1", title: "Clean up" } }),
+			taskRequest(taskView, { source: { type: "session", sessionId: "s1", title: "Clean up" } }),
 			taskRequest(signatureView),
 			groupRequest(groupView),
 		],
@@ -186,6 +192,7 @@ const externalCall = (overrides: Partial<ExternalCallView> = {}): ExternalCallVi
 		approval: { evaluation: { result: "require-approval", levels: [] } },
 		actorType: "user",
 		actorId: "u1",
+		source: { type: "user", userId: "u1", username: "ada" },
 		onBehalfOfUserId: "u1",
 		rootSessionId: null,
 		handlerType: "user",
@@ -301,6 +308,8 @@ describe("ApprovalsPage", () => {
 		await screen.findByTestId("approvals-page");
 		const table = await screen.findByRole("table", { name: "Waiting for you" });
 
+		expect(within(table).getByRole("columnheader", { name: "Source" })).toBeInTheDocument();
+		expect(within(table).queryByRole("columnheader", { name: "Asked by" })).not.toBeInTheDocument();
 		expect(within(table).getAllByText("Approval")).toHaveLength(2);
 		expect(within(table).getByText("Signature")).toBeInTheDocument();
 		expect(within(table).getByText("Quota")).toBeInTheDocument();
@@ -312,9 +321,9 @@ describe("ApprovalsPage", () => {
 		expect(table).toHaveTextContent("worker-01 +2");
 		expect(table).toHaveTextContent("worker-02");
 		expect(within(table).queryByText("node-2")).not.toBeInTheDocument();
-		// The asked-by cell reads the compact request: a session requester links to its session, users to theirs.
+		// The source cell reads the compact request: a session title links to its session, users to theirs.
 		expect(within(table).getByRole("link", { name: "Clean up" })).toHaveAttribute("href", "/sessions/s1");
-		for (const link of within(table).getAllByRole("link", { name: "Ada" })) {
+		for (const link of within(table).getAllByRole("link", { name: "ada" })) {
 			expect(link).toHaveAttribute("href", "/users/u1");
 		}
 		expect(within(table).getAllByRole("time").length).toBe(4);

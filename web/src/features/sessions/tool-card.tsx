@@ -2,6 +2,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircleIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { taskOutcomeText } from "@/components/task-outcome";
 import { taskGroupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
 import { isNotFound } from "@/lib/api/client";
 import { formatBytes } from "@/lib/format";
@@ -10,7 +11,13 @@ import { cn } from "@/lib/utils";
 import { callStillOpen, detailId, type ToolItem, toolLine } from "./tool-call";
 import { reviewingDetails, viewImageDetails } from "./tool-details";
 import { ToolDialog } from "./tool-dialog";
-import { type ToolFailure, taskGroupViewFailure, taskViewFailure, toolResultFailure } from "./tool-failure";
+import {
+	type ToolFailure,
+	taskGroupViewFailure,
+	taskViewFailure,
+	toolResultFailure,
+	toolResultOutcome,
+} from "./tool-failure";
 import type { TranscriptStreams } from "./transcript-streams";
 
 /** How often an open call re-reads the task or task group it follows. */
@@ -57,6 +64,9 @@ export function ToolCard({
 	const result = item.result;
 	const returned = result !== undefined;
 	const failure = result === undefined ? undefined : toolResultFailure(result);
+	// A task result's outcome decides the colour even when the call reports `isError`: a cancelled task is
+	// muted, and `isError` only names the model-facing error of a call with no task outcome.
+	const resultOutcome = result === undefined ? undefined : toolResultOutcome(result);
 	// Only a call without a result follows a task or task group: a returned call must not fetch.
 	const taskId = returned ? undefined : detailId(item.details, "task_id");
 	const taskGroupId = returned ? undefined : detailId(item.details, "task_group_id");
@@ -110,7 +120,11 @@ export function ToolCard({
 		}
 	}
 	// A task failure is a failed card even though the call itself returned normally.
-	const failed = returned ? result.isError || failure !== undefined : outcome !== undefined && outcome !== "done";
+	const failed = returned
+		? resultOutcome === undefined
+			? result.isError || failure !== undefined
+			: resultOutcome.failed
+		: outcome !== undefined && outcome !== "done";
 	const status = returned
 		? failed
 			? "failed"
@@ -125,21 +139,22 @@ export function ToolCard({
 				? "failed"
 				: "empty";
 	// The icon is the only status signal: its accessible name and tooltip say what a badge used to show.
+	// The server's outcome names the result; a group whose members disagree says so.
 	const failureLabel = (value: ToolFailure): string =>
-		value.kind === "partly-failed"
-			? t`Partly failed`
-			: value.reason === "cancelled"
-				? t`Cancelled`
-				: value.reason === "timed-out"
-					? t`Timed out`
-					: value.reason === "exit"
-						? t`Exit ${value.exitCode ?? ""}`
-						: t`Failed`;
+		value.kind === "partly-failed" ? t`Partly failed` : taskOutcomeText(i18n, value.outcome);
+	const followedOutcome =
+		followedTask?.outcome ?? (followedTaskGroup === undefined ? undefined : followedTaskGroup.outcome);
 	let statusLabel: string;
-	if (returned) statusLabel = failure === undefined ? (failed ? t`Failed` : t`Done`) : failureLabel(failure);
-	else if (spinning) statusLabel = t`Running`;
+	if (returned) {
+		if (failure !== undefined) statusLabel = failureLabel(failure);
+		else if (resultOutcome !== undefined) statusLabel = taskOutcomeText(i18n, resultOutcome);
+		else statusLabel = failed ? t`Failed` : t`Done`;
+	} else if (spinning) statusLabel = t`Running`;
 	else if (outcome === undefined) statusLabel = t`No result`;
-	else statusLabel = outcome === "done" ? t`Done` : failureLabel(outcome);
+	else if (outcome === "done")
+		statusLabel =
+			followedOutcome === null || followedOutcome === undefined ? t`Done` : taskOutcomeText(i18n, followedOutcome);
+	else statusLabel = failureLabel(outcome);
 	const line = toolLine(item.name, item.args);
 	const rest = line.slice(item.name.length);
 	const image = item.name === "view_image" ? viewImageDetails(result?.details ?? item.details) : undefined;

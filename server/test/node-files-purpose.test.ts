@@ -155,6 +155,12 @@ function fakeCluster(root: string) {
 		async getTask(id: string) {
 			return tasks.get(id);
 		},
+		async getTasks(ids: string[]) {
+			return ids.flatMap((id) => {
+				const task = tasks.get(id);
+				return task === undefined ? [] : [task];
+			});
+		},
 		async waitTask(id: string) {
 			return tasks.get(id);
 		},

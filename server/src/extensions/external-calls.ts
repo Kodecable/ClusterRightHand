@@ -6,12 +6,14 @@ import type {
 	ExternalCallState,
 	ExternalCallView,
 	Operation,
+	RequestSource,
 	Review,
 } from "@crh/api";
 import type { Selectable } from "kysely";
 import { agentRouting, approvalPhase, isPendingReview, mergeApproval, pendingReview } from "../cluster/approval.ts";
 import { type ChainLevel, evaluate } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
+import { requestSourcesFor, sourceActorKey } from "../request-source.ts";
 import type { Db } from "../storage/db.ts";
 import type { ExternalCallsTable } from "../storage/schema.ts";
 import { UserError } from "../util/errors.ts";
@@ -199,7 +201,7 @@ export function externalCallPhase(row: ExternalCallRow): ApprovalPhase {
 	return approvalPhase(row.state, row.handler_type, externalCallApproval(row)?.review);
 }
 
-function toView(row: ExternalCallRow): ExternalCallView {
+function toView(row: ExternalCallRow, source: RequestSource): ExternalCallView {
 	const approval = externalCallApproval(row);
 	return {
 		id: row.id,
@@ -212,6 +214,7 @@ function toView(row: ExternalCallRow): ExternalCallView {
 		approval,
 		actorType: row.actor_type,
 		actorId: row.actor_id,
+		source,
 		onBehalfOfUserId: row.on_behalf_of_user_id,
 		rootSessionId: row.root_session_id,
 		handlerType: row.handler_type as "agent" | "user" | null,
@@ -222,8 +225,20 @@ function toView(row: ExternalCallRow): ExternalCallView {
 	};
 }
 
-export async function externalCallViews(_db: Db, rows: readonly ExternalCallRow[]): Promise<ExternalCallView[]> {
-	return rows.map(toView);
+export async function externalCallViews(db: Db, rows: readonly ExternalCallRow[]): Promise<ExternalCallView[]> {
+	const sources = await requestSourcesFor(
+		db,
+		rows.map((row) => ({
+			actorType: row.actor_type,
+			actorId: row.actor_id,
+			onBehalfOfUserId: row.on_behalf_of_user_id,
+		})),
+	);
+	return rows.map((row) => {
+		const source = sources.get(sourceActorKey(row.actor_type, row.actor_id, row.on_behalf_of_user_id));
+		if (source === undefined) throw new Error("the external call's request source was not resolved");
+		return toView(row, source);
+	});
 }
 
 function withDecision(_row: ExternalCallRow, record: ApprovalRecord): string {

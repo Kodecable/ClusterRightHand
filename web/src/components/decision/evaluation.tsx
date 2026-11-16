@@ -5,9 +5,8 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { KeyValueList } from "@/components/key-value";
 import { DateTime } from "@/components/relative-time";
+import { RequestSource } from "@/components/request-source";
 import { StatusText } from "@/components/status-badge";
-import { UserLink } from "@/components/user-link";
-import { actorLabel } from "@/lib/approval-rules";
 import { ruleWithNames } from "@/lib/refs";
 import { ruleResultTone } from "@/lib/status";
 import { cn, MONO_CELL } from "@/lib/utils";
@@ -47,8 +46,8 @@ function scopeTypeText(i18n: I18n, type: string, id: string): string {
 }
 
 /**
- * An actor of a task: a user is a link to its page (the destination handles no
- * access); a token, system, agent or schedule actor stays plain text.
+ * An actor of a decision: a user is a link to their page (the destination handles no access), an API token
+ * reads by name and a system actor keeps a clear label, all through the one source component.
  */
 function ActorValue({
 	type,
@@ -61,8 +60,25 @@ function ActorValue({
 	tokenNames?: Map<string, string>;
 	userNames?: Map<string, string>;
 }) {
-	if (type === "user") return <UserLink id={id} name={userNames?.get(id)} title={`user:${id}`} />;
-	return <span>{actorLabel(type, id, tokenNames ?? new Map())}</span>;
+	if (type === "user") {
+		return <RequestSource source={{ type: "user", userId: id, username: userNames?.get(id) ?? id }} />;
+	}
+	if (type === "api_token") {
+		return <RequestSource source={{ type: "api_token", tokenId: id, name: tokenNames?.get(id) ?? id }} />;
+	}
+	if (type === "system" && id === "auto-review") return <RequestSource source={{ type: "auto_review" }} />;
+	return <RequestSource source={{ type: "system" }} />;
+}
+
+/** A rule chain scope in the same component where it names a session or a token; a schedule stays plain. */
+function ScopeValue({ type, id, tokenNames }: { type: string; id: string; tokenNames?: Map<string, string> }) {
+	if (type === "session") {
+		return <RequestSource source={{ type: "session", sessionId: id, title: id }} />;
+	}
+	if (type === "api_token") {
+		return <RequestSource source={{ type: "api_token", tokenId: id, name: tokenNames?.get(id) ?? id }} />;
+	}
+	return null;
 }
 
 /** The rule chain evaluation: each level's scope, the rule it matched, its own result and the cumulative result. */
@@ -82,15 +98,18 @@ export function EvaluationTable({
 			id: "level",
 			header: t`Level`,
 			size: 220,
-			cell: ({ row }) => (
-				<span className={MONO_CELL}>
-					{scopeTypeText(
-						i18n,
-						row.original.scope.type,
-						tokenNames?.get(row.original.scope.id) ?? row.original.scope.id,
-					)}
-				</span>
-			),
+			cell: ({ row }) => {
+				const scope = row.original.scope;
+				const named =
+					scope.type === "session" || scope.type === "api_token" ? (
+						<ScopeValue type={scope.type} id={scope.id} tokenNames={tokenNames} />
+					) : null;
+				return named === null ? (
+					<span className={MONO_CELL}>{scopeTypeText(i18n, scope.type, scope.id)}</span>
+				) : (
+					<span className={MONO_CELL}>{named}</span>
+				);
+			},
 			meta: {
 				title: (level: Evaluation["levels"][number]) =>
 					scopeTypeText(i18n, level.scope.type, tokenNames?.get(level.scope.id) ?? level.scope.id),

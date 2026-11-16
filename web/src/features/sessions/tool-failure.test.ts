@@ -1,301 +1,153 @@
-import type { TaskGroupView, TaskView } from "@crh/api";
+import type { TaskGroupView, TaskOutcome, TaskView } from "@crh/api";
 import { describe, expect, test } from "vitest";
-import { detailsFailure, taskGroupViewFailure, taskViewFailure, toolFailure, toolResultFailure } from "./tool-failure";
+import {
+	detailsFailure,
+	outcomeFailure,
+	taskGroupViewFailure,
+	taskViewFailure,
+	toolFailure,
+	toolResultFailure,
+	toolResultOutcome,
+} from "./tool-failure";
 
-const result = (value: Record<string, unknown>): string => JSON.stringify(value);
+const outcome = (overrides: Partial<TaskOutcome> = {}): TaskOutcome => ({
+	kind: "exit",
+	failed: true,
+	exitCode: 2,
+	...overrides,
+});
 
-const view = (overrides: Partial<TaskView> = {}): TaskView =>
+const task = (overrides: Partial<TaskView> = {}): TaskView =>
 	({
+		id: "t1",
 		state: "exited",
-		exitCode: 0,
-		signal: null,
-		timedOut: false,
-		cancelled: false,
+		exitCode: 2,
+		outcome: outcome(),
 		...overrides,
 	}) as TaskView;
 
 const group = (overrides: Partial<TaskGroupView> = {}): TaskGroupView =>
-	({ state: "finished", tasks: [view()], ...overrides }) as TaskGroupView;
+	({
+		id: "g1",
+		state: "finished",
+		outcome: outcome({ kind: "error", failed: true, errorCode: null, errorMessage: null, exitCode: undefined }),
+		tasks: [task(), task()],
+		...overrides,
+	}) as TaskGroupView;
+
+describe("outcomeFailure", () => {
+	test("reads the server's failed flag, including cancelled being not a failure", () => {
+		expect(outcomeFailure(outcome())).toEqual({ kind: "failed", outcome: outcome() });
+		expect(outcomeFailure({ kind: "cancelled", failed: false })).toBeUndefined();
+		expect(outcomeFailure(null)).toBeUndefined();
+	});
+});
 
 describe("toolFailure", () => {
-	test("a file read without an exit code is not a failure", () => {
-		// The shape `read_file` returns: no exit_code at all, so nothing may be inferred from its absence.
-		expect(toolFailure(result({ task_id: "t1", node: "web-1", state: "exited", lines: { from: 1, to: 10 } }))).toBe(
-			undefined,
-		);
-	});
-
-	test("an exited task with exit code 0 is not a failure", () => {
-		expect(toolFailure(result({ task_id: "t1", node: "web-1", state: "exited", exit_code: 0 }))).toBeUndefined();
-	});
-
-	test("a running task is not a failure", () => {
-		expect(toolFailure(result({ task_id: "t1", node: "web-1", state: "running" }))).toBeUndefined();
-		expect(toolFailure(result({ task_group_id: "g1", state: "running", nodes: [] }))).toBeUndefined();
-	});
-
-	test("a non-zero exit code is a failure with the code as its label", () => {
-		expect(toolFailure(result({ task_id: "t1", node: "web-1", state: "exited", exit_code: 2 }))).toEqual({
+	test("reads a single task's outcome from the JSON", () => {
+		expect(toolFailure(JSON.stringify({ task_id: "t1", state: "exited", outcome: outcome() }))).toEqual({
 			kind: "failed",
-			reason: "exit",
-			exitCode: 2,
+			outcome: outcome(),
 		});
-	});
-
-	test("a cancelled task is a failure, even when it exited", () => {
-		expect(toolFailure(result({ task_id: "t1", state: "exited", exit_code: 0, cancelled: true }))).toEqual({
-			kind: "failed",
-			reason: "cancelled",
-		});
-		expect(toolFailure(result({ task_id: "t1", state: "failed", cancelled: true }))).toEqual({
-			kind: "failed",
-			reason: "cancelled",
-		});
-	});
-
-	test("a timed-out task is a failure", () => {
-		expect(toolFailure(result({ task_id: "t1", state: "exited", timed_out: true }))).toEqual({
-			kind: "failed",
-			reason: "timed-out",
-		});
-	});
-
-	test("a signal is a failure", () => {
-		expect(toolFailure(result({ task_id: "t1", state: "exited", signal: "SIGKILL" }))).toEqual({
-			kind: "failed",
-			reason: "signal",
-		});
-	});
-
-	test("every failed state counts", () => {
-		for (const state of ["failed", "denied", "rejected", "unknown"] as const) {
-			expect(toolFailure(result({ task_id: "t1", state }))).toEqual({ kind: "failed", reason: "state" });
-		}
-	});
-
-	test("a finished group whose members all succeeded is not a failure", () => {
 		expect(
-			toolFailure(
-				result({
-					task_group_id: "g1",
-					state: "finished",
-					nodes: [
-						{ task_id: "t1", node: "a", state: "exited", exit_code: 0 },
-						{ task_id: "t2", node: "b", state: "exited", exit_code: 0 },
-					],
-				}),
-			),
+			toolFailure(JSON.stringify({ task_id: "t1", state: "exited", outcome: { kind: "cancelled", failed: false } })),
 		).toBeUndefined();
 	});
 
-	test("a group with one failed member is partly failed", () => {
+	test("reads a group and marks a partly failed member list", () => {
+		const partly = toolFailure(
+			JSON.stringify({
+				task_group_id: "g1",
+				state: "finished",
+				outcome: { kind: "error", failed: true, errorCode: null, errorMessage: null },
+				nodes: [
+					{ task_id: "t1", outcome: outcome({ kind: "succeeded", failed: false, exitCode: 0 }) },
+					{ task_id: "t2", outcome: outcome() },
+				],
+			}),
+		);
+		expect(partly?.kind).toBe("partly-failed");
+		const all = toolFailure(
+			JSON.stringify({
+				task_group_id: "g1",
+				state: "finished",
+				outcome: { kind: "error", failed: true, errorCode: null, errorMessage: null },
+				nodes: [
+					{ task_id: "t1", outcome: outcome() },
+					{ task_id: "t2", outcome: outcome() },
+				],
+			}),
+		);
+		expect(all?.kind).toBe("failed");
+	});
+
+	test("a cancelled group is not a failure", () => {
 		expect(
 			toolFailure(
-				result({
+				JSON.stringify({
 					task_group_id: "g1",
-					state: "finished",
-					nodes: [
-						{ task_id: "t1", node: "a", state: "exited", exit_code: 0 },
-						{ task_id: "t2", node: "b", state: "exited", exit_code: 1 },
-					],
+					state: "cancelled",
+					outcome: { kind: "cancelled", failed: false },
+					nodes: [],
 				}),
 			),
-		).toEqual({ kind: "partly-failed" });
-	});
-
-	test("a group all of whose members failed is failed", () => {
-		expect(
-			toolFailure(
-				result({
-					task_group_id: "g1",
-					state: "finished",
-					nodes: [
-						{ task_id: "t1", node: "a", state: "failed" },
-						{ task_id: "t2", node: "b", state: "exited", exit_code: 0, timed_out: true },
-					],
-				}),
-			),
-		).toEqual({ kind: "failed", reason: "state" });
-	});
-
-	test("an interrupted, rejected or cancelled group is failed", () => {
-		for (const state of ["interrupted", "rejected", "cancelled"]) {
-			expect(
-				toolFailure(
-					result({
-						task_group_id: "g1",
-						state,
-						nodes: [{ task_id: "t1", node: "a", state: "exited", exit_code: 0 }],
-					}),
-				),
-			).toEqual({ kind: "failed", reason: "state" });
-		}
-	});
-
-	test("a group with no member results is not a failure", () => {
-		expect(toolFailure(result({ task_group_id: "g1", state: "finished", nodes: [] }))).toBeUndefined();
-	});
-
-	test("a result that is not a task or a group has no failure", () => {
-		expect(toolFailure("not json")).toBeUndefined();
-		expect(toolFailure('{"subagents":[]}')).toBeUndefined();
-		expect(toolFailure(JSON.stringify(["a"]))).toBeUndefined();
+		).toBeUndefined();
 	});
 });
 
 describe("toolResultFailure", () => {
 	test("reads a single task's failure from the details", () => {
 		expect(
-			toolResultFailure({
-				text: "raw output\nweb-1 · exit 2",
-				isError: true,
-				details: { task_id: "t1", node: "web-1", state: "exited", exit_code: 2 },
-			}),
-		).toEqual({ kind: "failed", reason: "exit", exitCode: 2 });
+			toolResultFailure({ text: "ignored", isError: false, details: { task_id: "t1", outcome: outcome() } }),
+		).toEqual({ kind: "failed", outcome: outcome() });
 	});
 
-	test("reads a task group's members from the details", () => {
-		expect(
-			toolResultFailure({
-				text: "task group g1 · 2 nodes · 1 succeeded, 1 failed",
-				isError: true,
-				details: {
-					task_group_id: "g1",
-					state: "finished",
-					nodes: [
-						{ task_id: "t1", node: "a", state: "exited", exit_code: 0 },
-						{ task_id: "t2", node: "b", state: "exited", exit_code: 1 },
-					],
-				},
-			}),
-		).toEqual({ kind: "partly-failed" });
-	});
-
-	test("falls back to the old result JSON when there are no details", () => {
-		expect(
-			toolResultFailure({
-				text: result({ task_id: "t1", state: "exited", exit_code: 2 }),
-				isError: true,
-				details: undefined,
-			}),
-		).toEqual({ kind: "failed", reason: "exit", exitCode: 2 });
-		expect(
-			toolResultFailure({
-				text: result({ task_group_id: "g1", state: "finished", nodes: [{ task_id: "t1", state: "failed" }] }),
-				isError: true,
-				details: undefined,
-			}),
-		).toEqual({ kind: "failed", reason: "state" });
-	});
-
-	test("an isError result without a task verdict is a failure", () => {
-		expect(toolResultFailure({ text: "error no_such_task: gone", isError: true, details: undefined })).toEqual({
-			kind: "failed",
-			reason: "state",
-		});
-		expect(
-			toolResultFailure({
-				text: '{"error":{"code":"invalid_argument","message":"bad"}}',
-				isError: true,
-				details: undefined,
-			}),
-		).toEqual({ kind: "failed", reason: "state" });
-		expect(
-			toolResultFailure({
-				text: "a file was read",
-				isError: true,
-				details: { task_id: "t1", node: "web-1", state: "exited" },
-			}),
-		).toEqual({ kind: "failed", reason: "state" });
-	});
-
-	test("a new text result does not parse its output as an old JSON result", () => {
-		// The raw block happens to be a task-shaped JSON object; the details say the task exited cleanly.
-		expect(
-			toolResultFailure({
-				text: '{"task_id":"other","state":"failed"}web-1 · exit 0',
-				isError: false,
-				details: { task_id: "t1", node: "web-1", state: "exited", exit_code: 0 },
-			}),
-		).toBeUndefined();
-	});
-
-	test("a clean result, an unknown details shape and a non-task result have no failure", () => {
-		expect(
-			toolResultFailure({
-				text: "web-1 · exit 0",
-				isError: false,
-				details: { task_id: "t1", node: "web-1", state: "exited", exit_code: 0 },
-			}),
-		).toBeUndefined();
-		expect(toolResultFailure({ text: "plain", isError: false, details: null })).toBeUndefined();
+	test("an isError result without a task verdict is still a failure", () => {
+		expect(toolResultFailure({ text: "plain", isError: true, details: undefined })).toMatchObject({ kind: "failed" });
 		expect(toolResultFailure({ text: "plain", isError: false, details: { subagents: [] } })).toBeUndefined();
-		expect(toolResultFailure({ text: "plain", isError: false, details: ["t1"] })).toBeUndefined();
 	});
 });
 
 describe("detailsFailure", () => {
-	test("uses the same rules as the old JSON text", () => {
-		expect(detailsFailure({ task_id: "t1", node: "web-1", state: "exited", exit_code: 2 })).toEqual({
+	test("uses the server's outcome, never the raw flags", () => {
+		expect(detailsFailure({ task_id: "t1", state: "exited", exit_code: 2 })).toBeUndefined();
+		expect(detailsFailure({ task_id: "t1", state: "exited", outcome: outcome() })).toEqual({
 			kind: "failed",
-			reason: "exit",
-			exitCode: 2,
+			outcome: outcome(),
 		});
-		expect(detailsFailure({ task_id: "t1", state: "running" })).toBeUndefined();
-		expect(detailsFailure({ task_id: "t1", state: "exited", cancelled: true })).toEqual({
-			kind: "failed",
-			reason: "cancelled",
-		});
-		expect(detailsFailure({ task_group_id: "g1", state: "rejected", nodes: [] })).toEqual({
-			kind: "failed",
-			reason: "state",
-		});
-		expect(detailsFailure({ task_id: "t1", state: "exited" })).toBeUndefined();
+	});
+});
+
+describe("toolResultOutcome", () => {
+	test("returns the task outcome a returned result carries", () => {
+		expect(toolResultOutcome({ text: "", details: { task_id: "t1", outcome: outcome() } })).toEqual(outcome());
+		expect(toolResultOutcome({ text: "", details: { subagents: [] } })).toBeUndefined();
 	});
 });
 
 describe("taskViewFailure", () => {
-	test("a clean exit and an open task are not failures", () => {
-		expect(taskViewFailure(view())).toBeUndefined();
-		expect(taskViewFailure(view({ state: "running", exitCode: null }))).toBeUndefined();
-		expect(taskViewFailure(view({ state: "awaiting_approval", exitCode: null }))).toBeUndefined();
-	});
-
-	test("the stored fields fail exactly like a result's JSON", () => {
-		expect(taskViewFailure(view({ exitCode: 2 }))).toEqual({ kind: "failed", reason: "exit", exitCode: 2 });
-		expect(taskViewFailure(view({ signal: "SIGKILL" }))).toEqual({ kind: "failed", reason: "signal" });
-		expect(taskViewFailure(view({ timedOut: true }))).toEqual({ kind: "failed", reason: "timed-out" });
-		expect(taskViewFailure(view({ cancelled: true }))).toEqual({ kind: "failed", reason: "cancelled" });
-		expect(taskViewFailure(view({ exitCode: 0, cancelled: true }))).toEqual({
-			kind: "failed",
-			reason: "cancelled",
-		});
-		for (const state of ["failed", "denied", "rejected", "unknown"] as const) {
-			expect(taskViewFailure(view({ state })), state).toEqual({ kind: "failed", reason: "state" });
-		}
+	test("reads the view's outcome", () => {
+		expect(taskViewFailure(task())).toEqual({ kind: "failed", outcome: outcome() });
+		expect(taskViewFailure(task({ outcome: { kind: "succeeded", failed: false, exitCode: 0 } }))).toBeUndefined();
+		expect(taskViewFailure(task({ outcome: null }))).toBeUndefined();
 	});
 });
 
 describe("taskGroupViewFailure", () => {
-	test("a finished group whose members all succeeded is not a failure", () => {
-		expect(taskGroupViewFailure(group())).toBeUndefined();
-		expect(taskGroupViewFailure(group({ tasks: [] }))).toBeUndefined();
-	});
-
 	test("a group with some failed members is partly failed", () => {
-		expect(taskGroupViewFailure(group({ tasks: [view(), view({ exitCode: 1 })] }))).toEqual({ kind: "partly-failed" });
-	});
-
-	test("a group all of whose members failed is failed", () => {
-		expect(taskGroupViewFailure(group({ tasks: [view({ state: "failed" }), view({ timedOut: true })] }))).toEqual({
-			kind: "failed",
-			reason: "state",
+		const partly = group({
+			tasks: [
+				task({ id: "t1", outcome: { kind: "succeeded", failed: false, exitCode: 0 } }),
+				task({ id: "t2", outcome: outcome() }),
+			],
 		});
+		expect(taskGroupViewFailure(partly)?.kind).toBe("partly-failed");
 	});
 
-	test("an interrupted, rejected or cancelled group is failed whatever its members did", () => {
-		for (const state of ["interrupted", "rejected", "cancelled"] as const) {
-			expect(taskGroupViewFailure(group({ state })), state).toEqual({ kind: "failed", reason: "state" });
-		}
+	test("a group all of whose members failed is failed, and a cancelled group is not", () => {
+		expect(taskGroupViewFailure(group())?.kind).toBe("failed");
+		expect(
+			taskGroupViewFailure(group({ state: "cancelled", outcome: { kind: "cancelled", failed: false } })),
+		).toBeUndefined();
 	});
 });

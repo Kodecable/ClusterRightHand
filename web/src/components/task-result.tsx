@@ -6,10 +6,11 @@ import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { type KeyValueItem, KeyValueList } from "@/components/key-value";
 import { DateTime, RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
+import { TaskOutcomeBadge } from "@/components/task-outcome";
 import { useTimeColumnWidth } from "@/components/time-column";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/session";
-import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText, taskOutcome } from "@/lib/task-output";
+import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText } from "@/lib/task-output";
 import { taskTitle } from "@/lib/task-title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { DecisionView, EvaluationTable } from "./decision/evaluation";
@@ -102,51 +103,19 @@ export function OutputBlock({
 }
 
 /**
- * Whether `TaskOutcomeText` has a real result to show (an exit code, a signal,
- * a timeout, a cancellation or an error) rather than only the raw state.
- */
-export function hasTaskOutcome(task: TaskView): boolean {
-	return taskOutcome(task).kind !== "state";
-}
-
-/** The outcome of a task as one translated line (exit code, signal, timeout, error). */
-export function TaskOutcomeText({ task }: { task: TaskView }) {
-	const { i18n } = useLingui();
-	const outcome = taskOutcome(task);
-	switch (outcome.kind) {
-		case "succeeded":
-			return <Trans>Succeeded</Trans>;
-		case "exit":
-			return <Trans>Exit code {outcome.code ?? "?"}</Trans>;
-		case "signal":
-			return <Trans>Signal {outcome.signal}</Trans>;
-		case "timed-out":
-			return <Trans>Timed out</Trans>;
-		case "cancelled":
-			return <Trans>Cancelled</Trans>;
-		case "error":
-			return <span className="text-danger">{taskErrorText(i18n, outcome.code, outcome.message)}</span>;
-		default:
-			// No exit code, signal or error: the status next to it says the rest,
-			// so the outcome column stays empty instead of echoing a raw state.
-			return <span className="text-muted-foreground">–</span>;
-	}
-}
-
-/**
- * The facts of one task: the id, what it is, who asked, where it ran, its
- * state and result fields, and its timestamps. The task page adds the node
- * link (it knows the node name) and turns off what its header, waiting card or
- * decision block already show, so no fact appears twice on that page.
+ * The facts of one task: the id, what it is, where it came from, where it ran, its state and result
+ * fields, and its timestamps. The task page adds the node link (it knows the node name) and turns off
+ * what its header, waiting card or decision block already show, so no fact appears twice on that page.
  */
 export function TaskFacts({
 	task,
 	node,
-	askedBy,
+	source,
 	userNames,
 	extra = [],
 	showSummary = true,
 	showState = true,
+	showOutcome = true,
 	showWaiting = true,
 	showDecision = true,
 	className,
@@ -154,14 +123,15 @@ export function TaskFacts({
 	task: TaskView;
 	/** The node link, when the caller knows the node's name. */
 	node?: React.ReactNode;
-	/** Who asked for the task, when the caller resolved its display name. */
-	askedBy?: React.ReactNode;
+	/** The request source, on pages that show its facts (the page variant renders it from `task.source`). */
+	source?: React.ReactNode;
 	/** Display names by user id, for a recorded approval decision. */
 	userNames?: Map<string, string>;
 	/** Further page-specific facts, e.g. the links to a session or a task group. */
 	extra?: readonly KeyValueItem[];
 	showSummary?: boolean;
 	showState?: boolean;
+	showOutcome?: boolean;
 	showWaiting?: boolean;
 	showDecision?: boolean;
 	className?: string;
@@ -210,14 +180,17 @@ export function TaskFacts({
 				]
 			: []),
 		...(node !== undefined ? [{ label: <Trans>Node</Trans>, value: node }] : []),
-		...(askedBy !== undefined ? [{ label: <Trans>Asked by</Trans>, value: askedBy }] : []),
+		...(source !== undefined ? [{ label: <Trans>Source</Trans>, value: source }] : []),
 		...(showState
 			? [
 					{
 						label: <Trans>Status</Trans>,
-						value: <TaskStatusBadge state={task.state} />,
+						value: <TaskStatusBadge state={task.state} outcome={task.outcome} />,
 					},
 				]
+			: []),
+		...(showOutcome && task.outcome !== null
+			? [{ label: <Trans>Outcome</Trans>, value: <TaskOutcomeBadge outcome={task.outcome} /> }]
 			: []),
 		...(task.exitCode !== null ? [{ label: <Trans>Exit code</Trans>, value: String(task.exitCode) }] : []),
 		...(task.signal !== null ? [{ label: <Trans>Signal</Trans>, value: task.signal }] : []),
@@ -520,6 +493,7 @@ export function TaskResult({ task, className }: { task: TaskView; className?: st
  * was created. It links to the task page.
  */
 export function TaskSummary({ task, nodeName, className }: { task: TaskView; nodeName?: string; className?: string }) {
+	const { i18n } = useLingui();
 	return (
 		<Link
 			to="/tasks/$taskId"
@@ -528,11 +502,11 @@ export function TaskSummary({ task, nodeName, className }: { task: TaskView; nod
 			data-testid="task-summary"
 			className={cn("flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent", className)}
 		>
-			<TaskStatusBadge state={task.state} />
-			<span className={cn("min-w-0 flex-1 truncate", MONO_CELL)}>{taskTitle(task)}</span>
+			<TaskStatusBadge state={task.state} outcome={task.outcome} />
+			<span className={cn("min-w-0 flex-1 truncate", MONO_CELL)}>{taskTitle(i18n, task)}</span>
 			{nodeName !== undefined && <span className="shrink-0">{nodeName}</span>}
 			<span className="shrink-0">
-				<TaskOutcomeText task={task} />
+				<TaskOutcomeBadge outcome={task.outcome} />
 			</span>
 			<RelativeTime value={task.createdAt} className="shrink-0" />
 		</Link>
