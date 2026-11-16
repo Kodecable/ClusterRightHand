@@ -106,7 +106,8 @@ registry of live runs, a connection cache). `StateRefreshes` is built on `KeyedR
 - **TOML** for every configuration file.
 
 Exact dependencies are pinned in each `package.json` and in `client/go.mod`. The TypeScript code is one
-pnpm workspace (`packages/*`, `server`, `web`); `@crh/api` holds only types, so crhs and the WebUI share
+pnpm workspace (`packages/*`, `server`, `web`); `@crh/api` holds the wire types plus the small shared
+locale registry, so crhs and the WebUI share
 one definition of the HTTP API. The Go client is a separate module under `client/`.
 
 ## End-to-end flow: a privileged command

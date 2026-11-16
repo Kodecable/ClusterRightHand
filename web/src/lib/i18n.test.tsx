@@ -33,12 +33,19 @@ beforeEach(() => {
 });
 
 describe("resolveInitialLocale", () => {
-	test("zh* navigator languages select zh-CN, everything else English", () => {
+	test("the shared registry maps navigator languages to a supported catalogue", () => {
 		setLanguages(["zh-CN", "en-US"]);
 		expect(resolveInitialLocale()).toBe("zh-CN");
 		setLanguages(["zh-Hans"]);
 		expect(resolveInitialLocale()).toBe("zh-CN");
+		// No Traditional Chinese catalogue yet: the registry routes zh-TW to zh-CN.
+		setLanguages(["zh-TW"]);
+		expect(resolveInitialLocale()).toBe("zh-CN");
+		setLanguages(["en-GB"]);
+		expect(resolveInitialLocale()).toBe("en");
 		setLanguages(["de-DE", "en"]);
+		expect(resolveInitialLocale()).toBe("en");
+		setLanguages(["de-DE", "fr"]);
 		expect(resolveInitialLocale()).toBe("en");
 	});
 

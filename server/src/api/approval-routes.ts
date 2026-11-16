@@ -9,6 +9,11 @@ import {
 } from "@crh/api/schemas";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
+import {
+	approvalRequestForExternalCall,
+	approvalRequestForTask,
+	approvalRequestForTaskGroup,
+} from "../approvals/request.ts";
 import { type Audit, userActor } from "../audit/audit.ts";
 import { pendingReviewIn } from "../cluster/approval.ts";
 import type { ApprovalDecision, Cluster } from "../cluster/cluster.ts";
@@ -117,6 +122,14 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const signatureTasks = await taskViews(cluster, signatureRows.tasks);
 		const signatureTaskGroups = await taskGroupViews(taskGroups, signatureRows.taskGroups);
 		const externalCalls = await externalCallViews(db, await pendingExternalCallRows(db, user.userId));
+		// One compact request per waiting item, beside the kind-specific views (the WebUI and chat render it).
+		const requests = [
+			...(await Promise.all([...tasks, ...signatureTasks].map((task) => approvalRequestForTask(db, task)))),
+			...(await Promise.all(
+				[...approvalTaskGroups, ...signatureTaskGroups].map((group) => approvalRequestForTaskGroup(db, group)),
+			)),
+			...(await Promise.all(externalCalls.map((call) => approvalRequestForExternalCall(db, call)))),
+		];
 		return c.json(
 			{
 				tasks,
@@ -124,6 +137,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 				externalCalls,
 				authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
 				quotas,
+				requests,
 			},
 			200,
 		);
@@ -244,7 +258,8 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		if (!row || row.on_behalf_of_user_id !== user.userId) throw new NotFoundError("no such approval");
 		const view = (await externalCallViews(db, [row]))[0];
 		if (!view) throw new NotFoundError("no such approval");
-		return c.json({ externalCall: view }, 200);
+		const request = view.state === "awaiting_approval" ? await approvalRequestForExternalCall(db, view) : null;
+		return c.json({ externalCall: view, request }, 200);
 	});
 
 	/** The owner approves or rejects a waiting external call; "always allow" writes an allow rule. */

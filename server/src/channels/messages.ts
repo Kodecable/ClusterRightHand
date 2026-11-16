@@ -1,4 +1,5 @@
-import type { ThinkingLevel, UserSettingsLocale } from "@crh/api";
+import type { ApprovalAction, ApprovalRequest, ThinkingLevel, UserSettingsLocale } from "@crh/api";
+import { matchLocale } from "@crh/api";
 
 /**
  * The chat bot's fixed texts (doc/design/channels.md "Messages"), in English and Chinese. Both catalogues
@@ -8,15 +9,32 @@ import type { ThinkingLevel, UserSettingsLocale } from "@crh/api";
  * The Telegram adapter sends these as rich Markdown, where a single newline is a soft break: multi-line
  * texts use blank lines between paragraphs and Markdown lists for commands, and values that come from a
  * user or a model are escaped so they show literally. The Satori adapter sends the same strings as plain
- * text, XML-escaped, so Markdown syntax shows as written there. A `draft` status is plain text and not
- * escaped.
+ * text, XML-escaped, so Markdown syntax shows as written there except an inline code span, whose content
+ * is unwrapped. A `draft` status is plain text and not escaped.
  */
 
 export type BotLocale = UserSettingsLocale;
 
-/** Escapes the Markdown characters of a value interpolated into a framework text. */
+/**
+ * Escapes every ASCII punctuation character of a value interpolated into a framework text. CommonMark lets a
+ * backslash escape any ASCII punctuation, and Telegram's rich Markdown parses more than the classic set:
+ * `$formula$`, `==mark==`, `||spoiler||`, `^`, footnote markers and table pipes all start with punctuation.
+ */
 export function escapeMarkdown(text: string): string {
-	return text.replace(/\r?\n/g, " ").replace(/([\\`*_[\]()~<>#|!])/g, "\\$1");
+	return text.replace(/\r?\n/g, " ").replace(/([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "\\$1");
+}
+
+/**
+ * An inline code span for a value a reader should see literally, with a fence longer than the longest
+ * backtick run inside it. Padding spaces keep a value that starts or ends with a backtick inside the span.
+ */
+export function inlineCode(text: string): string {
+	const value = text.replace(/[\r\n]+/g, " ") || " ";
+	let longest = 0;
+	for (const run of value.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
+	const fence = "`".repeat(longest + 1);
+	const pad = value.startsWith("`") || value.endsWith("`") ? " " : "";
+	return `${fence}${pad}${value}${pad}${fence}`;
 }
 
 /** A byte count the way the WebUI shows it: the largest binary unit, such as "32 MiB". */
@@ -37,6 +55,157 @@ export interface BotCommandMenuEntry {
 }
 
 /** The `/help` list and the Telegram command menu share these commands. */
+type ApprovalFileOperation = Extract<ApprovalAction, { type: "file" }>["operation"];
+type ApprovalRisk = "low" | "medium" | "high";
+
+/**
+ * The localized words one approval renderer needs. The layout itself is shared, so Telegram and Satori
+ * (and later the WebUI) cannot drift apart while one of the catalogues changes.
+ */
+interface ApprovalLabels {
+	approvalNeeded: string;
+	requester: {
+		session: (title: string) => string;
+		apiToken: (name: string) => string;
+		user: (username: string) => string;
+		schedule: (name: string) => string;
+	};
+	untitledSession: string;
+	actions: {
+		exec: (command: string) => string;
+		file: (operation: ApprovalFileOperation, path: string, lines: { start: number; end: number } | undefined) => string;
+		api: (request: string) => string;
+		extension: (tool: string) => string;
+	};
+	/** `names` are already escaped; `moreNodes` is the number the server left out. */
+	nodes: (names: readonly string[], moreNodes: number | undefined) => string;
+	privilegedSuffix: string;
+	privilegedOnly: string;
+	review: (risk: ApprovalRisk, reason: string) => string;
+	rejectWithButtons: (id: string) => string;
+	approveHint: (id: string) => string;
+	rejectHint: (id: string) => string;
+	taskSignature: (id: string) => string;
+	taskGroupSignature: (id: string) => string;
+}
+
+const EN_APPROVAL: ApprovalLabels = {
+	approvalNeeded: "Approval needed",
+	requester: {
+		session: (title) => `session "${title}"`,
+		apiToken: (name) => `token "${name}"`,
+		user: (username) => `user ${username}`,
+		schedule: (name) => `schedule "${name}"`,
+	},
+	untitledSession: "New session",
+	actions: {
+		exec: (command) => `Run command ${command}`,
+		file: (operation, path, lines) =>
+			`${{ read: "Read file", write: "Write file", push: "Push file", pull: "Pull file", edit: "Edit file", stat: "Stat file", list: "List directory" }[operation]} ${path}${lines ? ` (lines ${lines.start}-${lines.end})` : ""}`,
+		api: (request) => `Call API ${request}`,
+		extension: (tool) => `Call extension ${tool}`,
+	},
+	nodes: (names, moreNodes) => `Nodes: ${names.join(", ")}${moreNodes ? ` and ${moreNodes} more` : ""}`,
+	privilegedSuffix: " · privileged",
+	privilegedOnly: "Privileged operation",
+	review: (risk, reason) => `Auto Review: ${{ low: "low", medium: "medium", high: "high" }[risk]} risk · ${reason}`,
+	rejectWithButtons: (id) => `Reject with a reason: /reject ${id} reason`,
+	approveHint: (id) => `/approve ${id}`,
+	rejectHint: (id) => `/reject ${id} [reason]`,
+	taskSignature: (id) => `Task ${id} waits for your signature.`,
+	taskGroupSignature: (id) => `Task group ${id} waits for your signature.`,
+};
+
+const ZH_APPROVAL: ApprovalLabels = {
+	approvalNeeded: "需要你的审批",
+	requester: {
+		session: (title) => `会话“${title}”`,
+		apiToken: (name) => `令牌“${name}”`,
+		user: (username) => `用户 ${username}`,
+		schedule: (name) => `计划“${name}”`,
+	},
+	untitledSession: "新会话",
+	actions: {
+		exec: (command) => `执行命令 ${command}`,
+		file: (operation, path, lines) =>
+			`${{ read: "读取文件", write: "写入文件", push: "推送文件", pull: "拉取文件", edit: "编辑文件", stat: "查看文件", list: "列出目录" }[operation]} ${path}${lines ? `（第 ${lines.start}-${lines.end} 行）` : ""}`,
+		api: (request) => `调用 API ${request}`,
+		extension: (tool) => `调用扩展 ${tool}`,
+	},
+	nodes: (names, moreNodes) => `节点：${names.join("、")}${moreNodes ? ` 等 ${moreNodes} 个` : ""}`,
+	privilegedSuffix: " · 特权",
+	privilegedOnly: "特权操作",
+	review: (risk, reason) => `Auto Review：${{ low: "低", medium: "中", high: "高" }[risk]}风险 · ${reason}`,
+	rejectWithButtons: (id) => `拒绝并说明原因：/reject ${id} 原因`,
+	approveHint: (id) => `/approve ${id}`,
+	rejectHint: (id) => `/reject ${id} [原因]`,
+	taskSignature: (id) => `任务 ${id} 等待你的签名。`,
+	taskGroupSignature: (id) => `任务组 ${id} 等待你的签名。`,
+};
+
+function approvalRequesterHeader(request: ApprovalRequest, labels: ApprovalLabels): string {
+	const requester = request.requester;
+	const text =
+		requester.type === "session"
+			? labels.requester.session(escapeMarkdown(requester.title || labels.untitledSession))
+			: requester.type === "api_token"
+				? labels.requester.apiToken(escapeMarkdown(requester.name))
+				: requester.type === "user"
+					? labels.requester.user(escapeMarkdown(requester.username))
+					: labels.requester.schedule(escapeMarkdown(requester.name));
+	return `${labels.approvalNeeded} · ${text}`;
+}
+
+/** The one approval card: requester, action, nodes/privileged, the settled review and the decision hints. */
+function renderApprovalRequest(
+	request: ApprovalRequest,
+	options: { withButtons: boolean },
+	labels: ApprovalLabels,
+): string {
+	const lines = [approvalRequesterHeader(request, labels)];
+	const action = request.action;
+	switch (action.type) {
+		case "exec":
+			lines.push(labels.actions.exec(inlineCode(action.command)));
+			break;
+		case "file":
+			lines.push(labels.actions.file(action.operation, inlineCode(action.path), action.lines));
+			break;
+		case "api_request":
+			lines.push(labels.actions.api(inlineCode(`${action.method} ${action.path}`)));
+			break;
+		case "extension_tool":
+			lines.push(labels.actions.extension(inlineCode(`${action.extension}/${action.tool}`)));
+			break;
+	}
+	if (request.nodes !== undefined && request.nodes.length > 0) {
+		let line = labels.nodes(
+			request.nodes.map((name) => escapeMarkdown(name)),
+			request.moreNodes,
+		);
+		if (request.privileged) line += labels.privilegedSuffix;
+		lines.push(line);
+	} else if (request.privileged) {
+		lines.push(labels.privilegedOnly);
+	}
+	if (request.review) lines.push(labels.review(request.review.risk, escapeMarkdown(request.review.reason)));
+	const hints = options.withButtons
+		? [labels.rejectWithButtons(request.id)]
+		: [labels.approveHint(request.id), labels.rejectHint(request.id)];
+	return `${lines.join("\n")}\n\n${hints.join("\n")}`;
+}
+
+/** A signature wait keeps its old text but shares the requester header (and so the escaping) of approvals. */
+function renderSignatureWait(
+	request: ApprovalRequest,
+	link: string | null,
+	labels: ApprovalLabels,
+	kind: "task" | "task_group",
+): string {
+	const body = kind === "task" ? labels.taskSignature(request.id) : labels.taskGroupSignature(request.id);
+	return `${approvalRequesterHeader(request, labels)}\n\n${body}${link ? `\n\n${link}` : ""}`;
+}
+
 export interface BotMessages {
 	unsupported: string;
 	filesNotSent: string;
@@ -101,11 +270,10 @@ export interface BotMessages {
 	thinking: string;
 	running: (toolName: string) => string;
 	retrying: (attempt: number) => string;
-	taskSignatureWait: (id: string, link: string | null) => string;
-	taskGroupSignatureWait: (id: string, link: string | null) => string;
-	taskApproval: (summary: string, id: string) => string;
-	taskGroupApproval: (summary: string, id: string) => string;
-	callApproval: (what: string, id: string) => string;
+	taskSignatureWait: (request: ApprovalRequest, link: string | null) => string;
+	taskGroupSignatureWait: (request: ApprovalRequest, link: string | null) => string;
+	/** The one compact approval card every channel renders (doc/design/channels.md "Approvals"). */
+	approvalRequest: (request: ApprovalRequest, options: { withButtons: boolean }) => string;
 	quotaWait: (title: string, remaining: number, used: number) => string;
 	approveButton: string;
 	rejectButton: string;
@@ -207,14 +375,9 @@ const en: BotMessages = {
 	thinking: "Thinking…",
 	running: (toolName) => `Running ${toolName}…`,
 	retrying: (attempt) => `Retrying (attempt ${attempt})…`,
-	taskSignatureWait: (id, link) => `Task ${id} waits for your signature.${link ? `\n\n${link}` : ""}`,
-	taskGroupSignatureWait: (id, link) => `Task group ${id} waits for your signature.${link ? `\n\n${link}` : ""}`,
-	taskApproval: (summary, id) =>
-		`Approval needed for a task:\n\n${escapeMarkdown(summary)}\n\n/approve ${id}\n\n/reject ${id} [reason]`,
-	taskGroupApproval: (summary, id) =>
-		`Approval needed for a task group:\n\n${escapeMarkdown(summary)}\n\n/approve ${id}\n\n/reject ${id} [reason]`,
-	callApproval: (what, id) =>
-		`Approval needed for an extension call:\n\n${escapeMarkdown(what)}\n\n/approve ${id}\n\n/reject ${id} [reason]`,
+	taskSignatureWait: (request, link) => renderSignatureWait(request, link, EN_APPROVAL, "task"),
+	taskGroupSignatureWait: (request, link) => renderSignatureWait(request, link, EN_APPROVAL, "task_group"),
+	approvalRequest: (request, options) => renderApprovalRequest(request, options, EN_APPROVAL),
 	quotaWait: (title, remaining, used) =>
 		`The token quota of "${escapeMarkdown(title)}" is used up (${remaining} remaining, ${used} used).\n\n/quota add \\<tokens> continues\n\n/quota stop ends the turn`,
 	approveButton: "Approve",
@@ -367,13 +530,9 @@ const zhCN: BotMessages = {
 	thinking: "思考中…",
 	running: (toolName) => `正在运行 ${toolName}…`,
 	retrying: (attempt) => `正在重试（第 ${attempt} 次）…`,
-	taskSignatureWait: (id, link) => `任务 ${id} 等待你的签名。${link ? `\n\n${link}` : ""}`,
-	taskGroupSignatureWait: (id, link) => `任务组 ${id} 等待你的签名。${link ? `\n\n${link}` : ""}`,
-	taskApproval: (summary, id) =>
-		`任务需要审批：\n\n${escapeMarkdown(summary)}\n\n/approve ${id}\n\n/reject ${id} [原因]`,
-	taskGroupApproval: (summary, id) =>
-		`任务组需要审批：\n\n${escapeMarkdown(summary)}\n\n/approve ${id}\n\n/reject ${id} [原因]`,
-	callApproval: (what, id) => `扩展调用需要审批：\n\n${escapeMarkdown(what)}\n\n/approve ${id}\n\n/reject ${id} [原因]`,
+	taskSignatureWait: (request, link) => renderSignatureWait(request, link, ZH_APPROVAL, "task"),
+	taskGroupSignatureWait: (request, link) => renderSignatureWait(request, link, ZH_APPROVAL, "task_group"),
+	approvalRequest: (request, options) => renderApprovalRequest(request, options, ZH_APPROVAL),
 	quotaWait: (title, remaining, used) =>
 		`会话“${escapeMarkdown(title)}”的令牌配额已用完（剩余 ${remaining}，已用 ${used}）。\n\n/quota add \\<tokens> 继续\n\n/quota stop 结束本回合`,
 	approveButton: "批准",
@@ -457,12 +616,18 @@ const zhCN: BotMessages = {
 	],
 };
 
-/** The platform language a message carries: `zh*` is Chinese, everything else English. */
+/**
+ * One platform `language_code` through the shared registry (packages/api/src/locales.ts); an unknown tag
+ * falls through to English, and `zh-Hant`/`zh-TW` resolve to zh-CN until a Traditional catalogue exists.
+ */
 export function localeFromLanguageCode(languageCode: string | null | undefined): BotLocale {
-	return languageCode?.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
+	return matchLocale(languageCode ? [languageCode] : []) ?? "en";
 }
 
-/** A linked user's locale wins; without one (or with a null locale) the platform language decides. */
+/**
+ * The saved user locale wins; otherwise the reported platform language decides and finally English
+ * (doc/design/channels.md "Messages" and "Notifications").
+ */
 export function botLocale(locale: UserSettingsLocale | null | undefined, languageCode?: string | null): BotLocale {
 	return locale ?? localeFromLanguageCode(languageCode);
 }

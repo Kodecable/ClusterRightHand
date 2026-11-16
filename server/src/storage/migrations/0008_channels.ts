@@ -55,6 +55,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("platform_chat_id", "text")
 		.addColumn("user_id", "text", (c) => c.notNull())
 		.addColumn("display_name", "text")
+		/** The platform's latest reported language tag, so pushed messages can follow it when no user locale is set. */
+		.addColumn("language_code", "text")
 		.addColumn("linked_at", "text", (c) => c.notNull())
 		.addUniqueConstraint("channel_accounts_platform_unique", ["channel_id", "platform", "platform_user_id"])
 		.execute();

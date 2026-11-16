@@ -138,6 +138,8 @@ export interface FakeSatori {
 	restart(): void;
 	/** Refuses every later connection with this close reason, closing the current socket first. */
 	rejectConnections(reason: string): void;
+	/** Makes the next message.delete fail, for the delete-then-edit fallback. */
+	failNextDelete(description?: string): void;
 	callsOf(method: string): FakeSatoriCall[];
 	waitForCall(
 		method: string,
@@ -169,6 +171,7 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 	let socket: WebSocket | undefined;
 	let socketReady = false;
 	let rejectWith: string | null = null;
+	let deleteFailure: string | null = null;
 	let server: Server;
 	let url = "";
 
@@ -222,6 +225,12 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 		wake();
 		if (!authorize(headers)) {
 			json(res, { code: 401, message: "unauthorized" }, 401);
+			return;
+		}
+		if (resource === "message" && method === "delete" && deleteFailure !== null) {
+			const description = deleteFailure;
+			deleteFailure = null;
+			json(res, { code: 500, message: description }, 500);
 			return;
 		}
 		if (resource === "message" && method === "create") {
@@ -421,6 +430,9 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 		rejectConnections: (reason) => {
 			rejectWith = reason;
 			socket?.close(4001, reason);
+		},
+		failNextDelete: (description = "message cannot be deleted") => {
+			deleteFailure = description;
 		},
 		callsOf: (method) => calls.filter((call) => call.method === method),
 		waitForCall: (method, predicate = () => true, timeoutMs = 5_000) =>

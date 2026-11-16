@@ -21,6 +21,7 @@ import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
 import { getUserSettings, patchUserSettings } from "../src/users/settings.ts";
+import { newId } from "../src/util/id.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { type FakeCall, type FakeTelegram, sentText, startFakeTelegram } from "./helpers/fake-telegram.ts";
@@ -162,6 +163,10 @@ afterAll(async () => {
 	await db.destroy();
 	await rm(root, { recursive: true, force: true });
 });
+
+/** A framework text with its Markdown escapes removed, as the chat client renders it. */
+const plainText = (call: FakeCall): string =>
+	sentText(call).replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "$1");
 
 const linkAs = async (cookie: string, userId: number, expected: string): Promise<void> => {
 	const existing = await db
@@ -325,9 +330,11 @@ describe("channels", () => {
 		await runtime.waitForIdle();
 
 		fake.failNextRichMessage();
-		faux.setResponses([fauxAssistantMessage("plain fallback")]);
+		faux.setResponses([fauxAssistantMessage("plain fallback: \\$HOME \\=\\= `a.b`")]);
 		fake.text(userId, "fall back");
 		const plain = await fake.waitFor("sendMessage", (call) => sentText(call).includes("plain fallback"));
+		// Markdown escapes and code fences would show literally in plain text.
+		expect(sentText(plain)).toBe("plain fallback: $HOME == a.b");
 		expect(plain.body.parse_mode).toBeUndefined();
 		expect(plain.body.rich_message).toBeUndefined();
 		await runtime.waitForIdle();
@@ -661,17 +668,21 @@ describe("channels", () => {
 
 		const callId = await insertExternalCall(thread.sessionId, "call-button");
 		await wakeWait(thread.sessionId);
-		const approval = await fake.waitForSent((call) => sentText(call).includes("Approval needed for an extension call"));
+		const approval = await fake.waitForSent((call) =>
+			sentText(call).includes(`Reject with a reason: /reject ${callId} reason`),
+		);
 		const buttons = (approval.body.reply_markup as { inline_keyboard: { text: string; callback_data: string }[][] })
 			.inline_keyboard;
 		fake.callback(userId, buttons.flat()[0]?.callback_data ?? "", {});
-		await fake.waitFor("editMessageText", (call) => sentText(call).includes("Approved."));
+		// The decided card is deleted, not edited.
+		await fake.waitFor("deleteMessage");
+		expect(fake.callsOf("editMessageText").some((call) => sentText(call).includes("Approved by"))).toBe(false);
 		const decided = await db.selectFrom("external_calls").select(["state"]).where("id", "=", callId).executeTakeFirst();
 		expect(decided?.state).toBe("running");
 
 		const secondId = await insertExternalCall(thread.sessionId, "call-command");
 		await wakeWait(thread.sessionId);
-		await fake.waitForSent((call) => sentText(call).includes(`/approve ${secondId}`));
+		await fake.waitForSent((call) => sentText(call).includes(`/reject ${secondId} reason`));
 		fake.text(userId, `/approve ${secondId}`);
 		await fake.waitForSent((call) => sentText(call).includes("Approved."));
 		const commandDecided = await db
@@ -683,7 +694,7 @@ describe("channels", () => {
 
 		const thirdId = await insertExternalCall(thread.sessionId, "call-reject");
 		await wakeWait(thread.sessionId);
-		await fake.waitForSent((call) => sentText(call).includes(`/approve ${thirdId}`));
+		await fake.waitForSent((call) => sentText(call).includes(`/reject ${thirdId} reason`));
 		fake.text(userId, `/reject ${thirdId} not needed`);
 		await fake.waitForSent((call) => sentText(call).includes("Rejected."));
 		const rejected = await db
@@ -694,21 +705,18 @@ describe("channels", () => {
 		expect(rejected?.state).toBe("rejected");
 		expect(rejected?.approval).toContain("not needed");
 
-		// Decided elsewhere (the WebUI): the chat message is edited to say how it ended.
+		// Decided elsewhere (the WebUI): the chat message is deleted.
 		const elsewhereId = await insertExternalCall(thread.sessionId, "call-elsewhere");
 		await wakeWait(thread.sessionId);
-		await fake.waitForSent((call) => sentText(call).includes(`/approve ${elsewhereId}`));
-		const editsBefore = fake.callsOf("editMessageText").length;
+		await fake.waitForSent((call) => sentText(call).includes(`/reject ${elsewhereId} reason`));
+		const deletesBefore = fake.callsOf("deleteMessage").length;
 		await decideExternalCall(db, elsewhereId, {
 			decision: "approved",
 			by: { type: "user", id: aliceId, onBehalfOfUserId: aliceId },
 			at: new Date().toISOString(),
 		});
 		await channels.refreshWaits(thread.sessionId);
-		await fake.waitFor("editMessageText", () => fake.callsOf("editMessageText").length > editsBefore);
-		const ended = fake.callsOf("editMessageText").at(-1);
-		if (!ended) throw new Error("no ended wait edit");
-		expect(sentText(ended)).toContain("Approved.");
+		await fake.waitFor("deleteMessage", () => fake.callsOf("deleteMessage").length > deletesBefore);
 	});
 
 	it("runs one more wait sync when a state change lands during a sync, so a new approval still reaches chat", async () => {
@@ -728,7 +736,7 @@ describe("channels", () => {
 		await Promise.all([firstSync, secondSync]);
 
 		// The change was not lost: the reconciler ran one more pass, which read and sent the new approval.
-		const sent = await fake.waitForSent((call) => sentText(call).includes(`/approve ${approvalId}`));
+		const sent = await fake.waitForSent((call) => sentText(call).includes(`/reject ${approvalId} reason`));
 		expect(sentText(sent)).toContain(approvalId);
 	});
 
@@ -948,7 +956,7 @@ describe("channels", () => {
 		// Last used from the thread: the approval goes there.
 		const inThread = await insertExternalCall(thread.sessionId, "call-thread");
 		await wakeWait(thread.sessionId);
-		await fake.waitForSent((call) => sentText(call).includes(`/approve ${inThread}`));
+		await fake.waitForSent((call) => sentText(call).includes(`/reject ${inThread} reason`));
 		await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", inThread).execute();
 
 		// A session never used from the chat, with the account as the default notification channel.
@@ -968,14 +976,14 @@ describe("channels", () => {
 		const onlineCall = await insertExternalCall(plain.id, "call-online");
 		await wakeWait(plain.id);
 		await new Promise((resolve) => setTimeout(resolve, 200));
-		expect(fake.sentCalls().some((call) => sentText(call).includes(`/approve ${onlineCall}`))).toBe(false);
+		expect(fake.sentCalls().some((call) => sentText(call).includes(`/reject ${onlineCall} reason`))).toBe(false);
 		await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", onlineCall).execute();
 
 		// Offline: a topic is created on the default channel and the message goes there.
 		channels.presence.forget(aliceId);
 		const offlineCall = await insertExternalCall(plain.id, "call-offline");
 		await wakeWait(plain.id);
-		const sent = await fake.waitForSent((call) => sentText(call).includes(`/approve ${offlineCall}`));
+		const sent = await fake.waitForSent((call) => sentText(call).includes(`/reject ${offlineCall} reason`));
 		expect(fake.callsOf("createForumTopic").length).toBeGreaterThan(0);
 		expect(sent.body.message_thread_id).toBeDefined();
 		await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
@@ -1003,12 +1011,12 @@ describe("channels", () => {
 			// The session's last thread is that chat, but its account now belongs to someone else: route as WebUI.
 			const callId = await insertExternalCall(thread.sessionId, "call-relinked");
 			await wakeWait(thread.sessionId);
-			const sent = await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+			const sent = await fake.waitForSent((call) => sentText(call).includes(`/reject ${callId} reason`));
 			expect(sent.body.chat_id).toBe(String(fallbackId));
 			expect(
 				fake
 					.sentCalls()
-					.some((call) => call.body.chat_id === String(userId) && sentText(call).includes(`/approve ${callId}`)),
+					.some((call) => call.body.chat_id === String(userId) && sentText(call).includes(`/reject ${callId} reason`)),
 			).toBe(false);
 		} finally {
 			await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
@@ -1042,9 +1050,9 @@ describe("channels", () => {
 			// Reading the session's title fails once while the topic is being created; the rejected creation must
 			// not stay cached, so the next notification can still create the topic and go to the chat.
 			await channels.refreshWaits(session.id);
-			expect(fake.sentCalls().some((call) => sentText(call).includes(`/approve ${callId}`))).toBe(false);
+			expect(fake.sentCalls().some((call) => sentText(call).includes(`/reject ${callId} reason`))).toBe(false);
 			await channels.refreshWaits(session.id);
-			const sent = await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+			const sent = await fake.waitForSent((call) => sentText(call).includes(`/reject ${callId} reason`));
 			expect(sent.body.message_thread_id).toBeDefined();
 		} finally {
 			spy.mockRestore();
@@ -1179,7 +1187,7 @@ describe("channels", () => {
 			.execute();
 		await wakeWait(thread.sessionId);
 		await new Promise((resolve) => setTimeout(resolve, 150));
-		expect(fake.sentCalls().some((call) => sentText(call).includes(`/approve ${callId}`))).toBe(false);
+		expect(fake.sentCalls().some((call) => sentText(call).includes(`/reject ${callId} reason`))).toBe(false);
 		// Escalation makes it a user-facing wait, and the card goes out with the same refresh.
 		await db
 			.updateTable("external_calls")
@@ -1192,7 +1200,7 @@ describe("channels", () => {
 			.where("id", "=", callId)
 			.execute();
 		await channels.refreshWaits(thread.sessionId);
-		await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+		await fake.waitForSent((call) => sentText(call).includes(`/reject ${callId} reason`));
 		await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", callId).execute();
 	});
 
@@ -1228,7 +1236,7 @@ describe("channels", () => {
 		]);
 		fake.text(userId, "deliver it");
 		await fake.waitForSent((call) => sentText(call).includes("delivered"));
-		const delivery = await fake.waitForSent((call) => sentText(call).includes("File offered: a.txt"));
+		const delivery = await fake.waitForSent((call) => plainText(call).includes("File offered: a.txt"));
 		expect(sentText(delivery)).toContain("https://crh.example/library/user%3Aalice?path=docs%2Fa.txt");
 		expect(thread.sessionId).toBeDefined();
 		expect(fake.callsOf("sendMessageDraft").length).toBeGreaterThan(0);
@@ -1270,7 +1278,7 @@ describe("channels", () => {
 			// The approval request clears the chat's draft; it is not shown again or kept alive.
 			const callId = await insertExternalCall(thread.sessionId, "call-draft-approval");
 			await wakeWait(thread.sessionId);
-			const approval = await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+			const approval = await fake.waitForSent((call) => sentText(call).includes(`/reject ${callId} reason`));
 			await new Promise((resolve) => setTimeout(resolve, 250));
 			expect(
 				fake.callsOf("sendMessageDraft").filter((call) => fake.calls.indexOf(call) > fake.calls.indexOf(approval)),
@@ -1437,7 +1445,7 @@ describe("channels", () => {
 				.where("id", "=", callId)
 				.execute();
 			await channels.refreshWaits(thread.sessionId);
-			await fake.waitForSent((call) => sentText(call).includes(`/approve ${callId}`));
+			await fake.waitForSent((call) => sentText(call).includes(`/reject ${callId} reason`));
 			const sent = fake.callsOf("sendMessageDraft").length;
 			await new Promise((resolve) => setTimeout(resolve, 150));
 			expect(fake.callsOf("sendMessageDraft").length).toBe(sent);
@@ -1923,13 +1931,13 @@ describe("channels", () => {
 
 		fake.text(userId, "/extensions page 2");
 		const page = await fake.waitForSent((call) => sentText(call).includes("Extensions (page 2 of"));
-		expect(sentText(page)).toMatch(new RegExp(`6\\. (✓ )?${sixth}`));
+		expect(plainText(page)).toMatch(new RegExp(`6\\. (✓ )?${sixth}`));
 		expect(sentText(page)).toContain(
 			"Send /extensions and a number to choose, /extensions page 1 for the previous page.",
 		);
 
 		fake.text(userId, "/extensions 6");
-		const toggled = await fake.waitForSent((call) => sentText(call).includes(`Extension ${sixth} is now off.`));
+		const toggled = await fake.waitForSent((call) => plainText(call).includes(`Extension ${sixth} is now off.`));
 		expect(toggled).toBeDefined();
 		const row = await db
 			.selectFrom("sessions")
@@ -2319,6 +2327,82 @@ async function pressPage(userId: number, data: string): Promise<FakeCall> {
 	return fake.waitFor("editMessageText", (call) => fake.calls.indexOf(call) >= before);
 }
 
+it("deletes a decided approval card, and edits it when Telegram refuses deletion", async () => {
+	const userId = 9801;
+	await link(userId);
+	const thread = await chatSession(userId);
+	const first = await insertExternalCall(thread.sessionId, "delete-ok");
+	await wakeWait(thread.sessionId);
+	const firstCard = await fake.waitForSent((call) => sentText(call).includes(`/reject ${first} reason`));
+	const buttons = (firstCard.body.reply_markup as { inline_keyboard: { callback_data: string }[][] }).inline_keyboard;
+	const deletesBefore = fake.callsOf("deleteMessage").length;
+	fake.callback(userId, buttons.flat()[0]?.callback_data ?? "", {});
+	await fake.waitFor("deleteMessage", () => fake.callsOf("deleteMessage").length > deletesBefore);
+
+	const second = await insertExternalCall(thread.sessionId, "delete-refused");
+	await wakeWait(thread.sessionId);
+	const secondCard = await fake.waitForSent((call) => sentText(call).includes(`/reject ${second} reason`));
+	const secondButtons = (secondCard.body.reply_markup as { inline_keyboard: { callback_data: string }[][] })
+		.inline_keyboard;
+	fake.failNextDeleteMessage();
+	fake.callback(userId, secondButtons.flat()[0]?.callback_data ?? "", {});
+	// The fallback keeps the card's text and appends who decided.
+	const edited = await fake.waitFor("editMessageText", (call) => sentText(call).includes("Approved by alice."));
+	expect(sentText(edited)).toContain(`/reject ${second} reason`);
+	const decided = await db.selectFrom("external_calls").select("state").where("id", "=", second).executeTakeFirst();
+	expect(decided?.state).toBe("running");
+});
+
+it("pushes an approval without a session only while its owner is offline, in the account's language, and deletes it after a decision", async () => {
+	const userId = 9701;
+	await link(userId);
+	const account = await db
+		.selectFrom("channel_accounts")
+		.select(["id"])
+		.where("platform_user_id", "=", String(userId))
+		.executeTakeFirstOrThrow();
+	await patchUserSettings(db, aliceId, { defaultChannelAccountId: account.id, showProgress: false });
+	// The platform language is remembered from a command; alice has no saved locale.
+	fake.text(userId, "/help", { languageCode: "zh-CN" });
+	await fake.waitForSent((call) => sentText(call).includes("ClusterRightHand 命令"));
+	const stored = await db
+		.selectFrom("channel_accounts")
+		.select("language_code")
+		.where("id", "=", account.id)
+		.executeTakeFirstOrThrow();
+	expect(stored.language_code).toBe("zh-CN");
+	try {
+		const tokenId = await insertApiToken("deploy", aliceId);
+		const onlineTask = `orphan-online-${Date.now()}`;
+		await insertOrphanTask(onlineTask, tokenId);
+		channels.presence.touch(aliceId);
+		await channels.refreshAllWaits();
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		expect(fake.sentCalls().some((call) => sentText(call).includes(`/reject ${onlineTask} 原因`))).toBe(false);
+		await call(app, `/api/tasks/${onlineTask}/approval`, { cookie: aliceCookie, body: { decision: "reject" } });
+
+		channels.presence.forget(aliceId);
+		const offlineTask = `orphan-offline-${Date.now()}`;
+		await insertOrphanTask(offlineTask, tokenId);
+		await channels.refreshAllWaits();
+		const card = await fake.waitForSent((call) => sentText(call).includes(`/reject ${offlineTask} 原因`));
+		expect(sentText(card)).toContain("需要你的审批 · 令牌“deploy”");
+		expect(sentText(card)).toContain("执行命令 `uptime`");
+		const deletesBefore = fake.callsOf("deleteMessage").length;
+		const decided = await call(app, `/api/tasks/${offlineTask}/approval`, {
+			cookie: aliceCookie,
+			body: { decision: "reject", reason: "not now" },
+		});
+		expect(decided.status).toBe(200);
+		// The decision reaches the channel through the approval-change hook: the card is deleted.
+		await fake.waitFor("deleteMessage", () => fake.callsOf("deleteMessage").length > deletesBefore);
+		const row = await db.selectFrom("tasks").select("state").where("id", "=", offlineTask).executeTakeFirst();
+		expect(row?.state).toBe("rejected");
+	} finally {
+		await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
+	}
+});
+
 /** Presses a management button on message 7777 and returns the edit it made. */
 async function pressButton(userId: number, data: string): Promise<FakeCall> {
 	return pressPage(userId, data);
@@ -2370,6 +2454,81 @@ async function insertExternalCall(sessionId: string, id: string): Promise<string
 			state: "awaiting_approval",
 			created_at: new Date().toISOString(),
 			finished_at: null,
+		})
+		.execute();
+	return id;
+}
+
+async function insertApiToken(name: string, userId: string): Promise<string> {
+	const id = `token-${newId()}`;
+	await db
+		.insertInto("api_tokens")
+		.values({
+			id,
+			org_id: orgId,
+			user_id: userId,
+			name,
+			token_hash: `hash-${id}`,
+			created_at: new Date().toISOString(),
+			expires_at: null,
+			revoked_at: null,
+			last_used_at: null,
+		})
+		.execute();
+	return id;
+}
+
+/** A task started by an API token: it has no root session, so its approval is routed by owner. */
+async function insertOrphanTask(id: string, tokenId: string): Promise<string> {
+	await db
+		.insertInto("tasks")
+		.values({
+			id,
+			org_id: orgId,
+			node_id: "node-orphan",
+			task_group_id: null,
+			kind: "exec",
+			spec: JSON.stringify({ kind: "exec", command: { argv: ["uptime"] }, env: {}, cwd: "", stdin: null }),
+			input_size: null,
+			input_sha256: null,
+			attempt: 1,
+			rev: 1,
+			privileged: 0,
+			authorization: null,
+			timeout_ms: null,
+			output_mode: "full",
+			max_lines: null,
+			max_bytes: null,
+			state: "awaiting_approval",
+			exit_code: null,
+			signal: null,
+			timed_out: 0,
+			cancelled: 0,
+			error_code: null,
+			error_message: null,
+			actor_type: "api_token",
+			actor_id: tokenId,
+			on_behalf_of_user_id: aliceId,
+			created_at: new Date().toISOString(),
+			dispatched_at: null,
+			accepted_at: null,
+			finished_at: null,
+			output_bytes: 0,
+			output_head: null,
+			output_tail: null,
+			notice: null,
+			output_lines: null,
+			output_file: null,
+			result: null,
+			late_result: null,
+			transfer: null,
+			purpose: null,
+			rule_chain: JSON.stringify([{ type: "api_token", id: tokenId }]),
+			approval: JSON.stringify({ evaluation: { result: "require-approval", levels: [] } }),
+			pending_input: null,
+			root_session_id: null,
+			handler_type: "user",
+			handler_session_id: null,
 		})
 		.execute();
 	return id;

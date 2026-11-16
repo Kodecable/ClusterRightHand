@@ -1,3 +1,4 @@
+import type { ApprovalRequest } from "@crh/api";
 import type { TaskSpec } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
@@ -101,6 +102,7 @@ describe("approvals api (sqlite)", () => {
 		(await (await call(app, "/api/approvals", { cookie: cookies[who] })).json()) as {
 			tasks: TaskView[];
 			taskGroups: TaskGroupView[];
+			requests?: ApprovalRequest[];
 		};
 
 	beforeAll(async () => {
@@ -425,6 +427,95 @@ describe("approvals api (sqlite)", () => {
 			by: { type: "user", id: "x" },
 			at: new Date().toISOString(),
 		});
+	});
+
+	it("returns the compact request beside the kind-specific approvals and on one item", async () => {
+		const tok = await newToken();
+		const t = await mkTask(tok, execSpec("echo", "hi"));
+		const list = await pending("alice");
+		const request = list.requests?.find((item) => item.id === t.id);
+		expect(request).toMatchObject({
+			kind: "task",
+			id: t.id,
+			phase: "awaiting_user",
+			requester: { type: "api_token", tokenId: tok, name: "t" },
+			action: { type: "exec", command: "echo hi" },
+			nodes: ["n1"],
+			privileged: false,
+		});
+		expect(request?.alwaysAllow.map((candidate) => candidate.option)).toEqual(["exact", "prefix"]);
+		const single = (await (await call(app, `/api/tasks/${t.id}`, { cookie: cookies.alice })).json()) as {
+			request?: ApprovalRequest;
+		};
+		expect(single.request).toEqual(request);
+
+		const id = await groups.create({
+			targets: [nodes[0] as string],
+			nodeIds: [nodes[0] as string],
+			spec: execSpec("uptime"),
+			chain: [{ type: "api_token", id: tok }],
+			actor: actorOf(tok),
+		});
+		const groupResponse = (await (await call(app, `/api/task-groups/${id}`, { cookie: cookies.alice })).json()) as {
+			request?: ApprovalRequest;
+		};
+		expect(groupResponse.request).toMatchObject({
+			kind: "task_group",
+			id,
+			action: { type: "exec", command: "uptime" },
+			nodes: ["n1"],
+		});
+		const listedGroups = await pending("alice");
+		expect(listedGroups.requests?.find((item) => item.id === id)?.kind).toBe("task_group");
+		await cluster.decide(t.id, {
+			decision: "rejected",
+			by: { type: "user", id: uid.alice as string },
+			at: new Date().toISOString(),
+		});
+		await groups.decide(id, {
+			decision: "rejected",
+			by: { type: "user", id: uid.alice as string },
+			at: new Date().toISOString(),
+		});
+	});
+
+	it("returns the compact request on one external-call approval", async () => {
+		const orgId = await defaultOrgId(db);
+		await db
+			.insertInto("external_calls")
+			.values({
+				id: "api-call-request",
+				org_id: orgId,
+				actor_type: "user",
+				actor_id: uid.alice as string,
+				on_behalf_of_user_id: uid.alice as string,
+				extension_name: "crhs-api",
+				tool_name: "api_request",
+				arguments: JSON.stringify({ method: "post", path: "/api/node-groups" }),
+				operation: JSON.stringify({ method: "api.write", target: "POST /api/node-groups" }),
+				annotations: null,
+				rule_chain: JSON.stringify([{ type: "user", id: uid.alice }]),
+				approval: JSON.stringify({ evaluation: { result: "require-approval", levels: [] } }),
+				pending_input: null,
+				root_session_id: null,
+				handler_type: "user",
+				handler_session_id: null,
+				state: "awaiting_approval",
+				created_at: new Date().toISOString(),
+				finished_at: null,
+			})
+			.execute();
+		const res = (await (await call(app, "/api/external-calls/api-call-request", { cookie: cookies.alice })).json()) as {
+			request?: ApprovalRequest;
+		};
+		expect(res.request).toMatchObject({
+			kind: "external_call",
+			id: "api-call-request",
+			requester: { type: "user", userId: uid.alice, username: "alice" },
+			action: { type: "api_request", method: "POST", path: "/api/node-groups" },
+		});
+		expect(res.request?.alwaysAllow.map((candidate) => candidate.option)).toEqual(["request", "route"]);
+		await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", "api-call-request").execute();
 	});
 
 	describe("task groups", () => {

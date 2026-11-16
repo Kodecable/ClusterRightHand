@@ -3,11 +3,12 @@
  * The language is also the chat bot's language; the session defaults apply to sessions the WebUI starts.
  */
 import { z } from "zod";
+import { LOCALES } from "../locales.ts";
 import { ModelRefSchema } from "./models.ts";
 import { RulePresetSchema } from "./policy.ts";
 
 /** The languages the WebUI and the chat bot speak. */
-export const UserSettingsLocaleSchema = z.enum(["en", "zh-CN"]);
+export const UserSettingsLocaleSchema = z.enum(LOCALES);
 
 /** One user's settings; a missing/empty field means the default. */
 export const UserSettingsSchema = z

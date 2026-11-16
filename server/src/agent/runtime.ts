@@ -96,6 +96,8 @@ export class AgentRuntime {
 	readonly #registry: Registry<ToolRegistration>;
 	/** Every installed extension by name: `crh` and one `ext:<extension>` per extension. */
 	readonly #extensions: Map<string, Extension>;
+	/** Told after any approval row changed, whoever the actor is (an API token has no session to refresh). */
+	#approvalListener: ((actorId: string) => void) | undefined;
 
 	private constructor(
 		harness: Harness,
@@ -243,6 +245,8 @@ export class AgentRuntime {
 			void runtime.refreshState(actorId).catch((err: unknown) => {
 				console.error("agent runtime: refreshing a subagent after an approval change failed:", err);
 			});
+			// Channels also follow requests without a session (an API token's or a user's direct task).
+			runtime.#approvalListener?.(actorId);
 		};
 		options.approvalChanged = approvalChanged;
 		options.willReview = (chain) => reviewer.willReview(chain);
@@ -438,6 +442,14 @@ export class AgentRuntime {
 	/** Follows session run-state changes, for chat channels that send approvals and progress. */
 	onSessionStateChanged(listener: ((sessionId: string) => void) | undefined): void {
 		this.#host.stateChanged = listener;
+	}
+
+	/**
+	 * Follows every approval change by actor id, for chat channels. Unlike `onSessionStateChanged` this also
+	 * reports a request made by an API token or a user directly, which has no session to refresh.
+	 */
+	onApprovalChanged(listener: ((actorId: string) => void) | undefined): void {
+		this.#approvalListener = listener;
 	}
 	/** Creates a session and submits its first message in one idempotent request. */
 	async createSessionWithMessage(

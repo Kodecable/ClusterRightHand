@@ -16,6 +16,7 @@ import type {
 	SentMessage,
 } from "./model.ts";
 import { FileTooLargeError, readResponseBytes } from "./model.ts";
+import { markdownEscapesToText } from "./plain-text.ts";
 import { splitMarkdown } from "./telegram-format.ts";
 
 /**
@@ -31,14 +32,6 @@ import { splitMarkdown } from "./telegram-format.ts";
  * One bot per channel: the gateway's READY must list the configured platform and bot id, and only that login's
  * private messages are handled. A gateway in front of Telegram still reports `telegram` as the platform.
  */
-
-/**
- * Texts are written as Markdown (for Telegram's rich messages), but Satori gets plain text: a backslash escape
- * becomes the character it escapes, as rendered Markdown would show it.
- */
-export function markdownEscapesToText(text: string): string {
-	return text.replace(/\\([\\`*_[\]()~<>#|!{}.+-])/g, "$1");
-}
 
 /** True when `url` is an http(s) URL on the same origin as the gateway base URL. */
 function sameOrigin(url: string, base: string): boolean {
@@ -504,12 +497,8 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 	}
 
 	async deleteMessage(target: ChannelTarget, messageId: string): Promise<void> {
-		try {
-			await this.#call("message", "delete", { channel_id: target.chatId, message_id: messageId });
-		} catch (err) {
-			// The message may already be gone; no progress status depends on it being deleted here.
-			console.error("channels: deleting a satori message failed:", errorText(err));
-		}
+		// Report the failure: the manager falls back to editing a decided wait message when deletion is refused.
+		await this.#call("message", "delete", { channel_id: target.chatId, message_id: messageId });
 	}
 
 	/**

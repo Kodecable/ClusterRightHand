@@ -17,6 +17,7 @@ import type {
 	SentMessage,
 } from "./model.ts";
 import { FileTooLargeError, readResponseBytes } from "./model.ts";
+import { markdownEscapesToText } from "./plain-text.ts";
 import {
 	neutralizeTelegramButtons,
 	splitMarkdown,
@@ -319,7 +320,8 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 		let sent: { message_id: number } | undefined;
 		for (let index = 0; index < chunks.length; index++) {
 			const last = index === chunks.length - 1;
-			sent = await this.#api.sendMessage(chatId, chunks[index] ?? "", {
+			// Plain text shows Markdown escapes literally; the punctuation they escape is what was meant.
+			sent = await this.#api.sendMessage(chatId, markdownEscapesToText(chunks[index] ?? ""), {
 				...(options.messageThreadId !== undefined ? { message_thread_id: options.messageThreadId } : {}),
 				...(last && options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
 				...(options.disablePreview ? { link_preview_options: { is_disabled: true } } : {}),
@@ -356,7 +358,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 			if (isNotModified(err)) return;
 			if (!isBadRequest(err)) throw err;
 			try {
-				await this.#api.editMessageText(target.chatId, Number(messageId), text, other);
+				await this.#api.editMessageText(target.chatId, Number(messageId), markdownEscapesToText(text), other);
 			} catch (fallbackErr) {
 				if (isNotModified(fallbackErr)) return;
 				throw fallbackErr;

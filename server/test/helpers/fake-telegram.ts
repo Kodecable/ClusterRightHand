@@ -80,6 +80,8 @@ export interface FakeTelegram {
 	addFile(fileId: string, file: Partial<FakeFile> & { bytes: Uint8Array }): void;
 	/** Makes the next sendRichMessage fail with a 400, for the adapter's plain-text fallback. */
 	failNextRichMessage(description?: string): void;
+	/** Makes the next deleteMessage fail with a 400, for the delete-then-edit fallback. */
+	failNextDeleteMessage(description?: string): void;
 	/**
 	 * Holds the next message send in flight until `release()`: `held` resolves once the request reached the
 	 * server, so a test can let the state change that sends it race with another.
@@ -115,6 +117,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 	let nextMessageId = 1000;
 	let nextTopicId = 500;
 	let richFailure: string | null = null;
+	let deleteFailure: string | null = null;
 	let sendHold: { reached: () => void; wait: Promise<void> } | null = null;
 	const waiters = new Set<() => void>();
 	let server: Server;
@@ -347,7 +350,14 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 				});
 				return json(res, { ok: true, result: msg });
 			}
-			case "deleteMessage":
+			case "deleteMessage": {
+				if (deleteFailure !== null) {
+					const description = deleteFailure;
+					deleteFailure = null;
+					return json(res, { ok: false, error_code: 400, description }, 400);
+				}
+				return json(res, { ok: true, result: true });
+			}
 			case "answerCallbackQuery":
 			case "setMyCommands":
 			case "deleteWebhook":
@@ -434,6 +444,9 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		addFile,
 		failNextRichMessage: (description = "Bad Request: can't parse rich message") => {
 			richFailure = description;
+		},
+		failNextDeleteMessage: (description = "Bad Request: message can't be deleted") => {
+			deleteFailure = description;
 		},
 		holdNextSend: () => {
 			if (sendHold) throw new Error("a send is already held");

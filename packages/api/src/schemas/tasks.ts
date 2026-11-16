@@ -4,6 +4,7 @@
  * protocol's JSON result (`@crh/protocol`); the protocol stays the authority for what crha reports.
  */
 import { z } from "zod";
+import { ApprovalRequestSchema } from "./approval-request.ts";
 import { TaskAuthorizationViewSchema } from "./authorizations.ts";
 import { cursorPageSchema, IdParamSchema, RefMapSchema } from "./common.ts";
 import {
@@ -143,8 +144,14 @@ export const TaskGroupViewSchema = z
 	})
 	.meta({ id: "TaskGroupView", description: "One batch: one task per target node." });
 
-export const TaskResponseSchema = z.object({ task: TaskViewSchema });
-export const TaskGroupResponseSchema = z.object({ taskGroup: TaskGroupViewSchema });
+export const TaskResponseSchema = z.object({
+	task: TaskViewSchema,
+	request: ApprovalRequestSchema.nullable().optional().describe("The compact approval request, when one exists."),
+});
+export const TaskGroupResponseSchema = z.object({
+	taskGroup: TaskGroupViewSchema,
+	request: ApprovalRequestSchema.nullable().optional().describe("The compact approval request, when one exists."),
+});
 export const TaskListResponseSchema = z.object({ tasks: z.array(TaskViewSchema) });
 export const TaskPageResponseSchema = cursorPageSchema(TaskViewSchema).meta({ id: "TaskPageResponse" });
 export const TaskCancelledResponseSchema = z.object({ cancelled: z.boolean() });

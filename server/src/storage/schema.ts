@@ -632,6 +632,8 @@ export interface ChannelAccountsTable {
 	platform_chat_id: string | null;
 	user_id: string;
 	display_name: string | null;
+	/** The platform's most recently reported language tag; null until the account's first message carried one. */
+	language_code: string | null;
 	linked_at: string;
 }
 

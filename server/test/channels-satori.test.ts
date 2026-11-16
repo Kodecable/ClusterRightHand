@@ -341,6 +341,31 @@ describe("satori channels", () => {
 		}
 	});
 
+	it("deletes a decided approval card, and edits it when the gateway refuses deletion", async () => {
+		const userId = "7120";
+		await link(userId);
+		// Settle cards other tests left waiting so the injected failure hits only this test's card.
+		await channels.refreshAllWaits();
+		const thread = await chatSession(userId);
+		const first = await insertExternalCall(thread.session_id, "satori-delete-ok");
+		await wakeWait(thread.session_id);
+		await waitForContent(`/approve ${first}`);
+		const deletesBefore = fake.callsOf("delete").length;
+		fake.message(userId, `/approve ${first}`);
+		await fake.waitForCall("delete", () => fake.callsOf("delete").length > deletesBefore);
+
+		const second = await insertExternalCall(thread.session_id, "satori-delete-refused");
+		await wakeWait(thread.session_id);
+		const secondCard = await waitForContent(`/approve ${second}`);
+		fake.failNextDelete();
+		fake.message(userId, `/reject ${second} not needed`);
+		// The fallback edits the card into the ending (whichever path settles it), keeping what was being approved.
+		const edited = await fake.waitForCall("update", (call) => contentOf(call).includes("Rejected"));
+		expect(contentOf(edited)).toContain(`/approve ${second}`);
+		expect(contentOf(edited)).toContain("not needed");
+		expect(contentOf(secondCard)).toContain(`/approve ${second}`);
+	});
+
 	it("reports a configured bot that READY does not list as unavailable", async () => {
 		const other = await startFakeSatori({
 			token: "other-token",

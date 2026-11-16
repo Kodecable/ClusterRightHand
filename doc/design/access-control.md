@@ -244,7 +244,11 @@ node when isolation matters; its trust entries restrict the environment.
 An approval is part of the object that waits. A task waits in `awaiting_approval`, and the decision,
 decider, reason and each level's judgment are stored on it; a task group is approved once. An external
 external call has its own small object, `external_calls`, and waits the same way
-([External calls](extensions.md#external-calls)).
+([External calls](extensions.md#external-calls)). The server builds one compact,
+locale-free `ApprovalRequest` from the waiting row — kind, phase, requester, structured action, node
+names, privileged flag, the settled review and the always-allow candidates — and the chat channels
+render it; the WebUI receives the same data on its approval responses, so no surface has to rebuild a
+per-kind summary from prose ([Approvals in chat](channels.md#approvals)).
 
 - A request goes up the chain from the level that raised it to the nearest ancestor whose cumulative
   result is `allow`. That agent may approve, reject or escalate; it escalates when the restriction came

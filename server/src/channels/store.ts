@@ -385,6 +385,7 @@ export async function linkAccount(
 		platform_chat_id: chatId,
 		user_id: userId,
 		display_name: displayName,
+		language_code: null,
 		linked_at: new Date().toISOString(),
 	};
 	await db.insertInto("channel_accounts").values(account).execute();
@@ -435,6 +436,7 @@ export async function accountsForUser(db: Db, userId: string): Promise<ChannelAc
 			"a.platform_chat_id",
 			"a.user_id",
 			"a.display_name",
+			"a.language_code",
 			"a.linked_at",
 			"c.name as channel_name",
 			"c.kind as channel_kind",
@@ -451,6 +453,7 @@ export async function accountsForUser(db: Db, userId: string): Promise<ChannelAc
 			platform_chat_id: row.platform_chat_id,
 			user_id: row.user_id,
 			display_name: row.display_name,
+			language_code: row.language_code,
 			linked_at: row.linked_at,
 		},
 		channelName: row.channel_name,
@@ -696,6 +699,7 @@ export async function defaultNotificationAccount(
 			"a.platform_chat_id",
 			"a.user_id",
 			"a.display_name",
+			"a.language_code",
 			"a.linked_at",
 			"c.id as c_id",
 			"c.org_id as c_org_id",
@@ -723,6 +727,7 @@ export async function defaultNotificationAccount(
 			platform_chat_id: row.platform_chat_id,
 			user_id: row.user_id,
 			display_name: row.display_name,
+			language_code: row.language_code,
 			linked_at: row.linked_at,
 		},
 		channel: {

@@ -45,6 +45,25 @@ export const EXTERNAL_CALL_TERMINAL: readonly ExternalCallState[] = [
  */
 const waiters = new Map<string, Set<() => void>>();
 
+/**
+ * Listeners told whenever a call's waiting state or phase may have changed: created, routed, reviewed,
+ * decided or cancelled. Channels use it to settle or send the chat card of a call without a session.
+ */
+const waitChangedListeners = new Set<() => void>();
+
+export function onExternalCallWaitChanged(listener: () => void): () => void {
+	waitChangedListeners.add(listener);
+	return () => waitChangedListeners.delete(listener);
+}
+
+function notifyExternalCallWaitChanged(): void {
+	for (const listener of [...waitChangedListeners]) {
+		try {
+			listener();
+		} catch {}
+	}
+}
+
 function wakeExternalCall(id: string): void {
 	const waiting = waiters.get(id);
 	if (!waiting) return;
@@ -123,6 +142,7 @@ export async function createExternalCall(
 		.execute();
 	const row = await getExternalCall(db, id);
 	if (!row) throw new Error("the external call row disappeared");
+	if (row.state === "awaiting_approval") notifyExternalCallWaitChanged();
 	return { row, created: true };
 }
 
@@ -257,6 +277,7 @@ export async function decideExternalCall(
 	}
 	const result = await update.executeTakeFirst();
 	if (result.numUpdatedRows === 0n) return false;
+	notifyExternalCallWaitChanged();
 	wakeExternalCall(id);
 	return true;
 }
@@ -305,7 +326,9 @@ async function routeAgentDecision(
 		update = update.where("handler_type", "=", "agent").where("handler_session_id", "=", session);
 	}
 	const result = await update.executeTakeFirst();
-	return result.numUpdatedRows > 0n;
+	if (result.numUpdatedRows === 0n) return false;
+	notifyExternalCallWaitChanged();
+	return true;
 }
 
 /**
@@ -328,6 +351,7 @@ export async function markExternalCallReviewPending(db: Db, id: string): Promise
 		.where("state", "=", "awaiting_approval")
 		.where("handler_type", "=", "user")
 		.executeTakeFirst();
+	if (result.numUpdatedRows > 0n) notifyExternalCallWaitChanged();
 	return result.numUpdatedRows > 0n;
 }
 
@@ -345,6 +369,7 @@ export async function clearExternalCallReviewPending(db: Db, id: string): Promis
 		.where("state", "=", "awaiting_approval")
 		.where("handler_type", "=", "user")
 		.executeTakeFirst();
+	if (result.numUpdatedRows > 0n) notifyExternalCallWaitChanged();
 	return result.numUpdatedRows > 0n;
 }
 
@@ -363,6 +388,7 @@ export async function recordExternalCallReview(db: Db, id: string, review: Revie
 		.where("state", "=", "awaiting_approval")
 		.where("handler_type", "is not", null)
 		.executeTakeFirst();
+	if (result.numUpdatedRows > 0n) notifyExternalCallWaitChanged();
 	return result.numUpdatedRows > 0n;
 }
 
@@ -407,6 +433,7 @@ export async function cancelWaitingExternalCall(db: Db, id: string): Promise<boo
 		.where("state", "=", "awaiting_approval")
 		.executeTakeFirst();
 	if (result.numUpdatedRows === 0n) return false;
+	notifyExternalCallWaitChanged();
 	wakeExternalCall(id);
 	return true;
 }

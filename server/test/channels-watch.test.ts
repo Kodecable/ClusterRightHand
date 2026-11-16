@@ -68,6 +68,7 @@ beforeEach(async () => {
 	const runtime = {
 		closing: false,
 		onSessionStateChanged: () => {},
+		onApprovalChanged: () => {},
 		watch: async (id: string, callback: WatchCallback) => {
 			callbacks.set(id, callback);
 			return () => {

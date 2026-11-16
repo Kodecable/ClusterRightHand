@@ -14,6 +14,11 @@ import type {
 } from "@crh/api";
 import type { ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/runtime.ts";
+import {
+	approvalRequestForExternalCall,
+	approvalRequestForTask,
+	approvalRequestForTaskGroup,
+} from "../approvals/request.ts";
 import type { Audit } from "../audit/audit.ts";
 import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
@@ -24,6 +29,7 @@ import {
 	decideExternalCall,
 	externalCallViews,
 	getExternalCall,
+	onExternalCallWaitChanged,
 	reevaluateExternalCalls,
 } from "../extensions/external-calls.ts";
 import { extensionsForUser, parseDisabledExtensionNames } from "../extensions/store.ts";
@@ -133,6 +139,8 @@ export interface ChannelManagerOptions {
 	draftKeepaliveMs?: number;
 	/** Unlinked senders remembered as already answered (1000 by default); the oldest is dropped past it. */
 	unlinkedReplyLimit?: number;
+	/** A full wait sweep runs this often as a fallback for paths that change a row without a hook (15 s by default). */
+	waitSyncIntervalMs?: number;
 	now?: () => number;
 }
 
@@ -143,7 +151,8 @@ interface AdapterEntry {
 
 interface TrackedMessage {
 	key: string;
-	rootSessionId: string;
+	/** The root session, or null for an approval without one (an API token's or a user's direct request). */
+	rootSessionId: string | null;
 	adapterName: string;
 	target: ChannelTarget;
 	messageId: string;
@@ -195,6 +204,7 @@ interface RunState {
 
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_PROGRESS_INTERVAL_MS = 1_500;
+const DEFAULT_WAIT_SYNC_INTERVAL_MS = 15_000;
 /** A draft expires after 30 s without an update; it is re-sent well before that. */
 const DRAFT_KEEPALIVE_MS = 20_000;
 const CLIP_CHARS = 500;
@@ -402,16 +412,26 @@ export class ChannelManager {
 	readonly #drafts = new Map<string, DraftState>();
 	readonly #statuses = new Map<string, StatusState>();
 	readonly #tracked = new Map<string, TrackedMessage>();
+	/** Keys a settle is acting on, so a concurrent sweep does not delete/edit the same card twice. */
+	readonly #settling = new Set<string>();
 	readonly #unlinkedReplied = new Set<string>();
 	/** Each channel's admin operations, so a reload never overlaps another for the same name. */
 	readonly #channelOps = new KeyedQueue("channel admin queue");
 	/** Wait syncs per root: a state change during a sync asks for one more pass that reads the newer waits. */
 	readonly #waitSyncs = new KeyedReconciler<void>();
+	/** One full sweep at a time; a change during a sweep asks for one more pass. */
+	readonly #fullSyncs = new KeyedReconciler<void>();
+	/** One orphan sweep at a time, shared by the full sweep and the approval-change hook. */
+	readonly #orphanSyncs = new KeyedReconciler<void>();
 	readonly #topicCreations = new SingleFlight<ChannelThreadRow | undefined>();
+	/** Set while the manager follows external-call wait changes; cleared on stop. */
+	#unsubscribeExternalCalls: (() => void) | undefined;
+	#waitSyncTimer: ReturnType<typeof setInterval> | undefined;
 	readonly #historyLimit: number;
 	readonly #progressIntervalMs: number;
 	readonly #draftKeepaliveMs: number;
 	readonly #unlinkedReplyLimit: number;
+	readonly #waitSyncIntervalMs: number;
 	readonly #now: () => number;
 	#started = false;
 	#stopped = false;
@@ -424,6 +444,7 @@ export class ChannelManager {
 		this.#progressIntervalMs = options.progressIntervalMs ?? DEFAULT_PROGRESS_INTERVAL_MS;
 		this.#draftKeepaliveMs = options.draftKeepaliveMs ?? DRAFT_KEEPALIVE_MS;
 		this.#unlinkedReplyLimit = options.unlinkedReplyLimit ?? UNLINKED_REPLY_LIMIT;
+		this.#waitSyncIntervalMs = options.waitSyncIntervalMs ?? DEFAULT_WAIT_SYNC_INTERVAL_MS;
 		this.#now = options.now ?? Date.now;
 	}
 
@@ -440,11 +461,21 @@ export class ChannelManager {
 				console.error("channels: syncing a session's waits failed:", err);
 			});
 		});
+		// Approvals without a session (an API token's or a user's direct task) have no session state to follow,
+		// so the runtime and the external-call rows report their changes here.
+		this.#options.runtime.onApprovalChanged((actorId) => {
+			void this.#approvalChanged(actorId).catch((err: unknown) => {
+				console.error("channels: syncing waits after an approval change failed:", err);
+			});
+		});
+		this.#unsubscribeExternalCalls = onExternalCallWaitChanged(() => this.#queueSync());
 		for (const row of await listChannelRows(this.#options.db)) await this.#openRow(row);
 		// Pending waits are notified in the background: a slow platform must not delay startup.
-		void this.#syncAllWaits().catch((err: unknown) => {
-			console.error("channels: syncing waiting approvals at startup failed:", err);
-		});
+		this.#queueSync();
+		// A fallback sweep for a path that changes a row without a hook (a rule change settling an external call,
+		// a decision made while another sync was in flight).
+		this.#waitSyncTimer = setInterval(() => this.#queueSync(), this.#waitSyncIntervalMs);
+		this.#waitSyncTimer.unref?.();
 		// A thread's session may be mid-run when crh restarts; watch it so its output still reaches the chat.
 		for (const thread of await listThreads(this.#options.db))
 			if (thread.session_id !== null && (thread.current === 1 || thread.topic_id !== null)) {
@@ -456,6 +487,11 @@ export class ChannelManager {
 		if (this.#stopped) return;
 		this.#stopped = true;
 		this.#options.runtime.onSessionStateChanged(undefined);
+		this.#options.runtime.onApprovalChanged(undefined);
+		this.#unsubscribeExternalCalls?.();
+		this.#unsubscribeExternalCalls = undefined;
+		if (this.#waitSyncTimer) clearInterval(this.#waitSyncTimer);
+		this.#waitSyncTimer = undefined;
 		for (const stop of [...this.#watchers.values()]) {
 			try {
 				stop();
@@ -688,14 +724,15 @@ export class ChannelManager {
 		const command = parseCommand(message.text);
 		if (command !== undefined) {
 			await this.#runCommand(adapter, row, message, command, target);
+			const account = await accountByPlatform(this.#options.db, row.id, adapter.platform, message.platformUserId);
 			// A command never sends its attachments: they are not downloaded, and the user is told so.
 			if (message.files.length > 0) {
-				const account = await accountByPlatform(this.#options.db, row.id, adapter.platform, message.platformUserId);
 				const locale = account
 					? await this.#localeForAccount(account, message.languageCode)
 					: localeFromLanguageCode(message.languageCode);
 				await adapter.sendText(target, messagesFor(locale).filesNotSent);
 			}
+			if (account) await this.#rememberLanguage(account, message.languageCode);
 			return;
 		}
 		const account = await accountByPlatform(this.#options.db, row.id, adapter.platform, message.platformUserId);
@@ -703,6 +740,7 @@ export class ChannelManager {
 			await this.#replyUnlinked(adapter, row, message);
 			return;
 		}
+		await this.#rememberLanguage(account, message.languageCode);
 		const user = await this.#sessionUser(account);
 		if (!user) {
 			await this.#replyUnlinked(adapter, row, message);
@@ -756,6 +794,7 @@ export class ChannelManager {
 			await this.#replyUnlinked(adapter, row, message);
 			return;
 		}
+		await this.#rememberLanguage(account, message.languageCode);
 		const user = await this.#sessionUser(account);
 		if (!user) {
 			await this.#replyUnlinked(adapter, row, message);
@@ -2207,19 +2246,27 @@ export class ChannelManager {
 		decision: "approved" | "rejected",
 		by: string,
 		reason: string | undefined,
+		pressed?: { adapterName: string; target: ChannelTarget; messageId: string; locale: UserSettingsLocale },
 	): Promise<void> {
+		if (this.#settling.has(key)) return;
 		const tracked = this.#tracked.get(key);
-		if (!tracked) return;
-		this.#tracked.delete(key);
-		const entry = this.#adapters.get(tracked.adapterName);
-		if (!entry) return;
-		const m = messagesFor(tracked.locale);
-		const ending = decision === "approved" ? m.approvedBy(by) : m.rejectedBy(by, reason ?? null);
-		try {
-			await entry.adapter.editText(tracked.target, tracked.messageId, `${tracked.text}\n\n${ending}`);
-		} catch (err) {
-			console.error("channels: editing a decided approval message failed:", err);
+		if (tracked) {
+			this.#settling.add(key);
+			try {
+				this.#tracked.delete(key);
+				const m = messagesFor(tracked.locale);
+				const ending = decision === "approved" ? m.approvedBy(by) : m.rejectedBy(by, reason ?? null);
+				await this.#replaceMessage(tracked.adapterName, tracked.target, tracked.messageId, tracked.text, ending);
+			} finally {
+				this.#settling.delete(key);
+			}
+			return;
 		}
+		// The tracked entry may have been evicted; the pressed message itself is still worth clearing.
+		if (!pressed) return;
+		const m = messagesFor(pressed.locale);
+		const ending = decision === "approved" ? m.approvedBy(by) : m.rejectedBy(by, reason ?? null);
+		await this.#replaceMessage(pressed.adapterName, pressed.target, pressed.messageId, null, ending);
 	}
 
 	// ---- button presses ----
@@ -2234,7 +2281,9 @@ export class ChannelManager {
 			await adapter.sendText(target, messagesFor(localeFromLanguageCode(press.languageCode)).linkHelp);
 			return;
 		}
-		const m = messagesFor(await this.#localeForAccount(account, press.languageCode));
+		await this.#rememberLanguage(account, press.languageCode);
+		const locale = await this.#localeForAccount(account, press.languageCode);
+		const m = messagesFor(locale);
 		if (press.data.startsWith("switch:")) {
 			const sessionId = press.data.slice("switch:".length);
 			await this.#switchSession(row, press, user, sessionId, adapter, target, m);
@@ -2283,10 +2332,13 @@ export class ChannelManager {
 				return;
 			}
 			await this.#auditChannelApproval(user, result.kind, id, decision, row.name, adapter.platform, thread?.id);
-			await this.#editDecided(result.key, decision, user.username, undefined);
-			try {
-				await adapter.editText(target, press.messageId, decision === "approved" ? m.approved : m.rejected);
-			} catch {}
+			// Delete the card (or edit it if the platform cannot delete), never leaving a stale approval.
+			await this.#editDecided(result.key, decision, user.username, undefined, {
+				adapterName: row.name,
+				target,
+				messageId: press.messageId,
+				locale,
+			});
 		}
 	}
 
@@ -2500,8 +2552,7 @@ export class ChannelManager {
 			)
 			.join("");
 		if (message.errorMessage) {
-			const m = await this.#messagesForSession(sessionId);
-			await this.#sendFinal(sessionId, m.turnFailed(message.errorMessage));
+			await this.#sendFinal(sessionId, (m) => m.turnFailed(message.errorMessage ?? ""));
 			return;
 		}
 		if (text.trim() === "") return;
@@ -2536,22 +2587,27 @@ export class ChannelManager {
 	}
 
 	async #sendDeliveries(sessionId: string, run: RunState): Promise<void> {
-		const m = await this.#messagesForSession(sessionId);
 		for (const delivery of run.deliveries) {
-			await this.#send(sessionId, m.fileOffered(delivery.name, delivery.source));
+			await this.#send(sessionId, (m) => m.fileOffered(delivery.name, delivery.source));
 		}
 	}
 
+	/**
+	 * Sends a text or, when it depends on the catalogue, a builder run once the route (and so the account
+	 * whose reported language decides) is known.
+	 */
 	async #send(
 		sessionId: string,
-		text: string,
+		text: string | ((m: BotMessages) => string),
 		options: { buttons?: readonly (readonly import("./model.ts").ChannelButton[])[] } = {},
 	): Promise<void> {
 		const route = await this.#routeForSession(sessionId);
 		if (!route) return;
-		const locale = botLocale(await this.#userLocale(route.account.user_id));
+		const locale = botLocale(await this.#userLocale(route.account.user_id), route.account.language_code);
 		const m = messagesFor(locale);
-		const body = route.thread === undefined ? m.sessionBody(await this.#sessionTitle(sessionId, locale), text) : text;
+		const content = typeof text === "function" ? text(m) : text;
+		const body =
+			route.thread === undefined ? m.sessionBody(await this.#sessionTitle(sessionId, locale), content) : content;
 		try {
 			await route.adapter.sendText(route.target, body, options);
 		} catch (err) {
@@ -2563,7 +2619,7 @@ export class ChannelManager {
 	 * Sends a turn's last message without re-showing the progress draft its send cleared: the draft would sit
 	 * there as "Thinking…" after the final answer until it times out. Its id is not reused if the run goes on.
 	 */
-	async #sendFinal(sessionId: string, text: string): Promise<void> {
+	async #sendFinal(sessionId: string, text: string | ((m: BotMessages) => string)): Promise<void> {
 		const draft = this.#drafts.get(sessionId);
 		if (draft) {
 			draft.suppressed = true;
@@ -2578,7 +2634,7 @@ export class ChannelManager {
 		if (!route.adapter.capabilities.progress) return;
 		const settings = await getUserSettings(this.#options.db, route.account.user_id);
 		if (!settings.showProgress) return;
-		const locale = botLocale(settings.locale);
+		const locale = botLocale(settings.locale, route.account.language_code);
 		const m = messagesFor(locale);
 		const text = status(m);
 		const now = this.#now();
@@ -2758,7 +2814,7 @@ export class ChannelManager {
 			.where("id", "=", owner)
 			.executeTakeFirst();
 		if (!userRow || userRow.status !== "active") return;
-		const locale = botLocale(await this.#userLocale(owner));
+		const locale = botLocale(await this.#userLocale(owner), presser.language_code);
 		const m = messagesFor(locale);
 		try {
 			await this.#options.runtime.abort(
@@ -2782,6 +2838,27 @@ export class ChannelManager {
 		} catch (err) {
 			console.error("channels: stopping a turn from a draft failed:", err);
 		}
+	}
+
+	/**
+	 * Where an approval without a session goes: the same rule a session with no chat source uses — nothing
+	 * while the owner is online in the WebUI, otherwise their default notification account. There is no
+	 * session, so no notification topic is created.
+	 */
+	async #routeForOwner(owner: string): Promise<Route | undefined> {
+		if (this.#presence.online(owner)) return undefined;
+		const fallback = await defaultNotificationAccount(this.#options.db, owner);
+		if (!fallback) return undefined;
+		const entry = this.#adapters.get(fallback.channel.name);
+		if (!entry) return undefined;
+		return {
+			adapterName: entry.row.name,
+			adapter: entry.adapter,
+			target: { chatId: fallback.account.platform_chat_id ?? fallback.account.platform_user_id },
+			thread: undefined,
+			channelRow: entry.row,
+			account: fallback.account,
+		};
 	}
 
 	/** Where a session's notifications go (doc/design/channels.md "Notifications"). */
@@ -2874,7 +2951,7 @@ export class ChannelManager {
 			// A rejected creation must not be cached: SingleFlight removes the entry when it settles, also on throw.
 			const createTopic = adapter.createTopic?.bind(adapter);
 			if (!createTopic) return undefined;
-			const locale = botLocale(await this.#userLocale(account.user_id));
+			const locale = botLocale(await this.#userLocale(account.user_id), account.language_code);
 			const title = clip(await this.#sessionTitle(sessionId, locale), 60);
 			try {
 				const topicId = await createTopic(account.platform_chat_id ?? account.platform_user_id, `CRH: ${title}`);
@@ -2905,8 +2982,37 @@ export class ChannelManager {
 		}
 	}
 
+	/**
+	 * An approval changed for an actor that may have no session (an API token, a schedule, a user acting
+	 * directly). Session work follows its root's normal sync; anything else runs the orphan sweep.
+	 */
+	async #approvalChanged(actorId: string): Promise<void> {
+		const session = await this.#options.db
+			.selectFrom("sessions")
+			.select("id")
+			.where("id", "=", actorId)
+			.executeTakeFirst();
+		if (session) {
+			await this.#stateChanged(session.id);
+			return;
+		}
+		// Do not wait behind a slow full sweep: an orphan's card must settle as soon as its row does.
+		await this.#settleAllTracked();
+		await this.#orphanSyncs.run("orphans", () => this.#syncOrphanWaits());
+	}
+
+	/** Starts one full wait sweep in the background, coalescing changes that arrive while it runs. */
+	#queueSync(): void {
+		void this.#fullSyncs
+			.run("all", () => this.#syncAllWaits())
+			.catch((err: unknown) => {
+				console.error("channels: syncing waiting approvals failed:", err);
+			});
+	}
+
 	async #syncAllWaits(): Promise<void> {
 		if (this.#stopped) return;
+		await this.#settleAllTracked();
 		const rows = await this.#options.db
 			.selectFrom("sessions")
 			.select("root_session_id")
@@ -2920,15 +3026,17 @@ export class ChannelManager {
 				console.error(`channels: syncing waits of root ${row.root_session_id} failed:`, err);
 			}
 		}
+		await this.#orphanSyncs.run("orphans", () => this.#syncOrphanWaits());
 	}
 
 	async #syncRootWaits(rootId: string): Promise<void> {
 		await this.#settleTracked(rootId);
 		const owner = await sessionOwner(this.#options.db, rootId);
 		if (!owner) return;
-		const locale = botLocale(await this.#userLocale(owner));
-		const m = messagesFor(locale);
 		const route = await this.#routeForSession(rootId);
+		// Pushed texts follow the account they are routed to when the user has no saved locale.
+		const locale = botLocale(await this.#userLocale(owner), route?.account.language_code);
+		const m = messagesFor(locale);
 		const tasks = await this.#options.db
 			.selectFrom("tasks")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
@@ -2973,8 +3081,11 @@ export class ChannelManager {
 		const key = approvalKey("task", task.id);
 		if (task.state === "awaiting_authorization") {
 			if (!route || this.#tracked.has(key)) return;
+			const view = await this.#options.cluster.getTask(task.id);
+			if (!view) return;
+			const request = await approvalRequestForTask(this.#options.db, view);
 			const link = this.#webUrl(`/approvals/tasks/${task.id}`);
-			await this.#sendTracked(key, rootId, route, m.taskSignatureWait(task.id, link), [], locale, true);
+			await this.#sendTracked(key, rootId, route, m.taskSignatureWait(request, link), [], locale, true, false);
 			return;
 		}
 		if (task.handler_type !== "user") return;
@@ -2982,21 +3093,17 @@ export class ChannelManager {
 		if (!route || this.#tracked.has(key)) return;
 		const view = await this.#options.cluster.getTask(task.id);
 		if (!view) return;
-		const text = m.taskApproval(clip(view.summary || view.kind, 300), task.id);
-		await this.#sendTracked(
-			key,
-			rootId,
-			route,
-			text,
-			[
-				[
-					{ text: m.approveButton, data: `ap:t:${task.id}:a` },
-					{ text: m.rejectButton, data: `ap:t:${task.id}:r` },
-				],
-			],
-			locale,
-			true,
-		);
+		const request = await approvalRequestForTask(this.#options.db, view);
+		const text = m.approvalRequest(request, { withButtons: route.adapter.capabilities.buttons });
+		const buttons = route.adapter.capabilities.buttons
+			? [
+					[
+						{ text: m.approveButton, data: `ap:t:${task.id}:a` },
+						{ text: m.rejectButton, data: `ap:t:${task.id}:r` },
+					],
+				]
+			: [];
+		await this.#sendTracked(key, rootId, route, text, buttons, locale, true, false);
 	}
 
 	async #syncGroupWait(
@@ -3017,8 +3124,11 @@ export class ChannelManager {
 		const key = approvalKey("task_group", group.id);
 		if (group.state === "awaiting_authorization") {
 			if (!route || this.#tracked.has(key)) return;
+			const view = await this.#options.taskGroups.get(group.id);
+			if (!view) return;
+			const request = await approvalRequestForTaskGroup(this.#options.db, view);
 			const link = this.#webUrl(`/approvals/task-groups/${group.id}`);
-			await this.#sendTracked(key, rootId, route, m.taskGroupSignatureWait(group.id, link), [], locale, true);
+			await this.#sendTracked(key, rootId, route, m.taskGroupSignatureWait(request, link), [], locale, true, false);
 			return;
 		}
 		if (group.handler_type !== "user") return;
@@ -3026,21 +3136,17 @@ export class ChannelManager {
 		if (!route || this.#tracked.has(key)) return;
 		const view = await this.#options.taskGroups.get(group.id);
 		if (!view) return;
-		const text = m.taskGroupApproval(clip(view.summary || view.kind, 300), group.id);
-		await this.#sendTracked(
-			key,
-			rootId,
-			route,
-			text,
-			[
-				[
-					{ text: m.approveButton, data: `ap:g:${group.id}:a` },
-					{ text: m.rejectButton, data: `ap:g:${group.id}:r` },
-				],
-			],
-			locale,
-			true,
-		);
+		const request = await approvalRequestForTaskGroup(this.#options.db, view);
+		const text = m.approvalRequest(request, { withButtons: route.adapter.capabilities.buttons });
+		const buttons = route.adapter.capabilities.buttons
+			? [
+					[
+						{ text: m.approveButton, data: `ap:g:${group.id}:a` },
+						{ text: m.rejectButton, data: `ap:g:${group.id}:r` },
+					],
+				]
+			: [];
+		await this.#sendTracked(key, rootId, route, text, buttons, locale, true, false);
 	}
 
 	async #syncCallWait(
@@ -3064,22 +3170,132 @@ export class ChannelManager {
 		const row = await getExternalCall(this.#options.db, call.id);
 		if (!row) return;
 		const view = (await externalCallViews(this.#options.db, [row]))[0];
-		const what = view ? `${view.extension}/${view.tool}` : `${row.extension_name}/${row.tool_name}`;
-		const text = m.callApproval(what, call.id);
-		await this.#sendTracked(
-			key,
-			rootId,
-			route,
-			text,
-			[
-				[
-					{ text: m.approveButton, data: `ap:e:${call.id}:a` },
-					{ text: m.rejectButton, data: `ap:e:${call.id}:r` },
-				],
-			],
-			locale,
-			true,
-		);
+		if (!view) return;
+		const request = await approvalRequestForExternalCall(this.#options.db, view);
+		const text = m.approvalRequest(request, { withButtons: route.adapter.capabilities.buttons });
+		const buttons = route.adapter.capabilities.buttons
+			? [
+					[
+						{ text: m.approveButton, data: `ap:e:${call.id}:a` },
+						{ text: m.rejectButton, data: `ap:e:${call.id}:r` },
+					],
+				]
+			: [];
+		await this.#sendTracked(key, rootId, route, text, buttons, locale, true, false);
+	}
+
+	/**
+	 * Sends the waiting requests that have no root session (an API token's task, a user's direct task, an
+	 * extension called outside a session) where their owner is notified (doc/design/channels.md "Approvals").
+	 * They are tracked under the same `kind:id` keys and settled with the session-held cards.
+	 */
+	async #syncOrphanWaits(): Promise<void> {
+		if (this.#stopped) return;
+		const routes = new Map<string, Promise<Route | undefined>>();
+		const routeFor = (owner: string): Promise<Route | undefined> => {
+			let route = routes.get(owner);
+			if (!route) {
+				route = this.#routeForOwner(owner);
+				routes.set(owner, route);
+			}
+			return route;
+		};
+		const context = async (owner: string) => {
+			const route = await routeFor(owner);
+			if (!route) return undefined;
+			const locale = botLocale(await this.#userLocale(owner), route.account.language_code);
+			return { route, locale, m: messagesFor(locale) };
+		};
+		const tasks = await this.#options.db
+			.selectFrom("tasks")
+			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
+			.where("root_session_id", "is", null)
+			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
+			.execute();
+		for (const task of tasks) {
+			const key = approvalKey("task", task.id);
+			if (this.#tracked.has(key)) continue;
+			const signature = task.state === "awaiting_authorization";
+			if (!signature) {
+				if (task.handler_type !== "user") continue;
+				if (approvalPhaseOf(task.state, task.handler_type, task.approval) === "reviewing") continue;
+			}
+			const view = await this.#options.cluster.getTask(task.id);
+			if (!view) continue;
+			const sent = await context(task.on_behalf_of_user_id);
+			if (!sent) continue;
+			const request = await approvalRequestForTask(this.#options.db, view);
+			const text = signature
+				? sent.m.taskSignatureWait(request, this.#webUrl(`/approvals/tasks/${task.id}`))
+				: sent.m.approvalRequest(request, { withButtons: sent.route.adapter.capabilities.buttons });
+			const buttons =
+				!signature && sent.route.adapter.capabilities.buttons
+					? [
+							[
+								{ text: sent.m.approveButton, data: `ap:t:${task.id}:a` },
+								{ text: sent.m.rejectButton, data: `ap:t:${task.id}:r` },
+							],
+						]
+					: [];
+			await this.#sendTracked(key, null, sent.route, text, buttons, sent.locale, true, false);
+		}
+		const groups = await this.#options.db
+			.selectFrom("task_groups")
+			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
+			.where("root_session_id", "is", null)
+			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
+			.execute();
+		for (const group of groups) {
+			const key = approvalKey("task_group", group.id);
+			if (this.#tracked.has(key)) continue;
+			const signature = group.state === "awaiting_authorization";
+			if (!signature) {
+				if (group.handler_type !== "user") continue;
+				if (approvalPhaseOf(group.state, group.handler_type, group.approval) === "reviewing") continue;
+			}
+			const view = await this.#options.taskGroups.get(group.id);
+			if (!view) continue;
+			const sent = await context(group.on_behalf_of_user_id);
+			if (!sent) continue;
+			const request = await approvalRequestForTaskGroup(this.#options.db, view);
+			const text = signature
+				? sent.m.taskGroupSignatureWait(request, this.#webUrl(`/approvals/task-groups/${group.id}`))
+				: sent.m.approvalRequest(request, { withButtons: sent.route.adapter.capabilities.buttons });
+			const buttons =
+				!signature && sent.route.adapter.capabilities.buttons
+					? [
+							[
+								{ text: sent.m.approveButton, data: `ap:g:${group.id}:a` },
+								{ text: sent.m.rejectButton, data: `ap:g:${group.id}:r` },
+							],
+						]
+					: [];
+			await this.#sendTracked(key, null, sent.route, text, buttons, sent.locale, true, false);
+		}
+		const callRows = await this.#options.db
+			.selectFrom("external_calls")
+			.selectAll()
+			.where("root_session_id", "is", null)
+			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "user")
+			.execute();
+		for (const view of await externalCallViews(this.#options.db, callRows)) {
+			const key = approvalKey("external_call", view.id);
+			if (this.#tracked.has(key) || view.phase === "reviewing") continue;
+			const sent = await context(view.onBehalfOfUserId);
+			if (!sent) continue;
+			const request = await approvalRequestForExternalCall(this.#options.db, view);
+			const text = sent.m.approvalRequest(request, { withButtons: sent.route.adapter.capabilities.buttons });
+			const buttons = sent.route.adapter.capabilities.buttons
+				? [
+						[
+							{ text: sent.m.approveButton, data: `ap:e:${view.id}:a` },
+							{ text: sent.m.rejectButton, data: `ap:e:${view.id}:r` },
+						],
+					]
+				: [];
+			await this.#sendTracked(key, null, sent.route, text, buttons, sent.locale, true, false);
+		}
 	}
 
 	async #syncQuotaWait(
@@ -3114,23 +3330,28 @@ export class ChannelManager {
 
 	async #sendTracked(
 		key: string,
-		rootId: string,
+		rootId: string | null,
 		route: Route,
 		text: string,
 		buttons: readonly (readonly import("./model.ts").ChannelButton[])[],
 		locale: UserSettingsLocale,
 		waiting?: boolean,
+		wrapSession = true,
 	): Promise<void> {
 		// The run now waits for the user: its draft expires on its own and is not shown again until the run goes on.
-		if (waiting === true) this.#dropDraft(rootId);
+		if (waiting === true && rootId !== null) this.#dropDraft(rootId);
 		const m = messagesFor(locale);
 		const buttonsOn = route.adapter.capabilities.buttons;
 		const withSwitch =
-			route.thread === undefined && buttonsOn
+			rootId !== null && route.thread === undefined && buttonsOn
 				? [...buttons, [{ text: m.openSession, data: `switch:${rootId}` }]]
 				: buttons;
-		const header = route.thread === undefined ? m.sessionBody(await this.#sessionTitle(rootId, locale), text) : text;
-		const link = route.thread === undefined && !buttonsOn ? this.#sessionLink(rootId) : null;
+		// An approval card already starts with its requester, so a session prefix would repeat the title.
+		const header =
+			rootId !== null && wrapSession && route.thread === undefined
+				? m.sessionBody(await this.#sessionTitle(rootId, locale), text)
+				: text;
+		const link = rootId !== null && route.thread === undefined && !buttonsOn ? this.#sessionLink(rootId) : null;
 		const body = link === null ? header : `${header}\n\n${m.openSessionLink(link)}`;
 		let sent: SentMessage;
 		try {
@@ -3152,25 +3373,78 @@ export class ChannelManager {
 			text: body,
 			locale,
 		});
+		// A decision can land while the card is being sent, before its message id is known. Check once more
+		// after this tick so the card is not left behind until the fallback sweep.
+		setTimeout(() => {
+			if (!this.#stopped) {
+				void this.#settleAllTracked().catch((err: unknown) => {
+					console.error("channels: settling a just-sent wait message failed:", err);
+				});
+			}
+		}, 0).unref?.();
 	}
 
 	/** Edits tracked messages whose wait is over, saying how it ended (doc/design/channels.md "Approvals"). */
 	async #settleTracked(rootId: string): Promise<void> {
 		for (const [key, tracked] of [...this.#tracked]) {
-			if (tracked.rootSessionId !== rootId) continue;
+			if (tracked.rootSessionId !== rootId || this.#settling.has(key)) continue;
 			const ending = await this.#waitEnding(key, messagesFor(tracked.locale));
 			if (ending === undefined) continue;
-			this.#tracked.delete(key);
-			const entry = this.#adapters.get(tracked.adapterName);
-			if (!entry) continue;
+			this.#settling.add(key);
 			try {
-				await entry.adapter.editText(tracked.target, tracked.messageId, `${tracked.text}\n\n${ending}`);
-			} catch (err) {
-				console.error("channels: editing an ended wait message failed:", err);
+				this.#tracked.delete(key);
+				await this.#replaceMessage(tracked.adapterName, tracked.target, tracked.messageId, tracked.text, ending);
+			} finally {
+				this.#settling.delete(key);
 			}
 		}
 	}
 
+	/**
+	 * Settles every tracked wait whose row says it ended. A full sweep walks all of them, so a decision made
+	 * elsewhere reaches its chat card even when the session's own state did not change (or it has no session).
+	 */
+	async #settleAllTracked(): Promise<void> {
+		if (this.#stopped) return;
+		for (const [key, tracked] of [...this.#tracked]) {
+			if (this.#settling.has(key)) continue;
+			const ending = await this.#waitEnding(key, messagesFor(tracked.locale));
+			if (ending === undefined) continue;
+			this.#settling.add(key);
+			try {
+				this.#tracked.delete(key);
+				await this.#replaceMessage(tracked.adapterName, tracked.target, tracked.messageId, tracked.text, ending);
+			} finally {
+				this.#settling.delete(key);
+			}
+		}
+	}
+
+	/**
+	 * A decided wait message is removed (doc/design/channels.md "Approvals"). A platform that cannot delete
+	 * falls back to editing the message into the one-line ending, so the chat never keeps a stale card.
+	 */
+	async #replaceMessage(
+		adapterName: string,
+		target: ChannelTarget,
+		messageId: string,
+		originalText: string | null,
+		ending: string,
+	): Promise<void> {
+		const adapter = this.#adapters.get(adapterName)?.adapter;
+		if (!adapter) return;
+		try {
+			await adapter.deleteMessage(target, messageId);
+			return;
+		} catch (err) {
+			console.error("channels: deleting a decided wait message failed; editing it instead:", err);
+		}
+		try {
+			await adapter.editText(target, messageId, originalText === null ? ending : `${originalText}\n\n${ending}`);
+		} catch (err) {
+			console.error("channels: editing a decided wait message failed:", err);
+		}
+	}
 	/** `undefined` while the wait goes on; otherwise how it ended. */
 	async #waitEnding(key: string, m: BotMessages): Promise<string | undefined> {
 		if (key.startsWith("quota:")) {
@@ -3241,6 +3515,11 @@ export class ChannelManager {
 		await this.#stateChanged(sessionId);
 	}
 
+	/** Re-reads every waiting approval, including those without a session (a test or manual sync). */
+	async refreshAllWaits(): Promise<void> {
+		await this.#fullSyncs.run("all", () => this.#syncAllWaits());
+	}
+
 	/** Test-only: whether a runtime event watch is held for the session. */
 	watchesSession(sessionId: string): boolean {
 		return this.#watchers.has(sessionId);
@@ -3273,16 +3552,25 @@ export class ChannelManager {
 		return (await getUserSettings(this.#options.db, userId)).locale;
 	}
 
+	/**
+	 * Keeps the account's most recently reported platform language (doc/design/channels.md "Messages"), so a
+	 * pushed approval or answer can follow it when the user has no saved locale. Only a change writes.
+	 */
+	async #rememberLanguage(account: ChannelAccountRow, languageCode: string | null | undefined): Promise<void> {
+		if (!languageCode || account.language_code === languageCode) return;
+		await this.#options.db
+			.updateTable("channel_accounts")
+			.set({ language_code: languageCode })
+			.where("id", "=", account.id)
+			.execute();
+		account.language_code = languageCode;
+	}
+
 	async #localeForAccount(
 		account: ChannelAccountRow,
 		languageCode: string | null | undefined,
 	): Promise<UserSettingsLocale> {
 		return botLocale(await this.#userLocale(account.user_id), languageCode);
-	}
-
-	async #messagesForSession(sessionId: string): Promise<BotMessages> {
-		const owner = await sessionOwner(this.#options.db, sessionId);
-		return messagesFor(owner ? botLocale(await this.#userLocale(owner)) : "en");
 	}
 
 	#sessionLink(sessionId: string): string | null {

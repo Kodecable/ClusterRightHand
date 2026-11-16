@@ -13,6 +13,7 @@ import {
 } from "@crh/api/schemas";
 import type { TaskSpec } from "@crh/protocol";
 import { HTTPException } from "hono/http-exception";
+import { approvalRequestForTask, approvalRequestForTaskGroup } from "../approvals/request.ts";
 import { isAdmin } from "../auth/sessions.ts";
 import { type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
 import { nodeAccess } from "../cluster/nodes.ts";
@@ -220,7 +221,11 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const { id } = c.req.valid("param");
 		const taskGroup = await visibleTaskGroup(c.get("user"), id);
 		if (!taskGroup) throw new NotFoundError("no such task group");
-		return c.json({ taskGroup }, 200);
+		const request =
+			taskGroup.state === "awaiting_approval" || taskGroup.state === "awaiting_authorization"
+				? await approvalRequestForTaskGroup(db, taskGroup)
+				: null;
+		return c.json({ taskGroup, request }, 200);
 	});
 
 	app.openapi(waitGroupRoute, async (c) => {
@@ -327,7 +332,11 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const { id } = c.req.valid("param");
 		const found = await visibleTask(c.get("user"), id);
 		if (!found) throw new NotFoundError("no such task");
-		return c.json({ task: found.task }, 200);
+		const request =
+			found.task.state === "awaiting_approval" || found.task.state === "awaiting_authorization"
+				? await approvalRequestForTask(db, found.task)
+				: null;
+		return c.json({ task: found.task, request }, 200);
 	});
 
 	app.openapi(waitTaskRoute, async (c) => {

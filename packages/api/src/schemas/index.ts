@@ -2,6 +2,7 @@
  * `@crh/api/schemas`: runtime zod schemas for the routes that define them. The main entry stays types only;
  * the WebUI imports types from it and never bundles these.
  */
+export * from "./approval-request.ts";
 export * from "./approvals.ts";
 export * from "./audit.ts";
 export * from "./auth.ts";

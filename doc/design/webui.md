@@ -81,7 +81,10 @@ first paint, so a dark page never flashes light.
 The UI is available in English and Chinese. The theme is a per-device choice in localStorage. The
 language is the user's account setting: after login the server's value wins and the client switches to
 it, writing the `crh.locale` cache that the login page and the first paint use. A user whose server value
-is null keeps the stored or browser choice, and nothing is written to the server implicitly. Labels for
+is null keeps the stored or browser choice, and nothing is written to the server implicitly. The browser
+tags go through the shared RFC 4647 registry (`packages/api/src/locales.ts`): `zh-TW` and `zh-Hans`
+select zh-CN (no Traditional catalogue exists yet), `en-GB` selects en, and an unknown language falls
+back to English. Labels for
 server enums (task states, presets, audit actions) are translated; an unknown value is shown raw, so a
 new server state is visible before its translation exists. Server error messages and agent output are not
 translated.
@@ -470,7 +473,8 @@ definition validates the request, types the handler and produces the API documen
 parsing and a separate document were rejected because they drift apart.
 
 - Request and response schemas are zod schemas in `@crh/api/schemas`. The wire types in `@crh/api` are
-  derived from them with `z.infer`, so the main entry stays types only and the WebUI never bundles zod.
+  derived from them with `z.infer`, so the main entry stays types plus the small locale registry and the
+  WebUI never bundles zod.
 - Every route declares its agent access (`allow`, `ask` or `deny`) for `api_request`
   ([Extensions](extensions.md)). The field is required, so a new route cannot skip the decision.
 - A request that fails its schema is a 400 whose message is the first problem, `<field>: <problem>`.

@@ -50,7 +50,9 @@ answered once with how to link and otherwise ignored.
   ties the two together, so the chat account should be protected like the login.
 - The user's chat settings, including their **default notification channel**, **Show progress** and the
   bot language, are in `user_settings`, edited in the WebUI's settings dialog
-  ([Notifications](#notifications)).
+  ([Notifications](#notifications)). Each linked account also stores the platform language tag its
+  latest inbound message, button press or command carried, so a pushed text can follow the account it
+  is routed to when the user has no saved locale.
 - Linking and unlinking are audited (`channel_account.*`); a change of the settings, including the
   default notification account, is audited as `user_settings.changed`.
 
@@ -112,10 +114,16 @@ A conversation is one thread of a private chat, mapped to one session (`channel_
 ## Messages
 
 **Language.** Every fixed text the bot sends has an English and a Chinese catalogue in the server, so
-the model's output is never translated. A linked user's `locale` decides; when it is unset, and for a
-message from an account that is not linked yet, the platform's language decides (`zh*` → Chinese,
-everything else → English). Notifications sent without an inbound message use the user's locale, else
-English. The Telegram command menu is registered twice, in English and with `language_code: "zh"`.
+the model's output is never translated. A linked user's saved `locale` decides. When it is null, an
+answer to an inbound update follows that update's `language_code`, while a pushed message (an approval,
+a delivery, a final answer, a turn failure) follows the `language_code` most recently reported by the
+linked account it is routed to; an unlinked sender's reply follows the update too. Unknown tags fall
+through to English. The one registry is `packages/api/src/locales.ts`: it lists the supported locales
+with the BCP 47 tags they accept and implements RFC 4647 lookup, so `zh`, `zh-CN`, `zh-Hans`, `zh-SG`
+and also `zh-Hant`/`zh-TW`/`zh-HK` resolve to zh-CN (there is no Traditional Chinese catalogue yet),
+`en-US` and `en-GB` resolve to en, and an unknown language returns null. The WebUI uses the same
+registry for its first-paint language. The Telegram command menu is registered twice, in English and
+with `language_code: "zh"`.
 
 **Inbound.** A text message is the user's message to the session. Files and photos become chat
 attachments in the user's library, as in the WebUI ([Chat attachments](library.md#chat-attachments)).
@@ -126,7 +134,12 @@ what is supported.
 **Markdown.** Framework texts are rendered as rich Markdown, where one newline is a soft break: lists
 of commands are Markdown lists and separate lines are separated by a blank line. Values a user, an
 administrator or a model supplies, such as a session title, a model name, an extension name or a
-username, are escaped so they show literally; assistant text is not escaped.
+username, are escaped so they show literally; assistant text is not escaped. Telegram's rich Markdown
+also parses `$formula$`, `==mark==`, `||spoiler||`, `^`, footnotes, lists, tables and horizontal rules,
+so `escapeMarkdown` escapes every ASCII punctuation character (CommonMark allows a backslash before
+any). Inline code wraps commands, paths and extension/tool names in a fence longer than the longest
+backtick run inside it, padding a value that starts or ends with a backtick. Satori turns an inline
+code span into its plain content and removes a backslash before any ASCII punctuation.
 
 **Outbound**, to the thread a session's notifications go to ([Notifications](#notifications)):
 
@@ -188,21 +201,52 @@ a message a schedule submitted. Switching or attaching a session in a chat does 
 
 ## Approvals
 
-A waiting approval is sent where the session's notifications go, as a message describing what waits.
-A request Auto Review is still reviewing is not sent: the card appears only when the review escalates it
-to the user, and not when the review approves it (the operation simply runs).
+Every display surface renders one compact, locale-free `ApprovalRequest` built by the server
+(`server/src/approvals/request.ts`): its kind and id, the phase (`reviewing` while Auto Review decides,
+otherwise `awaiting_user`), the requester (a subagent's request resolves to its root session; an API
+token, a user acting directly and a schedule are named as themselves), a structured action (exec
+command, file operation and path with an optional line range, API request, or extension tool), the node
+names that need approval (at most 10 with a `moreNodes` count), whether it is privileged, the settled
+Auto Review risk and reason when one exists, and the "always allow" rule candidates the server can build.
+Telegram and Satori render this model, and the WebUI's approval responses carry the same data for its own
+renderer; details beyond it belong on the task, task group and external call pages. The approvals API
+returns one per waiting item beside the kind-specific view, and task, task group and external-call
+detail responses carry the item's `request`.
+
+A chat card reads:
+
+- the requester line, such as `Approval needed · session "Clean up"`, `token "deploy"`, `user alice` or
+  `schedule "nightly"`;
+- the action line, localized per kind, with the command, path, method and path, or extension/tool in
+  inline code;
+- `Nodes: app-1, db-1 · privileged` when nodes exist, or a privileged line of its own when none do;
+- `Auto Review: medium risk · …` only when a settled review exists;
+- with buttons, only the reject hint (`Reject with a reason: /reject <id> reason`); without buttons,
+  `/approve <id>` and `/reject <id> [reason]`.
+
+A waiting approval is sent where the session's notifications go. A request Auto Review is still
+reviewing is not sent: the card appears only when the review escalates it to the user, and not when the
+review approves it (the operation simply runs).
 
 | Wait | In the chat |
 |---|---|
 | A rule approval that needs no signature (task, task group, extension call), privileged or not | Approve and Reject buttons, and `/approve <id>`, `/reject <id> [reason]` |
-| An approval that needs a signature | A link to its page in the WebUI |
+| An approval that needs a signature | The requester header and a link to its page in the WebUI |
 | Used-up quota | The quota, `/quota add <tokens>` to raise it and go on, and `/quota stop` to end the turn |
+
+A request without a session — an API token's task, a user's direct task, an extension call made outside
+a session — goes to the same place as a session with no chat source: nowhere while its owner is online in
+the WebUI, otherwise the owner's default notification account. These messages are tracked by `kind:id`
+with a nullable root and settle through the same approval-change hooks (the runtime's approval listener,
+the external-call wait listener, and a periodic fallback sweep) as session messages.
 
 A button or command decides as the linked user through the same checks as the WebUI: only someone who
 may decide that approval can. "Always allow" is not offered, because it changes rules; that stays in the
-WebUI. The decision is audited with the channel. When the wait ends elsewhere, the message is edited to
-say how it ended. A kind without the `buttons` capability sends no buttons: the command forms above are
-the way to decide, and a notification outside a thread carries the session link.
+WebUI (the request still carries the candidates). The decision is audited with the channel. After any
+decision, cancellation or rule re-evaluation, crhs first deletes the tracked message; when the platform
+refuses deletion, it edits the message into the one-line ending (who approved or rejected it, or how the
+wait ended), so no stale card remains. A kind without the `buttons` capability sends no buttons: the
+command hints are the way to decide, and a notification outside a thread carries the session link.
 
 ## Channel kinds
 
@@ -250,8 +294,8 @@ The protocol is used directly:
 - **Outbound.** `POST <base>/v1/<resource>.<method>` with the JSON body and the gateway's headers:
   `Authorization: Bearer <token>` when set, `Satori-Platform`/`Satori-User-ID` and
   `X-Platform`/`X-Self-ID`. Text is sent with `message.create` as plain, XML-escaped text (newlines
-  kept) and split above 4,000 characters; `message.update` and `message.delete` edit and remove it,
-  with failures logged and ignored.
+  kept) and split above 4,000 characters; `message.update` edits it best-effort, while
+  `message.delete` reports a failure so the manager can fall back to editing a decided wait message.
 - **Files.** A message must not make crhs fetch an arbitrary address. A `data:` URL is decoded in place; an
   http(s) `src` on the gateway's own origin is fetched directly, because Koishi's Telegram adapter serves
   files from `<selfUrl>/telegram/...` without listing them as proxy roots; any other `src` goes through
@@ -271,6 +315,7 @@ The protocol is used directly:
 
 ## Not yet
 
-- Markdown → Satori elements: Satori receives plain text, so framework Markdown shows as written.
+- Markdown → Satori elements: Satori receives plain text, so framework Markdown shows as written
+  (inline code content is unwrapped).
 - Progress for Satori: the manager shows none while a turn runs.
 - Buttons for Satori: there are none; approvals and lists use commands.
