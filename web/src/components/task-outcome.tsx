@@ -2,7 +2,7 @@ import type { TaskOutcome } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import { StatusDot, StatusText } from "@/components/status-badge";
+import { StatusText } from "@/components/status-badge";
 import type { StatusTone } from "@/lib/status";
 import { taskErrorText } from "@/lib/task-output";
 import { cn } from "@/lib/utils";
@@ -40,9 +40,9 @@ export function taskOutcomeText(i18n: I18n, outcome: TaskOutcome): string {
 }
 
 /**
- * The one result badge: a status dot in the outcome's colour and the one line naming it. Every surface
- * that shows a finished task, task group or node result renders this, and a terminal status takes its tone
- * from `outcome.failed`, so the same exit code cannot be green here and red there.
+ * The one result badge: the line naming the outcome, in the outcome's colour (succeeded green, failed red,
+ * cancelled muted). Every surface that shows a finished task, task group or node result renders this. The
+ * status column is a separate thing (the lifecycle stage) and never takes this colour.
  */
 export function TaskOutcomeBadge({
 	outcome,
@@ -55,12 +55,7 @@ export function TaskOutcomeBadge({
 	if (outcome === null || outcome === undefined) return null;
 	const tone = taskOutcomeTone(outcome);
 	return (
-		<span
-			data-testid="task-outcome"
-			data-tone={tone}
-			className={cn("inline-flex min-w-0 items-center gap-1.5", className)}
-		>
-			<StatusDot tone={tone} />
+		<span data-testid="task-outcome" data-tone={tone} className={cn("inline-flex min-w-0 items-center", className)}>
 			<StatusText tone={tone} className="truncate">
 				{taskOutcomeText(i18n, outcome)}
 			</StatusText>

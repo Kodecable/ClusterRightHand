@@ -173,6 +173,10 @@ export const TaskListQuerySchema = z.object({
 	limit: z.string().optional().describe("Page size, 1 to 200; 50 by default."),
 	state: TaskStateSchema.optional(),
 	actorType: z.string().optional(),
+	source: z
+		.enum(["session", "user", "api_token"])
+		.optional()
+		.describe("The request source: `session` covers a session and its subagents."),
 	nodeId: z.string().optional(),
 	userId: z.string().optional().describe("Tasks whose acting user (`onBehalfOfUserId`) is this user."),
 	includePurpose: z.string().optional().describe("`true` or `1` includes tasks a dedicated feature created."),

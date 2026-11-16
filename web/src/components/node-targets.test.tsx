@@ -21,6 +21,31 @@ describe("NodeTargetList", () => {
 		expect(screen.getByText("legacy-name")).toBeInTheDocument();
 	});
 
+	test("renders an unknown id consistently as muted monospace text", async () => {
+		await renderWithRouter(<NodeTargetList ids={["legacy-name"]} refs={{}} />);
+		expect(screen.getByText("legacy-name")).toHaveClass("font-mono", "text-muted-foreground");
+	});
+
+	test("adds the localized remainder to the list as one message", async () => {
+		await renderWithRouter(<NodeTargetList ids={["node-1", "group-1"]} refs={REFS} more={2} />);
+		const targets = screen.getByText("worker-01").closest("[data-slot='node-targets']");
+		if (!(targets instanceof HTMLElement)) throw new Error("no targets list");
+		expect(targets).toHaveTextContent("worker-01, web and 2 more");
+	});
+
+	test("translates the remainder with the active catalogue", async () => {
+		await renderWithRouter(<NodeTargetList ids={["node-1"]} refs={REFS} more={2} />, "zh-CN");
+		const targets = screen.getByText("worker-01").closest("[data-slot='node-targets']");
+		if (!(targets instanceof HTMLElement)) throw new Error("no targets list");
+		expect(targets).toHaveTextContent("worker-01 等 2 个");
+	});
+
+	test("compact keeps a cell on one clipped line", async () => {
+		await renderWithRouter(<NodeTargetList ids={["node-1"]} refs={REFS} compact />);
+		const targets = screen.getByText("worker-01").closest("[data-slot='node-targets']");
+		expect(targets).toHaveClass("whitespace-nowrap", "overflow-hidden");
+	});
+
 	test("falls back to the supplied node names when refs lack an id", async () => {
 		await renderWithRouter(
 			<NodeTargetList ids={["node-1"]} refs={{}} nodeNames={new Map([["node-1", "worker-01"]])} />,

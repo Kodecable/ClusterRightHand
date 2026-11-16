@@ -1093,6 +1093,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				createdAt: "2026-01-01T00:00:00.000Z",
 			};
 			state.users.push(user);
+			state.directory.users.push({ id: user.id, username: user.username, displayName: user.displayName });
 			return json({ user });
 		}
 		const userPassword = /^\/api\/users\/([^/]+)\/password$/.exec(path);
@@ -1110,7 +1111,11 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		if (userMatch && method === "PATCH") {
 			const id = decodeURIComponent(userMatch[1] as string);
 			const user = state.users.find((candidate) => candidate.id === id);
-			if (user) Object.assign(user, body as Partial<User>);
+			if (user) {
+				Object.assign(user, body as Partial<User>);
+				const named = state.directory.users.find((candidate) => candidate.id === id);
+				if (named) Object.assign(named, { username: user.username, displayName: user.displayName });
+			}
 			return json({ user });
 		}
 		if (path === "/api/user-groups" && method === "GET") return json({ groups: state.userGroups });

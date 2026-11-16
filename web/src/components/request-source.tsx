@@ -4,11 +4,12 @@ import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { UserLink } from "@/components/user-link";
+import { displaySessionTitle } from "@/lib/session-title";
 import { cn } from "@/lib/utils";
 
 /** A session's display name: its title, or the one untitled-session wording the whole UI uses. */
 export function sourceSessionName(i18n: I18n, title: string): string {
-	return title.trim() === "" ? i18n._(msg`New Session`) : title;
+	return displaySessionTitle(title, i18n);
 }
 
 /**

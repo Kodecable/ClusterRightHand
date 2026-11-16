@@ -3,18 +3,13 @@ import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { TriangleAlertIcon } from "lucide-react";
+import { formatDuration } from "@/lib/format";
 
 /** The wire shape of a clock warning: a measured offset, not the authorization's clock tolerance. */
 export type NodeClockWarning = NonNullable<PublicNode["clockWarning"]>;
 
-const AHEAD = msg`The node's clock is {seconds} s ahead of crhs (measured once when crha connects)`;
-const BEHIND = msg`The node's clock is {seconds} s behind crhs (measured once when crha connects)`;
-
-/** "120" or "120.5": the offset in seconds, integer when whole and one decimal otherwise. */
-function secondsText(offsetMs: number): string {
-	const seconds = Math.abs(offsetMs) / 1000;
-	return seconds % 1 === 0 ? String(seconds) : seconds.toFixed(1);
-}
+const AHEAD = msg`The node's clock is {duration} ahead of crhs (measured once when crha connects)`;
+const BEHIND = msg`The node's clock is {duration} behind crhs (measured once when crha connects)`;
 
 /**
  * The localized warning for a measured clock offset (doc/design/privilege.md "Clock"). The measurement
@@ -22,7 +17,7 @@ function secondsText(offsetMs: number): string {
  */
 export function clockWarningText(i18n: I18n, warning: NodeClockWarning): string {
 	const descriptor = warning.offsetMs >= 0 ? AHEAD : BEHIND;
-	return i18n._({ ...descriptor, values: { seconds: secondsText(warning.offsetMs) } });
+	return i18n._({ ...descriptor, values: { duration: formatDuration(Math.abs(warning.offsetMs), i18n.locale) } });
 }
 
 /** The clock warning the node lists and the node page show beside the status. */

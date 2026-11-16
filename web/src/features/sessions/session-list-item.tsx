@@ -3,8 +3,9 @@ import { useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircleIcon } from "lucide-react";
 import { SessionStatusDot, StatusDot } from "@/components/status-badge";
+import { displaySessionTitle } from "@/lib/session-title";
 import { cn } from "@/lib/utils";
-import { sessionTitle, waitingKindLabel } from "./session-item";
+import { waitingKindLabel } from "./session-item";
 import { SessionMarkers } from "./session-markers";
 
 /**
@@ -26,7 +27,7 @@ export function SessionListItemRow({
 }) {
 	const { t, i18n } = useLingui();
 	const wait = waitingKindLabel(item.waitingKind);
-	const title = sessionTitle(item, t`New Session`);
+	const title = displaySessionTitle(item.title, i18n);
 	const tooltip = wait === undefined ? undefined : i18n._(wait);
 
 	// The extra height is the gap between rows. It sits outside the link so a

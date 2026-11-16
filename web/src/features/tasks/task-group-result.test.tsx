@@ -3,8 +3,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { TaskGroupStatusBadge } from "@/components/status-badge";
 import { renderWithRouter } from "@/test/render";
-import { TaskGroupResult, TaskGroupSkippedNotice, TaskGroupStatus } from "./task-group-result";
+import { TaskGroupResult, TaskGroupSkippedNotice } from "./task-group-result";
 
 const task = (overrides: Partial<TaskView> = {}): TaskView =>
 	({
@@ -132,7 +133,7 @@ describe("TaskGroupResult", () => {
 	test("a cancelled group shows Cancelled and says the batch was cancelled", async () => {
 		await renderResult(
 			<>
-				<TaskGroupStatus state="cancelled" />
+				<TaskGroupStatusBadge state="cancelled" />
 				<TaskGroupSkippedNotice
 					taskGroup={group({ state: "cancelled", skipped: ["node-1"] })}
 					names={new Map([["node-1", "worker-01"]])}

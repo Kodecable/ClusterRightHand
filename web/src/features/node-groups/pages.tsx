@@ -16,7 +16,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { NodeStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { NodeAccessSection } from "@/features/nodes/access-grants";
-import { useNodes } from "@/features/nodes/api";
+import { useNodeNames, useNodes } from "@/features/nodes/api";
 import { useAuth } from "@/lib/session";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useDeleteNodeGroup, useNodeGroups } from "./api";
@@ -155,7 +155,7 @@ export function NodeGroupDetailPage() {
 	const [deleting, setDeleting] = useState(false);
 	const [editingMembers, setEditingMembers] = useState(false);
 	const group = groups.data?.find((candidate) => candidate.id === id);
-	const nodeNames = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
+	const nodeNames = useNodeNames();
 	const nodeById = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node])), [nodes.data]);
 	const memberName = useMemo(
 		() => (memberId: string) => nodeById.get(memberId)?.name ?? nodeNames.get(memberId) ?? memberId,

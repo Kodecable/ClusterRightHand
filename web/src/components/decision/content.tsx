@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { RequestSource, requestSourceText } from "@/components/request-source";
 import { actionText, oneLine } from "@/lib/action-text";
 import { quotaDetailText, quotaStatus } from "@/lib/quota";
+import { displaySessionTitle } from "@/lib/session-title";
 
 /**
  * What a decision card shows, slot by slot, following the chat card's line order
@@ -111,10 +112,11 @@ export function requestCardContent(
  */
 export function quotaCardContent(wait: QuotaApproval, i18n: I18n): DecisionCardContent {
 	const status = quotaStatus(wait.budgetRemaining, wait.budgetUsedTokens);
+	const title = displaySessionTitle(wait.title, i18n);
 	return {
 		title: i18n._(msg`Token quota used up`),
-		meta: wait.title === null || wait.title.trim() === "" ? i18n._(msg`New Session`) : wait.title,
-		metaText: wait.title === null || wait.title.trim() === "" ? i18n._(msg`New Session`) : wait.title,
+		meta: title,
+		metaText: title,
 		detail: quotaDetailText(i18n, status),
 	};
 }

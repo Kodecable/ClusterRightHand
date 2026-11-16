@@ -318,7 +318,7 @@ describe("ApprovalsPage", () => {
 		expect(within(table).getByText("sign me")).toBeInTheDocument();
 		expect(within(table).getByText("Nightly check")).toBeInTheDocument();
 		// Node names come from the compact requests, never the stored UUIDs; the task request is capped.
-		expect(table).toHaveTextContent("worker-01 +2");
+		expect(table).toHaveTextContent("worker-01 and 2 more");
 		expect(table).toHaveTextContent("worker-02");
 		expect(within(table).queryByText("node-2")).not.toBeInTheDocument();
 		// The source cell reads the compact request: a session title links to its session, users to theirs.

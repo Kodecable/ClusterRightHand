@@ -1,6 +1,4 @@
 import type { SessionListScope, SessionSearchHit, SessionSearchItem } from "@crh/api";
-import type { I18n } from "@lingui/core";
-import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { useNavigate } from "@tanstack/react-router";
 import { SearchIcon } from "lucide-react";
@@ -16,16 +14,15 @@ import {
 import { ErrorText } from "@/components/error-state";
 import { RelativeTime } from "@/components/relative-time";
 import { Spinner } from "@/components/spinner";
-import { StatusText } from "@/components/status-badge";
+import { SessionStatusBadge } from "@/components/status-badge";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import { flattenCursorPages, lastCursor } from "@/lib/api/query";
-import { sessionStatusTone, sessionUiState } from "@/lib/status";
+import { displaySessionTitle } from "@/lib/session-title";
 import { cn } from "@/lib/utils";
 import { SESSION_LIST_SCOPE, useSessionSearch } from "./api";
 import { HighlightedText } from "./search-highlight";
-import { sessionTitle } from "./session-item";
 
 /** How long the typed text settles before the request (doc/design/webui.md "Session content search"). */
 const DEBOUNCE_MS = 250;
@@ -78,17 +75,6 @@ type SearchRow =
 	| { kind: "header"; key: string; item: SessionSearchItem }
 	| { kind: "hit"; key: string; item: SessionSearchItem; hit: SessionSearchHit }
 	| { kind: "more"; key: string; item: SessionSearchItem; hidden: number };
-
-/** The translated state text of a result's session. */
-const SESSION_STATE_LABELS = {
-	running: msg`Running`,
-	awaiting: msg`Awaiting`,
-	idle: msg`Idle`,
-} as const;
-
-function sessionStateLabel(state: SessionSearchItem["state"], i18n: I18n): string {
-	return i18n._(SESSION_STATE_LABELS[sessionUiState(state)]);
-}
 
 /**
  * The session search dialog (doc/design/webui.md "Session content search"): one debounced
@@ -289,7 +275,7 @@ export function SessionSearchDialog({
 
 					{showResults &&
 						items.map((item) => {
-							const title = sessionTitle(item, t`New Session`);
+							const title = displaySessionTitle(item.title, i18n);
 							const groupRows = rows.filter((row) => row.item.id === item.id);
 							return (
 								// biome-ignore lint/a11y/useSemanticElements: a listbox group cannot be a fieldset; its name is the session title.
@@ -321,9 +307,7 @@ export function SessionSearchDialog({
 															{item.ownerName}
 														</span>
 														<RelativeTime value={item.updatedAt} className="shrink-0 text-xs text-muted-foreground" />
-														<StatusText tone={sessionStatusTone(item.state)} className="shrink-0 text-xs">
-															{sessionStateLabel(item.state, i18n)}
-														</StatusText>
+														<SessionStatusBadge state={item.state} className="shrink-0 text-xs" />
 													</div>
 												) : row.kind === "hit" ? (
 													<div className="flex min-w-0 flex-col gap-0.5 py-1.5 pr-2 pl-4">
@@ -333,12 +317,7 @@ export function SessionSearchDialog({
 															</span>
 															{row.hit.sessionId !== item.id && (
 																<span className="min-w-0 truncate">
-																	·{" "}
-																	{row.hit.sessionTitle === null || row.hit.sessionTitle.trim() === "" ? (
-																		<Trans>Subagent</Trans>
-																	) : (
-																		<Trans>Subagent: {row.hit.sessionTitle}</Trans>
-																	)}
+																	· <Trans>Subagent: {displaySessionTitle(row.hit.sessionTitle, i18n)}</Trans>
 																</span>
 															)}
 															<RelativeTime value={row.hit.at} className="shrink-0" />

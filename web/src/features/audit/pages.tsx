@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { UserLink } from "@/components/user-link";
-import { useDirectory } from "@/features/users/api";
+import { useUserNames } from "@/features/users/api";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useAuditEvents } from "./api";
 
@@ -63,7 +63,6 @@ export function AuditPage() {
 	const { t } = useLingui();
 	const timeWidth = useTimeColumnWidth();
 	const prefix = useId();
-	const directory = useDirectory();
 	const [action, setAction] = useState("");
 	const [targetType, setTargetType] = useState("");
 	const [targetId, setTargetId] = useState("");
@@ -71,10 +70,7 @@ export function AuditPage() {
 	const [detail, setDetail] = useState<AuditEvent>();
 	const audit = useAuditEvents(applied);
 	const rows = useMemo(() => audit.data?.pages.flatMap((page) => page.items) ?? [], [audit.data]);
-	const names = useMemo(
-		() => new Map((directory.data?.users ?? []).map((entry) => [entry.id, entry.displayName || entry.username])),
-		[directory.data],
-	);
+	const names = useUserNames();
 	const columns = useMemo<DataTableColumn<AuditEvent>[]>(() => {
 		const userName = (id: string) => names.get(id);
 		return [

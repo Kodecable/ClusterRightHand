@@ -49,13 +49,21 @@ describe("TaskResult", () => {
 		expect(screen.getByLabelText("output")).toHaveTextContent("hello world");
 	});
 
-	test("the state stays Finished for a non-zero exit, toned by the failed outcome", async () => {
+	test("a privileged task shows the shared privileged mark beside its kind", async () => {
+		await renderWithRouter(<TaskResult task={baseTask({ privileged: true })} />);
+		const mark = screen.getByText("Privileged");
+		expect(mark).toHaveAttribute("data-slot", "privileged-mark");
+		expect(mark).toHaveClass("text-warn");
+	});
+
+	test("the state stays a neutral Finished for a non-zero exit; only the outcome is red", async () => {
 		await renderWithRouter(
 			<TaskResult task={baseTask({ exitCode: 2, outcome: { kind: "exit", failed: true, exitCode: 2 } })} />,
 		);
-		expect(screen.getByText("Finished")).toHaveAttribute("data-tone", "danger");
+		expect(screen.getByText("Finished")).toHaveAttribute("data-tone", "muted");
 		expect(screen.queryByText("Exited (2)")).not.toBeInTheDocument();
 		expect(screen.getByTestId("task-outcome")).toHaveTextContent("Exit code 2");
+		expect(screen.getByTestId("task-outcome")).toHaveAttribute("data-tone", "danger");
 	});
 
 	test("a file operation that exited cleanly shows Done, not an exit code", async () => {

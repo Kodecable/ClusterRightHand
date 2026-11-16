@@ -12,16 +12,16 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { displaySessionTitle } from "@/lib/session-title";
 import { usePatchSession, useSession } from "./api";
-import { sessionTitle } from "./session-item";
 import { SessionMarkers } from "./session-markers";
 import { ShareDialog } from "./share-dialog";
 
 function ParentChain({ id }: { id: string }) {
 	const parent = useSession(id);
-	const { t } = useLingui();
+	const { i18n } = useLingui();
 	if (!parent.data) return null;
-	const parentTitle = sessionTitle(parent.data, t`New Session`);
+	const parentTitle = displaySessionTitle(parent.data.title, i18n);
 	return (
 		<>
 			<BreadcrumbItem>
@@ -61,13 +61,15 @@ function SessionBreadcrumb({ session }: { session: SessionView }) {
 }
 
 function TitleEditor({ session }: { session: SessionView }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const patch = usePatchSession(session.id);
 	const [value, setValue] = useState(session.title ?? "");
 	useEffect(() => setValue(session.title ?? ""), [session.title]);
 
 	if (!session.capabilities.configure) {
-		return <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{sessionTitle(session, t`New Session`)}</h1>;
+		return (
+			<h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{displaySessionTitle(session.title, i18n)}</h1>
+		);
 	}
 
 	const save = () => {

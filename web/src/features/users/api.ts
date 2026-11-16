@@ -1,5 +1,6 @@
 import type { Directory, User, UserDetail, UserGroup, UserGroupDetail, UserKind } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { enc, http } from "@/lib/api/client";
 import { authStore } from "@/lib/session";
 
@@ -52,6 +53,18 @@ export function useDirectory() {
 		queryKey: userKeys.directory(),
 		queryFn: ({ signal }) => http.get<Directory>("/directory", { signal }),
 	});
+}
+
+/**
+ * Display names by user id, the one fallback every page uses (doc/design/webui.md "Shared components"):
+ * the display name, else the username, else the id.
+ */
+export function useUserNames(): Map<string, string> {
+	const directory = useDirectory();
+	return useMemo(
+		() => new Map((directory.data?.users ?? []).map((user) => [user.id, user.displayName || user.username || user.id])),
+		[directory.data],
+	);
 }
 
 export function useCreateUser() {

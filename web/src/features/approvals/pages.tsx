@@ -7,7 +7,6 @@ import type {
 	TaskGroupView,
 	TaskView,
 } from "@crh/api";
-import { formatList } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -18,18 +17,17 @@ import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/compon
 import { ApprovalPanel, RequestDetails } from "@/components/decision";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { NodeTargetList } from "@/components/node-targets";
+import { NodeNameList, NodeTargetList, nodeTargetsText } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
 import { RequestSource } from "@/components/request-source";
 import { PageSkeleton } from "@/components/skeletons";
-import { ExternalCallStatusBadge, TaskStatusBadge } from "@/components/status-badge";
+import { ExternalCallStatusBadge, TaskGroupStatusBadge, TaskStatusBadge } from "@/components/status-badge";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
-import { sessionTitle } from "@/features/sessions/session-item";
-import { TaskGroupStatus } from "@/features/tasks/task-group-result";
 import { actionText } from "@/lib/action-text";
 import { isNotFound } from "@/lib/api/client";
+import { displaySessionTitle } from "@/lib/session-title";
 import { taskTitle } from "@/lib/task-title";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import {
@@ -145,8 +143,8 @@ function externalCallRow(call: ExternalCallView, request: ApprovalRequest | unde
 	};
 }
 
-function quotaRow(wait: QuotaApproval, defaultTitle: string): DecisionRow {
-	const title = sessionTitle(wait, defaultTitle);
+function quotaRow(wait: QuotaApproval, i18n: I18n): DecisionRow {
+	const title = displaySessionTitle(wait.title, i18n);
 	return {
 		key: `quota:${wait.sessionId}`,
 		type: "quota",
@@ -155,13 +153,6 @@ function quotaRow(wait: QuotaApproval, defaultTitle: string): DecisionRow {
 		link: { to: "/sessions/$sessionId", params: { sessionId: wait.sessionId } },
 		label: title,
 	};
-}
-
-/** The readable full text of a node list for a cell's tooltip. */
-function nodeNamesText(names: readonly string[], moreNodes: number | undefined, locale: string): string | undefined {
-	const text = formatList(locale, names);
-	if (text === "") return undefined;
-	return moreNodes === undefined || moreNodes === 0 ? text : `${text} +${moreNodes}`;
 }
 
 /** The source cell every row reads from the same model. */
@@ -185,7 +176,6 @@ export function ApprovalsPage() {
 
 	const rows = useMemo(() => {
 		if (data === undefined) return [];
-		const quotaDefault = t`New Session`;
 		const requests = requestsByKey(data.requests);
 		return [
 			...data.tasks.map((task) => taskRow("approval", task, requests.get(requestKey("task", task.id)), i18n)),
@@ -201,9 +191,9 @@ export function ApprovalsPage() {
 			...data.authorizations.taskGroups.map((taskGroup) =>
 				taskGroupRow("signature", taskGroup, requests.get(requestKey("task_group", taskGroup.id)), i18n),
 			),
-			...data.quotas.map((wait) => quotaRow(wait, quotaDefault)),
+			...data.quotas.map((wait) => quotaRow(wait, i18n)),
 		];
-	}, [data, t, i18n]);
+	}, [data, i18n]);
 
 	const columns = useMemo<DataTableColumn<DecisionRow>[]>(
 		() => [
@@ -224,41 +214,26 @@ export function ApprovalsPage() {
 				id: "nodes",
 				header: t`Nodes`,
 				minSize: 120,
-				cell: ({ row }) => {
-					const names = row.original.requestNodes;
-					if (names !== undefined) {
-						if (names.length === 0) return <span className="text-muted-foreground">–</span>;
-						return (
-							<span className="truncate">
-								{formatList(i18n.locale, names)}
-								{row.original.moreNodes !== undefined && row.original.moreNodes > 0 && <> +{row.original.moreNodes}</>}
-							</span>
-						);
-					}
-					const ids = row.original.nodeIds ?? [];
-					if (ids.length === 0) return <span className="text-muted-foreground">–</span>;
-					if (row.original.refs !== undefined) {
-						return (
-							<NodeTargetList
-								ids={ids}
-								refs={row.original.refs}
-								nodeNames={lookups.nodeNames}
-								className="flex-nowrap"
-							/>
-						);
-					}
-					const id = ids[0] ?? "";
-					return <span className="truncate">{lookups.nodeNames.get(id) ?? id}</span>;
-				},
+				cell: ({ row }) =>
+					row.original.requestNodes !== undefined ? (
+						<NodeNameList names={row.original.requestNodes} more={row.original.moreNodes} compact />
+					) : (
+						<NodeTargetList
+							ids={row.original.nodeIds ?? []}
+							refs={row.original.refs}
+							nodeNames={lookups.nodeNames}
+							compact
+						/>
+					),
 				meta: {
 					title: (row: DecisionRow) =>
-						row.requestNodes !== undefined
-							? nodeNamesText(row.requestNodes, row.moreNodes, i18n.locale)
-							: nodeNamesText(
-									(row.nodeIds ?? []).map((id) => lookups.nodeNames.get(id) ?? id),
-									undefined,
-									i18n.locale,
-								),
+						nodeTargetsText(
+							i18n,
+							row.requestNodes !== undefined
+								? row.requestNodes
+								: (row.nodeIds ?? []).map((id) => lookups.nodeNames.get(id) ?? id),
+							row.requestNodes !== undefined ? row.moreNodes : undefined,
+						) || undefined,
 				},
 			},
 			{
@@ -378,10 +353,7 @@ export function ApprovalTaskPage() {
 			) : awaitingSignature && request !== undefined ? (
 				<SignatureWait request={request} variant="page" onChanged={() => void task.refetch()} />
 			) : !awaitingApproval && !awaitingSignature ? (
-				<Settled
-					status={<TaskStatusBadge state={view.state} outcome={view.outcome} />}
-					title={<Trans>Already settled</Trans>}
-				>
+				<Settled status={<TaskStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
 					<Link to="/tasks/$taskId" params={{ taskId: view.id }} className={linkClass}>
 						<Trans>Open the task</Trans>
 					</Link>
@@ -429,10 +401,7 @@ export function ApprovalTaskGroupPage() {
 			) : awaitingSignature && request !== undefined ? (
 				<SignatureWait request={request} variant="page" onChanged={() => void taskGroup.refetch()} />
 			) : !awaitingApproval && !awaitingSignature ? (
-				<Settled
-					status={<TaskGroupStatus state={view.state} outcome={view.outcome} />}
-					title={<Trans>Already settled</Trans>}
-				>
+				<Settled status={<TaskGroupStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
 					<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: view.id }} className={linkClass}>
 						<Trans>Open the task group</Trans>
 					</Link>

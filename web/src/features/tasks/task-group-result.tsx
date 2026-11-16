@@ -1,34 +1,12 @@
 import { type ApprovalRequest, formatList, type TaskGroupView } from "@crh/api";
-import type { MessageDescriptor } from "@lingui/core";
-import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ApprovalPanel, DecisionView, RequestDetails } from "@/components/decision";
-import { StatusText, TaskStatusBadge } from "@/components/status-badge";
+import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeBadge } from "@/components/task-outcome";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { useAuth } from "@/lib/session";
-import { taskGroupStatusTone } from "@/lib/status";
-
-const GROUP_STATES: Record<string, MessageDescriptor> = {
-	awaiting_approval: msg`Awaiting approval`,
-	awaiting_authorization: msg`Awaiting authorization`,
-	running: msg`Running`,
-	finished: msg`Finished`,
-	interrupted: msg`Interrupted`,
-	rejected: msg`Rejected`,
-	cancelled: msg`Cancelled`,
-};
-
-/** The status of a task group; an unknown state keeps its raw name visible. */
-export function TaskGroupStatus({ state, outcome }: { state: string; outcome?: TaskGroupView["outcome"] }) {
-	const { i18n } = useLingui();
-	const label = GROUP_STATES[state];
-	return (
-		<StatusText tone={taskGroupStatusTone(state, outcome)}>{label === undefined ? state : i18n._(label)}</StatusText>
-	);
-}
 
 /**
  * The targets that never ran, under the page title: the group's own state line
@@ -95,7 +73,7 @@ export function TaskGroupResult({
 			id: "state",
 			header: t`Status`,
 			size: 90,
-			cell: ({ row }) => <TaskStatusBadge state={row.original.state} outcome={row.original.outcome} />,
+			cell: ({ row }) => <TaskStatusBadge state={row.original.state} />,
 		},
 		{
 			id: "outcome",

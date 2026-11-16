@@ -1,5 +1,5 @@
 import type { ApprovalRequest, QuotaStatus, TaskAction, ThinkingLevel, UserSettingsLocale } from "@crh/api";
-import { formatList, matchLocale, quotaStatus } from "@crh/api";
+import { formatList, matchLocale } from "@crh/api";
 import type { CardLabels, ChatCard } from "./card.ts";
 
 /**
@@ -94,7 +94,8 @@ interface CardText extends CardLabels {
 	approvalTitle: string;
 	signatureTitle: string;
 	quotaTitle: string;
-	untitledSession: string;
+	/** What a null or blank session title reads as: the chat's one "New session" wording. */
+	newSessionTitle: string;
 	/** The one source line, used only when the default notification account routed the card. */
 	source: {
 		session: (title: string) => string;
@@ -127,7 +128,7 @@ const EN_CARD: CardText = {
 	approvalTitle: "Approval needed",
 	signatureTitle: "Signature needed",
 	quotaTitle: "Token quota used up",
-	untitledSession: "New session",
+	newSessionTitle: "New session",
 	source: {
 		session: (title) => `Source: Session ${title}`,
 		apiToken: (name) => `Source: API token ${name}`,
@@ -163,7 +164,7 @@ const ZH_CARD: CardText = {
 	approvalTitle: "需要你的审批",
 	signatureTitle: "需要你的签名",
 	quotaTitle: "令牌配额已用完",
-	untitledSession: "新会话",
+	newSessionTitle: "新会话",
 	source: {
 		session: (title) => `请求源：会话 ${title}`,
 		apiToken: (name) => `请求源：API 令牌 ${name}`,
@@ -218,7 +219,7 @@ function sourceText(request: ApprovalRequest, labels: CardText): string {
 	const source = request.source;
 	switch (source.type) {
 		case "session":
-			return labels.source.session(oneLine(source.title) || labels.untitledSession);
+			return labels.source.session(untitledTitle(oneLine(source.title), labels.newSessionTitle));
 		case "api_token":
 			return labels.source.apiToken(oneLine(source.name));
 		case "user":
@@ -290,7 +291,7 @@ function quotaCardFor(title: string, status: QuotaStatus, labels: CardText): Cha
 	return {
 		title: labels.quotaTitle,
 		privileged: false,
-		meta: title.trim() === "" ? labels.untitledSession : oneLine(title),
+		meta: untitledTitle(oneLine(title), labels.newSessionTitle),
 		detail: labels.quotaDetail(status),
 		hints: [labels.quotaContinue, labels.quotaStop],
 	};
@@ -317,7 +318,6 @@ export interface BotMessages {
 	linked: string;
 	alreadyLinked: string;
 	unlinked: string;
-	newSessionTitle: string;
 	sessionsTitle: (page: number, pages: number) => string;
 	sessionsTitleSingle: string;
 	previousPage: string;
@@ -409,7 +409,6 @@ const en: BotMessages = {
 	linked: "Linked. You can use this chat now. /help lists the commands.",
 	alreadyLinked: "This chat is already linked.",
 	unlinked: "Unlinked. Send /link \\<code> to link this chat again.",
-	newSessionTitle: "New session",
 	sessionsTitle: (page, pages) => `Switch this chat to a session (page ${page} of ${pages}):`,
 	sessionsTitleSingle: "Switch this chat to a session:",
 	previousPage: "‹ Previous",
@@ -553,7 +552,6 @@ const zhCN: BotMessages = {
 	linked: "已关联。现在可以使用此聊天了。/help 列出命令。",
 	alreadyLinked: "此聊天已关联。",
 	unlinked: "已取消关联。发送 /link \\<code> 可重新关联此聊天。",
-	newSessionTitle: "新会话",
 	sessionsTitle: (page, pages) => `将此聊天切换到某个会话（第 ${page} 页，共 ${pages} 页）：`,
 	sessionsTitleSingle: "将此聊天切换到某个会话：",
 	previousPage: "‹ 上一页",
@@ -690,6 +688,20 @@ export function localeFromLanguageCode(languageCode: string | null | undefined):
  */
 export function botLocale(locale: UserSettingsLocale | null | undefined, languageCode?: string | null): BotLocale {
 	return locale ?? localeFromLanguageCode(languageCode);
+}
+
+/**
+ * The one session title every chat surface shows (doc/design/channels.md "Messages"): the stored title,
+ * or the catalogue's "New session" when it is null, empty or whitespace-only. The WebUI has the same
+ * helper in web/src/lib/session-title.ts.
+ */
+export function displaySessionTitle(title: string | null | undefined, m: Pick<BotMessages, "card">): string {
+	return untitledTitle(title, m.card.newSessionTitle);
+}
+
+/** The fallback rule shared by the exported helper and the card builders, which cannot see BotMessages. */
+function untitledTitle(title: string | null | undefined, fallback: string): string {
+	return title === null || title === undefined || title.trim() === "" ? fallback : title;
 }
 
 export function messagesFor(locale: BotLocale | null | undefined): BotMessages {

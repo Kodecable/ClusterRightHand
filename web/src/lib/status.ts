@@ -5,8 +5,6 @@
  * of inventing its own colours, so a status means the same thing everywhere
  * (doc/design/webui.md "Shared components").
  */
-import type { TaskOutcome } from "@crh/api";
-
 export type StatusTone = "ok" | "warn" | "danger" | "info" | "muted";
 
 /** Node status: pending enrollment is a warning, an active node is ok. */
@@ -22,57 +20,31 @@ export function nodeStatusTone(status: string): StatusTone {
 }
 
 /**
- * Task status. A terminal status takes its tone from the server's outcome, so an exit code that failed
- * is not shown green beside a red outcome. The state text still reads Finished for `exited`.
+ * Task status is the lifecycle stage only: in progress is informational, waiting for the user is a warning,
+ * and every terminal state is neutral. Whether the task succeeded is its outcome (TaskOutcomeBadge), a
+ * separate column with its own colour; the status never takes it over.
  */
-export function taskStatusTone(state: string, outcome?: TaskOutcome | null): StatusTone {
-	if (outcome !== null && outcome !== undefined) {
-		if (outcome.failed) return "danger";
-		return outcome.kind === "cancelled" ? "muted" : "ok";
-	}
+export function taskStatusTone(state: string): StatusTone {
 	switch (state) {
-		case "exited":
-			return "ok";
+		case "dispatched":
+		case "running":
+			return "info";
 		case "awaiting_approval":
 		case "awaiting_authorization":
-		case "running":
-		case "dispatched":
-			return "info";
-		case "failed":
-		case "denied":
-		case "rejected":
-		case "unknown":
-			return "danger";
-		case "cancelled":
-			return "muted";
+			return "warn";
 		default:
 			return "muted";
 	}
 }
 
-/**
- * Task groups use the task tones for the states they share: waiting is
- * informational like a waiting task, running is informational, cancelled is
- * muted like a cancelled task, and only rejected/interrupted are dangerous.
- */
-export function taskGroupStatusTone(state: string, outcome?: TaskOutcome | null): StatusTone {
-	if (outcome !== null && outcome !== undefined) {
-		if (outcome.failed) return "danger";
-		return outcome.kind === "cancelled" ? "muted" : "ok";
-	}
+/** Task group status, by the same lifecycle rule as a task's. */
+export function taskGroupStatusTone(state: string): StatusTone {
 	switch (state) {
-		case "finished":
-			return "ok";
 		case "running":
 			return "info";
-		case "rejected":
-		case "interrupted":
-			return "danger";
 		case "awaiting_approval":
 		case "awaiting_authorization":
-			return taskStatusTone(state);
-		case "cancelled":
-			return taskStatusTone("cancelled");
+			return "warn";
 		default:
 			return "muted";
 	}

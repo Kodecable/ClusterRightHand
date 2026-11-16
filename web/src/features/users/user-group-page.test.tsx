@@ -73,6 +73,11 @@ function mockFetch(grants: NodeAccessGrant[] = []): { calls: Call[] } {
 				new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
 			if (path === "/api/me") return json({ user: ADMIN });
 			if (path === "/api/users") return json({ users: [ADMIN, ALICE, BOB] });
+			if (path === "/api/directory")
+				return json({
+					users: [ADMIN, ALICE, BOB].map(({ id, username, displayName }) => ({ id, username, displayName })),
+					userGroups: [],
+				});
 			if (path === "/api/user-groups/group-1" && method === "GET") return json({ group: GROUP });
 			if (path === "/api/user-groups/group-1" && method === "PATCH")
 				return json({ group: { ...GROUP, name: (body as { name: string }).name } });

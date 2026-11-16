@@ -19,13 +19,13 @@ import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { LibrarySection } from "@/features/library/library-section";
 import { GranteeNodeAccessSection } from "@/features/nodes/access-grants";
-import { useNodes } from "@/features/nodes/api";
+import { useNodeNames } from "@/features/nodes/api";
 import { useSessions } from "@/features/sessions/api";
-import { sessionTitle } from "@/features/sessions/session-item";
 import { useTasks } from "@/features/tasks/api";
 import { useTaskColumns } from "@/features/tasks/task-columns";
 import { isNotFound } from "@/lib/api/client";
 import { useAuth } from "@/lib/session";
+import { displaySessionTitle } from "@/lib/session-title";
 import { taskTitle } from "@/lib/task-title";
 import { linkClass } from "@/lib/utils";
 import { useRemoveUserGroupMember, useUpdateUser, useUser, useUserGroups, useUsers } from "./api";
@@ -132,8 +132,7 @@ function UserActivity({ user }: { user: User }) {
 	const admin = useAuth().user?.kind === "admin";
 	const sessions = useSessions({ scope: admin ? "all" : "visible", ownerId: user.id, limit: 10 });
 	const tasks = useTasks({ userId: user.id, limit: 10 });
-	const nodes = useNodes();
-	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
+	const names = useNodeNames();
 	const taskColumns = useTaskColumns({ nodeNames: names });
 	// Only the first page: these are a summary of the account, not another list page.
 	const sessionRows = sessions.data?.pages[0]?.items ?? [];
@@ -145,8 +144,8 @@ function UserActivity({ user }: { user: User }) {
 				id: "title",
 				header: t`Session`,
 				minSize: 160,
-				cell: ({ row }) => <span className="truncate">{sessionTitle(row.original, t`New Session`)}</span>,
-				meta: { title: (session: SessionListItem) => sessionTitle(session, t`New Session`) },
+				cell: ({ row }) => <span className="truncate">{displaySessionTitle(row.original.title, i18n)}</span>,
+				meta: { title: (session: SessionListItem) => displaySessionTitle(session.title, i18n) },
 			},
 			{
 				id: "state",
@@ -161,7 +160,7 @@ function UserActivity({ user }: { user: User }) {
 				cell: ({ row }) => <RelativeTime value={row.original.updatedAt} />,
 			},
 		],
-		[t],
+		[t, i18n],
 	);
 
 	return (
@@ -177,7 +176,7 @@ function UserActivity({ user }: { user: User }) {
 					error={sessions.isError ? sessions.error : undefined}
 					onRetry={() => void sessions.refetch()}
 					rowLink={(session) => ({ to: "/sessions/$sessionId", params: { sessionId: session.id } })}
-					rowLabel={(session) => sessionTitle(session, t`New Session`)}
+					rowLabel={(session) => displaySessionTitle(session.title, i18n)}
 					empty={
 						<TableEmpty>
 							<Trans>No sessions yet</Trans>

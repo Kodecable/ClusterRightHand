@@ -1,12 +1,12 @@
 import type { TaskView } from "@crh/api";
-import { Trans, useLingui } from "@lingui/react/macro";
+import { useLingui } from "@lingui/react/macro";
 import { useMemo } from "react";
 import type { DataTableColumn } from "@/components/data-table";
+import { PrivilegedMark } from "@/components/privileged-mark";
 import { RelativeTime } from "@/components/relative-time";
 import { RequestSource } from "@/components/request-source";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeBadge } from "@/components/task-outcome";
-import { Badge } from "@/components/ui/badge";
 import { taskTitle } from "@/lib/task-title";
 import { cn, MONO_CELL } from "@/lib/utils";
 
@@ -37,11 +37,7 @@ export function useTaskColumns({ nodeNames }: TaskColumnOptions): DataTableColum
 				cell: ({ row }) => (
 					<span className="flex min-w-0 items-center gap-1.5">
 						<span className={cn("truncate", MONO_CELL)}>{taskTitle(i18n, row.original)}</span>
-						{row.original.privileged && (
-							<Badge variant="secondary">
-								<Trans>Privileged</Trans>
-							</Badge>
-						)}
+						{row.original.privileged && <PrivilegedMark />}
 					</span>
 				),
 				meta: { title: (task: TaskView) => taskTitle(i18n, task) },
@@ -72,7 +68,7 @@ export function useTaskColumns({ nodeNames }: TaskColumnOptions): DataTableColum
 				id: "state",
 				header: t`Status`,
 				size: 90,
-				cell: ({ row }) => <TaskStatusBadge state={row.original.state} outcome={row.original.outcome} />,
+				cell: ({ row }) => <TaskStatusBadge state={row.original.state} />,
 			},
 			{
 				id: "outcome",

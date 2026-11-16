@@ -1,7 +1,8 @@
+export { PrivilegedMark } from "@/components/privileged-mark";
 export { ApprovalPanel } from "./approval-panel";
 export type { DecisionCardContent, DecisionVariant } from "./content";
 export { quotaCardContent, requestCardContent } from "./content";
-export { DecisionCard, DecisionTab, DecisionTabList, DecisionTabs, PrivilegedMark } from "./decision";
+export { DecisionCard, DecisionTab, DecisionTabList, DecisionTabs } from "./decision";
 export { DecisionView, EvaluationTable, ReviewView } from "./evaluation";
 export type {
 	RequestContentBlock,

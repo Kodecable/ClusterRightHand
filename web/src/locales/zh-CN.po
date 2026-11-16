@@ -185,6 +185,10 @@ msgstr "{lineCount, plural, one {# 行} other {# 行}}"
 msgid "{lines, plural, one {# line} other {# lines}}"
 msgstr "{lines, plural, one {# 行} other {# 行}}"
 
+#: src/components/node-targets.tsx
+msgid "{list} and {more} more"
+msgstr "{list} 等 {more} 个"
+
 #: src/features/sessions/session-banner.tsx
 msgid "{queued, plural, one {# message queued} other {# messages queued}}"
 msgstr "{queued, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
@@ -402,10 +406,6 @@ msgstr "活跃 · 已连接"
 msgid "Active · not connected"
 msgstr "活跃 · 未连接"
 
-#: src/features/tasks/pages.tsx
-msgid "Actor type"
-msgstr "操作者类型"
-
 #: src/features/sessions/quota-panel.tsx
 #: src/features/users/user-group-dialogs.tsx
 msgid "Add"
@@ -508,10 +508,6 @@ msgstr "节点连接后会显示为待批准。批准前请把新的密钥指纹
 #: src/features/nodes/add-node-dialog.tsx
 msgid "After the node connects it appears as pending; compare its key fingerprint with <0>crha status</0> on the node before approving."
 msgstr "节点连接后会显示为待批准；批准前请把它的密钥指纹与节点上的 <0>crha status</0> 输出进行比对。"
-
-#: src/features/tasks/pages.tsx
-msgid "Agent"
-msgstr "Agent"
 
 #: src/features/settings/extensions.tsx
 msgid "Agent sessions reach extension tools through search_tools and call_tool, under the session's rules and approvals. MCP extensions connect over Streamable HTTP; built-in extensions ship with crhs."
@@ -633,10 +629,6 @@ msgstr "注解不受信任"
 msgid "Another sign-in from this address is already in progress. Try again."
 msgstr "该地址已有登录请求正在进行，请稍后再试。"
 
-#: src/features/tasks/pages.tsx
-msgid "Any actor"
-msgstr "任意操作者"
-
 #: src/features/authorizations/pages.tsx
 #: src/features/nodes/node-trust.tsx
 msgid "any method and target"
@@ -645,6 +637,10 @@ msgstr "任意方法和目标"
 #: src/features/tasks/pages.tsx
 msgid "Any node"
 msgstr "任意节点"
+
+#: src/features/tasks/pages.tsx
+msgid "Any source"
+msgstr "任意请求源"
 
 #: src/features/tasks/pages.tsx
 msgid "Any state"
@@ -679,13 +675,13 @@ msgstr "API 令牌 {0}"
 msgid "API tokens"
 msgstr "API 令牌"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 #: src/features/approvals/pages.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Approval"
 msgstr "审批"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Approval decision"
 msgstr "审批决定"
 
@@ -787,7 +783,7 @@ msgstr "审计事件"
 msgid "Audit filters"
 msgstr "审计过滤条件"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Authorization"
 msgstr "授权"
 
@@ -860,17 +856,14 @@ msgid "Average time to first token: {0}"
 msgstr "平均首字时间：{0}"
 
 #: src/components/status-badge.tsx
-#: src/features/sessions/session-search-dialog.tsx
 msgid "Awaiting"
 msgstr "等待中"
 
 #: src/components/status-badge.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Awaiting approval"
 msgstr "等待审批"
 
 #: src/components/status-badge.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Awaiting authorization"
 msgstr "等待授权"
 
@@ -953,7 +946,6 @@ msgstr "已请求取消任务"
 
 #: src/components/status-badge.tsx
 #: src/components/task-outcome.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Cancelled"
 msgstr "已取消"
 
@@ -1366,7 +1358,11 @@ msgstr "复制节点组 {0} 的 ID"
 msgid "Copy public key"
 msgstr "复制公钥"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
+msgid "Copy task group id"
+msgstr "复制任务组 ID"
+
+#: src/components/task-facts.tsx
 msgid "Copy task id"
 msgstr "复制任务 ID"
 
@@ -1382,11 +1378,11 @@ msgstr "复制令牌"
 msgid "Copy trust config"
 msgstr "复制信任配置"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "cosignature available"
 msgstr "可共同签名"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "cosignature unavailable"
 msgstr "无法共同签名"
 
@@ -1426,7 +1422,7 @@ msgstr "创建一个，为 crhs 提供用于 SSH 节点和跳板机的密钥。"
 msgid "Create token"
 msgstr "创建令牌"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/signing-credentials/pages.tsx
@@ -2029,7 +2025,7 @@ msgstr "请输入用户名。"
 msgid "Environment"
 msgstr "环境变量"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Error"
 msgstr "错误"
 
@@ -2079,7 +2075,7 @@ msgstr "所有人"
 msgid "exact"
 msgstr "精确匹配"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Exit code"
 msgstr "退出码"
 
@@ -2167,7 +2163,7 @@ msgstr "失败"
 msgid "Failed files"
 msgstr "失败的文件"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "File browsing"
 msgstr "文件浏览"
 
@@ -2208,11 +2204,10 @@ msgid "finished"
 msgstr "完成"
 
 #: src/components/status-badge.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Finished"
 msgstr "已结束"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Finished at"
 msgstr "完成时间"
 
@@ -2368,7 +2363,6 @@ msgid "Identity headers"
 msgstr "身份请求头"
 
 #: src/components/status-badge.tsx
-#: src/features/sessions/session-search-dialog.tsx
 msgid "Idle"
 msgstr "空闲"
 
@@ -2396,7 +2390,7 @@ msgstr "包含文件浏览"
 msgid "Inherit"
 msgstr "继承"
 
-#: src/features/tasks/task-group-result.tsx
+#: src/components/status-badge.tsx
 #: src/lib/task-output.ts
 msgid "Interrupted"
 msgstr "已中断"
@@ -2479,8 +2473,8 @@ msgstr "crhs 用于为授权签名的密钥。默认使用最新的密钥；节�
 msgid "Killed by signal {0}"
 msgstr "被信号 {0} 终止"
 
+#: src/components/task-facts.tsx
 #: src/components/task-form-fields.tsx
-#: src/components/task-result.tsx
 #: src/features/channels/channel-dialog.tsx
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
@@ -2516,7 +2510,7 @@ msgstr "最近错误"
 #. placeholder {0}: record.lastRejection.code
 #. placeholder {1}: record.lastRejection.attempt
 #. placeholder {2}: record.lastRejection.message
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Last rejection {0} (attempt {1}): {2}"
 msgstr "上次拒绝 {0}（第 {1} 次尝试）：{2}"
 
@@ -2939,14 +2933,8 @@ msgstr "新建计划任务"
 msgid "New session"
 msgstr "新会话"
 
-#: src/components/decision/content.tsx
-#: src/components/request-source.tsx
-#: src/features/approvals/pages.tsx
-#: src/features/sessions/children-bar.tsx
 #: src/features/sessions/session-header.tsx
-#: src/features/sessions/session-list-item.tsx
-#: src/features/sessions/session-search-dialog.tsx
-#: src/features/users/pages.tsx
+#: src/lib/session-title.ts
 msgid "New Session"
 msgstr "新会话"
 
@@ -3208,7 +3196,7 @@ msgid "No users yet"
 msgstr "还没有用户"
 
 #: src/components/entity-picker/entity-picker.tsx
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/tasks/pages.tsx
@@ -3278,6 +3266,7 @@ msgid "Node views"
 msgstr "节点视图"
 
 #: src/app/shell/nav.ts
+#: src/components/task-facts.tsx
 #: src/features/approvals/pages.tsx
 #: src/features/authorizations/pages.tsx
 #: src/features/node-groups/dialogs.tsx
@@ -3456,7 +3445,7 @@ msgstr "打开与 @{0} 的私聊。"
 msgid "Open a private chat with the bot named {0}."
 msgstr "打开与名为 {0} 的机器人的私聊。"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Open approval page"
 msgstr "打开审批页"
 
@@ -3547,7 +3536,7 @@ msgstr "允许使用 Passkey 的源，例如 https://crh.example.com。留空则
 msgid "OS"
 msgstr "操作系统"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
 msgid "Outcome"
@@ -3561,7 +3550,7 @@ msgstr "输出"
 msgid "Output"
 msgstr "输出"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Output file"
 msgstr "输出文件"
 
@@ -3721,10 +3710,8 @@ msgstr "预览"
 msgid "Preview {0}"
 msgstr "预览 {0}"
 
-#: src/components/decision/decision.tsx
+#: src/components/privileged-mark.tsx
 #: src/components/task-form-fields.tsx
-#: src/components/task-result.tsx
-#: src/features/tasks/task-columns.tsx
 msgid "Privileged"
 msgstr "特权"
 
@@ -3791,7 +3778,7 @@ msgstr "拉取文件 {path}"
 msgid "Pull file {path} (lines {0}-{1})"
 msgstr "拉取文件 {path}（第 {0}-{1} 行）"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Purpose"
 msgstr "用途"
 
@@ -3935,7 +3922,6 @@ msgstr "拒绝节点"
 #: src/components/decision/evaluation.tsx
 #: src/components/status-badge.tsx
 #: src/components/task-outcome.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Rejected"
 msgstr "已拒绝"
 
@@ -4272,9 +4258,7 @@ msgstr "运行中"
 
 #: src/components/status-badge.tsx
 #: src/features/sessions/session-list-item.tsx
-#: src/features/sessions/session-search-dialog.tsx
 #: src/features/sessions/tool-card.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Running"
 msgstr "运行中"
 
@@ -4334,7 +4318,6 @@ msgid "Saving closes the connection; tasks running on this node become unknown."
 msgstr "保存会关闭连接；在此节点上运行的任务将变为未知状态。"
 
 #: src/components/decision/evaluation.tsx
-#: src/features/tasks/pages.tsx
 msgid "Schedule"
 msgstr "计划任务"
 
@@ -4455,6 +4438,7 @@ msgstr "每次请求都会发送，并加密存储；其值不会再次显示。
 #: src/components/decision/evaluation.tsx
 #: src/features/schedules/run-history.tsx
 #: src/features/settings/model-presets.tsx
+#: src/features/tasks/pages.tsx
 #: src/features/tasks/task-page.tsx
 #: src/features/users/pages.tsx
 msgid "Session"
@@ -4605,7 +4589,7 @@ msgstr "登录"
 msgid "Sign-in could not be completed. Check your connection and try again."
 msgstr "无法完成登录，请检查网络后重试。"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Signal"
 msgstr "信号"
 
@@ -4657,11 +4641,11 @@ msgstr "有些规则引用了已删除的节点或节点组。保存前请移除
 msgid "Something went wrong"
 msgstr "出错了"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 #: src/features/approvals/pages.tsx
 #: src/features/audit/pages.tsx
+#: src/features/tasks/pages.tsx
 #: src/features/tasks/task-columns.tsx
-#: src/features/tasks/task-group-page.tsx
 msgid "Source"
 msgstr "请求源"
 
@@ -4730,7 +4714,7 @@ msgstr "查看文件 {path}（第 {0}-{1} 行）"
 msgid "State"
 msgstr "状态"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/schedules/pages.tsx
@@ -4803,12 +4787,7 @@ msgstr "被下一次运行停止"
 msgid "Stored headers: {0}"
 msgstr "已存储的请求头：{0}"
 
-#: src/features/sessions/session-search-dialog.tsx
-#: src/features/tasks/pages.tsx
-msgid "Subagent"
-msgstr "子会话"
-
-#. placeholder {0}: row.hit.sessionTitle
+#. placeholder {0}: displaySessionTitle(row.hit.sessionTitle, i18n)
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Subagent: {0}"
 msgstr "子会话：{0}"
@@ -4829,7 +4808,7 @@ msgstr "成功"
 msgid "Summarize older context to free up the context window. Optional instructions guide the summary."
 msgstr "压缩较早的上下文以腾出上下文窗口。可选的指令用于引导摘要。"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Summary"
 msgstr "摘要"
 
@@ -4870,7 +4849,7 @@ msgstr "目标 ID"
 msgid "Target type"
 msgstr "目标类型"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "Task"
 msgstr "任务"
@@ -4880,6 +4859,7 @@ msgstr "任务"
 msgid "Task details"
 msgstr "任务详情"
 
+#: src/components/task-facts.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task group"
@@ -5025,12 +5005,12 @@ msgid "The node trusts nobody"
 msgstr "节点不信任任何对象"
 
 #: src/features/nodes/clock-warning.tsx
-msgid "The node's clock is {seconds} s ahead of crhs (measured once when crha connects)"
-msgstr "节点时钟比 crhs 快 {seconds} 秒（仅在 crha 连接时测量一次）"
+msgid "The node's clock is {duration} ahead of crhs (measured once when crha connects)"
+msgstr "节点时钟比 crhs 快 {duration}（仅在 crha 连接时测量一次）"
 
 #: src/features/nodes/clock-warning.tsx
-msgid "The node's clock is {seconds} s behind crhs (measured once when crha connects)"
-msgstr "节点时钟比 crhs 慢 {seconds} 秒（仅在 crha 连接时测量一次）"
+msgid "The node's clock is {duration} behind crhs (measured once when crha connects)"
+msgstr "节点时钟比 crhs 慢 {duration}（仅在 crha 连接时测量一次）"
 
 #: src/components/task-result.tsx
 msgid "The offset is past the end of the file."
@@ -5660,11 +5640,11 @@ msgstr "等待签名"
 msgid "Waiting for approval"
 msgstr "等待审批"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Waiting for approval. {approvalLink}"
 msgstr "等待审批。{approvalLink}"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Waiting for the owner's authorization."
 msgstr "等待所有者授权。"
 
@@ -5676,7 +5656,7 @@ msgstr "等待你处理"
 msgid "Waiting for your approval. <0>Review and approve</0>"
 msgstr "等待你的审批。<0>查看并批准</0>"
 
-#: src/components/task-result.tsx
+#: src/components/task-facts.tsx
 msgid "Waiting for your signature."
 msgstr "等待你的签名。"
 

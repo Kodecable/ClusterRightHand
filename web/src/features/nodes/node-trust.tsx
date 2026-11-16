@@ -43,14 +43,6 @@ function TrustAliases({ aliases }: { aliases: readonly string[] }) {
 	);
 }
 
-/** A trust entry's maximum signature lifetime, e.g. "5m"; null is rendered as "unlimited". */
-export function trustTtlText(ms: number): string {
-	if (ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
-	if (ms % 60_000 === 0) return `${ms / 60_000}m`;
-	if (ms % 1000 === 0) return `${ms / 1000}s`;
-	return `${ms}ms`;
-}
-
 export function guardRuleText(rule: GuardRule, anyTarget = "any target"): string {
 	const target = rule.match === "any" ? anyTarget : `${rule.match} ${rule.pattern}`;
 	return `${rule.method} ${target}`;
@@ -149,7 +141,8 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 			id: "ttl",
 			header: t`Max TTL`,
 			size: 100,
-			cell: ({ row }) => (row.original.maxTtlMs === null ? t`unlimited` : trustTtlText(row.original.maxTtlMs)),
+			cell: ({ row }) =>
+				row.original.maxTtlMs === null ? t`unlimited` : formatDuration(row.original.maxTtlMs, locale),
 		},
 		{
 			id: "key",

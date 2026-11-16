@@ -2,6 +2,7 @@ import type { AvailableModel, ModelPreset, ModelRef, ThinkingLevel } from "@crh/
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronRightIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { CodeText } from "@/components/code-text";
 import { ErrorState, ErrorText } from "@/components/error-state";
 import { groupModels, modelKey, parseModelKey } from "@/components/model-select";
 import { Panel } from "@/components/section";
@@ -137,7 +138,7 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 							<SelectItem value={NONE}>{t`Use the session's model`}</SelectItem>
 							{[...groupModels(models, model ?? undefined)].map(([provider, list]) => (
 								<SelectGroup key={provider}>
-									<SelectLabel>{provider}</SelectLabel>
+									<SelectLabel>{list[0]?.providerName ?? provider}</SelectLabel>
 									{list.map((candidate) => (
 										<SelectItem key={modelKey(candidate)} value={modelKey(candidate)}>
 											{candidate.name}
@@ -182,15 +183,11 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 				<CollapsibleContent className="grid gap-2 pt-2">
 					<div className="grid gap-1">
 						<p className="text-xs font-medium text-muted-foreground">{t`Default prompt`}</p>
-						<pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-							{preset.defaultPrompt}
-						</pre>
+						<CodeText text={preset.defaultPrompt} maxLines={0} preClassName="max-h-48" label={t`Default prompt`} />
 					</div>
 					<div className="grid gap-1">
 						<p className="text-xs font-medium text-muted-foreground">{t`Always appended`}</p>
-						<pre className="max-h-48 overflow-auto rounded-md bg-muted p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-							{preset.protocol}
-						</pre>
+						<CodeText text={preset.protocol} maxLines={0} preClassName="max-h-48" label={t`Always appended`} />
 					</div>
 				</CollapsibleContent>
 			</Collapsible>

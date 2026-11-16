@@ -1,4 +1,4 @@
-import type { TaskAuthorizationView, TaskResultView, TaskView } from "@crh/api";
+import type { TaskResultView, TaskView } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { CopyButton } from "@/components/copy-button";
@@ -8,56 +8,13 @@ import { DateTime, RelativeTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeBadge } from "@/components/task-outcome";
 import { useTimeColumnWidth } from "@/components/time-column";
-import { Badge } from "@/components/ui/badge";
-import { useAuth } from "@/lib/session";
-import { batchOutput, joinOutput, statusOutputNoteKey, taskErrorText } from "@/lib/task-output";
+import { batchOutput, joinOutput, statusOutputNoteKey } from "@/lib/task-output";
 import { taskTitle } from "@/lib/task-title";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
-import { DecisionView, EvaluationTable } from "./decision/evaluation";
+import { cn, MONO_CELL } from "@/lib/utils";
+import { EvaluationTable } from "./decision/evaluation";
+import { TaskFacts } from "./task-facts";
 
-/** The authorization plan of a task that waits for a signature (doc/design/privilege.md "Authorization path"). */
-function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
-	return (
-		<div className="mt-1 grid gap-1 text-xs">
-			{record.plan.paths.length > 0 && (
-				<ul className="list-disc pl-4">
-					{record.plan.paths.map((path) => (
-						<li key={path.path} className="break-words [overflow-wrap:anywhere]">
-							<span className="font-medium">{path.path}</span>
-							{path.entries.length > 0 && (
-								<>
-									{": "}
-									{path.entries.map((entry) => `${entry.name} (${entry.role})`).join(", ")}
-									{path.entries.some((entry) => entry.cosign) && (
-										<>
-											{" · "}
-											{path.entries.some((entry) => entry.cosign === "missing") ? (
-												<Trans>cosignature unavailable</Trans>
-											) : (
-												<Trans>cosignature available</Trans>
-											)}
-										</>
-									)}
-								</>
-							)}
-						</li>
-					))}
-				</ul>
-			)}
-			{record.plan.reason !== undefined && record.plan.reason !== "" && (
-				<p className="text-muted-foreground break-words [overflow-wrap:anywhere]">{record.plan.reason}</p>
-			)}
-			{record.lastRejection !== null && (
-				<p className="text-danger break-words [overflow-wrap:anywhere]">
-					<Trans>
-						Last rejection {record.lastRejection.code} (attempt {record.lastRejection.attempt}):{" "}
-						{record.lastRejection.message}
-					</Trans>
-				</p>
-			)}
-		</div>
-	);
-}
+export { TaskFacts, TaskGroupFacts } from "./task-facts";
 
 export function OutputBlock({
 	label,
@@ -100,146 +57,6 @@ export function OutputBlock({
 			</pre>
 		</section>
 	);
-}
-
-/**
- * The facts of one task: the id, what it is, where it came from, where it ran, its state and result
- * fields, and its timestamps. The task page adds the node link (it knows the node name) and turns off
- * what its header, waiting card or decision block already show, so no fact appears twice on that page.
- */
-export function TaskFacts({
-	task,
-	node,
-	source,
-	userNames,
-	extra = [],
-	showSummary = true,
-	showState = true,
-	showOutcome = true,
-	showWaiting = true,
-	showDecision = true,
-	className,
-}: {
-	task: TaskView;
-	/** The node link, when the caller knows the node's name. */
-	node?: React.ReactNode;
-	/** The request source, on pages that show its facts (the page variant renders it from `task.source`). */
-	source?: React.ReactNode;
-	/** Display names by user id, for a recorded approval decision. */
-	userNames?: Map<string, string>;
-	/** Further page-specific facts, e.g. the links to a session or a task group. */
-	extra?: readonly KeyValueItem[];
-	showSummary?: boolean;
-	showState?: boolean;
-	showOutcome?: boolean;
-	showWaiting?: boolean;
-	showDecision?: boolean;
-	className?: string;
-}) {
-	const { t, i18n } = useLingui();
-	const auth = useAuth();
-	const user = auth.user;
-	const approvalLink = (
-		<Link to="/approvals/tasks/$taskId" params={{ taskId: task.id }} className={linkClass}>
-			<Trans>Open approval page</Trans>
-		</Link>
-	);
-
-	const items: KeyValueItem[] = [
-		{
-			label: <Trans>Task</Trans>,
-			value: (
-				<span className="flex items-center gap-1">
-					<span className={MONO_CELL}>{task.id}</span>
-					<CopyButton text={task.id} label={t`Copy task id`} size="icon-xs" />
-				</span>
-			),
-			control: true,
-		},
-		{
-			label: <Trans>Kind</Trans>,
-			value: (
-				<span className="flex items-center gap-1.5">
-					<span className={MONO_CELL}>{task.kind}</span>
-					{task.privileged && (
-						<Badge variant="secondary">
-							<Trans>Privileged</Trans>
-						</Badge>
-					)}
-				</span>
-			),
-			control: true,
-		},
-		...(showSummary && task.summary !== "" ? [{ label: <Trans>Summary</Trans>, value: task.summary, mono: true }] : []),
-		...(task.purpose !== null && task.purpose !== undefined && task.purpose !== ""
-			? [
-					{
-						label: <Trans>Purpose</Trans>,
-						value: task.purpose === "browse" ? <Trans>File browsing</Trans> : task.purpose,
-					},
-				]
-			: []),
-		...(node !== undefined ? [{ label: <Trans>Node</Trans>, value: node }] : []),
-		...(source !== undefined ? [{ label: <Trans>Source</Trans>, value: source }] : []),
-		...(showState
-			? [
-					{
-						label: <Trans>Status</Trans>,
-						value: <TaskStatusBadge state={task.state} outcome={task.outcome} />,
-					},
-				]
-			: []),
-		...(showOutcome && task.outcome !== null
-			? [{ label: <Trans>Outcome</Trans>, value: <TaskOutcomeBadge outcome={task.outcome} /> }]
-			: []),
-		...(task.exitCode !== null ? [{ label: <Trans>Exit code</Trans>, value: String(task.exitCode) }] : []),
-		...(task.signal !== null ? [{ label: <Trans>Signal</Trans>, value: task.signal }] : []),
-		...(task.errorCode !== null || task.errorMessage !== null
-			? [
-					{
-						label: <Trans>Error</Trans>,
-						value: <span className="text-danger">{taskErrorText(i18n, task.errorCode, task.errorMessage)}</span>,
-					},
-				]
-			: []),
-		...(showWaiting && task.state === "awaiting_approval"
-			? [{ label: <Trans>Approval</Trans>, value: <Trans>Waiting for approval. {approvalLink}</Trans> }]
-			: []),
-		...(showWaiting && task.state === "awaiting_authorization"
-			? [
-					{
-						label: <Trans>Authorization</Trans>,
-						value: (
-							<div className="grid gap-1">
-								<span>
-									{task.onBehalfOfUserId !== null && task.onBehalfOfUserId === user?.id ? (
-										<Trans>Waiting for your signature.</Trans>
-									) : (
-										<Trans>Waiting for the owner's authorization.</Trans>
-									)}
-									{task.authorization ? <> (attempt {task.authorization.attempt})</> : null}
-								</span>
-								{task.authorization ? <AuthorizationPlan record={task.authorization} /> : null}
-							</div>
-						),
-					},
-				]
-			: []),
-		...(showDecision && task.approval?.decision
-			? [
-					{
-						label: <Trans>Approval decision</Trans>,
-						value: <DecisionView decision={task.approval.decision} userNames={userNames} />,
-					},
-				]
-			: []),
-		...extra,
-		{ label: <Trans>Created</Trans>, value: <DateTime value={task.createdAt} /> },
-		{ label: <Trans>Finished at</Trans>, value: <DateTime value={task.finishedAt} /> },
-		...(task.outputFile !== null ? [{ label: <Trans>Output file</Trans>, value: task.outputFile, mono: true }] : []),
-	];
-
-	return <KeyValueList items={items} className={cn("text-sm", className)} />;
 }
 
 /**
@@ -502,7 +319,7 @@ export function TaskSummary({ task, nodeName, className }: { task: TaskView; nod
 			data-testid="task-summary"
 			className={cn("flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent", className)}
 		>
-			<TaskStatusBadge state={task.state} outcome={task.outcome} />
+			<TaskStatusBadge state={task.state} />
 			<span className={cn("min-w-0 flex-1 truncate", MONO_CELL)}>{taskTitle(i18n, task)}</span>
 			{nodeName !== undefined && <span className="shrink-0">{nodeName}</span>}
 			<span className="shrink-0">

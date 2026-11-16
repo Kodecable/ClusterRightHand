@@ -146,11 +146,7 @@ function ToolLiveOutput({ store }: { store: ReturnType<TranscriptStreams["tool"]
 			</p>
 		);
 	}
-	return (
-		<pre className="max-h-72 overflow-auto rounded-md border bg-[var(--code)] p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-			{text}
-		</pre>
-	);
+	return <CodeText text={text} maxLines={0} preClassName="max-h-72" copy={false} />;
 }
 
 /**

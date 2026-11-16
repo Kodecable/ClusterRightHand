@@ -1,4 +1,3 @@
-import type { TaskOutcome } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
@@ -8,6 +7,7 @@ import {
 	type StatusTone,
 	scheduleStatusTone,
 	sessionStatusTone,
+	taskGroupStatusTone,
 	taskStatusTone,
 	tokenStatusTone,
 } from "@/lib/status";
@@ -166,20 +166,36 @@ export function taskStateLabel(i18n: I18n, state: string): string {
  * The task's state. `exited` always reads Finished, whatever the exit code or
  * signal; the outcome column is the one place the command's result appears.
  */
-export function TaskStatusBadge({
-	state,
-	outcome,
-	className,
-}: {
-	state: string;
-	/** The server's classification; a terminal status takes its tone from it. */
-	outcome?: TaskOutcome | null;
-	className?: string;
-}) {
+export function TaskStatusBadge({ state, className }: { state: string; className?: string }) {
 	const { i18n } = useLingui();
 	return (
-		<StatusText tone={taskStatusTone(state, outcome)} className={className}>
+		<StatusText tone={taskStatusTone(state)} className={className}>
 			{statusLabel(i18n, TASK_LABELS, state)}
+		</StatusText>
+	);
+}
+
+const TASK_GROUP_LABELS: Record<string, MessageDescriptor> = {
+	awaiting_approval: msg`Awaiting approval`,
+	awaiting_authorization: msg`Awaiting authorization`,
+	running: msg`Running`,
+	finished: msg`Finished`,
+	interrupted: msg`Interrupted`,
+	rejected: msg`Rejected`,
+	cancelled: msg`Cancelled`,
+};
+
+/** The translated label of a task group state, or the raw state when it is unknown. */
+export function taskGroupStateLabel(i18n: I18n, state: string): string {
+	return statusLabel(i18n, TASK_GROUP_LABELS, state);
+}
+
+/** A task group's state, in the same words as a task's status. */
+export function TaskGroupStatusBadge({ state, className }: { state: string; className?: string }) {
+	const { i18n } = useLingui();
+	return (
+		<StatusText tone={taskGroupStatusTone(state)} className={className}>
+			{taskGroupStateLabel(i18n, state)}
 		</StatusText>
 	);
 }
@@ -210,11 +226,16 @@ const SESSION_LABELS: Record<"idle" | "running" | "awaiting", MessageDescriptor>
 	awaiting: msg`Awaiting`,
 };
 
+/** The translated label of a session state, or the raw state when it is unknown. */
+export function sessionStateLabel(i18n: I18n, state: string): string {
+	return statusLabel(i18n, SESSION_LABELS, state);
+}
+
 export function SessionStatusBadge({ state, className }: { state: string; className?: string }) {
 	const { i18n } = useLingui();
 	return (
 		<StatusText tone={sessionStatusTone(state)} className={className}>
-			{statusLabel(i18n, SESSION_LABELS, state)}
+			{sessionStateLabel(i18n, state)}
 		</StatusText>
 	);
 }
@@ -222,7 +243,7 @@ export function SessionStatusBadge({ state, className }: { state: string; classN
 /** The status dot alone, for dense lists (the label is announced to screen readers). */
 export function SessionStatusDot({ state, className }: { state: string; className?: string }) {
 	const { i18n } = useLingui();
-	const label = statusLabel(i18n, SESSION_LABELS, state);
+	const label = sessionStateLabel(i18n, state);
 	return <StatusDot tone={sessionStatusTone(state)} label={label} className={className} />;
 }
 

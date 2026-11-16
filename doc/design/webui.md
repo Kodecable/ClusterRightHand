@@ -112,7 +112,9 @@ its text.
 
 Lists show relative times, with the absolute time in the tooltip. Detail pages and security-relevant
 lists (audit, authorizations, approvals, tokens, signing credentials) show absolute times with seconds. All
-times use the browser's time zone.
+times use the browser's time zone. Durations share one formatter (`formatDuration`): **1h 02m**,
+**2m 00s**, **13s**; a task's max TTL, a measured clock offset, an ETA and a turn's duration all read the
+same way.
 
 A task in state `exited` reads **Finished** whatever its exit code. The server classifies the result once
 and every page renders that same `outcome` through **`TaskOutcomeBadge`**: **Exit code N** (an exec task
@@ -177,6 +179,21 @@ behaves the same on every page:
 - **`TaskOutcomeBadge`** is the only way a finished task, task group or node result is shown: its dot and
   one localized line come from the server's `outcome` ([Status, time and task results](#status-time-and-task-results)).
   Session tool cards read the same outcome from the result details instead of re-deriving failure.
+- **`PrivilegedMark`** is the only privileged pill. A decision card shows it beside the title; the task
+  list and the task and task group facts show it beside the kind.
+- **`NodeTargetList`** is the only node or node-group target list. Each target is a link to its page,
+  `_all` reads **All accessible nodes**, a deleted reference says so, and an id with no known name stays
+  visible as muted monospace text. A compact request's leftover names are the same message as the list
+  (**… and N more**, localized), and the `compact` mode keeps a table cell on one clipped line. The
+  matching `nodeTargetsText` gives a clipped cell its tooltip.
+- **`TaskFacts` / `TaskGroupFacts`** build a detail page's fields from the same rows: id and copy button,
+  kind with the privileged mark, source, status and result (a group shows its targets), then created and
+  finished times.
+- **`displaySessionTitle`** is the one session title: the stored title, or **New Session** for a null,
+  empty or whitespace-only one. Lists, breadcrumbs, decision cards and the channel cards all use it.
+- **`CodeText`** is the one code/output block. Tool output, the audit detail and a model preset's default
+  prompt render it; **`OutputBlock`** is the task-output variant that joins head and tail with one
+  omitted-bytes line.
 - **`FileManager`** is the only file browser. It knows nothing of libraries or nodes: it takes a
   `FileSource` with `list` and `stat`, and optionally `download`, `upload`, `delete`, `rename` and
   `preview`. A missing operation hides its action. Its toolbar (a home icon, the path breadcrumb and
@@ -200,8 +217,9 @@ group, and the dialog then opens the new task or group. Results are always read 
 group page, never in the dialog.
 
 The task page shows the outcome badge next to the state in its header, and its shared facts name the
-source. The task group page shows the group's outcome beside its state and names its source above the
-member rows. Its shared request details show the
+source. The task group page keeps its status above the member rows and shows one facts block built from
+the same rows: source, the privileged mark, the stored target nodes as links, the group's outcome, and
+the created and finished times. Its shared request details show the
 rule chain evaluation whenever an approval was evaluated and Auto Review's verdict when it ran, and a
 result panel appears only when the task produced output. While Auto Review is judging a task or task
 group, its page shows the reviewing notice inside the decision card and offers no controls. The task

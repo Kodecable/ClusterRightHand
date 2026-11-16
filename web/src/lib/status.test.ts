@@ -19,34 +19,28 @@ describe("nodeStatusTone", () => {
 });
 
 describe("taskStatusTone", () => {
-	test("exited is Finished and ok whatever the command's exit code or signal", () => {
-		expect(taskStatusTone("exited")).toBe("ok");
-	});
-
-	test("waiting and running tasks are informational", () => {
-		for (const state of ["awaiting_approval", "awaiting_authorization", "running", "dispatched"]) {
-			expect(taskStatusTone(state), state).toBe("info");
+	test("in progress is informational and waiting for the user is a warning", () => {
+		for (const state of ["dispatched", "running"]) expect(taskStatusTone(state), state).toBe("info");
+		for (const state of ["awaiting_approval", "awaiting_authorization"]) {
+			expect(taskStatusTone(state), state).toBe("warn");
 		}
 	});
 
-	test("platform failures are dangerous", () => {
-		for (const state of ["failed", "denied", "rejected", "unknown"]) {
-			expect(taskStatusTone(state), state).toBe("danger");
+	test("every terminal state is neutral: success or failure is the outcome's colour, not the status's", () => {
+		for (const state of ["exited", "failed", "denied", "rejected", "cancelled", "unknown", "something_else"]) {
+			expect(taskStatusTone(state), state).toBe("muted");
 		}
-		expect(taskStatusTone("something_else")).toBe("muted");
 	});
 });
 
 describe("taskGroupStatusTone", () => {
-	test("uses the task tones for the states they share", () => {
-		expect(taskGroupStatusTone("finished")).toBe("ok");
+	test("follows the same lifecycle rule as a task", () => {
 		expect(taskGroupStatusTone("running")).toBe("info");
-		expect(taskGroupStatusTone("awaiting_approval")).toBe(taskStatusTone("awaiting_approval"));
-		expect(taskGroupStatusTone("awaiting_authorization")).toBe(taskStatusTone("awaiting_authorization"));
-		expect(taskGroupStatusTone("cancelled")).toBe(taskStatusTone("cancelled"));
-		expect(taskGroupStatusTone("rejected")).toBe("danger");
-		expect(taskGroupStatusTone("interrupted")).toBe("danger");
-		expect(taskGroupStatusTone("weird")).toBe("muted");
+		expect(taskGroupStatusTone("awaiting_approval")).toBe("warn");
+		expect(taskGroupStatusTone("awaiting_authorization")).toBe("warn");
+		for (const state of ["finished", "cancelled", "rejected", "interrupted", "weird"]) {
+			expect(taskGroupStatusTone(state), state).toBe("muted");
+		}
 	});
 });
 

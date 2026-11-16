@@ -1,22 +1,22 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon } from "lucide-react";
-import { useMemo } from "react";
 import { ErrorState } from "@/components/error-state";
-import { type KeyValueItem, KeyValueList } from "@/components/key-value";
+import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RequestSource } from "@/components/request-source";
 import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
+import { TaskGroupStatusBadge } from "@/components/status-badge";
+import { TaskGroupFacts } from "@/components/task-facts";
 import { TaskGone } from "@/components/task-gone";
-import { TaskOutcomeBadge } from "@/components/task-outcome";
-import { useNodes } from "@/features/nodes/api";
+import { useNodeNames } from "@/features/nodes/api";
 import { isNotFound } from "@/lib/api/client";
 import { usePageTitle } from "@/lib/page-title";
 import { taskTitle } from "@/lib/task-title";
 import { useTaskGroup } from "./api";
-import { TaskGroupResult, TaskGroupSkippedNotice, TaskGroupStatus } from "./task-group-result";
+import { TaskGroupResult, TaskGroupSkippedNotice } from "./task-group-result";
 
 /**
  * One task group from a link, e.g. a group that waits for the owner's signature
@@ -28,8 +28,7 @@ export function TaskGroupPage() {
 	const params = useParams({ strict: false }) as { taskGroupId?: string };
 	const id = params.taskGroupId ?? "";
 	const taskGroup = useTaskGroup(id, true);
-	const nodes = useNodes();
-	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
+	const names = useNodeNames();
 	const summary = taskGroup.data === undefined ? undefined : taskTitle(i18n, taskGroup.data);
 	// The shell header and the browser tab name the group by its command too.
 	usePageTitle(summary);
@@ -71,26 +70,13 @@ export function TaskGroupPage() {
 			<PageHeader
 				title={<span className="font-mono">{summary || <Trans>Task group</Trans>}</span>}
 				titleText={summary}
-				description={
-					<span className="inline-flex flex-wrap items-center gap-1">
-						<TaskGroupStatus state={taskGroup.data.state} outcome={taskGroup.data.outcome} />
-						{taskGroup.data.outcome !== null && (
-							<>
-								<span className="text-muted-foreground">{" · "}</span>
-								<TaskOutcomeBadge outcome={taskGroup.data.outcome} />
-							</>
-						)}
-					</span>
-				}
+				description={<TaskGroupStatusBadge state={taskGroup.data.state} />}
 			/>
 			<Panel as="section" aria-label={t`Task group details`}>
-				<KeyValueList
-					items={
-						[
-							{ label: <Trans>Source</Trans>, value: <RequestSource source={taskGroup.data.source} /> },
-						] satisfies KeyValueItem[]
-					}
-					className="text-sm"
+				<TaskGroupFacts
+					taskGroup={taskGroup.data}
+					nodes={<NodeTargetList ids={taskGroup.data.targets} refs={taskGroup.data.refs} nodeNames={names} />}
+					source={<RequestSource source={taskGroup.data.source} />}
 				/>
 			</Panel>
 			<TaskGroupSkippedNotice taskGroup={taskGroup.data} names={names} />

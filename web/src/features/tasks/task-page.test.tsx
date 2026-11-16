@@ -298,7 +298,7 @@ describe("TaskPage and TaskGroupPage", () => {
 		expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
 	});
 
-	test("a task group is titled by its command, keeps only its status above the members and drops the repeated header blocks", async () => {
+	test("a task group is titled by its command and shows its facts once above the members", async () => {
 		route.params = { taskGroupId: "g1" };
 		mockGroup();
 		await renderPage(<TaskGroupPage />);
@@ -310,15 +310,24 @@ describe("TaskPage and TaskGroupPage", () => {
 		expect(within(header).getByText("Finished")).toBeInTheDocument();
 		expect(header).not.toHaveTextContent("Privileged");
 		expect(header).not.toHaveTextContent("node");
+		// The outcome belongs to the facts block, not the header; the header keeps only the status.
+		expect(within(header).queryByTestId("task-outcome")).not.toBeInTheDocument();
 		expect(document.title).toBe(`${GROUP_SUMMARY} · ClusterRightHand`);
 
 		// The summary appears once, as the title; the old repeated blocks and target line are gone.
 		expect(screen.getAllByText(GROUP_SUMMARY)).toHaveLength(1);
 		expect(screen.queryByText("Result")).not.toBeInTheDocument();
-		expect(screen.queryByText("Privileged")).not.toBeInTheDocument();
 		expect(screen.queryByText("Targets:")).not.toBeInTheDocument();
-		expect(screen.queryByTestId("task-group-targets")).not.toBeInTheDocument();
-		expect(screen.queryByText(/2 nodes/)).not.toBeInTheDocument();
+
+		// One facts block: source, the shared privileged mark, the stored targets, the outcome and both timestamps.
+		const facts = screen.getByRole("region", { name: "Task group details" });
+		expect(within(facts).getByText("Privileged")).toHaveAttribute("data-slot", "privileged-mark");
+		expect(within(facts).getByRole("link", { name: "worker-01" })).toHaveAttribute("href", "/nodes/node-1");
+		expect(within(facts).getByRole("link", { name: "worker-02" })).toHaveAttribute("href", "/nodes/node-2");
+		expect(facts).toHaveTextContent("Source");
+		expect(facts).toHaveTextContent("Created");
+		expect(facts).toHaveTextContent("Finished at");
+		expect(within(facts).getByTestId("task-outcome")).toHaveTextContent("Done");
 
 		// The member table stays, with its row linking to the member task.
 		const table = screen.getByRole("table", { name: "Tasks in this task group" });

@@ -122,7 +122,10 @@ export function formatTokens(value: number, locale: string): string {
 	return formatNumber(tokens, locale);
 }
 
-/** A duration in seconds/milliseconds as "1h 02m 03s". */
+/**
+ * A duration in seconds/milliseconds as "1h 02m" or "2m 00s", the one shape every surface uses (doc/design/webui.md
+ * "Shared components"): a task's max TTL, a measured clock offset, an ETA and a turn's duration all read it.
+ */
 export function formatDuration(ms: number, locale: string): string {
 	if (!Number.isFinite(ms) || ms < 0) return "–";
 	const totalSeconds = Math.round(ms / 1000);

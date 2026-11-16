@@ -1,19 +1,11 @@
-import { Trans, useLingui } from "@lingui/react/macro";
+import { useLingui } from "@lingui/react/macro";
 import type { ReactNode } from "react";
+import { PrivilegedMark } from "@/components/privileged-mark";
 import { Panel } from "@/components/section";
 import { StatusBadge } from "@/components/status-badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { DECISION_RISK_LABELS } from "./content";
-
-/** The small "Privileged" pill beside a decision title. It is deliberately smaller than the title. */
-export function PrivilegedMark() {
-	return (
-		<span className="inline-flex shrink-0 items-center rounded-full bg-warn-bg px-2 py-0.5 text-xs leading-none font-medium text-warn">
-			<Trans>Privileged</Trans>
-		</span>
-	);
-}
 
 const RISK_TONES = { low: "muted", medium: "warn", high: "danger" } as const;
 

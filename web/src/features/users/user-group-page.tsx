@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { LibrarySection } from "@/features/library/library-section";
 import { GranteeNodeAccessSection } from "@/features/nodes/access-grants";
 import { linkClass } from "@/lib/utils";
-import { useDeleteUserGroup, useRemoveUserGroupMember, useUserGroup, useUsers } from "./api";
+import { useDeleteUserGroup, useRemoveUserGroupMember, useUserGroup, useUserNames, useUsers } from "./api";
 import { UserGroupAddMemberDialog, UserGroupNameDialog } from "./user-group-dialogs";
 
 /** A member's role and status come from the users list; a deleted account has neither. */
@@ -46,6 +46,7 @@ export function UserGroupDetailPage() {
 	const [deleting, setDeleting] = useState(false);
 	const [removingMember, setRemovingMember] = useState<UserGroupMember>();
 	const usersById = useMemo(() => new Map((users.data ?? []).map((user) => [user.id, user])), [users.data]);
+	const userNames = useUserNames();
 	const groupName = group.data?.name ?? "";
 	const columns = useMemo<DataTableColumn<UserGroupMember>[]>(
 		() => [
@@ -53,16 +54,11 @@ export function UserGroupDetailPage() {
 				id: "member",
 				header: t`User`,
 				minSize: 160,
-				cell: ({ row }) => {
-					const user = memberUser(usersById, row.original);
-					const name = user?.displayName || user?.username || row.original.displayName || row.original.username;
-					return <span className="truncate font-medium">{name}</span>;
-				},
+				cell: ({ row }) => (
+					<span className="truncate font-medium">{userNames.get(row.original.id) ?? row.original.id}</span>
+				),
 				meta: {
-					title: (member: UserGroupMember) => {
-						const user = memberUser(usersById, member);
-						return user?.displayName || user?.username || member.displayName || member.username;
-					},
+					title: (member: UserGroupMember) => userNames.get(member.id) ?? member.id,
 				},
 			},
 			{
@@ -101,7 +97,7 @@ export function UserGroupDetailPage() {
 				),
 			},
 		],
-		[groupName, t, usersById],
+		[groupName, t, userNames, usersById],
 	);
 
 	if (group.isError) {
@@ -173,10 +169,7 @@ export function UserGroupDetailPage() {
 					data={details.members}
 					getRowId={(member) => member.id}
 					rowLink={(member) => ({ to: "/users/$userId", params: { userId: member.id } })}
-					rowLabel={(member) => {
-						const user = memberUser(usersById, member);
-						return user?.displayName || user?.username || member.displayName || member.username;
-					}}
+					rowLabel={(member) => userNames.get(member.id) ?? member.id}
 					empty={
 						<TableEmpty>
 							<Trans>No members</Trans>

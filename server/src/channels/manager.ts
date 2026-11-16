@@ -54,6 +54,7 @@ import { type CardFormat, type ChatCard, renderCard, renderCardLine } from "./ca
 import {
 	type BotMessages,
 	botLocale,
+	displaySessionTitle,
 	escapeMarkdown,
 	formatBytes,
 	localeFromLanguageCode,
@@ -1250,7 +1251,7 @@ export class ChannelManager {
 		const current = await channelThread(this.#options.db, row.id, adapter.platform, chatId, topicId);
 		const buttons: import("./model.ts").ChannelButton[][] = sessions.map((session) => [
 			{
-				text: `${session.id === current?.session_id ? "✓ " : ""}${clip(session.title || m.newSessionTitle, 40)}`,
+				text: `${session.id === current?.session_id ? "✓ " : ""}${clip(displaySessionTitle(session.title, m), 40)}`,
 				data: `switch:${session.id}`,
 			},
 		]);
@@ -1262,7 +1263,7 @@ export class ChannelManager {
 		const lines = sessions.map((session, index) =>
 			numberedItem(
 				(currentPage - 1) * SESSION_PAGE_SIZE + index,
-				clip(session.title || m.newSessionTitle, 40),
+				clip(displaySessionTitle(session.title, m), 40),
 				session.id === current?.session_id,
 			),
 		);
@@ -2481,7 +2482,7 @@ export class ChannelManager {
 		if (previous?.session_id && previous.session_id !== session.id) {
 			await this.#releaseWatcherIfUnused(previous.session_id);
 		}
-		await adapter.sendText(target, m.sessionSwitched(session.title || m.newSessionTitle));
+		await adapter.sendText(target, m.sessionSwitched(displaySessionTitle(session.title, m)));
 		await this.#replayHistory(adapter, target, session.id, m);
 	}
 
@@ -3448,7 +3449,7 @@ export class ChannelManager {
 		if (!paused) return;
 		if (!route || this.#tracked.has(key)) return;
 		const card = m.quotaCard(
-			clip(root.title || m.newSessionTitle, 80),
+			clip(displaySessionTitle(root.title, m), 80),
 			quotaStatus(root.quota_tokens === null ? null : Number(root.quota_tokens), Number(root.budget_used_tokens)),
 		);
 		await this.#sendTracked(key, rootId, route, card, [], locale);
@@ -3776,7 +3777,7 @@ export class ChannelManager {
 
 	async #sessionTitle(sessionId: string, locale: UserSettingsLocale): Promise<string> {
 		const session = await this.#options.runtime.getSession(sessionId);
-		return clip(session?.title ?? messagesFor(locale).newSessionTitle, 80);
+		return clip(displaySessionTitle(session?.title, messagesFor(locale)), 80);
 	}
 
 	#webUrl(path: string): string | null {

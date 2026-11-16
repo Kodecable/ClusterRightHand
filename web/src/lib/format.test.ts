@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatDateTimeNumeric, formatDateTimeSeconds, formatTokens } from "./format";
+import { formatDateTimeNumeric, formatDateTimeSeconds, formatDuration, formatTokens } from "./format";
 
 describe("formatTokens", () => {
 	test("keeps small counts exact and adds an auto unit above a thousand", () => {
@@ -21,6 +21,22 @@ describe("formatTokens", () => {
 	test("a value that is not a number reads as zero", () => {
 		expect(formatTokens(Number.NaN, "en")).toBe("0");
 		expect(formatTokens(Number.POSITIVE_INFINITY, "en")).toBe("0");
+	});
+});
+
+describe("formatDuration", () => {
+	test("writes the one duration shape", () => {
+		expect(formatDuration(0, "en")).toBe("0s");
+		expect(formatDuration(12_500, "en")).toBe("13s");
+		expect(formatDuration(120_000, "en")).toBe("2m 00s");
+		expect(formatDuration(90_000, "en")).toBe("1m 30s");
+		expect(formatDuration(3_723_000, "en")).toBe("1h 02m");
+	});
+
+	test("keeps the active locale's digits and reads an invalid value as a dash", () => {
+		expect(formatDuration(90_000, "zh-CN")).toBe("1m 30s");
+		expect(formatDuration(Number.NaN, "en")).toBe("–");
+		expect(formatDuration(-1, "en")).toBe("–");
 	});
 });
 

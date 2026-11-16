@@ -30,7 +30,7 @@ export const taskKeys = {
 			"list",
 			{
 				state: filters.state ?? "",
-				actorType: filters.actorType ?? "",
+				source: filters.source ?? "",
 				nodeId: filters.nodeId ?? "",
 				userId: filters.userId ?? "",
 				includePurpose: filters.includePurpose === true ? "1" : "",
@@ -43,7 +43,7 @@ export const taskKeys = {
 
 export interface TaskFilters extends CursorQuery {
 	state?: string;
-	actorType?: string;
+	source?: "session" | "user" | "api_token";
 	nodeId?: string;
 	/** Tasks whose acting user (`onBehalfOfUserId`) is this user. */
 	userId?: string;
@@ -61,14 +61,14 @@ export type TaskDetailView = TaskView & { request?: ApprovalRequest | null };
 export type TaskGroupDetailView = TaskGroupView & { request?: ApprovalRequest | null };
 
 export function useTasks(filters: TaskFilters = {}) {
-	const { state, actorType, nodeId, userId, includePurpose } = filters;
+	const { state, source, nodeId, userId, includePurpose } = filters;
 	return useCursorInfiniteQuery<TaskView>({
 		queryKey: taskKeys.listPage(filters),
 		fetchPage: (cursor, signal) =>
 			http.get<CursorPage<TaskView>>(
 				`/tasks${queryString({
 					state,
-					actorType,
+					source,
 					nodeId,
 					userId,
 					includePurpose: includePurpose === true ? "true" : undefined,

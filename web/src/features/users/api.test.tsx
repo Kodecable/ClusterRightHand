@@ -1,9 +1,9 @@
 import type { User } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { authStore } from "@/lib/session";
-import { useUpdateUser } from "./api";
+import { useUpdateUser, useUserNames } from "./api";
 
 const ME: User = {
 	id: "u1",
@@ -82,5 +82,36 @@ describe("useUpdateUser", () => {
 			expect(calls.some((call) => call.method === "PATCH" && call.url === `/api/users/${OTHER.id}`)).toBe(true),
 		);
 		expect(authStore.state.user?.displayName).toBe("Ada Ops");
+	});
+});
+
+describe("useUserNames", () => {
+	test("uses the display name, then the username, then the id", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							users: [
+								{ id: "u1", username: "ops", displayName: "Ada Ops" },
+								{ id: "u2", username: "alice", displayName: null },
+								{ id: "u3", username: "", displayName: "" },
+							],
+							userGroups: [],
+						}),
+						{ status: 200, headers: { "content-type": "application/json" } },
+					),
+			),
+		);
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		const { result } = renderHook(() => useUserNames(), {
+			wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+		});
+
+		await waitFor(() => expect(result.current.get("u1")).toBe("Ada Ops"));
+		expect(result.current.get("u2")).toBe("alice");
+		expect(result.current.get("u3")).toBe("u3");
+		expect(result.current.get("missing")).toBeUndefined();
 	});
 });

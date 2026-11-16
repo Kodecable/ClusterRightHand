@@ -210,6 +210,30 @@ describe("task list api (sqlite)", () => {
 		expect(all).toEqual(expect.arrayContaining(members));
 	});
 
+	it("filters by request source: a session covers its subagents", async () => {
+		const alice = uid.alice as string;
+		const bySession = await cluster.createTask({
+			nodeId: n1,
+			spec: execSpec("echo", "from-session"),
+			actor: { type: "session", id: "source-session", onBehalfOfUserId: alice },
+		});
+		const bySubagent = await cluster.createTask({
+			nodeId: n1,
+			spec: execSpec("echo", "from-subagent"),
+			actor: { type: "subagent", id: "source-subagent", onBehalfOfUserId: alice },
+		});
+		const byUser = await mkTask({});
+
+		const sessions = (await list("alice", "?source=session")).items.map((t) => t.id);
+		expect(sessions).toEqual(expect.arrayContaining([bySession.id, bySubagent.id]));
+		expect(sessions).not.toContain(byUser.id);
+		const users = (await list("alice", "?source=user")).items.map((t) => t.id);
+		expect(users).toContain(byUser.id);
+		expect(users).not.toContain(bySession.id);
+		const bogus = await call(app, "/api/tasks?source=bogus", { cookie: cookies.alice });
+		expect(bogus.status).toBe(400);
+	});
+
 	it("filters by state, node and actor type", async () => {
 		const tok = await newToken("ask");
 		const waiting = await cluster.createTask({

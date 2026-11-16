@@ -52,10 +52,10 @@ describe("status family mappings", () => {
 		expect(screen.getByText("Offline")).toBeInTheDocument();
 	});
 
-	test("tasks label exited as Finished, in the ok tone, with no exit code", () => {
+	test("tasks label exited as Finished, in the neutral tone, with no exit code", () => {
 		const { container, rerender } = renderWithI18n(<TaskStatusBadge state="exited" />);
 		expect(screen.getByText("Finished")).toBeInTheDocument();
-		expect(container.querySelector('[data-tone="ok"]')).not.toBeNull();
+		expect(container.querySelector('[data-tone="muted"]')).not.toBeNull();
 		expect(container).not.toHaveTextContent("(1)");
 		rerender(<TaskStatusBadge state="awaiting_approval" />);
 		expect(screen.getByText("Awaiting approval")).toBeInTheDocument();

@@ -1,4 +1,4 @@
-import type { SessionListItem, SessionWaitingKind } from "@crh/api";
+import type { SessionWaitingKind } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 
@@ -14,10 +14,4 @@ export function waitingKindLabel(kind: SessionWaitingKind | null): MessageDescri
 		default:
 			return undefined;
 	}
-}
-
-/** The title shown for a row; a null or blank title from the server still needs a visible label. */
-export function sessionTitle(item: Pick<SessionListItem, "title">, fallback: string): string {
-	if (item.title === null || item.title.trim() === "") return fallback;
-	return item.title;
 }

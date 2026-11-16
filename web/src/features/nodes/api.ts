@@ -34,6 +34,15 @@ export function useNodes() {
 	});
 }
 
+/**
+ * Display names by node id, the one fallback every page uses (doc/design/webui.md "Shared components"):
+ * the node's current name, else its id, so an unknown id stays visible.
+ */
+export function useNodeNames(): Map<string, string> {
+	const nodes = useNodes();
+	return useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name || node.id])), [nodes.data]);
+}
+
 export function useNode(id: string | undefined) {
 	return useQuery({
 		queryKey: nodeKeys.detail(id ?? ""),

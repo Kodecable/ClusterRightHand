@@ -322,6 +322,10 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		if (!includePurpose) select = select.where("purpose", "is", null);
 		if (state !== undefined) select = select.where("state", "=", state as TaskState);
 		if (actorType !== undefined) select = select.where("actor_type", "=", actorType);
+		// The request source a user filters by: a subagent's task comes from its session.
+		if (query.source !== undefined) {
+			select = select.where("actor_type", "in", query.source === "session" ? ["session", "subagent"] : [query.source]);
+		}
 		if (cursor) select = select.where(descendingKeyset(["created_at"], cursor));
 		const page = await cursorRows(
 			limit,

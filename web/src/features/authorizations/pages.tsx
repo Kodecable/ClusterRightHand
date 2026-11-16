@@ -1,4 +1,4 @@
-import { type AuthorizationSummary, type DecodedAuthorizationPayload, formatList } from "@crh/api";
+import type { AuthorizationSummary, DecodedAuthorizationPayload } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
@@ -7,8 +7,7 @@ import { useMemo, useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { KeyValueList } from "@/components/key-value";
-import { LocalizedList } from "@/components/localized-list";
-import { NodeLink } from "@/components/node-targets";
+import { NodeTargetList, nodeTargetsText } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
@@ -16,7 +15,7 @@ import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { UserLink } from "@/components/user-link";
-import { useNodes } from "@/features/nodes/api";
+import { useNodeNames } from "@/features/nodes/api";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { useAuthorizations } from "./api";
 
@@ -33,33 +32,6 @@ export function authorizationCommandText(i18n: I18n, command: DecodedAuthorizati
 	return i18n._(msg`${command.method} prefix ${command.target}`);
 }
 
-/** A node of an authorization: its current name and a link, or the raw id when it is unknown. */
-function AuthorizationNode({ id, names }: { id: string; names: Map<string, string> }) {
-	const name = names.get(id);
-	if (name === undefined) {
-		return <span className={cn(MONO_CELL, "text-muted-foreground")}>{id}</span>;
-	}
-	return <NodeLink id={id} name={name} />;
-}
-
-/** The nodes an authorization covers; the table keeps them on one clipped line. */
-function AuthorizationNodes({
-	ids,
-	names,
-	className,
-}: {
-	ids: readonly string[];
-	names: Map<string, string>;
-	className?: string;
-}) {
-	if (ids.length === 0) return <span className="text-muted-foreground">–</span>;
-	return (
-		<span data-slot="authorization-nodes" className={cn("inline min-w-0", className)}>
-			<LocalizedList items={ids} getKey={(id) => id} render={(id) => <AuthorizationNode id={id} names={names} />} />
-		</span>
-	);
-}
-
 /** The task ids an authorization covers, each linking to its task page. */
 function AuthorizationTasks({ ids }: { ids: readonly string[] }) {
 	if (ids.length === 0) return <>–</>;
@@ -72,15 +44,6 @@ function AuthorizationTasks({ ids }: { ids: readonly string[] }) {
 			))}
 		</span>
 	);
-}
-
-/** The readable full text of a node list for a cell's tooltip. */
-function nodeNamesText(ids: readonly string[], names: Map<string, string>, locale: string): string | undefined {
-	const text = formatList(
-		locale,
-		ids.map((id) => names.get(id) ?? id),
-	);
-	return text === "" ? undefined : text;
 }
 
 function PayloadDialog({
@@ -114,7 +77,7 @@ function PayloadDialog({
 						{ label: t`Deadline`, value: <DateTime value={entry.deadline} /> },
 						...(entry.attempt !== null ? [{ label: t`Attempt`, value: String(entry.attempt) }] : []),
 						{ label: t`Command`, value: authorizationCommandText(i18n, entry.command), mono: true },
-						{ label: t`Nodes`, value: <AuthorizationNodes ids={entry.nodes} names={names} /> },
+						{ label: t`Nodes`, value: <NodeTargetList ids={entry.nodes} nodeNames={names} /> },
 						{
 							label: t`Tasks`,
 							value: entry.taskIds === null ? t`reusable` : <AuthorizationTasks ids={entry.taskIds} />,
@@ -136,8 +99,7 @@ export function AuthorizationsPage() {
 	const { t, i18n } = useLingui();
 	const timeWidth = useTimeColumnWidth();
 	const authorizations = useAuthorizations();
-	const nodes = useNodes();
-	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
+	const names = useNodeNames();
 	const [payload, setPayload] = useState<AuthorizationSummary>();
 	const rows = useMemo(() => authorizations.data?.pages.flatMap((page) => page.items) ?? [], [authorizations.data]);
 
@@ -163,8 +125,14 @@ export function AuthorizationsPage() {
 				id: "nodes",
 				header: t`Nodes`,
 				minSize: 140,
-				cell: ({ row }) => <AuthorizationNodes ids={row.original.nodes} names={names} className="flex-nowrap" />,
-				meta: { title: (entry: AuthorizationSummary) => nodeNamesText(entry.nodes, names, i18n.locale) },
+				cell: ({ row }) => <NodeTargetList ids={row.original.nodes} nodeNames={names} compact />,
+				meta: {
+					title: (entry: AuthorizationSummary) =>
+						nodeTargetsText(
+							i18n,
+							entry.nodes.map((id) => names.get(id) ?? id),
+						) || undefined,
+				},
 			},
 			{
 				id: "command",

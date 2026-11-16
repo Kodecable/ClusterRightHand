@@ -11,8 +11,8 @@ import { taskStateLabel } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useNodes } from "@/features/nodes/api";
-import { useDirectory } from "@/features/users/api";
+import { useNodeNames, useNodes } from "@/features/nodes/api";
+import { useUserNames } from "@/features/users/api";
 import { taskTitle } from "@/lib/task-title";
 import { useTasks } from "./api";
 import { RunTaskDialog } from "./run-task-dialog";
@@ -75,11 +75,12 @@ function FilterSelect({
 export function TasksPage() {
 	const { t, i18n } = useLingui();
 	const nodes = useNodes();
-	const directory = useDirectory();
+	const names = useNodeNames();
+	const users = useUserNames();
 	const search = useSearch({ strict: false }) as TasksSearch;
 	const navigate = useNavigate();
 	const [state, setState] = useState("any");
-	const [actorType, setActorType] = useState("any");
+	const [source, setSource] = useState("any");
 	const [running, setRunning] = useState(false);
 	const [includePurpose, setIncludePurpose] = useState(false);
 	const nodeId = search.node ?? "any";
@@ -87,17 +88,12 @@ export function TasksPage() {
 
 	const tasks = useTasks({
 		state: state === "any" ? undefined : state,
-		actorType: actorType === "any" ? undefined : actorType,
+		source: source === "any" ? undefined : (source as "session" | "user" | "api_token"),
 		nodeId: nodeId === "any" ? undefined : nodeId,
 		userId,
 		includePurpose,
 	});
 	const rows = useMemo(() => tasks.data?.pages.flatMap((page) => page.items) ?? [], [tasks.data]);
-	const users = useMemo(
-		() => new Map((directory.data?.users ?? []).map((user) => [user.id, user.displayName || user.username])),
-		[directory.data],
-	);
-	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
 	const columns = useTaskColumns({ nodeNames: names });
 
 	const setNode = (value: string) => {
@@ -127,13 +123,11 @@ export function TasksPage() {
 	if (nodeId !== "any" && !names.has(nodeId)) nodeOptions.push({ value: nodeId, label: nodeId });
 	const userName = userId === undefined ? "" : (users.get(userId) ?? userId);
 
-	const actorTypes = [
-		{ value: "any", label: t`Any actor` },
+	const sources = [
+		{ value: "any", label: t`Any source` },
+		{ value: "session", label: t`Session` },
 		{ value: "user", label: t`User` },
 		{ value: "api_token", label: t`API token` },
-		{ value: "agent", label: t`Agent` },
-		{ value: "subagent", label: t`Subagent` },
-		{ value: "schedule", label: t`Schedule` },
 	];
 
 	return (
@@ -159,13 +153,7 @@ export function TasksPage() {
 						...STATES.map((value) => ({ value, label: taskStateLabel(i18n, value) })),
 					]}
 				/>
-				<FilterSelect
-					id="task-filter-actor"
-					label={t`Actor type`}
-					value={actorType}
-					onChange={setActorType}
-					options={actorTypes}
-				/>
+				<FilterSelect id="task-filter-source" label={t`Source`} value={source} onChange={setSource} options={sources} />
 				<FilterSelect id="task-filter-node" label={t`Node`} value={nodeId} onChange={setNode} options={nodeOptions} />
 				<label className="flex items-center gap-2 pb-1.5 text-sm" htmlFor="task-filter-purpose">
 					<Checkbox

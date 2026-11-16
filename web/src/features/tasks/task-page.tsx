@@ -1,25 +1,26 @@
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, SquareIcon } from "lucide-react";
-import { useMemo } from "react";
 import { toast } from "sonner";
 import { ApprovalPanel, DecisionView, RequestDetails } from "@/components/decision";
 import { ErrorState } from "@/components/error-state";
 import type { KeyValueItem } from "@/components/key-value";
+import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RequestSource } from "@/components/request-source";
 import { Panel } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { TaskStatusBadge } from "@/components/status-badge";
+import { TaskFacts } from "@/components/task-facts";
 import { TaskGone } from "@/components/task-gone";
 import { TaskOutcomeBadge } from "@/components/task-outcome";
-import { hasTaskOutput, TaskFacts, TaskOutput } from "@/components/task-result";
+import { hasTaskOutput, TaskOutput } from "@/components/task-result";
 import { Button } from "@/components/ui/button";
 import { useApprovalLookups, useDecideApproval } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
-import { useNodes } from "@/features/nodes/api";
-import { useDirectory } from "@/features/users/api";
+import { useNodeNames } from "@/features/nodes/api";
+import { useUserNames } from "@/features/users/api";
 import { isNotFound } from "@/lib/api/client";
 import { usePageTitle } from "@/lib/page-title";
 import { useAuth } from "@/lib/session";
@@ -28,15 +29,6 @@ import { taskTitle } from "@/lib/task-title";
 import { linkClass } from "@/lib/utils";
 import { useCancelTask, useTask } from "./api";
 
-/** A node link that shows the node's name, falling back to its id while the list loads. */
-function NodeLink({ nodeId, names }: { nodeId: string; names: Map<string, string> }) {
-	return (
-		<Link to="/nodes/$nodeId" params={{ nodeId }} className={linkClass}>
-			{names.get(nodeId) ?? nodeId}
-		</Link>
-	);
-}
-
 /** One task: header, one facts block, the approval or signature decision, then the result (doc/design/webui.md "Task and task group pages"). */
 export function TaskPage() {
 	const { t, i18n } = useLingui();
@@ -44,16 +36,11 @@ export function TaskPage() {
 	const id = params.taskId ?? "";
 	const task = useTask(id, true);
 	const currentUser = useAuth().user;
-	const directory = useDirectory();
-	const nodes = useNodes();
 	const looks = useApprovalLookups();
 	const decide = useDecideApproval();
 	const cancel = useCancelTask(id);
-	const names = useMemo(() => new Map((nodes.data ?? []).map((node) => [node.id, node.name])), [nodes.data]);
-	const userNames = useMemo(
-		() => new Map((directory.data?.users ?? []).map((user) => [user.id, user.displayName || user.username])),
-		[directory.data],
-	);
+	const names = useNodeNames();
+	const userNames = useUserNames();
 	// The shell title names the task by its command, like the page heading does.
 	usePageTitle(task.data === undefined ? undefined : taskTitle(i18n, task.data));
 
@@ -135,7 +122,7 @@ export function TaskPage() {
 				titleText={taskTitle(i18n, view)}
 				description={
 					<span className="inline-flex flex-wrap items-center gap-1">
-						<TaskStatusBadge state={view.state} outcome={view.outcome} />
+						<TaskStatusBadge state={view.state} />
 						{view.outcome !== null && (
 							<>
 								<span className="text-muted-foreground">{" · "}</span>
@@ -168,7 +155,7 @@ export function TaskPage() {
 					showOutcome={false}
 					showWaiting={false}
 					showDecision={false}
-					node={<NodeLink nodeId={view.nodeId} names={names} />}
+					node={<NodeTargetList ids={[view.nodeId]} nodeNames={names} />}
 					source={<RequestSource source={view.source} />}
 					userNames={userNames}
 					extra={links}

@@ -1,7 +1,7 @@
 import { type ApprovalRequest, quotaStatus } from "@crh/api";
 import { describe, expect, it } from "vitest";
 import { type ChatCard, renderCard, renderCardLine, TELEGRAM_LINE_BREAK } from "../src/channels/card.ts";
-import { messagesFor } from "../src/channels/messages.ts";
+import { displaySessionTitle, messagesFor } from "../src/channels/messages.ts";
 
 const request = (overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => ({
 	kind: "task",
@@ -19,6 +19,20 @@ const request = (overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => (
 const telegram = (card: ChatCard, locale: "en" | "zh-CN" = "en") =>
 	renderCard(card, messagesFor(locale).card, "markdown");
 const plain = (card: ChatCard, locale: "en" | "zh-CN" = "en") => renderCard(card, messagesFor(locale).card, "plain");
+
+describe("displaySessionTitle", () => {
+	it("uses the stored title, and the one New session wording for null, empty or blank titles", () => {
+		const en = messagesFor("en");
+		const zh = messagesFor("zh-CN");
+		expect(displaySessionTitle("Clean up", en)).toBe("Clean up");
+		expect(displaySessionTitle("清理", zh)).toBe("清理");
+		expect(displaySessionTitle(null, en)).toBe("New session");
+		expect(displaySessionTitle(undefined, en)).toBe("New session");
+		expect(displaySessionTitle("", en)).toBe("New session");
+		expect(displaySessionTitle("  \t ", en)).toBe("New session");
+		expect(displaySessionTitle(" ", zh)).toBe("新会话");
+	});
+});
 
 describe("chat cards", () => {
 	it("renders an approval card with a bold title, hard breaks and one inline-code detail on Telegram", () => {

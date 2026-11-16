@@ -118,7 +118,7 @@ export function ModelSelect({
 			>
 				{[...groups].map(([provider, list]) => (
 					<SelectGroup key={provider}>
-						<SelectLabel>{provider}</SelectLabel>
+						<SelectLabel>{list[0]?.providerName ?? provider}</SelectLabel>
 						{list.map((model) => (
 							<SelectItem key={modelKey(model)} value={modelKey(model)}>
 								{model.name}

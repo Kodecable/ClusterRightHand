@@ -130,6 +130,18 @@ describe("TasksPage filters", () => {
 		expect(within(table).getByRole("link", { name: "ops" })).toHaveAttribute("href", "/users/u1");
 	});
 
+	test("a privileged task shows the shared privileged mark, not an old grey badge", async () => {
+		mockApi({ items: [{ ...TASK, privileged: true }] });
+		await renderPage();
+		const link = await screen.findByRole("link", { name: "echo hi" });
+		const row = link.closest('[role="row"]');
+		if (!(row instanceof HTMLElement)) throw new Error("no task row");
+		const mark = within(row).getByText("Privileged");
+		expect(mark).toHaveAttribute("data-slot", "privileged-mark");
+		expect(mark).toHaveClass("text-warn");
+		expect(within(row).queryByText("Privileged")?.tagName).toBe("SPAN");
+	});
+
 	test("includes file browsing tasks only when the toggle is on", async () => {
 		const { urls } = mockApi();
 		await renderPage();

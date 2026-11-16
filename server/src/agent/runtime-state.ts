@@ -507,7 +507,8 @@ function watchSubmission(host: RuntimeHost, sessionId: string, submissionId: str
 		await submission.wait(host.context);
 		await settleInput(host, sessionId, submissionId, { generateTitle: false });
 	})().catch((err: unknown) => {
-		console.error("agent runtime: recording a resumed run's end failed:", err);
+		// The Harness refuses submissions once close() begins; a resumed run that was still waiting is not an error.
+		if (!host.closing()) console.error("agent runtime: recording a resumed run's end failed:", err);
 	});
 }
 

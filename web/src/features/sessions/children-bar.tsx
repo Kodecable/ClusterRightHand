@@ -12,9 +12,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { flattenCursorPages } from "@/lib/api/query";
+import { displaySessionTitle } from "@/lib/session-title";
 import { cn, linkClass } from "@/lib/utils";
 import { type SessionChildrenQuery, useSessionTreeChildren } from "./api";
-import { sessionTitle } from "./session-item";
 
 /**
  * The subagent strip directly above the composer (doc/design/webui.md "Subagent bar"): one compact line with the direct
@@ -115,7 +115,7 @@ export function ChildrenBar({
  * one link, while the expand button stays above it.
  */
 function ChildNode({ item, depth, onNavigate }: { item: SessionListItem; depth: number; onNavigate: () => void }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const [expanded, setExpanded] = useState(false);
 	return (
 		<li>
@@ -147,7 +147,7 @@ function ChildNode({ item, depth, onNavigate }: { item: SessionListItem; depth: 
 					)}
 					onClick={onNavigate}
 				>
-					{sessionTitle(item, t`New Session`)}
+					{displaySessionTitle(item.title, i18n)}
 				</Link>
 			</div>
 			{expanded && <NestedChildren parentId={item.id} depth={depth + 1} onNavigate={onNavigate} />}
