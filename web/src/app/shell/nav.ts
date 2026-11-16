@@ -3,10 +3,10 @@ import { msg } from "@lingui/core/macro";
 import {
 	BadgeCheckIcon,
 	BlocksIcon,
-	BoxesIcon,
+	BotMessageSquareIcon,
+	BrainIcon,
 	CalendarClockIcon,
 	GraphHubIcon,
-	KeyRoundIcon,
 	KeySquareIcon,
 	LibraryIcon,
 	ListChecksIcon,
@@ -17,6 +17,7 @@ import {
 	ServerIcon,
 	SettingsIcon,
 	ShieldCheckIcon,
+	SignatureIcon,
 	UsersIcon,
 } from "lucide-react";
 
@@ -77,7 +78,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/nodes", label: msg`Nodes`, icon: ServerIcon },
 			{ to: "/node-groups", label: msg`Node groups`, icon: GraphHubIcon },
 			{ to: "/ssh-credentials", label: msg`SSH credentials`, icon: LockKeyholeIcon, adminOnly: true },
-			{ to: "/signing-credentials", label: msg`Signing credentials`, icon: KeyRoundIcon },
+			{ to: "/signing-credentials", label: msg`Signing credentials`, icon: SignatureIcon },
 		],
 	},
 	{
@@ -86,9 +87,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/authorizations", label: msg`Authorizations`, icon: BadgeCheckIcon, adminOnly: true },
 			{ to: "/tokens", label: msg`API tokens`, icon: KeySquareIcon },
 			{ to: "/audit", label: msg`Audit`, icon: ScrollTextIcon },
-			{ to: "/settings/models", label: msg`Models`, icon: BoxesIcon, adminOnly: true },
+			{ to: "/settings/models", label: msg`Models`, icon: BrainIcon, adminOnly: true },
 			{ to: "/settings/extensions", label: msg`Extensions`, icon: BlocksIcon, adminOnly: true },
-			{ to: "/settings/channels", label: msg`Channels`, icon: MessageSquareIcon, adminOnly: true },
+			{ to: "/settings/channels", label: msg`Channels`, icon: BotMessageSquareIcon, adminOnly: true },
 			{ to: "/settings/system", label: msg`System settings`, icon: SettingsIcon, adminOnly: true },
 			{ to: "/users", label: msg`Users`, icon: UsersIcon, adminOnly: true, activeFor: ["/user-groups"] },
 		],

@@ -1345,6 +1345,10 @@ msgstr "Copy fingerprint"
 msgid "Copy key ID {0}"
 msgstr "Copy key ID {0}"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Copy message"
+msgstr "Copy message"
+
 #: src/features/node-groups/pages.tsx
 msgid "Copy node group id"
 msgstr "Copy node group id"
@@ -1357,6 +1361,10 @@ msgstr "Copy node group id of {0}"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Copy public key"
 msgstr "Copy public key"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Copy reply"
+msgstr "Copy reply"
 
 #: src/components/task-facts.tsx
 msgid "Copy task group id"
@@ -2228,6 +2236,15 @@ msgstr "Flags"
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
 msgstr "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Fork from here"
+msgstr "Fork from here"
+
+#. placeholder {0}: session.forkedFrom.title
+#: src/features/sessions/session-header.tsx
+msgid "Forked from <0>{0}</0>"
+msgstr "Forked from <0>{0}</0>"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Format"

@@ -1345,6 +1345,10 @@ msgstr "复制指纹"
 msgid "Copy key ID {0}"
 msgstr "复制密钥标识 {0}"
 
+#: src/features/sessions/transcript-row.tsx
+msgid "Copy message"
+msgstr "复制消息"
+
 #: src/features/node-groups/pages.tsx
 msgid "Copy node group id"
 msgstr "复制节点组 ID"
@@ -1357,6 +1361,10 @@ msgstr "复制节点组 {0} 的 ID"
 #: src/features/ssh-credentials/pages.tsx
 msgid "Copy public key"
 msgstr "复制公钥"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Copy reply"
+msgstr "复制回复"
 
 #: src/components/task-facts.tsx
 msgid "Copy task group id"
@@ -2228,6 +2236,15 @@ msgstr "标志"
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
 msgstr "命令限制、有效期、本地批准等高级选项请参考文档，手动编辑 privileged.toml"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Fork from here"
+msgstr "从这里分叉"
+
+#. placeholder {0}: session.forkedFrom.title
+#: src/features/sessions/session-header.tsx
+msgid "Forked from <0>{0}</0>"
+msgstr "分叉自 <0>{0}</0>"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Format"

@@ -535,6 +535,10 @@ export interface SessionsTable {
 	owner_user_id: string;
 	conversation_id: string;
 	parent_session_id: string | null;
+	/** The session this one was forked from (doc/design/agent-runtime.md "Forking"); null for every other session. */
+	forked_from_session_id: string | null;
+	/** The source's final reply entry the fork's history ends at, inclusively; null without one. */
+	forked_from_entry_id: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
 	/** The root of this session's tree; the session itself for a root (doc/design/webui.md "Session list API"). */
 	root_session_id: string;
 	/** The schedule whose run created this root session; nulled when the schedule is deleted. */

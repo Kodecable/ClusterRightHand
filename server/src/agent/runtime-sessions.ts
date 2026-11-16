@@ -5,6 +5,7 @@ import {
 	type Conversation,
 	type ConversationId,
 	type Cursor,
+	type EntryId,
 	type EntryRecord as PiEntryRecord,
 	type SnapshotEvent as PiSnapshotEvent,
 	watchEvents,
@@ -13,10 +14,12 @@ import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { extensionNamesForUser, parseDisabledExtensionNames } from "../extensions/store.ts";
 import { ruleRefs } from "../policy/refs.ts";
-import type { RulePreset } from "../policy/rules.ts";
-import { createRootRuleSet, createRuleSet, deleteRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
+import type { Rule, RulePreset } from "../policy/rules.ts";
+import { createRootRuleSet, deleteRuleSet, getRuleSet, setRulePreset } from "../policy/store.ts";
 import { type SessionRow, sessionChain, sessionDescendants } from "../sessions/session-chain.ts";
+import { forkedSessionTitle } from "../sessions/titles.ts";
 import { defaultOrgId } from "../storage/org.ts";
+import { getUserSettings } from "../users/settings.ts";
 import { encodeCursor } from "../util/cursor.ts";
 import { isUniqueViolation, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
@@ -255,6 +258,222 @@ function submissionRequestIdFor(createRequestId: string): string {
 	return `create:${createRequestId}`;
 }
 
+/** What the client sent to fork a session at one of its final replies. */
+export interface ForkSessionInput {
+	/** The source's final assistant reply: a visible entry of the source conversation. */
+	entryId: number;
+	/** The client idempotency key: one request id creates one fork. */
+	requestId: string;
+}
+
+/** A user's request to fork a session (doc/design/agent-runtime.md "Forking"). */
+export async function forkSession(
+	host: RuntimeHost,
+	owner: SessionUser,
+	sourceId: string,
+	input: ForkSessionInput,
+): Promise<{ session: SessionView; created: boolean }> {
+	const requestId = input.requestId.trim();
+	if (requestId === "" || requestId.length > 128) {
+		throw new UserError("requestId is required and must be at most 128 characters");
+	}
+	const existing = await findSessionByCreateRequestId(host, owner.userId, requestId);
+	if (existing) return { session: existing, created: false };
+
+	const { row: source, conversation } = await loadConversation(host, sourceId);
+	// The route checks ownership; the runtime checks again so an internal caller cannot fork someone else's session.
+	if (source.owner_user_id !== owner.userId) throw new UserError("only the session owner can fork it");
+	await assertForkableReply(host, conversation, source, input.entryId);
+
+	// The fork copies the source's current agent configuration, not the state at the fork entry: a model,
+	// thinking level or extension change the owner made after the reply still applies to the new session.
+	const model = host.models.resolveRef(JSON.parse(source.model) as ModelRef);
+	const sourceAgent = await conversation.agent(host.context);
+	const sourceExtensions = sourceAgent.extensions.flatMap((extension) =>
+		extension.name.startsWith("ext:") ? [extension.name.slice("ext:".length)] : [],
+	);
+	const availableExtensions = await extensionNamesForUser(host.db, owner.userId);
+	const enabledExtensions = availableExtensions.filter((name) => sourceExtensions.includes(name));
+	// The row lists every available extension the fork has off, so a root shows the same toggles as the source.
+	const disabledExtensions = availableExtensions.filter((name) => !enabledExtensions.includes(name));
+	// `null` clears a copied instruction: the fork keeps the source's *current* instructions, not the ones its
+	// agent document had at the fork entry, which durable copies as of that entry.
+	const instructions = sourceAgent.instructions ?? null;
+	const id = newId();
+	const locale = (await getUserSettings(host.db, owner.userId)).locale;
+	const title = forkedSessionTitle(source.title, locale);
+	const now = new Date().toISOString();
+
+	// pi-durable forks the history by reference: the new conversation inherits the source's entries up to and
+	// including the reply, copies the agent document as of that entry, and starts a fresh provider document
+	// (`pi.provider` has fork: "initial"). The `agent` options below replace that copied configuration with the
+	// source's current one.
+	const forked = await conversation.fork(
+		input.entryId as unknown as EntryId,
+		{
+			ownership: { kind: "ownerless" },
+			agent: {
+				model: { provider: model.provider, modelId: model.modelId },
+				thinkingLevel: thinkingLevelOf(model),
+				extensions: host.extensionsFor(enabledExtensions),
+				instructions,
+			},
+		},
+		host.context,
+	);
+
+	try {
+		const orgId = await defaultOrgId(host.db);
+		await host.db.transaction().execute(async (trx) => {
+			await trx
+				.insertInto("sessions")
+				.values({
+					id,
+					org_id: orgId,
+					owner_user_id: source.owner_user_id,
+					conversation_id: String(forked.id),
+					// A fork is a new root, never a subagent of its source, and no chat thread or schedule owns it.
+					parent_session_id: null,
+					forked_from_session_id: sourceId,
+					forked_from_entry_id: input.entryId,
+					root_session_id: id,
+					schedule_id: null,
+					title,
+					// The title is settled when the row is written; the fork never generates one.
+					title_pending: 0,
+					create_request_id: requestId,
+					model: JSON.stringify(model),
+					status: "active",
+					created_at: now,
+					updated_at: now,
+					archived_at: null,
+					last_submission_id: null,
+					disabled_extensions: disabledExtensions.length === 0 ? null : JSON.stringify(disabledExtensions),
+					// A fork starts idle with no waits, quota, unread marker or usage of its own.
+					state: "idle",
+					waiting_kind: null,
+					waiting_level_id: null,
+					waiting_handler_id: null,
+					state_changed_at: now,
+					reply_at: null,
+					owner_read_at: null,
+					last_used_from: null,
+					quota_tokens: null,
+					budget_used_tokens: 0,
+					usage_tokens: 0,
+					context_tokens: null,
+					stat_turns: 0,
+					stat_steps: 0,
+					stat_ttft_ms: 0,
+					stat_ttft_steps: 0,
+					stat_decode_ms: 0,
+					stat_decode_tokens: 0,
+					counted_submission_id: null,
+					prompt_tokens: 0,
+					cache_read_tokens: 0,
+				})
+				.execute();
+			// The source root's rule set is copied, never shared: a later edit to either side leaves the other
+			// alone. A fork is a new root, so it starts from the chain root's preset and custom rules
+			// (doc/design/access-control.md "Rule chain"). A scheduled run's root is an ordinary session too.
+			const rootId = (await sessionChain(trx, sourceId)).at(-1);
+			const copiedRules = rootId === undefined ? undefined : await getRuleSet(trx, { type: "session", id: rootId });
+			if (copiedRules?.rulePreset == null) throw new UserError("the source session has no rule set to copy");
+			await createRootRuleSet(trx, orgId, { type: "session", id }, copiedRules.rulePreset, copiedRules.rules);
+		});
+	} catch (err) {
+		// The row did not commit: nothing owns the conversation, so stop it rather than leave it running.
+		await forked.abort(host.context).catch((abortError: unknown) => {
+			if (!host.closing()) console.error("agent runtime: aborting an unowned forked conversation failed:", abortError);
+		});
+		// A concurrent fork with the same request id won the unique index: return its session, not a second one.
+		const raced = await findSessionByCreateRequestId(host, owner.userId, requestId).catch(() => undefined);
+		if (raced) return { session: raced, created: false };
+		throw err;
+	}
+	void host.audit?.record({
+		actor: userActor(owner),
+		action: "session.forked",
+		target: { type: "session", id },
+		detail: { source_session_id: sourceId, entry_id: input.entryId, session_id: id },
+	});
+	host.sessionList.publishSession(id);
+	return { session: (await getSession(host, id)) as SessionView, created: true };
+}
+
+/** Whether the entry is a final assistant reply: one completed assistant message, no tool call, and answer text. */
+function isFinalReplyEntry(entry: PiEntryRecord): boolean {
+	if (entry.kind !== "pi.assistant" || entry.model?.length !== 1) return false;
+	const message = entry.model[0];
+	if (message?.role !== "assistant") return false;
+	// A failed or interrupted message is not a final answer (doc/design/webui.md "Message view"); neither is an
+	// intermediate message that announced a tool call, or one that has not finished yet.
+	const stop = message.stopReason;
+	if (stop === "toolUse" || stop === "error" || stop === "aborted" || stop === "pending" || stop === "deferred") {
+		return false;
+	}
+	if (message.content.some((block) => block.type === "toolCall")) return false;
+	return message.content.some((block) => block.type === "text" && block.text.trim() !== "");
+}
+
+/** Whether the entry starts a user turn; a compaction summary is a user message but not a turn start. */
+function isUserTurnEntry(entry: PiEntryRecord): boolean {
+	return entry.kind !== "pi.compaction" && entry.model?.[0]?.role === "user";
+}
+
+/**
+ * Validates that `entryId` is the final reply of an ended turn of this conversation (fork-aware history). The
+ * checks mirror the WebUI's final-answer rule (doc/design/webui.md "Message view"): an assistant message that
+ * ended without tool calls, as the last non-compaction entry before the next user turn, and either a later user
+ * turn exists or the session is idle. A compaction committed after the reply does not end its turn.
+ */
+async function assertForkableReply(
+	host: RuntimeHost,
+	conversation: Conversation,
+	source: SessionRow,
+	entryId: number,
+): Promise<void> {
+	if (!Number.isSafeInteger(entryId) || entryId < 0) throw new UserError("entryId must be an entry id");
+	const page = await conversation.entries(
+		{
+			order: "ascending",
+			minEntryId: entryId as unknown as EntryId,
+			maxEntryId: entryId as unknown as EntryId,
+		},
+		1,
+		undefined,
+		host.context,
+	);
+	const entry = page.items[0];
+	// The id may name an entry of another conversation, or no entry at all: neither is visible here.
+	if (!entry) throw new UserError("no such entry in this session");
+	if (!isFinalReplyEntry(entry)) throw new UserError("the entry is not a final assistant reply");
+
+	let cursor: Cursor | undefined;
+	let endedByUserTurn = false;
+	for (;;) {
+		const next = await conversation.entries(
+			{ order: "ascending", minEntryId: (entryId + 1) as unknown as EntryId },
+			200,
+			cursor,
+			host.context,
+		);
+		for (const later of next.items) {
+			if (isUserTurnEntry(later)) {
+				endedByUserTurn = true;
+				break;
+			}
+			// Anything but a compaction after the reply means the reply is not the last item of its turn.
+			if (later.kind !== "pi.compaction") {
+				throw new UserError("the entry is not the last item of its turn");
+			}
+		}
+		if (endedByUserTurn || !next.next) break;
+		cursor = next.next;
+	}
+	if (!endedByUserTurn && source.state !== "idle") throw new UserError("the turn has not ended yet");
+}
+
 /**
  * Drops this process's caches of a session that no longer exists (a creation that failed, or any later
  * removal): the conversation mapping, the provider session ids learned from it, the subagent marker, its
@@ -303,16 +522,24 @@ async function removeCreatedSession(host: RuntimeHost, sessionId: string): Promi
 }
 
 /**
- * Creates the session a schedule run submits to (doc/design/scheduling.md): a root session with a fixed id derived
- * from the run, `schedule_id` set and `token_budget` as its root quota. Its rule set is a lower level (no
- * rule preset, `default: inherit`) under the schedule's root, so the chain is [schedule, session]. A retried
- * call finds the session its first attempt created; when two concurrent calls build the same derived id, the
- * losing call aborts the conversation it opened and returns the winner's session.
+ * Creates the session a schedule run submits to (doc/design/scheduling.md): an ordinary root session with a fixed id
+ * derived from the run, `schedule_id` recording which schedule it belongs to, `token_budget` as its root quota,
+ * and its own root rule set copied from the schedule's preset and custom rules. The schedule is never part of a
+ * rule chain. A retried call finds the session its first attempt created; when two concurrent calls build the
+ * same derived id, the losing call aborts the conversation it opened and returns the winner's session.
  */
 export async function createScheduledSession(
 	host: RuntimeHost,
 	owner: SessionUser,
-	input: { id: string; title: string; model: ModelRef; budgetRemaining: number | null; scheduleId: string },
+	input: {
+		id: string;
+		title: string;
+		model: ModelRef;
+		budgetRemaining: number | null;
+		scheduleId: string;
+		rulePreset: RulePreset;
+		rules?: Rule[];
+	},
 ): Promise<SessionView> {
 	const existing = await getSession(host, input.id);
 	if (existing) return existing;
@@ -360,7 +587,9 @@ export async function createScheduledSession(
 					state_changed_at: now,
 				})
 				.execute();
-			await createRuleSet(trx, orgId, { type: "session", id: input.id }, { default: "inherit", rules: [] });
+			// The run gets its own root rule set, copied from the schedule as it is now: the schedule is a template,
+			// never a level of this session's chain (doc/design/scheduling.md "Rules and quotas").
+			await createRootRuleSet(trx, orgId, { type: "session", id: input.id }, input.rulePreset, input.rules ?? []);
 		});
 	} catch (err) {
 		// The row did not commit: no session owns this conversation, so stop it rather than leave it running
@@ -379,7 +608,7 @@ export async function createScheduledSession(
 		actor: { type: "schedule", id: input.scheduleId, onBehalfOfUserId: owner.userId },
 		action: "session.created",
 		target: { type: "session", id: input.id },
-		detail: { model, rule_preset: null, schedule_id: input.scheduleId },
+		detail: { model, rule_preset: input.rulePreset, schedule_id: input.scheduleId },
 	});
 	host.sessionList.publishSession(input.id);
 	return (await getSession(host, input.id)) as SessionView;
@@ -397,6 +626,11 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		title: row.title,
 		ownerUserId: row.owner_user_id,
 		parentSessionId: row.parent_session_id,
+		// The API resolves the source title and whether the caller may see it (doc/design/agent-runtime.md "Forking").
+		forkedFrom:
+			row.forked_from_session_id === null || row.forked_from_entry_id === null
+				? null
+				: { sessionId: row.forked_from_session_id, entryId: Number(row.forked_from_entry_id) },
 		scheduleId: row.schedule_id,
 		model: modelRefView(JSON.parse(row.model) as ModelRef),
 		status: row.status,

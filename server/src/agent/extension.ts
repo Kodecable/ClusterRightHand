@@ -129,13 +129,11 @@ async function toolContextFor(
 	if (owner?.status !== "active") throw new UserError("the session's owner is disabled");
 	// The chain from the root session down to this one.
 	const chain: RuleRef[] = [];
-	let top = session;
 	for await (const row of sessionAncestors(db, session.id)) {
 		chain.unshift({ type: "session", id: row.id });
-		top = row;
 	}
-	// A scheduled run's root session sits below its schedule (doc/design/scheduling.md "Rules and quotas").
-	if (top.schedule_id) chain.unshift({ type: "schedule", id: top.schedule_id });
+	// A scheduled run's session is a root of its own: its rule set is a copy of the schedule's (doc/design/scheduling.md
+	// "Rules and quotas"), so the schedule is never part of the chain.
 	const actor: Actor = {
 		type: session.parent_session_id ? "subagent" : "session",
 		id: session.id,

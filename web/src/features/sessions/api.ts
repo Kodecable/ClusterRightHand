@@ -500,6 +500,25 @@ export function useSendMessage(id: string) {
 	});
 }
 
+/**
+ * Forks the session at one of its final replies (doc/design/agent-runtime.md "Forking"). A fresh request id
+ * makes the click idempotent; the server returns the new root session, which the caller navigates to.
+ */
+export function useForkSession(id: string) {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ entryId, requestId }: { entryId: number; requestId: string }) =>
+			http
+				.post<{ session: SessionView }>(`/sessions/${enc(id)}/fork`, { entryId, requestId })
+				.then((result) => result.session),
+		onSuccess: (session) => {
+			// The fork exists as soon as the response arrives, before the list stream's upsert.
+			queryClient.setQueryData(sessionKeys.detail(session.id), { ...session, shares: [] });
+			void queryClient.invalidateQueries({ queryKey: sessionKeys.list() });
+		},
+	});
+}
+
 /** Ask the server to summarize older history (`/compact`); the transcript's compaction divider appears once it is ready. */
 export function useCompactSession(id: string) {
 	const queryClient = useQueryClient();

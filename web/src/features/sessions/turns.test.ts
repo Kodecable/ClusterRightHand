@@ -82,7 +82,7 @@ describe("buildTranscriptTurns", () => {
 		expect(untimed?.foldable).toBe(false);
 	});
 
-	test("keeps an error and its turn visible", () => {
+	test("folds a completed turn whose process contains errors", () => {
 		const [turn] = buildTranscriptTurns(
 			[
 				user("u1", 1_000),
@@ -92,6 +92,19 @@ describe("buildTranscriptTurns", () => {
 			],
 			false,
 		);
+		// The retry recovered; the error rows stay in the process and show when the turn is expanded.
+		expect(turn?.foldable).toBe(true);
+		expect(turn?.final?.key).toBe("a1");
+		expect(turn?.process.map((item) => item.key)).toEqual(["t1", "e1"]);
+	});
+
+	test("does not fold a turn that ended without a final reply", () => {
+		const [turn] = buildTranscriptTurns(
+			[user("u1", 1_000), thinking("t1"), { kind: "error", key: "e1", reason: "failed", message: "boom" }],
+			false,
+		);
+		expect(turn?.ended).toBe(true);
+		expect(turn?.final).toBeUndefined();
 		expect(turn?.foldable).toBe(false);
 	});
 

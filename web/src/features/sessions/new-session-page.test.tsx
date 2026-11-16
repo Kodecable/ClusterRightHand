@@ -81,6 +81,7 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 			promptTokens: 0,
 			cacheReadTokens: 0,
 		},
+		forkedFrom: null,
 		...overrides,
 	};
 }

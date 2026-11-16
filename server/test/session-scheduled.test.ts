@@ -94,6 +94,8 @@ describeBackends("createScheduledSession", (backend) => {
 			model: model(),
 			budgetRemaining: null,
 			scheduleId,
+			rulePreset: "yolo" as const,
+			rules: [],
 		};
 
 		const [first, second] = await Promise.all([
@@ -116,5 +118,7 @@ describeBackends("createScheduledSession", (backend) => {
 		// The rule set belongs to the one session.
 		const rules = await db.selectFrom("rule_sets").selectAll().where("scope_id", "=", input.id).execute();
 		expect(rules).toHaveLength(1);
+		// The run session is its own root from the start: no inherit-only level below a schedule.
+		expect(rules[0]).toMatchObject({ scope_type: "session", rule_preset: "yolo", default_action: "allow" });
 	});
 });

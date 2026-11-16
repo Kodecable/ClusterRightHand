@@ -3,8 +3,8 @@ import { Cron } from "croner";
 import { type Selectable, sql } from "kysely";
 import type { ModelRef } from "../agent/models.ts";
 import type { AuditActor } from "../audit/audit.ts";
-import type { Rule, RulePreset } from "../policy/rules.ts";
-import { createRootRuleSet, getRuleSet, type RuleRef, type StoredRuleSet, setRulePreset } from "../policy/store.ts";
+import type { RulePreset } from "../policy/rules.ts";
+import { createRootRuleSet, getRuleSet, type StoredRuleSet, setRulePreset } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import type { ScheduleRunsTable, SchedulesTable } from "../storage/schema.ts";
@@ -267,21 +267,19 @@ export async function updateSchedule(
 
 /**
  * Removes a schedule: its runs go with it (foreign key), its sessions keep no link (foreign key sets the column
- * null). The rule set stays, like an API token's, so the chains of past tasks keep resolving; each session a run
- * created is promoted to a root with the schedule's rule preset first (its own rule set was an inherit-only level).
- * Returns the sessions that lost their schedule, so the caller can publish the change to the session list.
+ * null). Every run session is already a root with its own copy of the rules, so nothing is promoted; the schedule's
+ * own rule set is kept so historical tasks that recorded `{ type: "schedule" }` in their rule chain still resolve.
+ * (An API token's rule set is deleted with the token; a schedule's is kept because runs before this became a
+ * template stored the schedule as their chain root.) Returns the sessions that lost their schedule, so the caller
+ * can publish the change to the session list.
  *
- * The select, the promotions and the deletions share one transaction: a session inserted between a separate select
- * and the link update would keep an inherit-only rule set with no root above it, and every evaluation of its chain
- * would throw. The caller also serializes this with the schedule's submit, so no new session is in flight here.
+ * The select, the deletions and the link update share one transaction: a session inserted between a separate select
+ * and the link update would be missed, and the caller serializes this with the schedule's submit so no new session
+ * is in flight here.
  */
 export async function deleteSchedule(db: Db, schedule: Schedule): Promise<string[]> {
 	return await db.transaction().execute(async (trx) => {
-		const rules = await getRuleSet(trx, { type: "schedule", id: schedule.id });
 		const sessions = await trx.selectFrom("sessions").select("id").where("schedule_id", "=", schedule.id).execute();
-		for (const session of sessions) {
-			await promoteSessionRuleSet(trx, schedule.orgId, session.id, rules?.rulePreset ?? "ask", rules?.rules ?? []);
-		}
 		await trx.deleteFrom("schedule_runs").where("schedule_id", "=", schedule.id).execute();
 		await trx
 			.updateTable("sessions")
@@ -291,18 +289,6 @@ export async function deleteSchedule(db: Db, schedule: Schedule): Promise<string
 		await trx.deleteFrom("schedules").where("id", "=", schedule.id).execute();
 		return sessions.map((session) => session.id);
 	});
-}
-
-/** Replaces a scheduled session's rule set with a root-level one that keeps the schedule's policy. */
-async function promoteSessionRuleSet(
-	db: Db,
-	orgId: string,
-	sessionId: string,
-	rulePreset: RulePreset,
-	rules: Rule[],
-): Promise<void> {
-	await db.deleteFrom("rule_sets").where("scope_type", "=", "session").where("scope_id", "=", sessionId).execute();
-	await createRootRuleSet(db, orgId, { type: "session", id: sessionId }, rulePreset, rules);
 }
 
 export async function getRun(db: Db, id: string): Promise<ScheduleRun | undefined> {
@@ -384,9 +370,4 @@ export async function disableSchedulesOfOwner(
 		await audit({ ...schedule, enabled: false, nextRunAt: null });
 	}
 	return schedules;
-}
-
-/** The rule ref of a schedule, for reevaluating waiting tasks after a rule preset change. */
-export function scheduleRef(id: string): RuleRef {
-	return { type: "schedule", id };
 }

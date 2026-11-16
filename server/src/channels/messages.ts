@@ -1,5 +1,6 @@
 import type { ApprovalRequest, QuotaStatus, TaskAction, ThinkingLevel, UserSettingsLocale } from "@crh/api";
 import { formatList, matchLocale } from "@crh/api";
+import { untitledSessionTitle } from "../sessions/titles.ts";
 import type { CardLabels, ChatCard } from "./card.ts";
 
 /**
@@ -128,7 +129,7 @@ const EN_CARD: CardText = {
 	approvalTitle: "Approval needed",
 	signatureTitle: "Signature needed",
 	quotaTitle: "Token quota used up",
-	newSessionTitle: "New session",
+	newSessionTitle: untitledSessionTitle("en"),
 	source: {
 		session: (title) => `Source: Session ${title}`,
 		apiToken: (name) => `Source: API token ${name}`,
@@ -164,7 +165,7 @@ const ZH_CARD: CardText = {
 	approvalTitle: "需要你的审批",
 	signatureTitle: "需要你的签名",
 	quotaTitle: "令牌配额已用完",
-	newSessionTitle: "新会话",
+	newSessionTitle: untitledSessionTitle("zh-CN"),
 	source: {
 		session: (title) => `请求源：会话 ${title}`,
 		apiToken: (name) => `请求源：API 令牌 ${name}`,

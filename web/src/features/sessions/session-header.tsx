@@ -3,6 +3,7 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeftIcon, Share2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { InternalLink } from "@/components/internal-link";
 import {
 	Breadcrumb,
 	BreadcrumbItem,
@@ -57,6 +58,24 @@ function SessionBreadcrumb({ session }: { session: SessionView }) {
 				<ParentChain id={session.parentSessionId} />
 			</BreadcrumbList>
 		</Breadcrumb>
+	);
+}
+
+/**
+ * Where a fork came from (doc/design/agent-runtime.md "Forking"): the source title links to its session. The
+ * server resolves the title and hides the origin when the caller may no longer see the source.
+ */
+function ForkedFrom({ session }: { session: SessionView }) {
+	if (session.forkedFrom === null) return null;
+	return (
+		<p className="truncate text-xs text-muted-foreground" data-testid="forked-from">
+			<Trans>
+				Forked from{" "}
+				<InternalLink to="/sessions/$sessionId" params={{ sessionId: session.forkedFrom.sessionId }}>
+					{session.forkedFrom.title}
+				</InternalLink>
+			</Trans>
+		</p>
 	);
 }
 
@@ -146,6 +165,7 @@ export function SessionHeader({ session }: { session: SessionView }) {
 						sharedBy={session.ownerUsername}
 					/>
 				</div>
+				<ForkedFrom session={session} />
 			</div>
 			{session.capabilities.manageShares && (
 				<Button

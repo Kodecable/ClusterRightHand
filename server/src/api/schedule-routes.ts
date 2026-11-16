@@ -29,7 +29,6 @@ import {
 	previewRuns,
 	runInProgress,
 	type Schedule,
-	scheduleRef,
 	scheduleRuleSet,
 	updateSchedule,
 	validateCron,
@@ -276,12 +275,8 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				detail: { next_run_at: updated.nextRunAt },
 			});
 		}
-		// A rule preset change can settle already-waiting approvals in the schedule's sessions.
-		if (rulePreset) {
-			const ref = scheduleRef(schedule.id);
-			await options.cluster.reevaluate(ref);
-			await options.taskGroups.reevaluate(ref);
-		}
+		// A rule preset change is a template change: it applies to future runs, and the sessions of past runs keep
+		// their own copied rule sets (doc/design/scheduling.md "Rules and quotas").
 		options.scheduler.wake();
 		return c.json({ schedule: await view(updated) }, 200);
 	});

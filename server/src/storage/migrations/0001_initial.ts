@@ -389,6 +389,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("owner_user_id", "text", (c) => c.notNull().references("users.id"))
 		.addColumn("conversation_id", "text", (c) => c.notNull().unique())
 		.addColumn("parent_session_id", "text")
+		.addColumn("forked_from_session_id", "text")
+		.addColumn("forked_from_entry_id", "bigint")
 		.addColumn("title", "text");
 	if (!isPostgres(db)) {
 		sessions = sessions.addColumn("title_pending", "integer", (c) => c.notNull().defaultTo(0));

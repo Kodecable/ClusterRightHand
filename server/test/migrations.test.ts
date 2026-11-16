@@ -208,6 +208,8 @@ describeBackends("initial migration", (backend) => {
 		expect(sessions).toContain("title_pending");
 		expect(sessions).toContain("create_request_id");
 		expect(sessions).toContain("counted_submission_id");
+		expect(sessions).toContain("forked_from_session_id");
+		expect(sessions).toContain("forked_from_entry_id");
 		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_fingerprint");
 		expect(await tableColumns(backend, db, "tasks")).toEqual(
 			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose", "source_call_id"]),

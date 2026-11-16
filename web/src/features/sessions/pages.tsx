@@ -8,6 +8,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { approvalKeys } from "@/features/approvals/api";
 import { sessionUiState } from "@/lib/status";
 import {
+	useForkSession,
 	useMarkSessionRead,
 	useSession,
 	useSessionChildren,
@@ -48,6 +49,7 @@ export function SessionPage() {
 	const { t } = useLingui();
 	const navigate = useNavigate();
 	const session = useSession(sessionId);
+	const forkSession = useForkSession(sessionId);
 	const rootId = useSessionRootId(session.data);
 	const tree = useSessionTreeSync(sessionId, rootId);
 	const events = useSessionEvents(sessionId);
@@ -208,6 +210,17 @@ export function SessionPage() {
 	// aggregates roots only, so a child page follows its own state.
 	const treeBusy = isRoot && tree !== undefined && tree.state !== "idle";
 	const busy = view.state !== "idle" || treeBusy;
+	// A fork click carries a fresh request id, so a lost response retries the same fork instead of making another.
+	const forkAt = (entryId: number) => {
+		forkSession.mutate(
+			{ entryId, requestId: crypto.randomUUID() },
+			{
+				onSuccess: (created) => {
+					void navigate({ to: "/sessions/$sessionId", params: { sessionId: created.id } });
+				},
+			},
+		);
+	};
 
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-testid="session-page" data-session-id={view.id}>
@@ -232,6 +245,9 @@ export function SessionPage() {
 					loadingOlder={history.isFetching}
 					onLoadOlder={() => setWantsOlder(true)}
 					focusEntry={focusEntry}
+					canFork={view.capabilities.configure}
+					forkPending={forkSession.isPending}
+					onFork={forkAt}
 					empty={<Trans>No messages yet. Start the conversation below.</Trans>}
 				/>
 			) : (

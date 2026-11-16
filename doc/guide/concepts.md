@@ -127,9 +127,10 @@ the default session system prompt, the Auto Review model and the session title m
 
 ## Scheduled tasks
 
-A scheduled task sends a fixed message to a new session on a cron timetable. The session uses the
-schedule's rules and quota. Only one run of a schedule is active at a time: a new run stops the
-previous one.
+A scheduled task sends a fixed message to a new session on a cron timetable. Each run's session gets its
+own copy of the schedule's rules and the schedule's token budget as its quota, so the schedule is a
+template and not part of the run's rule chain. Only one run of a schedule is active at a time: a new run
+stops the previous one.
 
 ## API tokens
 

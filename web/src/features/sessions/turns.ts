@@ -70,7 +70,9 @@ function trailingErrors(items: readonly TranscriptItem[]): number {
  * folded. A text is the final answer only once its assistant message has ended
  * without tool calls; while it streams the turn stays unfolded and shows no
  * completion line. The elapsed time is known when the turn ends. An error in
- * the process keeps the turn open so its failure is never hidden.
+ * the process stays in the folded rows, visible as soon as the turn is
+ * expanded; a turn that ended without a final answer (a run that failed) stays
+ * unfolded.
  */
 export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionActive: boolean): TranscriptTurn[] {
 	const groups: { user: UserItem | undefined; body: TranscriptItem[] }[] = [];
@@ -103,8 +105,7 @@ export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionAc
 			group.user?.at !== undefined && final?.at !== undefined && final.durationMs !== undefined
 				? Math.max(0, final.at + final.durationMs - group.user.at)
 				: undefined;
-		const hasError = process.some((item) => item.kind === "error");
-		const foldable = ended && final !== undefined && process.length > 0 && durationMs !== undefined && !hasError;
+		const foldable = ended && final !== undefined && process.length > 0 && durationMs !== undefined;
 		const errors = index === groups.length - 1 ? trailingErrors(group.body) : 0;
 		const retryAttempt = sessionActive && errors > 0 ? errors + 1 : undefined;
 		return {

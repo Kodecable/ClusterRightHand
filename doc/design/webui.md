@@ -387,8 +387,19 @@ When an assistant message ends without tool calls, its text is the turn's final 
 intermediate work (thinking, tool calls, intermediate text) folds into one line with the turn's duration,
 leaving the question and the answer. While the answer streams the turn stays unfolded and shows no
 duration line; it folds when the message ends. An intermediate message that streams its text before its
-tool call arrives is not a final answer. A turn that contains an error is never folded. Compactions
-appear in transcript order as their own rows.
+tool call arrives is not a final answer. A turn folds once it has ended and has a final answer, process
+rows and a known duration. An error in the process does not keep it open: when the reader expands the
+turn, the error rows sit there with the rest of the process, and no extra warning badge is shown. A turn
+without a final answer (a run that failed) stays unfolded. Compactions appear in transcript order as
+their own rows.
+
+Under the user's message and under the final answer, a small action row holds icon-only buttons. Copy
+copies the Markdown source, not the rendered text: the user's typed text for a message, the raw Markdown
+for a reply. On a pointer device the row appears while the message is hovered or one of its controls has
+keyboard focus; a touch screen has no hover, so the row is always shown there. Viewers of a shared
+session get the same copy button. Beside Copy on a final answer, the owner gets Fork, which forks the
+session at that reply and opens the new session; it is absent while the turn is still running and for
+every viewer but the owner.
 
 ### Jumping to a message
 
@@ -398,9 +409,11 @@ The parameter is then removed from the URL, so a reload does not jump again.
 
 ### Session header
 
-The header holds the title, the breadcrumb of a subagent, and sharing. Below it, at most one status
-line is shown, chosen by priority: connection problems, failure, retry, the reason the session is
-waiting, queued messages. Nothing is shown while a run is merely active.
+The header holds the title, the breadcrumb of a subagent, and sharing. A fork also shows "Forked from"
+and a link to its source's title; the line is absent when the server returns no origin (the source is
+gone or the caller may no longer see it). Below the header, at most one status line is shown, chosen by
+priority: connection problems, failure, retry, the reason the session is waiting, queued messages.
+Nothing is shown while a run is merely active.
 
 The root session page shows the approvals, signatures and quota waits of the whole session tree in a
 decision panel docked where the composer sits, so a user can answer them without opening each subagent.

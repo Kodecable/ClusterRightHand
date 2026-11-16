@@ -447,7 +447,8 @@ export class TaskGroups {
 		if (waiting && approval && (await this.#cluster.willReview(input.chain ?? null))) {
 			approval.review = pendingReview(now());
 		}
-		// Group waiting approvals by session tree: the first session of the chain (a schedule comes before it).
+		// Group waiting approvals by session tree: the first session of the chain, which is its root for a session or
+		// scheduled run (an API token chain has no session).
 		const root = input.chain?.find((ref) => ref.type === "session");
 		await this.#db
 			.insertInto("task_groups")

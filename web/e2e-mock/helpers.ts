@@ -182,6 +182,7 @@ export function sessionView(item: SessionListItem, overrides: Partial<SessionVie
 			promptTokens: 0,
 			cacheReadTokens: 0,
 		},
+		forkedFrom: null,
 		shares: [],
 		...overrides,
 	};
@@ -1351,6 +1352,33 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const states = { idle: 0, running: 0, awaiting: 0 };
 			for (const item of items) states[item.state] += 1;
 			return json({ total: items.length, states });
+		}
+
+		const forkMatch = /^\/api\/sessions\/([^/]+)\/fork$/.exec(path);
+		if (forkMatch && method === "POST") {
+			const sourceId = decodeURIComponent(forkMatch[1] as string);
+			const sourceItem = state.sessions.find((candidate) => candidate.id === sourceId);
+			const source = state.details[sourceId] ?? (sourceItem ? sessionView(sourceItem) : undefined);
+			if (!source) return json({ error: "no such session" }, 404);
+			const input = body as { entryId?: number; requestId?: string };
+			let forkNumber = 1;
+			while (state.details[`fork-${forkNumber}`] !== undefined) forkNumber += 1;
+			const id = `fork-${forkNumber}`;
+			const sourceTitle = source.title ?? "New session";
+			const item = sessionListItem({
+				id,
+				title: `${sourceTitle} (fork)`,
+				ownerUserId: state.user.id,
+				ownerName: state.user.displayName,
+				updatedAt: new Date().toISOString(),
+			});
+			const detail = sessionView(item, {
+				forkedFrom: { sessionId: sourceId, title: sourceTitle, entryId: input.entryId ?? 0 },
+			});
+			state.sessions.unshift(item);
+			state.details[id] = detail;
+			state.events[id] = snapshotEvent([], null);
+			return json({ session: detail }, 201);
 		}
 
 		const sessionMatch = /^\/api\/sessions\/([^/]+)$/.exec(path);

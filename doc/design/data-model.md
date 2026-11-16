@@ -150,10 +150,11 @@ nodes, the batch settings, its state and a single approval for the whole group.
 
 ## Rules and authorizations
 
-A rule set belongs to one root or level: a session, a schedule or an API token. A root stores its preset
-and the rules added on top. There are no user or organization rule sets, and quotas belong to sessions,
-not rule sets. Approvals are not a table: each task carries its evaluation and decision, and "always
-allow" writes to the rule set.
+A rule set belongs to one chain root or level: a session (a root or a subagent) or an API token. A root
+stores its preset and the rules added on top. A schedule also has a rule set, but only as a template: each
+run's session receives a copy as its own root, so the schedule never appears in a chain. There are no user
+or organization rule sets, and quotas belong to sessions, not rule sets. Approvals are not a table: each
+task carries its evaluation and decision, and "always allow" writes to the chain root's rule set.
 
 Authorizations are stored once per payload, with all signatures on it, for display and reuse. crhs does
 not track revocation or use; the node does ([Used list](privilege.md#used-list)).
@@ -167,6 +168,9 @@ token measures and statistics ([Sessions](agent-runtime.md#sessions),
 - The run state is stored so that lists can filter and sort in SQL.
 - Unread markers exist only on roots.
 - A per-owner creation request id makes session creation idempotent.
+- `forked_from_session_id` and `forked_from_entry_id` record where a fork came from; both are null on
+  every session that is not a fork. They carry no foreign key, so deleting a source leaves its forks
+  intact and their origin reads as absent ([Forking](agent-runtime.md#forking)).
 
 Model providers store their configuration and a reference to the encrypted API key. Model presets are one
 row per kind.
@@ -212,10 +216,11 @@ be deleted ([Libraries](library.md#libraries)).
 
 ## Scheduled tasks
 
-A schedule holds its owner, message, model, budget, timetable and next run time; its rules are a rule set.
-A run row is written before its session exists and is unique per schedule and fire time, so a trigger
-cannot fire twice; the session id is derived from the run id, so resubmitting is idempotent. Runs are
-deleted with their schedule; the sessions remain. See [Schedule model](scheduling.md#schedule-model).
+A schedule holds its owner, message, model, budget, timetable and next run time; its rules are a rule set
+used as a template, copied into each run session's own root rule set at creation. A run row is written
+before its session exists and is unique per schedule and fire time, so a trigger cannot fire twice; the
+session id is derived from the run id, so resubmitting is idempotent. Runs are deleted with their
+schedule; the sessions remain with their own rules. See [Schedule model](scheduling.md#schedule-model).
 
 ## Audit
 

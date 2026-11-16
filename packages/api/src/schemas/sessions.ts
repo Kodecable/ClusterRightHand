@@ -118,6 +118,21 @@ export const SessionStatsSchema = z
 	.meta({ id: "SessionStats" });
 
 /**
+ * Where a forked session came from (doc/design/agent-runtime.md "Forking"): the source session, the final
+ * reply its history ends at, and the source title resolved for display. Null on every session that is not a
+ * fork, and on a fork whose source the caller cannot see or that has been deleted.
+ */
+export const SessionForkedFromSchema = z
+	.object({
+		sessionId: z.string().describe("The source session's id."),
+		title: z
+			.string()
+			.describe('The source session title as the caller sees it; an untitled source reads as "New session".'),
+		entryId: z.number().describe("The source's final reply entry the fork's history ends at, inclusively."),
+	})
+	.meta({ id: "SessionForkedFrom" });
+
+/**
  * `GET /api/sessions/{id}`: the session, how the caller relates to it and their effective capabilities.
  * `extensions` lists the extensions the session may use with the owner's on/off choice.
  */
@@ -148,6 +163,9 @@ export const SessionViewSchema = z
 		usageTokens: z.number().describe("The statistics measure: input + output tokens of the session and its subagents."),
 		contextTokens: z.number().nullable().describe("The input size of the session's own last main-agent call."),
 		stats: SessionStatsSchema.describe("The session's own generation statistics; token totals cover its whole tree."),
+		forkedFrom: SessionForkedFromSchema.nullable().describe(
+			"The source of a fork; null for every other session and when the caller cannot see the source.",
+		),
 		extensions: z.array(SessionExtensionSchema).optional(),
 		shares: z.array(SessionShareSchema).optional(),
 	})
@@ -250,6 +268,15 @@ export const SessionMessageBodySchema = z.object({
 	text: z.string(),
 	requestId: z.string(),
 	attachments: z.array(ChatAttachmentInputSchema).optional(),
+});
+
+/**
+ * `POST /api/sessions/{id}/fork`: the final reply to fork at, and the client request id that makes a retried
+ * fork return the first fork instead of creating another (doc/design/agent-runtime.md "Forking").
+ */
+export const SessionForkBodySchema = z.object({
+	entryId: z.number().int().describe("The source's final reply entry: an assistant message without tool calls."),
+	requestId: z.string().describe("Makes a retried fork return the first fork; at most 128 characters."),
 });
 
 /** `POST /api/sessions/{id}/compact`: an optional instruction for the summary. */

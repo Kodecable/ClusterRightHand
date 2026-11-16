@@ -1,3 +1,4 @@
+import { BotMessageSquareIcon, SignatureIcon } from "lucide-react";
 import { describe, expect, test } from "vitest";
 import { NAV_ITEMS, navItemForPath } from "./nav";
 
@@ -39,5 +40,15 @@ describe("admin navigation", () => {
 		expect(admin[models + 3]).toBe("/settings/system");
 		expect(NAV_ITEMS.find((item) => item.to === "/settings/system")?.adminOnly).toBe(true);
 		expect(NAV_ITEMS.find((item) => item.to === "/settings/channels")?.adminOnly).toBe(true);
+	});
+});
+
+describe("navigation icons", () => {
+	test("Signing credentials uses the signature icon", () => {
+		expect(NAV_ITEMS.find((item) => item.to === "/signing-credentials")?.icon).toBe(SignatureIcon);
+	});
+
+	test("Channels uses the chat bot icon", () => {
+		expect(NAV_ITEMS.find((item) => item.to === "/settings/channels")?.icon).toBe(BotMessageSquareIcon);
 	});
 });

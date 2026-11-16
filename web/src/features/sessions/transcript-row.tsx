@@ -1,11 +1,14 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { ChevronDownIcon, ChevronRightIcon, LoaderCircleIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, GitBranchIcon, LoaderCircleIcon } from "lucide-react";
 import { useState } from "react";
+import { CopyButton } from "@/components/copy-button";
+import { Button } from "@/components/ui/button";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
 import { AttachmentChip } from "./attachment-chip";
+import { MessageActions } from "./message-actions";
 import { ToolCard } from "./tool-card";
 import type { TranscriptItem } from "./transcript-items";
 import type { TranscriptStreams } from "./transcript-streams";
@@ -179,6 +182,10 @@ export function TranscriptRow({
 	streams,
 	sessionActive,
 	highlighted = false,
+	finalReply,
+	canFork = false,
+	forkPending = false,
+	onFork,
 }: {
 	item: TranscriptItem;
 	streams: TranscriptStreams;
@@ -186,8 +193,25 @@ export function TranscriptRow({
 	sessionActive: boolean;
 	/** Briefly marked after a search hit jumped to this entry (doc/design/webui.md "Jumping to a message"). */
 	highlighted?: boolean;
+	/**
+	 * Whether this text is its turn's final answer; the turn decides, so an earlier message that
+	 * ended without tool calls is not mistaken for one. Defaults to the item's own `final` flag for
+	 * rows rendered outside a turn.
+	 */
+	finalReply?: boolean;
+	/** Whether the caller may fork this reply: the owner, and only when the turn has ended. */
+	canFork?: boolean;
+	/** A fork request is in flight; the action is disabled until it settles. */
+	forkPending?: boolean;
+	onFork?: (entryId: number) => void;
 }) {
 	const { t } = useLingui();
+	const showsReplyActions = item.kind === "text" && (finalReply ?? item.final);
+	const forkEntryId =
+		item.kind === "text" && item.entryId !== undefined && Number.isSafeInteger(Number(item.entryId))
+			? Number(item.entryId)
+			: undefined;
+	const showsFork = showsReplyActions && canFork && forkEntryId !== undefined && onFork !== undefined;
 	return (
 		<article
 			data-testid="message"
@@ -196,7 +220,7 @@ export function TranscriptRow({
 			data-highlighted={highlighted ? "true" : undefined}
 			data-kind={item.kind}
 			className={cn(
-				"px-3 pb-2.5 transition-colors duration-700",
+				"group/message px-3 pb-2.5 transition-colors duration-700",
 				(item.kind === "tool" ||
 					item.kind === "thinking" ||
 					item.kind === "compaction" ||
@@ -215,16 +239,42 @@ export function TranscriptRow({
 					{item.attachments?.map((attachment) => (
 						<AttachmentChip key={`${attachment.library}:${attachment.path}`} attachment={attachment} />
 					))}
+					<MessageActions>
+						<CopyButton text={item.text} label={t`Copy message`} size="icon-xs" />
+					</MessageActions>
 				</div>
 			)}
 			{item.kind === "text" && (
-				<div className="max-w-[92%] text-sm" data-testid={item.streaming ? "streaming-text" : undefined}>
-					{item.live ? (
-						// A streamed message keeps the same renderer after it is committed:
-						// the final text replaces the store's live text in place.
-						<StreamingMarkdown store={streams.text(item.key)} text={item.streaming ? undefined : item.text} />
-					) : (
-						<SafeMarkdown text={item.text} />
+				<div className="flex max-w-[92%] flex-col items-start gap-0.5">
+					<div className="w-full text-sm" data-testid={item.streaming ? "streaming-text" : undefined}>
+						{item.live ? (
+							// A streamed message keeps the same renderer after it is committed:
+							// the final text replaces the store's live text in place.
+							<StreamingMarkdown store={streams.text(item.key)} text={item.streaming ? undefined : item.text} />
+						) : (
+							<SafeMarkdown text={item.text} />
+						)}
+					</div>
+					{showsReplyActions && (
+						<MessageActions>
+							<CopyButton text={item.text} label={t`Copy reply`} size="icon-xs" />
+							{showsFork && (
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon-xs"
+									aria-label={t`Fork from here`}
+									title={t`Fork from here`}
+									data-testid="fork-message"
+									disabled={forkPending}
+									onClick={() => {
+										if (forkEntryId !== undefined) onFork?.(forkEntryId);
+									}}
+								>
+									{forkPending ? <LoaderCircleIcon className="animate-spin" /> : <GitBranchIcon />}
+								</Button>
+							)}
+						</MessageActions>
 					)}
 				</div>
 			)}

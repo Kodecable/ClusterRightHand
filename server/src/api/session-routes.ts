@@ -10,6 +10,7 @@ import {
 	SessionDetailResponseSchema,
 	SessionEntriesQuerySchema,
 	SessionEntriesResponseSchema,
+	SessionForkBodySchema,
 	SessionIdParamSchema,
 	SessionListQuerySchema,
 	SessionListResponseSchema,
@@ -59,10 +60,12 @@ import {
 	shareSession,
 	unshareSession,
 } from "../sessions/sharing.ts";
+import { displayedSessionTitle } from "../sessions/titles.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import { DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES, DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { usernamesById } from "../users/service.ts";
+import { getUserSettings } from "../users/settings.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "../util/cursor.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { reevaluateAfterRuleChange } from "./approval-routes.ts";
@@ -288,6 +291,20 @@ const compactRoute = defineRoute({
 	},
 });
 
+const forkRoute = defineRoute({
+	method: "post",
+	path: "/sessions/{id}/fork",
+	tags: TAGS,
+	summary: "Fork a session at one of its final replies into a new root; a repeated `requestId` returns the first fork",
+	agent: "deny", // a fork starts a new root with no quota, past the session guardrails
+	request: { params: SessionIdParamSchema, body: { required: true, ...json(SessionForkBodySchema) } },
+	responses: {
+		201: { description: "The new forked session", ...json(SessionResponseSchema) },
+		200: { description: "The session a repeated request forked before", ...json(SessionResponseSchema) },
+		403: { description: "The owner only", ...json(ErrorResponseSchema) },
+	},
+});
+
 const quotaRoute = defineRoute({
 	method: "post",
 	path: "/sessions/{id}/quota",
@@ -383,12 +400,31 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const user = c.get("user");
 		const names = await usernamesById(db, [...new Set(views.map((v) => v.ownerUserId))]);
 		const shared = await sharedSessionAccess(db, user.userId);
+		// A fork's source title is resolved for the caller, and only when they may see the source. The source may
+		// have been deleted, so a missing row also reads as no origin (doc/design/agent-runtime.md "Forking").
+		const sourceIds = [...new Set(views.flatMap((v) => (v.forkedFrom ? [v.forkedFrom.sessionId] : [])))];
+		const forkTitles = new Map<string, string>();
+		if (sourceIds.length > 0) {
+			const locale = (await getUserSettings(db, user.userId)).locale;
+			const sources = await db.selectFrom("sessions").select(["id", "title"]).where("id", "in", sourceIds).execute();
+			for (const source of sources) {
+				if (await sessionCapabilities(db, user, source.id)) {
+					forkTitles.set(source.id, displayedSessionTitle(source.title, locale));
+				}
+			}
+		}
 		return views.map((v) => {
 			const isOwner = v.ownerUserId === user.userId;
 			const admin = isAdmin(user);
 			const share = shared.get(v.id);
+			const { forkedFrom, ...rest } = v;
+			const title = forkedFrom === null ? undefined : forkTitles.get(forkedFrom.sessionId);
 			return {
-				...v,
+				...rest,
+				forkedFrom:
+					forkedFrom === null || title === undefined
+						? null
+						: { sessionId: forkedFrom.sessionId, title, entryId: forkedFrom.entryId },
 				relationship: isOwner ? ("owner" as const) : admin ? ("admin" as const) : ("shared" as const),
 				capabilities: capabilitiesFor(isOwner, admin, share),
 				ownerUsername: names.get(v.ownerUserId) ?? null,
@@ -738,6 +774,31 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const instructions = trimmed || undefined;
 		const { taskId, outcome } = await runtime.compact(v.session.id, c.get("user"), instructions);
 		return c.json({ taskId, outcome }, 202);
+	});
+
+	/**
+	 * `{ entryId, requestId }`: forks the session at one of its final replies into a new root
+	 * (doc/design/agent-runtime.md "Forking"). Only the owner may fork, and a repeated request id returns the
+	 * fork the first request made (200) instead of creating another (201).
+	 */
+	app.openapi(forkRoute, async (c) => {
+		const { id } = c.req.valid("param");
+		const user = c.get("user");
+		const body = c.req.valid("json");
+		const requestId = body.requestId.trim();
+		if (requestId === "" || requestId.length > 128) {
+			throw new UserError("requestId is required and must be at most 128 characters");
+		}
+		// A retry returns the first fork even when its source has been deleted since, so the idempotency check
+		// comes before the source's owner check (the request id is scoped to the caller).
+		const existing = await runtime.findSessionByCreateRequestId(user.userId, requestId);
+		if (existing) return c.json({ session: await decorateOne(c, existing) }, 200);
+		const v = await requireSession(c, id, "owner");
+		const { session, created } = await runtime.forkSession(user, v.session.id, {
+			entryId: body.entryId,
+			requestId,
+		});
+		return c.json({ session: await decorateOne(c, session) }, created ? 201 : 200);
 	});
 
 	/**

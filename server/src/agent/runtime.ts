@@ -12,7 +12,7 @@ import { pendingReviewIn } from "../cluster/approval.ts";
 import { externalCallApproval, getExternalCall } from "../extensions/external-calls.ts";
 import { extensionOf } from "../extensions/registry.ts";
 import { getExtensionRow, listExtensionRows } from "../extensions/store.ts";
-import type { RulePreset } from "../policy/rules.ts";
+import type { Rule, RulePreset } from "../policy/rules.ts";
 import { TOOLS } from "../tools/catalog.ts";
 import { clusterExtension, directToolsExtension, syncSessionExtensions } from "./extension.ts";
 import { GenerationTimings } from "./latency.ts";
@@ -38,7 +38,9 @@ import {
 	createSession,
 	createSessionWithMessage,
 	entriesPage,
+	type ForkSessionInput,
 	findSessionByCreateRequestId,
+	forkSession,
 	getSession,
 	hasSubagents,
 	latestEntryId,
@@ -214,8 +216,8 @@ export class AgentRuntime {
 			runtime.installExtensionTools(row, extensionOf(row, options.mcp)?.tools() ?? []);
 		}
 		options.mcp?.setToolsChangedHandler((row, tools) => runtime.installExtensionTools(row, tools));
-		// Auto Review for roots whose rule preset asks for it (tokens, sessions and schedules alike), then route child
-		// approvals to an ancestor's agent where the chain allows it.
+		// Auto Review for roots whose rule preset asks for it (tokens and sessions), then route child approvals to an
+		// ancestor's agent where the chain allows it.
 		const reviewer = new Reviewer(
 			options.db,
 			options.models,
@@ -464,9 +466,26 @@ export class AgentRuntime {
 		return findSessionByCreateRequestId(this.#host, ownerUserId, requestId);
 	}
 
+	/** Forks a session at one of its final replies into a new root (doc/design/agent-runtime.md "Forking"). */
+	async forkSession(
+		owner: SessionUser,
+		sourceId: string,
+		input: ForkSessionInput,
+	): Promise<{ session: SessionView; created: boolean }> {
+		return forkSession(this.#host, owner, sourceId, input);
+	}
+
 	async createScheduledSession(
 		owner: SessionUser,
-		input: { id: string; title: string; model: ModelRef; budgetRemaining: number | null; scheduleId: string },
+		input: {
+			id: string;
+			title: string;
+			model: ModelRef;
+			budgetRemaining: number | null;
+			scheduleId: string;
+			rulePreset: RulePreset;
+			rules?: Rule[];
+		},
 	): Promise<SessionView> {
 		return createScheduledSession(this.#host, owner, input);
 	}

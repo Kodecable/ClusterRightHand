@@ -21,6 +21,7 @@ import {
 	type Schedule,
 	type ScheduleRun,
 	scheduleActor,
+	scheduleRuleSet,
 } from "./store.ts";
 
 /**
@@ -604,6 +605,9 @@ export class Scheduler {
 			// One instance at a time: the previous run is stopped before the new session exists (doc/design/scheduling.md).
 			await this.#preemptPrevious(schedule, current.id);
 			const sessionId = derivedId(`schedule-run:${current.id}`);
+			// The run gets its own root rule set copied from the schedule's current preset and custom rules; the
+			// schedule is a template, not a level of the run's chain (doc/design/scheduling.md "Rules and quotas").
+			const scheduleRules = await scheduleRuleSet(this.#db, schedule.id);
 			let submissionId: string;
 			try {
 				await this.#runtime.createScheduledSession(owner, {
@@ -612,6 +616,8 @@ export class Scheduler {
 					model: schedule.model,
 					budgetRemaining: schedule.tokenBudget,
 					scheduleId: schedule.id,
+					rulePreset: scheduleRules?.rulePreset ?? "ask",
+					rules: scheduleRules?.rules ?? [],
 				});
 				submissionId = await this.#runtime.submitAsSchedule(
 					sessionId,

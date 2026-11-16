@@ -36,8 +36,17 @@ import type { SessionListHub } from "./session-list-hub.ts";
  * facade's public API has none (test/pi-boundary.test.ts).
  */
 
-/** The session row without the per-caller decorations the API adds (relationship, capabilities, owner name). */
-export type SessionView = Omit<ApiSessionView, "relationship" | "capabilities" | "ownerUsername" | "shares">;
+/**
+ * The session row without the per-caller decorations the API adds (relationship, capabilities, owner name) and
+ * with `forkedFrom` carrying only the stored ids. Its source title and visibility are caller-specific, so the
+ * API resolves them into the view it returns (doc/design/agent-runtime.md "Forking").
+ */
+export type SessionView = Omit<
+	ApiSessionView,
+	"relationship" | "capabilities" | "ownerUsername" | "shares" | "forkedFrom"
+> & {
+	forkedFrom: { sessionId: string; entryId: number } | null;
+};
 
 /** An external call as an ancestor agent decides it: the extension, tool, operation, annotations and arguments. */
 export interface AgentRequestExternalCall {

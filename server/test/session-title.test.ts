@@ -251,6 +251,8 @@ it("never generates for a scheduled run's session", async () => {
 		model: model(),
 		budgetRemaining: null,
 		scheduleId,
+		rulePreset: "ask" as const,
+		rules: [],
 	});
 	expect(await sessionRow(session.id)).toEqual({ title: "Nightly sweep", title_pending: 0 });
 

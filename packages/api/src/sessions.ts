@@ -13,6 +13,8 @@ import type {
 	SessionCapabilitiesSchema,
 	SessionChildrenSummarySchema,
 	SessionEntrySchema,
+	SessionForkBodySchema,
+	SessionForkedFromSchema,
 	SessionListItemSchema,
 	SessionListScopeSchema,
 	SessionPatchBodySchema,
@@ -89,6 +91,12 @@ export type SessionStats = z.infer<typeof SessionStatsSchema>;
  * administrators (those allowed to manage shares).
  */
 export type SessionView = z.infer<typeof SessionViewSchema>;
+
+/** Where a forked session came from (doc/design/agent-runtime.md "Forking"). */
+export type SessionForkedFrom = z.infer<typeof SessionForkedFromSchema>;
+
+/** Body of `POST /api/sessions/:id/fork`: the final reply to fork at and the idempotency key. */
+export type SessionForkInput = z.infer<typeof SessionForkBodySchema>;
 
 /** Body of `PATCH /api/sessions/:id`; omitted fields stay unchanged, null clears. */
 export type SessionPatch = z.infer<typeof SessionPatchBodySchema>;

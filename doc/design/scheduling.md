@@ -13,7 +13,9 @@ A schedule has a name (which titles its sessions), a message, a model, a rule pr
 budget per run, a five-field cron expression with an IANA time zone, a `catch_up` flag and an enabled
 flag. Cron expressions and time zones are validated when the schedule is saved, not when it first fires.
 
-Every run's session belongs to the schedule's owner and is linked to the schedule and its run record.
+Every run's session belongs to the schedule's owner and is linked to the schedule and its run record. A
+schedule is a template: at creation each run's session receives its own root rule set copied from the
+schedule's current preset and custom rules, so the schedule is never part of a rule chain.
 
 ## One instance at a time
 
@@ -60,10 +62,15 @@ the system acting for the owner; changes and manual runs to the acting user.
 
 ## Rules and quotas
 
-The schedule is the root of the rule chain for its sessions, configured by a rule preset plus extra
-rules ([Rule chain](access-control.md#rule-chain)). With Ask, every approval waits for the owner, and an
-unattended run waits until the next trigger stops it. With Auto Review and no review model configured,
-the schedule's model reviews.
+A schedule is a template for rules, not a level of them. At creation the run's session becomes an ordinary
+root whose rule set is copied from the schedule's current rule preset and custom rules
+([Rule chain](access-control.md#rule-chain)); the run, its subagents and its approvals use that copy.
+"Always allow" on a run's approval appends to the run session's own root, so it affects that run only,
+never the schedule. Editing the schedule's preset or rules changes only the copies future runs get; a run
+session already created, and anyone still talking in it, keeps its own rules.
+
+With Ask, every approval waits for the owner, and an unattended run waits until the next trigger stops it.
+With Auto Review and no review model configured, the run session's model reviews.
 
 The token budget becomes the quota of each run's root session ([Quota and token
 accounting](agent-runtime.md#quota-and-token-accounting)). When it runs out, the run pauses and asks the
@@ -84,10 +91,11 @@ trust entry can require a crhs cosignature.
 ## Lifecycle
 
 - Disabling the owner disables their schedules.
-- Changes to the timetable or enabled flag recompute the next run time. Changes to the message, model or
-  budget affect later runs only. Rule changes apply at once, including to a running instance and its
-  waiting approvals.
-- Disabling a schedule does not stop a running instance; deleting it does. The sessions remain; their
-  rules are copied onto them so their effective rules do not change, and the schedule's rule set is kept
-  so recorded rule chains still resolve.
+- Changes to the timetable or enabled flag recompute the next run time. Changes to the message, model,
+  budget or rules affect later runs only: an existing run session keeps the rule set it was created with,
+  including the approvals of that session.
+- Disabling a schedule does not stop a running instance; deleting it does. The sessions remain as they
+  were, each already a root with its own rules and any rules added during its run; nothing is promoted.
+  The schedule's own rule set is kept so rule chains that past tasks recorded before runs became
+  independent roots still resolve.
 - Schedules cannot be shared, and only the WebUI and the API manage them, not MCP or agent tools.

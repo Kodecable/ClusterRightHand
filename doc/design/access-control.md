@@ -180,8 +180,16 @@ Users have no standing rules. A rule chain starts at an object that acts for a u
 |---|---|
 | A user running a task in the WebUI | None; only node access is checked |
 | Session | Root session → subagent → … |
-| Scheduled task | Schedule → the session for the run → subagents |
+| Scheduled task | The run's session (a copy of the schedule's rules) → subagents |
 | MCP | API token |
+
+A schedule is a template, not a level: each run's session is an ordinary root whose rule set was copied
+from the schedule's at creation ([Rules and quotas](scheduling.md#rules-and-quotas)). "Always allow" in a
+run writes to that session's copy, and a later schedule edit reaches only future runs.
+
+A fork starts a new root with a copy of its source root's rule set, never a reference to it: the preset
+and the custom rules are duplicated, so an edit on either side leaves the other unchanged
+([Forking](agent-runtime.md#forking)).
 
 A root is configured by a rule preset plus any rules the owner adds:
 

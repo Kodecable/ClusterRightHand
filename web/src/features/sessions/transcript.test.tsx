@@ -163,3 +163,75 @@ test("shows the retry attempt at the end of a running turn and hides it when a m
 	expect(screen.queryByTestId("retrying")).toBeNull();
 	expect(screen.getAllByRole("alert")).toHaveLength(2);
 });
+
+test("a copy action sits under the user message and the final reply, never under process rows", () => {
+	const items: TranscriptItem[] = [
+		{ kind: "user", key: "u1", text: "do it", at: 1_000 },
+		{ kind: "thinking", key: "t1", text: "hmm", streaming: false },
+		{ kind: "text", key: "a1", text: "interim text", streaming: false, final: false },
+		{ kind: "text", key: "a2", text: "final answer", streaming: false, final: true, at: 2_000, durationMs: 1_000 },
+	];
+	renderWithI18n(
+		<Transcript
+			items={items}
+			streams={new TranscriptStreams()}
+			ready
+			sessionActive={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+		/>,
+	);
+	expect(screen.getAllByTestId("message-actions")).toHaveLength(2);
+	expect(screen.getByRole("button", { name: "Copy message" })).toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "Copy reply" })).toBeInTheDocument();
+
+	// Expanding the completed turn brings back the process rows: they have no copy action of their own.
+	fireEvent.click(screen.getByRole("button", { name: /^Ended in / }));
+	expect(screen.getByText("interim text")).toBeInTheDocument();
+	expect(screen.getAllByTestId("message-actions")).toHaveLength(2);
+	expect(screen.queryAllByRole("button", { name: "Copy" })).toHaveLength(0);
+});
+
+test("the owner's fork action sits under an ended turn's final reply only", () => {
+	const items: TranscriptItem[] = [
+		{ kind: "user", key: "u1", text: "do it", at: 1_000, entryId: "1" },
+		{ kind: "thinking", key: "t1", text: "hmm", streaming: false },
+		{ kind: "text", key: "a1", text: "interim text", streaming: false, final: false, entryId: "2" },
+		{ kind: "text", key: "a2", text: "final answer", streaming: false, final: true, entryId: "7", at: 2_000 },
+	];
+	const onFork = vi.fn();
+	const result = renderWithI18n(
+		<Transcript
+			items={items}
+			streams={new TranscriptStreams()}
+			ready
+			sessionActive={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+			canFork
+			onFork={onFork}
+		/>,
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Fork from here" }));
+	expect(onFork).toHaveBeenCalledWith(7);
+	expect(screen.getAllByRole("button", { name: "Fork from here" })).toHaveLength(1);
+
+	// The same final reply in a running turn is not forkable yet.
+	result.unmount();
+	renderWithI18n(
+		<Transcript
+			items={items}
+			streams={new TranscriptStreams()}
+			ready
+			sessionActive
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+			canFork
+			onFork={onFork}
+		/>,
+	);
+	expect(screen.queryByRole("button", { name: "Fork from here" })).not.toBeInTheDocument();
+});

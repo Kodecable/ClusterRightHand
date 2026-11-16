@@ -172,6 +172,7 @@ describe("API document", () => {
 		expect(agent("/api/sessions/{id}", "get")).toBe("allow");
 		expect(agent("/api/sessions/{id}", "patch")).toBe("deny");
 		expect(agent("/api/sessions/{id}/messages", "post")).toBe("deny");
+		expect(agent("/api/sessions/{id}/fork", "post")).toBe("deny");
 		expect(agent("/api/sessions/{id}/shares", "put")).toBe("deny");
 		expect(agent("/api/sessions/{id}/shares/{shareId}", "delete")).toBe("deny");
 		expect(agent("/api/sessions/{id}/quota", "post")).toBe("deny");

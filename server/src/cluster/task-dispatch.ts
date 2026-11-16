@@ -125,7 +125,8 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	const rejected = verdict === "require-approval" && input.noWait === true;
 	const denied = verdict === "deny";
 	const endedAtCreation = denied || rejected;
-	// Group waiting approvals by session tree: the first session of the chain (a schedule comes before it).
+	// Group waiting approvals by session tree: the first session of the chain, which is its root for a session or
+	// scheduled run (an API token chain has no session).
 	const root = input.chain?.find((ref) => ref.type === "session");
 	const values: Insertable<TasksTable> = {
 		id,

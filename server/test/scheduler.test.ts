@@ -10,6 +10,8 @@ import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
+import { evaluate, type Rule } from "../src/policy/rules.ts";
+import { appendRule, getRuleSet, loadChain, setRules } from "../src/policy/store.ts";
 import { Scheduler } from "../src/scheduler/scheduler.ts";
 import {
 	createSchedule,
@@ -19,6 +21,7 @@ import {
 	nextRunAfter,
 	previewRuns,
 	type Schedule,
+	updateSchedule,
 } from "../src/scheduler/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -192,7 +195,7 @@ async function startAt(time: string): Promise<void> {
 beforeAll(async () => {
 	db = await openTestDb("sqlite");
 	audit = new Audit(db);
-	cluster = new Cluster(db, { audit });
+	cluster = new Cluster(db, { audit, nodeOfflineGraceMs: 10 });
 	masterKey = MasterKey.generate();
 	models = new ModelConfig(db, masterKey);
 	models.addProvider(faux.provider);
@@ -240,14 +243,14 @@ it("fires a due schedule once, creates the run's session and advances next_run_a
 	const sessions = await db.selectFrom("sessions").selectAll().where("schedule_id", "=", schedule.id).execute();
 	expect(sessions.map((s) => s.id)).toEqual([run.sessionId]);
 	expect(JSON.parse(sessions[0]?.model ?? "{}")).toEqual(model());
-	// The run's session has an inherit-only rule set below the schedule's root.
+	// The run's session is an ordinary root whose rule set is a copy of the schedule's template.
 	const rules = await db
 		.selectFrom("rule_sets")
 		.selectAll()
 		.where("scope_type", "=", "session")
 		.where("scope_id", "=", run.sessionId as string)
 		.executeTakeFirstOrThrow();
-	expect(rules).toMatchObject({ rule_preset: null, default_action: "inherit" });
+	expect(rules).toMatchObject({ rule_preset: "yolo", default_action: "allow", rules: "[]" });
 	const fired = await db
 		.selectFrom("audit_events")
 		.selectAll()
@@ -500,7 +503,7 @@ it("turns a manual run into a session through the same path, with the user as ac
 	expect(listed.items[0]).toMatchObject({ id: body.run.id, status: "succeeded", sessionId: body.run.sessionId });
 });
 
-it("builds the [schedule, session] chain for approvals and Auto Review", async () => {
+it("builds the [session] chain for approvals and Auto Review", async () => {
 	const owner = await newOwner("owner-chain");
 	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
 	faux.setResponses([fauxAssistantMessage([fauxText("waiting")])]);
@@ -514,14 +517,11 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 	const task = await cluster.createTask({
 		nodeId,
 		spec: execSpec,
-		chain: [
-			{ type: "schedule", id: schedule.id },
-			{ type: "session", id: sessionId },
-		],
+		chain: [{ type: "session", id: sessionId }],
 		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
 	});
 	expect(task.state).toBe("awaiting_approval");
-	// The schedule is the chain root: the request goes to its owner, grouped under the run's session.
+	// The run session is the chain root: the request goes to its owner, grouped under that session.
 	const row = await db
 		.selectFrom("tasks")
 		.select(["root_session_id", "handler_type", "handler_session_id"])
@@ -529,7 +529,7 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 		.executeTakeFirstOrThrow();
 	expect(row).toMatchObject({ root_session_id: sessionId, handler_type: "user", handler_session_id: null });
 
-	// Auto Review reads the rule preset and the model from the schedule root of the chain.
+	// Auto Review reads the rule preset and the model from the run session's own root.
 	await runtime.modelPresets.update("review", { model: model() });
 	const auto = await makeSchedule(owner, { name: "auto", rulePreset: "auto_review" });
 	faux.setResponses([fauxAssistantMessage([fauxText("scheduled")])]);
@@ -545,10 +545,7 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 	const reviewed = await cluster.createTask({
 		nodeId,
 		spec: execSpec,
-		chain: [
-			{ type: "schedule", id: auto.id },
-			{ type: "session", id: autoRun.sessionId as string },
-		],
+		chain: [{ type: "session", id: autoRun.sessionId as string }],
 		actor: { type: "session", id: autoRun.sessionId as string, onBehalfOfUserId: owner.userId },
 	});
 	await waitFor("Auto Review's decision", async () => {
@@ -562,7 +559,7 @@ it("builds the [schedule, session] chain for approvals and Auto Review", async (
 	await runtime.modelPresets.update("review", { model: null });
 });
 
-it("builds the [schedule, session] chain for a scheduled session's own tool calls", async () => {
+it("builds the [session] chain for a scheduled session's own tool calls", async () => {
 	const owner = await newOwner("owner-agent-chain");
 	const nodeId = await addNode(owner);
 	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
@@ -581,11 +578,8 @@ it("builds the [schedule, session] chain for a scheduled session's own tool call
 			.executeTakeFirst();
 		return row && row.state === "awaiting_approval" ? row : undefined;
 	});
-	// The runtime's chain construction put the schedule before the run's session.
-	expect(JSON.parse(task.rule_chain ?? "[]")).toEqual([
-		{ type: "schedule", id: schedule.id },
-		{ type: "session", id: run.sessionId },
-	]);
+	// The runtime's chain construction puts the run's session first and never the schedule.
+	expect(JSON.parse(task.rule_chain ?? "[]")).toEqual([{ type: "session", id: run.sessionId }]);
 	expect(task).toMatchObject({
 		actor_type: "session",
 		root_session_id: run.sessionId,
@@ -598,6 +592,175 @@ it("builds the [schedule, session] chain for a scheduled session's own tool call
 		at: new Date().toISOString(),
 	});
 	await waitFor("the run to end", async () => ((await runOf(run.id))?.status !== "running" ? true : undefined));
+});
+
+it("copies the schedule's preset and custom rules into the run session's root", async () => {
+	const owner = await newOwner("owner-copy");
+	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
+	const scheduleRule: Rule = { action: "deny", method: "exec", exact: "rm -rf /" };
+	await setRules(db, { type: "schedule", id: schedule.id }, [scheduleRule]);
+	faux.setResponses([fauxAssistantMessage([fauxText("copied")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const run = await scheduler.runNow(schedule.id, owner);
+	const sessionId = run.sessionId as string;
+	const rules = await getRuleSet(db, { type: "session", id: sessionId });
+	expect(rules?.rulePreset).toBe("ask");
+	expect(rules?.rules).toEqual([scheduleRule]);
+	// The chain is the run session alone: the schedule is a template, not a level.
+	const nodeId = await addNode(owner);
+	const task = await cluster.createTask({
+		nodeId,
+		spec: execSpec,
+		chain: [{ type: "session", id: sessionId }],
+		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
+	});
+	const stored = await db.selectFrom("tasks").select("rule_chain").where("id", "=", task.id).executeTakeFirstOrThrow();
+	expect(JSON.parse(stored.rule_chain ?? "[]")).toEqual([{ type: "session", id: sessionId }]);
+});
+
+it("appends always-allow to the run session's root, leaving the schedule and the next run untouched", async () => {
+	const owner = await newOwner("owner-always");
+	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
+	const nodeId = await addNode(owner);
+	faux.setResponses([fauxAssistantMessage([fauxText("first")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const first = await scheduler.runNow(schedule.id, owner);
+	const firstSession = first.sessionId as string;
+	await waitFor("the first run to settle", async () =>
+		(await runOf(first.id))?.status === "succeeded" ? true : undefined,
+	);
+	const task = await cluster.createTask({
+		nodeId,
+		spec: execSpec,
+		chain: [{ type: "session", id: firstSession }],
+		actor: { type: "session", id: firstSession, onBehalfOfUserId: owner.userId },
+	});
+	expect(task.state).toBe("awaiting_approval");
+	const always: Rule = { action: "allow", method: "exec", exact: "echo hi" };
+	const res = await call(app, `/api/tasks/${task.id}/approval`, {
+		method: "POST",
+		cookie: await cookieOf(owner),
+		body: { decision: "approve", always },
+	});
+	expect(res.status).toBe(200);
+	// The rule lands on the run session's own root, never on the schedule's template.
+	expect((await getRuleSet(db, { type: "session", id: firstSession }))?.rules).toEqual([always]);
+	expect((await getRuleSet(db, { type: "schedule", id: schedule.id }))?.rules).toEqual([]);
+
+	// The next run copies the schedule again, so it does not inherit the previous run's rule. A new manual run
+	// needs a later fire time than the first.
+	clock.current = new Date(clock.now().getTime() + 60_000);
+	faux.setResponses([fauxAssistantMessage([fauxText("second")])]);
+	const second = await scheduler.runNow(schedule.id, owner);
+	const secondSession = second.sessionId as string;
+	expect((await getRuleSet(db, { type: "session", id: secondSession }))?.rules).toEqual([]);
+	const nextTask = await cluster.createTask({
+		nodeId,
+		spec: execSpec,
+		chain: [{ type: "session", id: secondSession }],
+		actor: { type: "session", id: secondSession, onBehalfOfUserId: owner.userId },
+	});
+	expect(nextTask.state).toBe("awaiting_approval");
+});
+
+it("applies schedule rule edits to future runs only and leaves existing run sessions alone", async () => {
+	const owner = await newOwner("owner-edit");
+	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
+	const before: Rule = { action: "deny", method: "exec", exact: "curl" };
+	const after: Rule = { action: "allow", method: "exec", exact: "echo edited" };
+	await setRules(db, { type: "schedule", id: schedule.id }, [before]);
+	faux.setResponses([fauxAssistantMessage([fauxText("before edit")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const first = await scheduler.runNow(schedule.id, owner);
+	const firstSession = first.sessionId as string;
+
+	// The template changes: preset and rules. The existing run session keeps the copy it was created with.
+	await setRules(db, { type: "schedule", id: schedule.id }, [after]);
+	await updateSchedule(db, schedule, { rulePreset: "yolo" }, clock.now());
+	expect(await getRuleSet(db, { type: "session", id: firstSession })).toMatchObject({
+		rulePreset: "ask",
+		rules: [before],
+	});
+
+	clock.current = new Date(clock.now().getTime() + 60_000);
+	faux.setResponses([fauxAssistantMessage([fauxText("after edit")])]);
+	const second = await scheduler.runNow(schedule.id, owner);
+	expect(await getRuleSet(db, { type: "session", id: second.sessionId as string })).toMatchObject({
+		rulePreset: "yolo",
+		rules: [after],
+	});
+});
+
+it("Auto Review in a run session without a review model uses the session's own model", async () => {
+	const owner = await newOwner("owner-review-model");
+	const nodeId = await addNode(owner);
+	await runtime.modelPresets.update("review", { model: null });
+	const schedule = await makeSchedule(owner, { rulePreset: "auto_review" });
+	faux.setResponses([fauxAssistantMessage([fauxText("run")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const run = await scheduler.runNow(schedule.id, owner);
+	const sessionId = run.sessionId as string;
+	// Point the run session at a model the review can name but not call: the verdict still records which model
+	// was chosen, which proves the run session (not the schedule) supplied it.
+	const sessionModel = { provider: faux.provider.id, modelId: "session-review-model" };
+	await db
+		.updateTable("sessions")
+		.set({ model: JSON.stringify(sessionModel) })
+		.where("id", "=", sessionId)
+		.execute();
+	const reviewed = await cluster.createTask({
+		nodeId,
+		spec: execSpec,
+		chain: [{ type: "session", id: sessionId }],
+		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
+	});
+	const verdict = await waitFor("the review verdict", async () => {
+		const current = await cluster.getTask(reviewed.id);
+		const review = current?.approval?.review as { decision?: string; model?: string } | null | undefined;
+		return review?.decision ? review : undefined;
+	});
+	expect(verdict).toMatchObject({
+		decision: "escalate",
+		model: `${sessionModel.provider}/${sessionModel.modelId}`,
+	});
+});
+
+it("keeps historical task chains with a schedule ref evaluable and displayable after the schedule is deleted", async () => {
+	const owner = await newOwner("owner-history");
+	const nodeId = await addNode(owner);
+	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
+	faux.setResponses([fauxAssistantMessage([fauxText("history")])]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const run = await scheduler.runNow(schedule.id, owner);
+	const sessionId = run.sessionId as string;
+	await waitFor("the run to settle", async () => ((await runOf(run.id))?.status === "succeeded" ? true : undefined));
+	// A task recorded before schedules became templates stored the schedule as its chain root.
+	const oldChain = [
+		{ type: "schedule", id: schedule.id },
+		{ type: "session", id: sessionId },
+	];
+	const task = await cluster.createTask({
+		nodeId,
+		spec: execSpec,
+		chain: oldChain,
+		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
+	});
+	const res = await call(app, `/api/schedules/${schedule.id}`, {
+		method: "DELETE",
+		cookie: await cookieOf(owner),
+		body: {},
+	});
+	expect(res.status).toBe(200);
+
+	// Display reads the stored chain, and evaluation still resolves the schedule's kept rule set.
+	const shown = await cluster.getTask(task.id);
+	expect(shown?.ruleChain).toEqual(oldChain);
+	const page = await call(app, `/api/tasks/${task.id}`, { cookie: await cookieOf(owner) });
+	expect(page.status).toBe(200);
+	const levels = await loadChain(db, oldChain);
+	// The kept schedule level still resolves; the operation was judged by the chain instead of throwing.
+	expect(levels).toHaveLength(2);
+	expect(evaluate(levels, { method: "exec", target: "echo hi", privileged: false }).result).toBe("require-approval");
 });
 
 it("preempts the previous instance: stops its session, marks the run preempted and audits it", async () => {
@@ -983,6 +1146,8 @@ it("recovers a run submitted before it was marked running, without a second sess
 		model: schedule.model,
 		budgetRemaining: null,
 		scheduleId: schedule.id,
+		rulePreset: "yolo" as const,
+		rules: [],
 	});
 	const submission = await runtime.submitAsSchedule(
 		sessionId,
@@ -1130,6 +1295,9 @@ it("stops the running instance and unlinks the sessions when the schedule is del
 	await waitFor("the run to be running", async () => ((await runOf(run.id))?.status === "running" ? true : undefined));
 	const sessionId = run.sessionId as string;
 	const submission = (await sessionRow(sessionId)).last_submission_id as string;
+	// A rule the run session added for itself must survive the schedule's deletion.
+	const added: Rule = { action: "allow", method: "exec", exact: "echo after delete" };
+	await appendRule(db, { type: "session", id: sessionId }, added);
 
 	const res = await call(app, `/api/schedules/${schedule.id}`, {
 		method: "DELETE",
@@ -1142,7 +1310,7 @@ it("stops the running instance and unlinks the sessions when the schedule is del
 	await expect(runtime.waitForSubmission(submission)).resolves.toEqual({ status: "unanswered", reason: "aborted" });
 	const session = await sessionRow(sessionId);
 	expect(session.schedule_id).toBeNull();
-	// The session stays usable: its inherit-only level was promoted to a root with the schedule's rule preset.
+	// The session stays usable: it already was a root, with its own copy of the schedule's rules plus its own.
 	const rules = await db
 		.selectFrom("rule_sets")
 		.selectAll()
@@ -1150,6 +1318,9 @@ it("stops the running instance and unlinks the sessions when the schedule is del
 		.where("scope_id", "=", sessionId)
 		.executeTakeFirstOrThrow();
 	expect(rules).toMatchObject({ rule_preset: "yolo", default_action: "allow" });
+	expect(JSON.parse(rules.rules)).toEqual([added]);
+	// The schedule's rule set is kept so historical task chains that recorded it still resolve.
+	expect(await getRuleSet(db, { type: "schedule", id: schedule.id })).toBeDefined();
 	const audited = await db
 		.selectFrom("audit_events")
 		.selectAll()
@@ -1159,15 +1330,15 @@ it("stops the running instance and unlinks the sessions when the schedule is del
 	expect(audited).toHaveLength(1);
 });
 
-it("serializes deletion with an in-flight submit instead of leaving an inheriting session behind", async () => {
+it("serializes deletion with an in-flight submit", async () => {
 	const owner = await newOwner("owner-delete-submit");
 	const schedule = await makeSchedule(owner, { rulePreset: "ask" });
 	faux.setResponses([fauxAssistantMessage([fauxText("submitted")])]);
 	await startAt("2026-01-05T09:01:00.000Z");
 
 	// Pause the submit after it passed its schedule check and before it inserts its session. Without the queue,
-	// removal would delete the schedule in this window, then the session would appear unlinked with an inherit-only
-	// rule set whose parent root no longer exists.
+	// removal could delete the schedule in this window and the session would be created from a template that is
+	// already gone.
 	let reached!: () => void;
 	const inSubmit = new Promise<void>((resolve) => {
 		reached = resolve;
@@ -1208,7 +1379,7 @@ it("serializes deletion with an in-flight submit instead of leaving an inheritin
 		});
 		const session = await sessionRow(sessionId);
 		expect(session.schedule_id).toBeNull();
-		// The promoted rule set is a root: no chain with an `inherit` root remains.
+		// The session's own root rule set is unchanged: the deletion had nothing to promote.
 		const rules = await db
 			.selectFrom("rule_sets")
 			.selectAll()

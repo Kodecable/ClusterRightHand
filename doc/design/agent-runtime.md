@@ -198,6 +198,46 @@ chain and any token quota. Sharing does not change whose identity it acts under.
 - **Events.** The WebUI follows a session through a stream of committed events; system messages are
   not sent. Older history is paged separately.
 
+### Forking
+
+The owner can fork a session at the final assistant reply of an ended turn. The result is a new,
+independent root session whose history is the source's history up to and including that reply. Nothing
+else creates a fork.
+
+- **Durable history.** The fork is pi-durable's `Conversation.fork(at)`: the entries are shared by
+  reference, not copied into a new transcript. The new conversation records its parent and cutoff, so
+  the fork's history is the source chain through the reply and never a later turn.
+- **Identity.** The fork has its own `sessions` row, conversation, id and provider identity. It is a new
+  root: `parent_session_id` is null, `root_session_id` is its own id, and `schedule_id`,
+  `last_used_from` and every share are absent. `forked_from_session_id` and `forked_from_entry_id` name
+  the direct source and reply, so a fork of a fork points at its own source.
+- **Provider session ids.** `pi.provider` is a conversation document that forks as `initial`, so the
+  fork starts with a fresh durable provider session id. Compaction, Auto Review and title generation
+  derive their own ids from the new crh session id (or, before the mapping is known, from the fresh
+  provider id), so none of the four request streams reuses the source's cache identity.
+- **Rules.** The source root's rule set is copied into a new root rule set: the same preset, custom
+  rules and default. The two sets are independent from then on; changing either never changes the
+  other.
+- **Agent configuration.** The fork takes the source's current model and thinking level, its enabled
+  extensions (and therefore its `disabled_extensions` row) and its instructions. The agent document
+  durable copies as of the reply is overwritten by that current configuration.
+- **Reset state.** A fork starts `idle` with no waits, quota, unread marker, usage, statistics or
+  submission counters. The source's shares, approvals, tasks, task groups, external calls and subagent
+  sessions are not copied.
+- **Title.** The fork's title is the source title plus a localized suffix: ` (fork)` in English,
+  `（分叉）` in Chinese; an untitled source falls back to the localized "New session" wording first. The
+  title is settled when the row is written, so no generation runs for it.
+- **Validation and idempotency.** The entry must be a visible entry of the fork's source conversation:
+  a completed assistant message without tool calls, the last non-compaction entry of its turn, and a
+  turn that has ended (a later user turn exists or the session is idle). Process text, thinking, tool
+  results, user entries, other conversations and an unfinished turn are refused. `requestId` makes a
+  retried or concurrent request return the first fork, and `session.forked` records the source, the
+  reply and the new session.
+- **API.** `POST /api/sessions/{id}/fork` with `{ entryId, requestId }` answers `{ session }` for the new
+  `SessionView`. Its `forkedFrom` names the source, the reply and the source title as the caller sees it;
+  it is null for a session that is not a fork, when the source is gone, or when the caller may no longer
+  see it.
+
 ## Model presets
 
 "Preset" always has a qualifier. A rule preset is Ask, Auto Review or Yolo. A model preset is one of
@@ -206,7 +246,7 @@ three administrator settings:
 | Model preset | Model | Purpose |
 |---|---|---|
 | Session | None; each session chooses | Optional system prompt for all sessions |
-| Auto Review | Optional; defaults to the session's or schedule's model | Model and prompt for the review step |
+| Auto Review | Optional; defaults to the root session's model | Model and prompt for the review step |
 | Title generation | Optional; defaults to the session's model | Model and prompt for session titles |
 
 Each preset's prompt is the custom prompt or a built-in default, followed by fixed protocol text that the
@@ -217,9 +257,9 @@ Auto Review answers through a `submit_review` tool call with a decision and a ri
 medium+approve, medium+escalate or high+escalate; a high-risk approval, a missing or invalid risk and any
 other answer escalate, and the runtime never parses a decision out of prose
 ([Auto Review](access-control.md#auto-review)). Reviews run at `temperature: 0`. A configured Auto Review
-model preset keeps its own model and thinking level; when the review falls back to the session's or
-schedule's model it does not inherit that model's conversation thinking level but runs at `low`, clamped
-to the nearest level the model supports. API token roots never use Auto Review.
+model preset keeps its own model and thinking level; when the review falls back to the root session's
+model it does not inherit that model's conversation thinking level but runs at `low`, clamped to the
+nearest level the model supports. API token roots never use Auto Review.
 
 Model requests are retried up to three times by the harness. There is no extra timeout beyond the
 provider's for conversation calls. Auto Review and title generation drive `streamSimple` directly and

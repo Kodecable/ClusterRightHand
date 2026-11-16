@@ -28,7 +28,7 @@ interface PrependAnchor extends Anchor {
 }
 
 type TranscriptDisplayRow =
-	| { kind: "item"; key: string; item: TranscriptItem }
+	| { kind: "item"; key: string; item: TranscriptItem; finalReply: boolean; forkable: boolean }
 	| {
 			kind: "summary";
 			key: string;
@@ -60,6 +60,9 @@ export function Transcript({
 	onLoadOlder,
 	empty,
 	focusEntry,
+	canFork = false,
+	forkPending = false,
+	onFork,
 }: {
 	items: TranscriptItem[];
 	streams: TranscriptStreams;
@@ -72,6 +75,11 @@ export function Transcript({
 	empty?: React.ReactNode;
 	/** The entry a search hit asked to jump to; once its rows exist the list centers and marks it. */
 	focusEntry?: string;
+	/** Whether the caller may fork: only the session owner sees the action (doc/design/webui.md "Message view"). */
+	canFork?: boolean;
+	/** A fork request is in flight; the action is disabled until it settles. */
+	forkPending?: boolean;
+	onFork?: (entryId: number) => void;
 }) {
 	const { t } = useLingui();
 	const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -315,7 +323,9 @@ export function Transcript({
 	const rows = useMemo(() => {
 		const display: TranscriptDisplayRow[] = [];
 		for (const turn of turns) {
-			if (turn.user !== undefined) display.push({ kind: "item", key: turn.user.key, item: turn.user });
+			if (turn.user !== undefined) {
+				display.push({ kind: "item", key: turn.user.key, item: turn.user, finalReply: false, forkable: false });
+			}
 			if (turn.foldable) {
 				const open = openTurns.has(turn.key);
 				display.push({
@@ -326,20 +336,36 @@ export function Transcript({
 					open,
 				});
 				if (open) {
-					for (const item of turn.process) display.push({ kind: "item", key: item.key, item });
+					for (const item of turn.process) {
+						display.push({ kind: "item", key: item.key, item, finalReply: false, forkable: false });
+					}
 				} else {
 					// A closed turn still lists its compaction notes (doc/design/webui.md "Message rendering"):
 					// they are never hidden by the fold and stay in commit order before the final answer.
 					for (const item of turn.process) {
-						if (item.kind === "compaction") display.push({ kind: "item", key: item.key, item });
+						if (item.kind === "compaction") {
+							display.push({ kind: "item", key: item.key, item, finalReply: false, forkable: false });
+						}
 					}
 				}
-				if (turn.final !== undefined) display.push({ kind: "item", key: turn.final.key, item: turn.final });
+				if (turn.final !== undefined) {
+					display.push({ kind: "item", key: turn.final.key, item: turn.final, finalReply: true, forkable: turn.ended });
+				}
 				// Compaction notes committed after the final answer always follow it, whether
 				// the turn is open or closed, so the transcript keeps commit order (doc/design/webui.md "Message rendering").
-				for (const item of turn.after) display.push({ kind: "item", key: item.key, item });
+				for (const item of turn.after) {
+					display.push({ kind: "item", key: item.key, item, finalReply: false, forkable: false });
+				}
 			} else {
-				for (const item of turn.body) display.push({ kind: "item", key: item.key, item });
+				for (const item of turn.body) {
+					display.push({
+						kind: "item",
+						key: item.key,
+						item,
+						finalReply: item === turn.final,
+						forkable: item === turn.final && turn.ended,
+					});
+				}
 			}
 			// A running turn that ends in errors shows that the session is retrying (doc/design/webui.md "Message rendering").
 			if (turn.retryAttempt !== undefined) {
@@ -350,7 +376,10 @@ export function Transcript({
 				display.push({ kind: "deliveries", key: `deliveries:${turn.key}`, deliveries: turn.deliveries });
 			}
 		}
-		for (const item of items) if (item.kind === "compacting") display.push({ kind: "item", key: item.key, item });
+		for (const item of items) {
+			if (item.kind === "compacting")
+				display.push({ kind: "item", key: item.key, item, finalReply: false, forkable: false });
+		}
 		return display;
 	}, [openTurns, turns, items]);
 	const toggleTurn = useCallback((key: string) => {
@@ -476,6 +505,10 @@ export function Transcript({
 									streams={streams}
 									sessionActive={sessionActive}
 									highlighted={highlighted !== null && row.item.entryId === highlighted}
+									finalReply={row.finalReply}
+									canFork={canFork && row.forkable}
+									forkPending={forkPending}
+									onFork={onFork}
 								/>
 							)
 						}

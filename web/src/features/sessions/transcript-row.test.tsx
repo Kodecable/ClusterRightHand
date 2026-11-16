@@ -1,8 +1,10 @@
 import type { TaskGroupView, TaskView } from "@crh/api";
 import type { QueryClient } from "@tanstack/react-query";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { taskKeys } from "@/features/tasks/api";
+import { copyText } from "@/lib/clipboard";
 import { renderWithI18n, renderWithRouter, testQueryClient } from "@/test/render";
 import type { Json } from "./session-events";
 import { initialState } from "./session-reducer";
@@ -11,6 +13,8 @@ import type { TranscriptItem } from "./transcript-items";
 import { transcript } from "./transcript-items";
 import { TranscriptRow } from "./transcript-row";
 import { TranscriptStreams } from "./transcript-streams";
+
+vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -268,6 +272,140 @@ describe("TranscriptRow", () => {
 		);
 		expect(screen.getByRole("alert")).toHaveTextContent("The run failed");
 		expect(screen.getByRole("alert")).toHaveTextContent("boom");
+	});
+});
+
+describe("message actions", () => {
+	test("a user message copies its raw text", async () => {
+		renderRow({ kind: "user", key: "u1", text: "**not markdown**" });
+		await userEvent.click(screen.getByRole("button", { name: "Copy message" }));
+		expect(copyText).toHaveBeenCalledWith("**not markdown**");
+	});
+
+	test("a final reply copies its raw Markdown, not its rendered text", async () => {
+		renderRow({ kind: "text", key: "a1", text: "Hello **world**", streaming: false, final: true });
+		expect(screen.getByText("world").tagName).toBe("STRONG");
+		await userEvent.click(screen.getByRole("button", { name: "Copy reply" }));
+		expect(copyText).toHaveBeenCalledWith("Hello **world**");
+	});
+
+	test("a process text, thinking and a tool row have no copy button", () => {
+		const streams = new TranscriptStreams();
+		const { rerender } = renderRow(
+			{ kind: "text", key: "a1", text: "working", streaming: false, final: false },
+			streams,
+		);
+		expect(screen.queryByTestId("message-actions")).not.toBeInTheDocument();
+		rerender(
+			<TranscriptRow
+				item={{ kind: "thinking", key: "t1", text: "hmm", streaming: false }}
+				streams={streams}
+				sessionActive
+			/>,
+		);
+		expect(screen.queryByTestId("message-actions")).not.toBeInTheDocument();
+		rerender(
+			<TranscriptRow
+				item={{
+					kind: "tool",
+					key: "a1/0",
+					callId: "call-1",
+					name: "exec",
+					args: {},
+					status: "done",
+					output: "",
+					details: undefined,
+					result: { text: "", isError: false, details: undefined },
+				}}
+				streams={streams}
+				sessionActive
+			/>,
+		);
+		expect(screen.queryByTestId("message-actions")).not.toBeInTheDocument();
+	});
+
+	test("the action row is hidden until hover or focus and always shown on touch", () => {
+		renderRow({ kind: "user", key: "u1", text: "hello" });
+		const actions = screen.getByTestId("message-actions");
+		expect(actions).toHaveClass("opacity-0", "group-hover/message:opacity-100");
+		expect(actions).toHaveClass("group-focus-within/message:opacity-100");
+		expect(actions).toHaveClass("[@media(hover:none)]:opacity-100");
+	});
+
+	test("the labels are translated", () => {
+		const user = renderWithI18n(
+			<TranscriptRow
+				item={{ kind: "user", key: "u1", text: "你好" }}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+			"zh-CN",
+		);
+		expect(screen.getByRole("button", { name: "复制消息" })).toBeInTheDocument();
+		user.unmount();
+		renderWithI18n(
+			<TranscriptRow
+				item={{ kind: "text", key: "a1", text: "答复", streaming: false, final: true }}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+			"zh-CN",
+		);
+		expect(screen.getByRole("button", { name: "复制回复" })).toBeInTheDocument();
+	});
+
+	test("the owner can fork a final reply, never a process text", async () => {
+		const onFork = vi.fn();
+		renderWithI18n(
+			<TranscriptRow
+				item={{ kind: "text", key: "a1", text: "the answer", streaming: false, final: true, entryId: "42" }}
+				streams={new TranscriptStreams()}
+				sessionActive={false}
+				canFork
+				onFork={onFork}
+			/>,
+		);
+		const fork = screen.getByRole("button", { name: "Fork from here" });
+		await userEvent.click(fork);
+		expect(onFork).toHaveBeenCalledWith(42);
+		// Copy stays beside it.
+		expect(screen.getByRole("button", { name: "Copy reply" })).toBeInTheDocument();
+	});
+
+	test("a process text, a shared viewer and an ended state without an owner capability have no fork", () => {
+		const streams = new TranscriptStreams();
+		const { rerender } = renderWithI18n(
+			<TranscriptRow
+				item={{ kind: "text", key: "a1", text: "working", streaming: false, final: false, entryId: "41" }}
+				streams={streams}
+				sessionActive
+				canFork
+				onFork={() => {}}
+			/>,
+		);
+		expect(screen.queryByRole("button", { name: "Fork from here" })).not.toBeInTheDocument();
+		rerender(
+			<TranscriptRow
+				item={{ kind: "text", key: "a2", text: "the answer", streaming: false, final: true, entryId: "42" }}
+				streams={streams}
+				sessionActive={false}
+				canFork={false}
+				onFork={() => {}}
+			/>,
+		);
+		expect(screen.queryByRole("button", { name: "Fork from here" })).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Copy reply" })).toBeInTheDocument();
+		rerender(
+			<TranscriptRow
+				item={{ kind: "text", key: "a3", text: "the answer", streaming: false, final: true, entryId: "43" }}
+				streams={streams}
+				sessionActive={false}
+				canFork
+				forkPending
+				onFork={() => {}}
+			/>,
+		);
+		expect(screen.getByRole("button", { name: "Fork from here" })).toBeDisabled();
 	});
 });
 
