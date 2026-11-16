@@ -140,6 +140,8 @@ export interface FakeSatori {
 	rejectConnections(reason: string): void;
 	/** Makes the next message.delete fail, for the delete-then-edit fallback. */
 	failNextDelete(description?: string): void;
+	/** Makes the next message.update fail, so the manager falls back to sending the result as a new message. */
+	failNextUpdate(description?: string): void;
 	callsOf(method: string): FakeSatoriCall[];
 	waitForCall(
 		method: string,
@@ -172,6 +174,7 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 	let socketReady = false;
 	let rejectWith: string | null = null;
 	let deleteFailure: string | null = null;
+	let updateFailure: string | null = null;
 	let server: Server;
 	let url = "";
 
@@ -230,6 +233,12 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 		if (resource === "message" && method === "delete" && deleteFailure !== null) {
 			const description = deleteFailure;
 			deleteFailure = null;
+			json(res, { code: 500, message: description }, 500);
+			return;
+		}
+		if (resource === "message" && method === "update" && updateFailure !== null) {
+			const description = updateFailure;
+			updateFailure = null;
 			json(res, { code: 500, message: description }, 500);
 			return;
 		}
@@ -433,6 +442,9 @@ export async function startFakeSatori(options: FakeSatoriOptions = {}): Promise<
 		},
 		failNextDelete: (description = "message cannot be deleted") => {
 			deleteFailure = description;
+		},
+		failNextUpdate: (description = "message cannot be updated") => {
+			updateFailure = description;
 		},
 		callsOf: (method) => calls.filter((call) => call.method === method),
 		waitForCall: (method, predicate = () => true, timeoutMs = 5_000) =>

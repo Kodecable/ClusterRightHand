@@ -52,6 +52,11 @@ export interface ChannelSendOptions {
 	buttons?: readonly (readonly ChannelButton[])[];
 	/** Skip the link preview (default false). */
 	disablePreview?: boolean;
+	/**
+	 * The text is already plain for this platform (a card rendered for a plain surface): send it literally
+	 * instead of interpreting Markdown.
+	 */
+	plain?: boolean;
 }
 
 export interface SentMessage {
@@ -179,6 +184,11 @@ export interface ChannelCapabilities {
 	buttons: boolean;
 	/** A progress draft or status message while a turn runs; without it the manager shows no progress. */
 	progress: boolean;
+	/**
+	 * Whether `sendText`/`editText` take Markdown. The manager renders a card as Markdown for such an adapter
+	 * and as plain text for one without it, so no card is ever converted between the two formats.
+	 */
+	markdown: boolean;
 	/** The platform's message length limit; the adapter may split a longer Markdown text. */
 	maxTextLength: number;
 }
@@ -196,7 +206,7 @@ export interface ChannelAdapter {
 	/** Stops polling and closes the connection; resolves once it is gone. */
 	stop(): Promise<void>;
 	status(): ChannelStatus;
-	/** Sends Markdown text, converted and split for the platform. */
+	/** Sends text: Markdown when `capabilities.markdown`, converted and split for the platform. */
 	sendText(target: ChannelTarget, text: string, options?: ChannelSendOptions): Promise<SentMessage>;
 	/** Edits a sent message's text and buttons. */
 	editText(target: ChannelTarget, messageId: string, text: string, options?: ChannelSendOptions): Promise<void>;

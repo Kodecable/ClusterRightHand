@@ -491,6 +491,20 @@ describe("approvals api (sqlite)", () => {
 		});
 	});
 
+	it("returns an awaiting_signature request for a task waiting for a signature", async () => {
+		const tok = await newToken();
+		const t = await mkTask(tok);
+		await db.updateTable("tasks").set({ state: "awaiting_authorization" }).where("id", "=", t.id).execute();
+		const list = await pending("alice");
+		const request = list.requests?.find((item) => item.id === t.id);
+		expect(request).toMatchObject({ kind: "task", id: t.id, phase: "awaiting_signature" });
+		const single = (await (await call(app, `/api/tasks/${t.id}`, { cookie: cookies.alice })).json()) as {
+			request?: ApprovalRequest;
+		};
+		expect(single.request).toMatchObject({ id: t.id, phase: "awaiting_signature" });
+		await db.updateTable("tasks").set({ state: "denied" }).where("id", "=", t.id).execute();
+	});
+
 	it("returns the compact request on one external-call approval", async () => {
 		const orgId = await defaultOrgId(db);
 		await db

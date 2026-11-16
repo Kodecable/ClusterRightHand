@@ -84,7 +84,9 @@ A conversation is one thread of a private chat, mapped to one session (`channel_
   the session's WebUI link. When the old session is archived or unavailable, the notice says so. It is
   sent before the user's message is submitted, so it appears before the reply.
 - `/stop` stops the running turn, `/quota` shows the session's token quota, and `/help` lists the
-  commands as a Markdown list.
+  commands as a Markdown list. `/approve` and `/reject` take an optional id; `/help` explains that
+  omitting it decides the only request waiting in the chat, and that `/reject`'s words without an id
+  are the reason.
 - **Management commands** act on the thread's session, or its draft, through the same runtime functions
   and checks as the WebUI's session PATCH: only the owner may change a session, and a rule change may
   settle waiting approvals. `/model` lists the offered models five per page, `/think` the levels the
@@ -139,7 +141,9 @@ also parses `$formula$`, `==mark==`, `||spoiler||`, `^`, footnotes, lists, table
 so `escapeMarkdown` escapes every ASCII punctuation character (CommonMark allows a backslash before
 any). Inline code wraps commands, paths and extension/tool names in a fence longer than the longest
 backtick run inside it, padding a value that starts or ends with a backtick. Satori turns an inline
-code span into its plain content and removes a backslash before any ASCII punctuation.
+code span into its plain content and removes a backslash before any ASCII punctuation. Cards are the
+exception: they are rendered natively for their surface, Markdown for Telegram and plain text for
+Satori, and are never converted from one to the other.
 
 **Outbound**, to the thread a session's notifications go to ([Notifications](#notifications)):
 
@@ -203,25 +207,36 @@ a message a schedule submitted. Switching or attaching a session in a chat does 
 
 Every display surface renders one compact, locale-free `ApprovalRequest` built by the server
 (`server/src/approvals/request.ts`): its kind and id, the phase (`reviewing` while Auto Review decides,
-otherwise `awaiting_user`), the requester (a subagent's request resolves to its root session; an API
+`awaiting_signature` while a task or task group waits for the user's signature, otherwise
+`awaiting_user`), the requester (a subagent's request resolves to its root session; an API
 token, a user acting directly and a schedule are named as themselves), a structured action (exec
 command, file operation and path with an optional line range, API request, or extension tool), the node
 names that need approval (at most 10 with a `moreNodes` count), whether it is privileged, the settled
 Auto Review risk and reason when one exists, and the "always allow" rule candidates the server can build.
 Telegram, Satori and the WebUI render this model; details beyond it belong on the task, task group and
-external call pages. The approvals API returns one per waiting item beside the kind-specific view, and
-task, task group and external-call detail responses carry the item's `request`.
+external call pages. The approvals API returns one per waiting item beside the kind-specific view,
+including tasks and task groups waiting for a signature; task, task group and external-call detail
+responses carry the item's `request`.
 
-A chat card reads:
+Every card is one structured record rendered natively for its surface: Telegram takes Markdown (bold
+title, escaped values, the detail as one inline code span, hard line breaks), Satori plain text. Its
+lines are, in order:
 
-- the requester line, such as `Approval needed · session "Clean up"`, `token "deploy"`, `user alice` or
-  `schedule "nightly"`;
-- the action line, localized per kind, with the command, path, method and path, or extension/tool in
-  inline code;
-- `Nodes: app-1, db-1 · privileged` when nodes exist, or a privileged line of its own when none do;
-- `Auto Review: medium risk · …` only when a settled review exists;
-- with buttons, only the reject hint (`Reject with a reason: /reject <id> reason`); without buttons,
-  `/approve <id>` and `/reject <id> [reason]`.
+- the title with ` · privileged` when the request is privileged: `Approval needed`, `Signature needed`
+  or `Token quota used up`, localized;
+- the meta line: `Nodes: app-1, db-1` with `and N more` for a capped list, or the quota's session
+  title; and, only when a default notification account routed the card rather than a chat thread,
+  ` · From session “…”`, ` · From API token “…”` or ` · From user …`;
+- `🟡 Medium risk · …` (🟢 low, 🔴 high) only when Auto Review settled a review;
+- the action detail: the command, `Read file /etc/hosts (lines 2-4)`, `GET /api/nodes`, or
+  `github/create_issue`;
+- a blank line, then the command hints: with buttons only `Reject with a reason: /reject <id> reason`;
+  without buttons `/approve <id>` and `/reject <id> [reason]`.
+
+A signature card carries the same body and the one hint `Sign in the WebUI: <link>`; it offers no
+approve or reject. A quota card's meta is the session title (or the localized new-session name), its
+detail `used N · remaining M`, and its hints `Continue: /quota add <tokens>` and `End this turn:
+/quota stop`; it is never wrapped in the session title again.
 
 A waiting approval is sent where the session's notifications go. A request Auto Review is still
 reviewing is not sent: the card appears only when the review escalates it to the user, and not when the
@@ -230,8 +245,8 @@ review approves it (the operation simply runs).
 | Wait | In the chat |
 |---|---|
 | A rule approval that needs no signature (task, task group, extension call), privileged or not | Approve and Reject buttons, and `/approve <id>`, `/reject <id> [reason]` |
-| An approval that needs a signature | The requester header and a link to its page in the WebUI |
-| Used-up quota | The quota, `/quota add <tokens>` to raise it and go on, and `/quota stop` to end the turn |
+| An approval that needs a signature | A **Signature needed** card and a link to its page in the WebUI |
+| Used-up quota | A **Token quota used up** card, `/quota add <tokens>` to raise it and go on, and `/quota stop` to end the turn |
 
 A request without a session — an API token's task, a user's direct task, an extension call made outside
 a session — goes to the same place as a session with no chat source: nowhere while its owner is online in
@@ -242,16 +257,27 @@ the external-call wait listener, and a periodic fallback sweep) as session messa
 A button or command decides as the linked user through the same checks as the WebUI: only someone who
 may decide that approval can. "Always allow" is not offered, because it changes rules; that stays in the
 WebUI (the request still carries the candidates). The decision is audited with the channel. After any
-decision, cancellation or rule re-evaluation, crhs first deletes the tracked message; when the platform
-refuses deletion, it edits the message into the one-line ending (who approved or rejected it, or how the
-wait ended), so no stale card remains. A kind without the `buttons` capability sends no buttons: the
-command hints are the way to decide, and a notification outside a thread carries the session link.
+decision, cancellation or rule re-evaluation, crhs first deletes the tracked message. When the platform
+refuses deletion, it edits the card replacing only its hints with the result line: `✅ Approved · by
+<user>`, `❌ Rejected · by <user>: <reason>`, or `Expired` for a wait that ended otherwise (task gone,
+cancelled, rule re-evaluation, session stopped, quota wait over). Auto Review's approval reads `✅
+Approved · by Auto Review`. When editing fails too, the result line is sent as a new message, so the
+chat never keeps a stale card. The `/approve` and `/reject` command reply uses the same line.
+
+`/approve` and `/reject` may omit the id: when exactly one approval is waiting for the user in this
+chat (a card tracked for the chat target), that request is decided. For `/reject`, an argument that is
+not a waiting request id is the reason, so `/reject not now` rejects the only waiting request with
+reason "not now". With none or several waiting, the bot replies with the localized usage, and `/help`
+explains both forms. A kind without the `buttons` capability sends no buttons: the command hints are
+the way to decide, and a notification outside a thread carries the session link (a signature card
+carries its own WebUI link instead).
 
 ## Channel kinds
 
 Both kinds implement one internal channel interface: receive messages and button presses; send, edit and
-delete messages; buttons; files; and the optional capabilities drafts, topics, buttons and progress. The
-core uses an optional capability when the channel has it and falls back to text otherwise.
+delete messages; buttons; files; and the optional capabilities drafts, topics, buttons, progress and
+markdown. The core uses an optional capability when the channel has it and falls back to text otherwise;
+a card is rendered as Markdown for a `markdown` kind and as plain text for the others.
 
 - **Telegram** uses grammY's API client and long polling, with Node's own `fetch`. It is confined to its
   channel module and uses no grammY middleware. The last handled update id is stored, so a restart does
@@ -293,8 +319,9 @@ The protocol is used directly:
 - **Outbound.** `POST <base>/v1/<resource>.<method>` with the JSON body and the gateway's headers:
   `Authorization: Bearer <token>` when set, `Satori-Platform`/`Satori-User-ID` and
   `X-Platform`/`X-Self-ID`. Text is sent with `message.create` as plain, XML-escaped text (newlines
-  kept) and split above 4,000 characters; `message.update` edits it best-effort, while
-  `message.delete` reports a failure so the manager can fall back to editing a decided wait message.
+  kept) and split above 4,000 characters; a card already rendered as plain text is sent without the
+  Markdown conversion. `message.update` and `message.delete` report a failure, so the manager can edit
+  a decided card or send the result as a new message.
 - **Files.** A message must not make crhs fetch an arbitrary address. A `data:` URL is decoded in place; an
   http(s) `src` on the gateway's own origin is fetched directly, because Koishi's Telegram adapter serves
   files from `<selfUrl>/telegram/...` without listing them as proxy roots; any other `src` goes through
@@ -315,6 +342,6 @@ The protocol is used directly:
 ## Not yet
 
 - Markdown → Satori elements: Satori receives plain text, so framework Markdown shows as written
-  (inline code content is unwrapped).
+  (inline code content is unwrapped); cards are rendered as plain text rather than converted.
 - Progress for Satori: the manager shows none while a turn runs.
 - Buttons for Satori: there are none; approvals and lists use commands.

@@ -82,6 +82,14 @@ export interface FakeTelegram {
 	failNextRichMessage(description?: string): void;
 	/** Makes the next deleteMessage fail with a 400, for the delete-then-edit fallback. */
 	failNextDeleteMessage(description?: string): void;
+	/** Makes the next deleteMessage in one chat fail, without another chat's sweep consuming the failure. */
+	failNextDeleteMessageIn(chatId: number | string, description?: string): void;
+	/** Makes the next editMessageText fail with a 400, for the edit-then-send fallback. */
+	failNextEditMessage(description?: string): void;
+	/** Makes the next editMessageText in one chat fail, without another chat's edit consuming the failure. */
+	failNextEditMessageIn(chatId: number | string, description?: string): void;
+	/** Makes every editMessageText in one chat fail (Telegram's rich-then-plain retry included). */
+	failEditsIn(chatId: number | string, description?: string): void;
 	/**
 	 * Holds the next message send in flight until `release()`: `held` resolves once the request reached the
 	 * server, so a test can let the state change that sends it race with another.
@@ -117,7 +125,8 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 	let nextMessageId = 1000;
 	let nextTopicId = 500;
 	let richFailure: string | null = null;
-	let deleteFailure: string | null = null;
+	let deleteFailure: { description: string; chatId?: string } | null = null;
+	let editFailure: { description: string; chatId?: string; sticky?: boolean } | null = null;
 	let sendHold: { reached: () => void; wait: Promise<void> } | null = null;
 	const waiters = new Set<() => void>();
 	let server: Server;
@@ -342,6 +351,11 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 				return json(res, { ok: true, result: msg });
 			}
 			case "editMessageText": {
+				if (editFailure !== null && (editFailure.chatId === undefined || editFailure.chatId === String(body.chat_id))) {
+					const { description, sticky } = editFailure;
+					if (!sticky) editFailure = null;
+					return json(res, { ok: false, error_code: 400, description }, 400);
+				}
 				const msg = message(Number(body.chat_id), {
 					message_id: Number(body.message_id),
 					...(typeof body.text === "string" ? { text: body.text } : {}),
@@ -351,8 +365,11 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 				return json(res, { ok: true, result: msg });
 			}
 			case "deleteMessage": {
-				if (deleteFailure !== null) {
-					const description = deleteFailure;
+				if (
+					deleteFailure !== null &&
+					(deleteFailure.chatId === undefined || deleteFailure.chatId === String(body.chat_id))
+				) {
+					const { description } = deleteFailure;
 					deleteFailure = null;
 					return json(res, { ok: false, error_code: 400, description }, 400);
 				}
@@ -446,7 +463,19 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 			richFailure = description;
 		},
 		failNextDeleteMessage: (description = "Bad Request: message can't be deleted") => {
-			deleteFailure = description;
+			deleteFailure = { description };
+		},
+		failNextDeleteMessageIn: (chatId, description = "Bad Request: message can't be deleted") => {
+			deleteFailure = { description, chatId: String(chatId) };
+		},
+		failNextEditMessage: (description = "Bad Request: message can't be edited") => {
+			editFailure = { description };
+		},
+		failNextEditMessageIn: (chatId, description = "Bad Request: message can't be edited") => {
+			editFailure = { description, chatId: String(chatId) };
+		},
+		failEditsIn: (chatId, description = "Bad Request: message can't be edited") => {
+			editFailure = { description, chatId: String(chatId), sticky: true };
 		},
 		holdNextSend: () => {
 			if (sendHold) throw new Error("a send is already held");

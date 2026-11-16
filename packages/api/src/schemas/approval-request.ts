@@ -60,6 +60,7 @@ export const ApprovalReviewSummarySchema = z
  * One waiting approval, small and locale-free: who asks, what waits, where, how risky the review judged
  * it and the rules an "always allow" would add. Details stay on the task, task group and external call pages.
  * `phase` is `reviewing` only while Auto Review is still judging; such a request is not shown as a user wait.
+ * A task or task group waiting for a signature is `awaiting_signature`.
  */
 export const ApprovalRequestSchema = z
 	.object({

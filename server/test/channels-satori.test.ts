@@ -312,7 +312,11 @@ describe("satori channels", () => {
 		const callId = await insertExternalCall(thread.session_id, "satori-call");
 		await wakeWait(thread.session_id);
 		const approval = await waitForContent(`/approve ${callId}`);
+		expect(contentOf(approval)).toContain("Approval needed");
+		expect(contentOf(approval)).toContain("test/echo");
 		expect(contentOf(approval)).toContain(`/reject ${callId} [reason]`);
+		expect(contentOf(approval)).not.toContain("**");
+		expect(contentOf(approval)).not.toContain("\\");
 		expect(approval.body.reply_markup).toBeUndefined();
 
 		const account = await db
@@ -359,11 +363,22 @@ describe("satori channels", () => {
 		const secondCard = await waitForContent(`/approve ${second}`);
 		fake.failNextDelete();
 		fake.message(userId, `/reject ${second} not needed`);
-		// The fallback edits the card into the ending (whichever path settles it), keeping what was being approved.
+		// The fallback replaces only the hints, keeping the card body.
 		const edited = await fake.waitForCall("update", (call) => contentOf(call).includes("Rejected"));
-		expect(contentOf(edited)).toContain(`/approve ${second}`);
+		expect(contentOf(edited)).toContain("Approval needed");
+		expect(contentOf(edited)).toContain("test/echo");
+		expect(contentOf(edited)).not.toContain(`/approve ${second}`);
 		expect(contentOf(edited)).toContain("not needed");
 		expect(contentOf(secondCard)).toContain(`/approve ${second}`);
+
+		// When the gateway cannot edit either, the result line is sent as a new message.
+		const third = await insertExternalCall(thread.session_id, "satori-edit-refused");
+		await wakeWait(thread.session_id);
+		await waitForContent(`/approve ${third}`);
+		fake.failNextDelete();
+		fake.failNextUpdate();
+		fake.message(userId, `/approve ${third}`);
+		await fake.waitForCall("create", (call) => contentOf(call).includes("✅ Approved · by alice"));
 	});
 
 	it("reports a configured bot that READY does not list as unavailable", async () => {

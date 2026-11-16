@@ -201,6 +201,7 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 		topics: false,
 		buttons: false,
 		progress: false,
+		markdown: false,
 		maxTextLength: SATORI_TEXT_LIMIT,
 	};
 	readonly #base: string;
@@ -468,11 +469,12 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 		}
 	}
 
-	async sendText(target: ChannelTarget, text: string, _options: ChannelSendOptions = {}): Promise<SentMessage> {
+	async sendText(target: ChannelTarget, text: string, options: ChannelSendOptions = {}): Promise<SentMessage> {
 		const chunks = splitMarkdown(text, SATORI_TEXT_LIMIT);
 		let messageId = "";
 		for (const chunk of chunks) {
-			const content = Element.escape(markdownEscapesToText(chunk));
+			// A card rendered for this plain surface is already plain and is not converted again.
+			const content = Element.escape(options.plain ? chunk : markdownEscapesToText(chunk));
 			const result = await this.#call<Message[] | Message>("message", "create", {
 				channel_id: target.chatId,
 				content,
@@ -483,17 +485,19 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 		return { chatId: target.chatId, messageId };
 	}
 
-	async editText(target: ChannelTarget, messageId: string, text: string): Promise<void> {
-		try {
-			await this.#call("message", "update", {
-				channel_id: target.chatId,
-				message_id: messageId,
-				content: Element.escape(markdownEscapesToText(splitMarkdown(text, SATORI_TEXT_LIMIT)[0] ?? text)),
-			});
-		} catch (err) {
-			// Editing a notice is best effort; the platform may have dropped the message.
-			console.error("channels: editing a satori message failed:", errorText(err));
-		}
+	async editText(
+		target: ChannelTarget,
+		messageId: string,
+		text: string,
+		options: ChannelSendOptions = {},
+	): Promise<void> {
+		const first = splitMarkdown(text, SATORI_TEXT_LIMIT)[0] ?? text;
+		// Report a failure: the manager then edits a decided card or sends the result as a new message.
+		await this.#call("message", "update", {
+			channel_id: target.chatId,
+			message_id: messageId,
+			content: Element.escape(options.plain ? first : markdownEscapesToText(first)),
+		});
 	}
 
 	async deleteMessage(target: ChannelTarget, messageId: string): Promise<void> {

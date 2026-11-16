@@ -122,11 +122,14 @@ export const ReviewSchema = z.union([ReviewPendingSchema, ReviewVerdictSchema]).
 
 /**
  * What a waiting approval looks like from outside. `reviewing` means Auto Review is still deciding, so the
- * operation counts as running and is not yet a user-facing approval; `awaiting_user` is the ordinary wait.
+ * operation counts as running and is not yet a user-facing approval; `awaiting_user` is the ordinary wait;
+ * `awaiting_signature` is a task or task group that passed its rules but needs the user's signature.
  */
 export const ApprovalPhaseSchema = z
-	.enum(["reviewing", "awaiting_user"])
-	.describe("`reviewing` only while awaiting_approval with Auto Review still deciding.");
+	.enum(["reviewing", "awaiting_user", "awaiting_signature"])
+	.describe(
+		"`reviewing` only while awaiting_approval with Auto Review still deciding; `awaiting_signature` while awaiting_authorization.",
+	);
 
 /** The approval state of a tool call: how the rules judged it, then how it was settled. */
 export const ApprovalRecordSchema = z

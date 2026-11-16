@@ -404,6 +404,24 @@ describe("approval request model (sqlite)", () => {
 		});
 	});
 
+	it("reports awaiting_signature for a task waiting for the user's signature", async () => {
+		const id = await insertTask({
+			id: "task-signature",
+			nodeId: nodes[0] as string,
+			actorType: "user",
+			actorId: aliceId,
+			rootSessionId: null,
+			spec: { kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null },
+			approval: { evaluation },
+		});
+		await db.updateTable("tasks").set({ state: "awaiting_authorization" }).where("id", "=", id).execute();
+		const view = (await cluster.getTask(id)) as TaskView;
+		expect(view.phase).toBe("awaiting_signature");
+		const request = await approvalRequestForTask(db, view);
+		expect(request.phase).toBe("awaiting_signature");
+		expect(request.id).toBe(id);
+	});
+
 	it("names a user acting directly", async () => {
 		const userCall = await callRow({
 			id: "call-user",

@@ -38,14 +38,15 @@ export function pendingReviewIn(json: string | null | undefined): boolean {
 
 /**
  * What the API shows for one approval (doc/design/access-control.md "Auto Review"): `reviewing` while Auto
- * Review decides and the request is still a user's to receive, `awaiting_user` for every other wait. The phase
- * is only meaningful while the row is in `awaiting_approval`; every terminal row reports `awaiting_user`.
+ * Review decides and the request is still a user's to receive, `awaiting_signature` for a task or task group
+ * waiting for the user's signature, and `awaiting_user` for every other wait.
  */
 export function approvalPhase(
 	state: string,
 	handlerType: string | null,
 	review: Review | null | undefined,
 ): ApprovalPhase {
+	if (state === "awaiting_authorization") return "awaiting_signature";
 	return state === "awaiting_approval" && handlerType === "user" && isPendingReview(review)
 		? "reviewing"
 		: "awaiting_user";
@@ -53,6 +54,7 @@ export function approvalPhase(
 
 /** The same phase from a stored approval JSON, for callers that read rows rather than views. */
 export function approvalPhaseOf(state: string, handlerType: string | null, approvalJson: string | null): ApprovalPhase {
+	if (state === "awaiting_authorization") return "awaiting_signature";
 	if (state !== "awaiting_approval" || handlerType !== "user" || !approvalJson) return "awaiting_user";
 	try {
 		return approvalPhase(state, handlerType, (JSON.parse(approvalJson) as { review?: Review }).review);

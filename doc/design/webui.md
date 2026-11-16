@@ -243,7 +243,8 @@ nodes come later.
 The approvals page is one table of everything waiting for the signed-in user: task approvals, task
 group approvals, tasks waiting for the user's signature, and sessions whose token quota ran out. The
 columns are the type, the operation, the target nodes by name, who asked and when, read from the compact
-`ApprovalRequest` when the server returns one; the whole row opens its detail. A task, task group or
+`ApprovalRequest` the server returns beside every waiting item (a signature wait's phase is
+`awaiting_signature`); the whole row opens its detail. A task, task group or
 external call detail shows the same approval component inline (a task in `awaiting_authorization` shows
 the signature variant), and a quota row opens its session, where the docked decision panel holds it. A
 task group counts once. A request Auto Review is still judging is not listed and does not count; its

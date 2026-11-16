@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	botLocale,
-	escapeMarkdown,
-	inlineCode,
-	localeFromLanguageCode,
-	messagesFor,
-} from "../src/channels/messages.ts";
+import { botLocale, escapeMarkdown, inlineCode, localeFromLanguageCode } from "../src/channels/messages.ts";
 import { markdownEscapesToText } from "../src/channels/plain-text.ts";
 import { neutralizeTelegramButtons, splitMarkdown } from "../src/channels/telegram-format.ts";
 
@@ -73,62 +67,6 @@ describe("Satori plain text", () => {
 		expect(markdownEscapesToText("`` `start ``")).toBe("`start");
 		// Outside code, an escaped backtick still becomes a backtick.
 		expect(markdownEscapesToText("\\`not code\\`")).toBe("`not code`");
-	});
-});
-
-describe("approval rendering", () => {
-	const request = {
-		kind: "task" as const,
-		id: "task-1",
-		phase: "awaiting_user" as const,
-		requester: { type: "session" as const, sessionId: "s1", title: "cleanup" },
-		action: { type: "exec" as const, command: "rm -rf /var/log/old/*.gz" },
-		nodes: ["app-1", "db-1"],
-		privileged: true,
-		review: { risk: "medium" as const, reason: "deletion exceeds the instruction" },
-		alwaysAllow: [],
-	};
-
-	it("renders the English card with buttons", () => {
-		const text = messagesFor("en").approvalRequest(request, { withButtons: true });
-		expect(text).toContain('Approval needed · session "cleanup"');
-		expect(text).toContain("Run command `rm -rf /var/log/old/*.gz`");
-		expect(text).toContain("Nodes: app\\-1, db\\-1 · privileged");
-		expect(text).toContain("Auto Review: medium risk · deletion exceeds the instruction");
-		expect(text).toContain("Reject with a reason: /reject task-1 reason");
-		expect(text).not.toContain("/approve task-1");
-	});
-
-	it("renders both command hints without buttons", () => {
-		const text = messagesFor("en").approvalRequest(request, { withButtons: false });
-		expect(text).toContain("/approve task-1\n/reject task-1 [reason]");
-	});
-
-	it("renders the Chinese card", () => {
-		const text = messagesFor("zh-CN").approvalRequest(request, { withButtons: true });
-		expect(text).toContain("需要你的审批 · 会话“cleanup”");
-		expect(text).toContain("执行命令 `rm -rf /var/log/old/*.gz`");
-		expect(text).toContain("节点：app\\-1、db\\-1 · 特权");
-		expect(text).toContain("Auto Review：中风险 · deletion exceeds the instruction");
-		expect(text).toContain("拒绝并说明原因：/reject task-1 原因");
-	});
-
-	it("uses an inline-code path and the untitled session name", () => {
-		const text = messagesFor("zh-CN").approvalRequest(
-			{
-				...request,
-				requester: { type: "session", sessionId: "s1", title: "" },
-				action: { type: "file", operation: "read", path: "/etc/hosts", lines: { start: 2, end: 4 } },
-				nodes: undefined,
-				privileged: false,
-				review: undefined,
-			},
-			{ withButtons: false },
-		);
-		expect(text).toContain("会话“新会话”");
-		expect(text).toContain("读取文件 `/etc/hosts`（第 2-4 行）");
-		expect(text).not.toContain("节点：");
-		expect(text).not.toContain("特权");
 	});
 });
 

@@ -156,7 +156,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			chain: RuleRef[] | null;
 			waiting: boolean;
 			handlerType: "agent" | "user" | null;
-			phase: "reviewing" | "awaiting_user";
+			phase: "reviewing" | "awaiting_user" | "awaiting_signature";
 		},
 		body: ApprovalBody,
 	) => {

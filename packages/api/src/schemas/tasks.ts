@@ -106,7 +106,7 @@ export const TaskViewSchema = z
 		handlerSessionId: z.string().nullable(),
 		purpose: z.string().nullable().describe("Why a dedicated feature created this task, such as `browse`."),
 		phase: ApprovalPhaseSchema.describe(
-			"`reviewing` while Auto Review decides and the task counts as running; `awaiting_user` is a user-facing wait.",
+			"`reviewing` while Auto Review decides and the task counts as running; `awaiting_user` is a user-facing wait; `awaiting_signature` waits for the user's signature.",
 		),
 	})
 	.meta({ id: "TaskView", description: "One task, as the task and approval pages show it." });
@@ -140,7 +140,9 @@ export const TaskGroupViewSchema = z
 		handlerType: z.enum(["agent", "user"]).nullable(),
 		handlerSessionId: z.string().nullable(),
 		purpose: z.string().nullable(),
-		phase: ApprovalPhaseSchema.describe("`reviewing` while Auto Review decides; otherwise `awaiting_user`."),
+		phase: ApprovalPhaseSchema.describe(
+			"`reviewing` while Auto Review decides; `awaiting_signature` waits for the user's signature; otherwise `awaiting_user`.",
+		),
 	})
 	.meta({ id: "TaskGroupView", description: "One batch: one task per target node." });
 

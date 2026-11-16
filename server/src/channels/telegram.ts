@@ -125,6 +125,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 		topics: true,
 		buttons: true,
 		progress: true,
+		markdown: true,
 		maxTextLength: TELEGRAM_TEXT_LIMIT,
 	};
 	readonly #api: Api;
@@ -272,7 +273,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 	}
 
 	async sendText(target: ChannelTarget, text: string, options: ChannelSendOptions = {}): Promise<SentMessage> {
-		const chunks = splitMarkdown(text);
+		const chunks = splitMarkdown(text, options.plain ? TELEGRAM_PLAIN_TEXT_LIMIT - 8 : undefined);
 		const thread = target.topicId ? { message_thread_id: Number(target.topicId) } : {};
 		let sent: { message_id: number } | undefined;
 		for (let index = 0; index < chunks.length; index++) {
@@ -285,6 +286,15 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 							),
 						}
 					: undefined;
+			if (options.plain) {
+				// Already plain: do not interpret it as Markdown (a card rendered for a plain surface).
+				sent = await this.#api.sendMessage(target.chatId, markdown, {
+					...thread,
+					...(markup ? { reply_markup: markup } : {}),
+					...(options.disablePreview ? { link_preview_options: { is_disabled: true } } : {}),
+				});
+				continue;
+			}
 			try {
 				// Rich messages have no link preview options; Telegram picks the preview itself.
 				sent = await this.#api.sendRichMessage(
@@ -347,6 +357,11 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 			...(markup ? { reply_markup: markup } : {}),
 			...(options.disablePreview ? { link_preview_options: { is_disabled: true } } : {}),
 		};
+		if (options.plain) {
+			// Already plain: a card rendered for a plain surface, edited literally.
+			await this.#api.editMessageText(target.chatId, Number(messageId), text, other);
+			return;
+		}
 		try {
 			await this.#api.editMessageText(
 				target.chatId,

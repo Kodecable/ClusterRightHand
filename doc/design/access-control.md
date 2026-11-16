@@ -248,7 +248,10 @@ external call has its own small object, `external_calls`, and waits the same way
 locale-free `ApprovalRequest` from the waiting row — kind, phase, requester, structured action, node
 names, privileged flag, the settled review and the always-allow candidates — and the chat channels and
 the WebUI render that model, so no surface rebuilds a per-kind summary from prose
-([Approvals in chat](channels.md#approvals)).
+([Approvals in chat](channels.md#approvals)). A task or task group waiting for the user's signature
+(`awaiting_authorization`) gets the same request with phase `awaiting_signature`; the task, task group
+and approvals list endpoints return it beside the kind-specific view while the item waits, and `null`
+once it is settled.
 
 - A request goes up the chain from the level that raised it to the nearest ancestor whose cumulative
   result is `allow`. That agent may approve, reject or escalate; it escalates when the restriction came
@@ -277,7 +280,7 @@ the WebUI render that model, so no surface rebuilds a per-kind summary from pros
 - A waiting approval also reaches the owner in chat ([Approvals in chat](channels.md#approvals)): a
   rule approval that needs no signature has Approve and Reject there, decided through the same checks
   and audited with the channel. "Always allow" changes rules, so it stays in the WebUI; an approval
-  that needs a signature sends a link to its page.
+  that needs a signature gets a **Signature needed** card whose hint links to its page.
 
 ### Auto Review
 

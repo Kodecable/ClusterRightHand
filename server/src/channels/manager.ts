@@ -49,6 +49,7 @@ import { newId } from "../util/id.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
 import { KeyedReconciler } from "../util/keyed-reconciler.ts";
 import { SingleFlight } from "../util/single-flight.ts";
+import { type CardFormat, type ChatCard, renderCard, renderCardLine } from "./card.ts";
 import {
 	type BotMessages,
 	botLocale,
@@ -156,8 +157,10 @@ interface TrackedMessage {
 	adapterName: string;
 	target: ChannelTarget;
 	messageId: string;
-	/** What the message currently says, so a final edit can append how it ended. */
-	text: string;
+	/** The card the message shows, so a final edit can replace only its hints. */
+	card: ChatCard;
+	/** A line the manager appended after the card (the session link); kept when the card is edited. */
+	suffix: string;
 	/** The language the message was written in; its ending is written in the same one. */
 	locale: UserSettingsLocale;
 }
@@ -167,6 +170,8 @@ interface Route {
 	adapter: ChannelAdapter;
 	target: ChannelTarget;
 	thread: ChannelThreadRow | undefined;
+	/** True when this is a default notification route rather than the session's source chat thread. */
+	notification?: boolean;
 	channelRow: ChannelRow;
 	account: ChannelAccountRow;
 }
@@ -2134,13 +2139,39 @@ export class ChannelManager {
 		command: { name: string; args: string[] },
 		m: BotMessages,
 	): Promise<void> {
-		const id = command.args[0];
-		if (!id) {
+		const decision = command.name === "approve" ? "approved" : "rejected";
+		const explicit = command.args[0];
+		let id: string | undefined;
+		let reason = "";
+		if (explicit !== undefined && (await this.#waitingApprovalKind(user, explicit)) !== undefined) {
+			id = explicit;
+			reason = command.name === "reject" ? command.args.slice(1).join(" ").trim().slice(0, 1000) : "";
+		} else if (explicit !== undefined && command.name === "reject") {
+			// `/reject <reason…>` without an id: a reason's first word is not a request id. If exactly one
+			// request waits in this chat, every argument is the reason.
+			const waiting = await this.#waitingApprovalsInChat(row, user, target);
+			if (waiting.length === 1) {
+				id = waiting[0]?.id;
+				reason = command.args.join(" ").trim().slice(0, 1000);
+			} else {
+				await adapter.sendText(target, m.decideUsage(command.name, true));
+				return;
+			}
+		} else if (command.args.length > 0) {
+			await adapter.sendText(target, m.noWaitingApproval);
+			return;
+		} else {
+			const waiting = await this.#waitingApprovalsInChat(row, user, target);
+			if (waiting.length !== 1) {
+				await adapter.sendText(target, m.decideUsage(command.name, command.name === "reject"));
+				return;
+			}
+			id = waiting[0]?.id;
+		}
+		if (id === undefined) {
 			await adapter.sendText(target, m.decideUsage(command.name, command.name === "reject"));
 			return;
 		}
-		const decision = command.name === "approve" ? "approved" : "rejected";
-		const reason = command.name === "reject" ? command.args.slice(1).join(" ").trim().slice(0, 1000) : "";
 		const thread = await channelThread(this.#options.db, row.id, adapter.platform, message.chatId, message.topicId);
 		const result = await this.#decideApproval(user, id, decision, reason || undefined);
 		if (!result) {
@@ -2149,21 +2180,18 @@ export class ChannelManager {
 		}
 		await this.#auditChannelApproval(user, result.kind, id, decision, row.name, adapter.platform, thread?.id);
 		await this.#editDecided(result.key, decision, user.username, reason || undefined);
-		await adapter.sendText(target, decision === "approved" ? m.approved : m.rejected);
+		await this.#sendResult(
+			adapter,
+			target,
+			decision === "approved" ? m.approvedResult(user.username) : m.rejectedResult(user.username, reason || null),
+		);
 	}
 
-	async #decideApproval(
+	/** The wait a command may decide: a user's, still waiting, past Auto Review and with a rule chain. */
+	async #waitingApprovalKind(
 		user: SessionUser,
 		id: string,
-		decision: "approved" | "rejected",
-		reason?: string,
-	): Promise<{ kind: "task" | "task_group" | "external_call"; key: string } | undefined> {
-		const record = {
-			decision,
-			by: { type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId },
-			at: new Date().toISOString(),
-			...(reason ? { reason } : {}),
-		};
+	): Promise<"task" | "task_group" | "external_call" | undefined> {
 		const task = await this.#options.cluster.getTask(id);
 		if (
 			task &&
@@ -2173,9 +2201,7 @@ export class ChannelManager {
 			task.phase !== "reviewing" &&
 			task.ruleChain
 		) {
-			const ok = await this.#options.cluster.decide(id, record, { handlerType: "user" });
-			if (!ok) return undefined;
-			return { kind: "task", key: approvalKey("task", id) };
+			return "task";
 		}
 		const group = await this.#options.taskGroups.get(id);
 		if (
@@ -2186,9 +2212,7 @@ export class ChannelManager {
 			group.phase !== "reviewing" &&
 			group.ruleChain
 		) {
-			const ok = await this.#options.taskGroups.decide(id, record, { handlerType: "user" });
-			if (!ok) return undefined;
-			return { kind: "task_group", key: approvalKey("task_group", id) };
+			return "task_group";
 		}
 		const call = await getExternalCall(this.#options.db, id);
 		if (
@@ -2199,14 +2223,64 @@ export class ChannelManager {
 			approvalPhaseOf(call.state, call.handler_type, call.approval) === "awaiting_user" &&
 			call.rule_chain
 		) {
-			const ok = await decideExternalCall(this.#options.db, id, record, reason, { handlerType: "user" });
-			if (!ok) return undefined;
-			return {
-				kind: "external_call",
-				key: approvalKey("external_call", id),
-			};
+			return "external_call";
 		}
 		return undefined;
+	}
+
+	/** Waiting approvals whose card is tracked for this chat: `/approve` and `/reject` without an id use them. */
+	async #waitingApprovalsInChat(
+		row: ChannelRow,
+		user: SessionUser,
+		target: ChannelTarget,
+	): Promise<{ id: string; kind: "task" | "task_group" | "external_call" }[]> {
+		const waiting: { id: string; kind: "task" | "task_group" | "external_call" }[] = [];
+		for (const [key, tracked] of this.#tracked) {
+			if (tracked.adapterName !== row.name) continue;
+			if (tracked.target.chatId !== target.chatId) continue;
+			if ((tracked.target.topicId ?? null) !== (target.topicId ?? null)) continue;
+			if (key.startsWith("quota:")) continue;
+			const [kind, id] = key.split(":");
+			if (!id || (kind !== "task" && kind !== "task_group" && kind !== "external_call")) continue;
+			if (waiting.some((entry) => entry.id === id)) continue;
+			const actual = await this.#waitingApprovalKind(user, id);
+			if (actual !== undefined) waiting.push({ id, kind: actual });
+		}
+		return waiting;
+	}
+
+	/** The result line after a decision, rendered natively for the adapter (never Markdown converted). */
+	async #sendResult(adapter: ChannelAdapter, target: ChannelTarget, line: string): Promise<void> {
+		await adapter.sendText(target, renderCardLine(line, this.#formatOf(adapter)), this.#plainOption(adapter));
+	}
+
+	async #decideApproval(
+		user: SessionUser,
+		id: string,
+		decision: "approved" | "rejected",
+		reason?: string,
+	): Promise<{ kind: "task" | "task_group" | "external_call"; key: string } | undefined> {
+		const kind = await this.#waitingApprovalKind(user, id);
+		if (!kind) return undefined;
+		const record = {
+			decision,
+			by: { type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId },
+			at: new Date().toISOString(),
+			...(reason ? { reason } : {}),
+		};
+		if (kind === "task") {
+			const ok = await this.#options.cluster.decide(id, record, { handlerType: "user" });
+			if (!ok) return undefined;
+			return { kind, key: approvalKey("task", id) };
+		}
+		if (kind === "task_group") {
+			const ok = await this.#options.taskGroups.decide(id, record, { handlerType: "user" });
+			if (!ok) return undefined;
+			return { kind, key: approvalKey("task_group", id) };
+		}
+		const ok = await decideExternalCall(this.#options.db, id, record, reason, { handlerType: "user" });
+		if (!ok) return undefined;
+		return { kind, key: approvalKey("external_call", id) };
 	}
 
 	async #auditChannelApproval(
@@ -2255,8 +2329,16 @@ export class ChannelManager {
 			try {
 				this.#tracked.delete(key);
 				const m = messagesFor(tracked.locale);
-				const ending = decision === "approved" ? m.approvedBy(by) : m.rejectedBy(by, reason ?? null);
-				await this.#replaceMessage(tracked.adapterName, tracked.target, tracked.messageId, tracked.text, ending);
+				const ending = decision === "approved" ? m.approvedResult(by) : m.rejectedResult(by, reason ?? null);
+				await this.#replaceMessage(
+					tracked.adapterName,
+					tracked.target,
+					tracked.messageId,
+					tracked.card,
+					tracked.suffix,
+					ending,
+					tracked.locale,
+				);
 			} finally {
 				this.#settling.delete(key);
 			}
@@ -2265,8 +2347,16 @@ export class ChannelManager {
 		// The tracked entry may have been evicted; the pressed message itself is still worth clearing.
 		if (!pressed) return;
 		const m = messagesFor(pressed.locale);
-		const ending = decision === "approved" ? m.approvedBy(by) : m.rejectedBy(by, reason ?? null);
-		await this.#replaceMessage(pressed.adapterName, pressed.target, pressed.messageId, null, ending);
+		const ending = decision === "approved" ? m.approvedResult(by) : m.rejectedResult(by, reason ?? null);
+		await this.#replaceMessage(
+			pressed.adapterName,
+			pressed.target,
+			pressed.messageId,
+			null,
+			null,
+			ending,
+			pressed.locale,
+		);
 	}
 
 	// ---- button presses ----
@@ -2856,6 +2946,7 @@ export class ChannelManager {
 			adapter: entry.adapter,
 			target: { chatId: fallback.account.platform_chat_id ?? fallback.account.platform_user_id },
 			thread: undefined,
+			notification: true,
 			channelRow: entry.row,
 			account: fallback.account,
 		};
@@ -2889,6 +2980,7 @@ export class ChannelManager {
 					adapter: entry.adapter,
 					target: { chatId: existing.chat_id, topicId: existing.topic_id },
 					thread: existing,
+					notification: true,
 					channelRow: entry.row,
 					account: fallback.account,
 				};
@@ -2900,6 +2992,7 @@ export class ChannelManager {
 					adapter: entry.adapter,
 					target: { chatId: created.chat_id, topicId: created.topic_id },
 					thread: created,
+					notification: true,
 					channelRow: entry.row,
 					account: fallback.account,
 				};
@@ -2910,6 +3003,7 @@ export class ChannelManager {
 			adapter: entry.adapter,
 			target: { chatId: fallback.account.platform_chat_id ?? fallback.account.platform_user_id },
 			thread: undefined,
+			notification: true,
 			channelRow: entry.row,
 			account: fallback.account,
 		};
@@ -3085,7 +3179,9 @@ export class ChannelManager {
 			if (!view) return;
 			const request = await approvalRequestForTask(this.#options.db, view);
 			const link = this.#webUrl(`/approvals/tasks/${task.id}`);
-			await this.#sendTracked(key, rootId, route, m.taskSignatureWait(request, link), [], locale, true, false);
+			const card = m.signatureCard(request, link, { withRequester: route.notification === true });
+			// The signature hint already carries the WebUI link; do not append the session link again.
+			await this.#sendTracked(key, rootId, route, card, [], locale, true, false);
 			return;
 		}
 		if (task.handler_type !== "user") return;
@@ -3094,7 +3190,10 @@ export class ChannelManager {
 		const view = await this.#options.cluster.getTask(task.id);
 		if (!view) return;
 		const request = await approvalRequestForTask(this.#options.db, view);
-		const text = m.approvalRequest(request, { withButtons: route.adapter.capabilities.buttons });
+		const card = m.approvalCard(request, {
+			withButtons: route.adapter.capabilities.buttons,
+			withRequester: route.notification === true,
+		});
 		const buttons = route.adapter.capabilities.buttons
 			? [
 					[
@@ -3103,7 +3202,7 @@ export class ChannelManager {
 					],
 				]
 			: [];
-		await this.#sendTracked(key, rootId, route, text, buttons, locale, true, false);
+		await this.#sendTracked(key, rootId, route, card, buttons, locale, true);
 	}
 
 	async #syncGroupWait(
@@ -3128,7 +3227,8 @@ export class ChannelManager {
 			if (!view) return;
 			const request = await approvalRequestForTaskGroup(this.#options.db, view);
 			const link = this.#webUrl(`/approvals/task-groups/${group.id}`);
-			await this.#sendTracked(key, rootId, route, m.taskGroupSignatureWait(request, link), [], locale, true, false);
+			const card = m.signatureCard(request, link, { withRequester: route.notification === true });
+			await this.#sendTracked(key, rootId, route, card, [], locale, true, false);
 			return;
 		}
 		if (group.handler_type !== "user") return;
@@ -3137,7 +3237,10 @@ export class ChannelManager {
 		const view = await this.#options.taskGroups.get(group.id);
 		if (!view) return;
 		const request = await approvalRequestForTaskGroup(this.#options.db, view);
-		const text = m.approvalRequest(request, { withButtons: route.adapter.capabilities.buttons });
+		const card = m.approvalCard(request, {
+			withButtons: route.adapter.capabilities.buttons,
+			withRequester: route.notification === true,
+		});
 		const buttons = route.adapter.capabilities.buttons
 			? [
 					[
@@ -3146,7 +3249,7 @@ export class ChannelManager {
 					],
 				]
 			: [];
-		await this.#sendTracked(key, rootId, route, text, buttons, locale, true, false);
+		await this.#sendTracked(key, rootId, route, card, buttons, locale, true);
 	}
 
 	async #syncCallWait(
@@ -3172,7 +3275,10 @@ export class ChannelManager {
 		const view = (await externalCallViews(this.#options.db, [row]))[0];
 		if (!view) return;
 		const request = await approvalRequestForExternalCall(this.#options.db, view);
-		const text = m.approvalRequest(request, { withButtons: route.adapter.capabilities.buttons });
+		const card = m.approvalCard(request, {
+			withButtons: route.adapter.capabilities.buttons,
+			withRequester: route.notification === true,
+		});
 		const buttons = route.adapter.capabilities.buttons
 			? [
 					[
@@ -3181,7 +3287,7 @@ export class ChannelManager {
 					],
 				]
 			: [];
-		await this.#sendTracked(key, rootId, route, text, buttons, locale, true, false);
+		await this.#sendTracked(key, rootId, route, card, buttons, locale, true);
 	}
 
 	/**
@@ -3225,9 +3331,14 @@ export class ChannelManager {
 			const sent = await context(task.on_behalf_of_user_id);
 			if (!sent) continue;
 			const request = await approvalRequestForTask(this.#options.db, view);
-			const text = signature
-				? sent.m.taskSignatureWait(request, this.#webUrl(`/approvals/tasks/${task.id}`))
-				: sent.m.approvalRequest(request, { withButtons: sent.route.adapter.capabilities.buttons });
+			const card = signature
+				? sent.m.signatureCard(request, this.#webUrl(`/approvals/tasks/${task.id}`), {
+						withRequester: sent.route.notification === true,
+					})
+				: sent.m.approvalCard(request, {
+						withButtons: sent.route.adapter.capabilities.buttons,
+						withRequester: sent.route.notification === true,
+					});
 			const buttons =
 				!signature && sent.route.adapter.capabilities.buttons
 					? [
@@ -3237,7 +3348,7 @@ export class ChannelManager {
 							],
 						]
 					: [];
-			await this.#sendTracked(key, null, sent.route, text, buttons, sent.locale, true, false);
+			await this.#sendTracked(key, null, sent.route, card, buttons, sent.locale, true, !signature);
 		}
 		const groups = await this.#options.db
 			.selectFrom("task_groups")
@@ -3258,9 +3369,14 @@ export class ChannelManager {
 			const sent = await context(group.on_behalf_of_user_id);
 			if (!sent) continue;
 			const request = await approvalRequestForTaskGroup(this.#options.db, view);
-			const text = signature
-				? sent.m.taskGroupSignatureWait(request, this.#webUrl(`/approvals/task-groups/${group.id}`))
-				: sent.m.approvalRequest(request, { withButtons: sent.route.adapter.capabilities.buttons });
+			const card = signature
+				? sent.m.signatureCard(request, this.#webUrl(`/approvals/task-groups/${group.id}`), {
+						withRequester: sent.route.notification === true,
+					})
+				: sent.m.approvalCard(request, {
+						withButtons: sent.route.adapter.capabilities.buttons,
+						withRequester: sent.route.notification === true,
+					});
 			const buttons =
 				!signature && sent.route.adapter.capabilities.buttons
 					? [
@@ -3270,7 +3386,7 @@ export class ChannelManager {
 							],
 						]
 					: [];
-			await this.#sendTracked(key, null, sent.route, text, buttons, sent.locale, true, false);
+			await this.#sendTracked(key, null, sent.route, card, buttons, sent.locale, true, !signature);
 		}
 		const callRows = await this.#options.db
 			.selectFrom("external_calls")
@@ -3285,7 +3401,10 @@ export class ChannelManager {
 			const sent = await context(view.onBehalfOfUserId);
 			if (!sent) continue;
 			const request = await approvalRequestForExternalCall(this.#options.db, view);
-			const text = sent.m.approvalRequest(request, { withButtons: sent.route.adapter.capabilities.buttons });
+			const card = sent.m.approvalCard(request, {
+				withButtons: sent.route.adapter.capabilities.buttons,
+				withRequester: sent.route.notification === true,
+			});
 			const buttons = sent.route.adapter.capabilities.buttons
 				? [
 						[
@@ -3294,7 +3413,7 @@ export class ChannelManager {
 						],
 					]
 				: [];
-			await this.#sendTracked(key, null, sent.route, text, buttons, sent.locale, true, false);
+			await this.#sendTracked(key, null, sent.route, card, buttons, sent.locale, true);
 		}
 	}
 
@@ -3324,19 +3443,28 @@ export class ChannelManager {
 		if (!route || this.#tracked.has(key)) return;
 		const remaining = root.quota_tokens === null ? 0 : Number(root.quota_tokens);
 		const used = Number(root.budget_used_tokens);
-		const text = m.quotaWait(clip(root.title || m.newSessionTitle, 80), remaining, used);
-		await this.#sendTracked(key, rootId, route, text, [], locale);
+		const card = m.quotaCard(clip(root.title || m.newSessionTitle, 80), remaining, used);
+		await this.#sendTracked(key, rootId, route, card, [], locale);
+	}
+
+	#formatOf(adapter: ChannelAdapter): CardFormat {
+		return adapter.capabilities.markdown ? "markdown" : "plain";
+	}
+
+	/** A plain surface's card text has already been rendered as plain; do not run it through Markdown. */
+	#plainOption(adapter: ChannelAdapter): { plain: true } | undefined {
+		return adapter.capabilities.markdown ? undefined : { plain: true };
 	}
 
 	async #sendTracked(
 		key: string,
 		rootId: string | null,
 		route: Route,
-		text: string,
+		card: ChatCard,
 		buttons: readonly (readonly import("./model.ts").ChannelButton[])[],
 		locale: UserSettingsLocale,
 		waiting?: boolean,
-		wrapSession = true,
+		withSessionLink = true,
 	): Promise<void> {
 		// The run now waits for the user: its draft expires on its own and is not shown again until the run goes on.
 		if (waiting === true && rootId !== null) this.#dropDraft(rootId);
@@ -3346,16 +3474,21 @@ export class ChannelManager {
 			rootId !== null && route.thread === undefined && buttonsOn
 				? [...buttons, [{ text: m.openSession, data: `switch:${rootId}` }]]
 				: buttons;
-		// An approval card already starts with its requester, so a session prefix would repeat the title.
-		const header =
-			rootId !== null && wrapSession && route.thread === undefined
-				? m.sessionBody(await this.#sessionTitle(rootId, locale), text)
-				: text;
-		const link = rootId !== null && route.thread === undefined && !buttonsOn ? this.#sessionLink(rootId) : null;
-		const body = link === null ? header : `${header}\n\n${m.openSessionLink(link)}`;
+		// The card is rendered natively for the surface: Markdown for Telegram, plain text for Satori.
+		const format = this.#formatOf(route.adapter);
+		const text = renderCard(card, m.card, format);
+		// A card already names the request; the session link is only for a notification without a thread and
+		// without buttons. A signature card carries its own WebUI link, so it passes `withSessionLink: false`.
+		const link =
+			withSessionLink && rootId !== null && route.thread === undefined && !buttonsOn ? this.#sessionLink(rootId) : null;
+		const suffix = link === null ? "" : m.openSessionLink(link);
+		const body = suffix === "" ? text : `${text}\n\n${suffix}`;
 		let sent: SentMessage;
 		try {
-			sent = await route.adapter.sendText(route.target, body, { buttons: withSwitch });
+			sent = await route.adapter.sendText(route.target, body, {
+				buttons: withSwitch,
+				...(this.#plainOption(route.adapter) ?? {}),
+			});
 		} catch (err) {
 			console.error("channels: sending an approval message failed:", err);
 			return;
@@ -3370,7 +3503,8 @@ export class ChannelManager {
 			adapterName: route.adapterName,
 			target: route.target,
 			messageId: sent.messageId,
-			text: body,
+			card,
+			suffix,
 			locale,
 		});
 		// A decision can land while the card is being sent, before its message id is known. Check once more
@@ -3393,7 +3527,15 @@ export class ChannelManager {
 			this.#settling.add(key);
 			try {
 				this.#tracked.delete(key);
-				await this.#replaceMessage(tracked.adapterName, tracked.target, tracked.messageId, tracked.text, ending);
+				await this.#replaceMessage(
+					tracked.adapterName,
+					tracked.target,
+					tracked.messageId,
+					tracked.card,
+					tracked.suffix,
+					ending,
+					tracked.locale,
+				);
 			} finally {
 				this.#settling.delete(key);
 			}
@@ -3413,7 +3555,15 @@ export class ChannelManager {
 			this.#settling.add(key);
 			try {
 				this.#tracked.delete(key);
-				await this.#replaceMessage(tracked.adapterName, tracked.target, tracked.messageId, tracked.text, ending);
+				await this.#replaceMessage(
+					tracked.adapterName,
+					tracked.target,
+					tracked.messageId,
+					tracked.card,
+					tracked.suffix,
+					ending,
+					tracked.locale,
+				);
 			} finally {
 				this.#settling.delete(key);
 			}
@@ -3422,29 +3572,45 @@ export class ChannelManager {
 
 	/**
 	 * A decided wait message is removed (doc/design/channels.md "Approvals"). A platform that cannot delete
-	 * falls back to editing the message into the one-line ending, so the chat never keeps a stale card.
+	 * falls back to replacing only the card's hints with the one-line result, so the body stays; when it cannot
+	 * edit either, the result is sent as a new message.
 	 */
 	async #replaceMessage(
 		adapterName: string,
 		target: ChannelTarget,
 		messageId: string,
-		originalText: string | null,
+		card: ChatCard | null,
+		suffix: string | null,
 		ending: string,
+		locale: UserSettingsLocale,
 	): Promise<void> {
 		const adapter = this.#adapters.get(adapterName)?.adapter;
 		if (!adapter) return;
+		const m = messagesFor(locale);
+		const format = this.#formatOf(adapter);
+		const plain = this.#plainOption(adapter);
 		try {
 			await adapter.deleteMessage(target, messageId);
 			return;
 		} catch (err) {
 			console.error("channels: deleting a decided wait message failed; editing it instead:", err);
 		}
+		const body =
+			card === null ? renderCardLine(ending, format) : renderCard({ ...card, hints: [ending] }, m.card, format);
+		const text = suffix === null || suffix === "" ? body : `${body}\n\n${suffix}`;
 		try {
-			await adapter.editText(target, messageId, originalText === null ? ending : `${originalText}\n\n${ending}`);
+			await adapter.editText(target, messageId, text, plain);
+			return;
 		} catch (err) {
-			console.error("channels: editing a decided wait message failed:", err);
+			console.error("channels: editing a decided wait message failed; sending the result instead:", err);
+		}
+		try {
+			await adapter.sendText(target, renderCardLine(ending, format), plain);
+		} catch (err) {
+			console.error("channels: sending a decided wait result failed:", err);
 		}
 	}
+
 	/** `undefined` while the wait goes on; otherwise how it ended. */
 	async #waitEnding(key: string, m: BotMessages): Promise<string | undefined> {
 		if (key.startsWith("quota:")) {
@@ -3454,7 +3620,7 @@ export class ChannelManager {
 				.select("state")
 				.where("id", "=", rootId)
 				.executeTakeFirst();
-			if (!row) return m.sessionGone;
+			if (!row) return m.expiredResult;
 			if (row.state === "awaiting") {
 				const paused = await this.#options.db
 					.selectFrom("sessions")
@@ -3464,21 +3630,21 @@ export class ChannelManager {
 					.where("state", "=", "awaiting")
 					.limit(1)
 					.executeTakeFirst();
-				return paused ? undefined : m.quotaWaitEnded;
+				return paused ? undefined : m.expiredResult;
 			}
-			return m.quotaWaitEnded;
+			return m.expiredResult;
 		}
 		const [kind, id] = key.split(":");
-		if (!kind || !id) return m.waitEnded;
+		if (!kind || !id) return m.expiredResult;
 		if (kind === "task") {
 			const row = await this.#options.db
 				.selectFrom("tasks")
 				.select(["state", "approval"])
 				.where("id", "=", id)
 				.executeTakeFirst();
-			if (!row) return m.taskGone;
+			if (!row) return m.expiredResult;
 			if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") return undefined;
-			return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined, m);
+			return this.#decisionEnding(row.approval, m);
 		}
 		if (kind === "task_group") {
 			const row = await this.#options.db
@@ -3486,28 +3652,42 @@ export class ChannelManager {
 				.select(["state", "approval"])
 				.where("id", "=", id)
 				.executeTakeFirst();
-			if (!row) return m.taskGroupGone;
+			if (!row) return m.expiredResult;
 			if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") return undefined;
-			return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined, m);
+			return this.#decisionEnding(row.approval, m);
 		}
 		const row = await getExternalCall(this.#options.db, id);
-		if (!row) return m.callGone;
+		if (!row) return m.expiredResult;
 		if (row.state === "awaiting_approval") return undefined;
-		return this.#decisionEnding(row.approval, row.state === "rejected" ? "rejected" : undefined, m);
+		return this.#decisionEnding(row.approval, m);
 	}
 
-	#decisionEnding(approvalJson: string | null, fallback: "rejected" | undefined, m: BotMessages): string {
-		if (approvalJson) {
-			try {
-				const record = JSON.parse(approvalJson) as {
-					decision?: { decision?: string; reason?: string; by?: { id?: string } };
-				};
-				const decision = record.decision;
-				if (decision?.decision === "approved") return m.approvedEnding;
-				if (decision?.decision === "rejected") return m.rejectedEnding(decision.reason ?? null);
-			} catch {}
+	/**
+	 * A decision names its decider: a user's decision reads their username, Auto Review reads its own name,
+	 * and every other way a wait ended (rules changed, the row was cancelled, the session stopped) is
+	 * "Expired".
+	 */
+	async #decisionEnding(approvalJson: string | null, m: BotMessages): Promise<string> {
+		if (!approvalJson) return m.expiredResult;
+		try {
+			const record = JSON.parse(approvalJson) as {
+				decision?: { decision?: string; reason?: string; by?: { type?: string; id?: string } };
+			};
+			const decision = record.decision;
+			if (!decision?.decision || !decision.by) return m.expiredResult;
+			if (decision.by.type === "system" && decision.by.id === "auto-review" && decision.decision === "approved") {
+				return m.approvedResult(m.card.autoReview);
+			}
+			if (decision.by.type !== "user" || decision.by.id === undefined || decision.by.id === "system") {
+				return m.expiredResult;
+			}
+			const username = (await this.#username(decision.by.id)) ?? decision.by.id;
+			return decision.decision === "approved"
+				? m.approvedResult(username)
+				: m.rejectedResult(username, decision.reason ?? null);
+		} catch {
+			return m.expiredResult;
 		}
-		return fallback === "rejected" ? m.rejected : m.waitEnded;
 	}
 
 	/** Re-reads a session's waiting approvals and quota waits (its state change, or a test setup). */
@@ -3545,6 +3725,16 @@ export class ChannelManager {
 			username: user.username,
 			kind: user.kind,
 		};
+	}
+
+	/** The decider's username for a card's result line; a deleted user keeps the id the decision stored. */
+	async #username(userId: string): Promise<string | undefined> {
+		const user = await this.#options.db
+			.selectFrom("users")
+			.select("username")
+			.where("id", "=", userId)
+			.executeTakeFirst();
+		return user?.username;
 	}
 
 	/** A user's stored locale; null means their platform's language or English decides. */

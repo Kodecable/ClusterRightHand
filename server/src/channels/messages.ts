@@ -1,16 +1,15 @@
 import type { ApprovalAction, ApprovalRequest, ThinkingLevel, UserSettingsLocale } from "@crh/api";
 import { matchLocale } from "@crh/api";
+import type { CardLabels, ChatCard } from "./card.ts";
 
 /**
  * The chat bot's fixed texts (doc/design/channels.md "Messages"), in English and Chinese. Both catalogues
  * are typed with the same interface, so a missing or extra key is a type error. Messages with values are
  * functions; model output is never translated.
  *
- * The Telegram adapter sends these as rich Markdown, where a single newline is a soft break: multi-line
- * texts use blank lines between paragraphs and Markdown lists for commands, and values that come from a
- * user or a model are escaped so they show literally. The Satori adapter sends the same strings as plain
- * text, XML-escaped, so Markdown syntax shows as written there except an inline code span, whose content
- * is unwrapped. A `draft` status is plain text and not escaped.
+ * A card (an approval, a signature wait or a quota wait) is data: the builders below return a `ChatCard`
+ * with raw values, and the renderer for the platform it goes to escapes or unwraps them. Telegram takes
+ * Markdown, Satori plain text, so neither surface converts the other's format.
  */
 
 export type BotLocale = UserSettingsLocale;
@@ -56,151 +55,193 @@ export interface BotCommandMenuEntry {
 
 /** The `/help` list and the Telegram command menu share these commands. */
 type ApprovalFileOperation = Extract<ApprovalAction, { type: "file" }>["operation"];
-type ApprovalRisk = "low" | "medium" | "high";
 
 /**
- * The localized words one approval renderer needs. The channel layout itself is shared, so Telegram and
- * Satori cannot drift apart while one of the catalogues changes; the WebUI has the same words in its own
- * catalogue.
+ * The localized words a card is built from. The layout itself lives in `card.ts`, so Telegram and Satori
+ * cannot drift apart while one of the catalogues changes; the WebUI has the same words in its own catalogue.
  */
-interface ApprovalLabels {
-	approvalNeeded: string;
+interface CardText extends CardLabels {
+	approvalTitle: string;
+	signatureTitle: string;
+	quotaTitle: string;
+	untitledSession: string;
 	requester: {
 		session: (title: string) => string;
 		apiToken: (name: string) => string;
 		user: (username: string) => string;
 	};
-	untitledSession: string;
 	actions: {
-		exec: (command: string) => string;
 		file: (operation: ApprovalFileOperation, path: string, lines: { start: number; end: number } | undefined) => string;
-		api: (request: string) => string;
-		extension: (tool: string) => string;
 	};
-	/** `names` are already escaped; `moreNodes` is the number the server left out. */
+	/** `moreNodes` is the number the server left out; every name is raw and escaped by the renderer. */
 	nodes: (names: readonly string[], moreNodes: number | undefined) => string;
-	privilegedSuffix: string;
-	privilegedOnly: string;
-	review: (risk: ApprovalRisk, reason: string) => string;
 	rejectWithButtons: (id: string) => string;
 	approveHint: (id: string) => string;
 	rejectHint: (id: string) => string;
-	taskSignature: (id: string) => string;
-	taskGroupSignature: (id: string) => string;
+	signatureHint: (link: string | null) => string;
+	quotaDetail: (used: number, remaining: number) => string;
+	quotaContinue: string;
+	quotaStop: string;
+	approvedResult: (by: string) => string;
+	rejectedResult: (by: string, reason: string | null) => string;
+	expired: string;
+	/** The name Auto Review's decisions read as. */
+	autoReview: string;
 }
 
-const EN_APPROVAL: ApprovalLabels = {
-	approvalNeeded: "Approval needed",
-	requester: {
-		session: (title) => `session "${title}"`,
-		apiToken: (name) => `API token "${name}"`,
-		user: (username) => `user ${username}`,
-	},
+const EN_CARD: CardText = {
+	approvalTitle: "Approval needed",
+	signatureTitle: "Signature needed",
+	quotaTitle: "Token quota used up",
 	untitledSession: "New session",
+	requester: {
+		session: (title) => `From session “${title}”`,
+		apiToken: (name) => `From API token “${name}”`,
+		user: (username) => `From user ${username}`,
+	},
 	actions: {
-		exec: (command) => `Run command ${command}`,
 		file: (operation, path, lines) =>
 			`${{ read: "Read file", write: "Write file", push: "Push file", pull: "Pull file", edit: "Edit file", stat: "Stat file", list: "List directory" }[operation]} ${path}${lines ? ` (lines ${lines.start}-${lines.end})` : ""}`,
-		api: (request) => `Call API ${request}`,
-		extension: (tool) => `Call extension ${tool}`,
 	},
 	nodes: (names, moreNodes) => `Nodes: ${names.join(", ")}${moreNodes ? ` and ${moreNodes} more` : ""}`,
 	privilegedSuffix: " · privileged",
-	privilegedOnly: "Privileged operation",
-	review: (risk, reason) => `Auto Review: ${{ low: "low", medium: "medium", high: "high" }[risk]} risk · ${reason}`,
+	riskLevel: (risk) => ({ low: "Low risk", medium: "Medium risk", high: "High risk" })[risk],
 	rejectWithButtons: (id) => `Reject with a reason: /reject ${id} reason`,
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [reason]`,
-	taskSignature: (id) => `Task ${id} waits for your signature.`,
-	taskGroupSignature: (id) => `Task group ${id} waits for your signature.`,
+	signatureHint: (link) => `Sign in the WebUI${link ? `: ${link}` : ""}`,
+	quotaDetail: (used, remaining) => `used ${used} · remaining ${remaining}`,
+	quotaContinue: "Continue: /quota add <tokens>",
+	quotaStop: "End this turn: /quota stop",
+	approvedResult: (by) => `✅ Approved · by ${oneLine(by)}`,
+	rejectedResult: (by, reason) => `❌ Rejected · by ${oneLine(by)}${reason ? `: ${oneLine(reason)}` : ""}`,
+	expired: "Expired",
+	autoReview: "Auto Review",
 };
 
-const ZH_APPROVAL: ApprovalLabels = {
-	approvalNeeded: "需要你的审批",
-	requester: {
-		session: (title) => `会话“${title}”`,
-		apiToken: (name) => `API 令牌“${name}”`,
-		user: (username) => `用户 ${username}`,
-	},
+const ZH_CARD: CardText = {
+	approvalTitle: "需要你的审批",
+	signatureTitle: "需要你的签名",
+	quotaTitle: "令牌配额已用完",
 	untitledSession: "新会话",
+	requester: {
+		session: (title) => `来自会话“${title}”`,
+		apiToken: (name) => `来自 API 令牌“${name}”`,
+		user: (username) => `来自用户 ${username}`,
+	},
 	actions: {
-		exec: (command) => `执行命令 ${command}`,
 		file: (operation, path, lines) =>
 			`${{ read: "读取文件", write: "写入文件", push: "推送文件", pull: "拉取文件", edit: "编辑文件", stat: "查看文件", list: "列出目录" }[operation]} ${path}${lines ? `（第 ${lines.start}-${lines.end} 行）` : ""}`,
-		api: (request) => `调用 API ${request}`,
-		extension: (tool) => `调用扩展 ${tool}`,
 	},
 	nodes: (names, moreNodes) => `节点：${names.join("、")}${moreNodes ? ` 等 ${moreNodes} 个` : ""}`,
 	privilegedSuffix: " · 特权",
-	privilegedOnly: "特权操作",
-	review: (risk, reason) => `Auto Review：${{ low: "低", medium: "中", high: "高" }[risk]}风险 · ${reason}`,
+	riskLevel: (risk) => ({ low: "低风险", medium: "中风险", high: "高风险" })[risk],
 	rejectWithButtons: (id) => `拒绝并说明原因：/reject ${id} 原因`,
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [原因]`,
-	taskSignature: (id) => `任务 ${id} 等待你的签名。`,
-	taskGroupSignature: (id) => `任务组 ${id} 等待你的签名。`,
+	signatureHint: (link) => `在 WebUI 中签名${link ? `：${link}` : ""}`,
+	quotaDetail: (used, remaining) => `已用 ${used} · 剩余 ${remaining}`,
+	quotaContinue: "继续：/quota add <tokens>",
+	quotaStop: "结束本回合：/quota stop",
+	approvedResult: (by) => `✅ 已批准 · 由 ${oneLine(by)}`,
+	rejectedResult: (by, reason) => `❌ 已拒绝 · 由 ${oneLine(by)}${reason ? `：${oneLine(reason)}` : ""}`,
+	expired: "已失效",
+	autoReview: "Auto Review",
 };
 
-function approvalRequesterHeader(request: ApprovalRequest, labels: ApprovalLabels): string {
-	const requester = request.requester;
-	const text =
-		requester.type === "session"
-			? labels.requester.session(escapeMarkdown(requester.title || labels.untitledSession))
-			: requester.type === "api_token"
-				? labels.requester.apiToken(escapeMarkdown(requester.name))
-				: labels.requester.user(escapeMarkdown(requester.username));
-	return `${labels.approvalNeeded} · ${text}`;
+/** A value stays on one line: a path or title from a model must not split a card's line. */
+function oneLine(value: string): string {
+	return value.replace(/[\r\n]+/g, " ").trim();
 }
 
-/** The one approval card: requester, action, nodes/privileged, the settled review and the decision hints. */
-function renderApprovalRequest(
-	request: ApprovalRequest,
-	options: { withButtons: boolean },
-	labels: ApprovalLabels,
-): string {
-	const lines = [approvalRequesterHeader(request, labels)];
-	const action = request.action;
+/** The action's one-line detail, localized only where it has a verb (a file operation). */
+function actionDetail(action: ApprovalAction, labels: CardText): string {
 	switch (action.type) {
 		case "exec":
-			lines.push(labels.actions.exec(inlineCode(action.command)));
-			break;
+			return oneLine(action.command);
 		case "file":
-			lines.push(labels.actions.file(action.operation, inlineCode(action.path), action.lines));
-			break;
+			return oneLine(labels.actions.file(action.operation, action.path, action.lines));
 		case "api_request":
-			lines.push(labels.actions.api(inlineCode(`${action.method} ${action.path}`)));
-			break;
+			return oneLine(`${action.method} ${action.path}`);
 		case "extension_tool":
-			lines.push(labels.actions.extension(inlineCode(`${action.extension}/${action.tool}`)));
-			break;
+			return oneLine(`${action.extension}/${action.tool}`);
 	}
-	if (request.nodes !== undefined && request.nodes.length > 0) {
-		let line = labels.nodes(
-			request.nodes.map((name) => escapeMarkdown(name)),
-			request.moreNodes,
-		);
-		if (request.privileged) line += labels.privilegedSuffix;
-		lines.push(line);
-	} else if (request.privileged) {
-		lines.push(labels.privilegedOnly);
-	}
-	if (request.review) lines.push(labels.review(request.review.risk, escapeMarkdown(request.review.reason)));
-	const hints = options.withButtons
-		? [labels.rejectWithButtons(request.id)]
-		: [labels.approveHint(request.id), labels.rejectHint(request.id)];
-	// A single newline is a soft break in rich Markdown (see the header): every line is its own paragraph.
-	return [...lines, ...hints].join("\n\n");
 }
 
-/** A signature wait keeps its old text but shares the requester header (and so the escaping) of approvals. */
-function renderSignatureWait(
+function requesterText(request: ApprovalRequest, labels: CardText): string {
+	const requester = request.requester;
+	switch (requester.type) {
+		case "session":
+			return labels.requester.session(oneLine(requester.title) || labels.untitledSession);
+		case "api_token":
+			return labels.requester.apiToken(oneLine(requester.name));
+		case "user":
+			return labels.requester.user(oneLine(requester.username));
+	}
+}
+
+/** The nodes and, only when a default notification account routed the card, where the request came from. */
+function metaText(request: ApprovalRequest, withRequester: boolean, labels: CardText): string | undefined {
+	const parts: string[] = [];
+	if (request.nodes !== undefined && request.nodes.length > 0)
+		parts.push(labels.nodes(request.nodes.map(oneLine), request.moreNodes));
+	if (withRequester) parts.push(requesterText(request, labels));
+	return parts.length === 0 ? undefined : parts.join(" · ");
+}
+
+function approvalCardFor(
+	request: ApprovalRequest,
+	options: { withButtons: boolean; withRequester: boolean },
+	labels: CardText,
+): ChatCard {
+	const meta = metaText(request, options.withRequester, labels);
+	const card: ChatCard = {
+		title: labels.approvalTitle,
+		privileged: request.privileged,
+		detail: actionDetail(request.action, labels),
+		hints: options.withButtons
+			? [labels.rejectWithButtons(request.id)]
+			: [labels.approveHint(request.id), labels.rejectHint(request.id)],
+	};
+	if (meta !== undefined) card.meta = meta;
+	if (request.review !== undefined) {
+		card.risk = request.review.risk;
+		card.reason = oneLine(request.review.reason);
+	}
+	return card;
+}
+
+/** A card for a task or task group waiting for the user's signature; its only hint is the WebUI link. */
+function signatureCardFor(
 	request: ApprovalRequest,
 	link: string | null,
-	labels: ApprovalLabels,
-	kind: "task" | "task_group",
-): string {
-	const body = kind === "task" ? labels.taskSignature(request.id) : labels.taskGroupSignature(request.id);
-	return `${approvalRequesterHeader(request, labels)}\n\n${body}${link ? `\n\n${link}` : ""}`;
+	options: { withRequester: boolean },
+	labels: CardText,
+): ChatCard {
+	const meta = metaText(request, options.withRequester, labels);
+	const card: ChatCard = {
+		title: labels.signatureTitle,
+		privileged: request.privileged,
+		detail: actionDetail(request.action, labels),
+		hints: [labels.signatureHint(link)],
+	};
+	if (meta !== undefined) card.meta = meta;
+	if (request.review !== undefined) {
+		card.risk = request.review.risk;
+		card.reason = oneLine(request.review.reason);
+	}
+	return card;
+}
+
+/** The quota card: the session's title as meta, its usage as detail, and how to go on or end the turn. */
+function quotaCardFor(title: string, remaining: number, used: number, labels: CardText): ChatCard {
+	return {
+		title: labels.quotaTitle,
+		privileged: false,
+		meta: title.trim() === "" ? labels.untitledSession : oneLine(title),
+		detail: labels.quotaDetail(used, remaining),
+		hints: [labels.quotaContinue, labels.quotaStop],
+	};
 }
 
 export interface BotMessages {
@@ -252,9 +293,16 @@ export interface BotMessages {
 	quotaRemaining: (remaining: number, used: number) => string;
 	decideUsage: (name: string, withReason: boolean) => string;
 	noWaitingApproval: string;
-	approved: string;
-	rejected: string;
 	approvalNoLongerWaiting: string;
+	/** The localized words of every card (title, labels, result lines). */
+	card: CardText;
+	/** The one approval card every channel renders (doc/design/channels.md "Approvals"). */
+	approvalCard: (request: ApprovalRequest, options: { withButtons: boolean; withRequester: boolean }) => ChatCard;
+	signatureCard: (request: ApprovalRequest, link: string | null, options: { withRequester: boolean }) => ChatCard;
+	quotaCard: (title: string, remaining: number, used: number) => ChatCard;
+	approvedResult: (by: string) => string;
+	rejectedResult: (by: string, reason: string | null) => string;
+	expiredResult: string;
 	sessionNotYours: string;
 	couldNotReadHistory: (problem: string) => string;
 	historyUser: string;
@@ -267,23 +315,8 @@ export interface BotMessages {
 	thinking: string;
 	running: (toolName: string) => string;
 	retrying: (attempt: number) => string;
-	taskSignatureWait: (request: ApprovalRequest, link: string | null) => string;
-	taskGroupSignatureWait: (request: ApprovalRequest, link: string | null) => string;
-	/** The one compact approval card every channel renders (doc/design/channels.md "Approvals"). */
-	approvalRequest: (request: ApprovalRequest, options: { withButtons: boolean }) => string;
-	quotaWait: (title: string, remaining: number, used: number) => string;
 	approveButton: string;
 	rejectButton: string;
-	sessionGone: string;
-	quotaWaitEnded: string;
-	waitEnded: string;
-	taskGone: string;
-	taskGroupGone: string;
-	callGone: string;
-	approvedEnding: string;
-	rejectedEnding: (reason: string | null) => string;
-	approvedBy: (by: string) => string;
-	rejectedBy: (by: string, reason: string | null) => string;
 	draftStarted: (model: string, thinking: string, rulePreset: string) => string;
 	modelTitle: (page: number, pages: number) => string;
 	modelTitleSingle: string;
@@ -357,9 +390,14 @@ const en: BotMessages = {
 	quotaRemaining: (remaining, used) => `This session has ${remaining} tokens left (${used} used).`,
 	decideUsage: (name, withReason) => `Use /${name} \\<id>${withReason ? " [reason]" : ""}.`,
 	noWaitingApproval: "No waiting approval with that id is yours to decide.",
-	approved: "Approved.",
-	rejected: "Rejected.",
 	approvalNoLongerWaiting: "That approval is no longer waiting, or you may not decide it.",
+	card: EN_CARD,
+	approvalCard: (request, options) => approvalCardFor(request, options, EN_CARD),
+	signatureCard: (request, link, options) => signatureCardFor(request, link, options, EN_CARD),
+	quotaCard: (title, remaining, used) => quotaCardFor(title, remaining, used, EN_CARD),
+	approvedResult: (by) => EN_CARD.approvedResult(by),
+	rejectedResult: (by, reason) => EN_CARD.rejectedResult(by, reason),
+	expiredResult: EN_CARD.expired,
 	sessionNotYours: "That session is not yours to attach.",
 	couldNotReadHistory: (problem) => `Could not read the session's history: ${escapeMarkdown(problem)}`,
 	historyUser: "You",
@@ -372,23 +410,8 @@ const en: BotMessages = {
 	thinking: "Thinking…",
 	running: (toolName) => `Running ${toolName}…`,
 	retrying: (attempt) => `Retrying (attempt ${attempt})…`,
-	taskSignatureWait: (request, link) => renderSignatureWait(request, link, EN_APPROVAL, "task"),
-	taskGroupSignatureWait: (request, link) => renderSignatureWait(request, link, EN_APPROVAL, "task_group"),
-	approvalRequest: (request, options) => renderApprovalRequest(request, options, EN_APPROVAL),
-	quotaWait: (title, remaining, used) =>
-		`The token quota of "${escapeMarkdown(title)}" is used up (${remaining} remaining, ${used} used).\n\n/quota add \\<tokens> continues\n\n/quota stop ends the turn`,
 	approveButton: "Approve",
 	rejectButton: "Reject",
-	sessionGone: "The session is gone.",
-	quotaWaitEnded: "The quota wait ended.",
-	waitEnded: "The wait ended.",
-	taskGone: "The task is gone.",
-	taskGroupGone: "The task group is gone.",
-	callGone: "The call is gone.",
-	approvedEnding: "Approved.",
-	rejectedEnding: (reason) => (reason ? `Rejected: ${escapeMarkdown(reason)}` : "Rejected."),
-	approvedBy: (by) => `Approved by ${escapeMarkdown(by)}.`,
-	rejectedBy: (by, reason) => `Rejected by ${escapeMarkdown(by)}${reason ? `: ${escapeMarkdown(reason)}` : ""}.`,
 	draftStarted: (model, thinking, rulePreset) =>
 		[
 			"New session draft:",
@@ -436,8 +459,8 @@ const en: BotMessages = {
 		"- /quota — show the session's token quota",
 		"- /quota add \\<tokens> — raise it and continue",
 		"- /quota stop — end the turn waiting for tokens",
-		"- /approve \\<id> — approve a waiting request",
-		"- /reject \\<id> [reason] — reject it",
+		"- /approve \\[id\\] — approve a waiting request (the only one waiting here when the id is left out)",
+		"- /reject \\[id\\] \\[reason\\] — reject it (without an id, every word is the reason)",
 		"- /help — this list",
 	].join("\n"),
 	commandMenu: [
@@ -512,9 +535,14 @@ const zhCN: BotMessages = {
 	quotaRemaining: (remaining, used) => `此会话还剩 ${remaining} 个令牌（已用 ${used}）。`,
 	decideUsage: (name, withReason) => `请使用 /${name} \\<id>${withReason ? " [原因]" : ""}。`,
 	noWaitingApproval: "没有属于你、等待审批且 id 相符的请求。",
-	approved: "已批准。",
-	rejected: "已拒绝。",
 	approvalNoLongerWaiting: "该审批已不再等待，或你无权决定。",
+	card: ZH_CARD,
+	approvalCard: (request, options) => approvalCardFor(request, options, ZH_CARD),
+	signatureCard: (request, link, options) => signatureCardFor(request, link, options, ZH_CARD),
+	quotaCard: (title, remaining, used) => quotaCardFor(title, remaining, used, ZH_CARD),
+	approvedResult: (by) => ZH_CARD.approvedResult(by),
+	rejectedResult: (by, reason) => ZH_CARD.rejectedResult(by, reason),
+	expiredResult: ZH_CARD.expired,
 	sessionNotYours: "该会话不属于你，无法附加。",
 	couldNotReadHistory: (problem) => `无法读取会话历史：${escapeMarkdown(problem)}`,
 	historyUser: "你",
@@ -527,23 +555,8 @@ const zhCN: BotMessages = {
 	thinking: "思考中…",
 	running: (toolName) => `正在运行 ${toolName}…`,
 	retrying: (attempt) => `正在重试（第 ${attempt} 次）…`,
-	taskSignatureWait: (request, link) => renderSignatureWait(request, link, ZH_APPROVAL, "task"),
-	taskGroupSignatureWait: (request, link) => renderSignatureWait(request, link, ZH_APPROVAL, "task_group"),
-	approvalRequest: (request, options) => renderApprovalRequest(request, options, ZH_APPROVAL),
-	quotaWait: (title, remaining, used) =>
-		`会话“${escapeMarkdown(title)}”的令牌配额已用完（剩余 ${remaining}，已用 ${used}）。\n\n/quota add \\<tokens> 继续\n\n/quota stop 结束本回合`,
 	approveButton: "批准",
 	rejectButton: "拒绝",
-	sessionGone: "会话已不存在。",
-	quotaWaitEnded: "配额等待已结束。",
-	waitEnded: "等待已结束。",
-	taskGone: "任务已不存在。",
-	taskGroupGone: "任务组已不存在。",
-	callGone: "调用已不存在。",
-	approvedEnding: "已批准。",
-	rejectedEnding: (reason) => (reason ? `已拒绝：${escapeMarkdown(reason)}` : "已拒绝。"),
-	approvedBy: (by) => `已由 ${escapeMarkdown(by)} 批准。`,
-	rejectedBy: (by, reason) => `已由 ${escapeMarkdown(by)} 拒绝${reason ? `：${escapeMarkdown(reason)}` : ""}。`,
 	draftStarted: (model, thinking, rulePreset) =>
 		[
 			"新会话草稿：",
@@ -591,8 +604,8 @@ const zhCN: BotMessages = {
 		"- /quota — 查看会话的令牌配额",
 		"- /quota add \\<tokens> — 提高配额并继续",
 		"- /quota stop — 结束等待令牌的回合",
-		"- /approve \\<id> — 批准等待中的请求",
-		"- /reject \\<id> [原因] — 拒绝该请求",
+		"- /approve \\[id\\] — 批准等待中的请求（省略 id 时，批准此聊天中唯一等待的请求）",
+		"- /reject \\[id\\] \\[原因\\] — 拒绝该请求（省略 id 时，后面的文字都作为原因）",
 		"- /help — 本列表",
 	].join("\n"),
 	commandMenu: [
