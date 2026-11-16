@@ -2386,7 +2386,7 @@ it("pushes an approval without a session only while its owner is offline, in the
 		await insertOrphanTask(offlineTask, tokenId);
 		await channels.refreshAllWaits();
 		const card = await fake.waitForSent((call) => sentText(call).includes(`/reject ${offlineTask} 原因`));
-		expect(sentText(card)).toContain("需要你的审批 · 令牌“deploy”");
+		expect(sentText(card)).toContain("需要你的审批 · API 令牌“deploy”");
 		expect(sentText(card)).toContain("执行命令 `uptime`");
 		const deletesBefore = fake.callsOf("deleteMessage").length;
 		const decided = await call(app, `/api/tasks/${offlineTask}/approval`, {

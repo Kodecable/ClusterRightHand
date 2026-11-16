@@ -1,6 +1,6 @@
 import type { UserSettings, UserSettingsUpdate } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { http } from "@/lib/api/client";
 import { useLocale } from "@/lib/i18n";
 
@@ -30,17 +30,29 @@ export function useSaveUserSettings() {
 }
 
 /**
- * The server's language wins after login: when it is set and differs, switch to it. A null server value
- * leaves the stored/browser choice alone, and nothing is written back implicitly. Switching writes the
- * `crh.locale` cache, so the login page and the first paint use it next time.
+ * The server's language wins after login: when it is set and differs, switch to it. When it is null, the
+ * UI's stored/browser choice becomes the account's language: the shell PATCHes it once, so the settings
+ * dialog does not show a language as saved when the server has none. A saved value is never overwritten, and
+ * one failed write is not retried (the next sign-in tries again). Switching writes the `crh.locale` cache, so
+ * the login page and the first paint use it next time.
  */
 export function useServerLocaleSync(): void {
 	const { data } = useUserSettings();
+	const save = useSaveUserSettings();
 	const { locale, setLocale, switching } = useLocale();
 	const serverLocale = data?.locale ?? null;
+	// One implicit write per mounted shell: a null that survives a failed PATCH must not loop.
+	const writeBackAttempted = useRef(false);
 
 	useEffect(() => {
-		if (serverLocale === null || switching || serverLocale === locale) return;
-		setLocale(serverLocale);
-	}, [serverLocale, locale, setLocale, switching]);
+		// Wait for the settings read: the initial undefined is not a null server value.
+		if (data === undefined) return;
+		if (serverLocale !== null) {
+			if (!switching && serverLocale !== locale) setLocale(serverLocale);
+			return;
+		}
+		if (switching || save.isPending || writeBackAttempted.current) return;
+		writeBackAttempted.current = true;
+		save.mutate({ locale });
+	}, [data, serverLocale, locale, setLocale, switching, save]);
 }

@@ -199,6 +199,14 @@ export function TaskFacts({
 			control: true,
 		},
 		...(showSummary && task.summary !== "" ? [{ label: <Trans>Summary</Trans>, value: task.summary, mono: true }] : []),
+		...(task.purpose !== null && task.purpose !== undefined && task.purpose !== ""
+			? [
+					{
+						label: <Trans>Purpose</Trans>,
+						value: task.purpose === "browse" ? <Trans>File browsing</Trans> : task.purpose,
+					},
+				]
+			: []),
 		...(node !== undefined ? [{ label: <Trans>Node</Trans>, value: node }] : []),
 		...(askedBy !== undefined ? [{ label: <Trans>Asked by</Trans>, value: askedBy }] : []),
 		...(showState

@@ -363,7 +363,7 @@ describe("approval request model (sqlite)", () => {
 		expect(request.review).toEqual({ risk: "high", reason: "creates a node group" });
 	});
 
-	it("names a schedule requester and a user acting directly", async () => {
+	it("names a scheduled run's session, not the schedule, as the requester", async () => {
 		const now = new Date().toISOString();
 		await db
 			.insertInto("schedules")
@@ -384,21 +384,27 @@ describe("approval request model (sqlite)", () => {
 				updated_at: now,
 			})
 			.execute();
+		// A scheduled run is an ordinary session the user can go on with; its requests come from that session.
+		await addSession("session-scheduled", "nightly run", null, "session-scheduled");
+		await db.updateTable("sessions").set({ schedule_id: "schedule-1" }).where("id", "=", "session-scheduled").execute();
 		const call = await callRow({
-			id: "call-schedule",
+			id: "call-scheduled",
 			extension: "test",
 			tool: "echo",
 			arguments: {},
 			operation: { method: "ext.read", target: "test/echo" },
-			actorType: "schedule",
-			actorId: "schedule-1",
+			actorType: "session",
+			actorId: "session-scheduled",
 			approval: { evaluation },
 		});
 		expect((await approvalRequestForExternalCall(db, call)).requester).toEqual({
-			type: "schedule",
-			scheduleId: "schedule-1",
-			name: "nightly",
+			type: "session",
+			sessionId: "session-scheduled",
+			title: "nightly run",
 		});
+	});
+
+	it("names a user acting directly", async () => {
 		const userCall = await callRow({
 			id: "call-user",
 			extension: "test",

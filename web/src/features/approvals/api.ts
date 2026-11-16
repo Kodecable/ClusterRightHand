@@ -2,6 +2,7 @@ import type {
 	ApiTokenView,
 	ApprovalBody,
 	ApprovalList,
+	ApprovalRequest,
 	ExternalCallView,
 	PublicNode,
 	TaskGroupView,
@@ -9,7 +10,7 @@ import type {
 } from "@crh/api";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNodeGroups } from "@/features/node-groups/api";
-import { taskKeys } from "@/features/tasks/api";
+import { type TaskDetailView, type TaskGroupDetailView, taskKeys } from "@/features/tasks/api";
 import { useDirectory } from "@/features/users/api";
 import { enc, http } from "@/lib/api/client";
 
@@ -87,14 +88,22 @@ export function useDecideExternalCall() {
 	});
 }
 
+/**
+ * One external call for its approval page. The compact request rides on the view while the call waits, as
+ * it does for tasks, so the page renders the same panel from the server's model.
+ */
+export type ExternalCallDetailView = ExternalCallView & { request?: ApprovalRequest | null };
+
 export function useExternalCall(id: string | undefined) {
 	return useQuery({
 		queryKey: ["external-calls", id ?? ""],
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
 			http
-				.get<{ externalCall: ExternalCallView }>(`/external-calls/${enc(id ?? "")}`, { signal })
-				.then((r) => r.externalCall),
+				.get<{ externalCall: ExternalCallView; request?: ApprovalRequest | null }>(`/external-calls/${enc(id ?? "")}`, {
+					signal,
+				})
+				.then((r): ExternalCallDetailView => ({ ...r.externalCall, request: r.request ?? null })),
 		// The direct page opens while Auto Review decides: follow the phase until the request is the user's.
 		refetchInterval: (query) => (query.state.data?.phase === "reviewing" ? REVIEW_POLL_MS : false),
 	});
@@ -124,7 +133,10 @@ export function useApprovalTask(id: string | undefined) {
 	return useQuery({
 		queryKey: taskKeys.detail(id ?? ""),
 		enabled: id !== undefined && id !== "",
-		queryFn: ({ signal }) => http.get<{ task: TaskView }>(`/tasks/${enc(id ?? "")}`, { signal }).then((r) => r.task),
+		queryFn: ({ signal }) =>
+			http
+				.get<{ task: TaskView; request?: ApprovalRequest | null }>(`/tasks/${enc(id ?? "")}`, { signal })
+				.then((r): TaskDetailView => ({ ...r.task, request: r.request ?? null })),
 		refetchInterval: (query) => (query.state.data?.phase === "reviewing" ? REVIEW_POLL_MS : false),
 	});
 }
@@ -134,7 +146,11 @@ export function useApprovalTaskGroup(id: string | undefined) {
 		queryKey: taskKeys.taskGroup(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
-			http.get<{ taskGroup: TaskGroupView }>(`/task-groups/${enc(id ?? "")}`, { signal }).then((r) => r.taskGroup),
+			http
+				.get<{ taskGroup: TaskGroupView; request?: ApprovalRequest | null }>(`/task-groups/${enc(id ?? "")}`, {
+					signal,
+				})
+				.then((r): TaskGroupDetailView => ({ ...r.taskGroup, request: r.request ?? null })),
 		refetchInterval: (query) => (query.state.data?.phase === "reviewing" ? REVIEW_POLL_MS : false),
 	});
 }

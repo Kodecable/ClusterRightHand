@@ -1,4 +1,4 @@
-import type { Evaluation, TaskGroupView, TaskView } from "@crh/api";
+import type { ApprovalRequest, Evaluation, TaskGroupView, TaskView } from "@crh/api";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -137,7 +137,11 @@ function mockGroup(group: TaskGroupView = GROUP): void {
 			const json = (payload: unknown) =>
 				new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
 			if (url.pathname === "/api/task-groups/g1" || url.pathname === "/api/task-groups/g1/wait") {
-				return json({ taskGroup: group });
+				const request =
+					group.state === "awaiting_approval" || group.state === "awaiting_authorization"
+						? requestFor(group, "task_group")
+						: null;
+				return json({ taskGroup: group, request });
 			}
 			if (url.pathname === "/api/nodes") {
 				return json({
@@ -157,6 +161,24 @@ function mockGroup(group: TaskGroupView = GROUP): void {
 
 const TASK = { ...GROUP_TASK, id: "t1", taskGroupId: null } as TaskView;
 
+/** The compact request a detail response carries while the task or group waits. */
+const requestFor = (view: TaskView | TaskGroupView, kind: "task" | "task_group"): ApprovalRequest => {
+	const nodes = kind === "task" ? ["worker-01"] : ["worker-01", "worker-02"];
+	return {
+		kind,
+		id: view.id,
+		phase: view.phase ?? "awaiting_user",
+		requester: { type: "user", userId: "u1", username: "ada" },
+		action: { type: "exec", command: view.summary },
+		nodes,
+		privileged: view.privileged,
+		alwaysAllow: [
+			{ option: "exact", rule: { action: "allow", method: "exec", nodes, exact: view.summary } },
+			{ option: "prefix", rule: { action: "allow", method: "exec", nodes, prefix: view.summary } },
+		],
+	};
+};
+
 /** Answers a successful task read plus the page's auxiliary lookups. */
 function mockTask(task: TaskView = TASK): void {
 	vi.stubGlobal(
@@ -165,7 +187,13 @@ function mockTask(task: TaskView = TASK): void {
 			const url = new URL(String(input), "http://localhost");
 			const json = (payload: unknown) =>
 				new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
-			if (url.pathname === "/api/tasks/t1" || url.pathname === "/api/tasks/t1/wait") return json({ task });
+			if (url.pathname === "/api/tasks/t1" || url.pathname === "/api/tasks/t1/wait") {
+				const request =
+					task.state === "awaiting_approval" || task.state === "awaiting_authorization"
+						? requestFor(task, "task")
+						: null;
+				return json({ task, request });
+			}
 			// The signed-in user owns the task, so its waiting decision is shown.
 			if (url.pathname === "/api/me") return json({ user: { id: "u1", username: "ada", kind: "admin" } });
 			if (url.pathname === "/api/tasks/t1/authorization") return json({ authorization: null });

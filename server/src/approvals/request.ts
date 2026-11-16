@@ -1,7 +1,7 @@
 /**
  * The one compact, locale-free approval description (doc/design/access-control.md "Approvals"): the
- * channel manager, the approvals API and (later) the WebUI render this model instead of each building its
- * own summary. It is built here from the task, task group or external call row and view, never from prose.
+ * channel manager, the approvals API and the WebUI render this model instead of each building its own
+ * summary. It is built here from the task, task group or external call row and view, never from prose.
  */
 import type {
 	ApprovalAction,
@@ -98,14 +98,6 @@ async function requesterFor(
 	if (actorType === "api_token") {
 		const token = await db.selectFrom("api_tokens").select(["id", "name"]).where("id", "=", actorId).executeTakeFirst();
 		return { type: "api_token", tokenId: actorId, name: token?.name ?? actorId };
-	}
-	if (actorType === "schedule") {
-		const schedule = await db
-			.selectFrom("schedules")
-			.select(["id", "name"])
-			.where("id", "=", actorId)
-			.executeTakeFirst();
-		return { type: "schedule", scheduleId: actorId, name: schedule?.name ?? actorId };
 	}
 	const user = await db
 		.selectFrom("users")

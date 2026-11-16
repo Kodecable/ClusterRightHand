@@ -448,6 +448,12 @@ describe("approvals api (sqlite)", () => {
 			request?: ApprovalRequest;
 		};
 		expect(single.request).toEqual(request);
+		const waited = (await (
+			await call(app, `/api/tasks/${t.id}/wait?timeoutMs=50`, { cookie: cookies.alice })
+		).json()) as {
+			request?: ApprovalRequest;
+		};
+		expect(waited.request).toEqual(request);
 
 		const id = await groups.create({
 			targets: [nodes[0] as string],
@@ -465,6 +471,12 @@ describe("approvals api (sqlite)", () => {
 			action: { type: "exec", command: "uptime" },
 			nodes: ["n1"],
 		});
+		const waitedGroup = (await (
+			await call(app, `/api/task-groups/${id}/wait?timeoutMs=50`, { cookie: cookies.alice })
+		).json()) as {
+			request?: ApprovalRequest;
+		};
+		expect(waitedGroup.request).toEqual(groupResponse.request);
 		const listedGroups = await pending("alice");
 		expect(listedGroups.requests?.find((item) => item.id === id)?.kind).toBe("task_group");
 		await cluster.decide(t.id, {

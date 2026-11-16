@@ -69,7 +69,12 @@ export function TaskGroupPage() {
 				description={<TaskGroupStatus state={taskGroup.data.state} />}
 			/>
 			<TaskGroupSkippedNotice taskGroup={taskGroup.data} names={names} />
-			<TaskGroupResult taskGroup={taskGroup.data} names={names} onChanged={() => void taskGroup.refetch()} />
+			<TaskGroupResult
+				taskGroup={taskGroup.data}
+				request={taskGroup.data.request}
+				names={names}
+				onChanged={() => void taskGroup.refetch()}
+			/>
 		</Page>
 	);
 }

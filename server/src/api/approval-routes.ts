@@ -144,8 +144,8 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 	});
 
 	/**
-	 * `{ decision: "approve" | "reject", reason?, always? }`. `always` is a rule (usually an allow
-	 * prefilled from the task) appended to the root, so that similar calls pass from now on.
+	 * `{ decision: "approve" | "reject", reason?, always? }`. `always` is a rule, normally one of the
+	 * request's own always-allow candidates, appended to the root so similar calls pass from now on.
 	 */
 	const decide = async (
 		c: Context<AppEnv>,

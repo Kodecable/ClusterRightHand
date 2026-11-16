@@ -80,14 +80,14 @@ first paint, so a dark page never flashes light.
 
 The UI is available in English and Chinese. The theme is a per-device choice in localStorage. The
 language is the user's account setting: after login the server's value wins and the client switches to
-it, writing the `crh.locale` cache that the login page and the first paint use. A user whose server value
-is null keeps the stored or browser choice, and nothing is written to the server implicitly. The browser
-tags go through the shared RFC 4647 registry (`packages/api/src/locales.ts`): `zh-TW` and `zh-Hans`
-select zh-CN (no Traditional catalogue exists yet), `en-GB` selects en, and an unknown language falls
-back to English. Labels for
-server enums (task states, presets, audit actions) are translated; an unknown value is shown raw, so a
-new server state is visible before its translation exists. Server error messages and agent output are not
-translated.
+it, writing the `crh.locale` cache that the login page and the first paint use. When the server value is
+null, the WebUI writes the stored or browser choice back once, so the settings dialog never shows an
+unsaved language as the account's; a saved value is never overwritten and a failed write is not retried.
+The browser tags go through the shared RFC 4647 registry (`packages/api/src/locales.ts`): `zh-TW` and
+`zh-Hans` select zh-CN (no Traditional catalogue exists yet), `en-GB` selects en, and an unknown language
+falls back to English. Labels for server enums (task states, presets, audit actions) are translated; an
+unknown value is shown raw, so a new server state is visible before its translation exists. Server error
+messages and agent output are not translated.
 
 ### List navigation, links and refresh
 
@@ -136,20 +136,23 @@ behaves the same on every page:
 - **`EntityPicker`** is the only control for choosing users, user groups, nodes or node groups. It
   searches on the server and resolves already selected ids separately, so no page downloads a full
   list of users or nodes ([Entity search](#entity-search)).
-- **Decision component.** One frame (what is asked, with the target nodes by name and the operation on
-  one truncated line, or an external call's request details) with a tab bar for the answer:
-  **Approve / Always allow / Reject** for a rule approval, **Passkey / `crha grant` / `ssh-keygen` /
-  Local approval / Reject** for a signature wait, **Add tokens / Stop** for an exhausted quota. The
-  Passkey tab exists only when a trusted Passkey does. One approval component covers every kind — a
-  task, a task group and an external call — with the same title, **Your approval is needed**; its
-  summary names the kind (targets and operation, the extension tool and arguments, or the API
-  request's method, path, query and body). **Always allow** offers that kind's rule choices (exact or
-  prefix, this tool or the whole extension, this request or this route) as radios over the editable
-  rule JSON. Session pages, approvals deep links, task pages and external call pages render the same
-  component, so a decision made in one place updates the others; the rule chain or payload details
-  stay behind a tab or a collapsed block, never in the default view. A request Auto Review is still
-  judging shows the reviewing notice instead of decision controls and looks like a tool call in
-  progress in the transcript.
+- **Decision component.** One frame with a tab bar for the answer: **Approve / Always allow / Reject**
+  for a rule approval, **Passkey / `crha grant` / `ssh-keygen` / Local approval / Reject** for a
+  signature wait, **Add tokens / Stop** for an exhausted quota. The Passkey tab exists only when a
+  trusted Passkey does. One approval component covers every kind — a task, a task group and an
+  external call — with the same title, **Your approval is needed**. Its summary renders only the
+  server-built compact `ApprovalRequest` and mirrors the chat card: the requester (a session title
+  links to the session, or a token, user or schedule), the action on one line (the command, the file
+  operation with its path and line range, the API method and path, or the extension tool), the target
+  node names with "and N more", the privileged badge, and Auto Review's settled risk and reason.
+  **Always allow** offers the request's server-built candidates (exact or prefix, this tool or the
+  whole extension, this request or this route) as radios over editable rule JSON. Session pages,
+  approvals deep links, task pages and external call pages render the same component, so a decision
+  made in one place updates the others; the rule chain stays behind a collapsed block, and per-kind
+  payload details (arguments, request bodies, queries, annotations, purpose) live on the task, task
+  group and external call pages, never in the panel. A request Auto Review is still judging shows the
+  reviewing notice instead of decision controls and looks like a tool call in progress in the
+  transcript.
 - **`FileManager`** is the only file browser. It knows nothing of libraries or nodes: it takes a
   `FileSource` with `list` and `stat`, and optionally `download`, `upload`, `delete`, `rename` and
   `preview`. A missing operation hides its action. Its toolbar (a home icon, the path breadcrumb and
@@ -239,13 +242,13 @@ nodes come later.
 
 The approvals page is one table of everything waiting for the signed-in user: task approvals, task
 group approvals, tasks waiting for the user's signature, and sessions whose token quota ran out. The
-columns are the type, the operation, the target nodes by name, who asked and when; the whole row opens
-its detail. A task, task group or external call detail shows the same approval component inline (a
-task in `awaiting_authorization` shows the signature variant), and a quota row opens its session,
-where the docked decision panel holds it. A task group counts once. A request Auto Review is still
-judging is not listed and does not count; its direct page shows the reviewing notice until the review
-escalates it. The deep links that extension and agent tools return open one approval and show "Already
-settled" once it has been decided.
+columns are the type, the operation, the target nodes by name, who asked and when, read from the compact
+`ApprovalRequest` when the server returns one; the whole row opens its detail. A task, task group or
+external call detail shows the same approval component inline (a task in `awaiting_authorization` shows
+the signature variant), and a quota row opens its session, where the docked decision panel holds it. A
+task group counts once. A request Auto Review is still judging is not listed and does not count; its
+direct page shows the reviewing notice until the review escalates it. The deep links that extension and
+agent tools return open one approval and show "Already settled" once it has been decided.
 
 ### Extensions page
 

@@ -1,6 +1,7 @@
 import type {
 	ApprovalBody,
 	ApprovalList,
+	ApprovalRequest,
 	ExternalCallView,
 	QuotaApproval,
 	SessionView,
@@ -21,9 +22,9 @@ import { QuotaDecision } from "./quota-decision";
 
 export type SessionDecision =
 	| { kind: "quota"; wait: QuotaApproval }
-	| { kind: "approval_task"; task: TaskView }
-	| { kind: "approval_external_call"; call: ExternalCallView }
-	| { kind: "approval_task_group"; taskGroup: TaskGroupView }
+	| { kind: "approval_task"; task: TaskView; request?: ApprovalRequest }
+	| { kind: "approval_external_call"; call: ExternalCallView; request?: ApprovalRequest }
+	| { kind: "approval_task_group"; taskGroup: TaskGroupView; request?: ApprovalRequest }
 	| { kind: "signature_task"; task: TaskView }
 	| { kind: "signature_task_group"; taskGroup: TaskGroupView };
 
@@ -40,6 +41,9 @@ function oldest<T extends { createdAt: string }>(items: T[]): T[] {
 export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: string): SessionDecision[] {
 	if (data === undefined) return [];
 	const inTree = (id: string | null | undefined) => id === rootSessionId;
+	// The badge query returns one compact request beside every waiting view; the dock renders only that model.
+	const requests = new Map((data.requests ?? []).map((request) => [`${request.kind}:${request.id}`, request] as const));
+	const requestFor = (kind: "task" | "task_group" | "external_call", id: string) => requests.get(`${kind}:${id}`);
 	const quotas = [...data.quotas]
 		.filter((wait) => wait.sessionId === rootSessionId)
 		.sort((left, right) => left.since.localeCompare(right.since))
@@ -48,14 +52,24 @@ export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: 
 		...quotas,
 		// Auto Review's reviewing state is not a user-facing approval: the dock waits for the verdict.
 		...oldest(data.tasks.filter((task) => inTree(task.rootSessionId) && task.phase !== "reviewing")).map(
-			(task): SessionDecision => ({ kind: "approval_task", task }),
+			(task): SessionDecision => ({ kind: "approval_task", task, request: requestFor("task", task.id) }),
 		),
 		...oldest(data.externalCalls.filter((call) => inTree(call.rootSessionId) && call.phase !== "reviewing")).map(
-			(call): SessionDecision => ({ kind: "approval_external_call", call }),
+			(call): SessionDecision => ({
+				kind: "approval_external_call",
+				call,
+				request: requestFor("external_call", call.id),
+			}),
 		),
 		...oldest(
 			data.taskGroups.filter((taskGroup) => inTree(taskGroup.rootSessionId) && taskGroup.phase !== "reviewing"),
-		).map((taskGroup): SessionDecision => ({ kind: "approval_task_group", taskGroup })),
+		).map(
+			(taskGroup): SessionDecision => ({
+				kind: "approval_task_group",
+				taskGroup,
+				request: requestFor("task_group", taskGroup.id),
+			}),
+		),
 		...oldest(data.authorizations.tasks.filter((task) => inTree(task.rootSessionId))).map(
 			(task): SessionDecision => ({ kind: "signature_task", task }),
 		),
@@ -117,21 +131,29 @@ function useSessionRefresh(sessionId: string): () => void {
 function ApprovalDock({
 	task,
 	taskGroup,
+	request,
 	count,
 }: {
 	task?: TaskView;
 	taskGroup?: TaskGroupView;
+	/** The server-built compact request from the approvals list; without it there is no panel to render. */
+	request: ApprovalRequest | undefined;
 	count?: React.ReactNode;
 }) {
 	const sessionId = task?.rootSessionId ?? taskGroup?.rootSessionId ?? "";
 	const refresh = useSessionRefresh(sessionId);
 	const lookups = useApprovalLookups();
 	const decide = useDecideApproval();
-	const item =
-		task !== undefined
-			? ({ kind: "task", task } as const)
-			: ({ kind: "task_group", taskGroup: taskGroup as TaskGroupView } as const);
 	const id = task?.id ?? taskGroup?.id ?? "";
+	const evaluations =
+		task !== undefined
+			? task.approval
+				? [{ evaluation: task.approval.evaluation }]
+				: undefined
+			: (taskGroup?.approval?.nodes ?? []).map((node) => ({
+					label: lookups.nodeNames.get(node.nodeId) ?? node.nodeId,
+					evaluation: node.evaluation,
+				}));
 	const onDecide = (body: ApprovalBody) => {
 		decide.mutate(
 			{ kind: task !== undefined ? "task" : "task_group", id, body },
@@ -142,14 +164,15 @@ function ApprovalDock({
 			},
 		);
 	};
+	if (request === undefined) return null;
 	return (
 		<ApprovalDecision
-			item={item}
+			request={request}
+			evaluations={evaluations}
 			nodeNames={lookups.nodeNames}
 			refNames={lookups.refNames}
 			tokenNames={lookups.tokenNames}
 			count={count}
-			showReview
 			details={
 				<TaskDetails
 					decision={
@@ -202,17 +225,26 @@ function SignatureDock({
 	);
 }
 
-function ExternalCallDock({ call, count }: { call: ExternalCallView; count?: React.ReactNode }) {
+function ExternalCallDock({
+	call,
+	request,
+	count,
+}: {
+	call: ExternalCallView;
+	request: ApprovalRequest | undefined;
+	count?: React.ReactNode;
+}) {
 	const { t } = useLingui();
 	const refresh = useSessionRefresh(call.rootSessionId ?? "");
 	const decide = useDecideExternalCall();
+	if (request === undefined) return null;
 	return (
 		<ApprovalDecision
-			item={{ kind: "external_call", call }}
+			request={request}
+			evaluations={call.approval ? [{ evaluation: call.approval.evaluation }] : undefined}
 			count={count}
 			busy={decide.isPending}
 			error={decide.error}
-			showReview
 			details={
 				<Link
 					to="/approvals/external-calls/$externalCallId"
@@ -252,11 +284,11 @@ function DockDecision({ decision, count }: { decision: SessionDecision; count?: 
 		case "quota":
 			return <QuotaDock wait={decision.wait} count={count} />;
 		case "approval_task":
-			return <ApprovalDock task={decision.task} count={count} />;
+			return <ApprovalDock task={decision.task} request={decision.request} count={count} />;
 		case "approval_external_call":
-			return <ExternalCallDock call={decision.call} count={count} />;
+			return <ExternalCallDock call={decision.call} request={decision.request} count={count} />;
 		case "approval_task_group":
-			return <ApprovalDock taskGroup={decision.taskGroup} count={count} />;
+			return <ApprovalDock taskGroup={decision.taskGroup} request={decision.request} count={count} />;
 		case "signature_task":
 			return <SignatureDock task={decision.task} count={count} />;
 		case "signature_task_group":

@@ -59,8 +59,9 @@ type ApprovalFileOperation = Extract<ApprovalAction, { type: "file" }>["operatio
 type ApprovalRisk = "low" | "medium" | "high";
 
 /**
- * The localized words one approval renderer needs. The layout itself is shared, so Telegram and Satori
- * (and later the WebUI) cannot drift apart while one of the catalogues changes.
+ * The localized words one approval renderer needs. The channel layout itself is shared, so Telegram and
+ * Satori cannot drift apart while one of the catalogues changes; the WebUI has the same words in its own
+ * catalogue.
  */
 interface ApprovalLabels {
 	approvalNeeded: string;
@@ -68,7 +69,6 @@ interface ApprovalLabels {
 		session: (title: string) => string;
 		apiToken: (name: string) => string;
 		user: (username: string) => string;
-		schedule: (name: string) => string;
 	};
 	untitledSession: string;
 	actions: {
@@ -93,9 +93,8 @@ const EN_APPROVAL: ApprovalLabels = {
 	approvalNeeded: "Approval needed",
 	requester: {
 		session: (title) => `session "${title}"`,
-		apiToken: (name) => `token "${name}"`,
+		apiToken: (name) => `API token "${name}"`,
 		user: (username) => `user ${username}`,
-		schedule: (name) => `schedule "${name}"`,
 	},
 	untitledSession: "New session",
 	actions: {
@@ -120,9 +119,8 @@ const ZH_APPROVAL: ApprovalLabels = {
 	approvalNeeded: "需要你的审批",
 	requester: {
 		session: (title) => `会话“${title}”`,
-		apiToken: (name) => `令牌“${name}”`,
+		apiToken: (name) => `API 令牌“${name}”`,
 		user: (username) => `用户 ${username}`,
-		schedule: (name) => `计划“${name}”`,
 	},
 	untitledSession: "新会话",
 	actions: {
@@ -150,9 +148,7 @@ function approvalRequesterHeader(request: ApprovalRequest, labels: ApprovalLabel
 			? labels.requester.session(escapeMarkdown(requester.title || labels.untitledSession))
 			: requester.type === "api_token"
 				? labels.requester.apiToken(escapeMarkdown(requester.name))
-				: requester.type === "user"
-					? labels.requester.user(escapeMarkdown(requester.username))
-					: labels.requester.schedule(escapeMarkdown(requester.name));
+				: labels.requester.user(escapeMarkdown(requester.username));
 	return `${labels.approvalNeeded} · ${text}`;
 }
 
@@ -192,7 +188,8 @@ function renderApprovalRequest(
 	const hints = options.withButtons
 		? [labels.rejectWithButtons(request.id)]
 		: [labels.approveHint(request.id), labels.rejectHint(request.id)];
-	return `${lines.join("\n")}\n\n${hints.join("\n")}`;
+	// A single newline is a soft break in rich Markdown (see the header): every line is its own paragraph.
+	return [...lines, ...hints].join("\n\n");
 }
 
 /** A signature wait keeps its old text but shares the requester header (and so the escaping) of approvals. */

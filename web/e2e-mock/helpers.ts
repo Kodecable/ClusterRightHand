@@ -1,6 +1,7 @@
 import type {
 	ApiTokenView,
 	ApprovalList,
+	ApprovalRequest,
 	AuditEvent,
 	AuthorizationSummary,
 	AvailableModel,
@@ -52,6 +53,7 @@ const QUOTA_APPROVALS: ApprovalList = {
 	taskGroups: [],
 	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
+	requests: [],
 	quotas: [
 		{
 			// A root no session test opens: the default badge counts these without dock panels.
@@ -197,6 +199,96 @@ export function sessionListItem(overrides: Partial<SessionListItem> = {}): Sessi
 		unread: false,
 		updatedAt: "2026-01-01T00:00:00.000Z",
 		...overrides,
+	};
+}
+
+/** The compact request the fake server returns beside a waiting task, matching the real builder's shape. */
+export function approvalRequestForTask(
+	task: TaskView,
+	options: { nodeName?: string; username?: string } = {},
+): ApprovalRequest {
+	const fileOperation =
+		task.kind === "file.read" ||
+		task.kind === "file.write" ||
+		task.kind === "file.push" ||
+		task.kind === "file.pull" ||
+		task.kind === "file.edit" ||
+		task.kind === "file.stat" ||
+		task.kind === "file.list"
+			? (task.kind.slice("file.".length) as "read" | "write" | "push" | "pull" | "edit" | "stat" | "list")
+			: undefined;
+	const action: ApprovalRequest["action"] =
+		fileOperation === undefined
+			? { type: "exec", command: task.summary }
+			: { type: "file", operation: fileOperation, path: task.summary };
+	const method = (
+		fileOperation === undefined ? "exec" : `file.${fileOperation}`
+	) as ApprovalRequest["alwaysAllow"][number]["rule"]["method"];
+	const node = options.nodeName ?? "worker-01";
+	return {
+		kind: "task",
+		id: task.id,
+		phase: task.phase ?? "awaiting_user",
+		requester:
+			task.actorType === "user"
+				? { type: "user", userId: task.actorId, username: options.username ?? task.actorId }
+				: { type: "session", sessionId: task.rootSessionId ?? task.actorId, title: "" },
+		action,
+		nodes: [node],
+		privileged: task.privileged,
+		...(task.approval?.review !== undefined && !("status" in task.approval.review)
+			? { review: { risk: task.approval.review.risk, reason: task.approval.review.reason } }
+			: {}),
+		alwaysAllow: [
+			{
+				option: "exact",
+				rule: { action: "allow", method, nodes: [node], privileged: task.privileged, exact: task.summary },
+			},
+			{
+				option: "prefix",
+				rule: { action: "allow", method, nodes: [node], privileged: task.privileged, prefix: task.summary },
+			},
+		],
+	};
+}
+
+/** The compact request the fake server returns beside a waiting task group. */
+export function approvalRequestForTaskGroup(group: TaskGroupView): ApprovalRequest {
+	const nodes = group.targets.map((target) => group.refs?.[target]?.name ?? target);
+	return {
+		kind: "task_group",
+		id: group.id,
+		phase: group.phase ?? "awaiting_user",
+		requester:
+			group.actorType === "user"
+				? { type: "user", userId: group.actorId, username: group.actorId }
+				: { type: "session", sessionId: group.rootSessionId ?? group.actorId, title: "" },
+		action: { type: "exec", command: group.summary ?? group.id },
+		nodes: nodes.slice(0, 10),
+		...(nodes.length > 10 ? { moreNodes: nodes.length - 10 } : {}),
+		privileged: group.privileged,
+		alwaysAllow: [
+			{
+				option: "exact",
+				rule: {
+					action: "allow",
+					method: "exec",
+					nodes,
+					privileged: group.privileged,
+					exact: group.summary ?? group.id,
+				},
+			},
+			{
+				option: "prefix",
+				rule: {
+					action: "allow",
+					method: "exec",
+					nodes,
+					privileged: group.privileged,
+					prefix: group.summary ?? group.id,
+				},
+			},
+		],
 	};
 }
 
@@ -1254,14 +1346,28 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const id = decodeURIComponent(taskWaitMatch[1] as string);
 			const task = state.tasks.find((candidate) => candidate.id === id);
 			if (!task) return json({ error: "no such task" }, 404);
-			return json({ task });
+			const request =
+				task.state === "awaiting_approval"
+					? approvalRequestForTask(task, {
+							nodeName: state.nodes.find((node) => node.id === task.nodeId)?.name,
+							username: state.user.username,
+						})
+					: null;
+			return json({ task, request });
 		}
 		const taskMatch = /^\/api\/tasks\/([^/]+)$/.exec(path);
 		if (taskMatch && method === "GET") {
 			const id = decodeURIComponent(taskMatch[1] as string);
 			const task = state.tasks.find((candidate) => candidate.id === id);
 			if (!task) return json({ error: "no such task" }, 404);
-			return json({ task });
+			const request =
+				task.state === "awaiting_approval"
+					? approvalRequestForTask(task, {
+							nodeName: state.nodes.find((node) => node.id === task.nodeId)?.name,
+							username: state.user.username,
+						})
+					: null;
+			return json({ task, request });
 		}
 		const approvalMatch = /^\/api\/(tasks|task-groups)\/([^/]+)\/approval$/.exec(path);
 		if (approvalMatch && method === "POST") {
@@ -1380,6 +1486,8 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const stored = state.taskGroups[id];
 			if (!stored) return json({ error: "no such task group" }, 404);
 			stored.polls += 1;
+			const request =
+				stored.taskGroup.state === "awaiting_approval" ? approvalRequestForTaskGroup(stored.taskGroup) : null;
 			if (stored.polls >= 2) {
 				const finished: TaskGroupView = {
 					...stored.taskGroup,
@@ -1395,9 +1503,9 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 					),
 				};
 				stored.taskGroup = finished;
-				return json({ taskGroup: finished });
+				return json({ taskGroup: finished, request: null });
 			}
-			return json({ taskGroup: stored.taskGroup });
+			return json({ taskGroup: stored.taskGroup, request });
 		}
 		const groupAuthMatch = /^\/api\/task-groups\/([^/]+)\/authorization$/.exec(path);
 		if (groupAuthMatch) return json({ taskGroup: null });
@@ -1523,7 +1631,14 @@ export async function openSession(page: Page, api: ApiMock, sessionId: string, e
 }
 
 export function emptyApprovals(): ApprovalList {
-	return { tasks: [], taskGroups: [], externalCalls: [], authorizations: { tasks: [], taskGroups: [] }, quotas: [] };
+	return {
+		tasks: [],
+		taskGroups: [],
+		externalCalls: [],
+		authorizations: { tasks: [], taskGroups: [] },
+		quotas: [],
+		requests: [],
+	};
 }
 
 /** The trust report a client node has pushed in the fake server. */

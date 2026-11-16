@@ -15,26 +15,47 @@ const SETTINGS: UserSettings = {
 	defaultChannelAccountId: null,
 };
 
-function wrapper(client: QueryClient) {
+function wrapper(client: QueryClient, initialLocale: "en" | "zh-CN" = "en") {
 	return ({ children }: { children: ReactNode }) => (
 		<QueryClientProvider client={client}>
-			<LocaleProvider initialLocale="en">{children}</LocaleProvider>
+			<LocaleProvider initialLocale={initialLocale}>{children}</LocaleProvider>
 		</QueryClientProvider>
 	);
 }
 
-function mockSettings(settings: UserSettings): void {
+interface Call {
+	method: string;
+	body: unknown;
+}
+
+/**
+ * Answer `GET /me/settings` with `settings` and `PATCH /me/settings` with the merged settings (or a failure),
+ * recording every call so the tests can assert how often the implicit write happened.
+ */
+function mockSettings(settings: UserSettings, options: { patchStatus?: number } = {}): Call[] {
+	const calls: Call[] = [];
 	vi.stubGlobal(
 		"fetch",
-		vi.fn(
-			async () =>
-				new Response(JSON.stringify({ settings }), {
-					status: 200,
+		vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			const method = init?.method ?? "GET";
+			const body = init?.body === undefined ? undefined : JSON.parse(String(init.body));
+			calls.push({ method, body });
+			const json = (payload: unknown, status = 200) =>
+				new Response(JSON.stringify(payload), {
+					status,
 					headers: { "content-type": "application/json" },
-				}),
-		),
+				});
+			if (method === "PATCH") {
+				if (options.patchStatus !== undefined) return json({ error: "no" }, options.patchStatus);
+				return json({ settings: { ...settings, ...(body as Partial<UserSettings>) } });
+			}
+			return json({ settings });
+		}),
 	);
+	return calls;
 }
+
+const patches = (calls: Call[]) => calls.filter((call) => call.method === "PATCH");
 
 beforeEach(() => {
 	localStorage.clear();
@@ -42,22 +63,47 @@ beforeEach(() => {
 });
 
 describe("useServerLocaleSync", () => {
-	test("switches to the server's language and caches it", async () => {
-		mockSettings({ ...SETTINGS, locale: "zh-CN" });
+	test("switches to the server's language and caches it without writing the settings", async () => {
+		const calls = mockSettings({ ...SETTINGS, locale: "zh-CN" });
 		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 		renderHook(() => useServerLocaleSync(), { wrapper: wrapper(client) });
 
 		await waitFor(() => expect(document.documentElement.lang).toBe("zh-CN"));
 		expect(localStorage.getItem("crh.locale")).toBe("zh-CN");
+		expect(patches(calls)).toEqual([]);
 	});
 
-	test("a null server value keeps the browser or stored choice and writes nothing", async () => {
-		mockSettings({ ...SETTINGS, locale: null });
+	test("a null server value writes the current UI language back exactly once", async () => {
+		const calls = mockSettings({ ...SETTINGS, locale: null });
 		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 		renderHook(() => useServerLocaleSync(), { wrapper: wrapper(client) });
 
-		await waitFor(() => expect(client.getQueryData(["user-settings"])).toBeDefined());
+		await waitFor(() => expect(patches(calls)).toHaveLength(1));
+		expect(patches(calls)[0]?.body).toEqual({ locale: "en" });
+		// The PATCH response becomes the cache, so the saw-tooth null does not cause a second write.
+		await waitFor(() => expect(client.getQueryData<UserSettings>(["user-settings"])?.locale).toBe("en"));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(patches(calls)).toHaveLength(1);
 		expect(document.documentElement.lang).toBe("en");
-		expect(localStorage.getItem("crh.locale")).toBeNull();
+	});
+
+	test("the write-back uses the stored/browser language, not always English", async () => {
+		activateLocale("zh-CN");
+		const calls = mockSettings({ ...SETTINGS, locale: null });
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		renderHook(() => useServerLocaleSync(), { wrapper: wrapper(client, "zh-CN") });
+
+		await waitFor(() => expect(patches(calls)).toHaveLength(1));
+		expect(patches(calls)[0]?.body).toEqual({ locale: "zh-CN" });
+	});
+
+	test("a failed write is not retried in a loop", async () => {
+		const calls = mockSettings({ ...SETTINGS, locale: null }, { patchStatus: 500 });
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+		renderHook(() => useServerLocaleSync(), { wrapper: wrapper(client) });
+
+		await waitFor(() => expect(patches(calls)).toHaveLength(1));
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		expect(patches(calls)).toHaveLength(1);
 	});
 });

@@ -1,4 +1,4 @@
-import type { TaskGroupView } from "@crh/api";
+import type { ApprovalRequest, TaskGroupView } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -53,10 +53,13 @@ export function TaskGroupSkippedNotice({ taskGroup, names }: { taskGroup: TaskGr
  */
 export function TaskGroupResult({
 	taskGroup,
+	request,
 	names,
 	onChanged,
 }: {
 	taskGroup: TaskGroupView;
+	/** The server-built compact approval request while the group waits. */
+	request?: ApprovalRequest | null;
 	names: Map<string, string>;
 	onChanged?: () => void;
 }) {
@@ -94,17 +97,29 @@ export function TaskGroupResult({
 
 	return (
 		<section className="grid gap-3" data-testid="task-group-result" data-group-id={taskGroup.id}>
-			{taskGroup.state === "awaiting_approval" && (canAct || reviewing) && (
-				<ApprovalDecision
-					item={{ kind: "task_group", taskGroup }}
-					nodeNames={lookups.nodeNames}
-					refNames={lookups.refNames}
-					tokenNames={lookups.tokenNames}
-					busy={decide.isPending}
-					error={decide.error}
-					onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.id, body })}
-				/>
+			{taskGroup.purpose !== null && taskGroup.purpose !== undefined && taskGroup.purpose !== "" && (
+				<p className="text-xs text-muted-foreground" data-testid="task-group-purpose">
+					<Trans>Purpose</Trans>: {taskGroup.purpose === "browse" ? <Trans>File browsing</Trans> : taskGroup.purpose}
+				</p>
 			)}
+			{taskGroup.state === "awaiting_approval" &&
+				request !== undefined &&
+				request !== null &&
+				(canAct || reviewing) && (
+					<ApprovalDecision
+						request={request}
+						evaluations={(taskGroup.approval?.nodes ?? []).map((node) => ({
+							label: nodeName(node.nodeId),
+							evaluation: node.evaluation,
+						}))}
+						nodeNames={lookups.nodeNames}
+						refNames={lookups.refNames}
+						tokenNames={lookups.tokenNames}
+						busy={decide.isPending}
+						error={decide.error}
+						onDecide={(body) => decide.mutate({ kind: "task_group", id: taskGroup.id, body })}
+					/>
+				)}
 
 			{taskGroup.state === "awaiting_authorization" && canSign && (
 				<SignatureWait

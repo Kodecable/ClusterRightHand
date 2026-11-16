@@ -1,5 +1,13 @@
-import type { ExternalCallView, QuotaApproval, RefMap, TaskGroupView, TaskView } from "@crh/api";
-import type { MessageDescriptor } from "@lingui/core";
+import type {
+	ApprovalRequest,
+	ApprovalRequester,
+	ExternalCallView,
+	QuotaApproval,
+	RefMap,
+	TaskGroupView,
+	TaskView,
+} from "@crh/api";
+import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
@@ -7,6 +15,7 @@ import { ArrowLeftIcon } from "lucide-react";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/components/data-table";
 import { ApprovalDecision, ReviewView } from "@/components/decision";
+import { approvalActionDetail } from "@/components/decision/approval-summary";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { NodeTargetList } from "@/components/node-targets";
@@ -33,6 +42,7 @@ import {
 	useDecideExternalCall,
 	useExternalCall,
 } from "./api";
+import { ExternalCallDetails } from "./external-call-details";
 
 /** What kind of decision a row holds; the table's first column. */
 type DecisionType = "approval" | "signature" | "quota";
@@ -48,61 +58,95 @@ interface DecisionRow {
 	key: string;
 	type: DecisionType;
 	operation: string;
-	nodes: string[];
+	/** Node names from the compact request; absent when only the kind-specific view is available. */
+	requestNodes?: string[];
+	nodeIds?: string[];
+	moreNodes?: number;
 	refs?: RefMap;
+	/** The requester from the compact request, when the server returned one. */
+	requester?: ApprovalRequester;
 	actor?: { type: string; id: string };
 	requestedAt: string;
 	link: DataTableRowLink;
 	label: string;
 }
 
-function taskRow(type: "approval" | "signature", task: TaskView): DecisionRow {
+const requestKey = (kind: string, id: string) => `${kind}:${id}`;
+
+/** The compact request of one waiting item, keyed by its kind and id. */
+function requestsByKey(requests: readonly ApprovalRequest[] | undefined): Map<string, ApprovalRequest> {
+	return new Map((requests ?? []).map((request) => [requestKey(request.kind, request.id), request]));
+}
+
+function taskRow(
+	type: "approval" | "signature",
+	task: TaskView,
+	request: ApprovalRequest | undefined,
+	i18n: I18n,
+): DecisionRow {
+	const operation = request !== undefined ? approvalActionDetail(i18n, request.action) : taskTitle(task);
 	return {
 		key: `${type}:task:${task.id}`,
 		type,
-		operation: taskTitle(task),
-		nodes: [task.nodeId],
+		operation,
+		...(request !== undefined
+			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes, requester: request.requester }
+			: { nodeIds: [task.nodeId] }),
 		actor: { type: task.actorType, id: task.actorId },
 		requestedAt: task.createdAt,
 		link: { to: "/approvals/tasks/$taskId", params: { taskId: task.id } },
-		label: taskTitle(task),
+		label: operation,
 	};
 }
 
-function taskGroupRow(type: "approval" | "signature", taskGroup: TaskGroupView): DecisionRow {
+function taskGroupRow(
+	type: "approval" | "signature",
+	taskGroup: TaskGroupView,
+	request: ApprovalRequest | undefined,
+	i18n: I18n,
+): DecisionRow {
+	const operation = request !== undefined ? approvalActionDetail(i18n, request.action) : taskTitle(taskGroup);
 	return {
 		key: `${type}:task-group:${taskGroup.id}`,
 		type,
-		operation: taskTitle(taskGroup),
-		nodes: taskGroup.targets,
-		refs: taskGroup.refs,
+		operation,
+		...(request !== undefined
+			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes, requester: request.requester }
+			: { nodeIds: taskGroup.targets, refs: taskGroup.refs }),
 		actor: { type: taskGroup.actorType, id: taskGroup.actorId },
 		requestedAt: taskGroup.createdAt,
 		link: { to: "/approvals/task-groups/$taskGroupId", params: { taskGroupId: taskGroup.id } },
-		label: taskTitle(taskGroup),
+		label: operation,
 	};
 }
 
-function externalCallRow(call: ExternalCallView): DecisionRow {
+function externalCallRow(call: ExternalCallView, request: ApprovalRequest | undefined, i18n: I18n): DecisionRow {
 	// An api_request is shown by the request it makes (method and path), not by the built-in tool's name.
 	const args =
 		typeof call.arguments === "object" && call.arguments !== null && !Array.isArray(call.arguments)
 			? (call.arguments as Record<string, unknown>)
 			: {};
-	const request =
+	const legacy =
 		call.extension === "crhs-api" && call.tool === "api_request"
 			? [args.method, args.path].filter((value): value is string => typeof value === "string" && value !== "").join(" ")
 			: "";
-	const label = request === "" ? `${call.extension}/${call.tool}` : request;
+	const operation =
+		request !== undefined
+			? approvalActionDetail(i18n, request.action)
+			: legacy === ""
+				? `${call.extension}/${call.tool}`
+				: legacy;
 	return {
 		key: `approval:external-call:${call.id}`,
 		type: "approval",
-		operation: label,
-		nodes: [],
+		operation,
+		...(request !== undefined
+			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes, requester: request.requester }
+			: {}),
 		actor: { type: call.actorType, id: call.actorId },
 		requestedAt: call.createdAt,
 		link: { to: "/approvals/external-calls/$externalCallId", params: { externalCallId: call.id } },
-		label,
+		label: operation,
 	};
 }
 
@@ -112,7 +156,6 @@ function quotaRow(wait: QuotaApproval, defaultTitle: string): DecisionRow {
 		key: `quota:${wait.sessionId}`,
 		type: "quota",
 		operation: title,
-		nodes: [],
 		requestedAt: wait.since,
 		link: { to: "/sessions/$sessionId", params: { sessionId: wait.sessionId } },
 		label: title,
@@ -120,12 +163,13 @@ function quotaRow(wait: QuotaApproval, defaultTitle: string): DecisionRow {
 }
 
 /** The readable full text of a node list for a cell's tooltip. */
-function nodeNamesText(ids: readonly string[], names: Map<string, string>): string | undefined {
-	const text = ids.map((id) => names.get(id) ?? id).join(", ");
-	return text === "" ? undefined : text;
+function nodeNamesText(names: readonly string[], moreNodes: number | undefined): string | undefined {
+	const text = names.join(", ");
+	if (text === "") return undefined;
+	return moreNodes === undefined || moreNodes === 0 ? text : `${text} +${moreNodes}`;
 }
 
-/** The actor that asked for a task, or a dash when the row has none (a quota wait). */
+/** The requester from the compact request, or the old actor fields when an endpoint has no model. */
 function AskedBy({
 	row,
 	userNames,
@@ -135,6 +179,37 @@ function AskedBy({
 	userNames: Map<string, string>;
 	tokenNames: Map<string, string>;
 }) {
+	const { t } = useLingui();
+	if (row.requester !== undefined) {
+		switch (row.requester.type) {
+			case "session": {
+				const title = (
+					<Link
+						to="/sessions/$sessionId"
+						params={{ sessionId: row.requester.sessionId }}
+						className="underline underline-offset-2"
+					>
+						{row.requester.title.trim() === "" ? t`New Session` : row.requester.title}
+					</Link>
+				);
+				return (
+					<span className="truncate">
+						<Trans>Session “{title}”</Trans>
+					</span>
+				);
+			}
+			case "api_token":
+				return (
+					<span className="truncate">
+						<Trans>API token “{row.requester.name}”</Trans>
+					</span>
+				);
+			case "user":
+				return (
+					<UserLink id={row.requester.userId} name={userNames.get(row.requester.userId) ?? row.requester.username} />
+				);
+		}
+	}
 	if (row.actor === undefined) return <>–</>;
 	if (row.actor.type === "user") return <UserLink id={row.actor.id} name={userNames.get(row.actor.id)} />;
 	return <span className="truncate">{actorLabel(row.actor.type, row.actor.id, tokenNames)}</span>;
@@ -143,9 +218,9 @@ function AskedBy({
 /**
  * The Approvals page (doc/design/webui.md "Approvals page"): one table of everything waiting for this
  * user — task approvals, task-group approvals, tasks waiting for the user's
- * signature and roots whose token quota is used up. A row opens the matching
- * detail page, where the decision itself is made. The sidebar badge counts the
- * same rows (`pending.ts`).
+ * signature and roots whose token quota is used up. Rows read the server's compact approval request when
+ * one is present; a row opens the matching detail page, where the decision itself is made. The sidebar
+ * badge counts the same rows (`pending.ts`).
  */
 export function ApprovalsPage() {
 	const { t, i18n } = useLingui();
@@ -156,15 +231,24 @@ export function ApprovalsPage() {
 	const rows = useMemo(() => {
 		if (data === undefined) return [];
 		const quotaDefault = t`New Session`;
+		const requests = requestsByKey(data.requests);
 		return [
-			...data.tasks.map((task) => taskRow("approval", task)),
-			...data.externalCalls.map((call) => externalCallRow(call)),
-			...data.taskGroups.map((taskGroup) => taskGroupRow("approval", taskGroup)),
-			...data.authorizations.tasks.map((task) => taskRow("signature", task)),
-			...data.authorizations.taskGroups.map((taskGroup) => taskGroupRow("signature", taskGroup)),
+			...data.tasks.map((task) => taskRow("approval", task, requests.get(requestKey("task", task.id)), i18n)),
+			...data.externalCalls.map((call) =>
+				externalCallRow(call, requests.get(requestKey("external_call", call.id)), i18n),
+			),
+			...data.taskGroups.map((taskGroup) =>
+				taskGroupRow("approval", taskGroup, requests.get(requestKey("task_group", taskGroup.id)), i18n),
+			),
+			...data.authorizations.tasks.map((task) =>
+				taskRow("signature", task, requests.get(requestKey("task", task.id)), i18n),
+			),
+			...data.authorizations.taskGroups.map((taskGroup) =>
+				taskGroupRow("signature", taskGroup, requests.get(requestKey("task_group", taskGroup.id)), i18n),
+			),
 			...data.quotas.map((wait) => quotaRow(wait, quotaDefault)),
 		];
-	}, [data, t]);
+	}, [data, t, i18n]);
 
 	const columns = useMemo<DataTableColumn<DecisionRow>[]>(
 		() => [
@@ -186,22 +270,39 @@ export function ApprovalsPage() {
 				header: t`Nodes`,
 				minSize: 120,
 				cell: ({ row }) => {
-					if (row.original.nodes.length === 0) return <span className="text-muted-foreground">–</span>;
+					const names = row.original.requestNodes;
+					if (names !== undefined) {
+						if (names.length === 0) return <span className="text-muted-foreground">–</span>;
+						return (
+							<span className="truncate">
+								{names.join(", ")}
+								{row.original.moreNodes !== undefined && row.original.moreNodes > 0 && <> +{row.original.moreNodes}</>}
+							</span>
+						);
+					}
+					const ids = row.original.nodeIds ?? [];
+					if (ids.length === 0) return <span className="text-muted-foreground">–</span>;
 					if (row.original.refs !== undefined) {
 						return (
 							<NodeTargetList
-								ids={row.original.nodes}
+								ids={ids}
 								refs={row.original.refs}
 								nodeNames={lookups.nodeNames}
 								className="flex-nowrap"
 							/>
 						);
 					}
-					const id = row.original.nodes[0] ?? "";
+					const id = ids[0] ?? "";
 					return <span className="truncate">{lookups.nodeNames.get(id) ?? id}</span>;
 				},
 				meta: {
-					title: (row: DecisionRow) => nodeNamesText(row.nodes, lookups.nodeNames),
+					title: (row: DecisionRow) =>
+						row.requestNodes !== undefined
+							? nodeNamesText(row.requestNodes, row.moreNodes)
+							: nodeNamesText(
+									(row.nodeIds ?? []).map((id) => lookups.nodeNames.get(id) ?? id),
+									undefined,
+								),
 				},
 			},
 			{
@@ -291,6 +392,7 @@ export function ApprovalTaskPage() {
 	}
 	if (!task.data) return null;
 	const view = task.data;
+	const request = view.request ?? undefined;
 	return (
 		<Page width="detail" data-testid="approval-detail">
 			<div>
@@ -307,9 +409,10 @@ export function ApprovalTaskPage() {
 					<ReviewView review={view.approval.review} />
 				</Panel>
 			)}
-			{view.state === "awaiting_approval" ? (
+			{view.state === "awaiting_approval" && request !== undefined ? (
 				<ApprovalDecision
-					item={{ kind: "task", task: view }}
+					request={request}
+					evaluations={view.approval ? [{ evaluation: view.approval.evaluation }] : undefined}
 					nodeNames={lookups.nodeNames}
 					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
@@ -352,6 +455,7 @@ export function ApprovalTaskGroupPage() {
 	}
 	if (!taskGroup.data) return null;
 	const view = taskGroup.data;
+	const request = view.request ?? undefined;
 	return (
 		<Page width="detail" data-testid="approval-detail">
 			<div>
@@ -368,9 +472,13 @@ export function ApprovalTaskGroupPage() {
 					<ReviewView review={view.approval.review} />
 				</Panel>
 			)}
-			{view.state === "awaiting_approval" ? (
+			{view.state === "awaiting_approval" && request !== undefined ? (
 				<ApprovalDecision
-					item={{ kind: "task_group", taskGroup: view }}
+					request={request}
+					evaluations={(view.approval?.nodes ?? []).map((node) => ({
+						label: lookups.nodeNames.get(node.nodeId) ?? node.nodeId,
+						evaluation: node.evaluation,
+					}))}
 					nodeNames={lookups.nodeNames}
 					refNames={lookups.refNames}
 					tokenNames={lookups.tokenNames}
@@ -421,6 +529,7 @@ export function ExternalCallApprovalPage() {
 	}
 	if (!call.data) return null;
 	const view = call.data;
+	const request = view.request ?? undefined;
 	return (
 		<Page width="detail" data-testid="approval-detail">
 			<div>
@@ -432,19 +541,22 @@ export function ExternalCallApprovalPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
+			{/* The request's details live on this page, never in the compact approval panel. */}
+			<ExternalCallDetails call={view} />
 			{view.approval?.review && view.phase !== "reviewing" && (
 				<Panel as="section" aria-label={t`Auto review`}>
 					<ReviewView review={view.approval.review} />
 				</Panel>
 			)}
-			{view.state === "awaiting_approval" ? (
+			{view.state === "awaiting_approval" && request !== undefined ? (
 				<ApprovalDecision
-					item={{ kind: "external_call", call: view }}
+					request={request}
+					evaluations={view.approval ? [{ evaluation: view.approval.evaluation }] : undefined}
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ id: view.id, body })}
 				/>
-			) : (
+			) : view.state === "awaiting_approval" ? null : (
 				<Settled
 					status={<span className="font-mono text-xs">{view.state}</span>}
 					title={<Trans>Already settled</Trans>}

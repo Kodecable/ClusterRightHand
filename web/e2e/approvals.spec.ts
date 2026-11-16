@@ -43,7 +43,7 @@ test("approve and always allow adds a rule to the token and runs the task", asyn
 	// The approvals page is one table; its row opens the decision's detail page.
 	const waiting = page.getByRole("row").filter({ hasText: "echo hi" });
 	await expect(waiting).toContainText("Approval");
-	await expect(waiting).toContainText("API token claude-laptop");
+	await expect(waiting).toContainText("API token “claude-laptop”");
 	await waiting.getByRole("link", { name: "echo hi" }).click();
 	await expect(page).toHaveURL(new RegExp(`/approvals/tasks/${task.id}$`));
 

@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { emptyApprovals, login, mockApi, nodeView, taskView } from "./helpers";
+import { approvalRequestForTask, emptyApprovals, login, mockApi, nodeView, taskView } from "./helpers";
 
 test("an approval decision from the Approvals page updates the list and the badge", async ({ page }) => {
 	const task = taskView({ id: "task-42" });
 	const api = await mockApi(page, {
 		state: {
-			approvals: { ...emptyApprovals(), tasks: [task] },
+			approvals: { ...emptyApprovals(), tasks: [task], requests: [approvalRequestForTask(task)] },
 			tasks: [task],
 			nodes: [nodeView()],
 		},

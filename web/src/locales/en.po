@@ -623,7 +623,11 @@ msgstr "An MCP extension is reached over Streamable HTTP with static headers. On
 msgid "An SSH credential is required."
 msgstr "An SSH credential is required."
 
-#: src/components/decision/approval-decision.tsx
+#: src/components/decision/approval-summary.tsx
+msgid "and {more} more"
+msgstr "and {more} more"
+
+#: src/features/approvals/external-call-details.tsx
 msgid "Annotations"
 msgstr "Annotations"
 
@@ -669,6 +673,11 @@ msgstr "API key"
 #: src/features/tokens/create-token-dialog.tsx
 msgid "API token"
 msgstr "API token"
+
+#. placeholder {0}: row.requester.name
+#: src/features/approvals/pages.tsx
+msgid "API token “{0}”"
+msgstr "API token “{0}”"
 
 #: src/app/shell/nav.ts
 #: src/features/tokens/pages.tsx
@@ -716,7 +725,7 @@ msgstr "Argon2 concurrency"
 msgid "Argon2 queue"
 msgstr "Argon2 queue"
 
-#: src/components/decision/approval-decision.tsx
+#: src/features/approvals/external-call-details.tsx
 #: src/features/sessions/tool-dialog.tsx
 msgid "Arguments"
 msgstr "Arguments"
@@ -842,6 +851,11 @@ msgstr "Auto Review is reviewing this request"
 msgid "Auto Review is reviewing…"
 msgstr "Auto Review is reviewing…"
 
+#. placeholder {0}: request.review.reason
+#: src/components/decision/approval-summary.tsx
+msgid "Auto Review: {risk} risk · {0}"
+msgstr "Auto Review: {risk} risk · {0}"
+
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Availability"
@@ -885,7 +899,7 @@ msgstr "Base URL"
 msgid "Behavior"
 msgstr "Behavior"
 
-#: src/components/decision/approval-decision.tsx
+#: src/features/approvals/external-call-details.tsx
 msgid "Body"
 msgstr "Body"
 
@@ -926,6 +940,14 @@ msgstr "By"
 #: src/features/system-settings/attachments-section.tsx
 msgid "Cache size on disk"
 msgstr "Cache size on disk"
+
+#: src/components/decision/approval-summary.tsx
+msgid "Call API"
+msgstr "Call API"
+
+#: src/components/decision/approval-summary.tsx
+msgid "Call extension"
+msgstr "Call extension"
 
 #: src/components/dialogs.tsx
 #: src/components/file-manager/file-picker-dialog.tsx
@@ -1849,6 +1871,10 @@ msgstr "Edit channel {0}"
 msgid "Edit extension {0}"
 msgstr "Edit extension {0}"
 
+#: src/components/decision/approval-summary.tsx
+msgid "Edit file"
+msgstr "Edit file"
+
 #: src/features/library/library-section.tsx
 msgid "Edit limits"
 msgstr "Edit limits"
@@ -2115,7 +2141,7 @@ msgstr "Expires <0/>."
 msgid "Expires after"
 msgstr "Expires after"
 
-#: src/components/decision/approval-decision.tsx
+#: src/features/approvals/external-call-details.tsx
 msgid "Extension"
 msgstr "Extension"
 
@@ -2161,6 +2187,8 @@ msgid "Failed files"
 msgstr "Failed files"
 
 #: src/components/decision/summary.tsx
+#: src/components/task-result.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "File browsing"
 msgstr "File browsing"
 
@@ -2229,9 +2257,23 @@ msgstr "For command limits, lifetimes, local approval and other advanced options
 msgid "Format"
 msgstr "Format"
 
+#. placeholder {0}: requester.name
+#: src/components/decision/approval-summary.tsx
+msgid "From API token “{0}”"
+msgstr "From API token “{0}”"
+
 #: src/features/channels/channel-dialog.tsx
 msgid "From BotFather. It is encrypted with the master key and never shown again."
 msgstr "From BotFather. It is encrypted with the master key and never shown again."
+
+#: src/components/decision/approval-summary.tsx
+msgid "From session “{title}”"
+msgstr "From session “{title}”"
+
+#. placeholder {0}: requester.username
+#: src/components/decision/approval-summary.tsx
+msgid "From user {0}"
+msgstr "From user {0}"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "Gateway token"
@@ -2298,6 +2340,7 @@ msgstr "Headers"
 msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 msgstr "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 
+#: src/components/decision/approval-summary.tsx
 #: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "High"
@@ -2562,6 +2605,12 @@ msgstr "Limits"
 msgid "Lines"
 msgstr "Lines"
 
+#. placeholder {0}: action.lines.start
+#. placeholder {1}: action.lines.end
+#: src/components/decision/approval-summary.tsx
+msgid "lines {0}-{1}"
+msgstr "lines {0}-{1}"
+
 #: src/components/task-result.tsx
 msgid "Lines {from}–{to}"
 msgstr "Lines {from}–{to}"
@@ -2585,6 +2634,10 @@ msgstr "Linked accounts"
 #: src/features/settings/providers.ts
 msgid "List at least one model."
 msgstr "List at least one model."
+
+#: src/components/decision/approval-summary.tsx
+msgid "List directory"
+msgstr "List directory"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "List its tools directly in the model's tool list"
@@ -2644,6 +2697,7 @@ msgstr "Local approval"
 msgid "Log out"
 msgstr "Log out"
 
+#: src/components/decision/approval-summary.tsx
 #: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "Low"
@@ -2697,6 +2751,7 @@ msgstr "Max TTL"
 msgid "MCP"
 msgstr "MCP"
 
+#: src/components/decision/approval-summary.tsx
 #: src/components/decision/evaluation.tsx
 #: src/lib/thinking-level.ts
 msgid "Medium"
@@ -2733,7 +2788,7 @@ msgstr "Message"
 msgid "Message composer"
 msgstr "Message composer"
 
-#: src/components/decision/approval-decision.tsx
+#: src/features/approvals/external-call-details.tsx
 msgid "Method"
 msgstr "Method"
 
@@ -2896,6 +2951,7 @@ msgstr "New schedule"
 msgid "New session"
 msgstr "New session"
 
+#: src/components/decision/approval-summary.tsx
 #: src/features/approvals/pages.tsx
 #: src/features/sessions/children-bar.tsx
 #: src/features/sessions/quota-decision.tsx
@@ -3255,6 +3311,10 @@ msgstr "Nodes or node groups"
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 msgstr "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 
+#: src/components/decision/approval-summary.tsx
+msgid "Nodes:"
+msgstr "Nodes:"
+
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/system-settings/signing-keys-section.tsx
@@ -3451,11 +3511,11 @@ msgstr "Open the task group page"
 msgid "Operation"
 msgstr "Operation"
 
-#: src/components/decision/approval-decision.tsx
+#: src/features/approvals/external-call-details.tsx
 msgid "Operation: read"
 msgstr "Operation: read"
 
-#: src/components/decision/approval-decision.tsx
+#: src/features/approvals/external-call-details.tsx
 msgid "Operation: write"
 msgstr "Operation: write"
 
@@ -3608,9 +3668,9 @@ msgstr "Password set."
 msgid "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
 msgstr "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
 
-#: src/components/decision/approval-decision.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
+#: src/features/approvals/external-call-details.tsx
 msgid "Path"
 msgstr "Path"
 
@@ -3736,11 +3796,21 @@ msgstr "Public key"
 msgid "Public URL"
 msgstr "Public URL"
 
+#: src/components/decision/approval-summary.tsx
+msgid "Pull file"
+msgstr "Pull file"
+
 #: src/components/decision/summary.tsx
+#: src/components/task-result.tsx
+#: src/features/tasks/task-group-result.tsx
 msgid "Purpose"
 msgstr "Purpose"
 
-#: src/components/decision/approval-decision.tsx
+#: src/components/decision/approval-summary.tsx
+msgid "Push file"
+msgstr "Push file"
+
+#: src/features/approvals/external-call-details.tsx
 msgid "Query"
 msgstr "Query"
 
@@ -3768,7 +3838,10 @@ msgstr "Re-enroll node"
 msgid "Re-probe"
 msgstr "Re-probe"
 
-#: src/components/decision/approval-decision.tsx
+#: src/components/decision/approval-summary.tsx
+msgid "Read file"
+msgstr "Read file"
+
 #: src/features/settings/extensions.tsx
 msgid "Read-only"
 msgstr "Read-only"
@@ -3992,6 +4065,10 @@ msgstr "Request body overrides must be valid JSON."
 msgid "Request body per level"
 msgstr "Request body per level"
 
+#: src/features/approvals/external-call-details.tsx
+msgid "Request details"
+msgstr "Request details"
+
 #: src/features/settings/extension-dialog.tsx
 msgid "Request headers"
 msgstr "Request headers"
@@ -4135,6 +4212,10 @@ msgstr "Run {0} now?"
 #: src/features/schedules/run-history.tsx
 msgid "run by hand"
 msgstr "run by hand"
+
+#: src/components/decision/approval-summary.tsx
+msgid "Run command"
+msgstr "Run command"
 
 #: src/features/schedules/run-history.tsx
 msgid "Run history"
@@ -4358,6 +4439,10 @@ msgstr "Sent on every request and stored encrypted; the values are never shown a
 #: src/features/users/pages.tsx
 msgid "Session"
 msgstr "Session"
+
+#: src/features/approvals/pages.tsx
+msgid "Session “{title}”"
+msgstr "Session “{title}”"
 
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
@@ -4587,6 +4672,10 @@ msgstr "Start line"
 #: src/features/sessions/session-list.tsx
 msgid "Start one, or wait for a scheduled run."
 msgstr "Start one, or wait for a scheduled run."
+
+#: src/components/decision/approval-summary.tsx
+msgid "Stat file"
+msgstr "Stat file"
 
 #: src/features/channels/channels-page.tsx
 #: src/features/tasks/pages.tsx
@@ -5184,7 +5273,7 @@ msgstr "Tokens to add"
 msgid "Too many failed attempts. Try again later."
 msgstr "Too many failed attempts. Try again later."
 
-#: src/components/decision/approval-decision.tsx
+#: src/features/approvals/external-call-details.tsx
 msgid "Tool"
 msgstr "Tool"
 
@@ -5549,6 +5638,10 @@ msgstr "Work"
 #: src/components/task-form-fields.tsx
 msgid "Working directory (optional)"
 msgstr "Working directory (optional)"
+
+#: src/components/decision/approval-summary.tsx
+msgid "Write file"
+msgstr "Write file"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Yes"

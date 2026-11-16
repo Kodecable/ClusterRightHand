@@ -1,4 +1,12 @@
-import type { BatchOutputMode, CursorPage, CursorQuery, TaskGroupView, TaskRequest, TaskView } from "@crh/api";
+import type {
+	ApprovalRequest,
+	BatchOutputMode,
+	CursorPage,
+	CursorQuery,
+	TaskGroupView,
+	TaskRequest,
+	TaskView,
+} from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
 import { useCursorInfiniteQuery } from "@/lib/api/query";
@@ -43,6 +51,15 @@ export interface TaskFilters extends CursorQuery {
 	includePurpose?: boolean;
 }
 
+/**
+ * A task detail response also carries the compact approval request while the task waits (the server builds
+ * it). It rides on the view object so every existing `TaskView` consumer keeps its type; the approval panel
+ * reads `request` and ignores the extra field elsewhere.
+ */
+export type TaskDetailView = TaskView & { request?: ApprovalRequest | null };
+/** The same for a task group. */
+export type TaskGroupDetailView = TaskGroupView & { request?: ApprovalRequest | null };
+
 export function useTasks(filters: TaskFilters = {}) {
 	const { state, actorType, nodeId, userId, includePurpose } = filters;
 	return useCursorInfiniteQuery<TaskView>({
@@ -78,10 +95,12 @@ export function useTask(id: string | undefined, pollWaiting = false) {
 		queryFn: ({ signal, client, queryKey }) => {
 			const path = `/tasks/${enc(id ?? "")}`;
 			const known = client.getQueryData(queryKey) !== undefined;
-			if (!pollWaiting || !known) return http.get<{ task: TaskView }>(path, { signal }).then((r) => r.task);
-			return http
-				.get<{ task: TaskView }>(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`, { signal })
-				.then((r) => r.task);
+			const read = (url: string) =>
+				http
+					.get<{ task: TaskView; request?: ApprovalRequest | null }>(url, { signal })
+					.then((r): TaskDetailView => ({ ...r.task, request: r.request ?? null }));
+			if (!pollWaiting || !known) return read(path);
+			return read(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`);
 		},
 		refetchInterval: (query) => {
 			if (!pollWaiting) return false;
@@ -154,11 +173,12 @@ export function useTaskGroup(id: string | undefined, pollRunning = false) {
 		queryFn: ({ signal, client, queryKey }) => {
 			const path = `/task-groups/${enc(id ?? "")}`;
 			const known = client.getQueryData(queryKey) !== undefined;
-			if (!pollRunning || !known)
-				return http.get<{ taskGroup: TaskGroupView }>(path, { signal }).then((r) => r.taskGroup);
-			return http
-				.get<{ taskGroup: TaskGroupView }>(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`, { signal })
-				.then((r) => r.taskGroup);
+			const read = (url: string) =>
+				http
+					.get<{ taskGroup: TaskGroupView; request?: ApprovalRequest | null }>(url, { signal })
+					.then((r): TaskGroupDetailView => ({ ...r.taskGroup, request: r.request ?? null }));
+			if (!pollRunning || !known) return read(path);
+			return read(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`);
 		},
 		refetchInterval: (query) => {
 			if (!pollRunning) return false;

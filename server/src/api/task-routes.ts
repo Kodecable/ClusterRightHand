@@ -235,7 +235,13 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		if (!taskGroup) throw new NotFoundError("no such task group");
 		const timeout = Math.min(Number(timeoutMs ?? 30_000) || 0, MAX_WAIT_MS);
 		// A row removed while waiting still answers the view it was looked up with.
-		return c.json({ taskGroup: (await taskGroups.wait(taskGroup.id, timeout)) ?? taskGroup }, 200);
+		const waited = (await taskGroups.wait(taskGroup.id, timeout)) ?? taskGroup;
+		// The request travels with every wait answer too, so the panel keeps its data while the page follows an open row.
+		const request =
+			waited.state === "awaiting_approval" || waited.state === "awaiting_authorization"
+				? await approvalRequestForTaskGroup(db, waited)
+				: null;
+		return c.json({ taskGroup: waited, request }, 200);
 	});
 
 	/** A task group is visible by its relation to the user (admins, its owner, or a session viewer). */
@@ -347,7 +353,12 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const timeout = Math.min(Number(timeoutMs ?? 30_000) || 0, MAX_WAIT_MS);
 		// A task removed while waiting still answers the view it was looked up with.
 		const task = (await cluster.waitTask(found.task.id, timeout, c.req.raw.signal)) ?? found.task;
-		return c.json({ task }, 200);
+		// The request travels with every wait answer too, so the panel keeps its data while the page follows an open row.
+		const request =
+			task.state === "awaiting_approval" || task.state === "awaiting_authorization"
+				? await approvalRequestForTask(db, task)
+				: null;
+		return c.json({ task, request }, 200);
 	});
 
 	app.openapi(cancelTaskRoute, async (c) => {

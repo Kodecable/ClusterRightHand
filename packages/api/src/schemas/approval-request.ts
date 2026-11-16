@@ -18,7 +18,6 @@ export const ApprovalRequesterSchema = z
 		}),
 		z.object({ type: z.literal("api_token"), tokenId: z.string(), name: z.string() }),
 		z.object({ type: z.literal("user"), userId: z.string(), username: z.string() }),
-		z.object({ type: z.literal("schedule"), scheduleId: z.string(), name: z.string() }),
 	])
 	.meta({ id: "ApprovalRequester" });
 

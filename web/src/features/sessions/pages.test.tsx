@@ -63,9 +63,33 @@ function approvalTask(overrides: Partial<TaskView> = {}): TaskView {
 	} as TaskView;
 }
 
+/** One compact request per waiting task, as the approvals list now returns beside the views. */
+function approvalRequests(tasks: TaskView[]): ApprovalList["requests"] {
+	return tasks.map((task) => ({
+		kind: "task",
+		id: task.id,
+		phase: task.phase ?? "awaiting_user",
+		requester: { type: "user", userId: "u1", username: "ops" },
+		action: { type: "exec", command: task.summary },
+		nodes: ["worker-01"],
+		privileged: task.privileged,
+		alwaysAllow: [
+			{ option: "exact", rule: { action: "allow", method: "exec", exact: task.summary } },
+			{ option: "prefix", rule: { action: "allow", method: "exec", prefix: task.summary } },
+		],
+	}));
+}
+
 /** The approvals list a test answers; every other category stays empty. */
 function waitingApprovals(tasks: TaskView[], quotas: ApprovalList["quotas"] = []): ApprovalList {
-	return { tasks, taskGroups: [], externalCalls: [], authorizations: { tasks: [], taskGroups: [] }, quotas };
+	return {
+		tasks,
+		taskGroups: [],
+		externalCalls: [],
+		authorizations: { tasks: [], taskGroups: [] },
+		quotas,
+		requests: approvalRequests(tasks),
+	};
 }
 
 function sessionView(overrides: Partial<SessionView> = {}): SessionView {
@@ -469,7 +493,7 @@ describe("SessionPage layout", () => {
 		});
 		await screen.findByTestId("session-page");
 		const dock = await screen.findByTestId("session-decisions");
-		expect(within(dock).getByTestId("decision-operation")).toHaveTextContent("echo first");
+		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("echo first");
 		expect(within(dock).getByText("1 of 2")).toBeInTheDocument();
 		expect(within(dock).queryByText("echo second")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();

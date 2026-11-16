@@ -87,6 +87,8 @@ export function TaskPage() {
 	}
 	if (!task.data) return null;
 	const view = task.data;
+	// The server sends the compact request with the task while it waits; the panel renders only that model.
+	const request = view.request ?? undefined;
 	const actor = taskActor(view, (uid) => (directory.data?.users ?? []).find((user) => user.id === uid)?.displayName);
 	const running = !isTerminal(view.state);
 	// Only an administrator and the task's on_behalf_of user may cancel or decide (doc/design/access-control.md).
@@ -182,9 +184,10 @@ export function TaskPage() {
 				/>
 			</Panel>
 
-			{view.state === "awaiting_approval" && (canAct || reviewing) && (
+			{view.state === "awaiting_approval" && request !== undefined && (canAct || reviewing) && (
 				<ApprovalDecision
-					item={{ kind: "task", task: view }}
+					request={request}
+					evaluations={view.approval ? [{ evaluation: view.approval.evaluation }] : undefined}
 					nodeNames={looks.nodeNames}
 					refNames={looks.refNames}
 					tokenNames={looks.tokenNames}

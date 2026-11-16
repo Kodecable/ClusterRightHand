@@ -1,4 +1,4 @@
-import type { ApprovalList, ExternalCallView, TaskGroupView, TaskView } from "@crh/api";
+import type { ApprovalList, ApprovalRequest, ExternalCallView, TaskGroupView, TaskView } from "@crh/api";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -66,6 +66,45 @@ const quota = (sessionId: string, since: string) => ({
 	budgetUsedTokens: 1,
 });
 
+const taskRequest = (id: string, review?: ApprovalRequest["review"]): ApprovalRequest => ({
+	kind: "task",
+	id,
+	phase: "awaiting_user",
+	requester: { type: "session", sessionId: "root", title: `Session ${id}` },
+	action: { type: "exec", command: `echo ${id}` },
+	nodes: ["worker-01"],
+	privileged: false,
+	...(review === undefined ? {} : { review }),
+	alwaysAllow: [
+		{ option: "exact", rule: { action: "allow", method: "exec", exact: `echo ${id}` } },
+		{ option: "prefix", rule: { action: "allow", method: "exec", prefix: `echo ${id}` } },
+	],
+});
+
+const callRequest = (
+	id: string,
+	action: ApprovalRequest["action"],
+	review?: ApprovalRequest["review"],
+): ApprovalRequest => ({
+	kind: "external_call",
+	id,
+	phase: "awaiting_user",
+	requester: { type: "session", sessionId: "root", title: "Clean up" },
+	action,
+	privileged: false,
+	...(review === undefined ? {} : { review }),
+	alwaysAllow:
+		action.type === "api_request"
+			? [
+					{ option: "request", rule: { action: "allow", method: "api.write", exact: "POST /api/sessions" } },
+					{ option: "route", rule: { action: "allow", method: "api.write", prefix: "POST /api/sessions" } },
+				]
+			: [
+					{ option: "tool", rule: { action: "allow", method: "ext.write", exact: "github/create_issue" } },
+					{ option: "extension", rule: { action: "allow", method: "ext.write", prefix: "github/" } },
+				],
+});
+
 const data = (): ApprovalList => ({
 	tasks: [task("later", "2026-01-02T00:00:00.000Z"), task("older", "2026-01-01T00:00:00.000Z")],
 	taskGroups: [group("group", "2026-01-03T00:00:00.000Z")],
@@ -78,6 +117,12 @@ const data = (): ApprovalList => ({
 		externalCall("call-later", "2026-01-02T00:00:00.000Z"),
 		externalCall("call-older", "2026-01-01T00:00:00.000Z"),
 		externalCall("call-other", "2026-01-01T00:00:00.000Z", "another-root"),
+	],
+	requests: [
+		taskRequest("later"),
+		taskRequest("older"),
+		callRequest("call-later", { type: "extension_tool", extension: "github", tool: "create_issue" }),
+		callRequest("call-older", { type: "extension_tool", extension: "github", tool: "create_issue" }),
 	],
 });
 
@@ -96,8 +141,8 @@ describe("sessionDecisions", () => {
 			"signature_task_group",
 		]);
 		expect(decisions[0]).toMatchObject({ kind: "quota", wait: { sessionId: "root" } });
-		expect(decisions[1]).toMatchObject({ kind: "approval_task", task: { id: "older" } });
-		expect(decisions[2]).toMatchObject({ kind: "approval_task", task: { id: "later" } });
+		expect(decisions[1]).toMatchObject({ kind: "approval_task", task: { id: "older" }, request: { id: "older" } });
+		expect(decisions[2]).toMatchObject({ kind: "approval_task", task: { id: "later" }, request: { id: "later" } });
 		expect(decisions[3]).toMatchObject({ kind: "approval_external_call", call: { id: "call-older" } });
 		expect(decisions[4]).toMatchObject({ kind: "approval_external_call", call: { id: "call-later" } });
 		expect(decisions[6]).toMatchObject({ kind: "signature_task", task: { id: "sign-older" } });
@@ -185,29 +230,36 @@ describe("SessionDecisionDock", () => {
 				review: { decision: "escalate", risk: "high", reason: "sends a credential", model: "test/reviewer" },
 			},
 		} as TaskView;
-		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_task", task: reviewed }]} />);
+		const request = taskRequest("reviewed", { risk: "high", reason: "sends a credential" });
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_task", task: reviewed, request }]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		const review = within(dock).getByTestId("decision-review");
-		expect(review).toHaveTextContent("Auto review");
-		expect(review).toHaveTextContent("Escalated");
-		expect(review).toHaveTextContent("High");
-		expect(review).toHaveTextContent("sends a credential");
-		expect(review).toHaveTextContent("test/reviewer");
+		// The dock draws Auto Review's line from the compact request, not from the view's full review record.
+		const review = within(dock).getByTestId("approval-review");
+		expect(review).toHaveTextContent("Auto Review: High risk · sends a credential");
+		expect(within(dock).queryByTestId("decision-review")).not.toBeInTheDocument();
 	});
 
 	test("shows the first decision, its count, and the next one after it is resolved", async () => {
 		mockLookups();
-		const first: SessionDecision = { kind: "approval_task", task: task("first", "2026-01-01T00:00:00.000Z") };
-		const second: SessionDecision = { kind: "approval_task", task: task("second", "2026-01-02T00:00:00.000Z") };
+		const first: SessionDecision = {
+			kind: "approval_task",
+			task: task("first", "2026-01-01T00:00:00.000Z"),
+			request: taskRequest("first"),
+		};
+		const second: SessionDecision = {
+			kind: "approval_task",
+			task: task("second", "2026-01-02T00:00:00.000Z"),
+			request: taskRequest("second"),
+		};
 		await renderWithRouter(<Harness decisions={[first, second]} next={[second]} />);
 		const dock = await screen.findByTestId("session-decisions");
 		expect(dock).toHaveAttribute("data-decision", "approval_task");
-		expect(within(dock).getByTestId("decision-operation")).toHaveTextContent("echo first");
+		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("echo first");
 		expect(within(dock).getByText("1 of 2")).toBeInTheDocument();
 		expect(within(dock).queryByText("echo second")).not.toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "resolve first" }));
-		await waitFor(() => expect(within(dock).getByTestId("decision-operation")).toHaveTextContent("echo second"));
+		await waitFor(() => expect(within(dock).getByTestId("approval-action")).toHaveTextContent("echo second"));
 		expect(within(dock).queryByText("1 of 2")).not.toBeInTheDocument();
 	});
 });
@@ -216,11 +268,11 @@ describe("external call decision", () => {
 	test("shows the extension, tool and arguments in the dock", async () => {
 		mockLookups();
 		const call = externalCall("call-1", "2026-01-01T00:00:00.000Z");
-		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call }]} />);
+		const request = callRequest("call-1", { type: "extension_tool", extension: "github", tool: "create_issue" });
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call, request }]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		expect(within(dock).getByText("github")).toBeInTheDocument();
-		expect(within(dock).getByText("create_issue")).toBeInTheDocument();
-		expect(within(dock).getByTestId("external-call-arguments")).toHaveTextContent("Bug");
+		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("Call extension");
+		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("github/create_issue");
 		expect(within(dock).getByRole("button", { name: "Approve" })).toBeInTheDocument();
 	});
 
@@ -233,26 +285,28 @@ describe("external call decision", () => {
 				review: { decision: "approve", risk: "low", reason: "a read", model: "test/reviewer" },
 			},
 		} as ExternalCallView;
-		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call }]} />);
+		const request = callRequest(
+			"call-review",
+			{ type: "extension_tool", extension: "github", tool: "create_issue" },
+			{ risk: "low", reason: "a read" },
+		);
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call, request }]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		const review = within(dock).getByTestId("decision-review");
-		expect(review).toHaveTextContent("Approved");
-		expect(review).toHaveTextContent("Low");
-		expect(review).toHaveTextContent("a read");
-		expect(review).toHaveTextContent("test/reviewer");
+		expect(within(dock).getByTestId("approval-review")).toHaveTextContent("Auto Review: Low risk · a read");
 	});
 
 	test("shows an api_request's method, path, query and body, and offers the route rule", async () => {
 		mockLookups();
 		const call = apiRequestCall("api-1");
-		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call }]} />);
+		const request = callRequest("api-1", { type: "api_request", method: "POST", path: "/api/sessions" });
+		await renderWithRouter(<SessionDecisionDock decisions={[{ kind: "approval_external_call", call, request }]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		expect(within(dock).getByTestId("external-call-api-request")).toHaveTextContent("POST");
-		expect(within(dock).getByTestId("external-call-api-request")).toHaveTextContent("/api/sessions");
-		expect(within(dock).getByTestId("external-call-query")).toHaveTextContent("scope");
-		expect(within(dock).getByTestId("external-call-body")).toHaveTextContent("Bug");
+		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("Call API");
+		expect(within(dock).getByTestId("approval-action")).toHaveTextContent("POST /api/sessions");
+		// The request's query and body belong to the detail page, not the dock.
+		expect(within(dock).queryByTestId("external-call-body")).not.toBeInTheDocument();
 		fireEvent.click(within(dock).getByRole("tab", { name: "Always allow" }));
-		const rule = within(dock).getByTestId("external-call-always-rule") as HTMLTextAreaElement;
+		const rule = within(dock).getByLabelText("Rule to add to the caller's rule set") as HTMLTextAreaElement;
 		expect(rule.value).toContain('"exact": "POST /api/sessions"');
 		fireEvent.click(within(dock).getByRole("radio", { name: "This route" }));
 		expect(rule.value).toContain('"prefix": "POST /api/sessions"');

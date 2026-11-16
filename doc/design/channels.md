@@ -208,10 +208,9 @@ token, a user acting directly and a schedule are named as themselves), a structu
 command, file operation and path with an optional line range, API request, or extension tool), the node
 names that need approval (at most 10 with a `moreNodes` count), whether it is privileged, the settled
 Auto Review risk and reason when one exists, and the "always allow" rule candidates the server can build.
-Telegram and Satori render this model, and the WebUI's approval responses carry the same data for its own
-renderer; details beyond it belong on the task, task group and external call pages. The approvals API
-returns one per waiting item beside the kind-specific view, and task, task group and external-call
-detail responses carry the item's `request`.
+Telegram, Satori and the WebUI render this model; details beyond it belong on the task, task group and
+external call pages. The approvals API returns one per waiting item beside the kind-specific view, and
+task, task group and external-call detail responses carry the item's `request`.
 
 A chat card reads:
 
