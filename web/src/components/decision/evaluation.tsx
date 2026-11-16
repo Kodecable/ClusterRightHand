@@ -39,6 +39,14 @@ function scopeTypeLabel(i18n: I18n, type: string): string {
 }
 
 /**
+ * A level's scope and the id of the API token, session or schedule it names. The space between them is
+ * part of the translated message, so Chinese may write it the way its own typography does.
+ */
+function scopeTypeText(i18n: I18n, type: string, id: string): string {
+	return i18n._(msg`${scopeTypeLabel(i18n, type)} ${id}`);
+}
+
+/**
  * An actor of a task: a user is a link to its page (the destination handles no
  * access); a token, system, agent or schedule actor stays plain text.
  */
@@ -75,14 +83,17 @@ export function EvaluationTable({
 			header: t`Level`,
 			size: 220,
 			cell: ({ row }) => (
-				<>
-					{scopeTypeLabel(i18n, row.original.scope.type)}{" "}
-					<span className={MONO_CELL}>{tokenNames?.get(row.original.scope.id) ?? row.original.scope.id}</span>
-				</>
+				<span className={MONO_CELL}>
+					{scopeTypeText(
+						i18n,
+						row.original.scope.type,
+						tokenNames?.get(row.original.scope.id) ?? row.original.scope.id,
+					)}
+				</span>
 			),
 			meta: {
 				title: (level: Evaluation["levels"][number]) =>
-					`${scopeTypeLabel(i18n, level.scope.type)} ${tokenNames?.get(level.scope.id) ?? level.scope.id}`,
+					scopeTypeText(i18n, level.scope.type, tokenNames?.get(level.scope.id) ?? level.scope.id),
 			},
 		},
 		{

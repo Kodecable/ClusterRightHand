@@ -88,18 +88,16 @@ export function ToolDialog({
 					)}
 					{wait && (
 						<p className="text-xs text-warn" role="status">
-							<Trans>Waiting for your approval.</Trans>{" "}
-							<InternalLink href={approvalHref}>
-								<Trans>Review and approve</Trans>
-							</InternalLink>
+							<Trans>
+								Waiting for your approval. <InternalLink href={approvalHref}>Review and approve</InternalLink>
+							</Trans>
 						</p>
 					)}
 					{signature && (
 						<p className="text-xs text-warn" role="status">
-							<Trans>Waiting for your signature.</Trans>{" "}
-							<InternalLink href={signatureHref}>
-								<Trans>Open the signing page</Trans>
-							</InternalLink>
+							<Trans>
+								Waiting for your signature. <InternalLink href={signatureHref}>Open the signing page</InternalLink>
+							</Trans>
 						</p>
 					)}
 					{liveOutput !== undefined && (

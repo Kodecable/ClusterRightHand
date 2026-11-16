@@ -6,6 +6,21 @@ import { writeStorage } from "@/lib/storage";
 
 export { isLocale, LOCALE_STORAGE_KEY, LOCALES, type Locale, resolveInitialLocale } from "@/lib/locale";
 
+/*
+ * Rules for translatable text (the chat catalogue, server/src/channels/messages.ts, follows the same ones):
+ *
+ * 1. One message per sentence or line, with values as placeholders: `Nodes: {list}` → `节点：{list}`. Never
+ *    concatenate translated fragments, and never add punctuation or spaces next to a translation in code: the
+ *    translation owns its colon, spacing and word order (a full-width `：` takes no space after it).
+ * 2. Lists go through `Intl.ListFormat(locale, { type: "conjunction", style: "narrow" })`, which gives
+ *    `a, b, c` and `a、b、c`; never `join(", ")`.
+ * 3. Plurals are ICU plural forms inside the message, not code branches; numbers, dates and sizes use the
+ *    active locale's formatters.
+ * 4. Code may only put language-neutral layout between whole messages: the ` · ` separator and line breaks.
+ * 5. Chinese translations use full-width punctuation (：，（）“”、) and keep the spacing between Chinese and
+ *    Latin text the way the translation writes it.
+ */
+
 async function loadCatalog(locale: Locale): Promise<Record<string, string>> {
 	// The Vite plugin compiles .po catalogs on import. The source locale needs a
 	// catalog too: macros compile to message ids, so the English strings live in

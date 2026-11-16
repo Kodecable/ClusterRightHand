@@ -1038,7 +1038,8 @@ export class ChannelManager {
 	): Promise<void> {
 		const prefix =
 			previous === "archived" ? m.previousArchived : previous === "unavailable" ? m.previousUnavailable : "";
-		await adapter.sendText(target, `${prefix}${m.newSessionStarted(this.#sessionLink(sessionId))}`);
+		const body = m.newSessionStarted(this.#sessionLink(sessionId));
+		await adapter.sendText(target, prefix === "" ? body : `${prefix}\n\n${body}`);
 	}
 
 	async #downloadAttachments(

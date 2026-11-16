@@ -7,6 +7,7 @@ import type {
 	TaskGroupView,
 	TaskView,
 } from "@crh/api";
+import { formatList } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -160,8 +161,8 @@ function quotaRow(wait: QuotaApproval, defaultTitle: string): DecisionRow {
 }
 
 /** The readable full text of a node list for a cell's tooltip. */
-function nodeNamesText(names: readonly string[], moreNodes: number | undefined): string | undefined {
-	const text = names.join(", ");
+function nodeNamesText(names: readonly string[], moreNodes: number | undefined, locale: string): string | undefined {
+	const text = formatList(locale, names);
 	if (text === "") return undefined;
 	return moreNodes === undefined || moreNodes === 0 ? text : `${text} +${moreNodes}`;
 }
@@ -272,7 +273,7 @@ export function ApprovalsPage() {
 						if (names.length === 0) return <span className="text-muted-foreground">–</span>;
 						return (
 							<span className="truncate">
-								{names.join(", ")}
+								{formatList(i18n.locale, names)}
 								{row.original.moreNodes !== undefined && row.original.moreNodes > 0 && <> +{row.original.moreNodes}</>}
 							</span>
 						);
@@ -295,10 +296,11 @@ export function ApprovalsPage() {
 				meta: {
 					title: (row: DecisionRow) =>
 						row.requestNodes !== undefined
-							? nodeNamesText(row.requestNodes, row.moreNodes)
+							? nodeNamesText(row.requestNodes, row.moreNodes, i18n.locale)
 							: nodeNamesText(
 									(row.nodeIds ?? []).map((id) => lookups.nodeNames.get(id) ?? id),
 									undefined,
+									i18n.locale,
 								),
 				},
 			},
@@ -370,8 +372,8 @@ function Settled({
 	return (
 		<div className="grid gap-2 rounded-lg border p-4">
 			<h1 className="text-lg font-semibold break-words [overflow-wrap:anywhere]">{title}</h1>
-			<p className="flex flex-wrap items-center gap-2 text-sm">
-				<Trans>This request is no longer waiting for approval; it is</Trans> {status}
+			<p className="text-sm">
+				<Trans>This request is no longer waiting for approval; it is {status}</Trans>
 			</p>
 			{children}
 		</div>

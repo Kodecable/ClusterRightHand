@@ -1,4 +1,5 @@
 import type { SessionView } from "@crh/api";
+import { plural } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { DatabaseIcon, GaugeIcon } from "lucide-react";
 import { useModels } from "@/features/settings/api";
@@ -52,7 +53,9 @@ function ActivityControl({ session }: { session: SessionView }) {
 		>
 			<GaugeIcon className="size-3.5" aria-hidden="true" />
 			<span>
-				<Plural value={turns} one="# turn" other="# turns" /> <Plural value={steps} one="# step" other="# steps" />
+				<Plural value={turns} one="# turn" other="# turns" />
+				{" · "}
+				<Plural value={steps} one="# step" other="# steps" />
 				{rate !== null && (
 					<>
 						{" · "}
@@ -118,15 +121,15 @@ function ContextRing({ ratio }: { ratio: number }) {
  * the tree recorded any prompt tokens. Exact numbers are the tooltip.
  */
 function UsageControl({ session }: { session: SessionView }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const { locale } = useLocale();
-	const exact = formatNumber(session.usageTokens, locale);
 	const { promptTokens, cacheReadTokens } = session.stats;
 	const hit = cacheHitPercent(cacheReadTokens, promptTokens);
+	const total = i18n._(plural(session.usageTokens, { one: "# token in total", other: "# tokens in total" }));
 	const title =
 		hit === null
-			? t`${exact} tokens in total`
-			: t`${exact} tokens in total · Cache hit: ${formatNumber(cacheReadTokens, locale)} / ${formatNumber(promptTokens, locale)}`;
+			? total
+			: `${total} · ${t`Cache hit: ${formatNumber(cacheReadTokens, locale)} / ${formatNumber(promptTokens, locale)}`}`;
 	return (
 		<span
 			data-testid="composer-usage"

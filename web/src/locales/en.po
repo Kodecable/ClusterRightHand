@@ -8,36 +8,13 @@ msgstr ""
 "Language: en\n"
 
 #: src/components/task-result.tsx
-msgid " (a new file)"
-msgstr " (a new file)"
+msgid "… {omitted, plural, one {# byte} other {# bytes}} omitted …"
+msgstr "… {omitted, plural, one {# byte} other {# bytes}} omitted …"
 
-#: src/components/task-result.tsx
-msgid " (end of file)"
-msgstr " (end of file)"
-
-#: src/components/task-result.tsx
-msgid " (more lines follow)"
-msgstr " (more lines follow)"
-
-#: src/components/task-result.tsx
-msgid " (replaced)"
-msgstr " (replaced)"
-
-#: src/features/tasks/task-group-result.tsx
-msgid " (the batch was cancelled)"
-msgstr " (the batch was cancelled)"
-
-#: src/features/tasks/task-group-result.tsx
-msgid " (the batch was interrupted)"
-msgstr " (the batch was interrupted)"
-
-#: src/components/task-result.tsx
-msgid ", {total} lines in all"
-msgstr ", {total} lines in all"
-
-#: src/components/task-result.tsx
-msgid "… {omitted} bytes omitted …"
-msgstr "… {omitted} bytes omitted …"
+#. placeholder {0}: warning.nodeGroupName
+#: src/features/nodes/trust-warnings.tsx
+msgid "(Node group {0})"
+msgstr "(Node group {0})"
 
 #: src/markdown/safe-nodes.tsx
 msgid "[image: {label}]"
@@ -79,6 +56,11 @@ msgstr "{0, plural, one {# selected} other {# selected}}"
 msgid "{0, plural, one {# task} other {# tasks}}"
 msgstr "{0, plural, one {# task} other {# tasks}}"
 
+#. placeholder {0}: session.usageTokens
+#: src/features/sessions/composer-meta.tsx
+msgid "{0, plural, one {# token in total} other {# tokens in total}}"
+msgstr "{0, plural, one {# token in total} other {# tokens in total}}"
+
 #. placeholder {0}: nodes.length - shown.length
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "{0, plural, one {and # more} other {and # more}}"
@@ -89,35 +71,62 @@ msgstr "{0, plural, one {and # more} other {and # more}}"
 msgid "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
 msgstr "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
 
+#. placeholder {0}: selected.size
+#: src/components/file-manager/file-picker-dialog.tsx
+msgid "{0, plural, one {Select # file} other {Select # files}}"
+msgstr "{0, plural, one {Select # file} other {Select # files}}"
+
 #. placeholder {0}: result.bytes
 #: src/components/task-result.tsx
-msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
-msgstr "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
+msgid "{0, plural, one {Wrote # byte (a new file)} other {Wrote # bytes (a new file)}}"
+msgstr "{0, plural, one {Wrote # byte (a new file)} other {Wrote # bytes (a new file)}}"
+
+#. placeholder {0}: result.bytes
+#: src/components/task-result.tsx
+msgid "{0, plural, one {Wrote # byte (replaced)} other {Wrote # bytes (replaced)}}"
+msgstr "{0, plural, one {Wrote # byte (replaced)} other {Wrote # bytes (replaced)}}"
 
 #. placeholder {0}: account.platform
 #: src/features/channels/chat-accounts-section.tsx
 msgid "{0} · linked <0/>"
 msgstr "{0} · linked <0/>"
 
+#. placeholder {0}: reportLabel(data.status)
+#: src/features/nodes/node-trust.tsx
+msgid "{0} (last report, stale until the node reconnects)"
+msgstr "{0} (last report, stale until the node reconnects)"
+
 #. placeholder {0}: key.fingerprint
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "{0} (newest)"
 msgstr "{0} (newest)"
+
+#. placeholder {0}: scopeTypeLabel(i18n, type)
+#: src/components/decision/evaluation.tsx
+msgid "{0} {id}"
+msgstr "{0} {id}"
+
+#. placeholder {0}: command.method
+#. placeholder {1}: command.target
+#: src/features/authorizations/pages.tsx
+msgid "{0} exact {1}"
+msgstr "{0} exact {1}"
 
 #. placeholder {0}: user.username
 #: src/features/users/user-group-dialogs.tsx
 msgid "{0} gains the node access this user group grants."
 msgstr "{0} gains the node access this user group grants."
 
+#. placeholder {0}: command.method
+#. placeholder {1}: command.target
+#: src/features/authorizations/pages.tsx
+msgid "{0} prefix {1}"
+msgstr "{0} prefix {1}"
+
 #. placeholder {0}: formatTokenRate(rate, locale)
 #: src/features/sessions/composer-meta.tsx
 msgid "{0} tok/s"
 msgstr "{0} tok/s"
-
-#. placeholder {0}: formatNumber(remaining, locale)
-#: src/features/sessions/composer-footer.tsx
-msgid "{0} tokens left"
-msgstr "{0} tokens left"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{awaiting} awaiting"
@@ -133,18 +142,24 @@ msgid "{count, plural, one {# member} other {# members}}"
 msgstr "{count, plural, one {# member} other {# members}}"
 
 #: src/features/sessions/composer-meta.tsx
-msgid "{exact} tokens in total"
-msgstr "{exact} tokens in total"
-
-#. placeholder {0}: formatNumber(cacheReadTokens, locale)
-#. placeholder {1}: formatNumber(promptTokens, locale)
-#: src/features/sessions/composer-meta.tsx
-msgid "{exact} tokens in total · Cache hit: {0} / {1}"
-msgstr "{exact} tokens in total · Cache hit: {0} / {1}"
-
-#: src/features/sessions/composer-meta.tsx
 msgid "{hit}%"
 msgstr "{hit}%"
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "{hop}: A host is required."
+msgstr "{hop}: A host is required."
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "{hop}: A user is required."
+msgstr "{hop}: A user is required."
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "{hop}: An SSH credential is required."
+msgstr "{hop}: An SSH credential is required."
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "{hop}: The port must be between 1 and 65535."
+msgstr "{hop}: The port must be between 1 and 65535."
 
 #: src/features/settings/model-dialog.tsx
 msgid "{level} display name"
@@ -173,6 +188,10 @@ msgstr "{lines, plural, one {# line} other {# lines}}"
 #: src/features/sessions/session-banner.tsx
 msgid "{queued, plural, one {# message queued} other {# messages queued}}"
 msgstr "{queued, plural, one {# message queued} other {# messages queued}}"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "{remaining, plural, one {# token left} other {# tokens left}}"
+msgstr "{remaining, plural, one {# token left} other {# tokens left}}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
@@ -243,10 +262,6 @@ msgstr "A granted user or user group can see the nodes in this node group and ru
 msgid "A granted user or user group can see this node and run tasks on it."
 msgstr "A granted user or user group can see this node and run tasks on it."
 
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "A host is required."
-msgstr "A host is required."
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "A label for this key, for example \"laptop\"."
 msgstr "A label for this key, for example \"laptop\"."
@@ -313,8 +328,8 @@ msgid "A schedule creates a new session at each trigger and submits a fixed prom
 msgstr "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
 
 #: src/features/schedules/pages.tsx
-msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
-msgstr "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
+msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the <0>Authorizations</0> page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
+msgstr "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the <0>Authorizations</0> page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
 
 #: src/features/channels/channel-dialog.tsx
 msgid "A Telegram bot. Private chats only; a topic is its own session."
@@ -343,10 +358,6 @@ msgstr "A user group grants access to every current member."
 #: src/features/users/user-group-dialogs.tsx
 msgid "A user group is used for session shares and node access grants."
 msgstr "A user group is used for session shares and node access grants."
-
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "A user is required."
-msgstr "A user is required."
 
 #: src/features/users/new-user-dialog.tsx
 msgid "A user without a password cannot sign in until an administrator sets one."
@@ -614,14 +625,6 @@ msgstr "An extension that is off is hidden from the model. The change applies to
 msgid "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
 msgstr "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
 
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "An SSH credential is required."
-msgstr "An SSH credential is required."
-
-#: src/components/decision/content.tsx
-msgid "and {more} more"
-msgstr "and {more} more"
-
 #: src/components/decision/request-details.tsx
 msgid "Annotations"
 msgstr "Annotations"
@@ -638,6 +641,7 @@ msgstr "Another sign-in from this address is already in progress. Try again."
 msgid "Any actor"
 msgstr "Any actor"
 
+#: src/features/authorizations/pages.tsx
 #: src/features/nodes/node-trust.tsx
 msgid "any method and target"
 msgstr "any method and target"
@@ -700,6 +704,17 @@ msgstr "Approvals"
 msgid "Approve"
 msgstr "Approve"
 
+#. placeholder {0}: node.hostname
+#. placeholder {1}: node.name
+#: src/features/nodes/pending-node-dialog.tsx
+msgid "Approve <0>{0}</0> (named {1})?"
+msgstr "Approve <0>{0}</0> (named {1})?"
+
+#. placeholder {0}: node.hostname ?? node.name
+#: src/features/nodes/pending-node-dialog.tsx
+msgid "Approve <0>{0}</0>?"
+msgstr "Approve <0>{0}</0>?"
+
 #: src/components/decision/approval-panel.tsx
 msgid "Approve and always allow"
 msgstr "Approve and always allow"
@@ -728,10 +743,6 @@ msgstr "Arguments"
 #: src/components/task-form-fields.tsx
 msgid "argv"
 msgstr "argv"
-
-#: src/features/sessions/session-list.tsx
-msgid "Ask an administrator to configure one."
-msgstr "Ask an administrator to configure one."
 
 #: src/features/sessions/composer.tsx
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
@@ -815,7 +826,6 @@ msgstr "Authorization submitted."
 
 #: src/app/shell/nav.ts
 #: src/features/authorizations/pages.tsx
-#: src/features/schedules/pages.tsx
 msgid "Authorizations"
 msgstr "Authorizations"
 
@@ -915,6 +925,12 @@ msgstr "Built-in"
 #: src/features/tasks/task-columns.tsx
 msgid "By"
 msgstr "By"
+
+#. placeholder {0}: formatNumber(cacheReadTokens, locale)
+#. placeholder {1}: formatNumber(promptTokens, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "Cache hit: {0} / {1}"
+msgstr "Cache hit: {0} / {1}"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "Cache size on disk"
@@ -1234,10 +1250,6 @@ msgstr "Compat must be a JSON object."
 msgid "Compat must be valid JSON."
 msgstr "Compat must be valid JSON."
 
-#: src/features/sessions/session-list.tsx
-msgid "Configure a model provider"
-msgstr "Configure a model provider"
-
 #: src/components/dialogs.tsx
 msgid "Confirm"
 msgstr "Confirm"
@@ -1310,10 +1322,14 @@ msgstr "Copied"
 msgid "Copied to clipboard"
 msgstr "Copied to clipboard"
 
-#: src/components/code-text.tsx
 #: src/components/copy-button.tsx
 msgid "Copy"
 msgstr "Copy"
+
+#: src/components/code-text.tsx
+#: src/components/task-result.tsx
+msgid "Copy {label}"
+msgstr "Copy {label}"
 
 #: src/features/nodes/pages.tsx
 msgid "Copy aliases"
@@ -1413,10 +1429,6 @@ msgstr "Create channel"
 msgid "Create link code"
 msgstr "Create link code"
 
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "Create one on the SSH credentials page."
-msgstr "Create one on the SSH credentials page."
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create one to give crhs a key for SSH nodes and jump hosts."
 msgstr "Create one to give crhs a key for SSH nodes and jump hosts."
@@ -1444,6 +1456,11 @@ msgstr "Created"
 msgid "Credential"
 msgstr "Credential"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Credential — {0}"
+msgstr "Credential — {0}"
+
 #: src/features/nodes/pages.tsx
 msgid "crha client"
 msgstr "crha client"
@@ -1461,8 +1478,8 @@ msgid "crhs address"
 msgstr "crhs address"
 
 #: src/features/nodes/trust-warnings.tsx
-msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
-msgstr "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
+msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential: {value}"
+msgstr "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential: {value}"
 
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "crhs generates a new ed25519 key. It becomes the newest key, but nodes use it only after their privileged.toml trusts it."
@@ -1843,8 +1860,14 @@ msgid "Edit extension {0}"
 msgstr "Edit extension {0}"
 
 #: src/components/decision/content.tsx
-msgid "Edit file"
-msgstr "Edit file"
+msgid "Edit file {path}"
+msgstr "Edit file {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Edit file {path} (lines {0}-{1})"
+msgstr "Edit file {path} (lines {0}-{1})"
 
 #: src/features/library/library-section.tsx
 msgid "Edit limits"
@@ -2154,7 +2177,6 @@ msgid "Failed files"
 msgstr "Failed files"
 
 #: src/components/task-result.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "File browsing"
 msgstr "File browsing"
 
@@ -2326,14 +2348,21 @@ msgstr "Hop"
 msgid "Host"
 msgstr "Host"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Host — {0}"
+msgstr "Host — {0}"
+
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Host fingerprint"
 msgstr "Host fingerprint"
 
+#. placeholder {0}: hops[candidate.hop]?.host
+#. placeholder {1}: hops[candidate.hop]?.port
 #: src/features/nodes/ssh-route-editor.tsx
-msgid "Host:"
-msgstr "Host:"
+msgid "Host: <0>{0}:{1}</0>"
+msgstr "Host: <0>{0}:{1}</0>"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
@@ -2510,10 +2539,6 @@ msgstr "Last error"
 msgid "Last rejection {0} (attempt {1}): {2}"
 msgstr "Last rejection {0} (attempt {1}): {2}"
 
-#: src/features/nodes/node-trust.tsx
-msgid "last report, stale until the node reconnects"
-msgstr "last report, stale until the node reconnects"
-
 #: src/features/schedules/pages.tsx
 msgid "Last result:"
 msgstr "Last result:"
@@ -2549,6 +2574,7 @@ msgstr "Level mapping"
 #: src/app/shell/nav.ts
 #: src/features/library/library-section.tsx
 #: src/features/library/pages.tsx
+#: src/features/sessions/attachments.tsx
 msgid "Library"
 msgstr "Library"
 
@@ -2576,15 +2602,17 @@ msgstr "Limits"
 msgid "Lines"
 msgstr "Lines"
 
-#. placeholder {0}: action.lines.start
-#. placeholder {1}: action.lines.end
-#: src/components/decision/content.tsx
-msgid "lines {0}-{1}"
-msgstr "lines {0}-{1}"
+#: src/components/task-result.tsx
+msgid "Lines {from}–{to} (end of file)"
+msgstr "Lines {from}–{to} (end of file)"
 
 #: src/components/task-result.tsx
-msgid "Lines {from}–{to}"
-msgstr "Lines {from}–{to}"
+msgid "Lines {from}–{to} (end of file), {total, plural, one {# line in all} other {# lines in all}}"
+msgstr "Lines {from}–{to} (end of file), {total, plural, one {# line in all} other {# lines in all}}"
+
+#: src/components/task-result.tsx
+msgid "Lines {from}–{to} (more lines follow)"
+msgstr "Lines {from}–{to} (more lines follow)"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "Link instructions"
@@ -2607,8 +2635,14 @@ msgid "List at least one model."
 msgstr "List at least one model."
 
 #: src/components/decision/content.tsx
-msgid "List directory"
-msgstr "List directory"
+msgid "List directory {path}"
+msgstr "List directory {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "List directory {path} (lines {0}-{1})"
+msgstr "List directory {path} (lines {0}-{1})"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "List its tools directly in the model's tool list"
@@ -2992,8 +3026,8 @@ msgid "Next run"
 msgstr "Next run"
 
 #: src/features/settings/extensions.tsx
-msgid "Next try"
-msgstr "Next try"
+msgid "Next try: <0/>"
+msgstr "Next try: <0/>"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
@@ -3089,9 +3123,16 @@ msgid "No models are configured, so schedules cannot run."
 msgstr "No models are configured, so schedules cannot run."
 
 #: src/features/sessions/new-session-page.tsx
-#: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start."
 msgstr "No models are configured, so sessions cannot start."
+
+#: src/features/sessions/session-list.tsx
+msgid "No models are configured, so sessions cannot start. <0>Configure a model provider</0>"
+msgstr "No models are configured, so sessions cannot start. <0>Configure a model provider</0>"
+
+#: src/features/sessions/session-list.tsx
+msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+msgstr "No models are configured, so sessions cannot start. Ask an administrator to configure one."
 
 #: src/features/settings/provider-dialog.tsx
 msgid "No models yet"
@@ -3116,14 +3157,6 @@ msgstr "No one has signed an authorization yet."
 #: src/features/settings/extensions.tsx
 msgid "No one yet"
 msgstr "No one yet"
-
-#: src/components/task-result.tsx
-msgid "No output is kept (SSH nodes keep no output)."
-msgstr "No output is kept (SSH nodes keep no output)."
-
-#: src/components/task-result.tsx
-msgid "No output was kept."
-msgstr "No output was kept."
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "No output yet"
@@ -3159,8 +3192,8 @@ msgid "No SSH credentials yet"
 msgstr "No SSH credentials yet"
 
 #: src/features/nodes/ssh-route-editor.tsx
-msgid "No SSH credentials yet."
-msgstr "No SSH credentials yet."
+msgid "No SSH credentials yet. <0>Create one on the SSH credentials page.</0>"
+msgstr "No SSH credentials yet. <0>Create one on the SSH credentials page.</0>"
 
 #: src/features/sessions/children-bar.tsx
 msgid "No subagents"
@@ -3208,7 +3241,6 @@ msgstr "Node access"
 
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
-#: src/features/nodes/trust-warnings.tsx
 msgid "Node group"
 msgstr "Node group"
 
@@ -3280,8 +3312,12 @@ msgid "Nodes that trust it stop accepting its signatures. Authorizations it alre
 msgstr "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 
 #: src/components/decision/content.tsx
-msgid "Nodes:"
-msgstr "Nodes:"
+msgid "Nodes: {list}"
+msgstr "Nodes: {list}"
+
+#: src/components/decision/content.tsx
+msgid "Nodes: {list} and {more} more"
+msgstr "Nodes: {list} and {more} more"
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -3460,10 +3496,6 @@ msgid "Open the session"
 msgstr "Open the session"
 
 #: src/features/sessions/tool-dialog.tsx
-msgid "Open the signing page"
-msgstr "Open the signing page"
-
-#: src/features/sessions/tool-dialog.tsx
 msgid "Open the subagent's session"
 msgstr "Open the subagent's session"
 
@@ -3574,10 +3606,6 @@ msgstr "Owner"
 msgid "Page not found"
 msgstr "Page not found"
 
-#: src/features/schedules/pages.tsx
-msgid "page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
-msgstr "page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
-
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Parallel"
 msgstr "Parallel"
@@ -3680,6 +3708,11 @@ msgstr "Platform"
 msgid "Port"
 msgstr "Port"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Port — {0}"
+msgstr "Port — {0}"
+
 #: src/components/status-badge.tsx
 msgid "Preempted"
 msgstr "Preempted"
@@ -3732,6 +3765,11 @@ msgstr "Privileges"
 msgid "Probe"
 msgstr "Probe"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Probe — {0}"
+msgstr "Probe — {0}"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Prompt"
 msgstr "Prompt"
@@ -3761,17 +3799,37 @@ msgid "Public URL"
 msgstr "Public URL"
 
 #: src/components/decision/content.tsx
-msgid "Pull file"
-msgstr "Pull file"
+msgid "Pull file {path}"
+msgstr "Pull file {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Pull file {path} (lines {0}-{1})"
+msgstr "Pull file {path} (lines {0}-{1})"
 
 #: src/components/task-result.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Purpose"
 msgstr "Purpose"
 
+#. placeholder {0}: taskGroup.purpose
+#: src/features/tasks/task-group-result.tsx
+msgid "Purpose: {0}"
+msgstr "Purpose: {0}"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Purpose: File browsing"
+msgstr "Purpose: File browsing"
+
 #: src/components/decision/content.tsx
-msgid "Push file"
-msgstr "Push file"
+msgid "Push file {path}"
+msgstr "Push file {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Push file {path} (lines {0}-{1})"
+msgstr "Push file {path} (lines {0}-{1})"
 
 #: src/components/decision/request-details.tsx
 msgid "Query"
@@ -3801,9 +3859,20 @@ msgstr "Re-enroll node"
 msgid "Re-probe"
 msgstr "Re-probe"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Re-probe — {0}"
+msgstr "Re-probe — {0}"
+
 #: src/components/decision/content.tsx
-msgid "Read file"
-msgstr "Read file"
+msgid "Read file {path}"
+msgstr "Read file {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Read file {path} (lines {0}-{1})"
+msgstr "Read file {path} (lines {0}-{1})"
 
 #: src/features/settings/extensions.tsx
 msgid "Read-only"
@@ -3826,9 +3895,10 @@ msgid "Reason (optional)"
 msgstr "Reason (optional)"
 
 #. placeholder {0}: result.size
+#. placeholder {1}: result.sha256
 #: src/components/task-result.tsx
-msgid "Received {0} bytes"
-msgstr "Received {0} bytes"
+msgid "Received {0, plural, one {# byte} other {# bytes}}, SHA-256 <0>{1}</0>"
+msgstr "Received {0, plural, one {# byte} other {# bytes}}, SHA-256 <0>{1}</0>"
 
 #: src/features/users/pages.tsx
 msgid "Recent sessions"
@@ -3864,9 +3934,16 @@ msgstr "Register Passkey"
 msgid "Reject"
 msgstr "Reject"
 
+#. placeholder {0}: node.hostname
+#. placeholder {1}: node.name
 #: src/features/nodes/pending-node-dialog.tsx
-msgid "Reject and delete"
-msgstr "Reject and delete"
+msgid "Reject and delete <0>{0}</0> (named {1})?"
+msgstr "Reject and delete <0>{0}</0> (named {1})?"
+
+#. placeholder {0}: node.hostname ?? node.name
+#: src/features/nodes/pending-node-dialog.tsx
+msgid "Reject and delete <0>{0}</0>?"
+msgstr "Reject and delete <0>{0}</0>?"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject node"
@@ -4082,10 +4159,6 @@ msgstr "reusable"
 #: src/features/sessions/session-decisions.tsx
 msgid "Review"
 msgstr "Review"
-
-#: src/features/sessions/tool-dialog.tsx
-msgid "Review and approve"
-msgstr "Review and approve"
 
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
@@ -4374,11 +4447,6 @@ msgstr "Select"
 msgid "Select {0}"
 msgstr "Select {0}"
 
-#. placeholder {0}: selected.size
-#: src/components/file-manager/file-picker-dialog.tsx
-msgid "Select {0} files"
-msgstr "Select {0} files"
-
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
 msgstr "Send"
@@ -4575,6 +4643,14 @@ msgstr "Size"
 msgid "Skipped: {skipped}"
 msgstr "Skipped: {skipped}"
 
+#: src/features/tasks/task-group-result.tsx
+msgid "Skipped: {skipped} (the batch was cancelled)"
+msgstr "Skipped: {skipped} (the batch was cancelled)"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Skipped: {skipped} (the batch was interrupted)"
+msgstr "Skipped: {skipped} (the batch was interrupted)"
+
 #: src/features/sessions/composer.tsx
 msgid "Slash commands"
 msgstr "Slash commands"
@@ -4629,8 +4705,14 @@ msgid "Start one, or wait for a scheduled run."
 msgstr "Start one, or wait for a scheduled run."
 
 #: src/components/decision/content.tsx
-msgid "Stat file"
-msgstr "Stat file"
+msgid "Stat file {path}"
+msgstr "Stat file {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Stat file {path} (lines {0}-{1})"
+msgstr "Stat file {path} (lines {0}-{1})"
 
 #: src/features/channels/channels-page.tsx
 #: src/features/tasks/pages.tsx
@@ -4656,8 +4738,21 @@ msgid "Status only"
 msgstr "Status only"
 
 #: src/components/task-result.tsx
-msgid "Status only."
-msgstr "Status only."
+msgid "Status only. No output is kept (SSH nodes keep no output)."
+msgstr "Status only. No output is kept (SSH nodes keep no output)."
+
+#: src/components/task-result.tsx
+msgid "Status only. No output was kept."
+msgstr "Status only. No output was kept."
+
+#. placeholder {0}: output.file
+#: src/components/task-result.tsx
+msgid "Status only. The full output is in <0>{0}</0> on the node."
+msgstr "Status only. The full output is in <0>{0}</0> on the node."
+
+#: src/components/task-result.tsx
+msgid "Status only. The full output stays on the node until the task exits."
+msgstr "Status only. The full output stays on the node until the task exits."
 
 #: src/components/task-form-fields.tsx
 msgid "Stdin (optional)"
@@ -4692,7 +4787,7 @@ msgstr "Stop the paused run instead of adding tokens."
 msgid "stopped by the next run"
 msgstr "stopped by the next run"
 
-#. placeholder {0}: existing.headerNames.join(", ")
+#. placeholder {0}: formatList(i18n.locale, existing.headerNames)
 #: src/features/settings/extension-dialog.tsx
 msgid "Stored headers: {0}"
 msgstr "Stored headers: {0}"
@@ -4849,15 +4944,6 @@ msgstr "The display name must be at most 100 characters."
 msgid "The extension lists no tools."
 msgstr "The extension lists no tools."
 
-#. placeholder {0}: output.file
-#: src/components/task-result.tsx
-msgid "The full output is in <0>{0}</0> on the node."
-msgstr "The full output is in <0>{0}</0> on the node."
-
-#: src/components/task-result.tsx
-msgid "The full output stays on the node until the task exits."
-msgstr "The full output stays on the node until the task exits."
-
 #: src/features/channels/channel-dialog.tsx
 msgid "The gateway base URL; its API is under /v1."
 msgstr "The gateway base URL; its API is under /v1."
@@ -4920,8 +5006,8 @@ msgid "The node is active as soon as it is created; every hop is checked against
 msgstr "The node is active as soon as it is created; every hop is checked against its pinned host fingerprint on each connection. Test first to check that each hop's credential is installed and the account can run commands."
 
 #: src/features/nodes/trust-warnings.tsx
-msgid "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
-msgstr "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
+msgid "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node: {value}"
+msgstr "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node: {value}"
 
 #: src/features/nodes/node-trust.tsx
 msgid "The node trusts nobody"
@@ -4954,10 +5040,6 @@ msgstr "The platform is required."
 #: src/features/channels/channel-dialog.tsx
 msgid "The platform the bot runs on at the gateway."
 msgstr "The platform the bot runs on at the gateway."
-
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "The port must be between 1 and 65535."
-msgstr "The port must be between 1 and 65535."
 
 #: src/features/nodes/node-trust.tsx
 msgid "The privileged mode is not forward, so this node uses no trust configuration"
@@ -5083,12 +5165,12 @@ msgid "Thinking level mapping"
 msgstr "Thinking level mapping"
 
 #: src/features/nodes/trust-warnings.tsx
-msgid "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node:"
-msgstr "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node:"
+msgid "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node: {value}"
+msgstr "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node: {value}"
 
 #: src/features/nodes/trust-warnings.tsx
-msgid "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:"
-msgstr "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:"
+msgid "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node: {value}"
+msgstr "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node: {value}"
 
 #: src/components/file-manager/file-list.tsx
 msgid "This cannot be undone."
@@ -5131,8 +5213,8 @@ msgid "This library doesn't exist or you don't have access."
 msgstr "This library doesn't exist or you don't have access."
 
 #: src/features/approvals/pages.tsx
-msgid "This request is no longer waiting for approval; it is"
-msgstr "This request is no longer waiting for approval; it is"
+msgid "This request is no longer waiting for approval; it is {status}"
+msgstr "This request is no longer waiting for approval; it is {status}"
 
 #: src/components/decision/approval-panel.tsx
 msgid "This request only"
@@ -5424,29 +5506,60 @@ msgstr "Used for links crhs returns, e.g. in MCP results. Empty uses the address
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-route-editor.tsx
-#: src/features/sessions/share-dialog.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "User"
 msgstr "User"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "User — {0}"
+msgstr "User — {0}"
+
+#. placeholder {0}: library.ownerDisplayName || library.ownerName
+#: src/features/sessions/attachments.tsx
+msgid "User {0}"
+msgstr "User {0}"
+
+#: src/features/sessions/attachments.tsx
+msgid "User {name}"
+msgstr "User {name}"
+
 #: src/features/library/pages.tsx
 msgid "User {name}'s library"
 msgstr "User {name}'s library"
 
+#. placeholder {0}: item.granteeName ?? item.granteeId
+#: src/features/sessions/share-dialog.tsx
+msgid "User <0>{0}</0>"
+msgstr "User <0>{0}</0>"
+
 #: src/components/entity-picker/api.ts
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
-#: src/features/sessions/share-dialog.tsx
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "User group"
 msgstr "User group"
 
+#. placeholder {0}: library.ownerDisplayName || library.ownerName
+#: src/features/sessions/attachments.tsx
+msgid "User group {0}"
+msgstr "User group {0}"
+
+#: src/features/sessions/attachments.tsx
+msgid "User group {name}"
+msgstr "User group {name}"
+
 #: src/features/library/pages.tsx
 msgid "User group {name}'s library"
 msgstr "User group {name}'s library"
+
+#. placeholder {0}: item.granteeName ?? item.granteeId
+#: src/features/sessions/share-dialog.tsx
+msgid "User group <0>{0}</0>"
+msgstr "User group <0>{0}</0>"
 
 #: src/features/users/user-group-dialogs.tsx
 msgid "User group name"
@@ -5534,13 +5647,16 @@ msgid "Waiting for you"
 msgstr "Waiting for you"
 
 #: src/features/sessions/tool-dialog.tsx
-msgid "Waiting for your approval."
-msgstr "Waiting for your approval."
+msgid "Waiting for your approval. <0>Review and approve</0>"
+msgstr "Waiting for your approval. <0>Review and approve</0>"
 
 #: src/components/task-result.tsx
-#: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your signature."
 msgstr "Waiting for your signature."
+
+#: src/features/sessions/tool-dialog.tsx
+msgid "Waiting for your signature. <0>Open the signing page</0>"
+msgstr "Waiting for your signature. <0>Open the signing page</0>"
 
 #: src/features/system-settings/general-section.tsx
 msgid "Warn when a node's clock differs from crhs's by more than this; 0s disables the warning. Default: {defaultClockWarn}."
@@ -5591,8 +5707,14 @@ msgid "Working directory (optional)"
 msgstr "Working directory (optional)"
 
 #: src/components/decision/content.tsx
-msgid "Write file"
-msgstr "Write file"
+msgid "Write file {path}"
+msgstr "Write file {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Write file {path} (lines {0}-{1})"
+msgstr "Write file {path} (lines {0}-{1})"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Yes"

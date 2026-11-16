@@ -30,11 +30,25 @@ export function PendingNodeDialog({
 			}}
 			title={isApprove ? t`Approve node` : t`Reject node`}
 			description={
-				<>
-					{isApprove ? <Trans>Approve</Trans> : <Trans>Reject and delete</Trans>}{" "}
-					<strong>{node.hostname ?? node.name}</strong>
-					{node.hostname !== null && node.hostname !== node.name && <> (named {node.name})</>}?
-				</>
+				isApprove ? (
+					node.hostname !== null && node.hostname !== node.name ? (
+						<Trans>
+							Approve <strong>{node.hostname}</strong> (named {node.name})?
+						</Trans>
+					) : (
+						<Trans>
+							Approve <strong>{node.hostname ?? node.name}</strong>?
+						</Trans>
+					)
+				) : node.hostname !== null && node.hostname !== node.name ? (
+					<Trans>
+						Reject and delete <strong>{node.hostname}</strong> (named {node.name})?
+					</Trans>
+				) : (
+					<Trans>
+						Reject and delete <strong>{node.hostname ?? node.name}</strong>?
+					</Trans>
+				)
 			}
 			confirmLabel={isApprove ? t`Approve` : t`Reject`}
 			destructive={!isApprove}

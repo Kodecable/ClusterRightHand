@@ -1,5 +1,5 @@
 import type { ApprovalAction, ApprovalRequest, ThinkingLevel, UserSettingsLocale } from "@crh/api";
-import { matchLocale } from "@crh/api";
+import { formatList, matchLocale } from "@crh/api";
 import type { CardLabels, ChatCard } from "./card.ts";
 
 /**
@@ -10,6 +10,18 @@ import type { CardLabels, ChatCard } from "./card.ts";
  * A card (an approval, a signature wait or a quota wait) is data: the builders below return a `ChatCard`
  * with raw values, and the renderer for the platform it goes to escapes or unwraps them. Telegram takes
  * Markdown, Satori plain text, so neither surface converts the other's format.
+ *
+ * Text rules, shared with the WebUI (web/src/lib/i18n.tsx):
+ * 1. One message per sentence or line, with values as parameters: `Nodes: ${list}` / `节点：${list}`. Never
+ *    build a line from separately translated fragments, and never add punctuation or spaces next to a
+ *    translation in code: each catalogue owns its colon, spacing and word order (a full-width `：` takes no
+ *    space after it).
+ * 2. Lists go through `Intl.ListFormat(locale, { type: "conjunction", style: "narrow" })`, which gives
+ *    `a, b, c` and `a、b、c`; never a hard-coded `join`.
+ * 3. Plurals and counts are worded inside the message function, not assembled around it.
+ * 4. Code may only put language-neutral layout between whole messages: the ` · ` separator and line breaks.
+ * 5. Chinese texts use full-width punctuation (：，（）“”、) and keep the spacing between Chinese and Latin text
+ *    the way the catalogue writes it.
  */
 
 export type BotLocale = UserSettingsLocale;
@@ -103,7 +115,10 @@ const EN_CARD: CardText = {
 		file: (operation, path, lines) =>
 			`${{ read: "Read file", write: "Write file", push: "Push file", pull: "Pull file", edit: "Edit file", stat: "Stat file", list: "List directory" }[operation]} ${path}${lines ? ` (lines ${lines.start}-${lines.end})` : ""}`,
 	},
-	nodes: (names, moreNodes) => `Nodes: ${names.join(", ")}${moreNodes ? ` and ${moreNodes} more` : ""}`,
+	nodes: (names, moreNodes) => {
+		const list = formatList("en", names);
+		return moreNodes ? `Nodes: ${list} and ${moreNodes} more` : `Nodes: ${list}`;
+	},
 	privilegedSuffix: " · privileged",
 	riskLevel: (risk) => ({ low: "Low risk", medium: "Medium risk", high: "High risk" })[risk],
 	rejectWithButtons: (id) => `Reject with a reason: /reject ${id} reason`,
@@ -133,7 +148,10 @@ const ZH_CARD: CardText = {
 		file: (operation, path, lines) =>
 			`${{ read: "读取文件", write: "写入文件", push: "推送文件", pull: "拉取文件", edit: "编辑文件", stat: "查看文件", list: "列出目录" }[operation]} ${path}${lines ? `（第 ${lines.start}-${lines.end} 行）` : ""}`,
 	},
-	nodes: (names, moreNodes) => `节点：${names.join("、")}${moreNodes ? ` 等 ${moreNodes} 个` : ""}`,
+	nodes: (names, moreNodes) => {
+		const list = formatList("zh-CN", names);
+		return moreNodes ? `节点：${list} 等 ${moreNodes} 个` : `节点：${list}`;
+	},
 	privilegedSuffix: " · 特权",
 	riskLevel: (risk) => ({ low: "低风险", medium: "中风险", high: "高风险" })[risk],
 	rejectWithButtons: (id) => `拒绝并说明原因：/reject ${id} 原因`,
@@ -348,8 +366,8 @@ const en: BotMessages = {
 	couldNotSendMessage: (problem) => `Could not send the message: ${escapeMarkdown(problem)}`,
 	noDefaultModel: "No model is configured; ask an administrator to add one.",
 	couldNotStartSession: (problem) => `Could not start a session: ${escapeMarkdown(problem)}`,
-	previousArchived: "The previous session is archived. ",
-	previousUnavailable: "The previous session is no longer available. ",
+	previousArchived: "The previous session is archived.",
+	previousUnavailable: "The previous session is no longer available.",
 	newSessionStarted: (link) => `Started a new session.${link ? ` ${link}` : ""}`,
 	linkMissingCode: "Send /link \\<code> with the code from your settings page.",
 	linkInvalidCode: "The link code is invalid, expired or already used.",
@@ -364,11 +382,10 @@ const en: BotMessages = {
 	nextPage: "Next ›",
 	openSession: "Open session",
 	choiceHint: (command, page, pages) => {
-		const choose = `Send /${command} and a number to choose`;
-		if (pages <= 1) return `${choose}.`;
+		if (pages <= 1) return `Send /${command} and a number to choose.`;
 		return page < pages
-			? `${choose}, /${command} page ${page + 1} for the next page.`
-			: `${choose}, /${command} page ${page - 1} for the previous page.`;
+			? `Send /${command} and a number to choose, /${command} page ${page + 1} for the next page.`
+			: `Send /${command} and a number to choose, /${command} page ${page - 1} for the previous page.`;
 	},
 	invalidChoice: (command) => `That is not a choice. Send /${command} for the list.`,
 	sessionSwitched: (title) => `Switched to "${escapeMarkdown(title)}".`,
@@ -495,7 +512,7 @@ const zhCN: BotMessages = {
 	couldNotStartSession: (problem) => `无法开始会话：${escapeMarkdown(problem)}`,
 	previousArchived: "上一个会话已归档。",
 	previousUnavailable: "上一个会话已不可用。",
-	newSessionStarted: (link) => `已开始新会话。${link ? ` ${link}` : ""}`,
+	newSessionStarted: (link) => `已开始新会话。${link ? `\n${link}` : ""}`,
 	linkMissingCode: "请发送 /link \\<code>，其中 code 来自你的设置页面。",
 	linkInvalidCode: "关联码无效、已过期或已被使用。",
 	accountNotActive: "该账户未启用。",
@@ -509,11 +526,10 @@ const zhCN: BotMessages = {
 	nextPage: "下一页 ›",
 	openSession: "打开会话",
 	choiceHint: (command, page, pages) => {
-		const choose = `发送 /${command} 加序号进行选择`;
-		if (pages <= 1) return `${choose}。`;
+		if (pages <= 1) return `发送 /${command} 加序号进行选择。`;
 		return page < pages
-			? `${choose}，发送 /${command} page ${page + 1} 查看下一页。`
-			: `${choose}，发送 /${command} page ${page - 1} 查看上一页。`;
+			? `发送 /${command} 加序号进行选择，发送 /${command} page ${page + 1} 查看下一页。`
+			: `发送 /${command} 加序号进行选择，发送 /${command} page ${page - 1} 查看上一页。`;
 	},
 	invalidChoice: (command) => `这不是有效的选项。发送 /${command} 查看列表。`,
 	sessionSwitched: (title) => `已切换到“${escapeMarkdown(title)}”。`,

@@ -527,7 +527,7 @@ describe("ComposerFooter", () => {
 		expect(screen.getByTestId("composer-meta").children[0]).toBe(screen.getByTestId("composer-activity"));
 		expect(screen.getByTestId("composer-meta").children[1]).toBe(screen.getByTestId("composer-usage"));
 		expect(screen.getByTestId("composer-meta").children[2]).toBe(screen.getByTestId("composer-context"));
-		expect(screen.getByTestId("composer-activity")).toHaveTextContent("2 turns 4 steps · 45 tok/s");
+		expect(screen.getByTestId("composer-activity")).toHaveTextContent("2 turns · 4 steps · 45 tok/s");
 		expect(screen.getByTestId("composer-activity")).toHaveAttribute(
 			"title",
 			"Average time to first token: 1.2s · Decode speed: 45 tok/s",
@@ -564,7 +564,7 @@ describe("ComposerFooter", () => {
 			},
 		});
 		await waitFor(() => expect(screen.getByTestId("composer-activity")).toBeInTheDocument());
-		expect(screen.getByTestId("composer-activity")).toHaveTextContent("1 turn 2 steps");
+		expect(screen.getByTestId("composer-activity")).toHaveTextContent("1 turn · 2 steps");
 		expect(screen.getByTestId("composer-activity")).not.toHaveTextContent("tok/s");
 		expect(screen.getByTestId("composer-activity")).not.toHaveAttribute("title");
 	});

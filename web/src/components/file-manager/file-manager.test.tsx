@@ -233,7 +233,7 @@ describe("FilePickerDialog", () => {
 		const dialog = await screen.findByRole("dialog", { name: "Choose a file" });
 		expect(within(dialog).queryByRole("button", { name: "Close" })).not.toBeInTheDocument();
 		await userEvent.click(await within(dialog).findByRole("checkbox", { name: "Select notes.txt" }));
-		await userEvent.click(within(dialog).getByRole("button", { name: "Select" }));
+		await userEvent.click(within(dialog).getByRole("button", { name: "Select 1 file" }));
 		expect(onSelect).toHaveBeenCalledWith([expect.objectContaining({ path: "notes.txt", kind: "file" })]);
 	});
 

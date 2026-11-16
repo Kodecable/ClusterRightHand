@@ -28,7 +28,7 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 				<code className="font-mono text-xs break-all">{warning.uuid}</code>
 				{warning.nodeGroupName !== null && (
 					<span>
-						(<Trans>Node group</Trans> {warning.nodeGroupName})
+						<Trans>(Node group {warning.nodeGroupName})</Trans>
 					</span>
 				)}
 			</span>
@@ -41,18 +41,17 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 				<span>
 					<Trans>
 						This alias is for a node group the node is not in. Reusable authorizations addressed to that group still
-						work here. Remove the alias from aliases in privileged.toml on the node:
-					</Trans>{" "}
-					{value}
+						work here. Remove the alias from aliases in privileged.toml on the node: {value}
+					</Trans>
 				</span>
 			);
 		case "alias_unknown":
 			return (
 				<span>
 					<Trans>
-						This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:
-					</Trans>{" "}
-					{value}
+						This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:{" "}
+						{value}
+					</Trans>
 				</span>
 			);
 		case "alias_missing":
@@ -60,9 +59,8 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 				<span>
 					<Trans>
 						The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in
-						privileged.toml on the node:
-					</Trans>{" "}
-					{value}
+						privileged.toml on the node: {value}
+					</Trans>
 				</span>
 			);
 		case "trust_unknown":
@@ -70,9 +68,8 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 				<span>
 					<Trans>
 						crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user
-						credential:
-					</Trans>{" "}
-					{value}
+						credential: {value}
+					</Trans>
 				</span>
 			);
 	}

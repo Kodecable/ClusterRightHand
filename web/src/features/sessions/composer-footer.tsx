@@ -1,4 +1,5 @@
 import type { ModelRef, RulePreset, SessionExtension, SessionView, ThinkingLevel } from "@crh/api";
+import { plural } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { ArrowUpIcon, DropletIcon, LightbulbIcon, PlugIcon, ShieldCheckIcon, SquareIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useModels } from "@/features/settings/api";
-import { formatNumber, formatTokens } from "@/lib/format";
+import { formatTokens } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { rulePresetIcon, rulePresetLabel } from "@/lib/rule-preset";
 import { availableModel, supportedThinkingLevels, thinkingLevelName } from "@/lib/thinking-level";
@@ -370,7 +371,7 @@ function RulesControl({ state }: { state: ComposerFooterState }) {
 
 /** The remaining budget, in auto units; clicking opens the quota dialog for a caller who may change it. */
 function BudgetControl({ state }: { state: ComposerFooterState }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const { locale } = useLocale();
 	const [open, setOpen] = useState(false);
 	const remaining = state.budgetRemaining;
@@ -381,7 +382,7 @@ function BudgetControl({ state }: { state: ComposerFooterState }) {
 			? t`No budget limit`
 			: exhausted
 				? t`The budget is used up.`
-				: t`${formatNumber(remaining, locale)} tokens left`;
+				: i18n._(plural(remaining, { one: "# token left", other: "# tokens left" }));
 
 	if (!state.configure) {
 		return (

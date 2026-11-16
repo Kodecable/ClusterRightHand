@@ -1,10 +1,13 @@
-import type { AuthorizationSummary, DecodedAuthorizationPayload } from "@crh/api";
+import { type AuthorizationSummary, type DecodedAuthorizationPayload, formatList } from "@crh/api";
+import type { I18n } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { KeyValueList } from "@/components/key-value";
+import { LocalizedList } from "@/components/localized-list";
 import { NodeLink } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -24,10 +27,10 @@ function AuthorizationIssuer({ entry }: { entry: Pick<AuthorizationSummary, "iss
 	if (entry.issuerUserId === null) return <span className="truncate">crhs</span>;
 	return <UserLink id={entry.issuerUserId} name={entry.issuerUsername} className="truncate" />;
 }
-export function authorizationCommandText(command: DecodedAuthorizationPayload["command"]): string {
-	if (command === null) return "any method and target";
-	if (command.match === "exact") return `${command.method} exact ${command.target}`;
-	return `${command.method} prefix ${command.target}`;
+export function authorizationCommandText(i18n: I18n, command: DecodedAuthorizationPayload["command"]): string {
+	if (command === null) return i18n._(msg`any method and target`);
+	if (command.match === "exact") return i18n._(msg`${command.method} exact ${command.target}`);
+	return i18n._(msg`${command.method} prefix ${command.target}`);
 }
 
 /** A node of an authorization: its current name and a link, or the raw id when it is unknown. */
@@ -51,16 +54,8 @@ function AuthorizationNodes({
 }) {
 	if (ids.length === 0) return <span className="text-muted-foreground">–</span>;
 	return (
-		<span
-			data-slot="authorization-nodes"
-			className={cn("inline-flex min-w-0 flex-wrap items-center gap-x-1", className)}
-		>
-			{ids.map((id, index) => (
-				<Fragment key={id}>
-					{index > 0 && <span className="text-muted-foreground">,</span>}
-					<AuthorizationNode id={id} names={names} />
-				</Fragment>
-			))}
+		<span data-slot="authorization-nodes" className={cn("inline min-w-0", className)}>
+			<LocalizedList items={ids} getKey={(id) => id} render={(id) => <AuthorizationNode id={id} names={names} />} />
 		</span>
 	);
 }
@@ -80,8 +75,11 @@ function AuthorizationTasks({ ids }: { ids: readonly string[] }) {
 }
 
 /** The readable full text of a node list for a cell's tooltip. */
-function nodeNamesText(ids: readonly string[], names: Map<string, string>): string | undefined {
-	const text = ids.map((id) => names.get(id) ?? id).join(", ");
+function nodeNamesText(ids: readonly string[], names: Map<string, string>, locale: string): string | undefined {
+	const text = formatList(
+		locale,
+		ids.map((id) => names.get(id) ?? id),
+	);
 	return text === "" ? undefined : text;
 }
 
@@ -94,7 +92,7 @@ function PayloadDialog({
 	names: Map<string, string>;
 	onClose: () => void;
 }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	return (
 		<Dialog
 			open
@@ -115,7 +113,7 @@ function PayloadDialog({
 						{ label: t`Issued`, value: <DateTime value={entry.issuedAt} /> },
 						{ label: t`Deadline`, value: <DateTime value={entry.deadline} /> },
 						...(entry.attempt !== null ? [{ label: t`Attempt`, value: String(entry.attempt) }] : []),
-						{ label: t`Command`, value: authorizationCommandText(entry.command), mono: true },
+						{ label: t`Command`, value: authorizationCommandText(i18n, entry.command), mono: true },
 						{ label: t`Nodes`, value: <AuthorizationNodes ids={entry.nodes} names={names} /> },
 						{
 							label: t`Tasks`,
@@ -135,7 +133,7 @@ function PayloadDialog({
  * the node's trust entry or rotating its key, not from here.
  */
 export function AuthorizationsPage() {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const timeWidth = useTimeColumnWidth();
 	const authorizations = useAuthorizations();
 	const nodes = useNodes();
@@ -166,15 +164,15 @@ export function AuthorizationsPage() {
 				header: t`Nodes`,
 				minSize: 140,
 				cell: ({ row }) => <AuthorizationNodes ids={row.original.nodes} names={names} className="flex-nowrap" />,
-				meta: { title: (entry: AuthorizationSummary) => nodeNamesText(entry.nodes, names) },
+				meta: { title: (entry: AuthorizationSummary) => nodeNamesText(entry.nodes, names, i18n.locale) },
 			},
 			{
 				id: "command",
 				header: t`Command`,
 				cell: ({ row }) => (
-					<span className={cn("truncate", MONO_CELL)}>{authorizationCommandText(row.original.command)}</span>
+					<span className={cn("truncate", MONO_CELL)}>{authorizationCommandText(i18n, row.original.command)}</span>
 				),
-				meta: { title: (entry: AuthorizationSummary) => authorizationCommandText(entry.command) },
+				meta: { title: (entry: AuthorizationSummary) => authorizationCommandText(i18n, entry.command) },
 			},
 			{
 				id: "deadline",
@@ -208,7 +206,7 @@ export function AuthorizationsPage() {
 				),
 			},
 		],
-		[t, names, timeWidth],
+		[t, i18n, names, timeWidth],
 	);
 
 	return (

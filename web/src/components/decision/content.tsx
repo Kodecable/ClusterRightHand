@@ -1,7 +1,13 @@
-import type { ApprovalAction, ApprovalRequest, ApprovalRequester, QuotaApproval } from "@crh/api";
+import {
+	type ApprovalAction,
+	type ApprovalRequest,
+	type ApprovalRequester,
+	formatList,
+	type QuotaApproval,
+} from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import { Trans } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { formatNumber } from "@/lib/format";
@@ -29,16 +35,6 @@ export interface DecisionCardContent {
 /** Where a decision card is rendered: inline in a dock, or on a detail page with its full details. */
 export type DecisionVariant = "inline" | "page";
 
-const FILE_OPERATION_LABELS: Record<Extract<ApprovalAction, { type: "file" }>["operation"], MessageDescriptor> = {
-	read: msg`Read file`,
-	write: msg`Write file`,
-	push: msg`Push file`,
-	pull: msg`Pull file`,
-	edit: msg`Edit file`,
-	stat: msg`Stat file`,
-	list: msg`List directory`,
-};
-
 /** The risk words every decision card and its Auto Review section use. */
 export const DECISION_RISK_LABELS: Record<"low" | "medium" | "high", MessageDescriptor> = {
 	low: msg`Low risk`,
@@ -55,15 +51,51 @@ export function actionDetail(i18n: I18n, action: ApprovalAction): string {
 	switch (action.type) {
 		case "exec":
 			return action.command;
-		case "file": {
-			const lines =
-				action.lines === undefined ? "" : ` (${i18n._(msg`lines ${action.lines.start}-${action.lines.end}`)})`;
-			return `${i18n._(FILE_OPERATION_LABELS[action.operation])} ${action.path}${lines}`;
-		}
+		case "file":
+			return fileActionText(i18n, action);
 		case "api_request":
 			return `${action.method} ${action.path}`;
 		case "extension_tool":
 			return `${action.extension}/${action.tool}`;
+	}
+}
+
+/**
+ * A file operation as one message: the operation, the path and the line range are values of the same
+ * message, so a translation owns the parentheses, the word order and the punctuation around the range.
+ */
+function fileActionText(i18n: I18n, action: Extract<ApprovalAction, { type: "file" }>): string {
+	const path = oneLine(action.path);
+	const lines = action.lines;
+	switch (action.operation) {
+		case "read":
+			return lines === undefined
+				? i18n._(msg`Read file ${path}`)
+				: i18n._(msg`Read file ${path} (lines ${lines.start}-${lines.end})`);
+		case "write":
+			return lines === undefined
+				? i18n._(msg`Write file ${path}`)
+				: i18n._(msg`Write file ${path} (lines ${lines.start}-${lines.end})`);
+		case "push":
+			return lines === undefined
+				? i18n._(msg`Push file ${path}`)
+				: i18n._(msg`Push file ${path} (lines ${lines.start}-${lines.end})`);
+		case "pull":
+			return lines === undefined
+				? i18n._(msg`Pull file ${path}`)
+				: i18n._(msg`Pull file ${path} (lines ${lines.start}-${lines.end})`);
+		case "edit":
+			return lines === undefined
+				? i18n._(msg`Edit file ${path}`)
+				: i18n._(msg`Edit file ${path} (lines ${lines.start}-${lines.end})`);
+		case "stat":
+			return lines === undefined
+				? i18n._(msg`Stat file ${path}`)
+				: i18n._(msg`Stat file ${path} (lines ${lines.start}-${lines.end})`);
+		case "list":
+			return lines === undefined
+				? i18n._(msg`List directory ${path}`)
+				: i18n._(msg`List directory ${path} (lines ${lines.start}-${lines.end})`);
 	}
 }
 
@@ -119,26 +151,28 @@ function nodesText(i18n: I18n, request: ApprovalRequest): string | undefined {
 	const names = request.nodes ?? [];
 	if (names.length === 0) return undefined;
 	const more = request.moreNodes ?? 0;
-	const list = names.map(oneLine).join(", ");
-	return more > 0
-		? `${i18n._(msg`Nodes:`)} ${list} ${i18n._(msg`and ${more} more`)}`
-		: `${i18n._(msg`Nodes:`)} ${list}`;
+	const list = formatList(
+		i18n.locale,
+		names.map((name) => oneLine(name)),
+	);
+	return more > 0 ? i18n._(msg`Nodes: ${list} and ${more} more`) : i18n._(msg`Nodes: ${list}`);
 }
 
 function NodesValue({ request }: { request: ApprovalRequest }) {
+	const { i18n } = useLingui();
 	const names = request.nodes ?? [];
 	const more = request.moreNodes ?? 0;
 	if (names.length === 0) return null;
-	return (
-		<>
-			<Trans>Nodes:</Trans> {names.join(", ")}
-			{more > 0 && (
-				<>
-					{" "}
-					<Trans>and {more} more</Trans>
-				</>
-			)}
-		</>
+	const list = formatList(
+		i18n.locale,
+		names.map((name) => oneLine(name)),
+	);
+	return more > 0 ? (
+		<Trans>
+			Nodes: {list} and {more} more
+		</Trans>
+	) : (
+		<Trans>Nodes: {list}</Trans>
 	);
 }
 

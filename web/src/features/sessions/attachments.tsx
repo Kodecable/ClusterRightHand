@@ -276,6 +276,7 @@ export function AttachmentPickerDialog({
 	onOpenChange: (open: boolean) => void;
 	onSelect: (files: { library: string; file: FileEntry }[]) => void;
 }) {
+	const { t } = useLingui();
 	const libraries = useLibraries();
 	const [ref, setRef] = useState("");
 	const list = libraries.data ?? [];
@@ -297,20 +298,24 @@ export function AttachmentPickerDialog({
 			testId="attachment-picker"
 			header={
 				<Select value={current.ref} onValueChange={(next) => setRef(String(next ?? ""))}>
-					<SelectTrigger size="sm" aria-label="Library" data-testid="attachment-picker-library">
+					<SelectTrigger size="sm" aria-label={t`Library`} data-testid="attachment-picker-library">
 						<SelectValue>
 							{(value: string | null) => {
 								const library = list.find((candidate) => candidate.ref === value);
-								return library === undefined
-									? ""
-									: `${library.ownerKind === "user" ? "User" : "User group"} ${library.ownerDisplayName || library.ownerName}`;
+								if (library === undefined) return "";
+								const name = library.ownerDisplayName || library.ownerName;
+								return library.ownerKind === "user" ? <Trans>User {name}</Trans> : <Trans>User group {name}</Trans>;
 							}}
 						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						{list.map((library) => (
 							<SelectItem key={library.ref} value={library.ref}>
-								{library.ownerKind === "user" ? "User" : "User group"} {library.ownerDisplayName || library.ownerName}
+								{library.ownerKind === "user" ? (
+									<Trans>User {library.ownerDisplayName || library.ownerName}</Trans>
+								) : (
+									<Trans>User group {library.ownerDisplayName || library.ownerName}</Trans>
+								)}
 							</SelectItem>
 						))}
 					</SelectContent>

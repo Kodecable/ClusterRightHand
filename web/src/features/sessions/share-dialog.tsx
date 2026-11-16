@@ -54,8 +54,15 @@ export function ShareDialog({
 						{shares.data.map((item) => (
 							<li key={item.id} className="flex min-h-8 items-center gap-2 rounded-md border px-2 text-sm">
 								<span className="min-w-0 flex-1 truncate">
-									{item.granteeType === "user" ? <Trans>User</Trans> : <Trans>User group</Trans>}{" "}
-									<span className={MONO_CELL}>{item.granteeName ?? item.granteeId}</span>
+									{item.granteeType === "user" ? (
+										<Trans>
+											User <span className={MONO_CELL}>{item.granteeName ?? item.granteeId}</span>
+										</Trans>
+									) : (
+										<Trans>
+											User group <span className={MONO_CELL}>{item.granteeName ?? item.granteeId}</span>
+										</Trans>
+									)}
 								</span>
 								<span className="text-xs text-muted-foreground">
 									{item.access === "chat" ? <Trans>Chat</Trans> : <Trans>View</Trans>}

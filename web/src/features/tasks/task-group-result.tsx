@@ -1,4 +1,4 @@
-import type { ApprovalRequest, TaskGroupView } from "@crh/api";
+import { type ApprovalRequest, formatList, type TaskGroupView } from "@crh/api";
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -34,13 +34,21 @@ export function TaskGroupStatus({ state }: { state: string }) {
  * Rendered as one short line; the member table already shows every task.
  */
 export function TaskGroupSkippedNotice({ taskGroup, names }: { taskGroup: TaskGroupView; names: Map<string, string> }) {
+	const { i18n } = useLingui();
 	if (taskGroup.skipped.length === 0) return null;
-	const skipped = taskGroup.skipped.map((id) => names.get(id) ?? id).join(", ");
+	const skipped = formatList(
+		i18n.locale,
+		taskGroup.skipped.map((id) => names.get(id) ?? id),
+	);
 	return (
 		<p className="text-sm text-muted-foreground break-words [overflow-wrap:anywhere]" data-testid="task-group-skipped">
-			<Trans>Skipped: {skipped}</Trans>
-			{taskGroup.state === "interrupted" && <Trans> (the batch was interrupted)</Trans>}
-			{taskGroup.state === "cancelled" && <Trans> (the batch was cancelled)</Trans>}
+			{taskGroup.state === "interrupted" ? (
+				<Trans>Skipped: {skipped} (the batch was interrupted)</Trans>
+			) : taskGroup.state === "cancelled" ? (
+				<Trans>Skipped: {skipped} (the batch was cancelled)</Trans>
+			) : (
+				<Trans>Skipped: {skipped}</Trans>
+			)}
 		</p>
 	);
 }
@@ -99,7 +107,11 @@ export function TaskGroupResult({
 		<section className="grid gap-3" data-testid="task-group-result" data-group-id={taskGroup.id}>
 			{taskGroup.purpose !== null && taskGroup.purpose !== undefined && taskGroup.purpose !== "" && (
 				<p className="text-xs text-muted-foreground" data-testid="task-group-purpose">
-					<Trans>Purpose</Trans>: {taskGroup.purpose === "browse" ? <Trans>File browsing</Trans> : taskGroup.purpose}
+					{taskGroup.purpose === "browse" ? (
+						<Trans>Purpose: File browsing</Trans>
+					) : (
+						<Trans>Purpose: {taskGroup.purpose}</Trans>
+					)}
 				</p>
 			)}
 			{taskGroup.state === "awaiting_approval" &&

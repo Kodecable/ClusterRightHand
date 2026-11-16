@@ -29,7 +29,7 @@ function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
 									{path.entries.map((entry) => `${entry.name} (${entry.role})`).join(", ")}
 									{path.entries.some((entry) => entry.cosign) && (
 										<>
-											{" — "}
+											{" · "}
 											{path.entries.some((entry) => entry.cosign === "missing") ? (
 												<Trans>cosignature unavailable</Trans>
 											) : (
@@ -71,25 +71,27 @@ export function OutputBlock({
 	bytes: number;
 	className?: string;
 }) {
+	const { t } = useLingui();
 	if (bytes === 0 && head === "" && tail === "") return null;
 	const { before, after, omitted } = joinOutput(head, tail, bytes);
 	return (
 		<section aria-label={label} className={cn("grid gap-1", className)}>
 			<div className="flex items-center justify-between gap-2">
 				<h4 className="text-xs font-medium text-muted-foreground">
-					{label}{" "}
-					<span className="font-normal">
-						(<Plural value={bytes} one="# byte" other="# bytes" />)
-					</span>
+					{label}
+					{" · "}
+					<Plural value={bytes} one="# byte" other="# bytes" />
 				</h4>
-				<CopyButton text={before + after} label={`${label}: copy`} />
+				<CopyButton text={before + after} label={t`Copy ${label}`} />
 			</div>
 			<pre className="max-h-72 overflow-auto rounded-md border bg-[var(--code)] p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
 				{before}
 				{omitted > 0 && (
 					<span className="text-warn">
 						{"\n"}
-						<Trans>… {omitted} bytes omitted …</Trans>
+						<Trans>
+							… <Plural value={omitted} one="# byte" other="# bytes" /> omitted …
+						</Trans>
 						{"\n"}
 					</span>
 				)}
@@ -308,13 +310,21 @@ function ReadResultView({ result }: { result: Extract<TaskResultView, { kind: "f
 				) : (
 					<Trans>The offset is past the end of the file.</Trans>
 				)
+			) : eof ? (
+				total === null ? (
+					<Trans>
+						Lines {from}–{to} (end of file)
+					</Trans>
+				) : (
+					<Trans>
+						Lines {from}–{to} (end of file), <Plural value={total} one="# line in all" other="# lines in all" />
+					</Trans>
+				)
 			) : (
 				<Trans>
-					Lines {from}–{to}
+					Lines {from}–{to} (more lines follow)
 				</Trans>
 			)}
-			{!tooLong && from > 0 && (eof ? <Trans> (end of file)</Trans> : <Trans> (more lines follow)</Trans>)}
-			{!tooLong && from > 0 && eof && total !== null && <Trans>, {total} lines in all</Trans>}
 		</p>
 	);
 }
@@ -407,13 +417,18 @@ export function TaskResultData({ result, className }: { result: TaskResultView; 
 				<ListResultView result={result} />
 			) : result.kind === "file.write" ? (
 				<p className="text-sm text-muted-foreground">
-					<Plural value={result.bytes} one="Wrote # byte" other="Wrote # bytes" />
-					{result.created ? <Trans> (a new file)</Trans> : <Trans> (replaced)</Trans>}
+					{result.created ? (
+						<Plural value={result.bytes} one="Wrote # byte (a new file)" other="Wrote # bytes (a new file)" />
+					) : (
+						<Plural value={result.bytes} one="Wrote # byte (replaced)" other="Wrote # bytes (replaced)" />
+					)}
 				</p>
 			) : result.kind === "file.pull" ? (
 				<p className="text-sm text-muted-foreground" data-testid="task-result-file-pull">
-					<Trans>Received {result.size} bytes</Trans>{" "}
-					<code className="font-mono text-xs break-all">{result.sha256}</code>
+					<Trans>
+						Received <Plural value={result.size} one="# byte" other="# bytes" />, SHA-256{" "}
+						<code className="font-mono text-xs break-all">{result.sha256}</code>
+					</Trans>
 				</p>
 			) : (
 				<p className="text-sm text-muted-foreground">
@@ -451,17 +466,16 @@ export function TaskOutput({ task, className }: { task: TaskView; className?: st
 			<TaskNotice text={task.notice} />
 			{output.kind === "status" ? (
 				<p className="text-sm text-muted-foreground">
-					<Trans>Status only.</Trans>{" "}
 					{output.file !== null ? (
 						<Trans>
-							The full output is in <span className="font-mono text-xs">{output.file}</span> on the node.
+							Status only. The full output is in <span className="font-mono text-xs">{output.file}</span> on the node.
 						</Trans>
 					) : note === "running" ? (
-						<Trans>The full output stays on the node until the task exits.</Trans>
+						<Trans>Status only. The full output stays on the node until the task exits.</Trans>
 					) : note === "none" ? (
-						<Trans>No output was kept.</Trans>
+						<Trans>Status only. No output was kept.</Trans>
 					) : (
-						<Trans>No output is kept (SSH nodes keep no output).</Trans>
+						<Trans>Status only. No output is kept (SSH nodes keep no output).</Trans>
 					)}
 				</p>
 			) : (

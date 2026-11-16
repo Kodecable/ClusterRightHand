@@ -164,13 +164,15 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 
 				{noModels && (
 					<WarningBanner data-testid="no-models-hint">
-						<Trans>No models are configured, so sessions cannot start.</Trans>{" "}
 						{isAdmin ? (
-							<Link to="/settings/models" className={linkClass}>
-								<Trans>Configure a model provider</Trans>
-							</Link>
+							<Trans>
+								No models are configured, so sessions cannot start.{" "}
+								<Link to="/settings/models" className={linkClass}>
+									Configure a model provider
+								</Link>
+							</Trans>
 						) : (
-							<Trans>Ask an administrator to configure one.</Trans>
+							<Trans>No models are configured, so sessions cannot start. Ask an administrator to configure one.</Trans>
 						)}
 					</WarningBanner>
 				)}

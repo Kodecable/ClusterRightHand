@@ -49,6 +49,6 @@ describe("TrustWarningList", () => {
 	test("translates the warnings in zh-CN", () => {
 		renderWithI18n(<TrustWarningList warnings={WARNINGS} />, "zh-CN");
 		expect(screen.getByText("信任警告")).toBeInTheDocument();
-		expect(screen.getByText(/这个别名指向节点并不属于的节点组/)).toBeInTheDocument();
+		expect(screen.getByText(/此别名指向节点不在其中的节点组/)).toBeInTheDocument();
 	});
 });

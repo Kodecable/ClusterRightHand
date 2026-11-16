@@ -19,11 +19,11 @@ import { useSshCredentials } from "@/features/ssh-credentials/api";
 import { cn, linkClass, MONO_CELL } from "@/lib/utils";
 import { addHop, editHop, type Hop, type HopError, hopBodies, pinHop, removeHop } from "./sshHops";
 
-const HOP_ERRORS: Record<HopError["code"], MessageDescriptor> = {
-	"host-required": msg`A host is required.`,
-	"user-required": msg`A user is required.`,
-	"port-invalid": msg`The port must be between 1 and 65535.`,
-	"credential-required": msg`An SSH credential is required.`,
+const HOP_ERRORS: Record<HopError["code"], (hop: string) => MessageDescriptor> = {
+	"host-required": (hop) => msg`${hop}: A host is required.`,
+	"user-required": (hop) => msg`${hop}: A user is required.`,
+	"port-invalid": (hop) => msg`${hop}: The port must be between 1 and 65535.`,
+	"credential-required": (hop) => msg`${hop}: An SSH credential is required.`,
 };
 
 /** "Target" or "Jump N", for messages about a hop. */
@@ -33,7 +33,7 @@ export function hopName(i18n: I18n, hops: Hop[], index: number): string {
 
 /** The translated description of a hop validation failure. */
 export function hopErrorText(i18n: I18n, hops: Hop[], error: HopError): string {
-	return `${hopName(i18n, hops, error.hop)}: ${i18n._(HOP_ERRORS[error.code])}`;
+	return i18n._(HOP_ERRORS[error.code](hopName(i18n, hops, error.hop)));
 }
 
 function addressReady(hop: Hop): boolean {
@@ -106,7 +106,7 @@ export function SshRouteEditor({
 				minSize: 170,
 				cell: ({ row }) => (
 					<Input
-						aria-label={`${t`Host`} — ${hopName(i18n, hopsRef.current, row.index)}`}
+						aria-label={t`Host — ${hopName(i18n, hopsRef.current, row.index)}`}
 						value={row.original.host}
 						onChange={(event) => onHopsRef.current(editHop(hopsRef.current, row.index, { host: event.target.value }))}
 					/>
@@ -118,7 +118,7 @@ export function SshRouteEditor({
 				size: 76,
 				cell: ({ row }) => (
 					<Input
-						aria-label={`${t`Port`} — ${hopName(i18n, hopsRef.current, row.index)}`}
+						aria-label={t`Port — ${hopName(i18n, hopsRef.current, row.index)}`}
 						inputMode="numeric"
 						value={row.original.port}
 						onChange={(event) => onHopsRef.current(editHop(hopsRef.current, row.index, { port: event.target.value }))}
@@ -131,7 +131,7 @@ export function SshRouteEditor({
 				minSize: 120,
 				cell: ({ row }) => (
 					<Input
-						aria-label={`${t`User`} — ${hopName(i18n, hopsRef.current, row.index)}`}
+						aria-label={t`User — ${hopName(i18n, hopsRef.current, row.index)}`}
 						value={row.original.user}
 						onChange={(event) => onHopsRef.current(editHop(hopsRef.current, row.index, { user: event.target.value }))}
 					/>
@@ -144,7 +144,7 @@ export function SshRouteEditor({
 				cell: ({ row }) => (
 					<EntityPicker
 						kind="sshCredential"
-						label={`${t`Credential`} — ${hopName(i18n, hopsRef.current, row.index)}`}
+						label={t`Credential — ${hopName(i18n, hopsRef.current, row.index)}`}
 						value={row.original.credentialId === "" ? null : row.original.credentialId}
 						onChange={(id) => onHopsRef.current(editHop(hopsRef.current, row.index, { credentialId: id ?? "" }))}
 					/>
@@ -172,7 +172,11 @@ export function SshRouteEditor({
 								variant="outline"
 								size="xs"
 								disabled={probe.isPending || !canProbe(row.index)}
-								aria-label={`${hop.hostFingerprint !== "" ? t`Re-probe` : t`Probe`} — ${hopName(i18n, hopsRef.current, row.index)}`}
+								aria-label={
+									hop.hostFingerprint !== ""
+										? t`Re-probe — ${hopName(i18n, hopsRef.current, row.index)}`
+										: t`Probe — ${hopName(i18n, hopsRef.current, row.index)}`
+								}
 								onClick={() => probeHop(row.index)}
 							>
 								{hop.hostFingerprint !== "" ? <Trans>Re-probe</Trans> : <Trans>Probe</Trans>}
@@ -228,10 +232,12 @@ export function SshRouteEditor({
 				<DataTable label={t`SSH route`} columns={columns} data={hops} density="compact" />
 				{credentials.data !== undefined && credentials.data.length === 0 && (
 					<p className="text-sm text-muted-foreground">
-						<Trans>No SSH credentials yet.</Trans>{" "}
-						<Link to="/ssh-credentials" className={linkClass}>
-							<Trans>Create one on the SSH credentials page.</Trans>
-						</Link>
+						<Trans>
+							No SSH credentials yet.{" "}
+							<Link to="/ssh-credentials" className={linkClass}>
+								Create one on the SSH credentials page.
+							</Link>
+						</Trans>
 					</p>
 				)}
 				<ErrorText error={probe.error} />
@@ -253,10 +259,12 @@ export function SshRouteEditor({
 					description={
 						<span className="grid gap-2">
 							<span>
-								<Trans>Host:</Trans>{" "}
-								<code className="font-mono">
-									{hops[candidate.hop]?.host}:{hops[candidate.hop]?.port}
-								</code>
+								<Trans>
+									Host:{" "}
+									<code className="font-mono">
+										{hops[candidate.hop]?.host}:{hops[candidate.hop]?.port}
+									</code>
+								</Trans>
 							</span>
 							<code className="block font-mono text-xs break-all text-foreground">{candidate.fingerprint}</code>
 							<span>

@@ -176,12 +176,10 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 								label: t`Report`,
 								value: (
 									<span>
-										{reportLabel(data.status)}
-										{data.stale && (
-											<span className="text-muted-foreground">
-												{" "}
-												(<Trans>last report, stale until the node reconnects</Trans>)
-											</span>
+										{data.stale ? (
+											<Trans>{reportLabel(data.status)} (last report, stale until the node reconnects)</Trans>
+										) : (
+											reportLabel(data.status)
 										)}
 									</span>
 								),

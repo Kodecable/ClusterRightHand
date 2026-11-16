@@ -1,4 +1,5 @@
 import type { ExtensionAvailability, ExtensionGrant, ExtensionView } from "@crh/api";
+import { formatList } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { PlusIcon, XIcon } from "lucide-react";
 import { type ComponentProps, useState } from "react";
@@ -36,7 +37,7 @@ export function ExtensionDialog({
 	onClose: () => void;
 	onSaved: () => void;
 }) {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const save = useSaveExtension();
 	const directory = useDirectory();
 	const builtin = existing?.kind === "builtin";
@@ -204,7 +205,7 @@ export function ExtensionDialog({
 						</p>
 						{existing?.hasHeaders && (
 							<p className="text-xs">
-								<Trans>Stored headers: {existing.headerNames.join(", ")}</Trans>
+								<Trans>Stored headers: {formatList(i18n.locale, existing.headerNames)}</Trans>
 							</p>
 						)}
 						{headers.map((header, index) => (

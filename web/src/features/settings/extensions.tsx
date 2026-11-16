@@ -1,4 +1,5 @@
 import type { ExtensionView } from "@crh/api";
+import { formatList } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { PencilIcon, PlusIcon, RefreshCwIcon, Trash2Icon, WrenchIcon } from "lucide-react";
@@ -38,7 +39,9 @@ function StateCell({ extension }: { extension: ExtensionView }) {
 			</StatusText>
 			{status.state === "unavailable" && status.nextAttemptAt !== null && (
 				<span className="text-muted-foreground">
-					<Trans>Next try</Trans>: <RelativeTime value={status.nextAttemptAt} />
+					<Trans>
+						Next try: <RelativeTime value={status.nextAttemptAt} />
+					</Trans>
 				</span>
 			)}
 			{status.lastError !== null && status.state === "unavailable" && (
@@ -116,7 +119,7 @@ function ToolsDialog({ extension, onClose }: { extension: ExtensionView; onClose
  * edited and disabled but not reconnected or deleted.
  */
 export function ExtensionsPage() {
-	const { t } = useLingui();
+	const { t, i18n } = useLingui();
 	const extensions = useExtensions();
 	const directory = useDirectory();
 	const remove = useDeleteExtension();
@@ -173,16 +176,17 @@ export function ExtensionsPage() {
 						...(row.original.listDirectly ? [t`Listed directly`] : []),
 						...(row.original.kind === "mcp" && !row.original.trustAnnotations ? [t`Annotations untrusted`] : []),
 					];
+					const granted = formatList(i18n.locale, names);
 					return (
 						<span className="grid gap-0.5 text-xs">
-							<span className="truncate" title={names.join(", ") || undefined}>
+							<span className="truncate" title={granted || undefined}>
 								{row.original.availability === "granted" ? (
 									names.length === 0 ? (
 										<span className="text-muted-foreground">
 											<Trans>No one yet</Trans>
 										</span>
 									) : (
-										names.join(", ")
+										granted
 									)
 								) : (
 									<Trans>Everyone</Trans>
@@ -259,7 +263,7 @@ export function ExtensionsPage() {
 				),
 			},
 		],
-		[t, reconnect, grantNames],
+		[t, i18n.locale, reconnect, grantNames],
 	);
 
 	return (

@@ -240,12 +240,10 @@ export function ScheduleDetailPage() {
 				<p className="max-w-3xl text-sm text-muted-foreground">
 					<Trans>
 						A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let
-						a fixed command run unattended, issue a reusable authorization for it (no task ids) on the
-					</Trans>{" "}
-					<Link to="/authorizations" className={linkClass}>
-						<Trans>Authorizations</Trans>
-					</Link>{" "}
-					<Trans>
+						a fixed command run unattended, issue a reusable authorization for it (no task ids) on the{" "}
+						<Link to="/authorizations" className={linkClass}>
+							Authorizations
+						</Link>{" "}
 						page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next
 						trigger ends the run.
 					</Trans>

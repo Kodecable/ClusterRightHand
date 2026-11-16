@@ -8,36 +8,13 @@ msgstr ""
 "Language: zh-CN\n"
 
 #: src/components/task-result.tsx
-msgid " (a new file)"
-msgstr "（新文件）"
+msgid "… {omitted, plural, one {# byte} other {# bytes}} omitted …"
+msgstr "… 省略 {omitted, plural, one {# 字节} other {# 字节}} …"
 
-#: src/components/task-result.tsx
-msgid " (end of file)"
-msgstr "（文件末尾）"
-
-#: src/components/task-result.tsx
-msgid " (more lines follow)"
-msgstr "（后面还有内容）"
-
-#: src/components/task-result.tsx
-msgid " (replaced)"
-msgstr "（覆盖已有文件）"
-
-#: src/features/tasks/task-group-result.tsx
-msgid " (the batch was cancelled)"
-msgstr "（批量运行已取消）"
-
-#: src/features/tasks/task-group-result.tsx
-msgid " (the batch was interrupted)"
-msgstr "（批量运行被中断）"
-
-#: src/components/task-result.tsx
-msgid ", {total} lines in all"
-msgstr "，共 {total} 行"
-
-#: src/components/task-result.tsx
-msgid "… {omitted} bytes omitted …"
-msgstr "… 省略 {omitted} 字节 …"
+#. placeholder {0}: warning.nodeGroupName
+#: src/features/nodes/trust-warnings.tsx
+msgid "(Node group {0})"
+msgstr "（节点组 {0}）"
 
 #: src/markdown/safe-nodes.tsx
 msgid "[image: {label}]"
@@ -79,6 +56,11 @@ msgstr "{0, plural, one {已选 # 项} other {已选 # 项}}"
 msgid "{0, plural, one {# task} other {# tasks}}"
 msgstr "{0, plural, one {# 个任务} other {# 个任务}}"
 
+#. placeholder {0}: session.usageTokens
+#: src/features/sessions/composer-meta.tsx
+msgid "{0, plural, one {# token in total} other {# tokens in total}}"
+msgstr "{0, plural, one {共 # 个令牌} other {共 # 个令牌}}"
+
 #. placeholder {0}: nodes.length - shown.length
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "{0, plural, one {and # more} other {and # more}}"
@@ -89,35 +71,62 @@ msgstr "{0, plural, one {还有 # 个} other {还有 # 个}}"
 msgid "{0, plural, one {Replaced # occurrence} other {Replaced # occurrences}}"
 msgstr "{0, plural, one {替换了 # 处} other {替换了 # 处}}"
 
+#. placeholder {0}: selected.size
+#: src/components/file-manager/file-picker-dialog.tsx
+msgid "{0, plural, one {Select # file} other {Select # files}}"
+msgstr "{0, plural, one {选择 # 个文件} other {选择 # 个文件}}"
+
 #. placeholder {0}: result.bytes
 #: src/components/task-result.tsx
-msgid "{0, plural, one {Wrote # byte} other {Wrote # bytes}}"
-msgstr "{0, plural, one {写入了 # 字节} other {写入了 # 字节}}"
+msgid "{0, plural, one {Wrote # byte (a new file)} other {Wrote # bytes (a new file)}}"
+msgstr "{0, plural, one {写入了 # 字节（新文件）} other {写入了 # 字节（新文件）}}"
+
+#. placeholder {0}: result.bytes
+#: src/components/task-result.tsx
+msgid "{0, plural, one {Wrote # byte (replaced)} other {Wrote # bytes (replaced)}}"
+msgstr "{0, plural, one {写入了 # 字节（覆盖已有文件）} other {写入了 # 字节（覆盖已有文件）}}"
 
 #. placeholder {0}: account.platform
 #: src/features/channels/chat-accounts-section.tsx
 msgid "{0} · linked <0/>"
 msgstr "{0} · 关联于 <0/>"
 
+#. placeholder {0}: reportLabel(data.status)
+#: src/features/nodes/node-trust.tsx
+msgid "{0} (last report, stale until the node reconnects)"
+msgstr "{0}（上次报告，节点重新连接前已过期）"
+
 #. placeholder {0}: key.fingerprint
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "{0} (newest)"
 msgstr "{0}（最新）"
+
+#. placeholder {0}: scopeTypeLabel(i18n, type)
+#: src/components/decision/evaluation.tsx
+msgid "{0} {id}"
+msgstr "{0} {id}"
+
+#. placeholder {0}: command.method
+#. placeholder {1}: command.target
+#: src/features/authorizations/pages.tsx
+msgid "{0} exact {1}"
+msgstr "{0} 精确匹配 {1}"
 
 #. placeholder {0}: user.username
 #: src/features/users/user-group-dialogs.tsx
 msgid "{0} gains the node access this user group grants."
 msgstr "{0} 会获得该用户组授予的节点访问权限。"
 
+#. placeholder {0}: command.method
+#. placeholder {1}: command.target
+#: src/features/authorizations/pages.tsx
+msgid "{0} prefix {1}"
+msgstr "{0} 前缀匹配 {1}"
+
 #. placeholder {0}: formatTokenRate(rate, locale)
 #: src/features/sessions/composer-meta.tsx
 msgid "{0} tok/s"
 msgstr "{0} tok/s"
-
-#. placeholder {0}: formatNumber(remaining, locale)
-#: src/features/sessions/composer-footer.tsx
-msgid "{0} tokens left"
-msgstr "剩余 {0} 个 token"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{awaiting} awaiting"
@@ -133,18 +142,24 @@ msgid "{count, plural, one {# member} other {# members}}"
 msgstr "{count, plural, one {# 名成员} other {# 名成员}}"
 
 #: src/features/sessions/composer-meta.tsx
-msgid "{exact} tokens in total"
-msgstr "共 {exact} 个 token"
-
-#. placeholder {0}: formatNumber(cacheReadTokens, locale)
-#. placeholder {1}: formatNumber(promptTokens, locale)
-#: src/features/sessions/composer-meta.tsx
-msgid "{exact} tokens in total · Cache hit: {0} / {1}"
-msgstr "共 {exact} 个 token · 缓存命中：{0} / {1}"
-
-#: src/features/sessions/composer-meta.tsx
 msgid "{hit}%"
 msgstr "{hit}%"
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "{hop}: A host is required."
+msgstr "{hop}：需要填写主机。"
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "{hop}: A user is required."
+msgstr "{hop}：需要填写用户。"
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "{hop}: An SSH credential is required."
+msgstr "{hop}：需要填写 SSH 凭据。"
+
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "{hop}: The port must be between 1 and 65535."
+msgstr "{hop}：端口必须在 1 到 65535 之间。"
 
 #: src/features/settings/model-dialog.tsx
 msgid "{level} display name"
@@ -173,6 +188,10 @@ msgstr "{lines, plural, one {# 行} other {# 行}}"
 #: src/features/sessions/session-banner.tsx
 msgid "{queued, plural, one {# message queued} other {# messages queued}}"
 msgstr "{queued, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
+
+#: src/features/sessions/composer-footer.tsx
+msgid "{remaining, plural, one {# token left} other {# tokens left}}"
+msgstr "{remaining, plural, one {还剩 # 个令牌} other {还剩 # 个令牌}}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
@@ -243,10 +262,6 @@ msgstr "获得访问权限的用户或用户组可以查看此节点组中的节
 msgid "A granted user or user group can see this node and run tasks on it."
 msgstr "获得访问权限的用户或用户组可以查看此节点并在其上执行任务。"
 
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "A host is required."
-msgstr "必须填写主机。"
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "A label for this key, for example \"laptop\"."
 msgstr "此密钥的名称，例如“laptop”。"
@@ -286,7 +301,7 @@ msgstr "节点组名称必须为 2–64 个字符，以字母开头、以字母�
 
 #: src/features/node-groups/dialogs.tsx
 msgid "A node group name must not start with \"_\": names starting with \"_\" are reserved for the system."
-msgstr "节点组名称不能以 “_” 开头：以 “_” 开头的名称保留给系统。"
+msgstr "节点组名称不能以“_”开头：以“_”开头的名称保留给系统。"
 
 #: src/lib/task-form.ts
 msgid "A path is required."
@@ -313,8 +328,8 @@ msgid "A schedule creates a new session at each trigger and submits a fixed prom
 msgstr "计划任务在每次触发时创建一个新会话并提交固定的提示词。每次运行都以所有者身份，经过与其他会话相同的规则、审批和限额。"
 
 #: src/features/schedules/pages.tsx
-msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the"
-msgstr "计划运行走正常的授权路径：特权任务需要所有者签名。若要让固定命令无人值守地运行，请在"
+msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the <0>Authorizations</0> page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
+msgstr "计划运行走正常的授权路径：特权任务需要所有者签名。要让固定命令无人值守地运行，请在 <0>授权</0> 页面上为它签发可复用授权（不带任务 id），并让提示词运行的正好是该命令。其他内容仍会在审批中等待，下一次触发会结束本次运行。"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "A Telegram bot. Private chats only; a topic is its own session."
@@ -343,10 +358,6 @@ msgstr "用户组会为当前每个成员授予访问权限。"
 #: src/features/users/user-group-dialogs.tsx
 msgid "A user group is used for session shares and node access grants."
 msgstr "用户组用于会话分享和节点访问授权。"
-
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "A user is required."
-msgstr "必须填写用户。"
 
 #: src/features/users/new-user-dialog.tsx
 msgid "A user without a password cannot sign in until an administrator sets one."
@@ -614,14 +625,6 @@ msgstr "关闭的扩展对模型不可见。更改从下一轮开始生效。"
 msgid "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
 msgstr "MCP 扩展通过 Streamable HTTP 和静态请求头访问。只有管理员可以创建扩展；可用范围和授权对象决定哪些会话可以使用它。"
 
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "An SSH credential is required."
-msgstr "需要选择 SSH 凭据。"
-
-#: src/components/decision/content.tsx
-msgid "and {more} more"
-msgstr "等 {more} 个"
-
 #: src/components/decision/request-details.tsx
 msgid "Annotations"
 msgstr "注解"
@@ -638,6 +641,7 @@ msgstr "该地址已有登录请求正在进行，请稍后再试。"
 msgid "Any actor"
 msgstr "任意操作者"
 
+#: src/features/authorizations/pages.tsx
 #: src/features/nodes/node-trust.tsx
 msgid "any method and target"
 msgstr "任意方法和目标"
@@ -700,6 +704,17 @@ msgstr "审批"
 msgid "Approve"
 msgstr "批准"
 
+#. placeholder {0}: node.hostname
+#. placeholder {1}: node.name
+#: src/features/nodes/pending-node-dialog.tsx
+msgid "Approve <0>{0}</0> (named {1})?"
+msgstr "批准 <0>{0}</0>（名称为 {1}）？"
+
+#. placeholder {0}: node.hostname ?? node.name
+#: src/features/nodes/pending-node-dialog.tsx
+msgid "Approve <0>{0}</0>?"
+msgstr "批准 <0>{0}</0>？"
+
 #: src/components/decision/approval-panel.tsx
 msgid "Approve and always allow"
 msgstr "批准并始终允许"
@@ -728,10 +743,6 @@ msgstr "参数"
 #: src/components/task-form-fields.tsx
 msgid "argv"
 msgstr "argv"
-
-#: src/features/sessions/session-list.tsx
-msgid "Ask an administrator to configure one."
-msgstr "请让管理员配置一个。"
 
 #: src/features/sessions/composer.tsx
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
@@ -815,7 +826,6 @@ msgstr "授权已提交。"
 
 #: src/app/shell/nav.ts
 #: src/features/authorizations/pages.tsx
-#: src/features/schedules/pages.tsx
 msgid "Authorizations"
 msgstr "授权"
 
@@ -915,6 +925,12 @@ msgstr "内置"
 #: src/features/tasks/task-columns.tsx
 msgid "By"
 msgstr "操作者"
+
+#. placeholder {0}: formatNumber(cacheReadTokens, locale)
+#. placeholder {1}: formatNumber(promptTokens, locale)
+#: src/features/sessions/composer-meta.tsx
+msgid "Cache hit: {0} / {1}"
+msgstr "缓存命中：{0} / {1}"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "Cache size on disk"
@@ -1234,10 +1250,6 @@ msgstr "compat 必须是 JSON 对象。"
 msgid "Compat must be valid JSON."
 msgstr "compat 必须是有效的 JSON。"
 
-#: src/features/sessions/session-list.tsx
-msgid "Configure a model provider"
-msgstr "配置模型提供方"
-
 #: src/components/dialogs.tsx
 msgid "Confirm"
 msgstr "确认"
@@ -1310,10 +1322,14 @@ msgstr "已复制"
 msgid "Copied to clipboard"
 msgstr "已复制到剪贴板"
 
-#: src/components/code-text.tsx
 #: src/components/copy-button.tsx
 msgid "Copy"
 msgstr "复制"
+
+#: src/components/code-text.tsx
+#: src/components/task-result.tsx
+msgid "Copy {label}"
+msgstr "复制{label}"
 
 #: src/features/nodes/pages.tsx
 msgid "Copy aliases"
@@ -1413,10 +1429,6 @@ msgstr "新建渠道"
 msgid "Create link code"
 msgstr "创建关联码"
 
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "Create one on the SSH credentials page."
-msgstr "在 SSH 凭据页面创建一个。"
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "Create one to give crhs a key for SSH nodes and jump hosts."
 msgstr "创建一个，为 crhs 提供用于 SSH 节点和跳板机的密钥。"
@@ -1444,6 +1456,11 @@ msgstr "创建时间"
 msgid "Credential"
 msgstr "凭据"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Credential — {0}"
+msgstr "凭据：{0}"
+
 #: src/features/nodes/pages.tsx
 msgid "crha client"
 msgstr "crha 客户端"
@@ -1461,8 +1478,8 @@ msgid "crhs address"
 msgstr "crhs 地址"
 
 #: src/features/nodes/trust-warnings.tsx
-msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential:"
-msgstr "crhs 不认识这个信任项的密钥；它既不是 crhs 的签名密钥，也不是任何已登记的用户凭据："
+msgid "crhs does not know this trust entry's key. It is neither crhs's signing key nor a registered user credential: {value}"
+msgstr "crhs 不认识此信任条目的密钥。它既不是 crhs 的签名密钥，也不是已注册的用户凭据：{value}"
 
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "crhs generates a new ed25519 key. It becomes the newest key, but nodes use it only after their privileged.toml trusts it."
@@ -1843,8 +1860,14 @@ msgid "Edit extension {0}"
 msgstr "编辑扩展 {0}"
 
 #: src/components/decision/content.tsx
-msgid "Edit file"
-msgstr "编辑文件"
+msgid "Edit file {path}"
+msgstr "编辑文件 {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Edit file {path} (lines {0}-{1})"
+msgstr "编辑文件 {path}（第 {0}-{1} 行）"
 
 #: src/features/library/library-section.tsx
 msgid "Edit limits"
@@ -2154,13 +2177,12 @@ msgid "Failed files"
 msgstr "失败的文件"
 
 #: src/components/task-result.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "File browsing"
 msgstr "文件浏览"
 
 #: src/features/library/usage-indicator.tsx
 msgid "File count limit: {filesPercent} ({filesUsed}/{filesLimit})"
-msgstr "文件数量限额：{filesPercent} ({filesUsed}/{filesLimit})"
+msgstr "文件数量限额：{filesPercent}（{filesUsed}/{filesLimit}）"
 
 #: src/components/file-manager/file-picker-dialog.tsx
 #: src/components/upload/upload-progress-dialog.tsx
@@ -2326,14 +2348,21 @@ msgstr "跳"
 msgid "Host"
 msgstr "主机"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Host — {0}"
+msgstr "主机：{0}"
+
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Host fingerprint"
 msgstr "主机指纹"
 
+#. placeholder {0}: hops[candidate.hop]?.host
+#. placeholder {1}: hops[candidate.hop]?.port
 #: src/features/nodes/ssh-route-editor.tsx
-msgid "Host:"
-msgstr "主机："
+msgid "Host: <0>{0}:{1}</0>"
+msgstr "主机：<0>{0}:{1}</0>"
 
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/pages.tsx
@@ -2510,10 +2539,6 @@ msgstr "最近错误"
 msgid "Last rejection {0} (attempt {1}): {2}"
 msgstr "上次拒绝 {0}（第 {1} 次尝试）：{2}"
 
-#: src/features/nodes/node-trust.tsx
-msgid "last report, stale until the node reconnects"
-msgstr "上次报告，节点重新连接前为过期状态"
-
 #: src/features/schedules/pages.tsx
 msgid "Last result:"
 msgstr "上次结果："
@@ -2549,6 +2574,7 @@ msgstr "档位映射"
 #: src/app/shell/nav.ts
 #: src/features/library/library-section.tsx
 #: src/features/library/pages.tsx
+#: src/features/sessions/attachments.tsx
 msgid "Library"
 msgstr "资料库"
 
@@ -2576,15 +2602,17 @@ msgstr "限制"
 msgid "Lines"
 msgstr "行数"
 
-#. placeholder {0}: action.lines.start
-#. placeholder {1}: action.lines.end
-#: src/components/decision/content.tsx
-msgid "lines {0}-{1}"
-msgstr "第 {0}-{1} 行"
+#: src/components/task-result.tsx
+msgid "Lines {from}–{to} (end of file)"
+msgstr "第 {from}–{to} 行（文件末尾）"
 
 #: src/components/task-result.tsx
-msgid "Lines {from}–{to}"
-msgstr "第 {from}–{to} 行"
+msgid "Lines {from}–{to} (end of file), {total, plural, one {# line in all} other {# lines in all}}"
+msgstr "第 {from}–{to} 行（文件末尾），{total, plural, one {共 # 行} other {共 # 行}}"
+
+#: src/components/task-result.tsx
+msgid "Lines {from}–{to} (more lines follow)"
+msgstr "第 {from}–{to} 行（后面还有内容）"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "Link instructions"
@@ -2607,8 +2635,14 @@ msgid "List at least one model."
 msgstr "至少列出一个模型。"
 
 #: src/components/decision/content.tsx
-msgid "List directory"
-msgstr "列出目录"
+msgid "List directory {path}"
+msgstr "列出目录 {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "List directory {path} (lines {0}-{1})"
+msgstr "列出目录 {path}（第 {0}-{1} 行）"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "List its tools directly in the model's tool list"
@@ -2992,8 +3026,8 @@ msgid "Next run"
 msgstr "下次运行"
 
 #: src/features/settings/extensions.tsx
-msgid "Next try"
-msgstr "下次尝试"
+msgid "Next try: <0/>"
+msgstr "下次尝试：<0/>"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
@@ -3089,9 +3123,16 @@ msgid "No models are configured, so schedules cannot run."
 msgstr "尚未配置模型，计划任务无法运行。"
 
 #: src/features/sessions/new-session-page.tsx
-#: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start."
 msgstr "尚未配置模型，会话无法启动。"
+
+#: src/features/sessions/session-list.tsx
+msgid "No models are configured, so sessions cannot start. <0>Configure a model provider</0>"
+msgstr "尚未配置模型，因此会话无法启动。<0>配置模型提供方</0>"
+
+#: src/features/sessions/session-list.tsx
+msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+msgstr "尚未配置模型，因此会话无法启动。请联系管理员配置一个。"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "No models yet"
@@ -3116,14 +3157,6 @@ msgstr "还没有人签发过授权。"
 #: src/features/settings/extensions.tsx
 msgid "No one yet"
 msgstr "还没有人"
-
-#: src/components/task-result.tsx
-msgid "No output is kept (SSH nodes keep no output)."
-msgstr "未保留输出（SSH 节点不保留输出）。"
-
-#: src/components/task-result.tsx
-msgid "No output was kept."
-msgstr "未保留任何输出。"
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "No output yet"
@@ -3159,8 +3192,8 @@ msgid "No SSH credentials yet"
 msgstr "还没有 SSH 凭据"
 
 #: src/features/nodes/ssh-route-editor.tsx
-msgid "No SSH credentials yet."
-msgstr "尚无 SSH 凭据。"
+msgid "No SSH credentials yet. <0>Create one on the SSH credentials page.</0>"
+msgstr "还没有 SSH 凭据。<0>在 SSH 凭据页面创建一个。</0>"
 
 #: src/features/sessions/children-bar.tsx
 msgid "No subagents"
@@ -3208,7 +3241,6 @@ msgstr "节点访问权限"
 
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
-#: src/features/nodes/trust-warnings.tsx
 msgid "Node group"
 msgstr "节点组"
 
@@ -3280,8 +3312,12 @@ msgid "Nodes that trust it stop accepting its signatures. Authorizations it alre
 msgstr "信任该凭据的节点会停止接受其签名。它已签发的授权在截止时间前仍然有效。"
 
 #: src/components/decision/content.tsx
-msgid "Nodes:"
-msgstr "节点："
+msgid "Nodes: {list}"
+msgstr "节点：{list}"
+
+#: src/components/decision/content.tsx
+msgid "Nodes: {list} and {more} more"
+msgstr "节点：{list} 等 {more} 个"
 
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -3460,10 +3496,6 @@ msgid "Open the session"
 msgstr "打开会话"
 
 #: src/features/sessions/tool-dialog.tsx
-msgid "Open the signing page"
-msgstr "打开签名页"
-
-#: src/features/sessions/tool-dialog.tsx
 msgid "Open the subagent's session"
 msgstr "打开子会话"
 
@@ -3574,10 +3606,6 @@ msgstr "属主"
 msgid "Page not found"
 msgstr "页面不存在"
 
-#: src/features/schedules/pages.tsx
-msgid "page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
-msgstr "页面为它签发可复用授权（不带任务 ID），并让提示词运行该命令。其他操作仍会在审批页等待，而下一次触发会结束本次运行。"
-
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Parallel"
 msgstr "并发数"
@@ -3680,6 +3708,11 @@ msgstr "平台"
 msgid "Port"
 msgstr "端口"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Port — {0}"
+msgstr "端口：{0}"
+
 #: src/components/status-badge.tsx
 msgid "Preempted"
 msgstr "已被抢占"
@@ -3732,6 +3765,11 @@ msgstr "特权"
 msgid "Probe"
 msgstr "探测"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Probe — {0}"
+msgstr "探测：{0}"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Prompt"
 msgstr "提示词"
@@ -3761,17 +3799,37 @@ msgid "Public URL"
 msgstr "公开 URL"
 
 #: src/components/decision/content.tsx
-msgid "Pull file"
-msgstr "拉取文件"
+msgid "Pull file {path}"
+msgstr "拉取文件 {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Pull file {path} (lines {0}-{1})"
+msgstr "拉取文件 {path}（第 {0}-{1} 行）"
 
 #: src/components/task-result.tsx
-#: src/features/tasks/task-group-result.tsx
 msgid "Purpose"
 msgstr "用途"
 
+#. placeholder {0}: taskGroup.purpose
+#: src/features/tasks/task-group-result.tsx
+msgid "Purpose: {0}"
+msgstr "用途：{0}"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Purpose: File browsing"
+msgstr "用途：文件浏览"
+
 #: src/components/decision/content.tsx
-msgid "Push file"
-msgstr "推送文件"
+msgid "Push file {path}"
+msgstr "推送文件 {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Push file {path} (lines {0}-{1})"
+msgstr "推送文件 {path}（第 {0}-{1} 行）"
 
 #: src/components/decision/request-details.tsx
 msgid "Query"
@@ -3801,9 +3859,20 @@ msgstr "重新注册节点"
 msgid "Re-probe"
 msgstr "重新探测"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "Re-probe — {0}"
+msgstr "重新探测：{0}"
+
 #: src/components/decision/content.tsx
-msgid "Read file"
-msgstr "读取文件"
+msgid "Read file {path}"
+msgstr "读取文件 {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Read file {path} (lines {0}-{1})"
+msgstr "读取文件 {path}（第 {0}-{1} 行）"
 
 #: src/features/settings/extensions.tsx
 msgid "Read-only"
@@ -3826,9 +3895,10 @@ msgid "Reason (optional)"
 msgstr "原因（可选）"
 
 #. placeholder {0}: result.size
+#. placeholder {1}: result.sha256
 #: src/components/task-result.tsx
-msgid "Received {0} bytes"
-msgstr "已接收 {0} 字节"
+msgid "Received {0, plural, one {# byte} other {# bytes}}, SHA-256 <0>{1}</0>"
+msgstr "已接收 {0, plural, one {# 字节} other {# 字节}}，SHA-256 <0>{1}</0>"
 
 #: src/features/users/pages.tsx
 msgid "Recent sessions"
@@ -3864,9 +3934,16 @@ msgstr "注册 Passkey"
 msgid "Reject"
 msgstr "拒绝"
 
+#. placeholder {0}: node.hostname
+#. placeholder {1}: node.name
 #: src/features/nodes/pending-node-dialog.tsx
-msgid "Reject and delete"
-msgstr "拒绝并删除"
+msgid "Reject and delete <0>{0}</0> (named {1})?"
+msgstr "拒绝并删除 <0>{0}</0>（名称为 {1}）？"
+
+#. placeholder {0}: node.hostname ?? node.name
+#: src/features/nodes/pending-node-dialog.tsx
+msgid "Reject and delete <0>{0}</0>?"
+msgstr "拒绝并删除 <0>{0}</0>？"
 
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Reject node"
@@ -4082,10 +4159,6 @@ msgstr "可复用"
 #: src/features/sessions/session-decisions.tsx
 msgid "Review"
 msgstr "查看"
-
-#: src/features/sessions/tool-dialog.tsx
-msgid "Review and approve"
-msgstr "查看并批准"
 
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
@@ -4374,11 +4447,6 @@ msgstr "选择"
 msgid "Select {0}"
 msgstr "选择 {0}"
 
-#. placeholder {0}: selected.size
-#: src/components/file-manager/file-picker-dialog.tsx
-msgid "Select {0} files"
-msgstr "选择 {0} 个文件"
-
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
 msgstr "发送"
@@ -4575,6 +4643,14 @@ msgstr "大小"
 msgid "Skipped: {skipped}"
 msgstr "已跳过：{skipped}"
 
+#: src/features/tasks/task-group-result.tsx
+msgid "Skipped: {skipped} (the batch was cancelled)"
+msgstr "已跳过：{skipped}（批量运行已取消）"
+
+#: src/features/tasks/task-group-result.tsx
+msgid "Skipped: {skipped} (the batch was interrupted)"
+msgstr "已跳过：{skipped}（批量运行被中断）"
+
 #: src/features/sessions/composer.tsx
 msgid "Slash commands"
 msgstr "斜杠命令"
@@ -4629,8 +4705,14 @@ msgid "Start one, or wait for a scheduled run."
 msgstr "新建一个，或等待计划任务运行。"
 
 #: src/components/decision/content.tsx
-msgid "Stat file"
-msgstr "查看文件"
+msgid "Stat file {path}"
+msgstr "查看文件 {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Stat file {path} (lines {0}-{1})"
+msgstr "查看文件 {path}（第 {0}-{1} 行）"
 
 #: src/features/channels/channels-page.tsx
 #: src/features/tasks/pages.tsx
@@ -4656,8 +4738,21 @@ msgid "Status only"
 msgstr "仅状态"
 
 #: src/components/task-result.tsx
-msgid "Status only."
-msgstr "仅状态。"
+msgid "Status only. No output is kept (SSH nodes keep no output)."
+msgstr "仅显示状态。SSH 节点不保留输出。"
+
+#: src/components/task-result.tsx
+msgid "Status only. No output was kept."
+msgstr "仅显示状态。没有保留输出。"
+
+#. placeholder {0}: output.file
+#: src/components/task-result.tsx
+msgid "Status only. The full output is in <0>{0}</0> on the node."
+msgstr "仅显示状态。完整输出位于节点上的 <0>{0}</0>。"
+
+#: src/components/task-result.tsx
+msgid "Status only. The full output stays on the node until the task exits."
+msgstr "仅显示状态。完整输出会留在节点上，直到任务退出。"
 
 #: src/components/task-form-fields.tsx
 msgid "Stdin (optional)"
@@ -4692,7 +4787,7 @@ msgstr "停止已暂停的运行，而不是添加 token。"
 msgid "stopped by the next run"
 msgstr "被下一次运行停止"
 
-#. placeholder {0}: existing.headerNames.join(", ")
+#. placeholder {0}: formatList(i18n.locale, existing.headerNames)
 #: src/features/settings/extension-dialog.tsx
 msgid "Stored headers: {0}"
 msgstr "已存储的请求头：{0}"
@@ -4849,15 +4944,6 @@ msgstr "显示名最多 100 个字符。"
 msgid "The extension lists no tools."
 msgstr "该扩展没有列出任何工具。"
 
-#. placeholder {0}: output.file
-#: src/components/task-result.tsx
-msgid "The full output is in <0>{0}</0> on the node."
-msgstr "完整输出位于节点上的 <0>{0}</0>。"
-
-#: src/components/task-result.tsx
-msgid "The full output stays on the node until the task exits."
-msgstr "完整输出会保留在节点上，直到任务退出。"
-
 #: src/features/channels/channel-dialog.tsx
 msgid "The gateway base URL; its API is under /v1."
 msgstr "网关的基础 URL；其 API 位于 /v1 下。"
@@ -4920,8 +5006,8 @@ msgid "The node is active as soon as it is created; every hop is checked against
 msgstr "节点创建后即处于活动状态；每次连接都会按固定的主机指纹校验每一跳。请先测试，以确认每一跳的凭据已安装且该账户可以运行命令。"
 
 #: src/features/nodes/trust-warnings.tsx
-msgid "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node:"
-msgstr "节点在这个节点组中，但没有把它作为别名信任。请把这个节点组的 UUID 加入节点上 privileged.toml 的 aliases："
+msgid "The node is in this node group but does not trust it as an alias. Add the group UUID to aliases in privileged.toml on the node: {value}"
+msgstr "节点在此节点组中，但没有将其作为别名信任。请把节点组的 UUID 添加到节点上 privileged.toml 的 aliases 中：{value}"
 
 #: src/features/nodes/node-trust.tsx
 msgid "The node trusts nobody"
@@ -4954,10 +5040,6 @@ msgstr "必须填写平台。"
 #: src/features/channels/channel-dialog.tsx
 msgid "The platform the bot runs on at the gateway."
 msgstr "机器人在网关中所运行的平台。"
-
-#: src/features/nodes/ssh-route-editor.tsx
-msgid "The port must be between 1 and 65535."
-msgstr "端口必须在 1 到 65535 之间。"
 
 #: src/features/nodes/node-trust.tsx
 msgid "The privileged mode is not forward, so this node uses no trust configuration"
@@ -5083,12 +5165,12 @@ msgid "Thinking level mapping"
 msgstr "思考档位映射"
 
 #: src/features/nodes/trust-warnings.tsx
-msgid "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node:"
-msgstr "这个别名指向节点并不属于的节点组。发给该组的可复用授权在这个节点上仍然有效。请从节点上 privileged.toml 的 aliases 中删除这个别名："
+msgid "This alias is for a node group the node is not in. Reusable authorizations addressed to that group still work here. Remove the alias from aliases in privileged.toml on the node: {value}"
+msgstr "此别名指向节点不在其中的节点组。发往该组的可复用授权仍然有效。请从节点上 privileged.toml 的 aliases 中删除此别名：{value}"
 
 #: src/features/nodes/trust-warnings.tsx
-msgid "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node:"
-msgstr "这个别名既不是节点组，也不是本机。请从节点上 privileged.toml 的 aliases 中删除它："
+msgid "This alias is neither a node group nor this node. Remove it from aliases in privileged.toml on the node: {value}"
+msgstr "此别名既不是节点组，也不是此节点。请从节点上 privileged.toml 的 aliases 中删除它：{value}"
 
 #: src/components/file-manager/file-list.tsx
 msgid "This cannot be undone."
@@ -5131,8 +5213,8 @@ msgid "This library doesn't exist or you don't have access."
 msgstr "此资料库不存在，或你没有访问权限。"
 
 #: src/features/approvals/pages.tsx
-msgid "This request is no longer waiting for approval; it is"
-msgstr "此请求已不再等待审批；当前状态为"
+msgid "This request is no longer waiting for approval; it is {status}"
+msgstr "此请求已不再等待审批；状态为 {status}"
 
 #: src/components/decision/approval-panel.tsx
 msgid "This request only"
@@ -5257,7 +5339,7 @@ msgstr "新用户的总大小"
 
 #: src/features/library/usage-indicator.tsx
 msgid "Total size limit: {bytesPercent} ({bytesUsed}/{bytesLimit})"
-msgstr "总大小限额：{bytesPercent} ({bytesUsed}/{bytesLimit})"
+msgstr "总大小限额：{bytesPercent}（{bytesUsed}/{bytesLimit}）"
 
 #: src/features/nodes/pages.tsx
 msgid "Transport"
@@ -5424,29 +5506,60 @@ msgstr "用于 crhs 返回的链接，例如在 MCP 结果中。留空则使用�
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-route-editor.tsx
-#: src/features/sessions/share-dialog.tsx
 #: src/features/tasks/pages.tsx
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "User"
 msgstr "用户"
 
+#. placeholder {0}: hopName(i18n, hopsRef.current, row.index)
+#: src/features/nodes/ssh-route-editor.tsx
+msgid "User — {0}"
+msgstr "用户：{0}"
+
+#. placeholder {0}: library.ownerDisplayName || library.ownerName
+#: src/features/sessions/attachments.tsx
+msgid "User {0}"
+msgstr "用户 {0}"
+
+#: src/features/sessions/attachments.tsx
+msgid "User {name}"
+msgstr "用户 {name}"
+
 #: src/features/library/pages.tsx
 msgid "User {name}'s library"
 msgstr "用户 {name} 的资料库"
 
+#. placeholder {0}: item.granteeName ?? item.granteeId
+#: src/features/sessions/share-dialog.tsx
+msgid "User <0>{0}</0>"
+msgstr "用户 <0>{0}</0>"
+
 #: src/components/entity-picker/api.ts
 #: src/components/entity-picker/entity-picker.tsx
 #: src/features/nodes/access-grants.tsx
-#: src/features/sessions/share-dialog.tsx
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "User group"
 msgstr "用户组"
 
+#. placeholder {0}: library.ownerDisplayName || library.ownerName
+#: src/features/sessions/attachments.tsx
+msgid "User group {0}"
+msgstr "用户组 {0}"
+
+#: src/features/sessions/attachments.tsx
+msgid "User group {name}"
+msgstr "用户组 {name}"
+
 #: src/features/library/pages.tsx
 msgid "User group {name}'s library"
 msgstr "用户组 {name} 的资料库"
+
+#. placeholder {0}: item.granteeName ?? item.granteeId
+#: src/features/sessions/share-dialog.tsx
+msgid "User group <0>{0}</0>"
+msgstr "用户组 <0>{0}</0>"
 
 #: src/features/users/user-group-dialogs.tsx
 msgid "User group name"
@@ -5534,13 +5647,16 @@ msgid "Waiting for you"
 msgstr "等待你处理"
 
 #: src/features/sessions/tool-dialog.tsx
-msgid "Waiting for your approval."
-msgstr "正在等待你的批准。"
+msgid "Waiting for your approval. <0>Review and approve</0>"
+msgstr "等待你的审批。<0>查看并批准</0>"
 
 #: src/components/task-result.tsx
-#: src/features/sessions/tool-dialog.tsx
 msgid "Waiting for your signature."
 msgstr "等待你的签名。"
+
+#: src/features/sessions/tool-dialog.tsx
+msgid "Waiting for your signature. <0>Open the signing page</0>"
+msgstr "等待你的签名。<0>打开签名页面</0>"
 
 #: src/features/system-settings/general-section.tsx
 msgid "Warn when a node's clock differs from crhs's by more than this; 0s disables the warning. Default: {defaultClockWarn}."
@@ -5591,8 +5707,14 @@ msgid "Working directory (optional)"
 msgstr "工作目录（可选）"
 
 #: src/components/decision/content.tsx
-msgid "Write file"
-msgstr "写入文件"
+msgid "Write file {path}"
+msgstr "写入文件 {path}"
+
+#. placeholder {0}: lines.start
+#. placeholder {1}: lines.end
+#: src/components/decision/content.tsx
+msgid "Write file {path} (lines {0}-{1})"
+msgstr "写入文件 {path}（第 {0}-{1} 行）"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Yes"

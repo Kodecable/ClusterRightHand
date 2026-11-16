@@ -1,4 +1,4 @@
-import { Trans, useLingui } from "@lingui/react/macro";
+import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -104,7 +104,11 @@ export function FilePickerDialog({
 							onOpenChange(false);
 						}}
 					>
-						{selected.size > 1 ? t`Select ${selected.size} files` : t`Select`}
+						{selected.size > 0 ? (
+							<Plural value={selected.size} one="Select # file" other="Select # files" />
+						) : (
+							<Trans>Select</Trans>
+						)}
 					</Button>
 				</DialogFooter>
 			</DialogContent>
