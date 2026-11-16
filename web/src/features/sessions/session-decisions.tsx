@@ -12,7 +12,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { ApprovalDecision } from "@/components/decision/approval-decision";
-import { ExternalCallDecision } from "@/components/decision/external-call-decision";
 import { useApprovalLookups, useApprovals, useDecideApproval, useDecideExternalCall } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
 import { cn, linkClass } from "@/lib/utils";
@@ -47,15 +46,16 @@ export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: 
 		.map((wait): SessionDecision => ({ kind: "quota", wait }));
 	return [
 		...quotas,
-		...oldest(data.tasks.filter((task) => inTree(task.rootSessionId))).map(
+		// Auto Review's reviewing state is not a user-facing approval: the dock waits for the verdict.
+		...oldest(data.tasks.filter((task) => inTree(task.rootSessionId) && task.phase !== "reviewing")).map(
 			(task): SessionDecision => ({ kind: "approval_task", task }),
 		),
-		...oldest(data.externalCalls.filter((call) => inTree(call.rootSessionId))).map(
+		...oldest(data.externalCalls.filter((call) => inTree(call.rootSessionId) && call.phase !== "reviewing")).map(
 			(call): SessionDecision => ({ kind: "approval_external_call", call }),
 		),
-		...oldest(data.taskGroups.filter((taskGroup) => inTree(taskGroup.rootSessionId))).map(
-			(taskGroup): SessionDecision => ({ kind: "approval_task_group", taskGroup }),
-		),
+		...oldest(
+			data.taskGroups.filter((taskGroup) => inTree(taskGroup.rootSessionId) && taskGroup.phase !== "reviewing"),
+		).map((taskGroup): SessionDecision => ({ kind: "approval_task_group", taskGroup })),
 		...oldest(data.authorizations.tasks.filter((task) => inTree(task.rootSessionId))).map(
 			(task): SessionDecision => ({ kind: "signature_task", task }),
 		),
@@ -207,8 +207,8 @@ function ExternalCallDock({ call, count }: { call: ExternalCallView; count?: Rea
 	const refresh = useSessionRefresh(call.rootSessionId ?? "");
 	const decide = useDecideExternalCall();
 	return (
-		<ExternalCallDecision
-			call={call}
+		<ApprovalDecision
+			item={{ kind: "external_call", call }}
 			count={count}
 			busy={decide.isPending}
 			error={decide.error}

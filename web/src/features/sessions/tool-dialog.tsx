@@ -40,17 +40,20 @@ export function ToolDialog({
 	open,
 	onOpenChange,
 	liveOutput,
+	reviewing = false,
 }: {
 	item: ToolItem;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	/** The live output store of an unreturned call; undefined once the call returned. */
 	liveOutput: ReturnType<TranscriptStreams["tool"]> | undefined;
+	/** Auto Review is still judging the call: no approval link until the request is the user's. */
+	reviewing?: boolean;
 }) {
 	const { t } = useLingui();
 	const result = item.result;
 	const returned = result !== undefined;
-	const wait = result ? undefined : approvalWait(item.details);
+	const wait = result || reviewing ? undefined : approvalWait(item.details);
 	const approvalHref = wait ? safeInternalPath(wait.url) : undefined;
 	const signature = result ? undefined : authorizationWait(item.details);
 	const signatureHref = signature ? safeInternalPath(signature.url) : undefined;

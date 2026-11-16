@@ -1751,16 +1751,18 @@ export async function runExtensionTool(
 		const reviewPending = isPendingReview(externalCallApproval(row)?.review);
 		const routed = row.handler_type === "agent" || (await ctx.routeExternalCall?.(id)) === true;
 		const existingReview = externalCallApproval(row)?.review;
+		// While Auto Review judges the call the transcript keeps its in-progress look: the phase says so, and
+		// there is no approval link yet. The status that follows the verdict replaces these details.
+		if (!routed && reviewPending) {
+			await ctx.onStatus?.({ external_call_id: id, state: "awaiting_approval", phase: "reviewing" });
+		}
 		// A pending marker is a review the last process did not finish: run it again (the reviewer is single-flight).
 		if (!routed && (existingReview === undefined || isPendingReview(existingReview))) {
 			await ctx.reviewExternalCall?.(id, ctx.signal);
 		}
 		if (!routed && !reviewPending) ctx.onApprovalChange?.(ctx.actor.id);
-		await ctx.onStatus?.({
-			external_call_id: id,
-			state: "awaiting_approval",
-			approval_url: ctx.externalCallUrl?.(id) ?? `/approvals/external-calls/${id}`,
-		});
+		// The approval link is announced by `onWaiting`, only while the call still waits: a call Auto Review
+		// just approved must not flash an approval in the transcript.
 		row = await waitExternalCall(ctx.db, id, {
 			...(ctx.signal ? { signal: ctx.signal } : {}),
 			cancelOnAbort: !ctx.closing?.(),

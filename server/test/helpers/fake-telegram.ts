@@ -74,7 +74,7 @@ export interface FakeTelegram {
 		data: string,
 		options?: { messageId?: number; topicId?: number; languageCode?: string },
 	): number;
-	stopGeneration(userId: number, options?: { topicId?: number; draftId?: number }): number;
+	stopGeneration(userId: number, options?: { topicId?: number; draftId?: number | string }): number;
 	/** Lets a second bot token talk to this fake server, for a channel under test beside the main one. */
 	allowToken(token: string): void;
 	addFile(fileId: string, file: Partial<FakeFile> & { bytes: Uint8Array }): void;
@@ -244,7 +244,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		});
 	};
 
-	const stopGeneration = (userId: number, opts: { topicId?: number; draftId?: number } = {}): number =>
+	const stopGeneration = (userId: number, opts: { topicId?: number; draftId?: number | string } = {}): number =>
 		inject({
 			stopped_message_generation: {
 				chat: { id: userId, type: "private", first_name: "Tester" },

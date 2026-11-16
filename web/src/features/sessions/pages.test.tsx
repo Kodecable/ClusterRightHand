@@ -475,6 +475,16 @@ describe("SessionPage layout", () => {
 		expect(screen.queryByTestId("composer-input")).not.toBeInTheDocument();
 	});
 
+	test("a request Auto Review is still judging leaves the composer in place", async () => {
+		await renderSessionPage({
+			session: sessionView({ state: "running" }),
+			approvals: () => waitingApprovals([approvalTask({ phase: "reviewing" })]),
+		});
+		await screen.findByTestId("session-page");
+		expect(screen.queryByTestId("session-decisions")).not.toBeInTheDocument();
+		expect(await screen.findByTestId("composer-input")).toBeInTheDocument();
+	});
+
 	test("another session's decisions stay out of this session's dock", async () => {
 		await renderSessionPage({
 			session: sessionView({ state: "awaiting", waitingKind: "approval" }),

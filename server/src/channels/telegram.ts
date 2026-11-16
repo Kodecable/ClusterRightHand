@@ -62,6 +62,12 @@ function chatIdOf(chatId: number | string): string {
 	return String(chatId);
 }
 
+/** A draft id from an update as the number crhs sent, whether Telegram serialized it as a number or a string. */
+function draftIdOf(value: unknown): number | null {
+	const id = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+	return typeof id === "number" && Number.isSafeInteger(id) ? id : null;
+}
+
 /**
  * grammY creates its requests' AbortSignals with the `abort-controller` shim, which Node's global `fetch` rejects
  * as not a native AbortSignal. This adapter bridges the shim's signal to a native one; without a signal the
@@ -209,7 +215,8 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 				platformUserId: chatIdOf(stopped.chat.id),
 				chatId: chatIdOf(stopped.chat.id),
 				topicId: stopped.message_thread_id === undefined ? null : String(stopped.message_thread_id),
-				draftId: stopped.draft_id,
+				// Bot API typings say number, but the update carries the id as a string: compare it as a number.
+				draftId: draftIdOf(stopped.draft_id),
 			});
 			return;
 		}

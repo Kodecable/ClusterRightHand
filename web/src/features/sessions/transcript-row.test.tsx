@@ -455,6 +455,7 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 		result: null,
 		createdAt: "2026-01-01T00:00:00.000Z",
 		finishedAt: "2026-01-01T00:00:01.000Z",
+		phase: "awaiting_user",
 		...overrides,
 	}) as TaskView;
 
@@ -472,6 +473,7 @@ const baseGroup = (overrides: Partial<TaskGroupView> = {}): TaskGroupView =>
 		tasks: [baseTask()],
 		createdAt: "2026-01-01T00:00:00.000Z",
 		finishedAt: "2026-01-01T00:00:01.000Z",
+		phase: "awaiting_user",
 		...overrides,
 	}) as TaskGroupView;
 
@@ -620,6 +622,80 @@ describe("a tool card whose call cannot return", () => {
 		await waitFor(() => expect(card()).toHaveAttribute("data-tool-status", "empty"));
 		expect(icon().querySelector(".animate-spin")).toBeNull();
 		expect(icon()).toHaveAccessibleName("No result");
+	});
+
+	test("a task Auto Review is judging keeps the running look and the reviewing label", () => {
+		const client = testQueryClient();
+		client.setQueryData(
+			taskKeys.detail("t1"),
+			baseTask({ state: "awaiting_approval", exitCode: null, finishedAt: null, phase: "reviewing" }),
+		);
+		renderRow(
+			unreturned({
+				task_id: "t1",
+				state: "awaiting_approval",
+				approval_url: "/approvals/tasks/t1",
+			}),
+			new TranscriptStreams(),
+			client,
+		);
+		expect(icon().querySelector(".animate-spin")).not.toBeNull();
+		expect(icon()).toHaveAccessibleName("Running");
+		expect(card()).toHaveAttribute("data-tool-status", "running");
+		expect(screen.getByTestId("tool-reviewing")).toHaveTextContent("Auto Review is reviewing…");
+		// The approval link is not offered before the request is the user's.
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+		expect(screen.queryByText("Review and approve")).not.toBeInTheDocument();
+	});
+
+	test("an external call marked reviewing keeps the running look without an approval link", () => {
+		renderRow(
+			unreturned({
+				external_call_id: "call-1",
+				state: "awaiting_approval",
+				phase: "reviewing",
+				approval_url: "/approvals/external-calls/call-1",
+			}),
+		);
+		expect(icon().querySelector(".animate-spin")).not.toBeNull();
+		expect(icon()).toHaveAccessibleName("Running");
+		expect(screen.getByTestId("tool-reviewing")).toHaveTextContent("Auto Review is reviewing…");
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+		expect(screen.queryByText("Review and approve")).not.toBeInTheDocument();
+	});
+
+	test("the approval link appears once Auto Review hands the request to the user", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(
+				async () =>
+					new Response(
+						JSON.stringify({
+							task: baseTask({
+								state: "awaiting_approval",
+								exitCode: null,
+								finishedAt: null,
+								phase: "awaiting_user",
+							}),
+						}),
+						{ status: 200, headers: { "content-type": "application/json" } },
+					),
+			),
+		);
+		await renderWithRouter(
+			<TranscriptRow
+				item={unreturned({
+					task_id: "t1",
+					state: "awaiting_approval",
+					approval_url: "/approvals/tasks/t1",
+				})}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+		);
+		expect(screen.queryByTestId("tool-reviewing")).not.toBeInTheDocument();
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+		expect(screen.getByText("Review and approve").closest("a")).toHaveAttribute("href", "/approvals/tasks/t1");
 	});
 
 	test("a returned card does not follow the task its details name", () => {

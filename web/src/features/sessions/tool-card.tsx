@@ -1,4 +1,4 @@
-import { useLingui } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
 import { LoaderCircleIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -8,7 +8,7 @@ import { formatBytes } from "@/lib/format";
 import { isTerminal } from "@/lib/task-output";
 import { cn } from "@/lib/utils";
 import { callStillOpen, detailId, type ToolItem, toolLine } from "./tool-call";
-import { viewImageDetails } from "./tool-details";
+import { reviewingDetails, viewImageDetails } from "./tool-details";
 import { ToolDialog } from "./tool-dialog";
 import { type ToolFailure, taskGroupViewFailure, taskViewFailure, toolResultFailure } from "./tool-failure";
 import type { TranscriptStreams } from "./transcript-streams";
@@ -69,11 +69,18 @@ export function ToolCard({
 	// A task the retention sweep removed is not still running, and there is nothing to refresh.
 	const taskGone = taskId !== undefined && isNotFound(task.error);
 	const taskGroupGone = taskGroupId !== undefined && isNotFound(taskGroup.error);
-	const spinning =
+	// Auto Review judging this call keeps the card in progress: it is not a user-facing approval yet.
+	const reviewing =
 		!returned &&
-		!taskGone &&
-		!taskGroupGone &&
-		callStillOpen({ sessionActive, taskState: followedTask?.state, taskGroupState: followedTaskGroup?.state });
+		(followedTask?.phase === "reviewing" ||
+			followedTaskGroup?.phase === "reviewing" ||
+			(sessionActive && reviewingDetails(item.details)));
+	const spinning =
+		reviewing ||
+		(!returned &&
+			!taskGone &&
+			!taskGroupGone &&
+			callStillOpen({ sessionActive, taskState: followedTask?.state, taskGroupState: followedTaskGroup?.state }));
 	const followed = taskId !== undefined || taskGroupId !== undefined;
 	const followedGone = taskGone || taskGroupGone;
 	const { refetch: refetchTask } = task;
@@ -183,9 +190,14 @@ export function ToolCard({
 							</span>
 						)}
 					</span>
+					{reviewing && (
+						<span data-testid="tool-reviewing" className="shrink-0 text-xs text-muted-foreground">
+							<Trans>Auto Review is reviewing…</Trans>
+						</span>
+					)}
 				</button>
 			</div>
-			<ToolDialog item={item} open={open} onOpenChange={setOpen} liveOutput={liveOutput} />
+			<ToolDialog item={item} open={open} onOpenChange={setOpen} liveOutput={liveOutput} reviewing={reviewing} />
 		</div>
 	);
 }

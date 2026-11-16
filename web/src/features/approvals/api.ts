@@ -29,6 +29,8 @@ export function invalidatePendingDecisions(queryClient: QueryClient): void {
 }
 
 const POLL_MS = 10_000;
+/** A direct approval page follows a request Auto Review is still judging, until a verdict arrives. */
+const REVIEW_POLL_MS = 3_000;
 
 /**
  * The approvals the badge and the approvals page count (doc/design/webui.md "Approvals page").
@@ -93,6 +95,8 @@ export function useExternalCall(id: string | undefined) {
 			http
 				.get<{ externalCall: ExternalCallView }>(`/external-calls/${enc(id ?? "")}`, { signal })
 				.then((r) => r.externalCall),
+		// The direct page opens while Auto Review decides: follow the phase until the request is the user's.
+		refetchInterval: (query) => (query.state.data?.phase === "reviewing" ? REVIEW_POLL_MS : false),
 	});
 }
 
@@ -121,6 +125,7 @@ export function useApprovalTask(id: string | undefined) {
 		queryKey: taskKeys.detail(id ?? ""),
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) => http.get<{ task: TaskView }>(`/tasks/${enc(id ?? "")}`, { signal }).then((r) => r.task),
+		refetchInterval: (query) => (query.state.data?.phase === "reviewing" ? REVIEW_POLL_MS : false),
 	});
 }
 
@@ -130,5 +135,6 @@ export function useApprovalTaskGroup(id: string | undefined) {
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal }) =>
 			http.get<{ taskGroup: TaskGroupView }>(`/task-groups/${enc(id ?? "")}`, { signal }).then((r) => r.taskGroup),
+		refetchInterval: (query) => (query.state.data?.phase === "reviewing" ? REVIEW_POLL_MS : false),
 	});
 }

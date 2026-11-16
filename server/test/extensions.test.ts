@@ -481,6 +481,80 @@ describe("MCP extensions", () => {
 		expect(actions).toContain("external_call.finished");
 	});
 
+	it("keeps an external call in progress while Auto Review judges it, then links the approval", async () => {
+		await addServer({ preset: "auto_review" });
+		const statuses: Record<string, unknown>[] = [];
+		let releaseReview: () => void = () => {};
+		const reviewGate = new Promise<void>((resolve) => {
+			releaseReview = resolve;
+		});
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			externalCallUrl: (id: string) => `/approvals/external-calls/${id}`,
+			willReview: async () => true,
+			reviewExternalCall: async () => {
+				await reviewGate;
+			},
+			onStatus: async (status: Record<string, unknown>) => {
+				statuses.push(status);
+			},
+		};
+		const pending = runExtensionTool(ctx, "fake", "write_thing", { value: 6 });
+		const waiting = await waitFor(async () => {
+			const rows = await db.selectFrom("external_calls").selectAll().execute();
+			return rows.find((row) => row.state === "awaiting_approval");
+		});
+		// The transcript keeps the in-progress look and has no approval link until the verdict arrives.
+		const reviewing = await waitFor(async () =>
+			statuses.find((status) => status.phase === "reviewing" && status.external_call_id === waiting.id),
+		);
+		expect(reviewing).toEqual({
+			external_call_id: waiting.id,
+			state: "awaiting_approval",
+			phase: "reviewing",
+		});
+		expect(reviewing.approval_url).toBeUndefined();
+
+		// The review escalates (the call stays waiting): the next status is an ordinary user-facing wait, with its
+		// approval link and no phase.
+		releaseReview();
+		await waitFor(async () =>
+			statuses.find((status) => status.phase === undefined && typeof status.approval_url === "string"),
+		);
+		await decideExternalCall(db, waiting.id, {
+			decision: "rejected",
+			by: { type: "user", id: user.userId },
+			at: new Date().toISOString(),
+		});
+		const result = await pending;
+		expect(result.isError).toBe(true);
+	});
+
+	it("never links an approval for an external call Auto Review approves", async () => {
+		await addServer({ preset: "auto_review" });
+		const statuses: Record<string, unknown>[] = [];
+		const base = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		const ctx = {
+			...base,
+			externalCallUrl: (id: string) => `/approvals/external-calls/${id}`,
+			willReview: async () => true,
+			reviewExternalCall: async (id: string) => {
+				await decideExternalCall(db, id, {
+					decision: "approved",
+					by: { type: "system", id: "auto-review" },
+					at: new Date().toISOString(),
+				});
+			},
+			onStatus: async (status: Record<string, unknown>) => {
+				statuses.push(status);
+			},
+		};
+		const result = await runExtensionTool(ctx, "fake", "write_thing", { value: 7 });
+		expect(result.isError).not.toBe(true);
+		expect(statuses.some((status) => status.phase === "reviewing")).toBe(true);
+		expect(statuses.some((status) => "approval_url" in status)).toBe(false);
+	});
+
 	it("returns a rejected call's reason without an approval link", async () => {
 		await addServer({ preset: "ask" });
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });

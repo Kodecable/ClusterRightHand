@@ -592,7 +592,6 @@ msgid "Also revoke all of this user's API tokens"
 msgstr "Also revoke all of this user's API tokens"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 msgid "Always allow"
 msgstr "Always allow"
 
@@ -612,17 +611,9 @@ msgstr "An administrator creates node groups."
 msgid "An administrator grants access to nodes."
 msgstr "An administrator grants access to nodes."
 
-#: src/components/decision/external-call-decision.tsx
-msgid "An API request needs approval"
-msgstr "An API request needs approval"
-
 #: src/features/sessions/composer-footer.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "An extension that is off is hidden from the model. The change applies to the next turn."
-
-#: src/components/decision/external-call-decision.tsx
-msgid "An extension tool call needs approval"
-msgstr "An extension tool call needs approval"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
@@ -632,7 +623,7 @@ msgstr "An MCP extension is reached over Streamable HTTP with static headers. On
 msgid "An SSH credential is required."
 msgstr "An SSH credential is required."
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Annotations"
 msgstr "Annotations"
 
@@ -700,14 +691,12 @@ msgid "Approvals"
 msgstr "Approvals"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve"
 msgstr "Approve"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 msgid "Approve and always allow"
 msgstr "Approve and always allow"
 
@@ -727,7 +716,7 @@ msgstr "Argon2 concurrency"
 msgid "Argon2 queue"
 msgstr "Argon2 queue"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 #: src/features/sessions/tool-dialog.tsx
 msgid "Arguments"
 msgstr "Arguments"
@@ -845,6 +834,14 @@ msgstr "Auto lets pi-ai decide from the base URL. Responses always sends reasoni
 msgid "Auto review"
 msgstr "Auto review"
 
+#: src/components/decision/reviewing-notice.tsx
+msgid "Auto Review is reviewing this request"
+msgstr "Auto Review is reviewing this request"
+
+#: src/features/sessions/tool-card.tsx
+msgid "Auto Review is reviewing…"
+msgstr "Auto Review is reviewing…"
+
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Availability"
@@ -888,7 +885,7 @@ msgstr "Base URL"
 msgid "Behavior"
 msgstr "Behavior"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Body"
 msgstr "Body"
 
@@ -2118,7 +2115,7 @@ msgstr "Expires <0/>."
 msgid "Expires after"
 msgstr "Expires after"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Extension"
 msgstr "Extension"
 
@@ -2334,7 +2331,6 @@ msgid "How long crhs keeps records after they finish. A duration of at least one
 msgstr "How long crhs keeps records after they finish. A duration of at least one day, or Keep forever."
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 #: src/features/sessions/quota-decision.tsx
 msgid "How to decide"
 msgstr "How to decide"
@@ -2737,7 +2733,7 @@ msgstr "Message"
 msgid "Message composer"
 msgstr "Message composer"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Method"
 msgstr "Method"
 
@@ -3455,11 +3451,11 @@ msgstr "Open the task group page"
 msgid "Operation"
 msgstr "Operation"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Operation: read"
 msgstr "Operation: read"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Operation: write"
 msgstr "Operation: write"
 
@@ -3612,7 +3608,7 @@ msgstr "Password set."
 msgid "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
 msgstr "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
 msgid "Path"
@@ -3744,7 +3740,7 @@ msgstr "Public URL"
 msgid "Purpose"
 msgstr "Purpose"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Query"
 msgstr "Query"
 
@@ -3772,7 +3768,7 @@ msgstr "Re-enroll node"
 msgid "Re-probe"
 msgstr "Re-probe"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 #: src/features/settings/extensions.tsx
 msgid "Read-only"
 msgstr "Read-only"
@@ -3825,7 +3821,6 @@ msgid "Register Passkey"
 msgstr "Register Passkey"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 #: src/components/decision/reject.tsx
 #: src/features/authorizations/signature-decision.tsx
 #: src/features/nodes/pages.tsx
@@ -4086,7 +4081,6 @@ msgstr "Route"
 
 #: src/components/decision/approval-decision.tsx
 #: src/components/decision/evaluation.tsx
-#: src/components/decision/external-call-decision.tsx
 #: src/components/task-result.tsx
 msgid "Rule chain evaluation"
 msgstr "Rule chain evaluation"
@@ -4994,7 +4988,7 @@ msgstr "The token is shown once and expires <0/>."
 msgid "The user can sign in with this password immediately."
 msgstr "The user can sign in with this password immediately."
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "The whole extension"
 msgstr "The whole extension"
 
@@ -5100,11 +5094,11 @@ msgstr "This library doesn't exist or you don't have access."
 msgid "This request is no longer waiting for approval; it is"
 msgstr "This request is no longer waiting for approval; it is"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "This request only"
 msgstr "This request only"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "This route"
 msgstr "This route"
 
@@ -5116,7 +5110,7 @@ msgstr "This stops the current run. Its history will show it as preempted."
 msgid "This target is already granted to this user or user group."
 msgstr "This target is already granted to this user or user group."
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "This tool only"
 msgstr "This tool only"
 
@@ -5190,7 +5184,7 @@ msgstr "Tokens to add"
 msgid "Too many failed attempts. Try again later."
 msgstr "Too many failed attempts. Try again later."
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Tool"
 msgstr "Tool"
 

@@ -79,6 +79,28 @@ const approvals = (): ApprovalList => ({
 	],
 });
 
+const externalCall = (overrides: Partial<ExternalCallView> = {}): ExternalCallView =>
+	({
+		id: "call-1",
+		extension: "github",
+		tool: "create_issue",
+		arguments: { title: "Bug" },
+		operation: { method: "ext.write", target: "github/create_issue" },
+		annotations: null,
+		state: "awaiting_approval",
+		approval: { evaluation: { result: "require-approval", levels: [] } },
+		actorType: "user",
+		actorId: "u1",
+		onBehalfOfUserId: "u1",
+		rootSessionId: null,
+		handlerType: "user",
+		handlerSessionId: null,
+		createdAt: "2026-01-01T00:00:00.000Z",
+		finishedAt: null,
+		phase: "awaiting_user",
+		...overrides,
+	}) as ExternalCallView;
+
 const pending = (): PendingAuthorization => ({
 	id: "a".repeat(64),
 	payload: "o2dub2RlcwFhZ3JvdXA6d2Vi",
@@ -247,6 +269,14 @@ describe("ApprovalTaskPage", () => {
 		expect(within(region).getByText("test/reviewer")).toBeVisible();
 	});
 
+	test("a task Auto Review is reviewing shows the notice instead of the decision", async () => {
+		mockApi({ task: task({ phase: "reviewing" }), approvals: approvals() });
+		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
+		expect(await screen.findByTestId("reviewing-notice")).toHaveTextContent("Auto Review is reviewing this request");
+		expect(screen.queryByRole("region", { name: "Your approval is needed" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+	});
+
 	test("a task waiting for its signature shows the signature decision and rejects through the new endpoint", async () => {
 		const state = mockApi({
 			task: task({ state: "awaiting_authorization" }),
@@ -294,6 +324,31 @@ describe("ApprovalTaskGroupPage", () => {
 });
 
 describe("ExternalCallApprovalPage", () => {
+	test("an external call waiting for the user shows the one approval panel", async () => {
+		mockApi({ externalCall: externalCall() });
+		await renderPage(
+			<ExternalCallApprovalPage />,
+			"/approvals/external-calls/$externalCallId",
+			"/approvals/external-calls/call-1",
+		);
+		expect(await screen.findByRole("region", { name: "Your approval is needed" })).toBeInTheDocument();
+		expect(screen.getByText("github")).toBeInTheDocument();
+		expect(screen.getByTestId("external-call-arguments")).toHaveTextContent("Bug");
+		expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+	});
+
+	test("an external call Auto Review is reviewing shows the notice instead of the decision", async () => {
+		mockApi({ externalCall: externalCall({ phase: "reviewing" }) });
+		await renderPage(
+			<ExternalCallApprovalPage />,
+			"/approvals/external-calls/$externalCallId",
+			"/approvals/external-calls/call-1",
+		);
+		expect(await screen.findByTestId("reviewing-notice")).toHaveTextContent("Auto Review is reviewing this request");
+		expect(screen.queryByRole("region", { name: "Your approval is needed" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+	});
+
 	test("a missing external call is an ordinary not-found page without retention wording", async () => {
 		mockApi();
 		await renderPage(

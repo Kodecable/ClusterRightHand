@@ -592,7 +592,6 @@ msgid "Also revoke all of this user's API tokens"
 msgstr "同时吊销该用户的全部 API 令牌"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 msgid "Always allow"
 msgstr "始终允许"
 
@@ -612,17 +611,9 @@ msgstr "节点组由管理员创建。"
 msgid "An administrator grants access to nodes."
 msgstr "节点访问权限由管理员授予。"
 
-#: src/components/decision/external-call-decision.tsx
-msgid "An API request needs approval"
-msgstr "一个 API 请求需要审批"
-
 #: src/features/sessions/composer-footer.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "关闭的扩展对模型不可见。更改从下一轮开始生效。"
-
-#: src/components/decision/external-call-decision.tsx
-msgid "An extension tool call needs approval"
-msgstr "扩展工具调用需要审批"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
@@ -632,7 +623,7 @@ msgstr "MCP 扩展通过 Streamable HTTP 和静态请求头访问。只有管理
 msgid "An SSH credential is required."
 msgstr "需要选择 SSH 凭据。"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Annotations"
 msgstr "注解"
 
@@ -700,14 +691,12 @@ msgid "Approvals"
 msgstr "审批"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 #: src/features/nodes/pages.tsx
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "Approve"
 msgstr "批准"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 msgid "Approve and always allow"
 msgstr "批准并始终允许"
 
@@ -727,7 +716,7 @@ msgstr "Argon2 并发数"
 msgid "Argon2 queue"
 msgstr "Argon2 队列长度"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 #: src/features/sessions/tool-dialog.tsx
 msgid "Arguments"
 msgstr "参数"
@@ -845,6 +834,14 @@ msgstr "自动表示由 pi-ai 根据 Base URL 判断。Responses 固定发送 re
 msgid "Auto review"
 msgstr "自动复核"
 
+#: src/components/decision/reviewing-notice.tsx
+msgid "Auto Review is reviewing this request"
+msgstr "Auto Review 正在审查此请求"
+
+#: src/features/sessions/tool-card.tsx
+msgid "Auto Review is reviewing…"
+msgstr "Auto Review 审查中…"
+
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Availability"
@@ -888,7 +885,7 @@ msgstr "Base URL"
 msgid "Behavior"
 msgstr "行为"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Body"
 msgstr "正文"
 
@@ -2118,7 +2115,7 @@ msgstr "到期时间 <0/>。"
 msgid "Expires after"
 msgstr "有效期"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Extension"
 msgstr "扩展"
 
@@ -2334,7 +2331,6 @@ msgid "How long crhs keeps records after they finish. A duration of at least one
 msgstr "crhs 在记录结束后保留它们多久。时长至少一天，或选择“永久保留”。"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 #: src/features/sessions/quota-decision.tsx
 msgid "How to decide"
 msgstr "如何决定"
@@ -2737,7 +2733,7 @@ msgstr "消息"
 msgid "Message composer"
 msgstr "消息输入框"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Method"
 msgstr "方法"
 
@@ -3455,11 +3451,11 @@ msgstr "打开任务组页"
 msgid "Operation"
 msgstr "操作"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Operation: read"
 msgstr "操作：读取"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Operation: write"
 msgstr "操作：写入"
 
@@ -3612,7 +3608,7 @@ msgstr "密码已设置。"
 msgid "Paste this line into the trust entry in a node's privileged.toml. The key is the newest, but a node uses it only after that node trusts it."
 msgstr "将此行粘贴到节点 privileged.toml 的信任条目中。该密钥是最新的，但节点仅在自身信任该密钥后才会使用它。"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 #: src/components/task-form-fields.tsx
 #: src/components/task-result.tsx
 msgid "Path"
@@ -3744,7 +3740,7 @@ msgstr "公开 URL"
 msgid "Purpose"
 msgstr "用途"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Query"
 msgstr "查询参数"
 
@@ -3772,7 +3768,7 @@ msgstr "重新注册节点"
 msgid "Re-probe"
 msgstr "重新探测"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 #: src/features/settings/extensions.tsx
 msgid "Read-only"
 msgstr "只读"
@@ -3825,7 +3821,6 @@ msgid "Register Passkey"
 msgstr "注册 Passkey"
 
 #: src/components/decision/approval-decision.tsx
-#: src/components/decision/external-call-decision.tsx
 #: src/components/decision/reject.tsx
 #: src/features/authorizations/signature-decision.tsx
 #: src/features/nodes/pages.tsx
@@ -4086,7 +4081,6 @@ msgstr "路由"
 
 #: src/components/decision/approval-decision.tsx
 #: src/components/decision/evaluation.tsx
-#: src/components/decision/external-call-decision.tsx
 #: src/components/task-result.tsx
 msgid "Rule chain evaluation"
 msgstr "规则链评估"
@@ -4994,7 +4988,7 @@ msgstr "令牌只显示一次，并将在 <0/> 过期。"
 msgid "The user can sign in with this password immediately."
 msgstr "用户可以立即使用此密码登录。"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "The whole extension"
 msgstr "整个扩展"
 
@@ -5100,11 +5094,11 @@ msgstr "此资料库不存在，或你没有访问权限。"
 msgid "This request is no longer waiting for approval; it is"
 msgstr "此请求已不再等待审批；当前状态为"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "This request only"
 msgstr "仅此请求"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "This route"
 msgstr "此路由"
 
@@ -5116,7 +5110,7 @@ msgstr "这会停止当前运行，运行历史会把它显示为被抢占。"
 msgid "This target is already granted to this user or user group."
 msgstr "该目标已授权给这个用户或用户组。"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "This tool only"
 msgstr "仅此工具"
 
@@ -5190,7 +5184,7 @@ msgstr "要添加的 token 数"
 msgid "Too many failed attempts. Try again later."
 msgstr "失败次数过多，请稍后重试。"
 
-#: src/components/decision/external-call-decision.tsx
+#: src/components/decision/approval-decision.tsx
 msgid "Tool"
 msgstr "工具"
 

@@ -346,6 +346,28 @@ describe("TaskPage and TaskGroupPage", () => {
 		expect(within(decision).getByRole("tab", { name: "Reject" })).toBeInTheDocument();
 	});
 
+	test("a task Auto Review is reviewing shows the notice instead of decision controls", async () => {
+		route.params = { taskId: "t1" };
+		mockTask({ ...TASK, state: "awaiting_approval", finishedAt: null, phase: "reviewing" });
+		await renderPage(<TaskPage />);
+
+		const notice = await screen.findByTestId("reviewing-notice");
+		expect(notice).toHaveTextContent("Auto Review is reviewing this request");
+		expect(screen.queryByRole("region", { name: "Your approval is needed" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+	});
+
+	test("a task group Auto Review is reviewing shows the notice instead of decision controls", async () => {
+		route.params = { taskGroupId: "g1" };
+		mockGroup({ ...GROUP, state: "awaiting_approval", finishedAt: null, phase: "reviewing" });
+		await renderPage(<TaskGroupPage />);
+
+		const notice = await screen.findByTestId("reviewing-notice");
+		expect(notice).toHaveTextContent("Auto Review is reviewing this request");
+		expect(screen.queryByRole("region", { name: "Your approval is needed" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+	});
+
 	test("a task waiting for its signature shows the signature decision inline", async () => {
 		route.params = { taskId: "t1" };
 		mockTask({ ...TASK, state: "awaiting_authorization", finishedAt: null });

@@ -68,6 +68,8 @@ export function TaskGroupResult({
 	// A shared session's viewers see the task group but may not decide it or sign for its owner.
 	const canAct = currentUser?.kind === "admin" || taskGroup.onBehalfOfUserId === currentUser?.id;
 	const canSign = taskGroup.onBehalfOfUserId === currentUser?.id;
+	// While Auto Review decides the request is not the user's yet: show the notice, not decision controls.
+	const reviewing = taskGroup.state === "awaiting_approval" && taskGroup.phase === "reviewing";
 	const columns: DataTableColumn<TaskGroupView["tasks"][number]>[] = [
 		{
 			id: "node",
@@ -92,7 +94,7 @@ export function TaskGroupResult({
 
 	return (
 		<section className="grid gap-3" data-testid="task-group-result" data-group-id={taskGroup.id}>
-			{taskGroup.state === "awaiting_approval" && canAct && (
+			{taskGroup.state === "awaiting_approval" && (canAct || reviewing) && (
 				<ApprovalDecision
 					item={{ kind: "task_group", taskGroup }}
 					nodeNames={lookups.nodeNames}
@@ -114,7 +116,7 @@ export function TaskGroupResult({
 				/>
 			)}
 
-			{taskGroup.approval?.review && <ReviewView review={taskGroup.approval.review} />}
+			{taskGroup.approval?.review && !reviewing && <ReviewView review={taskGroup.approval.review} />}
 
 			{taskGroup.state === "rejected" && taskGroup.approval?.decision && (
 				<DecisionView

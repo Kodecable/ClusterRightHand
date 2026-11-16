@@ -2739,8 +2739,11 @@ export class ChannelManager {
 			!draft.suppressed &&
 			this.#runs.has(sessionId);
 		if (!live) {
+			const seen = draft
+				? `live draft ${draft.draftId} in ${draft.adapterName}:${draft.target.chatId}/${draft.target.topicId ?? "-"}${draft.suppressed ? ", suppressed" : ""}`
+				: "no live draft";
 			console.log(
-				`channels: ignoring a generation stop for draft ${stop.draftId ?? "?"} on session ${sessionId}: it is not the live draft`,
+				`channels: ignoring a generation stop for draft ${stop.draftId ?? "?"} in ${row.name}:${stop.chatId}/${stop.topicId ?? "-"} on session ${sessionId}: ${seen}${this.#runs.has(sessionId) ? "" : ", no run"}`,
 			);
 			return;
 		}

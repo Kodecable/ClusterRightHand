@@ -93,6 +93,8 @@ export function TaskPage() {
 	const canAct = currentUser?.kind === "admin" || view.onBehalfOfUserId === currentUser?.id;
 	// Signing is the on_behalf_of user's own act, administrators included only when it is their task.
 	const canSign = view.onBehalfOfUserId === currentUser?.id;
+	// While Auto Review decides the request is not the user's yet: show the notice, not decision controls.
+	const reviewing = view.state === "awaiting_approval" && view.phase === "reviewing";
 
 	const links: KeyValueItem[] = [
 		...(view.rootSessionId !== null && view.rootSessionId !== undefined
@@ -180,7 +182,7 @@ export function TaskPage() {
 				/>
 			</Panel>
 
-			{view.state === "awaiting_approval" && canAct && (
+			{view.state === "awaiting_approval" && (canAct || reviewing) && (
 				<ApprovalDecision
 					item={{ kind: "task", task: view }}
 					nodeNames={looks.nodeNames}
@@ -211,7 +213,7 @@ export function TaskPage() {
 				/>
 			)}
 
-			{view.approval?.review && (
+			{view.approval?.review && !reviewing && (
 				<Panel as="section" aria-label={t`Auto review`}>
 					<ReviewView review={view.approval.review} />
 				</Panel>

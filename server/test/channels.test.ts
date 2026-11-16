@@ -1066,7 +1066,8 @@ describe("channels", () => {
 			fake.text(userId, "take your time");
 			const drafts = await fake.waitForCount("sendMessageDraft", before + 1);
 			const draftId = Number(drafts[before]?.body.draft_id);
-			fake.stopGeneration(userId, { draftId });
+			// Telegram's update carries the draft id as a string, though crhs sent a number.
+			fake.stopGeneration(userId, { draftId: String(draftId) });
 			await fake.waitForSent((call) => sentText(call) === "Stopped.");
 			const deadline = Date.now() + 5_000;
 			let state: string | undefined;

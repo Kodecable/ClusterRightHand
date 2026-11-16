@@ -133,13 +133,20 @@ behaves the same on every page:
 - **`EntityPicker`** is the only control for choosing users, user groups, nodes or node groups. It
   searches on the server and resolves already selected ids separately, so no page downloads a full
   list of users or nodes ([Entity search](#entity-search)).
-- **Decision component.** One frame (what is asked, the target nodes by name, the operation on one
-  truncated line) with a tab bar for the answer: **Approve / Always allow / Reject** for a rule
-  approval, **Passkey / `crha grant` / `ssh-keygen` / Local approval / Reject** for a signature wait,
-  **Add tokens / Stop** for an exhausted quota. The Passkey tab exists only when a trusted Passkey
-  does. Session pages, approvals deep links and task pages render the same component, so a decision
-  made in one place updates the others; the rule chain or payload details stay behind a tab or a
-  collapsed block, never in the default view.
+- **Decision component.** One frame (what is asked, with the target nodes by name and the operation on
+  one truncated line, or an external call's request details) with a tab bar for the answer:
+  **Approve / Always allow / Reject** for a rule approval, **Passkey / `crha grant` / `ssh-keygen` /
+  Local approval / Reject** for a signature wait, **Add tokens / Stop** for an exhausted quota. The
+  Passkey tab exists only when a trusted Passkey does. One approval component covers every kind — a
+  task, a task group and an external call — with the same title, **Your approval is needed**; its
+  summary names the kind (targets and operation, the extension tool and arguments, or the API
+  request's method, path, query and body). **Always allow** offers that kind's rule choices (exact or
+  prefix, this tool or the whole extension, this request or this route) as radios over the editable
+  rule JSON. Session pages, approvals deep links, task pages and external call pages render the same
+  component, so a decision made in one place updates the others; the rule chain or payload details
+  stay behind a tab or a collapsed block, never in the default view. A request Auto Review is still
+  judging shows the reviewing notice instead of decision controls and looks like a tool call in
+  progress in the transcript.
 - **`FileManager`** is the only file browser. It knows nothing of libraries or nodes: it takes a
   `FileSource` with `list` and `stat`, and optionally `download`, `upload`, `delete`, `rename` and
   `preview`. A missing operation hides its action. Its toolbar (a home icon, the path breadcrumb and
@@ -163,7 +170,9 @@ group, and the dialog then opens the new task or group. Results are always read 
 group page, never in the dialog.
 
 The task page shows the outcome next to the state in its header. It shows the rule chain evaluation
-whenever an approval was evaluated, and a result panel only when the task produced output. The task
+whenever an approval was evaluated, and a result panel only when the task produced output. While Auto
+Review is judging a task or task group, its page shows the reviewing notice instead of decision
+controls. The task
 list can be filtered by node and by user through the URL, so other pages link to a pre-filtered list
 (**View all tasks**) instead of paging through tasks themselves; their recent lists show only the
 newest ten.
@@ -228,10 +237,12 @@ nodes come later.
 The approvals page is one table of everything waiting for the signed-in user: task approvals, task
 group approvals, tasks waiting for the user's signature, and sessions whose token quota ran out. The
 columns are the type, the operation, the target nodes by name, who asked and when; the whole row opens
-its detail. A task or task group detail shows the decision component inline (a task in
-`awaiting_authorization` shows the signature variant), and a quota row opens its session, where the
-docked decision panel holds it. A task group counts once. The deep links that extension and agent tools
-return open one approval and show "Already settled" once it has been decided.
+its detail. A task, task group or external call detail shows the same approval component inline (a
+task in `awaiting_authorization` shows the signature variant), and a quota row opens its session,
+where the docked decision panel holds it. A task group counts once. A request Auto Review is still
+judging is not listed and does not count; its direct page shows the reviewing notice until the review
+escalates it. The deep links that extension and agent tools return open one approval and show "Already
+settled" once it has been decided.
 
 ### Extensions page
 

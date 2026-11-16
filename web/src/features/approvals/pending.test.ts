@@ -26,4 +26,16 @@ describe("pendingCount", () => {
 			}),
 		).toBe(8);
 	});
+
+	test("a request Auto Review is still judging is not counted", () => {
+		expect(
+			pendingCount({
+				tasks: [{ phase: "reviewing" }, { phase: "awaiting_user" }],
+				taskGroups: [{ phase: "reviewing" }],
+				externalCalls: [{ phase: "reviewing" }],
+				authorizations: { tasks: [], taskGroups: [] },
+				quotas: [],
+			}),
+		).toBe(1);
+	});
 });

@@ -7,7 +7,6 @@ import { ArrowLeftIcon } from "lucide-react";
 import { useMemo } from "react";
 import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/components/data-table";
 import { ApprovalDecision, ReviewView } from "@/components/decision";
-import { ExternalCallDecision } from "@/components/decision/external-call-decision";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { NodeTargetList } from "@/components/node-targets";
@@ -303,7 +302,7 @@ export function ApprovalTaskPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
-			{view.approval?.review && (
+			{view.approval?.review && view.phase !== "reviewing" && (
 				<Panel as="section" aria-label={t`Auto review`}>
 					<ReviewView review={view.approval.review} />
 				</Panel>
@@ -364,7 +363,7 @@ export function ApprovalTaskGroupPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
-			{view.approval?.review && (
+			{view.approval?.review && view.phase !== "reviewing" && (
 				<Panel as="section" aria-label={t`Auto review`}>
 					<ReviewView review={view.approval.review} />
 				</Panel>
@@ -433,14 +432,14 @@ export function ExternalCallApprovalPage() {
 					<Trans>All approvals</Trans>
 				</Link>
 			</div>
-			{view.approval?.review && (
+			{view.approval?.review && view.phase !== "reviewing" && (
 				<Panel as="section" aria-label={t`Auto review`}>
 					<ReviewView review={view.approval.review} />
 				</Panel>
 			)}
 			{view.state === "awaiting_approval" ? (
-				<ExternalCallDecision
-					call={view}
+				<ApprovalDecision
+					item={{ kind: "external_call", call: view }}
 					busy={decide.isPending}
 					error={decide.error}
 					onDecide={(body) => decide.mutate({ id: view.id, body })}

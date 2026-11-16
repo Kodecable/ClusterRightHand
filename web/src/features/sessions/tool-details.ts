@@ -1,5 +1,14 @@
 import type { Json, JsonObject } from "./session-events";
 
+/**
+ * `details.phase === "reviewing"`: the server reports that Auto Review is still judging this external call,
+ * so the card keeps its in-progress look and shows no approval link yet.
+ */
+export function reviewingDetails(details: Json | undefined): boolean {
+	if (!details || typeof details !== "object" || Array.isArray(details)) return false;
+	return details.phase === "reviewing";
+}
+
 /** `details.state === "awaiting_approval"` with an approval link, as cluster tools publish while waiting. */
 export function approvalWait(details: Json | undefined): { url: string } | undefined {
 	if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;

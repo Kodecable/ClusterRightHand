@@ -1,4 +1,4 @@
 export { ApprovalDecision } from "./approval-decision";
 export { DecisionView, ReviewSummary, ReviewView } from "./evaluation";
-export { ExternalCallDecision } from "./external-call-decision";
-export type { ApprovalItem } from "./types";
+export { ReviewingNotice } from "./reviewing-notice";
+export type { ApprovalDecisionItem, ApprovalItem } from "./types";

@@ -16,10 +16,11 @@ const task = (id: string, createdAt: string, rootSessionId: string | null = "roo
 		operation: { method: "exec", target: `echo ${id}` },
 		nodeId: "node-1",
 		privileged: false,
+		phase: "awaiting_user",
 	}) as TaskView;
 
 const group = (id: string, createdAt: string): TaskGroupView =>
-	({ id, createdAt, rootSessionId: "root" }) as TaskGroupView;
+	({ id, createdAt, rootSessionId: "root", phase: "awaiting_user" }) as TaskGroupView;
 
 const externalCall = (id: string, createdAt: string, rootSessionId = "root"): ExternalCallView =>
 	({
@@ -115,6 +116,26 @@ describe("sessionDecisions", () => {
 
 	test("an unloaded approvals list has no decisions", () => {
 		expect(sessionDecisions(undefined, "root")).toEqual([]);
+	});
+
+	test("a request Auto Review is still judging never becomes a decision panel", () => {
+		const list = data();
+		list.tasks.push({ ...task("reviewing-task", "2026-01-01T00:00:00.000Z"), phase: "reviewing" });
+		list.taskGroups.push({ ...group("reviewing-group", "2026-01-01T00:00:00.000Z"), phase: "reviewing" });
+		list.externalCalls.push({
+			...externalCall("reviewing-call", "2026-01-01T00:00:00.000Z"),
+			phase: "reviewing",
+		});
+		const decisions = sessionDecisions(list, "root");
+		expect(
+			decisions.some(
+				(decision) =>
+					(decision.kind === "approval_task" && decision.task.id === "reviewing-task") ||
+					(decision.kind === "approval_task_group" && decision.taskGroup.id === "reviewing-group") ||
+					(decision.kind === "approval_external_call" && decision.call.id === "reviewing-call"),
+			),
+		).toBe(false);
+		expect(decisions).toHaveLength(9);
 	});
 });
 
@@ -231,9 +252,10 @@ describe("external call decision", () => {
 		expect(within(dock).getByTestId("external-call-query")).toHaveTextContent("scope");
 		expect(within(dock).getByTestId("external-call-body")).toHaveTextContent("Bug");
 		fireEvent.click(within(dock).getByRole("tab", { name: "Always allow" }));
-		expect(within(dock).getByTestId("external-call-always-rule")).toHaveTextContent('"exact": "POST /api/sessions"');
+		const rule = within(dock).getByTestId("external-call-always-rule") as HTMLTextAreaElement;
+		expect(rule.value).toContain('"exact": "POST /api/sessions"');
 		fireEvent.click(within(dock).getByRole("radio", { name: "This route" }));
-		expect(within(dock).getByTestId("external-call-always-rule")).toHaveTextContent('"prefix": "POST /api/sessions"');
+		expect(rule.value).toContain('"prefix": "POST /api/sessions"');
 	});
 });
 
