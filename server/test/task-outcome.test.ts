@@ -2,7 +2,7 @@ import type { TaskGroupView, TaskView } from "@crh/api";
 import { describe, expect, it } from "vitest";
 import { type TaskOutcomeInput, taskGroupOutcome, taskOutcome } from "../src/cluster/outcome.ts";
 import type { ToolContext } from "../src/tools/catalog.ts";
-import { execTaskResult, groupTextNote } from "../src/tools/task-render.ts";
+import { execTaskResult, groupTextNote, taskDetails } from "../src/tools/task-render.ts";
 
 const task = (overrides: Partial<TaskOutcomeInput> = {}): TaskOutcomeInput => ({
 	kind: "exec",
@@ -10,7 +10,6 @@ const task = (overrides: Partial<TaskOutcomeInput> = {}): TaskOutcomeInput => ({
 	exitCode: 0,
 	signal: null,
 	timedOut: false,
-	cancelled: false,
 	errorCode: null,
 	errorMessage: null,
 	...overrides,
@@ -33,7 +32,6 @@ const view = (overrides: Partial<TaskView> = {}): TaskView =>
 		exitCode: 0,
 		signal: null,
 		timedOut: false,
-		cancelled: false,
 		timeoutMs: null,
 		errorCode: null,
 		errorMessage: null,
@@ -122,25 +120,40 @@ describe("taskOutcome", () => {
 			kind: "timed_out",
 			failed: true,
 		});
-		expect(taskOutcome(task({ state: "exited", exitCode: null, cancelled: true }))).toEqual({
+		expect(taskOutcome(task({ state: "cancelled", exitCode: 3, signal: "TERM" }))).toEqual({
 			kind: "cancelled",
 			failed: false,
+		});
+		expect(
+			taskOutcome(
+				task({
+					state: "expired",
+					exitCode: null,
+					errorCode: "authorization_wait_expired",
+					errorMessage: "no signature arrived within 24 hours",
+				}),
+			),
+		).toEqual({
+			kind: "expired",
+			failed: false,
+			errorCode: "authorization_wait_expired",
+			errorMessage: "no signature arrived within 24 hours",
 		});
 		expect(taskOutcome(task({ state: "rejected", exitCode: null }))).toEqual({ kind: "rejected", failed: true });
 		expect(taskOutcome(task({ state: "denied", exitCode: null }))).toEqual({ kind: "denied", failed: true });
 		expect(
-			taskOutcome(task({ state: "failed", exitCode: null, errorCode: "node_offline", errorMessage: "gone" })),
+			taskOutcome(task({ state: "errored", exitCode: null, errorCode: "node_offline", errorMessage: "gone" })),
 		).toEqual({ kind: "error", failed: true, errorCode: "node_offline", errorMessage: "gone" });
 		expect(taskOutcome(task({ state: "unknown", exitCode: null }))).toEqual({ kind: "unknown", failed: true });
 	});
 
-	it("reads a wait ended by a stopped session (rejected with the cancel code) as cancelled, not failed", () => {
+	it("reads a cancelled task as cancelled, even when it kept an exit code or a signal", () => {
 		expect(
 			taskOutcome(
 				task({
-					state: "rejected",
-					exitCode: null,
-					errorCode: "cancelled",
+					state: "cancelled",
+					exitCode: 143,
+					signal: "TERM",
 					errorMessage: "the session was stopped",
 				}),
 			),
@@ -148,12 +161,13 @@ describe("taskOutcome", () => {
 	});
 
 	it("follows the documented priority when several flags hold", () => {
-		// cancelled > timed out > signal > rejected/denied > platform error > unknown > exit code.
+		// cancelled/expired > timed out > signal > rejected/denied > platform error > unknown > exit code.
 		expect(
-			taskOutcome(
-				task({ state: "rejected", cancelled: true, timedOut: true, signal: "SIGKILL", errorCode: "x", exitCode: 2 }),
-			),
+			taskOutcome(task({ state: "cancelled", timedOut: true, signal: "SIGKILL", errorCode: "x", exitCode: 2 })),
 		).toMatchObject({ kind: "cancelled", failed: false });
+		expect(
+			taskOutcome(task({ state: "expired", timedOut: true, signal: "SIGKILL", errorCode: "x", exitCode: 2 })),
+		).toMatchObject({ kind: "expired", failed: false });
 		expect(
 			taskOutcome(task({ state: "rejected", timedOut: true, signal: "SIGKILL", errorCode: "x", exitCode: 2 })),
 		).toMatchObject({ kind: "timed_out", failed: true });
@@ -201,6 +215,17 @@ describe("taskGroupOutcome", () => {
 				group({
 					state: "finished",
 					tasks: [
+						view({ outcome: { kind: "expired", failed: false } }),
+						view({ outcome: { kind: "succeeded", failed: false } }),
+					],
+				}),
+			),
+		).toEqual({ kind: "expired", failed: false });
+		expect(
+			taskGroupOutcome(
+				group({
+					state: "finished",
+					tasks: [
 						view({ outcome: { kind: "succeeded", failed: false, exitCode: 0 } }),
 						view({ outcome: { kind: "exit", failed: true, exitCode: 1 } }),
 					],
@@ -217,9 +242,13 @@ describe("task-render text", () => {
 		expect(exit.isError).toBe(true);
 		expect(exit.content.at(-1)?.text).toContain("exit 2");
 
-		const cancelled = execTaskResult(ctx, view({ state: "exited", exitCode: null, cancelled: true }), "web-1");
+		const cancelled = execTaskResult(ctx, view({ state: "cancelled", exitCode: null }), "web-1");
 		expect(cancelled.isError).toBe(false);
 		expect(cancelled.content.at(-1)?.text).toContain("cancelled");
+
+		const expired = execTaskResult(ctx, view({ state: "expired", exitCode: null }), "web-1");
+		expect(expired.isError).toBe(false);
+		expect(expired.content.at(-1)?.text).toContain("expired");
 
 		const timedOut = execTaskResult(ctx, view({ state: "exited", exitCode: null, timedOut: true }), "web-1");
 		expect(timedOut.isError).toBe(true);
@@ -228,6 +257,12 @@ describe("task-render text", () => {
 		const signal = execTaskResult(ctx, view({ state: "exited", exitCode: null, signal: "SIGKILL" }), "web-1");
 		expect(signal.isError).toBe(true);
 		expect(signal.content.at(-1)?.text).toContain("killed by SIGKILL");
+	});
+
+	it("does not put the old cancellation flag in the details", () => {
+		const details = taskDetails(view({ state: "cancelled" }), "web-1");
+		expect(details).toMatchObject({ state: "cancelled" });
+		expect(details).not.toHaveProperty("cancelled");
 	});
 
 	it("counts a group from member outcomes and marks it failed when the group outcome failed", () => {

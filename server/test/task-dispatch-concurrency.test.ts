@@ -169,7 +169,7 @@ describe("main chain dispatch and the task queue", () => {
 		const cancelMs = Date.now() - started;
 		// The cancel ends the task right away: it does not wait out the grace the dispatch is in.
 		expect(cancelMs).toBeLessThan(GRACE_MS / 2);
-		expect(await rowOf(id)).toMatchObject({ state: "rejected", error_code: "cancelled" });
+		expect(await rowOf(id)).toMatchObject({ state: "cancelled" });
 
 		// The node reconnects within the grace: the dispatch must re-read the row and send nothing.
 		const crha = await agents.connect(key, handshakeInit());
@@ -177,7 +177,7 @@ describe("main chain dispatch and the task queue", () => {
 		await waitFor("link ready", () => cluster.isConnected(node.id));
 
 		const view = await created;
-		expect(view).toMatchObject({ state: "rejected", errorCode: "cancelled" });
+		expect(view).toMatchObject({ state: "cancelled", errorCode: null });
 		expect(crha.starts).toHaveLength(0);
 	});
 
@@ -218,7 +218,7 @@ describe("main chain dispatch and the task queue", () => {
 		const decideMs = Date.now() - started;
 		// The approval waited out the grace for the node instead of failing or returning at once.
 		expect(decideMs).toBeGreaterThanOrEqual(GRACE_MS - 100);
-		expect(await rowOf(id)).toMatchObject({ state: "failed", error_code: "node_offline" });
+		expect(await rowOf(id)).toMatchObject({ state: "errored", error_code: "node_offline" });
 	});
 
 	it("refuses a second decide without waiting for the dispatch grace", async () => {
@@ -244,7 +244,7 @@ describe("main chain dispatch and the task queue", () => {
 		// The first decide still settles the decision it recorded, after its grace finds the node offline.
 		expect(await approving).toBe("approved");
 		expect(await rowOf(id)).toMatchObject({
-			state: "failed",
+			state: "errored",
 			error_code: "node_offline",
 		});
 		const approval = JSON.parse((await rowOf(id))?.approval ?? "{}");

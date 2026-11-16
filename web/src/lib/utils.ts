@@ -7,11 +7,16 @@ export function cn(...inputs: ClassValue[]): string {
 }
 
 /**
- * The one inline-link style (doc/design/webui.md "Links"): foreground text with a thin
- * underline. A link never uses the primary colour, which would read as a
- * button; the underline thickens on hover as the only hover affordance.
+ * The one inline-link style (doc/design/webui.md "Links"): foreground text with a faint underline that
+ * becomes solid on hover. The thickness never changes; only the decoration colour does, which reads well in
+ * both themes. A link never takes the primary colour, which would read as a button.
  */
-export const linkClass = "text-foreground underline underline-offset-2 hover:decoration-2";
+export const linkClass =
+	"text-foreground underline decoration-foreground/30 underline-offset-2 transition-colors hover:decoration-foreground";
+
+/** The external-link style: the brand colour with the same faint-to-solid underline. */
+export const externalLinkClass =
+	"text-primary underline decoration-primary/30 underline-offset-2 transition-colors hover:decoration-primary";
 
 /**
  * A monospace table cell or detail value (doc/design/webui.md "Shared components"): `text-xs` keeps

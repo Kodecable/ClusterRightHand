@@ -185,7 +185,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("exit_code", "integer")
 		.addColumn("signal", "text")
 		.addColumn("timed_out", "integer", (c) => c.notNull())
-		.addColumn("cancelled", "integer", (c) => c.notNull())
 		.addColumn("error_code", "text")
 		.addColumn("error_message", "text")
 		.addColumn("actor_type", "text", (c) => c.notNull())

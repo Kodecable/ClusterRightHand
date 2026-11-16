@@ -2,10 +2,10 @@ import type { AuthorizationSummary, DecodedAuthorizationPayload } from "@crh/api
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
+import { InternalLink } from "@/components/internal-link";
 import { KeyValueList } from "@/components/key-value";
 import { NodeTargetList, nodeTargetsText } from "@/components/node-targets";
 import { Page } from "@/components/page";
@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { UserLink } from "@/components/user-link";
 import { useNodeNames } from "@/features/nodes/api";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { useAuthorizations } from "./api";
 
 /** The command a payload authorizes, as one line. */
@@ -38,9 +38,9 @@ function AuthorizationTasks({ ids }: { ids: readonly string[] }) {
 	return (
 		<span className="inline-flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
 			{ids.map((id) => (
-				<Link key={id} to="/tasks/$taskId" params={{ taskId: id }} className={cn(MONO_CELL, linkClass)}>
+				<InternalLink key={id} to="/tasks/$taskId" params={{ taskId: id }} className={MONO_CELL}>
 					{id}
-				</Link>
+				</InternalLink>
 			))}
 		</span>
 	);

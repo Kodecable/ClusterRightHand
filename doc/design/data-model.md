@@ -133,6 +133,8 @@ nodes, the batch settings, its state and a single approval for the whole group.
 
 - Specs are stored in their JSON form ([JSON storage forms](protocol.md#json-storage-forms)) without the
   input bytes. Input waiting for approval is kept on the row only until dispatch.
+- The `state` column is the whole lifecycle, including the terminal `cancelled` and `expired` states;
+  there is no separate cancellation flag.
 - `rev` is the row version used for compare-and-set writes ([Task row concurrency](execution.md#task-row-concurrency)).
 - crhs never stores complete output; the complete output stays on the node.
 - A task keeps no foreign key to its node or group, so history survives their deletion.

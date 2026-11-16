@@ -31,7 +31,7 @@ export interface RuntimeStats {
 	/** Rows in the durable agent storage. */
 	piEntries: number;
 	compactions: number;
-	/** Tasks whose state is failed, that timed out, or exited non-zero. */
+	/** Tasks whose state is errored, that timed out, or exited non-zero. */
 	tasksFailed: number;
 	turnsDone: number;
 	toolCallsDone: number;

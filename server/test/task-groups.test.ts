@@ -229,7 +229,7 @@ describeBackends("task groups", (backend) => {
 		const view = await groups.wait(id, 5000);
 		expect(view?.state).toBe("finished");
 		expect(view?.tasks.map((t) => t.nodeId).sort()).toEqual([...nodeIds].sort());
-		expect(view?.tasks.every((t) => t.state === "failed" && t.errorCode === "node_offline")).toBe(true);
+		expect(view?.tasks.every((t) => t.state === "errored" && t.errorCode === "node_offline")).toBe(true);
 		expect(view?.skipped).toEqual([]);
 	});
 
@@ -300,7 +300,7 @@ describeBackends("task groups", (backend) => {
 			// Only the two members the workers had started exist; the other eight were never created.
 			expect(view?.tasks).toHaveLength(2);
 			expect(view?.skipped.sort()).toEqual(nodeIds.slice(2).sort());
-			expect(view?.tasks.every((task) => task.state === "rejected" && task.errorCode === "cancelled")).toBe(true);
+			expect(view?.tasks.every((task) => task.state === "cancelled" && task.errorCode === null)).toBe(true);
 		} finally {
 			await slow.close();
 		}
@@ -373,7 +373,7 @@ describeBackends("task groups", (backend) => {
 			expect(view?.state).toBe("interrupted");
 			expect(view?.skipped).toEqual([ids["web-2"]]);
 			const failed = view?.tasks.find((task) => task.nodeId === ids["web-1"]);
-			expect(failed).toMatchObject({ state: "failed", errorCode: "internal_error" });
+			expect(failed).toMatchObject({ state: "errored", errorCode: "internal_error" });
 			// A task written for dispatch only is not left waiting for an approval nobody can decide.
 			expect(failed?.handlerType).toBeNull();
 			// The member that was still waiting ends with a reason that names the failure.
@@ -382,7 +382,7 @@ describeBackends("task groups", (backend) => {
 				.select(["state", "error_code", "error_message"])
 				.where("id", "=", waiting)
 				.executeTakeFirstOrThrow();
-			expect(cancelled).toMatchObject({ state: "rejected", error_code: "cancelled" });
+			expect(cancelled).toMatchObject({ state: "cancelled", error_code: null });
 			expect(cancelled.error_message).toBe("the task group failed: injected storage failure");
 		} finally {
 			await probedCluster.close();
@@ -465,7 +465,7 @@ describeBackends("task groups", (backend) => {
 		expect(deniedRow.dispatched_at).toBeNull();
 		// Node B still runs; it is offline here, which is the dispatch this test can observe.
 		expect(view?.tasks.find((task) => task.nodeId === nodeB)).toMatchObject({
-			state: "failed",
+			state: "errored",
 			errorCode: "node_offline",
 		});
 	});
@@ -528,7 +528,7 @@ describeBackends("task groups", (backend) => {
 			expect(view?.state).toBe("finished");
 			const byNode = new Map(view?.tasks.map((task) => [task.nodeId, task]));
 			// Node A was judged before the rule changed; node B is judged when its member is created.
-			expect(byNode.get(nodeA)).toMatchObject({ state: "failed", errorCode: "node_offline" });
+			expect(byNode.get(nodeA)).toMatchObject({ state: "errored", errorCode: "node_offline" });
 			expect(byNode.get(nodeB)).toMatchObject({ state: "denied", errorCode: "policy_denied" });
 		} finally {
 			await probedCluster.close();
@@ -652,7 +652,7 @@ describeBackends("task groups", (backend) => {
 			errorCode: "policy_denied",
 		});
 		expect(view?.tasks.find((task) => task.nodeId === nodeB)).toMatchObject({
-			state: "failed",
+			state: "errored",
 			errorCode: "node_offline",
 		});
 	});
@@ -766,7 +766,6 @@ describeBackends("task groups", (backend) => {
 				exit_code: null,
 				signal: null,
 				timed_out: 0,
-				cancelled: 0,
 				error_code: null,
 				error_message: null,
 				actor_type: "user",
@@ -826,10 +825,9 @@ describeBackends("task groups", (backend) => {
 		expect(view?.skipped).toEqual([ids["web-2"]]);
 		// The waiting member can no longer start once its signature arrives, so it ends now.
 		expect(view?.tasks[0]).toMatchObject({
-			state: "rejected",
-			errorCode: "cancelled",
+			state: "cancelled",
+			errorCode: null,
 			errorMessage: GROUP_INTERRUPTED_REASON,
-			cancelled: true,
 		});
 	});
 });

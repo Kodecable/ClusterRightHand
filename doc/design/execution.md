@@ -84,35 +84,63 @@ reused by another process before it is signaled.
 
 ```text
 awaiting_approval ──▶ awaiting_authorization ──▶ dispatched ──▶ running ──▶ exited
-        │                     │   ▲                  │             ├──▶ failed
-        └──▶ rejected         │   └── auth retry ────┘             └──▶ unknown
+        │                     │   ▲                  │             ├──▶ errored
+        ├──▶ rejected         │   └── auth retry ────┘             ├──▶ cancelled
+        └──▶ cancelled        └──▶ expired                         └──▶ unknown
 denied (by a rule, at creation)
 ```
+
+Every state value (packages/api/src/schemas/task-state.ts):
+
+- `awaiting_approval`: waits for an approval (a person, an ancestor agent or Auto Review).
+- `awaiting_authorization`: waits for a signature.
+- `dispatched`: released to the node, not yet started.
+- `running`: the command runs on the node.
+- `exited`: the command ran and reported an exit code, including non-zero; success is the outcome, not
+  the state.
+- `errored`: the platform could not run or finish the command (node offline, connection failure,
+  interrupted dispatch, lost access); no exit code of the command.
+- `rejected`: a person or Auto Review rejected it.
+- `denied`: a rule denied it when it was created.
+- `cancelled`: cancelled before, while waiting or while running; a run that started keeps its exit code,
+  signal and output.
+- `expired`: a signature wait timed out.
+- `unknown`: the node lost contact; whether the command finished is not known.
+
+The transitions:
 
 - A task is created waiting for approval, waiting for a signature, ready to dispatch, or already ended
   (`denied` by a rule). A task with no rule chain, such as one a user starts in the WebUI, skips the
   approval wait.
-- Approval waits never expire. A signature wait ends the task as `rejected` after 24 hours
+- Approval waits never expire. A signature wait ends the task as `expired` after 24 hours
   ([Waiting for signatures](privilege.md#waiting-for-signatures)).
+- `rejected` is only an explicit rejection by a person or Auto Review (`decide`); `denied` stays the
+  rule's denial at creation. Every cancellation ends the task as `cancelled`, whether it was waiting,
+  claimed for dispatch or running, and whether the user asked for it or its session stopped or its run
+  ended. A task cancelled while running keeps its exit code, signal and output.
+- A task group has no signature wait of its own: each waiting member is swept, so a group whose members'
+  waits expire ends `finished` once they do. Its outcome is then `expired` (muted), not a failure.
 - An approved task is not queued for an offline node. When it is released for dispatch, it waits only
-  the short [offline grace](#node-offline) and otherwise fails.
-- A waiting task ends without running if its node is deleted or its user loses access to the node.
-- After a crhs restart, a task that was approved but not yet sent fails as `dispatch_interrupted`: its
-  input lived in memory and nobody would release it again.
+  the short [offline grace](#node-offline) and otherwise ends as `errored` with `node_offline`.
+- A waiting task ends without running if its node is deleted or its user loses access to the node; its
+  state is `errored` with `node_deleted` or `node_access_revoked`.
+- After a crhs restart, a task that was approved but not yet sent ends as `errored` with
+  `dispatch_interrupted`: its input lived in memory and nobody would release it again.
 - A task group interrupted by a restart or an internal error ends as `interrupted`. Members that did not
   start are cancelled and nodes without a member are recorded as skipped. Groups are never retried.
-- `exited` means the command ran and reported an exit code, including non-zero codes. `failed` means
-  it could not run or complete.
+- The command's own exit code is never the state: it is `exited` plus the outcome, and `errored` means the
+  platform could not run or finish the command.
 
 ### Task outcome
 
 The server classifies every terminal task once, and the API view carries that `outcome`. Priority when
-several flags hold: cancelled > timed out > signal > rejected/denied > platform error > unknown > exit
-code. Cancelled is not a failure (it is muted), while rejected, denied, timed out, signalled, errored
-and unknown are. Exit 0 succeeds; an exec task keeps its code (`Exit code 0`), a file operation just
-reads **Done**. A task group's outcome follows the same rules: cancelled is not failed, rejected and
-interrupted are, and a finished group fails when any member failed. The model-facing task text and every
-WebUI surface read the same classification, so one result cannot be green in one place and red in another.
+several flags hold: cancelled/expired > timed out > signal > rejected/denied > platform error > unknown >
+exit code. Cancelled and expired are not failures (they are muted), while rejected, denied, timed out,
+signalled, errored and unknown are. Exit 0 succeeds; an exec task keeps its code (`Exit code 0`), a file
+operation just reads **Done**. A task group's outcome follows the same rules: cancelled and expired are
+not failed, rejected and interrupted are, and a finished group fails when any member failed. The
+model-facing task text and every WebUI surface read the same classification, so one result cannot be
+green in one place and red in another.
 
 The view also carries the one structured task action (exec command, file operation with an optional line
 range, API request, or extension tool) built from the stored spec. The tasks list, the task page, the
@@ -147,11 +175,13 @@ A task id is accepted and executed at most once.
 
 ### Task cancellation
 
-A task that is still waiting has nothing running yet; cancelling it ends it as `rejected`. Otherwise
-crhs records the cancellation on the task first and then tells the node, so the cancellation holds even
-while the node is offline, and crhs checks the flag again immediately before sending the task. crha also
-remembers cancellations for tasks it has not received yet, so a cancellation that overtakes the task is
-not lost.
+A task that is still waiting has nothing running yet; cancelling it ends it as `cancelled`. A task
+claimed for dispatch is written `cancelled` on its row before the node is told, so a `task.start` that
+has not left yet stops at the start point and a restart cannot lose the cancellation; a late `task.exit`
+still records the exit code, signal and output without changing the state. A running task is cancelled
+through its runner (the node for a client, the process group for SSH), which records the end as
+`cancelled` with what it saw. crha also remembers cancellations for tasks it has not received yet, so a
+cancellation that overtakes the task is not lost.
 
 ### Task row concurrency
 
@@ -189,6 +219,10 @@ node group references or `_all`; a single node is a single task, and anything el
 - A group targets at most 512 nodes after expansion. More is an error asking the caller to split the
   batch, never a silent truncation.
 - Members run with bounded parallelism (10 by default, at most 100).
+- A group's state is `awaiting_approval` or `awaiting_authorization` while its one decision is pending,
+  `running` while members are dispatched or running, `finished` when every member ended (the outcome
+  says whether any failed), `interrupted` when a restart or internal error ended the batch, `rejected`
+  when a person or Auto Review refused it, or `cancelled` when it was cancelled.
 - Members are independent: a group can end with a mix of results, and nothing is rolled back. One
   approval covers the whole group, but each member is checked against the current rules when it starts,
   so a later deny rule still applies.

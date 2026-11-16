@@ -126,10 +126,6 @@ export async function sendTaskStart(
 	// last check comes immediately before the frame leaves (doc/design/execution.md "Task cancellation").
 	const row = await core.row(id);
 	if (row?.state !== "dispatched") return;
-	if (row.cancelled === 1) {
-		await followUp.settle(() => finish(core, nodeId, id, cancelledTaskFields()));
-		return;
-	}
 	// task.start waits for the node's answer: it must not be sent from a task queue turn.
 	core.assertOutsideTaskTurn("task.start");
 	try {
@@ -177,14 +173,14 @@ export async function sendTaskStart(
 			}
 			const final: Updateable<TasksTable> = authorization
 				? { state: "rejected", error_code: err.code, error_message: err.message }
-				: { state: "failed", error_code: err.code, error_message: err.message };
+				: { state: "errored", error_code: err.code, error_message: err.message };
 			await followUp.settle(() => finish(core, nodeId, id, final));
 			return;
 		}
 		if (err instanceof ProtocolError) {
 			// Raised locally while encoding: the request was never sent, so nothing can have run.
 			await followUp.settle(() =>
-				finish(core, nodeId, id, { state: "failed", error_code: "invalid_spec", error_message: err.message }),
+				finish(core, nodeId, id, { state: "errored", error_code: "invalid_spec", error_message: err.message }),
 			);
 			return;
 		}

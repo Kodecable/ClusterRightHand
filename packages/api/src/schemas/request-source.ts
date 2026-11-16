@@ -1,5 +1,5 @@
 /**
- * Who a request came from (`../request-source.ts`, doc/design/webui.md "Request source"). The values are
+ * Who a request came from (`../request-source.ts`, doc/design/webui.md "Shared components"). The values are
  * only the caller's type and display name, never prose. Audit events add the non-user actors they record
  * (system, Auto Review, a schedule); task and approval sources are only a session, an API token or a user.
  */

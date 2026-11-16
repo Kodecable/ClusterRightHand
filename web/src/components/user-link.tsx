@@ -1,5 +1,4 @@
-import { Link } from "@tanstack/react-router";
-import { cn, linkClass } from "@/lib/utils";
+import { InternalLink } from "./internal-link";
 
 /**
  * A link to a user's page (doc/design/webui.md "List navigation, links and refresh", "Links"): actors and owners are
@@ -19,8 +18,8 @@ export function UserLink({
 	title?: string;
 }) {
 	return (
-		<Link to="/users/$userId" params={{ userId: id }} title={title} className={cn(linkClass, className)}>
+		<InternalLink to="/users/$userId" params={{ userId: id }} title={title} className={className}>
 			{name === undefined || name === null || name === "" ? id : name}
-		</Link>
+		</InternalLink>
 	);
 }

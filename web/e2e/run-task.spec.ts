@@ -47,7 +47,9 @@ test("cancels a running task from the UI", async ({ adminPage: page, crhs }) => 
 
 	await expect(page.getByTestId("task-page")).toBeVisible();
 	await page.getByTestId("cancel-task").click();
-	await expect(page.getByTestId("task-page").getByText("Finished", { exact: true })).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByTestId("task-page").getByText("Cancelled", { exact: true }).first()).toBeVisible({
+		timeout: 20_000,
+	});
 	await expect(page.getByTestId("task-outcome")).toHaveText("Cancelled", { timeout: 20_000 });
 	await expect(page.getByTestId("cancel-task")).toHaveCount(0);
 });

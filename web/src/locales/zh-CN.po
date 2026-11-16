@@ -1721,9 +1721,6 @@ msgid "Deleted user group"
 msgstr "已删除的用户组"
 
 #: src/components/status-badge.tsx
-msgid "Denied"
-msgstr "已拒绝"
-
 #: src/components/task-outcome.tsx
 msgid "Denied by rules"
 msgstr "被规则拒绝"
@@ -2029,6 +2026,10 @@ msgstr "环境变量"
 msgid "Error"
 msgstr "错误"
 
+#: src/components/status-badge.tsx
+msgid "Errored"
+msgstr "执行出错"
+
 #: src/components/decision/evaluation.tsx
 msgid "Escalated"
 msgstr "已升级"
@@ -2106,6 +2107,7 @@ msgid "Expected triggers"
 msgstr "预计触发时间"
 
 #: src/components/status-badge.tsx
+#: src/components/task-outcome.tsx
 msgid "Expired"
 msgstr "已过期"
 
@@ -2657,10 +2659,6 @@ msgstr "正在加载预览"
 msgid "Loading shares…"
 msgstr "正在加载共享…"
 
-#: src/features/sessions/tool-dialog.tsx
-msgid "Loading task…"
-msgstr "正在加载任务…"
-
 #: src/features/settings/extensions.tsx
 msgid "Loading the tool list…"
 msgstr "正在加载工具列表…"
@@ -3128,10 +3126,6 @@ msgstr "还没有人签发过授权。"
 msgid "No one yet"
 msgstr "还没有人"
 
-#: src/features/sessions/tool-dialog.tsx
-msgid "No output yet"
-msgstr "还没有输出"
-
 #: src/features/sessions/tool-card.tsx
 msgid "No result"
 msgstr "无结果"
@@ -3466,10 +3460,6 @@ msgstr "打开资料库以删除其中的文件"
 msgid "Open the session"
 msgstr "打开会话"
 
-#: src/features/sessions/tool-dialog.tsx
-msgid "Open the subagent's session"
-msgstr "打开子会话"
-
 #: src/features/approvals/pages.tsx
 msgid "Open the task"
 msgstr "打开任务"
@@ -3477,10 +3467,6 @@ msgstr "打开任务"
 #: src/features/approvals/pages.tsx
 msgid "Open the task group"
 msgstr "打开任务组"
-
-#: src/features/sessions/tool-dialog.tsx
-msgid "Open the task group page"
-msgstr "打开任务组页"
 
 #: src/components/decision/request-details.tsx
 #: src/features/approvals/pages.tsx
@@ -3553,10 +3539,6 @@ msgstr "输出"
 #: src/components/task-facts.tsx
 msgid "Output file"
 msgstr "输出文件"
-
-#: src/features/sessions/tool-dialog.tsx
-msgid "Output so far"
-msgstr "目前的输出"
 
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Overall upload progress"
@@ -4787,6 +4769,10 @@ msgstr "被下一次运行停止"
 msgid "Stored headers: {0}"
 msgstr "已存储的请求头：{0}"
 
+#: src/features/sessions/tool-dialog.tsx
+msgid "Subagent session"
+msgstr "子会话"
+
 #. placeholder {0}: displaySessionTitle(row.hit.sessionTitle, i18n)
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Subagent: {0}"
@@ -4855,6 +4841,7 @@ msgid "Task"
 msgstr "任务"
 
 #: src/features/sessions/session-decisions.tsx
+#: src/features/sessions/tool-dialog.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task details"
 msgstr "任务详情"
@@ -4865,6 +4852,7 @@ msgstr "任务详情"
 msgid "Task group"
 msgstr "任务组"
 
+#: src/features/sessions/tool-dialog.tsx
 #: src/features/tasks/task-group-page.tsx
 msgid "Task group details"
 msgstr "任务组详情"
@@ -5652,17 +5640,9 @@ msgstr "等待所有者授权。"
 msgid "Waiting for you"
 msgstr "等待你处理"
 
-#: src/features/sessions/tool-dialog.tsx
-msgid "Waiting for your approval. <0>Review and approve</0>"
-msgstr "等待你的审批。<0>查看并批准</0>"
-
 #: src/components/task-facts.tsx
 msgid "Waiting for your signature."
 msgstr "等待你的签名。"
-
-#: src/features/sessions/tool-dialog.tsx
-msgid "Waiting for your signature. <0>Open the signing page</0>"
-msgstr "等待你的签名。<0>打开签名页面</0>"
 
 #: src/features/system-settings/general-section.tsx
 msgid "Warn when a node's clock differs from crhs's by more than this; 0s disables the warning. Default: {defaultClockWarn}."

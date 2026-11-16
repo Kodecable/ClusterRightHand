@@ -1,70 +1,36 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { CodeText } from "@/components/code-text";
 import { InternalLink } from "@/components/internal-link";
-import { TaskGone } from "@/components/task-gone";
-import { TaskResult } from "@/components/task-result";
 import { Dialog, DialogContent, DialogHeader, DialogScrollArea, DialogTitle } from "@/components/ui/dialog";
-import { useTask } from "@/features/tasks/api";
-import { isNotFound } from "@/lib/api/client";
-import { safeInternalPath } from "@/lib/url";
-import { cn, linkClass } from "@/lib/utils";
-import { useStreamingText } from "@/markdown/stream-store";
-import { resultId, type ToolItem } from "./tool-call";
-import { approvalWait, authorizationWait, prettyJson } from "./tool-details";
-import type { TranscriptStreams } from "./transcript-streams";
-
-/** A cluster task result shows the same `TaskResult` as the task page (doc/design/webui.md "Shared components"). */
-function ToolTask({ taskId }: { taskId: string }) {
-	const task = useTask(taskId);
-	const { t } = useLingui();
-	if (task.isPending) return <p className="text-xs text-muted-foreground">{t`Loading task…`}</p>;
-	if (task.error !== null && task.error !== undefined) {
-		if (isNotFound(task.error)) return <TaskGone className="text-xs" />;
-		return <p className="text-xs text-danger">{task.error.message}</p>;
-	}
-	if (!task.data) return null;
-	return (
-		<div className="rounded-md border bg-card/40 p-2">
-			<TaskResult task={task.data} />
-		</div>
-	);
-}
+import { detailId, resultId, type ToolItem } from "./tool-call";
+import { prettyJson } from "./tool-details";
 
 /**
- * The dialog a tool card opens: the call's arguments, an approval or signature wait, the live output while it
- * runs, and the returned result with the task, task group or subagent session it links.
+ * The dialog a tool card opens: the call's arguments, the returned result, and plain links to the task, task
+ * group or subagent session the call names. A call that has not returned shows no result section; the
+ * composer dock already shows approval and signature waits, and the card follows a live task.
  */
 export function ToolDialog({
 	item,
 	open,
 	onOpenChange,
-	liveOutput,
-	reviewing = false,
 }: {
 	item: ToolItem;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
-	/** The live output store of an unreturned call; undefined once the call returned. */
-	liveOutput: ReturnType<TranscriptStreams["tool"]> | undefined;
-	/** Auto Review is still judging the call: no approval link until the request is the user's. */
-	reviewing?: boolean;
 }) {
 	const { t } = useLingui();
 	const result = item.result;
 	const returned = result !== undefined;
-	const wait = result || reviewing ? undefined : approvalWait(item.details);
-	const approvalHref = wait ? safeInternalPath(wait.url) : undefined;
-	const signature = result ? undefined : authorizationWait(item.details);
-	const signatureHref = signature ? safeInternalPath(signature.url) : undefined;
 	const subagent =
 		item.details !== null && typeof item.details === "object" && !Array.isArray(item.details)
 			? item.details.sessionId
 			: undefined;
 	const subagentId = typeof subagent === "string" && subagent !== "" ? subagent : undefined;
 	const hasArgs = Object.keys(item.args).length > 0;
-	const taskResultId = returned ? resultId(item, "task_id") : undefined;
-	const taskGroupResultId = returned ? resultId(item, "task_group_id") : undefined;
+	const taskId = resultId(item, "task_id") ?? detailId(item.details, "task_id");
+	const taskGroupId = resultId(item, "task_group_id") ?? detailId(item.details, "task_group_id");
+	const hasLinks = taskId !== undefined || taskGroupId !== undefined || subagentId !== undefined;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,67 +52,37 @@ export function ToolDialog({
 							/>
 						</div>
 					)}
-					{wait && (
-						<p className="text-xs text-warn" role="status">
-							<Trans>
-								Waiting for your approval. <InternalLink href={approvalHref}>Review and approve</InternalLink>
-							</Trans>
-						</p>
-					)}
-					{signature && (
-						<p className="text-xs text-warn" role="status">
-							<Trans>
-								Waiting for your signature. <InternalLink href={signatureHref}>Open the signing page</InternalLink>
-							</Trans>
-						</p>
-					)}
-					{liveOutput !== undefined && (
-						<div className="grid gap-1">
-							<span className="text-[11px] font-medium text-muted-foreground">
-								<Trans>Output so far</Trans>
-							</span>
-							<ToolLiveOutput store={liveOutput} />
-						</div>
-					)}
-					{result !== undefined && (
+					{returned && (
 						<div className="grid gap-1">
 							<span className="text-[11px] font-medium text-muted-foreground">
 								<Trans>Result</Trans>
 							</span>
 							<ToolResultContent result={result} />
-							{taskResultId !== undefined && <ToolTask taskId={taskResultId} />}
-							{taskGroupResultId !== undefined && (
-								<Link
-									to="/task-groups/$taskGroupId"
-									params={{ taskGroupId: taskGroupResultId }}
-									className={cn("text-xs", linkClass)}
-								>
-									<Trans>Open the task group page</Trans>
-								</Link>
-							)}
 						</div>
 					)}
-					{subagentId !== undefined && (
-						<Link to="/sessions/$sessionId" params={{ sessionId: subagentId }} className={cn("text-xs", linkClass)}>
-							<Trans>Open the subagent's session</Trans>
-						</Link>
+					{hasLinks && (
+						<div className="flex flex-wrap items-center gap-3 text-xs" data-testid="tool-dialog-links">
+							{taskId !== undefined && (
+								<InternalLink to="/tasks/$taskId" params={{ taskId }} className="text-xs">
+									<Trans>Task details</Trans>
+								</InternalLink>
+							)}
+							{taskGroupId !== undefined && (
+								<InternalLink to="/task-groups/$taskGroupId" params={{ taskGroupId }} className="text-xs">
+									<Trans>Task group details</Trans>
+								</InternalLink>
+							)}
+							{subagentId !== undefined && (
+								<InternalLink to="/sessions/$sessionId" params={{ sessionId: subagentId }} className="text-xs">
+									<Trans>Subagent session</Trans>
+								</InternalLink>
+							)}
+						</div>
 					)}
 				</DialogScrollArea>
 			</DialogContent>
 		</Dialog>
 	);
-}
-
-function ToolLiveOutput({ store }: { store: ReturnType<TranscriptStreams["tool"]> }) {
-	const { text } = useStreamingText(store);
-	if (text === "") {
-		return (
-			<p className="text-xs text-muted-foreground">
-				<Trans>No output yet</Trans>
-			</p>
-		);
-	}
-	return <CodeText text={text} maxLines={0} preClassName="max-h-72" copy={false} />;
 }
 
 /**

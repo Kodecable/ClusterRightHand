@@ -233,7 +233,6 @@ describe("settings applied without a restart", () => {
 				exit_code: 0,
 				signal: null,
 				timed_out: 0,
-				cancelled: 0,
 				error_code: null,
 				error_message: null,
 				actor_type: "user",

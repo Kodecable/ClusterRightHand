@@ -109,7 +109,7 @@ describe("node offline grace", () => {
 		const task = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
 		expect(Date.now() - started).toBeGreaterThanOrEqual(GRACE_MS - 20);
 		expect(task).toMatchObject({
-			state: "failed",
+			state: "errored",
 			errorCode: "node_offline",
 			errorMessage: "the node is not connected",
 		});
@@ -128,7 +128,7 @@ describe("node offline grace", () => {
 			const started = Date.now();
 			const task = await slow.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
 			expect(Date.now() - started).toBeLessThan(1_000);
-			expect(task).toMatchObject({ state: "failed", errorCode: "node_offline" });
+			expect(task).toMatchObject({ state: "errored", errorCode: "node_offline" });
 		} finally {
 			await slow.close();
 		}
@@ -165,7 +165,7 @@ describe("node offline grace", () => {
 		expect(view.state).toBe("finished");
 		expect(view.tasks.find((task) => task.nodeId === online.node.id)).toMatchObject({ state: "exited" });
 		expect(view.tasks.find((task) => task.nodeId === offline.node.id)).toMatchObject({
-			state: "failed",
+			state: "errored",
 			errorCode: "node_offline",
 		});
 	});

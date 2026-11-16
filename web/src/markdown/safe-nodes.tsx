@@ -1,5 +1,6 @@
 import { Trans } from "@lingui/react/macro";
 import type { ReactNode } from "react";
+import { ExternalLink } from "@/components/external-link";
 import { inspectUrl } from "@/lib/url";
 
 interface AnchorProps {
@@ -24,16 +25,9 @@ export function SafeLink({ href, title, className, children }: AnchorProps) {
 		);
 	}
 	return (
-		<a
-			className={className}
-			href={verdict.url}
-			title={title}
-			rel="noopener noreferrer"
-			target="_blank"
-			data-link="allowed"
-		>
+		<ExternalLink className={className} href={verdict.url} title={title} dataLink="allowed">
 			{children}
-		</a>
+		</ExternalLink>
 	);
 }
 
@@ -60,8 +54,8 @@ export function TextImage({ src, alt }: ImageProps) {
 		);
 	}
 	return (
-		<a href={verdict.url} rel="noopener noreferrer" target="_blank" data-image="link">
+		<ExternalLink href={verdict.url} dataLink="image">
 			<Trans>[image: {label}]</Trans>
-		</a>
+		</ExternalLink>
 	);
 }

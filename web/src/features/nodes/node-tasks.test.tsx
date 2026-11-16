@@ -22,7 +22,6 @@ function task(overrides: Partial<TaskView> = {}): TaskView {
 		exitCode: 0,
 		signal: null,
 		timedOut: false,
-		cancelled: false,
 		errorCode: null,
 		errorMessage: null,
 		outputBytes: 0,

@@ -82,7 +82,6 @@ export const TaskViewSchema = z
 		exitCode: z.number().nullable(),
 		signal: z.string().nullable(),
 		timedOut: z.boolean(),
-		cancelled: z.boolean(),
 		timeoutMs: z.number().nullable().describe("The task's timeout in milliseconds; null when it had none."),
 		errorCode: z.string().nullable(),
 		errorMessage: z.string().nullable(),

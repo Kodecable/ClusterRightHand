@@ -1,5 +1,5 @@
 /**
- * Who a request came from (`./schemas/request-source.ts`, doc/design/webui.md "Request source"): a
+ * Who a request came from (`./schemas/request-source.ts`, doc/design/webui.md "Shared components"): a
  * session, an API token or a user; audit events also carry the system, Auto Review and a schedule.
  */
 

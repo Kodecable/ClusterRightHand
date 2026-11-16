@@ -69,6 +69,7 @@ class FakeSession {
 	taskOutput: Buffer = OUTPUT;
 	/** Leaves task channels open, so a test can close the session while a task runs. */
 	holdTaskCommands = false;
+	#held: FakeChannel | undefined;
 	#closed = false;
 	readonly #closeHandlers = new Set<() => void>();
 
@@ -87,8 +88,15 @@ class FakeSession {
 				channel.emit("exit", 0);
 				channel.emit("close");
 			});
+		} else {
+			this.#held = channel;
 		}
 		return Promise.resolve(channel);
+	}
+
+	/** Writes output through the task channel a test is holding open. */
+	emitTaskOutput(data: Buffer): void {
+		this.#held?.emit("data", data);
 	}
 
 	onClose(fn: () => void): () => void {
@@ -207,11 +215,30 @@ describe("SSH tasks", () => {
 		releaseConnect(session);
 		const done = await waitFor("cancelled", async () => {
 			const current = await view(task.id);
-			return current.state === "exited" ? current : undefined;
+			return current.state === "cancelled" ? current : undefined;
 		});
-		// Nothing ran: the cancellation was set while the connection was being made.
-		expect(done).toMatchObject({ state: "exited", cancelled: true, exitCode: null });
+		// Nothing ran: the cancellation was recorded while the connection was being made.
+		expect(done).toMatchObject({ state: "cancelled", exitCode: null });
 		expect(session.taskCommands()).toHaveLength(0);
+	});
+
+	it("ends a running task cancelled with the output it produced", async () => {
+		const node = await addSshNode("ssh-cancel-running");
+		const session = new FakeSession();
+		session.holdTaskCommands = true;
+		fake.connect = async () => session;
+		const task = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("running", async () => (await view(task.id)).state === "running");
+		session.emitTaskOutput(Buffer.from("partial output\n"));
+
+		expect(await cluster.cancelTask(task.id, "the user cancelled it")).toBe(true);
+		const done = await waitFor("cancelled", async () => {
+			const current = await view(task.id);
+			return current.state === "cancelled" ? current : undefined;
+		});
+		// The runner records the end with the output it saw, and no exit code because none was reported.
+		expect(done).toMatchObject({ state: "cancelled", exitCode: null, outputTail: "partial output\n" });
+		expect(session.taskCommands()).toHaveLength(1);
 	});
 
 	it("keeps the privileged notice of a status task", async () => {
@@ -328,9 +355,9 @@ describe("SSH tasks", () => {
 			transfer: JSON.stringify({ transferId: "bad-transfer", location: { kind: "nonsense" } }),
 			actor: actor(),
 		});
-		const done = await waitFor("failed", async () => {
+		const done = await waitFor("errored", async () => {
 			const current = await view(task.id);
-			return current.state === "failed" ? current : undefined;
+			return current.state === "errored" ? current : undefined;
 		});
 		expect(done.errorCode).toBe("connect_failed");
 		expect(done.errorMessage).toContain("unknown transfer location kind");

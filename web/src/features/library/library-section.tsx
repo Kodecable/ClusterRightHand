@@ -1,16 +1,15 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { PencilIcon } from "lucide-react";
 import { useState } from "react";
 import { EmptyHint } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import { KeyValueList } from "@/components/key-value";
 import { Panel, SectionHeader } from "@/components/section";
 import { Spinner } from "@/components/spinner";
 import { Button } from "@/components/ui/button";
 import { isNotFound } from "@/lib/api/client";
 import { formatBytes } from "@/lib/format";
-import { linkClass } from "@/lib/utils";
 import { useLibrary } from "./api";
 import { LibraryLimitsDialog } from "./limits-dialog";
 
@@ -53,9 +52,9 @@ export function LibrarySection({ reference, testId = "library-section" }: { refe
 				title={<Trans>Library</Trans>}
 				actions={
 					<>
-						<Link to="/library/$library" params={{ library: current.ref }} search={{}} className={linkClass}>
+						<InternalLink to="/library/$library" params={{ library: current.ref }} search={{}}>
 							<Trans>Open library</Trans>
-						</Link>
+						</InternalLink>
 						{current.capabilities.manage && (
 							<Button
 								type="button"

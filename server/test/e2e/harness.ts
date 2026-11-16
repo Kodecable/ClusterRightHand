@@ -136,7 +136,6 @@ export interface TaskJson {
 	exitCode: number | null;
 	signal: string | null;
 	timedOut: boolean;
-	cancelled: boolean;
 	errorCode: string | null;
 	errorMessage: string | null;
 	outputBytes: number;

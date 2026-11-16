@@ -59,7 +59,7 @@ export function trustFresh(core: ClusterCore, nodeId: string): boolean {
 
 /**
  * Settles the tasks a previous process left unfinished (doc/design/execution.md "Reconnect"). A task it
- * left between its claim and its task.start is ended as failed(dispatch_interrupted): nobody waits to
+ * left between its claim and its task.start is ended as errored(dispatch_interrupted): nobody waits to
  * approve it, and its input is gone. A client node's dispatched or running tasks are treated as
  * detached now, so the reconnect grace they get is the same as after a disconnect: a node that comes
  * back within it resolves them through hello, and one that does not leaves them `unknown`. An SSH node
@@ -104,7 +104,7 @@ async function endInterruptedDispatches(core: ClusterCore): Promise<void> {
 				write: {
 					from: ["awaiting_approval"],
 					set: {
-						state: "failed",
+						state: "errored",
 						error_code: DISPATCH_INTERRUPTED,
 						error_message: DISPATCH_INTERRUPTED_MESSAGE,
 						pending_input: null,

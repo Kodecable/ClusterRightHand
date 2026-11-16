@@ -23,7 +23,7 @@ import { type RuleRef, setRulePreset, setRules } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import { NotFoundError } from "../util/errors.ts";
-import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
+import { cancelRevokedTokenWaits } from "./api-token-waits.ts";
 import { reevaluateAfterRuleChange } from "./approval-routes.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
@@ -114,7 +114,7 @@ export function apiTokenRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			target: { type: "api_token", id },
 		});
 		// What the token started and is still waiting for approval will not run; expiry sweeps the same rows.
-		await rejectRevokedTokenWaits(db, cluster, taskGroups, [id], user.userId);
+		await cancelRevokedTokenWaits(db, cluster, taskGroups, [id], user.userId);
 		const apiToken = await getApiToken(db, user, id);
 		if (!apiToken) throw new NotFoundError("no such token");
 		return c.json({ apiToken }, 200);

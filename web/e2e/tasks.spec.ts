@@ -20,7 +20,7 @@ test("lists tasks across nodes, filters them and opens the task page", async ({ 
 
 	// A state the task is not in hides it; clearing the filter brings it back.
 	await page.getByLabel("State").click();
-	await page.getByRole("option", { name: "Failed", exact: true }).click();
+	await page.getByRole("option", { name: "Errored", exact: true }).click();
 	await expect(page.getByRole("row").filter({ hasText: "tasks-page-marker" })).toHaveCount(0);
 	await page.getByLabel("State").click();
 	await page.getByRole("option", { name: "Any state", exact: true }).click();

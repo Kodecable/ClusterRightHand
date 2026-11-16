@@ -116,7 +116,7 @@ timeouts and its output mode; the fields are in `messages.ts`. Acceptance is the
   higher attempt. A rule or path denial is retryable because it does not prove that the owner's
   signature would also be denied; crhs never retries its own signature path, so this cannot loop.
 - `cancelled` means a cancel came first and the task does not run. Every other code is terminal and
-  gives the task `failed`: `invalid_spec`, `unsupported_kind`, `privileged_unsupported`,
+  gives the task `errored`: `invalid_spec`, `unsupported_kind`, `privileged_unsupported`,
   `privileged_unavailable`, `already_accepted`. `local_policy_denied` is reserved.
 - `full` streams and spills past a size or line threshold, `text` streams and always spills, `status`
   sends no output.

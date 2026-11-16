@@ -7,6 +7,7 @@ import { actionsHeader, DataTable, type DataTableColumn } from "@/components/dat
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState, TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -27,7 +28,6 @@ import { isNotFound } from "@/lib/api/client";
 import { useAuth } from "@/lib/session";
 import { displaySessionTitle } from "@/lib/session-title";
 import { taskTitle } from "@/lib/task-title";
-import { linkClass } from "@/lib/utils";
 import { useRemoveUserGroupMember, useUpdateUser, useUser, useUserGroups, useUsers } from "./api";
 import { KindSelect } from "./kind-select";
 import { NewUserDialog } from "./new-user-dialog";
@@ -189,9 +189,9 @@ function UserActivity({ user }: { user: User }) {
 					id="user-tasks-heading"
 					title={<Trans>Recent tasks</Trans>}
 					actions={
-						<Link to="/tasks" search={{ user: user.id }} className={linkClass}>
+						<InternalLink to="/tasks" search={{ user: user.id }}>
 							<Trans>View all tasks</Trans>
-						</Link>
+						</InternalLink>
 					}
 				/>
 				<DataTable

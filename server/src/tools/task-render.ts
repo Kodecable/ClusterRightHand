@@ -24,7 +24,6 @@ export function taskDetails(task: TaskView, nodeName: string): Record<string, un
 	if (task.exitCode !== null) out.exit_code = task.exitCode;
 	if (task.signal !== null) out.signal = task.signal;
 	if (task.timedOut) out.timed_out = true;
-	if (task.cancelled) out.cancelled = true;
 	if (task.errorCode !== null) out.error = { code: task.errorCode, message: task.errorMessage ?? "" };
 	return out;
 }
@@ -86,6 +85,11 @@ export function taskError(task: TaskView): { code: string; message: string } | u
 			};
 		case "cancelled":
 			return { code: "cancelled", message: task.errorMessage ?? "the task was cancelled" };
+		case "expired":
+			return {
+				code: outcome.errorCode ?? "expired",
+				message: outcome.errorMessage ?? "the signature wait expired",
+			};
 		case "succeeded":
 			return undefined;
 	}
@@ -127,6 +131,8 @@ function taskStatusLine(task: TaskView, label: string, info?: NodePrivilege): st
 			return withPrivilege(
 				task.exitCode === null ? [label, "cancelled"] : [label, `exit ${task.exitCode}`, "cancelled"],
 			);
+		case "expired":
+			return withPrivilege([label, "expired"]);
 		case "timed_out": {
 			const timeout = task.timeoutMs === null ? "timed out" : `timed out after ${seconds(task.timeoutMs)}`;
 			return withPrivilege([label, timeout]);
@@ -272,9 +278,11 @@ export function groupTextNote(
 	const succeeded =
 		counts?.succeeded ?? group.tasks.filter((task) => (task.outcome ?? taskOutcome(task))?.kind === "succeeded").length;
 	const failed = counts?.failed ?? group.tasks.filter((task) => task.outcome?.failed ?? taskFailed(task)).length;
+	const expired = group.tasks.filter((task) => (task.outcome ?? taskOutcome(task))?.kind === "expired").length;
 	// A waiting group has no tasks yet but already knows its nodes: count the nodes it targets.
 	const fields = [`task group${exposeId ? ` ${group.id}` : ""}`, `${group.nodeIds.length} nodes`];
 	fields.push(`${succeeded} succeeded`, `${failed} failed`);
+	if (expired > 0) fields.push(`${expired} expired`);
 	if (group.skipped.length > 0) fields.push(`${group.skipped.length} skipped`);
 	if (group.state === "awaiting_approval") {
 		fields.push(`waiting for approval: ${ctx.approvalUrl("task_group", group.id)}`);
@@ -432,7 +440,6 @@ function fileNode(task: TaskView, nodeName: string): Record<string, unknown> {
 	if (task.exitCode !== null) out.exit_code = task.exitCode;
 	if (task.signal !== null) out.signal = task.signal;
 	if (task.timedOut) out.timed_out = true;
-	if (task.cancelled) out.cancelled = true;
 	if (task.result !== null) Object.assign(out, resultFields(task.result));
 	// crhs's own line (the SSH privileged notice) is not part of the output.
 	if (task.notice !== null) out.notice = task.notice;

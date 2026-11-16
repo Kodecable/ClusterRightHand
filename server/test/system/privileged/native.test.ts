@@ -190,7 +190,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			const cancel = await crhs.api(`/api/tasks/${t.id}/cancel`, { body: {} });
 			expect(cancel.status).toBe(200);
 			const done = await node.taskState(t.id);
-			expect(done.cancelled).toBe(true);
+			expect(done.state).toBe("cancelled");
 			expect(done.state).not.toBe("running");
 		}, 60_000);
 
@@ -226,7 +226,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 			try {
 				const t = await node.task({ kind: "exec", argv: ["true"] });
 				const done = await node.taskState(t.id);
-				expect(done.state).toBe("failed");
+				expect(done.state).toBe("errored");
 				expect(done.errorCode).toBe("privileged_unsupported");
 				expect(done.errorMessage?.length).toBeGreaterThan(0);
 				expect(done.outputBytes).toBe(0);
@@ -271,7 +271,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 		it("refuses a privileged exec before it is accepted", async () => {
 			const t = await node.task({ kind: "exec", argv: ["true"] });
 			const done = await node.taskState(t.id);
-			expect(done).toMatchObject({ state: "failed", errorCode: "privileged_unsupported", privileged: true });
+			expect(done).toMatchObject({ state: "errored", errorCode: "privileged_unsupported", privileged: true });
 			expect(done.exitCode).toBeNull();
 			expect(done.outputBytes).toBe(0);
 		}, 60_000);
@@ -279,7 +279,7 @@ describe.skipIf(!podmanAvailable)("privileged system: native, ignore and reject"
 		it("refuses a privileged file task the same way", async () => {
 			const t = await node.task({ kind: "file.read", path: "/etc/hostname" });
 			const done = await node.taskState(t.id);
-			expect(done).toMatchObject({ state: "failed", errorCode: "privileged_unsupported" });
+			expect(done).toMatchObject({ state: "errored", errorCode: "privileged_unsupported" });
 		}, 60_000);
 
 		it("still runs an ordinary task as uid 998", async () => {

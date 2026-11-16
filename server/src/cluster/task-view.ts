@@ -42,7 +42,6 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined, sour
 		exitCode: row.exit_code,
 		signal: row.signal,
 		timedOut: row.timed_out === 1,
-		cancelled: row.cancelled === 1,
 		timeoutMs: row.timeout_ms,
 		errorCode: row.error_code,
 		errorMessage: row.error_message,

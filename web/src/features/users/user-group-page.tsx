@@ -7,6 +7,7 @@ import { actionsHeader, DataTable, type DataTableColumn } from "@/components/dat
 import { ConfirmDialog } from "@/components/dialogs";
 import { TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -18,7 +19,6 @@ import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { LibrarySection } from "@/features/library/library-section";
 import { GranteeNodeAccessSection } from "@/features/nodes/access-grants";
-import { linkClass } from "@/lib/utils";
 import { useDeleteUserGroup, useRemoveUserGroupMember, useUserGroup, useUserNames, useUsers } from "./api";
 import { UserGroupAddMemberDialog, UserGroupNameDialog } from "./user-group-dialogs";
 
@@ -231,14 +231,9 @@ export function UserGroupDetailPage() {
 				{removeGroup.error !== null && removeGroup.error !== undefined && (
 					<div className="grid gap-2">
 						<ErrorState error={removeGroup.error} compact retry={() => void removeGroup.reset()} />
-						<Link
-							to="/library/$library"
-							params={{ library: `user_group:${details.name}` }}
-							search={{}}
-							className={linkClass}
-						>
+						<InternalLink to="/library/$library" params={{ library: `user_group:${details.name}` }} search={{}}>
 							<Trans>Open the library to delete its files</Trans>
-						</Link>
+						</InternalLink>
 					</div>
 				)}
 			</ConfirmDialog>

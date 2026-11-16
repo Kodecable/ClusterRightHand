@@ -118,7 +118,7 @@ async function planTurn(
 		const message = link.trustFresh
 			? trustUnavailableMessage(report)
 			: "the node has not reported a trust summary on this connection";
-		await finishAuthorization(core, id, row, "failed", "privileged_unavailable", message, null);
+		await finishAuthorization(core, id, row, "errored", "privileged_unavailable", message, null);
 		return null;
 	}
 	const summary = report.summary;
@@ -204,7 +204,7 @@ async function planTurn(
 			core,
 			id,
 			row,
-			"failed",
+			"errored",
 			ALIAS_MISSING,
 			aliasMissingMessage(reusable),
 			withoutRequests(record, { keepStamp: true }),

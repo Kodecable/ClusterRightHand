@@ -68,8 +68,8 @@ test.describe("with a node", () => {
 		await card.getByTestId("tool-toggle").click();
 		const dialog = page.getByTestId("tool-dialog");
 		await expect(dialog).toContainText("Result");
-		await expect(dialog).toContainText("Finished");
-		await expect(dialog.getByRole("region", { name: "output", exact: true })).toContainText("from-agent");
+		await expect(dialog.getByTestId("tool-output")).toContainText("from-agent");
+		await expect(dialog.getByRole("link", { name: "Task details" })).toBeVisible();
 		await expect(page.getByTestId("transcript-scroller")).toContainText("The command printed from-agent.");
 	});
 
@@ -94,10 +94,16 @@ test.describe("with a node", () => {
 		await expect(page.getByTestId("waiting-reason")).toContainText("waiting for an approval");
 		const card = await toolCard(page);
 		await card.getByTestId("tool-toggle").click();
-		await page.getByTestId("tool-dialog").getByRole("link", { name: "Review and approve" }).click();
-		await expect(page).toHaveURL(/\/approvals\/tasks\//);
-		await page.getByRole("button", { name: "Approve", exact: true }).click();
-		await expect(page.getByRole("heading", { name: "Already settled" })).toBeVisible();
+		// The dialog carries the call and a plain link to the task; the approval itself is decided on
+		// the task or approvals page (the composer dock shows the wait).
+		await page.getByTestId("tool-dialog").getByRole("link", { name: "Task details" }).click();
+		await expect(page).toHaveURL(/\/tasks\//);
+		await page
+			.getByRole("region", { name: "Your approval is needed" })
+			.getByRole("button", { name: "Approve", exact: true })
+			.click();
+		// The decision was made: the task page no longer offers it.
+		await expect(page.getByRole("region", { name: "Your approval is needed" })).toHaveCount(0);
 
 		await page.goto(sessionUrl);
 		await expect(page.getByTestId("transcript-scroller")).toContainText("Approved and done.", { timeout: 20_000 });

@@ -98,7 +98,11 @@ stays copyable.
 
 Links to other objects look like underlined text, never like buttons, and buttons never look like
 links. Every user shown as an actor or owner links to that user's page; whether the viewer may open
-it is the destination's concern.
+it is the destination's concern. An internal link is foreground text with a faint underline that turns
+solid on hover; the underline thickness never changes. An external link takes the brand colour with the
+same faint-to-solid underline and a small arrow after its text, and opens in a new tab without an opener
+reference. `InternalLink` and `ExternalLink` are the only components; a hand-written underline class is
+not.
 
 There is no refresh button. Every list or section stays current through polling, SSE or invalidation
 after a mutation. Editing happens on an object's detail page; lists offer only the actions that make
@@ -119,10 +123,12 @@ same way.
 A task in state `exited` reads **Finished** whatever its exit code. The server classifies the result once
 and every page renders that same `outcome` through **`TaskOutcomeBadge`**: **Exit code N** (an exec task
 keeps `Exit code 0`), **Done** for a successful file operation, **Killed by signal …**, **Timed out**,
-**Cancelled**, **Rejected**, **Denied by rules**, the platform error text, or **Result unknown**. A
-terminal status takes its tone from `outcome.failed`, so a non-zero exit is never green beside a red
-result; a cancellation is muted, not failed. A task group has the same outcome: cancelled is not failed,
-rejected and interrupted are, and a finished group fails when any member did. A task's title always comes
+**Cancelled**, **Expired**, **Rejected**, **Denied by rules**, the platform error text, or **Result
+unknown**. A terminal status takes its tone from `outcome.failed`, so a non-zero exit is never green
+beside a red result; a cancelled or expired result is muted, not failed. Status labels read **Finished**,
+**Errored**, **Rejected**, **Denied by rules**, **Cancelled**, **Expired** and **Unknown**. A task
+group has the same outcome: cancelled and expired are not failed, rejected and interrupted are, and a
+finished group fails when any member did. A task's title always comes
 from `taskTitle`: the server-built action (the command or the file operation with its path), or its kind
 when the row has no readable action.
 
@@ -453,8 +459,10 @@ While the session runs, a turn whose last rows are errors shows one warn-coloure
 errors plus one. The line leaves as soon as a new assistant message starts or the session stops, while
 the red error rows themselves stay.
 Assistant text and thinking are Markdown ([Markdown rendering](#markdown-rendering)). Tool calls are
-one-line rows that open a dialog with the arguments, output and result. Approval, authorization and quota
-waits appear in the docked decision panel, not in the transcript.
+one-line rows that open a dialog with the arguments and the returned result, plus one row of plain links
+to the task, task group or subagent session the call names. A call that has not returned shows no result
+section. Approval, authorization and quota waits appear in the docked decision panel, not in the
+transcript.
 
 A tool row's icon shows whether the call is running, finished or failed. Failure is judged from the
 structured result the tool returned, not by parsing the text the model sees. A call that stopped

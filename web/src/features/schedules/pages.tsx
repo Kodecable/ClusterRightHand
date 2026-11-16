@@ -7,6 +7,7 @@ import { actionsHeader, DataTable, type DataTableColumn } from "@/components/dat
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { RelativeTime } from "@/components/relative-time";
@@ -16,7 +17,7 @@ import { ScheduleStatusBadge, StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { WarningBanner } from "@/components/warning-banner";
 import { useModels } from "@/features/settings/api";
-import { linkClass, MONO_CELL } from "@/lib/utils";
+import { MONO_CELL } from "@/lib/utils";
 import { useDeleteSchedule, usePatchSchedule, useSchedule, useSchedules } from "./api";
 import { CreateScheduleDialog } from "./create-schedule-dialog";
 import { RunHistory } from "./run-history";
@@ -241,11 +242,8 @@ export function ScheduleDetailPage() {
 					<Trans>
 						A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let
 						a fixed command run unattended, issue a reusable authorization for it (no task ids) on the{" "}
-						<Link to="/authorizations" className={linkClass}>
-							Authorizations
-						</Link>{" "}
-						page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next
-						trigger ends the run.
+						<InternalLink to="/authorizations">Authorizations</InternalLink> page, and have the prompt run exactly that
+						command. Anything else still waits in Approvals, and the next trigger ends the run.
 					</Trans>
 				</p>
 			</section>

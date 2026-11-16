@@ -212,6 +212,8 @@ describeBackends("initial migration", (backend) => {
 		expect(await tableColumns(backend, db, "tasks")).toEqual(
 			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose", "source_call_id"]),
 		);
+		// The state carries a cancellation; there is no separate flag column.
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("cancelled");
 		expect(await tableColumns(backend, db, "task_groups")).toEqual(
 			expect.arrayContaining(["transfer", "source_call_id"]),
 		);

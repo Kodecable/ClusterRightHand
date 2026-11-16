@@ -92,7 +92,6 @@ describe("MCP links", () => {
 			exitCode: null,
 			signal: null,
 			timedOut: false,
-			cancelled: false,
 			timeoutMs: null,
 			errorCode: null,
 			errorMessage: null,

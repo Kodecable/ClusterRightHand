@@ -142,7 +142,6 @@ describe("approval handlers and task decisions (sqlite)", () => {
 				exit_code: null,
 				signal: null,
 				timed_out: 0,
-				cancelled: 0,
 				error_code: null,
 				error_message: null,
 				actor_type: "user",
@@ -221,7 +220,7 @@ describe("approval handlers and task decisions (sqlite)", () => {
 		expect(viaRoute.status).toBe(409);
 
 		expect(await approving).toBe("approved");
-		expect(await rowOf(t.id)).toMatchObject({ state: "failed", error_code: "node_offline" });
+		expect(await rowOf(t.id)).toMatchObject({ state: "errored", error_code: "node_offline" });
 	});
 
 	it("ends an approval that survives a restart as interrupted, not as a fresh request", async () => {
@@ -233,7 +232,7 @@ describe("approval handlers and task decisions (sqlite)", () => {
 		// A restart finds the row in the allowed shape between its decision and its claim.
 		await cluster.recover();
 		expect(await rowOf(t.id)).toMatchObject({
-			state: "failed",
+			state: "errored",
 			error_code: "dispatch_interrupted",
 			handler_type: null,
 		});
@@ -255,7 +254,7 @@ describe("approval handlers and task decisions (sqlite)", () => {
 		expect(after?.approval).toBe(before);
 		expect(after).toMatchObject({ state: "awaiting_approval", handler_type: null });
 		expect(await approving).toBe("approved");
-		expect(await rowOf(t.id)).toMatchObject({ state: "failed", error_code: "node_offline" });
+		expect(await rowOf(t.id)).toMatchObject({ state: "errored", error_code: "node_offline" });
 	});
 
 	it("re-checks the route's handler read in the decision turn", async () => {
@@ -329,7 +328,7 @@ describe("approval handlers and task decisions (sqlite)", () => {
 		expect(JSON.parse(decided?.approval ?? "{}").decision).toMatchObject({ decision: "approved" });
 
 		await cluster.drain();
-		expect(await rowOf(t.id)).toMatchObject({ state: "failed", error_code: "node_offline" });
+		expect(await rowOf(t.id)).toMatchObject({ state: "errored", error_code: "node_offline" });
 	});
 
 	it("ends a deleted node's waiting tasks through the API route", async () => {
@@ -342,7 +341,7 @@ describe("approval handlers and task decisions (sqlite)", () => {
 		expect(res.status).toBe(200);
 		for (const id of [approval.id, authorization]) {
 			expect(await rowOf(id)).toMatchObject({
-				state: "failed",
+				state: "errored",
 				error_code: "node_deleted",
 				handler_type: null,
 				handler_session_id: null,
@@ -364,7 +363,7 @@ describe("approval handlers and task decisions (sqlite)", () => {
 		});
 		expect(res.status).toBe(200);
 		const ended = await rowOf(t.id);
-		expect(ended).toMatchObject({ state: "failed", error_code: "node_deleted", handler_type: null });
+		expect(ended).toMatchObject({ state: "errored", error_code: "node_deleted", handler_type: null });
 		expect(JSON.parse(ended?.approval ?? "{}").decision).toMatchObject({ decision: "approved" });
 
 		const list = (await (await call(app, "/api/api-tokens", { cookie: aliceCookie })).json()) as {

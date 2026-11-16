@@ -214,27 +214,24 @@ describe("TranscriptRow", () => {
 		expect(blocks[1]).toHaveTextContent("web-1 · exit 0");
 	});
 
-	test("a running tool shows its live output store", async () => {
-		const streams = new TranscriptStreams();
-		const store = streams.tool("call-2");
-		store.setText("line one");
-		store.flush();
-		renderRow(
-			{
-				kind: "tool",
-				key: "a2/0",
-				callId: "call-2",
-				name: "exec",
-				args: {},
-				status: "running",
-				output: "",
-				details: undefined,
-				result: undefined,
-			},
-			streams,
-		);
+	test("a running tool's dialog shows its arguments but no result section", async () => {
+		renderRow({
+			kind: "tool",
+			key: "a2/0",
+			callId: "call-2",
+			name: "exec",
+			args: { cmd: "sleep 5" },
+			status: "running",
+			output: "line one",
+			details: undefined,
+			result: undefined,
+		});
 		fireEvent.click(screen.getByTestId("tool-toggle"));
-		expect(await screen.findByTestId("tool-output")).toHaveTextContent("line one");
+		const dialog = await screen.findByTestId("tool-output");
+		expect(dialog).toHaveTextContent("sleep 5");
+		expect(dialog).not.toHaveTextContent("line one");
+		expect(screen.queryByText("Result")).not.toBeInTheDocument();
+		expect(screen.queryByText("Output so far")).not.toBeInTheDocument();
 	});
 
 	test("a compaction entry is a collapsible note row with the summary's first line", () => {
@@ -355,7 +352,7 @@ describe("TranscriptRow tool status icon", () => {
 	test("a failed task marks the card failed and names the reason on the icon", () => {
 		renderRow(
 			toolItem({
-				text: '{"task_id":"t1","state":"failed","outcome":{"kind":"error","failed":true,"errorCode":"exec_failed"}}',
+				text: '{"task_id":"t1","state":"errored","outcome":{"kind":"error","failed":true,"errorCode":"exec_failed"}}',
 			}),
 		);
 		expect(card()).toHaveAttribute("data-tool-status", "failed");
@@ -458,8 +455,9 @@ describe("TranscriptRow tool status icon", () => {
 });
 
 function testOutcome(task: TaskView): TaskView["outcome"] {
-	if (!["exited", "failed", "rejected", "unknown", "denied"].includes(task.state)) return null;
-	if (task.cancelled) return { kind: "cancelled", failed: false };
+	if (!["exited", "errored", "rejected", "cancelled", "expired", "unknown", "denied"].includes(task.state)) return null;
+	if (task.state === "cancelled") return { kind: "cancelled", failed: false };
+	if (task.state === "expired") return { kind: "expired", failed: false };
 	if (task.timedOut) return { kind: "timed_out", failed: true };
 	if (task.signal !== null) return { kind: "signal", failed: true, signal: task.signal };
 	if (task.state === "rejected") return { kind: "rejected", failed: true };
@@ -485,9 +483,9 @@ function testGroupOutcome(group: TaskGroupView): TaskGroupView["outcome"] {
 	if (group.state === "interrupted")
 		return { kind: "error", failed: true, errorCode: "interrupted", errorMessage: null };
 	const failed = group.tasks.some((task) => task.outcome?.failed === true);
-	return failed
-		? { kind: "error", failed: true, errorCode: null, errorMessage: null }
-		: { kind: "succeeded", failed: false };
+	if (failed) return { kind: "error", failed: true, errorCode: null, errorMessage: null };
+	if (group.tasks.some((task) => task.outcome?.kind === "expired")) return { kind: "expired", failed: false };
+	return { kind: "succeeded", failed: false };
 }
 
 const baseTask = (overrides: Partial<TaskView> = {}): TaskView => {
@@ -507,7 +505,6 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView => {
 		exitCode: 0,
 		signal: null,
 		timedOut: false,
-		cancelled: false,
 		errorCode: null,
 		errorMessage: null,
 		outputBytes: 0,
@@ -578,7 +575,7 @@ describe("callStillOpen", () => {
 	});
 
 	test("a task in a terminal state stops the wait", () => {
-		for (const state of ["exited", "failed", "denied", "rejected", "unknown"]) {
+		for (const state of ["exited", "errored", "denied", "rejected", "cancelled", "expired", "unknown"]) {
 			expect(callStillOpen({ sessionActive: true, taskState: state, taskGroupState: undefined }), state).toBe(false);
 		}
 	});
@@ -702,20 +699,24 @@ describe("a tool card whose call cannot return", () => {
 		expect(icon()).toHaveAccessibleName("No result");
 	});
 
-	test("a task Auto Review is judging keeps the running look and the reviewing label", () => {
+	test("a task Auto Review is judging keeps the running look and the reviewing label", async () => {
 		const client = testQueryClient();
 		client.setQueryData(
 			taskKeys.detail("t1"),
 			baseTask({ state: "awaiting_approval", exitCode: null, finishedAt: null, phase: "reviewing" }),
 		);
-		renderRow(
-			unreturned({
-				task_id: "t1",
-				state: "awaiting_approval",
-				approval_url: "/approvals/tasks/t1",
-			}),
-			new TranscriptStreams(),
-			client,
+		await renderWithRouter(
+			<TranscriptRow
+				item={unreturned({
+					task_id: "t1",
+					state: "awaiting_approval",
+					approval_url: "/approvals/tasks/t1",
+				})}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+			"en",
+			{ client },
 		);
 		expect(icon().querySelector(".animate-spin")).not.toBeNull();
 		expect(icon()).toHaveAccessibleName("Running");
@@ -742,7 +743,7 @@ describe("a tool card whose call cannot return", () => {
 		expect(screen.queryByText("Review and approve")).not.toBeInTheDocument();
 	});
 
-	test("the approval link appears once Auto Review hands the request to the user", async () => {
+	test("the dialog links the task once Auto Review hands the request to the user", async () => {
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(
@@ -773,7 +774,8 @@ describe("a tool card whose call cannot return", () => {
 		);
 		expect(screen.queryByTestId("tool-reviewing")).not.toBeInTheDocument();
 		fireEvent.click(screen.getByTestId("tool-toggle"));
-		expect(screen.getByText("Review and approve").closest("a")).toHaveAttribute("href", "/approvals/tasks/t1");
+		expect(screen.queryByText("Review and approve")).not.toBeInTheDocument();
+		expect(screen.getByRole("link", { name: "Task details" })).toHaveAttribute("href", "/tasks/t1");
 	});
 
 	test("a returned card does not follow the task its details name", () => {
@@ -801,75 +803,61 @@ describe("a tool card whose call cannot return", () => {
 	});
 });
 
-describe("a tool result whose task was cleaned up", () => {
-	const returned = (): TranscriptItem => ({
-		kind: "tool",
-		key: "a1/0",
-		callId: "call-1",
-		name: "exec",
-		args: { cmd: "true" },
-		status: "done",
-		output: "",
-		details: undefined,
-		result: { text: '{"task_id":"t1","state":"exited","exit_code":0}', isError: false, details: undefined },
-	});
-
-	const mockTaskError = (status: number, message: string) => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(
-				async () =>
-					new Response(JSON.stringify({ error: message }), {
-						status,
-						headers: { "content-type": "application/json" },
-					}),
-			),
+describe("the expanded dialog's links", () => {
+	test("links the task from the result details", async () => {
+		const { getByTestId } = await renderWithRouter(
+			<TranscriptRow
+				item={{
+					kind: "tool",
+					key: "a1/0",
+					callId: "call-1",
+					name: "exec",
+					args: { cmd: "true" },
+					status: "done",
+					output: "",
+					details: undefined,
+					result: {
+						// A text result carries no JSON the card could have read the id from.
+						text: "web-1 · exit 0",
+						isError: false,
+						details: { task_id: "t1", node: "web-1", state: "exited" },
+					},
+				}}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
 		);
-	};
+		fireEvent.click(getByTestId("tool-toggle"));
 
-	test("the expanded dialog shows a neutral message for a 404", async () => {
-		mockTaskError(404, "no such task");
-		renderRow(returned());
-		fireEvent.click(screen.getByTestId("tool-toggle"));
-
-		const notice = await screen.findByTestId("task-gone");
-		expect(notice).toHaveTextContent("The task was cleaned up or does not exist");
-		expect(notice).toHaveClass("text-muted-foreground");
-		expect(notice).not.toHaveClass("text-danger");
-		expect(screen.queryByText("no such task")).not.toBeInTheDocument();
+		const link = await screen.findByRole("link", { name: "Task details" });
+		expect(link).toHaveAttribute("href", "/tasks/t1");
 	});
 
-	test("the expanded dialog links the task id from the result details", async () => {
-		mockTaskError(404, "no such task");
-		renderRow({
-			kind: "tool",
-			key: "a1/0",
-			callId: "call-1",
-			name: "exec",
-			args: { cmd: "true" },
-			status: "done",
-			output: "",
-			details: undefined,
-			result: {
-				// A text result carries no JSON the card could have read the id from.
-				text: "web-1 · exit 0",
-				isError: false,
-				details: { task_id: "t1", node: "web-1", state: "exited" },
-			},
-		});
-		fireEvent.click(screen.getByTestId("tool-toggle"));
+	test("shows the task, task group and subagent links the call names", async () => {
+		const { getByTestId } = await renderWithRouter(
+			<TranscriptRow
+				item={{
+					kind: "tool",
+					key: "a1/0",
+					callId: "call-1",
+					name: "exec",
+					args: { cmd: "true" },
+					status: "running",
+					output: "",
+					details: { task_id: "t1", task_group_id: "g1", sessionId: "s1" },
+					result: undefined,
+				}}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+		);
+		fireEvent.click(getByTestId("tool-toggle"));
 
-		const notice = await screen.findByTestId("task-gone");
-		expect(notice).toHaveTextContent("The task was cleaned up or does not exist");
-	});
-
-	test("another error in the expanded dialog keeps the danger message", async () => {
-		mockTaskError(500, "boom");
-		renderRow(returned());
-		fireEvent.click(screen.getByTestId("tool-toggle"));
-
-		expect(await screen.findByText("boom")).toHaveClass("text-danger");
-		expect(screen.queryByTestId("task-gone")).not.toBeInTheDocument();
+		expect(await screen.findByRole("link", { name: "Task details" })).toHaveAttribute("href", "/tasks/t1");
+		expect(screen.getByRole("link", { name: "Task group details" })).toHaveAttribute("href", "/task-groups/g1");
+		expect(screen.getByRole("link", { name: "Subagent session" })).toHaveAttribute("href", "/sessions/s1");
+		// No result means no result section.
+		expect(screen.queryByText("Result")).not.toBeInTheDocument();
 	});
 });
 
@@ -905,7 +893,7 @@ describe("a returned task group", () => {
 		);
 		fireEvent.click(getByTestId("tool-toggle"));
 
-		const link = await screen.findByRole("link", { name: "Open the task group page" });
+		const link = await screen.findByRole("link", { name: "Task group details" });
 		expect(link).toHaveAttribute("href", "/task-groups/g1");
 	});
 });

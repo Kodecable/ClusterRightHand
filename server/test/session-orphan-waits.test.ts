@@ -117,7 +117,7 @@ afterEach(async () => {
 const taskRow = (id: string) =>
 	db
 		.selectFrom("tasks")
-		.select(["state", "cancelled", "error_code", "error_message"])
+		.select(["state", "error_code", "error_message"])
 		.where("id", "=", id)
 		.executeTakeFirstOrThrow();
 
@@ -161,7 +161,7 @@ async function waitingGroup(sessionId: string): Promise<{ groupId: string; membe
 	});
 	await db
 		.updateTable("tasks")
-		.set({ state: "awaiting_authorization", error_code: null, error_message: null, cancelled: 0 })
+		.set({ state: "awaiting_authorization", error_code: null, error_message: null })
 		.where("id", "=", member.id)
 		.execute();
 	await db.updateTable("task_groups").set({ state: "awaiting_authorization" }).where("id", "=", groupId).execute();
@@ -197,14 +197,13 @@ it("stopping a session ends its signature waits, single tasks and group members 
 	release();
 	await stopping;
 
-	expect(await taskRow(approval)).toMatchObject({ state: "rejected" });
+	expect(await taskRow(approval)).toMatchObject({ state: "cancelled", error_message: "the session was stopped" });
 	expect(await taskRow(signature)).toMatchObject({
-		state: "rejected",
-		cancelled: 1,
-		error_code: "cancelled",
+		state: "cancelled",
+		error_code: null,
 		error_message: "the session was stopped",
 	});
-	expect(await taskRow(memberId)).toMatchObject({ state: "rejected", error_message: "the session was stopped" });
+	expect(await taskRow(memberId)).toMatchObject({ state: "cancelled", error_message: "the session was stopped" });
 	await waitFor("the group settled", async () => {
 		const group = await db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirst();
 		return group && group.state !== "awaiting_authorization" ? true : undefined;
@@ -217,8 +216,8 @@ it("a run that ends without its task ends the task's signature wait", async () =
 	const signature = await waitingTask({ type: "session", id: session.id }, "awaiting_authorization");
 	release();
 	await waitSubmission(runtime, session.id, submission);
-	await waitFor("the wait ended", async () => ((await taskRow(signature)).state === "rejected" ? true : undefined));
-	expect(await taskRow(signature)).toMatchObject({ cancelled: 1, error_message: "the session's run ended" });
+	await waitFor("the wait ended", async () => ((await taskRow(signature)).state === "cancelled" ? true : undefined));
+	expect(await taskRow(signature)).toMatchObject({ state: "cancelled", error_message: "the session's run ended" });
 	expect(await sessionStateOf(db, session.id)).toBe("idle");
 });
 
@@ -233,9 +232,9 @@ it("startup ends the waits of idle sessions and leaves a user's own task alone",
 	await runtime.close();
 	runtime = await openRuntime();
 
-	expect(await taskRow(approval)).toMatchObject({ state: "rejected" });
-	expect(await taskRow(signature)).toMatchObject({ state: "rejected", error_message: "the session's run ended" });
-	expect(await taskRow(memberId)).toMatchObject({ state: "rejected", error_message: "the session's run ended" });
+	expect(await taskRow(approval)).toMatchObject({ state: "cancelled", error_message: "the session's run ended" });
+	expect(await taskRow(signature)).toMatchObject({ state: "cancelled", error_message: "the session's run ended" });
+	expect(await taskRow(memberId)).toMatchObject({ state: "cancelled", error_message: "the session's run ended" });
 	expect(await taskRow(users)).toMatchObject({ state: "awaiting_authorization" });
 });
 
@@ -263,7 +262,7 @@ it("a signature wait expires AUTHORIZATION_WAIT_MS after it began", async () => 
 		.execute();
 
 	expect(await cluster.expireAuthorizationWaits(now)).toBe(1);
-	expect(await taskRow(old)).toMatchObject({ state: "rejected", error_code: "authorization_wait_expired" });
+	expect(await taskRow(old)).toMatchObject({ state: "expired", error_code: "authorization_wait_expired" });
 	expect(await taskRow(young)).toMatchObject({ state: "awaiting_authorization" });
 	expect(await taskRow(approvedLate)).toMatchObject({ state: "awaiting_authorization" });
 	expect(await cluster.expireAuthorizationWaits(now + AUTHORIZATION_WAIT_MS)).toBe(2);
@@ -293,7 +292,7 @@ it("keeps expiring later signature waits when one row cannot be ended", async ()
 	} finally {
 		error.mockRestore();
 	}
-	expect(await taskRow(later)).toMatchObject({ state: "rejected", error_code: "authorization_wait_expired" });
+	expect(await taskRow(later)).toMatchObject({ state: "expired", error_code: "authorization_wait_expired" });
 	expect(await taskRow(failing)).toMatchObject({ state: "awaiting_authorization" });
 	expect(logged).toBe(true);
 });

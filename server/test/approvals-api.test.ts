@@ -244,7 +244,7 @@ describe("approvals api (sqlite)", () => {
 		const res = await decide("alice", `/api/tasks/${t.id}/approval`, { decision: "approve" });
 		expect(res.status).toBe(200);
 		const v = await task(t.id);
-		expect(v.state).toBe("failed");
+		expect(v.state).toBe("errored");
 		expect(v.errorCode).toBe("node_offline");
 		expect(v.approval?.decision?.decision).toBe("approved");
 		expect((await decide("alice", `/api/tasks/${t.id}/approval`, { decision: "approve" })).status).toBe(409);
@@ -276,7 +276,7 @@ describe("approvals api (sqlite)", () => {
 		// The reevaluation that the new rule triggered dispatches in the background (M1).
 		await cluster.drain();
 		const vb = await task(b.id);
-		expect(vb.state).toBe("failed");
+		expect(vb.state).toBe("errored");
 		expect(vb.errorCode).toBe("node_offline");
 		expect(vb.approval?.decision?.by.type).toBe("system");
 		expect((await task(other.id)).state).toBe("awaiting_approval");
@@ -359,7 +359,7 @@ describe("approvals api (sqlite)", () => {
 		await cluster.drain();
 		for (const id of [a.id, b.id]) {
 			const v = await task(id);
-			expect(v.state).toBe("failed");
+			expect(v.state).toBe("errored");
 			expect(v.errorCode).toBe("node_offline");
 		}
 		const tok2 = await newToken();
@@ -377,7 +377,7 @@ describe("approvals api (sqlite)", () => {
 		const tok = await newToken();
 		const spec: TaskSpec = { kind: "file.read", path: "/etc/hostname", startLine: 1, lineCount: 100 };
 		const t = await mkTask(tok, spec);
-		expect(t.state).toBe("failed");
+		expect(t.state).toBe("errored");
 		expect(t.errorCode).toBe("node_offline");
 		expect(t.approval?.decision).toBeUndefined();
 	});

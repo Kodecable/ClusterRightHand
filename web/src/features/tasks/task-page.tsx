@@ -4,6 +4,7 @@ import { ArrowLeftIcon, SquareIcon } from "lucide-react";
 import { toast } from "sonner";
 import { ApprovalPanel, DecisionView, RequestDetails } from "@/components/decision";
 import { ErrorState } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import type { KeyValueItem } from "@/components/key-value";
 import { NodeTargetList } from "@/components/node-targets";
 import { Page } from "@/components/page";
@@ -26,7 +27,6 @@ import { usePageTitle } from "@/lib/page-title";
 import { useAuth } from "@/lib/session";
 import { isTerminal } from "@/lib/task-output";
 import { taskTitle } from "@/lib/task-title";
-import { linkClass } from "@/lib/utils";
 import { useCancelTask, useTask } from "./api";
 
 /** One task: header, one facts block, the approval or signature decision, then the result (doc/design/webui.md "Task and task group pages"). */
@@ -83,9 +83,9 @@ export function TaskPage() {
 					{
 						label: <Trans>Session</Trans>,
 						value: (
-							<Link to="/sessions/$sessionId" params={{ sessionId: view.rootSessionId }} className={linkClass}>
+							<InternalLink to="/sessions/$sessionId" params={{ sessionId: view.rootSessionId }}>
 								{view.rootSessionId}
-							</Link>
+							</InternalLink>
 						),
 						mono: true,
 					},
@@ -96,9 +96,9 @@ export function TaskPage() {
 					{
 						label: <Trans>Task group</Trans>,
 						value: (
-							<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: view.taskGroupId }} className={linkClass}>
+							<InternalLink to="/task-groups/$taskGroupId" params={{ taskGroupId: view.taskGroupId }}>
 								{view.taskGroupId}
-							</Link>
+							</InternalLink>
 						),
 						mono: true,
 					},

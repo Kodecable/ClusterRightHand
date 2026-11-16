@@ -209,7 +209,7 @@ describe("file plane transfers", () => {
 				},
 			},
 		);
-		await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "failed");
+		await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "errored");
 		const done = await cluster.getTask(task.id);
 		expect(done?.errorCode).toBe("input_mismatch");
 		const row = await db.selectFrom("tasks").select("transfer").where("id", "=", task.id).executeTakeFirstOrThrow();
@@ -226,7 +226,7 @@ describe("file plane transfers", () => {
 		if (start?.spec.kind !== "file.pull") throw new Error("no pull spec");
 		const data = await agents.connectData(key, task.id, start.spec.endpoint.transferId);
 		data.send({ kind: "data", bytes: Buffer.from("12345") });
-		await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "failed");
+		await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "errored");
 		const done = await cluster.getTask(task.id);
 		expect(done?.errorCode).toBe("too_large");
 		expect(await readdir(transferRoot)).toEqual([]);
@@ -245,7 +245,7 @@ describe("file plane transfers", () => {
 		await waitFor("staging part", async () => (await readdir(transferRoot)).length === 1);
 		const done = await waitFor("pull task failed", async () => {
 			const current = await cluster.getTask(task.id);
-			return current?.state === "failed" ? current : undefined;
+			return current?.state === "errored" ? current : undefined;
 		});
 		expect(done.errorCode).toBe("io_error");
 		expect(done.errorMessage).toContain("idle for too long");
@@ -369,7 +369,7 @@ describe("file plane transfers", () => {
 		expect((await second.closed).code).toBe(1008);
 		// The first connection still owns the id; aborting it fails the task.
 		first.send({ kind: "abort", code: "cancelled" });
-		await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "failed");
+		await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "errored");
 	});
 
 	it("pushes a library file to a node", async () => {
@@ -487,7 +487,7 @@ describe("file plane transfers", () => {
 					},
 				},
 			);
-			await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "failed");
+			await waitFor("pull task failed", async () => (await cluster.getTask(task.id))?.state === "errored");
 			return (await cluster.getTask(task.id))?.errorMessage ?? "";
 		};
 

@@ -1,6 +1,5 @@
 import type { SigningKey, SigningKeyDeleteConflict, SigningKeyTrust } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CopyAndCloseButton, CopyButton } from "@/components/copy-button";
@@ -8,6 +7,7 @@ import { actionsHeader, DataTable, type DataTableColumn } from "@/components/dat
 import { ConfirmDialog } from "@/components/dialogs";
 import { TableEmpty } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import { KeyValueList } from "@/components/key-value";
 import { DateTime } from "@/components/relative-time";
 import { SectionHeader } from "@/components/section";
@@ -23,7 +23,7 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { WarningBanner } from "@/components/warning-banner";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { signingKeyDeleteConflict, useCreateSigningKey, useDeleteSigningKey, useSigningKeys } from "./api";
 
 /** How many trusting nodes a delete dialog links before it summarises the rest. */
@@ -40,14 +40,14 @@ function TrustedNodeList({ nodes }: { nodes: readonly SigningKeyTrust[] }) {
 		<ul className="grid min-w-0 gap-1 text-sm" data-testid="signing-key-trusted-nodes">
 			{shown.map((node) => (
 				<li key={node.nodeId} className="flex min-w-0 items-baseline gap-1">
-					<Link
+					<InternalLink
 						to="/nodes/$nodeId"
 						params={{ nodeId: node.nodeId }}
-						className={cn(linkClass, "min-w-0 truncate")}
+						className="min-w-0 truncate"
 						title={node.nodeName}
 					>
 						{node.nodeName}
-					</Link>
+					</InternalLink>
 					<span className="shrink-0 text-muted-foreground">({node.kinds.join(", ")})</span>
 				</li>
 			))}

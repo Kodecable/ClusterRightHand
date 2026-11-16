@@ -2,7 +2,7 @@ import type { TaskView } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 
-const TERMINAL = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
+const TERMINAL = new Set(["exited", "errored", "rejected", "cancelled", "expired", "unknown", "denied"]);
 
 export function isTerminal(state: string): boolean {
 	return TERMINAL.has(state);

@@ -49,8 +49,10 @@ const TASK_STATES: ReadonlySet<string> = new Set<TaskState>([
 	"dispatched",
 	"running",
 	"exited",
-	"failed",
+	"errored",
 	"rejected",
+	"cancelled",
+	"expired",
 	"unknown",
 ]);
 /** The stored actor types of doc/design/access-control.md "Actors" */

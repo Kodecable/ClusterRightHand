@@ -265,7 +265,7 @@ it("a tool call waiting for an approval makes the session awaiting/approval, the
 	await waitFor("idle after the run", async () =>
 		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
 	);
-	expect((await taskOf(task)).state).toBe("failed"); // the node is offline in this test
+	expect((await taskOf(task)).state).toBe("errored"); // the node is offline in this test
 });
 
 it("a task that has not been dispatched yet is not an approval wait", async () => {

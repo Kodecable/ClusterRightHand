@@ -54,7 +54,11 @@ describe("SafeMarkdown security", () => {
 		// Markdown images are text links, never requests.
 		expect(container.textContent).toContain("[image: beacon image]");
 		// The benign links survive.
-		expect(container.querySelector('a[href="https://runbooks.acme.internal/clusterright/hand"]')).not.toBeNull();
+		const runbook = container.querySelector('a[href="https://runbooks.acme.internal/clusterright/hand"]');
+		expect(runbook).not.toBeNull();
+		expect(runbook).toHaveAttribute("target", "_blank");
+		expect(runbook).toHaveAttribute("rel", "noopener noreferrer");
+		expect(runbook?.className).toContain("text-primary");
 		expect(container.querySelector('a[href="mailto:oncall@acme.internal"]')).not.toBeNull();
 	});
 

@@ -1,12 +1,11 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { DataTable } from "@/components/data-table";
 import { TableEmpty } from "@/components/empty-state";
+import { InternalLink } from "@/components/internal-link";
 import { SectionHeader } from "@/components/section";
 import { useNodeTasks } from "@/features/nodes/api";
 import { useTaskColumns } from "@/features/tasks/task-columns";
 import { taskTitle } from "@/lib/task-title";
-import { linkClass } from "@/lib/utils";
 
 /** The node's recent tasks (doc/design/webui.md "Task and task group pages"): newest first; a row opens its task. */
 export function NodeTaskList({ nodeId }: { nodeId: string }) {
@@ -20,9 +19,9 @@ export function NodeTaskList({ nodeId }: { nodeId: string }) {
 				id="node-tasks-heading"
 				title={<Trans>Recent tasks</Trans>}
 				actions={
-					<Link to="/tasks" search={{ node: nodeId }} className={linkClass}>
+					<InternalLink to="/tasks" search={{ node: nodeId }}>
 						<Trans>View all tasks</Trans>
-					</Link>
+					</InternalLink>
 				}
 			/>
 			<DataTable

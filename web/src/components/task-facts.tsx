@@ -1,7 +1,6 @@
 import type { TaskAuthorizationView, TaskGroupView, TaskView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
-import { CopyButton } from "@/components/copy-button";
+import { CopyableId } from "@/components/copyable-id";
 import { DecisionView } from "@/components/decision/evaluation";
 import { type KeyValueItem, KeyValueList } from "@/components/key-value";
 import { PrivilegedMark } from "@/components/privileged-mark";
@@ -10,7 +9,8 @@ import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeBadge } from "@/components/task-outcome";
 import { useAuth } from "@/lib/session";
 import { taskErrorText } from "@/lib/task-output";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
+import { InternalLink } from "./internal-link";
 
 /** The authorization plan of a task that waits for a signature (doc/design/privilege.md "Authorization path"). */
 function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
@@ -65,12 +65,7 @@ function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
 function idFact(label: React.ReactNode, id: string, copyLabel: string): KeyValueItem {
 	return {
 		label,
-		value: (
-			<span className="flex items-center gap-1">
-				<span className={MONO_CELL}>{id}</span>
-				<CopyButton text={id} label={copyLabel} size="icon-xs" />
-			</span>
-		),
+		value: <CopyableId id={id} copyLabel={copyLabel} />,
 		control: true,
 	};
 }
@@ -138,9 +133,9 @@ export function TaskFacts({
 	const auth = useAuth();
 	const user = auth.user;
 	const approvalLink = (
-		<Link to="/approvals/tasks/$taskId" params={{ taskId: task.id }} className={linkClass}>
+		<InternalLink to="/approvals/tasks/$taskId" params={{ taskId: task.id }}>
 			<Trans>Open approval page</Trans>
-		</Link>
+		</InternalLink>
 	);
 	const purpose = purposeFact(task.purpose);
 

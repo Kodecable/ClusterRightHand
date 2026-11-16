@@ -535,7 +535,7 @@ describePodman("privileged system: forward", () => {
 			const t = await task({ kind: "file.read", path: "/tmp/crh-link" });
 			const done = await waitTerminal(t.id);
 			// The executor opens with openat2(RESOLVE_NO_SYMLINKS); nothing is read.
-			expect(done.state).toBe("failed");
+			expect(done.state).toBe("errored");
 			expect(done.errorCode).toBe("symlink_not_allowed");
 			expect(done.outputBytes).toBe(0);
 			expect(done.errorMessage?.toLowerCase()).toContain("symbolic link");
@@ -629,7 +629,7 @@ describePodman("privileged system: forward", () => {
 			await node.waitTrust("unavailable");
 			const t = await task({ kind: "exec", argv: ["true"] });
 			const done = await waitTerminal(t.id);
-			expect(done.state).toBe("failed");
+			expect(done.state).toBe("errored");
 			expect(done.errorCode).toBe("privileged_unavailable");
 			// When it comes back with the same trust, the next task runs again.
 			await node.ctl("start-priv");

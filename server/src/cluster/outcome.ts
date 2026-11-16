@@ -1,17 +1,18 @@
 /**
  * The one classification of a task's or a task group's terminal result (doc/design/execution.md "State
  * machine"): every surface, and the model-facing task text, reads this function instead of deciding again
- * whether an exit code, signal, timeout, cancellation, rejection, denial or platform error means failure.
+ * whether an exit code, signal, timeout, cancellation, an expired signature wait, rejection, denial or
+ * platform error means failure.
  *
- * Priority when several flags hold: cancelled > timed out > signal > rejected/denied > platform error >
- * unknown > exit code. A cancellation is not a failure (it is muted); a rejected or denied request is.
- * Exit 0 succeeds, and an exec task keeps its code in the outcome ("Exit code 0") while a file operation
- * simply reads "Done". `null` means the task is not terminal yet.
+ * Priority when several flags hold: cancelled/expired > timed out > signal > rejected/denied > platform
+ * error > unknown > exit code. A cancellation or an expired signature wait is not a failure (it is muted);
+ * a rejected or denied request is. Exit 0 succeeds, and an exec task keeps its code in the outcome ("Exit
+ * code 0") while a file operation simply reads "Done". `null` means the task is not terminal yet.
  */
 import type { TaskOutcome } from "@crh/api";
 
 import type { TaskGroupState, TaskState } from "../storage/schema.ts";
-import { GROUP_TERMINAL, TASK_CANCELLED_CODE, TERMINAL } from "./types.ts";
+import { GROUP_TERMINAL, TERMINAL } from "./types.ts";
 
 /** The stored fields the classification reads; a TaskView has all of them. */
 export interface TaskOutcomeInput {
@@ -20,16 +21,22 @@ export interface TaskOutcomeInput {
 	exitCode: number | null;
 	signal: string | null;
 	timedOut: boolean;
-	cancelled: boolean;
 	errorCode: string | null;
 	errorMessage: string | null;
 }
 
 export function taskOutcome(task: TaskOutcomeInput): TaskOutcome | null {
 	if (!TERMINAL.has(task.state)) return null;
-	// A wait ended by a stopped session or a cancel is written as rejected with the cancel code, not always
-	// with the flag: it is still a cancel, which is no failure.
-	if (task.cancelled || task.errorCode === TASK_CANCELLED_CODE) return { kind: "cancelled", failed: false };
+	// The state carries the cancellation and the expired signature wait; neither is a failure.
+	if (task.state === "cancelled") return { kind: "cancelled", failed: false };
+	if (task.state === "expired") {
+		return {
+			kind: "expired",
+			failed: false,
+			...(task.errorCode === null ? {} : { errorCode: task.errorCode }),
+			...(task.errorMessage === null ? {} : { errorMessage: task.errorMessage }),
+		};
+	}
 	if (task.timedOut) return { kind: "timed_out", failed: true };
 	if (task.signal !== null && task.signal !== "") return { kind: "signal", signal: task.signal, failed: true };
 	if (task.state === "rejected") {
@@ -84,8 +91,12 @@ export function taskGroupOutcome(group: TaskGroupOutcomeInput): TaskOutcome | nu
 	if (group.state === "interrupted") {
 		return { kind: "error", failed: true, errorCode: "interrupted", errorMessage: null };
 	}
-	const failed = group.tasks.some((task) => (task.outcome ?? taskOutcome(task))?.failed === true);
-	return failed
-		? { kind: "error", failed: true, errorCode: null, errorMessage: null }
-		: { kind: "succeeded", failed: false };
+	const outcomes = group.tasks.map((task) => task.outcome ?? taskOutcome(task));
+	if (outcomes.some((outcome) => outcome?.failed === true)) {
+		return { kind: "error", failed: true, errorCode: null, errorMessage: null };
+	}
+	// A group has no signature wait of its own: its members do, and a member whose wait expired did not run.
+	// The group still ends `finished`, but its outcome says why part of it never ran.
+	if (outcomes.some((outcome) => outcome?.kind === "expired")) return { kind: "expired", failed: false };
+	return { kind: "succeeded", failed: false };
 }

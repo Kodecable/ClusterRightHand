@@ -231,7 +231,7 @@ export function TranscriptRow({
 			{item.kind === "thinking" && <ThinkingRow item={item} streams={streams} />}
 			{item.kind === "tool" && (
 				<div className="max-w-[92%]">
-					<ToolCard item={item} streams={streams} sessionActive={sessionActive} />
+					<ToolCard item={item} sessionActive={sessionActive} />
 				</div>
 			)}
 			{item.kind === "compaction" && <CompactionRow text={item.text} />}

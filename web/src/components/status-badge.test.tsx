@@ -59,8 +59,16 @@ describe("status family mappings", () => {
 		expect(container).not.toHaveTextContent("(1)");
 		rerender(<TaskStatusBadge state="awaiting_approval" />);
 		expect(screen.getByText("Awaiting approval")).toBeInTheDocument();
-		rerender(<TaskStatusBadge state="failed" />);
-		expect(screen.getByText("Failed")).toBeInTheDocument();
+		rerender(<TaskStatusBadge state="errored" />);
+		expect(screen.getByText("Errored")).toBeInTheDocument();
+		rerender(<TaskStatusBadge state="denied" />);
+		expect(screen.getByText("Denied by rules")).toBeInTheDocument();
+		rerender(<TaskStatusBadge state="rejected" />);
+		expect(screen.getByText("Rejected")).toBeInTheDocument();
+		rerender(<TaskStatusBadge state="cancelled" />);
+		expect(screen.getByText("Cancelled")).toBeInTheDocument();
+		rerender(<TaskStatusBadge state="expired" />);
+		expect(screen.getByText("Expired")).toBeInTheDocument();
 		rerender(<TaskStatusBadge state="waiting_elsewhere" />);
 		expect(screen.getByText("waiting_elsewhere")).toBeInTheDocument();
 	});

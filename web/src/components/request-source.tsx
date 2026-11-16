@@ -2,10 +2,10 @@ import type { RequestSource as RequestSourceValue } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { UserLink } from "@/components/user-link";
 import { displaySessionTitle } from "@/lib/session-title";
 import { cn } from "@/lib/utils";
+import { InternalLink } from "./internal-link";
 
 /** A session's display name: its title, or the one untitled-session wording the whole UI uses. */
 export function sourceSessionName(i18n: I18n, title: string): string {
@@ -34,7 +34,7 @@ export function requestSourceText(i18n: I18n, source: RequestSourceValue): strin
 }
 
 /**
- * Who a request came from (doc/design/webui.md "Request source"): only the source's type and name, in one
+ * Who a request came from (doc/design/webui.md "Shared components"): only the source's type and name, in one
  * component every surface shares. A session title links to the session, a user to their page; an API token
  * and the audit-only actors stay plain text.
  */
@@ -55,13 +55,9 @@ export function RequestSource({
 				<span className={className} title={title}>
 					<Trans>
 						Session{" "}
-						<Link
-							to="/sessions/$sessionId"
-							params={{ sessionId: source.sessionId }}
-							className="underline underline-offset-2"
-						>
+						<InternalLink to="/sessions/$sessionId" params={{ sessionId: source.sessionId }}>
 							{sourceSessionName(i18n, source.title)}
-						</Link>
+						</InternalLink>
 					</Trans>
 				</span>
 			);

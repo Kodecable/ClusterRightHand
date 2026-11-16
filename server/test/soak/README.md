@@ -226,7 +226,7 @@ summary do not change.
   from `server/test/system/privileged/`; see [its README](../system/privileged/README.md).
 - **Disk sizes include WAL.** crhs db and WAL are reported separately, and the durable directory sums its files. The
   node `state_dir` already contains the output dir; the summary's bytes-per-call avoids counting it twice.
-- **`tasks_failed`** counts tasks whose state is `failed`, that timed out, or that exited non-zero. A failed turn is also
+- **`tasks_failed`** counts tasks whose state is `errored`, that timed out, or that exited non-zero. A failed turn is also
   recorded in the child's failure list and makes the script exit `1`. Transient sampling warnings (a stats timeout, one
   node's exec hiccup, a periodic pprof fetch) do not.
 - **Tool-call parallelism** is observed from the task rows' created/dispatched/finished timestamps: in a parallel round

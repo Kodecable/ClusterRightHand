@@ -50,7 +50,6 @@ function taskValues(
 		exit_code: null,
 		signal: null,
 		timed_out: 0,
-		cancelled: 0,
 		error_code: null,
 		error_message: null,
 		actor_type: "user",
@@ -352,6 +351,6 @@ describe("group payload refresh under concurrent member changes", () => {
 		};
 		expect(await cancelTask(core, "t-cancel")).toBe(true);
 		const ended = await db.selectFrom("tasks").selectAll().where("id", "=", "t-cancel").executeTakeFirstOrThrow();
-		expect(ended).toMatchObject({ state: "rejected", error_code: "cancelled" });
+		expect(ended).toMatchObject({ state: "cancelled", error_code: null });
 	});
 });

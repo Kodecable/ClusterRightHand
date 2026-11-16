@@ -201,7 +201,7 @@ async function pushTaskWaiting(ctx: ToolContext, t: TaskView): Promise<void> {
 
 /**
  * Waits for a blocking file task until it is final, approval and signature included. When the call is
- * aborted the task is cancelled instead (a running one asked to stop, a waiting one rejected).
+ * aborted the task is cancelled instead, whether it was running or still waiting.
  */
 export async function waitBlockingTask(ctx: ToolContext, id: string): Promise<TaskView | undefined> {
 	let t = await ctx.cluster.getTask(id);

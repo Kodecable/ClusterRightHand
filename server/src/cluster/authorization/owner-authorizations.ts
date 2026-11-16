@@ -339,7 +339,7 @@ export async function claimOwnerAuthorization(
 			core,
 			row.id,
 			row,
-			"failed",
+			"errored",
 			NODE_ACCESS_REVOKED,
 			NODE_ACCESS_REVOKED_MESSAGE,
 			parseTaskAuthorization(row.authorization),

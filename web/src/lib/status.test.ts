@@ -27,7 +27,16 @@ describe("taskStatusTone", () => {
 	});
 
 	test("every terminal state is neutral: success or failure is the outcome's colour, not the status's", () => {
-		for (const state of ["exited", "failed", "denied", "rejected", "cancelled", "unknown", "something_else"]) {
+		for (const state of [
+			"exited",
+			"errored",
+			"denied",
+			"rejected",
+			"cancelled",
+			"expired",
+			"unknown",
+			"something_else",
+		]) {
 			expect(taskStatusTone(state), state).toBe("muted");
 		}
 	});

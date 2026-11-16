@@ -60,6 +60,8 @@ export interface RenderRouterOptions {
 	path?: string;
 	/** Initial history entries; defaults to the path (or "/"), so query strings can be tested. */
 	initialEntries?: string[];
+	/** The query client to use; a test can seed it before rendering. */
+	client?: QueryClient;
 }
 
 function buildRouter(ui: React.ReactElement, options: RenderRouterOptions = {}) {
@@ -124,7 +126,7 @@ export async function renderWithRouter(
 	const router = buildRouter(ui, options);
 	await router.load();
 	const result = render(
-		<QueryClientProvider client={testQueryClient()}>
+		<QueryClientProvider client={options.client ?? testQueryClient()}>
 			<ThemeProvider>
 				<LocaleProvider initialLocale={locale}>
 					<TooltipProvider delay={0}>

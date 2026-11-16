@@ -268,7 +268,7 @@ describe("authorization paths and the task queue", () => {
 			const started = Date.now();
 			expect(await cluster.cancelTask(task.id)).toBe(true);
 			expect(Date.now() - started).toBeLessThan(GRACE_MS / 2);
-			expect(await rowOf(task.id)).toMatchObject({ state: "rejected", error_code: "cancelled" });
+			expect(await rowOf(task.id)).toMatchObject({ state: "cancelled" });
 
 			// The node goes away before the dispatch can send; the grace then finds the row cancelled.
 			crha.ws.close();
@@ -286,7 +286,7 @@ describe("authorization paths and the task queue", () => {
 		again.trust({ kind: "ok", summary: summaryOf(node.id, [localEntry()]) });
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(again.starts).toHaveLength(0);
-		expect(await rowOf(task.id)).toMatchObject({ state: "rejected", error_code: "cancelled", cancelled: 1 });
+		expect(await rowOf(task.id)).toMatchObject({ state: "cancelled" });
 	});
 
 	it("ends a locally approved task whose node stays offline through the grace", async () => {
@@ -320,7 +320,7 @@ describe("authorization paths and the task queue", () => {
 			release();
 			await waitFor("the task failed node_offline", async () => {
 				const row = await rowOf(task.id);
-				return row?.state === "failed" && row.error_code === "node_offline" ? row : undefined;
+				return row?.state === "errored" && row.error_code === "node_offline" ? row : undefined;
 			});
 		} finally {
 			spy.mockRestore();

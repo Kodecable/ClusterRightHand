@@ -17,6 +17,7 @@ import { DataTable, type DataTableColumn, type DataTableRowLink } from "@/compon
 import { ApprovalPanel, RequestDetails } from "@/components/decision";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import { NodeNameList, NodeTargetList, nodeTargetsText } from "@/components/node-targets";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -29,7 +30,7 @@ import { actionText } from "@/lib/action-text";
 import { isNotFound } from "@/lib/api/client";
 import { displaySessionTitle } from "@/lib/session-title";
 import { taskTitle } from "@/lib/task-title";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 import {
 	useApprovalLookups,
 	useApprovals,
@@ -354,9 +355,9 @@ export function ApprovalTaskPage() {
 				<SignatureWait request={request} variant="page" onChanged={() => void task.refetch()} />
 			) : !awaitingApproval && !awaitingSignature ? (
 				<Settled status={<TaskStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
-					<Link to="/tasks/$taskId" params={{ taskId: view.id }} className={linkClass}>
+					<InternalLink to="/tasks/$taskId" params={{ taskId: view.id }}>
 						<Trans>Open the task</Trans>
-					</Link>
+					</InternalLink>
 				</Settled>
 			) : null}
 			<RequestDetails
@@ -402,9 +403,9 @@ export function ApprovalTaskGroupPage() {
 				<SignatureWait request={request} variant="page" onChanged={() => void taskGroup.refetch()} />
 			) : !awaitingApproval && !awaitingSignature ? (
 				<Settled status={<TaskGroupStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
-					<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: view.id }} className={linkClass}>
+					<InternalLink to="/task-groups/$taskGroupId" params={{ taskGroupId: view.id }}>
 						<Trans>Open the task group</Trans>
-					</Link>
+					</InternalLink>
 				</Settled>
 			) : null}
 			<RequestDetails
@@ -458,9 +459,9 @@ export function ExternalCallApprovalPage() {
 			) : !awaitingApproval ? (
 				<Settled status={<ExternalCallStatusBadge state={view.state} />} title={<Trans>Already settled</Trans>}>
 					{view.rootSessionId !== null && (
-						<Link to="/sessions/$sessionId" params={{ sessionId: view.rootSessionId }} className={linkClass}>
+						<InternalLink to="/sessions/$sessionId" params={{ sessionId: view.rootSessionId }}>
 							<Trans>Open the session</Trans>
-						</Link>
+						</InternalLink>
 					)}
 				</Settled>
 			) : null}

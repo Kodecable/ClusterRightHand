@@ -13,7 +13,7 @@ import { parseTransferRecord, settleTransferOnExit } from "./data-transfer.ts";
 import { dropLive, EMPTY_OUTPUT, keepUnknownOutput, newLive } from "./live-output.ts";
 import { insertTask, writeTask } from "./task-rows.ts";
 import { outputColumns } from "./task-view.ts";
-import { type Actor, GROUP_TERMINAL, recorded, TASK_CANCELLED_CODE, TERMINAL } from "./types.ts";
+import { type Actor, GROUP_TERMINAL, recorded, TERMINAL } from "./types.ts";
 
 /**
  * The row write that ends a task: an update of a task that was running, or the insert of a task that
@@ -88,14 +88,13 @@ export const NODE_OFFLINE_MESSAGE = "the node is not connected";
 
 /**
  * The terminal row of a task cancelled after it was claimed (or while it waited) but before it started:
- * nothing ran, so it is `rejected`/`cancelled` like a waiting task a cancel ends.
+ * nothing ran, so it ends as `cancelled`, like a waiting task a cancel ends. The state carries the
+ * cancellation; the message keeps the reason it was asked for.
  */
 export function cancelledTaskFields(message = CANCELLED_BEFORE_START_MESSAGE): Updateable<TasksTable> {
 	return {
-		state: "rejected",
-		error_code: TASK_CANCELLED_CODE,
+		state: "cancelled",
 		error_message: message,
-		cancelled: 1,
 		pending_input: null,
 		handler_type: null,
 		handler_session_id: null,
@@ -114,7 +113,7 @@ export async function failNodeAccessRevoked(
 			from,
 			rev: row.rev,
 			set: {
-				state: "failed",
+				state: "errored",
 				error_code: NODE_ACCESS_REVOKED,
 				error_message: NODE_ACCESS_REVOKED_MESSAGE,
 				pending_input: null,
@@ -162,7 +161,7 @@ export async function failNodeOffline(core: ClusterCore, id: string, end: NodeOf
 			rev: end.row?.rev,
 			nodeId: end.nodeId,
 			set: {
-				state: "failed",
+				state: "errored",
 				error_code: NODE_OFFLINE,
 				error_message: NODE_OFFLINE_MESSAGE,
 				pending_input: null,
@@ -209,7 +208,7 @@ export async function endUndispatched(core: ClusterCore, id: string, error: unkn
 			write: {
 				from: ["awaiting_approval"],
 				set: {
-					state: "failed",
+					state: "errored",
 					error_code: "internal_error",
 					error_message: error instanceof Error ? error.message : String(error),
 					pending_input: null,
@@ -239,7 +238,7 @@ export async function failNodeDeleted(
 			from: [row.state],
 			rev: row.rev,
 			set: {
-				state: "failed",
+				state: "errored",
 				error_code: NODE_DELETED,
 				error_message: NODE_DELETED_MESSAGE,
 				pending_input: null,
@@ -289,7 +288,7 @@ export async function onAccepted(core: ClusterCore, nodeId: string, taskId: stri
 	// The cancel may have reached the node before its task.start, or the start may have overtaken the
 	// cancel: the node now knows the task, so the cancel has to follow it (doc/design/execution.md "Task cancellation").
 	const row = await core.row(taskId);
-	if (row?.cancelled === 1) requestTaskCancel(core, nodeId, taskId);
+	if (row?.state === "cancelled") requestTaskCancel(core, nodeId, taskId);
 }
 
 /**
@@ -342,7 +341,6 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 		error_code: outcome.kind === "error" ? outcome.code : null,
 		error_message: outcome.kind === "error" ? outcome.message : null,
 		timed_out: exit.timedOut ? 1 : 0,
-		cancelled: exit.cancelled ? 1 : 0,
 		result: exit.result === null || transferFailure ? null : JSON.stringify(taskResultToJson(exit.result)),
 		...outputColumns(output),
 		output_lines: exit.outputLines,
@@ -356,8 +354,29 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 			{ states: ["unknown"], nodeId: conn.nodeId },
 			{ late_result: JSON.stringify(fields) },
 		);
+	} else if (row.state === "cancelled") {
+		// The cancel was recorded while the task was only `dispatched`; the node's answer still carries what
+		// ran, so keep its exit code, signal and output on the cancelled row without changing the state
+		// (doc/design/execution.md "Task cancellation").
+		await writeTask(
+			core.db,
+			row.id,
+			{ states: ["cancelled"], nodeId: conn.nodeId },
+			{
+				exit_code: fields.exit_code,
+				signal: fields.signal,
+				timed_out: fields.timed_out,
+				result: fields.result,
+				...outputColumns(output),
+				output_lines: exit.outputLines,
+				output_file: exit.outputFile || null,
+			},
+		);
 	} else if (!TERMINAL.has(row.state)) {
-		await finish(core, conn.nodeId, row.id, { ...fields, state: outcome.kind === "error" ? "failed" : "exited" });
+		await finish(core, conn.nodeId, row.id, {
+			...fields,
+			state: exit.cancelled ? "cancelled" : outcome.kind === "error" ? "errored" : "exited",
+		});
 	}
 	dropLive(core, row.id);
 	conn.peer.emit("task.exit.ack", { taskId: row.id });
@@ -438,13 +457,43 @@ export async function finish(
 	id: string,
 	fields: Updateable<TasksTable>,
 ): Promise<void> {
-	await endTask(core, id, {
+	const ended = await endTask(core, id, {
 		write: { from: ["dispatched", "running"], set: fields, nodeId },
 		live: fields.state === "unknown" ? "keep" : "drop",
 		always: true,
 		group: "row",
 		awaitGroup: true,
 	});
+	// A cancellation may have ended the row while the runner was still working. Keep what the runner
+	// learned (the exit code, signal and output of a task cancelled while it ran) without ending it again.
+	if (!ended && fields.state === "cancelled") await keepCancelledResult(core, nodeId, id, fields);
+}
+
+/** Records a runner's late report on a row a cancel already ended as `cancelled`. */
+async function keepCancelledResult(
+	core: ClusterCore,
+	nodeId: string,
+	id: string,
+	fields: Updateable<TasksTable>,
+): Promise<void> {
+	const row = await core.row(id);
+	if (row?.state !== "cancelled" || row.node_id !== nodeId) return;
+	await writeTask(
+		core.db,
+		id,
+		{ states: ["cancelled"], nodeId },
+		{
+			exit_code: fields.exit_code ?? null,
+			signal: fields.signal ?? null,
+			timed_out: fields.timed_out ?? 0,
+			result: fields.result ?? null,
+			output_file: fields.output_file ?? null,
+			...(fields.output_head === undefined ? {} : { output_head: fields.output_head }),
+			...(fields.output_tail === undefined ? {} : { output_tail: fields.output_tail }),
+			...(fields.output_bytes === undefined ? {} : { output_bytes: fields.output_bytes }),
+			...(fields.output_lines === undefined ? {} : { output_lines: fields.output_lines }),
+		},
+	);
 }
 
 /** The node's answer is unknown (no link, no result): the task ends as `unknown(reason)`. */
@@ -526,7 +575,7 @@ async function auditFinish(core: ClusterCore, id: string): Promise<void> {
 		.digest("hex");
 	core.auditLater({
 		actor:
-			cancelledBy && row.cancelled === 1
+			cancelledBy && row.state === "cancelled"
 				? auditActor(cancelledBy)
 				: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
 		action: "task.finished",
@@ -538,7 +587,7 @@ async function auditFinish(core: ClusterCore, id: string): Promise<void> {
 			signal: row.signal,
 			error_code: row.error_code,
 			timed_out: row.timed_out === 1,
-			cancelled: row.cancelled === 1,
+			cancelled: row.state === "cancelled",
 			output_bytes: Number(row.output_bytes),
 			// Of the kept head and tail; crhs never has the full output.
 			kept_output_sha256: outputHash,

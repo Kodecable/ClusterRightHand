@@ -129,7 +129,8 @@ async function replan(core: ClusterCore, id: string): Promise<void> {
 
 /**
  * Ends the tasks whose signature has not arrived within AUTHORIZATION_WAIT_MS since they began to wait
- * (doc/design/privilege.md "Waiting for signatures"): from the approval decision when there was one, else from creation.
+ * (doc/design/privilege.md "Waiting for signatures"): from the approval decision when there was one, else
+ * from creation. A timed-out wait ends `expired`, not `rejected`: nobody rejected it.
  * Run at startup and by the periodic sweep; returns how many tasks it ended.
  */
 export async function expireAuthorizationWaits(core: ClusterCore, nowMs: number = Date.now()): Promise<number> {
@@ -147,7 +148,7 @@ export async function expireAuthorizationWaits(core: ClusterCore, nowMs: number 
 					core,
 					row.id,
 					current,
-					"rejected",
+					"expired",
 					"authorization_wait_expired",
 					`no signature arrived within ${AUTHORIZATION_WAIT_MS / 3_600_000} hours`,
 					parseTaskAuthorization(current.authorization),

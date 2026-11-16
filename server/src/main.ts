@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { ModelConfig } from "./agent/models.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
-import { rejectExpiredTokenWaits } from "./api/api-token-waits.ts";
+import { cancelExpiredTokenWaits } from "./api/api-token-waits.ts";
 import { createApp } from "./api/app.ts";
 import { createClientAddress } from "./api/client-address.ts";
 import { RequestDrain } from "./api/drain.ts";
@@ -247,7 +247,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// Signature waits that outlived their deadline while crhs was down end before requests are served.
 	await cluster.expireAuthorizationWaits();
 	// A token that expired while crhs was down must not leave its waiting work behind either.
-	await rejectExpiredTokenWaits(db, cluster, taskGroups);
+	await cancelExpiredTokenWaits(db, cluster, taskGroups);
 	// Recovery (leftover pending runs, then runs that ended while the process was down) happens before the loop.
 	const scheduler = new Scheduler({ db, runtime, audit });
 	// Chat channels (doc/design/channels.md): adapters for the stored bots, started before requests arrive. The
@@ -311,7 +311,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 				cluster
 					.expireAuthorizationWaits()
 					.catch((err: unknown) => console.error("authorization wait sweep failed:", err)),
-				rejectExpiredTokenWaits(db, cluster, taskGroups).catch((err: unknown) =>
+				cancelExpiredTokenWaits(db, cluster, taskGroups).catch((err: unknown) =>
 					console.error("API token expiry sweep failed:", err),
 				),
 			]).then(() => {});

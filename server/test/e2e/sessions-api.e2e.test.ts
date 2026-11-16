@@ -361,8 +361,8 @@ describe.skipIf(!hasGo)("sessions api against a real crha", () => {
 				const row = (await tasksOf(s.id)).find((r) => r.id === running.id);
 				return row && row.state !== "running" ? row : undefined;
 			});
-			expect(task.state).toBe("exited");
-			expect((await crhs().getTask(running.id)).cancelled).toBe(true);
+			expect(task.state).toBe("cancelled");
+			expect((await crhs().getTask(running.id)).state).toBe("cancelled");
 			await pkill("crh-sessions-api-sleep");
 			// And the session still works.
 			crhs().faux.setResponses([fauxAssistantMessage([fauxText("back again")])]);

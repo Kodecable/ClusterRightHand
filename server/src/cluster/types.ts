@@ -138,7 +138,15 @@ export interface ClusterOptions {
 	audit?: Audit;
 }
 
-export const TERMINAL: ReadonlySet<TaskRowState> = new Set(["exited", "failed", "rejected", "unknown", "denied"]);
+export const TERMINAL: ReadonlySet<TaskRowState> = new Set([
+	"exited",
+	"errored",
+	"rejected",
+	"cancelled",
+	"expired",
+	"unknown",
+	"denied",
+]);
 
 /** Whether the row already has a result. `unknown` does not: it still accepts a late result. */
 export function recorded(state: TaskRowState): boolean {
@@ -180,5 +188,5 @@ export const AUTHORIZATION_CODES: ReadonlySet<string> = new Set([
 	"authorization_rejected",
 ]);
 
-/** How long a task waits for its signature before it ends as `authorization_wait_expired`. */
+/** How long a task waits for its signature before it ends as `expired` with `authorization_wait_expired`. */
 export const AUTHORIZATION_WAIT_MS = 24 * 60 * 60 * 1000;

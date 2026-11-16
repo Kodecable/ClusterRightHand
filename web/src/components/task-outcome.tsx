@@ -26,6 +26,8 @@ export function taskOutcomeText(i18n: I18n, outcome: TaskOutcome): string {
 			return i18n._(msg`Timed out`);
 		case "cancelled":
 			return i18n._(msg`Cancelled`);
+		case "expired":
+			return i18n._(msg`Expired`);
 		case "rejected":
 			return i18n._(msg`Rejected`);
 		case "denied":

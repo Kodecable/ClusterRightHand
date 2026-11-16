@@ -3,7 +3,8 @@ import { batchOutput, isTerminal, joinOutput, outputText, statusOutputNoteKey } 
 
 describe("isTerminal", () => {
 	test("knows the terminal and non-terminal states", () => {
-		for (const state of ["exited", "failed", "rejected", "unknown", "denied"]) expect(isTerminal(state)).toBe(true);
+		for (const state of ["exited", "errored", "rejected", "cancelled", "expired", "unknown", "denied"])
+			expect(isTerminal(state)).toBe(true);
 		for (const state of ["dispatched", "running", "accepted", "awaiting_approval", "awaiting_authorization"])
 			expect(isTerminal(state)).toBe(false);
 	});
@@ -66,7 +67,7 @@ describe("batchOutput", () => {
 describe("statusOutputNoteKey", () => {
 	test("only blames SSH for a task that ran", () => {
 		expect(statusOutputNoteKey({ state: "running", exitCode: null, signal: null })).toBe("running");
-		expect(statusOutputNoteKey({ state: "failed", exitCode: null, signal: null })).toBe("none");
+		expect(statusOutputNoteKey({ state: "errored", exitCode: null, signal: null })).toBe("none");
 		expect(statusOutputNoteKey({ state: "exited", exitCode: 0, signal: null })).toBe("ssh");
 		expect(statusOutputNoteKey({ state: "exited", exitCode: null, signal: "SIGKILL" })).toBe("ssh");
 	});

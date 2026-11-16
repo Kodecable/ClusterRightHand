@@ -138,7 +138,6 @@ describe("request sources (sqlite)", () => {
 				exit_code: values.exitCode ?? null,
 				signal: null,
 				timed_out: 0,
-				cancelled: 0,
 				error_code: null,
 				error_message: null,
 				actor_type: values.actorType,

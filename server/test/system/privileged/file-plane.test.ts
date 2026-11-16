@@ -79,7 +79,7 @@ describePodman("privileged system: file plane on an unprivileged node", () => {
 			actor: actor(),
 		});
 		const refusedDone = await node.taskState(refused.id);
-		expect(refusedDone).toMatchObject({ state: "failed", errorCode: "not_found" });
+		expect(refusedDone).toMatchObject({ state: "errored", errorCode: "not_found" });
 
 		const created = await crhs.cluster.pushFile({
 			nodeId: node.nodeId,
@@ -130,7 +130,7 @@ describePodman("privileged system: file plane on an unprivileged node", () => {
 			actor: actor(),
 		});
 		const done = await node.taskState(task.id);
-		expect(done).toMatchObject({ state: "failed", errorCode: "too_large" });
+		expect(done).toMatchObject({ state: "errored", errorCode: "too_large" });
 		await expect(readFile(join(transferRoot, location.path))).rejects.toThrow();
 	}, 60_000);
 
@@ -147,7 +147,7 @@ describePodman("privileged system: file plane on an unprivileged node", () => {
 			actor: actor(),
 		});
 		const done = await node.taskState(task.id);
-		expect(done.state).toBe("failed");
+		expect(done.state).toBe("errored");
 		expect(done.errorCode).toBe("input_mismatch");
 		expect((await node.exec(["/usr/bin/test", "-e", path])).code).not.toBe(0);
 	}, 60_000);

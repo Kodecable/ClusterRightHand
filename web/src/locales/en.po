@@ -1721,9 +1721,6 @@ msgid "Deleted user group"
 msgstr "Deleted user group"
 
 #: src/components/status-badge.tsx
-msgid "Denied"
-msgstr "Denied"
-
 #: src/components/task-outcome.tsx
 msgid "Denied by rules"
 msgstr "Denied by rules"
@@ -2029,6 +2026,10 @@ msgstr "Environment"
 msgid "Error"
 msgstr "Error"
 
+#: src/components/status-badge.tsx
+msgid "Errored"
+msgstr "Errored"
+
 #: src/components/decision/evaluation.tsx
 msgid "Escalated"
 msgstr "Escalated"
@@ -2106,6 +2107,7 @@ msgid "Expected triggers"
 msgstr "Expected triggers"
 
 #: src/components/status-badge.tsx
+#: src/components/task-outcome.tsx
 msgid "Expired"
 msgstr "Expired"
 
@@ -2657,10 +2659,6 @@ msgstr "Loading preview"
 msgid "Loading shares…"
 msgstr "Loading shares…"
 
-#: src/features/sessions/tool-dialog.tsx
-msgid "Loading task…"
-msgstr "Loading task…"
-
 #: src/features/settings/extensions.tsx
 msgid "Loading the tool list…"
 msgstr "Loading the tool list…"
@@ -3128,10 +3126,6 @@ msgstr "No one has signed an authorization yet."
 msgid "No one yet"
 msgstr "No one yet"
 
-#: src/features/sessions/tool-dialog.tsx
-msgid "No output yet"
-msgstr "No output yet"
-
 #: src/features/sessions/tool-card.tsx
 msgid "No result"
 msgstr "No result"
@@ -3466,10 +3460,6 @@ msgstr "Open the library to delete its files"
 msgid "Open the session"
 msgstr "Open the session"
 
-#: src/features/sessions/tool-dialog.tsx
-msgid "Open the subagent's session"
-msgstr "Open the subagent's session"
-
 #: src/features/approvals/pages.tsx
 msgid "Open the task"
 msgstr "Open the task"
@@ -3477,10 +3467,6 @@ msgstr "Open the task"
 #: src/features/approvals/pages.tsx
 msgid "Open the task group"
 msgstr "Open the task group"
-
-#: src/features/sessions/tool-dialog.tsx
-msgid "Open the task group page"
-msgstr "Open the task group page"
 
 #: src/components/decision/request-details.tsx
 #: src/features/approvals/pages.tsx
@@ -3553,10 +3539,6 @@ msgstr "Output"
 #: src/components/task-facts.tsx
 msgid "Output file"
 msgstr "Output file"
-
-#: src/features/sessions/tool-dialog.tsx
-msgid "Output so far"
-msgstr "Output so far"
 
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Overall upload progress"
@@ -4787,6 +4769,10 @@ msgstr "stopped by the next run"
 msgid "Stored headers: {0}"
 msgstr "Stored headers: {0}"
 
+#: src/features/sessions/tool-dialog.tsx
+msgid "Subagent session"
+msgstr "Subagent session"
+
 #. placeholder {0}: displaySessionTitle(row.hit.sessionTitle, i18n)
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Subagent: {0}"
@@ -4855,6 +4841,7 @@ msgid "Task"
 msgstr "Task"
 
 #: src/features/sessions/session-decisions.tsx
+#: src/features/sessions/tool-dialog.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task details"
 msgstr "Task details"
@@ -4865,6 +4852,7 @@ msgstr "Task details"
 msgid "Task group"
 msgstr "Task group"
 
+#: src/features/sessions/tool-dialog.tsx
 #: src/features/tasks/task-group-page.tsx
 msgid "Task group details"
 msgstr "Task group details"
@@ -5652,17 +5640,9 @@ msgstr "Waiting for the owner's authorization."
 msgid "Waiting for you"
 msgstr "Waiting for you"
 
-#: src/features/sessions/tool-dialog.tsx
-msgid "Waiting for your approval. <0>Review and approve</0>"
-msgstr "Waiting for your approval. <0>Review and approve</0>"
-
 #: src/components/task-facts.tsx
 msgid "Waiting for your signature."
 msgstr "Waiting for your signature."
-
-#: src/features/sessions/tool-dialog.tsx
-msgid "Waiting for your signature. <0>Open the signing page</0>"
-msgstr "Waiting for your signature. <0>Open the signing page</0>"
 
 #: src/features/system-settings/general-section.tsx
 msgid "Warn when a node's clock differs from crhs's by more than this; 0s disables the warning. Default: {defaultClockWarn}."

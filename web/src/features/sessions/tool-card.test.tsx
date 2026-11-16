@@ -3,7 +3,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
 import { ToolCard } from "./tool-card";
 import type { TranscriptItem } from "./transcript-items";
-import { TranscriptStreams } from "./transcript-streams";
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -37,7 +36,7 @@ const ITEM: Extract<TranscriptItem, { kind: "tool" }> = {
 
 describe("view_image tool card", () => {
 	test("shows the source, dimensions, size and SHA-256 without the image", async () => {
-		await renderWithRouter(<ToolCard item={ITEM} streams={new TranscriptStreams()} sessionActive={false} />);
+		await renderWithRouter(<ToolCard item={ITEM} sessionActive={false} />);
 		const summary = screen.getByTestId("view-image-summary");
 		expect(summary).toHaveTextContent("user:alice");
 		expect(summary).toHaveTextContent("screens/pic.png");
@@ -71,7 +70,6 @@ describe("view_image tool card", () => {
 						},
 					},
 				}}
-				streams={new TranscriptStreams()}
 				sessionActive={false}
 			/>,
 		);

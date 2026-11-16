@@ -147,7 +147,6 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		exit_code: null,
 		signal: null,
 		timed_out: 0,
-		cancelled: 0,
 		error_code: denied ? "policy_denied" : rejected ? "approval_required" : null,
 		error_message: denied
 			? "denied by the authorization rules"
@@ -381,7 +380,7 @@ async function failTransferBusy(core: ClusterCore, id: string): Promise<void> {
 				from: ["awaiting_approval"],
 				rev: row.rev,
 				set: {
-					state: "failed",
+					state: "errored",
 					error_code: "busy",
 					error_message: "the transfer queue is full",
 					pending_input: null,

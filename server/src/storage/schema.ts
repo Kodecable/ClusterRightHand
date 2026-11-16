@@ -357,7 +357,6 @@ export interface TasksTable extends ApprovalColumns {
 	exit_code: number | null;
 	signal: string | null;
 	timed_out: number;
-	cancelled: number;
 	/** Executor error code, client rejection, or the unknown reason. */
 	error_code: string | null;
 	error_message: string | null;

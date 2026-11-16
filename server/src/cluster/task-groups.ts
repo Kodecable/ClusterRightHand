@@ -560,7 +560,7 @@ export class TaskGroups {
 		let failed = false;
 		// Waits ended before every task finished: the group is left for recover(), which marks it interrupted.
 		let abandoned = false;
-		// The worker threw (a storage error while creating a member, for one): the group ends as failed.
+		// The worker threw (a storage error while creating a member, for one): the group ends interrupted.
 		let failure: unknown;
 		// Shutdown ends the waits: waitTask then returns at once, so a loop must check this or it would spin.
 		const ending = () => this.#waitsEnded || this.#cluster.waitsEnded;

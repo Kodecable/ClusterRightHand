@@ -1,17 +1,17 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { PlusIcon, SearchIcon } from "lucide-react";
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Virtualizer, type VirtualizerHandle } from "virtua";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import { ListSkeleton } from "@/components/skeletons";
 import { Button } from "@/components/ui/button";
 import { WarningBanner } from "@/components/warning-banner";
 import { useModels } from "@/features/settings/api";
 import { flattenCursorPages, lastCursor } from "@/lib/api/query";
 import { useAuth } from "@/lib/session";
-import { linkClass } from "@/lib/utils";
 import { useSessions } from "./api";
 import { groupSessionRows, type SessionGroupKey } from "./session-groups";
 import { SessionListItemRow } from "./session-list-item";
@@ -167,9 +167,7 @@ export function SessionList({ selectedId }: { selectedId?: string }) {
 						{isAdmin ? (
 							<Trans>
 								No models are configured, so sessions cannot start.{" "}
-								<Link to="/settings/models" className={linkClass}>
-									Configure a model provider
-								</Link>
+								<InternalLink to="/settings/models">Configure a model provider</InternalLink>
 							</Trans>
 						) : (
 							<Trans>No models are configured, so sessions cannot start. Ask an administrator to configure one.</Trans>

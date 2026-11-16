@@ -28,7 +28,7 @@ import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { findUserByUsername, setPassword, storePasswordHash, toPublicUser } from "../users/service.ts";
 import { UserError } from "../util/errors.ts";
-import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
+import { cancelRevokedTokenWaits } from "./api-token-waits.ts";
 import { jsonError } from "./context.ts";
 import { requireUser } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
@@ -326,7 +326,7 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 			// Web sessions and API tokens are separate: a password change leaves tokens usable unless asked.
 			const revokeApiTokens = body.revokeApiTokens === true;
 			const revokedApiTokens = revokeApiTokens ? await revokeAllApiTokens(db, me.userId) : [];
-			await rejectRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, me.userId);
+			await cancelRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, me.userId);
 			void c.get("audit").record({
 				actor: userActor(me),
 				action: "auth.password_changed",

@@ -8,7 +8,7 @@ const hasGo = await goAvailable();
 
 /**
  * M4.1: privileged is carried end to end on the crhs side and crha answers according to its mode. The
- * default mode is `reject`, so a privileged task is refused before it is accepted and ends `failed`.
+ * default mode is `reject`, so a privileged task is refused before it is accepted and ends `errored`.
  */
 describe.skipIf(!hasGo)("privileged tasks end to end", () => {
 	let tmp = "";
@@ -46,7 +46,7 @@ describe.skipIf(!hasGo)("privileged tasks end to end", () => {
 
 		it("fails a privileged exec with privileged_unsupported", async () => {
 			const t = await env.crhs.runTask(env.nodeId, { kind: "exec", argv: ["true"], privileged: true });
-			expect(t).toMatchObject({ state: "failed", errorCode: "privileged_unsupported" });
+			expect(t).toMatchObject({ state: "errored", errorCode: "privileged_unsupported" });
 			expect(t.errorMessage).toContain("privileged");
 			expect(t.privileged).toBe(true);
 			// It was refused before acceptance: nothing ran and there is no output.
@@ -56,7 +56,7 @@ describe.skipIf(!hasGo)("privileged tasks end to end", () => {
 
 		it("fails a privileged file task the same way", async () => {
 			const t = await env.crhs.runTask(env.nodeId, { kind: "file.read", path: "/etc/hostname", privileged: true });
-			expect(t).toMatchObject({ state: "failed", errorCode: "privileged_unsupported", privileged: true });
+			expect(t).toMatchObject({ state: "errored", errorCode: "privileged_unsupported", privileged: true });
 		});
 
 		it("runs an ordinary task unchanged", async () => {

@@ -10,12 +10,11 @@ import type {
 } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { ApprovalPanel } from "@/components/decision/approval-panel";
+import { InternalLink } from "@/components/internal-link";
 import { useApprovals, useDecideApproval, useDecideExternalCall } from "@/features/approvals/api";
 import { SignatureWait } from "@/features/authorizations/signature-wait";
-import { cn, linkClass } from "@/lib/utils";
 import { sessionKeys, useDecideQuota } from "./api";
 import { Composer } from "./composer";
 import { QuotaPanel } from "./quota-panel";
@@ -105,21 +104,24 @@ function decisionId(decision: SessionDecision): string {
 /** A link to the task or task group a decision is about. */
 function TaskDetails({ decision }: { decision: SessionDecision }) {
 	const { t } = useLingui();
-	const className = cn(linkClass, "text-xs whitespace-nowrap");
 	switch (decision.kind) {
 		case "approval_task":
 		case "signature_task":
 			return (
-				<Link to="/tasks/$taskId" params={{ taskId: decision.task.id }} className={className}>
+				<InternalLink to="/tasks/$taskId" params={{ taskId: decision.task.id }} className="text-xs whitespace-nowrap">
 					{t`Task details`}
-				</Link>
+				</InternalLink>
 			);
 		case "approval_task_group":
 		case "signature_task_group":
 			return (
-				<Link to="/task-groups/$taskGroupId" params={{ taskGroupId: decision.taskGroup.id }} className={className}>
+				<InternalLink
+					to="/task-groups/$taskGroupId"
+					params={{ taskGroupId: decision.taskGroup.id }}
+					className="text-xs whitespace-nowrap"
+				>
 					{t`Task details`}
-				</Link>
+				</InternalLink>
 			);
 		case "quota":
 		case "approval_external_call":
@@ -237,13 +239,13 @@ function ExternalCallDock({
 			busy={decide.isPending}
 			error={decide.error}
 			details={
-				<Link
+				<InternalLink
 					to="/approvals/external-calls/$externalCallId"
 					params={{ externalCallId: call.id }}
-					className={cn(linkClass, "text-xs whitespace-nowrap")}
+					className="text-xs whitespace-nowrap"
 				>
 					{t`Review`}
-				</Link>
+				</InternalLink>
 			}
 			onDecide={(body) =>
 				decide.mutate(

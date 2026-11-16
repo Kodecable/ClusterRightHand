@@ -94,7 +94,7 @@ describe("task routes: privileged (sqlite)", () => {
 		const { task } = (await res.json()) as { task: TaskView };
 		expect(task.privileged).toBe(true);
 		// The node is not connected: nothing ran, but the task exists with its flag.
-		expect(task.state).toBe("failed");
+		expect(task.state).toBe("errored");
 		expect(task.errorCode).toBe("node_offline");
 		const fetched = (await (await call(app, `/api/tasks/${task.id}`, { cookie })).json()) as { task: TaskView };
 		expect(fetched.task.privileged).toBe(true);
@@ -112,7 +112,7 @@ describe("task routes: privileged (sqlite)", () => {
 		const { taskGroup } = (await res.json()) as { taskGroup: TaskGroupView };
 		expect(taskGroup.privileged).toBe(true);
 		expect(taskGroup.tasks).toHaveLength(1);
-		expect(taskGroup.tasks[0]).toMatchObject({ privileged: true, state: "failed", errorCode: "node_offline" });
+		expect(taskGroup.tasks[0]).toMatchObject({ privileged: true, state: "errored", errorCode: "node_offline" });
 		const row = await db
 			.selectFrom("task_groups")
 			.select("privileged")
@@ -157,7 +157,7 @@ describe("task routes: privileged (sqlite)", () => {
 		});
 		expect(single.status).toBe(201);
 		const { task } = (await single.json()) as { task: TaskView };
-		expect(task).toMatchObject({ maxLines: 3, maxBytes: 2048, state: "failed", errorCode: "node_offline" });
+		expect(task).toMatchObject({ maxLines: 3, maxBytes: 2048, state: "errored", errorCode: "node_offline" });
 
 		const batch = await post("/api/task-groups", {
 			kind: "exec",

@@ -269,7 +269,7 @@ export async function failTransfer(
 			write: {
 				from: ["dispatched", "running"],
 				set: {
-					state: "failed",
+					state: "errored",
 					error_code: code,
 					error_message: message,
 				},

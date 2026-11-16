@@ -177,7 +177,7 @@ async function dispatchLocalApproval(core: ClusterCore, id: string, attempt: num
 		// The local approval may arrive long after the task was parked: access can have been revoked
 		// since. The failure is written in this turn.
 		if (!(await userCanAccessNode(core.db, row.on_behalf_of_user_id, readyNode.id))) {
-			await finishAuthorization(core, id, row, "failed", NODE_ACCESS_REVOKED, NODE_ACCESS_REVOKED_MESSAGE, record);
+			await finishAuthorization(core, id, row, "errored", NODE_ACCESS_REVOKED, NODE_ACCESS_REVOKED_MESSAGE, record);
 			return null;
 		}
 		const spec = specFromRow(row.spec, "task");

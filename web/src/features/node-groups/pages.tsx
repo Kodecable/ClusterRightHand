@@ -4,10 +4,12 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PencilIcon, PlusIcon, Trash2Icon, UserPenIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
+import { CopyableId } from "@/components/copyable-id";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState, TableEmpty } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
+import { InternalLink } from "@/components/internal-link";
 import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -18,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { NodeAccessSection } from "@/features/nodes/access-grants";
 import { useNodeNames, useNodes } from "@/features/nodes/api";
 import { useAuth } from "@/lib/session";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { useDeleteNodeGroup, useNodeGroups } from "./api";
 import { NodeGroupMembersDialog, NodeGroupNameDialog } from "./dialogs";
 
@@ -222,9 +224,9 @@ export function NodeGroupDetailPage() {
 					title={<Trans>No such node group</Trans>}
 					description={<Trans>It may have been deleted.</Trans>}
 					action={
-						<Link to="/node-groups" className={linkClass}>
+						<InternalLink to="/node-groups">
 							<Trans>All node groups</Trans>
-						</Link>
+						</InternalLink>
 					}
 				/>
 			</Page>
@@ -258,12 +260,7 @@ export function NodeGroupDetailPage() {
 				items={[
 					{
 						label: t`Node group id`,
-						value: (
-							<span className="flex min-w-0 items-center gap-1">
-								<code className={MONO_CELL}>{group.id}</code>
-								<CopyButton text={group.id} label={t`Copy node group id`} variant="ghost" size="icon-xs" />
-							</span>
-						),
+						value: <CopyableId id={group.id} copyLabel={t`Copy node group id`} />,
 						control: true,
 					},
 				]}

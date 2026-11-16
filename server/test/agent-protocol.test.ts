@@ -950,7 +950,7 @@ describe("agent wire protocol", () => {
 		const terminal = async (id: string): Promise<TaskView> =>
 			waitFor("task terminal", async () => {
 				const t = await cluster.getTask(id);
-				return t && (["exited", "failed", "rejected", "unknown", "denied"].includes(t.state) ? t : undefined);
+				return t && (["exited", "errored", "rejected", "unknown", "denied"].includes(t.state) ? t : undefined);
 			});
 
 		it.each([
@@ -958,8 +958,8 @@ describe("agent wire protocol", () => {
 			["authorization_invalid", "rejected"],
 			["authorization_expired", "rejected"],
 			["authorization_rejected", "rejected"],
-			["invalid_spec", "failed"],
-			["local_policy_denied", "failed"],
+			["invalid_spec", "errored"],
+			["local_policy_denied", "errored"],
 		])("maps %s to %s", async (code, expected) => {
 			const { node, crha } = await connectActive();
 			crha.peer.onRequest("task.start", () => {
@@ -985,7 +985,7 @@ describe("agent wire protocol", () => {
 				actor: { type: "system", id: "test", onBehalfOfUserId: owner.userId },
 			});
 			const view = await terminal(created.id);
-			expect(view.state).toBe("failed");
+			expect(view.state).toBe("errored");
 			expect(view.errorCode).toBe("invalid_spec");
 			expect(view.errorMessage).toMatch(/frame too large/);
 			// The request was never put on the wire, and the link is still usable.

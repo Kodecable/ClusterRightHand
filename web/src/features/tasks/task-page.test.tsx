@@ -68,7 +68,6 @@ const GROUP_TASK = {
 	exitCode: 0,
 	signal: null,
 	timedOut: false,
-	cancelled: false,
 	timeoutMs: null,
 	errorCode: null,
 	errorMessage: null,
@@ -170,10 +169,13 @@ const TASK = { ...GROUP_TASK, id: "t1", taskGroupId: null } as TaskView;
 
 /** The fake server's copy of the terminal classification, so an override of a flag updates the outcome. */
 function withTaskOutcome(task: TaskView): TaskView {
-	if (!["exited", "failed", "rejected", "unknown", "denied"].includes(task.state)) {
+	if (!["exited", "errored", "rejected", "cancelled", "expired", "unknown", "denied"].includes(task.state)) {
 		return { ...task, outcome: null };
 	}
-	if (task.cancelled) return { ...task, outcome: { kind: "cancelled", failed: false } };
+	if (task.state === "cancelled") return { ...task, outcome: { kind: "cancelled", failed: false } };
+	if (task.state === "expired") {
+		return { ...task, outcome: { kind: "expired", failed: false, errorCode: "authorization_wait_expired" } };
+	}
 	if (task.timedOut) return { ...task, outcome: { kind: "timed_out", failed: true } };
 	if (task.signal !== null) return { ...task, outcome: { kind: "signal", failed: true, signal: task.signal } };
 	if (task.state === "rejected") return { ...task, outcome: { kind: "rejected", failed: true } };
@@ -383,11 +385,11 @@ describe("TaskPage and TaskGroupPage", () => {
 
 	test("the header says a task was cancelled", async () => {
 		route.params = { taskId: "t1" };
-		mockTask({ ...TASK, cancelled: true });
+		mockTask({ ...TASK, state: "cancelled", exitCode: null });
 		await renderPage(<TaskPage />);
 
 		const header = await pageHeader();
-		expect(header).toHaveTextContent("Finished · Cancelled");
+		expect(header).toHaveTextContent("Cancelled · Cancelled");
 		expect(within(header).getByTestId("task-outcome")).toHaveTextContent("Cancelled");
 	});
 
@@ -405,7 +407,7 @@ describe("TaskPage and TaskGroupPage", () => {
 		route.params = { taskId: "t1" };
 		mockTask({
 			...TASK,
-			state: "failed",
+			state: "errored",
 			exitCode: null,
 			errorCode: "permission_denied",
 			errorMessage: "permission denied",

@@ -3,24 +3,24 @@ import { formatList } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { LocalizedList } from "@/components/localized-list";
 import { ALL_TARGET } from "@/lib/names";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
+import { InternalLink } from "./internal-link";
 
 export function NodeLink({ id, name }: { id: string; name: string }) {
 	return (
-		<Link to="/nodes/$nodeId" params={{ nodeId: id }} className={linkClass}>
+		<InternalLink to="/nodes/$nodeId" params={{ nodeId: id }}>
 			{name}
-		</Link>
+		</InternalLink>
 	);
 }
 
 function NodeGroupLink({ id, name }: { id: string; name: string }) {
 	return (
-		<Link to="/node-groups/$nodeGroupId" params={{ nodeGroupId: id }} className={linkClass}>
+		<InternalLink to="/node-groups/$nodeGroupId" params={{ nodeGroupId: id }}>
 			{name}
-		</Link>
+		</InternalLink>
 	);
 }
 

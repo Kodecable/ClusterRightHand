@@ -148,13 +148,14 @@ const TASK_LABELS: Record<string, MessageDescriptor> = {
 	awaiting_approval: msg`Awaiting approval`,
 	awaiting_authorization: msg`Awaiting authorization`,
 	exited: msg`Finished`,
-	failed: msg`Failed`,
-	denied: msg`Denied`,
+	errored: msg`Errored`,
+	denied: msg`Denied by rules`,
 	rejected: msg`Rejected`,
+	cancelled: msg`Cancelled`,
+	expired: msg`Expired`,
 	unknown: msg`Unknown`,
 	running: msg`Running`,
 	dispatched: msg`Dispatched`,
-	cancelled: msg`Cancelled`,
 };
 
 /** The translated label of a task state, or the raw state when it is unknown. */

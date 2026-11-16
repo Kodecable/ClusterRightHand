@@ -329,14 +329,9 @@ html[data-theme="dark"] .shiki-block .shiki-line span {
 	margin: 0;
 }
 
+/* Markdown links use the shared external-link style; keep only the offset here. */
 .md-body a {
-	color: var(--primary);
-	text-decoration: underline;
 	text-underline-offset: 2px;
-}
-
-.md-body a:hover {
-	text-decoration-thickness: 2px;
 }
 
 .md-body blockquote {

@@ -345,10 +345,10 @@ export async function settleInput(
 }
 
 /**
- * Ends what sessions left waiting when their work stopped: approvals are rejected and signature waits
- * cancelled with `reason`; with `includeRunning` (a stop) dispatched and running tasks are cancelled too.
- * The tools' own abort signal is not used for this, because it also fires when crhs shuts down and the call
- * must then reattach to its task after the restart.
+ * Ends what sessions left waiting when their work stopped: approval and signature waits are cancelled
+ * with `reason` (a stop is not a rejection); with `includeRunning` (a stop) dispatched and running tasks
+ * are cancelled too. The tools' own abort signal is not used for this, because it also fires when crhs
+ * shuts down and the call must then reattach to its task after the restart.
  */
 export async function endSessionWork(
 	host: RuntimeHost,
@@ -358,12 +358,7 @@ export async function endSessionWork(
 ): Promise<void> {
 	if (sessions.length === 0) return;
 	const { includeRunning, by } = options;
-	const decision = {
-		decision: "rejected" as const,
-		by: { type: "user", id: by?.userId ?? "system", ...(by ? { onBehalfOfUserId: by.userId } : {}) },
-		at: new Date().toISOString(),
-		reason,
-	};
+	const actor = by ? { type: "user" as const, id: by.userId, onBehalfOfUserId: by.userId } : undefined;
 	const waiting = ["awaiting_approval", "awaiting_authorization"] as const;
 	const live = ["dispatched", "running"] as const;
 	const tasks = await host.db
@@ -374,13 +369,7 @@ export async function endSessionWork(
 		.where("state", "in", includeRunning ? [...waiting, ...live] : [...waiting])
 		.execute();
 	for (const row of tasks) {
-		if (row.state === "awaiting_approval") await host.cluster.decide(row.id, decision);
-		else
-			await host.cluster.cancelTask(
-				row.id,
-				reason,
-				by ? { type: "user", id: by.userId, onBehalfOfUserId: by.userId } : undefined,
-			);
+		await host.cluster.cancelTask(row.id, reason, actor);
 	}
 	const groups = await host.db
 		.selectFrom("task_groups")
@@ -389,18 +378,10 @@ export async function endSessionWork(
 		.where("state", "in", [...waiting, "running"])
 		.execute();
 	for (const group of groups) {
-		if (group.state === "awaiting_approval") {
-			await host.taskGroups.decide(group.id, decision);
-			continue;
-		}
 		if (includeRunning) {
 			// Stop the group itself, not only its current members: its workers would otherwise create the
 			// remaining nodes (doc/design/execution.md "State machine").
-			await host.taskGroups.cancel(
-				group.id,
-				reason,
-				by ? { type: "user", id: by.userId, onBehalfOfUserId: by.userId } : undefined,
-			);
+			await host.taskGroups.cancel(group.id, reason, actor);
 			continue;
 		}
 		// The run ended normally: a background group keeps running, but its signature waits are over.
@@ -410,12 +391,7 @@ export async function endSessionWork(
 			.where("task_group_id", "=", group.id)
 			.where("state", "=", "awaiting_authorization")
 			.execute();
-		for (const t of members)
-			await host.cluster.cancelTask(
-				t.id,
-				reason,
-				by ? { type: "user", id: by.userId, onBehalfOfUserId: by.userId } : undefined,
-			);
+		for (const t of members) await host.cluster.cancelTask(t.id, reason, actor);
 	}
 }
 

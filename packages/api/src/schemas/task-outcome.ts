@@ -11,6 +11,7 @@ export const TaskOutcomeKindSchema = z.enum([
 	"signal",
 	"timed_out",
 	"cancelled",
+	"expired",
 	"rejected",
 	"denied",
 	"error",
@@ -20,7 +21,9 @@ export const TaskOutcomeKindSchema = z.enum([
 export const TaskOutcomeSchema = z
 	.object({
 		kind: TaskOutcomeKindSchema,
-		failed: z.boolean().describe("Whether the result counts as a failure; a cancellation does not."),
+		failed: z
+			.boolean()
+			.describe("Whether the result counts as a failure; a cancellation or an expired signature wait does not."),
 		exitCode: z.number().optional().describe("The exit code when one decides the outcome; exec keeps exit 0."),
 		signal: z.string().optional(),
 		errorCode: z.string().nullable().optional(),

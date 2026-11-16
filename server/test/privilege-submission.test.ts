@@ -635,7 +635,7 @@ describe("user authorizations", () => {
 		expect(elapsed).toBeLessThan(500);
 		expect((await taskView(task.id)).state).toBe("awaiting_authorization");
 		// The background grace runs out; the task ends without a second request.
-		const failed = await waitState(task.id, "failed");
+		const failed = await waitState(task.id, "errored");
 		expect(failed).toMatchObject({ errorCode: "node_offline", errorMessage: "the node is not connected" });
 	});
 
@@ -683,7 +683,7 @@ describe("user authorizations", () => {
 
 			release();
 			await drained;
-			expect(await taskView(task.id)).toMatchObject({ state: "failed", errorCode: "node_offline" });
+			expect(await taskView(task.id)).toMatchObject({ state: "errored", errorCode: "node_offline" });
 		} finally {
 			release();
 			spy.mockRestore();
@@ -934,7 +934,7 @@ describe("user authorizations", () => {
 		await setNodeGroupsForNode(db, node.id, [group.id]);
 		await seedReusable({ nodes: [group.id] });
 		const task = await createPrivileged(node.id);
-		const failed = await waitState(task.id, "failed");
+		const failed = await waitState(task.id, "errored");
 		expect(failed.errorCode).toBe("alias_missing");
 		expect(failed.errorMessage).toContain(`node group web (${group.id})`);
 		expect(failed.errorMessage).toContain(`add "${group.id}" to aliases`);
@@ -979,7 +979,7 @@ describe("user authorizations", () => {
 		const res = await submit(signedAuthorization(submitted.bytes));
 		expect(res.status).toBe(200);
 		expect((await res.json()) as Record<string, unknown>).toEqual({ authorization: { id: submitted.id } });
-		const failed = await waitState(task.id, "failed");
+		const failed = await waitState(task.id, "errored");
 		expect(failed.errorCode).toBe("alias_missing");
 		expect(failed.errorMessage).toContain(`node group web (${group.id})`);
 		expect(failed.errorMessage).toContain(`add "${group.id}" to aliases`);
@@ -1032,12 +1032,12 @@ describe("user authorizations", () => {
 		const done = await waitFor("one node running and one failed", async () => {
 			const view = (await groups.get(groupId)) as TaskGroupView;
 			const running = view.tasks.some((task) => task.state === "running");
-			const failed = view.tasks.find((task) => task.state === "failed");
+			const failed = view.tasks.find((task) => task.state === "errored");
 			return view.tasks.length === 2 && running && failed ? view : undefined;
 		});
 		expect(done.tasks.find((task) => task.nodeId === a.node.id)?.state).toBe("running");
 		expect(done.tasks.find((task) => task.nodeId === b.node.id)).toMatchObject({
-			state: "failed",
+			state: "errored",
 			errorCode: "alias_missing",
 		});
 		expect(a.crha.starts).toHaveLength(1);

@@ -197,7 +197,7 @@ describe("task visibility (sqlite)", () => {
 			at: new Date().toISOString(),
 		});
 		const after = (await cluster.getTask(task.id)) as TaskView;
-		expect(after.state).toBe("failed");
+		expect(after.state).toBe("errored");
 		expect(after.errorCode).toBe("node_access_revoked");
 		expect(after.errorMessage).toMatch(/access to the node was revoked/);
 	});

@@ -1,5 +1,5 @@
 /**
- * Who a request came from (doc/design/webui.md "Request source"): the one server builder that turns an
+ * Who a request came from (doc/design/webui.md "Shared components"): the one server builder that turns an
  * actor (a task's, an external call's or an audit event's) into the displayable `RequestSource` model.
  *
  * A session or subagent resolves to its root session, an API token to its name and a user to their

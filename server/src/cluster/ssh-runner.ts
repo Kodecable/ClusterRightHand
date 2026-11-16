@@ -132,10 +132,10 @@ export async function runSsh(
 	};
 	// Cancelled before the remote command started: nothing ran, so the task ends as a cancellation
 	// rather than running on (doc/design/execution.md "SSH transport"). The connect and the shell probe can
-	// take a long time, so the check is repeated around them, not left to the exec alone. The row's
-	// flag also covers a cancel that came between the dispatch claim and this run.
-	const cancelled = async (): Promise<boolean> => ac.signal.aborted || (await core.row(id))?.cancelled === 1;
-	const cancelledFields = (): Updateable<TasksTable> => ({ state: "exited", cancelled: 1 });
+	// take a long time, so the check is repeated around them, not left to the exec alone. A row a cancel
+	// already ended also covers a cancel that came between the dispatch claim and this run.
+	const cancelled = async (): Promise<boolean> => ac.signal.aborted || (await core.row(id))?.state === "cancelled";
+	const cancelledFields = (): Updateable<TasksTable> => ({ state: "cancelled" });
 	// SSH keeps no full output (no output file): status saves only the byte count, text its budgeted
 	// tail, head the page's head. It sees the whole stream, so it also has the line count TaskExit
 	// would report.
@@ -192,7 +192,7 @@ export async function runSsh(
 		} else {
 			const code = err instanceof SshError ? err.code : "connect_failed";
 			await core.taskQueue.run(id, () =>
-				finish(core, node.id, id, { state: "failed", error_code: code, error_message: (err as Error).message }),
+				finish(core, node.id, id, { state: "errored", error_code: code, error_message: (err as Error).message }),
 			);
 		}
 	} finally {
@@ -214,13 +214,12 @@ async function sshTask(
 	if (spec.kind === "exec") {
 		const res = await runSshExec(session, spec, input, sink, { timeoutMs, signal, sh: link.sh });
 		return {
-			state: res.error ? "failed" : "exited",
+			state: res.cancelled ? "cancelled" : res.error ? "errored" : "exited",
 			exit_code: res.exitCode ?? null,
 			signal: res.signal ?? null,
-			error_code: res.error?.code ?? null,
-			error_message: res.error?.message ?? null,
+			error_code: res.cancelled ? null : (res.error?.code ?? null),
+			error_message: res.cancelled ? null : (res.error?.message ?? null),
 			timed_out: res.timedOut ? 1 : 0,
-			cancelled: res.cancelled ? 1 : 0,
 		};
 	}
 	const sftp = await session.sftp();
@@ -231,10 +230,9 @@ async function sshTask(
 	} catch (err) {
 		if (!(err instanceof FileTaskError) || session.closed) throw new SshConnectionLost("connection lost");
 		return {
-			state: "failed",
-			error_code: err.code,
-			error_message: err.message,
-			cancelled: err.code === "cancelled" ? 1 : 0,
+			state: err.code === "cancelled" ? "cancelled" : "errored",
+			error_code: err.code === "cancelled" ? null : err.code,
+			error_message: err.code === "cancelled" ? null : err.message,
 		};
 	} finally {
 		sftp.end();

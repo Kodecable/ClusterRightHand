@@ -1,11 +1,11 @@
 import type { AuditEvent, AuditQuery } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { useId, useMemo, useState } from "react";
 import { CodeText } from "@/components/code-text";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
 import { FieldShell } from "@/components/form";
+import { InternalLink } from "@/components/internal-link";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { UserLink } from "@/components/user-link";
 import { useUserNames } from "@/features/users/api";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { useAuditEvents } from "./api";
 
 /** The actor's raw id, as a tooltip: the cell reads the server's displayable source. */
@@ -43,13 +43,13 @@ function TargetCell({ event }: { event: AuditEvent }) {
 			{href === null ? (
 				<span className={cn("truncate", MONO_CELL)}>{event.targetId}</span>
 			) : (
-				<Link
+				<InternalLink
 					{...href}
 					aria-label={t`Open ${event.targetType} ${event.targetId}`}
-					className={cn("truncate", MONO_CELL, linkClass)}
+					className={cn("truncate", MONO_CELL)}
 				>
 					{event.targetId}
-				</Link>
+				</InternalLink>
 			)}
 		</span>
 	);

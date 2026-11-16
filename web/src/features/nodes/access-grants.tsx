@@ -2,7 +2,6 @@ import type { AccessTargetType, GranteeType, NodeAccessGrant } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { PlusIcon } from "lucide-react";
 import { useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
@@ -11,6 +10,7 @@ import { TableEmpty } from "@/components/empty-state";
 import { EntityPicker } from "@/components/entity-picker";
 import { ErrorState } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
+import { InternalLink } from "@/components/internal-link";
 import { DateTime } from "@/components/relative-time";
 import { RowRemoveButton } from "@/components/row-remove-button";
 import { SectionHeader } from "@/components/section";
@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ApiError, errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/session";
-import { cn, linkClass } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useCreateNodeAccessGrant, useDeleteNodeAccessGrant, useNodeAccessGrants } from "./access-api";
 
 /** The display name of a grantee; a deleted one stays identifiable as such. */
@@ -56,20 +56,20 @@ export function AccessTargetLink({ grant, className }: { grant: NodeAccessGrant;
 	}
 	if (grant.targetType === "node") {
 		return (
-			<Link to="/nodes/$nodeId" params={{ nodeId: grant.targetId }} className={cn(linkClass, className)}>
+			<InternalLink to="/nodes/$nodeId" params={{ nodeId: grant.targetId }} className={className}>
 				{grant.targetName}
-			</Link>
+			</InternalLink>
 		);
 	}
 	return (
-		<Link
+		<InternalLink
 			to="/node-groups/$nodeGroupId"
 			params={{ nodeGroupId: grant.targetId }}
-			className={cn(linkClass, className)}
+			className={className}
 			title={t`Node group`}
 		>
 			{grant.targetName}
-		</Link>
+		</InternalLink>
 	);
 }
 

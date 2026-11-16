@@ -25,7 +25,6 @@ import { userCanAccessNode } from "../node-access.ts";
 import type { NodeRow } from "../nodes.ts";
 import { getNode } from "../nodes.ts";
 import {
-	cancelledTaskFields,
 	endIfNodeUnready,
 	failNodeOffline,
 	finish,
@@ -92,7 +91,7 @@ export async function claimCrhs(
 			core,
 			id,
 			row,
-			"failed",
+			"errored",
 			"invalid_spec",
 			`cannot encode the authorization: ${errorText(err)}`,
 			record,
@@ -105,7 +104,7 @@ export async function claimCrhs(
 			core,
 			id,
 			row,
-			"failed",
+			"errored",
 			"invalid_spec",
 			`the authorization is ${encoded.length} bytes, more than half a frame`,
 			record,
@@ -212,7 +211,7 @@ export async function sendAuthorizedStart(
 		const current = await core.row(id);
 		if (current && !(await userCanAccessNode(core.db, current.on_behalf_of_user_id, nodeId))) {
 			await finish(core, nodeId, id, {
-				state: "failed",
+				state: "errored",
 				error_code: NODE_ACCESS_REVOKED,
 				error_message: NODE_ACCESS_REVOKED_MESSAGE,
 				pending_input: null,
@@ -229,12 +228,9 @@ export async function sendAuthorizedStart(
 	const node = await getNode(core.db, nodeId);
 	const ready = await core.readyNode(nodeId, { trust: node?.privileged_mode === "forward" });
 	if (!ready?.link) {
-		// Nothing was sent: a cancellation recorded in the meantime ends the task as cancelled, not offline.
-		await endIfNodeUnready(core, id, ready, async (current) => {
-			if (current.cancelled === 1) {
-				await finish(core, nodeId, id, cancelledTaskFields());
-				return;
-			}
+		// Nothing was sent. A cancellation recorded in the meantime already ended the row as cancelled,
+		// so the offline ending, guarded on the live states, is a no-op for it.
+		await endIfNodeUnready(core, id, ready, async () => {
 			await failNodeOffline(core, id, {
 				from: ["dispatched", "running"],
 				nodeId,
@@ -278,11 +274,6 @@ async function retryAuthorization(
 	const row = await core.taskQueue.run(id, async (): Promise<Selectable<TasksTable> | null> => {
 		const current = await core.row(id);
 		if (current?.state !== "dispatched") return null; // accepted (or ended) meanwhile: never retried
-		// A cancel arrived while the task.start was on its way: the task must not go back to waiting.
-		if (current.cancelled === 1) {
-			await finish(core, link.conn.nodeId, id, cancelledTaskFields());
-			return null;
-		}
 		const attempt = current.attempt + 1;
 		// Only crhs's own signature path is ruled out for good: the owner may sign again for the
 		// new attempt, and so may a local approver.

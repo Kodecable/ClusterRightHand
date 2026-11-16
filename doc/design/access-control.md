@@ -263,7 +263,8 @@ once it is settled.
   text, tool results or node output, and can approve or escalate but never deny
   ([Auto Review](#auto-review)).
 - An approval has no deadline. It waits until someone decides, a rule change removes the need, or the
-  API token that started it is revoked or expires. The system does not give up a user's decision for
+  API token that started it is revoked or expires; the waiting work the token started then ends
+  `cancelled`, because no person decided against it. The system does not give up a user's decision for
   them.
 - A request Auto Review will judge is written in `awaiting_approval` with a pending-review marker
   (`review: { status: "pending", startedAt }`) in the same write. Until the verdict arrives it is

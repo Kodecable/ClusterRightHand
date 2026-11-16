@@ -60,13 +60,16 @@ failure on one node does not undo the others.
 | State | Meaning |
 |---|---|
 | Awaiting approval | Waiting for someone to approve it under the rules. |
-| Awaiting authorization | Approved, but the node is waiting for a signature or a local approval. |
-| Dispatched, Running | Sent to the node, then running. |
-| Exited | Finished with an exit code. A non-zero exit code is still Exited. |
-| Failed | Could not run or complete. |
-| Rejected | Refused by a person, cancelled before it started, or its wait expired. |
+| Awaiting authorization | Approved, but the node is waiting for a signature. |
+| Dispatched | Sent to the node, not started yet. |
+| Running | The command runs on the node. |
+| Exited | The command ran and reported an exit code. A non-zero exit code is still Exited. |
+| Errored | The platform could not run or finish it, for example because the node was offline or the connection dropped. |
+| Rejected | Refused by a person or Auto Review. |
 | Denied | Refused by a rule. |
-| Unknown | crhs lost track of it, for example because the connection dropped. |
+| Cancelled | Cancelled before or during the run; a started run keeps its exit code and output. |
+| Expired | Its signature wait timed out. |
+| Unknown | crhs lost track of it, for example because the connection dropped and whether it finished is not known. |
 
 ## Privileged tasks
 

@@ -46,7 +46,7 @@ import {
 	renameUserGroup,
 } from "../users/user-groups.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
-import { rejectRevokedTokenWaits } from "./api-token-waits.ts";
+import { cancelRevokedTokenWaits } from "./api-token-waits.ts";
 import { requireAdmin, requireAdminOrSelf } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
@@ -374,7 +374,7 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 		// Tokens are opt-in: an administrator may reset a password without ending the user's MCP access.
 		const revokeApiTokens = body.revokeApiTokens === true;
 		const revokedApiTokens = revokeApiTokens ? await revokeAllApiTokens(db, id) : [];
-		await rejectRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, actor.userId);
+		await cancelRevokedTokenWaits(db, options.cluster, options.taskGroups, revokedApiTokens, actor.userId);
 		void c.get("audit").record({
 			actor: userActor(actor),
 			action: "user.password_reset",

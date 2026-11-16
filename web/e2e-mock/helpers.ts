@@ -291,14 +291,24 @@ export function approvalRequestForTaskGroup(group: TaskGroupView): ApprovalReque
 function fixtureOutcome(task: Partial<TaskView>): TaskOutcome | null {
 	if (
 		task.state !== "exited" &&
-		task.state !== "failed" &&
+		task.state !== "errored" &&
 		task.state !== "rejected" &&
 		task.state !== "unknown" &&
-		task.state !== "denied"
+		task.state !== "denied" &&
+		task.state !== "cancelled" &&
+		task.state !== "expired"
 	) {
 		return null;
 	}
-	if (task.cancelled === true) return { kind: "cancelled", failed: false };
+	if (task.state === "cancelled") return { kind: "cancelled", failed: false };
+	if (task.state === "expired") {
+		return {
+			kind: "expired",
+			failed: false,
+			...(task.errorCode == null ? {} : { errorCode: task.errorCode }),
+			...(task.errorMessage == null ? {} : { errorMessage: task.errorMessage }),
+		};
+	}
 	if (task.timedOut === true) return { kind: "timed_out", failed: true };
 	if (task.signal !== null && task.signal !== undefined && task.signal !== "")
 		return { kind: "signal", failed: true, signal: task.signal };
@@ -335,7 +345,6 @@ export function taskView(overrides: Partial<TaskView> = {}): TaskView {
 		exitCode: null,
 		signal: null,
 		timedOut: false,
-		cancelled: false,
 		errorCode: null,
 		errorMessage: null,
 		outputBytes: 0,

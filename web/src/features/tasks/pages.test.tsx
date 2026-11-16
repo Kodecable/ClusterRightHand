@@ -23,7 +23,6 @@ const TASK: TaskView = {
 	exitCode: 0,
 	signal: null,
 	timedOut: false,
-	cancelled: false,
 	timeoutMs: null,
 	errorCode: null,
 	errorMessage: null,
@@ -102,13 +101,20 @@ describe("TasksPage filters", () => {
 
 		const user = userEvent.setup();
 		await user.click(screen.getByLabelText("State"));
-		// Every state the filter can match is offered, including cancelled.
+		// Every state the filter can match is offered, including cancelled and expired, and no two
+		// options read the same (rejected and denied used to share a label).
 		expect(await screen.findByRole("option", { name: "Cancelled" })).toBeInTheDocument();
 		expect(screen.getByRole("option", { name: "Finished" })).toBeInTheDocument();
-		const failed = await screen.findByRole("option", { name: "Failed" });
-		await user.click(failed);
+		expect(screen.getByRole("option", { name: "Errored" })).toBeInTheDocument();
+		expect(screen.getByRole("option", { name: "Rejected" })).toBeInTheDocument();
+		expect(screen.getByRole("option", { name: "Denied by rules" })).toBeInTheDocument();
+		expect(screen.getByRole("option", { name: "Expired" })).toBeInTheDocument();
+		const labels = screen.getAllByRole("option").map((option) => option.textContent);
+		expect(new Set(labels).size).toBe(labels.length);
+		const errored = await screen.findByRole("option", { name: "Errored" });
+		await user.click(errored);
 		await waitFor(() =>
-			expect(urls.some((url) => url.startsWith("/api/tasks") && url.includes("state=failed"))).toBe(true),
+			expect(urls.some((url) => url.startsWith("/api/tasks") && url.includes("state=errored"))).toBe(true),
 		);
 	});
 

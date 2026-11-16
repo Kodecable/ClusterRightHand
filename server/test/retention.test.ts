@@ -163,7 +163,6 @@ describeBackends("retention sweep", (backend) => {
 				exit_code: null,
 				signal: null,
 				timed_out: 0,
-				cancelled: 0,
 				error_code: null,
 				error_message: null,
 				actor_type: "user",
@@ -392,7 +391,7 @@ describeBackends("retention sweep", (backend) => {
 		).rows.map((row) => Number(row.document_id));
 
 	it("deletes old terminal tasks but keeps newer, non-terminal and unfinished rows", async () => {
-		for (const state of ["exited", "failed", "rejected", "unknown", "denied"] as const) {
+		for (const state of ["exited", "errored", "rejected", "unknown", "denied"] as const) {
 			await insertTask(`old-${state}`, state, OLD);
 		}
 		await insertTask("recent-exited", "exited", RECENT);

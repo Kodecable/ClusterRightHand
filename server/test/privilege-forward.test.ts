@@ -601,9 +601,9 @@ describe("privileged forward dispatch", () => {
 			});
 
 			const created = await createPrivileged(node.id);
-			const failed = await waitFor("failed", async () => {
+			const failed = await waitFor("errored", async () => {
 				const view = await taskView(created.id);
-				return view.state === "failed" ? view : undefined;
+				return view.state === "errored" ? view : undefined;
 			});
 			expect(failed).toMatchObject({
 				errorCode: "privileged_unavailable",
@@ -627,9 +627,9 @@ describe("privileged forward dispatch", () => {
 			await waitFor("link ready again", () => cluster.isConnected(node.id));
 
 			const created = await createPrivileged(node.id);
-			const failed = await waitFor("failed", async () => {
+			const failed = await waitFor("errored", async () => {
 				const view = await taskView(created.id);
-				return view.state === "failed" ? view : undefined;
+				return view.state === "errored" ? view : undefined;
 			});
 			expect(failed.errorCode).toBe("privileged_unavailable");
 			expect(failed.errorMessage).toContain("on this connection");
@@ -639,9 +639,9 @@ describe("privileged forward dispatch", () => {
 		it("fails with privileged_unavailable when no report arrives", async () => {
 			const { node, crha } = await connect("forward-6");
 			const created = await createPrivileged(node.id);
-			const failed = await waitFor("failed", async () => {
+			const failed = await waitFor("errored", async () => {
 				const view = await taskView(created.id);
-				return view.state === "failed" ? view : undefined;
+				return view.state === "errored" ? view : undefined;
 			});
 			expect(failed.errorCode).toBe("privileged_unavailable");
 			expect(failed.errorMessage).toContain("has not reported a trust summary");
@@ -682,7 +682,11 @@ describe("privileged forward dispatch", () => {
 			);
 			expect(await cluster.cancelTask(created.id)).toBe(true);
 			const cancelled = await taskView(created.id);
-			expect(cancelled).toMatchObject({ state: "rejected", errorCode: "cancelled", cancelled: true });
+			expect(cancelled).toMatchObject({
+				state: "cancelled",
+				errorCode: null,
+				errorMessage: "the task was cancelled before it was dispatched",
+			});
 			expect(cancelled.finishedAt).not.toBeNull();
 			expect(crha.starts).toHaveLength(0);
 			await audit.flush();
@@ -748,11 +752,11 @@ describe("privileged forward dispatch", () => {
 			await waitFor("running", async () => (await taskView(created.id)).state === "running");
 			expect(await cluster.cancelTask(created.id, undefined, actor())).toBe(true);
 			crha.exit(created.id, { kind: "signal", value: "TERM" }, { cancelled: true });
-			const done = await waitFor("exited", async () => {
+			const done = await waitFor("cancelled", async () => {
 				const view = await taskView(created.id);
-				return view.state === "exited" ? view : undefined;
+				return view.state === "cancelled" ? view : undefined;
 			});
-			expect(done.cancelled).toBe(true);
+			expect(done.signal).toBe("TERM");
 			await audit.flush();
 			const events = await auditRows("task.finished");
 			expect(events).toHaveLength(1);
@@ -808,7 +812,7 @@ describe("privileged forward dispatch", () => {
 			});
 			const byNode = new Map(finished.tasks.map((task) => [task.nodeId, task]));
 			expect(byNode.get(a.node.id)).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(byNode.get(b.node.id)).toMatchObject({ state: "rejected", errorCode: "cancelled" });
+			expect(byNode.get(b.node.id)).toMatchObject({ state: "cancelled" });
 			expect(finished.skipped).toEqual([]);
 		});
 
@@ -853,7 +857,7 @@ describe("privileged forward dispatch", () => {
 			});
 			const byNode = new Map(finished.tasks.map((task) => [task.nodeId, task]));
 			expect(byNode.get(a.node.id)).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(byNode.get(b.node.id)).toMatchObject({ state: "failed", errorCode: "node_deleted" });
+			expect(byNode.get(b.node.id)).toMatchObject({ state: "errored", errorCode: "node_deleted" });
 			expect(finished.skipped).toEqual([]);
 		});
 	});
@@ -1025,7 +1029,6 @@ describe("privileged forward dispatch", () => {
 					exit_code: null,
 					signal: null,
 					timed_out: 0,
-					cancelled: 0,
 					error_code: null,
 					error_message: null,
 					actor_type: "user",
@@ -1051,7 +1054,7 @@ describe("privileged forward dispatch", () => {
 				.execute();
 			const row = await db.selectFrom("tasks").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
 			// Another path settles the task between the row read and the claim.
-			await db.updateTable("tasks").set({ state: "rejected", error_code: "cancelled" }).where("id", "=", id).execute();
+			await db.updateTable("tasks").set({ state: "cancelled", error_code: null }).where("id", "=", id).execute();
 
 			const authorization = buildAuthorization({
 				nodes: [node.id],
@@ -1099,7 +1102,7 @@ describe("privileged forward dispatch", () => {
 				await db.selectFrom("authorizations").select("id").where("id", "=", authorization.id).executeTakeFirst(),
 			).toBeDefined();
 			expect((await db.selectFrom("tasks").select("state").where("id", "=", id).executeTakeFirstOrThrow()).state).toBe(
-				"rejected",
+				"cancelled",
 			);
 		});
 	});

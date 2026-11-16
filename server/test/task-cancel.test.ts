@@ -48,10 +48,10 @@ const CANCELLED_MESSAGE = "the task was cancelled before it was dispatched";
 const SPEC: TaskSpec = { kind: "file.stat", path: "/tmp" };
 
 /**
- * A task cancelled between its claim (`dispatched`) and its task.start (doc/design/execution.md "Task cancellation"):
- * the cancel is recorded on the row, the send point re-reads it, and a node that already received the
- * cancel refuses the late start. The dispatch paths are driven directly against a fake node link, so
- * the window is deterministic.
+ * A task cancelled between its claim (`dispatched`) and its task.start (doc/design/execution.md "Task
+ * cancellation"): the cancel ends the row as `cancelled`, the send point re-reads it, and a node that
+ * already received the cancel refuses the late start. The dispatch paths are driven directly against a
+ * fake node link, so the window is deterministic.
  */
 describe("cancelling a task before its task.start", () => {
 	let db: Db;
@@ -120,7 +120,6 @@ describe("cancelling a task before its task.start", () => {
 			exit_code: null,
 			signal: null,
 			timed_out: 0,
-			cancelled: 0,
 			error_code: null,
 			error_message: null,
 			actor_type: "user",
@@ -196,7 +195,7 @@ describe("cancelling a task before its task.start", () => {
 		// The task is claimed and the dispatch is now inside the offline grace.
 		await waitFor("the dispatch to wait for the node", () => core.linkWaiters.has(node.id));
 		expect(await cancelTask(core, id)).toBe(true);
-		expect(await core.row(id)).toMatchObject({ state: "dispatched", cancelled: 1 });
+		expect(await core.row(id)).toMatchObject({ state: "cancelled", error_message: CANCELLED_MESSAGE });
 
 		// The node comes back within the grace: the send point must not send the start.
 		const fake = fakeNode();
@@ -204,12 +203,7 @@ describe("cancelling a task before its task.start", () => {
 		core.notifyLink(node.id);
 		await sending;
 		expect(fake.requests.filter((request) => request.name === "task.start")).toHaveLength(0);
-		expect(await core.row(id)).toMatchObject({
-			state: "rejected",
-			error_code: "cancelled",
-			error_message: CANCELLED_MESSAGE,
-			cancelled: 1,
-		});
+		expect(await core.row(id)).toMatchObject({ state: "cancelled", error_message: CANCELLED_MESSAGE });
 	});
 
 	it("ends a cancelled task as cancelled when the grace runs out without a reconnect", async () => {
@@ -219,12 +213,7 @@ describe("cancelling a task before its task.start", () => {
 		expect(await cancelTask(core, id)).toBe(true);
 		// No node comes back: the task still ends as the cancellation, not as node_offline.
 		await sending;
-		expect(await core.row(id)).toMatchObject({
-			state: "rejected",
-			error_code: "cancelled",
-			error_message: CANCELLED_MESSAGE,
-			cancelled: 1,
-		});
+		expect(await core.row(id)).toMatchObject({ state: "cancelled", error_message: CANCELLED_MESSAGE });
 	});
 
 	it("sends task.cancel for a claimed task whose node is connected", async () => {
@@ -233,20 +222,25 @@ describe("cancelling a task before its task.start", () => {
 		core.links.set(node.id, fake.link);
 		expect(await cancelTask(core, id)).toBe(true);
 		expect(fake.requests).toEqual([{ name: "task.cancel", body: { taskId: id } }]);
-		expect(await core.row(id)).toMatchObject({ state: "dispatched", cancelled: 1 });
+		expect(await core.row(id)).toMatchObject({ state: "cancelled", error_message: CANCELLED_MESSAGE });
 	});
 
-	it("reads the cancelled flag right before the start and ends the task as cancelled", async () => {
-		const id = await seedTask("dispatched", { cancelled: 1 });
+	it("does not send the start of a row a cancel already ended", async () => {
+		const id = await seedTask("cancelled", { error_message: CANCELLED_MESSAGE, finished_at: new Date().toISOString() });
 		const fake = fakeNode();
 		core.links.set(node.id, fake.link);
 		await sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record());
 		expect(fake.requests).toHaveLength(0);
+		expect(await core.row(id)).toMatchObject({ state: "cancelled", error_message: CANCELLED_MESSAGE });
+	});
+
+	it("ends a task still waiting for approval as cancelled", async () => {
+		const id = await seedTask("awaiting_approval", { handler_type: "user" });
+		expect(await cancelTask(core, id, "the user no longer wants it")).toBe(true);
 		expect(await core.row(id)).toMatchObject({
-			state: "rejected",
-			error_code: "cancelled",
-			error_message: CANCELLED_MESSAGE,
-			cancelled: 1,
+			state: "cancelled",
+			error_code: null,
+			error_message: "the user no longer wants it",
 		});
 	});
 
@@ -269,25 +263,20 @@ describe("cancelling a task before its task.start", () => {
 			settle: (write) => write(),
 		});
 		expect(fake.requests.map((request) => request.name)).toEqual(["task.start"]);
-		expect(await core.row(id)).toMatchObject({
-			state: "rejected",
-			error_code: "cancelled",
-			error_message: CANCELLED_MESSAGE,
-			cancelled: 1,
-		});
+		expect(await core.row(id)).toMatchObject({ state: "cancelled", error_message: CANCELLED_MESSAGE });
 	});
 
-	it("sends task.cancel when the start is accepted after the cancel was recorded", async () => {
-		const id = await seedTask("dispatched", { cancelled: 1 });
+	it("sends task.cancel when the start is accepted after the cancel ended the row", async () => {
+		const id = await seedTask("cancelled", { error_message: CANCELLED_MESSAGE, finished_at: new Date().toISOString() });
 		const fake = fakeNode();
 		core.links.set(node.id, fake.link);
 		await onAccepted(core, node.id, id);
 		expect(fake.requests).toEqual([{ name: "task.cancel", body: { taskId: id } }]);
-		expect(await core.row(id)).toMatchObject({ state: "running", cancelled: 1 });
+		expect(await core.row(id)).toMatchObject({ state: "cancelled" });
 	});
 
 	it("does not open an SSH connection for a task cancelled before its run starts", async () => {
-		const id = await seedTask("dispatched", { cancelled: 1 });
+		const id = await seedTask("cancelled", { error_message: CANCELLED_MESSAGE, finished_at: new Date().toISOString() });
 		const sshCore = new ClusterCore(db, {
 			sshRoute: async () => ({ hops: [], privateKey: "test" }),
 		});
@@ -295,6 +284,6 @@ describe("cancelling a task before its task.start", () => {
 		const before = sshFake.calls;
 		await runSsh(sshCore, id, node, SPEC, undefined, undefined, false);
 		expect(sshFake.calls).toBe(before);
-		expect(await sshCore.row(id)).toMatchObject({ state: "exited", cancelled: 1 });
+		expect(await sshCore.row(id)).toMatchObject({ state: "cancelled" });
 	});
 });

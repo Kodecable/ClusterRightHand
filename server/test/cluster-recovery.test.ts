@@ -160,7 +160,6 @@ describe("cluster recovery", () => {
 				exit_code: null,
 				signal: null,
 				timed_out: 0,
-				cancelled: 0,
 				error_code: null,
 				error_message: null,
 				actor_type: "user",
@@ -230,7 +229,7 @@ describe("cluster recovery", () => {
 			await later.recover();
 			const failed = await later.getTask(interrupted);
 			expect(failed).toMatchObject({
-				state: "failed",
+				state: "errored",
 				errorCode: "dispatch_interrupted",
 				errorMessage: "the server stopped before the task was dispatched",
 			});

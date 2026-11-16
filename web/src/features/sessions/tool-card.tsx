@@ -1,7 +1,7 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { LoaderCircleIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { InternalLink } from "@/components/internal-link";
 import { taskOutcomeText } from "@/components/task-outcome";
 import { taskGroupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
 import { isNotFound } from "@/lib/api/client";
@@ -18,7 +18,6 @@ import {
 	toolResultFailure,
 	toolResultOutcome,
 } from "./tool-failure";
-import type { TranscriptStreams } from "./transcript-streams";
 
 /** How often an open call re-reads the task or task group it follows. */
 const FOLLOW_INTERVAL_MS = 5000;
@@ -49,15 +48,7 @@ function ToolStatusIcon({ spinning, failed, label }: { spinning: boolean; failed
 	);
 }
 
-export function ToolCard({
-	item,
-	streams,
-	sessionActive,
-}: {
-	item: ToolItem;
-	streams: TranscriptStreams;
-	sessionActive: boolean;
-}) {
+export function ToolCard({ item, sessionActive }: { item: ToolItem; sessionActive: boolean }) {
 	const { t, i18n } = useLingui();
 	const [open, setOpen] = useState(false);
 
@@ -158,7 +149,6 @@ export function ToolCard({
 	const line = toolLine(item.name, item.args);
 	const rest = line.slice(item.name.length);
 	const image = item.name === "view_image" ? viewImageDetails(result?.details ?? item.details) : undefined;
-	const liveOutput = result === undefined ? streams.tool(item.callId) : undefined;
 
 	return (
 		<div className="text-xs" data-testid="tool-card" data-tool-status={status}>
@@ -178,7 +168,7 @@ export function ToolCard({
 						) : (
 							<span className="ml-1.5 inline-flex items-center gap-1.5 font-sans" data-testid="view-image-summary">
 								{"library" in image.source ? (
-									<Link
+									<InternalLink
 										to="/library/$library"
 										params={{ library: image.source.library }}
 										search={{
@@ -186,11 +176,10 @@ export function ToolCard({
 												? image.source.path.slice(0, image.source.path.lastIndexOf("/"))
 												: "",
 										}}
-										className="underline underline-offset-2"
 										title={image.source.path}
 									>
 										{image.source.library}
-									</Link>
+									</InternalLink>
 								) : (
 									<span title={image.source.path}>{image.source.node}</span>
 								)}
@@ -212,7 +201,7 @@ export function ToolCard({
 					)}
 				</button>
 			</div>
-			<ToolDialog item={item} open={open} onOpenChange={setOpen} liveOutput={liveOutput} reviewing={reviewing} />
+			<ToolDialog item={item} open={open} onOpenChange={setOpen} />
 		</div>
 	);
 }

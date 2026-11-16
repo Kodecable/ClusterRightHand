@@ -331,7 +331,7 @@ describe("startup reconciliation", () => {
 						.select(["state", "error_message"])
 						.where("id", "=", waiting.id)
 						.executeTakeFirstOrThrow();
-					return row.state === "rejected" ? row : undefined;
+					return row.state === "cancelled" ? row : undefined;
 				},
 				10_000,
 			);

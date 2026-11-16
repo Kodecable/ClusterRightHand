@@ -677,7 +677,7 @@ it("stops a request routed to a root's agent with the root", async () => {
 	);
 	await runtime.abort(root.id, owner);
 	const stopped = (await cluster.getTask(task.id)) as TaskView;
-	expect(stopped.state).toBe("rejected");
+	expect(stopped.state).toBe("cancelled");
 	expect(stopped.errorMessage).toBe("the session was stopped");
 	expect(await runtime.pendingAgentRequests(root.id)).toHaveLength(0);
 });

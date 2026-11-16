@@ -50,7 +50,7 @@ const state = {
 	tasks: [
 		taskView(),
 		taskView({ id: "task-2", state: "awaiting_approval" } as never),
-		taskView({ id: "task-3", state: "failed" } as never),
+		taskView({ id: "task-3", state: "errored" } as never),
 	],
 	schedules: [scheduleView()],
 	tokens: [apiTokenView()],

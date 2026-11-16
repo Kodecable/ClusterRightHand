@@ -3,15 +3,14 @@ import {
 	createRootRouteWithContext,
 	createRoute,
 	createRouter,
-	Link,
 	lazyRouteComponent,
 	Outlet,
 	redirect,
 } from "@tanstack/react-router";
+import { InternalLink } from "@/components/internal-link";
 import { parseTasksSearch } from "@/features/tasks/search";
 import type { AuthStore } from "@/lib/session";
 import { authStore } from "@/lib/session";
-import { linkClass } from "@/lib/utils";
 import { sessionPageChunk, sessionsLayoutChunk } from "./lazy-chunks";
 import { AppShell } from "./shell/app-shell";
 
@@ -29,9 +28,9 @@ function NotFoundPage() {
 				<p className="text-sm text-muted-foreground">
 					<Trans>The page you asked for does not exist.</Trans>
 				</p>
-				<Link to="/sessions" className={`text-sm ${linkClass}`}>
+				<InternalLink to="/sessions" className="text-sm">
 					<Trans>Go to sessions</Trans>
-				</Link>
+				</InternalLink>
 			</div>
 		</div>
 	);

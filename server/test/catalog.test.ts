@@ -53,7 +53,6 @@ function task(overrides: Partial<TaskView>): TaskView {
 		exitCode: 0,
 		signal: null,
 		timedOut: false,
-		cancelled: false,
 		timeoutMs: null,
 		errorCode: null,
 		errorMessage: null,
@@ -789,17 +788,17 @@ describe("exec text results", () => {
 		expect(exit.isError).toBe(true);
 		expect(texts(exit).at(-1)).toBe("[web-1, exit 2]");
 
-		const timeout = execTaskResult(ctx, task({ state: "failed", timedOut: true, timeoutMs: 30_000 }), "web-1");
+		const timeout = execTaskResult(ctx, task({ state: "errored", timedOut: true, timeoutMs: 30_000 }), "web-1");
 		expect(timeout.isError).toBe(true);
 		expect(texts(timeout).at(-1)).toBe("[web-1, timed out after 30 s]");
 
-		const signal = execTaskResult(ctx, task({ state: "failed", signal: "SIGKILL" }), "web-1");
+		const signal = execTaskResult(ctx, task({ state: "errored", signal: "SIGKILL" }), "web-1");
 		expect(signal.isError).toBe(true);
 		expect(texts(signal).at(-1)).toBe("[web-1, killed by SIGKILL]");
 
 		const failed = execTaskResult(
 			ctx,
-			task({ state: "failed", exitCode: null, errorCode: "node_offline", errorMessage: "the node is not connected" }),
+			task({ state: "errored", exitCode: null, errorCode: "node_offline", errorMessage: "the node is not connected" }),
 			"web-1",
 		);
 		expect(failed.isError).toBe(true);
@@ -876,7 +875,7 @@ describe("exec task groups", () => {
 					id: "t2",
 					nodeId: "n2",
 					outputMode: "text",
-					state: "failed",
+					state: "errored",
 					exitCode: 1,
 					outputTail: "bad\n",
 					outputLines: 1,
@@ -897,7 +896,7 @@ describe("exec task groups", () => {
 			state: "finished",
 			nodes: [
 				{ task_id: "t1", node: "web-1", state: "exited", exit_code: 0 },
-				{ task_id: "t2", node: "db-1", state: "failed", exit_code: 1 },
+				{ task_id: "t2", node: "db-1", state: "errored", exit_code: 1 },
 			],
 		});
 	});
@@ -927,7 +926,7 @@ describe("exec task groups", () => {
 			outputMode: "status",
 			tasks: [
 				task({ id: "t1", nodeId: "n1", outputMode: "status", exitCode: 0, outputFile: "/out/1" }),
-				task({ id: "t2", nodeId: "n2", outputMode: "status", state: "failed", exitCode: 1 }),
+				task({ id: "t2", nodeId: "n2", outputMode: "status", state: "errored", exitCode: 1 }),
 			],
 		});
 		const result = execResultStatus(
@@ -943,7 +942,7 @@ describe("exec task groups", () => {
 			state: "finished",
 			nodes: [
 				{ task_id: "t1", node: "web-1", state: "exited", exit_code: 0, output_file: "/out/1" },
-				{ task_id: "t2", node: "db-1", state: "failed", exit_code: 1 },
+				{ task_id: "t2", node: "db-1", state: "errored", exit_code: 1 },
 			],
 		});
 		expect(result.details).toMatchObject({ task_group_id: "g1", nodes: expect.any(Array) });
@@ -1506,7 +1505,7 @@ describe("file tool JSON results", () => {
 								id: "t2",
 								nodeId: "n2",
 								kind: "file.edit",
-								state: "failed",
+								state: "errored",
 								exitCode: null,
 								errorCode: "edit_no_match",
 								errorMessage: "could not find edits[0] in /x",
@@ -1590,7 +1589,7 @@ describe("file tool JSON results", () => {
 						id: "t1",
 						nodeId: f.nodeId,
 						kind: "file.write",
-						state: "failed",
+						state: "errored",
 						exitCode: null,
 						errorCode: "permission_denied",
 						errorMessage: "permission denied",
@@ -1602,7 +1601,7 @@ describe("file tool JSON results", () => {
 			});
 			expect(result.isError).toBe(true);
 			expect(jsonOf(result)).toEqual({ error: { code: "permission_denied", message: "permission denied" } });
-			expect(result.details).toMatchObject({ task_id: "t1", state: "failed" });
+			expect(result.details).toMatchObject({ task_id: "t1", state: "errored" });
 		} finally {
 			await f.db.destroy();
 		}
@@ -1644,7 +1643,7 @@ describe("file tool JSON results", () => {
 								id: "t2",
 								nodeId: "n2",
 								kind: "file.stat",
-								state: "failed",
+								state: "errored",
 								exitCode: null,
 								errorCode: "not_found",
 								errorMessage: "no such file",
@@ -1688,7 +1687,7 @@ describe("blocking file tools", () => {
 						nodeId: f.nodeId,
 						kind: "file.write",
 						state,
-						...(state === "rejected" ? { cancelled: true, errorCode: "cancelled", errorMessage: "aborted" } : {}),
+						...(state === "cancelled" ? { errorCode: null, errorMessage: "aborted" } : {}),
 					}),
 				waitTask: (_id: string, _ms: number, signal?: AbortSignal) =>
 					new Promise<TaskView>((resolve) => {
@@ -1698,7 +1697,7 @@ describe("blocking file tools", () => {
 					}),
 				cancelTask: async () => {
 					cancelled = true;
-					state = "rejected";
+					state = "cancelled";
 					return true;
 				},
 			} as unknown as Cluster;
@@ -1717,7 +1716,7 @@ describe("blocking file tools", () => {
 			expect(statuses[0]).toEqual({ task_id: "t1", state: "running" });
 			expect(result.isError).toBe(true);
 			expect(jsonOf(result)).toEqual({ error: { code: "cancelled", message: "aborted" } });
-			expect(result.details).toMatchObject({ task_id: "t1", state: "rejected", cancelled: true });
+			expect(result.details).toMatchObject({ task_id: "t1", state: "cancelled" });
 		} finally {
 			await f.db.destroy();
 		}

@@ -25,10 +25,11 @@ const STATES = [
 	"dispatched",
 	"running",
 	"exited",
-	"failed",
+	"errored",
 	"rejected",
 	"denied",
 	"cancelled",
+	"expired",
 	"unknown",
 ];
 

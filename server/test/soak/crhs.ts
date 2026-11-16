@@ -152,7 +152,7 @@ export async function openSoakCrhs(params: SoakParams, faux: FauxProviderHandle)
 		`.execute(db);
 		const failed = await sql<{ c: number }>`
 			SELECT count(*) AS c FROM tasks
-			WHERE state = 'failed' OR timed_out = 1 OR (exit_code IS NOT NULL AND exit_code <> 0)
+			WHERE state = 'errored' OR timed_out = 1 OR (exit_code IS NOT NULL AND exit_code <> 0)
 		`.execute(db);
 		const row = counts.rows[0];
 		const memory = process.memoryUsage();

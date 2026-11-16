@@ -22,7 +22,6 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 		exitCode: 0,
 		signal: null,
 		timedOut: false,
-		cancelled: false,
 		errorCode: null,
 		errorMessage: null,
 		outputBytes: 12,
@@ -91,7 +90,7 @@ describe("TaskResult", () => {
 		await renderWithRouter(
 			<TaskResult
 				task={baseTask({
-					state: "failed",
+					state: "errored",
 					exitCode: null,
 					errorCode: "node_offline",
 					errorMessage: "gone",
@@ -99,13 +98,13 @@ describe("TaskResult", () => {
 				})}
 			/>,
 		);
-		expect(screen.getByText("Failed")).toBeInTheDocument();
+		expect(screen.getByText("Errored")).toBeInTheDocument();
 		expect(screen.getAllByText(/node_offline/).length).toBeGreaterThan(0);
 	});
 
 	test("a revoked access error is explained in words, not as a code", async () => {
 		const revoked = baseTask({
-			state: "failed",
+			state: "errored",
 			exitCode: null,
 			errorCode: "node_access_revoked",
 			errorMessage: "access to the node was revoked before the task was dispatched",
@@ -149,7 +148,7 @@ describe("TaskResult", () => {
 		await renderWithRouter(
 			<TaskResult
 				task={baseTask({
-					state: "failed",
+					state: "errored",
 					exitCode: null,
 					errorCode: "alias_missing",
 					errorMessage: "this node does not trust node group web as an alias",
@@ -415,7 +414,7 @@ describe("hasTaskOutput", () => {
 		expect(
 			hasTaskOutput(
 				baseTask({
-					state: "failed",
+					state: "errored",
 					exitCode: null,
 					outputMode: "full",
 					outputBytes: 0,

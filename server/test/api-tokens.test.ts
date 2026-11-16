@@ -1,6 +1,6 @@
 import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { rejectExpiredTokenWaits } from "../src/api/api-token-waits.ts";
+import { cancelExpiredTokenWaits } from "../src/api/api-token-waits.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { createApiToken, resolveApiToken } from "../src/auth/api-tokens.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
@@ -72,7 +72,6 @@ describeBackends("api tokens", (backend) => {
 				exit_code: null,
 				signal: null,
 				timed_out: 0,
-				cancelled: 0,
 				error_code: null,
 				error_message: null,
 				actor_type: "api_token",
@@ -306,7 +305,7 @@ describeBackends("api tokens", (backend) => {
 			const rs = await db.selectFrom("rule_sets").select("id").where("scope_id", "=", id).execute();
 			expect(rs).toEqual([]);
 		});
-		it("rejects the token's waiting tasks and groups on revoke", async () => {
+		it("cancels the token's waiting tasks and groups on revoke", async () => {
 			const { body } = await create("alice", { name: "revoke-waiting" });
 			const tokenId = body.apiToken.id;
 			const taskId = await insertWaitingTask(tokenId);
@@ -314,14 +313,18 @@ describeBackends("api tokens", (backend) => {
 			const res = await call(app, `/api/api-tokens/${tokenId}/revoke`, { cookie: cookies.alice, body: {} });
 			expect(res.status).toBe(200);
 			expect(
-				await db.selectFrom("tasks").select(["state", "error_code"]).where("id", "=", taskId).executeTakeFirstOrThrow(),
-			).toMatchObject({ state: "rejected", error_code: "approval_rejected" });
+				await db
+					.selectFrom("tasks")
+					.select(["state", "error_code", "error_message"])
+					.where("id", "=", taskId)
+					.executeTakeFirstOrThrow(),
+			).toMatchObject({ state: "cancelled", error_code: null, error_message: "the API token was revoked" });
 			expect(
 				(await db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirstOrThrow()).state,
-			).toBe("rejected");
+			).toBe("cancelled");
 		});
 
-		it("rejects an expired token's waiting work once, like revoke", async () => {
+		it("cancels an expired token's waiting work once, like revoke", async () => {
 			const expired = await create("alice", { name: "expired-waiting" });
 			const live = await create("alice", { name: "still-valid" });
 			const expiredTask = await insertWaitingTask(expired.body.apiToken.id);
@@ -333,29 +336,26 @@ describeBackends("api tokens", (backend) => {
 				.where("id", "=", expired.body.apiToken.id)
 				.execute();
 
-			expect(await rejectExpiredTokenWaits(db, cluster, taskGroups)).toBe(2);
+			expect(await cancelExpiredTokenWaits(db, cluster, taskGroups)).toBe(2);
 			expect(
 				await db
 					.selectFrom("tasks")
 					.select(["state", "error_message"])
 					.where("id", "=", expiredTask)
 					.executeTakeFirstOrThrow(),
-			).toMatchObject({ state: "rejected", error_message: "the API token expired" });
+			).toMatchObject({ state: "cancelled", error_message: "the API token expired" });
 			const group = await db
 				.selectFrom("task_groups")
 				.select(["state", "approval"])
 				.where("id", "=", expiredGroup)
 				.executeTakeFirstOrThrow();
-			expect(group.state).toBe("rejected");
-			expect(JSON.parse(group.approval as string)).toMatchObject({
-				decision: { decision: "rejected", reason: "the API token expired" },
-			});
+			expect(group.state).toBe("cancelled");
 			// A token that has not expired keeps its waiting task.
 			expect(
 				await db.selectFrom("tasks").select("state").where("id", "=", liveTask).executeTakeFirstOrThrow(),
 			).toMatchObject({ state: "awaiting_approval" });
 			// The sweep is idempotent: the first run left nothing waiting.
-			expect(await rejectExpiredTokenWaits(db, cluster, taskGroups)).toBe(0);
+			expect(await cancelExpiredTokenWaits(db, cluster, taskGroups)).toBe(0);
 		});
 	});
 
@@ -455,7 +455,7 @@ describeBackends("api tokens", (backend) => {
 				expect(await resolveApiToken(db, body.token)).toBeDefined();
 			}
 		});
-		it("self password change rejects a revoked token's waiting task and group", async () => {
+		it("self password change cancels a revoked token's waiting task and group", async () => {
 			const target = await newUser("pw-self-revoke-waits");
 			const { body } = await create("pw-self-revoke-waits", { name: "waits" });
 			const taskId = await insertWaitingTask(body.apiToken.id, target.id);
@@ -471,20 +471,13 @@ describeBackends("api tokens", (backend) => {
 				.where("id", "=", taskId)
 				.executeTakeFirstOrThrow();
 			expect(task).toMatchObject({
-				state: "rejected",
-				error_code: "approval_rejected",
+				state: "cancelled",
+				error_code: null,
 				error_message: "the API token was revoked",
-			});
-			expect(JSON.parse(task.approval as string)).toMatchObject({
-				decision: {
-					decision: "rejected",
-					by: { type: "user", id: target.id, onBehalfOfUserId: target.id },
-					reason: "the API token was revoked",
-				},
 			});
 			expect(
 				(await db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirstOrThrow()).state,
-			).toBe("rejected");
+			).toBe("cancelled");
 		});
 
 		it("self password change leaves a token's waiting task when the flag is false", async () => {
@@ -501,7 +494,7 @@ describeBackends("api tokens", (backend) => {
 			).toBe("awaiting_approval");
 		});
 
-		it("an admin reset rejects the revoked token's waiting task as the administrator", async () => {
+		it("an admin reset cancels the revoked token's waiting task", async () => {
 			const target = await newUser("pw-reset-revoke-waits");
 			const { body } = await create("pw-reset-revoke-waits", { name: "waits" });
 			const taskId = await insertWaitingTask(body.apiToken.id, target.id);
@@ -515,14 +508,7 @@ describeBackends("api tokens", (backend) => {
 				.select(["state", "error_message", "approval"])
 				.where("id", "=", taskId)
 				.executeTakeFirstOrThrow();
-			expect(task).toMatchObject({ state: "rejected", error_message: "the API token was revoked" });
-			expect(JSON.parse(task.approval as string)).toMatchObject({
-				decision: {
-					decision: "rejected",
-					by: { type: "user", id: users.root?.userId, onBehalfOfUserId: users.root?.userId },
-					reason: "the API token was revoked",
-				},
-			});
+			expect(task).toMatchObject({ state: "cancelled", error_message: "the API token was revoked" });
 		});
 	});
 

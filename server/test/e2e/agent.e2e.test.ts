@@ -246,7 +246,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 				const cancel = await env.crhs.api(`/api/tasks/${started.id}/cancel`, { body: {} });
 				expect(cancel.json.cancelled).toBe(true);
 				const done = await env.crhs.waitTask(started.id);
-				expect(done).toMatchObject({ state: "exited", cancelled: true });
+				expect(done).toMatchObject({ state: "cancelled" });
 			}));
 
 		it("offline node: new tasks fail with node_offline", () =>
@@ -254,7 +254,7 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 				await env.killCrha("SIGTERM");
 				await env.waitDisconnected();
 				const t = await run({ kind: "exec", argv: ["true"] });
-				expect(t).toMatchObject({ state: "failed", errorCode: "node_offline" });
+				expect(t).toMatchObject({ state: "errored", errorCode: "node_offline" });
 				env.startCrha();
 				await env.waitConnected();
 				expect((await run({ kind: "exec", argv: ["true"] })).state).toBe("exited");

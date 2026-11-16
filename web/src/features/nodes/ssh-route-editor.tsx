@@ -1,7 +1,6 @@
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { Link } from "@tanstack/react-router";
 import { PlusIcon } from "lucide-react";
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
@@ -9,6 +8,7 @@ import { ConfirmDialog } from "@/components/dialogs";
 import { EntityPicker } from "@/components/entity-picker";
 import { ErrorText } from "@/components/error-state";
 import { FieldShell } from "@/components/form";
+import { InternalLink } from "@/components/internal-link";
 import { RowRemoveButton } from "@/components/row-remove-button";
 import { SectionHeader } from "@/components/section";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useProbeSshHost } from "@/features/nodes/api";
 import { useSshCredentials } from "@/features/ssh-credentials/api";
-import { cn, linkClass, MONO_CELL } from "@/lib/utils";
+import { cn, MONO_CELL } from "@/lib/utils";
 import { addHop, editHop, type Hop, type HopError, hopBodies, pinHop, removeHop } from "./sshHops";
 
 const HOP_ERRORS: Record<HopError["code"], (hop: string) => MessageDescriptor> = {
@@ -234,9 +234,7 @@ export function SshRouteEditor({
 					<p className="text-sm text-muted-foreground">
 						<Trans>
 							No SSH credentials yet.{" "}
-							<Link to="/ssh-credentials" className={linkClass}>
-								Create one on the SSH credentials page.
-							</Link>
+							<InternalLink to="/ssh-credentials">Create one on the SSH credentials page.</InternalLink>
 						</Trans>
 					</p>
 				)}

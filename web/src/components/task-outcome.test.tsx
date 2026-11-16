@@ -14,6 +14,7 @@ describe("TaskOutcomeBadge", () => {
 		[outcome({ kind: "signal", failed: true, signal: "SIGKILL" }), "Killed by signal SIGKILL", "danger"],
 		[outcome({ kind: "timed_out", failed: true }), "Timed out", "danger"],
 		[outcome({ kind: "cancelled", failed: false }), "Cancelled", "muted"],
+		[outcome({ kind: "expired", failed: false }), "Expired", "muted"],
 		[outcome({ kind: "rejected", failed: true }), "Rejected", "danger"],
 		[outcome({ kind: "denied", failed: true }), "Denied by rules", "danger"],
 		[
@@ -37,6 +38,7 @@ describe("TaskOutcomeBadge", () => {
 	test("colours a failed outcome red and a cancelled one muted", () => {
 		expect(taskOutcomeTone(outcome({ kind: "exit", failed: true, exitCode: 1 }))).toBe("danger");
 		expect(taskOutcomeTone(outcome({ kind: "cancelled", failed: false }))).toBe("muted");
+		expect(taskOutcomeTone(outcome({ kind: "expired", failed: false }))).toBe("muted");
 		expect(taskOutcomeTone(outcome({ kind: "succeeded", failed: false }))).toBe("ok");
 	});
 });
