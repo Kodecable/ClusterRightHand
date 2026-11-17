@@ -55,3 +55,59 @@ test("add a custom model provider", async ({ page }) => {
 	await expect(page.getByLabel("API key")).toHaveValue("");
 	await expect(page.getByLabel("API key")).toHaveAttribute("placeholder", "Leave empty to keep the current key");
 });
+
+test("list a custom provider's models and add the selected ones", async ({ page }) => {
+	const api = await mockApi(page, {
+		state: {
+			providers: [
+				{
+					id: "provider-1",
+					providerId: "myllm",
+					kind: "custom",
+					builtin: null,
+					name: "My LLM",
+					baseUrl: "https://llm.example/v1",
+					hasApiKey: true,
+					models: [
+						{
+							id: "model-a",
+							api: "openai-completions",
+							contextWindow: 128_000,
+							maxTokens: 8_192,
+							input: ["text"],
+						},
+					],
+					headers: null,
+					sessionId: null,
+					enabled: true,
+				},
+			],
+			discoveredModels: { myllm: ["model-a", "model-b", "model-c"] },
+		},
+	});
+	await login(page);
+	await page.goto("/settings/models");
+	await page.getByRole("button", { name: "Edit myllm" }).click();
+	const dialog = page.getByTestId("provider-dialog");
+	await dialog.getByRole("button", { name: "List provider models" }).click();
+
+	const discovery = page.getByTestId("model-discovery-dialog");
+	await expect(discovery).toBeVisible();
+	// The configured model is not offered, and the dialog lists ids only.
+	await expect(discovery.getByText("model-a")).toHaveCount(0);
+	await expect(discovery.getByText("model-b")).toBeVisible();
+	await expect(discovery.getByRole("table")).toHaveCount(0);
+
+	await discovery.getByLabel("Search models").fill("model-c");
+	await expect(discovery.getByText("model-b")).toHaveCount(0);
+	await discovery.getByRole("checkbox", { name: "Select all visible" }).click();
+	await discovery.getByRole("button", { name: "Add models" }).click();
+
+	await expect(discovery).toHaveCount(0);
+	await expect(dialog.getByRole("table", { name: "Models" })).toContainText("model-c");
+	const added = api.state.requests.find(
+		(request) => request.method === "POST" && request.url === "/api/model-providers/myllm/discover",
+	);
+	expect(added?.body).toEqual({ ids: ["model-c"] });
+	expect(api.state.providers[0]?.models?.some((model) => model.id === "model-c")).toBe(true);
+});

@@ -2,7 +2,7 @@ import type { ModelProviderInput, ModelProviderView } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { PlusIcon, XIcon } from "lucide-react";
+import { ListIcon, PlusIcon, XIcon } from "lucide-react";
 import { type ComponentProps, useEffect, useMemo, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { MONO_CELL } from "@/lib/utils";
 import { useSaveModelProvider } from "./api";
 import { ModelDialog } from "./model-dialog";
+import { ModelDiscoveryDialog } from "./model-discovery-dialog";
 import {
 	emptyModelRow,
 	type HeaderRow,
@@ -285,11 +286,21 @@ function SessionIdEditor({ form }: { form: ProviderForm }) {
 }
 
 /** The custom provider's models: a compact table whose rows open the nested model dialog. */
-function ModelRows({ form }: { form: ProviderForm }) {
+function ModelRows({
+	form,
+	existing,
+	discoveryHint,
+}: {
+	form: ProviderForm;
+	existing: ModelProviderView | undefined;
+	/** Set when listing needs a save first: an unsaved base URL or key, or a provider that does not exist yet. */
+	discoveryHint: string | undefined;
+}) {
 	const { t } = useLingui();
 	const { fields, append, remove, update } = useFieldArray({ control: form.control, name: "models" });
 	const models = form.watch("models");
 	const [editing, setEditing] = useState<number | "new">();
+	const [discovering, setDiscovering] = useState(false);
 	const rows = fields.map((field, index) => ({
 		key: field.id,
 		index,
@@ -372,14 +383,43 @@ function ModelRows({ form }: { form: ProviderForm }) {
 				density="compact"
 				empty={<EmptyState bare title={<Trans>No models yet</Trans>} />}
 			/>
-			<div>
+			<div className="flex flex-wrap items-center gap-2">
 				<Button type="button" size="sm" variant="outline" onClick={() => setEditing("new")}>
 					<PlusIcon />
 					<Trans>New model</Trans>
 				</Button>
+				<Button
+					type="button"
+					size="sm"
+					variant="outline"
+					disabled={discoveryHint !== undefined}
+					title={discoveryHint}
+					onClick={() => setDiscovering(true)}
+				>
+					<ListIcon />
+					<Trans>List provider models</Trans>
+				</Button>
 			</div>
+			{discoveryHint !== undefined && <p className="text-xs text-muted-foreground">{discoveryHint}</p>}
 			{form.formState.errors.models?.message !== undefined && (
 				<ErrorText error={form.formState.errors.models.message} />
+			)}
+			{discovering && existing !== undefined && (
+				<ModelDiscoveryDialog
+					providerId={existing.providerId}
+					configured={models.map((row) => row.id)}
+					onClose={() => setDiscovering(false)}
+					onAdded={(added) => {
+						// Only append what the form does not have: unsaved model rows stay untouched.
+						const current = form.getValues("models");
+						const ids = new Set(current.map((row) => row.id.trim()));
+						for (const model of added) {
+							if (ids.has(model.id)) continue;
+							ids.add(model.id);
+							append(modelToRow(model));
+						}
+					}}
+				/>
 			)}
 			{editing !== undefined && (
 				<ModelDialog
@@ -425,8 +465,15 @@ export function ProviderDialog({
 	const kind = form.watch("kind");
 	const providerId = form.watch("providerId");
 	const baseUrl = form.watch("baseUrl");
+	const apiKey = form.watch("apiKey");
+	const removeKey = form.watch("removeKey");
 	// The server refuses a new endpoint without a new key; the same check here shows why before submitting.
 	const baseUrlChanged = editing && hasStoredKey && normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(originalBaseUrl);
+	// Listing models reads the saved provider, so an unsaved base URL or key must be saved first.
+	const discoveryHint =
+		!editing || normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(originalBaseUrl) || apiKey.trim() !== "" || removeKey
+			? t`Save the provider first: listing its models needs its stored base URL and API key.`
+			: undefined;
 
 	// A new provider starts on the first Pi built-in id; switching back from
 	// custom must not leave a custom id that is not in the select's options.
@@ -556,7 +603,7 @@ export function ProviderDialog({
 				<>
 					<HeadersEditor form={form} />
 					<SessionIdEditor form={form} />
-					<ModelRows form={form} />
+					<ModelRows form={form} existing={existing} discoveryHint={discoveryHint} />
 				</>
 			)}
 		</FormDialog>

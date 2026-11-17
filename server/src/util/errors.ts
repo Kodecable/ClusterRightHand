@@ -44,3 +44,9 @@ export class UserError extends Error {
 
 /** A missing row or object; a UserError so the API maps it to 404 through the same handler. */
 export class NotFoundError extends UserError {}
+
+/**
+ * An upstream service failed or answered something unusable; the API maps it to 502 and passes its
+ * message on, because it is written for the person who will fix the configuration.
+ */
+export class BadGatewayError extends Error {}

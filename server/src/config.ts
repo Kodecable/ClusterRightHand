@@ -42,6 +42,12 @@ export interface AuthConfig {
 	captcha: "cap" | "none";
 }
 
+/** Model catalogue settings, which must be known before the WebUI can list a custom provider's models. */
+export interface ModelsConfig {
+	/** Whether crhs may download https://models.dev/api.json into its data directory (doc/design/agent-runtime.md "Custom providers"). */
+	catalogDownload: boolean;
+}
+
 /** The listen address, which must be known before the database is open. */
 export interface ListenConfig {
 	host: string;
@@ -59,6 +65,8 @@ export interface Config {
 	masterKeyFile: string;
 	/** Where library objects are stored (doc/design/library.md "Backends"). */
 	library: LibraryConfig;
+	/** Model catalogue settings (doc/design/agent-runtime.md "Custom providers"). */
+	models: ModelsConfig;
 	/** Built WebUI: web/ next to a bundled crhs.mjs, web/dist next to the server source otherwise. */
 	webRoot: string;
 }
@@ -89,6 +97,8 @@ export const DEFAULT_RP_NAME = "ClusterRightHand";
 export const DEFAULT_ARGON2_CONCURRENCY = 2;
 export const DEFAULT_ARGON2_QUEUE = 32;
 export const DEFAULT_CAPTCHA = "cap";
+/** crhs downloads the models.dev catalogue once a day unless crhs.toml turns it off. */
+export const DEFAULT_CATALOG_DOWNLOAD = true;
 /** Tasks, task groups and authorizations are kept for 90 days by default. */
 export const DEFAULT_RETENTION_TASKS_MS = 90 * 24 * 60 * 60 * 1000;
 /** Audit events are kept for 180 days by default. */
@@ -124,6 +134,7 @@ const TOP_LEVEL_KEYS = [
 	"retention",
 	"auth",
 	"library",
+	"models",
 ] as const;
 
 const DURATION_UNITS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
@@ -179,6 +190,7 @@ export function parseConfigFile(text: string): ConfigFile {
 	rejectUnknown(listen, "listen.", ["host", "port", "real_ip_header"]);
 	rejectUnknown(database, "database.", ["driver", "path", "url"]);
 	const library = parseLibraryConfig(table(raw, "library"));
+	const models = parseModelsConfig(table(raw, "models"));
 
 	const driver = database.driver ?? "sqlite";
 	let db: DatabaseConfig;
@@ -203,6 +215,7 @@ export function parseConfigFile(text: string): ConfigFile {
 			},
 			database: db,
 			library,
+			models,
 			masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
 			webRoot: str(raw, "web_root", "web_root", defaultWebRoot()),
 		},
@@ -392,6 +405,15 @@ export function validateAuth(captcha: unknown, argon2Concurrency: unknown, argon
 				: parseInteger(argon2Concurrency, "auth.argon2_concurrency", 1),
 		argon2Queue: argon2Queue === undefined ? DEFAULT_ARGON2_QUEUE : parseInteger(argon2Queue, "auth.argon2_queue", 0),
 	};
+}
+
+/** `[models]`: whether the models.dev catalogue may be downloaded (doc/design/agent-runtime.md "Custom providers"). */
+function parseModelsConfig(raw: Record<string, unknown>): ModelsConfig {
+	rejectUnknown(raw, "models.", ["catalog_download"]);
+	if (raw.catalog_download !== undefined && typeof raw.catalog_download !== "boolean") {
+		throw new Error("models.catalog_download must be true or false");
+	}
+	return { catalogDownload: raw.catalog_download ?? DEFAULT_CATALOG_DOWNLOAD };
 }
 
 /** `[library]`: the object backend; local is the default and needs no other key. */

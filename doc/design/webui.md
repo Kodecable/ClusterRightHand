@@ -355,6 +355,14 @@ Administrators configure model providers and the three model presets here. API k
 back to the browser; changing a custom provider's base URL requires entering its key again, so a key
 cannot be redirected to another host without the person who knows it.
 
+A custom provider's models section has **List provider models**. It opens a dialog listing only the model
+ids the provider offers that are not configured on it yet, with a search box and one checkbox per id plus
+**Select all visible**; the dialog has no other columns. An empty state appears when nothing is left to
+add, and an upstream failure shows the server's message with **Try again**. Saving adds the selected models
+through the provider API, filled from the catalogue ([Model discovery](agent-runtime.md#model-discovery)),
+and they stay editable in the model dialog. Discovery reads the saved provider, so the button is disabled
+with a hint until a new provider is saved and while its base URL or key has unsaved changes.
+
 ### System settings page
 
 Administrators edit the low-frequency runtime settings here (public URL, clock warning, retention,

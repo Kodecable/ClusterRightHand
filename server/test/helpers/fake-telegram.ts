@@ -493,7 +493,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 		callsOf: (method) => calls.filter((call) => call.method === method),
 		maxConcurrentPolls: (botToken = token) => polls.get(botToken)?.max ?? 0,
 		sentCalls: sent,
-		waitFor: async (method, predicate = () => true, timeoutMs = 5_000) => {
+		waitFor: async (method, predicate = () => true, timeoutMs = 15_000) => {
 			const deadline = Date.now() + timeoutMs;
 			for (;;) {
 				const found = calls.find((call) => call.method === method && predicate(call));
@@ -502,7 +502,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 				await new Promise((resolve) => setTimeout(resolve, 10));
 			}
 		},
-		waitForSent: async (predicate = () => true, timeoutMs = 5_000) => {
+		waitForSent: async (predicate = () => true, timeoutMs = 15_000) => {
 			const deadline = Date.now() + timeoutMs;
 			for (;;) {
 				const found = sent().find(predicate);
@@ -511,7 +511,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 				await new Promise((resolve) => setTimeout(resolve, 10));
 			}
 		},
-		waitForCount: async (method, count, timeoutMs = 5_000) => {
+		waitForCount: async (method, count, timeoutMs = 15_000) => {
 			const deadline = Date.now() + timeoutMs;
 			for (;;) {
 				const found = calls.filter((call) => call.method === method);

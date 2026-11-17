@@ -89,6 +89,50 @@ function renderProvider(existing?: ModelProviderView) {
 	return { ...result, onClose, onSaved };
 }
 
+/** A fake server for the discovery routes: GET lists ids, POST echoes a provider with the ids appended. */
+function mockDiscovery(options: { models?: string[]; status?: number; error?: string; postError?: string }): {
+	calls: { body: unknown; method: string; url: string }[];
+} {
+	const calls: { body: unknown; method: string; url: string }[] = [];
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+			const url = String(input);
+			const method = init?.method ?? "GET";
+			const body = typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined;
+			calls.push({ url, method, body });
+			const respond = (data: unknown, status = 200) =>
+				new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+			if (url === "/api/model-providers/myllm/discover" && method === "GET") {
+				return options.status !== undefined && options.status >= 400
+					? respond({ error: options.error ?? "listing failed" }, options.status)
+					: respond({ models: options.models ?? [] });
+			}
+			if (url === "/api/model-providers/myllm/discover" && method === "POST") {
+				if (options.postError !== undefined) return respond({ error: options.postError }, 400);
+				const ids = (body as { ids: string[] }).ids;
+				return respond({
+					provider: {
+						...CUSTOM,
+						models: [
+							...(CUSTOM.models ?? []),
+							...ids.map((id) => ({
+								id,
+								api: "openai-completions",
+								contextWindow: 32_768,
+								maxTokens: 4_096,
+								input: ["text"],
+							})),
+						],
+					},
+				});
+			}
+			return respond({ provider: CUSTOM });
+		}),
+	);
+	return { calls };
+}
+
 async function choose(user: ReturnType<typeof userEvent.setup>, label: string, option: string, scope?: HTMLElement) {
 	const query = scope === undefined ? screen : within(scope);
 	await user.click(query.getByLabelText(label));
@@ -575,5 +619,105 @@ describe("ProviderDialog", () => {
 		const dialog = screen.getByTestId("provider-dialog");
 		expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
 		expect(dialog).toBeInTheDocument();
+	});
+
+	test("lists only unconfigured model ids, with a search and no other columns", async () => {
+		const { calls } = mockDiscovery({ models: ["resp-model", "fresh-a", "fresh-b"] });
+		renderProvider(CUSTOM);
+		const user = userEvent.setup();
+		expect(calls.some((call) => call.url.endsWith("/discover"))).toBe(false);
+
+		await user.click(screen.getByRole("button", { name: "List provider models" }));
+		const dialog = await screen.findByTestId("model-discovery-dialog");
+		expect(await within(dialog).findByText("fresh-a")).toBeVisible();
+		expect(within(dialog).getByText("fresh-b")).toBeVisible();
+		// Already configured on the provider: not offered again.
+		expect(within(dialog).queryByText("resp-model")).not.toBeInTheDocument();
+		// Model ids only: no protocol, context or other columns.
+		expect(within(dialog).queryByRole("columnheader")).not.toBeInTheDocument();
+		expect(within(dialog).queryByRole("table")).not.toBeInTheDocument();
+
+		await user.type(within(dialog).getByLabelText("Search models"), "fresh-b");
+		expect(within(dialog).queryByText("fresh-a")).not.toBeInTheDocument();
+		expect(within(dialog).getByText("fresh-b")).toBeVisible();
+	});
+
+	test("selects all visible models, adds them and appends them to the provider form", async () => {
+		const { calls } = mockDiscovery({ models: ["fresh-a", "fresh-b"] });
+		renderProvider(CUSTOM);
+		const user = userEvent.setup();
+
+		await user.click(screen.getByRole("button", { name: "List provider models" }));
+		const dialog = await screen.findByTestId("model-discovery-dialog");
+		await within(dialog).findByText("fresh-a");
+		const add = within(dialog).getByRole("button", { name: "Add models" });
+		expect(add).toBeDisabled();
+		await user.click(within(dialog).getByRole("checkbox", { name: "Select all visible" }));
+		expect(within(dialog).getByRole("checkbox", { name: "fresh-a" })).toBeChecked();
+		expect(within(dialog).getByRole("checkbox", { name: "fresh-b" })).toBeChecked();
+		await user.click(add);
+
+		await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
+		const post = calls.find((call) => call.method === "POST");
+		expect(post?.url).toBe("/api/model-providers/myllm/discover");
+		expect(post?.body).toEqual({ ids: ["fresh-a", "fresh-b"] });
+		await waitFor(() => expect(screen.queryByTestId("model-discovery-dialog")).not.toBeInTheDocument());
+		const table = screen.getByRole("table", { name: "Models" });
+		expect(table).toHaveTextContent("fresh-a");
+		expect(table).toHaveTextContent("fresh-b");
+	});
+
+	test("shows the empty state when the provider lists nothing that is not configured", async () => {
+		mockDiscovery({ models: ["resp-model"] });
+		renderProvider(CUSTOM);
+		await userEvent.setup().click(screen.getByRole("button", { name: "List provider models" }));
+		const dialog = await screen.findByTestId("model-discovery-dialog");
+		expect(await within(dialog).findByText("Every model is configured")).toBeVisible();
+	});
+
+	test("shows the server's listing error and retries", async () => {
+		const { calls } = mockDiscovery({ status: 502, error: "listing models failed: the provider answered 401" });
+		renderProvider(CUSTOM);
+		const user = userEvent.setup();
+		await user.click(screen.getByRole("button", { name: "List provider models" }));
+		const dialog = await screen.findByTestId("model-discovery-dialog");
+		expect(await within(dialog).findByText("listing models failed: the provider answered 401")).toBeVisible();
+		await user.click(within(dialog).getByRole("button", { name: "Try again" }));
+		await waitFor(() => expect(calls.filter((call) => call.method === "GET")).toHaveLength(2));
+	});
+
+	test("keeps the discovery dialog open with the server's error when adding fails", async () => {
+		mockDiscovery({ models: ["fresh-a"], postError: "model fresh-a is already configured" });
+		renderProvider(CUSTOM);
+		const user = userEvent.setup();
+		await user.click(screen.getByRole("button", { name: "List provider models" }));
+		const dialog = await screen.findByTestId("model-discovery-dialog");
+		await user.click(await within(dialog).findByRole("checkbox", { name: "fresh-a" }));
+		await user.click(within(dialog).getByRole("button", { name: "Add models" }));
+		expect(await within(dialog).findByText("model fresh-a is already configured")).toBeVisible();
+		expect(screen.getByTestId("model-discovery-dialog")).toBeInTheDocument();
+	});
+
+	test("disables listing until the provider and its key and base URL are saved", async () => {
+		mockFetch();
+		const user = userEvent.setup();
+		const unsaved = renderProvider();
+		await choose(user, "Kind", "Custom");
+		let button = screen.getByRole("button", { name: "List provider models" });
+		expect(button).toBeDisabled();
+		expect(screen.getByText(/Save the provider first/)).toBeVisible();
+		unsaved.unmount();
+
+		renderProvider(CUSTOM);
+		button = screen.getByRole("button", { name: "List provider models" });
+		expect(button).toBeEnabled();
+		change(screen.getByLabelText("Base URL"), "https://other.example/v1");
+		expect(screen.getByRole("button", { name: "List provider models" })).toBeDisabled();
+		expect(screen.getAllByText(/Save the provider first/).length).toBeGreaterThan(0);
+
+		change(screen.getByLabelText("Base URL"), "https://llm.example/v1");
+		expect(screen.getByRole("button", { name: "List provider models" })).toBeEnabled();
+		fill(user, screen.getByLabelText("API key"), "sk-new");
+		expect(screen.getByRole("button", { name: "List provider models" })).toBeDisabled();
 	});
 });

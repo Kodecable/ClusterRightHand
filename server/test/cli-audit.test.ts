@@ -25,6 +25,7 @@ function configFor(masterKeyFile: string): Config {
 		database: { driver: "sqlite", path: ":memory:" },
 		masterKeyFile,
 		library: { backend: "local" },
+		models: { catalogDownload: true },
 		webRoot: "",
 	};
 }

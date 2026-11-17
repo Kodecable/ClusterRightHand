@@ -7,10 +7,19 @@ describe("parseConfigFile", () => {
 			listen: { host: "127.0.0.1", port: 8080 },
 			database: { driver: "sqlite", path: "/var/lib/crhs/crhs.db" },
 			library: { backend: "local" },
+			models: { catalogDownload: true },
 			masterKeyFile: "/etc/crhs/master.key",
 			webRoot: expect.stringMatching(/web\/dist$/),
 		});
 		expect(parseConfigFile("").moved).toEqual({});
+	});
+
+	it("reads the model catalogue switch", () => {
+		expect(parseConfig("").models).toEqual({ catalogDownload: true });
+		expect(parseConfig("[models]\ncatalog_download = false\n").models).toEqual({ catalogDownload: false });
+		expect(parseConfig("[models]\ncatalog_download = true\n").models).toEqual({ catalogDownload: true });
+		expect(() => parseConfig('[models]\ncatalog_download = "no"\n')).toThrow(/models\.catalog_download/);
+		expect(() => parseConfig("[models]\nunknown = 1\n")).toThrow(/unknown configuration key models\.unknown/);
 	});
 
 	it("reads the library backend", () => {

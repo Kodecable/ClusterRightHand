@@ -146,6 +146,21 @@ export const ModelProviderListResponseSchema = z
 
 export const ModelProviderResponseSchema = z.object({ provider: ModelProviderViewSchema });
 
+/**
+ * The model ids a custom provider lists that are not configured on it yet
+ * (doc/design/agent-runtime.md "Custom providers").
+ */
+export const ModelDiscoveryResponseSchema = z
+	.object({
+		models: z.array(z.string()).describe("The upstream model ids that the provider does not configure yet."),
+	})
+	.meta({ id: "ModelDiscoveryResponse" });
+
+/** Body of `POST /api/model-providers/{providerId}/discover`: the listed ids to add. */
+export const ModelDiscoveryInputSchema = z.object({
+	ids: z.array(z.string()).min(1).describe("Model ids returned by the provider's list; each is added once."),
+});
+
 /** One model preset kind (doc/design/agent-runtime.md "Model presets"). */
 export const ModelPresetKindSchema = z.enum(["session", "review", "title"]);
 

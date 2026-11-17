@@ -86,6 +86,44 @@ optional pi-ai compat settings. Thinking is either standard (pi-ai builds the pa
 format, with a per-level mapping) or custom (a JSON body merged into the request per level). Levels can
 be renamed or hidden for display. The exact schema is in `packages/api/src/models.ts`.
 
+### Model discovery
+
+A custom provider can list its models behind **List provider models** in the WebUI. crhs makes the
+provider's `GET {baseUrl}/models` request itself, with the stored API key as `Authorization: Bearer` and
+the provider's extra request headers, and returns only the `data[].id` values; the key never reaches the
+browser. The request times out after 15 s, and an HTTP error, a timeout, a non-JSON body or a body without a
+usable `data` list is answered as a 502 whose message the dialog shows. Discovery reads the saved provider,
+so an unsaved base URL or key must be saved first.
+
+The catalogue behind the fill is models.dev's `api.json`. Before each list request crhs may refresh it into
+`models-dev/api.json` under its data directory — the directory of the SQLite database, or of the master key
+file with PostgreSQL — at most once every 24 hours. Concurrent requests share one download (single
+flight), the download times out after 10 s, and the body is written to a temporary file and renamed only
+after it parses and holds at least one provider with one model. A failed download is logged once per
+attempt and keeps the last good file, however old it is. When no good file was ever stored, pi-ai's bundled
+catalogue is used, which is generated from models.dev. `[models] catalog_download = false` in `crhs.toml`
+turns the download off: the stored file is still used when there is one, and otherwise the bundled
+catalogue. The download is a plain GET; no model ids are ever sent to models.dev.
+
+Saving the selection adds every chosen model with the Chat Completions protocol (`openai-completions`).
+Each field is filled from the catalogue: a provider whose API URL has the same host as the custom
+provider's base URL and has the exact model id wins; otherwise any provider with the exact id; when neither
+matches, both lookups are retried with the part after the id's last `/` (`deepseek/deepseek-v4-flash` →
+`deepseek-v4-flash`). With several matches the minimum context and output are used, image input is set only
+when every match lists `image` in `modalities.input`, reasoning only when every match has `reasoning: true`,
+and the thinking level map holds only the effort levels every match offers. A model's `name` comes from the
+first match in provider/id order when the catalogue has one. When nothing matches, the model gets
+`contextWindow` 32768, `maxTokens` 4096, text input, no name and no thinking configuration. A match without a
+usable context or output falls back to those defaults, a missing or zero catalogue output falls back to
+`min(contextWindow, 4096)`, and an output larger than the context is capped at it.
+
+A reasoning model gets a standard thinking configuration without a format, so pi-ai decides the parameters
+from the base URL. Its level map maps the catalogue's `reasoning_options` effort values (`minimal`, `low`,
+`medium`, `high`, `xhigh`, `max`) onto the same pi-ai levels; a `toggle`-only option, or no effort values,
+uses the manual model dialog's default empty map. A model the catalogue marks as not reasoning gets no
+thinking configuration. Every added model can be edited afterwards in the model dialog, and the add is
+audited like any other provider edit.
+
 ### Thinking levels
 
 Levels are pi-ai's: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. A model's available

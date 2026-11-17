@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
-import { ModelConfig } from "./agent/models.ts";
+import { ModelCatalogue, ModelConfig } from "./agent/models.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
 import { cancelExpiredTokenWaits } from "./api/api-token-waits.ts";
 import { createApp } from "./api/app.ts";
@@ -204,6 +204,12 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	const dataDir = config.database.driver === "sqlite" ? dirname(config.database.path) : dirname(config.masterKeyFile);
 	const transferRoot = join(dataDir, "staging");
 	await cleanupStaging(transferRoot);
+	// The models.dev catalogue is cached under the data directory and refreshed at most once a day
+	// (doc/design/agent-runtime.md "Custom providers").
+	const modelCatalogue = new ModelCatalogue({
+		stateDir: dataDir,
+		download: config.models.catalogDownload,
+	});
 	// The one library object store (doc/design/library.md "Backends"); objects live under the data directory
 	// with the staging area.
 	const libraryBackend = createLibraryBackend(config.library, join(dataDir, "library"));
@@ -281,6 +287,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		webRoot: config.webRoot,
 		audit,
 		agent: { runtime, models },
+		modelCatalogue,
 		scheduler,
 		channels,
 		drain,

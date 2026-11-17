@@ -3,6 +3,7 @@ import type {
 	ExtensionStatus,
 	ExtensionToolView,
 	ExtensionView,
+	ModelDiscoveryResponse,
 	ModelPreset,
 	ModelPresetInput,
 	ModelPresetKind,
@@ -17,6 +18,7 @@ export const settingsKeys = {
 	all: ["settings"] as const,
 	models: () => ["settings", "models"] as const,
 	providers: () => ["settings", "model-providers"] as const,
+	discover: (providerId: string) => ["settings", "model-providers", providerId, "discover"] as const,
 	presets: () => ["settings", "model-presets"] as const,
 };
 
@@ -61,6 +63,35 @@ export function useDeleteModelProvider() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (providerId: string) => http.del<{ ok: true }>(`/model-providers/${enc(providerId)}`),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: settingsKeys.all }),
+	});
+}
+
+/**
+ * The models a saved custom provider lists but does not configure yet; crhs makes the upstream request with
+ * the stored key, which never reaches the browser (doc/design/agent-runtime.md "Custom providers").
+ */
+export function useDiscoverProviderModels(providerId: string | undefined) {
+	return useQuery({
+		queryKey: settingsKeys.discover(providerId ?? ""),
+		enabled: providerId !== undefined && providerId !== "",
+		retry: false,
+		staleTime: 0,
+		queryFn: ({ signal }) =>
+			http
+				.get<ModelDiscoveryResponse>(`/model-providers/${enc(providerId ?? "")}/discover`, { signal })
+				.then((response) => response.models),
+	});
+}
+
+/** Adds the selected listed models, filled from the catalogue on the server. */
+export function useAddDiscoveredModels() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ providerId, ids }: { providerId: string; ids: string[] }) =>
+			http
+				.post<{ provider: ModelProviderView }>(`/model-providers/${enc(providerId)}/discover`, { ids })
+				.then((response) => response.provider),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: settingsKeys.all }),
 	});
 }

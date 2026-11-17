@@ -29,6 +29,9 @@ path = "/var/lib/crhs/crhs.db"
 # url = "https://dav.example.com/crhs/"
 # username = "crhs"
 # password = "secret"
+
+# [models]
+# catalog_download = true
 ```
 
 ## Top-level keys
@@ -71,6 +74,15 @@ With `local`, objects live in the `library/` directory of crhs's data directory:
 containing the SQLite database, or the directory containing `master_key_file` with PostgreSQL. crhs
 owns the store exclusively; nothing else may read or write it. Changing the backend does not move
 existing objects, so keep the old store available until its files are removed.
+
+## [models]
+
+The model catalogue used to fill a custom provider's discovered models
+([Model discovery](../../design/agent-runtime.md#model-discovery)). The whole table is optional.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `catalog_download` | boolean | `true` | Whether crhs may download `https://models.dev/api.json` (at most once a day) into `models-dev/api.json` under its data directory. With `false`, a file stored earlier is still used; when there is none, pi-ai's bundled catalogue is used. |
 
 ## System settings
 

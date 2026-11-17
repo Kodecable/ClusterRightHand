@@ -449,6 +449,10 @@ msgstr "Add hop"
 msgid "Add member"
 msgstr "Add member"
 
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Add models"
+msgstr "Add models"
+
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Add origin"
 msgstr "Add origin"
@@ -929,6 +933,7 @@ msgstr "Cache size on disk"
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/settings/model-dialog.tsx
+#: src/features/settings/model-discovery-dialog.tsx
 #: src/features/tokens/rules-dialog.tsx
 msgid "Cancel"
 msgstr "Cancel"
@@ -2062,6 +2067,10 @@ msgstr "Event detail"
 msgid "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
 msgstr "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
 
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Every model is configured"
+msgstr "Every model is configured"
+
 #: src/features/settings/providers.ts
 msgid "Every model needs a context window of at least 1024 tokens."
 msgstr "Every model needs a context window of at least 1024 tokens."
@@ -2643,6 +2652,10 @@ msgstr "List directory {path} (lines {0}-{1})"
 msgid "List its tools directly in the model's tool list"
 msgstr "List its tools directly in the model's tool list"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "List provider models"
+msgstr "List provider models"
+
 #: src/features/settings/extensions.tsx
 msgid "Listed directly"
 msgstr "Listed directly"
@@ -2655,6 +2668,10 @@ msgstr "Load more"
 #: src/features/library/library-section.tsx
 msgid "Loading library…"
 msgstr "Loading library…"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Loading models…"
+msgstr "Loading models…"
 
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Loading more"
@@ -3109,6 +3126,10 @@ msgstr "No models are configured, so sessions cannot start. <0>Configure a model
 #: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
 msgstr "No models are configured, so sessions cannot start. Ask an administrator to configure one."
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "No models match the search."
+msgstr "No models match the search."
 
 #: src/features/settings/provider-dialog.tsx
 msgid "No models yet"
@@ -3757,6 +3778,10 @@ msgstr "Provider"
 msgid "Provider id"
 msgstr "Provider id"
 
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Provider models"
+msgstr "Provider models"
+
 #: src/features/nodes/node-trust.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -4321,6 +4346,10 @@ msgstr "Save rules"
 msgid "Save schedule"
 msgstr "Save schedule"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "Save the provider first: listing its models needs its stored base URL and API key."
+msgstr "Save the provider first: listing its models needs its stored base URL and API key."
+
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 msgid "Saving closes the connection; tasks running on this node become unknown."
 msgstr "Saving closes the connection; tasks running on this node become unknown."
@@ -4362,6 +4391,10 @@ msgstr "Search failed"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search libraries…"
 msgstr "Search libraries…"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Search models"
+msgstr "Search models"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search node groups…"
@@ -4430,6 +4463,10 @@ msgstr "Select"
 #: src/components/file-manager/file-list.tsx
 msgid "Select {0}"
 msgstr "Select {0}"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Select all visible"
+msgstr "Select all visible"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
@@ -5057,6 +5094,10 @@ msgstr "The privileged mode is not forward, so this node uses no trust configura
 #: src/features/nodes/node-trust.tsx
 msgid "The privileged mode is unreachable, so the trust configuration is unknown"
 msgstr "The privileged mode is unreachable, so the trust configuration is unknown"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "The provider lists no model that this provider does not configure yet."
+msgstr "The provider lists no model that this provider does not configure yet."
 
 #: src/features/sessions/transcript-row.tsx
 msgid "The run failed"

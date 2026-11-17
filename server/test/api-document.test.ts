@@ -180,6 +180,9 @@ describe("API document", () => {
 		expect(agent("/api/sessions/{id}/quota", "post")).toBe("deny");
 		expect(agent("/api/sessions/stream", "get")).toBe("deny");
 		expect(agent("/api/sessions/{id}/events", "get")).toBe("deny");
+		// Listing a custom provider's models sends its key upstream; an agent never does either step.
+		expect(agent("/api/model-providers/{providerId}/discover", "get")).toBe("deny");
+		expect(agent("/api/model-providers/{providerId}/discover", "post")).toBe("deny");
 		expect(agent("/api/health", "get")).toBe("allow");
 		for (const schema of [
 			"SessionView",

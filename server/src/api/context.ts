@@ -27,7 +27,7 @@ export interface JsonErrorOptions {
 
 export function jsonError(
 	c: Context,
-	status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 503,
+	status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 502 | 503,
 	message: string,
 	options: JsonErrorOptions = {},
 ) {

@@ -21,7 +21,6 @@ import {
 	type Provider,
 } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import { secretAad } from "../keys/export.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
@@ -29,14 +28,16 @@ import { customProvider, type ProviderSessionResolver, withKey } from "./custom-
 import type { TimingSink } from "./latency.ts";
 import { DEFAULT_LLM_TIMEOUTS, type LlmTimeoutLimits } from "./llm-timeout.ts";
 import { type CompleteMeter, meteredModels } from "./metering.ts";
-import { parseJson } from "./model-providers.ts";
+import { modelProviderApiKey, parseJson } from "./model-providers.ts";
 import { type CustomModel, levelDisplayName, type ModelRef, type ThinkingLevelLabels } from "./model-types.ts";
 
 export type { ProviderSessionResolver } from "./custom-provider.ts";
+export { ModelCatalogue } from "./model-catalogue.ts";
 export {
 	deleteModelProvider,
 	listModelProviders,
 	type ModelProviderView,
+	modelProviderApiKey,
 	saveModelProvider,
 } from "./model-providers.ts";
 export {
@@ -167,16 +168,7 @@ export class ModelConfig {
 		const providers: Provider[] = [];
 		const customModels = new Map<string, CustomModel>();
 		for (const row of rows) {
-			let key: string | undefined;
-			if (row.secret_id) {
-				const secret = await this.#db
-					.selectFrom("secrets")
-					.selectAll()
-					.where("id", "=", row.secret_id)
-					.executeTakeFirst();
-				if (secret)
-					key = this.#masterKey.decrypt(secret.ciphertext, secretAad(secret.id, secret.kind)).toString("utf8");
-			}
+			const key = await modelProviderApiKey(this.#db, this.#masterKey, row.secret_id);
 			if (row.kind === "builtin") {
 				const base = builtins.get(row.builtin ?? "");
 				if (base) providers.push(withKey(base, key, row.base_url));

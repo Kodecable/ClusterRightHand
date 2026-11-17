@@ -449,6 +449,10 @@ msgstr "添加一跳"
 msgid "Add member"
 msgstr "添加成员"
 
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Add models"
+msgstr "添加模型"
+
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Add origin"
 msgstr "添加源"
@@ -929,6 +933,7 @@ msgstr "磁盘缓存大小"
 #: src/features/nodes/ssh-wizard.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/settings/model-dialog.tsx
+#: src/features/settings/model-discovery-dialog.tsx
 #: src/features/tokens/rules-dialog.tsx
 msgid "Cancel"
 msgstr "取消"
@@ -2062,6 +2067,10 @@ msgstr "事件详情"
 msgid "Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or until it is used up (one-shot authorizations)."
 msgstr "每个授权都带有截止时间。它在载荷指定的节点上有效，直到该截止时间或被用完（一次性授权）。"
 
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Every model is configured"
+msgstr "所有模型均已配置"
+
 #: src/features/settings/providers.ts
 msgid "Every model needs a context window of at least 1024 tokens."
 msgstr "每个模型的上下文窗口至少为 1024 个 token。"
@@ -2643,6 +2652,10 @@ msgstr "列出目录 {path}（第 {0}-{1} 行）"
 msgid "List its tools directly in the model's tool list"
 msgstr "直接将其工具列入模型的工具列表"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "List provider models"
+msgstr "列出提供方模型"
+
 #: src/features/settings/extensions.tsx
 msgid "Listed directly"
 msgstr "直接列出"
@@ -2655,6 +2668,10 @@ msgstr "加载更多"
 #: src/features/library/library-section.tsx
 msgid "Loading library…"
 msgstr "正在加载资料库…"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Loading models…"
+msgstr "正在加载模型…"
 
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Loading more"
@@ -3109,6 +3126,10 @@ msgstr "尚未配置模型，因此会话无法启动。<0>配置模型提供方
 #: src/features/sessions/session-list.tsx
 msgid "No models are configured, so sessions cannot start. Ask an administrator to configure one."
 msgstr "尚未配置模型，因此会话无法启动。请联系管理员配置一个。"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "No models match the search."
+msgstr "没有匹配搜索的模型。"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "No models yet"
@@ -3757,6 +3778,10 @@ msgstr "提供方"
 msgid "Provider id"
 msgstr "提供方 ID"
 
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Provider models"
+msgstr "提供方模型"
+
 #: src/features/nodes/node-trust.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
@@ -4321,6 +4346,10 @@ msgstr "保存规则"
 msgid "Save schedule"
 msgstr "保存计划任务"
 
+#: src/features/settings/provider-dialog.tsx
+msgid "Save the provider first: listing its models needs its stored base URL and API key."
+msgstr "请先保存提供方：列出其模型需要已保存的基础 URL 和 API 密钥。"
+
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 msgid "Saving closes the connection; tasks running on this node become unknown."
 msgstr "保存会关闭连接；在此节点上运行的任务将变为未知状态。"
@@ -4362,6 +4391,10 @@ msgstr "搜索失败"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search libraries…"
 msgstr "搜索资料库…"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Search models"
+msgstr "搜索模型"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search node groups…"
@@ -4430,6 +4463,10 @@ msgstr "选择"
 #: src/components/file-manager/file-list.tsx
 msgid "Select {0}"
 msgstr "选择 {0}"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "Select all visible"
+msgstr "全选可见项"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
@@ -5057,6 +5094,10 @@ msgstr "特权模式不是 forward，此节点不使用信任配置"
 #: src/features/nodes/node-trust.tsx
 msgid "The privileged mode is unreachable, so the trust configuration is unknown"
 msgstr "无法连接特权模式，信任配置未知"
+
+#: src/features/settings/model-discovery-dialog.tsx
+msgid "The provider lists no model that this provider does not configure yet."
+msgstr "该提供方没有列出尚未在此提供方配置的模型。"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "The run failed"

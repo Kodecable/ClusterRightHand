@@ -8,6 +8,8 @@ import type {
 	AvailableModelSchema,
 	CustomApiSchema,
 	CustomModelSchema,
+	ModelDiscoveryInputSchema,
+	ModelDiscoveryResponseSchema,
 	ModelPresetInputSchema,
 	ModelPresetKindSchema,
 	ModelPresetSchema,
@@ -66,6 +68,12 @@ export type ModelProviderView = z.infer<typeof ModelProviderViewSchema>;
 
 /** Body of `PUT /api/model-providers/:providerId`. */
 export type ModelProviderInput = z.infer<typeof ModelProviderInputSchema>;
+
+/** `GET /api/model-providers/:providerId/discover`: the provider's ids not configured yet. */
+export type ModelDiscoveryResponse = z.infer<typeof ModelDiscoveryResponseSchema>;
+
+/** Body of `POST /api/model-providers/:providerId/discover`. */
+export type ModelDiscoveryInput = z.infer<typeof ModelDiscoveryInputSchema>;
 
 /** One model preset kind (doc/design/agent-runtime.md "Model presets"). */
 export type ModelPresetKind = z.infer<typeof ModelPresetKindSchema>;

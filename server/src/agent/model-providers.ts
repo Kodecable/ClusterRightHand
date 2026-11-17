@@ -46,6 +46,18 @@ export async function listModelProviders(db: Db): Promise<ModelProviderView[]> {
 	return (await db.selectFrom("model_providers").selectAll().orderBy("provider_id").execute()).map(toView);
 }
 
+/** The stored API key of a provider, decrypted; undefined when it has none (or its secret is gone). */
+export async function modelProviderApiKey(
+	db: Db,
+	masterKey: MasterKey,
+	secretId: string | null,
+): Promise<string | undefined> {
+	if (secretId === null) return undefined;
+	const secret = await db.selectFrom("secrets").selectAll().where("id", "=", secretId).executeTakeFirst();
+	if (!secret) return undefined;
+	return masterKey.decrypt(secret.ciphertext, secretAad(secret.id, secret.kind)).toString("utf8");
+}
+
 /**
  * A base URL as compared when deciding whether an update moves the endpoint: case and default ports are
  * normalised by `URL`, and one trailing slash is ignored. An unparsable value falls back to its trimmed text.

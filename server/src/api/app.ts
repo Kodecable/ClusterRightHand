@@ -2,7 +2,7 @@ import { HealthResponseSchema } from "@crh/api/schemas";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { sql } from "kysely";
-import type { ModelConfig } from "../agent/models.ts";
+import { ModelCatalogue, type ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
 import type { ChannelManager } from "../channels/manager.ts";
@@ -87,6 +87,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	audit?: Audit;
 	/** The agent runtime and its models; without them there are no sessions. */
 	agent?: { runtime: AgentRuntime; models: ModelConfig };
+	/** The models.dev catalogue cache behind custom-provider discovery; without one an offline-only catalogue is used. */
+	modelCatalogue?: ModelCatalogue;
 	/** The scheduler that fires and submits scheduled runs (doc/design/scheduling.md); with it come the schedule routes. */
 	scheduler?: Scheduler;
 	/** Request tracking for shutdown; `main.ts` begins it when a signal arrives (a private one is made when omitted). */
@@ -214,6 +216,8 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 		app.route("/api", auditRoutes(db));
 		if (options.agent && options.masterKey) {
 			const { runtime, models } = options.agent;
+			// Discovery reads models.dev; without a state directory the built-in offline catalogue is the only source.
+			const catalogue = options.modelCatalogue ?? new ModelCatalogue({ download: false });
 			// The session and model routes reach the agent runtime: during shutdown they answer with the shutdown
 			// rather than with the closed Harness's exception (main.ts). No other route group uses the runtime.
 			// OpenAPIHono, so the model route definitions are passed on to the API document when this group is mounted.
@@ -226,6 +230,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 				modelProviderRoutes(db, {
 					models,
 					masterKey: options.masterKey,
+					catalogue,
 					sessionModel: () => runtime.modelPresets.get("session").model,
 				}),
 			);

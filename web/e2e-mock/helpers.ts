@@ -7,6 +7,7 @@ import type {
 	AvailableModel,
 	ChannelAccountListResponse,
 	ChannelView,
+	CustomModel,
 	Directory,
 	LibraryFile,
 	LibraryView,
@@ -109,6 +110,8 @@ export interface FakeState {
 	userSettings: UserSettings;
 	providers: ModelProviderView[];
 	builtinProviders: string[];
+	/** The ids a custom provider's upstream `/models` lists, by provider id (the discover mock). */
+	discoveredModels: Record<string, string[]>;
 	presets: ModelPreset[];
 	signingCredentials: SigningCredentialView[];
 	audit: AuditEvent[];
@@ -500,6 +503,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		},
 		providers: [],
 		builtinProviders: ["faux"],
+		discoveredModels: {},
 		presets: [
 			{
 				kind: "session",
@@ -1244,6 +1248,45 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				state.providers = state.providers.filter((candidate) => candidate.providerId !== providerId);
 				state.models = state.models.filter((model) => model.provider !== providerId);
 				return json({ ok: true });
+			}
+		}
+		const discoverMatch = /^\/api\/model-providers\/([^/]+)\/discover$/.exec(path);
+		if (discoverMatch) {
+			const providerId = decodeURIComponent(discoverMatch[1] as string);
+			const existing = state.providers.find((candidate) => candidate.providerId === providerId);
+			if (!existing) return json({ error: "no such model provider" }, 404);
+			if (method === "GET") {
+				const configured = new Set((existing.models ?? []).map((model) => model.id));
+				return json({ models: (state.discoveredModels[providerId] ?? []).filter((id) => !configured.has(id)) });
+			}
+			if (method === "POST") {
+				const ids = (body as { ids: string[] }).ids;
+				const added: CustomModel[] = ids.map((id) => ({
+					id,
+					api: "openai-completions",
+					contextWindow: 32_768,
+					maxTokens: 4_096,
+					input: ["text"],
+				}));
+				const provider: ModelProviderView = { ...existing, models: [...(existing.models ?? []), ...added] };
+				state.providers = state.providers.map((candidate) =>
+					candidate.providerId === providerId ? provider : candidate,
+				);
+				state.models = [
+					...state.models.filter((model) => model.provider !== providerId),
+					...(provider.models ?? []).map(
+						(model): AvailableModel => ({
+							provider: providerId,
+							providerName: provider.name,
+							modelId: model.id,
+							name: model.name ?? model.id,
+							contextWindow: model.contextWindow,
+							thinkingLevels: model.thinking ? ["off", "low", "medium", "high"] : ["off"],
+							input: model.input,
+						}),
+					),
+				];
+				return json({ provider });
 			}
 		}
 		if (path === "/api/model-presets" && method === "GET") return json({ presets: state.presets });
