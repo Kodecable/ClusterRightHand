@@ -2,6 +2,7 @@ import type { ApprovalRecord, Evaluation, ExternalCallView, TaskGroupView, TaskV
 import type { MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { CodeFrame } from "@/components/code-frame";
 import { Panel, SectionTitle } from "@/components/section";
 import { cn } from "@/lib/utils";
 import { EvaluationTable, ReviewView } from "./evaluation";
@@ -166,14 +167,12 @@ export function RequestDetails({
 				</details>
 			)}
 			{content.map((block) => (
-				<section key={block.label} data-testid="request-content" className="grid min-w-0 gap-1">
-					<h4 className="text-xs font-medium text-muted-foreground">{block.label}</h4>
-					<pre
-						title={block.label}
-						className="max-h-40 w-full min-w-0 overflow-auto rounded bg-[var(--code)] px-2 py-1 font-mono text-xs leading-5 whitespace-pre-wrap"
-					>
-						{JSON.stringify(block.value, null, 2)}
-					</pre>
+				<section key={block.label} data-testid="request-content" className="min-w-0">
+					<CodeFrame aria-label={block.label} title={block.label} bodyClassName="max-h-40 overflow-auto">
+						<pre className="p-3 font-mono text-xs leading-5 whitespace-pre-wrap">
+							{JSON.stringify(block.value, null, 2)}
+						</pre>
+					</CodeFrame>
 				</section>
 			))}
 		</Panel>

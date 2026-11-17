@@ -391,6 +391,35 @@ describe("SessionPage layout", () => {
 		expect(JSON.parse(String((patch?.[1] as RequestInit | undefined)?.body))).toEqual({ title: "" });
 	});
 
+	test("a title over the code-point limit shows a field error and is not sent", async () => {
+		await renderSessionPage({ session: sessionView() });
+		await screen.findByTestId("session-page");
+		const input = screen.getByTestId("session-title");
+
+		// Sixty astral characters cost 120 UTF-16 units but exactly the shared code-point limit.
+		fireEvent.change(input, { target: { value: "😀".repeat(61) } });
+		expect(screen.getByTestId("session-title-error")).toBeInTheDocument();
+		expect(input).toHaveAttribute("aria-invalid", "true");
+		fireEvent.blur(input);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		const patches = () =>
+			vi
+				.mocked(fetch)
+				.mock.calls.filter(
+					([inputPath, init]) =>
+						String(inputPath).endsWith("/api/sessions/s1") && (init as RequestInit | undefined)?.method === "PATCH",
+				);
+		expect(patches()).toHaveLength(0);
+
+		fireEvent.change(input, { target: { value: "字".repeat(60) } });
+		expect(screen.queryByTestId("session-title-error")).not.toBeInTheDocument();
+		fireEvent.blur(input);
+		await waitFor(() => expect(patches()).toHaveLength(1));
+		expect(JSON.parse(String((patches()[0]?.[1] as RequestInit | undefined)?.body))).toEqual({
+			title: "字".repeat(60),
+		});
+	});
+
 	test("the stop button follows the session's own run and, for a root, its tree's", async () => {
 		await renderSessionPage({ session: sessionView() });
 		await screen.findByTestId("session-page");

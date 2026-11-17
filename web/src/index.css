@@ -70,6 +70,10 @@
  * the lightest surface, the navigation sidebar is one step darker, and cards and
  * popovers sit above the main area. Dark mode keeps the same direction, with the
  * sidebar a step darker than the main area.
+ *
+ * Framed blocks (code frames and Markdown/DataTable tables) share one colour rule: a
+ * `--border` border, a solid `--muted` header and footer bar, and a transparent body
+ * that follows the surrounding page, card or dialog surface.
  */
 :root {
 	--background: #ffffff;
@@ -99,8 +103,6 @@
 	--danger-bg: #fdecec;
 	--info: #2554d6;
 	--info-bg: #e8eefc;
-
-	--code: #f0f2f5;
 
 	--chart-1: #2554d6;
 	--chart-2: #1b7f3b;
@@ -149,8 +151,6 @@
 	--info: #5b8cff;
 	--info-bg: #16233f;
 
-	--code: #11141a;
-
 	--chart-1: #5b8cff;
 	--chart-2: #4ec97a;
 	--chart-3: #e0a243;
@@ -194,6 +194,19 @@ html[data-theme="dark"] {
 		@apply bg-background text-foreground;
 		margin: 0;
 	}
+
+	/* Tailwind v4's preflight makes buttons `cursor: default`; interactive controls are still pointers. */
+	button:not(:disabled),
+	[role="button"]:not([aria-disabled="true"]),
+	summary {
+		cursor: pointer;
+	}
+
+	button:disabled,
+	[aria-disabled="true"],
+	[data-disabled] {
+		cursor: not-allowed;
+	}
 }
 
 /* -------------------------------------------------------------- DataTable */
@@ -231,14 +244,6 @@ html[data-theme="dark"] {
 }
 
 /* ------------------------------------------------------------------ Shiki */
-
-.shiki-block {
-	background-color: var(--shiki-light-bg, var(--code));
-}
-
-html[data-theme="dark"] .shiki-block {
-	background-color: var(--shiki-dark-bg, var(--code));
-}
 
 .shiki-block .shiki-line span {
 	color: var(--shiki-light);
@@ -342,7 +347,7 @@ html[data-theme="dark"] .shiki-block .shiki-line span {
 
 .md-body code {
 	border-radius: 4px;
-	background: var(--code);
+	background: var(--muted);
 	padding: 0.1em 0.35em;
 	font-family: var(--font-mono);
 	font-size: 0.875em;

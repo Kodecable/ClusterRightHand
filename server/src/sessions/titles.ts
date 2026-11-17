@@ -1,4 +1,4 @@
-import type { UserSettingsLocale } from "@crh/api";
+import { SESSION_TITLE_MAX_CHARS, type UserSettingsLocale } from "@crh/api";
 
 /**
  * The localized names crhs writes into session rows: the default name of an untitled session and the suffix a
@@ -40,7 +40,10 @@ export function displayedSessionTitle(
 
 /**
  * A fork's title: the source title (or the localized default for an untitled source) plus the localized fork
- * suffix. A retry with the same request id returns the row this produced, so the title is stable.
+ * suffix. A source title that already ends with either locale's suffix gets no second one, so a fork of a fork
+ * keeps the title it was given; otherwise the base is cut (in code points, then trimmed) so that the title
+ * stays within `SESSION_TITLE_MAX_CHARS`. A retry with the same request id returns the row this produced, so
+ * the title is stable.
  */
 export function forkedSessionTitle(
 	sourceTitle: string | null | undefined,
@@ -48,5 +51,8 @@ export function forkedSessionTitle(
 ): string {
 	const words = WORDS[titleLocale(locale)];
 	const base = sourceTitle?.trim() ? sourceTitle : words.untitled;
-	return `${base}${words.forkSuffix}`;
+	if (base.endsWith(WORDS.en.forkSuffix) || base.endsWith(WORDS["zh-CN"].forkSuffix)) return base;
+	const available = SESSION_TITLE_MAX_CHARS - Array.from(words.forkSuffix).length;
+	const cut = Array.from(base).slice(0, available).join("").trimEnd();
+	return `${cut}${words.forkSuffix}`;
 }

@@ -181,14 +181,8 @@ function ModelPresetCard({ preset, models }: { preset: ModelPreset; models: Avai
 					{t`Default prompt and protocol`}
 				</CollapsibleTrigger>
 				<CollapsibleContent className="grid gap-2 pt-2">
-					<div className="grid gap-1">
-						<p className="text-xs font-medium text-muted-foreground">{t`Default prompt`}</p>
-						<CodeText text={preset.defaultPrompt} maxLines={0} preClassName="max-h-48" label={t`Default prompt`} />
-					</div>
-					<div className="grid gap-1">
-						<p className="text-xs font-medium text-muted-foreground">{t`Always appended`}</p>
-						<CodeText text={preset.protocol} maxLines={0} preClassName="max-h-48" label={t`Always appended`} />
-					</div>
+					<CodeText text={preset.defaultPrompt} maxLines={0} preClassName="max-h-48" label={t`Default prompt`} />
+					<CodeText text={preset.protocol} maxLines={0} preClassName="max-h-48" label={t`Always appended`} />
 				</CollapsibleContent>
 			</Collapsible>
 

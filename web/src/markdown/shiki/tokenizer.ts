@@ -7,24 +7,9 @@ export interface TokenSnapshot {
 	/** Tokens for the trailing line that is still being typed (re-tokenised). */
 	partial: ThemedToken[] | null;
 	partialText: string;
-	/** CSS custom properties for the <pre> background of both themes. */
-	preStyle: Record<string, string> | undefined;
 }
 
-const EMPTY: TokenSnapshot = { lines: [], partial: null, partialText: "", preStyle: undefined };
-
-function themeBackgrounds(highlighter: HighlighterGeneric<string, string>): Record<string, string> | undefined {
-	try {
-		const light = highlighter.getTheme(THEME_NAMES.light);
-		const dark = highlighter.getTheme(THEME_NAMES.dark);
-		return {
-			"--shiki-light-bg": light.bg ?? "transparent",
-			"--shiki-dark-bg": dark.bg ?? "transparent",
-		};
-	} catch {
-		return undefined;
-	}
-}
+const EMPTY: TokenSnapshot = { lines: [], partial: null, partialText: "" };
 
 /**
  * Incremental tokenizer for one code block.
@@ -38,7 +23,6 @@ function themeBackgrounds(highlighter: HighlighterGeneric<string, string>): Reco
  * twice for the same render without corrupting the incremental buffers.
  */
 export class IncrementalTokenizer {
-	private readonly preStyle: Record<string, string> | undefined;
 	private code = "";
 	private placed = 0;
 	private lines: ThemedToken[][] = [];
@@ -53,7 +37,6 @@ export class IncrementalTokenizer {
 	constructor(highlighter: HighlighterGeneric<string, string>, lang: LangKey) {
 		this.highlighter = highlighter;
 		this.lang = lang;
-		this.preStyle = themeBackgrounds(highlighter);
 	}
 
 	update(code: string): TokenSnapshot {
@@ -122,7 +105,6 @@ export class IncrementalTokenizer {
 			lines: this.lines,
 			partial: this.partial,
 			partialText: this.partialText,
-			preStyle: this.preStyle,
 		};
 		return this.snapshot;
 	}

@@ -1,3 +1,4 @@
+import { SESSION_TITLE_MAX_CHARS } from "@crh/api";
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
 import type { SubmissionId } from "@earendil-works/pi-durable";
@@ -22,9 +23,6 @@ import { callTokens, estimateRequestTokens } from "./tokens.ts";
 export function titleSystemPrompt(custom: string | null | undefined): string {
 	return `${custom ?? DEFAULT_TITLE_PROMPT}\n\n${TITLE_PROTOCOL}`;
 }
-
-/** The title's maximum length, in code points. */
-export const TITLE_MAX_CHARS = 60;
 
 /** The input texts are cut to this many code points before they are sent. */
 export const TITLE_INPUT_MAX_CHARS = 2000;
@@ -93,7 +91,7 @@ export function sanitizeTitle(answer: string): string | undefined {
 		previous = title;
 		title = stripOnce(title);
 	}
-	const cut = Array.from(title).slice(0, TITLE_MAX_CHARS).join("").trim();
+	const cut = Array.from(title).slice(0, SESSION_TITLE_MAX_CHARS).join("").trim();
 	return cut === "" ? undefined : cut;
 }
 

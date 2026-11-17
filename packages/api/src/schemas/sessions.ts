@@ -5,10 +5,22 @@
  * from them, so a handler and the API document cannot drift.
  */
 import { z } from "zod";
+import { SESSION_TITLE_MAX_CHARS } from "../sessions.ts";
 import { cursorPageSchema, RefMapSchema } from "./common.ts";
 import { SessionExtensionSchema } from "./extensions.ts";
 import { ModelRefSchema } from "./models.ts";
 import { RulePresetSchema, StoredRuleSetSchema } from "./policy.ts";
+
+/**
+ * A user-set session title, at most `SESSION_TITLE_MAX_CHARS` code points. `.max()` counts UTF-16 code
+ * units, so an emoji would use two of the budget; the refine counts what a reader sees.
+ */
+const SessionTitleSchema = z
+	.string()
+	.refine((value) => Array.from(value).length <= SESSION_TITLE_MAX_CHARS, {
+		message: `A session title is at most ${SESSION_TITLE_MAX_CHARS} characters.`,
+	})
+	.describe(`The session title, at most ${SESSION_TITLE_MAX_CHARS} characters (counted in Unicode code points).`);
 
 /** The state of a session tree (doc/design/agent-runtime.md "Session state"). */
 export const SessionRunStateSchema = z.enum(["idle", "running", "awaiting"]);
@@ -246,13 +258,13 @@ export const SessionCreateBodySchema = z.object({
 		.nullable()
 		.optional()
 		.describe("The root's remaining budget in tokens; null or absent is unlimited."),
-	title: z.string().optional(),
+	title: SessionTitleSchema.optional(),
 	attachments: z.array(ChatAttachmentInputSchema).optional(),
 });
 
 /** `PATCH /api/sessions/{id}`; omitted fields stay unchanged, null clears. */
 export const SessionPatchBodySchema = z.object({
-	title: z.string().optional(),
+	title: SessionTitleSchema.optional(),
 	model: ModelRefSchema.optional(),
 	rulePreset: RulePresetSchema.optional(),
 	budgetRemaining: z

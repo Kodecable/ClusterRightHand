@@ -166,6 +166,25 @@ it("deletes the session and its rule set when submitting the first message fails
 	expect(await db.selectFrom("sessions").select("id").execute()).toHaveLength(before.length);
 });
 
+it("validates the title in code points: 60 passes, 61 is a 400", async () => {
+	const ok = { model: model(), rulePreset: "ask" };
+	const tooLong = await create({ ...ok, requestId: "title-61", title: "字".repeat(61), message: "hi" });
+	expect(tooLong.status).toBe(400);
+	expect(await sessionRows("title-61")).toEqual([]);
+	// Astral characters are one code point but two UTF-16 units: the limit counts what a reader sees.
+	expect((await create({ ...ok, requestId: "title-61-emoji", title: "😀".repeat(61), message: "hi" })).status).toBe(
+		400,
+	);
+
+	const atLimit = "字".repeat(60);
+	faux.setResponses([fauxAssistantMessage([fauxText("ok")])]);
+	const accepted = await create({ ...ok, requestId: "title-60", title: atLimit, message: "hi" });
+	expect(accepted.status).toBe(201);
+	expect(((await accepted.json()) as { session: { title: string | null } }).session.title).toBe(atLimit);
+	await runtime.waitForIdle();
+	expect(await sessionRows("title-60")).toMatchObject([{ title: atLimit }]);
+});
+
 it("keeps the title rules: no title is null and pending; a title is stored and not pending", async () => {
 	const untitled = "untitled-create";
 	const titled = "titled-create";

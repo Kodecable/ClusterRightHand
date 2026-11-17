@@ -103,7 +103,7 @@ export function DecisionCard({
 					<code
 						data-testid="decision-detail"
 						title={detail}
-						className="block w-full min-w-0 truncate rounded bg-[var(--code)] px-2 py-1 font-mono text-xs leading-5"
+						className="block w-full min-w-0 truncate rounded bg-muted px-2 py-1 font-mono text-xs leading-5"
 					>
 						{detail}
 					</code>

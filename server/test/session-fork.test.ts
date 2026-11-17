@@ -765,7 +765,7 @@ it("forks a fork from its direct source", async () => {
 		parent_session_id: null,
 		forked_from_session_id: firstForkId,
 		root_session_id: secondForkId,
-		title: "First source (fork) (fork)",
+		title: "First source (fork)",
 	});
 	expect(Number(row.forked_from_entry_id)).toBe(branchReply);
 	// The fork of a fork still carries the source's inherited history plus the first fork's own turn.

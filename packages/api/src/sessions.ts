@@ -30,6 +30,13 @@ import type {
 	SessionWaitingKindSchema,
 } from "./schemas/sessions.ts";
 
+/**
+ * The longest session title, counted in Unicode code points
+ * (doc/design/agent-runtime.md "Title generation"). Generated titles are cut to it, and a user-set title
+ * longer than it is rejected by the route schema instead of being silently truncated.
+ */
+export const SESSION_TITLE_MAX_CHARS = 60;
+
 export type SessionRelationship = z.infer<typeof SessionRelationshipSchema>;
 export type SessionShareAccess = z.infer<typeof SessionShareAccessSchema>;
 

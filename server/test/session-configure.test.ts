@@ -111,6 +111,26 @@ it("rolls back the quota and title when the rule preset write fails", async () =
 	expect(after.updated_at).toBe(before.updated_at);
 });
 
+it("rejects a title over the code-point limit and accepts one at it", async () => {
+	const session = await root("short");
+	const tooLong = await call(app, `/api/sessions/${session.id}`, {
+		method: "PATCH",
+		cookie,
+		body: { title: "字".repeat(61) },
+	});
+	expect(tooLong.status).toBe(400);
+	expect((await sessionRow(session.id)).title).toBe("short");
+
+	const atLimit = "字".repeat(60);
+	const accepted = await call(app, `/api/sessions/${session.id}`, {
+		method: "PATCH",
+		cookie,
+		body: { title: atLimit },
+	});
+	expect(accepted.status).toBe(200);
+	expect((await sessionRow(session.id)).title).toBe(atLimit);
+});
+
 it("restores the row when the conversation refuses the new model", async () => {
 	const session = await root("kept title");
 	const before = await sessionRow(session.id);

@@ -1,22 +1,252 @@
 // biome-ignore-all lint/suspicious/noArrayIndexKey: Markdown blocks are an ordered sequence; an index is the stable identity of a block position.
-import { cloneElement, isValidElement, memo, type ReactElement, type ReactNode, useMemo, useRef } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import { Trans } from "@lingui/react/macro";
+import {
+	type ComponentProps,
+	cloneElement,
+	createContext,
+	isValidElement,
+	memo,
+	type ReactElement,
+	type ReactNode,
+	useContext,
+	useId,
+	useMemo,
+	useRef,
+} from "react";
+import ReactMarkdown, { type Components, type ExtraProps, type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import remend from "remend";
+import { CodeFrame } from "@/components/code-frame";
 import { safeUrlTransform } from "@/lib/url";
 import { cn } from "@/lib/utils";
 import { type MarkdownBlock, MarkdownSplitter } from "./blocks";
 import { CodeBlock } from "./CodeBlock";
+import { MathView } from "./MathView";
+import { convertMathDelimiters } from "./math";
 import { SafeLink, TextImage } from "./safe-nodes";
 import { type StreamingTextStore, useStreamingText } from "./stream-store";
 
-const REMARK_PLUGINS = [remarkGfm];
+const REMARK_PLUGINS: NonNullable<Options["remarkPlugins"]> = [
+	remarkGfm,
+	[remarkMath, { singleDollarTextMath: false }],
+];
 
 function textOf(children: ReactNode): string {
 	if (typeof children === "string") return children;
 	if (typeof children === "number") return String(children);
 	if (Array.isArray(children)) return children.map(textOf).join("");
 	return "";
+}
+
+function isMathClass(className: string | undefined): boolean {
+	return className?.includes("language-math") ?? false;
+}
+
+/** ASCII characters `micromark-util-sanitize-uri` leaves unescaped in an id. */
+const URI_SAFE_CHARACTER_RE = /[!#$&-;=?-Z_a-z~]/;
+
+function isAsciiAlphanumeric(code: number): boolean {
+	return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+}
+
+/**
+ * Percent-encode an identifier the way `mdast-util-to-hast` does for footnote ids (via
+ * `micromark-util-sanitize-uri`): unsafe characters become `%XX`, existing `%XX` sequences are kept.
+ * Encoding must match exactly, or the section's back-links point at ids the references never have.
+ */
+function encodeFootnoteId(value: string): string {
+	let result = "";
+	let start = 0;
+	let skip = 0;
+	for (let index = 0; index < value.length; index += 1) {
+		const code = value.charCodeAt(index);
+		let replacement = "";
+		if (
+			code === 37 &&
+			isAsciiAlphanumeric(value.charCodeAt(index + 1)) &&
+			isAsciiAlphanumeric(value.charCodeAt(index + 2))
+		) {
+			skip = 2;
+		} else if (code < 128) {
+			const character = String.fromCharCode(code);
+			if (!URI_SAFE_CHARACTER_RE.test(character)) replacement = character;
+		} else if (code > 55_295 && code < 57_344) {
+			// A surrogate pair is encoded as one code point; a lone surrogate becomes U+FFFD.
+			const next = value.charCodeAt(index + 1);
+			if (code < 56_320 && next > 56_319 && next < 57_344) {
+				replacement = String.fromCharCode(code, next);
+				skip = 1;
+			} else {
+				replacement = "\uFFFD";
+			}
+		} else {
+			replacement = String.fromCharCode(code);
+		}
+		if (replacement !== "") {
+			result += value.slice(start, index) + encodeURIComponent(replacement);
+			start = index + skip + 1;
+			replacement = "";
+		}
+		if (skip !== 0) {
+			index += skip;
+			skip = 0;
+		}
+	}
+	return result + value.slice(start);
+}
+
+/**
+ * The `safeId` `mdast-util-to-hast` gives a footnote label: the identifier is canonicalised
+ * (whitespace collapsed, trimmed, lower- then uppercase) and then lowercased and percent-encoded.
+ * Doing the same here keeps the section's `li` id, the reference `href` and the back-link identical
+ * for labels with uppercase or non-ASCII characters.
+ */
+function footnoteSafeId(label: string): string {
+	const identifier = label
+		.replace(/[\t\n\r ]+/g, " ")
+		.replace(/^ | $/g, "")
+		.toLowerCase()
+		.toUpperCase();
+	return encodeFootnoteId(identifier.toLowerCase());
+}
+
+interface FootnoteDefinition {
+	label: string;
+	/** The encoded id used by the `fn-` and `fnref-` anchors. */
+	safeId: string;
+	body: string;
+}
+
+const FOOTNOTE_DEFINITION_RE = /^ {0,3}\[\^([^\]\s]+)\]:[ \t]?/;
+
+/**
+ * The definitions the splitter collected, as label and body. The renderer prepends the raw source to
+ * every block so references resolve; this list is what the one footnotes section at the end shows.
+ */
+function parseFootnoteDefinitions(source: string): FootnoteDefinition[] {
+	const definitions: FootnoteDefinition[] = [];
+	let current: FootnoteDefinition | null = null;
+	for (const line of source.split("\n")) {
+		const match = FOOTNOTE_DEFINITION_RE.exec(line);
+		if (match) {
+			const label = match[1] ?? "";
+			current = { label, safeId: footnoteSafeId(label), body: line.slice(match[0].length) };
+			definitions.push(current);
+		} else if (current) {
+			// A continuation line is indented by up to four spaces (or a tab); the indentation is not content.
+			current.body += `\n${line.replace(/^(?: {1,4}|\t)/, "")}`;
+		}
+	}
+	return definitions.map((definition) => ({ ...definition, body: definition.body.trimEnd() }));
+}
+
+interface FootnoteNumbering {
+	/** Definitions in reference order; definitions nobody refers to keep their document order at the end. */
+	definitions: FootnoteDefinition[];
+	/** safeId → the message-wide number its references show, matching the ordered list. */
+	numbers: Map<string, number>;
+	/** safeId → index of the block holding the message-wide first reference, the one that keeps the id. */
+	firstBlocks: Map<string, number>;
+}
+
+/**
+ * Numbers the definitions by the order of their first reference across the whole message. Each block
+ * renders with its own remark-gfm run, so the numbers inside one block start at 1 again; the
+ * message-wide number is supplied to the anchors at render time instead.
+ */
+function orderedFootnoteDefinitions(
+	definitions: readonly FootnoteDefinition[],
+	blocks: readonly MarkdownBlock[],
+): FootnoteNumbering {
+	const unique: FootnoteDefinition[] = [];
+	const bySafeId = new Map<string, FootnoteDefinition>();
+	for (const definition of definitions) {
+		if (bySafeId.has(definition.safeId)) continue;
+		bySafeId.set(definition.safeId, definition);
+		unique.push(definition);
+	}
+	const ordered: FootnoteDefinition[] = [];
+	const firstBlocks = new Map<string, number>();
+	for (let index = 0; index < blocks.length; index += 1) {
+		const block = blocks[index];
+		// A definition block is not rendered in place, and a code block never makes a reference.
+		if (block === undefined || block.footnotes !== "" || block.code !== undefined) continue;
+		for (const match of block.source.matchAll(/\[\^([^\]\s]+)\](?!:)/g)) {
+			const safeId = footnoteSafeId(match[1] ?? "");
+			const definition = bySafeId.get(safeId);
+			if (definition === undefined) continue;
+			if (!firstBlocks.has(safeId)) firstBlocks.set(safeId, index);
+			if (!ordered.includes(definition)) ordered.push(definition);
+		}
+	}
+	for (const definition of unique) {
+		if (!ordered.includes(definition)) ordered.push(definition);
+	}
+	const numbers = new Map<string, number>();
+	for (const [index, definition] of ordered.entries()) numbers.set(definition.safeId, index + 1);
+	return { definitions: ordered, numbers, firstBlocks };
+}
+
+/** The state every event anchor needs: the message's prefix and its footnote numbering. */
+const FootnoteContext = createContext<{ prefix: string; numbering: FootnoteNumbering } | null>(null);
+/** The block a rendered Markdown element belongs to; `null` outside the message body (the footnotes list). */
+const BlockIndexContext = createContext<number | null>(null);
+
+/**
+ * Same-page links: remark-gfm's footnote references and back-links are fragments, which the URL policy
+ * rejects. The prefix is generated per message, so only this message's own anchors are allowed through.
+ */
+function markdownUrlTransform(prefix: string) {
+	return (url: string): string => {
+		if (url.startsWith(`#${prefix}`)) return url;
+		return safeUrlTransform(url);
+	};
+}
+
+function MarkdownAnchor({ href, node: _node, children, ...props }: ComponentProps<"a"> & ExtraProps) {
+	const footnotes = useContext(FootnoteContext);
+	const blockIndex = useContext(BlockIndexContext);
+	if ("data-footnote-ref" in props && typeof href === "string" && footnotes !== null) {
+		const target = `#${footnotes.prefix}fn-`;
+		const safeId = href.startsWith(target) ? href.slice(target.length) : null;
+		const number = safeId === null ? undefined : footnotes.numbering.numbers.get(safeId);
+		const firstBlock = safeId === null ? undefined : footnotes.numbering.firstBlocks.get(safeId);
+		const { id, "aria-describedby": _describedBy, ...rest } = props;
+		// remark-gfm numbers each block on its own; the message-wide number comes from the context.
+		// Only the message-wide first reference keeps its id (the back-link target): every later
+		// block would otherwise repeat `fnref-a`, because remark-gfm only suffixes repeats inside
+		// one block.
+		const keepId = blockIndex !== null && firstBlock !== undefined && blockIndex === firstBlock;
+		return (
+			<a
+				href={href}
+				{...rest}
+				{...(keepId && id !== undefined ? { id } : {})}
+				aria-describedby={`${footnotes.prefix}footnote-label`}
+			>
+				{number ?? children}
+			</a>
+		);
+	}
+	if (typeof href === "string" && href.startsWith("#")) {
+		const backReferencePrefix = footnotes === null ? null : `#${footnotes.prefix}fnref-`;
+		const isBackReference = backReferencePrefix !== null && href.startsWith(backReferencePrefix);
+		return (
+			<a
+				href={href}
+				{...props}
+				{...(isBackReference ? { className: cn("ml-1", props.className), "data-footnote-backref": "" } : {})}
+			>
+				{children}
+			</a>
+		);
+	}
+	return (
+		<SafeLink href={href} className={props.className} title={props.title}>
+			{children}
+		</SafeLink>
+	);
 }
 
 /**
@@ -27,15 +257,23 @@ function textOf(children: ReactNode): string {
 function markdownComponents(complete: boolean): Components {
 	return {
 		// `pre` only marks its child as a block; the shared CodeBlock renders its own
-		// <pre>, so the wrapper must not be emitted twice.
+		// <pre>, so the wrapper must not be emitted twice. Display math is its own
+		// block and the MathView wrapper replaces the <pre>.
 		pre: ({ children }) => {
 			if (isValidElement(children)) {
+				const className = (children.props as { className?: string }).className;
+				if (isMathClass(className)) return children;
 				return cloneElement(children as ReactElement<Record<string, unknown>>, { "data-block": "true" });
 			}
 			return <pre>{children}</pre>;
 		},
 		code: (props) => {
 			const { className, children } = props;
+			if (isMathClass(className)) {
+				return (
+					<MathView tex={textOf(children).replace(/\n$/, "")} display={className?.includes("math-display") ?? false} />
+				);
+			}
 			const isBlock = "data-block" in props;
 			if (isBlock) {
 				const code = textOf(children).replace(/\n$/, "");
@@ -44,13 +282,13 @@ function markdownComponents(complete: boolean): Components {
 			}
 			return <code className={className}>{children}</code>;
 		},
-		a: SafeLink,
+		// Each block runs its own react-markdown, so remark-gfm's footnote section
+		// must not appear per block; the message renders one at the end instead.
+		section: ({ node: _node, ...props }) => ("data-footnotes" in props ? null : <section {...props} />),
+		a: MarkdownAnchor,
 		img: TextImage,
 	};
 }
-
-const MARKDOWN_COMPONENTS = markdownComponents(true);
-const STREAMING_MARKDOWN_COMPONENTS = markdownComponents(false);
 
 /**
  * `remend` closes the markdown constructs that are still open in the last
@@ -83,18 +321,24 @@ function safeRemend(text: string): string {
  * cannot help; the converted element of a finished block is cached by its full
  * source instead. Elements are immutable descriptions, so a hit is safe to
  * render again. The cache is bounded and cleared as a whole: a session page
- * only has a handful of long messages on screen at a time.
+ * only has a handful of long messages on screen at a time. The key carries the
+ * message's footnote prefix and the collected definitions (which are part of
+ * `text`) so two messages cannot share anchors or a stale footnote set.
  */
 const blockCache = new Map<string, ReactElement>();
 const BLOCK_CACHE_LIMIT = 1_200;
 
-function markdownBlockElement(text: string, reusable: boolean): ReactElement {
-	const hit = reusable ? blockCache.get(text) : undefined;
+function markdownBlockElement(text: string, reusable: boolean, prefix: string): ReactElement {
+	const cacheKey = `${prefix}\u0000${text}`;
+	const hit = reusable ? blockCache.get(cacheKey) : undefined;
 	if (hit !== undefined) return hit;
 	const element = ReactMarkdown({
 		remarkPlugins: REMARK_PLUGINS,
-		components: reusable ? MARKDOWN_COMPONENTS : STREAMING_MARKDOWN_COMPONENTS,
-		urlTransform: safeUrlTransform,
+		components: markdownComponents(reusable),
+		// react-markdown 10 passes the clobber prefix to remark-rehype, whose mdast-util-to-hast
+		// prefixes footnote ids (it no longer takes a top-level `clobberPrefix` prop).
+		remarkRehypeOptions: { clobberPrefix: prefix },
+		urlTransform: markdownUrlTransform(prefix),
 		skipHtml: true,
 		children: text,
 	});
@@ -102,25 +346,80 @@ function markdownBlockElement(text: string, reusable: boolean): ReactElement {
 	// it would only evict the finished blocks the cache exists for.
 	if (!reusable) return element;
 	if (blockCache.size >= BLOCK_CACHE_LIMIT) blockCache.clear();
-	blockCache.set(text, element);
+	blockCache.set(cacheKey, element);
 	return element;
 }
 
 const MarkdownBlockView = memo(function MarkdownBlockView({
 	source,
 	definitions,
+	footnotes,
 	streaming,
+	prefix,
+	blockIndex = null,
 }: {
 	source: string;
 	definitions: string;
+	footnotes: string;
 	streaming: boolean;
+	prefix: string;
+	blockIndex?: number | null;
 }) {
 	const repaired = streaming ? safeRemend(source) : source;
-	// Definitions are prepended so references resolve even when the definition
-	// itself arrives later in the message (doc/design/webui.md "SafeMarkdown").
-	const text = definitions === "" ? repaired : `${definitions}\n\n${repaired}`;
-	return markdownBlockElement(text, !streaming);
+	// Footnotes and reference definitions are prepended so references resolve
+	// even when the definition itself arrives later in the message
+	// (doc/design/webui.md "SafeMarkdown").
+	const prelude = [footnotes, definitions].filter((value) => value !== "").join("\n");
+	const text = prelude === "" ? repaired : `${prelude}\n\n${repaired}`;
+	return (
+		<BlockIndexContext.Provider value={blockIndex}>
+			{markdownBlockElement(text, !streaming, prefix)}
+		</BlockIndexContext.Provider>
+	);
 });
+
+/**
+ * The one footnotes section of a message: the collected definitions as an ordered list, each body
+ * rendered by the same block renderer, with a back-link to its reference.
+ */
+function FootnotesSection({
+	definitions,
+	definitionsSource,
+	prefix,
+}: {
+	definitions: readonly FootnoteDefinition[];
+	definitionsSource: string;
+	prefix: string;
+}) {
+	if (definitions.length === 0) return null;
+	return (
+		<section
+			data-footnotes
+			className="mt-4 border-t border-border pt-2 text-xs text-muted-foreground"
+			data-testid="footnotes"
+		>
+			<h2 id={`${prefix}footnote-label`} className="sr-only">
+				<Trans>Footnotes</Trans>
+			</h2>
+			<ol>
+				{definitions.map((definition) => (
+					<li key={definition.safeId} id={`${prefix}fn-${definition.safeId}`} className="mt-1">
+						<MarkdownBlockView
+							// The back-link belongs to the end of the note's last line, as GitHub renders it:
+							// appending it to the body keeps it inside the final paragraph instead of on a line
+							// of its own after the block.
+							source={`${definition.body} [↩](#${prefix}fnref-${definition.safeId})`}
+							definitions={definitionsSource}
+							footnotes=""
+							streaming={false}
+							prefix={prefix}
+						/>
+					</li>
+				))}
+			</ol>
+		</section>
+	);
+}
 
 const CodeBlockView = memo(function CodeBlockView({ block, complete }: { block: MarkdownBlock; complete: boolean }) {
 	return <CodeBlock code={(block.code?.text ?? "").replace(/\n$/, "")} lang={block.code?.lang} complete={complete} />;
@@ -129,24 +428,58 @@ const CodeBlockView = memo(function CodeBlockView({ block, complete }: { block: 
 function MarkdownView({ text, streaming, className }: { text: string; streaming: boolean; className?: string }) {
 	const splitterRef = useRef<MarkdownSplitter | null>(null);
 	splitterRef.current ??= new MarkdownSplitter();
-	const result = useMemo(() => (splitterRef.current as MarkdownSplitter).update(text, streaming), [text, streaming]);
+	// Every message owns its footnote anchor ids, so two messages on one page never collide.
+	// React's id has characters that are awkward in CSS selectors; the prefix only needs to be unique.
+	const instanceId = useId()
+		.toLowerCase()
+		.replace(/[^a-z0-9-]/g, "");
+	const prefix = `md-${instanceId === "" ? "x" : instanceId}-`;
+	// TeX-style delimiters are rewritten before splitting, so a display `\[…\]` becomes a `$$` fence
+	// that the splitter keeps together (doc/design/webui.md "SafeMarkdown").
+	const converted = useMemo(() => convertMathDelimiters(text), [text]);
+	const result = useMemo(
+		() => (splitterRef.current as MarkdownSplitter).update(converted, streaming),
+		[converted, streaming],
+	);
+	const numbering = useMemo(
+		() => orderedFootnoteDefinitions(parseFootnoteDefinitions(result.footnotes), result.blocks),
+		[result.footnotes, result.blocks],
+	);
+	const footnoteContext = useMemo(() => ({ prefix, numbering }), [prefix, numbering]);
 	const lastIndex = result.blocks.length - 1;
 
 	return (
-		<div className={cn("md-body", className)} data-testid="safe-markdown">
-			{result.blocks.map((block, index) =>
-				block.code !== undefined ? (
-					<CodeBlockView key={index} block={block} complete={!(streaming && index === lastIndex)} />
-				) : (
-					<MarkdownBlockView
-						key={index}
-						source={block.source}
-						definitions={result.definitions}
-						streaming={streaming && index === lastIndex}
-					/>
-				),
-			)}
-		</div>
+		<FootnoteContext.Provider value={footnoteContext}>
+			<div className={cn("md-body", className)} data-testid="safe-markdown">
+				{result.blocks.map((block, index) =>
+					block.footnotes !== "" ? null : block.unclosedMath === true ? (
+						// An incomplete display formula (still streaming) has no closing `$$`; rendering it as source
+						// keeps the delimiters visible instead of turning the partial TeX into MathML early.
+						<CodeFrame
+							key={index}
+							className="my-3"
+							bodyClassName="overflow-x-auto p-3 font-mono text-xs whitespace-pre"
+							data-testid="unclosed-math"
+						>
+							{block.source}
+						</CodeFrame>
+					) : block.code !== undefined ? (
+						<CodeBlockView key={index} block={block} complete={!(streaming && index === lastIndex)} />
+					) : (
+						<MarkdownBlockView
+							key={index}
+							source={block.source}
+							definitions={result.definitions}
+							footnotes={result.footnotes}
+							streaming={streaming && index === lastIndex}
+							prefix={prefix}
+							blockIndex={index}
+						/>
+					),
+				)}
+				<FootnotesSection definitions={numbering.definitions} definitionsSource={result.footnotes} prefix={prefix} />
+			</div>
+		</FootnoteContext.Provider>
 	);
 }
 

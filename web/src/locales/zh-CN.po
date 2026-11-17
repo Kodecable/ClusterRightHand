@@ -177,14 +177,6 @@ msgstr "{level} 请求体 JSON"
 msgid "{level} value"
 msgstr "{level} 值"
 
-#: src/markdown/CodeBlock.tsx
-msgid "{lineCount, plural, one {# line} other {# lines}}"
-msgstr "{lineCount, plural, one {# 行} other {# 行}}"
-
-#: src/components/code-text.tsx
-msgid "{lines, plural, one {# line} other {# lines}}"
-msgstr "{lines, plural, one {# 行} other {# 行}}"
-
 #: src/components/node-targets.tsx
 msgid "{list} and {more} more"
 msgstr "{list} 等 {more} 个"
@@ -330,6 +322,10 @@ msgstr "计划任务在每次触发时创建一个新会话并提交固定的提
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the <0>Authorizations</0> page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
 msgstr "计划运行走正常的授权路径：特权任务需要所有者签名。要让固定命令无人值守地运行，请在 <0>授权</0> 页面上为它签发可复用授权（不带任务 id），并让提示词运行的正好是该命令。其他内容仍会在审批中等待，下一次触发会结束本次运行。"
+
+#: src/features/sessions/session-header.tsx
+msgid "A session title is at most {SESSION_TITLE_MAX_CHARS} characters."
+msgstr "会话标题最多 {SESSION_TITLE_MAX_CHARS} 个字符。"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "A Telegram bot. Private chats only; a topic is its own session."
@@ -2232,6 +2228,10 @@ msgstr "五个字段：分 时 日 月 周，使用所选的 IANA 时区。"
 #: src/features/nodes/node-trust.tsx
 msgid "Flags"
 msgstr "标志"
+
+#: src/markdown/SafeMarkdown.tsx
+msgid "Footnotes"
+msgstr "脚注"
 
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."

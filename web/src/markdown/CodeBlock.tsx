@@ -1,7 +1,8 @@
 // biome-ignore-all lint/suspicious/noArrayIndexKey: tokens and finished-line groups are an ordered append-only sequence.
-import { Plural, useLingui } from "@lingui/react/macro";
+import { useLingui } from "@lingui/react/macro";
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { HighlighterGeneric, ThemedToken } from "shiki";
+import { CodeFrame } from "@/components/code-frame";
 import { CopyButton } from "@/components/copy-button";
 import { cn } from "@/lib/utils";
 import {
@@ -102,7 +103,6 @@ function cachedSnapshot(key: string, snapshot: TokenSnapshot): TokenSnapshot {
 		lines: snapshot.lines.slice(),
 		partial: snapshot.partial === null ? null : snapshot.partial.slice(),
 		partialText: snapshot.partialText,
-		preStyle: snapshot.preStyle,
 	};
 	tokenCache.set(key, copy);
 	return copy;
@@ -183,36 +183,17 @@ export function CodeBlock({ code, lang, className, complete = false }: CodeBlock
 	const plain = snapshot === null;
 
 	return (
-		<div
-			className={cn(
-				"code-block my-3 overflow-hidden rounded-lg border bg-[var(--code)]",
-				lineCount > 400 && "code-block--giant",
-				className,
-			)}
+		<CodeFrame
+			className={cn("my-3", className)}
 			data-testid="shiki-code-block"
 			data-lang={key ?? lang ?? "text"}
 			data-lines={lineCount}
 			data-plain={plain ? "true" : "false"}
+			title={<span className="font-mono">{lang !== undefined && lang !== "" ? lang : t`text`}</span>}
+			actions={<CopyButton text={code} label={t`Copy code`} showLabel />}
+			bodyClassName={cn("max-h-[420px] overflow-auto", lineCount > 400 && "max-h-[520px]")}
 		>
-			<div className="flex items-center gap-2 border-b px-3 py-1 text-xs text-muted-foreground">
-				<span className="flex-1 font-mono" data-testid="code-lang">
-					{lang !== undefined && lang !== "" ? lang : t`text`}
-					{lineCount > 1 && (
-						<>
-							{" · "}
-							<Plural value={lineCount} one="# line" other="# lines" />
-						</>
-					)}
-				</span>
-				<CopyButton text={code} label={t`Copy code`} showLabel />
-			</div>
-			<pre
-				className={cn(
-					"shiki-block max-h-[420px] overflow-auto p-3 text-xs leading-relaxed",
-					lineCount > 400 && "max-h-[520px]",
-				)}
-				style={snapshot?.preStyle}
-			>
+			<pre className="shiki-block p-3 text-xs leading-relaxed">
 				<code>
 					{snapshot === null ? (
 						<span className="shiki-plain">{code}</span>
@@ -224,6 +205,6 @@ export function CodeBlock({ code, lang, className, complete = false }: CodeBlock
 					)}
 				</code>
 			</pre>
-		</div>
+		</CodeFrame>
 	);
 }

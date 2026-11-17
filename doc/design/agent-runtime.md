@@ -225,8 +225,11 @@ else creates a fork.
   submission counters. The source's shares, approvals, tasks, task groups, external calls and subagent
   sessions are not copied.
 - **Title.** The fork's title is the source title plus a localized suffix: ` (fork)` in English,
-  `（分叉）` in Chinese; an untitled source falls back to the localized "New session" wording first. The
-  title is settled when the row is written, so no generation runs for it.
+  `（分叉）` in Chinese; an untitled source falls back to the localized "New session" wording first. A
+  source title that already ends with either locale's suffix gets no second one, so a fork of a fork
+  keeps its title; otherwise the base is cut (in code points, then trimmed) so the whole title stays
+  within the 60-code-point limit below. The title is settled when the row is written, so no generation
+  runs for it.
 - **Validation and idempotency.** The entry must be a visible entry of the fork's source conversation:
   a completed assistant message without tool calls, the last non-compaction entry of its turn, and a
   turn that has ended (a later user turn exists or the session is idle). Process text, thinking, tool
@@ -277,6 +280,12 @@ The input is the latest user message and final answer, text only. A manual title
 generated title is written only if the session still wants one, in the same statement that checks it.
 Clearing the title stops generation for good. A failure only leaves the session untitled until the next
 run ends. Subagents are titled with the start of their task and scheduled runs with the schedule's name.
+
+A title is at most 60 characters, counted in Unicode code points, not UTF-16 units
+(`SESSION_TITLE_MAX_CHARS` in `packages/api`). A generated title is cut to that length; a create or
+patch request with a longer one is a 400, and the WebUI's title editor shows a field error and does not
+submit it. Fork suffixes count against the same limit, so the base is shortened rather than the title
+growing past it.
 
 ## Subagents
 

@@ -8,6 +8,11 @@ import { useSyncExternalStore } from "react";
  * render per character. The session view subscribes with `useStreamingText`,
  * and the message list itself only re-renders when the message count changes.
  */
+export interface StreamingTextSnapshot {
+	text: string;
+	streaming: boolean;
+}
+
 export class StreamingTextStore {
 	private value = "";
 	private pending = "";
@@ -15,6 +20,7 @@ export class StreamingTextStore {
 	private readonly listeners = new Set<() => void>();
 	private done = false;
 	private disposed = false;
+	private snapshot: StreamingTextSnapshot = { text: "", streaming: true };
 	private readonly scheduleFrame: (callback: () => void) => number | ReturnType<typeof setTimeout>;
 	private readonly cancelFrame: (handle: number | ReturnType<typeof setTimeout>) => void;
 
@@ -37,9 +43,17 @@ export class StreamingTextStore {
 
 	getSnapshot = (): string => this.value;
 
+	/**
+	 * The snapshot `useSyncExternalStore` subscribes to. It carries the streaming flag as well as the
+	 * text: `finish()` must re-render even when the final text is unchanged, or the committed message
+	 * would keep rendering in streaming mode (and an incomplete display formula would stay source).
+	 */
+	getRenderSnapshot = (): StreamingTextSnapshot => this.snapshot;
+
 	isDone = (): boolean => this.done;
 
 	private notify(): void {
+		this.snapshot = { text: this.value, streaming: !this.done };
 		for (const listener of this.listeners) listener();
 	}
 
@@ -92,9 +106,6 @@ export class StreamingTextStore {
 	}
 }
 
-export function useStreamingText(store: StreamingTextStore): { text: string; streaming: boolean } {
-	const text = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-	// `isDone` is a plain read; `finish` notifies subscribers so this re-renders.
-	const streaming = !store.isDone();
-	return { text, streaming };
+export function useStreamingText(store: StreamingTextStore): StreamingTextSnapshot {
+	return useSyncExternalStore(store.subscribe, store.getRenderSnapshot, store.getRenderSnapshot);
 }

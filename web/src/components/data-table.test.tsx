@@ -323,4 +323,12 @@ describe("DataTable", () => {
 		await user.keyboard(" ");
 		expect(onRowActivate).toHaveBeenCalledTimes(2);
 	});
+
+	test("the header bar uses the solid muted framed-block surface", async () => {
+		const { container } = await renderWithRouter(<DataTable data={rows.slice(0, 1)} columns={columns} label="Muted" />);
+		const header = container.querySelector('[role="columnheader"]')?.parentElement;
+		expect(header).not.toBeNull();
+		expect(header).toHaveClass("bg-muted");
+		expect(header?.className).not.toContain("bg-muted/60");
+	});
 });

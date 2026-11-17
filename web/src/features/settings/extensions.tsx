@@ -101,7 +101,7 @@ function ToolsDialog({ extension, onClose }: { extension: ExtensionView; onClose
 									)}
 								</div>
 								{tool.description !== null && <p className="text-xs text-muted-foreground">{tool.description}</p>}
-								<code className="max-h-48 overflow-auto rounded bg-[var(--code)] p-1 font-mono text-[11px] whitespace-pre-wrap">
+								<code className="max-h-48 overflow-auto rounded bg-muted p-1 font-mono text-[11px] whitespace-pre-wrap">
 									{JSON.stringify(tool.inputSchema, null, 2)}
 								</code>
 							</li>

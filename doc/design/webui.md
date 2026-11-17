@@ -197,9 +197,15 @@ behaves the same on every page:
   finished times.
 - **`displaySessionTitle`** is the one session title: the stored title, or **New Session** for a null,
   empty or whitespace-only one. Lists, breadcrumbs, decision cards and the channel cards all use it.
-- **`CodeText`** is the one code/output block. Tool output, the audit detail and a model preset's default
-  prompt render it; **`OutputBlock`** is the task-output variant that joins head and tail with one
-  omitted-bytes line.
+  Titles are at most 60 code points (`SESSION_TITLE_MAX_CHARS`); the title editor shows a field error
+  for a longer one and does not send it, rather than letting the server's 400 be the only feedback.
+- **`CodeFrame`** is the one code-block frame: a bordered rounded block with an optional header bar
+  (title, optional meta such as a byte count, and actions such as copy), a transparent scrollable body
+  and an optional footer bar. **`CodeText`** is the collapsible output variant: its label is the header
+  title, its copy action sits in the header, and a footer keeps **Showing first N of M lines** with
+  **Show all** / **Show less** while the text is cut. **`OutputBlock`** is the task-output variant whose
+  header carries the label and byte count, and whose body joins head and tail with one omitted-bytes
+  line. The Markdown **`CodeBlock`** renders through the same frame.
 - **`FileManager`** is the only file browser. It knows nothing of libraries or nodes: it takes a
   `FileSource` with `list` and `stat`, and optionally `download`, `upload`, `delete`, `rename` and
   `preview`. A missing operation hides its action. Its toolbar (a home icon, the path breadcrumb and
@@ -518,12 +524,63 @@ Security rules:
   message content.
 - Code blocks render only text and highlight tokens; their copy button copies the original source.
 
+Footnotes work across those blocks. `[^label]` and its `[^label]: text` definition usually land in
+different blocks, so the splitter collects definitions in a `footnotes` field (marked has no footnote
+token; a paragraph that starts with `[^label]:`, or a reference-definition token that does, is one) and
+prepends them to every block, exactly as it does reference definitions. The definition blocks are not
+rendered where they stand. One ordered list at the end of the message carries the bodies, each rendered
+through the same block renderer and ended by the ↩ back-link inside the note's last paragraph, not on a
+line below it. remark-gfm's own per-block `data-footnotes` section is suppressed.
+
+Because every block runs remark-gfm on its own, the reference numbers inside a block start at 1 again.
+The renderer therefore numbers the definitions once for the whole message, in the order of first
+reference, and passes that map (plus the index of the first referencing block for each label) through a
+React context read by the anchor component when it renders; cached block elements stay valid because
+the number is resolved at render time. The one ordered list uses the same order. Only the message-wide
+first reference of a label keeps its `fnref-…` id, the back-link target; repeats in other blocks drop
+it, since remark-gfm only suffixes repeats within one block. The footnotes heading carries
+`${prefix}footnote-label`, and every reference's `aria-describedby` points at it, so the description
+resolves instead of naming a missing element.
+
+Each message gives its footnotes a prefix from React's `useId` (sanitized to `[a-z0-9-]`), passed to
+remark-rehype's `clobberPrefix`, so two messages on one page never share `fn-1` ids; the cache key of a
+rendered block carries that prefix and the collected definitions. A definition's `li` id, the reference
+`href` and the back-link use the identical encoding remark-rehype uses for the anchor (`safeId`: the
+label is normalised to lowercase and percent-encoded like a URL, so uppercase labels fold together and
+a label such as `[^注释]` becomes `%E6%B3%A8%E9%87%8A`).
+
+Math is browser-native MathML produced by Temml. Delimiters are `$$…$$` (inline when it stays on one
+line, display when it forms a `$$` fence) plus the TeX-style `\(…\)` (inline) and `\[…\]` (display),
+which a preprocessor rewrites to the dollar forms before splitting; it never touches fenced code or
+inline code spans. `\[…\]` is display math only when it forms a block of its own: the opener starts
+a line after at most three spaces of indentation and the closer ends a line (trailing spaces
+allowed), and the rewritten `$$` fence keeps that indentation, with its content indented alongside
+it so display math inside a list item stays in the item. A `\[…\]` anywhere else is ordinary
+Markdown — `\[link\]` mid-sentence is the escaped literal bracket `[link]`, and treating it as a
+display fence would split the paragraph around it. A single `$…$` is not math: remark-math runs with
+`singleDollarTextMath: false`, so `$5 and $10` stays text, because dollar signs are ordinary prose
+money. A display `$$` fence may contain blank lines; the splitter merges the tokens it produced
+until the closing `$$`. In a finished message a `$$` opener with no closing fence is not a formula:
+it does not absorb the following paragraphs, which render normally as Markdown. While streaming,
+only the last block can still be an unfinished formula; it is shown as its source, and invalid TeX
+falls back to the source; neither throws. Temml is a dynamic import (a separate chunk), so a page
+with no math never loads it; while the chunk loads the TeX source shows in a monospace span. Temml
+renders MathML only (`trust: false`), and its small local font stylesheet rides in the same lazy
+chunk. Display formulas are centered and scroll horizontally inside their own box, so a wide formula
+never widens the page.
+
 ### Code highlighting
 
 Shiki runs with its JavaScript regex engine, so no WASM is needed. Highlighting is incremental per
 code block: completed lines are tokenized once and only the last, incomplete line is redone on each
 update. Common shell and data languages load in idle time; others load on first use, and the block
-shows plain text until then.
+shows plain text until then. Every code block renders through one frame
+(doc/design/webui.md "Shared components"): the header bar shows the language name (never a line count)
+with the copy action, and the frame follows the shared framed-block colour rule — a `--border` border,
+solid `--muted` header and footer bars, and a transparent `<pre>` body on the surrounding page, card or
+dialog surface. Inline code uses `--muted`. The Shiki theme's own background is never used, and plain
+(not yet highlighted, or an unsupported language) and highlighted blocks use the same surfaces, so they
+look identical in either theme.
 
 ## Backend API
 

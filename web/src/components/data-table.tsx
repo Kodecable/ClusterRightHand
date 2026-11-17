@@ -409,7 +409,7 @@ export function DataTable<T extends RowData>({
 			role="row"
 			data-slot="data-table-row"
 			className={cn(
-				"items-center border-b bg-muted/60 font-medium text-muted-foreground",
+				"items-center border-b bg-muted font-medium text-muted-foreground",
 				compact ? "min-h-7 text-[11px] leading-4" : "min-h-8 text-xs",
 			)}
 		>

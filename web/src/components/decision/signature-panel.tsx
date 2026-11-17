@@ -23,7 +23,7 @@ function CommandLine({ text, label }: { text: string; label: string }) {
 			<code
 				data-testid="decision-command"
 				title={text}
-				className="block min-w-0 flex-1 truncate rounded bg-[var(--code)] px-2 py-1 font-mono text-xs leading-5"
+				className="block min-w-0 flex-1 truncate rounded bg-muted px-2 py-1 font-mono text-xs leading-5"
 			>
 				{text}
 			</code>

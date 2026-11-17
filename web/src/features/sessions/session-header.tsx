@@ -1,4 +1,4 @@
-import type { SessionView } from "@crh/api";
+import { SESSION_TITLE_MAX_CHARS, type SessionView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronLeftIcon, Share2Icon } from "lucide-react";
@@ -83,6 +83,7 @@ function TitleEditor({ session }: { session: SessionView }) {
 	const { t, i18n } = useLingui();
 	const patch = usePatchSession(session.id);
 	const [value, setValue] = useState(session.title ?? "");
+	const tooLong = Array.from(value).length > SESSION_TITLE_MAX_CHARS;
 	useEffect(() => setValue(session.title ?? ""), [session.title]);
 
 	if (!session.capabilities.configure) {
@@ -92,7 +93,7 @@ function TitleEditor({ session }: { session: SessionView }) {
 	}
 
 	const save = () => {
-		if (patch.isPending) return;
+		if (patch.isPending || tooLong) return;
 		const title = value.trim();
 		if (title === (session.title ?? "")) {
 			setValue(session.title ?? "");
@@ -118,8 +119,9 @@ function TitleEditor({ session }: { session: SessionView }) {
 				data-testid="session-title"
 				value={value}
 				placeholder={t`New Session`}
-				maxLength={200}
 				disabled={patch.isPending}
+				aria-invalid={tooLong || undefined}
+				aria-describedby={tooLong ? "session-title-error" : undefined}
 				className="h-8 border-transparent bg-transparent px-1 text-lg font-semibold shadow-none hover:border-input focus-visible:border-input dark:bg-transparent"
 				onChange={(event) => setValue(event.target.value)}
 				onBlur={save}
@@ -127,6 +129,11 @@ function TitleEditor({ session }: { session: SessionView }) {
 					if (event.key === "Escape") setValue(session.title ?? "");
 				}}
 			/>
+			{tooLong && (
+				<p id="session-title-error" role="alert" className="text-xs text-destructive" data-testid="session-title-error">
+					{t`A session title is at most ${SESSION_TITLE_MAX_CHARS} characters.`}
+				</p>
+			)}
 		</form>
 	);
 }

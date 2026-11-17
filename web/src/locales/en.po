@@ -177,14 +177,6 @@ msgstr "{level} request body JSON"
 msgid "{level} value"
 msgstr "{level} value"
 
-#: src/markdown/CodeBlock.tsx
-msgid "{lineCount, plural, one {# line} other {# lines}}"
-msgstr "{lineCount, plural, one {# line} other {# lines}}"
-
-#: src/components/code-text.tsx
-msgid "{lines, plural, one {# line} other {# lines}}"
-msgstr "{lines, plural, one {# line} other {# lines}}"
-
 #: src/components/node-targets.tsx
 msgid "{list} and {more} more"
 msgstr "{list} and {more} more"
@@ -330,6 +322,10 @@ msgstr "A schedule creates a new session at each trigger and submits a fixed pro
 #: src/features/schedules/pages.tsx
 msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the <0>Authorizations</0> page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
 msgstr "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the <0>Authorizations</0> page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
+
+#: src/features/sessions/session-header.tsx
+msgid "A session title is at most {SESSION_TITLE_MAX_CHARS} characters."
+msgstr "A session title is at most {SESSION_TITLE_MAX_CHARS} characters."
 
 #: src/features/channels/channel-dialog.tsx
 msgid "A Telegram bot. Private chats only; a topic is its own session."
@@ -2232,6 +2228,10 @@ msgstr "Five fields: minute hour day-of-month month day-of-week, in the chosen I
 #: src/features/nodes/node-trust.tsx
 msgid "Flags"
 msgstr "Flags"
+
+#: src/markdown/SafeMarkdown.tsx
+msgid "Footnotes"
+msgstr "Footnotes"
 
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."

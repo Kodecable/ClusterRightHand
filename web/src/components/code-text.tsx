@@ -1,6 +1,7 @@
-import { Plural, Trans, useLingui } from "@lingui/react/macro";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { useMemo, useState } from "react";
+import { CodeFrame } from "@/components/code-frame";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./copy-button";
@@ -12,15 +13,16 @@ export interface CodeTextProps {
 	className?: string;
 	/** Extra classes for the `<pre>`; `max-h-none` lets a dialog body own the scroll. */
 	preClassName?: string;
-	/** Show the copy button in the corner (default: true). */
+	/** Show the copy action in the frame header (default: true). */
 	copy?: boolean;
-	/** An accessible label for the block, e.g. "Command output". */
+	/** The frame header title and the block's accessible label, e.g. "Command output". */
 	label?: string;
 }
 
 /**
- * Long monospace output: a scrollable `<pre>` that collapses after `maxLines`,
- * with a copy button (doc/design/webui.md "Shared components").
+ * Long monospace output: the shared code frame with a scrollable `<pre>` that collapses after
+ * `maxLines`, a copy action in the header, and a footer with Show all / Show less
+ * (doc/design/webui.md "Shared components").
  */
 export function CodeText({ text, maxLines = 24, className, preClassName, copy = true, label }: CodeTextProps) {
 	const { t } = useLingui();
@@ -30,41 +32,38 @@ export function CodeText({ text, maxLines = 24, className, preClassName, copy = 
 	const visible = collapsible && !expanded ? text.split("\n").slice(0, maxLines).join("\n") : text;
 
 	return (
-		<section
-			data-slot="code-text"
+		<CodeFrame
 			aria-label={label}
-			className={cn("group relative block rounded-lg border bg-[var(--code)]", className)}
+			title={label}
+			actions={copy ? <CopyButton text={text} label={label ? t`Copy ${label}` : undefined} /> : undefined}
+			className={className}
+			bodyClassName={cn("max-h-96 overflow-auto", preClassName)}
+			footer={
+				collapsible ? (
+					<>
+						<span className="text-xs text-muted-foreground">
+							{!expanded && (
+								<Trans>
+									Showing first {maxLines} of {lines} lines
+								</Trans>
+							)}
+						</span>
+						<Button type="button" size="xs" variant="ghost" onClick={() => setExpanded((value) => !value)}>
+							{expanded ? <ChevronUpIcon className="size-3.5" /> : <ChevronDownIcon className="size-3.5" />}
+							{expanded ? <Trans>Show less</Trans> : <Trans>Show all</Trans>}
+						</Button>
+					</>
+				) : undefined
+			}
 		>
-			{copy && (
-				<div className="absolute top-1.5 right-1.5 z-10 opacity-60 transition-opacity group-hover:opacity-100">
-					<CopyButton text={text} label={label ? t`Copy ${label}` : undefined} />
-				</div>
-			)}
 			<pre
 				className={cn(
-					"max-h-96 overflow-auto p-3 pr-9 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
+					"min-w-0 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]",
 					preClassName,
 				)}
 			>
 				{visible}
 			</pre>
-			{collapsible && (
-				<div className="flex items-center justify-between border-t px-2 py-1">
-					<span className="text-xs text-muted-foreground">
-						{expanded ? (
-							<Plural value={lines} one="# line" other="# lines" />
-						) : (
-							<Trans>
-								Showing first {maxLines} of {lines} lines
-							</Trans>
-						)}
-					</span>
-					<Button type="button" size="xs" variant="ghost" onClick={() => setExpanded((value) => !value)}>
-						{expanded ? <ChevronUpIcon className="size-3.5" /> : <ChevronDownIcon className="size-3.5" />}
-						{expanded ? <Trans>Show less</Trans> : <Trans>Show all</Trans>}
-					</Button>
-				</div>
-			)}
-		</section>
+		</CodeFrame>
 	);
 }

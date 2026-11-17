@@ -1,5 +1,5 @@
 import type { Evaluation, TaskView } from "@crh/api";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { renderWithRouter } from "@/test/render";
 import { TaskOutcomeBadge } from "./task-outcome";
@@ -185,6 +185,18 @@ describe("TaskResult", () => {
 		expect(output).toHaveTextContent("end");
 		expect(output).toHaveTextContent("bytes omitted");
 		expect(screen.getByTestId("task-notice")).toHaveTextContent("privileged was ignored");
+	});
+
+	test("the output header carries the label and byte count, with copy and no line count", async () => {
+		await renderWithRouter(<TaskResult task={baseTask()} />);
+		const output = screen.getByLabelText("output");
+		const header = output.querySelector<HTMLElement>('[data-slot="code-frame-header"]');
+		expect(header).not.toBeNull();
+		expect(header).toHaveTextContent("output · 12 bytes");
+		expect(within(header as HTMLElement).getByRole("button", { name: "Copy output" })).toBeInTheDocument();
+		expect(header).toHaveClass("bg-muted");
+		expect(header).not.toHaveTextContent(/\d+ lines?/);
+		expect(output.querySelector('[data-slot="code-frame-body"]')).toHaveTextContent("hello world");
 	});
 
 	test("waiting for approval links to the approval page", async () => {

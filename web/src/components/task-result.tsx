@@ -1,6 +1,7 @@
 import type { TaskResultView, TaskView } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { Link } from "@tanstack/react-router";
+import { CodeFrame } from "@/components/code-frame";
 import { CopyButton } from "@/components/copy-button";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { type KeyValueItem, KeyValueList } from "@/components/key-value";
@@ -33,16 +34,15 @@ export function OutputBlock({
 	if (bytes === 0 && head === "" && tail === "") return null;
 	const { before, after, omitted } = joinOutput(head, tail, bytes);
 	return (
-		<section aria-label={label} className={cn("grid gap-1", className)}>
-			<div className="flex items-center justify-between gap-2">
-				<h4 className="text-xs font-medium text-muted-foreground">
-					{label}
-					{" · "}
-					<Plural value={bytes} one="# byte" other="# bytes" />
-				</h4>
-				<CopyButton text={before + after} label={t`Copy ${label}`} />
-			</div>
-			<pre className="max-h-72 overflow-auto rounded-md border bg-[var(--code)] p-2 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+		<CodeFrame
+			aria-label={label}
+			title={label}
+			meta={<Plural value={bytes} one="# byte" other="# bytes" />}
+			actions={<CopyButton text={before + after} label={t`Copy ${label}`} />}
+			className={className}
+			bodyClassName="max-h-72 overflow-auto"
+		>
+			<pre className="p-3 font-mono text-xs whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
 				{before}
 				{omitted > 0 && (
 					<span className="text-warn">
@@ -55,7 +55,7 @@ export function OutputBlock({
 				)}
 				{after}
 			</pre>
-		</section>
+		</CodeFrame>
 	);
 }
 

@@ -259,7 +259,8 @@ describe("UserDetailPage", () => {
 		const kind = screen.getByLabelText("Kind of alice");
 		expect(kind).toBeEnabled();
 		await userEvent.click(kind);
-		await userEvent.click(screen.getByRole("option", { name: "Administrator" }));
+		// The select popup opens asynchronously; wait for the option instead of racing the open.
+		await userEvent.click(await screen.findByRole("option", { name: "Administrator" }));
 		await waitFor(() =>
 			expect(calls.find((call) => call.url === "/api/users/u2" && call.method === "PATCH")?.body).toEqual({
 				kind: "admin",
