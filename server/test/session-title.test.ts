@@ -241,6 +241,8 @@ it("never generates for a scheduled run's session", async () => {
 			catch_up: 0,
 			enabled: 1,
 			next_run_at: now,
+			report_account_id: null,
+			report_on: "always",
 			created_at: now,
 			updated_at: now,
 		})

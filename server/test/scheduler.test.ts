@@ -12,7 +12,7 @@ import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { evaluate, type Rule } from "../src/policy/rules.ts";
 import { appendRule, getRuleSet, loadChain, setRules } from "../src/policy/store.ts";
-import { Scheduler } from "../src/scheduler/scheduler.ts";
+import { type ScheduleReporter, type ScheduleReportInput, Scheduler } from "../src/scheduler/scheduler.ts";
 import {
 	createSchedule,
 	getRun,
@@ -47,6 +47,14 @@ let app: App;
 let scheduler: Scheduler;
 const faux = fauxProvider();
 const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
+
+/** Reports the scheduler sent in this test, in order. */
+const reports: ScheduleReportInput[] = [];
+const reporter: ScheduleReporter = {
+	reportScheduleRun: async (input) => {
+		reports.push(input);
+	},
+};
 
 /** A clock and timer the test controls. */
 class FakeClock {
@@ -118,6 +126,7 @@ const makeSchedule = (
 		timezone: "UTC",
 		catchUp: false,
 		enabled: true,
+		report: null,
 		...overrides,
 	});
 
@@ -129,6 +138,45 @@ async function setNextRun(scheduleId: string, at: Date): Promise<void> {
 const runOf = (id: string) => getRun(db, id);
 const runsOf = async (scheduleId: string) => await listRuns(db, scheduleId, 100);
 const sessionRow = (id: string) => db.selectFrom("sessions").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+
+/** A linked chat account of `owner`, as a report target. */
+async function addReportAccount(owner: SessionUser): Promise<string> {
+	const now = new Date().toISOString();
+	const channelId = newId();
+	const channelName = `report-${channelId.slice(-8)}`;
+	await db
+		.insertInto("channels")
+		.values({
+			id: channelId,
+			org_id: await defaultOrgId(db),
+			name: channelName,
+			kind: "telegram",
+			enabled: 1,
+			credentials_secret_id: null,
+			config: null,
+			link_instructions: null,
+			cursor: null,
+			created_at: now,
+			updated_at: now,
+		})
+		.execute();
+	const accountId = newId();
+	await db
+		.insertInto("channel_accounts")
+		.values({
+			id: accountId,
+			channel_id: channelId,
+			platform: "telegram",
+			platform_user_id: `user-${accountId.slice(-8)}`,
+			platform_chat_id: `chat-${accountId.slice(-8)}`,
+			user_id: owner.userId,
+			display_name: "Report chat",
+			language_code: null,
+			linked_at: now,
+		})
+		.execute();
+	return accountId;
+}
 
 const cookies = new Map<string, string>();
 async function cookieOf(user: SessionUser): Promise<string> {
@@ -208,13 +256,14 @@ beforeAll(async () => {
 		taskGroups: new TaskGroups(db, cluster, { audit }),
 		audit,
 	});
-	scheduler = new Scheduler({ db, runtime, audit, now: clock.now, setTimer: clock.setTimer });
+	scheduler = new Scheduler({ db, runtime, audit, now: clock.now, setTimer: clock.setTimer, reporter });
 	app = makeApp(db, undefined, { cluster, audit, masterKey, agent: { runtime, models }, scheduler });
 });
 
 afterEach(async () => {
 	await scheduler.stop();
 	await runtime.waitForIdle();
+	reports.length = 0;
 });
 
 afterAll(async () => {
@@ -1249,7 +1298,7 @@ it("stops the session a crash left running after marking its run preempted, befo
 
 	// A new process over the same database and runtime: recovery must stop the old instance before it submits the
 	// leftover pending run.
-	scheduler = new Scheduler({ db, runtime, audit, now: clock.now, setTimer: clock.setTimer });
+	scheduler = new Scheduler({ db, runtime, audit, now: clock.now, setTimer: clock.setTimer, reporter });
 	try {
 		await startAt("2026-01-05T09:02:00.000Z");
 		// The old session was stopped through its normal stop path, so its submission ended instead of running on.
@@ -1570,6 +1619,122 @@ it("validates the API input and keeps schedules owner-only", async () => {
 	expect(((await filtered.json()) as { items: unknown[] }).items).toEqual([]);
 });
 
+it("reports a succeeded run under always or success, and not under failure", async () => {
+	const owner = await newOwner("owner-report-success");
+	const accountId = await addReportAccount(owner);
+	await startAt("2026-01-05T09:01:00.000Z");
+
+	faux.setResponses([fauxAssistantMessage("all good")]);
+	const success = await makeSchedule(owner, { report: { accountId, on: "success" } });
+	const run = await scheduler.runNow(success.id, owner);
+	await waitFor("the succeeded run", async () => ((await runOf(run.id))?.status === "succeeded" ? true : undefined));
+	await waitFor("the report", async () => (reports.length > 0 ? true : undefined));
+	expect(reports[0]).toMatchObject({
+		scheduleId: success.id,
+		reportAccountId: accountId,
+		status: "succeeded",
+		sessionId: run.sessionId,
+	});
+
+	// The failure filter drops a successful run.
+	faux.setResponses([fauxAssistantMessage("all good again")]);
+	const failure = await makeSchedule(owner, { report: { accountId, on: "failure" } });
+	const quiet = await scheduler.runNow(failure.id, owner);
+	await waitFor("the second succeeded run", async () =>
+		(await runOf(quiet.id))?.status === "succeeded" ? true : undefined,
+	);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(reports).toHaveLength(1);
+
+	// No target means no report, whatever the filter.
+	faux.setResponses([fauxAssistantMessage("no target")]);
+	const none = await makeSchedule(owner, { report: null });
+	const untargeted = await scheduler.runNow(none.id, owner);
+	await waitFor("the untargeted run", async () =>
+		(await runOf(untargeted.id))?.status === "succeeded" ? true : undefined,
+	);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(reports).toHaveLength(1);
+});
+
+it("reports a failed run under failure, with its reason, and not under success", async () => {
+	const owner = await newOwner("owner-report-failure");
+	const accountId = await addReportAccount(owner);
+	await startAt("2026-01-05T09:01:00.000Z");
+
+	faux.setResponses([
+		() => {
+			throw new Error("the model exploded");
+		},
+	]);
+	const failure = await makeSchedule(owner, { report: { accountId, on: "failure" } });
+	const run = await scheduler.runNow(failure.id, owner);
+	await waitFor("the failed run", async () => ((await runOf(run.id))?.status === "failed" ? true : undefined));
+	await waitFor("the failure report", async () => (reports.length > 0 ? true : undefined));
+	expect(reports[0]).toMatchObject({ scheduleId: failure.id, status: "failed", sessionId: run.sessionId });
+	expect(reports[0]?.reason).not.toBeNull();
+
+	faux.setResponses([
+		() => {
+			throw new Error("the model exploded again");
+		},
+	]);
+	const quiet = await makeSchedule(owner, { report: { accountId, on: "success" } });
+	const silent = await scheduler.runNow(quiet.id, owner);
+	await waitFor("the second failed run", async () =>
+		(await runOf(silent.id))?.status === "failed" ? true : undefined,
+	);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	expect(reports).toHaveLength(1);
+});
+
+it("reports a preempted run under failure and not the succeeding run", async () => {
+	const owner = await newOwner("owner-report-preempted");
+	const accountId = await addReportAccount(owner);
+	await startAt("2026-01-05T09:01:00.000Z");
+	const schedule = await makeSchedule(owner, { report: { accountId, on: "failure" } });
+	// The first run stays in its model call until the next run stops it.
+	faux.setResponses([
+		(_context: unknown, options?: { signal?: AbortSignal }) =>
+			new Promise<never>((_resolve, reject) => {
+				options?.signal?.addEventListener("abort", () => reject(new Error("the run was stopped")), { once: true });
+			}),
+	]);
+	const first = await scheduler.runNow(schedule.id, owner);
+	await waitFor("the first run", async () => ((await runOf(first.id))?.status === "running" ? true : undefined));
+	// A manual run lands on distinct fire times; the fake clock moves so the next click is a new run.
+	await clock.advance(1_000);
+
+	// The next manual run stops the waiting instance; the failure filter reports that preemption.
+	faux.setResponses([fauxAssistantMessage("the next run")]);
+	const second = await scheduler.runNow(schedule.id, owner);
+	await waitFor("the preempted run", async () => ((await runOf(first.id))?.status === "preempted" ? true : undefined));
+	await waitFor("the preemption report", async () => (reports.length > 0 ? true : undefined));
+	expect(reports[0]).toMatchObject({ scheduleId: schedule.id, status: "preempted", sessionId: first.sessionId });
+	await waitFor("the second run", async () => ((await runOf(second.id))?.status === "succeeded" ? true : undefined));
+	expect(reports).toHaveLength(1);
+});
+
+it("refuses a report account that is not the owner's own linked account", async () => {
+	const owner = await newOwner("owner-report-foreign");
+	const other = await newOwner("owner-report-other");
+	const foreign = await addReportAccount(other);
+	const ownerCookie = await cookieOf(owner);
+	const res = await call(app, "/api/schedules", {
+		method: "POST",
+		cookie: ownerCookie,
+		body: {
+			name: "foreign report",
+			prompt: "check",
+			model: model(),
+			cron: "0 9 * * *",
+			timezone: "UTC",
+			report: { accountId: foreign, on: "always" },
+		},
+	});
+	expect(res.status).toBe(400);
+});
+
 it("lists a schedule whose stored timezone no longer validates", async () => {
 	const owner = await newOwner("owner-legacy-zone");
 	const ownerCookie = await cookieOf(owner);
@@ -1592,6 +1757,8 @@ it("lists a schedule whose stored timezone no longer validates", async () => {
 			catch_up: 0,
 			enabled: 1,
 			next_run_at: "2026-01-05T09:10:00.000Z",
+			report_account_id: null,
+			report_on: "always",
 			created_at: now,
 			updated_at: now,
 		})

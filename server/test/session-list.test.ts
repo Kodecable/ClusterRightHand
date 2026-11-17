@@ -532,6 +532,8 @@ describe("GET /api/sessions", () => {
 				catch_up: 0,
 				enabled: 1,
 				next_run_at: null,
+				report_account_id: null,
+				report_on: "always",
 				created_at: now,
 				updated_at: now,
 			})
@@ -631,6 +633,8 @@ describe("GET /api/sessions", () => {
 				catch_up: 0,
 				enabled: 1,
 				next_run_at: null,
+				report_account_id: null,
+				report_on: "always",
 				created_at: now,
 				updated_at: now,
 			})

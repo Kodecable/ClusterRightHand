@@ -192,7 +192,11 @@ a message a schedule submitted. Switching or attaching a session in a chat does 
 | The latest message came from | Text and approval requests go to |
 |---|---|
 | A chat thread | That thread |
-| The WebUI, or nowhere | The WebUI only while the user is online there; otherwise the user's default notification channel, if they chose one |
+| The WebUI | The WebUI only while the user is online there; otherwise the user's default notification channel, if they chose one |
+| Nowhere (a scheduled run) | Requests only (approvals, signatures, used-up quota), by the same rule; its assistant text, delivered-file links and turn errors are not pushed anywhere |
+
+A scheduled run also has its own report, sent to the account its owner chose on the schedule
+([Reports](scheduling.md#reports)); that is not a text push and is not routed by this table.
 
 - **Online in the WebUI** means a request from the user's WebUI in the last 10 minutes, or an open event
   stream. crhs is one process, so presence is kept in memory.
@@ -339,7 +343,7 @@ The protocol is used directly:
 ## Extension points
 
 - Group chats, with a per-group link to a CRH user or user group.
-- Alerts and scheduled-run reports posted to a channel.
+- Alerts and scheduled-run reports posted to a group or channel (admin-registered outbound-only targets).
 - Shared limits on size and rate for every entry point.
 - Webhook mode for platforms that only offer webhooks.
 

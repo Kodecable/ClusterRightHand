@@ -8,10 +8,18 @@ import type { ModelRef } from "./models.ts";
 import type { RulePreset } from "./policy.ts";
 import type {
 	SchedulePatchBodySchema,
+	ScheduleReportOnSchema,
+	ScheduleReportSchema,
 	ScheduleRunStatusSchema,
 	ScheduleRunViewSchema,
 	ScheduleViewSchema,
 } from "./schemas/schedules.ts";
+
+/** Which finished runs are reported (doc/design/scheduling.md "Reports"). */
+export type ScheduleReportOn = z.infer<typeof ScheduleReportOnSchema>;
+
+/** A schedule's report target: one of the owner's linked private chat accounts. */
+export type ScheduleReport = z.infer<typeof ScheduleReportSchema>;
 
 export type ScheduleRunStatus = z.infer<typeof ScheduleRunStatusSchema>;
 
@@ -36,6 +44,7 @@ export interface ScheduleInput {
 	timezone: string;
 	catchUp: boolean;
 	enabled: boolean;
+	report: ScheduleReport | null;
 }
 
 /** The update body: any of the create fields, all optional. */

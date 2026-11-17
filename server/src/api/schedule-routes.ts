@@ -161,6 +161,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 			timezone: schedule.timezone,
 			catchUp: schedule.catchUp,
 			enabled: schedule.enabled,
+			report: schedule.reportAccountId === null ? null : { accountId: schedule.reportAccountId, on: schedule.reportOn },
 			nextRunAt: schedule.nextRunAt,
 			createdAt: schedule.createdAt,
 			updatedAt: schedule.updatedAt,
@@ -214,6 +215,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				timezone: requiredString(body, "timezone"),
 				catchUp: body.catchUp === true,
 				enabled: body.enabled !== false,
+				report: body.report ?? null,
 			},
 			options.scheduler.now(),
 		);
@@ -254,6 +256,7 @@ export function scheduleRoutes(db: Db, options: ScheduleRoutesOptions) {
 				...(body.timezone === undefined ? {} : { timezone: body.timezone }),
 				...(body.catchUp === undefined ? {} : { catchUp: body.catchUp }),
 				...(body.enabled === undefined ? {} : { enabled: body.enabled }),
+				...(body.report === undefined ? {} : { report: body.report }),
 			},
 			options.scheduler.now(),
 		);
@@ -337,7 +340,7 @@ function requiredString(body: Record<string, unknown>, key: string): string {
 /** Which fields changed, without copying the (possibly long) prompt into the audit log. */
 function changedDetail(body: Record<string, unknown>): Record<string, unknown> {
 	const fields: Record<string, unknown> = {};
-	for (const key of ["name", "cron", "timezone", "catchUp", "enabled", "tokenBudget"]) {
+	for (const key of ["name", "cron", "timezone", "catchUp", "enabled", "tokenBudget", "report"]) {
 		if (body[key] !== undefined) fields[key] = body[key];
 	}
 	if (body.model !== undefined) fields.model = body.model;
@@ -354,6 +357,7 @@ function scheduleDetail(schedule: Schedule, extra: Record<string, unknown> = {})
 		enabled: schedule.enabled,
 		token_budget: schedule.tokenBudget,
 		model: schedule.model,
+		report: schedule.reportAccountId === null ? null : { account_id: schedule.reportAccountId, on: schedule.reportOn },
 		next_run_at: schedule.nextRunAt,
 		...extra,
 	};

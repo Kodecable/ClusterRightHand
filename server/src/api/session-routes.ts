@@ -559,7 +559,8 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			model: parseModelRef(body.model),
 			rulePreset: parseRulePreset(body.rulePreset ?? "ask"),
 			// The session records where its latest user message came from; the creator owns it, so the WebUI.
-			// An in-process api_request has an actor and records nowhere.
+			// This route is agent: "deny", so an in-process api_request never reaches it: the null branch is
+			// defensive only, because only a scheduled run has no source.
 			lastUsedFrom: c.get("user").actor === undefined ? "web" : null,
 			...(body.title === undefined ? {} : { title: body.title }),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
@@ -785,8 +786,9 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 				? undefined
 				: await resolveAttachments(db, options.cluster.libraryBackend, c.get("user"), inputs, attachmentLimits());
 		const submissionId = await runtime.submit(v.session.id, c.get("user"), text, requestId, {
-			// A shared user's message counts as the WebUI, so notifications never follow their chat; only
-			// the owner's in-process api_request records no source.
+			// A shared user's message counts as the WebUI, so notifications never follow their chat. This route
+			// is agent: "deny", so an in-process api_request never reaches it: the owner's null branch is
+			// defensive only, because only a scheduled run has no source.
 			lastUsedFrom: c.get("user").actor === undefined || v.session.ownerUserId !== c.get("user").userId ? "web" : null,
 			...(resolved ? { content: attachmentContent(text, resolved.blocks), attachments: resolved.attachments } : {}),
 		});

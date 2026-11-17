@@ -49,10 +49,41 @@ interface InsertedRun {
 	lastTrigger: boolean;
 }
 
+/** How a run ended; only these final statuses can be reported (doc/design/scheduling.md "Reports"). */
+export type ScheduleReportOutcome = "succeeded" | "failed" | "preempted";
+
+/** What a channel reports for a finished scheduled run (doc/design/scheduling.md "Reports"). */
+export interface ScheduleReportInput {
+	scheduleId: string;
+	scheduleName: string;
+	ownerUserId: string;
+	/** One of the schedule owner's linked private chat accounts. */
+	reportAccountId: string;
+	timezone: string;
+	/** The trigger the run stands for; the report shows it in the schedule's time zone. */
+	fireTime: string;
+	status: ScheduleReportOutcome;
+	reason: string | null;
+	sessionId: string | null;
+}
+
+/** The chat side of a report; the channel manager implements it. */
+export interface ScheduleReporter {
+	reportScheduleRun(input: ScheduleReportInput): Promise<void>;
+}
+
+/** Whether a run with this final status is reported under the schedule's filter. */
+function reportWanted(on: Schedule["reportOn"], status: ScheduleReportOutcome): boolean {
+	if (on === "always") return true;
+	return on === "success" ? status === "succeeded" : status !== "succeeded";
+}
+
 export interface SchedulerOptions {
 	db: Db;
 	runtime: AgentRuntime;
 	audit?: Audit;
+	/** Sends a finished run's report to its configured chat account; absent means reports are dropped. */
+	reporter?: ScheduleReporter;
 	/** Injectable clock (tests advance it); defaults to the real one. */
 	now?: () => Date;
 	/** Injectable timer: schedules `fn` after `ms` and returns a cancel function. */
@@ -89,6 +120,7 @@ export class Scheduler {
 	readonly #db: Db;
 	readonly #runtime: AgentRuntime;
 	readonly #audit: Audit | undefined;
+	readonly #reporter: ScheduleReporter | undefined;
 	readonly #now: () => Date;
 	readonly #setTimer: (fn: () => void, ms: number) => () => void;
 	#started = false;
@@ -107,6 +139,13 @@ export class Scheduler {
 	 */
 	#scheduleQueue = new KeyedQueue("schedule queue");
 	#watchers = new Set<Promise<void>>();
+	/** Reports being sent in the background; `stop()` waits for them like watchers. */
+	#reports = new Set<Promise<void>>();
+	/**
+	 * Runs whose final status is only reconciled at startup: a run that finished while crhs was down sends no
+	 * report (doc/design/scheduling.md "Reports").
+	 */
+	#noReport = new Set<string>();
 	/** Aborts in-flight run watchers on stop; recreated so a stopped scheduler can be started again. */
 	#lifecycle = new AbortController();
 	/** The owner's deny while a scheduled run waits for its root quota; the next finish reads and clears it. */
@@ -118,6 +157,7 @@ export class Scheduler {
 		this.#db = options.db;
 		this.#runtime = options.runtime;
 		this.#audit = options.audit;
+		this.#reporter = options.reporter;
 		this.#now = options.now ?? (() => new Date());
 		this.#setTimer = options.setTimer ?? defaultTimer;
 	}
@@ -150,7 +190,7 @@ export class Scheduler {
 		this.#timer = undefined;
 		this.#lifecycle.abort();
 		await this.#ticking;
-		await Promise.allSettled([...this.#watchers]);
+		await Promise.allSettled([...this.#watchers, ...this.#reports]);
 		this.#started = false;
 	}
 
@@ -680,6 +720,13 @@ export class Scheduler {
 			} catch (err) {
 				console.error(`scheduler: stopping preempted session ${row.session_id} failed:`, err);
 			}
+			this.#queueReport(
+				row.id,
+				schedule,
+				{ fireTime: row.fire_time, sessionId: row.session_id },
+				"preempted",
+				"preempted by the next run",
+			);
 		}
 		// A run is `succeeded` when its root submission ends, but a background subagent it started can keep
 		// running. That work belongs to the previous instance, so the next trigger stops it too; the run's
@@ -754,6 +801,7 @@ export class Scheduler {
 			.where("status", "=", "running")
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return;
+		const skipReport = this.#noReport.delete(runId);
 		if (schedule) {
 			await this.#record(scheduleActor(schedule), "schedule.run_finished", schedule, {
 				run_id: runId,
@@ -761,6 +809,9 @@ export class Scheduler {
 				status,
 				reason,
 			});
+			if (!skipReport) {
+				await this.#report(schedule, { fireTime: run.fireTime, sessionId: run.sessionId ?? sessionId }, status, reason);
+			}
 		}
 	}
 
@@ -792,7 +843,14 @@ export class Scheduler {
 		await this.#fail(schedule, runId, reason, run.sessionId ?? undefined);
 	}
 
-	async #fail(schedule: Schedule, runId: string, reason: string, sessionId?: string): Promise<void> {
+	async #fail(
+		schedule: Schedule,
+		runId: string,
+		reason: string,
+		sessionId?: string,
+		options: { report?: boolean } = {},
+	): Promise<void> {
+		const run = await getRun(this.#db, runId);
 		const res = await this.#db
 			.updateTable("schedule_runs")
 			.set({ status: "failed", reason, finished_at: this.#now().toISOString() })
@@ -800,12 +858,21 @@ export class Scheduler {
 			.where("status", "in", ["pending", "running"])
 			.executeTakeFirst();
 		if (res.numUpdatedRows === 0n) return;
+		const skipReport = this.#noReport.delete(runId);
 		await this.#record(scheduleActor(schedule), "schedule.run_finished", schedule, {
 			run_id: runId,
 			session_id: sessionId ?? null,
 			status: "failed",
 			reason,
 		});
+		if (options.report !== false && !skipReport) {
+			await this.#report(
+				schedule,
+				{ fireTime: run?.fireTime ?? this.#now().toISOString(), sessionId: sessionId ?? run?.sessionId ?? null },
+				"failed",
+				reason,
+			);
+		}
 	}
 
 	// ---- recovery ----
@@ -843,8 +910,17 @@ export class Scheduler {
 	async #recover(): Promise<void> {
 		// A crash between marking a run preempted and stopping its session leaves it running; end it first.
 		await this.#stopPreempted();
+		// A run whose submission is no longer queued ended while crhs was down: settling its record now must not
+		// send a report (doc/design/scheduling.md "Reports"). A run still queued is watched and reported normally.
+		const active = await this.#runtime.unsettledSubmissionRequests();
 		// Read the running runs first: one that submitPending starts below already has its watcher.
 		const runs = await this.#db.selectFrom("schedule_runs").selectAll().where("status", "=", "running").execute();
+		this.#noReport.clear();
+		for (const run of runs) {
+			if (!run.session_id || !active.has(this.#requestId(run.schedule_id, run.fire_time))) {
+				this.#noReport.add(run.id);
+			}
+		}
 		await this.#submitPending();
 		for (const run of runs) {
 			if (this.#stopping) return;
@@ -853,12 +929,12 @@ export class Scheduler {
 			const schedule = await getSchedule(this.#db, run.schedule_id);
 			if (!schedule) continue;
 			if (!run.session_id) {
-				await this.#fail(schedule, run.id, "the run never started");
+				await this.#fail(schedule, run.id, "the run never started", undefined, { report: false });
 				continue;
 			}
 			const owner = await this.#ownerUser(schedule.ownerUserId);
 			if (!owner) {
-				await this.#fail(schedule, run.id, "the schedule's owner is disabled", run.session_id);
+				await this.#fail(schedule, run.id, "the schedule's owner is disabled", run.session_id, { report: false });
 				continue;
 			}
 			try {
@@ -872,12 +948,56 @@ export class Scheduler {
 				);
 				this.#watchRun(run.id, run.session_id, submissionId);
 			} catch (err) {
-				await this.#fail(schedule, run.id, errorText(err), run.session_id);
+				await this.#fail(schedule, run.id, errorText(err), run.session_id, { report: false });
 			}
 		}
 	}
 
 	// ---- helpers ----
+
+	/**
+	 * Sends a finished run's report when the schedule has a target and its filter matches a run that already
+	 * finished (doc/design/scheduling.md "Reports"). Best effort: failures are logged, never retried.
+	 */
+	async #report(
+		schedule: Schedule,
+		run: { fireTime: string; sessionId: string | null },
+		status: ScheduleReportOutcome,
+		reason: string | null,
+	): Promise<void> {
+		const reporter = this.#reporter;
+		const accountId = schedule.reportAccountId;
+		if (reporter === undefined || accountId === null || !reportWanted(schedule.reportOn, status)) return;
+		try {
+			await reporter.reportScheduleRun({
+				scheduleId: schedule.id,
+				scheduleName: schedule.name,
+				ownerUserId: schedule.ownerUserId,
+				reportAccountId: accountId,
+				timezone: schedule.timezone,
+				fireTime: run.fireTime,
+				status,
+				reason,
+				sessionId: run.sessionId,
+			});
+		} catch (err) {
+			console.error(`scheduler: sending the report of schedule ${schedule.id} failed:`, err);
+		}
+	}
+
+	/** Starts a report without blocking its caller (a preemption must not wait on a chat platform). */
+	#queueReport(
+		runId: string,
+		schedule: Schedule,
+		run: { fireTime: string; sessionId: string | null },
+		status: ScheduleReportOutcome,
+		reason: string | null,
+	): void {
+		if (this.#noReport.delete(runId)) return;
+		const report = this.#report(schedule, run, status, reason);
+		this.#reports.add(report);
+		void report.finally(() => this.#reports.delete(report));
+	}
 
 	#requestId(scheduleId: string, fireTime: string): string {
 		return `schedule:${scheduleId}:${fireTime}`;

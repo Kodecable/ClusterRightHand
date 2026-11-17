@@ -243,6 +243,15 @@ async function submitInput(
 					requestId,
 				}
 			: { type: "input" as const, content: text, requestId };
+	// Record where the message came from before durable can start the run: a fast first answer must not be
+	// mistaken for a scheduled run's text, which is not pushed (doc/design/channels.md "Notifications").
+	if (options.lastUsedFrom !== undefined) {
+		await host.db
+			.updateTable("sessions")
+			.set({ last_used_from: options.lastUsedFrom })
+			.where("id", "=", sessionId)
+			.execute();
+	}
 	// The entry's data is a plain JSON object; TypeScript only wants the index signature spelled out.
 	const submission = await conversation.submit(draft as unknown as SubmissionDraft, host.context);
 	await recordInput(host, sessionId, submission, options.lastUsedFrom);

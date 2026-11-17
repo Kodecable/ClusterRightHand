@@ -585,6 +585,11 @@ msgstr "同时吊销我的全部 API 令牌"
 msgid "Also revoke all of this user's API tokens"
 msgstr "同时吊销该用户的全部 API 令牌"
 
+#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-form.tsx
+msgid "Always"
+msgstr "总是"
+
 #: src/components/decision/approval-panel.tsx
 msgid "Always allow"
 msgstr "始终允许"
@@ -3285,6 +3290,8 @@ msgstr "节点：{list}"
 msgid "Nodes: {list} and {more} more"
 msgstr "节点：{list} 等 {more} 个"
 
+#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-form.tsx
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/system-settings/signing-keys-section.tsx
@@ -3414,6 +3421,16 @@ msgstr "仅被授权的用户和用户组"
 #: src/features/settings/extension-dialog.tsx
 msgid "Only granted users and members of granted user groups reach this extension."
 msgstr "只有被授权的用户和被授权用户组的成员可以使用此扩展。"
+
+#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-form.tsx
+msgid "Only on failure"
+msgstr "仅失败时"
+
+#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-form.tsx
+msgid "Only on success"
+msgstr "仅成功时"
 
 #: src/features/nodes/access-grants.tsx
 msgid "Only targets without an existing grant are listed."
@@ -4038,6 +4055,14 @@ msgstr "替换 {0} 的身份密钥。节点会保留其 id、名称、节点组�
 msgid "Report"
 msgstr "报告"
 
+#: src/features/schedules/schedule-form.tsx
+msgid "Report to"
+msgstr "报告发送到"
+
+#: src/features/schedules/pages.tsx
+msgid "Report:"
+msgstr "报告："
+
 #: src/features/settings/model-dialog.tsx
 msgid "Request body (JSON)"
 msgstr "请求体（JSON）"
@@ -4409,6 +4434,10 @@ msgstr "发送"
 #: src/features/channels/chat-accounts-section.tsx
 msgid "Send the command below to the bot in a private chat. The code works once and expires in 10 minutes."
 msgstr "在私聊中把下面的命令发送给机器人。关联码只能使用一次，10 分钟后过期。"
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Send timing"
+msgstr "发送时机"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."

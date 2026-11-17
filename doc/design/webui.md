@@ -329,6 +329,15 @@ and next attempt. **New channel** creates a Telegram bot with its write-only tok
 it, and **Delete** also removes the channel's linked accounts and threads. The list refreshes while the page is open, like Extensions
 ([Chat channels](channels.md#channels)).
 
+### Schedules page
+
+**Schedules** lists the caller's own schedules with their next run and last result; **Run now** starts a
+manual run from the row or the detail page. The detail page is the shared schedule form plus the run
+history, the privilege note and the destructive actions. The form's **Report** group chooses one of the
+owner's linked chat accounts, or **None**, and, once an account is chosen, whether a finished run is
+reported **Always**, **Only on failure** or **Only on success**; the detail page also shows the setting
+beside the last result ([Reports](scheduling.md#reports)).
+
 ### Settings dialog
 
 **Settings…** in the user menu opens one dialog with three tabs. **General** chooses the language.

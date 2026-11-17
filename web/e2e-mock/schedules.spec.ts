@@ -71,6 +71,21 @@ test("create a schedule and run it now", async ({ page }) => {
 					input: ["text"],
 				},
 			],
+			channelAccounts: {
+				accounts: [
+					{
+						id: "acc-1",
+						channelId: "channel-1",
+						channelName: "telegram-main",
+						platform: "telegram",
+						platformUserId: "42",
+						displayName: "Alice",
+						linkedAt: "2026-01-01T00:00:00.000Z",
+						isDefault: false,
+					},
+				],
+				channels: [],
+			},
 		},
 	});
 	await login(page);
@@ -85,10 +100,18 @@ test("create a schedule and run it now", async ({ page }) => {
 	await page.getByLabel("Prompt").fill("Check the nodes");
 	await page.getByLabel("Model").click();
 	await page.getByRole("option", { name: "Faux One" }).click();
+	// "None" is the default, so the timing picker is disabled until an account is chosen.
+	await expect(page.getByLabel("Send timing")).toBeDisabled();
+	await page.getByLabel("Report to").click();
+	await page.getByRole("option", { name: "Alice (telegram-main)" }).click();
+	await page.getByLabel("Send timing").click();
+	await page.getByRole("option", { name: "Only on failure" }).click();
 	await dialog.getByRole("button", { name: "New schedule" }).click();
 
 	await expect(page).toHaveURL(/\/schedules\/schedule-1$/);
 	await expect(page.getByRole("heading", { name: "Nightly check" })).toBeVisible();
+	await expect(page.getByTestId("schedule-report")).toContainText("Alice (telegram-main)");
+	await expect(page.getByTestId("schedule-report")).toContainText("Only on failure");
 	const created = api.state.requests.find((request) => request.method === "POST" && request.url === "/api/schedules");
 	expect(created?.body).toMatchObject({
 		name: "Nightly check",
@@ -97,6 +120,7 @@ test("create a schedule and run it now", async ({ page }) => {
 		rulePreset: "ask",
 		cron: "0 9 * * *",
 		enabled: true,
+		report: { accountId: "acc-1", on: "failure" },
 	});
 	// "Off" is the default, so the form leaves thinkingLevel out of the request body.
 	expect(created?.body).not.toHaveProperty("model.thinkingLevel");

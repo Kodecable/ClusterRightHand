@@ -216,11 +216,13 @@ be deleted ([Libraries](library.md#libraries)).
 
 ## Scheduled tasks
 
-A schedule holds its owner, message, model, budget, timetable and next run time; its rules are a rule set
-used as a template, copied into each run session's own root rule set at creation. A run row is written
-before its session exists and is unique per schedule and fire time, so a trigger cannot fire twice; the
-session id is derived from the run id, so resubmitting is idempotent. Runs are deleted with their
-schedule; the sessions remain with their own rules. See [Schedule model](scheduling.md#schedule-model).
+A schedule holds its owner, message, model, budget, timetable, next run time and an optional report target:
+one of the owner's linked channel accounts and a filter (`always`, `failure` or `success`). Its rules are a
+rule set used as a template, copied into each run session's own root rule set at creation. A run row is
+written before its session exists and is unique per schedule and fire time, so a trigger cannot fire twice;
+the session id is derived from the run id, so resubmitting is idempotent. Runs are deleted with their
+schedule; the sessions remain with their own rules. See [Schedule model](scheduling.md#schedule-model) and
+[Reports](scheduling.md#reports).
 
 ## Audit
 

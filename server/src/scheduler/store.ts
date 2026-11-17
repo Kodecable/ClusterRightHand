@@ -1,4 +1,4 @@
-import type { ScheduleInput, ScheduleRunView } from "@crh/api";
+import type { ScheduleInput, ScheduleReport, ScheduleReportOn, ScheduleRunView } from "@crh/api";
 import { Cron } from "croner";
 import { type Selectable, sql } from "kysely";
 import type { ModelRef } from "../agent/models.ts";
@@ -31,6 +31,10 @@ export interface Schedule {
 	catchUp: boolean;
 	enabled: boolean;
 	nextRunAt: string | null;
+	/** The owner's linked chat account a finished run's report goes to; null means no report. */
+	reportAccountId: string | null;
+	/** Which finished runs are reported (doc/design/scheduling.md "Reports"). */
+	reportOn: ScheduleReportOn;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -69,6 +73,8 @@ function parseSchedule(row: Selectable<SchedulesTable>): Schedule {
 		catchUp: row.catch_up === 1,
 		enabled: row.enabled === 1,
 		nextRunAt: row.next_run_at,
+		reportAccountId: row.report_account_id,
+		reportOn: row.report_on,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
@@ -154,6 +160,26 @@ export function parseTokenBudget(raw: unknown): number | null {
 	return raw;
 }
 
+/**
+ * A report setting as stored: the target must be one of the owner's own linked accounts, so a schedule can
+ * never report into someone else's private chat (doc/design/scheduling.md "Reports").
+ */
+async function validReport(
+	db: Db,
+	ownerUserId: string,
+	report: ScheduleReport | null,
+): Promise<{ accountId: string | null; on: ScheduleReportOn }> {
+	if (report === null) return { accountId: null, on: "always" };
+	const account = await db
+		.selectFrom("channel_accounts")
+		.select("id")
+		.where("id", "=", report.accountId)
+		.where("user_id", "=", ownerUserId)
+		.executeTakeFirst();
+	if (!account) throw new UserError("the report account is not a linked chat account of the schedule's owner");
+	return { accountId: report.accountId, on: report.on };
+}
+
 /** Creates the schedule and its rule-chain root (with the rule preset) in one transaction. */
 export async function createSchedule(
 	db: Db,
@@ -162,6 +188,7 @@ export async function createSchedule(
 	at = new Date(),
 ): Promise<Schedule> {
 	validateCron(input.cron, input.timezone);
+	const report = await validReport(db, ownerUserId, input.report ?? null);
 	const id = newId();
 	const orgId = await defaultOrgId(db);
 	const now = at.toISOString();
@@ -182,6 +209,8 @@ export async function createSchedule(
 				catch_up: input.catchUp ? 1 : 0,
 				enabled: input.enabled ? 1 : 0,
 				next_run_at: nextRunAt,
+				report_account_id: report.accountId,
+				report_on: report.on,
 				created_at: now,
 				updated_at: now,
 			})
@@ -222,6 +251,7 @@ export interface SchedulePatch {
 	timezone?: string;
 	catchUp?: boolean;
 	enabled?: boolean;
+	report?: ScheduleReport | null;
 }
 
 /**
@@ -240,6 +270,7 @@ export async function updateSchedule(
 	const enabled = patch.enabled === undefined ? schedule.enabled : patch.enabled;
 	const timingChanged = cron !== schedule.cron || timezone !== schedule.timezone || enabled !== schedule.enabled;
 	if (timingChanged) validateCron(cron, timezone);
+	const report = patch.report === undefined ? undefined : await validReport(db, schedule.ownerUserId, patch.report);
 	const now = at;
 	const nextRunAt = !enabled ? null : timingChanged ? nextRunAfter(cron, timezone, at) : schedule.nextRunAt;
 	await db.transaction().execute(async (trx) => {
@@ -251,6 +282,7 @@ export async function updateSchedule(
 				...(patch.model === undefined ? {} : { model: JSON.stringify(patch.model) }),
 				...(patch.tokenBudget === undefined ? {} : { token_budget: parseTokenBudget(patch.tokenBudget) }),
 				...(patch.catchUp === undefined ? {} : { catch_up: patch.catchUp ? 1 : 0 }),
+				...(report === undefined ? {} : { report_account_id: report.accountId, report_on: report.on }),
 				cron,
 				timezone,
 				enabled: enabled ? 1 : 0,

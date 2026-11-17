@@ -2,6 +2,7 @@ import type {
 	BatchOutputMode,
 	ModelPresetKind,
 	OutputMode,
+	ScheduleReportOn,
 	ScheduleRunStatus,
 	TaskGroupState,
 	TaskState,
@@ -13,7 +14,15 @@ import type { ColumnType, Generated } from "kysely";
  * table interfaces below and re-exported so callers that know a column's type through the schema keep their
  * existing import path.
  */
-export type { BatchOutputMode, ModelPresetKind, OutputMode, ScheduleRunStatus, TaskGroupState, TaskState };
+export type {
+	BatchOutputMode,
+	ModelPresetKind,
+	OutputMode,
+	ScheduleReportOn,
+	ScheduleRunStatus,
+	TaskGroupState,
+	TaskState,
+};
 
 /** Timestamps are stored as ISO 8601 UTC strings on both dialects; see doc/design/data-model.md. */
 type CreatedAt = ColumnType<string, string, never>;
@@ -731,6 +740,10 @@ export interface SchedulesTable {
 	enabled: number;
 	/** ISO 8601 UTC; null while disabled. */
 	next_run_at: string | null;
+	/** The owner's linked chat account a finished run's report goes to; null means no report. */
+	report_account_id: string | null;
+	/** Which finished runs are reported; always "always" while no target is set. */
+	report_on: ScheduleReportOn;
 	created_at: CreatedAt;
 	updated_at: string;
 }

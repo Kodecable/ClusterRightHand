@@ -1,4 +1,4 @@
-import type { ApprovalRequest, QuotaStatus, TaskAction, UserSettingsLocale } from "@crh/api";
+import type { ApprovalRequest, QuotaStatus, ScheduleRunStatus, TaskAction, UserSettingsLocale } from "@crh/api";
 import { formatList, matchLocale } from "@crh/api";
 import { untitledSessionTitle } from "../sessions/titles.ts";
 import type { CardLabels, ChatCard } from "./card.ts";
@@ -362,6 +362,10 @@ export interface BotMessages {
 	historyAssistant: string;
 	fileOffered: (name: string, source: string) => string;
 	turnFailed: (problem: string) => string;
+	/** A finished scheduled run's one status line (doc/design/scheduling.md "Reports"). */
+	reportStatus: (name: string, outcome: Exclude<ScheduleRunStatus, "pending" | "running">, time: string) => string;
+	/** The recorded reason a scheduled run failed, when one exists. */
+	reportError: (problem: string) => string;
 	sessionBody: (title: string, text: string) => string;
 	statusUntrackedSession: (status: string, title: string) => string;
 	working: string;
@@ -454,6 +458,13 @@ const en: BotMessages = {
 	historyAssistant: "Assistant",
 	fileOffered: (name, source) => `File offered: ${escapeMarkdown(name)}\n\n${source}`,
 	turnFailed: (problem) => `The turn failed: ${escapeMarkdown(problem)}`,
+	reportStatus: (name, outcome, time) =>
+		outcome === "succeeded"
+			? `Schedule "${escapeMarkdown(name)}" succeeded at ${time}.`
+			: outcome === "failed"
+				? `Schedule "${escapeMarkdown(name)}" failed at ${time}.`
+				: `Schedule "${escapeMarkdown(name)}" was stopped by the next run at ${time}.`,
+	reportError: (problem) => `Error: ${escapeMarkdown(problem)}`,
 	sessionBody: (title, text) => `Session "${escapeMarkdown(title)}":\n\n${text}`,
 	statusUntrackedSession: (status, title) => `${status}\n\nThis is the session "${escapeMarkdown(title)}".`,
 	working: "Working…",
@@ -587,6 +598,13 @@ const zhCN: BotMessages = {
 	historyAssistant: "助手",
 	fileOffered: (name, source) => `文件已提供：${escapeMarkdown(name)}\n\n${source}`,
 	turnFailed: (problem) => `本回合失败：${escapeMarkdown(problem)}`,
+	reportStatus: (name, outcome, time) =>
+		outcome === "succeeded"
+			? `计划任务“${escapeMarkdown(name)}”已于 ${time} 成功完成。`
+			: outcome === "failed"
+				? `计划任务“${escapeMarkdown(name)}”已于 ${time} 运行失败。`
+				: `计划任务“${escapeMarkdown(name)}”被下一次运行停止（${time}）。`,
+	reportError: (problem) => `错误：${escapeMarkdown(problem)}`,
 	sessionBody: (title, text) => `会话“${escapeMarkdown(title)}”：\n\n${text}`,
 	statusUntrackedSession: (status, title) => `${status}\n\n这是会话“${escapeMarkdown(title)}”。`,
 	working: "处理中…",
@@ -686,4 +704,18 @@ function untitledTitle(title: string | null | undefined, fallback: string): stri
 
 export function messagesFor(locale: BotLocale | null | undefined): BotMessages {
 	return locale === "zh-CN" ? zhCN : en;
+}
+
+/**
+ * A report's trigger time in the schedule's time zone (there is no user time-zone setting), formatted for the
+ * receiving account's locale (doc/design/scheduling.md "Reports"). A stored zone that no longer resolves falls
+ * back to UTC rather than failing the whole report.
+ */
+export function formatReportTime(iso: string, timezone: string, locale: BotLocale): string {
+	const options: Intl.DateTimeFormatOptions = { dateStyle: "medium", timeStyle: "short" };
+	try {
+		return new Intl.DateTimeFormat(locale, { ...options, timeZone: timezone }).format(new Date(iso));
+	} catch {
+		return new Intl.DateTimeFormat(locale, { ...options, timeZone: "UTC" }).format(new Date(iso));
+	}
 }

@@ -60,6 +60,42 @@ Every scheduler decision (fired, skipped, run started, preempted, leftover work 
 every configuration change is audited with the schedule as target. Scheduler decisions are attributed to
 the system acting for the owner; changes and manual runs to the acting user.
 
+## Reports
+
+A schedule may report every finished run to one of its owner's linked chat accounts, in that account's
+private chat. The setting is optional: a target account and a filter. Only an account linked to the
+schedule's owner is accepted. The filter is `always`, only on failure, or only on success; a failed run is
+one that ends `failed` or `preempted`, where preempted means stopped by the next run
+([One instance at a time](#one-instance-at-a-time)).
+
+The report is sent once, when the run's status becomes final and the filter matches. It has:
+
+- one status line naming the schedule, the outcome and the trigger time, in the schedule's time zone (there
+  is no user time-zone setting), localized by the receiving account's locale rule
+  ([Messages](channels.md#messages));
+- the full final reply of the run's first turn — the scheduled prompt's turn — not truncated, split like any
+  other outbound text ([Messages](channels.md#messages));
+- the files the run delivered with `copy_file` to `user_interface`, as WebUI download links, never
+  attachments;
+- the recorded error when the run failed;
+- the session's WebUI link, or on Telegram an **Open session** button, like a default-account notice.
+
+It goes to the private chat's main conversation, not a new topic, and is formatted as a message naming the
+session, like the default-account notice. When the run has no final reply (failed or preempted mid-turn) the
+report is the status line, the link and, when one is recorded, the error.
+
+A report is not a text push: it is the schedule's own message to the account its owner chose. Delivery is
+in-process and best effort like every other channel message: a failure is logged, and there is no outbox, no
+retry and no stored report state. A run that finished while crhs was down and is reconciled at startup sends
+no report.
+
+**No text pushes for runs.** A run session whose latest user message has no source — a scheduled run nobody
+has written in since — pushes no assistant text (commentary or final answer), delivered-file link, turn error
+or progress to any chat. Requests that need the user still go where they go for a WebUI session: approvals,
+signature requests and used-up quota go to the WebUI while the owner is online there, otherwise to the
+default notification account. Once the owner writes in the run session from the WebUI or a chat, its source
+is set and normal rules apply again. API-token approvals without a session are unchanged.
+
 ## Rules and quotas
 
 A schedule is a template for rules, not a level of them. At creation the run's session becomes an ordinary
@@ -98,4 +134,6 @@ trust entry can require a crhs cosignature.
   were, each already a root with its own rules and any rules added during its run; nothing is promoted.
   The schedule's own rule set is kept so rule chains that past tasks recorded before runs became
   independent roots still resolve.
+- Unlinking a chat account that is a schedule's report target clears the target and audits the schedule
+  change, so a report is never sent to an account that is no longer the owner's.
 - Schedules cannot be shared, and only the WebUI and the API manage them, not MCP or agent tools.

@@ -1043,6 +1043,80 @@ export async function chatHistory(host: RuntimeHost, sessionId: string, limit = 
 	return messages.slice(-limit);
 }
 
+/** A file a finished run offered to the user, as the report links it (doc/design/library.md "Deliveries"). */
+export interface RunReportDelivery {
+	name: string;
+	source: {
+		library?: string;
+		libraryId?: string;
+		node?: string;
+		nodeId?: string;
+		path?: string;
+	};
+}
+
+/** What a finished run's report shows: the first turn's final reply and the files it offered. */
+export interface RunReportContent {
+	/** The full final reply of the session's first turn; null when that turn produced none. */
+	reply: string | null;
+	deliveries: RunReportDelivery[];
+}
+
+/**
+ * Reads a scheduled run's report content from its first turn (doc/design/scheduling.md "Reports"): the final
+ * assistant reply, not a mid-turn text, and the `copy_file` deliveries the turn made. The first user turn is
+ * the schedule's own prompt, so the scan stops at the next user turn.
+ */
+export async function runReport(host: RuntimeHost, sessionId: string): Promise<RunReportContent> {
+	const row = await loadSession(host, sessionId);
+	const entries = await transcriptEntries(host, row.conversation_id);
+	const deliveries: RunReportDelivery[] = [];
+	let started = false;
+	for (const entry of entries) {
+		if (!started) {
+			if (isUserTurnEntry(entry)) started = true;
+			continue;
+		}
+		if (isUserTurnEntry(entry)) break;
+		if (isFinalReplyEntry(entry)) {
+			const message = entry.model?.[0];
+			if (message?.role !== "assistant") continue;
+			const reply = message.content
+				.flatMap((block) => (block.type === "text" && typeof block.text === "string" ? [block.text] : []))
+				.join("");
+			return { reply: reply === "" ? null : reply, deliveries };
+		}
+		const delivery = deliveryOf(entry);
+		if (delivery) deliveries.push(delivery);
+	}
+	return { reply: null, deliveries };
+}
+
+/** The `details.delivery` of a tool result, if the turn offered a file to the user. */
+function deliveryOf(entry: PiEntryRecord): RunReportDelivery | undefined {
+	const message = entry.model?.[0];
+	if (message?.role !== "toolResult") return undefined;
+	const details = message.details;
+	if (typeof details !== "object" || details === null || !("delivery" in details)) return undefined;
+	const delivery = (details as { delivery?: { name?: unknown; source?: unknown } }).delivery;
+	if (!delivery || typeof delivery.name !== "string") return undefined;
+	const source = delivery.source;
+	if (typeof source !== "object" || source === null) return undefined;
+	const typed = source as { library?: unknown; libraryId?: unknown; node?: unknown; nodeId?: unknown; path?: unknown };
+	if (typeof typed.path !== "string") return undefined;
+	if (typeof typed.library !== "string" && typeof typed.node !== "string") return undefined;
+	return {
+		name: delivery.name,
+		source: {
+			...(typeof typed.library === "string" ? { library: typed.library } : {}),
+			...(typeof typed.libraryId === "string" ? { libraryId: typed.libraryId } : {}),
+			...(typeof typed.node === "string" ? { node: typed.node } : {}),
+			...(typeof typed.nodeId === "string" ? { nodeId: typed.nodeId } : {}),
+			path: typed.path,
+		},
+	};
+}
+
 /** The typed text of a user message; an attachment's note is not part of it. */
 function userText(message: { readonly role?: string; readonly content?: unknown }): string | null {
 	if (message.role !== "user") return null;

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
-import { SchedulesPage } from "./pages";
+import { ScheduleDetailPage, SchedulesPage } from "./pages";
 
 const SCHEDULE: ScheduleView = {
 	id: "schedule-1",
@@ -19,6 +19,7 @@ const SCHEDULE: ScheduleView = {
 	timezone: "Not/AZone",
 	catchUp: false,
 	enabled: true,
+	report: null,
 	nextRunAt: null,
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
@@ -36,7 +37,26 @@ function mockFetch(schedules: ScheduleView[]): void {
 			const json = (payload: unknown) =>
 				new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
 			if (path === "/api/schedules") return json({ schedules });
+			if (path === "/api/schedules/preview") return json({ times: [] });
+			if (path.startsWith("/api/schedules/") && path.endsWith("/runs")) return json({ items: [], nextCursor: null });
+			if (path.startsWith("/api/schedules/")) return json({ schedule: schedules[0] });
 			if (path === "/api/models") return json({ models: [] });
+			if (path === "/api/channel-accounts")
+				return json({
+					accounts: [
+						{
+							id: "acc-1",
+							channelId: "channel-1",
+							channelName: "telegram-main",
+							platform: "telegram",
+							platformUserId: "42",
+							displayName: "Alice",
+							linkedAt: "2026-01-01T00:00:00.000Z",
+							isDefault: false,
+						},
+					],
+					channels: [],
+				});
 			return json({});
 		}),
 	);
@@ -49,6 +69,18 @@ async function renderPage(schedules: ScheduleView[]): Promise<void> {
 		<QueryClientProvider client={client}>
 			<SchedulesPage />
 		</QueryClientProvider>,
+	);
+}
+
+async function renderDetail(schedule: ScheduleView): Promise<void> {
+	mockFetch([schedule]);
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	await renderWithRouter(
+		<QueryClientProvider client={client}>
+			<ScheduleDetailPage />
+		</QueryClientProvider>,
+		"en",
+		{ path: "/schedules/$scheduleId", initialEntries: [`/schedules/${schedule.id}`] },
 	);
 }
 
@@ -107,4 +139,18 @@ test("a disabled schedule has no next run and says so in its status", async () =
 	expect(row).toHaveTextContent("–");
 	expect(row).toHaveTextContent("Disabled");
 	expect(row).not.toHaveTextContent("Succeeded");
+});
+
+test("the detail page shows the report target and when it is sent", async () => {
+	await renderDetail({
+		...SCHEDULE,
+		timezone: "Europe/Berlin",
+		previewError: null,
+		report: { accountId: "acc-1", on: "failure" },
+	});
+	const [report] = await screen.findAllByTestId("schedule-report");
+	if (!report) throw new Error("no report setting");
+	expect(report).toHaveTextContent("Report:");
+	expect(report).toHaveTextContent("Alice (telegram-main)");
+	expect(report).toHaveTextContent("Only on failure");
 });

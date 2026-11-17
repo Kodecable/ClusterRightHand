@@ -1,4 +1,4 @@
-import type { AvailableModel, ModelRef, RulePreset } from "@crh/api";
+import type { AvailableModel, ModelRef, RulePreset, ScheduleReportOn } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
 import { useLingui } from "@lingui/react/macro";
@@ -12,6 +12,8 @@ import { RulePresetSelect } from "@/components/rule-preset-select";
 import { ThinkingLevelSelect } from "@/components/thinking-level-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useChannelAccounts } from "@/features/channels/api";
 import { useDebouncedValue } from "@/hooks/use-debounced";
 import { formatDateTimeNumeric } from "@/lib/format";
 import { availableModel, supportedThinkingLevels } from "@/lib/thinking-level";
@@ -50,6 +52,7 @@ export function scheduleFormStateOf(schedule?: {
 	timezone: string;
 	catchUp: boolean;
 	enabled: boolean;
+	report?: { accountId: string; on: ScheduleReportOn } | null;
 }): ScheduleFormState {
 	return {
 		name: schedule?.name ?? "",
@@ -63,6 +66,8 @@ export function scheduleFormStateOf(schedule?: {
 		timezone: schedule?.timezone ?? defaultTimezone(),
 		catchUp: schedule?.catchUp ?? false,
 		enabled: schedule?.enabled ?? true,
+		reportAccountId: schedule?.report?.accountId ?? null,
+		reportOn: schedule?.report?.on ?? "always",
 	};
 }
 
@@ -84,6 +89,8 @@ function buildSchema(i18n: I18n) {
 			timezone: z.string(),
 			catchUp: z.boolean(),
 			enabled: z.boolean(),
+			reportAccountId: z.string().nullable(),
+			reportOn: z.enum(["always", "failure", "success"]),
 		})
 		.superRefine((values, context) => {
 			const parsed = parseScheduleForm(values);
@@ -135,6 +142,9 @@ export function ScheduleForm({
 	const rulePreset = useWatch({ control: form.control, name: "rulePreset" });
 	const cron = useWatch({ control: form.control, name: "cron" });
 	const timezone = useWatch({ control: form.control, name: "timezone" });
+	const reportAccountId = useWatch({ control: form.control, name: "reportAccountId" });
+	const accounts = useChannelAccounts();
+	const accountRows = accounts.data?.accounts ?? [];
 	const debouncedCron = useDebouncedValue(cron.trim(), 300);
 	const debouncedTimezone = useDebouncedValue(timezone.trim(), 300);
 	const preview = useSchedulePreview(debouncedCron, debouncedTimezone);
@@ -213,6 +223,66 @@ export function ScheduleForm({
 					{...form.register("tokenBudget")}
 				/>
 			</FieldShell>
+
+			<div className="grid gap-3 sm:grid-cols-2" data-testid="schedule-report-fields">
+				<FieldShell id={id("reportAccountId")} label={t`Report to`}>
+					<Controller
+						control={form.control}
+						name="reportAccountId"
+						render={({ field }) => (
+							<Select
+								value={field.value ?? "none"}
+								onValueChange={(next) => field.onChange(next === "none" ? null : next)}
+								disabled={accountRows.length === 0}
+							>
+								<SelectTrigger id={id("reportAccountId")} className="w-full">
+									<SelectValue>
+										{(selected: string | null) => {
+											if (selected === null || selected === "none") return t`None`;
+											const account = accountRows.find((row) => row.id === selected);
+											return account === undefined
+												? t`None`
+												: `${account.displayName ?? account.platformUserId} (${account.channelName})`;
+										}}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="none">{t`None`}</SelectItem>
+									{accountRows.map((account) => (
+										<SelectItem key={account.id} value={account.id}>
+											{account.displayName ?? account.platformUserId} ({account.channelName})
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						)}
+					/>
+				</FieldShell>
+				<FieldShell id={id("reportOn")} label={t`Send timing`}>
+					<Controller
+						control={form.control}
+						name="reportOn"
+						render={({ field }) => (
+							<Select
+								value={field.value}
+								onValueChange={(next) => {
+									if (typeof next === "string") field.onChange(next as ScheduleReportOn);
+								}}
+								disabled={reportAccountId === null}
+							>
+								<SelectTrigger id={id("reportOn")} className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="always">{t`Always`}</SelectItem>
+									<SelectItem value="failure">{t`Only on failure`}</SelectItem>
+									<SelectItem value="success">{t`Only on success`}</SelectItem>
+								</SelectContent>
+							</Select>
+						)}
+					/>
+				</FieldShell>
+			</div>
 
 			<div className="grid gap-3 sm:grid-cols-2">
 				<TextField

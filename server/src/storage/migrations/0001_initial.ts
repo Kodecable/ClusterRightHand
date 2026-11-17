@@ -335,7 +335,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 	await db.schema.createIndex("audit_events_user_idx").on("audit_events").column("on_behalf_of_user_id").execute();
 	await db.schema.createIndex("audit_events_ts_idx").on("audit_events").column("ts").execute();
 
-	await db.schema
+	// `report_account_id` points at a channel account created by 0008, so PostgreSQL cannot declare the
+	// foreign key yet; migration 0008 adds it there. SQLite resolves the reference lazily and accepts it
+	// here, which also gives a hand-patched demo database the ON DELETE SET NULL behavior.
+	let schedules = db.schema
 		.createTable("schedules")
 		.addColumn("id", "text", (c) => c.primaryKey())
 		.addColumn("org_id", "text", (c) => c.notNull().references("orgs.id"))
@@ -348,7 +351,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("timezone", "text", (c) => c.notNull())
 		.addColumn("catch_up", "integer", (c) => c.notNull())
 		.addColumn("enabled", "integer", (c) => c.notNull())
-		.addColumn("next_run_at", "text")
+		.addColumn("next_run_at", "text");
+	schedules = isPostgres(db)
+		? schedules.addColumn("report_account_id", "text")
+		: schedules.addColumn("report_account_id", "text", (c) => c.references("channel_accounts.id").onDelete("set null"));
+	await schedules
+		.addColumn("report_on", "text", (c) => c.notNull().defaultTo("always"))
 		.addColumn("created_at", "text", (c) => c.notNull())
 		.addColumn("updated_at", "text", (c) => c.notNull())
 		.execute();

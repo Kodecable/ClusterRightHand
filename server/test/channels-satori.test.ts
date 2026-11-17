@@ -15,6 +15,8 @@ import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend, type LibraryBackend } from "../src/library/backend.ts";
 import { updateLibraryLimits } from "../src/library/files.ts";
 import { findUserLibrary } from "../src/library/library.ts";
+import { Scheduler } from "../src/scheduler/scheduler.ts";
+import { createSchedule } from "../src/scheduler/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
@@ -676,6 +678,42 @@ describe("satori channels", () => {
 			(await db.selectFrom("channels").select("cursor").where("name", "=", "satoribot").executeTakeFirst())?.cursor,
 		);
 		expect(cursor).toBe(1);
+	});
+
+	it("sends a scheduled run's report as plain text with the WebUI link", async () => {
+		const userId = "7301";
+		await link(userId);
+		const account = await db
+			.selectFrom("channel_accounts")
+			.select("id")
+			.where("platform_user_id", "=", userId)
+			.executeTakeFirstOrThrow();
+		const schedule = await createSchedule(db, aliceId, {
+			name: "Satori report",
+			prompt: "Report it",
+			model: model(),
+			rulePreset: "yolo",
+			tokenBudget: null,
+			cron: "0 9 * * *",
+			timezone: "UTC",
+			catchUp: false,
+			enabled: false,
+			report: { accountId: account.id, on: "always" },
+		});
+		const scheduler = new Scheduler({ db, runtime, audit, reporter: channels });
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		faux.setResponses([fauxAssistantMessage("**bold** satori answer")]);
+		try {
+			await scheduler.start();
+			const run = await scheduler.runNow(schedule.id, alice);
+			const report = await waitForContent("succeeded at");
+			expect(contentOf(report)).toContain("**bold** satori answer");
+			expect(contentOf(report)).toContain(`https://crh.example/sessions/${run.sessionId}`);
+			expect(report.body.reply_markup).toBeUndefined();
+		} finally {
+			await scheduler.stop();
+			await runtime.waitForIdle();
+		}
 	});
 });
 

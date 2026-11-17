@@ -585,6 +585,11 @@ msgstr "Also revoke all of my API tokens"
 msgid "Also revoke all of this user's API tokens"
 msgstr "Also revoke all of this user's API tokens"
 
+#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-form.tsx
+msgid "Always"
+msgstr "Always"
+
 #: src/components/decision/approval-panel.tsx
 msgid "Always allow"
 msgstr "Always allow"
@@ -3285,6 +3290,8 @@ msgstr "Nodes: {list}"
 msgid "Nodes: {list} and {more} more"
 msgstr "Nodes: {list} and {more} more"
 
+#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-form.tsx
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 #: src/features/system-settings/signing-keys-section.tsx
@@ -3414,6 +3421,16 @@ msgstr "Only granted users and groups"
 #: src/features/settings/extension-dialog.tsx
 msgid "Only granted users and members of granted user groups reach this extension."
 msgstr "Only granted users and members of granted user groups reach this extension."
+
+#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-form.tsx
+msgid "Only on failure"
+msgstr "Only on failure"
+
+#: src/features/schedules/pages.tsx
+#: src/features/schedules/schedule-form.tsx
+msgid "Only on success"
+msgstr "Only on success"
 
 #: src/features/nodes/access-grants.tsx
 msgid "Only targets without an existing grant are listed."
@@ -4038,6 +4055,14 @@ msgstr "Replace the identity key of {0}. The node keeps its id, name, node group
 msgid "Report"
 msgstr "Report"
 
+#: src/features/schedules/schedule-form.tsx
+msgid "Report to"
+msgstr "Report to"
+
+#: src/features/schedules/pages.tsx
+msgid "Report:"
+msgstr "Report:"
+
 #: src/features/settings/model-dialog.tsx
 msgid "Request body (JSON)"
 msgstr "Request body (JSON)"
@@ -4409,6 +4434,10 @@ msgstr "Send"
 #: src/features/channels/chat-accounts-section.tsx
 msgid "Send the command below to the bot in a private chat. The code works once and expires in 10 minutes."
 msgstr "Send the command below to the bot in a private chat. The code works once and expires in 10 minutes."
+
+#: src/features/schedules/schedule-form.tsx
+msgid "Send timing"
+msgstr "Send timing"
 
 #: src/features/settings/extension-dialog.tsx
 msgid "Sent on every request and stored encrypted; the values are never shown again. Changing the URL requires entering them again or removing them."

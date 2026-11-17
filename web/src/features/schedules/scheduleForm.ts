@@ -1,4 +1,13 @@
-import type { ModelRef, RulePreset, ScheduleRunStatus, ScheduleRunView, ScheduleView, ThinkingLevel } from "@crh/api";
+import type {
+	ModelRef,
+	RulePreset,
+	ScheduleReport,
+	ScheduleReportOn,
+	ScheduleRunStatus,
+	ScheduleRunView,
+	ScheduleView,
+	ThinkingLevel,
+} from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { parseQuotaInput } from "@/lib/quota";
@@ -17,6 +26,9 @@ export interface ScheduleFormState {
 	timezone: string;
 	catchUp: boolean;
 	enabled: boolean;
+	/** Null means no report; otherwise one of the owner's linked chat accounts. */
+	reportAccountId: string | null;
+	reportOn: ScheduleReportOn;
 }
 
 /**
@@ -72,6 +84,7 @@ export interface ParsedSchedule {
 	timezone: string;
 	catchUp: boolean;
 	enabled: boolean;
+	report: ScheduleReport | null;
 }
 
 /** The browser's timezone, used as the form's default; "UTC" when it cannot be determined. */
@@ -134,6 +147,7 @@ export function parseScheduleForm(
 			timezone,
 			catchUp: state.catchUp,
 			enabled: state.enabled,
+			report: state.reportAccountId === null ? null : { accountId: state.reportAccountId, on: state.reportOn },
 		},
 	};
 }

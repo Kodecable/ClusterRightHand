@@ -1824,6 +1824,7 @@ export function scheduleView(overrides: Partial<ScheduleView> = {}): ScheduleVie
 		timezone: "Europe/Berlin",
 		catchUp: false,
 		enabled: true,
+		report: null,
 		nextRunAt: "2026-02-01T09:00:00.000Z",
 		createdAt: "2026-01-01T00:00:00.000Z",
 		updatedAt: "2026-01-01T00:00:00.000Z",

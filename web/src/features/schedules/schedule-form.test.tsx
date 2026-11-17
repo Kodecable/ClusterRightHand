@@ -29,6 +29,22 @@ const MODELS: AvailableModel[] = [
 	},
 ];
 
+const ACCOUNTS = {
+	accounts: [
+		{
+			id: "acc-1",
+			channelId: "channel-1",
+			channelName: "telegram-main",
+			platform: "telegram",
+			platformUserId: "42",
+			displayName: "Alice",
+			linkedAt: "2026-01-01T00:00:00.000Z",
+			isDefault: false,
+		},
+	],
+	channels: [],
+};
+
 function mockFetch(): { calls: { body: unknown; url: string }[] } {
 	const calls: { body: unknown; url: string }[] = [];
 	vi.stubGlobal(
@@ -39,7 +55,9 @@ function mockFetch(): { calls: { body: unknown; url: string }[] } {
 			calls.push({ url, body });
 			const json = url.startsWith("/api/schedules/preview")
 				? { times: ["2026-02-01T09:00:00.000Z", "2026-02-02T09:00:00.000Z"] }
-				: {};
+				: url.startsWith("/api/channel-accounts")
+					? ACCOUNTS
+					: {};
 			return new Response(JSON.stringify(json), {
 				status: 200,
 				headers: { "content-type": "application/json" },
@@ -121,6 +139,35 @@ describe("ScheduleForm", () => {
 		expect(rulePresetNoteText(i18n, "ask")).toMatch(/pause the schedule/);
 		expect(rulePresetNoteText(i18n, "auto_review")).toBeNull();
 		expect(rulePresetNoteText(i18n, "yolo")).toMatch(/without asking or checking/);
+	});
+
+	test("offers the linked accounts, disables Send for None and submits the report setting", async () => {
+		mockFetch();
+		const onSubmit = vi.fn();
+		renderForm(onSubmit);
+		const user = userEvent.setup();
+		await user.type(screen.getByLabelText("Name"), "Nightly");
+		const send = screen.getByLabelText("Send timing");
+		expect(send).toBeDisabled();
+
+		await screen.findByLabelText("Report to");
+		await waitFor(() => expect(screen.getByLabelText("Report to")).not.toBeDisabled());
+		await user.click(screen.getByLabelText("Report to"));
+		await user.click(await screen.findByRole("option", { name: "Alice (telegram-main)" }));
+		await waitFor(() => expect(screen.getByLabelText("Send timing")).not.toBeDisabled());
+		await user.click(screen.getByLabelText("Send timing"));
+		await user.click(await screen.findByRole("option", { name: "Only on failure" }));
+		await user.click(screen.getByRole("button", { name: "Save schedule" }));
+		await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+		expect(onSubmit.mock.calls[0]?.[0]?.report).toEqual({ accountId: "acc-1", on: "failure" });
+
+		// Choosing None clears the target and disables the timing picker again.
+		await user.click(screen.getByLabelText("Report to"));
+		await user.click(await screen.findByRole("option", { name: "None" }));
+		await waitFor(() => expect(screen.getByLabelText("Send timing")).toBeDisabled());
+		await user.click(screen.getByRole("button", { name: "Save schedule" }));
+		await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
+		expect(onSubmit.mock.calls[1]?.[0]?.report).toBeNull();
 	});
 
 	test("shows translated validation codes and does not submit", async () => {

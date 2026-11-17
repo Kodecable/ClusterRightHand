@@ -39,6 +39,7 @@ import type { LibraryBackend } from "../library/backend.ts";
 import { beginLibraryUpload } from "../library/files.ts";
 import { findUserLibrary, libraryRef } from "../library/library.ts";
 import { validateLibraryPath } from "../library/paths.ts";
+import type { ScheduleReportInput } from "../scheduler/scheduler.ts";
 import { attachmentContent, resolveAttachments } from "../sessions/attachments.ts";
 import { rootSessionIdOf } from "../sessions/session-chain.ts";
 import type { SettingsStore } from "../settings/settings.ts";
@@ -57,6 +58,7 @@ import {
 	displaySessionTitle,
 	escapeMarkdown,
 	formatBytes,
+	formatReportTime,
 	localeFromLanguageCode,
 	messagesFor,
 } from "./messages.ts";
@@ -698,26 +700,40 @@ export class ChannelManager {
 	}
 
 	async unlink(user: SessionUser, accountId: string): Promise<void> {
-		const row = await unlinkAccount(this.#options.db, user.userId, accountId);
-		if (!row) throw new NotFoundError("no such linked chat account");
+		const result = await unlinkAccount(this.#options.db, user.userId, accountId);
+		if (!result) throw new NotFoundError("no such linked chat account");
 		void this.#options.audit.record({
 			actor: userActor(user),
 			action: "channel_account.unlinked",
-			target: { type: "channel_account", id: row.id },
-			detail: { channel_account: row.id, platform: row.platform, reason: "user" },
+			target: { type: "channel_account", id: result.account.id },
+			detail: { channel_account: result.account.id, platform: result.account.platform, reason: "user" },
 		});
+		this.#auditClearedReportTargets(result.clearedReports);
 	}
 
 	/** A disabled or deleted user stops all of their chat accounts (doc/design/channels.md "Accounts"). */
 	async detachUser(userId: string): Promise<void> {
-		const rows = await unlinkUserAccounts(this.#options.db, userId);
+		const result = await unlinkUserAccounts(this.#options.db, userId);
 		this.#presence.forget(userId);
-		for (const row of rows) {
+		for (const row of result.accounts) {
 			void this.#options.audit.record({
 				actor: { type: "system", id: "channels" },
 				action: "channel_account.unlinked",
 				target: { type: "channel_account", id: row.id },
 				detail: { channel_account: row.id, platform: row.platform, reason: "user_disabled" },
+			});
+		}
+		this.#auditClearedReportTargets(result.clearedReports);
+	}
+
+	/** Records that an unlinked account cleared a schedule's report target (doc/design/scheduling.md "Reports"). */
+	#auditClearedReportTargets(cleared: readonly import("./store.ts").ClearedReportTarget[]): void {
+		for (const target of cleared) {
+			void this.#options.audit.record({
+				actor: { type: "system", id: "channels", onBehalfOfUserId: target.ownerUserId },
+				action: "schedule.updated",
+				target: { type: "schedule", id: target.scheduleId },
+				detail: { report: null, report_cleared: "account_unlinked" },
 			});
 		}
 	}
@@ -2671,13 +2687,18 @@ export class ChannelManager {
 		const run = this.#runs.get(sessionId);
 		if (!run || run.seen.has(key)) return;
 		run.seen.add(key);
+		run.deliveries.push({ name: delivery.name, source: this.#deliveryLink(source) });
+	}
+
+	/** The WebUI link a delivered file is shown as, or its path when no public URL is configured. */
+	#deliveryLink(source: { library?: unknown; path?: unknown; node?: unknown; nodeId?: unknown }): string {
 		const link =
 			source.library !== undefined
 				? this.#webUrl(
 						`/library/${encodeURIComponent(String(source.library))}?path=${encodeURIComponent(String(source.path))}`,
 					)
 				: this.#webUrl(`/nodes/${encodeURIComponent(String(source.nodeId ?? source.node))}`);
-		run.deliveries.push({ name: delivery.name, source: link ?? String(source.path ?? "") });
+		return link ?? String(source.path ?? "");
 	}
 
 	async #sendDeliveries(sessionId: string, run: RunState): Promise<void> {
@@ -2695,6 +2716,7 @@ export class ChannelManager {
 		text: string | ((m: BotMessages) => string),
 		options: { buttons?: readonly (readonly import("./model.ts").ChannelButton[])[] } = {},
 	): Promise<void> {
+		if (!(await this.#textPushAllowed(sessionId))) return;
 		const route = await this.#routeForSession(sessionId);
 		if (!route) return;
 		const locale = botLocale(await this.#userLocale(route.account.user_id), route.account.language_code);
@@ -2723,6 +2745,7 @@ export class ChannelManager {
 	}
 
 	async #showProgress(sessionId: string, status: (m: BotMessages) => string): Promise<void> {
+		if (!(await this.#textPushAllowed(sessionId))) return;
 		const route = await this.#routeForSession(sessionId);
 		if (!route) return;
 		if (!route.adapter.capabilities.progress) return;
@@ -3705,6 +3728,87 @@ export class ChannelManager {
 		await this.#fullSyncs.run("all", () => this.#syncAllWaits());
 	}
 
+	// ---- scheduled-run reports ----
+
+	/**
+	 * Sends a finished scheduled run's report to the account chosen on the schedule (doc/design/scheduling.md
+	 * "Reports"). It is best effort like every other channel message: a failure is logged and nothing retries.
+	 */
+	async reportScheduleRun(input: ScheduleReportInput): Promise<void> {
+		const account = await this.#reportAccount(input.ownerUserId, input.reportAccountId);
+		if (!account) {
+			console.error(`channels: report account ${input.reportAccountId} for schedule ${input.scheduleId} is gone`);
+			return;
+		}
+		const entry = this.#adapters.get(account.channel.name);
+		if (!entry) {
+			console.error(`channels: report channel ${account.channel.name} is not running`);
+			return;
+		}
+		const locale = botLocale(await this.#userLocale(account.account.user_id), account.account.language_code);
+		const m = messagesFor(locale);
+		const pieces = [
+			m.reportStatus(input.scheduleName, input.status, formatReportTime(input.fireTime, input.timezone, locale)),
+		];
+		let title = input.scheduleName;
+		let link: string | null = null;
+		if (input.sessionId !== null) {
+			title = await this.#sessionTitle(input.sessionId, locale);
+			link = this.#sessionLink(input.sessionId);
+			try {
+				const report = await this.#options.runtime.runReport(input.sessionId);
+				if (report.reply !== null) {
+					pieces.push(report.reply);
+					for (const delivery of report.deliveries) {
+						pieces.push(m.fileOffered(delivery.name, this.#deliveryLink(delivery.source)));
+					}
+				}
+			} catch (err) {
+				console.error(`channels: reading the report of session ${input.sessionId} failed:`, err);
+			}
+		}
+		if (input.status === "failed" && input.reason !== null) pieces.push(m.reportError(input.reason));
+		const buttonsOn = entry.adapter.capabilities.buttons;
+		// A surface without buttons carries the session link in the text instead (as the default-account notice does).
+		if (!buttonsOn && link !== null) pieces.push(m.openSessionLink(link));
+		// A report for a run that never got a session names no session; otherwise it is the usual notice form.
+		const body = input.sessionId === null ? pieces.join("\n\n") : m.sessionBody(title, pieces.join("\n\n"));
+		const buttons =
+			buttonsOn && input.sessionId !== null
+				? [[{ text: m.openSession, data: `switch:${input.sessionId}` }]]
+				: undefined;
+		try {
+			await entry.adapter.sendText(
+				{ chatId: account.account.platform_chat_id ?? account.account.platform_user_id },
+				body,
+				buttons === undefined ? {} : { buttons },
+			);
+		} catch (err) {
+			console.error(`channels: sending the report of schedule ${input.scheduleId} failed:`, err);
+		}
+	}
+
+	/** The schedule owner's own linked account and its enabled channel, for a report. */
+	async #reportAccount(
+		ownerUserId: string,
+		accountId: string,
+	): Promise<{ account: ChannelAccountRow; channel: ChannelRow } | undefined> {
+		const account = await this.#options.db
+			.selectFrom("channel_accounts")
+			.selectAll()
+			.where("id", "=", accountId)
+			.where("user_id", "=", ownerUserId)
+			.executeTakeFirst();
+		if (!account) return undefined;
+		const channel = await this.#options.db
+			.selectFrom("channels")
+			.selectAll()
+			.where("id", "=", account.channel_id)
+			.where("enabled", "=", 1)
+			.executeTakeFirst();
+		return channel ? { account, channel } : undefined;
+	}
+
 	/** Test-only: whether a runtime event watch is held for the session. */
 	watchesSession(sessionId: string): boolean {
 		return this.#watchers.has(sessionId);
@@ -3745,6 +3849,16 @@ export class ChannelManager {
 	/** A user's stored locale; null means their platform's language or English decides. */
 	async #userLocale(userId: string): Promise<UserSettingsLocale | null> {
 		return (await getUserSettings(this.#options.db, userId)).locale;
+	}
+
+	/**
+	 * Whether assistant text, delivered-file links, progress and turn failures may be pushed for this session
+	 * (doc/design/channels.md "Notifications"). A session whose latest user message has no source is a scheduled
+	 * run nobody has written in since: its text is not pushed anywhere, only requests that need the user are.
+	 * Once the owner writes in it from the WebUI or a chat, its source is set and normal rules apply again.
+	 */
+	async #textPushAllowed(sessionId: string): Promise<boolean> {
+		return (await lastUsedFrom(this.#options.db, sessionId)) !== null;
 	}
 
 	/**
@@ -3798,16 +3912,17 @@ export class ChannelManager {
 	}
 
 	async deleteChannel(user: SessionUser, name: string): Promise<void> {
-		const row = await this.#serialized(name, async () => {
-			const row = await deleteChannelRow(this.#options.db, name);
+		const result = await this.#serialized(name, async () => {
+			const deleted = await deleteChannelRow(this.#options.db, name);
 			await this.#removeNow(name);
-			return row;
+			return deleted;
 		});
 		void this.#options.audit.record({
 			actor: userActor(user),
 			action: "channel.deleted",
-			target: { type: "channel", id: row.id },
-			detail: { name: row.name, kind: row.kind },
+			target: { type: "channel", id: result.channel.id },
+			detail: { name: result.channel.name, kind: result.channel.kind },
 		});
+		this.#auditClearedReportTargets(result.clearedReports);
 	}
 }

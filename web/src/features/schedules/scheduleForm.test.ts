@@ -19,6 +19,8 @@ const form = (overrides: Partial<ScheduleFormState> = {}): ScheduleFormState => 
 	timezone: "Europe/Berlin",
 	catchUp: false,
 	enabled: true,
+	reportAccountId: null,
+	reportOn: "always",
 	...overrides,
 });
 
@@ -35,6 +37,7 @@ describe("parseScheduleForm", () => {
 				timezone: "Europe/Berlin",
 				catchUp: false,
 				enabled: true,
+				report: null,
 			},
 		});
 		expect(parseScheduleForm(form({ tokenBudget: "2500" }))).toMatchObject({ input: { tokenBudget: 2500 } });
@@ -53,6 +56,7 @@ describe("parseScheduleForm", () => {
 				timezone: "Europe/Berlin",
 				catchUp: false,
 				enabled: true,
+				report: null,
 			},
 		});
 		expect(parseScheduleForm(form({ thinkingLevel: "off" }))).toMatchObject({

@@ -44,8 +44,10 @@ import {
 	getSession,
 	hasSubagents,
 	latestEntryId,
+	type RunReportContent,
 	reviewHistory,
 	reviewToolCalls,
+	runReport,
 	type SessionStopOptions,
 	sessionAt,
 	transcriptEntries,
@@ -448,6 +450,11 @@ export class AgentRuntime {
 	/** The last messages a chat replays when it switches to a session (doc/design/channels.md "Conversations"). */
 	async chatHistory(id: string, limit = 10): Promise<ChatHistoryMessage[]> {
 		return chatHistory(this.#host, id, limit);
+	}
+
+	/** A finished run's report content: its first turn's final reply and the files it offered (doc/design/scheduling.md "Reports"). */
+	async runReport(sessionId: string): Promise<RunReportContent> {
+		return runReport(this.#host, sessionId);
 	}
 
 	/** Follows session run-state changes, for chat channels that send approvals and progress. */

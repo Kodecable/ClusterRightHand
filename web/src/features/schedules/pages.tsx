@@ -16,6 +16,7 @@ import { PageSkeleton } from "@/components/skeletons";
 import { ScheduleStatusBadge, StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { WarningBanner } from "@/components/warning-banner";
+import { useChannelAccounts } from "@/features/channels/api";
 import { useModels } from "@/features/settings/api";
 import { MONO_CELL } from "@/lib/utils";
 import { useDeleteSchedule, usePatchSchedule, useSchedule, useSchedules } from "./api";
@@ -166,6 +167,7 @@ export function ScheduleDetailPage() {
 	const id = params.scheduleId ?? "";
 	const schedule = useSchedule(id);
 	const models = useModels();
+	const accounts = useChannelAccounts();
 	const patch = usePatchSchedule(id);
 	const remove = useDeleteSchedule();
 	const navigate = useNavigate();
@@ -187,6 +189,10 @@ export function ScheduleDetailPage() {
 	}
 
 	const current = schedule.data;
+	const reportAccount =
+		current.report === null
+			? undefined
+			: accounts.data?.accounts.find((account) => account.id === current.report?.accountId);
 
 	return (
 		<Page width="detail" data-testid="schedule-detail">
@@ -208,6 +214,26 @@ export function ScheduleDetailPage() {
 						{current.lastRun?.reason !== null && current.lastRun?.reason !== undefined && (
 							<span className="text-xs">{current.lastRun.reason}</span>
 						)}
+						<span className="text-xs" data-testid="schedule-report">
+							<Trans>Report:</Trans>{" "}
+							{current.report === null ? (
+								<Trans>None</Trans>
+							) : (
+								<>
+									{reportAccount === undefined
+										? current.report.accountId
+										: `${reportAccount.displayName ?? reportAccount.platformUserId} (${reportAccount.channelName})`}
+									{" · "}
+									{current.report.on === "always" ? (
+										<Trans>Always</Trans>
+									) : current.report.on === "failure" ? (
+										<Trans>Only on failure</Trans>
+									) : (
+										<Trans>Only on success</Trans>
+									)}
+								</>
+							)}
+						</span>
 					</span>
 				}
 				actions={

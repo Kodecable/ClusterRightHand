@@ -1,4 +1,5 @@
 import type { Kysely } from "kysely";
+import { isPostgres } from "../dialect.ts";
 
 /**
  * Chat channels (doc/design/channels.md).
@@ -116,6 +117,16 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.execute();
 
 	await db.schema.alterTable("sessions").addColumn("last_used_from", "text").execute();
+	// `schedules.report_account_id` points at a channel account (0001 leaves the reference out on PostgreSQL,
+	// where `channel_accounts` did not exist yet); declare the foreign key once the table exists.
+	if (isPostgres(db)) {
+		await db.schema
+			.alterTable("schedules")
+			.addForeignKeyConstraint("schedules_report_account_fk", ["report_account_id"], "channel_accounts", ["id"], (c) =>
+				c.onDelete("set null"),
+			)
+			.execute();
+	}
 	// The durable tool call that created a task or task group, for Auto Review's operation block
 	// (doc/design/access-control.md "Auto Review"). Null when no tool call created it (API token, MCP, WebUI).
 	await db.schema.alterTable("tasks").addColumn("source_call_id", "text").execute();
@@ -126,6 +137,9 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 	await db.schema.alterTable("task_groups").dropColumn("source_call_id").execute();
 	await db.schema.alterTable("tasks").dropColumn("source_call_id").execute();
 	await db.schema.alterTable("sessions").dropColumn("last_used_from").execute();
+	if (isPostgres(db)) {
+		await db.schema.alterTable("schedules").dropConstraint("schedules_report_account_fk").execute();
+	}
 	await db.schema.dropTable("user_settings").execute();
 	await db.schema.dropTable("channel_threads").execute();
 	await db.schema.dropTable("channel_link_codes").execute();

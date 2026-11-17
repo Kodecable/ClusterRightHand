@@ -9,6 +9,21 @@ import { RulePresetSchema, RuleSchema } from "./policy.ts";
 
 export const ScheduleRunStatusSchema = z.enum(["pending", "running", "succeeded", "failed", "preempted"]);
 
+/** Which finished runs of a schedule are reported: every one, only failures, or only successes. */
+export const ScheduleReportOnSchema = z.enum(["always", "failure", "success"]).meta({ id: "ScheduleReportOn" });
+
+/** A schedule's report target: one of the owner's linked private chat accounts. */
+export const ScheduleReportSchema = z
+	.object({
+		accountId: z
+			.string()
+			.describe("A linked chat account of the schedule's owner; its private chat receives the report."),
+		on: ScheduleReportOnSchema.describe(
+			'When to send it: "always", "failure" (failed or preempted runs) or "success".',
+		),
+	})
+	.meta({ id: "ScheduleReport" });
+
 /** One firing of a schedule (doc/design/scheduling.md "Triggering and submission"). */
 export const ScheduleRunViewSchema = z
 	.object({
@@ -43,6 +58,7 @@ export const ScheduleViewSchema = z
 		timezone: z.string(),
 		catchUp: z.boolean(),
 		enabled: z.boolean(),
+		report: ScheduleReportSchema.nullable().describe("Where finished runs are reported; null means nowhere."),
 		nextRunAt: z.string().nullable(),
 		createdAt: z.string(),
 		updatedAt: z.string(),
@@ -74,6 +90,7 @@ export const ScheduleCreateBodySchema = z.object({
 	timezone: z.string().describe("An IANA time zone."),
 	catchUp: z.boolean().optional(),
 	enabled: z.boolean().optional().describe("true by default."),
+	report: ScheduleReportSchema.nullable().optional().describe("null disables the report; omitted keeps it on PATCH."),
 });
 
 /** `PATCH /api/schedules/{id}`: any of the create fields; omitted fields keep their value. */
@@ -87,6 +104,7 @@ export const SchedulePatchBodySchema = z.object({
 	timezone: z.string().optional(),
 	catchUp: z.boolean().optional(),
 	enabled: z.boolean().optional(),
+	report: ScheduleReportSchema.nullable().optional().describe("null clears the report; omitted keeps it."),
 });
 
 /** `POST /api/schedules/preview`: computes the next fire times without saving anything. */

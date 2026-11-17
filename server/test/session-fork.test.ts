@@ -447,6 +447,7 @@ it("copies a scheduled run session's own root rules, including rules added durin
 		timezone: "UTC",
 		catchUp: false,
 		enabled: true,
+		report: null,
 	});
 	// The schedule's template holds a custom rule the run session copies at creation.
 	const templateRule: Rule = { action: "deny", method: "exec", exact: "rm -rf /" };

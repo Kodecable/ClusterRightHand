@@ -237,10 +237,18 @@ export async function saveChannel(
 	return { row, created };
 }
 
-export async function deleteChannel(db: Db, name: string): Promise<ChannelRow> {
+export async function deleteChannel(
+	db: Db,
+	name: string,
+): Promise<{ channel: ChannelRow; clearedReports: ClearedReportTarget[] }> {
 	const row = await getChannelRow(db, name);
 	if (!row) throw new NotFoundError("no such channel");
-	await db.transaction().execute(async (trx) => {
+	const clearedReports = await db.transaction().execute(async (trx) => {
+		const accounts = await trx.selectFrom("channel_accounts").select("id").where("channel_id", "=", row.id).execute();
+		const cleared = await clearReportTargets(
+			trx,
+			accounts.map((account) => account.id),
+		);
 		// channel_accounts.id is a foreign key in user_settings with ON DELETE SET NULL: deleting the accounts
 		// clears any default that pointed at one of them.
 		await trx.deleteFrom("channel_accounts").where("channel_id", "=", row.id).execute();
@@ -249,8 +257,9 @@ export async function deleteChannel(db: Db, name: string): Promise<ChannelRow> {
 		if (row.credentials_secret_id) {
 			await trx.deleteFrom("secrets").where("id", "=", row.credentials_secret_id).execute();
 		}
+		return cleared;
 	});
-	return row;
+	return { channel: row, clearedReports };
 }
 
 /** Stores the last handled platform update id. */
@@ -392,29 +401,76 @@ export async function linkAccount(
 	return { account, created: true };
 }
 
-/** Unlinks one account; returns it for the audit, or undefined for an account the user does not own. */
-export async function unlinkAccount(db: Db, userId: string, accountId: string): Promise<ChannelAccountRow | undefined> {
-	const row = await db
-		.selectFrom("channel_accounts")
-		.selectAll()
-		.where("id", "=", accountId)
-		.where("user_id", "=", userId)
-		.executeTakeFirst();
-	if (!row) return undefined;
-	// The user_settings foreign key clears a default that pointed at this account.
-	await db.deleteFrom("channel_accounts").where("id", "=", accountId).execute();
-	return row;
+/** A schedule whose report target pointed at an unlinked account; its target must be cleared and audited. */
+export interface ClearedReportTarget {
+	scheduleId: string;
+	ownerUserId: string;
+}
+
+/** An unlinked account and the schedules whose report target it was. */
+export interface UnlinkedAccount {
+	account: ChannelAccountRow;
+	clearedReports: ClearedReportTarget[];
+}
+
+/**
+ * Unlinks one account; returns it for the audit, or undefined for an account the user does not own. A
+ * schedule that reported to this account loses its target, and a `schedule.updated` audit says why
+ * (doc/design/scheduling.md "Reports").
+ */
+export async function unlinkAccount(db: Db, userId: string, accountId: string): Promise<UnlinkedAccount | undefined> {
+	return db.transaction().execute(async (trx) => {
+		const row = await trx
+			.selectFrom("channel_accounts")
+			.selectAll()
+			.where("id", "=", accountId)
+			.where("user_id", "=", userId)
+			.executeTakeFirst();
+		if (!row) return undefined;
+		const clearedReports = await clearReportTargets(trx, [accountId]);
+		// The user_settings foreign key clears a default that pointed at this account.
+		await trx.deleteFrom("channel_accounts").where("id", "=", accountId).execute();
+		return { account: row, clearedReports };
+	});
 }
 
 /** Removes every account of a disabled user (doc/design/channels.md "Accounts"); returns them for the audit. */
-export async function unlinkUserAccounts(db: Db, userId: string): Promise<ChannelAccountRow[]> {
+export async function unlinkUserAccounts(
+	db: Db,
+	userId: string,
+): Promise<{ accounts: ChannelAccountRow[]; clearedReports: ClearedReportTarget[] }> {
 	const rows = await db.selectFrom("channel_accounts").selectAll().where("user_id", "=", userId).execute();
-	if (rows.length === 0) return [];
-	await db.transaction().execute(async (trx) => {
+	if (rows.length === 0) return { accounts: [], clearedReports: [] };
+	return db.transaction().execute(async (trx) => {
+		const clearedReports = await clearReportTargets(
+			trx,
+			rows.map((row) => row.id),
+		);
 		await trx.deleteFrom("channel_accounts").where("user_id", "=", userId).execute();
 		await deleteUserSettings(trx, userId);
+		return { accounts: rows, clearedReports };
 	});
-	return rows;
+}
+
+/**
+ * Clears the report target of every schedule that pointed at one of these accounts. The foreign key does the
+ * same when it exists, but an explicitly patched demo schema or a database without it must still lose a target
+ * it can no longer send to; the caller audits each returned schedule.
+ */
+async function clearReportTargets(trx: Db, accountIds: readonly string[]): Promise<ClearedReportTarget[]> {
+	if (accountIds.length === 0) return [];
+	const rows = await trx
+		.selectFrom("schedules")
+		.select(["id", "owner_user_id"])
+		.where("report_account_id", "in", [...accountIds])
+		.execute();
+	if (rows.length === 0) return [];
+	await trx
+		.updateTable("schedules")
+		.set({ report_account_id: null, updated_at: new Date().toISOString() })
+		.where("report_account_id", "in", [...accountIds])
+		.execute();
+	return rows.map((row) => ({ scheduleId: row.id, ownerUserId: row.owner_user_id }));
 }
 
 export interface ChannelAccountListItem {

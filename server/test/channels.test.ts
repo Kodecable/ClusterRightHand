@@ -16,6 +16,8 @@ import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend, type LibraryBackend } from "../src/library/backend.ts";
 import { beginLibraryUpload, updateLibraryLimits } from "../src/library/files.ts";
 import { findUserLibrary } from "../src/library/library.ts";
+import { Scheduler } from "../src/scheduler/scheduler.ts";
+import { createSchedule, getSchedule } from "../src/scheduler/store.ts";
 import { shareSession } from "../src/sessions/sharing.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -2310,6 +2312,214 @@ describe("channels", () => {
 		} finally {
 			await updateLibraryLimits(db, library.row.id, { fileBytes: previousLimit });
 		}
+	});
+
+	it("pushes no text, file link or turn error for a scheduled run, but still pushes requests", async () => {
+		const userId = 9901;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const account = await db
+			.selectFrom("channel_accounts")
+			.select("id")
+			.where("platform_user_id", "=", String(userId))
+			.executeTakeFirstOrThrow();
+		await patchUserSettings(db, aliceId, { defaultChannelAccountId: account.id, showProgress: true });
+		channels.presence.forget(aliceId);
+		const library = await findUserLibrary(db, aliceId);
+		if (!library) throw new Error("alice has no library");
+		const upload = beginLibraryUpload(db, backend, {
+			library: library.row,
+			path: "reports/hidden.txt",
+			overwrite: false,
+			rename: false,
+			createdBy: aliceId,
+		});
+		await upload.write(Buffer.from("hidden delivery"));
+		await upload.finish();
+		await upload.commit();
+		try {
+			// A scheduled turn that delivers a file and answers: neither reaches any chat.
+			faux.setResponses([
+				fauxAssistantMessage(
+					[
+						fauxToolCall("copy_file", {
+							source: { library: "user:alice", path: "reports/hidden.txt" },
+							destination: { user_interface: true },
+						}),
+					],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("scheduled hidden answer"),
+			]);
+			await runtime.submitAsSchedule(thread.sessionId, "schedule-source", "a scheduled prompt", "hidden-run-1");
+			await settle();
+			expect(await lastUsed(thread.sessionId)).toBeNull();
+			expect(fake.sentCalls().some((call) => plainText(call).includes("scheduled hidden answer"))).toBe(false);
+			expect(fake.sentCalls().some((call) => plainText(call).includes("File offered: hidden.txt"))).toBe(false);
+
+			// A failed scheduled turn pushes no error either.
+			faux.setResponses([
+				() => {
+					throw new Error("scheduled failure");
+				},
+			]);
+			await runtime.submitAsSchedule(thread.sessionId, "schedule-source", "a failing prompt", "hidden-run-2");
+			await settle();
+			expect(fake.sentCalls().some((call) => plainText(call).includes("The turn failed"))).toBe(false);
+
+			// Requests that need the user still go to the default account, as before.
+			const approvalId = await insertExternalCall(thread.sessionId, "hidden-approval");
+			await wakeWait(thread.sessionId);
+			// A full sweep reads the request even when a just-finished run left a state change queued.
+			await channels.refreshAllWaits();
+			const card = await fake.waitForSent((call) => plainText(call).includes(`/reject ${approvalId} reason`));
+			expect(String(card.body.chat_id)).toBe(String(userId));
+			await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", approvalId).execute();
+			// The test faked a running state to wake the wait; settle it again before submitting.
+			await runtime.refreshState(thread.sessionId);
+			// Once the owner writes in the session from the WebUI, normal text pushes resume. The answer is
+			// gated so the WebUI request's presence has been forgotten again before it is sent.
+			let release = (): void => {};
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			faux.setResponses([
+				async () => {
+					await gate;
+					return fauxAssistantMessage("visible answer");
+				},
+			]);
+			const sent = await call(app, `/api/sessions/${thread.sessionId}/messages`, {
+				method: "POST",
+				cookie: aliceCookie,
+				body: { text: "from the WebUI", requestId: "hidden-source-web" },
+			});
+			expect(sent.status).toBe(202);
+			channels.presence.forget(aliceId);
+			release();
+			await fake.waitForSent((call) => plainText(call).includes("visible answer"));
+		} finally {
+			await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
+			await runtime.waitForIdle();
+		}
+	});
+
+	it("reports a successful run with its full reply, delivered files and a switch button", async () => {
+		const userId = 9911;
+		await link(userId);
+		const account = await db
+			.selectFrom("channel_accounts")
+			.select("id")
+			.where("platform_user_id", "=", String(userId))
+			.executeTakeFirstOrThrow();
+		const library = await findUserLibrary(db, aliceId);
+		if (!library) throw new Error("alice has no library");
+		const upload = beginLibraryUpload(db, backend, {
+			library: library.row,
+			path: "reports/report.txt",
+			overwrite: false,
+			rename: false,
+			createdBy: aliceId,
+		});
+		await upload.write(Buffer.from("report delivery"));
+		await upload.finish();
+		await upload.commit();
+		const schedule = await createSchedule(db, aliceId, {
+			name: "Nightly report",
+			prompt: "Report the nodes",
+			model: model(),
+			rulePreset: "yolo",
+			tokenBudget: null,
+			cron: "0 9 * * *",
+			timezone: "UTC",
+			catchUp: false,
+			enabled: false,
+			report: { accountId: account.id, on: "always" },
+		});
+		const scheduler = new Scheduler({ db, runtime, audit, reporter: channels });
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		const paragraphs = Array.from({ length: 520 }, (_, index) => `Paragraph ${index}: ${"x".repeat(60)}`);
+		const longReply = `${paragraphs.join("\n\n")}\n\nEND-OF-REPORT`;
+		faux.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxToolCall("copy_file", {
+						source: { library: "user:alice", path: "reports/report.txt" },
+						destination: { user_interface: true },
+					}),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(longReply),
+		]);
+		try {
+			await scheduler.start();
+			const run = await scheduler.runNow(schedule.id, alice);
+			const tail = await fake.waitForSent((call) => plainText(call).includes("END-OF-REPORT"));
+			const reports = fake.sentCalls().filter((call) => {
+				const text = plainText(call);
+				return (
+					text.includes('Schedule "Nightly report" succeeded at') ||
+					text.includes("Paragraph 0:") ||
+					text.includes("END-OF-REPORT") ||
+					text.includes("File offered: report.txt")
+				);
+			});
+			expect(reports.length).toBeGreaterThan(1);
+			const first = reports[0];
+			if (!first) throw new Error("no report");
+			expect(plainText(first)).toContain('Session "Nightly report":');
+			expect(plainText(first)).toContain("Paragraph 0:");
+			expect(plainText(tail)).toContain("Paragraph 519:");
+			expect(plainText(tail)).toContain("END-OF-REPORT");
+			expect(plainText(tail)).toContain("File offered: report.txt");
+			expect(plainText(tail)).toContain("https://crh.example/library/user%3Aalice?path=reports%2Freport.txt");
+			expect(tail.body.reply_markup).toEqual({
+				inline_keyboard: [[{ text: "Open session", callback_data: `switch:${run.sessionId}` }]],
+			});
+			expect(await runtime.getSession(run.sessionId ?? "")).toBeDefined();
+		} finally {
+			await scheduler.stop();
+			await runtime.waitForIdle();
+		}
+	});
+
+	it("clears a schedule's report target when its chat account is unlinked and audits it", async () => {
+		const userId = 9921;
+		await link(userId);
+		const account = await db
+			.selectFrom("channel_accounts")
+			.select("id")
+			.where("platform_user_id", "=", String(userId))
+			.executeTakeFirstOrThrow();
+		const schedule = await createSchedule(db, aliceId, {
+			name: "Unlink report",
+			prompt: "check",
+			model: model(),
+			rulePreset: "yolo",
+			tokenBudget: null,
+			cron: "0 9 * * *",
+			timezone: "UTC",
+			catchUp: false,
+			enabled: false,
+			report: { accountId: account.id, on: "failure" },
+		});
+		const res = await call(app, `/api/channel-accounts/${account.id}`, {
+			method: "DELETE",
+			cookie: aliceCookie,
+			body: {},
+		});
+		expect(res.status).toBe(200);
+		expect((await getSchedule(db, schedule.id))?.reportAccountId).toBeNull();
+		await audit.flush();
+		const events = await db
+			.selectFrom("audit_events")
+			.select("detail")
+			.where("action", "=", "schedule.updated")
+			.where("target_type", "=", "schedule")
+			.where("target_id", "=", schedule.id)
+			.execute();
+		expect(events.some((event) => JSON.parse(event.detail).report_cleared === "account_unlinked")).toBe(true);
 	});
 });
 

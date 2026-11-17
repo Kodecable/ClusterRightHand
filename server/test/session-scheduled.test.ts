@@ -77,6 +77,7 @@ describeBackends("createScheduledSession", (backend) => {
 			timezone: "UTC",
 			catchUp: false,
 			enabled: true,
+			report: null,
 		});
 		scheduleId = schedule.id;
 	});

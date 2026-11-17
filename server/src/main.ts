@@ -248,8 +248,6 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	await cluster.expireAuthorizationWaits();
 	// A token that expired while crhs was down must not leave its waiting work behind either.
 	await cancelExpiredTokenWaits(db, cluster, taskGroups);
-	// Recovery (leftover pending runs, then runs that ended while the process was down) happens before the loop.
-	const scheduler = new Scheduler({ db, runtime, audit });
 	// Chat channels (doc/design/channels.md): adapters for the stored bots, started before requests arrive. The
 	// manager follows session state so approvals and progress reach the linked chat.
 	const channels = new ChannelManager({
@@ -263,6 +261,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		libraryBackend,
 		settings,
 	});
+	// Recovery (leftover pending runs, then runs that ended while the process was down) happens before the loop;
+	// a finished run reports to its schedule's chat account through the manager (doc/design/scheduling.md "Reports").
+	const scheduler = new Scheduler({ db, runtime, audit, reporter: channels });
 	await channels.start();
 	const drain = new RequestDrain();
 	const app = createApp(db, {
