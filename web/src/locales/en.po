@@ -605,7 +605,7 @@ msgstr "An administrator creates node groups."
 msgid "An administrator grants access to nodes."
 msgstr "An administrator grants access to nodes."
 
-#: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/extensions-dialog.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "An extension that is off is hidden from the model. The change applies to the next turn."
 
@@ -2128,23 +2128,18 @@ msgid "Expires after"
 msgstr "Expires after"
 
 #: src/app/shell/nav.ts
-#: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/extensions-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Extensions"
 msgstr "Extensions"
 
-#. placeholder {0}: extensions.length
-#: src/features/sessions/composer-footer.tsx
-msgid "Extensions: {enabled}/{0}"
-msgstr "Extensions: {enabled}/{0}"
+#: src/features/sessions/extensions-dialog.tsx
+msgid "Extensions: {enabled}/{total}"
+msgstr "Extensions: {enabled}/{total}"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "Extra headers"
-
-#: src/lib/thinking-level.ts
-msgid "Extra high"
-msgstr "Extra high"
 
 #. placeholder {0}: facts.length
 #: src/features/nodes/pages.tsx
@@ -2320,7 +2315,6 @@ msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API
 msgstr "Headers are stored and shown in plaintext, not as secrets. Do not put API keys or Authorization tokens here; use the API key field."
 
 #: src/components/decision/evaluation.tsx
-#: src/lib/thinking-level.ts
 msgid "High"
 msgstr "High"
 
@@ -2693,7 +2687,6 @@ msgid "Log out"
 msgstr "Log out"
 
 #: src/components/decision/evaluation.tsx
-#: src/lib/thinking-level.ts
 msgid "Low"
 msgstr "Low"
 
@@ -2729,10 +2722,6 @@ msgstr "Matched rule"
 msgid "Matches, pin it"
 msgstr "Matches, pin it"
 
-#: src/lib/thinking-level.ts
-msgid "Max"
-msgstr "Max"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Max output"
 msgstr "Max output"
@@ -2750,7 +2739,6 @@ msgid "MCP"
 msgstr "MCP"
 
 #: src/components/decision/evaluation.tsx
-#: src/lib/thinking-level.ts
 msgid "Medium"
 msgstr "Medium"
 
@@ -2788,10 +2776,6 @@ msgstr "Message"
 #: src/features/sessions/composer-input.tsx
 msgid "Message composer"
 msgstr "Message composer"
-
-#: src/lib/thinking-level.ts
-msgid "Minimal"
-msgstr "Minimal"
 
 #: src/components/task-result.tsx
 msgid "Mode"
@@ -3376,10 +3360,6 @@ msgstr "Nothing to show."
 #: src/features/nodes/node-last-seen.tsx
 msgid "Now"
 msgstr "Now"
-
-#: src/lib/thinking-level.ts
-msgid "Off"
-msgstr "Off"
 
 #: src/features/settings/providers.ts
 msgid "Off cannot be hidden; give it a display name."

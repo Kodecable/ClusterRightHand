@@ -1304,7 +1304,7 @@ export class ChannelManager {
 			target,
 			m.draftStarted(
 				this.#modelName(draft.model),
-				this.#thinkingLevelName(draft.model, draft.model.thinkingLevel ?? "off", m),
+				this.#thinkingLevelName(draft.model, draft.model.thinkingLevel ?? "off"),
 				this.#rulePresetName(draft.rulePreset),
 			),
 		);
@@ -1348,9 +1348,9 @@ export class ChannelManager {
 		return offered ? `${offered.name} (${offered.providerName})` : `${model.provider}/${model.modelId}`;
 	}
 
-	#thinkingLevelName(model: ModelRef, level: ThinkingLevel, m: BotMessages): string {
+	#thinkingLevelName(model: ModelRef, level: ThinkingLevel): string {
 		const offered = this.#options.models.available().find((candidate) => sameModel(candidate, model));
-		return offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level);
+		return offered?.thinkingLabels?.[level] ?? level;
 	}
 
 	#rulePresetName(rulePreset: RulePreset): string {
@@ -1556,7 +1556,7 @@ export class ChannelManager {
 				return;
 			}
 			if (await this.#applyThinking(row, adapter, user, state, level, m, target)) {
-				await adapter.sendText(target, m.thinkingSet(offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level)));
+				await adapter.sendText(target, m.thinkingSet(offered?.thinkingLabels?.[level] ?? level));
 			}
 			return;
 		}
@@ -1579,13 +1579,15 @@ export class ChannelManager {
 		const hash = modelRefHash(model);
 		const buttons: import("./model.ts").ChannelButton[][] = levels.map((level) => [
 			{
-				text: `${level === current ? "✓ " : ""}${offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level)}`,
+				text: `${level === current ? "✓ " : ""}${offered?.thinkingLabels?.[level] ?? level}`,
 				data: `think:${level}:${hash}:${tag}`,
 			},
 		]);
 		const lines = levels.map((level) => {
-			const label = offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level);
-			return `- ${level === current ? "✓ " : ""}${escapeMarkdown(label)} (${level})`;
+			const label = offered?.thinkingLabels?.[level] ?? level;
+			// A built-in model's label is already the raw id; only a custom label needs the id beside it.
+			const id = label === level ? "" : ` (${level})`;
+			return `- ${level === current ? "✓ " : ""}${escapeMarkdown(label)}${id}`;
 		});
 		const text = `${m.thinkingTitle(this.#modelName(model))}\n\n${lines.join("\n")}\n\n${m.thinkingHint}`;
 		return { text, buttons };
@@ -1653,12 +1655,7 @@ export class ChannelManager {
 			return;
 		}
 		if (!(await this.#applyThinking(row, adapter, user, state, level, m, target))) return;
-		await this.#editPage(
-			adapter,
-			target,
-			press.messageId,
-			m.thinkingSet(offered?.thinkingLabels?.[level] ?? m.thinkingLevel(level)),
-		);
+		await this.#editPage(adapter, target, press.messageId, m.thinkingSet(offered?.thinkingLabels?.[level] ?? level));
 	}
 
 	async #rulesCommand(

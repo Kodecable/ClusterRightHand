@@ -333,7 +333,8 @@ it, and **Delete** also removes the channel's linked accounts and threads. The l
 
 **Settings…** in the user menu opens one dialog with three tabs. **General** chooses the language.
 **Sessions** sets the default model, its thinking level and the default rule preset, and a default model
-offers only the levels the model supports. **Chat** holds the linked chat accounts, **Create link code**,
+offers only the levels the model supports; the level names are the same untranslated ones as in the
+composer. **Chat** holds the linked chat accounts, **Create link code**,
 **Unlink**, the default notification account and **Show progress** ([Accounts](channels.md#accounts)).
 A change is saved immediately; the dialog has no Save button, and the language changes as soon as its
 PATCH succeeds. The theme stays in the user menu and remains per device; the old chat settings page is
@@ -415,9 +416,14 @@ The parameter is then removed from the URL, so a reload does not jump again.
 
 ### Session header
 
-The header holds the title, the breadcrumb of a subagent, and sharing. A fork also shows "Forked from"
-and a link to its source's title; the line is absent when the server returns no origin (the source is
-gone or the caller may no longer see it). Below the header, at most one status line is shown, chosen by
+The header holds the title, the breadcrumb of a subagent, and sharing. The owner also gets the
+extensions button when the session has extensions, directly left of Share: it opens the per-extension
+toggles, a new session starts with all available extensions on, and a subagent inherits its parent's set,
+only turning more off ([Extensions](extensions.md#extensions)). Administrators and share viewers never
+see it. The draft page shows the same button in the same top-right position, and its toggles stay local
+until the first message creates the session ([New session](#new-session)). A fork also shows "Forked
+from" and a link to its source's title; the line is absent when the server returns no origin (the source
+is gone or the caller may no longer see it). Below the header, at most one status line is shown, chosen by
 priority: connection problems, failure, retry, the reason the session is waiting, queued messages.
 Nothing is shown while a run is merely active.
 
@@ -434,8 +440,8 @@ composer and the waiting reason.
 
 Changes to the model, thinking level or rule preset apply from the next model request or tool call;
 the step in progress keeps its settings. A rule preset change re-checks waiting approvals at once. The
-extensions control beside them turns single extensions off for the session; a new session starts with
-all available extensions on and a subagent inherits its parent's set, only turning more off.
+thinking picker uses the level's display name: a custom model's own label, otherwise the raw level id
+(`high`); that name is never translated ([Thinking levels](agent-runtime.md#thinking-levels)).
 
 Only the session owner sees the **+** button, which offers **Upload files** and **Choose from
 library**; paste and drop upload too. Each attachment shows as a chip with progress and a remove button,
@@ -443,6 +449,10 @@ and sending waits for uploads ([Chat attachments](library.md#chat-attachments)).
 
 Every send carries a request id. A retry after a lost response reuses it, so the server does not
 create the message twice.
+
+The composer has no extension control: the per-extension toggles belong to the session header's button,
+and to the draft's own button before the session exists ([Session header](#session-header),
+[New session](#new-session)).
 
 The line below the composer shows generation statistics, token usage with the cache hit rate, and
 context use ([Agent runtime](agent-runtime.md#session-statistics)). The remaining budget uses the
@@ -491,9 +501,9 @@ hold one of the browser's few connections to the origin.
 
 ### New session
 
-The new-session page is a draft: it calls no API until the first message is sent. Sending creates the
-session and its first message in one request with its own request id, then replaces the draft in the
-browser history, so Back does not return to it.
+The new-session page is a draft: apart from loading its extensions, it calls no API until the first
+message is sent. Sending creates the session and its first message in one request with its own request
+id, then replaces the draft in the browser history, so Back does not return to it.
 
 Opening the draft applies the user's defaults: the default model, then the session model preset, then
 the first offered model; a default model a provider no longer offers falls through to the next step. The
@@ -501,6 +511,14 @@ thinking level comes from that model and the rule preset from the user's setting
 and Ask. Every change of the model, thinking level or rule preset on the draft immediately PATCHes the
 corresponding user setting, so the next draft opens with it. The last-used model is not stored in
 localStorage.
+
+The draft also loads the extensions the caller may start a session with, in the same shape and
+resolution as a session's `extensions`, every entry on. Its extensions button sits in the transcript's
+top-right corner, where the session header shows it, with the same on/total label; it is hidden when the
+list is empty and clear of the narrow-screen back button on the left. The toggles stay in the draft's
+local state, so no PATCH is sent: the off list goes with the create request as `disabledExtensions`, and
+the session starts with those extensions already off. A reload or a new draft starts from all on again
+([Extensions](extensions.md#extensions)).
 
 ## Markdown rendering
 
@@ -633,6 +651,11 @@ does not reorder the list.
 The list stream sends an update whenever any session in a tree changes. The client places an update at
 its sorted position in the pages already loaded, rather than at the top, and drops an update that
 belongs beyond the loaded pages, which a later page fetch will bring.
+
+A draft has no session to read, so its extensions come from `GET /api/sessions/extensions`: the
+caller's available extensions in the session view's shape, every entry on. The create request,
+`POST /api/sessions`, accepts the draft's `disabledExtensions` and stores them on the new row, so the
+first turn already leaves those extensions out.
 
 ### Session content search
 

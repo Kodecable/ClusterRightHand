@@ -23,6 +23,16 @@ const MODELS = [
 		thinkingLevels: ["off", "high"],
 		input: ["text"],
 	},
+	{
+		provider: "faux",
+		providerName: "faux",
+		modelId: "faux-2",
+		name: "Faux Two",
+		contextWindow: 128_000,
+		thinkingLevels: ["off", "high"],
+		thinkingLabels: { off: "Off", high: "Deep" },
+		input: ["text"],
+	},
 ];
 
 interface Patch {
@@ -91,5 +101,35 @@ describe("UserSettingsDialog", () => {
 		await waitFor(() => expect(document.documentElement.lang).toBe("zh-CN"));
 		expect(localStorage.getItem("crh.locale")).toBe("zh-CN");
 		expect(screen.getByRole("dialog", { name: "设置" })).toBeInTheDocument();
+	});
+
+	test("shows a custom model's own thinking level names, and a built-in model's raw ids", async () => {
+		const custom: UserSettings = {
+			...SETTINGS,
+			defaultModel: { provider: "faux", modelId: "faux-2", thinkingLevel: "high" },
+		};
+		mockApi(custom, []);
+		renderWithI18n(<UserSettingsDialog open onOpenChange={() => {}} />);
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId("settings-tab-sessions"));
+		const select = await screen.findByTestId("settings-default-thinking");
+		expect(select).toHaveTextContent("Deep");
+		await user.click(select);
+		expect(await screen.findByRole("option", { name: "Deep" })).toBeVisible();
+		expect(screen.getByRole("option", { name: "Off" })).toBeVisible();
+	});
+
+	test("never translates a built-in model's thinking level ids", async () => {
+		mockApi({ ...SETTINGS, defaultModel: { provider: "faux", modelId: "faux-1", thinkingLevel: "high" } }, []);
+		renderWithI18n(<UserSettingsDialog open onOpenChange={() => {}} />, "zh-CN");
+		const user = userEvent.setup();
+
+		await user.click(await screen.findByTestId("settings-tab-sessions"));
+		const select = await screen.findByTestId("settings-default-thinking");
+		expect(select).toHaveTextContent("high");
+		await user.click(select);
+		expect(await screen.findByRole("option", { name: "high" })).toBeVisible();
+		expect(screen.getByRole("option", { name: "off" })).toBeVisible();
 	});
 });

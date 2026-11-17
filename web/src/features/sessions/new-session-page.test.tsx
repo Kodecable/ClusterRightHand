@@ -1,4 +1,4 @@
-import type { AvailableModel, ModelRef, SessionView, User, UserSettings } from "@crh/api";
+import type { AvailableModel, ModelRef, SessionExtension, SessionView, User, UserSettings } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -101,6 +101,25 @@ const DEFAULT_SETTINGS: UserSettings = {
 	defaultChannelAccountId: null,
 };
 
+const EXTENSIONS: SessionExtension[] = [
+	{
+		name: "alpha",
+		kind: "mcp",
+		description: "Alpha tools",
+		enabled: true,
+		available: true,
+		listDirectly: false,
+	},
+	{
+		name: "beta",
+		kind: "builtin",
+		description: null,
+		enabled: true,
+		available: true,
+		listDirectly: true,
+	},
+];
+
 /** The draft page at /sessions/new with a dummy session page that shows which id it was given. */
 async function renderDraft(
 	options: {
@@ -108,6 +127,7 @@ async function renderDraft(
 		patches?: Post[];
 		settings?: Partial<UserSettings>;
 		sessionModel?: ModelRef | null;
+		availableExtensions?: SessionExtension[];
 		createResponse?: () => Response;
 		initialPath?: string;
 	} = {},
@@ -132,6 +152,9 @@ async function renderDraft(
 					settings = { ...settings, ...body };
 				}
 				return json({ settings });
+			}
+			if (url.pathname === "/api/sessions/extensions") {
+				return json({ extensions: options.availableExtensions ?? [] });
 			}
 			if (url.pathname === "/api/sessions" && init?.method === "POST") {
 				posts.push({ path: url.pathname, body: JSON.parse(String(init.body)) as Record<string, unknown> });
@@ -192,7 +215,7 @@ describe("NewSessionPage", () => {
 			},
 		});
 		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux Two"));
-		expect(screen.getByTestId("composer-thinking")).toHaveTextContent("Low");
+		expect(screen.getByTestId("composer-thinking")).toHaveTextContent("low");
 		expect(screen.getByTestId("composer-rules")).toHaveTextContent("Yolo");
 		expect(screen.getByTestId("composer-budget")).toHaveTextContent("∞");
 		// Opening the draft applies the settings but does not save them again.
@@ -223,14 +246,14 @@ describe("NewSessionPage", () => {
 	test("clamps the thinking level to off when the model changes", async () => {
 		await renderDraft();
 		const user = userEvent.setup();
-		await waitFor(() => expect(screen.getByTestId("composer-thinking")).toHaveTextContent("Off"));
+		await waitFor(() => expect(screen.getByTestId("composer-thinking")).toHaveTextContent("off"));
 		await user.click(screen.getByTestId("composer-thinking"));
-		await user.click(await screen.findByRole("option", { name: "High" }));
-		await waitFor(() => expect(screen.getByTestId("composer-thinking")).toHaveTextContent("High"));
+		await user.click(await screen.findByRole("option", { name: "high" }));
+		await waitFor(() => expect(screen.getByTestId("composer-thinking")).toHaveTextContent("high"));
 
 		await user.click(screen.getByTestId("composer-model"));
 		await user.click(await screen.findByRole("option", { name: "Faux Two" }));
-		await waitFor(() => expect(screen.getByTestId("composer-thinking")).toHaveTextContent("Off"));
+		await waitFor(() => expect(screen.getByTestId("composer-thinking")).toHaveTextContent("off"));
 	});
 
 	test("saves every default changed on the draft", async () => {
@@ -241,7 +264,7 @@ describe("NewSessionPage", () => {
 		expect(patches).toHaveLength(0);
 
 		await user.click(screen.getByTestId("composer-thinking"));
-		await user.click(await screen.findByRole("option", { name: "High" }));
+		await user.click(await screen.findByRole("option", { name: "high" }));
 		await waitFor(() => expect(patches).toHaveLength(1));
 		expect(patches[0]?.body).toEqual({
 			defaultModel: { provider: "faux", modelId: "faux-1", thinkingLevel: "high" },
@@ -258,6 +281,37 @@ describe("NewSessionPage", () => {
 		expect(patches[2]?.body).toEqual({ defaultRulePreset: "yolo" });
 	});
 
+	test("turns a draft extension off locally and sends the list with the first message", async () => {
+		const posts: Post[] = [];
+		const patches: Post[] = [];
+		await renderDraft({ posts, patches, availableExtensions: EXTENSIONS });
+		const user = userEvent.setup();
+		const button = await screen.findByTestId("new-session-extensions");
+		expect(button).toHaveAttribute("aria-label", "Extensions: 2/2");
+		expect(button).toHaveAttribute("title", "Extensions: 2/2");
+
+		await user.click(button);
+		const dialog = await screen.findByTestId("extensions-dialog");
+		expect(dialog).toHaveTextContent("Alpha tools");
+		// The draft has no session to PATCH: the second extension is turned off in local state only.
+		await user.click(screen.getAllByRole("checkbox")[1] as HTMLElement);
+		await waitFor(() => expect(button).toHaveAttribute("aria-label", "Extensions: 1/2"));
+		expect(patches).toHaveLength(0);
+
+		await user.keyboard("{Escape}");
+		await waitFor(() => expect(dialog).not.toBeVisible());
+		await user.type(screen.getByTestId("new-session-input"), "hello there");
+		await user.click(screen.getByTestId("composer-send"));
+		await waitFor(() => expect(posts).toHaveLength(1));
+		expect(posts[0]?.body).toMatchObject({ message: "hello there", disabledExtensions: ["beta"] });
+	});
+
+	test("has no extensions button when nothing is available", async () => {
+		await renderDraft();
+		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux One"));
+		expect(screen.queryByTestId("new-session-extensions")).not.toBeInTheDocument();
+	});
+
 	test("sends the footer's model, thinking level, rule preset and budget with the message", async () => {
 		const posts: Post[] = [];
 		const { client, router } = await renderDraft({ posts });
@@ -269,7 +323,7 @@ describe("NewSessionPage", () => {
 		await waitFor(() => expect(screen.getByTestId("composer-model")).toHaveTextContent("Faux One"));
 
 		await user.click(screen.getByTestId("composer-thinking"));
-		await user.click(await screen.findByRole("option", { name: "High" }));
+		await user.click(await screen.findByRole("option", { name: "high" }));
 		await user.click(screen.getByTestId("composer-rules"));
 		await user.click(await screen.findByRole("option", { name: "Yolo" }));
 		await user.click(screen.getByTestId("composer-budget"));

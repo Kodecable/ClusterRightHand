@@ -249,6 +249,27 @@ describe("channels", () => {
 		}
 	});
 
+	it("names a built-in model's thinking level by its raw id in every locale", async () => {
+		const userId = 9206;
+		await link(userId);
+		await chatSession(userId);
+		fake.text(userId, "/model 4");
+		await fake.waitForSent((call) => plainText(call).includes("Model set to"));
+
+		fake.text(userId, "/think high");
+		const english = await fake.waitForSent((call) => plainText(call).includes("Thinking level set to high."));
+		expect(plainText(english)).not.toContain("High");
+
+		await patchUserSettings(db, aliceId, { locale: "zh-CN" });
+		try {
+			fake.text(userId, "/think high");
+			const chinese = await fake.waitForSent((call) => plainText(call).includes("思考级别已设为 high。"));
+			expect(plainText(chinese)).not.toContain("高");
+		} finally {
+			await patchUserSettings(db, aliceId, { locale: null });
+		}
+	});
+
 	it("answers an unlinked user in the platform's Chinese language", async () => {
 		const userId = 9205;
 		fake.text(userId, "hello", { languageCode: "zh-hans" });
@@ -1655,10 +1676,10 @@ describe("channels", () => {
 		// /think offers only the levels of that model and also writes the user default.
 		fake.text(userId, "/think");
 		const thinking = await fake.waitForSent((call) => plainText(call).includes("Thinking level for"));
-		const medium = buttonsOf(thinking).find((button) => button.text.replace("✓ ", "") === "Medium");
+		const medium = buttonsOf(thinking).find((button) => button.text.replace("✓ ", "") === "medium");
 		expect(medium?.callback_data).toMatch(/^think:medium:[0-9a-f]{8}:[0-9a-f]{8}$/);
 		const thinkingConfirmed = await pressButton(userId, medium?.callback_data ?? "");
-		expect(plainText(thinkingConfirmed)).toContain("Thinking level set to Medium.");
+		expect(plainText(thinkingConfirmed)).toContain("Thinking level set to medium.");
 		expect((await getUserSettings(db, aliceId)).defaultModel).toMatchObject({
 			provider: picked.provider,
 			modelId: picked.modelId,
@@ -1742,9 +1763,9 @@ describe("channels", () => {
 		// /think of that model; a level press edits the message to confirm.
 		fake.text(userId, "/think");
 		const thinking = await fake.waitForSent((call) => plainText(call).includes("Thinking level for"));
-		const high = buttonsOf(thinking).find((button) => button.text.replace("✓ ", "") === "High");
+		const high = buttonsOf(thinking).find((button) => button.text.replace("✓ ", "") === "high");
 		const levelConfirmed = await pressButton(userId, high?.callback_data ?? "");
-		expect(plainText(levelConfirmed)).toContain("Thinking level set to High.");
+		expect(plainText(levelConfirmed)).toContain("Thinking level set to high.");
 		expect((await runtime.getSession(thread.sessionId))?.model.thinkingLevel).toBe("high");
 
 		// A model without levels gets a short message.
@@ -1969,10 +1990,10 @@ describe("channels", () => {
 
 		fake.text(userId, "/think");
 		const thinking = await fake.waitForSent((call) => plainText(call).includes("Thinking level for"));
-		expect(plainText(thinking)).toContain("- Low (low)");
+		expect(plainText(thinking)).toContain("- low");
 		expect(plainText(thinking)).toContain("Send /think with a level id");
 		fake.text(userId, "/think HIGH");
-		const levelSet = await fake.waitForSent((call) => plainText(call).includes("Thinking level set to High."));
+		const levelSet = await fake.waitForSent((call) => plainText(call).includes("Thinking level set to high."));
 		expect(levelSet).toBeDefined();
 		expect((await runtime.getSession(thread.sessionId))?.model.thinkingLevel).toBe("high");
 		fake.text(userId, "/think louder");

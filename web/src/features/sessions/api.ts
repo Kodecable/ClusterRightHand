@@ -2,6 +2,7 @@ import type {
 	ChatAttachmentInput,
 	CursorPage,
 	SessionChildrenSummary,
+	SessionExtensionsResponse,
 	SessionListItem,
 	SessionListScope,
 	SessionPatch,
@@ -38,6 +39,8 @@ export const sessionKeys = {
 	childrenSummary: (id: string) => ["sessions", "children-summary", id] as const,
 	entries: (id: string, before: string) => ["sessions", "entries", id, before] as const,
 	shares: (id: string) => ["sessions", "shares", id] as const,
+	/** The draft's list: the extensions a new session of the caller reaches, all on. */
+	availableExtensions: () => ["sessions", "extensions"] as const,
 };
 
 /**
@@ -375,6 +378,18 @@ export function useSessionShares(id: string | undefined) {
 	});
 }
 
+/**
+ * The extensions a new session of the caller reaches (doc/design/extensions.md "Extensions"): the same resolution
+ * the created session's `extensions` uses, all of them on. The draft page's toggles start from this list.
+ */
+export function useAvailableExtensions() {
+	return useQuery({
+		queryKey: sessionKeys.availableExtensions(),
+		queryFn: ({ signal }) =>
+			http.get<SessionExtensionsResponse>("/sessions/extensions", { signal }).then((r) => r.extensions),
+	});
+}
+
 export interface CreateSessionInput {
 	/** The draft's idempotency key: one request id creates one session and submits one message. */
 	requestId: string;
@@ -386,6 +401,8 @@ export interface CreateSessionInput {
 	rulePreset: string;
 	/** The new session's remaining budget; null or omitted: unlimited. */
 	budgetRemaining?: number | null;
+	/** The extensions the draft turned off; omitted means all available extensions are on. */
+	disabledExtensions?: string[];
 }
 
 /**

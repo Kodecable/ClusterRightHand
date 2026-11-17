@@ -175,7 +175,7 @@ describe("ModelPresetsSection", () => {
 
 		await user.click(within(review).getByLabelText("Thinking level"));
 		expect(await screen.findByRole("option", { name: "Deep" })).toBeVisible();
-		expect(screen.queryByRole("option", { name: "Medium" })).toBeNull();
+		expect(screen.queryByRole("option", { name: "medium" })).toBeNull();
 	});
 
 	test("saves the session card's prompt only, with whitespace meaning the default", async () => {

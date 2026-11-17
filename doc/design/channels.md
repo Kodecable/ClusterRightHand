@@ -92,7 +92,9 @@ A conversation is one thread of a private chat, mapped to one session (`channel_
   settle waiting approvals. `/model` lists the offered models five per page, `/think` the levels the
   current model supports, `/rules` the three rule presets, and `/extensions` the extensions available to
   the session five per page. Items are numbered globally across pages (page 2 starts at 6), and the list
-  ends with a hint such as "Send /model and a number to choose, /model page 2 for the next page."
+  ends with a hint such as "Send /model and a number to choose, /model page 2 for the next page." A
+  level is named by the model's own display name when it defines one, otherwise its raw pi-ai id
+  (`high`), and that name is never translated.
 - **Settings buttons are bound to their target.** Each `/model`, `/think`, `/rules` and `/extensions`
   button carries a short digest of the session or draft it was shown for. Pressing one after `/sessions`
   switched the chat re-renders the current target's list instead of changing the other session.

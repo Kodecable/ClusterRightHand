@@ -152,6 +152,14 @@ export const SessionExtensionSchema = z
 	})
 	.meta({ id: "SessionExtension" });
 
+/**
+ * `GET /api/sessions/extensions`: the extensions a new session of the caller reaches, all of them on
+ * (doc/design/extensions.md "Extensions"). The draft page uses it to offer its toggles before the session exists.
+ */
+export const SessionExtensionsResponseSchema = z
+	.object({ extensions: z.array(SessionExtensionSchema) })
+	.meta({ id: "SessionExtensionsResponse" });
+
 /** The state of one external tool call (doc/design/extensions.md "External calls"). */
 export const ExternalCallStateSchema = z.enum([
 	"awaiting_approval",

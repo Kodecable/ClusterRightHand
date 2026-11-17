@@ -12,10 +12,11 @@ import { useSaveUserSettings, useUserSettings } from "@/hooks/use-user-settings"
 import { errorMessage } from "@/lib/api/client";
 import { useAuth } from "@/lib/session";
 import { supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
-import { insertSessionIntoListCaches, useCreateSession } from "./api";
+import { insertSessionIntoListCaches, useAvailableExtensions, useCreateSession } from "./api";
 import { AttachmentChips, AttachmentMenu, AttachmentPickerDialog, useComposerAttachments } from "./attachments";
 import { ComposerFooter, type ComposerFooterState } from "./composer-footer";
 import { ComposerShell, handleComposerKey, UnknownCommandHint, useTextareaAutosize } from "./composer-input";
+import { ExtensionsButton, ExtensionsDialog } from "./extensions-dialog";
 import { isUnknownSlashCommand, parseSlashCommand } from "./slash-commands";
 
 /** The draft's textarea grows up to half of the window. */
@@ -74,11 +75,22 @@ export function NewSessionPage() {
 	const sessionPreset = useSessionModelPreset();
 	const saveSettings = useSaveUserSettings();
 	const create = useCreateSession();
+	const availableExtensions = useAvailableExtensions();
 	const available = useMemo(() => models.data ?? [], [models.data]);
 	const [model, setModel] = useState<ModelRef | undefined>();
 	const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>("off");
 	const [rulePreset, setRulePreset] = useState<RulePreset>("ask");
 	const [budgetRemaining, setBudgetRemaining] = useState<number | null>(null);
+	// The draft's own off switches (doc/design/extensions.md "Extensions"): a new session has all available
+	// extensions on, and the local list goes with the create request. It resets with the page's state.
+	const extensions = useMemo(() => availableExtensions.data ?? [], [availableExtensions.data]);
+	const [disabledExtensions, setDisabledExtensions] = useState<string[]>([]);
+	const [extensionsOpen, setExtensionsOpen] = useState(false);
+	// A refetched list may drop an extension (a revoked grant); only names the draft still shows are sent.
+	const offExtensions = useMemo(
+		() => disabledExtensions.filter((name) => extensions.some((extension) => extension.name === name)),
+		[disabledExtensions, extensions],
+	);
 	const [text, setText] = useState("");
 	const [sendError, setSendError] = useState<string>();
 	const attachments = useComposerAttachments(auth.user?.username);
@@ -149,6 +161,7 @@ export function NewSessionPage() {
 				model: withThinkingLevel(chosen, thinkingLevel),
 				rulePreset,
 				budgetRemaining,
+				...(offExtensions.length > 0 ? { disabledExtensions: offExtensions } : {}),
 			});
 			if (auth.user !== null) {
 				insertSessionIntoListCaches(queryClient, session, {
@@ -199,6 +212,7 @@ export function NewSessionPage() {
 	};
 
 	const noModels = models.data !== undefined && available.length === 0;
+	const extensionsOn = extensions.length - offExtensions.length;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-testid="new-session-page">
@@ -216,6 +230,17 @@ export function NewSessionPage() {
 				>
 					<ChevronLeftIcon />
 				</Button>
+				{/* The draft's extensions button sits where the session header shows its own, clear of the back button. */}
+				{extensions.length > 0 && (
+					<div className="absolute top-2 right-3">
+						<ExtensionsButton
+							enabled={extensionsOn}
+							total={extensions.length}
+							testId="new-session-extensions"
+							onClick={() => setExtensionsOpen(true)}
+						/>
+					</div>
+				)}
 				<div className="flex h-full items-center justify-center px-6">
 					<h1 className="text-center text-2xl font-medium text-foreground" data-testid="new-session-prompt">
 						<Trans>What's on your plan today?</Trans>
@@ -284,6 +309,15 @@ export function NewSessionPage() {
 				onOpenChange={setPickerOpen}
 				onSelect={(files) => attachments.addLibraryFiles(files)}
 			/>
+			{extensions.length > 0 && (
+				<ExtensionsDialog
+					open={extensionsOpen}
+					onOpenChange={setExtensionsOpen}
+					extensions={extensions}
+					disabled={offExtensions}
+					onChange={setDisabledExtensions}
+				/>
+			)}
 		</div>
 	);
 }

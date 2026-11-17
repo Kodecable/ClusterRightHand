@@ -1,4 +1,4 @@
-import type { ApprovalRequest, QuotaStatus, TaskAction, ThinkingLevel, UserSettingsLocale } from "@crh/api";
+import type { ApprovalRequest, QuotaStatus, TaskAction, UserSettingsLocale } from "@crh/api";
 import { formatList, matchLocale } from "@crh/api";
 import { untitledSessionTitle } from "../sessions/titles.ts";
 import type { CardLabels, ChatCard } from "./card.ts";
@@ -375,7 +375,6 @@ export interface BotMessages {
 	modelTitleSingle: string;
 	thinkingTitle: (model: string) => string;
 	thinkingNone: (model: string) => string;
-	thinkingLevel: (level: ThinkingLevel) => string;
 	rulesTitle: string;
 	extensionsTitle: (page: number, pages: number) => string;
 	extensionsTitleSingle: string;
@@ -477,16 +476,6 @@ const en: BotMessages = {
 	modelTitleSingle: "Choose a model:",
 	thinkingTitle: (model) => `Thinking level for ${escapeMarkdown(model)}:`,
 	thinkingNone: (model) => `${escapeMarkdown(model)} has no thinking levels.`,
-	thinkingLevel: (level) =>
-		({
-			off: "Off",
-			minimal: "Minimal",
-			low: "Low",
-			medium: "Medium",
-			high: "High",
-			xhigh: "Extra high",
-			max: "Max",
-		})[level],
 	rulesTitle: "Rule preset:",
 	extensionsTitle: (page, pages) => `Extensions (page ${page} of ${pages}):`,
 	extensionsTitleSingle: "Extensions:",
@@ -620,16 +609,6 @@ const zhCN: BotMessages = {
 	modelTitleSingle: "选择模型：",
 	thinkingTitle: (model) => `${escapeMarkdown(model)} 的思考级别：`,
 	thinkingNone: (model) => `${escapeMarkdown(model)} 没有可选的思考级别。`,
-	thinkingLevel: (level) =>
-		({
-			off: "关闭",
-			minimal: "最低",
-			low: "低",
-			medium: "中",
-			high: "高",
-			xhigh: "很高",
-			max: "最高",
-		})[level],
 	rulesTitle: "规则预设：",
 	extensionsTitle: (page, pages) => `扩展（第 ${page} 页，共 ${pages} 页）：`,
 	extensionsTitleSingle: "扩展：",

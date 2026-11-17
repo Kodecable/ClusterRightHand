@@ -94,10 +94,10 @@ describe("ScheduleForm", () => {
 		renderForm(onSubmit);
 		const user = userEvent.setup();
 		const thinking = screen.getByLabelText("Thinking level");
-		expect(thinking).toHaveTextContent("Off");
+		expect(thinking).toHaveTextContent("off");
 		await user.click(thinking);
-		await user.click(await screen.findByRole("option", { name: "High" }));
-		await waitFor(() => expect(screen.getByLabelText("Thinking level")).toHaveTextContent("High"));
+		await user.click(await screen.findByRole("option", { name: "high" }));
+		await waitFor(() => expect(screen.getByLabelText("Thinking level")).toHaveTextContent("high"));
 		await user.type(screen.getByLabelText("Name"), "Nightly check");
 		await user.click(screen.getByRole("button", { name: "Save schedule" }));
 		await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
@@ -110,7 +110,7 @@ describe("ScheduleForm", () => {
 		// A new model resets the level to off; the body then has no level.
 		await user.click(screen.getByLabelText("Model"));
 		await user.click(await screen.findByRole("option", { name: "Faux Plain" }));
-		await waitFor(() => expect(screen.getByLabelText("Thinking level")).toHaveTextContent("Off"));
+		await waitFor(() => expect(screen.getByLabelText("Thinking level")).toHaveTextContent("off"));
 		await user.click(screen.getByRole("button", { name: "Save schedule" }));
 		await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(2));
 		expect(onSubmit.mock.calls[1]?.[0]?.model).toEqual({ provider: "faux", modelId: "faux-2" });

@@ -1,4 +1,4 @@
-import type { ChatAttachment } from "@crh/api";
+import type { ChatAttachment, SessionExtension as SessionExtensionView } from "@crh/api";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import {
 	createRegistry,
@@ -14,7 +14,7 @@ import { extensionOf } from "../extensions/registry.ts";
 import { getExtensionRow, listExtensionRows } from "../extensions/store.ts";
 import type { Rule, RulePreset } from "../policy/rules.ts";
 import { TOOLS } from "../tools/catalog.ts";
-import { clusterExtension, directToolsExtension, syncSessionExtensions } from "./extension.ts";
+import { clusterExtension, directToolsExtension, sessionExtensionViews, syncSessionExtensions } from "./extension.ts";
 import { GenerationTimings } from "./latency.ts";
 import { ModelPresets } from "./model-presets.ts";
 import type { ModelRef } from "./models.ts";
@@ -427,9 +427,18 @@ export class AgentRuntime {
 			rulePreset: RulePreset;
 			instructions?: string;
 			budgetRemaining?: number | null;
+			disabledExtensions?: string[];
 		},
 	): Promise<SessionView> {
 		return createSession(this.#host, owner, input);
+	}
+
+	/**
+	 * The extensions a new session of this user reaches, all on (doc/design/extensions.md "Extensions"). The draft
+	 * page offers its toggles from this list, which is the same resolution a created session's `extensions` uses.
+	 */
+	async availableExtensions(ownerUserId: string): Promise<SessionExtensionView[]> {
+		return sessionExtensionViews(this.#options, ownerUserId, []);
 	}
 
 	async getSession(id: string): Promise<SessionView | undefined> {

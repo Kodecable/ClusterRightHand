@@ -1,8 +1,28 @@
-import type { SessionView } from "@crh/api";
+import type { SessionExtension, SessionView } from "@crh/api";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { renderWithRouter } from "@/test/render";
 import { SessionHeader } from "./session-header";
+
+const EXTENSIONS: SessionExtension[] = [
+	{
+		name: "alpha",
+		kind: "mcp",
+		description: "Alpha tools",
+		enabled: true,
+		available: true,
+		listDirectly: false,
+	},
+	{
+		name: "beta",
+		kind: "builtin",
+		description: null,
+		enabled: false,
+		available: true,
+		listDirectly: true,
+	},
+];
 
 /** The header's own fields; the fork origin is what these tests exercise. */
 function session(overrides: Partial<SessionView> = {}): SessionView {
@@ -65,4 +85,31 @@ test("the line is translated", async () => {
 		"zh-CN",
 	);
 	expect(screen.getByTestId("forked-from")).toHaveTextContent("分叉自 部署计划");
+});
+
+test("the owner gets an extensions button that opens the per-extension toggles", async () => {
+	const user = userEvent.setup();
+	await renderWithRouter(<SessionHeader session={session({ extensions: EXTENSIONS })} />);
+
+	const button = screen.getByTestId("session-extensions");
+	expect(button).toHaveAttribute("aria-label", "Extensions: 1/2");
+	expect(button).toHaveAttribute("title", "Extensions: 1/2");
+	await user.click(button);
+	const dialog = await screen.findByTestId("extensions-dialog");
+	expect(dialog).toHaveTextContent("alpha");
+	expect(dialog).toHaveTextContent("Alpha tools");
+	expect(dialog).toHaveTextContent("beta");
+});
+
+test("administrators and share viewers do not see the extensions button", async () => {
+	for (const relationship of ["admin", "shared"] as const) {
+		const view = await renderWithRouter(<SessionHeader session={session({ relationship, extensions: EXTENSIONS })} />);
+		expect(screen.queryByTestId("session-extensions")).not.toBeInTheDocument();
+		view.unmount();
+	}
+});
+
+test("a session without extensions has no extensions button", async () => {
+	await renderWithRouter(<SessionHeader session={session()} />);
+	expect(screen.queryByTestId("session-extensions")).not.toBeInTheDocument();
 });

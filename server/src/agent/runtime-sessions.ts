@@ -100,14 +100,24 @@ export async function createSession(
 		rulePreset: RulePreset;
 		instructions?: string;
 		budgetRemaining?: number | null;
+		/** The extensions the owner turned off on the draft; omitted means all available extensions are on. */
+		disabledExtensions?: string[];
 		/** The client request id that created this session and its first message. */
 		createRequestId?: string;
 	},
 ): Promise<SessionView> {
 	const model = host.models.resolveRef(input.model);
 	// The session selects the extensions its owner may use; the tool list is the same for its whole life
-	// (doc/design/extensions.md "Tools for the model").
-	const extensionNames = await extensionNamesForUser(host.db, owner.userId);
+	// (doc/design/extensions.md "Tools for the model"). A draft may start with some turned off, so the row
+	// carries the same list the session settings would and the first turn already leaves them out.
+	const disabledExtensions = [...new Set(input.disabledExtensions ?? [])];
+	const availableExtensions = await extensionNamesForUser(host.db, owner.userId);
+	for (const name of disabledExtensions) {
+		if (!availableExtensions.includes(name)) {
+			throw new UserError(`no extension named ${name} is available to the session's owner`);
+		}
+	}
+	const extensionNames = availableExtensions.filter((name) => !disabledExtensions.includes(name));
 	const conversation = await host.harness().createConversation(
 		{
 			ownership: { kind: "ownerless" },
@@ -146,6 +156,7 @@ export async function createSession(
 					archived_at: null,
 					// A root without a remaining budget is unlimited and never charged; any level may have one.
 					quota_tokens: input.budgetRemaining ?? null,
+					disabled_extensions: disabledExtensions.length === 0 ? null : JSON.stringify(disabledExtensions),
 					state: "idle",
 					waiting_kind: null,
 					waiting_level_id: null,
@@ -186,6 +197,8 @@ export interface CreateSessionWithMessageInput {
 	/** The first message's content blocks and attachments (doc/design/library.md "Chat attachments"). */
 	content?: { type: "text"; text: string }[];
 	attachments?: ChatAttachment[];
+	/** The extensions the owner turned off on the draft; the first turn already leaves them out. */
+	disabledExtensions?: string[];
 	/** Where the first message came from: `web`, a chat thread id, or null. */
 	lastUsedFrom?: string | null;
 }
@@ -214,6 +227,7 @@ export async function createSessionWithMessage(
 			model: input.model,
 			rulePreset: input.rulePreset,
 			...(input.budgetRemaining === undefined ? {} : { budgetRemaining: input.budgetRemaining }),
+			...(input.disabledExtensions === undefined ? {} : { disabledExtensions: input.disabledExtensions }),
 			createRequestId: input.requestId,
 		});
 	} catch (err) {

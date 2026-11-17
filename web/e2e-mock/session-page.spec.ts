@@ -51,9 +51,68 @@ test("the composer shows the model, the rule preset and the budget in the footer
 	await expect(page.getByTestId("composer-budget")).toHaveAttribute("title", "Used 1,000 · 12,345 left");
 	await expect(page.getByTestId("composer-context")).toHaveAttribute("title", "64,000 / 128,000");
 	await expect(page.getByTestId("composer-usage")).toHaveAttribute("title", "1,500,000 tokens in total");
-	// The header keeps only the title and the share button.
+	// The header keeps the title, the extensions button when the session has extensions, and the share button.
 	await expect(page.getByTestId("session-header").getByTestId("session-title")).toBeVisible();
+	await expect(page.getByTestId("session-extensions")).toHaveCount(0);
 	await expect(page.getByTestId("session-header").getByTestId("composer-budget")).toHaveCount(0);
+});
+
+test("the owner turns a session extension off from the header", async ({ page }) => {
+	const api = await openFooterPage(page, {
+		extensions: [
+			{
+				name: "alpha",
+				kind: "mcp",
+				description: "Alpha tools",
+				enabled: true,
+				available: true,
+				listDirectly: false,
+			},
+			{
+				name: "beta",
+				kind: "builtin",
+				description: null,
+				enabled: true,
+				available: true,
+				listDirectly: true,
+			},
+		],
+	});
+	const button = page.getByTestId("session-extensions");
+	await expect(button).toHaveAttribute("aria-label", "Extensions: 2/2");
+	await button.click();
+	const dialog = page.getByTestId("extensions-dialog");
+	await expect(dialog).toBeVisible();
+	await expect(dialog).toContainText("Alpha tools");
+
+	await dialog.getByRole("checkbox").first().click();
+	await expect
+		.poll(
+			() =>
+				api.state.requests.find((request) => request.method === "PATCH" && request.url === "/api/sessions/s1")?.body,
+		)
+		.toEqual({ disabledExtensions: ["alpha"] });
+	await expect(button).toHaveAttribute("aria-label", "Extensions: 1/2");
+	await page.keyboard.press("Escape");
+	await expect(dialog).toBeHidden();
+});
+
+test("a share viewer does not see the extensions button", async ({ page }) => {
+	await openFooterPage(page, {
+		relationship: "shared",
+		extensions: [
+			{
+				name: "alpha",
+				kind: "mcp",
+				description: null,
+				enabled: true,
+				available: true,
+				listDirectly: false,
+			},
+		],
+	});
+	await expect(page.getByTestId("session-header")).toBeVisible();
+	await expect(page.getByTestId("session-extensions")).toHaveCount(0);
 });
 
 test("the model and rule preset controls open their option lists directly", async ({ page }) => {

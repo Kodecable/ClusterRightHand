@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { displaySessionTitle } from "@/lib/session-title";
 import { usePatchSession, useSession } from "./api";
+import { SessionExtensions } from "./extensions-dialog";
 import { SessionMarkers } from "./session-markers";
 import { ShareDialog } from "./share-dialog";
 
@@ -140,7 +141,8 @@ function TitleEditor({ session }: { session: SessionView }) {
 
 /**
  * The session page's header (doc/design/webui.md "Session header"): only the title (editable for the owner) with the subagent
- * breadcrumb and the grey "Scheduled" / "Shared" badges, and the share button. Model, rules, budget, context, usage and Stop live in the composer footer;
+ * breadcrumb and the grey "Scheduled" / "Shared" badges, the owner's extensions button when the session has
+ * extensions, and the share button. Model, rules, budget, context, usage and Stop live in the composer footer;
  * a session has no other action, so there is no overflow menu.
  */
 export function SessionHeader({ session }: { session: SessionView }) {
@@ -174,6 +176,7 @@ export function SessionHeader({ session }: { session: SessionView }) {
 				</div>
 				<ForkedFrom session={session} />
 			</div>
+			<SessionExtensions session={session} />
 			{session.capabilities.manageShares && (
 				<Button
 					type="button"

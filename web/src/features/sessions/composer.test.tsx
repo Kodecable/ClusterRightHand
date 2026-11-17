@@ -588,9 +588,9 @@ describe("ComposerFooter", () => {
 		renderComposer({ session: { model: { provider: "faux", modelId: "faux-1", thinkingLevel: "high" } } });
 		const user = userEvent.setup();
 		const trigger = await screen.findByTestId("composer-thinking");
-		expect(trigger).toHaveTextContent("High");
+		expect(trigger).toHaveTextContent("high");
 		await user.click(trigger);
-		await user.click(await screen.findByRole("option", { name: "Low" }));
+		await user.click(await screen.findByRole("option", { name: "low" }));
 		await waitFor(() => expect(calls).toHaveLength(1));
 		expect(calls[0]).toEqual({
 			url: "/api/sessions/s1",
@@ -621,7 +621,7 @@ describe("ComposerFooter", () => {
 		await user.click(trigger);
 		expect(await screen.findByRole("option", { name: "Quick" })).toBeVisible();
 		// The server's list excludes hidden levels, so the picker never shows them.
-		expect(screen.queryByRole("option", { name: "Medium" })).toBeNull();
+		expect(screen.queryByRole("option", { name: "medium" })).toBeNull();
 		await user.click(await screen.findByRole("option", { name: "Quick" }));
 		await waitFor(() => expect(calls).toHaveLength(1));
 		expect(calls[0]).toEqual({

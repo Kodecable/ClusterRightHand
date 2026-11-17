@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import { login, mockApi, openMenuSection, openUserMenuWithKeyboard, USER } from "./helpers";
 
 test.beforeEach(async ({ page }) => {
@@ -174,4 +174,56 @@ test("the mobile drawer opens below 768 px and closes on Escape", async ({ page 
 
 	await page.keyboard.press("Escape");
 	await expect(drawer).toBeHidden();
+});
+
+test.describe("on a narrow touch screen", () => {
+	test.use({ viewport: { width: 390, height: 800 }, hasTouch: true });
+
+	/** The popup's box sits inside the viewport, with the 8 px collision margin. */
+	async function expectInsideViewport(
+		target: Locator,
+	): Promise<{ x: number; y: number; width: number; height: number }> {
+		const box = await target.boundingBox();
+		if (box === null) throw new Error("the popup has no bounding box");
+		const viewport = target.page().viewportSize();
+		if (viewport === null) throw new Error("no viewport");
+		expect.soft(box.x).toBeGreaterThanOrEqual(8);
+		expect.soft(box.y).toBeGreaterThanOrEqual(8);
+		expect.soft(box.x + box.width).toBeLessThanOrEqual(viewport.width - 8);
+		expect.soft(box.y + box.height).toBeLessThanOrEqual(viewport.height - 8);
+		return box;
+	}
+
+	test("the user menu and theme submenu stay inside the viewport and do not move", async ({ page }) => {
+		await mockApi(page);
+		await login(page);
+
+		await page.getByTestId("sidebar-trigger").tap();
+		const drawer = page.getByRole("dialog", { name: "Sidebar" });
+		await expect(drawer).toBeVisible();
+
+		await page.getByTestId("user-menu-trigger").tap();
+		const menu = page.getByTestId("user-menu");
+		await expect(menu).toBeVisible();
+		// The open animation scales the popup; once it ends, the box must not move again.
+		await menu.evaluate(async (element) => {
+			await Promise.all(element.getAnimations().map((animation) => animation.finished));
+		});
+		const first = await expectInsideViewport(menu);
+		await page.waitForTimeout(300);
+		// The settled position is the same after 300 ms: no jump across the viewport.
+		expect(await expectInsideViewport(menu)).toEqual(first);
+
+		await page.getByTestId("menu-theme").tap();
+		const submenu = page.locator('[data-slot="dropdown-menu-sub-content"]:visible');
+		await expect(submenu).toBeVisible();
+		await submenu.evaluate(async (element) => {
+			await Promise.all(element.getAnimations().map((animation) => animation.finished));
+		});
+		await expectInsideViewport(submenu);
+
+		// The submenu is usable where it opened.
+		await page.getByTestId("theme-dark").tap();
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+	});
 });

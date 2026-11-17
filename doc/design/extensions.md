@@ -44,8 +44,11 @@ The scope of the first version:
 - An MCP server sees every CRH user as the one identity its headers carry. Identity headers let it tell
   them apart for its own logs; they are not authentication.
 - A session reaches the extensions available to its owner. Session settings can turn single extensions
-  off; a new session has all of them on, because search keeps unused ones out of the context. A subagent
-  inherits its parent's set and can only turn more off.
+  off, and the new-session draft can do the same before the first message: its list is the same
+  resolution, every entry on until turned off, and the create request stores the off switches, so the
+  first turn already runs without them. A new session otherwise starts with all of them on, because
+  search keeps unused ones out of the context. A subagent inherits its parent's set and can only turn
+  more off.
 - The **Extensions** page in the WebUI lists both kinds in one table with their kind, state, tools and
   availability.
 

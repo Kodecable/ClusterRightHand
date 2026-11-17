@@ -23,10 +23,12 @@ import {
 	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useSidebar } from "@/components/ui/sidebar";
 import { useLogout } from "@/features/auth/api";
 import { useAuth } from "@/lib/session";
 import type { ThemePreference } from "@/lib/theme";
 import { useTheme } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 
 // The dialogs are the only users of react-hook-form and the settings queries;
 // keep them out of the entry chunk by loading them when a menu item is used.
@@ -55,6 +57,7 @@ export function UserMenu() {
 	const { t } = useLingui();
 	const auth = useAuth();
 	const { preference, setPreference } = useTheme();
+	const { isMobile } = useSidebar();
 	const logout = useLogout();
 	const [passwordOpen, setPasswordOpen] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
@@ -96,7 +99,14 @@ export function UserMenu() {
 					<ChevronsUpDownIcon className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
 				</DropdownMenuTrigger>
 
-				<DropdownMenuContent side="right" align="end" sideOffset={8} className="w-60" data-testid="user-menu">
+				<DropdownMenuContent
+					side={isMobile ? "top" : "right"}
+					align={isMobile ? "start" : "end"}
+					sideOffset={8}
+					collisionPadding={8}
+					className={cn(isMobile ? "w-[min(15rem,var(--anchor-width))]" : "w-60")}
+					data-testid="user-menu"
+				>
 					<DropdownMenuGroup>
 						<DropdownMenuLabel>
 							<Trans>Signed in as {name}</Trans>
@@ -109,7 +119,13 @@ export function UserMenu() {
 							<SunIcon />
 							<Trans>Theme</Trans>
 						</DropdownMenuSubTrigger>
-						<DropdownMenuSubContent>
+						<DropdownMenuSubContent
+							side={isMobile ? "top" : "right"}
+							align="start"
+							alignOffset={isMobile ? 0 : -3}
+							sideOffset={isMobile ? 4 : 0}
+							collisionPadding={8}
+						>
 							<DropdownMenuRadioGroup
 								value={preference}
 								onValueChange={(value) => setPreference(value as ThemePreference)}

@@ -91,7 +91,9 @@ be renamed or hidden for display. The exact schema is in `packages/api/src/model
 Levels are pi-ai's: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. A model's available
 levels come from pi-ai; for custom models the stored configuration is first mapped onto pi-ai's fields.
 An explicitly requested level must be available. When only the model changes, the previous level is
-moved to the nearest available one.
+moved to the nearest available one. A level's display name is never translated: a custom model's own
+display name when it defines one, otherwise the raw level id (`high`). The WebUI, the user settings and
+the chat commands all show that name.
 
 ## Cluster tools
 

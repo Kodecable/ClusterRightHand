@@ -7,8 +7,8 @@ import { thinkingLevelName } from "@/lib/thinking-level";
 import { cn } from "@/lib/utils";
 
 export interface ThinkingLevelSelectProps {
-	/** The current model, for its custom display names; built-in models use localized names. */
-	model?: AvailableModel;
+	/** The current model, for its custom display names; built-in models show the raw level ids. */
+	model: AvailableModel | undefined;
 	/** Only the current model's supported levels, `off` included. */
 	levels: ThinkingLevel[];
 	value: ThinkingLevel;
@@ -39,7 +39,7 @@ export function ThinkingLevelSelect({
 	dataTestId,
 	variant = "default",
 }: ThinkingLevelSelectProps) {
-	const { t, i18n } = useLingui();
+	const { t } = useLingui();
 	const inline = variant === "inline";
 	return (
 		<Select
@@ -61,7 +61,7 @@ export function ThinkingLevelSelect({
 				<SelectValue>
 					{(current: string | null) => {
 						const level = (current as ThinkingLevel | null) ?? "off";
-						const text = thinkingLevelName(i18n, model, level);
+						const text = thinkingLevelName(model, level);
 						return inline ? (
 							<span className="inline-flex min-w-0 items-center gap-1">
 								<LightbulbIcon className="size-3.5 shrink-0" aria-hidden="true" />
@@ -76,7 +76,7 @@ export function ThinkingLevelSelect({
 			<SelectContent side={inline ? "top" : undefined} align={inline ? "start" : undefined}>
 				{levels.map((level) => (
 					<SelectItem key={level} value={level}>
-						{thinkingLevelName(i18n, model, level)}
+						{thinkingLevelName(model, level)}
 					</SelectItem>
 				))}
 			</SelectContent>

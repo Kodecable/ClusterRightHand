@@ -154,6 +154,7 @@ describe("API document", () => {
 		for (const key of [
 			"get /api/sessions/stream",
 			"get /api/sessions/{id}/events",
+			"get /api/sessions/extensions",
 			"post /api/sessions",
 			"get /api/models",
 			"get /api/schedules",
@@ -169,6 +170,7 @@ describe("API document", () => {
 			];
 		expect(agent("/api/sessions", "get")).toBe("allow");
 		expect(agent("/api/sessions", "post")).toBe("deny");
+		expect(agent("/api/sessions/extensions", "get")).toBe("allow");
 		expect(agent("/api/sessions/{id}", "get")).toBe("allow");
 		expect(agent("/api/sessions/{id}", "patch")).toBe("deny");
 		expect(agent("/api/sessions/{id}/messages", "post")).toBe("deny");
@@ -184,6 +186,7 @@ describe("API document", () => {
 			"SessionListResponse",
 			"SessionSearchResponse",
 			"SessionEntriesResponse",
+			"SessionExtensionsResponse",
 			"HealthResponse",
 		]) {
 			expect(doc.components?.schemas?.[schema], schema).toBeDefined();

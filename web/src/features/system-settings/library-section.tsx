@@ -107,10 +107,10 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 			testId="library-defaults-section"
 		>
 			<fieldset className="grid gap-3">
-				<legend className="text-sm font-medium">
+				<legend className="mb-1 text-sm font-medium">
 					<Trans>New user libraries</Trans>
 				</legend>
-				<p className="-mt-2 text-sm text-muted-foreground">
+				<p className="text-sm text-muted-foreground">
 					<Trans>Defaults: {formatBytes(defaults.library.user.totalBytes, i18n.locale)} total.</Trans>
 				</p>
 				<FieldShell
@@ -163,10 +163,10 @@ export function LibraryDefaultsSection({ settings, defaults }: { settings: Syste
 				</FieldShell>
 			</fieldset>
 			<fieldset className="grid gap-3">
-				<legend className="text-sm font-medium">
+				<legend className="mb-1 text-sm font-medium">
 					<Trans>New user group libraries</Trans>
 				</legend>
-				<p className="-mt-2 text-sm text-muted-foreground">
+				<p className="text-sm text-muted-foreground">
 					<Trans>
 						A limit of 0 allows nothing, so a new user group library is unusable until an administrator raises its
 						limits.

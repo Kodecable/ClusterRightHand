@@ -23,6 +23,7 @@ import type {
 	RefMap,
 	ScheduleRunView,
 	ScheduleView,
+	SessionExtension,
 	SessionListItem,
 	SessionView,
 	SigningCredentialView,
@@ -94,6 +95,8 @@ export interface FakeState {
 	models: AvailableModel[];
 	/** The session model preset's model, when the fake server has one. */
 	sessionModel: ModelRef | null;
+	/** The extensions a new session reaches (`GET /api/sessions/extensions`), all on. */
+	availableExtensions: SessionExtension[];
 	directory: Directory;
 	taskGroups: Record<string, { taskGroup: TaskGroupView; polls: number }>;
 	nodeGroups: NodeGroup[];
@@ -478,6 +481,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		nodes: [],
 		models: [],
 		sessionModel: null,
+		availableExtensions: [],
 		directory: { users: [], userGroups: [] },
 		taskGroups: {},
 		nodeGroups: [],
@@ -1339,6 +1343,42 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ items, nextCursor: start + limit < visible.length ? String(start + limit) : null });
 		}
 
+		// The draft's list before a session exists (doc/design/extensions.md "Extensions"): every entry on.
+		if (path === "/api/sessions/extensions" && method === "GET") {
+			return json({ extensions: state.availableExtensions.map((extension) => ({ ...extension, enabled: true })) });
+		}
+
+		if (path === "/api/sessions" && method === "POST") {
+			const input = body as {
+				message?: string;
+				title?: string;
+				model?: ModelRef;
+				disabledExtensions?: string[];
+			};
+			let number = 1;
+			while (state.details[`new-session-${number}`] !== undefined) number += 1;
+			const id = `new-session-${number}`;
+			const item = sessionListItem({
+				id,
+				title: input.title ?? null,
+				ownerUserId: state.user.id,
+				ownerName: state.user.displayName,
+				updatedAt: new Date().toISOString(),
+			});
+			const disabled = input.disabledExtensions ?? [];
+			const detail = sessionView(item, {
+				...(input.model === undefined ? {} : { model: input.model }),
+				extensions: state.availableExtensions.map((extension) => ({
+					...extension,
+					enabled: !disabled.includes(extension.name),
+				})),
+			});
+			state.sessions.unshift(item);
+			state.details[id] = detail;
+			state.events[id] = snapshotEvent([userEntry(`${id}-u1`, input.message ?? "")], null);
+			return json({ session: detail }, 201);
+		}
+
 		const childrenMatch = /^\/api\/sessions\/([^/]+)\/children$/.exec(path);
 		if (childrenMatch && method === "GET") {
 			const id = decodeURIComponent(childrenMatch[1] as string);
@@ -1393,8 +1433,23 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const id = decodeURIComponent(sessionMatch[1] as string);
 			const item = state.sessions.find((candidate) => candidate.id === id);
 			const detail = (state.details[id] ?? (item ? sessionView(item) : undefined)) as SessionView;
-			const patch = body as Partial<SessionView> & { quota?: number | null };
-			const next = { ...detail, ...patch, updatedAt: new Date().toISOString() };
+			const { disabledExtensions, ...patch } = body as Partial<SessionView> & {
+				quota?: number | null;
+				disabledExtensions?: string[];
+			};
+			const next: SessionView = {
+				...detail,
+				...patch,
+				...(disabledExtensions !== undefined && detail.extensions !== undefined
+					? {
+							extensions: detail.extensions.map((extension) => ({
+								...extension,
+								enabled: !disabledExtensions.includes(extension.name),
+							})),
+						}
+					: {}),
+				updatedAt: new Date().toISOString(),
+			};
 			state.details[id] = next;
 			if (item && typeof patch.title === "string") item.title = patch.title;
 			return json({ session: next });

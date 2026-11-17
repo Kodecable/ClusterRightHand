@@ -10,6 +10,7 @@ import {
 	SessionDetailResponseSchema,
 	SessionEntriesQuerySchema,
 	SessionEntriesResponseSchema,
+	SessionExtensionsResponseSchema,
 	SessionForkBodySchema,
 	SessionIdParamSchema,
 	SessionListQuerySchema,
@@ -168,6 +169,20 @@ const createRoute = defineRoute({
 		201: { description: "The new session", ...json(SessionResponseSchema) },
 		200: { description: "The session a repeated request created before", ...json(SessionResponseSchema) },
 	},
+});
+
+/**
+ * The draft page's list before a session exists (doc/design/extensions.md "Extensions"): the same resolution a
+ * created session's `extensions` uses for the caller, with every entry on. Registered before `/sessions/{id}` so
+ * its static path is not taken for a session id.
+ */
+const extensionsRoute = defineRoute({
+	method: "get",
+	path: "/sessions/extensions",
+	tags: TAGS,
+	summary: "The extensions a new session of the caller reaches, all of them on",
+	agent: "allow",
+	responses: { 200: { description: "The available extensions", ...json(SessionExtensionsResponseSchema) } },
 });
 
 const getRoute = defineRoute({
@@ -508,10 +523,20 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 	});
 
 	/**
+	 * The extensions a new session of the caller reaches, before a session exists (doc/design/extensions.md
+	 * "Extensions"): the list the created session's `extensions` will show, every entry on. Any signed-in user
+	 * gets their own list; the administrator's `/extensions` stays separate.
+	 */
+	app.openapi(extensionsRoute, async (c) => {
+		const extensions = await runtime.availableExtensions(c.get("user").userId);
+		return c.json({ extensions }, 200);
+	});
+
+	/**
 	 * Creates a session and submits its first message in one request: `{ requestId, model, rulePreset,
-	 * budgetRemaining?, title?, message }`. A retry with the same request id returns the session the first
-	 * attempt made (200) instead of creating another; a new session is 201. A failure to submit removes the
-	 * new session again.
+	 * budgetRemaining?, title?, message, disabledExtensions? }`. A retry with the same request id returns the
+	 * session the first attempt made (200) instead of creating another; a new session is 201. A failure to
+	 * submit removes the new session again.
 	 */
 	app.openapi(createRoute, async (c) => {
 		const body = c.req.valid("json");
@@ -538,6 +563,10 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			lastUsedFrom: c.get("user").actor === undefined ? "web" : null,
 			...(body.title === undefined ? {} : { title: body.title }),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
+			// Omitted means all available extensions are on, as for sessions created by channels or tokens.
+			...(body.disabledExtensions === undefined
+				? {}
+				: { disabledExtensions: parseDisabledExtensions(body.disabledExtensions) }),
 			...(resolved
 				? {
 						content: attachmentContent(message, resolved.blocks),

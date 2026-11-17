@@ -12,7 +12,7 @@ import { ChatAccountsSection } from "@/features/channels/chat-accounts-section";
 import { useModels } from "@/features/settings/api";
 import { useSaveUserSettings, useUserSettings } from "@/hooks/use-user-settings";
 import { useLocale } from "@/lib/i18n";
-import { supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
+import { availableModel, supportedThinkingLevels, withThinkingLevel } from "@/lib/thinking-level";
 
 /**
  * The signed-in user's settings (doc/design/webui.md "Settings dialog"): the language, the defaults for new
@@ -27,6 +27,7 @@ export function UserSettingsDialog({ open, onOpenChange }: { open: boolean; onOp
 	const available = models.data ?? [];
 
 	const defaultModel = settings.data?.defaultModel ?? null;
+	const defaultAvailableModel = availableModel(available, defaultModel ?? undefined);
 	const thinkingLevels = supportedThinkingLevels(available, defaultModel ?? undefined);
 	const thinkingLevel: ThinkingLevel =
 		defaultModel?.thinkingLevel !== undefined && thinkingLevels.includes(defaultModel.thinkingLevel)
@@ -142,6 +143,7 @@ export function UserSettingsDialog({ open, onOpenChange }: { open: boolean; onOp
 								<ThinkingLevelSelect
 									id="settings-default-thinking"
 									dataTestId="settings-default-thinking"
+									model={defaultAvailableModel}
 									levels={thinkingLevels}
 									value={thinkingLevel}
 									disabled={defaultModel === null || save.isPending}

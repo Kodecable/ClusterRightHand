@@ -605,7 +605,7 @@ msgstr "节点组由管理员创建。"
 msgid "An administrator grants access to nodes."
 msgstr "节点访问权限由管理员授予。"
 
-#: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/extensions-dialog.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "关闭的扩展对模型不可见。更改从下一轮开始生效。"
 
@@ -2128,23 +2128,18 @@ msgid "Expires after"
 msgstr "有效期"
 
 #: src/app/shell/nav.ts
-#: src/features/sessions/composer-footer.tsx
+#: src/features/sessions/extensions-dialog.tsx
 #: src/features/settings/extensions.tsx
 msgid "Extensions"
 msgstr "扩展"
 
-#. placeholder {0}: extensions.length
-#: src/features/sessions/composer-footer.tsx
-msgid "Extensions: {enabled}/{0}"
-msgstr "扩展：{enabled}/{0}"
+#: src/features/sessions/extensions-dialog.tsx
+msgid "Extensions: {enabled}/{total}"
+msgstr "扩展：{enabled}/{total}"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "额外请求头"
-
-#: src/lib/thinking-level.ts
-msgid "Extra high"
-msgstr "很高"
 
 #. placeholder {0}: facts.length
 #: src/features/nodes/pages.tsx
@@ -2320,7 +2315,6 @@ msgid "Headers are stored and shown in plaintext, not as secrets. Do not put API
 msgstr "请求头以明文存储和显示，不当作机密；不要在这里填写 API 密钥或 Authorization 令牌，请使用 API 密钥字段。"
 
 #: src/components/decision/evaluation.tsx
-#: src/lib/thinking-level.ts
 msgid "High"
 msgstr "高"
 
@@ -2693,7 +2687,6 @@ msgid "Log out"
 msgstr "退出登录"
 
 #: src/components/decision/evaluation.tsx
-#: src/lib/thinking-level.ts
 msgid "Low"
 msgstr "低"
 
@@ -2729,10 +2722,6 @@ msgstr "匹配规则"
 msgid "Matches, pin it"
 msgstr "匹配，固定它"
 
-#: src/lib/thinking-level.ts
-msgid "Max"
-msgstr "最高"
-
 #: src/features/settings/provider-dialog.tsx
 msgid "Max output"
 msgstr "最大输出"
@@ -2750,7 +2739,6 @@ msgid "MCP"
 msgstr "MCP"
 
 #: src/components/decision/evaluation.tsx
-#: src/lib/thinking-level.ts
 msgid "Medium"
 msgstr "中"
 
@@ -2788,10 +2776,6 @@ msgstr "消息"
 #: src/features/sessions/composer-input.tsx
 msgid "Message composer"
 msgstr "消息输入框"
-
-#: src/lib/thinking-level.ts
-msgid "Minimal"
-msgstr "最低"
 
 #: src/components/task-result.tsx
 msgid "Mode"
@@ -3376,10 +3360,6 @@ msgstr "没有可显示的内容。"
 #: src/features/nodes/node-last-seen.tsx
 msgid "Now"
 msgstr "现在"
-
-#: src/lib/thinking-level.ts
-msgid "Off"
-msgstr "关闭"
 
 #: src/features/settings/providers.ts
 msgid "Off cannot be hidden; give it a display name."

@@ -260,6 +260,10 @@ export const SessionCreateBodySchema = z.object({
 		.describe("The root's remaining budget in tokens; null or absent is unlimited."),
 	title: SessionTitleSchema.optional(),
 	attachments: z.array(ChatAttachmentInputSchema).optional(),
+	disabledExtensions: z
+		.array(z.string())
+		.optional()
+		.describe("The extensions to start the session with off; omitted means all available extensions are on."),
 });
 
 /** `PATCH /api/sessions/{id}`; omitted fields stay unchanged, null clears. */

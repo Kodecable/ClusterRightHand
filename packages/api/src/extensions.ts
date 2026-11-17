@@ -24,6 +24,7 @@ import type {
 	ExternalCallStateSchema,
 	ExternalCallViewSchema,
 	SessionExtensionSchema,
+	SessionExtensionsResponseSchema,
 } from "./schemas/extensions.ts";
 
 /** What kind of extension this is: an MCP server or a built-in of crhs. */
@@ -67,6 +68,9 @@ export type ExtensionToolsResponse = z.infer<typeof ExtensionToolsResponseSchema
 
 /** An extension as a session's settings and tool guide see it. */
 export type SessionExtension = z.infer<typeof SessionExtensionSchema>;
+
+/** `GET /api/sessions/extensions`: the extensions a new session reaches, all on. */
+export type SessionExtensionsResponse = z.infer<typeof SessionExtensionsResponseSchema>;
 
 /** The state of one external tool call (doc/design/extensions.md "External calls"). */
 export type ExternalCallState = z.infer<typeof ExternalCallStateSchema>;
