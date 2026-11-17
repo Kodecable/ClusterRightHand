@@ -1,52 +1,52 @@
 {
 	"entry-bundle-gzip@0": {
 		"throttle": 0,
-		"reps": [134.216],
-		"notes": "raw 427090 bytes"
+		"reps": [108.823],
+		"notes": "raw 350305 bytes"
 	},
 	"session-list-100k-first-render-total@1": {
 		"throttle": 1,
-		"reps": [214.10000002384186, 209.69999998807907, 217.10000002384186],
-		"notes": "nav → first painted row, wall clock incl. the mocked latency; row in DOM 198.4 ms, FCP 180 ms; html 0–5.2, entry 8–33.8, me 47.6–115.4, layout 48.2–63.7, index-page 49.1–71.1, catalog 58.4–73.7, list 118.3–175.1"
+		"reps": [255, 224.80000007152557, 210.60000002384186],
+		"notes": "nav → first painted row, wall clock incl. the mocked latency; row in DOM 208.2 ms, FCP 184 ms; html 0–3.9, entry 7.1–30.7, me 44.8–109.2, layout 45.5–62.4, page 46.1–87.7, catalog 57.4–90.9, list 112.1–166.5"
 	},
 	"session-list-100k-first-render-render@1": {
 		"throttle": 1,
-		"reps": [39, 40.89999997615814, 40.10000002384186],
+		"reps": [53.60000002384186, 58.300000071525574, 38.89999997615814],
 		"notes": "from the list response to the first painted row"
 	},
 	"session-list-100k-first-render-excl-mock@1": {
 		"throttle": 1,
-		"reps": [164.10000002384186, 159.69999998807907, 167.10000002384186],
+		"reps": [205, 174.80000007152557, 160.60000002384186],
 		"notes": "wall clock minus one 50 ms mocked response"
 	},
 	"session-list-100k-scroll-frames@1": {
 		"throttle": 1,
-		"reps": [16.8],
-		"notes": "601 frames, 0 gaps >50 ms, p95 16.8 ms, max 16.8 ms, avg 60 fps"
+		"reps": [16.7],
+		"notes": "601 frames, 0 gaps >50 ms, p95 16.7 ms, max 16.8 ms, avg 60 fps"
 	},
 	"session-list-100k-first-render-total@4": {
 		"throttle": 4,
-		"reps": [487.80000001192093, 531.5999999642372, 460.80000001192093],
-		"notes": "nav → first painted row, wall clock incl. the mocked latency; row in DOM 477.5 ms, FCP 400 ms; html 0–3.1, entry 16.3–47.3, me 96.9–197.9, layout 99.6–155.4, index-page 103.4–160.9, catalog 146.1–162.9, list 209.3–266.7, models 339.1–429.9"
+		"reps": [612.6000000238419, 551.3000000715256, 525.1000000238419],
+		"notes": "nav → first painted row, wall clock incl. the mocked latency; row in DOM 536.2 ms, FCP 540 ms; html 0–2.3, entry 11–35.9, me 100.4–206.7, layout 102.8–160.1, page 107.1–186.4, catalog 152–187.2, list 242.3–299.4, models 482.3–552.5"
 	},
 	"session-list-100k-first-render-render@4": {
 		"throttle": 4,
-		"reps": [221.10000002384186, 250.30000001192093, 211.9000000357628],
+		"reps": [297.5, 251.90000009536743, 244.5],
 		"notes": "from the list response to the first painted row"
 	},
 	"session-list-100k-first-render-excl-mock@4": {
 		"throttle": 4,
-		"reps": [437.80000001192093, 481.5999999642372, 410.80000001192093],
+		"reps": [562.6000000238419, 501.3000000715256, 475.10000002384186],
 		"notes": "wall clock minus one 50 ms mocked response"
 	},
 	"session-list-100k-scroll-frames@4": {
 		"throttle": 4,
-		"reps": [16.8],
-		"notes": "598 frames, 0 gaps >50 ms, p95 16.8 ms, max 33.4 ms, avg 59.6 fps"
+		"reps": [16.7],
+		"notes": "601 frames, 0 gaps >50 ms, p95 16.7 ms, max 16.8 ms, avg 60 fps"
 	},
 	"transcript-20k-dom-node-spread@1": {
 		"throttle": 1,
-		"reps": [61, 61, 61],
+		"reps": [96, 96, 96],
 		"notes": "max − min DOM nodes across scroll positions"
 	},
 	"transcript-20k-prepend-drift@1": {
@@ -56,16 +56,16 @@
 	},
 	"transcript-20k-scroll-p95@1": {
 		"throttle": 1,
-		"reps": [16.700000000000728, 16.799999999999272, 16.799999999999272]
+		"reps": [16.799999999999272, 16.700000000000728, 16.700000000000728]
 	},
 	"transcript-20k-scroll-worst-frame@1": {
 		"throttle": 1,
 		"reps": [16.80000000000109, 16.80000000000109, 16.80000000000109],
-		"notes": "0/901 frame gaps >50 ms across the runs"
+		"notes": "0/902 frame gaps >50 ms across the runs"
 	},
 	"transcript-20k-dom-node-spread@4": {
 		"throttle": 4,
-		"reps": [61, 61, 61],
+		"reps": [96, 96, 96],
 		"notes": "max − min DOM nodes across scroll positions"
 	},
 	"transcript-20k-prepend-drift@4": {
@@ -75,44 +75,44 @@
 	},
 	"transcript-20k-scroll-p95@4": {
 		"throttle": 4,
-		"reps": [16.799999999999272, 16.700000000000728, 16.799999999999272]
+		"reps": [16.799999999999272, 16.799999999999272, 16.700000000000728]
 	},
 	"transcript-20k-scroll-worst-frame@4": {
 		"throttle": 4,
-		"reps": [16.80000000000109, 16.80000000000291, 16.80000000000109],
-		"notes": "0/903 frame gaps >50 ms across the runs"
+		"reps": [33.399999999999636, 16.80000000000109, 16.80000000000109],
+		"notes": "0/898 frame gaps >50 ms across the runs"
 	},
 	"stream-1500cps-100k-stop-latency-p95@1": {
 		"throttle": 1,
-		"reps": [2.100000023841858, 2.399999976158142, 4.400000035762787],
-		"notes": "samples per run: 8/8/8"
+		"reps": [4.699999928474426, 3.6999999284744263, 3.5],
+		"notes": "samples per run: 8/6/8"
 	},
 	"stream-1500cps-100k-stop-latency-max@1": {
 		"throttle": 1,
-		"reps": [2.100000023841858, 2.399999976158142, 4.400000035762787]
+		"reps": [4.699999928474426, 3.6999999284744263, 3.5]
 	},
 	"stream-1500cps-100k-worst-frame@1": {
 		"throttle": 1,
-		"reps": [116.70000000000073, 133.39999999999418, 133.29999999999927]
+		"reps": [133.30000000000018, 83.40000000000873, 116.60000000000582]
 	},
 	"stream-1500cps-100k-completion-frame@1": {
 		"throttle": 1,
-		"reps": [100.10000000000582, 133.39999999999418, 33.30000000000291],
+		"reps": [116.69999999999709, 33.30000000000291, 116.60000000000582],
 		"notes": "worst rAF gap at message_end (the completion transition)"
 	},
 	"stream-1500cps-100k-main-thread-busy@1": {
 		"throttle": 1,
-		"reps": [9.614195923134435, 9.433891304405382, 8.829289629714095],
+		"reps": [10.147564539014821, 10.240489147857186, 9.866834914737339],
 		"notes": "% of the streaming wall time"
 	},
 	"stream-300cps-30k-stop-latency-p95@1": {
 		"throttle": 1,
-		"reps": [2.699999988079071, 2.600000023841858, 1.9000000357627869],
-		"notes": "samples per run: 8/8/9"
+		"reps": [5.300000071525574, 2.799999952316284, 3.1999999284744263],
+		"notes": "samples per run: 9/7/9"
 	},
 	"stream-300cps-30k-stop-latency-max@1": {
 		"throttle": 1,
-		"reps": [2.699999988079071, 2.600000023841858, 1.9000000357627869]
+		"reps": [5.300000071525574, 2.799999952316284, 3.1999999284744263]
 	},
 	"stream-300cps-30k-worst-frame@1": {
 		"throttle": 1,
@@ -120,68 +120,68 @@
 	},
 	"stream-300cps-30k-completion-frame@1": {
 		"throttle": 1,
-		"reps": [16.80000000000291, 33.39999999999418, 16.80000000000291],
+		"reps": [16.80000000000291, 16.80000000000291, 16.80000000000291],
 		"notes": "worst rAF gap at message_end (the completion transition)"
 	},
 	"stream-300cps-30k-main-thread-busy@1": {
 		"throttle": 1,
-		"reps": [7.392995035046734, 6.985385291160022, 7.24697300799648],
+		"reps": [9.046580780248513, 7.457054128006756, 7.860581851451541],
 		"notes": "% of the streaming wall time"
 	},
 	"stream-1500cps-100k-stop-latency-p95@4": {
 		"throttle": 4,
-		"reps": [7.699999988079071, 11.5, 10.699999988079071],
-		"notes": "samples per run: 8/9/9"
+		"reps": [10.799999952316284, 8.899999976158142, 9.799999952316284],
+		"notes": "samples per run: 9/8/8"
 	},
 	"stream-1500cps-100k-stop-latency-max@4": {
 		"throttle": 4,
-		"reps": [7.699999988079071, 11.5, 10.699999988079071]
+		"reps": [10.799999952316284, 8.899999976158142, 9.799999952316284]
 	},
 	"stream-1500cps-100k-worst-frame@4": {
 		"throttle": 4,
-		"reps": [716.6000000000004, 683.4000000000005, 950]
+		"reps": [683.3000000000002, 616.6000000000004, 600]
 	},
 	"stream-1500cps-100k-completion-frame@4": {
 		"throttle": 4,
-		"reps": [299.8999999999942, 383.3000000000029, 450],
+		"reps": [666.6999999999971, 433.29999999998836, 350],
 		"notes": "worst rAF gap at message_end (the completion transition)"
 	},
 	"stream-1500cps-100k-main-thread-busy@4": {
 		"throttle": 4,
-		"reps": [25.897014591582955, 32.270772282882845, 32.606054954130464],
+		"reps": [27.794170400989564, 27.501438789292653, 26.405422306812444],
 		"notes": "% of the streaming wall time"
 	},
 	"stream-300cps-30k-stop-latency-p95@4": {
 		"throttle": 4,
-		"reps": [9.699999988079071, 6.600000023841858, 9.300000011920929],
-		"notes": "samples per run: 7/9/8"
+		"reps": [7.599999904632568, 6.5, 8.100000023841858],
+		"notes": "samples per run: 8/9/8"
 	},
 	"stream-300cps-30k-stop-latency-max@4": {
 		"throttle": 4,
-		"reps": [9.699999988079071, 6.600000023841858, 9.300000011920929]
+		"reps": [7.599999904632568, 6.5, 8.100000023841858]
 	},
 	"stream-300cps-30k-worst-frame@4": {
 		"throttle": 4,
-		"reps": [250, 266.59999999999854, 283.2999999999993]
+		"reps": [300, 250, 250]
 	},
 	"stream-300cps-30k-completion-frame@4": {
 		"throttle": 4,
-		"reps": [116.60000000000582, 116.60000000000582, 133.29999999998836],
+		"reps": [116.60000000000582, 116.59999999999127, 116.59999999999127],
 		"notes": "worst rAF gap at message_end (the completion transition)"
 	},
 	"stream-300cps-30k-main-thread-busy@4": {
 		"throttle": 4,
-		"reps": [20.353108466703368, 20.48003316326862, 24.811564173196036],
+		"reps": [21.134013496643476, 20.517486438597903, 20.22542497232372],
 		"notes": "% of the streaming wall time"
 	},
 	"transcript-100k-remount-worst-frame@1": {
 		"throttle": 1,
-		"reps": [83.29999999999973, 83.39999999999964, 83.40000000000009],
+		"reps": [83.20000000000027, 66.59999999999991, 66.69999999999982],
 		"notes": "worst rAF gap of the second mount of the completed 100K row, after scrolling it out of and back into the virtual window"
 	},
 	"transcript-100k-remount-worst-frame@4": {
 		"throttle": 4,
-		"reps": [333.3000000000002, 300, 316.6999999999998],
+		"reps": [266.7000000000007, 266.6999999999998, 249.89999999999964],
 		"notes": "worst rAF gap of the second mount of the completed 100K row, after scrolling it out of and back into the virtual window"
 	}
 }

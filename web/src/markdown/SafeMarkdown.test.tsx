@@ -8,7 +8,12 @@ import doc50k from "./__fixtures__/doc-50k.md?raw";
 import edgeCases from "./__fixtures__/edge-cases.md?raw";
 import footnotesMath from "./__fixtures__/footnotes-math.md?raw";
 import malicious from "./__fixtures__/malicious.md?raw";
-import { SafeMarkdown, StreamingMarkdown } from "./SafeMarkdown";
+import {
+	MARKDOWN_PLACEHOLDER_PREFIX_FOR_TESTING,
+	markdownCacheStatsForTesting,
+	SafeMarkdown,
+	StreamingMarkdown,
+} from "./SafeMarkdown";
 import { StreamingTextStore } from "./stream-store";
 
 function withI18n(node: React.ReactElement) {
@@ -87,6 +92,7 @@ describe("SafeMarkdown security", () => {
 					"[data](data:text/html,<script>alert(6)</script>)",
 					"[file](file:///etc/passwd)",
 					"[vb](vbscript:msgbox(7))",
+					"[frag](#section)",
 					"[good](https://example.com/ok)",
 					"[mail](mailto:a@example.com)",
 				].join("\n\n")}
@@ -165,6 +171,63 @@ describe("SafeMarkdown correctness", () => {
 		expect(container.textContent?.match(/middle note/g)).toHaveLength(1);
 	});
 
+	test("a remounted message reuses its converted blocks", () => {
+		const text = [
+			"# Cached",
+			"",
+			"First[^a] reference.",
+			"",
+			"Second paragraph with **bold** and [a link](https://example.com).",
+			"",
+			"Third[^b] and again[^a].",
+			"",
+			"Fourth paragraph.",
+			"",
+			"## Last heading",
+			"",
+			"[^a]: Note A",
+			"[^b]: Note B",
+		].join("\n");
+		const first = renderMarkdown(<SafeMarkdown text={text} />);
+		first.unmount();
+		const before = markdownCacheStatsForTesting();
+		const second = renderMarkdown(<SafeMarkdown text={text} />);
+		const after = markdownCacheStatsForTesting();
+		// A new component instance has a new useId prefix; the block cache key must not
+		// contain it, or every finished block would be converted again.
+		expect(after.conversions - before.conversions).toBe(0);
+		expect(after.hits - before.hits).toBeGreaterThan(0);
+		const references = Array.from(second.container.querySelectorAll("a[data-footnote-ref]"));
+		expect(references.map((reference) => reference.textContent)).toEqual(["1", "2", "1"]);
+		expect(second.container.querySelector("[data-footnotes]")).not.toBeNull();
+		second.unmount();
+	});
+
+	test("a cached block renders each message's own prefix", () => {
+		const text = "Shared[^x].\n\n[^x]: shared note\n";
+		const before = markdownCacheStatsForTesting();
+		const { container } = renderMarkdown(
+			<div>
+				<SafeMarkdown text={text} />
+				<SafeMarkdown text={text} />
+			</div>,
+		);
+		// The second message renders the same cached element as the first.
+		expect(markdownCacheStatsForTesting().hits - before.hits).toBeGreaterThan(0);
+		const references = Array.from(container.querySelectorAll<HTMLAnchorElement>("a[data-footnote-ref]"));
+		const items = Array.from(container.querySelectorAll<HTMLElement>("[data-footnotes] li"));
+		expect(references).toHaveLength(2);
+		expect(items).toHaveLength(2);
+		expect(references[0]?.id).not.toBe(references[1]?.id);
+		expect(references[0]?.getAttribute("href")).toBe(`#${items[0]?.id}`);
+		expect(references[1]?.getAttribute("href")).toBe(`#${items[1]?.id}`);
+		const backLinks = Array.from(container.querySelectorAll<HTMLAnchorElement>("a[data-footnote-backref]"));
+		expect(backLinks.map((link) => link.getAttribute("href"))).toEqual([
+			`#${references[0]?.id}`,
+			`#${references[1]?.id}`,
+		]);
+	});
+
 	test("two messages on one page never share footnote ids", () => {
 		const { container } = renderMarkdown(
 			<div>
@@ -204,6 +267,14 @@ describe("SafeMarkdown correctness", () => {
 		expect(references[2]?.hasAttribute("id")).toBe(false);
 		const ids = Array.from(container.querySelectorAll("[id]")).map((element) => element.id);
 		expect(new Set(ids).size).toBe(ids.length);
+
+		// Cached blocks are converted with a constant placeholder prefix; every rendered
+		// id, href and aria-describedby must carry this message's real prefix instead.
+		for (const element of Array.from(container.querySelectorAll("[id], a[href], [aria-describedby]"))) {
+			for (const attribute of ["id", "href", "aria-describedby"]) {
+				expect(element.getAttribute(attribute) ?? "").not.toContain(MARKDOWN_PLACEHOLDER_PREFIX_FOR_TESTING);
+			}
+		}
 
 		// Every reference points at the one footnotes heading, which exists.
 		const label = section?.querySelector("h2")?.id ?? "";

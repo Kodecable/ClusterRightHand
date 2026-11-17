@@ -66,5 +66,6 @@ On a development machine the framework overhead is under 10 ms per turn, negligi
 latency, with no growth over long sessions and no leak. PostgreSQL storage is measured separately with
 pi-durable's storage benchmark, because each commit there pays a network round trip.
 
-Run it when the agent runtime, durable storage or context handling changes, and compare the printed
-numbers with earlier runs.
+Run it with `pnpm test:perf` when the agent runtime, durable storage or context handling changes, and
+compare the printed numbers with earlier runs. The script passes `--silent=false`: Vitest hides the
+console output of passing tests by default, and the numbers are that output.

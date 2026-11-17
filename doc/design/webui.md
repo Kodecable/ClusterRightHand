@@ -554,18 +554,27 @@ Because every block runs remark-gfm on its own, the reference numbers inside a b
 The renderer therefore numbers the definitions once for the whole message, in the order of first
 reference, and passes that map (plus the index of the first referencing block for each label) through a
 React context read by the anchor component when it renders; cached block elements stay valid because
-the number is resolved at render time. The one ordered list uses the same order. Only the message-wide
+the number and the anchor prefix are resolved at render time. The one ordered list uses the same order. Only the message-wide
 first reference of a label keeps its `fnref-…` id, the back-link target; repeats in other blocks drop
 it, since remark-gfm only suffixes repeats within one block. The footnotes heading carries
 `${prefix}footnote-label`, and every reference's `aria-describedby` points at it, so the description
 resolves instead of naming a missing element.
 
-Each message gives its footnotes a prefix from React's `useId` (sanitized to `[a-z0-9-]`), passed to
-remark-rehype's `clobberPrefix`, so two messages on one page never share `fn-1` ids; the cache key of a
-rendered block carries that prefix and the collected definitions. A definition's `li` id, the reference
-`href` and the back-link use the identical encoding remark-rehype uses for the anchor (`safeId`: the
-label is normalised to lowercase and percent-encoded like a URL, so uppercase labels fold together and
-a label such as `[^注释]` becomes `%E6%B3%A8%E9%87%8A`).
+Each message gives its footnotes a prefix from React's `useId` (sanitized to `[a-z0-9-]`), so two
+messages on one page never share `fn-1` ids. Cached blocks are converted with one constant placeholder
+`clobberPrefix` instead of that prefix: the block cache key is the block's full source (with the
+collected definitions and footnotes) and carries no per-message data, so a virtualised row that
+remounts, or another message with the same text, reuses the converted element. The anchor component
+reads the real prefix from the same React context at render time and rewrites the placeholder in each
+footnote reference's `id`, `href` and `aria-describedby` and in each back-link's `href`, so the
+placeholder never reaches the DOM. The notes section itself (the heading id and each `li` id) uses
+the real prefix; a note body's source carries the placeholder back-link so the body can be cached
+too, and the anchor component rewrites it at render time. The URL transform admits those placeholder
+footnote fragments for the same reason; everything else, including arbitrary user `#fragment` links,
+still goes through the safe URL policy. A definition's `li` id, the reference `href` and the back-link
+use the identical encoding remark-rehype uses for the anchor (`safeId`: the label is normalised to
+lowercase and percent-encoded like a URL, so uppercase labels fold together and a label such as
+`[^注释]` becomes `%E6%B3%A8%E9%87%8A`).
 
 Math is browser-native MathML produced by Temml. Delimiters are `$$…$$` (inline when it stays on one
 line, display when it forms a `$$` fence) plus the TeX-style `\(…\)` (inline) and `\[…\]` (display),

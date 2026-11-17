@@ -25,7 +25,9 @@ export default defineConfig({
 			"./node_modules/.bin/vite build --logLevel warn && ./node_modules/.bin/vite preview --port 4174 --strictPort",
 		cwd: root,
 		url: "http://localhost:4174",
-		reuseExistingServer: true,
+		// Never measure a server left over from an earlier run: it would serve whatever build it started
+		// with. A busy port fails the run instead of silently reusing it.
+		reuseExistingServer: false,
 		timeout: 600_000,
 	},
 	projects: [

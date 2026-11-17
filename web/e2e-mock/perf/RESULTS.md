@@ -7,26 +7,26 @@ Regenerate with `pnpm --filter @crh/web test:perf`; raw medians and notes are in
 
 | metric                                       | 1×       | 4×       | target                              |
 | -------------------------------------------- | -------- | -------- | ----------------------------------- |
-| entry bundle, gzip                           | 134.2 kB | —        | ≤ 250 kB                            |
-| list 100k: first render, wall                | 214.1 ms | 487.8 ms | report both                         |
-| list 100k: first render, after list response | 40.1 ms  | 221.1 ms | < 200 ms at 4× (excl. mock latency) |
-| list 100k: first render, minus 50 ms mock    | 164.1 ms | 437.8 ms | < 200 ms at 4×                      |
-| list 100k: scroll 10 s, p95 frame gap        | 16.8 ms  | 16.8 ms  | no visible jank                     |
-| transcript 20k: DOM node spread              | 61       | 61       | flat                                |
+| entry bundle, gzip                           | 108.8 kB | —        | ≤ 250 kB                            |
+| list 100k: first render, wall                | 224.8 ms | 551.3 ms | report both                         |
+| list 100k: first render, after list response | 53.6 ms  | 251.9 ms | < 200 ms at 4× (excl. mock latency) |
+| list 100k: first render, minus 50 ms mock    | 174.8 ms | 501.3 ms | < 200 ms at 4×                      |
+| list 100k: scroll 10 s, p95 frame gap        | 16.7 ms  | 16.7 ms  | no visible jank                     |
+| transcript 20k: DOM node spread              | 96       | 96       | flat                                |
 | transcript 20k: prepend anchor drift         | 0.3 px   | 0.3 px   | ≤ 2 px                              |
-| transcript 20k: scroll, p95 frame gap        | 16.8 ms  | 16.8 ms  | no visible jank                     |
+| transcript 20k: scroll, p95 frame gap        | 16.7 ms  | 16.8 ms  | no visible jank                     |
 | transcript 20k: scroll, worst frame          | 16.8 ms  | 16.8 ms  |                                     |
-| transcript 100K: remount, worst frame        | 83.4 ms  | 316.7 ms | regression guard (was 667 ms)       |
-| stream 1,500 c/s 100K: Stop p95              | 2.4 ms   | 10.7 ms  | < 100 ms at 4×                      |
-| stream 1,500 c/s 100K: Stop max              | 2.4 ms   | 10.7 ms  |                                     |
-| stream 1,500 c/s 100K: worst frame           | 133.3 ms | 716.6 ms |                                     |
-| stream 1,500 c/s 100K: completion frame      | 100.1 ms | 383.3 ms | not the worst frame                 |
-| stream 1,500 c/s 100K: main-thread busy      | 9.4 %    | 32.3 %   |                                     |
-| stream 300 c/s 30K: Stop p95                 | 2.6 ms   | 9.3 ms   | < 100 ms at 4×                      |
-| stream 300 c/s 30K: Stop max                 | 2.6 ms   | 9.3 ms   |                                     |
-| stream 300 c/s 30K: worst frame              | 50 ms    | 266.6 ms |                                     |
+| transcript 100K: remount, worst frame        | 66.7 ms  | 266.7 ms | regression guard (was 667 ms)       |
+| stream 1,500 c/s 100K: Stop p95              | 3.7 ms   | 9.8 ms   | < 100 ms at 4×                      |
+| stream 1,500 c/s 100K: Stop max              | 3.7 ms   | 9.8 ms   |                                     |
+| stream 1,500 c/s 100K: worst frame           | 116.6 ms | 616.6 ms |                                     |
+| stream 1,500 c/s 100K: completion frame      | 116.6 ms | 433.3 ms | not the worst frame                 |
+| stream 1,500 c/s 100K: main-thread busy      | 10.1 %   | 27.5 %   |                                     |
+| stream 300 c/s 30K: Stop p95                 | 3.2 ms   | 7.6 ms   | < 100 ms at 4×                      |
+| stream 300 c/s 30K: Stop max                 | 3.2 ms   | 7.6 ms   |                                     |
+| stream 300 c/s 30K: worst frame              | 50 ms    | 250 ms   |                                     |
 | stream 300 c/s 30K: completion frame         | 16.8 ms  | 116.6 ms | not the worst frame                 |
-| stream 300 c/s 30K: main-thread busy         | 7.2 %    | 20.5 %   |                                     |
+| stream 300 c/s 30K: main-thread busy         | 7.9 %    | 20.5 %   |                                     |
 
 
 Notes:

@@ -32,6 +32,14 @@ const REMARK_PLUGINS: NonNullable<Options["remarkPlugins"]> = [
 	[remarkMath, { singleDollarTextMath: false }],
 ];
 
+/**
+ * The constant clobber prefix every cached Markdown block is converted with: `blockCache` holds
+ * converted elements for the whole page, so they cannot carry a per-message footnote prefix.
+ * `MarkdownAnchor` swaps the placeholder for the message's real prefix (from `FootnoteContext`)
+ * when the element renders; the placeholder itself never reaches the DOM.
+ */
+const PLACEHOLDER_CLOBBER_PREFIX = "md-placeholder-";
+
 function textOf(children: ReactNode): string {
 	if (typeof children === "string") return children;
 	if (typeof children === "number") return String(children);
@@ -188,27 +196,41 @@ function orderedFootnoteDefinitions(
 	return { definitions: ordered, numbers, firstBlocks };
 }
 
-/** The state every event anchor needs: the message's prefix and its footnote numbering. */
+/** The state every event anchor needs: the message's real prefix and its footnote numbering. */
 const FootnoteContext = createContext<{ prefix: string; numbering: FootnoteNumbering } | null>(null);
 /** The block a rendered Markdown element belongs to; `null` outside the message body (the footnotes list). */
 const BlockIndexContext = createContext<number | null>(null);
 
+/** Replace a cached block's placeholder prefix with the rendering message's real one. */
+function withMessagePrefix(value: string, prefix: string): string {
+	const hash = value.startsWith("#") ? "#" : "";
+	const body = hash === "" ? value : value.slice(hash.length);
+	return body.startsWith(PLACEHOLDER_CLOBBER_PREFIX)
+		? `${hash}${prefix}${body.slice(PLACEHOLDER_CLOBBER_PREFIX.length)}`
+		: value;
+}
+
 /**
  * Same-page links: remark-gfm's footnote references and back-links are fragments, which the URL policy
- * rejects. The prefix is generated per message, so only this message's own anchors are allowed through.
+ * rejects. Cached blocks are converted with the placeholder prefix, so their footnote anchors are the
+ * only ones allowed through; `MarkdownAnchor` rewrites them to the message's real prefix at render time.
+ * Everything else, including arbitrary user `#fragment` links, still goes through `safeUrlTransform`.
  */
-function markdownUrlTransform(prefix: string) {
-	return (url: string): string => {
-		if (url.startsWith(`#${prefix}`)) return url;
-		return safeUrlTransform(url);
-	};
+function markdownUrlTransform(url: string, _key: string, node: { tagName: string }): string {
+	if (
+		node.tagName === "a" &&
+		(url.startsWith(`#${PLACEHOLDER_CLOBBER_PREFIX}fn-`) || url.startsWith(`#${PLACEHOLDER_CLOBBER_PREFIX}fnref-`))
+	) {
+		return url;
+	}
+	return safeUrlTransform(url);
 }
 
 function MarkdownAnchor({ href, node: _node, children, ...props }: ComponentProps<"a"> & ExtraProps) {
 	const footnotes = useContext(FootnoteContext);
 	const blockIndex = useContext(BlockIndexContext);
 	if ("data-footnote-ref" in props && typeof href === "string" && footnotes !== null) {
-		const target = `#${footnotes.prefix}fn-`;
+		const target = `#${PLACEHOLDER_CLOBBER_PREFIX}fn-`;
 		const safeId = href.startsWith(target) ? href.slice(target.length) : null;
 		const number = safeId === null ? undefined : footnotes.numbering.numbers.get(safeId);
 		const firstBlock = safeId === null ? undefined : footnotes.numbering.firstBlocks.get(safeId);
@@ -216,13 +238,15 @@ function MarkdownAnchor({ href, node: _node, children, ...props }: ComponentProp
 		// remark-gfm numbers each block on its own; the message-wide number comes from the context.
 		// Only the message-wide first reference keeps its id (the back-link target): every later
 		// block would otherwise repeat `fnref-a`, because remark-gfm only suffixes repeats inside
-		// one block.
+		// one block. The cached id and href carry the placeholder prefix, not this message's.
 		const keepId = blockIndex !== null && firstBlock !== undefined && blockIndex === firstBlock;
+		const realHref = safeId === null ? withMessagePrefix(href, footnotes.prefix) : `#${footnotes.prefix}fn-${safeId}`;
+		const realId = id === undefined ? undefined : withMessagePrefix(id, footnotes.prefix);
 		return (
 			<a
-				href={href}
+				href={realHref}
 				{...rest}
-				{...(keepId && id !== undefined ? { id } : {})}
+				{...(keepId && realId !== undefined ? { id: realId } : {})}
 				aria-describedby={`${footnotes.prefix}footnote-label`}
 			>
 				{number ?? children}
@@ -230,11 +254,13 @@ function MarkdownAnchor({ href, node: _node, children, ...props }: ComponentProp
 		);
 	}
 	if (typeof href === "string" && href.startsWith("#")) {
-		const backReferencePrefix = footnotes === null ? null : `#${footnotes.prefix}fnref-`;
-		const isBackReference = backReferencePrefix !== null && href.startsWith(backReferencePrefix);
+		const isBackReference =
+			href.startsWith(`#${PLACEHOLDER_CLOBBER_PREFIX}fnref-`) ||
+			(footnotes !== null && href.startsWith(`#${footnotes.prefix}fnref-`));
+		const realHref = footnotes === null ? href : withMessagePrefix(href, footnotes.prefix);
 		return (
 			<a
-				href={href}
+				href={realHref}
 				{...props}
 				{...(isBackReference ? { className: cn("ml-1", props.className), "data-footnote-backref": "" } : {})}
 			>
@@ -321,32 +347,51 @@ function safeRemend(text: string): string {
  * cannot help; the converted element of a finished block is cached by its full
  * source instead. Elements are immutable descriptions, so a hit is safe to
  * render again. The cache is bounded and cleared as a whole: a session page
- * only has a handful of long messages on screen at a time. The key carries the
- * message's footnote prefix and the collected definitions (which are part of
- * `text`) so two messages cannot share anchors or a stale footnote set.
+ * only has a handful of long messages on screen at a time.
+ *
+ * The key is the block's full source (collected definitions and footnotes
+ * included) and carries no per-message data. Blocks are converted with one
+ * constant placeholder clobber prefix, and `MarkdownAnchor` reads the real
+ * message prefix and the footnote numbers from `FootnoteContext` when the
+ * element renders, so a hit is also safe in another component instance.
  */
 const blockCache = new Map<string, ReactElement>();
 const BLOCK_CACHE_LIMIT = 1_200;
 
-function markdownBlockElement(text: string, reusable: boolean, prefix: string): ReactElement {
-	const cacheKey = `${prefix}\u0000${text}`;
-	const hit = reusable ? blockCache.get(cacheKey) : undefined;
-	if (hit !== undefined) return hit;
+let blockConversions = 0;
+let blockCacheHits = 0;
+
+/** Test-only counters: a remount must serve finished blocks from the cache instead of converting them. */
+export function markdownCacheStatsForTesting(): { conversions: number; hits: number } {
+	return { conversions: blockConversions, hits: blockCacheHits };
+}
+
+/** Test-only: the placeholder prefix cached blocks are converted with; it must never reach the DOM. */
+export const MARKDOWN_PLACEHOLDER_PREFIX_FOR_TESTING = PLACEHOLDER_CLOBBER_PREFIX;
+
+function markdownBlockElement(text: string, reusable: boolean): ReactElement {
+	const hit = reusable ? blockCache.get(text) : undefined;
+	if (hit !== undefined) {
+		blockCacheHits += 1;
+		return hit;
+	}
 	const element = ReactMarkdown({
 		remarkPlugins: REMARK_PLUGINS,
 		components: markdownComponents(reusable),
 		// react-markdown 10 passes the clobber prefix to remark-rehype, whose mdast-util-to-hast
-		// prefixes footnote ids (it no longer takes a top-level `clobberPrefix` prop).
-		remarkRehypeOptions: { clobberPrefix: prefix },
-		urlTransform: markdownUrlTransform(prefix),
+		// prefixes footnote ids (it no longer takes a top-level `clobberPrefix` prop). The
+		// placeholder is constant on purpose; the anchor component substitutes the real prefix.
+		remarkRehypeOptions: { clobberPrefix: PLACEHOLDER_CLOBBER_PREFIX },
+		urlTransform: markdownUrlTransform,
 		skipHtml: true,
 		children: text,
 	});
 	// The growing last block of a stream is a new text on every frame; caching
 	// it would only evict the finished blocks the cache exists for.
 	if (!reusable) return element;
+	blockConversions += 1;
 	if (blockCache.size >= BLOCK_CACHE_LIMIT) blockCache.clear();
-	blockCache.set(cacheKey, element);
+	blockCache.set(text, element);
 	return element;
 }
 
@@ -355,14 +400,12 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
 	definitions,
 	footnotes,
 	streaming,
-	prefix,
 	blockIndex = null,
 }: {
 	source: string;
 	definitions: string;
 	footnotes: string;
 	streaming: boolean;
-	prefix: string;
 	blockIndex?: number | null;
 }) {
 	const repaired = streaming ? safeRemend(source) : source;
@@ -372,9 +415,7 @@ const MarkdownBlockView = memo(function MarkdownBlockView({
 	const prelude = [footnotes, definitions].filter((value) => value !== "").join("\n");
 	const text = prelude === "" ? repaired : `${prelude}\n\n${repaired}`;
 	return (
-		<BlockIndexContext.Provider value={blockIndex}>
-			{markdownBlockElement(text, !streaming, prefix)}
-		</BlockIndexContext.Provider>
+		<BlockIndexContext.Provider value={blockIndex}>{markdownBlockElement(text, !streaming)}</BlockIndexContext.Provider>
 	);
 });
 
@@ -407,12 +448,12 @@ function FootnotesSection({
 						<MarkdownBlockView
 							// The back-link belongs to the end of the note's last line, as GitHub renders it:
 							// appending it to the body keeps it inside the final paragraph instead of on a line
-							// of its own after the block.
-							source={`${definition.body} [↩](#${prefix}fnref-${definition.safeId})`}
+							// of its own after the block. The placeholder prefix keeps the body identical across
+							// messages so it can be cached; `MarkdownAnchor` writes the real prefix at render time.
+							source={`${definition.body} [↩](#${PLACEHOLDER_CLOBBER_PREFIX}fnref-${definition.safeId})`}
 							definitions={definitionsSource}
 							footnotes=""
 							streaming={false}
-							prefix={prefix}
 						/>
 					</li>
 				))}
@@ -472,7 +513,6 @@ function MarkdownView({ text, streaming, className }: { text: string; streaming:
 							definitions={result.definitions}
 							footnotes={result.footnotes}
 							streaming={streaming && index === lastIndex}
-							prefix={prefix}
 							blockIndex={index}
 						/>
 					),
