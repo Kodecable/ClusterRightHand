@@ -358,6 +358,60 @@ sudo systemctl edit crhs          # or crha, crha-privileged
 The units are `crhs.service`, `crha.service` and `crha-privileged.service` (forward mode only). Restart a
 service after changing its configuration or unit.
 
+## Outbound proxy
+
+crhs reads `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`, and their lower-case forms, at startup; there is
+no `crhs.toml` option. When both forms are set the lower-case name wins, as in Node. `HTTP_PROXY` covers
+`http://` targets, `HTTPS_PROXY` covers `https://` and `wss://` targets, so set both when crhs talks to
+both kinds. `NO_PROXY` is a comma-separated list: `*` bypasses every proxy, `example.com` matches that
+host, `.example.com` and `*.example.com` match its subdomains, `example.com:8080` adds a port, and
+`localhost` and `127.0.0.1` are different entries.
+
+For a systemd install, set them in a drop-in:
+
+```sh
+sudo systemctl edit crhs
+```
+
+```ini
+[Service]
+Environment=HTTPS_PROXY=http://proxy.internal:3128
+Environment=NO_PROXY=llm.internal,.svc.cluster.local,localhost,127.0.0.1
+```
+
+For the container, pass the same variables to `podman run` with `-e`, or put them in the unit that
+starts it. A restart applies a change.
+
+At startup crhs logs one line with the effective proxy URLs and the `NO_PROXY` list; credentials in a
+proxy URL are removed. An invalid proxy URL stops startup.
+
+crhs applies the proxy to the HTTP clients it creates:
+
+| Traffic | Proxied |
+|---|---|
+| pi-ai model providers, and model discovery on `GET <base>/models` | Yes; the Bedrock adapter reads the variables itself |
+| models.dev catalogue download | Yes |
+| MCP extensions (streamable HTTP and SSE) | Yes |
+| Telegram Bot API | Yes |
+| Satori API and its WebSocket | Yes |
+| WebDAV library backend | Yes |
+| crha to crhs control and data connections | On the node, through Go's `ProxyFromEnvironment` |
+
+Not covered:
+
+- **SOCKS and PAC proxies.** Node's built-in proxy support accepts an `http://` or `https://` proxy URL
+  only.
+- **AWS credential-chain lookups.** With Bedrock profile or role credentials, the AWS SDK resolves
+  SSO, STS and instance credentials with its own HTTP agents, which do not read these variables; the
+  Bedrock API call itself is proxied. Static credentials or a bearer token avoid those lookups.
+- **Inbound traffic and SSH.** Connections from crha nodes and browsers to crhs, and crhs's SSH
+  connections, do not use these variables.
+
+Put internal services in `NO_PROXY` so they are not sent to the proxy: an internal model gateway, a
+WebDAV backend, a Satori gateway on localhost. The node's `crha` service reads the same variables for
+its connection to crhs, so give it the same `NO_PROXY` entry for crhs's address; a proxy between crha
+and crhs must support `CONNECT` for the WebSocket.
+
 ## Building from source
 
 For development, from a checkout:

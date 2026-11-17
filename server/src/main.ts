@@ -38,6 +38,7 @@ import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storag
 import { migrateToLatest } from "./storage/migrate.ts";
 import { UserError } from "./util/errors.ts";
 import { installProcessErrorHandlers } from "./util/process-errors.ts";
+import { configureOutboundProxy } from "./util/proxy.ts";
 import { CRH_VERSION } from "./version.ts";
 
 const USAGE = `usage: crhs [--config <path>] <command>
@@ -191,6 +192,9 @@ async function readExportPassphrase(): Promise<string> {
 }
 
 async function runServer(config: Config, db: Db, masterKey: MasterKey, settings: SettingsStore): Promise<void> {
+	// Outbound requests follow the environment, before the first client is created (doc/guide/install.md
+	// "Outbound proxy"). An invalid proxy configuration stops startup through the UserError handling below.
+	configureOutboundProxy();
 	// Last resort: a missed catch logs instead of ending the service. Commands run through runCommand's other
 	// branch and keep their normal exit behavior.
 	installProcessErrorHandlers();

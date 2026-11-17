@@ -131,6 +131,13 @@ one definition of the HTTP API. The Go client is a separate module under `client
 Linux is the supported platform. crha is built for linux/amd64 and linux/arm64. crhs runs wherever
 Node.js 24.7 or later runs. There is no Windows support.
 
+Outbound HTTP follows the process environment: crhs applies `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY`
+at startup with Node's built-in proxy support, so model SDKs, MCP transports, chat channels, the
+models.dev download and the WebDAV backend share one setting
+([Outbound proxy](../guide/install.md#outbound-proxy)). A client that builds its own agent hands it the
+same environment, and crha uses Go's `ProxyFromEnvironment` for its connection to crhs. Inbound and SSH
+traffic is unaffected.
+
 ## Extension points
 
 These are not implemented, but the design leaves room for them:
