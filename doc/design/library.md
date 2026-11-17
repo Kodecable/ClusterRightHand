@@ -239,10 +239,11 @@ applies; `overwrite` is accepted and has no effect.
 - The result carries `details.delivery = { source, name, bytes }`, where `source` is
   `{ library, libraryId, path }` or `{ node, nodeId, path }`; the model-facing text says the file was
   offered to the user for download.
-- After the turn ends, the WebUI shows each delivered file as its own box with the name, the source
-  (library reference or node name) and the size; clicking it downloads the file. A library source is
-  resolved by its id, so a renamed group keeps the link. It downloads the path as it is when clicked: no
-  size, SHA-256 or version is pinned.
+- After the turn ends, the WebUI shows each delivered file as the same kind of file box as an
+  attachment, on the assistant's side, with the name, the source (library reference or node name), the
+  size, a download on click and an image preview. A library source is resolved by its id, so a renamed
+  group keeps the link. It downloads the path as it is when clicked: no size, SHA-256 or version is
+  pinned.
 - Permission is decided at click time by the ordinary rules for the clicking user: a library source uses
   the library file endpoint and needs library access, and a node source uses
   `GET /api/nodes/:id/file?path=`, which runs a `file.pull` for that user (see [WebUI and API](#webui-and-api)).
@@ -333,10 +334,11 @@ Every attachment goes to a library; a message never carries image bytes.
   note or the typed text, and needs no escaping.
 - An image gets the note only; the agent calls `view_image` to see it. Images and models without image
   input therefore take one path.
-- The transcript shows attachments as chips from `data`, linking to the library file. A chip resolves the
-  library by its id, so a renamed group keeps the link; an entry written before ids were recorded falls
-  back to its reference. A chip is inactive with a reason when the file is gone or the viewer cannot reach
-  the library. Deleting a session leaves its attachments in the library.
+- The transcript shows attachments as file boxes from `data`, above the user's message bubble and linking
+  to the library file; an image also offers a preview button. A box resolves the library by its id, so a
+  renamed group keeps the link; an entry written before ids were recorded falls back to its reference. A
+  box is inactive with a reason when the file is gone or the viewer cannot reach the library. Deleting a
+  session leaves its attachments in the library.
 
 ## WebUI and API
 

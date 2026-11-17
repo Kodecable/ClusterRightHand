@@ -89,7 +89,7 @@ describe("TurnDeliveries", () => {
 		const preview = screen.getByTestId("delivery-preview");
 		expect(preview).toHaveAccessibleName("Preview pic.png");
 		await userEvent.click(preview);
-		expect(await screen.findByTestId("delivery-preview-image")).toHaveAttribute("src", "blob:delivery");
+		expect(await screen.findByTestId("file-preview-image")).toHaveAttribute("src", "blob:delivery");
 		await waitFor(() =>
 			expect(fetch).toHaveBeenCalledWith(
 				"/api/libraries/user_group%3Ateam-renamed/file?path=screens%2Fpic.png&preview=1",
@@ -125,6 +125,15 @@ describe("TurnDeliveries", () => {
 		);
 		await userEvent.click(screen.getByTestId("delivery-preview"));
 		expect(await screen.findByText("this file cannot be previewed")).toBeInTheDocument();
-		expect(screen.queryByTestId("delivery-preview-image")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("file-preview-image")).not.toBeInTheDocument();
+	});
+
+	test("the delivered files sit on the assistant's side", () => {
+		stubFetch();
+		renderWithI18n(<TurnDeliveries deliveries={[libraryDelivery]} />);
+		const container = screen.getByTestId("turn-deliveries");
+		expect(container).toHaveAttribute("data-side", "agent");
+		expect(container).toHaveClass("items-start");
+		expect(container).not.toHaveClass("items-end");
 	});
 });

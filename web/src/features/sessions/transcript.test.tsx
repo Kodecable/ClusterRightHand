@@ -193,6 +193,62 @@ test("a copy action sits under the user message and the final reply, never under
 	expect(screen.queryAllByRole("button", { name: "Copy" })).toHaveLength(0);
 });
 
+test("a turn's delivered files sit between its final answer and the reply's actions", () => {
+	const items: TranscriptItem[] = [
+		{ kind: "user", key: "u1", text: "hand me the report", at: 1_000 },
+		{
+			kind: "tool",
+			key: "c1",
+			callId: "call-1",
+			name: "copy_file",
+			args: {},
+			status: "done",
+			output: "",
+			details: undefined,
+			result: {
+				text: "offered report.txt",
+				isError: false,
+				details: {
+					delivery: {
+						source: { node: "web-1", nodeId: "node-1", path: "/srv/report.txt" },
+						name: "report.txt",
+						bytes: 12,
+					},
+				},
+			},
+		},
+		{
+			kind: "text",
+			key: "a1",
+			text: "Here is the report.",
+			streaming: false,
+			final: true,
+			at: 2_000,
+			durationMs: 1_000,
+		},
+	];
+	renderWithI18n(
+		<Transcript
+			items={items}
+			streams={new TranscriptStreams()}
+			ready
+			sessionActive={false}
+			hasOlder={false}
+			loadingOlder={false}
+			onLoadOlder={() => {}}
+		/>,
+	);
+	const answer = screen.getByText("Here is the report.");
+	const deliveries = screen.getByTestId("turn-deliveries");
+	const actions = screen.getByRole("button", { name: "Copy reply" }).closest('[data-testid="message-actions"]');
+	expect(actions).not.toBeNull();
+	if (actions === null) return;
+	expect(answer.compareDocumentPosition(deliveries) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	expect(deliveries.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+	// The action row is its own row, outside the answer's message row.
+	expect(actions.closest('[data-testid="message"]')).toBeNull();
+});
+
 test("the owner's fork action sits under an ended turn's final reply only", () => {
 	const items: TranscriptItem[] = [
 		{ kind: "user", key: "u1", text: "do it", at: 1_000, entryId: "1" },

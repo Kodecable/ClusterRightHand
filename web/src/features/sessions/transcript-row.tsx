@@ -168,6 +168,63 @@ function CompactingRow() {
 	);
 }
 
+/** The entry a final reply can fork at, when its entry id is a safe integer. */
+function forkEntryIdOf(item: Extract<TranscriptItem, { kind: "text" }>): number | undefined {
+	if (item.entryId === undefined) return undefined;
+	const id = Number(item.entryId);
+	return Number.isSafeInteger(id) ? id : undefined;
+}
+
+/**
+ * The copy and fork row of a turn's final answer (doc/design/webui.md "Message rendering"): the
+ * transcript renders it as its own row after the delivered files, so the files sit between the answer
+ * and its actions. `revealed` lets the transcript keep it visible while the pointer is over the
+ * answer and the rows after it; the row itself shows it on hover and keyboard focus as before.
+ */
+export function ReplyActionsRow({
+	item,
+	canFork = false,
+	forkPending = false,
+	onFork,
+	revealed = false,
+}: {
+	item: Extract<TranscriptItem, { kind: "text" }>;
+	/** Whether the caller may fork this reply: the owner, and only when the turn has ended. */
+	canFork?: boolean;
+	/** A fork request is in flight; the action is disabled until it settles. */
+	forkPending?: boolean;
+	onFork?: (entryId: number) => void;
+	/** The pointer is over the answer or the rows it shows after it. */
+	revealed?: boolean;
+}) {
+	const { t } = useLingui();
+	const forkEntryId = forkEntryIdOf(item);
+	const showsFork = canFork && forkEntryId !== undefined && onFork !== undefined;
+	return (
+		<div className="px-3 pb-2.5" data-testid="reply-actions-row">
+			<MessageActions className={revealed ? "pointer-events-auto opacity-100" : undefined}>
+				<CopyButton text={item.text} label={t`Copy reply`} size="icon-xs" />
+				{showsFork && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						aria-label={t`Fork from here`}
+						title={t`Fork from here`}
+						data-testid="fork-message"
+						disabled={forkPending}
+						onClick={() => {
+							if (forkEntryId !== undefined) onFork?.(forkEntryId);
+						}}
+					>
+						{forkPending ? <LoaderCircleIcon className="animate-spin" /> : <GitBranchIcon />}
+					</Button>
+				)}
+			</MessageActions>
+		</div>
+	);
+}
+
 /**
  * One transcript row (doc/design/webui.md "Message rendering"): a plain user message, assistant
  * text and thinking through SafeMarkdown, tool rows whose details open in a
@@ -183,6 +240,7 @@ export function TranscriptRow({
 	sessionActive,
 	highlighted = false,
 	finalReply,
+	showReplyActions = true,
 	canFork = false,
 	forkPending = false,
 	onFork,
@@ -199,6 +257,8 @@ export function TranscriptRow({
 	 * rows rendered outside a turn.
 	 */
 	finalReply?: boolean;
+	/** Whether the copy/fork row renders under the reply; the transcript renders it as its own row. */
+	showReplyActions?: boolean;
 	/** Whether the caller may fork this reply: the owner, and only when the turn has ended. */
 	canFork?: boolean;
 	/** A fork request is in flight; the action is disabled until it settles. */
@@ -206,11 +266,8 @@ export function TranscriptRow({
 	onFork?: (entryId: number) => void;
 }) {
 	const { t } = useLingui();
-	const showsReplyActions = item.kind === "text" && (finalReply ?? item.final);
-	const forkEntryId =
-		item.kind === "text" && item.entryId !== undefined && Number.isSafeInteger(Number(item.entryId))
-			? Number(item.entryId)
-			: undefined;
+	const showsReplyActions = item.kind === "text" && (finalReply ?? item.final) && showReplyActions;
+	const forkEntryId = item.kind === "text" ? forkEntryIdOf(item) : undefined;
 	const showsFork = showsReplyActions && canFork && forkEntryId !== undefined && onFork !== undefined;
 	return (
 		<article
@@ -231,14 +288,17 @@ export function TranscriptRow({
 		>
 			{item.kind === "user" && (
 				<div className="flex flex-col items-end gap-1">
-					{(item.text !== "" || item.attachments === undefined) && (
-						<div className="max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground">
-							{item.text}
-						</div>
-					)}
 					{item.attachments?.map((attachment) => (
 						<AttachmentChip key={`${attachment.library}:${attachment.path}`} attachment={attachment} />
 					))}
+					{(item.text !== "" || item.attachments === undefined) && (
+						<div
+							className="max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground"
+							data-testid="user-message"
+						>
+							{item.text}
+						</div>
+					)}
 					<MessageActions>
 						<CopyButton text={item.text} label={t`Copy message`} size="icon-xs" />
 					</MessageActions>

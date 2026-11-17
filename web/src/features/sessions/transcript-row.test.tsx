@@ -1155,4 +1155,59 @@ describe("attachment chips and crh.user_input", () => {
 			expect(screen.getByTestId("attachment-chip-reason")).toHaveTextContent("You don't have access to this library."),
 		);
 	});
+
+	test("attachments render above the message bubble, in order", async () => {
+		const second = { ...attachment, name: "second.txt", path: "docs/second.txt" };
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const url = String(input);
+				const body = url.includes("/stat")
+					? { file: { path: attachment.path, size: attachment.bytes } }
+					: { library: { id: "lib", ref: attachment.library } };
+				return new Response(JSON.stringify(body), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}),
+		);
+		renderRow({ kind: "user", key: "u1", text: "look at this", attachments: [attachment, second] });
+		const chips = await screen.findAllByTestId("attachment-chip");
+		const bubble = screen.getByTestId("user-message");
+		expect(chips).toHaveLength(2);
+		expect(chips[0]).toHaveTextContent("report.txt");
+		expect(chips[1]).toHaveTextContent("second.txt");
+		for (const chip of chips) {
+			expect(chip.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+		}
+	});
+
+	test("an image attachment opens the preview dialog", async () => {
+		Object.defineProperty(URL, "createObjectURL", { value: vi.fn(() => "blob:attachment"), configurable: true });
+		Object.defineProperty(URL, "revokeObjectURL", { value: vi.fn(), configurable: true });
+		const image = { ...attachment, name: "pic.png", path: "docs/pic.png", mime: "image/png" };
+		const fetch = vi.fn(async (input: RequestInfo | URL) => {
+			const url = String(input);
+			if (url.includes("preview=1")) {
+				return new Response(new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }), { status: 200 });
+			}
+			const body = url.includes("/stat")
+				? { file: { path: image.path, size: image.bytes } }
+				: { library: { id: "lib", ref: image.library } };
+			return new Response(JSON.stringify(body), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		});
+		vi.stubGlobal("fetch", fetch);
+		renderRow({ kind: "user", key: "u1", text: "", attachments: [image] });
+		await userEvent.click(await screen.findByTestId("attachment-chip-preview"));
+		expect(await screen.findByTestId("file-preview-image")).toHaveAttribute("src", "blob:attachment");
+		await waitFor(() =>
+			expect(fetch).toHaveBeenCalledWith(
+				"/api/libraries/user%3Aalice/file?path=docs%2Fpic.png&preview=1",
+				expect.anything(),
+			),
+		);
+	});
 });

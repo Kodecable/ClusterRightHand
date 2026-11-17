@@ -4,7 +4,8 @@ import { cn } from "@/lib/utils";
  * The small action row under a user message or a final answer (doc/design/webui.md "Message view"):
  * icon buttons such as Copy and, for the owner on an ended turn, Fork. The row stays hidden until the
  * message is hovered or a control in it has keyboard focus; a touch screen has no hover, so it is
- * always shown there.
+ * always shown there. A final answer's row is a row of its own after the delivered files, so the
+ * transcript passes `revealed` while the pointer is over the answer's tail.
  */
 export function MessageActions({ children, className }: { children?: React.ReactNode; className?: string }) {
 	return (

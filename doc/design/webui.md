@@ -409,13 +409,14 @@ turn, the error rows sit there with the rest of the process, and no extra warnin
 without a final answer (a run that failed) stays unfolded. Compactions appear in transcript order as
 their own rows.
 
-Under the user's message and under the final answer, a small action row holds icon-only buttons. Copy
-copies the Markdown source, not the rendered text: the user's typed text for a message, the raw Markdown
-for a reply. On a pointer device the row appears while the message is hovered or one of its controls has
-keyboard focus; a touch screen has no hover, so the row is always shown there. Viewers of a shared
-session get the same copy button. Beside Copy on a final answer, the owner gets Fork, which forks the
-session at that reply and opens the new session; it is absent while the turn is still running and for
-every viewer but the owner.
+Under the user's message and below a final answer's delivered files, a small action row holds icon-only
+buttons. Copy copies the Markdown source, not the rendered text: the user's typed text for a message, the
+raw Markdown for a reply. On a pointer device the row appears while the message is hovered or one of its
+controls has keyboard focus; on a final answer the answer and the rows after it carry the hover, so the
+row stays visible while the pointer moves down to it. A touch screen has no hover, so the row is always
+shown there. Viewers of a shared session get the same copy button. Beside Copy on a final answer, the
+owner gets Fork, which forks the session at that reply and opens the new session; it is absent while the
+turn is still running and for every viewer but the owner.
 
 ### Jumping to a message
 
@@ -482,16 +483,23 @@ its store and Markdown tree, so the text does not re-render from scratch.
 
 ### Message rendering
 
-User messages are shown as raw text, with attachment chips from the entry's structured data, never
-parsed from the text ([Chat attachments](library.md#chat-attachments)). A chip resolves its library by
-the id in that data, so a renamed group keeps the link; an older entry falls back to the stored
-reference. A `view_image` row shows the image's source, size and SHA-256, not the image. A `copy_file`
-call is an ordinary tool row. Once a turn has ended, each file it delivered (`destination.user_interface`)
-appears after the final answer — and after anything the turn shows after it — as its own box with the file
-name, the source (library reference or node name) and the size; clicking the box downloads the file, and
-an image offers a small preview button. A library source is resolved by id, like a chip, and the box stays
-visible while the turn's process is folded. Only a turn's successful deliveries are shown, once per
-source and path, and nothing is shown while the turn runs ([Deliveries](library.md#deliveries)).
+User messages are shown as raw text, with their attachments from the entry's structured data, never
+parsed from the text ([Chat attachments](library.md#chat-attachments)). Each attachment is a file box
+above the message bubble, on the user's side: the name, the size and, for an image, a small preview
+button; clicking the box downloads the library file. A box resolves its library by the id in that data,
+so a renamed group keeps the link; an older entry falls back to the stored reference. A box is inactive,
+with the reason, when the viewer cannot reach the library or the file is gone. A `view_image` row shows
+the image's source, size and SHA-256, not the image. A `copy_file` call is an ordinary tool row. Once a
+turn has ended, each file it delivered (`destination.user_interface`) appears after the final answer —
+and after anything the turn shows after it — on the assistant's side, left-aligned with the assistant
+text. One shared file box renders both: the file name, the source (library reference or node name, shown
+for a delivered file) and the size, a download on click, and a preview button for an image. A library
+source is resolved by id, like an attachment box, and the box stays visible while the turn's process is
+folded. Only a turn's successful deliveries are shown, once per source and path, and nothing is shown
+while the turn runs ([Deliveries](library.md#deliveries)). The final answer's copy and fork row is its
+own row after the delivered files, so the files sit between the answer and its actions; anything the
+turn shows after the answer stays above both. A turn without deliveries keeps the actions directly
+below the answer.
 While the session runs, a turn whose last rows are errors shows one warn-coloured
 "Retrying (attempt N)…" line after the turn, outside its fold; N counts the consecutive trailing
 errors plus one. The line leaves as soon as a new assistant message starts or the session stops, while

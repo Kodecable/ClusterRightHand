@@ -102,6 +102,8 @@ test("a copy_file delivery is an ordinary tool row plus one delivered-file box",
 	await expect(delivery).toContainText("report.txt");
 	await expect(delivery).toContainText("user_group:team");
 	await expect(delivery).toContainText("1.2 KiB");
+	// The delivered file box sits on the assistant's side, not under the user's message.
+	await expect(page.getByTestId("turn-deliveries")).toHaveClass(/items-start/);
 	// The link follows the library id to the current reference, not the stored one.
 	await expect(page.getByTestId("delivery-download")).toHaveAttribute(
 		"href",

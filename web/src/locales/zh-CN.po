@@ -1807,12 +1807,14 @@ msgstr "完成"
 msgid "Download"
 msgstr "下载"
 
-#. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
-#: src/features/sessions/deliveries.tsx
 msgid "Download {0}"
 msgstr "下载 {0}"
+
+#: src/components/file-box.tsx
+msgid "Download {name}"
+msgstr "下载 {name}"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
@@ -2666,8 +2668,8 @@ msgstr "正在加载更多会话…"
 msgid "Loading older messages…"
 msgstr "正在加载更早的消息…"
 
+#: src/components/file-box.tsx
 #: src/components/file-manager/preview-dialog.tsx
-#: src/features/sessions/deliveries.tsx
 msgid "Loading preview"
 msgstr "正在加载预览"
 
@@ -3693,18 +3695,20 @@ msgstr "前缀匹配"
 msgid "Preparing the payload to sign…"
 msgstr "正在准备待签名的载荷…"
 
+#: src/components/file-box.tsx
 #: src/components/file-manager/file-list.tsx
 #: src/components/file-manager/preview-dialog.tsx
-#: src/features/sessions/deliveries.tsx
 msgid "Preview"
 msgstr "预览"
 
-#. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
-#: src/features/sessions/deliveries.tsx
 msgid "Preview {0}"
 msgstr "预览 {0}"
+
+#: src/components/file-box.tsx
+msgid "Preview {name}"
+msgstr "预览 {name}"
 
 #: src/components/privileged-mark.tsx
 #: src/components/task-form-fields.tsx

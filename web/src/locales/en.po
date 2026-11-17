@@ -1807,12 +1807,14 @@ msgstr "Done"
 msgid "Download"
 msgstr "Download"
 
-#. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
-#: src/features/sessions/deliveries.tsx
 msgid "Download {0}"
 msgstr "Download {0}"
+
+#: src/components/file-box.tsx
+msgid "Download {name}"
+msgstr "Download {name}"
 
 #: src/features/settings/model-dialog.tsx
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
@@ -2666,8 +2668,8 @@ msgstr "Loading more sessions…"
 msgid "Loading older messages…"
 msgstr "Loading older messages…"
 
+#: src/components/file-box.tsx
 #: src/components/file-manager/preview-dialog.tsx
-#: src/features/sessions/deliveries.tsx
 msgid "Loading preview"
 msgstr "Loading preview"
 
@@ -3693,18 +3695,20 @@ msgstr "prefix"
 msgid "Preparing the payload to sign…"
 msgstr "Preparing the payload to sign…"
 
+#: src/components/file-box.tsx
 #: src/components/file-manager/file-list.tsx
 #: src/components/file-manager/preview-dialog.tsx
-#: src/features/sessions/deliveries.tsx
 msgid "Preview"
 msgstr "Preview"
 
-#. placeholder {0}: delivery.name
 #. placeholder {0}: entry.path
 #: src/components/file-manager/file-list.tsx
-#: src/features/sessions/deliveries.tsx
 msgid "Preview {0}"
 msgstr "Preview {0}"
+
+#: src/components/file-box.tsx
+msgid "Preview {name}"
+msgstr "Preview {name}"
 
 #: src/components/privileged-mark.tsx
 #: src/components/task-form-fields.tsx

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { TurnDeliveries } from "./deliveries";
 import type { DeliveryDetails } from "./tool-details";
 import type { TranscriptItem } from "./transcript-items";
-import { RetryingRow, TranscriptRow, TurnSummaryRow } from "./transcript-row";
+import { ReplyActionsRow, RetryingRow, TranscriptRow, TurnSummaryRow } from "./transcript-row";
 import type { TranscriptStreams } from "./transcript-streams";
 import { buildTranscriptTurns } from "./turns";
 
@@ -28,7 +28,15 @@ interface PrependAnchor extends Anchor {
 }
 
 type TranscriptDisplayRow =
-	| { kind: "item"; key: string; item: TranscriptItem; finalReply: boolean; forkable: boolean }
+	| {
+			kind: "item";
+			key: string;
+			item: TranscriptItem;
+			finalReply: boolean;
+			forkable: boolean;
+			/** The turn whose reply actions this row keeps visible while hovered, if any. */
+			hoverGroup?: string;
+	  }
 	| {
 			kind: "summary";
 			key: string;
@@ -37,7 +45,14 @@ type TranscriptDisplayRow =
 			open: boolean;
 	  }
 	| { kind: "retrying"; key: string; attempt: number }
-	| { kind: "deliveries"; key: string; deliveries: DeliveryDetails[] };
+	| { kind: "deliveries"; key: string; hoverGroup: string; deliveries: DeliveryDetails[] }
+	| {
+			kind: "reply-actions";
+			key: string;
+			item: Extract<TranscriptItem, { kind: "text" }>;
+			forkable: boolean;
+			hoverGroup: string;
+	  };
 
 /**
  * The session transcript (doc/design/webui.md "Message view"): a virtua list with `shift`
@@ -87,6 +102,12 @@ export function Transcript({
 	const virtualizer = useRef<VirtualizerHandle | null>(null);
 	const [atBottom, setAtBottom] = useState(true);
 	const [highlighted, setHighlighted] = useState<string | null>(null);
+	/**
+	 * The turn whose answer tail the pointer is over. Its copy/fork row is a separate row after the
+	 * delivered files, so the pointer cannot use the answer's `group-hover`; the rows between the
+	 * answer and its actions keep the row visible instead.
+	 */
+	const [hoveredTurn, setHoveredTurn] = useState<string | null>(null);
 	const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const handledFocus = useRef<string | null>(null);
 	const atBottomRef = useRef(true);
@@ -349,21 +370,37 @@ export function Transcript({
 					}
 				}
 				if (turn.final !== undefined) {
-					display.push({ kind: "item", key: turn.final.key, item: turn.final, finalReply: true, forkable: turn.ended });
+					display.push({
+						kind: "item",
+						key: turn.final.key,
+						item: turn.final,
+						finalReply: true,
+						forkable: turn.ended,
+						hoverGroup: turn.key,
+					});
 				}
 				// Compaction notes committed after the final answer always follow it, whether
 				// the turn is open or closed, so the transcript keeps commit order (doc/design/webui.md "Message rendering").
 				for (const item of turn.after) {
-					display.push({ kind: "item", key: item.key, item, finalReply: false, forkable: false });
-				}
-			} else {
-				for (const item of turn.body) {
 					display.push({
 						kind: "item",
 						key: item.key,
 						item,
-						finalReply: item === turn.final,
-						forkable: item === turn.final && turn.ended,
+						finalReply: false,
+						forkable: false,
+						hoverGroup: turn.key,
+					});
+				}
+			} else {
+				for (const item of turn.body) {
+					const finalReply = item === turn.final;
+					display.push({
+						kind: "item",
+						key: item.key,
+						item,
+						finalReply,
+						forkable: finalReply && turn.ended,
+						...(finalReply || turn.after.includes(item) ? { hoverGroup: turn.key } : {}),
 					});
 				}
 			}
@@ -373,7 +410,23 @@ export function Transcript({
 			}
 			// The turn's delivered files follow everything it shows, and stay out of its fold.
 			if (turn.ended && turn.deliveries.length > 0) {
-				display.push({ kind: "deliveries", key: `deliveries:${turn.key}`, deliveries: turn.deliveries });
+				display.push({
+					kind: "deliveries",
+					key: `deliveries:${turn.key}`,
+					hoverGroup: turn.key,
+					deliveries: turn.deliveries,
+				});
+			}
+			// The final answer's copy/fork row follows the files, so the files sit between the answer
+			// and its actions (doc/design/webui.md "Message rendering").
+			if (turn.final !== undefined) {
+				display.push({
+					kind: "reply-actions",
+					key: `reply-actions:${turn.key}`,
+					item: turn.final,
+					forkable: turn.ended,
+					hoverGroup: turn.key,
+				});
 			}
 		}
 		for (const item of items) {
@@ -389,6 +442,14 @@ export function Transcript({
 			else next.add(key);
 			return next;
 		});
+	}, []);
+	const enterTurnTail = useCallback((turnKey: string) => {
+		setHoveredTurn(turnKey);
+	}, []);
+	const leaveTurnTail = useCallback((turnKey: string, related: EventTarget | null) => {
+		const owner = related instanceof Element ? related.closest("[data-turn-hover]") : null;
+		if (owner?.getAttribute("data-turn-hover") === turnKey) return;
+		setHoveredTurn((current) => (current === turnKey ? null : current));
 	}, []);
 
 	const previousFirst = prevFirstId.current;
@@ -444,6 +505,62 @@ export function Transcript({
 		};
 	}, []);
 
+	/**
+	 * A row's content, wrapped in the hover group that keeps a turn's reply actions visible while the
+	 * pointer is over the answer, its notes or its delivered files.
+	 */
+	const renderRow = (row: TranscriptDisplayRow) => {
+		const content =
+			row.kind === "summary" ? (
+				<TurnSummaryRow
+					key={row.key}
+					durationMs={row.durationMs}
+					open={row.open}
+					onToggle={() => toggleTurn(row.turnKey)}
+				/>
+			) : row.kind === "retrying" ? (
+				<RetryingRow key={row.key} attempt={row.attempt} />
+			) : row.kind === "deliveries" ? (
+				<TurnDeliveries key={row.key} deliveries={row.deliveries} />
+			) : row.kind === "reply-actions" ? (
+				<ReplyActionsRow
+					key={row.key}
+					item={row.item}
+					canFork={canFork && row.forkable}
+					forkPending={forkPending}
+					onFork={onFork}
+					revealed={row.hoverGroup === hoveredTurn}
+				/>
+			) : (
+				<TranscriptRow
+					key={row.key}
+					item={row.item}
+					streams={streams}
+					sessionActive={sessionActive}
+					highlighted={highlighted !== null && row.item.entryId === highlighted}
+					finalReply={row.finalReply}
+					// The final answer's actions are their own row, after the delivered files.
+					showReplyActions={!row.finalReply}
+					canFork={canFork && row.forkable}
+					forkPending={forkPending}
+					onFork={onFork}
+				/>
+			);
+		const hoverGroup = "hoverGroup" in row ? row.hoverGroup : undefined;
+		if (hoverGroup === undefined) return content;
+		return (
+			// biome-ignore lint/a11y/noStaticElementInteractions: hover only keeps the answer's actions visible while the pointer moves down to them.
+			<div
+				key={row.key}
+				data-turn-hover={hoverGroup}
+				onMouseEnter={() => enterTurnTail(hoverGroup)}
+				onMouseLeave={(event) => leaveTurnTail(hoverGroup, event.relatedTarget)}
+			>
+				{content}
+			</div>
+		);
+	};
+
 	return (
 		<div className="relative min-h-0 flex-1" data-slot="transcript">
 			<div
@@ -486,32 +603,7 @@ export function Transcript({
 							if (followingRef.current) requestAnimationFrame(pinToEnd);
 						}}
 					>
-						{(row) =>
-							row.kind === "summary" ? (
-								<TurnSummaryRow
-									key={row.key}
-									durationMs={row.durationMs}
-									open={row.open}
-									onToggle={() => toggleTurn(row.turnKey)}
-								/>
-							) : row.kind === "retrying" ? (
-								<RetryingRow key={row.key} attempt={row.attempt} />
-							) : row.kind === "deliveries" ? (
-								<TurnDeliveries key={row.key} deliveries={row.deliveries} />
-							) : (
-								<TranscriptRow
-									key={row.key}
-									item={row.item}
-									streams={streams}
-									sessionActive={sessionActive}
-									highlighted={highlighted !== null && row.item.entryId === highlighted}
-									finalReply={row.finalReply}
-									canFork={canFork && row.forkable}
-									forkPending={forkPending}
-									onFork={onFork}
-								/>
-							)
-						}
+						{renderRow}
 					</Virtualizer>
 				)}
 			</div>

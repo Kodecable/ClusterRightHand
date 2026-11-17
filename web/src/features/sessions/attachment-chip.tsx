@@ -1,21 +1,19 @@
 import type { ChatAttachment, LibraryResponse } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQuery } from "@tanstack/react-query";
-import { FileIcon } from "lucide-react";
+import { FileBox } from "@/components/file-box";
 import { useLibraries } from "@/features/library/api";
 import { enc, http, isNotFound } from "@/lib/api/client";
-import { formatBytes } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 /**
- * One attachment of a user message (doc/design/library.md "Chat attachments"): a chip linking to the
- * library file. The library is resolved by its id when the entry has one, so a renamed group keeps the
- * link; an older entry without one falls back to the stored reference. It is inactive, with the reason,
- * when the viewer cannot reach the library or the file is gone; the transcript never parses attachment
- * data out of the text.
+ * One attachment of a user message (doc/design/library.md "Chat attachments"): a file box linking to
+ * the library file. The library is resolved by its id when the entry has one, so a renamed group keeps
+ * the link; an older entry without one falls back to the stored reference. It is inactive, with the
+ * reason, when the viewer cannot reach the library or the file is gone; the transcript never parses
+ * attachment data out of the text.
  */
 export function AttachmentChip({ attachment }: { attachment: ChatAttachment }) {
-	const { t, i18n } = useLingui();
+	const { t } = useLingui();
 	const byId = attachment.libraryId !== undefined;
 	const libraries = useLibraries(byId);
 	const listed = byId ? libraries.data?.find((library) => library.id === attachment.libraryId) : undefined;
@@ -40,6 +38,7 @@ export function AttachmentChip({ attachment }: { attachment: ChatAttachment }) {
 	});
 
 	const href = `/api/libraries/${enc(ref)}/file?path=${encodeURIComponent(attachment.path)}`;
+	const previewHref = `${href}&preview=1`;
 	let reason: string | undefined;
 	if (byId) {
 		if (libraries.isPending) reason = t`Checking the file…`;
@@ -58,44 +57,18 @@ export function AttachmentChip({ attachment }: { attachment: ChatAttachment }) {
 		}
 	}
 
-	const label = `${attachment.name} (${formatBytes(attachment.bytes, i18n.locale)})`;
-	const body = (
-		<span className="flex items-center gap-1.5">
-			<FileIcon className="size-3.5 shrink-0" aria-hidden="true" />
-			<span className="min-w-0 truncate">{label}</span>
-		</span>
-	);
 	return (
-		<span className="flex max-w-full flex-col items-end gap-0.5" data-testid="attachment-chip">
-			{reason === undefined ? (
-				<a
-					href={href}
-					className="flex max-w-full items-center rounded-md border bg-background px-2 py-1 text-xs text-foreground hover:bg-accent"
-					title={attachment.path}
-					data-testid="attachment-chip-link"
-				>
-					{body}
-				</a>
-			) : (
-				<span
-					className={cn(
-						"flex max-w-full items-center rounded-md border bg-muted px-2 py-1 text-xs text-muted-foreground",
-						file.isError && "opacity-70",
-					)}
-					title={attachment.path}
-					data-testid="attachment-chip-inactive"
-				>
-					{body}
-				</span>
-			)}
-			{reason !== undefined && (
-				<span className="text-[11px] text-muted-foreground" data-testid="attachment-chip-reason">
-					{reason}
-				</span>
-			)}
-			<span className="sr-only">
-				<Trans>Attachment</Trans>
-			</span>
-		</span>
+		<FileBox
+			name={attachment.name}
+			bytes={attachment.bytes}
+			mime={attachment.mime}
+			path={attachment.path}
+			download={reason === undefined ? href : undefined}
+			preview={reason === undefined ? previewHref : undefined}
+			reason={reason}
+			testId="attachment-chip"
+			downloadTestId="attachment-chip-link"
+			srLabel={<Trans>Attachment</Trans>}
+		/>
 	);
 }
