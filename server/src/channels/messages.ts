@@ -28,12 +28,26 @@ import type { CardLabels, ChatCard } from "./card.ts";
 export type BotLocale = UserSettingsLocale;
 
 /**
- * Escapes every ASCII punctuation character of a value interpolated into a framework text. CommonMark lets a
- * backslash escape any ASCII punctuation, and Telegram's rich Markdown parses more than the classic set:
- * `$formula$`, `==mark==`, `||spoiler||`, `^`, footnote markers and table pipes all start with punctuation.
+ * Escapes the characters Telegram's rich Markdown acts on in a value interpolated into a framework text. Measured
+ * against `sendRichMessage` on 2026-11-17: a backslash is consumed (and so escapes the character after it) before
+ * `! # $ ( ) * + - . = > [ \ ] _ ` { | } ~`, while before `" % & ' , / : ; < ? @ ^` it is shown literally; raw HTML
+ * is parsed and `&lt;`/`&amp;` are decoded as HTML entities. So exactly the first set takes a backslash, `&` and `<`
+ * become entities (in that order), and the rest is plain text that must stay as written.
  */
 export function escapeMarkdown(text: string): string {
-	return text.replace(/\r?\n/g, " ").replace(/([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "\\$1");
+	return text
+		.replace(/\r?\n/g, " ")
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/([!#$()*+\-.=>[\]\\_`{|}~])/g, "\\$1");
+}
+
+/**
+ * The escape for a multi-line value such as a replayed user message: each line is escaped on its own and the lines
+ * become paragraphs, so the user's lines stay lines in a rich message (doc/design/channels.md "Conversations").
+ */
+export function escapeMarkdownLines(text: string): string {
+	return text.replace(/\r\n?/g, "\n").split("\n").map(escapeMarkdown).join("\n\n");
 }
 
 /**
@@ -47,6 +61,18 @@ export function inlineCode(text: string): string {
 	const fence = "`".repeat(longest + 1);
 	const pad = value.startsWith("`") || value.endsWith("`") ? " " : "";
 	return `${fence}${pad}${value}${pad}${fence}`;
+}
+
+/**
+ * A language-less fenced code block for a raw error, with a fence longer than the longest backtick run inside the
+ * text: a rich message shows a code block literally, so the error cannot turn into formatting of its own.
+ */
+export function codeBlock(text: string): string {
+	const value = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+	let longest = 0;
+	for (const run of value.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
+	const fence = "`".repeat(Math.max(3, longest + 1));
+	return `${fence}\n${value}\n${fence}`;
 }
 
 /** A byte count the way the WebUI shows it: the largest binary unit, such as "32 MiB". */
@@ -358,10 +384,12 @@ export interface BotMessages {
 	expiredResult: string;
 	sessionNotYours: string;
 	couldNotReadHistory: (problem: string) => string;
-	historyUser: string;
-	historyAssistant: string;
+	/** A replayed user message: a bold label line, then the text escaped so it shows literally. */
+	historyUser: (text: string) => string;
+	/** A replayed assistant message: a bold label line, then the text as the Markdown it was written in. */
+	historyAssistant: (text: string) => string;
 	fileOffered: (name: string, source: string) => string;
-	turnFailed: (problem: string) => string;
+	runFailed: (problem: string) => string;
 	/** A finished scheduled run's one status line (doc/design/scheduling.md "Reports"). */
 	reportStatus: (name: string, outcome: Exclude<ScheduleRunStatus, "pending" | "running">, time: string) => string;
 	/** The recorded reason a scheduled run failed, when one exists. */
@@ -395,24 +423,24 @@ const en: BotMessages = {
 	unsupported: "Only text, files and photos are supported.",
 	filesNotSent: "The attached files were not sent.",
 	linkHelp:
-		"To use ClusterRightHand from this chat, open Settings in the WebUI, create a link code and send /link \\<code> here.",
+		"To use ClusterRightHand from this chat, open Settings in the WebUI, create a link code and send /link &lt;code> here.",
 	noSessions: "You have no sessions yet. Send /new to start one.",
 	unknownCommand: (name) =>
 		`Unknown command /${escapeMarkdown(name)}. Send /help for the list of commands. To send a message that starts with "/", begin it with another character.`,
-	couldNotSaveFile: (problem) => `Could not save the file: ${escapeMarkdown(problem)}`,
+	couldNotSaveFile: (problem) => `Could not save the file:\n${codeBlock(problem)}`,
 	fileTooLarge: (limit) => `The file is larger than your library's limit of ${limit}.`,
-	couldNotSendMessage: (problem) => `Could not send the message: ${escapeMarkdown(problem)}`,
+	couldNotSendMessage: (problem) => `Could not send the message:\n${codeBlock(problem)}`,
 	noDefaultModel: "No model is configured; ask an administrator to add one.",
-	couldNotStartSession: (problem) => `Could not start a session: ${escapeMarkdown(problem)}`,
+	couldNotStartSession: (problem) => `Could not start a session:\n${codeBlock(problem)}`,
 	previousArchived: "The previous session is archived.",
 	previousUnavailable: "The previous session is no longer available.",
 	newSessionStarted: (link) => `Started a new session.${link ? ` ${link}` : ""}`,
-	linkMissingCode: "Send /link \\<code> with the code from your settings page.",
+	linkMissingCode: "Send /link &lt;code> with the code from your settings page.",
 	linkInvalidCode: "The link code is invalid, expired or already used.",
 	accountNotActive: "That account is not active.",
 	linked: "Linked. You can use this chat now. /help lists the commands.",
 	alreadyLinked: "This chat is already linked.",
-	unlinked: "Unlinked. Send /link \\<code> to link this chat again.",
+	unlinked: "Unlinked. Send /link &lt;code> to link this chat again.",
 	sessionsTitle: (page, pages) => `Switch this chat to a session (page ${page} of ${pages}):`,
 	sessionsTitleSingle: "Switch this chat to a session:",
 	previousPage: "‹ Previous",
@@ -432,17 +460,17 @@ const en: BotMessages = {
 	openSessionLink: (link) => `Open it in the WebUI: ${link}`,
 	noRunningSession: "There is no running session in this chat.",
 	stopped: "Stopped.",
-	couldNotStop: (problem) => `Could not stop: ${escapeMarkdown(problem)}`,
+	couldNotStop: (problem) => `Could not stop:\n${codeBlock(problem)}`,
 	noSessionInChat: "There is no session in this chat.",
 	noSessionYet: "There is no session in this chat yet. Send a message to start one, or /new.",
-	quotaAddUsage: "Use /quota add \\<tokens> with a positive whole number of tokens.",
+	quotaAddUsage: "Use /quota add &lt;tokens> with a positive whole number of tokens.",
 	quotaAdded: (tokens) => `Added ${tokens} tokens to the session's quota.`,
 	quotaEnded: "Ended the turn.",
 	noQuota: "This session has no token quota.",
 	quotaUsedUp: (over, used) =>
-		`Used up, over by ${tokenCount(over, "en")} tokens (${tokenCount(used, "en")} used).\n\n/quota add \\<tokens> raises it and continues\n\n/quota stop ends the turn.`,
+		`Used up, over by ${tokenCount(over, "en")} tokens (${tokenCount(used, "en")} used).\n\n/quota add &lt;tokens> raises it and continues\n\n/quota stop ends the turn.`,
 	quotaRemaining: (used, remaining) => `Used ${tokenCount(used, "en")} · ${tokenCount(remaining, "en")} left.`,
-	decideUsage: (name, withReason) => `Use /${name} \\<id>${withReason ? " [reason]" : ""}.`,
+	decideUsage: (name, withReason) => `Use /${name} &lt;id>${withReason ? " [reason]" : ""}.`,
 	noWaitingApproval: "No waiting approval with that id is yours to decide.",
 	approvalNoLongerWaiting: "That approval is no longer waiting, or you may not decide it.",
 	card: EN_CARD,
@@ -453,18 +481,18 @@ const en: BotMessages = {
 	rejectedResult: (by, reason) => EN_CARD.rejectedResult(by, reason),
 	expiredResult: EN_CARD.expired,
 	sessionNotYours: "That session is not yours to attach.",
-	couldNotReadHistory: (problem) => `Could not read the session's history: ${escapeMarkdown(problem)}`,
-	historyUser: "You",
-	historyAssistant: "Assistant",
+	couldNotReadHistory: (problem) => `Could not read the session's history:\n${codeBlock(problem)}`,
+	historyUser: (text) => `**You**\n\n${escapeMarkdownLines(text)}`,
+	historyAssistant: (text) => `**Assistant**\n\n${text}`,
 	fileOffered: (name, source) => `File offered: ${escapeMarkdown(name)}\n\n${source}`,
-	turnFailed: (problem) => `The turn failed: ${escapeMarkdown(problem)}`,
+	runFailed: (problem) => `The run failed:\n${codeBlock(problem)}`,
 	reportStatus: (name, outcome, time) =>
 		outcome === "succeeded"
 			? `Schedule "${escapeMarkdown(name)}" succeeded at ${time}.`
 			: outcome === "failed"
 				? `Schedule "${escapeMarkdown(name)}" failed at ${time}.`
 				: `Schedule "${escapeMarkdown(name)}" was stopped by the next run at ${time}.`,
-	reportError: (problem) => `Error: ${escapeMarkdown(problem)}`,
+	reportError: (problem) => `Error:\n${codeBlock(problem)}`,
 	sessionBody: (title, text) => `Session "${escapeMarkdown(title)}":\n\n${text}`,
 	statusUntrackedSession: (status, title) => `${status}\n\nThis is the session "${escapeMarkdown(title)}".`,
 	working: "Working…",
@@ -494,11 +522,11 @@ const en: BotMessages = {
 	modelSet: (model) => `Model set to ${escapeMarkdown(model)}.`,
 	thinkingSet: (level) => `Thinking level set to ${escapeMarkdown(level)}.`,
 	rulesSet: (rulePreset) => `Rule preset set to ${escapeMarkdown(rulePreset)}.`,
-	couldNotChange: (problem) => `Could not change it: ${escapeMarkdown(problem)}`,
+	couldNotChange: (problem) => `Could not change it:\n${codeBlock(problem)}`,
 	help: [
 		"ClusterRightHand commands:",
 		"",
-		"- /link \\<code> — link this chat to your account",
+		"- /link &lt;code> — link this chat to your account",
 		"- /unlink — unlink this chat",
 		"- /new — start a new session",
 		"- /model \\[n\\] — choose the session's model by number",
@@ -508,7 +536,7 @@ const en: BotMessages = {
 		"- /sessions \\[n\\] — switch to a session by number",
 		"- /stop — stop the running turn",
 		"- /quota — show the session's token quota",
-		"- /quota add \\<tokens> — raise it and continue",
+		"- /quota add &lt;tokens> — raise it and continue",
 		"- /quota stop — end the turn waiting for tokens",
 		"- /approve \\[id\\] — approve a waiting request (the only one waiting here when the id is left out)",
 		"- /reject \\[id\\] \\[reason\\] — reject it (without an id, every word is the reason)",
@@ -535,24 +563,24 @@ const en: BotMessages = {
 const zhCN: BotMessages = {
 	unsupported: "仅支持文本、文件和图片。",
 	filesNotSent: "附件未发送。",
-	linkHelp: "要在聊天中使用 ClusterRightHand，请打开 WebUI 的设置，创建关联码，然后在这里发送 /link \\<code>。",
+	linkHelp: "要在聊天中使用 ClusterRightHand，请打开 WebUI 的设置，创建关联码，然后在这里发送 /link &lt;code>。",
 	noSessions: "你还没有会话。发送 /new 开始一个。",
 	unknownCommand: (name) =>
 		`未知命令 /${escapeMarkdown(name)}。发送 /help 查看命令列表。要发送以“/”开头的消息，请在开头再加一个字符。`,
-	couldNotSaveFile: (problem) => `无法保存文件：${escapeMarkdown(problem)}`,
+	couldNotSaveFile: (problem) => `无法保存文件：\n${codeBlock(problem)}`,
 	fileTooLarge: (limit) => `文件超过了你的库的单文件上限（${limit}）。`,
-	couldNotSendMessage: (problem) => `无法发送消息：${escapeMarkdown(problem)}`,
+	couldNotSendMessage: (problem) => `无法发送消息：\n${codeBlock(problem)}`,
 	noDefaultModel: "尚未配置模型；请联系管理员添加。",
-	couldNotStartSession: (problem) => `无法开始会话：${escapeMarkdown(problem)}`,
+	couldNotStartSession: (problem) => `无法开始会话：\n${codeBlock(problem)}`,
 	previousArchived: "上一个会话已归档。",
 	previousUnavailable: "上一个会话已不可用。",
 	newSessionStarted: (link) => `已开始新会话。${link ? `\n${link}` : ""}`,
-	linkMissingCode: "请发送 /link \\<code>，其中 code 来自你的设置页面。",
+	linkMissingCode: "请发送 /link &lt;code>，其中 code 来自你的设置页面。",
 	linkInvalidCode: "关联码无效、已过期或已被使用。",
 	accountNotActive: "该账户未启用。",
 	linked: "已关联。现在可以使用此聊天了。/help 列出命令。",
 	alreadyLinked: "此聊天已关联。",
-	unlinked: "已取消关联。发送 /link \\<code> 可重新关联此聊天。",
+	unlinked: "已取消关联。发送 /link &lt;code> 可重新关联此聊天。",
 	sessionsTitle: (page, pages) => `将此聊天切换到某个会话（第 ${page} 页，共 ${pages} 页）：`,
 	sessionsTitleSingle: "将此聊天切换到某个会话：",
 	previousPage: "‹ 上一页",
@@ -572,17 +600,17 @@ const zhCN: BotMessages = {
 	openSessionLink: (link) => `在 WebUI 中打开：${link}`,
 	noRunningSession: "此聊天中没有正在运行的会话。",
 	stopped: "已停止。",
-	couldNotStop: (problem) => `无法停止：${escapeMarkdown(problem)}`,
+	couldNotStop: (problem) => `无法停止：\n${codeBlock(problem)}`,
 	noSessionInChat: "此聊天中没有会话。",
 	noSessionYet: "此聊天中还没有会话。发送一条消息即可开始，或发送 /new。",
-	quotaAddUsage: "请使用 /quota add \\<tokens>，tokens 为正整数。",
+	quotaAddUsage: "请使用 /quota add &lt;tokens>，tokens 为正整数。",
 	quotaAdded: (tokens) => `已向该会话的配额增加 ${tokens} 个令牌。`,
 	quotaEnded: "已结束本回合。",
 	noQuota: "此会话没有令牌配额。",
 	quotaUsedUp: (over, used) =>
-		`已用完，超出 ${tokenCount(over, "zh-CN")} 个令牌（已用 ${tokenCount(used, "zh-CN")}）。\n\n/quota add \\<tokens> 可提高配额并继续\n\n/quota stop 结束本回合。`,
+		`已用完，超出 ${tokenCount(over, "zh-CN")} 个令牌（已用 ${tokenCount(used, "zh-CN")}）。\n\n/quota add &lt;tokens> 可提高配额并继续\n\n/quota stop 结束本回合。`,
 	quotaRemaining: (used, remaining) => `已用 ${tokenCount(used, "zh-CN")} · 剩余 ${tokenCount(remaining, "zh-CN")}。`,
-	decideUsage: (name, withReason) => `请使用 /${name} \\<id>${withReason ? " [原因]" : ""}。`,
+	decideUsage: (name, withReason) => `请使用 /${name} &lt;id>${withReason ? " [原因]" : ""}。`,
 	noWaitingApproval: "没有属于你、等待审批且 id 相符的请求。",
 	approvalNoLongerWaiting: "该审批已不再等待，或你无权决定。",
 	card: ZH_CARD,
@@ -593,18 +621,18 @@ const zhCN: BotMessages = {
 	rejectedResult: (by, reason) => ZH_CARD.rejectedResult(by, reason),
 	expiredResult: ZH_CARD.expired,
 	sessionNotYours: "该会话不属于你，无法附加。",
-	couldNotReadHistory: (problem) => `无法读取会话历史：${escapeMarkdown(problem)}`,
-	historyUser: "你",
-	historyAssistant: "助手",
+	couldNotReadHistory: (problem) => `无法读取会话历史：\n${codeBlock(problem)}`,
+	historyUser: (text) => `**你**\n\n${escapeMarkdownLines(text)}`,
+	historyAssistant: (text) => `**助手**\n\n${text}`,
 	fileOffered: (name, source) => `文件已提供：${escapeMarkdown(name)}\n\n${source}`,
-	turnFailed: (problem) => `本回合失败：${escapeMarkdown(problem)}`,
+	runFailed: (problem) => `运行失败：\n${codeBlock(problem)}`,
 	reportStatus: (name, outcome, time) =>
 		outcome === "succeeded"
 			? `计划任务“${escapeMarkdown(name)}”已于 ${time} 成功完成。`
 			: outcome === "failed"
 				? `计划任务“${escapeMarkdown(name)}”已于 ${time} 运行失败。`
 				: `计划任务“${escapeMarkdown(name)}”被下一次运行停止（${time}）。`,
-	reportError: (problem) => `错误：${escapeMarkdown(problem)}`,
+	reportError: (problem) => `错误：\n${codeBlock(problem)}`,
 	sessionBody: (title, text) => `会话“${escapeMarkdown(title)}”：\n\n${text}`,
 	statusUntrackedSession: (status, title) => `${status}\n\n这是会话“${escapeMarkdown(title)}”。`,
 	working: "处理中…",
@@ -634,11 +662,11 @@ const zhCN: BotMessages = {
 	modelSet: (model) => `模型已设为 ${escapeMarkdown(model)}。`,
 	thinkingSet: (level) => `思考级别已设为 ${escapeMarkdown(level)}。`,
 	rulesSet: (rulePreset) => `规则预设已设为 ${escapeMarkdown(rulePreset)}。`,
-	couldNotChange: (problem) => `无法更改：${escapeMarkdown(problem)}`,
+	couldNotChange: (problem) => `无法更改：\n${codeBlock(problem)}`,
 	help: [
 		"ClusterRightHand 命令：",
 		"",
-		"- /link \\<code> — 将此聊天与你的账户关联",
+		"- /link &lt;code> — 将此聊天与你的账户关联",
 		"- /unlink — 取消关联此聊天",
 		"- /new — 开始新会话",
 		"- /model \\[n\\] — 按序号选择会话的模型",
@@ -648,7 +676,7 @@ const zhCN: BotMessages = {
 		"- /sessions \\[n\\] — 按序号切换到某个会话",
 		"- /stop — 停止正在运行的回合",
 		"- /quota — 查看会话的令牌配额",
-		"- /quota add \\<tokens> — 提高配额并继续",
+		"- /quota add &lt;tokens> — 提高配额并继续",
 		"- /quota stop — 结束等待令牌的回合",
 		"- /approve \\[id\\] — 批准等待中的请求（省略 id 时，批准此聊天中唯一等待的请求）",
 		"- /reject \\[id\\] \\[原因\\] — 拒绝该请求（省略 id 时，后面的文字都作为原因）",

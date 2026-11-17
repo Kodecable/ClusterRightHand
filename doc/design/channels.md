@@ -113,7 +113,11 @@ A conversation is one thread of a private chat, mapped to one session (`channel_
 - **History on switching.** A bot cannot read a chat's history, and the chat shows only what the bot
   sent there. When a thread switches to or attaches a session, the last 10 messages of that session are
   sent first: the user's messages and each turn's final answer, without intermediate text, tool calls,
-  thinking or attachments. A long message is cut to about 500 characters, with a WebUI link for the rest.
+  thinking or attachments. Each is sent in full with the adapter's normal length limit and splitting
+  (about 32,000 characters on Telegram, 4,000 on Satori), never cut or replaced by a link. A message is
+  one bold label line and then the text: the assistant's text is its Markdown as written, so headings,
+  lists, tables and code render; a user's text is escaped so it shows literally, line by line with its
+  line breaks kept. Satori gets its usual plain-text conversion.
 
 ## Messages
 
@@ -139,11 +143,17 @@ what is supported.
 of commands are Markdown lists and separate lines are separated by a blank line. Values a user, an
 administrator or a model supplies, such as a session title, a model name, an extension name or a
 username, are escaped so they show literally; assistant text is not escaped. Telegram's rich Markdown
-also parses `$formula$`, `==mark==`, `||spoiler||`, `^`, footnotes, lists, tables and horizontal rules,
-so `escapeMarkdown` escapes every ASCII punctuation character (CommonMark allows a backslash before
-any). Inline code wraps commands, paths and extension/tool names in a fence longer than the longest
-backtick run inside it, padding a value that starts or ends with a backtick. Satori turns an inline
-code span into its plain content and removes a backslash before any ASCII punctuation. Cards are the
+also parses `$formula$`, `==mark==`, `||spoiler||`, `^`, footnotes, lists, tables, horizontal rules and
+raw HTML. Measured against `sendRichMessage` on 2026-11-17, a backslash escapes exactly
+`` ! # $ ( ) * + - . = > [ \ ] _ ` { | } ~ ``; before `" % & ' , / : ; < ? @ ^` it is shown literally,
+so `escapeMarkdown` leaves those characters as written; `&` and `<` become `&amp;` and `&lt;`, since
+they would otherwise be parsed as an entity or HTML. A value with `&` or `<` therefore shows literally
+without a backslash, while `@name` and `/command` stay a mention and a command as in a plain message.
+Inline code wraps commands, paths and extension/tool names in a fence longer than the longest backtick
+run inside it, padding a value that starts or ends with a backtick; entities are not decoded inside a
+code span, so `<` and `&` are literal there. Satori (and Telegram's plain fallback) turn an inline code
+span into its plain content, remove a backslash only before the characters the rich parser consumes it
+before, and decode `&amp;`/`&lt;`; a backslash before any other character stays as written. Cards are the
 exception: they are rendered natively for their surface, Markdown for Telegram and plain text for
 Satori, and are never converted from one to the other.
 
@@ -182,7 +192,11 @@ Satori, and are never converted from one to the other.
 - **Delivered files** (`copy_file` to `user_interface`) are sent as WebUI download links, never as
   attachments. Opening one goes through the normal sign-in and access checks
   ([Deliveries](library.md#deliveries)).
-- **A failed turn** sends the error.
+- **A failed turn** sends a "The run failed" line and then the error as its own language-less code
+  block, with a fence longer than any backtick run inside the error. The other messages that embed a raw
+  problem (`couldNotSaveFile`, `couldNotSendMessage`, `couldNotStartSession`, `couldNotStop`,
+  `couldNotReadHistory`, `couldNotChange` and a scheduled run's `reportError`) use the same form; the
+  plain-text surfaces show the error text without the fence markers.
 
 ## Notifications
 

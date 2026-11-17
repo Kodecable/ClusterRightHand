@@ -2518,6 +2518,11 @@ export class ChannelManager {
 		}
 	}
 
+	/**
+	 * Sends each history message in full, through the adapter's normal length limit and splitting: the assistant's
+	 * text is its Markdown as written, a user's text is escaped so it shows literally (doc/design/channels.md
+	 * "Conversations").
+	 */
 	async #replayHistory(
 		adapter: ChannelAdapter,
 		target: ChannelTarget,
@@ -2531,12 +2536,8 @@ export class ChannelManager {
 			await adapter.sendText(target, m.couldNotReadHistory(errorText(err)));
 			return;
 		}
-		const link = this.#sessionLink(sessionId);
 		for (const message of messages) {
-			const label = message.role === "user" ? m.historyUser : m.historyAssistant;
-			const text = clip(message.text);
-			const cut = text.length < message.text.replace(/\s+/g, " ").trim().length;
-			const body = `${label}: ${text}${cut && link ? `\n\n${link}` : ""}`;
+			const body = message.role === "user" ? m.historyUser(message.text) : m.historyAssistant(message.text);
 			try {
 				await adapter.sendText(target, body, { disablePreview: true });
 			} catch (err) {
@@ -2662,7 +2663,7 @@ export class ChannelManager {
 			)
 			.join("");
 		if (message.errorMessage) {
-			await this.#sendFinal(sessionId, (m) => m.turnFailed(message.errorMessage ?? ""));
+			await this.#sendFinal(sessionId, (m) => m.runFailed(message.errorMessage ?? ""));
 			return;
 		}
 		if (text.trim() === "") return;

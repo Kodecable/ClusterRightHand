@@ -49,7 +49,7 @@ describe("chat cards", () => {
 		expect(telegram(card)).toBe(
 			`${[
 				"**Approval needed** · privileged",
-				"Nodes\\: app\\-1\\, db\\-1",
+				"Nodes: app\\-1, db\\-1",
 				"🟡 Medium risk · deletion exceeds the instruction",
 				"`rm -rf /var/log/old/*.gz`",
 			].join(TELEGRAM_LINE_BREAK)}\n\nReject with a reason: /reject task-1 reason`,
@@ -86,7 +86,7 @@ describe("chat cards", () => {
 		});
 		expect(withSource.meta).toBe("Nodes: app-1, db-1 · Source: Session cleanup");
 		expect(plain(withSource)).toContain("Nodes: app-1, db-1 · Source: Session cleanup");
-		expect(telegram(withSource)).toContain("Nodes\\: app\\-1\\, db\\-1 · Source\\: Session cleanup");
+		expect(telegram(withSource)).toContain("Nodes: app\\-1, db\\-1 · Source: Session cleanup");
 
 		const token = messagesFor("en").approvalCard(
 			request({
@@ -197,7 +197,7 @@ describe("chat cards", () => {
 		const text = telegram(card);
 		expect(text).toBe(
 			["**Token quota used up**", "Clean up", "`Used up, over by 0`"].join(TELEGRAM_LINE_BREAK) +
-				`\n\nContinue: /quota add \\<tokens\\>\\\nEnd this turn: /quota stop`,
+				`\n\nContinue: /quota add &lt;tokens\\>\\\nEnd this turn: /quota stop`,
 		);
 		expect(text.split("Clean up")).toHaveLength(2);
 		expect(text).not.toContain('Session "Clean up"');
@@ -246,7 +246,7 @@ describe("chat cards", () => {
 
 	it("renders a standalone result line for each surface", () => {
 		expect(renderCardLine("✅ Approved · by alice", "markdown")).toBe("✅ Approved · by alice");
-		expect(renderCardLine("❌ Rejected · by a.b: not needed", "markdown")).toBe("❌ Rejected · by a\\.b\\: not needed");
+		expect(renderCardLine("❌ Rejected · by a.b: not needed", "markdown")).toBe("❌ Rejected · by a\\.b: not needed");
 		expect(renderCardLine("❌ Rejected · by a.b: not needed", "plain")).toBe("❌ Rejected · by a.b: not needed");
 		expect(renderCardLine("Expired", "plain")).toBe("Expired");
 	});

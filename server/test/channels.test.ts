@@ -8,6 +8,7 @@ import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { ChannelManager } from "../src/channels/manager.ts";
+import { markdownEscapesToText } from "../src/channels/plain-text.ts";
 import { TelegramChannel } from "../src/channels/telegram.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
@@ -166,9 +167,12 @@ afterAll(async () => {
 	await rm(root, { recursive: true, force: true });
 });
 
-/** A framework text with its Markdown escapes removed, as the chat client renders it. */
+/** A framework text with its Markdown escapes and entities removed, as the chat client renders it. */
 const plainText = (call: FakeCall): string =>
-	sentText(call).replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "$1");
+	sentText(call)
+		.replace(/\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/g, "$1")
+		.replace(/&lt;/g, "<")
+		.replace(/&amp;/g, "&");
 
 const linkAs = async (cookie: string, userId: number, expected: string): Promise<void> => {
 	const existing = await db
@@ -527,8 +531,8 @@ describe("channels", () => {
 		const oldButton = buttons.flat().find((button) => button.callback_data === `switch:${topicThread?.session_id}`);
 		expect(oldButton).toBeDefined();
 		fake.callback(userId, `switch:${topicThread?.session_id}`, { topicId: 11 });
-		await fake.waitForSent((call) => plainText(call).includes("You: hello"));
-		await fake.waitForSent((call) => plainText(call).includes("Assistant: the answer"));
+		await fake.waitForSent((call) => plainText(call).includes("**You**\n\nhello"));
+		await fake.waitForSent((call) => plainText(call).includes("**Assistant**\n\nthe answer"));
 		const reattached = await db
 			.selectFrom("channel_threads")
 			.selectAll()
@@ -536,6 +540,56 @@ describe("channels", () => {
 			.where("topic_id", "=", "11")
 			.executeTakeFirst();
 		expect(reattached?.session_id).toBe(topicThread?.session_id);
+	});
+
+	it("replays history in full: the assistant's Markdown and a user's text literally", async () => {
+		const userId = 7620;
+		await link(userId);
+		const prompt = "show *markdown* [here](https://example.test) & <b>tags</b>\nsecond **line**";
+		const heading = "# Results";
+		const list = "- first\n- second";
+		const code = "```ts\nconst answer = 42;\n```";
+		const body = Array.from({ length: 600 }, (_, index) => `Paragraph ${index}: ${"x".repeat(50)}`).join("\n\n");
+		const long = `${heading}\n\n${list}\n\n${code}\n\n${body}\n\nEND-OF-HISTORY`;
+		faux.setResponses([fauxAssistantMessage(long)]);
+		fake.text(userId, prompt);
+		await fake.waitForSent((call) => plainText(call).includes("Paragraph 0:"));
+		await fake.waitForSent((call) => plainText(call).includes("END-OF-HISTORY"));
+		await runtime.waitForIdle();
+		const first = await threadFor(userId);
+		if (!first) throw new Error("no thread");
+		await newSession(userId);
+		fake.calls.length = 0;
+		fake.text(userId, "/sessions");
+		const listMessage = await fake.waitForSent((call) => plainText(call).includes("Switch this chat to a session"));
+		const button = buttonsOf(listMessage).find((candidate) => candidate.callback_data === `switch:${first.session_id}`);
+		if (!button) throw new Error("no switch button");
+		fake.callback(userId, button.callback_data, {});
+		await fake.waitForSent((call) => plainText(call).includes("END-OF-HISTORY"));
+		const replay = fake.sentCalls();
+		const userIndex = replay.findIndex((call) => sentText(call).startsWith("**You**"));
+		expect(userIndex).toBeGreaterThanOrEqual(0);
+		const user = replay[userIndex];
+		if (!user) throw new Error("no replayed user message");
+		// A user's Markdown is escaped, so it cannot format anything; its lines stay lines.
+		expect(sentText(user)).toContain("\\*markdown\\*");
+		expect(sentText(user)).toContain("\\[here\\]");
+		expect(sentText(user)).toContain("&amp;");
+		expect(sentText(user)).toContain("&lt;b\\>tags&lt;/b\\>");
+		expect(sentText(user)).not.toContain("*markdown*");
+		expect(sentText(user)).not.toContain("<b>");
+		expect(sentText(user)).toContain("\\*\\*line\\*\\*");
+		expect(markdownEscapesToText(sentText(user))).toBe(`**You**\n\n${prompt.replace("\n", "\n\n")}`);
+		// The assistant's message is its Markdown as written, split only by the adapter's length limit.
+		const assistant = replay.slice(userIndex + 1).map((call) => sentText(call));
+		expect(assistant.length).toBeGreaterThanOrEqual(2);
+		expect(assistant[0]?.startsWith("**Assistant**")).toBe(true);
+		for (const chunk of assistant) expect(chunk.length).toBeLessThanOrEqual(32_768);
+		const replayed = assistant.join("\n");
+		expect(replayed).toContain(`${heading}\n\n${list}\n\n${code}`);
+		expect(replayed).toContain("END-OF-HISTORY");
+		expect(replayed).not.toContain("…");
+		expect(replayed).not.toContain("https://crh.example/sessions/");
 	});
 
 	it("pages /sessions five at a time and edits the list message on a page press", async () => {
@@ -961,7 +1015,7 @@ describe("channels", () => {
 		const old = buttons.flat().find((button) => button.callback_data === `switch:${first.session_id}`);
 		expect(old).toBeDefined();
 		fake.callback(userId, old?.callback_data ?? "", {});
-		await fake.waitForSent((call) => plainText(call).includes("You: the first message"));
+		await fake.waitForSent((call) => plainText(call).includes("**You**\n\nthe first message"));
 		expect(await lastUsed(first.session_id)).toBe(first.id);
 	});
 
@@ -2365,7 +2419,7 @@ describe("channels", () => {
 			]);
 			await runtime.submitAsSchedule(thread.sessionId, "schedule-source", "a failing prompt", "hidden-run-2");
 			await settle();
-			expect(fake.sentCalls().some((call) => plainText(call).includes("The turn failed"))).toBe(false);
+			expect(fake.sentCalls().some((call) => plainText(call).includes("The run failed"))).toBe(false);
 
 			// Requests that need the user still go to the default account, as before.
 			const approvalId = await insertExternalCall(thread.sessionId, "hidden-approval");
