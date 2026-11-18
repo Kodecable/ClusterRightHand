@@ -288,7 +288,9 @@ the external-call wait listener, and a periodic fallback sweep) as session messa
 
 A button or command decides as the linked user through the same checks as the WebUI: only someone who
 may decide that approval can. "Always allow" is not offered, because it changes rules; that stays in the
-WebUI (the request still carries the candidates). The decision is audited with the channel. After any
+WebUI (the request still carries the candidates). The decision is audited with the channel; a quota
+decision uses the WebUI route's `quota.granted` / `quota.denied` shape, and `/quota stop` on a scheduled
+run ends the run failed. After any
 decision, cancellation or rule re-evaluation, crhs first deletes the tracked message. When the platform
 refuses deletion, it edits the card replacing only its hints with the result line: `✅ Approved · by
 <user>`, `❌ Rejected · by <user>: <reason>`, or `Expired` for a wait that ended otherwise (task gone,

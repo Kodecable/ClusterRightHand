@@ -113,6 +113,8 @@ export interface ToolContext {
 	extensions?: SessionExtension[];
 	/** The session tree's root, for grouping external-call approvals. */
 	rootSessionId?: string;
+	/** The session's organization, for tools that write rules (`subagent`). */
+	orgId?: string;
 	/** The WebUI page where the owner decides a waiting external call. */
 	externalCallUrl?: (id: string) => string;
 	/** Auto Review for one waiting external call; settles it before the waiter looks again. */

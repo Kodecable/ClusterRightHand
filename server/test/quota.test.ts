@@ -518,7 +518,11 @@ it("a root's used-up quota waits for its owner: listed, then granted with an aud
 		target_type: "session",
 		target_id: session.id,
 	});
-	expect(JSON.parse(audits[0]?.detail ?? "{}")).toMatchObject({ level: session.id, tokens: 100_000 });
+	expect(JSON.parse(audits[0]?.detail ?? "{}")).toMatchObject({
+		level: session.id,
+		sessions: [session.id],
+		tokens: 100_000,
+	});
 });
 
 it("the owner's deny ends the paused root run and audits quota.denied", async () => {
@@ -561,7 +565,11 @@ it("the owner's deny ends the paused root run and audits quota.denied", async ()
 		.execute();
 	expect(audits).toHaveLength(1);
 	expect(audits[0]).toMatchObject({ actor_type: "user", actor_id: owner.userId, target_id: session.id });
-	expect(JSON.parse(audits[0]?.detail ?? "{}")).toMatchObject({ level: session.id, reason: "stop spending" });
+	expect(JSON.parse(audits[0]?.detail ?? "{}")).toMatchObject({
+		level: session.id,
+		sessions: [session.id],
+		reason: "stop spending",
+	});
 });
 
 it("a subagent paused on its root's quota is the owner's request, not its parent's", async () => {

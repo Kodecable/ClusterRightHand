@@ -691,3 +691,27 @@ it("stopping a session stops its subagents", async () => {
 	const result = await runtime.waitSubagent(child.id);
 	expect(result.status).toBe("unanswered");
 });
+
+it("does not create a subagent when the quota is used up and the call is denied", async () => {
+	const parent = await runtime.createSession(owner, {
+		model: model(),
+		rulePreset: "yolo",
+		title: "quota subagent",
+		budgetRemaining: 1,
+	});
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("subagent", { task: "should not start" }, { id: "quota-subagent" })], {
+			stopReason: "toolUse",
+		}),
+	]);
+	const submission = await runtime.submit(parent.id, owner, "delegate", "quota-subagent");
+	await waitFor("the parent's quota wait", async () =>
+		(await sessionStateOf(db, parent.id)) === "awaiting" ? true : undefined,
+	);
+	expect(await runtime.decideRootQuota(parent.id, "deny")).toContain(parent.id);
+	const settled = await waitSubmission(runtime, parent.id, submission);
+	expect(settled.status).toBe("done");
+	// The guard paused before createSubagent, so no child session exists.
+	expect(await db.selectFrom("sessions").select("id").where("parent_session_id", "=", parent.id).execute()).toEqual([]);
+	expect(faux.getPendingResponseCount()).toBe(0);
+});

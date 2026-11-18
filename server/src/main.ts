@@ -274,6 +274,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// Recovery (leftover pending runs, then runs that ended while the process was down) happens before the loop;
 	// a finished run reports to its schedule's chat account through the manager (doc/design/scheduling.md "Reports").
 	const scheduler = new Scheduler({ db, runtime, audit, reporter: channels });
+	channels.setScheduler(scheduler);
 	await channels.start();
 	const drain = new RequestDrain();
 	const app = createApp(db, {

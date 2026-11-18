@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { SessionExtension as SessionExtensionView } from "@crh/api";
+import type { Context } from "@earendil-works/chord/context";
 import type { Message as PiMessage } from "@earendil-works/pi-ai";
 import {
 	AgentDoc,
@@ -11,6 +12,8 @@ import {
 	GenerationTask,
 	hook,
 	section,
+	type ToolExecutionApi,
+	type ToolExecutionResult,
 	type ToolRegistration,
 	ToolTask,
 } from "@earendil-works/pi-durable";
@@ -108,13 +111,27 @@ export function subagentRequestsBlock(
 
 // ---- the cluster tools as durable tools ----
 
-/** Session-side context of a tool call: whose session it is and which rule chain applies. */
+/** Tool fields only some tools need; everything else is the session's own context. */
+interface ToolContextExtras {
+	/** The conversation's rejected images, which only `view_image` reads. */
+	imageRejected?: (sha256: string) => Promise<boolean>;
+	/** Report this turn's `copy_file` count, which only the built-in file tools read. */
+	deliveries?: boolean;
+}
+
+/**
+ * Session-side context of a tool call: whose session it is, which rule chain applies, and the per-invocation
+ * fields (call key, abort signal, progress). Every tool registration builds its context here.
+ */
 async function toolContextFor(
 	options: AgentRuntimeOptions,
-	conversationId: string,
-	imageRejected?: (sha256: string) => Promise<boolean>,
-): Promise<Omit<ToolContext, "callKey" | "signal" | "onStatus">> {
+	api: ToolExecutionApi,
+	context: Context,
+	runtimeRef: { current?: AgentRuntime },
+	extras: ToolContextExtras = {},
+): Promise<ToolContext & { orgId: string }> {
 	const { db } = options;
+	const conversationId = String(api.conversationId);
 	const session = await db
 		.selectFrom("sessions")
 		.selectAll()
@@ -154,16 +171,43 @@ async function toolContextFor(
 		waitThroughApproval: true,
 		imageLimits: imageLimitsOf(options, session.model),
 		...(options.imageCache ? { imageCache: options.imageCache } : {}),
-		...(imageRejected ? { imageRejected } : {}),
+		...(extras.imageRejected ? { imageRejected: extras.imageRejected } : {}),
 		...(options.audit ? { audit: options.audit } : {}),
 		extensions: await sessionExtensionsForUser(options.db, owner.id, disabled, options.mcp),
 		rootSessionId: session.root_session_id,
+		orgId: session.org_id,
 		...(options.mcp ? { externalCallUrl: (id: string) => `/approvals/external-calls/${id}` } : {}),
 		...(options.reviewExternalCall ? { reviewExternalCall: options.reviewExternalCall } : {}),
 		...(options.willReview ? { willReview: options.willReview } : {}),
 		...(options.approvalChanged ? { onApprovalChange: options.approvalChanged } : {}),
 		...(options.routeExternalCall ? { routeExternalCall: options.routeExternalCall } : {}),
+		callKey: String(api.taskId),
+		callId: api.callId,
+		closing: () => runtimeRef.current?.closing === true,
+		...(extras.deliveries ? { deliveryCount: () => deliveryCountFor(runtimeRef.current, conversationId) } : {}),
+		...(context.abortSignal ? { signal: context.abortSignal } : {}),
+		onStatus: (status) => api.details(status as never, context),
 	};
+}
+
+/** The result that ends a run whose token quota was denied; every tool returns this one. */
+const QUOTA_DENIED_TEXT = "The token quota is used up and no more was granted; nothing was run and the run ends here.";
+
+/**
+ * Quota at or below zero pauses the tool call and asks an ancestor's agent, or the owner, for more
+ * (doc/design/agent-runtime.md "Quota and token accounting"). A denial returns the terminating result; no
+ * quota left means the call runs.
+ */
+async function quotaDenied(
+	options: AgentRuntimeOptions,
+	runtimeRef: { current?: AgentRuntime },
+	sessionId: string,
+	context: Context,
+): Promise<ToolExecutionResult | undefined> {
+	if (!(await exhaustedLevel(options.db, sessionId))) return undefined;
+	const outcome = runtimeRef.current ? await runtimeRef.current.waitForQuota(sessionId, context) : "denied";
+	if (outcome !== "denied") return undefined;
+	return { output: [{ type: "text", text: QUOTA_DENIED_TEXT }], control: { terminate: true } };
 }
 
 /** The extensions a session may use, with its own on/off choice and the last connection state. */
@@ -206,16 +250,9 @@ export function directToolsExtension(
 				replay: "safe",
 				outputLimits: { maxBytes: 256 * 1024, maxLines: 10_000 },
 				execute: async (args, api, context) => {
-					const conversationId = String(api.conversationId);
-					const base = await toolContextFor(options, conversationId);
-					const ctx: ToolContext = {
-						...base,
-						callKey: String(api.taskId),
-						callId: api.callId,
-						closing: () => runtimeRef.current?.closing === true,
-						...(context.abortSignal ? { signal: context.abortSignal } : {}),
-						onStatus: (status) => api.details(status as never, context),
-					};
+					const ctx = await toolContextFor(options, api, context, runtimeRef);
+					const denied = await quotaDenied(options, runtimeRef, ctx.actor.id, context);
+					if (denied) return denied;
 					const result = await runExtensionTool(ctx, extension, tool.name, (args ?? {}) as Record<string, unknown>);
 					return {
 						output: result.content,
@@ -691,34 +728,12 @@ export function clusterExtension(
 			outputLimits: { maxBytes: 256 * 1024, maxLines: 10_000 },
 			execute: async (args, api, context) => {
 				const conversationId = String(api.conversationId);
-				const base = await toolContextFor(options, conversationId, async (sha256) =>
-					(await rejectedImagesFor(conversationId)).has(sha256),
-				);
-				// Quota at or below zero: pause this call and ask an ancestor's agent, or the owner, for more
-				// (doc/design/agent-runtime.md "Quota and token accounting"). A denial ends the run without another model request.
-				if (await exhaustedLevel(options.db, base.actor.id)) {
-					const outcome = runtimeRef.current ? await runtimeRef.current.waitForQuota(base.actor.id, context) : "denied";
-					if (outcome === "denied") {
-						return {
-							output: [
-								{
-									type: "text",
-									text: "The token quota is used up and no more was granted; nothing was run and the run ends here.",
-								},
-							],
-							control: { terminate: true },
-						};
-					}
-				}
-				const ctx: ToolContext = {
-					...base,
-					callKey: String(api.taskId),
-					callId: api.callId,
-					closing: () => runtimeRef.current?.closing === true,
-					deliveryCount: () => deliveryCountFor(runtimeRef.current, conversationId),
-					...(context.abortSignal ? { signal: context.abortSignal } : {}),
-					onStatus: (status) => api.details(status as never, context),
-				};
+				const ctx = await toolContextFor(options, api, context, runtimeRef, {
+					imageRejected: async (sha256) => (await rejectedImagesFor(conversationId)).has(sha256),
+					deliveries: true,
+				});
+				const denied = await quotaDenied(options, runtimeRef, ctx.actor.id, context);
+				if (denied) return denied;
 				const call = await callTool(tool, args, ctx, {
 					via: "session",
 					...(options.audit ? { audit: options.audit } : {}),
@@ -776,13 +791,14 @@ export function clusterExtension(
 		execute: async (args, api, context) => {
 			const runtime = runtimeRef.current;
 			if (!runtime) throw new Error("the agent runtime is not ready");
-			const parent = await runtime.sessionAt(String(api.conversationId));
-			if (!parent) throw new Error("this conversation is not a ClusterRightHand session");
+			const ctx = await toolContextFor(options, api, context, runtimeRef);
+			const denied = await quotaDenied(options, runtimeRef, ctx.actor.id, context);
+			if (denied) return denied;
 			const rules = args.rules
-				? await parseRuleSetForWrite(options.db, parent.orgId, args.rules, false)
+				? await parseRuleSetForWrite(options.db, ctx.orgId, args.rules, false)
 				: { default: "inherit" as const, rules: [] };
 			const quota = args.quota === undefined ? null : parseQuota(args.quota);
-			const child = await runtime.createSubagent(parent.id, {
+			const child = await runtime.createSubagent(ctx.actor.id, {
 				callKey: String(api.taskId),
 				task: args.task,
 				rules,
@@ -806,7 +822,7 @@ export function clusterExtension(
 			const result = await runtime.waitSubagent(child.id, {
 				attention: true,
 				signal: context.abortSignal,
-				handler: parent.id,
+				handler: ctx.actor.id,
 			});
 			if (result.status === "attention") {
 				return {
@@ -842,13 +858,14 @@ export function clusterExtension(
 		execute: async (args, api, context) => {
 			const runtime = runtimeRef.current;
 			if (!runtime) throw new Error("the agent runtime is not ready");
-			const session = await runtime.sessionAt(String(api.conversationId));
-			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
-			if (!(await runtime.isDescendant(session.id, args.id))) throw new Error("not one of your subagents");
+			const ctx = await toolContextFor(options, api, context, runtimeRef);
+			const denied = await quotaDenied(options, runtimeRef, ctx.actor.id, context);
+			if (denied) return denied;
+			if (!(await runtime.isDescendant(ctx.actor.id, args.id))) throw new Error("not one of your subagents");
 			const result = await runtime.waitSubagent(args.id, {
 				attention: args.attention !== false,
 				signal: context.abortSignal,
-				handler: session.id,
+				handler: ctx.actor.id,
 			});
 			if (result.status === "attention") {
 				return {
@@ -867,14 +884,18 @@ export function clusterExtension(
 		name: "subagent_list",
 		description: "List your subagents and the requests waiting for your decision.",
 		parameters: Type.Object({}),
-		execute: async (_args, api) => {
+		execute: async (_args, api, context) => {
 			const runtime = runtimeRef.current;
 			if (!runtime) throw new Error("the agent runtime is not ready");
-			const session = await runtime.sessionAt(String(api.conversationId));
-			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
+			const ctx = await toolContextFor(options, api, context, runtimeRef);
+			const denied = await quotaDenied(options, runtimeRef, ctx.actor.id, context);
+			if (denied) return denied;
 			return {
 				output: [
-					{ type: "text", text: JSON.stringify({ subagents: await runtime.subagentSessions(session.id) }, null, 2) },
+					{
+						type: "text",
+						text: JSON.stringify({ subagents: await runtime.subagentSessions(ctx.actor.id) }, null, 2),
+					},
 				],
 			};
 		},
@@ -884,12 +905,13 @@ export function clusterExtension(
 		name: "subagent_cancel",
 		description: "Stop one of your subagents and its running work.",
 		parameters: Type.Object({ id: Type.String({ description: "The subagent's session id" }) }),
-		execute: async (args, api) => {
+		execute: async (args, api, context) => {
 			const runtime = runtimeRef.current;
 			if (!runtime) throw new Error("the agent runtime is not ready");
-			const session = await runtime.sessionAt(String(api.conversationId));
-			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
-			if (!(await runtime.isDescendant(session.id, args.id))) throw new Error("not one of your subagents");
+			const ctx = await toolContextFor(options, api, context, runtimeRef);
+			const denied = await quotaDenied(options, runtimeRef, ctx.actor.id, context);
+			if (denied) return denied;
+			if (!(await runtime.isDescendant(ctx.actor.id, args.id))) throw new Error("not one of your subagents");
 			await runtime.abort(args.id);
 			return { output: [{ type: "text", text: `Stopped subagent ${args.id}.` }] };
 		},
@@ -915,13 +937,14 @@ export function clusterExtension(
 				}),
 			),
 		}),
-		execute: async (args, api) => {
+		execute: async (args, api, context) => {
 			const runtime = runtimeRef.current;
 			if (!runtime) throw new Error("the agent runtime is not ready");
-			const session = await runtime.sessionAt(String(api.conversationId));
-			if (!session) throw new Error("this conversation is not a ClusterRightHand session");
+			const ctx = await toolContextFor(options, api, context, runtimeRef);
+			const denied = await quotaDenied(options, runtimeRef, ctx.actor.id, context);
+			if (denied) return denied;
 			const kind = await runtime.decideAgentRequest(
-				session.id,
+				ctx.actor.id,
 				args.request_id,
 				args.decision,
 				args.reason,

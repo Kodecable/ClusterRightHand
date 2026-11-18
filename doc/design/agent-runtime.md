@@ -421,7 +421,10 @@ not depend on the timing of an abort.
 
 A response may take a level below zero, so every call is accounted exactly. The next tool call then
 pauses instead of running, and the direct parent of the exhausted level decides: its agent for a
-subagent, the owner in the WebUI for a root. The decider adds tokens or ends the run.
+subagent, the owner in the WebUI for a root. The decider adds tokens or ends the run. Every tool
+registration checks this before it runs, the directly listed extension tools and the subagent tools
+included. The WebUI route and the chat commands share one decision function, which notes a scheduled
+run's denial, settles the wait, and audits `quota.granted` / `quota.denied`.
 
 ### Token measures
 

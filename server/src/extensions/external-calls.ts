@@ -10,6 +10,7 @@ import type {
 	Review,
 } from "@crh/api";
 import type { Selectable } from "kysely";
+import type { AuditActor, AuditInput } from "../audit/audit.ts";
 import { agentRouting, approvalPhase, isPendingReview, mergeApproval, pendingReview } from "../cluster/approval.ts";
 import { type ChainLevel, evaluate } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
@@ -180,6 +181,39 @@ export function externalCallArguments(row: ExternalCallRow): Record<string, unkn
 
 export function externalCallApproval(row: Pick<ExternalCallRow, "approval">): ApprovalRecord | null {
 	return parseJson<ApprovalRecord>(row.approval);
+}
+
+/** Where a decision made in a chat came from; absent for the WebUI. */
+export interface ExternalCallDecisionVia {
+	channel: string;
+	platform: string;
+	threadId?: string;
+}
+
+/**
+ * The `external_call.approval` record of a user's decision, the same for the WebUI and a chat
+ * (doc/design/extensions.md). `row` is the call as it waited, read before the decision.
+ */
+export function externalCallApprovalAudit(
+	actor: AuditActor,
+	row: Pick<ExternalCallRow, "id" | "extension_name" | "tool_name" | "approval">,
+	decision: "approve" | "reject",
+	reason?: string,
+	via?: ExternalCallDecisionVia,
+): AuditInput {
+	return {
+		actor,
+		action: "external_call.approval",
+		target: { type: "external_call", id: row.id },
+		detail: {
+			decision,
+			extension: row.extension_name,
+			tool: row.tool_name,
+			grader: externalCallApproval(row)?.evaluation.result,
+			...(reason ? { reason } : {}),
+			...(via ? { channel: via.channel, via: via.platform, ...(via.threadId ? { thread_id: via.threadId } : {}) } : {}),
+		},
+	};
 }
 
 export function externalCallAnnotations(row: ExternalCallRow): ExtensionToolAnnotations | null {

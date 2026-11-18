@@ -1,4 +1,4 @@
-import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { getCurrentTools } from "@earendil-works/pi-ai/utils/transcript";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
@@ -6,6 +6,7 @@ import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import * as z from "zod/v4";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import { sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -227,3 +228,35 @@ it("follows the server's tool list on the next request", async () => {
 	expect(tools).toContain("ext__fake__write_thing");
 	expect(tools).not.toContain("ext__fake__manual_only");
 });
+
+it("ends the run without an ext__ call when the quota is used up", async () => {
+	const session = await runtime.createSession(owner, {
+		title: "direct tool quota",
+		model: model(),
+		rulePreset: "yolo",
+		budgetRemaining: 1,
+	});
+	faux.setResponses([
+		fauxAssistantMessage([fauxToolCall("ext__fake__echo", { message: "hi" }, { id: "quota-direct" })], {
+			stopReason: "toolUse",
+		}),
+	]);
+	const submissionId = await runtime.submit(session.id, owner, "call the direct tool", "direct-quota");
+	await until(async () => (await sessionStateOf(db, session.id)) === "awaiting");
+	expect(await runtime.decideRootQuota(session.id, "deny")).toContain(session.id);
+	const settled = await waitSubmission(runtime, session.id, submissionId);
+	expect(settled.status).toBe("done");
+	// The call never reached the extension, so no external-call row was written and no other model request ran.
+	expect(await db.selectFrom("external_calls").select("id").where("actor_id", "=", session.id).execute()).toEqual([]);
+	expect(faux.getPendingResponseCount()).toBe(0);
+	expect(await sessionStateOf(db, session.id)).toBe("idle");
+});
+
+/** Polls a condition until it holds, for state a run writes after its reply. */
+async function until(check: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs;
+	while (!(await check())) {
+		if (Date.now() > deadline) throw new Error("timed out waiting for a condition");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+}

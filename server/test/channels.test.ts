@@ -9,6 +9,7 @@ import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { ChannelManager } from "../src/channels/manager.ts";
 import { markdownEscapesToText } from "../src/channels/plain-text.ts";
+import { bindThread } from "../src/channels/store.ts";
 import { TelegramChannel } from "../src/channels/telegram.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
@@ -18,7 +19,7 @@ import { createLibraryBackend, type LibraryBackend } from "../src/library/backen
 import { beginLibraryUpload, updateLibraryLimits } from "../src/library/files.ts";
 import { findUserLibrary } from "../src/library/library.ts";
 import { Scheduler } from "../src/scheduler/scheduler.ts";
-import { createSchedule, getSchedule } from "../src/scheduler/store.ts";
+import { createSchedule, getRun, getSchedule } from "../src/scheduler/store.ts";
 import { shareSession } from "../src/sessions/sharing.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -824,6 +825,22 @@ describe("channels", () => {
 			.executeTakeFirst();
 		expect(rejected?.state).toBe("rejected");
 		expect(rejected?.approval).toContain("not needed");
+		// The call's own event has the WebUI route's shape, plus where the decision came from.
+		await audit.flush();
+		const callEvents = await db
+			.selectFrom("audit_events")
+			.select("detail")
+			.where("action", "=", "external_call.approval")
+			.where("target_id", "=", thirdId)
+			.execute();
+		expect(callEvents).toHaveLength(1);
+		expect(JSON.parse(callEvents[0]?.detail ?? "{}")).toMatchObject({
+			decision: "reject",
+			extension: "test",
+			tool: "echo",
+			reason: "not needed",
+			via: "telegram",
+		});
 
 		// Decided elsewhere (the WebUI): the chat message is deleted.
 		const elsewhereId = await insertExternalCall(thread.sessionId, "call-elsewhere");
@@ -896,6 +913,22 @@ describe("channels", () => {
 			.where("id", "=", thread.sessionId)
 			.executeTakeFirst();
 		expect(Number(root?.quota_tokens)).toBeGreaterThan(0);
+		// The chat decision is audited in the same shape as the WebUI route's.
+		const granted = await db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "quota.granted")
+			.where("target_id", "=", thread.sessionId)
+			.execute();
+		expect(granted).toHaveLength(1);
+		expect(granted[0]).toMatchObject({ actor_type: "user", actor_id: aliceId, target_type: "session" });
+		expect(JSON.parse(granted[0]?.detail ?? "{}")).toMatchObject({
+			level: thread.sessionId,
+			sessions: [thread.sessionId],
+			tokens: 100,
+			channel: "testbot",
+			via: "telegram",
+		});
 
 		// A second session: /quota stop ends the turn.
 		fake.text(userId, "/new");
@@ -931,6 +964,20 @@ describe("channels", () => {
 			.where("id", "=", next?.session_id ?? "")
 			.executeTakeFirst();
 		expect(stopped?.state).toBe("idle");
+		const denied = await db
+			.selectFrom("audit_events")
+			.selectAll()
+			.where("action", "=", "quota.denied")
+			.where("target_id", "=", next?.session_id ?? "")
+			.execute();
+		expect(denied).toHaveLength(1);
+		expect(denied[0]).toMatchObject({ actor_type: "user", actor_id: aliceId, target_type: "session" });
+		expect(JSON.parse(denied[0]?.detail ?? "{}")).toMatchObject({
+			level: next?.session_id,
+			sessions: [next?.session_id],
+			channel: "testbot",
+			via: "telegram",
+		});
 	});
 
 	it("rejects an authorization wait by command with a reason, and never approves one", async () => {
@@ -2793,6 +2840,83 @@ describe("channels", () => {
 			await fake.waitForSent((call) => plainText(call).includes("visible answer"));
 		} finally {
 			await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
+			await runtime.waitForIdle();
+		}
+	});
+
+	it("ends a scheduled run failed when its owner stops the quota from chat", async () => {
+		const userId = 9905;
+		await link(userId);
+		const schedule = await createSchedule(db, aliceId, {
+			name: "Quota stop run",
+			prompt: "Check the nodes",
+			model: model(),
+			rulePreset: "yolo",
+			tokenBudget: 1,
+			cron: "0 9 * * *",
+			timezone: "UTC",
+			catchUp: false,
+			enabled: false,
+			report: null,
+		});
+		const scheduler = new Scheduler({ db, runtime, audit, reporter: channels });
+		const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+		let asked!: () => void;
+		const inFlight = new Promise<void>((resolve) => {
+			asked = resolve;
+		});
+		faux.setResponses([
+			async () => {
+				asked();
+				await new Promise((resolve) => setTimeout(resolve, 100));
+				return fauxAssistantMessage([fauxToolCall("list_nodes", {}, { id: "chat-quota-tool" })], {
+					stopReason: "toolUse",
+				});
+			},
+		]);
+		channels.setScheduler(scheduler);
+		try {
+			const run = await scheduler.runNow(schedule.id, alice);
+			await inFlight;
+			const sessionId = run.sessionId as string;
+			await until(
+				async () =>
+					(await db.selectFrom("sessions").select("state").where("id", "=", sessionId).executeTakeFirst())?.state ===
+					"awaiting",
+			);
+			const channel = await db
+				.selectFrom("channels")
+				.select("id")
+				.where("name", "=", "testbot")
+				.executeTakeFirstOrThrow();
+			await bindThread(db, {
+				channelId: channel.id,
+				platform: "telegram",
+				chatId: String(userId),
+				topicId: null,
+				sessionId,
+			});
+			fake.text(userId, "/quota stop");
+			await fake.waitForSent((call) => plainText(call).includes("Ended the turn."));
+			await until(async () => (await getRun(db, run.id))?.status === "failed");
+			const failed = await getRun(db, run.id);
+			expect(failed?.reason).toContain("quota denied");
+			const audits = await db
+				.selectFrom("audit_events")
+				.selectAll()
+				.where("action", "=", "quota.denied")
+				.where("target_id", "=", sessionId)
+				.execute();
+			expect(audits).toHaveLength(1);
+			expect(JSON.parse(audits[0]?.detail ?? "{}")).toMatchObject({
+				level: sessionId,
+				sessions: [sessionId],
+				channel: "testbot",
+				via: "telegram",
+			});
+		} finally {
+			channels.setScheduler(undefined);
+			await scheduler.stop();
 			await runtime.waitForIdle();
 		}
 	});

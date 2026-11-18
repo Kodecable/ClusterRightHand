@@ -32,6 +32,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { parseModelRef } from "../agent/models.ts";
 import { parseQuota } from "../agent/quota.ts";
+import { decideQuota } from "../agent/quota-decision.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
 	type SessionListScope,
@@ -850,27 +851,12 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			}
 			tokens = body.tokens;
 		}
-		// A scheduled run ends failed when its owner denies the root quota (doc/design/scheduling.md "Triggering and submission").
-		const quotaReason = reason ?? (body.decision === "deny" ? "the owner stopped the run" : undefined);
-		const noteQuotaDenied = body.decision === "deny" && quotaReason !== undefined;
-		// The note goes first: deciding wakes the wait, and a run that settles before the note is read would be
-		// recorded as succeeded. A decision that throws (no such wait) removes the note again, so a later normal
-		// finish is not marked failed.
-		if (noteQuotaDenied) {
-			await options.scheduler?.noteQuotaDenied(v.session.id, `quota denied: ${quotaReason}`);
-		}
-		let sessions: string[];
-		try {
-			sessions = await runtime.decideRootQuota(v.session.id, body.decision, tokens);
-		} catch (err) {
-			if (noteQuotaDenied) options.scheduler?.clearQuotaDenied(v.session.id);
-			throw err;
-		}
-		void c.get("audit").record({
-			actor: userActor(user),
-			action: body.decision === "deny" ? "quota.denied" : "quota.granted",
-			target: { type: "session", id: v.session.id },
-			detail: { level: v.session.id, sessions, ...(reason ? { reason } : {}), ...(tokens ? { tokens } : {}) },
+		const sessions = await decideQuota(c.get("audit"), user, runtime, {
+			rootId: v.session.id,
+			decision: body.decision,
+			...(reason !== undefined ? { reason } : {}),
+			...(tokens !== undefined ? { tokens } : {}),
+			...(options.scheduler !== undefined ? { scheduler: options.scheduler } : {}),
 		});
 		return c.json({ ok: true as const, sessions }, 200);
 	});

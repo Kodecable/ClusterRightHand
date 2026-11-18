@@ -14,6 +14,7 @@ import type {
 } from "@crh/api";
 import { quotaStatus } from "@crh/api";
 import type { ModelConfig } from "../agent/models.ts";
+import { decideQuota, type QuotaScheduler } from "../agent/quota-decision.ts";
 import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/runtime.ts";
 import {
 	approvalRequestForExternalCall,
@@ -30,6 +31,8 @@ import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import {
 	decideExternalCall,
+	externalCallApproval,
+	externalCallApprovalAudit,
 	externalCallViews,
 	getExternalCall,
 	onExternalCallWaitChanged,
@@ -128,6 +131,8 @@ export interface ChannelManagerOptions {
 	cluster: Cluster;
 	taskGroups: TaskGroups;
 	audit: Audit;
+	/** Notes a scheduled run's quota denial, so `/quota stop` in its chat ends it failed. */
+	scheduler?: QuotaScheduler;
 	libraryBackend?: LibraryBackend;
 	settings?: SettingsStore;
 	/** The public base URL for WebUI links; settings.publicUrl wins. */
@@ -410,7 +415,7 @@ function approvalKey(kind: "task" | "task_group" | "external_call", id: string):
 type WaitingKind = "task" | "task_group" | "external_call" | "authorization_task" | "authorization_task_group";
 
 /** The `channel.approval` audit reads an authorization wait as the task or group it belongs to. */
-function auditKindOf(kind: WaitingKind | "quota"): "task" | "task_group" | "external_call" | "quota" {
+function auditKindOf(kind: WaitingKind): "task" | "task_group" | "external_call" {
 	if (kind === "authorization_task") return "task";
 	if (kind === "authorization_task_group") return "task_group";
 	return kind;
@@ -500,6 +505,8 @@ export class ChannelManager {
 	readonly #topicCreations = new SingleFlight<ChannelThreadRow | undefined>();
 	/** Set while the manager follows external-call wait changes; cleared on stop. */
 	#unsubscribeExternalCalls: (() => void) | undefined;
+	/** The scheduler, when chat quota decisions must note a scheduled run's denial. */
+	#scheduler: QuotaScheduler | undefined;
 	#waitSyncTimer: ReturnType<typeof setInterval> | undefined;
 	readonly #historyLimit: number;
 	readonly #progressIntervalMs: number;
@@ -513,6 +520,7 @@ export class ChannelManager {
 
 	constructor(options: ChannelManagerOptions) {
 		this.#options = options;
+		this.#scheduler = options.scheduler;
 		this.#presence = new WebUiPresence({ ...(options.now ? { now: options.now } : {}) });
 		this.#historyLimit = options.historyLimit ?? DEFAULT_HISTORY_LIMIT;
 		this.#progressIntervalMs = options.progressIntervalMs ?? DEFAULT_PROGRESS_INTERVAL_MS;
@@ -524,6 +532,11 @@ export class ChannelManager {
 
 	get presence(): WebUiPresence {
 		return this.#presence;
+	}
+
+	/** The scheduler is created after the manager (it reports through it), so its quota notes are wired here. */
+	setScheduler(scheduler: QuotaScheduler | undefined): void {
+		this.#scheduler = scheduler;
 	}
 
 	/** Loads the stored channels and starts the enabled ones. */
@@ -2190,8 +2203,13 @@ export class ChannelManager {
 				return;
 			}
 			try {
-				await this.#options.runtime.decideRootQuota(rootId, "approve", tokens);
-				await this.#auditChannelApproval(user, "quota", rootId, "approved", row.name, adapter.platform, thread.id);
+				await decideQuota(this.#options.audit, user, this.#options.runtime, {
+					rootId,
+					decision: "approve",
+					tokens,
+					via: { channel: row.name, platform: adapter.platform, threadId: thread.id },
+					...(this.#scheduler ? { scheduler: this.#scheduler } : {}),
+				});
 				await adapter.sendText(target, m.quotaAdded(tokens));
 			} catch (err) {
 				await adapter.sendText(target, errorText(err));
@@ -2200,8 +2218,12 @@ export class ChannelManager {
 		}
 		if (sub === "stop") {
 			try {
-				await this.#options.runtime.decideRootQuota(rootId, "deny");
-				await this.#auditChannelApproval(user, "quota", rootId, "rejected", row.name, adapter.platform, thread.id);
+				await decideQuota(this.#options.audit, user, this.#options.runtime, {
+					rootId,
+					decision: "deny",
+					via: { channel: row.name, platform: adapter.platform, threadId: thread.id },
+					...(this.#scheduler ? { scheduler: this.#scheduler } : {}),
+				});
 				await adapter.sendText(target, m.quotaEnded);
 			} catch (err) {
 				await adapter.sendText(target, errorText(err));
@@ -2406,7 +2428,7 @@ export class ChannelManager {
 
 	async #auditChannelApproval(
 		user: SessionUser,
-		kind: WaitingKind | "quota",
+		kind: WaitingKind,
 		id: string,
 		decision: string,
 		channel: string,
@@ -2427,12 +2449,19 @@ export class ChannelManager {
 		});
 		// An external call's decision is the call's own event too, like the WebUI route's (doc/design/extensions.md).
 		if (kind === "external_call") {
-			await this.#options.audit.record({
-				actor: userActor(user),
-				action: "external_call.approval",
-				target: { type: "external_call", id },
-				detail: { decision, channel, via: platform, ...(threadId ? { thread_id: threadId } : {}) },
-			});
+			// The decided row keeps its extension, tool and approval record; only its arguments are cleared.
+			const row = await getExternalCall(this.#options.db, id);
+			if (row) {
+				await this.#options.audit.record(
+					externalCallApprovalAudit(
+						userActor(user),
+						row,
+						decision === "approved" ? "approve" : "reject",
+						externalCallApproval(row)?.decision?.reason,
+						{ channel, platform, ...(threadId ? { threadId } : {}) },
+					),
+				);
+			}
 		}
 	}
 

@@ -20,7 +20,7 @@ import type { ApprovalDecision, Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import {
 	decideExternalCall,
-	externalCallApproval,
+	externalCallApprovalAudit,
 	externalCallPhase,
 	externalCallViews,
 	getExternalCall,
@@ -298,18 +298,7 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			reason,
 		);
 		if (!ok) throw new HTTPException(409, { message: "it is no longer waiting for approval" });
-		void audit.record({
-			actor: userActor(user),
-			action: "external_call.approval",
-			target: { type: "external_call", id: row.id },
-			detail: {
-				decision: body.decision,
-				extension: row.extension_name,
-				tool: row.tool_name,
-				grader: externalCallApproval(row)?.evaluation.result,
-				...(reason ? { reason } : {}),
-			},
-		});
+		void audit.record(externalCallApprovalAudit(userActor(user), row, body.decision, reason));
 		if (always && root) {
 			await appendRule(db, root, always);
 			void audit.record({

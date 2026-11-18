@@ -110,7 +110,7 @@ With Auto Review and no review model configured, the run session's model reviews
 
 The token budget becomes the quota of each run's root session ([Quota and token
 accounting](agent-runtime.md#quota-and-token-accounting)). When it runs out, the run pauses and asks the
-owner.
+owner; stopping it from the WebUI or the chat ends the run failed with the denial as its reason.
 
 ## Privilege
 
