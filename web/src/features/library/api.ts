@@ -8,7 +8,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { FileEntry, FileSource, FileUploadOptions } from "@/components/file-manager";
-import { ApiError, enc, http, notifyUnauthorized, queryString } from "@/lib/api/client";
+import { ApiError, enc, fetchBlob, http, notifyUnauthorized, queryString } from "@/lib/api/client";
 
 export const libraryKeys = {
 	all: ["libraries"] as const,
@@ -146,22 +146,8 @@ export function useLibraryFileSource(ref: string): FileSource {
 				invalidate();
 				return toEntry(body);
 			},
-			async preview(path) {
-				const response = await fetch(`/api${base}/file${queryString({ path, preview: "1" })}`, {
-					credentials: "same-origin",
-				});
-				if (!response.ok) {
-					if (response.status === 401) notifyUnauthorized();
-					let message = `HTTP ${response.status}`;
-					try {
-						const body = (await response.json()) as { error?: string };
-						message = body.error ?? message;
-					} catch {
-						// Not JSON; keep the status line.
-					}
-					throw new ApiError(response.status, message);
-				}
-				return response.blob();
+			async preview(path, signal) {
+				return fetchBlob(`/api${base}/file${queryString({ path, preview: "1" })}`, signal);
 			},
 		};
 	}, [queryClient, ref]);

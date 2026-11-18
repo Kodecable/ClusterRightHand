@@ -2687,8 +2687,7 @@ msgstr "正在加载更多会话…"
 msgid "Loading older messages…"
 msgstr "正在加载更早的消息…"
 
-#: src/components/file-box.tsx
-#: src/components/file-manager/preview-dialog.tsx
+#: src/components/file-preview-dialog.tsx
 msgid "Loading preview"
 msgstr "正在加载预览"
 
@@ -3729,9 +3728,8 @@ msgstr "前缀匹配"
 msgid "Preparing the payload to sign…"
 msgstr "正在准备待签名的载荷…"
 
-#: src/components/file-box.tsx
 #: src/components/file-manager/file-list.tsx
-#: src/components/file-manager/preview-dialog.tsx
+#: src/components/file-preview-dialog.tsx
 msgid "Preview"
 msgstr "预览"
 
@@ -5278,6 +5276,10 @@ msgstr "此凭据正被节点使用，无法删除。"
 #: src/features/approvals/pages.tsx
 msgid "This external call doesn't exist or you don't have access."
 msgstr "此外部调用不存在，或你没有访问权限。"
+
+#: src/components/file-manager/preview-dialog.tsx
+msgid "This file cannot be previewed"
+msgstr "无法预览此文件"
 
 #: src/features/sessions/attachment-chip.tsx
 msgid "This file could not be checked."

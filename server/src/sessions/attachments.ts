@@ -8,6 +8,7 @@ import type { SessionUser } from "../auth/sessions.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import { findLibraryFile } from "../library/files.ts";
 import { libraryRef, requireOwnerLibrary } from "../library/library.ts";
+import { INLINE_MEDIA_TYPES } from "../library/media-type.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
 
@@ -45,7 +46,7 @@ export async function resolveAttachments(
 		if (!row) throw new UserError(`no such library file ${input.path}`, "invalid_argument");
 		const name = row.path.slice(row.path.lastIndexOf("/") + 1);
 		const note = `The user uploaded the file ${name} (${row.size} bytes), saved to ${libraryRef(record.row, record.ownerName)} at ${row.path}.`;
-		const isImage = ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(row.media_type);
+		const isImage = INLINE_MEDIA_TYPES.has(row.media_type);
 		let block = note;
 		let inlined = false;
 		if (!isImage) {

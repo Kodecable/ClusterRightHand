@@ -11,6 +11,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/sshkey"
 )
 
 // skFlags are the OpenSSH FIDO signature flags (PROTOCOL.u2f).
@@ -86,7 +87,7 @@ func VerifySSHSIGNamespace(blob, message []byte, wantNamespace string) (*SSHSIGR
 		return nil, err
 	}
 
-	if !supportedSSHSIGKey(key.Type()) {
+	if !sshkey.Supported(key.Type()) {
 		return nil, fmt.Errorf("authz: sshsig: unsupported key type %q", key.Type())
 	}
 
@@ -98,7 +99,7 @@ func VerifySSHSIGNamespace(blob, message []byte, wantNamespace string) (*SSHSIGR
 	signed = appendSSHString(signed, hash)
 
 	result := &SSHSIGResult{PublicKey: key}
-	sk := isSKKey(key.Type())
+	sk := sshkey.IsSK(key.Type())
 	inner := &sshReader{data: signature}
 	format, err := inner.string()
 	if err != nil {
@@ -183,19 +184,6 @@ func sshsigHash(algorithm string, message []byte) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("authz: sshsig: unsupported hash algorithm %q", algorithm)
 	}
-}
-
-func supportedSSHSIGKey(keyType string) bool {
-	switch keyType {
-	case ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256:
-		return true
-	default:
-		return false
-	}
-}
-
-func isSKKey(keyType string) bool {
-	return keyType == ssh.KeyAlgoSKED25519 || keyType == ssh.KeyAlgoSKECDSA256
 }
 
 // appendSSHString appends one SSH string (uint32 length prefix and bytes).

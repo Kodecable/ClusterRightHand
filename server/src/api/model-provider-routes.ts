@@ -10,7 +10,6 @@ import {
 	OkResponseSchema,
 } from "@crh/api/schemas";
 import type { Selectable } from "kysely";
-import { parseJson } from "../agent/model-providers.ts";
 import type { CustomModel, SessionIdConfig } from "../agent/model-types.ts";
 import {
 	builtinProviderIds,
@@ -27,6 +26,7 @@ import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import type { ModelProvidersTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
+import { parseJson } from "../util/json.ts";
 import { requireAdmin } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 

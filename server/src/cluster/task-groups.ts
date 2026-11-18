@@ -25,6 +25,7 @@ import {
 	approvalPhase,
 	chainWith,
 	isPendingReview,
+	matchesHandler,
 	mergeApproval,
 	pendingReview,
 	reviewAudit,
@@ -1167,21 +1168,6 @@ function memberTransfer(
 
 function now(): string {
 	return new Date().toISOString();
-}
-
-/**
- * Whether the group row's handler matches what the caller read outside the approval queue. The omitted
- * expectation still requires a handler: a waiting group always has one, so a null handler means it is
- * no longer waiting for a decision.
- */
-function matchesHandler(row: Selectable<TaskGroupsTable>, expect?: ApprovalExpect): boolean {
-	if (!expect) return row.handler_type !== null;
-	if (expect.handlerType === "any-waiting") {
-		if (row.handler_type === null) return false;
-	} else if (row.handler_type !== expect.handlerType) {
-		return false;
-	}
-	return expect.handlerSessionId === undefined || row.handler_session_id === expect.handlerSessionId;
 }
 
 /** Whether a settled task makes fail_fast stop the remaining nodes. */

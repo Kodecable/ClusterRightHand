@@ -1,10 +1,9 @@
-import { Trans, useLingui } from "@lingui/react/macro";
+import { useLingui } from "@lingui/react/macro";
 import { EyeIcon, FileIcon } from "lucide-react";
-import { useEffect, useState } from "react";
-import { ErrorState } from "@/components/error-state";
-import { PREVIEW_MAX_BYTES, PREVIEW_MEDIA_TYPES } from "@/components/file-manager";
-import { Spinner } from "@/components/spinner";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useCallback, useState } from "react";
+import { PREVIEW_MAX_BYTES, PREVIEW_MEDIA_TYPES, previewMediaTypeOf } from "@/components/file-manager";
+import { FilePreviewDialog } from "@/components/file-preview-dialog";
+import { fetchBlob } from "@/lib/api/client";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -13,81 +12,10 @@ import { cn } from "@/lib/utils";
  * JPEG, GIF or WebP up to 20 MiB, from its media type when known and otherwise from its name. The
  * server sniffs the bytes again.
  */
-export function isPreviewableFile(file: { name: string; mime?: string; bytes?: number }): boolean {
+function isPreviewableFile(file: { name: string; mime?: string; bytes?: number }): boolean {
 	if (file.bytes !== undefined && file.bytes > PREVIEW_MAX_BYTES) return false;
 	if (file.mime !== undefined) return PREVIEW_MEDIA_TYPES.has(file.mime.toLowerCase());
-	return /\.(png|jpe?g|gif|webp)$/i.test(file.name);
-}
-
-/** The image of a file, loaded from its preview URL when the dialog opens. */
-function FilePreviewDialog({ name, url, onClose }: { name: string; url: string; onClose: () => void }) {
-	const { t } = useLingui();
-	const [image, setImage] = useState<string>();
-	const [error, setError] = useState<unknown>();
-
-	useEffect(() => {
-		let active = true;
-		let objectUrl: string | undefined;
-		const controller = new AbortController();
-		void (async () => {
-			try {
-				const response = await fetch(url, { credentials: "same-origin", signal: controller.signal });
-				if (!response.ok) {
-					let message = `HTTP ${response.status}`;
-					try {
-						const body = (await response.json()) as { error?: string };
-						message = body.error ?? message;
-					} catch {
-						// Not JSON; keep the status line.
-					}
-					throw new Error(message);
-				}
-				const blob = await response.blob();
-				if (!active) return;
-				objectUrl = URL.createObjectURL(blob);
-				setImage(objectUrl);
-			} catch (err) {
-				if (active) setError(err);
-			}
-		})();
-		return () => {
-			active = false;
-			controller.abort();
-			if (objectUrl) URL.revokeObjectURL(objectUrl);
-		};
-	}, [url]);
-
-	return (
-		<Dialog
-			open
-			onOpenChange={(open) => {
-				if (!open) onClose();
-			}}
-		>
-			<DialogContent className="sm:max-w-4xl">
-				<DialogHeader>
-					<DialogTitle>{name}</DialogTitle>
-					<DialogDescription>
-						<Trans>Preview</Trans>
-					</DialogDescription>
-				</DialogHeader>
-				{error !== undefined ? (
-					<ErrorState error={error} compact />
-				) : image === undefined ? (
-					<div className="grid place-items-center py-12">
-						<Spinner label={t`Loading preview`} />
-					</div>
-				) : (
-					<img
-						src={image}
-						alt={name}
-						className="mx-auto max-h-[70vh] max-w-full object-contain"
-						data-testid="file-preview-image"
-					/>
-				)}
-			</DialogContent>
-		</Dialog>
-	);
+	return previewMediaTypeOf(file.name) !== undefined;
 }
 
 /**
@@ -142,7 +70,8 @@ export function FileBox({
 }) {
 	const { t, i18n } = useLingui();
 	const [previewing, setPreviewing] = useState(false);
-	const showsPreview = download !== undefined && preview !== undefined && isPreviewableFile({ name, mime, bytes });
+	const loadPreview = useCallback((signal: AbortSignal) => fetchBlob(preview ?? "", signal), [preview]);
+	const showsPreview = preview !== undefined && isPreviewableFile({ name, mime, bytes });
 	const body = (
 		<span className="flex min-w-0 flex-1 items-center gap-2">
 			<FileIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -206,7 +135,7 @@ export function FileBox({
 			)}
 			{srLabel !== undefined && <span className="sr-only">{srLabel}</span>}
 			{previewing && preview !== undefined && (
-				<FilePreviewDialog name={name} url={preview} onClose={() => setPreviewing(false)} />
+				<FilePreviewDialog name={name} load={loadPreview} onClose={() => setPreviewing(false)} />
 			)}
 		</div>
 	);

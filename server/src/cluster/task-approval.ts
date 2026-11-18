@@ -16,6 +16,7 @@ import {
 	approvalAudit,
 	chainWith,
 	isPendingReview,
+	matchesHandler,
 	mergeApproval,
 	reviewAudit,
 	rulesApproval,
@@ -133,20 +134,6 @@ export async function decide(
 		}
 	}
 	return "approved";
-}
-
-/**
- * Whether the row's handler matches what the caller read outside the turn. The omitted expectation still
- * requires a handler: a null one is an allowed task between its approval and its claim, not a request.
- */
-function matchesHandler(row: Selectable<TasksTable>, expect?: ApprovalExpect): boolean {
-	if (!expect) return row.handler_type !== null;
-	if (expect.handlerType === "any-waiting") {
-		if (row.handler_type === null) return false;
-	} else if (row.handler_type !== expect.handlerType) {
-		return false;
-	}
-	return expect.handlerSessionId === undefined || row.handler_session_id === expect.handlerSessionId;
 }
 
 /** What decide's turn recorded, for the work that runs after it. */

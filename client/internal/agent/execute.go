@@ -97,21 +97,16 @@ func (r *localRun) finished(*task) {}
 
 // execute runs a local task with the executor and records its exit.
 func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
-	exit := &protocol.TaskExit{TaskID: t.id}
 	res := executor.RunTask(ctx, &t.spec.Spec, in, t.output, executor.TaskOptions{
 		Timeout:   time.Duration(t.spec.TimeoutMS) * time.Millisecond,
 		KillGrace: time.Duration(t.spec.KillGraceMS) * time.Millisecond,
 		Env:       a.opts.Env,
 	})
-	exit.TimedOut, exit.Cancelled, exit.Outcome = res.TimedOut, res.Cancelled, res.Outcome()
-	exit.Result = res.TaskResult
 	if q, ok := in.(*executor.Input); ok {
 		q.Discard() // unblocks a reader the executor left behind
 	}
-	t.output.Close()
-	exit.OutputEnd = protocol.Uint(t.output.End())
-	exit.OutputFile = protocol.CleanText(t.output.Path())
-	exit.OutputLines = protocol.Uint(t.output.Lines())
+	exit := taskExit(t.id, res)
+	finishOutput(exit, t.output)
 
 	a.mu.Lock()
 	if t.inputErr != nil {
@@ -135,17 +130,12 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 // executePull runs a file.pull task locally and records its exit. The content goes out on the data
 // connection through emitTransfer; the result carries the size and SHA-256 the receiver verifies.
 func (a *Agent) executePull(t *task) {
-	exit := &protocol.TaskExit{TaskID: t.id}
 	result, err := executor.RunPull(t.runCtx, &t.spec.Spec, func(data []byte) error {
 		return a.emitTransfer(t, data)
 	}, false)
 	res := executor.FileResult(result, err)
-	exit.TimedOut, exit.Cancelled, exit.Outcome = res.TimedOut, res.Cancelled, res.Outcome()
-	exit.Result = res.TaskResult
-	t.output.Close()
-	exit.OutputEnd = protocol.Uint(t.output.End())
-	exit.OutputFile = protocol.CleanText(t.output.Path())
-	exit.OutputLines = protocol.Uint(t.output.Lines())
+	exit := taskExit(t.id, res)
+	finishOutput(exit, t.output)
 
 	a.mu.Lock()
 	if t.inputErr != nil {

@@ -8,7 +8,7 @@
 import type { ApprovalPhase, Review, ReviewPending, ReviewVerdict } from "@crh/api";
 import type { AuditInput } from "../audit/audit.ts";
 import type { RuleRef } from "../policy/store.ts";
-import type { AgentRequest, ApprovalDecision } from "./types.ts";
+import type { AgentRequest, ApprovalDecision, ApprovalExpect } from "./types.ts";
 
 /** What waits for the approval: names the audit actions (`task.*`, `task_group.*`) and their target. */
 export type ApprovalSubject = "task" | "task_group" | "external_call";
@@ -93,6 +93,26 @@ export function agentRouting(
 export function chainWith(ruleChain: string | null, ref: RuleRef): RuleRef[] | null {
 	const chain = JSON.parse(ruleChain ?? "[]") as RuleRef[];
 	return chain.some((r) => r.type === ref.type && r.id === ref.id) ? chain : null;
+}
+
+/** The handler columns shared by a waiting task and task group. */
+type HandlerColumns = {
+	handler_type: "agent" | "user" | null;
+	handler_session_id: string | null;
+};
+
+/**
+ * Whether the row's handler matches what the caller read outside the lock. The omitted expectation still
+ * requires a handler: a null one is a request already approved and being dispatched, not a waiting one.
+ */
+export function matchesHandler(row: HandlerColumns, expect?: ApprovalExpect): boolean {
+	if (!expect) return row.handler_type !== null;
+	if (expect.handlerType === "any-waiting") {
+		if (row.handler_type === null) return false;
+	} else if (row.handler_type !== expect.handlerType) {
+		return false;
+	}
+	return expect.handlerSessionId === undefined || row.handler_session_id === expect.handlerSessionId;
 }
 
 /** The decision recorded when changed rules no longer require an approval. */

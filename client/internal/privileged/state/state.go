@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/fsutil"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/statedir"
 )
 
@@ -555,18 +556,8 @@ func replaceFile(path string, data []byte) error {
 		os.Remove(tmp)
 		return fmt.Errorf("state: replace %s: %w", path, err)
 	}
-	return syncDir(filepath.Dir(path))
-}
-
-// syncDir fsyncs a directory so a rename is durable.
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("state: open %s: %w", dir, err)
-	}
-	defer d.Close()
-	if err := d.Sync(); err != nil {
-		return fmt.Errorf("state: sync %s: %w", dir, err)
+	if err := fsutil.SyncDir(filepath.Dir(path)); err != nil {
+		return fmt.Errorf("state: %w", err)
 	}
 	return nil
 }

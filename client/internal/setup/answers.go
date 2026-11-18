@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/yesno"
 )
 
 // fileAnswers is the schema of `--answers <file>`: every field is optional, so a file may answer
@@ -199,16 +200,11 @@ func collectAnswers(file *fileAnswers, existing *config.Config, enrolled bool, i
 		if err != nil {
 			return false, err
 		}
-		switch strings.ToLower(text) {
-		case "":
-			return fallback, nil
-		case "y", "yes":
-			return true, nil
-		case "n", "no":
-			return false, nil
-		default:
+		answer, ok := yesno.Parse(text, fallback)
+		if !ok {
 			return false, fmt.Errorf("%s: answer yes or no", prompt)
 		}
+		return answer, nil
 	}
 
 	a := resolved{}
@@ -337,14 +333,14 @@ func confirm(p *prompter, a resolved, enrolled bool, say func(string)) error {
 	if err != nil {
 		return err
 	}
-	switch strings.ToLower(answer) {
-	case "", "y", "yes":
-		return nil
-	case "n", "no":
-		return errors.New("aborted")
-	default:
+	proceed, ok := yesno.Parse(answer, true)
+	if !ok {
 		return errors.New("please answer yes or no")
 	}
+	if !proceed {
+		return errors.New("aborted")
+	}
+	return nil
 }
 
 // resolveFileAnswers is the all-from-file path: every missing field already failed, so this never asks.

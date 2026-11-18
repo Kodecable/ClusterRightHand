@@ -8,6 +8,24 @@
 export const INLINE_MEDIA_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 export const INLINE_PREVIEW_MAX_BYTES = 20 * 1024 * 1024;
 
+/** The image media type named by a file extension, or undefined for another file. */
+export function imageMediaTypeOf(name: string | null | undefined): string | undefined {
+	const ext = name?.split(".").pop()?.toLowerCase();
+	switch (ext) {
+		case "jpg":
+		case "jpeg":
+			return "image/jpeg";
+		case "png":
+			return "image/png";
+		case "gif":
+			return "image/gif";
+		case "webp":
+			return "image/webp";
+		default:
+			return undefined;
+	}
+}
+
 /** How much of the beginning is kept for magic-byte sniffing. */
 const HEAD_BYTES = 16;
 

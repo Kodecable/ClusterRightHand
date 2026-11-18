@@ -20,9 +20,9 @@ import type { ToolResult } from "./render.ts";
 
 // setTimeout cannot wait longer than ~24.8 days, so long waits loop.
 const HOUR = 3_600_000;
+
 /** Output budgets are the single-task total as well; no tool may ask for more. */
-export const MAX_OUTPUT_LINES = 2_000;
-export const MAX_OUTPUT_BYTES = 50 * 1024;
+export { MAX_OUTPUT_BYTES, MAX_OUTPUT_LINES } from "../util/output-limits.ts";
 /** `read_file` reads this many lines per page unless `limit` says otherwise. */
 export const READ_PAGE_LINES = 2_000;
 /** A batch read keeps this many lines per node unless `limit` says otherwise. */

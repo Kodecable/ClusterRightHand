@@ -1,5 +1,6 @@
 import { Api, GrammyError } from "grammy";
 import type { InlineKeyboardMarkup, Message, Update } from "grammy/types";
+import { imageMediaTypeOf } from "../library/media-type.ts";
 import { errorText } from "../util/errors.ts";
 import { ChannelConnection, type ChannelConnectionOptions } from "./connection.ts";
 import { messagesFor } from "./messages.ts";
@@ -92,20 +93,7 @@ function fetchWithNativeSignal(baseFetch: typeof fetch): typeof fetch {
 
 function fileMediaType(path: string | undefined, mime: string | undefined): string {
 	if (mime) return mime;
-	const ext = path?.split(".").pop()?.toLowerCase();
-	switch (ext) {
-		case "jpg":
-		case "jpeg":
-			return "image/jpeg";
-		case "png":
-			return "image/png";
-		case "gif":
-			return "image/gif";
-		case "webp":
-			return "image/webp";
-		default:
-			return "application/octet-stream";
-	}
+	return imageMediaTypeOf(path) ?? "application/octet-stream";
 }
 
 function isBadRequest(err: unknown): boolean {

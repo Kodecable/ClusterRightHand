@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { UserError } from "../util/errors.ts";
+import { MAX_OUTPUT_BYTES, MAX_OUTPUT_LINES } from "../util/output-limits.ts";
 import type { ApiReference } from "./api-reference.ts";
 import { docFiles, readDocText } from "./docs-source.ts";
 import { buildSearchIndex, type SearchIndex, searchIndexRecord, searchQueryTerms } from "./search-index.ts";
@@ -43,9 +44,7 @@ const HEADING = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 const FENCE = /^\s*(```|~~~)/;
 
 /** The default page of `read_doc`, and the most it returns at once: like `read_file`. */
-export const DOC_PAGE_LINES = 2_000;
-/** The byte budget of one `read_doc` page; whole lines are kept. */
-export const DOC_MAX_OUTPUT_BYTES = 50 * 1024;
+export const DOC_PAGE_LINES = MAX_OUTPUT_LINES;
 
 /** A heading's anchor, in the form a Markdown link uses (`Built-in extensions` → `built-in-extensions`). */
 export function headingSlug(text: string): string {
@@ -437,11 +436,11 @@ export function pageLines(
 	for (let index = from - 1; index < total && kept.length < wanted; index += 1) {
 		const line = lines[index] ?? "";
 		const lineBytes = Buffer.byteLength(line, "utf8") + (kept.length > 0 ? 1 : 0);
-		if (bytes + lineBytes > DOC_MAX_OUTPUT_BYTES) {
+		if (bytes + lineBytes > MAX_OUTPUT_BYTES) {
 			if (kept.length === 0) {
 				kept.push(
 					Buffer.from(line, "utf8")
-						.subarray(0, DOC_MAX_OUTPUT_BYTES)
+						.subarray(0, MAX_OUTPUT_BYTES)
 						.toString("utf8")
 						.replace(/\uFFFD$/, ""),
 				);

@@ -209,10 +209,7 @@ func (a *Agent) finishRelayed(t *task, exit *protocol.TaskExit) {
 			// A transfer that could not open its data connection already ended the task.
 			return
 		}
-		t.output.Close()
-		exit.OutputEnd = protocol.Uint(t.output.End())
-		exit.OutputFile = protocol.CleanText(t.output.Path())
-		exit.OutputLines = protocol.Uint(t.output.Lines())
+		finishOutput(exit, t.output)
 
 		a.mu.Lock()
 		if t.inputErr != nil {
@@ -238,11 +235,5 @@ func (a *Agent) finishRelayed(t *task, exit *protocol.TaskExit) {
 // an outcome. The task may still be running there, so it is never retried (doc/design/protocol.md
 // "crh-priv").
 func helperLostExit(taskID, message string) *protocol.TaskExit {
-	return &protocol.TaskExit{
-		TaskID: taskID,
-		Outcome: protocol.Outcome{
-			Kind:  protocol.OutcomeError,
-			Error: &protocol.Error{Code: protocol.CodeHelperLost, Message: protocol.ErrorMessage(message)},
-		},
-	}
+	return errorExit(taskID, protocol.CodeHelperLost, message)
 }

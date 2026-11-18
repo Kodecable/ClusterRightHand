@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import type { ImageCache } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
+import { MAX_OUTPUT_BYTES, MAX_OUTPUT_LINES } from "../util/output-limits.ts";
 import { type TextBlock, type ToolResult, textResult } from "./render.ts";
 
 /**
@@ -11,10 +12,6 @@ import { type TextBlock, type ToolResult, textResult } from "./render.ts";
  * Structured content without text becomes compact JSON; resource links are listed by URI; embedded binary
  * resources and audio are described by type and size, never sent.
  */
-
-/** The output limits every tool uses (doc/design/agent-runtime.md "Defaults"). */
-const MAX_OUTPUT_BYTES = 50 * 1024;
-const MAX_OUTPUT_LINES = 2000;
 
 /** One image of a call result, kept in `details` for the request hook. */
 export interface ExternalImageDetails {

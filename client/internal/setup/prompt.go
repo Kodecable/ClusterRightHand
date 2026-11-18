@@ -8,18 +8,14 @@ import (
 	"strings"
 
 	"golang.org/x/sys/unix"
-)
 
-// IsTerminal reports whether f is a terminal.
-func IsTerminal(f *os.File) bool {
-	_, err := unix.IoctlGetTermios(int(f.Fd()), unix.TCGETS)
-	return err == nil
-}
+	"github.com/Kodecable/ClusterRightHand/client/internal/term"
+)
 
 // IsTerminalReader reports whether r is an *os.File attached to a terminal.
 func IsTerminalReader(r io.Reader) bool {
 	f, ok := r.(*os.File)
-	return ok && IsTerminal(f)
+	return ok && term.IsTerminal(f)
 }
 
 // ReadPassword reads one line from f with the terminal's echo turned off. It does not print a prompt.
@@ -72,7 +68,7 @@ func (p *prompter) ask(prompt string) (string, error) {
 
 func (p *prompter) askSecret(prompt string) (string, error) {
 	fmt.Fprint(p.out, prompt)
-	if f, ok := p.input.(*os.File); ok && IsTerminal(f) {
+	if f, ok := p.input.(*os.File); ok && term.IsTerminal(f) {
 		return readPassword(f, p.reader)
 	}
 	return p.ask("")

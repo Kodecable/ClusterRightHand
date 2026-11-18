@@ -17,6 +17,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/setup"
+	"github.com/Kodecable/ClusterRightHand/client/internal/term"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
@@ -101,7 +102,7 @@ func register(ctx context.Context, out io.Writer, in io.Reader, promptOut io.Wri
 func readEnrollmentToken(in io.Reader, promptOut io.Writer) (string, error) {
 	var line string
 	var err error
-	if f, ok := in.(*os.File); ok && setup.IsTerminal(f) {
+	if f, ok := in.(*os.File); ok && term.IsTerminal(f) {
 		fmt.Fprint(promptOut, "Enrollment token: ")
 		line, err = setup.ReadPassword(f)
 	} else {

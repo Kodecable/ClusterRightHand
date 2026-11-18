@@ -1,5 +1,6 @@
 import Element from "@satorijs/element";
 import type { Event, Login, Message } from "@satorijs/protocol";
+import { imageMediaTypeOf } from "../library/media-type.ts";
 import { errorText } from "../util/errors.ts";
 import { ChannelConnection, type ChannelConnectionOptions } from "./connection.ts";
 import type {
@@ -170,20 +171,7 @@ export function parseSatoriContent(content: string | undefined | null): ParsedCo
 function mediaTypeOf(name: string | null, given: string | null | undefined, fromResponse: string | null): string {
 	if (given) return given;
 	if (fromResponse && fromResponse !== "application/octet-stream") return fromResponse;
-	const ext = name?.split(".").pop()?.toLowerCase();
-	switch (ext) {
-		case "jpg":
-		case "jpeg":
-			return "image/jpeg";
-		case "png":
-			return "image/png";
-		case "gif":
-			return "image/gif";
-		case "webp":
-			return "image/webp";
-		default:
-			return "application/octet-stream";
-	}
+	return imageMediaTypeOf(name) ?? "application/octet-stream";
 }
 
 function fileNameOf(src: string): string | null {

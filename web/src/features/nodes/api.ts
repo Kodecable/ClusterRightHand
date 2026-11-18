@@ -12,9 +12,9 @@ import type {
 } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
-import type { FileEntry, FileSource } from "@/components/file-manager";
+import { type FileEntry, type FileSource, previewMediaTypeOf } from "@/components/file-manager";
 import { nodeGroupKeys } from "@/features/node-groups/keys";
-import { enc, http } from "@/lib/api/client";
+import { enc, fetchBlob, http } from "@/lib/api/client";
 
 export const nodeKeys = {
 	all: ["nodes"] as const,
@@ -207,16 +207,6 @@ export function useSetNodeGroups() {
 	});
 }
 
-/** A node file's media type from its name; the server sniffs the bytes again before serving a preview. */
-function mediaTypeOf(name: string): string | undefined {
-	const lower = name.toLowerCase();
-	if (lower.endsWith(".png")) return "image/png";
-	if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-	if (lower.endsWith(".gif")) return "image/gif";
-	if (lower.endsWith(".webp")) return "image/webp";
-	return undefined;
-}
-
 function nodeAbsolutePath(prefix: string): string {
 	return prefix === "" ? "/" : `/${prefix}`;
 }
@@ -244,7 +234,7 @@ export function useNodeFileSource(nodeId: string): FileSource {
 						name: entry.name,
 						kind: "file",
 						size: entry.size,
-						mediaType: mediaTypeOf(entry.name),
+						mediaType: previewMediaTypeOf(entry.name),
 						...(entry.mtime === undefined ? {} : { updatedAt: entry.mtime }),
 					}));
 				return {
@@ -260,28 +250,15 @@ export function useNodeFileSource(nodeId: string): FileSource {
 					name: file.path.slice(file.path.lastIndexOf("/") + 1),
 					kind: file.type === "dir" ? "directory" : "file",
 					size: file.size,
-					mediaType: mediaTypeOf(file.path),
+					mediaType: previewMediaTypeOf(file.path),
 					updatedAt: file.mtime,
 				};
 			},
 			download(path) {
 				return `/api${base}/file?path=${encodeURIComponent(`/${path}`)}`;
 			},
-			async preview(path) {
-				const response = await fetch(`/api${base}/file?path=${encodeURIComponent(`/${path}`)}&preview=1`, {
-					credentials: "same-origin",
-				});
-				if (!response.ok) {
-					let message = `HTTP ${response.status}`;
-					try {
-						const body = (await response.json()) as { error?: string };
-						message = body.error ?? message;
-					} catch {
-						// Not JSON; keep the status line.
-					}
-					throw new Error(message);
-				}
-				return response.blob();
+			async preview(path, signal) {
+				return fetchBlob(`/api${base}/file?path=${encodeURIComponent(`/${path}`)}&preview=1`, signal);
 			},
 		};
 	}, [nodeId]);

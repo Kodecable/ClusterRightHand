@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/fsutil"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 )
 
@@ -134,17 +135,7 @@ func writeKey(path string, key []byte, mode os.FileMode, owner *Owner) error {
 	if err := os.Remove(tmpName); err != nil {
 		return err
 	}
-	return syncDir(dir)
-}
-
-// syncDir fsyncs the directory a key was published in.
-func syncDir(dir string) error {
-	d, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer d.Close()
-	return d.Sync()
+	return fsutil.SyncDir(dir)
 }
 
 // Keypair is a Noise static key pair.

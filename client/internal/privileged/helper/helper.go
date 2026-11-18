@@ -15,13 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/statedir"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/taskrun"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/term"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -71,7 +70,7 @@ var resolveEnv = func() (*execenv.Environment, error) {
 // Stdio runs the helper on the process's standard streams. stdin must be the crh-priv stream; a
 // terminal is refused, because a person at a keyboard is not crha's non-privileged mode.
 func Stdio(ctx context.Context, in *os.File, out, log io.Writer, crhaVersion string, opts StdioOptions) error {
-	if IsTerminal(in) {
+	if term.IsTerminal(in) {
 		return errors.New("refusing to run the native helper on a terminal: stdin must be the crh-priv stream from crha's non-privileged mode")
 	}
 	// The helper is root; it resolves its own environment each time it is started, and a failure
@@ -82,12 +81,6 @@ func Stdio(ctx context.Context, in *os.File, out, log io.Writer, crhaVersion str
 		return err
 	}
 	return Run(ctx, in, out, Options{Version: crhaVersion, Log: log, Env: env, SpoolRoot: opts.spoolRoot()})
-}
-
-// IsTerminal reports whether f is a terminal.
-func IsTerminal(f *os.File) bool {
-	_, err := unix.IoctlGetTermios(int(f.Fd()), unix.TCGETS)
-	return err == nil
 }
 
 // Run serves one native helper session on in/out: the crh-priv handshake, exactly one task.start,

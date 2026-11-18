@@ -17,6 +17,7 @@ import (
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/yesno"
 )
 
 // signOptions are the flags of `crhu sign`.
@@ -107,11 +108,8 @@ func confirmAuthorization(command string) (bool, error) {
 	if err != nil && line == "" {
 		return false, fmt.Errorf("%s: read the confirmation: %w", command, err)
 	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "y", "yes":
-		return true, nil
-	}
-	return false, nil
+	confirmed, _ := yesno.Parse(line, false)
+	return confirmed, nil
 }
 
 // signPayload runs ssh-keygen -Y sign with the payload on stdin and returns the SSHSIG blob and the

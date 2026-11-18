@@ -5,7 +5,6 @@ package enroll
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -23,6 +22,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/tlsclient"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
@@ -213,10 +213,7 @@ func serverKeyClient(cfg *config.Config) *http.Client {
 	if cfg.TLSVerify != config.TLSVerifyNone {
 		return http.DefaultClient
 	}
-	return &http.Client{Transport: &http.Transport{
-		Proxy:           http.ProxyFromEnvironment,
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // checked against the fingerprint below
-	}}
+	return tlsclient.Insecure()
 }
 
 // fetchServerKey gets crhs's public key over HTTPS and accepts it only if it matches the token, so the

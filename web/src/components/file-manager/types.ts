@@ -53,13 +53,23 @@ export interface FileSource {
 	upload?(path: string, file: File, options: FileUploadOptions): Promise<FileEntry>;
 	delete?(path: string): Promise<void>;
 	rename?(path: string, target: string, options?: FileRenameOptions): Promise<FileEntry>;
-	/** The image bytes, loaded when a preview is opened. */
-	preview?(path: string): Promise<Blob>;
+	/** The image bytes, loaded when a preview is opened; aborting `signal` cancels the request. */
+	preview?(path: string, signal?: AbortSignal): Promise<Blob>;
 }
 
 /** The media types a FileManager previews and the largest it loads. */
 export const PREVIEW_MEDIA_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 export const PREVIEW_MAX_BYTES = 20 * 1024 * 1024;
+
+/** The image media type named by a file extension, or undefined for another file. */
+export function previewMediaTypeOf(name: string): string | undefined {
+	const lower = name.toLowerCase();
+	if (lower.endsWith(".png")) return "image/png";
+	if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+	if (lower.endsWith(".gif")) return "image/gif";
+	if (lower.endsWith(".webp")) return "image/webp";
+	return undefined;
+}
 
 export function isPreviewable(entry: FileEntry): boolean {
 	return (

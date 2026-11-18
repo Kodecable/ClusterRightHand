@@ -12,6 +12,7 @@ import (
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/sshkey"
 )
 
 // buildTrust validates one [[trust]] entry against the role/format/kinds table of
@@ -119,7 +120,7 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 	if raw.RequireUV && role != protocol.TrustRoleUser {
 		return nil, errors.New("require_uv: only user entries can require user verification")
 	}
-	if raw.RequireUV && role == protocol.TrustRoleUser && raw.Format == FormatSSHSig && !isSKKey(t.SSHKey.Type()) {
+	if raw.RequireUV && role == protocol.TrustRoleUser && raw.Format == FormatSSHSig && !sshkey.IsSK(t.SSHKey.Type()) {
 		return nil, fmt.Errorf("require_uv: %q cannot assert user verification; use an sk-* key", t.SSHKey.Type())
 	}
 	return t, nil
@@ -251,7 +252,7 @@ func buildKey(raw *rawTrust, t *Trust) error {
 		if err != nil {
 			return fmt.Errorf("key: %w", err)
 		}
-		if !supportedSSHKey(key.Type()) {
+		if !sshkey.Supported(key.Type()) {
 			return fmt.Errorf("key: unsupported key type %q", key.Type())
 		}
 		t.SSHKey = key
@@ -345,19 +346,6 @@ func authorizedKeyText(key ssh.PublicKey, comment string) string {
 		line += " " + comment
 	}
 	return protocol.CleanText(line)
-}
-
-func supportedSSHKey(keyType string) bool {
-	switch keyType {
-	case ssh.KeyAlgoED25519, ssh.KeyAlgoECDSA256, ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256:
-		return true
-	default:
-		return false
-	}
-}
-
-func isSKKey(keyType string) bool {
-	return keyType == ssh.KeyAlgoSKED25519 || keyType == ssh.KeyAlgoSKECDSA256
 }
 
 // decodeBase64URL decodes base64url with or without padding.

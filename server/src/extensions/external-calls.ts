@@ -19,6 +19,7 @@ import type { Db } from "../storage/db.ts";
 import type { ExternalCallsTable } from "../storage/schema.ts";
 import { UserError } from "../util/errors.ts";
 import { derivedId } from "../util/id.ts";
+import { parseJson } from "../util/json.ts";
 
 /**
  * External extension calls and their approvals (doc/design/extensions.md "External calls"). An external call is the
@@ -94,15 +95,6 @@ export interface ExternalCallInput {
 	sourceToolTask?: string | null;
 	approval: ApprovalRecord;
 	state: "awaiting_approval" | "running";
-}
-
-function parseJson<T>(raw: string | null): T | null {
-	if (raw === null) return null;
-	try {
-		return JSON.parse(raw) as T;
-	} catch {
-		return null;
-	}
 }
 
 export function externalCallId(callKey: string): string {

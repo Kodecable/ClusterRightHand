@@ -20,6 +20,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/term"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -746,10 +747,10 @@ func TestStdioRefusesTerminal(t *testing.T) {
 		t.Skipf("cannot open %s: %v", slavePath, err)
 	}
 	defer slave.Close()
-	if !IsTerminal(slave) {
+	if !term.IsTerminal(slave) {
 		t.Fatalf("%s is not reported as a terminal", slavePath)
 	}
-	if IsTerminal(os.Stdin) && os.Stdin != nil {
+	if term.IsTerminal(os.Stdin) && os.Stdin != nil {
 		// The test binary's stdin is not a terminal under `go test`, but do not fail if it is.
 		t.Log("test stdin is a terminal")
 	}

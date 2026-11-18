@@ -44,6 +44,26 @@ export function notifyUnauthorized(): void {
 	unauthorizedHandler?.();
 }
 
+/**
+ * Fetch a file's bytes, such as an image preview, as a Blob. A JSON `{error}` body becomes the
+ * `ApiError`'s message, and a 401 runs the session-lost handler like every other API call.
+ */
+export async function fetchBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+	const response = await fetch(url, { credentials: "same-origin", signal });
+	if (!response.ok) {
+		if (response.status === 401) notifyUnauthorized();
+		let message = `HTTP ${response.status}`;
+		try {
+			const body = (await response.json()) as { error?: string };
+			message = body.error ?? message;
+		} catch {
+			// Not JSON; keep the status line.
+		}
+		throw new ApiError(response.status, message);
+	}
+	return response.blob();
+}
+
 /** Drop the query parameters whose value is undefined or an empty string. */
 export function queryString(params: Record<string, string | number | boolean | null | undefined>): string {
 	const search = new URLSearchParams();

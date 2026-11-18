@@ -7,7 +7,7 @@ import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.l
 import { clampThinkingLevel, createProvider, type Provider } from "@earendil-works/pi-ai/models";
 import type { Selectable } from "kysely";
 import type { ModelProvidersTable } from "../storage/schema.ts";
-import { parseJson } from "./model-providers.ts";
+import { parseJson } from "../util/json.ts";
 import {
 	type CustomApi,
 	type CustomModel,

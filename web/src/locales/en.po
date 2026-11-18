@@ -2687,8 +2687,7 @@ msgstr "Loading more sessions…"
 msgid "Loading older messages…"
 msgstr "Loading older messages…"
 
-#: src/components/file-box.tsx
-#: src/components/file-manager/preview-dialog.tsx
+#: src/components/file-preview-dialog.tsx
 msgid "Loading preview"
 msgstr "Loading preview"
 
@@ -3729,9 +3728,8 @@ msgstr "prefix"
 msgid "Preparing the payload to sign…"
 msgstr "Preparing the payload to sign…"
 
-#: src/components/file-box.tsx
 #: src/components/file-manager/file-list.tsx
-#: src/components/file-manager/preview-dialog.tsx
+#: src/components/file-preview-dialog.tsx
 msgid "Preview"
 msgstr "Preview"
 
@@ -5278,6 +5276,10 @@ msgstr "This credential is used by a node and cannot be deleted."
 #: src/features/approvals/pages.tsx
 msgid "This external call doesn't exist or you don't have access."
 msgstr "This external call doesn't exist or you don't have access."
+
+#: src/components/file-manager/preview-dialog.tsx
+msgid "This file cannot be previewed"
+msgstr "This file cannot be previewed"
 
 #: src/features/sessions/attachment-chip.tsx
 msgid "This file could not be checked."

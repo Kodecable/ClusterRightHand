@@ -42,6 +42,7 @@ import { INLINE_MEDIA_TYPES, INLINE_PREVIEW_MAX_BYTES } from "../library/media-t
 import { libraryPathName, validateLibraryPath, validateLibraryPrefix } from "../library/paths.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
+import { contentDisposition } from "./content-disposition.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
 const TAGS = ["Libraries"];
@@ -352,14 +353,4 @@ export function libraryRoutes(db: Db, options: LibraryRoutesOptions = {}) {
 function requiredPath(value: string | undefined): string {
 	if (value === undefined) throw new UserError("path is required");
 	return validateLibraryPath(value);
-}
-
-/** `inline`/`attachment` with an ASCII fallback and the UTF-8 form for other file names. */
-function contentDisposition(kind: "inline" | "attachment", filename: string): string {
-	const fallback = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-	const encoded = encodeURIComponent(filename).replace(
-		/['()*]/g,
-		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-	);
-	return `${kind}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }

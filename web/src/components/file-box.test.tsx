@@ -106,6 +106,12 @@ describe("FileBox", () => {
 		expect(screen.getByTestId("file-box-preview")).toBeInTheDocument();
 	});
 
+	test("offers a preview without a download URL", () => {
+		renderWithI18n(<FileBox name="pic.png" path="screens/pic.png" preview="/files/pic?preview=1" testId="file-box" />);
+		expect(screen.queryByTestId("file-box-download")).not.toBeInTheDocument();
+		expect(screen.getByTestId("file-box-preview")).toHaveAccessibleName("Preview pic.png");
+	});
+
 	test("offers no preview for another type or an image past 20 MiB", () => {
 		const { rerender } = renderWithI18n(
 			<FileBox

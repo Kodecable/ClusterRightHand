@@ -5,7 +5,6 @@ package transport
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/tlsclient"
 	"github.com/coder/websocket"
 )
 
@@ -75,10 +75,7 @@ func Dial(ctx context.Context, opts DialOptions) (*Conn, error) {
 
 	client := http.DefaultClient
 	if opts.InsecureSkipVerify {
-		client = &http.Client{Transport: &http.Transport{
-			Proxy:           http.ProxyFromEnvironment,
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // see DialOptions
-		}}
+		client = tlsclient.Insecure()
 	}
 	ws, _, err := websocket.Dial(ctx, opts.URL, &websocket.DialOptions{HTTPClient: client})
 	if err != nil {
@@ -235,10 +232,7 @@ func DialData(ctx context.Context, opts DataDialOptions) (*Conn, error) {
 
 	client := http.DefaultClient
 	if opts.InsecureSkipVerify {
-		client = &http.Client{Transport: &http.Transport{
-			Proxy:           http.ProxyFromEnvironment,
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // see DialOptions
-		}}
+		client = tlsclient.Insecure()
 	}
 	ws, _, err := websocket.Dial(ctx, opts.URL, &websocket.DialOptions{HTTPClient: client})
 	if err != nil {

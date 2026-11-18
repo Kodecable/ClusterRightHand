@@ -47,6 +47,7 @@ import { openTransferLocation, type TransferContext, type TransferLocationJson }
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import type { AppOptions } from "./app.ts";
+import { contentDisposition } from "./content-disposition.ts";
 import type { AppEnv } from "./context.ts";
 import { requireAdmin } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
@@ -635,14 +636,4 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 
 async function discardLocation(context: TransferContext, location: TransferLocationJson): Promise<void> {
 	await openTransferLocation(context, location).discard();
-}
-
-/** `inline`/`attachment` with an ASCII fallback and the UTF-8 form for other file names. */
-function contentDisposition(kind: "inline" | "attachment", filename: string): string {
-	const fallback = filename.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-	const encoded = encodeURIComponent(filename).replace(
-		/['()*]/g,
-		(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-	);
-	return `${kind}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }

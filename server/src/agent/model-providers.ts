@@ -9,22 +9,13 @@ import { defaultOrgId } from "../storage/org.ts";
 import type { ModelProvidersTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
+import { parseJson } from "../util/json.ts";
 import type { CustomModel, SessionIdConfig } from "./model-types.ts";
 import { type ModelProviderFields, validate } from "./model-validate.ts";
 
 export type { ModelProviderView };
 
 const SECRET_KIND = "model_api_key";
-
-/** A stored JSON column, or null when absent or unreadable. */
-export function parseJson<T>(raw: string | null): T | null {
-	if (raw === null) return null;
-	try {
-		return JSON.parse(raw) as T;
-	} catch {
-		return null;
-	}
-}
 
 function toView(row: Selectable<ModelProvidersTable>): ModelProviderView {
 	return {

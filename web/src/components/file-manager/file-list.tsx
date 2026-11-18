@@ -16,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { errorMessage } from "@/lib/api/client";
 import { formatBytes } from "@/lib/format";
-import { FilePreviewDialog } from "./preview-dialog";
+import { FileManagerPreview } from "./preview-dialog";
 import {
 	type FileEntry,
 	type FileSelection,
@@ -285,7 +285,7 @@ export function FileList({ source, path, onPathChange, rootLabel, selection, ver
 					}}
 				/>
 			)}
-			{previewing && <FilePreviewDialog source={source} entry={previewing} onClose={() => setPreviewing(undefined)} />}
+			{previewing && <FileManagerPreview source={source} entry={previewing} onClose={() => setPreviewing(undefined)} />}
 		</>
 	);
 }

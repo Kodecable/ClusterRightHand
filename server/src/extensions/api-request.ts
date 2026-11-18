@@ -3,6 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/client";
 import * as z from "zod/v4";
 import type { InternalRequestIdentity } from "../api/context.ts";
 import { UserError } from "../util/errors.ts";
+import { MAX_OUTPUT_BYTES, MAX_OUTPUT_LINES } from "../util/output-limits.ts";
 import { type ApiRoute, matchApiRoute } from "./api-reference.ts";
 
 /**
@@ -15,9 +16,6 @@ import { type ApiRoute, matchApiRoute } from "./api-reference.ts";
 
 /** The largest request body the tool accepts, matching the API's ordinary JSON body limit. */
 export const API_REQUEST_BODY_LIMIT = 1024 * 1024;
-/** The output limits every tool uses. */
-const MAX_OUTPUT_BYTES = 50 * 1024;
-const MAX_OUTPUT_LINES = 2_000;
 
 const queryValue = z.union([z.string(), z.number(), z.boolean()]);
 const apiRequestInput = z.object({

@@ -101,7 +101,7 @@ describe("FileManager", () => {
 		const image = await screen.findByRole("img", { name: "pic.png" });
 		expect(image).toHaveAttribute("src", "blob:preview");
 		expect(source.stat).toHaveBeenCalledWith("pic.png");
-		expect(source.preview).toHaveBeenCalledWith("pic.png");
+		expect(source.preview).toHaveBeenCalledWith("pic.png", expect.any(AbortSignal));
 
 		await userEvent.click(screen.getByRole("button", { name: "Close" }));
 		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

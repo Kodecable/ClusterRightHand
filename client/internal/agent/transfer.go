@@ -324,11 +324,7 @@ func (a *Agent) failTransfer(t *task, code, message string) {
 // requested best-effort before the local exit is recorded.
 func (a *Agent) finishTransferError(t *task, code, message string) {
 	go t.run.cancel(a, context.Background(), t)
-	exit := &protocol.TaskExit{
-		TaskID:    t.id,
-		Outcome:   protocol.Outcome{Kind: protocol.OutcomeError, Error: &protocol.Error{Code: code, Message: protocol.ErrorMessage(message)}},
-		OutputEnd: 0,
-	}
+	exit := errorExit(t.id, code, message)
 	t.output.Close()
 	a.mu.Lock()
 	// Release a privileged pull's transfer handler, which may be waiting for the data connection;
