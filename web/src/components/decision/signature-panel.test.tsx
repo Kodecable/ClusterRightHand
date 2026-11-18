@@ -121,13 +121,13 @@ afterEach(() => {
 });
 
 describe("SignaturePanel", () => {
-	test("renders the compact ApprovalRequest as its summary and defaults to crha grant", async () => {
+	test("renders the compact ApprovalRequest as its summary and defaults to crhu sign", async () => {
 		await renderPanel({});
 		const card = screen.getByRole("region", { name: "Your signature is needed" });
 		expect(within(card).getByTestId("decision-detail")).toHaveTextContent(OPERATION);
 		expect(within(card).getByTestId("decision-meta")).toHaveTextContent("Nodes: worker-01");
 		expect(within(card).getByText("Privileged")).toBeInTheDocument();
-		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("crha grant");
+		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("crhu sign");
 		expect(screen.queryByRole("tab", { name: "Passkey" })).not.toBeInTheDocument();
 		// An inline signature wait never shows the source.
 		expect(screen.queryByText(/Source:/)).not.toBeInTheDocument();
@@ -138,12 +138,21 @@ describe("SignaturePanel", () => {
 		expect(screen.getByRole("link", { name: "Clean up" })).toHaveAttribute("href", "/sessions/root-1");
 	});
 
-	test("the copy button copies the full crha grant command", async () => {
+	test("the copy button copies the full crhu sign command", async () => {
 		await renderPanel({});
 		fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
 		await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(grantCommand(PAYLOAD)));
 		// The visible line truncates; the full command stays in the title.
 		expect(screen.getByTestId("decision-command")).toHaveAttribute("title", grantCommand(PAYLOAD));
+	});
+
+	test("the copied command carries the matching credential fingerprints as hints", async () => {
+		const fingerprints = ["SHA256:one", "SHA256:two"];
+		await renderPanel({ pending: pending({ options: [signOption({ fingerprints })] }) });
+		const command = grantCommand(PAYLOAD, fingerprints);
+		fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+		await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(command));
+		expect(screen.getByTestId("decision-command")).toHaveAttribute("title", command);
 	});
 
 	test("the ssh-keygen tab copies the full manual recipe", async () => {
@@ -195,7 +204,7 @@ describe("SignaturePanel", () => {
 		expect(screen.getByRole("tab", { name: "Reject" })).toBeInTheDocument();
 	});
 
-	test("the pasted authorization is submitted from the crha grant tab", async () => {
+	test("the pasted authorization is submitted from the crhu sign tab", async () => {
 		const onSubmit = vi.fn(async (_input: SubmitSignature) => {});
 		await renderPanel({ onSubmit });
 		fireEvent.change(screen.getByLabelText("Signature"), {

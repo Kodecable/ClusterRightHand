@@ -17,14 +17,24 @@ export function useSigningCredentials() {
 	});
 }
 
-export function useAddSshSigningCredential() {
+/** Requests the challenge an SSH credential registration signs; it is single use and expires. */
+export function useSshSigningChallenge() {
+	// The registration card reports every failure inline.
+	return useMutation({
+		mutationFn: () => http.post<{ challenge: string; expiresAt: string }>("/me/signing-credentials/ssh/challenge", {}),
+		meta: { toast: false },
+	});
+}
+
+export function useRegisterSshSigningCredential() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: ({ publicKey, name }: { publicKey: string; name?: string }) =>
+		mutationFn: ({ signature, name }: { signature: string; name?: string }) =>
 			http
-				.post<{ signingCredential: SigningCredentialView }>("/me/signing-credentials/ssh", { publicKey, name })
+				.post<{ signingCredential: SigningCredentialView }>("/me/signing-credentials/ssh", { signature, name })
 				.then((r) => r.signingCredential),
 		onSuccess: () => void queryClient.invalidateQueries({ queryKey: signingCredentialKeys.all }),
+		meta: { toast: false },
 	});
 }
 

@@ -54,14 +54,23 @@ function parseOptions(value: unknown): AuthorizationOption[] {
 			continue;
 		}
 		if (option.kind !== "sign" || typeof option.ttlMs !== "number") continue;
+		const fingerprints = parseFingerprints(option.fingerprints);
 		options.push({
 			kind: "sign",
 			entries: parseEntries(option.entries),
+			...(fingerprints ? { fingerprints } : {}),
 			ttlMs: option.ttlMs,
 			payload: parsePayload(option.payload),
 		});
 	}
 	return options;
+}
+
+/** A damaged or empty hint list is treated as absent; it only helps choose a signing key. */
+function parseFingerprints(value: unknown): string[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	const fingerprints = value.filter((item): item is string => typeof item === "string" && item.startsWith("SHA256:"));
+	return fingerprints.length > 0 ? fingerprints : undefined;
 }
 
 function parseEntries(value: unknown): SignEntry[] {

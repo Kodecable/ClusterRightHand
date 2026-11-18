@@ -1,17 +1,13 @@
 import type { SigningCredentialView } from "@crh/api";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startRegistration } from "@simplewebauthn/browser";
 import { FingerprintIcon, KeyRoundIcon, Trash2Icon } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { z } from "zod";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
-import { TextareaField, TextField } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
@@ -20,74 +16,136 @@ import { useTimeColumnWidth } from "@/components/time-column";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { sshRegistrationCommand, sshRegistrationRecipe } from "@/lib/authorization";
 import { signingCredentialKeyId } from "@/lib/signing-credential-key";
 import { cn, MONO_CELL } from "@/lib/utils";
 import {
-	useAddSshSigningCredential,
 	useDeleteSigningCredential,
 	usePasskeyOptions,
 	useRegisterPasskey,
+	useRegisterSshSigningCredential,
 	useSigningCredentials,
+	useSshSigningChallenge,
 } from "./api";
 import { TrustConfigDialog } from "./trust-config-dialog";
 
-interface SshFormValues {
-	name: string;
-	publicKey: string;
+/** A copyable multi-line recipe; the copy button copies every character. */
+function Recipe({ text, label }: { text: string; label: string }) {
+	return (
+		<div className="grid min-w-0 gap-1.5">
+			<pre className="min-w-0 overflow-x-auto whitespace-pre-wrap break-all rounded bg-muted px-2 py-1.5 font-mono text-xs leading-5">
+				{text}
+			</pre>
+			<CopyButton text={text} label={label} showLabel />
+		</div>
+	);
 }
 
+/**
+ * SSH signing-credential registration (doc/design/privilege.md "Signing methods"): the server issues
+ * a challenge, the user signs it with `crhu register` or `ssh-keygen`, and the signature proves the
+ * private key is theirs. The public key is read from the signature, never pasted separately.
+ */
 function AddSshKeyForm() {
 	const { t } = useLingui();
-	const add = useAddSshSigningCredential();
-	const schema = useMemo(
-		() =>
-			z.object({
-				name: z.string().max(100, t`The name must be at most 100 characters.`),
-				publicKey: z.string().trim().min(1, t`A public key is required.`),
-			}),
-		[t],
-	);
-	const form = useForm<SshFormValues>({ resolver: zodResolver(schema), defaultValues: { name: "", publicKey: "" } });
+	const challenge = useSshSigningChallenge();
+	const register = useRegisterSshSigningCredential();
+	const [name, setName] = useState("");
+	const [signature, setSignature] = useState("");
+	const [message, setMessage] = useState<string>();
+	const issued = challenge.data;
+	const busy = challenge.isPending || register.isPending;
+
+	const request = () => {
+		setMessage(undefined);
+		register.reset();
+		challenge.mutate(undefined, {
+			onError: (error) => setMessage(error instanceof Error ? error.message : String(error)),
+		});
+	};
+
+	const submit = (event: React.FormEvent) => {
+		event.preventDefault();
+		setMessage(undefined);
+		register.mutate(
+			{ signature: signature.trim(), name: name.trim() || undefined },
+			{
+				onSuccess: () => {
+					setSignature("");
+					setName("");
+					challenge.reset();
+				},
+				onError: (error) => {
+					setMessage(error instanceof Error ? error.message : String(error));
+					// Every submission spends the challenge server-side, so a retry needs a new one.
+					challenge.reset();
+				},
+			},
+		);
+	};
+
 	return (
 		<Panel className="grid gap-3">
 			<SectionTitle>
-				<Trans>Add an SSH key</Trans>
+				<Trans>Register an SSH key</Trans>
 			</SectionTitle>
-			<form
-				className="grid gap-3"
-				onSubmit={form.handleSubmit((values) => {
-					add.mutate(
-						{ publicKey: values.publicKey.trim(), name: values.name.trim() || undefined },
-						{
-							onSuccess: () => {
-								form.reset();
-							},
-						},
-					);
-				})}
-			>
-				<TextField
-					control={form.control}
-					name="name"
-					label={t`Name`}
-					description={t`Optional; it names the trust entry.`}
-				/>
-				<TextareaField
-					control={form.control}
-					name="publicKey"
-					label={t`Public key`}
-					rows={3}
-					placeholder="ssh-ed25519 AAAAC3Nza… you@laptop"
-					description={t`One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com.`}
-				/>
-				<div>
-					<Button type="submit" disabled={add.isPending}>
-						<KeyRoundIcon />
-						<Trans>Add SSH key</Trans>
-					</Button>
-				</div>
-				<ErrorText error={add.error} />
-			</form>
+			<p className="text-sm text-muted-foreground">
+				<Trans>
+					Sign a challenge with the SSH key. The signature proves you hold the private key, and the public key is read
+					from it; encrypted keys, ssh-agent and FIDO keys work.
+				</Trans>
+			</p>
+			<div>
+				<Button type="button" disabled={busy} onClick={request}>
+					<KeyRoundIcon />
+					{issued ? <Trans>Request a new challenge</Trans> : <Trans>Request challenge</Trans>}
+				</Button>
+			</div>
+			{issued !== undefined && (
+				<>
+					<p className="text-sm text-muted-foreground">
+						<Trans>
+							Expires <DateTime value={issued.expiresAt} />. Run this on your workstation and paste the output below:
+						</Trans>
+					</p>
+					<Recipe text={sshRegistrationCommand(issued.challenge)} label={t`Copy command`} />
+					<p className="text-sm text-muted-foreground">
+						<Trans>Or sign the challenge by hand with ssh-keygen:</Trans>
+					</p>
+					<Recipe text={sshRegistrationRecipe(issued.challenge)} label={t`Copy command`} />
+					<form className="grid gap-3" onSubmit={submit}>
+						<label className="grid gap-1.5 text-sm" htmlFor="ssh-signing-name">
+							<span className="font-medium">{t`Name`}</span>
+							<Input
+								id="ssh-signing-name"
+								value={name}
+								maxLength={100}
+								placeholder={t`Optional`}
+								onChange={(event) => setName(event.target.value)}
+							/>
+						</label>
+						<label className="grid gap-1.5 text-sm" htmlFor="ssh-signing-signature">
+							<span className="font-medium">{t`Signature`}</span>
+							<Textarea
+								id="ssh-signing-signature"
+								rows={4}
+								className="font-mono text-xs"
+								value={signature}
+								placeholder="-----BEGIN SSH SIGNATURE-----"
+								onChange={(event) => setSignature(event.target.value)}
+							/>
+						</label>
+						<div>
+							<Button type="submit" disabled={busy || signature.trim() === ""}>
+								<KeyRoundIcon />
+								<Trans>Register SSH key</Trans>
+							</Button>
+						</div>
+					</form>
+				</>
+			)}
+			<ErrorText error={message ?? challenge.error ?? register.error} />
 		</Panel>
 	);
 }

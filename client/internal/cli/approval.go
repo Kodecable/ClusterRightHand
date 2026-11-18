@@ -144,6 +144,11 @@ func closeWindow(ctx context.Context, out io.Writer, socket string) error {
 // windowOpenedNote is printed after a window opens: it releases more than the task it was opened for.
 const windowOpenedNote = "every privileged task waiting on this node, for any user or task group, can now run with crhs's signature; run `crha lock` to close the window early"
 
+// formatMillis renders a Unix millisecond timestamp as RFC 3339 with milliseconds.
+func formatMillis(ms int64) string {
+	return time.UnixMilli(ms).Format("2006-01-02T15:04:05.000Z07:00")
+}
+
 // windowText renders a window state for the CLI.
 func windowText(state protocol.WindowState) string {
 	if state.Kind != protocol.WindowStateOpen || state.Opened == nil {

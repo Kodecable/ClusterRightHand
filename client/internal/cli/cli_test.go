@@ -25,7 +25,7 @@ func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
 		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "stdio"},
 		{"enroll"}, {"register"}, {"status"}, {"upgrade"},
-		{"grant"}, {"approve"}, {"lock"}, {"version"},
+		{"approve"}, {"lock"}, {"version"},
 	}
 	root := NewRootCmd()
 	for _, p := range paths {
@@ -149,6 +149,14 @@ func TestNotImplemented(t *testing.T) {
 	}
 	if err != errNotImplemented {
 		t.Fatalf("got %v, want errNotImplemented", err)
+	}
+}
+
+// TestGrantRemoved covers that signing moved to crhu: crha has no grant command and no alias.
+func TestGrantRemoved(t *testing.T) {
+	root := NewRootCmd()
+	if cmd, _, _ := root.Find([]string{"grant"}); cmd != root {
+		t.Fatalf("crha still registers grant as %q", cmd.Name())
 	}
 }
 

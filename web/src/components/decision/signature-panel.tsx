@@ -134,7 +134,7 @@ function windowOptionsOf(pending: PendingAuthorization | undefined): LocalWindow
 
 /**
  * A pending signature wait (doc/design/webui.md "Shared components"): the same compact ApprovalRequest and
- * card layout as an approval, then the options the server planned — a trusted Passkey, `crha grant`, the
+ * card layout as an approval, then the options the server planned — a trusted Passkey, `crhu sign`, the
  * `ssh-keygen` recipe, a local approval window — and always Reject. A task whose plan is still being
  * written shows "Preparing…". The full command and recipe stay on one truncated line; the copy buttons
  * copy every character.
@@ -177,7 +177,7 @@ export function SignaturePanel({
 	const [working, setWorking] = useState(false);
 	const [localError, setLocalError] = useState<string>();
 	const [done, setDone] = useState<string>();
-	// `crha grant` until a Passkey is known to be trusted; then the Passkey tab is the default.
+	// `crhu sign` until a Passkey is known to be trusted; then the Passkey tab is the default.
 	const [tab, setTab] = useState("grant");
 	const initialised = useRef(false);
 	const sign = signOptionOf(pending);
@@ -285,7 +285,7 @@ export function SignaturePanel({
 										<Trans>Passkey</Trans>
 									</DecisionTab>
 								)}
-								{sign !== undefined && <DecisionTab value="grant">crha grant</DecisionTab>}
+								{sign !== undefined && <DecisionTab value="grant">crhu sign</DecisionTab>}
 								{sign !== undefined && <DecisionTab value="keygen">ssh-keygen</DecisionTab>}
 								{windows.length > 0 && (
 									<DecisionTab value="window">
@@ -317,7 +317,10 @@ export function SignaturePanel({
 							)}
 							{sign !== undefined && (
 								<TabsContent value="grant" className="grid min-w-0 gap-2 pt-1">
-									<CommandLine text={grantCommand(sign.payload.payload)} label={t`Copy command`} />
+									<CommandLine
+										text={grantCommand(sign.payload.payload, sign.fingerprints ?? [])}
+										label={t`Copy command`}
+									/>
 									<PasteBox value={pasted} disabled={disabled} onChange={setPasted} />
 									{submitButton}
 								</TabsContent>

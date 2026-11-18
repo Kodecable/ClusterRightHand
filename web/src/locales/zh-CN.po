@@ -312,10 +312,6 @@ msgstr "需要填写提示词。"
 msgid "A provider id is lowercase letters, digits and dashes."
 msgstr "提供方 ID 由小写字母、数字和短横线组成。"
 
-#: src/features/signing-credentials/pages.tsx
-msgid "A public key is required."
-msgstr "必须填写公钥。"
-
 #: src/features/channels/channel-dialog.tsx
 msgid "A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id."
 msgstr "Satori 网关机器人。仅限私聊；每个频道一个机器人，需填写网关 URL、平台和机器人 id。"
@@ -425,10 +421,6 @@ msgid "Add access"
 msgstr "添加访问权限"
 
 #: src/features/signing-credentials/pages.tsx
-msgid "Add an SSH key"
-msgstr "添加 SSH 密钥"
-
-#: src/features/signing-credentials/pages.tsx
 msgid "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 msgstr "添加 SSH 密钥或注册 Passkey，以便为特权任务签名授权。"
 
@@ -465,10 +457,6 @@ msgstr "添加源"
 #: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "添加共享"
-
-#: src/features/signing-credentials/pages.tsx
-msgid "Add SSH key"
-msgstr "添加 SSH 密钥"
 
 #: src/features/users/pages.tsx
 #: src/features/users/user-group-dialogs.tsx
@@ -1340,6 +1328,7 @@ msgid "Copy code"
 msgstr "复制代码"
 
 #: src/components/decision/signature-panel.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Copy command"
 msgstr "复制命令"
 
@@ -2147,6 +2136,10 @@ msgstr "过期时间"
 #: src/features/channels/chat-accounts-section.tsx
 msgid "Expires <0/>."
 msgstr "到期时间 <0/>。"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Expires <0/>. Run this on your workstation and paste the output below:"
+msgstr "有效期至 <0/>。请在你的工作站上运行以下命令，并将输出粘贴到下方："
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Expires after"
@@ -3431,10 +3424,6 @@ msgstr "旧文本"
 msgid "On behalf of"
 msgstr "代表"
 
-#: src/features/signing-credentials/pages.tsx
-msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
-msgstr "一行 authorized_keys 内容：ssh-ed25519、sk-ssh-ed25519@openssh.com、ecdsa-sha2-nistp256 或 sk-ecdsa-sha2-nistp256@openssh.com。"
-
 #: src/features/library/library-section.tsx
 #: src/features/library/limits-dialog.tsx
 msgid "One file"
@@ -3563,13 +3552,13 @@ msgstr "可选；默认使用目标主机。"
 msgid "Optional; it defaults to the node's hostname."
 msgstr "可选；默认使用节点的主机名。"
 
-#: src/features/signing-credentials/pages.tsx
-msgid "Optional; it names the trust entry."
-msgstr "可选；用于命名信任条目。"
-
 #: src/features/channels/channel-dialog.tsx
 msgid "Optional. It is encrypted with the master key and never shown again."
 msgstr "可选。它会用主密钥加密，之后不再显示。"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Or sign the challenge by hand with ssh-keygen:"
+msgstr "或者手动使用 ssh-keygen 签名挑战："
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
@@ -3807,7 +3796,6 @@ msgid "Provider models"
 msgstr "提供方模型"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Public key"
@@ -3942,8 +3930,16 @@ msgid "Reconnecting…"
 msgstr "正在重新连接…"
 
 #: src/features/signing-credentials/pages.tsx
+msgid "Register an SSH key"
+msgstr "注册 SSH 密钥"
+
+#: src/features/signing-credentials/pages.tsx
 msgid "Register Passkey"
 msgstr "注册 Passkey"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Register SSH key"
+msgstr "注册 SSH 密钥"
 
 #: src/components/decision/approval-panel.tsx
 #: src/components/decision/reject.tsx
@@ -4116,6 +4112,10 @@ msgstr "报告发送到"
 msgid "Report:"
 msgstr "报告："
 
+#: src/features/signing-credentials/pages.tsx
+msgid "Request a new challenge"
+msgstr "请求新挑战"
+
 #: src/features/settings/model-dialog.tsx
 msgid "Request body (JSON)"
 msgstr "请求体（JSON）"
@@ -4131,6 +4131,10 @@ msgstr "请求体覆盖必须是有效的 JSON。"
 #: src/features/settings/model-dialog.tsx
 msgid "Request body per level"
 msgstr "各档请求体"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Request challenge"
+msgstr "请求挑战"
 
 #: src/components/decision/request-details.tsx
 msgid "Request details"
@@ -4642,6 +4646,10 @@ msgstr "展示给模型；否则使用 MCP 服务器自己的说明"
 msgid "Sign"
 msgstr "签名"
 
+#: src/features/signing-credentials/pages.tsx
+msgid "Sign a challenge with the SSH key. The signature proves you hold the private key, and the public key is read from it; encrypted keys, ssh-agent and FIDO keys work."
+msgstr "用 SSH 密钥签名一个挑战。签名证明你持有私钥，公钥从签名中读取；加密密钥、ssh-agent 和 FIDO 密钥均可使用。"
+
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
 msgstr "登录"
@@ -4673,6 +4681,7 @@ msgstr "信号"
 
 #: src/components/decision/signature-panel.tsx
 #: src/features/approvals/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Signature"
 msgstr "签名"
 
@@ -5059,7 +5068,6 @@ msgstr "机器人在该平台上的用户 id；频道页面会列出网关上报
 msgid "The model list could not be loaded."
 msgstr "无法加载模型列表。"
 
-#: src/features/signing-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "The name must be at most 100 characters."
 msgstr "名称最多 100 个字符。"

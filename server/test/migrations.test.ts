@@ -13,6 +13,7 @@ import * as m0007 from "../src/storage/migrations/0007_extensions.ts";
 import * as m0008 from "../src/storage/migrations/0008_channels.ts";
 import * as m0009 from "../src/storage/migrations/0009_authorization_lookup.ts";
 import * as m0010 from "../src/storage/migrations/0010_review_tool_task.ts";
+import * as m0011 from "../src/storage/migrations/0011_delete_ssh_signing_credentials.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 // Opening a schema runs the migrator or creates tables under the shared DDL lock; in the full parallel
@@ -323,6 +324,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0008_channels" },
 			{ name: "0009_authorization_lookup" },
 			{ name: "0010_review_tool_task" },
+			{ name: "0011_delete_ssh_signing_credentials" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
@@ -502,6 +504,51 @@ describe("review tool task migration", () => {
 		expect(tasks.rows[0]?.source_tool_task).toBeNull();
 		expect(groups.rows[0]?.source_tool_task).toBeNull();
 		expect(calls.rows[0]?.source_tool_task).toBeNull();
+	});
+});
+
+describe("SSH signing credential cleanup migration", () => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite", { migrate: false });
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("deletes SSH credentials but keeps Passkeys", async () => {
+		const before = {
+			"0001_initial": m0001,
+			"0002_task_transfer": m0002,
+			"0003_libraries": m0003,
+			"0004_purpose_and_image_cache": m0004,
+			"0005_task_group_transfer": m0005,
+			"0006_image_state": m0006,
+			"0007_extensions": m0007,
+			"0008_channels": m0008,
+			"0009_authorization_lookup": m0009,
+			"0010_review_tool_task": m0010,
+		};
+		await runMigrations(db, before);
+		const now = "2026-01-01T00:00:00.000Z";
+		await sql`insert into orgs (id, name, created_at) values ('org-1', 'Org', ${now})`.execute(db);
+		await sql`
+			insert into users (id, org_id, username, display_name, kind, status, created_at)
+			values ('user-1', 'org-1', 'alice', 'Alice', 'member', 'active', ${now})`.execute(db);
+		const insert = (id: string, kind: string, fingerprint: string | null, credentialId: string | null) =>
+			sql`
+			insert into signing_credentials (id, user_id, kind, name, public_key, fingerprint, credential_id, rp_id, created_at)
+			values (${id}, 'user-1', ${kind}, ${id}, 'key', ${fingerprint}, ${credentialId}, null, ${now})`.execute(db);
+		await insert("ssh-1", "ssh", "SHA256:one", null);
+		await insert("ssh-2", "ssh", "SHA256:two", null);
+		await insert("passkey-1", "webauthn", null, "credential-1");
+
+		await runMigrations(db, { ...before, "0011_delete_ssh_signing_credentials": m0011 });
+
+		const rows = await db.selectFrom("signing_credentials").select(["id", "kind"]).orderBy("id").execute();
+		expect(rows).toEqual([{ id: "passkey-1", kind: "webauthn" }]);
 	});
 });
 

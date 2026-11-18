@@ -128,7 +128,13 @@ async function pendingOption(
 	const payload = signPayloadViewOf(option.payload);
 	if (!payload) return null;
 	payload.passkeys = await passkeysFor(db, userId, nodeId, [option]);
-	return { kind: "sign", entries: option.entries, ttlMs: option.ttlMs, payload } satisfies PendingSignOption;
+	return {
+		kind: "sign",
+		entries: option.entries,
+		...(option.fingerprints && option.fingerprints.length > 0 ? { fingerprints: option.fingerprints } : {}),
+		ttlMs: option.ttlMs,
+		payload,
+	} satisfies PendingSignOption;
 }
 
 /** The options of a stored record, for the owner's endpoint; null when nothing is planned yet. */

@@ -62,7 +62,7 @@ export type SubmitAuthorizationInput = { authorization: string } | { payload: st
 /** The dispatch usually claims the task within this window; refresh once more after it. */
 const DISPATCH_REFRESH_MS = 1_000;
 
-/** Submit the pasted `crha grant` output or a Passkey assertion. */
+/** Submit the pasted `crhu sign` output or a Passkey assertion. */
 export function useSubmitAuthorization() {
 	const queryClient = useQueryClient();
 	return useMutation({

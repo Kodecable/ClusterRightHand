@@ -91,7 +91,7 @@ crhs for its duration. See [Security](security.md).
 
 An authorization is a signed permission to run privileged tasks on a `forward` node. It is separate
 from a rule approval: the approval lets crhs send the task, and the authorization lets the node run
-it. An authorization can be signed by crhs, by a user's SSH key with `crha grant`, or by a user's
+it. An authorization can be signed by crhs, by a user's SSH key with `crhu sign`, or by a user's
 Passkey in the WebUI. It always has a deadline, and it is either one-shot (for specific tasks) or
 reusable (for any matching command until the deadline). A node can also approve a task locally
 without a signature.

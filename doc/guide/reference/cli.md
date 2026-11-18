@@ -1,7 +1,7 @@
 # Command-line reference
 
 This page describes what each command is for, with common examples. Run `crhs --help`,
-`crha --help` or `crha <command> --help` for every flag.
+`crha --help`, `crhu --help` or `<command> --help` for every flag.
 
 ## crhs
 
@@ -104,29 +104,47 @@ Errors are printed as `crha: <message>` with exit code 1.
 limited flash endurance. After a restart, a one-shot authorization could then be used again until its
 deadline.
 
-## crha grant
+## crhu
 
-`crha grant` signs an authorization with your SSH key on your workstation. It runs
-`ssh-keygen -Y sign`, so encrypted keys, ssh-agent and FIDO keys work, and it never reads the private
-key itself. It shows what you are about to sign and asks for confirmation.
+`crhu` is the standalone signing utility for your workstation. It signs authorization payloads from
+the WebUI, builds and signs offline authorizations, and signs the challenge that registers an SSH
+signing credential. It never reads a private key: it calls `ssh-keygen -Y sign`, so encrypted keys,
+ssh-agent and FIDO keys work, and it verifies the result before printing it.
 
-Sign a request shown in the WebUI, then paste the output back:
+| Command | Purpose |
+|---|---|
+| `sign --payload <base64> [--hint <SHA256:…>]… [--key <path>] [--key-dir <dir>]… [--yes]` | Sign the payload of a WebUI authorization request. |
+| `grant --nodes <ids> --deadline <time> [--method … --exact … --spec-sha256 … \| --prefix …] [--any-command] [--task …] [--note …] [--hint …] [--key …]` | Build and sign a reusable or one-shot offline authorization. |
+| `register <challenge> [--hint …] [--key …] [--key-dir …]` | Sign the challenge shown when registering an SSH signing credential. |
+| `version` | Show the version. |
+
+`--nodes` takes node or node group UUIDs (shown in the WebUI) or `*`, never names. Every
+authorization needs `--deadline`, either a duration (`24h`) or an RFC 3339 time. `--exact` with
+`--spec-sha256` limits it to one exact task; `--prefix` limits the command target; `--task` makes it
+one-shot. Submit a signed authorization through `POST /api/authorizations`.
 
 ```sh
-crha grant --key ~/.ssh/id_ed25519 --payload '<payload from the WebUI>'
+# The payload from the WebUI, with the hints the page shows
+crhu sign --payload '<payload from the WebUI>' --hint SHA256:… --hint SHA256:…
+
+# A reusable authorization for a scheduled task
+crhu grant --nodes 0192f000-0000-7000-8000-000000000001 \
+  --method exec --prefix "systemctl restart " --deadline 720h --key ~/.ssh/id_ed25519
+
+# The registration challenge from Signing credentials
+crhu register '<challenge from the WebUI>'
 ```
 
-Sign a reusable authorization, for example for a scheduled task:
+Without `--key`, `crhu` looks for signing keys in this order: ssh-agent identities through
+`SSH_AUTH_SOCK`, `~/.ssh/*.pub`, then each `--key-dir`. One candidate is used automatically; with
+several, the fingerprints and comments are listed and you choose on the terminal. `--hint` selects
+the first candidate whose fingerprint matches (the WebUI puts the credentials matching the plan's
+entries in the copied command), and `--key` uses exactly that file. `--yes` skips the payload
+confirmation; without it the exact bytes are shown and confirmed on `/dev/tty`.
 
-```sh
-crha grant --key ~/.ssh/id_ed25519 \
-  --nodes 0192f000-0000-7000-8000-000000000001 \
-  --method exec --prefix "systemctl restart " --deadline 720h
-```
-
-`--nodes` takes node or node group UUIDs (shown in the WebUI) or `*`, never names. A deadline is
-always required. `--exact` with `--spec-sha256` limits the authorization to one exact task; `--task`
-makes it one-shot. Submit a reusable authorization through `POST /api/authorizations`.
+The signature is checked before anything is printed. The printed line is the base64 Authorization
+that the WebUI accepts (`sign`, `grant`) or the SSHSIG that the registration form accepts
+(`register`). Install `crhu` from its own tar or deb/rpm package ([Install](../install.md#install-crhu)).
 
 ## crha approve and lock
 

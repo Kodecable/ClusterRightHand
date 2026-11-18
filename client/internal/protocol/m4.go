@@ -18,6 +18,9 @@ import (
 const (
 	// AuthNamespace is the SSHSIG namespace and the WebAuthn challenge prefix.
 	AuthNamespace = "crh-auth-v1"
+	// RegisterNamespace is the SSHSIG namespace of a signing-credential registration challenge;
+	// it is never accepted as an authorization.
+	RegisterNamespace = "crh-register-v1"
 	// AuthPayloadVersion is the only supported AuthorizationPayload.v value.
 	AuthPayloadVersion = 1
 )

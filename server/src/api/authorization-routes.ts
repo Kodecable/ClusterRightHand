@@ -1,6 +1,6 @@
 /**
  * User authorizations (doc/design/privilege.md "Authorization path"): submitting a signed authorization
- * (pasted `crha grant` output or a Passkey assertion), the administrators' list, the options
+ * (pasted `crhu sign` output or a Passkey assertion), the administrators' list, the options
  * the waiting page shows its owner, and the owner rejecting the wait instead of signing it.
  */
 import {
@@ -53,7 +53,7 @@ const submitRoute = defineRoute({
 	method: "post",
 	path: "/authorizations",
 	tags: TAGS,
-	summary: "Submit a signed authorization (pasted `crha grant` output or a Passkey assertion)",
+	summary: "Submit a signed authorization (pasted `crhu sign` output or a Passkey assertion)",
 	agent: "deny", // signature submission
 	request: { body: { required: true, ...json(SubmitAuthorizationBodySchema) } },
 	responses: {
@@ -146,7 +146,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 	const app = apiRouter();
 
 	/**
-	 * Accepts `{ authorization: base64 }` (CBOR Authorization, e.g. `crha grant` output) or
+	 * Accepts `{ authorization: base64 }` (CBOR Authorization, e.g. `crhu sign` output) or
 	 * `{ payload: base64, webauthn: AuthenticationResponseJSON }` from the waiting page's Passkey button: the
 	 * bytes the browser signed, so a payload refreshed while the owner was signing still verifies.
 	 */

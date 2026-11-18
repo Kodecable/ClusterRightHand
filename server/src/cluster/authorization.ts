@@ -35,6 +35,11 @@ function optionRecord(option: PlannedOption): AuthorizationOption {
 	if (option.kind === "local_window") {
 		return { kind: "local_window", nodeId: option.nodeId, nodeName: option.nodeName };
 	}
+	const fingerprints = [
+		...new Set(
+			option.entries.flatMap((entry) => (entry.credential.kind === "sshsig" ? [entry.credential.fingerprint] : [])),
+		),
+	];
 	return {
 		kind: "sign",
 		entries: option.entries.map((entry) => ({
@@ -45,6 +50,7 @@ function optionRecord(option: PlannedOption): AuthorizationOption {
 				? { cosign: entry.cosignAvailable ? ("available" as const) : ("missing" as const) }
 				: {}),
 		})),
+		...(fingerprints.length > 0 ? { fingerprints } : {}),
 		ttlMs: option.ttlMs,
 		payload: payloadViewOf(option.authorization),
 	};

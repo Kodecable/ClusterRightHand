@@ -93,7 +93,7 @@ describePodman("privileged system: task groups", () => {
 	}
 
 	async function signAndSubmit(payload: string): Promise<{ status: number }> {
-		const authorization = await signPayload(bin, join(tmp, "owner-key"), payload);
+		const authorization = await signPayload(join(tmp, "crhu"), join(tmp, "owner-key"), payload);
 		const res = await submitAuthorization(crhs, authorization);
 		// The dispatch continues in the background; the caller waits for the task states.
 		await crhs.cluster.drain();
@@ -107,7 +107,7 @@ describePodman("privileged system: task groups", () => {
 		await crhs.loginAdmin();
 		await sshKeygen(join(tmp, "owner-key"));
 		ownerPublicKey = await publicKeyOf(join(tmp, "owner-key"));
-		await registerSshCredential(crhs, ownerPublicKey);
+		await registerSshCredential(crhs, join(tmp, "crhu"), join(tmp, "owner-key"));
 		a = await PrivilegedNode.create({ bin, crhs, mode: "forward", trust: [userEntry()] });
 		// B starts with a node_id that is not the crhs id: the shared payload addresses B's real id,
 		// so crha refuses it while A accepts the same authorization (the deterministic way to make

@@ -10,6 +10,9 @@
 import { createHash, createPublicKey, type KeyObject, sign, verify } from "node:crypto";
 import { AUTH_NAMESPACE } from "@crh/protocol";
 
+/** The SSHSIG namespace of a signing-credential registration challenge; never an authorization. */
+export const REGISTER_NAMESPACE = "crh-register-v1";
+
 export type SshKeyType =
 	| "ssh-ed25519"
 	| "ecdsa-sha2-nistp256"
@@ -122,6 +125,47 @@ export function sshsigKeyBlob(blob: Uint8Array): Uint8Array | null {
 	} catch {
 		return null;
 	}
+}
+
+/**
+ * The `authorized_keys` line of the key an SSHSIG names, for a registration where the public key
+ * comes from the signature itself rather than from the request body.
+ */
+export function sshsigKeyLine(blob: Uint8Array): string | null {
+	try {
+		const sig = new Reader(blob);
+		if (Buffer.from(sig.raw(6)).toString("utf8") !== "SSHSIG") return null;
+		sig.u32();
+		const keyBlob = sig.string();
+		const key = new Reader(keyBlob);
+		const keyType = key.text();
+		if (!isSshKeyType(keyType)) return null;
+		return authorizedKeyLine(keyType, keyBlob);
+	} catch {
+		return null;
+	}
+}
+
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * Decodes an SSHSIG signature a user pasted: the `-----BEGIN SSH SIGNATURE-----` armor
+ * `ssh-keygen -Y sign` writes, or its base64 blob on one line (`crhu register`).
+ */
+export function decodeSshsigText(text: string): Uint8Array {
+	const trimmed = text.trim();
+	let body = trimmed;
+	const begin = "-----BEGIN SSH SIGNATURE-----";
+	const end = "-----END SSH SIGNATURE-----";
+	if (trimmed.startsWith(begin)) {
+		if (!trimmed.endsWith(end)) throw new Error("the armored signature has no end marker");
+		body = trimmed.slice(begin.length, trimmed.length - end.length).trim();
+	}
+	const compact = body.replace(/\s+/g, "");
+	if (compact === "" || !BASE64_RE.test(compact)) throw new Error("the signature is not base64");
+	const bytes = Uint8Array.from(Buffer.from(compact, "base64"));
+	if (Buffer.from(bytes).toString("base64") !== compact) throw new Error("the signature is not valid base64");
+	return bytes;
 }
 
 /** The `authorized_keys` line of a public key blob, with an optional comment. */
@@ -244,7 +288,13 @@ function mpintsToP1363(blob: Uint8Array): Uint8Array {
  * of throwing, so callers can log a rejection. Follows doc/design/protocol.md "Authorization object" and is as strict as
  * `ssh-keygen -Y verify` plus the UP requirement for `sk-*` signatures.
  */
-export function verifySshsig(publicKeyLine: string, message: Uint8Array, blob: Uint8Array): SshsigVerification {
+export function verifySshsig(
+	publicKeyLine: string,
+	message: Uint8Array,
+	blob: Uint8Array,
+	options: { namespace?: string } = {},
+): SshsigVerification {
+	const wantNamespace = options.namespace ?? AUTH_NAMESPACE;
 	try {
 		const expected = parseAuthorizedKey(publicKeyLine);
 		const sig = new Reader(blob);
@@ -257,7 +307,7 @@ export function verifySshsig(publicKeyLine: string, message: Uint8Array, blob: U
 		const inner = sig.string();
 		sig.end();
 		if (!Buffer.from(keyBlob).equals(Buffer.from(expected.blob))) return invalid("signature is for another key");
-		if (namespace !== AUTH_NAMESPACE) return invalid(`namespace is ${namespace}, want ${AUTH_NAMESPACE}`);
+		if (namespace !== wantNamespace) return invalid(`namespace is ${namespace}, want ${wantNamespace}`);
 		if (reserved.length !== 0) return invalid("reserved field is not empty");
 		if (hashAlg !== "sha512" && hashAlg !== "sha256") return invalid(`unsupported hash ${hashAlg}`);
 		const key = new Reader(keyBlob);

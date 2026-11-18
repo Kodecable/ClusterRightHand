@@ -8,11 +8,13 @@ import {
 	OkResponseSchema,
 	SigningCredentialResponseSchema,
 	SigningCredentialsResponseSchema,
+	SshSigningChallengeResponseSchema,
 	SshSigningCredentialBodySchema,
 	WebauthnOptionsResponseSchema,
 	WebauthnSigningCredentialBodySchema,
 } from "@crh/api/schemas";
 import type { RegistrationResponseJSON } from "@simplewebauthn/server";
+import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
 import { DEFAULT_RP_NAME, type WebauthnConfig } from "../config.ts";
 import {
@@ -20,6 +22,8 @@ import {
 	addWebauthnSigningCredential,
 	deleteSigningCredential,
 	listSigningCredentials,
+	SshRegistrationChallenges,
+	verifySshRegistration,
 	webauthnSigningCredentials,
 } from "../privilege/signing-credentials.ts";
 import { RegistrationChallenges, rpForRequest, verifyRegistration } from "../privilege/webauthn.ts";
@@ -39,11 +43,20 @@ const listRoute = defineRoute({
 	responses: { 200: { description: "The caller's credentials", ...json(SigningCredentialsResponseSchema) } },
 });
 
+const sshChallengeRoute = defineRoute({
+	method: "post",
+	path: "/me/signing-credentials/ssh/challenge",
+	tags: TAGS,
+	summary: "Start an SSH signing-credential registration and return the challenge to sign",
+	agent: "deny",
+	responses: { 200: { description: "The challenge and its expiry", ...json(SshSigningChallengeResponseSchema) } },
+});
+
 const addSshRoute = defineRoute({
 	method: "post",
 	path: "/me/signing-credentials/ssh",
 	tags: TAGS,
-	summary: "Register an SSH public key as one of the caller's signing credentials",
+	summary: "Register an SSH signing credential with a signature over a challenge",
 	agent: "deny",
 	request: { body: { required: true, ...json(SshSigningCredentialBodySchema) } },
 	responses: { 201: { description: "The registered credential", ...json(SigningCredentialResponseSchema) } },
@@ -85,6 +98,10 @@ export interface SigningCredentialRoutesOptions {
 	settings?: SettingsStore;
 	/** Shared by the routes and their tests to control challenge expiry. */
 	challenges?: RegistrationChallenges;
+	/** `[SshRegistrationChallenges]` override for tests; production keeps one store. */
+	sshChallenges?: SshRegistrationChallenges;
+	/** The stable identity of this crhs installation, named in every SSH registration challenge. */
+	serverIdentity?: string;
 }
 
 /** Expects requireUser to have run. Every route works on the caller's own credentials only. */
@@ -98,16 +115,30 @@ export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutes
 			origins: [],
 		};
 	const challenges = options.challenges ?? new RegistrationChallenges();
+	const sshChallenges = options.sshChallenges ?? new SshRegistrationChallenges();
 
 	app.openapi(listRoute, async (c) =>
 		c.json({ signingCredentials: await listSigningCredentials(db, c.get("user").userId) }, 200),
 	);
 
+	app.openapi(sshChallengeRoute, async (c) => {
+		const user = c.get("user");
+		if (!options.serverIdentity) {
+			throw new HTTPException(503, { message: "the server identity is not configured" });
+		}
+		const issued = sshChallenges.issue({ userId: user.userId, serverIdentity: options.serverIdentity });
+		return c.json({ challenge: issued.challenge, expiresAt: new Date(issued.expiresAt).toISOString() }, 200);
+	});
+
 	app.openapi(addSshRoute, async (c) => {
 		const user = c.get("user");
 		const body = c.req.valid("json");
+		// Consumed before verification: a failed attempt must not leave a challenge to guess against.
+		const pending = sshChallenges.takeForUser(user.userId);
+		if (!pending) throw new UserError("no pending SSH registration challenge; request one first");
+		const verified = verifySshRegistration(body.signature, pending.bytes);
 		const credential = await addSshSigningCredential(db, user.userId, {
-			publicKey: body.publicKey,
+			publicKey: verified.publicKey,
 			name: body.name,
 		});
 		void c.get("audit").record({

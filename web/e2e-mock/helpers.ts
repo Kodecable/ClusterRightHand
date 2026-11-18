@@ -1313,21 +1313,26 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		// --- signing credentials and authorizations --------------------------------
 		if (path === "/api/me/signing-credentials" && method === "GET")
 			return json({ signingCredentials: state.signingCredentials });
+		if (path === "/api/me/signing-credentials/ssh/challenge" && method === "POST") {
+			// The signature proves possession; the mock accepts any base64 and reads the key from it.
+			const challenge = Buffer.from("crh-register-v1\nuser:user-1\nserver:mock\nnonce:AAECAwQ\n").toString("base64url");
+			return json({ challenge, expiresAt: "2026-01-01T00:10:00.000Z" });
+		}
 		if (path === "/api/me/signing-credentials/ssh" && method === "POST") {
-			const input = body as { publicKey: string; name?: string };
+			const input = body as { signature: string; name?: string };
 			const credential: SigningCredentialView = {
 				id: `signing-credential-${state.signingCredentials.length + 1}`,
 				kind: "ssh",
 				name: input.name ?? "ssh key",
 				createdAt: "2026-01-01T00:00:00.000Z",
-				publicKey: input.publicKey,
+				publicKey: "ssh-ed25519 AAAAlaptop laptop",
 				fingerprint: "SHA256:user",
 				credentialId: null,
 				rpId: null,
 				origins: [],
 			};
 			state.signingCredentials.push(credential);
-			return json({ signingCredential: credential });
+			return json({ signingCredential: credential }, 201);
 		}
 		const credentialDelete = /^\/api\/me\/signing-credentials\/([^/]+)$/.exec(path);
 		if (credentialDelete && method === "DELETE") {

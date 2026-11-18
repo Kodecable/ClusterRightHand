@@ -408,7 +408,7 @@ describe("ApprovalTaskPage", () => {
 		});
 		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
 		const region = await screen.findByRole("region", { name: "Your signature is needed" });
-		expect(await within(region).findByRole("tab", { name: "crha grant" })).toHaveAttribute("aria-selected", "true");
+		expect(await within(region).findByRole("tab", { name: "crhu sign" })).toHaveAttribute("aria-selected", "true");
 		fireEvent.click(within(region).getByRole("tab", { name: "Reject" }));
 		fireEvent.change(within(region).getByLabelText("Reason (optional)"), {
 			target: { value: "  not signing  " },

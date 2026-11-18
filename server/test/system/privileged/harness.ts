@@ -13,7 +13,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { type InProcessCrhs, type TaskJson, waitFor } from "../../e2e/harness.ts";
 
@@ -90,15 +90,23 @@ function run(cmd: string, args: string[], opts: { timeout?: number; stdin?: stri
 }
 
 /**
- * Builds a static crha on the host (the image never compiles Go). `GOCACHE` is passed through when
- * the environment sets it; otherwise Go's own cache is used. `tags` selects Go build tags (the soak
- * uses `pprof`; the system tests build the default binary).
+ * Builds the static crha and crhu binaries on the host (the image never compiles Go); crhu signs the
+ * payloads and registration challenges of the user paths. `GOCACHE` is passed through when the
+ * environment sets it; otherwise Go's own cache is used. `tags` selects Go build tags (the soak uses
+ * `pprof`; the system tests build the default binary).
  */
 export async function buildStaticCrha(outDir: string, opts: { tags?: string[] } = {}): Promise<string> {
 	const bin = join(outDir, "crha");
-	const tags = opts.tags && opts.tags.length > 0 ? ["-tags", opts.tags.join(",")] : [];
+	await buildStaticClient("./cmd/crha", bin, opts.tags);
+	await buildStaticClient("./cmd/crhu", join(outDir, "crhu"), opts.tags);
+	return bin;
+}
+
+/** Builds one client binary with CGO disabled; the image never compiles Go. */
+async function buildStaticClient(command: string, bin: string, tags?: string[]): Promise<void> {
+	const buildTags = tags && tags.length > 0 ? ["-tags", tags.join(",")] : [];
 	await new Promise<void>((done, fail) => {
-		const child = spawn("go", ["build", ...tags, "-o", bin, "./cmd/crha"], {
+		const child = spawn("go", ["build", ...buildTags, "-o", bin, command], {
 			cwd: CLIENT_DIR,
 			env: { ...process.env, CGO_ENABLED: "0" },
 			stdio: ["ignore", "pipe", "pipe"],
@@ -113,7 +121,6 @@ export async function buildStaticCrha(outDir: string, opts: { tags?: string[] } 
 		child.on("error", fail);
 		child.on("exit", (code) => (code === 0 ? done() : fail(new Error(`go build failed (${code}): ${log}`))));
 	});
-	return bin;
 }
 
 /**
@@ -223,6 +230,7 @@ export class PrivilegedNode {
 	readonly dir: string;
 	readonly crhs: InProcessCrhs;
 	readonly bin: string;
+	readonly crhuBin: string;
 	readonly sshDir: string;
 	readonly configDir: string;
 	readonly userKeyPath: string;
@@ -248,6 +256,7 @@ export class PrivilegedNode {
 		this.dir = dir;
 		this.crhs = crhs;
 		this.bin = bin;
+		this.crhuBin = join(dirname(bin), "crhu");
 		this.sshDir = join(dir, "ssh");
 		this.configDir = join(dir, "config");
 		this.userKeyPath = join(dir, "ssh", "user-signing-key");
@@ -534,11 +543,29 @@ function trustEntryToml(entry: TrustSpec): string[] {
 // Driving the user authorization paths
 // ---------------------------------------------------------------------------
 
-/** Registers an SSH public key as one of the caller's (admin's) signing credentials. */
-export async function registerSshCredential(crhs: InProcessCrhs, publicKey: string): Promise<string> {
-	const res = await crhs.api("/api/me/signing-credentials/ssh", { body: { publicKey, name: "privileged test key" } });
-	if (res.status !== 201) throw new Error(`register credential: ${res.status} ${JSON.stringify(res.json)}`);
-	return res.json.signingCredential.id;
+/**
+ * Registers an SSH key as one of the caller's (admin's) signing credentials with the real crhu: the
+ * server issues a challenge, crhu signs it with the private key on the host.
+ */
+export async function registerSshCredential(crhs: InProcessCrhs, crhuBin: string, keyPath: string): Promise<string> {
+	const challenge = await crhs.api("/api/me/signing-credentials/ssh/challenge", { body: {} });
+	if (challenge.status !== 200) {
+		throw new Error(`registration challenge: ${challenge.status} ${JSON.stringify(challenge.json)}`);
+	}
+	const res = await run(crhuBin, ["register", challenge.json.challenge as string, "--key", keyPath]);
+	if (res.code !== 0) throw new Error(`crhu register failed:\n${res.stdout}\n${res.stderr}`);
+	const signature = res.stdout
+		.split("\n")
+		.map((line) => line.trim())
+		.find((line) => line.length > 0);
+	if (!signature) throw new Error(`crhu register printed nothing:\n${res.stderr}`);
+	const registered = await crhs.api("/api/me/signing-credentials/ssh", {
+		body: { signature, name: "privileged test key" },
+	});
+	if (registered.status !== 201) {
+		throw new Error(`register credential: ${registered.status} ${JSON.stringify(registered.json)}`);
+	}
+	return registered.json.signingCredential.id;
 }
 
 export interface PendingAuthorization {
@@ -574,15 +601,15 @@ export async function pendingAuthorization(crhs: InProcessCrhs, taskId: string):
 	return pendingSignOf(crhs, taskId);
 }
 
-/** Signs a pending payload on the host with the real CLI: `crha grant --payload … --key … --yes`. */
-export async function signPayload(bin: string, keyPath: string, payload: string): Promise<string> {
-	const res = await run(bin, ["grant", "--payload", payload, "--key", keyPath, "--yes"]);
-	if (res.code !== 0) throw new Error(`crha grant failed:\n${res.stdout}\n${res.stderr}`);
+/** Signs a pending payload on the host with the real CLI: `crhu sign --payload … --key … --yes`. */
+export async function signPayload(crhuBin: string, keyPath: string, payload: string): Promise<string> {
+	const res = await run(crhuBin, ["sign", "--payload", payload, "--key", keyPath, "--yes"]);
+	if (res.code !== 0) throw new Error(`crhu sign failed:\n${res.stdout}\n${res.stderr}`);
 	const line = res.stdout
 		.split("\n")
 		.map((l) => l.trim())
 		.find((l) => l.length > 0);
-	if (!line) throw new Error(`crha grant printed nothing:\n${res.stderr}`);
+	if (!line) throw new Error(`crhu sign printed nothing:\n${res.stderr}`);
 	return line;
 }
 
@@ -600,7 +627,7 @@ export async function authorizeWithCli(
 	taskId: string,
 ): Promise<{ id: string; authorization: string }> {
 	const pending = await pendingAuthorization(node.crhs, taskId);
-	const authorization = await signPayload(node.bin, node.userKeyPath, pending.payload);
+	const authorization = await signPayload(node.crhuBin, node.userKeyPath, pending.payload);
 	const res = await submitAuthorization(node.crhs, authorization);
 	if (res.status !== 200) throw new Error(`submit authorization: ${res.status} ${JSON.stringify(res.json)}`);
 	return { id: res.json.authorization?.id ?? pending.id, authorization };

@@ -99,6 +99,8 @@ jobs:
           fi
       - name: build the packages
         shell: bash
+        # package.ts builds the crhs bundle, the crha node client and the crhu signing utility
+        # (archives, deb and rpm) for every requested architecture.
         env:
           NFPM_RPM_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
         run: pnpm package
@@ -117,6 +119,14 @@ jobs:
             echo "::error::no rpm packages were built"
             exit 1
           fi
+          for package in crha crhu; do
+            for pattern in "${package}"-*-linux-*.tar.gz "${package}"_*.deb "${package}"-*.rpm; do
+              if ! compgen -G "dist/release/$pattern" >/dev/null; then
+                echo "::error::missing ${package} artifact matching $pattern"
+                exit 1
+              fi
+            done
+          done
           for file in "${rpms[@]}"; do
             result="$(rpm --dbpath "$dbpath" -K "$file" 2>&1 || true)"
             echo "$result"

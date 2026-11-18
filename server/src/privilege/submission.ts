@@ -1,5 +1,5 @@
 /**
- * Turning an `Authorization` a user submits (pasted `crha grant` output, or a Passkey assertion built
+ * Turning an `Authorization` a user submits (pasted `crhu sign` output, or a Passkey assertion built
  * by the waiting page) into something crhs can check and hand to crha (doc/design/privilege.md "Signing methods",
  * doc/design/protocol.md "Authorization object").
  *
@@ -45,7 +45,7 @@ export interface SubmittedAuthorization {
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]+={0,2}$/;
 
-/** Decodes the base64 text `crha grant` prints: CBOR(Authorization) as one base64 string. */
+/** Decodes the base64 text `crhu sign` prints: CBOR(Authorization) as one base64 string. */
 export function parseSubmittedAuthorization(text: string): SubmittedAuthorization {
 	const compact = text.replace(/\s+/g, "");
 	if (!BASE64_RE.test(compact)) throw new SubmissionError("authorization must be base64 text");

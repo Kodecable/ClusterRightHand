@@ -289,7 +289,7 @@ The rules allowed the task, but a `forward` node needs a signature or an open lo
 - sign with an SSH key on your workstation, then paste the result into the WebUI:
 
   ```sh
-  crha grant --key ~/.ssh/id_ed25519 --payload '<payload from the WebUI>'
+  crhu sign --payload '<payload from the WebUI>' --key ~/.ssh/id_ed25519
   ```
 
 - open the window on the node, if your uid is in a `local` trust entry:

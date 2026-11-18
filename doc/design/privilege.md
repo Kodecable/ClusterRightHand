@@ -111,7 +111,7 @@ while they still ask for the same thing ([The planner](#the-planner)). The paylo
 options without the bytes.
 
 - **Deadline.** Every authorization must have one. A node refuses one without a deadline, crhs refuses
-  to store it, and `crha grant` refuses to sign it, because there is no revocation: an authorization
+  to store it, and crhu refuses to sign it, because there is no revocation: an authorization
   without an expiry could be used forever ([Revoking trust](#revoking-trust)). A trust entry can also
   cap the lifetime with `max_ttl`.
 - **Nodes.** Node UUIDs, node group UUIDs, or `*` (every node that trusts the signer). Names are
@@ -125,7 +125,7 @@ options without the bytes.
   command.
 - **One-shot or reusable.** A one-shot authorization lists task ids and an attempt number and is valid
   only for those tasks; a reusable one is valid for any matching task until its deadline. Scheduled
-  tasks and authorizations pre-signed with `crha grant` rely on reuse. crhs authorizations, all
+  tasks and authorizations pre-signed with `crhu grant` rely on reuse. crhs authorizations, all
   cosignatures, and every approval of a specific task are one-shot.
 - **Task groups.** One one-shot authorization covers the whole group, listing node and task id pairs
   position by position, so the user signs once. A node accepts only the task id paired with itself, so
@@ -156,12 +156,24 @@ refuses to start. crha owns `/var/lib/crha`, so the default is `/var/lib/crha-pr
 | Signer | Form | Where it is signed |
 |---|---|---|
 | crhs | SSHSIG with an Ed25519 key | Inside crhs |
-| User SSH key, including FIDO keys | SSHSIG | On the user's workstation with `crha grant`, which calls `ssh-keygen -Y sign` |
+| User SSH key, including FIDO keys | SSHSIG | On the user's workstation with `crhu sign`, which calls `ssh-keygen -Y sign` |
 | User Passkey | WebAuthn assertion over the payload | In the WebUI |
 
 SSHSIG was chosen because users already have SSH keys and agents, `ssh-keygen` handles encrypted keys,
 agents and FIDO touch, and any authorization can be checked by hand with `ssh-keygen -Y verify`.
-`crha grant` never reads the private key.
+crhu never reads the private key.
+
+Registering an SSH credential proves possession: crhs issues a short-lived, single-use challenge in
+the separate `crh-register-v1` namespace, and the user signs it with the key. crhs takes the public key
+from the SSHSIG itself, so a public key alone can never be registered for someone else. The challenge
+names the user and the crhs installation and carries 32 random bytes; a registration signature never
+verifies as an authorization, and an authorization never verifies as a registration. The challenge is
+consumed on the first verification attempt, valid or not, and expires after ten minutes. Passkey
+registration already proves possession through the authenticator's attestation.
+
+A `sign` option may carry the fingerprints of the owner's SSH credentials that match its user entries.
+They are a selection aid for `crhu sign --hint`, not a trust decision: the planner decides exactly as
+before, and the node verifies the signature against its own trust configuration.
 
 Signature counters are ignored (synchronized Passkeys always report 0); the used list prevents replay.
 A trust entry can require user verification (`require_uv`).
@@ -352,7 +364,7 @@ task; if no window opens, the wait expires like any other authorization wait. A 
 offered a `local_window`: its members can only be released by a signature.
 
 The owner sees every option on the approvals page, the task page or the session's tool card: a
-`sign` option is the signature panel (a Passkey, `crha grant` or the `ssh-keygen` recipe), a
+`sign` option is the signature panel (a Passkey, `crhu sign` or the `ssh-keygen` recipe), a
 `local_window` option is the command block, and Reject is always available. A task whose options are
 not written yet shows "Preparing…" in the WebUI and gets no chat card until they are; a planned task
 always has at least one option.

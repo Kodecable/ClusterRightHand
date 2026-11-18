@@ -226,6 +226,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 		signingCredentialRoutes(db, {
 			...(options.webauthn ? { webauthn: options.webauthn } : {}),
 			...(options.settings ? { settings: options.settings } : {}),
+			...(options.serverFingerprint ? { serverIdentity: options.serverFingerprint } : {}),
 		}),
 	);
 	app.route("/api", authorizationRoutes(db, { cluster, ...(taskGroups ? { taskGroups } : {}) }));

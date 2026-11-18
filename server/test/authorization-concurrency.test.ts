@@ -34,6 +34,7 @@ import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helper
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { createSshKey, type TestSshKey } from "./helpers/authenticator.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { registerSshCredential } from "./helpers/signing-credentials.ts";
 
 // Count planner calls without changing what they do: a group member's first dispatch must only plan the group.
 vi.mock("../src/privilege/planner.ts", async (importOriginal) => {
@@ -83,7 +84,7 @@ describe("authorization paths and the task queue", () => {
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		ownerId = (await createUser(db, { username: "owner", kind: "member", password: "password-123" })).id;
-		app = makeApp(db, undefined, { cluster, taskGroups });
+		app = makeApp(db, undefined, { cluster, taskGroups, serverFingerprint: "test-server" });
 		ownerKey = createSshKey("ssh-ed25519");
 		await addSshSigningCredential(ownerKey);
 	});
@@ -97,10 +98,7 @@ describe("authorization paths and the task queue", () => {
 
 	async function addSshSigningCredential(key: TestSshKey): Promise<void> {
 		const cookie = await login(app, "owner", "password-123");
-		const res = await call(app, "/api/me/signing-credentials/ssh", {
-			cookie,
-			body: { publicKey: key.line, name: "test" },
-		});
+		const res = await registerSshCredential(app, cookie, key, "test");
 		expect(res.status).toBe(201);
 	}
 

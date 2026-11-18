@@ -312,10 +312,6 @@ msgstr "A prompt is required."
 msgid "A provider id is lowercase letters, digits and dashes."
 msgstr "A provider id is lowercase letters, digits and dashes."
 
-#: src/features/signing-credentials/pages.tsx
-msgid "A public key is required."
-msgstr "A public key is required."
-
 #: src/features/channels/channel-dialog.tsx
 msgid "A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id."
 msgstr "A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id."
@@ -425,10 +421,6 @@ msgid "Add access"
 msgstr "Add access"
 
 #: src/features/signing-credentials/pages.tsx
-msgid "Add an SSH key"
-msgstr "Add an SSH key"
-
-#: src/features/signing-credentials/pages.tsx
 msgid "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 msgstr "Add an SSH key or register a Passkey to sign authorizations for privileged tasks."
 
@@ -465,10 +457,6 @@ msgstr "Add origin"
 #: src/components/share-editor.tsx
 msgid "Add share"
 msgstr "Add share"
-
-#: src/features/signing-credentials/pages.tsx
-msgid "Add SSH key"
-msgstr "Add SSH key"
 
 #: src/features/users/pages.tsx
 #: src/features/users/user-group-dialogs.tsx
@@ -1340,6 +1328,7 @@ msgid "Copy code"
 msgstr "Copy code"
 
 #: src/components/decision/signature-panel.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Copy command"
 msgstr "Copy command"
 
@@ -2147,6 +2136,10 @@ msgstr "Expires"
 #: src/features/channels/chat-accounts-section.tsx
 msgid "Expires <0/>."
 msgstr "Expires <0/>."
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Expires <0/>. Run this on your workstation and paste the output below:"
+msgstr "Expires <0/>. Run this on your workstation and paste the output below:"
 
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Expires after"
@@ -3431,10 +3424,6 @@ msgstr "Old text"
 msgid "On behalf of"
 msgstr "On behalf of"
 
-#: src/features/signing-credentials/pages.tsx
-msgid "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
-msgstr "One authorized_keys line: ssh-ed25519, sk-ssh-ed25519@openssh.com, ecdsa-sha2-nistp256 or sk-ecdsa-sha2-nistp256@openssh.com."
-
 #: src/features/library/library-section.tsx
 #: src/features/library/limits-dialog.tsx
 msgid "One file"
@@ -3563,13 +3552,13 @@ msgstr "Optional; defaults to the target's host."
 msgid "Optional; it defaults to the node's hostname."
 msgstr "Optional; it defaults to the node's hostname."
 
-#: src/features/signing-credentials/pages.tsx
-msgid "Optional; it names the trust entry."
-msgstr "Optional; it names the trust entry."
-
 #: src/features/channels/channel-dialog.tsx
 msgid "Optional. It is encrypted with the master key and never shown again."
 msgstr "Optional. It is encrypted with the master key and never shown again."
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Or sign the challenge by hand with ssh-keygen:"
+msgstr "Or sign the challenge by hand with ssh-keygen:"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
@@ -3807,7 +3796,6 @@ msgid "Provider models"
 msgstr "Provider models"
 
 #: src/features/nodes/node-trust.tsx
-#: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Public key"
@@ -3942,8 +3930,16 @@ msgid "Reconnecting…"
 msgstr "Reconnecting…"
 
 #: src/features/signing-credentials/pages.tsx
+msgid "Register an SSH key"
+msgstr "Register an SSH key"
+
+#: src/features/signing-credentials/pages.tsx
 msgid "Register Passkey"
 msgstr "Register Passkey"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Register SSH key"
+msgstr "Register SSH key"
 
 #: src/components/decision/approval-panel.tsx
 #: src/components/decision/reject.tsx
@@ -4116,6 +4112,10 @@ msgstr "Report to"
 msgid "Report:"
 msgstr "Report:"
 
+#: src/features/signing-credentials/pages.tsx
+msgid "Request a new challenge"
+msgstr "Request a new challenge"
+
 #: src/features/settings/model-dialog.tsx
 msgid "Request body (JSON)"
 msgstr "Request body (JSON)"
@@ -4131,6 +4131,10 @@ msgstr "Request body overrides must be valid JSON."
 #: src/features/settings/model-dialog.tsx
 msgid "Request body per level"
 msgstr "Request body per level"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Request challenge"
+msgstr "Request challenge"
 
 #: src/components/decision/request-details.tsx
 msgid "Request details"
@@ -4642,6 +4646,10 @@ msgstr "Shown to the model; an MCP server's own instructions otherwise"
 msgid "Sign"
 msgstr "Sign"
 
+#: src/features/signing-credentials/pages.tsx
+msgid "Sign a challenge with the SSH key. The signature proves you hold the private key, and the public key is read from it; encrypted keys, ssh-agent and FIDO keys work."
+msgstr "Sign a challenge with the SSH key. The signature proves you hold the private key, and the public key is read from it; encrypted keys, ssh-agent and FIDO keys work."
+
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
 msgstr "Sign in"
@@ -4673,6 +4681,7 @@ msgstr "Signal"
 
 #: src/components/decision/signature-panel.tsx
 #: src/features/approvals/pages.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "Signature"
 msgstr "Signature"
 
@@ -5059,7 +5068,6 @@ msgstr "The login's user id in that platform; the channels page lists the ones t
 msgid "The model list could not be loaded."
 msgstr "The model list could not be loaded."
 
-#: src/features/signing-credentials/pages.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "The name must be at most 100 characters."
 msgstr "The name must be at most 100 characters."

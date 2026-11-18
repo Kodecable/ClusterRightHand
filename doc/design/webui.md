@@ -157,7 +157,7 @@ behaves the same on every page:
   monospace detail, a divider with room on both sides, then the panel's own tabs. Every slot except the
   title and the tabs is optional, and the truncated meta and reason lines show their full text on hover.
   Three panels share it: **ApprovalPanel** (**Approve / Always allow / Reject**), **SignaturePanel**
-  (**Passkey / `crha grant` / `ssh-keygen` / Local window / Reject**, rendered from the options the
+  (**Passkey / `crhu sign` / `ssh-keygen` / Local window / Reject**, rendered from the options the
   server planned: the Passkey and `sign` tabs only when a `sign` option exists with a trusted
   Passkey, the Local window tab only for a `local_window` option, and "Preparing…" plus Reject while
   no plan is written) and **QuotaPanel** (**Add tokens / Stop**). The approval and signature

@@ -56,6 +56,7 @@ import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helper
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { createSshKey, type TestSshKey } from "./helpers/authenticator.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { registerSshCredential } from "./helpers/signing-credentials.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -102,7 +103,13 @@ describe("submitAuthorization claims from a stale row", () => {
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
-		app = makeApp(db, undefined, { cluster, audit, authorizationKey: signing, clockWarnMs: 60_000 });
+		app = makeApp(db, undefined, {
+			cluster,
+			audit,
+			authorizationKey: signing,
+			clockWarnMs: 60_000,
+			serverFingerprint: "test-server",
+		});
 		owner = { userId: user.id, cookie: await login(app, "owner", "password-123") };
 		ownerKey = createSshKey("ssh-ed25519");
 		await addSshSigningCredential(ownerKey);
@@ -116,10 +123,7 @@ describe("submitAuthorization claims from a stale row", () => {
 	});
 
 	async function addSshSigningCredential(key: TestSshKey): Promise<void> {
-		const res = await call(app, "/api/me/signing-credentials/ssh", {
-			cookie: owner.cookie,
-			body: { publicKey: key.line, name: "test" },
-		});
+		const res = await registerSshCredential(app, owner.cookie, key, "test");
 		expect(res.status).toBe(201);
 	}
 
@@ -222,7 +226,7 @@ describe("submitAuthorization claims from a stale row", () => {
 
 	const actor = () => ({ type: "user" as const, id: owner.userId, onBehalfOfUserId: owner.userId });
 
-	/** Signs payload bytes with the owner's SSH key and wraps the authorization as `crha grant` prints it. */
+	/** Signs payload bytes with the owner's SSH key and wraps the authorization as `crhu sign` prints it. */
 	const signedAuthorization = (payload: Uint8Array): string => {
 		const signature: Signature = { kind: "sshsig", blob: signSshsig(ownerKey.privateKey, ownerKey.blob, payload) };
 		const authorization: Authorization = { payload, signatures: [signature] };

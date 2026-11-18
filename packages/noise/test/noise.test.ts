@@ -194,7 +194,8 @@ describe("interop fixture", () => {
 			readFileSync(new URL("../../../test/interop/noise-crh.json", import.meta.url), "utf8"),
 		) as Record<string, string>;
 		const b = (k: string) => hex(f[k] ?? "");
-		const prologue = Buffer.concat([Buffer.from("crh/0"), b("challenge")]);
+		// The fixture names its prologue prefix, which follows the protocol's major version.
+		const prologue = Buffer.concat([Buffer.from(f.prologue_prefix ?? ""), b("challenge")]);
 		const server = keyPairFromPrivate(b("server_static"));
 		const i = initiatorForTest({
 			prologue,

@@ -78,6 +78,10 @@ export const SignAuthorizationOptionSchema = z
 	.object({
 		kind: z.literal("sign"),
 		entries: z.array(PlannedPathEntrySchema),
+		fingerprints: z
+			.array(z.string())
+			.optional()
+			.describe("SHA256 fingerprints of the owner's SSH credentials that match the entries; a signing hint."),
 		ttlMs: z.number().describe("How long the payload is valid, capped by the strictest accepting entry."),
 		payload: PendingPayloadViewSchema.nullable().describe(
 			"The exact bytes to sign; null in a task view, served only by the owner's endpoint.",
@@ -152,6 +156,10 @@ export const PendingSignOptionSchema = z
 	.object({
 		kind: z.literal("sign"),
 		entries: z.array(PlannedPathEntrySchema),
+		fingerprints: z
+			.array(z.string())
+			.optional()
+			.describe("SHA256 fingerprints of the owner's SSH credentials that match the entries; a signing hint."),
 		ttlMs: z.number(),
 		payload: PendingSignPayloadSchema,
 	})
@@ -200,7 +208,7 @@ export const RejectAuthorizationBodySchema = z.object({
 
 /** `POST /api/authorizations`: a pasted signed authorization or a Passkey assertion for a payload. */
 export const SubmitAuthorizationBodySchema = z.object({
-	authorization: z.string().optional().describe("Base64 of a CBOR Authorization, e.g. the output of `crha grant`."),
+	authorization: z.string().optional().describe("Base64 of a CBOR Authorization, e.g. the output of `crhu sign`."),
 	payload: z.string().optional().describe("Base64 of the exact payload bytes the Passkey signed, with `webauthn`."),
 	webauthn: z.unknown().optional().describe("The AuthenticationResponseJSON of the waiting page's Passkey button."),
 });

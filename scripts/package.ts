@@ -159,6 +159,8 @@ async function packageArchives(arches: Arch[]): Promise<void> {
 		await packageCrhsWithNode(version, arch);
 		await packageCrha(version, commit, arch);
 		await packageCrhaPackages(nfpm, version, commit, arch);
+		await packageCrhu(version, commit, arch);
+		await packageCrhuPackages(nfpm, version, commit, arch);
 	}
 	await writeSums();
 }
@@ -233,8 +235,38 @@ async function packageCrha(version: string, sha: string, arch: Arch): Promise<vo
 	await gzipTar(top);
 }
 
+/** crhu-<v>-linux-<arch>.tar.gz: the static signing utility, its licenses and VERSION. */
+async function packageCrhu(version: string, sha: string, arch: Arch): Promise<void> {
+	const top = `crhu-${version}-linux-${arch}`;
+	const dir = join(stageDir, top);
+	await mkdir(dir, { recursive: true });
+	await buildCrhu(version, sha, arch, join(dir, "crhu"));
+	await chmod(join(dir, "crhu"), 0o755);
+	await copyFile(join(root, "LICENSE"), join(dir, "LICENSE"));
+	await writeFile(join(dir, "THIRD_PARTY_LICENSES.txt"), await goLicensesCached());
+	await writeFile(join(dir, "VERSION"), `${version}\n`);
+	await gzipTar(top);
+}
+
 /** Builds crha for linux/arch, with the same ldflags as the archives, optionally with a build tag. */
 async function buildCrha(version: string, sha: string, arch: Arch, out: string, tags?: string): Promise<void> {
+	await buildClientBinary("./cmd/crha", version, sha, arch, out, tags);
+}
+
+/** Builds crhu for linux/arch, with the same ldflags as the archives, optionally with a build tag. */
+async function buildCrhu(version: string, sha: string, arch: Arch, out: string, tags?: string): Promise<void> {
+	await buildClientBinary("./cmd/crhu", version, sha, arch, out, tags);
+}
+
+/** Builds one client binary for linux/arch with the archive ldflags and CGO disabled. */
+async function buildClientBinary(
+	command: string,
+	version: string,
+	sha: string,
+	arch: Arch,
+	out: string,
+	tags?: string,
+): Promise<void> {
 	const args = ["build", "-trimpath"];
 	if (tags) args.push("-tags", tags);
 	args.push(
@@ -242,7 +274,7 @@ async function buildCrha(version: string, sha: string, arch: Arch, out: string, 
 		`-s -w -X ${VERSION_PACKAGE}.Version=${version} -X ${VERSION_PACKAGE}.Commit=${sha}`,
 		"-o",
 		out,
-		"./cmd/crha",
+		command,
 	);
 	await exec("go", args, {
 		cwd: join(root, "client"),
@@ -260,7 +292,15 @@ async function packageCrhaPackages(nfpm: string, version: string, sha: string, a
 	await copyFile(join(root, "LICENSE"), join(dir, "LICENSE"));
 	await writeFile(join(dir, "THIRD_PARTY_LICENSES.txt"), await goLicensesCached());
 	const configPath = join(stageDir, `crha-nfpm-${arch}.yaml`);
-	await writeFile(configPath, nfpmConfig(pkgVersion, arch, dir));
+	await writeFile(
+		configPath,
+		nfpmConfig(pkgVersion, arch, {
+			name: "crha",
+			description: "ClusterRightHand node client",
+			dir,
+			scripts: true,
+		}),
+	);
 	const env: NodeJS.ProcessEnv = { ...process.env, SOURCE_DATE_EPOCH: commitTime };
 	for (const packager of ["deb", "rpm"]) {
 		await exec(nfpm, ["package", "--config", configPath, "--packager", packager, "--target", releaseDir], {
@@ -278,40 +318,86 @@ async function packageCrhaPackages(nfpm: string, version: string, sha: string, a
 	}
 }
 
+/** crhu_<v>_<arch>.deb and crhu-<v>-1.<rpmarch>.rpm: the signing utility, built with nfpm. */
+async function packageCrhuPackages(nfpm: string, version: string, sha: string, arch: Arch): Promise<void> {
+	const pkgVersion = packageVersion(version);
+	const dir = join(stageDir, `crhu-package-${arch}`);
+	await mkdir(dir, { recursive: true });
+	await buildCrhu(version, sha, arch, join(dir, "crhu"), "pkgmanaged");
+	await chmod(join(dir, "crhu"), 0o755);
+	await copyFile(join(root, "LICENSE"), join(dir, "LICENSE"));
+	await writeFile(join(dir, "THIRD_PARTY_LICENSES.txt"), await goLicensesCached());
+	const configPath = join(stageDir, `crhu-nfpm-${arch}.yaml`);
+	await writeFile(
+		configPath,
+		nfpmConfig(pkgVersion, arch, {
+			name: "crhu",
+			description: "ClusterRightHand signing utility",
+			dir,
+			scripts: false,
+		}),
+	);
+	const env: NodeJS.ProcessEnv = { ...process.env, SOURCE_DATE_EPOCH: commitTime };
+	for (const packager of ["deb", "rpm"]) {
+		await exec(nfpm, ["package", "--config", configPath, "--packager", packager, "--target", releaseDir], {
+			env,
+		});
+	}
+	const rpmArch = arch === "amd64" ? "x86_64" : "aarch64";
+	for (const built of [`crhu_${pkgVersion}_${arch}.deb`, `crhu-${pkgVersion}-1.${rpmArch}.rpm`]) {
+		const name = built.replaceAll("~", "-");
+		if (name !== built) await rename(join(releaseDir, built), join(releaseDir, name));
+		const size = (await stat(join(releaseDir, name))).size;
+		console.log(`wrote dist/release/${name} (${(size / 1024).toFixed(0)} KiB)`);
+	}
+}
+
+/** One nfpm package: its name, description, staged directory and whether the crha unit scripts apply. */
+interface NfpmPackage {
+	name: string;
+	description: string;
+	dir: string;
+	scripts: boolean;
+}
+
 /** The nfpm configuration for one arch; paths are absolute so nfpm can run from anywhere. */
-function nfpmConfig(pkgVersion: string, arch: Arch, dir: string): string {
+function nfpmConfig(pkgVersion: string, arch: Arch, pkg: NfpmPackage): string {
 	const mtime = new Date(Number(commitTime) * 1000).toISOString();
 	const yaml = (value: string): string => JSON.stringify(value);
 	const config = [
-		`name: ${yaml("crha")}`,
+		`name: ${yaml(pkg.name)}`,
 		`arch: ${yaml(arch)}`,
 		`platform: ${yaml("linux")}`,
 		`version: ${yaml(pkgVersion)}`,
 		// Keep 0.1.0-test as is instead of nfpm's semver rewrite to 0.1.0~test.
 		"version_schema: none",
 		`maintainer: ${yaml("ClusterRightHand")}`,
-		`description: ${yaml("ClusterRightHand node client")}`,
+		`description: ${yaml(pkg.description)}`,
 		`homepage: ${yaml("https://github.com/Kodecable/ClusterRightHand")}`,
 		`license: ${yaml("MIT")}`,
 		`mtime: ${yaml(mtime)}`,
-		"scripts:",
-		`  postinstall: ${yaml(join(root, "packaging", "nfpm", "postinstall.sh"))}`,
-		`  preremove: ${yaml(join(root, "packaging", "nfpm", "preremove.sh"))}`,
 	];
+	if (pkg.scripts) {
+		config.push(
+			"scripts:",
+			`  postinstall: ${yaml(join(root, "packaging", "nfpm", "postinstall.sh"))}`,
+			`  preremove: ${yaml(join(root, "packaging", "nfpm", "preremove.sh"))}`,
+		);
+	}
 	// The release workflow points CRH_RPM_KEY_FILE at the ASCII-armored private key and passes its
 	// passphrase in NFPM_RPM_PASSPHRASE, which nfpm reads itself; without it the rpms stay unsigned.
 	const rpmKeyFile = process.env.CRH_RPM_KEY_FILE;
 	if (rpmKeyFile) config.push("rpm:", "  signature:", `    key_file: ${yaml(rpmKeyFile)}`);
 	config.push(
 		"contents:",
-		`  - src: ${yaml(join(dir, "crha"))}`,
-		"    dst: /usr/bin/crha",
+		`  - src: ${yaml(join(pkg.dir, pkg.name))}`,
+		`    dst: /usr/bin/${pkg.name}`,
 		"    file_info:",
 		"      mode: 0755",
-		`  - src: ${yaml(join(dir, "LICENSE"))}`,
-		"    dst: /usr/share/doc/crha/LICENSE",
-		`  - src: ${yaml(join(dir, "THIRD_PARTY_LICENSES.txt"))}`,
-		"    dst: /usr/share/doc/crha/THIRD_PARTY_LICENSES.txt",
+		`  - src: ${yaml(join(pkg.dir, "LICENSE"))}`,
+		`    dst: /usr/share/doc/${pkg.name}/LICENSE`,
+		`  - src: ${yaml(join(pkg.dir, "THIRD_PARTY_LICENSES.txt"))}`,
+		`    dst: /usr/share/doc/${pkg.name}/THIRD_PARTY_LICENSES.txt`,
 		"",
 	);
 	return config.join("\n");
@@ -338,7 +424,7 @@ async function requireNfpm(): Promise<string> {
 			// not in this PATH entry
 		}
 	}
-	throw new Error("nfpm is not on PATH; install nfpm to build the crha deb and rpm packages");
+	throw new Error("nfpm is not on PATH; install nfpm to build the deb and rpm packages");
 }
 
 /** The official Node.js binary distribution, checked against SHASUMS256.txt. */

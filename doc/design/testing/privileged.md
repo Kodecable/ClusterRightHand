@@ -17,7 +17,7 @@ restart and reload the processes inside the container through a control script.
 - `native` with sudo and doas, including cancellation, timeouts and a helper that the tool refuses;
 - `ignore` and `reject`;
 - the task environment: identity, fixed `PATH`, discovered shell;
-- `forward` with crhs-signed authorizations, with user-only trust and `crha grant`, and with required
+- `forward` with crhs-signed authorizations, with user-only trust and `crhu sign`, and with required
   cosignatures;
 - the local approval window: opening it releases a crhs-signed task the crhs entry denies, it closes
   with `crha lock` and does not survive a privileged-mode restart, and `max_window` caps it;
@@ -36,5 +36,5 @@ fallback), and one node of a group configured with the wrong node id (to test a 
 - Linux and rootless podman only.
 - WebAuthn is tested with a software authenticator only; real platform authenticators and hardware keys
   are not.
-- `crha grant` is tested with plain Ed25519 keys, not encrypted keys, an agent or a FIDO key.
+- `crhu sign` and `crhu grant` are tested with plain Ed25519 keys, not encrypted keys, an agent or a FIDO key.
 - `run0` is not tested.

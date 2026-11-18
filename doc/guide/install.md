@@ -241,6 +241,31 @@ sudo dnf install ./crha-<version>-1.<rpmarch>.rpm
 
 A package-managed crha is updated by the package manager only. On a first install, enroll the node as below.
 
+## Install crhu
+
+`crhu` is the signing utility for a workstation, not for a node. Install the archive or the package for
+your architecture:
+
+```sh
+tar -xzf crhu-<version>-linux-<arch>.tar.gz
+sudo install -m 0755 crhu-<version>-linux-<arch>/crhu /usr/local/bin/crhu
+
+sudo apt install ./crhu_<version>_<arch>.deb
+sudo dnf install ./crhu-<version>-1.<rpmarch>.rpm
+```
+
+It uses the workstation's `ssh-keygen` and ssh-agent, so no key material is stored by `crhu`:
+
+- `crhu sign --payload '<payload from the WebUI>' [--hint SHA256:…]…` signs an authorization request;
+- `crhu grant --nodes … --deadline … [--method … --exact/--prefix …]` builds and signs an offline
+  authorization for a scheduled or repeated task;
+- `crhu register '<challenge from Signing credentials>'` signs the proof that registers an SSH signing
+  credential; the WebUI takes the printed signature.
+
+`--key` names the key file exactly; without it `crhu` considers ssh-agent, `~/.ssh/*.pub` and each
+`--key-dir`, and `--hint` picks one by fingerprint. See the
+[command-line reference](reference/cli.md#crhu) for every flag.
+
 ## Enroll a node
 
 1. In the WebUI, open **Nodes** and choose **New node**; it shows `sudo crha enroll`, the crhs address,

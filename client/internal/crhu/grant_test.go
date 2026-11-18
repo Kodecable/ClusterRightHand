@@ -1,4 +1,4 @@
-package cli
+package crhu
 
 import (
 	"bytes"
@@ -60,7 +60,7 @@ func useSSHKeygen(t *testing.T, path string) {
 	t.Cleanup(func() { sshKeygen = old })
 }
 
-// runCLI executes crha with args and returns its stdout and stderr.
+// runCLI executes crhu with args and returns its stdout and stderr.
 func runCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	root := NewRootCmd()
@@ -86,7 +86,7 @@ func TestGrantBuildPayload(t *testing.T) {
 		tasks:      []string{"task-1", "task-2"},
 		attempt:    3,
 		note:       "restart to load the new certificate",
-		key:        "/keys/id_ed25519",
+		keys:       keyChoice{key: "/keys/id_ed25519"},
 	}
 	if err := opts.validate(); err != nil {
 		t.Fatalf("validate: %v", err)
@@ -120,7 +120,7 @@ func TestGrantBuildPayload(t *testing.T) {
 
 	// A prefix authorization has no spec hash, and no command is only allowed explicitly.
 	prefix, err := buildPayload(&grantOptions{
-		nodes: []string{"*"}, method: "file.write", prefix: "/etc/nginx/", deadline: "1h", key: "k",
+		nodes: []string{"*"}, method: "file.write", prefix: "/etc/nginx/", deadline: "1h", keys: keyChoice{key: "k"},
 	}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestGrantBuildPayload(t *testing.T) {
 	if prefix.Command == nil || prefix.Command.Match.Kind != protocol.AuthMatchPrefix || prefix.Command.Match.Prefix.Target != "/etc/nginx/" {
 		t.Fatalf("prefix command = %+v", prefix.Command)
 	}
-	any, err := buildPayload(&grantOptions{nodes: []string{"*"}, anyCommand: true, key: "k"}, now)
+	any, err := buildPayload(&grantOptions{nodes: []string{"*"}, anyCommand: true, keys: keyChoice{key: "k"}}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,33 +141,30 @@ func TestGrantBuildPayload(t *testing.T) {
 		opts grantOptions
 		want string
 	}{
-		{"no key", grantOptions{nodes: []string{testNodeA}, anyCommand: true, deadline: "1h"}, "--key is required"},
-		{"no deadline", grantOptions{nodes: []string{testNodeA}, anyCommand: true, key: "k"}, "--deadline is required"},
-		{"no nodes", grantOptions{anyCommand: true, deadline: "1h", key: "k"}, "--nodes or --payload"},
-		{"name node", grantOptions{nodes: []string{"node-1"}, anyCommand: true, deadline: "1h", key: "k"}, "not a node or node group UUID"},
-		{"group node", grantOptions{nodes: []string{"group:web"}, anyCommand: true, deadline: "1h", key: "k"}, "no longer accepts"},
-		{"no method", grantOptions{nodes: []string{testNodeA}, deadline: "1h", key: "k"}, "--method is required"},
-		{"method without match", grantOptions{nodes: []string{testNodeA}, method: "exec", deadline: "1h", key: "k"}, "needs --exact or --prefix"},
-		{"exact without hash", grantOptions{nodes: []string{testNodeA}, method: "exec", exact: "x", deadline: "1h", key: "k"}, "--exact requires --spec-sha256"},
-		{"hash without exact", grantOptions{nodes: []string{testNodeA}, method: "exec", prefix: "x", specSHA256: hash, deadline: "1h", key: "k"}, "--spec-sha256 requires --exact"},
-		{"bad method", grantOptions{nodes: []string{testNodeA}, method: "run", exact: "x", specSHA256: hash, deadline: "1h", key: "k"}, "is not exec"},
-		{"bad hash", grantOptions{nodes: []string{testNodeA}, method: "exec", exact: "x", specSHA256: "zz", deadline: "1h", key: "k"}, "32 bytes of hex"},
-		{"task without deadline", grantOptions{nodes: []string{testNodeA}, anyCommand: true, tasks: []string{"t"}, key: "k"}, "--deadline is required"},
-		{"task with a group node", grantOptions{nodes: []string{"group:web"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "node UUIDs"},
-		{"task with a star node", grantOptions{nodes: []string{"*"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "node UUIDs"},
-		{"task with too few nodes", grantOptions{nodes: []string{testNodeA}, anyCommand: true, deadline: "1h", tasks: []string{"t1", "t2"}, key: "k"}, "one --nodes node id per task"},
-		{"task with too many nodes", grantOptions{nodes: []string{"n1", "n2"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, key: "k"}, "one --nodes node id per task"},
-		{"attempt without task", grantOptions{nodes: []string{testNodeA}, anyCommand: true, attempt: 2, deadline: "1h", key: "k"}, "--attempt requires --task"},
+		{"no deadline", grantOptions{nodes: []string{testNodeA}, anyCommand: true, keys: keyChoice{key: "k"}}, "--deadline is required"},
+		{"no nodes", grantOptions{anyCommand: true, deadline: "1h", keys: keyChoice{key: "k"}}, "--nodes is required"},
+		{"name node", grantOptions{nodes: []string{"node-1"}, anyCommand: true, deadline: "1h", keys: keyChoice{key: "k"}}, "not a node or node group UUID"},
+		{"group node", grantOptions{nodes: []string{"group:web"}, anyCommand: true, deadline: "1h", keys: keyChoice{key: "k"}}, "no longer accepts"},
+		{"no method", grantOptions{nodes: []string{testNodeA}, deadline: "1h", keys: keyChoice{key: "k"}}, "--method is required"},
+		{"method without match", grantOptions{nodes: []string{testNodeA}, method: "exec", deadline: "1h", keys: keyChoice{key: "k"}}, "needs --exact or --prefix"},
+		{"exact without hash", grantOptions{nodes: []string{testNodeA}, method: "exec", exact: "x", deadline: "1h", keys: keyChoice{key: "k"}}, "--exact requires --spec-sha256"},
+		{"hash without exact", grantOptions{nodes: []string{testNodeA}, method: "exec", prefix: "x", specSHA256: hash, deadline: "1h", keys: keyChoice{key: "k"}}, "--spec-sha256 requires --exact"},
+		{"bad method", grantOptions{nodes: []string{testNodeA}, method: "run", exact: "x", specSHA256: hash, deadline: "1h", keys: keyChoice{key: "k"}}, "is not exec"},
+		{"bad hash", grantOptions{nodes: []string{testNodeA}, method: "exec", exact: "x", specSHA256: "zz", deadline: "1h", keys: keyChoice{key: "k"}}, "32 bytes of hex"},
+		{"task without deadline", grantOptions{nodes: []string{testNodeA}, anyCommand: true, tasks: []string{"t"}, keys: keyChoice{key: "k"}}, "--deadline is required"},
+		{"task with a group node", grantOptions{nodes: []string{"group:web"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, keys: keyChoice{key: "k"}}, "node UUIDs"},
+		{"task with a star node", grantOptions{nodes: []string{"*"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, keys: keyChoice{key: "k"}}, "node UUIDs"},
+		{"task with too few nodes", grantOptions{nodes: []string{testNodeA}, anyCommand: true, deadline: "1h", tasks: []string{"t1", "t2"}, keys: keyChoice{key: "k"}}, "one --nodes node id per task"},
+		{"task with too many nodes", grantOptions{nodes: []string{"n1", "n2"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, keys: keyChoice{key: "k"}}, "one --nodes node id per task"},
+		{"attempt without task", grantOptions{nodes: []string{testNodeA}, anyCommand: true, attempt: 2, deadline: "1h", keys: keyChoice{key: "k"}}, "--attempt requires --task"},
 		{"deadline in the past", grantOptions{nodes: []string{testNodeA}, anyCommand: true,
-			deadline: time.Now().Add(-time.Hour).Format(time.RFC3339), key: "k"}, "in the past"},
-		{"deadline not a time", grantOptions{nodes: []string{testNodeA}, anyCommand: true, deadline: "soon", key: "k"}, "neither a duration"},
-		{"payload with nodes", grantOptions{payload: "x", nodes: []string{testNodeA}, key: "k"}, "cannot be combined"},
-		{"payload with note", grantOptions{payload: "x", note: "n", key: "k"}, "cannot be combined"},
+			deadline: time.Now().Add(-time.Hour).Format(time.RFC3339), keys: keyChoice{key: "k"}}, "in the past"},
+		{"deadline not a time", grantOptions{nodes: []string{testNodeA}, anyCommand: true, deadline: "soon", keys: keyChoice{key: "k"}}, "neither a duration"},
 	}
 	for _, tc := range bad {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := tc.opts
-			if _, _, err := grantPayload(&opts); err == nil {
+			if _, _, err := grantPayloadForTest(&opts); err == nil {
 				t.Fatalf("accepted: %+v", opts)
 			} else if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error %q does not contain %q", err, tc.want)
@@ -191,7 +188,7 @@ func TestGrantPayloadMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, gotRaw, err := grantPayloadOf(t, base64.StdEncoding.EncodeToString(raw))
+	got, gotRaw, err := decodePayload(base64.StdEncoding.EncodeToString(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,10 +205,10 @@ func TestGrantPayloadMode(t *testing.T) {
 	if want := time.UnixMilli(1700000000000).Format("2006-01-02T15:04:05.000Z07:00"); shown.IssuedAt != want {
 		t.Fatalf("issued_at = %q, want %q", shown.IssuedAt, want)
 	}
-	if _, _, err := grantPayloadOf(t, "not base64!"); err == nil {
+	if _, _, err := decodePayload("not base64!"); err == nil {
 		t.Fatal("invalid base64 accepted")
 	}
-	if _, _, err := grantPayloadOf(t, base64.StdEncoding.EncodeToString([]byte{1, 2, 3})); err == nil {
+	if _, _, err := decodePayload(base64.StdEncoding.EncodeToString([]byte{1, 2, 3})); err == nil {
 		t.Fatal("invalid payload accepted")
 	}
 }
@@ -246,7 +243,7 @@ func TestGrantPayloadOneShotNodes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, _, err := grantPayloadOf(t, base64.StdEncoding.EncodeToString(raw)); err == nil {
+			if _, _, err := decodePayload(base64.StdEncoding.EncodeToString(raw)); err == nil {
 				t.Fatalf("accepted a one-shot payload with %s", tc.name)
 			} else if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error %q does not contain %q", err, tc.want)
@@ -268,7 +265,7 @@ func TestGrantPayloadOneShotNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, gotRaw, err := grantPayloadOf(t, base64.StdEncoding.EncodeToString(raw))
+	got, gotRaw, err := decodePayload(base64.StdEncoding.EncodeToString(raw))
 	if err != nil {
 		t.Fatalf("aligned payload refused: %v", err)
 	}
@@ -277,11 +274,20 @@ func TestGrantPayloadOneShotNodes(t *testing.T) {
 	}
 }
 
-// grantPayloadOf is grantPayload without the flag validation, for a payload given as base64.
-func grantPayloadOf(t *testing.T, encoded string) (*protocol.AuthorizationPayload, []byte, error) {
-	t.Helper()
-	opts := &grantOptions{payload: encoded, key: "k"}
-	return grantPayload(opts)
+// grantPayloadForTest runs the grant flags through validation and payload building.
+func grantPayloadForTest(opts *grantOptions) (*protocol.AuthorizationPayload, []byte, error) {
+	if err := opts.validate(); err != nil {
+		return nil, nil, err
+	}
+	payload, err := buildPayload(opts, time.Now())
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := protocol.Marshal(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+	return payload, raw, nil
 }
 
 // generateSSHKey creates an ed25519 key with ssh-keygen and returns its private path and public
@@ -308,7 +314,7 @@ func generateSSHKey(t *testing.T) (string, ssh.PublicKey) {
 	return path, public
 }
 
-// decodeAuthorization decodes the base64 line `crha grant` printed.
+// decodeAuthorization decodes the base64 line crhu prints.
 func decodeAuthorization(t *testing.T, stdout string) *protocol.Authorization {
 	t.Helper()
 	line := strings.TrimSpace(stdout)
@@ -383,12 +389,12 @@ func TestGrantEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, err = runCLI(t, "grant",
+	stdout, stderr, err = runCLI(t, "sign",
 		"--payload", base64.StdEncoding.EncodeToString(raw),
 		"--key", keyPath,
 		"--yes")
 	if err != nil {
-		t.Fatalf("grant --payload: %v\nstderr: %s", err, stderr)
+		t.Fatalf("sign --payload: %v\nstderr: %s", err, stderr)
 	}
 	signed := decodeAuthorization(t, stdout)
 	if !bytes.Equal(signed.Payload, raw) {
@@ -420,7 +426,7 @@ func TestGrantPayloadRequiresDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = grantPayloadOf(t, base64.StdEncoding.EncodeToString(raw))
+	_, _, err = decodePayload(base64.StdEncoding.EncodeToString(raw))
 	if err == nil || !strings.Contains(err.Error(), "has no deadline") {
 		t.Fatalf("payload without a deadline = %v, want a missing-deadline error", err)
 	}
@@ -499,7 +505,7 @@ func TestGrantWrongSigner(t *testing.T) {
 	}
 	useSSHKeygen(t, fake)
 
-	stdout, _, err := runCLI(t, "grant",
+	stdout, _, err := runCLI(t, "sign",
 		"--payload", base64.StdEncoding.EncodeToString(raw),
 		"--key", keyPath,
 		"--yes")

@@ -12,9 +12,14 @@ var (
 )
 
 func String() string {
+	return StringFor("crha")
+}
+
+// StringFor renders the version of the named binary; crhu is the second binary of the module.
+func StringFor(tool string) string {
 	managed := ""
 	if PackageManaged {
 		managed = ", package-managed"
 	}
-	return fmt.Sprintf("crha %s (commit %s, %s, %s/%s%s)", Version, Commit, runtime.Version(), runtime.GOOS, runtime.GOARCH, managed)
+	return fmt.Sprintf("%s %s (commit %s, %s, %s/%s%s)", tool, Version, Commit, runtime.Version(), runtime.GOOS, runtime.GOARCH, managed)
 }

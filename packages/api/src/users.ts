@@ -4,7 +4,7 @@
  */
 
 import type { z } from "zod";
-import type { SigningCredentialViewSchema } from "./schemas/signing-credentials.ts";
+import type { SigningCredentialViewSchema, SshSigningChallengeResponseSchema } from "./schemas/signing-credentials.ts";
 import type {
 	DirectoryResponseSchema,
 	DirectorySchema,
@@ -60,3 +60,6 @@ export type UserPatchBody = z.infer<typeof UserPatchBodySchema>;
 
 /** One of the user's signing credentials (doc/design/privilege.md "Signing methods"). */
 export type SigningCredentialView = z.infer<typeof SigningCredentialViewSchema>;
+
+/** `POST /api/me/signing-credentials/ssh/challenge`: what an SSH registration signs. */
+export type SshSigningChallenge = z.infer<typeof SshSigningChallengeResponseSchema>;

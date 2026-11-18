@@ -118,7 +118,7 @@ open, this restriction does not apply: crhs can change the trust configuration u
 
 **Passkeys.** The page that asks you to sign is served by crhs, so a compromised crhs could show you one
 thing and ask you to sign another. A Passkey is therefore not stronger than an SSH key here. Signing with
-`crha grant` on your own workstation shows you the payload locally.
+`crhu sign` on your own workstation shows you the payload locally.
 
 **Local approval window.** A local administrator opens a time-limited window with
 `sudo crha approve --for 30m`. While it is open, crhs holds the privileged identity on that node and can

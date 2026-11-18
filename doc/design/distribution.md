@@ -18,8 +18,10 @@ of the host build.
 | `crhs-<v>.tar.gz` (`crhs-<v>/`) | `crhs.mjs`, `web/`, `doc/`, `package.json`, `package-lock.json`, `THIRD_PARTY_LICENSES.txt`, `VERSION`, `LICENSE`, `README.txt` | No |
 | `crhs-<v>-linux-<arch>.tar.gz` (`crhs-<v>-linux-<arch>/`) | the bundle, WebUI and documentation, `node/` (the official `bin/node`), `node_modules/re2` for the arch, `bin/crhs`, `install.sh`, licenses, `VERSION` | Planned |
 | `crha-<v>-linux-<arch>.tar.gz` (`crha-<v>-linux-<arch>/`) | the static `crha`, `install.sh`, `LICENSE`, `THIRD_PARTY_LICENSES.txt`, `VERSION` | Planned |
+| `crhu-<v>-linux-<arch>.tar.gz` (`crhu-<v>-linux-<arch>/`) | the static `crhu`, `LICENSE`, `THIRD_PARTY_LICENSES.txt`, `VERSION` | Planned |
 | crhs OCI image | Node, the bundle, the WebUI, the documentation and re2 | No; pull a new image |
 | `crha_<debversion>_<arch>.deb`, `crha-<rpmversion>-1.<rpmarch>.rpm` | `crha` in `/usr/bin` and the licenses in `/usr/share/doc/crha`, built with nfpm and the `pkgmanaged` tag | Never; the package manager updates it |
+| `crhu_<debversion>_<arch>.deb`, `crhu-<rpmversion>-1.<rpmarch>.rpm` | `crhu` in `/usr/bin` and the licenses in `/usr/share/doc/crhu`, built with nfpm and the `pkgmanaged` tag | Never; the package manager updates it |
 
 `arch` is `amd64` or `arm64`. Archives are deterministic-ish: entries sorted by name, the mtime of the
 tree's last commit, owner 0:0, `gzip -n`. The archive without Node is installed by hand: run
@@ -31,7 +33,8 @@ JavaScript dependency into `crhs.mjs`, and the WebUI and the documentation (`doc
 images) are copied next to it. Only native modules stay outside: `re2` is shipped with its runtime
 files, and `cpu-features` is optional for `ssh2`, which falls back to JavaScript and WebAssembly. The
 version is injected at build time; an unbundled crhs reports `dev`. The archive with Node carries Node's
-LICENSE appended to `THIRD_PARTY_LICENSES.txt`; the `crha` archive collects the Go modules' licenses.
+LICENSE appended to `THIRD_PARTY_LICENSES.txt`; the `crha` and `crhu` archives collect the Go modules'
+licenses.
 
 ### crha deb and rpm
 
@@ -54,6 +57,13 @@ the `/etc/systemd/system/crha*.service` units that carry `X-CRH-Managed=1`, then
 The rpm packages are signed when `CRH_RPM_KEY_FILE` names an ASCII-armored private key; nfpm reads the
 passphrase from `NFPM_RPM_PASSPHRASE`. Without it the rpms stay unsigned; the deb package is never
 signed.
+
+### crhu deb and rpm
+
+`crhu` is packaged the same way as `crha`, with `pkgmanaged`, but the package contains only
+`/usr/bin/crhu` and `/usr/share/doc/crhu/{LICENSE,THIRD_PARTY_LICENSES.txt}`. It has no install
+scripts and no service: `crhu` is a workstation signing tool that uses the local `ssh-keygen` and
+ssh-agent, and its archive likewise has no `install.sh`. It is built from the same Go module as `crha`.
 
 ### Installing crhs with Node
 

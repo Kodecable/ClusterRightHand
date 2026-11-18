@@ -10,7 +10,7 @@
  * - symlinks, path traversal, env and prefix attempts.
  * - trust digest changes, re-planning a waiting task, and privileged_unavailable.
  *
- * Every user signature is produced by the real `crha grant --payload` on the host; crhs runs in
+ * Every user signature is produced by the real `crhu sign --payload` on the host; crhs runs in
  * process, so both ends are the shipped code.
  */
 import { execFile } from "node:child_process";
@@ -138,7 +138,7 @@ describePodman("privileged system: forward", () => {
 		node = await PrivilegedNode.create({ bin, crhs, mode: "forward", trust: [], clockSkew: "0s" });
 		userKey = await publicKeyOf(node.userKeyPath);
 		crhsKey = (await crhs.api("/api/privilege/crhs-key")).json.key.authorizedKey as string;
-		credentialId = await registerSshCredential(crhs, userKey);
+		credentialId = await registerSshCredential(crhs, node.crhuBin, node.userKeyPath);
 		expect(credentialId).toBeTruthy();
 	}, 600_000);
 
@@ -241,7 +241,7 @@ describePodman("privileged system: forward", () => {
 			expect((waiting.authorization?.options ?? []).map((option) => option.kind)).toEqual(["sign"]);
 		}, 60_000);
 
-		it("runs after the owner signs the pending payload with crha grant", async () => {
+		it("runs after the owner signs the pending payload with crhu sign", async () => {
 			const t = await task({ kind: "exec", argv: ["id", "-u"] });
 			await waitAwaiting(t.id);
 			const pending = await pendingAuthorization(crhs, t.id);
@@ -261,7 +261,7 @@ describePodman("privileged system: forward", () => {
 			const pending = await pendingAuthorization(crhs, t.id);
 			const strangerKey = join(tmp, "stranger-key");
 			await sshKeygen(strangerKey);
-			const authorization = await signPayload(bin, strangerKey, pending.payload);
+			const authorization = await signPayload(node.crhuBin, strangerKey, pending.payload);
 			const res = await submitAuthorization(crhs, authorization);
 			expect(res.status).toBe(400);
 			expect(res.json.error).toContain("signing credentials");
@@ -308,7 +308,7 @@ describePodman("privileged system: forward", () => {
 			// (doc/design/privilege.md "Cosigning"), so this signature can never satisfy require-cosign.
 			const spec = taskSpecFromJson({ kind: "exec", command: { argv: ["id", "-u"] }, env: {}, cwd: "", stdin: null });
 			const sha = Buffer.from(specSha256(spec)).toString("hex");
-			const signed = await runFile(bin, [
+			const signed = await runFile(node.crhuBin, [
 				"grant",
 				"--nodes",
 				node.nodeId,
@@ -482,8 +482,8 @@ describePodman("privileged system: forward", () => {
 				stdin: null,
 			});
 			const sha = Buffer.from(specSha256(spec)).toString("hex");
-			// grant needs ssh-keygen and the private key, so it runs on the host like the owner would.
-			const signed = await runFile(bin, [
+			// crhu needs ssh-keygen and the private key, so it runs on the host like the owner would.
+			const signed = await runFile(node.crhuBin, [
 				"grant",
 				"--nodes",
 				node.nodeId,

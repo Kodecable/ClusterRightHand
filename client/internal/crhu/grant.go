@@ -1,30 +1,22 @@
-package cli
+package crhu
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
-// grantOptions are the flags of `crha grant`.
+// grantOptions are the flags of `crhu grant`.
 type grantOptions struct {
-	payload    string
 	nodes      []string
 	method     string
 	anyCommand bool
@@ -35,32 +27,21 @@ type grantOptions struct {
 	tasks      []string
 	attempt    uint64
 	note       string
-	key        string
-	yes        bool
-}
-
-// sshKeygen is the signing program of `crha grant`. It is located through PATH when signing;
-// tests replace it with a fake.
-var sshKeygen = "ssh-keygen"
-
-// openTerminal opens the controlling terminal for the confirmation prompt. Tests replace it.
-var openTerminal = func() (io.ReadWriteCloser, error) {
-	return os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	keys       keyChoice
 }
 
 func newGrantCmd() *cobra.Command {
 	opts := &grantOptions{}
 	cmd := &cobra.Command{
 		Use:   "grant",
-		Short: "Sign an authorization for privileged tasks",
-		Long: `Sign an authorization with an SSH key and print it as base64.
+		Short: "Build and sign an offline authorization",
+		Long: `Build an authorization, sign it with an SSH key and print it as base64.
 
-With --payload the payload of a WebUI authorization request is signed. Without it the flags
-build a new payload: --nodes gives the node or node group UUIDs the authorization is for, --method
-with --exact or --prefix restricts what it allows, --deadline (required) bounds how long it can be
-used, and --task makes it one-shot. Every authorization carries a deadline.
+--nodes gives the node or node group UUIDs the authorization is for, --method with --exact or
+--prefix restricts what it allows, --deadline (required) bounds how long it can be used, and --task
+makes it one-shot. Every authorization carries a deadline.
 
-The payload is shown and confirmed before signing. crha runs
+The payload is shown and confirmed before signing. crhu runs
 "ssh-keygen -Y sign -n crh-auth-v1" with the payload on stdin and never reads the private key
 itself, so OpenSSH handles encrypted keys, ssh-agent and FIDO touches. The printed line is what
 the WebUI accepts (POST /api/authorizations).`,
@@ -70,7 +51,6 @@ the WebUI accepts (POST /api/authorizations).`,
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&opts.payload, "payload", "", "base64 payload from the WebUI")
 	f.StringSliceVar(&opts.nodes, "nodes", nil, `node or node group UUIDs, or "*"`)
 	f.StringVar(&opts.method, "method", "", "exec, file.read or file.write")
 	f.BoolVar(&opts.anyCommand, "any-command", false, "do not restrict the method and target")
@@ -81,102 +61,37 @@ the WebUI accepts (POST /api/authorizations).`,
 	f.StringArrayVar(&opts.tasks, "task", nil, "bind the authorization to a task id (repeatable)")
 	f.Uint64Var(&opts.attempt, "attempt", 0, "task attempt (default 1 with --task)")
 	f.StringVar(&opts.note, "note", "", "note shown with the authorization; it is signed")
-	f.StringVar(&opts.key, "key", "", "path to the signing SSH key")
-	f.BoolVar(&opts.yes, "yes", false, "do not ask for confirmation")
+	opts.keys.addFlags(f, true)
 	cmd.MarkFlagsMutuallyExclusive("exact", "prefix")
 	return cmd
 }
 
-// runGrant shows the payload, asks for confirmation and prints the signed authorization.
+// runGrant builds the payload from the flags, shows it, asks for confirmation and prints the
+// signed authorization.
 func runGrant(cmd *cobra.Command, opts *grantOptions) error {
-	stdout, stderr := cmd.OutOrStdout(), cmd.ErrOrStderr()
-	payload, raw, err := grantPayload(opts)
-	if err != nil {
-		return err
-	}
-	if warning := prefixWarning(payload); warning != "" {
-		fmt.Fprintln(stderr, warning)
-	}
-	view, err := json.MarshalIndent(grantViewFor(payload, raw), "", "  ")
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(stderr, "%s\n", view)
-
-	if !opts.yes {
-		confirmed, err := confirmGrant()
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			return errors.New("grant: the authorization was not signed")
-		}
-	}
-
-	blob, signer, err := signPayload(raw, opts.key)
-	if err != nil {
-		return err
-	}
-	authorization := protocol.Authorization{
-		Payload: raw,
-		Signatures: []protocol.Signature{{
-			Kind:   protocol.SignatureSSHSig,
-			SSHSig: &protocol.SSHSigSignature{Blob: blob},
-		}},
-	}
-	encoded, err := protocol.Marshal(&authorization)
-	if err != nil {
-		return fmt.Errorf("grant: encode the authorization: %w", err)
-	}
-	fmt.Fprintln(stdout, base64.StdEncoding.EncodeToString(encoded))
-	fmt.Fprintf(stderr, "signed with %s %s\n", signer.Type(), ssh.FingerprintSHA256(signer))
-	fmt.Fprintln(stderr, "paste the line above into CRH (POST /api/authorizations)")
-	return nil
-}
-
-// grantPayload returns the payload to sign and its canonical bytes: the --payload of a WebUI
-// authorization request, or one built from the flags.
-func grantPayload(opts *grantOptions) (*protocol.AuthorizationPayload, []byte, error) {
 	if err := opts.validate(); err != nil {
-		return nil, nil, err
-	}
-	if opts.payload != "" {
-		return decodeGrantPayload(opts.payload)
+		return err
 	}
 	payload, err := buildPayload(opts, time.Now())
 	if err != nil {
-		return nil, nil, err
+		return err
 	}
 	raw, err := protocol.Marshal(payload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("grant: encode the payload: %w", err)
+		return fmt.Errorf("grant: encode the payload: %w", err)
 	}
-	return payload, raw, nil
+	return signAuthorization(cmd, &opts.keys, "grant", payload, raw)
 }
 
 // validate checks the flags before anything is shown or signed.
 func (o *grantOptions) validate() error {
-	if o.key == "" {
-		return errors.New("grant: --key is required")
-	}
-	if o.payload != "" {
-		switch {
-		case len(o.nodes) > 0:
-			return errors.New("grant: --payload and --nodes cannot be combined")
-		case o.method != "" || o.exact != "" || o.prefix != "" || o.specSHA256 != "" || o.anyCommand:
-			return errors.New("grant: --payload cannot be combined with the command restriction flags")
-		case o.deadline != "" || len(o.tasks) > 0 || o.attempt != 0 || o.note != "":
-			return errors.New("grant: --payload cannot be combined with the payload building flags")
-		}
-		return nil
-	}
 	// Every authorization the flags build must expire. Without a deadline it could be used
 	// forever and the privileged mode refuses it anyway.
 	if o.deadline == "" {
 		return errors.New("grant: --deadline is required")
 	}
 	if len(o.nodes) == 0 {
-		return errors.New("grant: --nodes or --payload is required")
+		return errors.New("grant: --nodes is required")
 	}
 	switch {
 	case o.anyCommand:
@@ -211,38 +126,14 @@ func (o *grantOptions) validate() error {
 // neither a group nor "*" can stand for a node.
 func checkOneShotNodes(nodes, tasks []string) error {
 	if len(nodes) != len(tasks) {
-		return fmt.Errorf("grant: --task needs one --nodes node id per task, got %d node(s) for %d task(s)", len(nodes), len(tasks))
+		return fmt.Errorf("crhu: --task needs one --nodes node id per task, got %d node(s) for %d task(s)", len(nodes), len(tasks))
 	}
 	for _, node := range nodes {
 		if node == "*" || !protocol.IsUUID(node) {
-			return fmt.Errorf("grant: --task needs node UUIDs in --nodes, not %q", node)
+			return fmt.Errorf("crhu: --task needs node UUIDs in --nodes, not %q", node)
 		}
 	}
 	return nil
-}
-
-// decodeGrantPayload decodes the base64 payload of a WebUI authorization request. The protocol
-// decoder applies the structural rules of doc/design/protocol.md "Authorization object".
-func decodeGrantPayload(text string) (*protocol.AuthorizationPayload, []byte, error) {
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(text))
-	if err != nil {
-		return nil, nil, fmt.Errorf("grant: --payload is not base64: %w", err)
-	}
-	payload, err := protocol.DecodeAuthorizationPayload(raw)
-	if err != nil {
-		return nil, nil, fmt.Errorf("grant: --payload: %w", err)
-	}
-	if payload.TaskIDs != nil {
-		if err := checkOneShotNodes(payload.Nodes, *payload.TaskIDs); err != nil {
-			return nil, nil, fmt.Errorf("grant: --payload: %w", err)
-		}
-	}
-	// The privileged mode rejects an authorization without a deadline; refuse it here, before
-	// the user confirms and signs it.
-	if payload.DeadlineMS == nil {
-		return nil, nil, errors.New("grant: --payload has no deadline; every authorization must carry one")
-	}
-	return payload, raw, nil
 }
 
 // buildPayload constructs an authorization payload from the flags. It is issued now.
@@ -453,95 +344,54 @@ func formatMillis(ms int64) string {
 	return time.UnixMilli(ms).Format("2006-01-02T15:04:05.000Z07:00")
 }
 
-// confirmGrant asks on the controlling terminal. Without one it refuses: signing a payload the
-// user has not seen would defeat the confirmation.
-func confirmGrant() (bool, error) {
-	terminal, err := openTerminal()
+// signAuthorization shows a payload, selects the signing key, confirms and prints the signed
+// authorization as the one base64 line the WebUI accepts.
+func signAuthorization(cmd *cobra.Command, keys *keyChoice, command string, payload *protocol.AuthorizationPayload, raw []byte) error {
+	stdout, stderr := cmd.OutOrStdout(), cmd.ErrOrStderr()
+	if warning := prefixWarning(payload); warning != "" {
+		fmt.Fprintln(stderr, warning)
+	}
+	view, err := json.MarshalIndent(grantViewFor(payload, raw), "", "  ")
 	if err != nil {
-		return false, fmt.Errorf("grant: no terminal to confirm the authorization, rerun with --yes: %w", err)
+		return err
 	}
-	defer terminal.Close()
-	if _, err := io.WriteString(terminal, "Sign this authorization? [y/N] "); err != nil {
-		return false, fmt.Errorf("grant: ask for confirmation: %w", err)
-	}
-	line, err := bufio.NewReader(terminal).ReadString('\n')
-	if err != nil && line == "" {
-		return false, fmt.Errorf("grant: read the confirmation: %w", err)
-	}
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "y", "yes":
-		return true, nil
-	}
-	return false, nil
-}
+	fmt.Fprintf(stderr, "%s\n", view)
 
-// signPayload runs ssh-keygen -Y sign with the payload on stdin and returns the SSHSIG blob and
-// the signer's key. The signature is verified locally before it is used, and the key file must
-// hold the key that signed.
-func signPayload(payload []byte, keyPath string) ([]byte, ssh.PublicKey, error) {
-	program, err := exec.LookPath(sshKeygen)
+	candidate, err := keys.signer(command)
 	if err != nil {
-		return nil, nil, fmt.Errorf("grant: ssh-keygen is required to sign: %w", err)
+		return err
 	}
-	cmd := exec.Command(program, "-Y", "sign", "-n", protocol.AuthNamespace, "-f", keyPath)
-	cmd.Stdin = bytes.NewReader(payload)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		if message := strings.TrimSpace(stderr.String()); message != "" {
-			return nil, nil, fmt.Errorf("grant: ssh-keygen -Y sign: %w: %s", err, message)
+	if !keys.yes {
+		confirmed, err := confirmAuthorization(command)
+		if err != nil {
+			return err
 		}
-		return nil, nil, fmt.Errorf("grant: ssh-keygen -Y sign: %w", err)
+		if !confirmed {
+			return fmt.Errorf("%s: the authorization was not signed", command)
+		}
 	}
-	blob, err := dearmorSignature(stdout.Bytes())
+	keyPath, cleanup, err := candidate.signerPath()
 	if err != nil {
-		return nil, nil, fmt.Errorf("grant: %w", err)
+		return fmt.Errorf("%s: %w", command, err)
 	}
-	result, err := authz.VerifySSHSIG(blob, payload)
+	defer cleanup()
+	blob, signer, err := signPayload(raw, keyPath, protocol.AuthNamespace, command)
 	if err != nil {
-		return nil, nil, fmt.Errorf("grant: the signature from ssh-keygen does not verify: %w", err)
+		return err
 	}
-	if err := checkSignerKey(program, keyPath, result.PublicKey); err != nil {
-		return nil, nil, err
+	authorization := protocol.Authorization{
+		Payload: raw,
+		Signatures: []protocol.Signature{{
+			Kind:   protocol.SignatureSSHSig,
+			SSHSig: &protocol.SSHSigSignature{Blob: blob},
+		}},
 	}
-	return blob, result.PublicKey, nil
-}
-
-// dearmorSignature decodes the PEM armor ssh-keygen wraps an SSHSIG blob in.
-func dearmorSignature(data []byte) ([]byte, error) {
-	block, rest := pem.Decode(data)
-	if block == nil {
-		return nil, errors.New("ssh-keygen printed no SSH signature")
+	encoded, err := protocol.Marshal(&authorization)
+	if err != nil {
+		return fmt.Errorf("%s: encode the authorization: %w", command, err)
 	}
-	if block.Type != "SSH SIGNATURE" {
-		return nil, fmt.Errorf("ssh-keygen printed a %q block, want SSH SIGNATURE", block.Type)
-	}
-	if len(bytes.TrimSpace(rest)) != 0 {
-		return nil, errors.New("ssh-keygen printed trailing data after the signature")
-	}
-	return block.Bytes, nil
-}
-
-// checkSignerKey makes sure the key file holds the key that signed. crha never reads a private
-// key itself, so ssh-keygen reports the public key; for a private key file it takes the
-// unencrypted public part, so no passphrase is asked for.
-func checkSignerKey(program, keyPath string, signer ssh.PublicKey) error {
-	cmd := exec.Command(program, "-l", "-f", keyPath)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("grant: cannot determine the public key of %s: %w: %s",
-			keyPath, err, strings.TrimSpace(stderr.String()))
-	}
-	want := ssh.FingerprintSHA256(signer)
-	for _, field := range strings.Fields(stdout.String()) {
-		if !strings.HasPrefix(field, "SHA256:") {
-			continue
-		}
-		if field != want {
-			return fmt.Errorf("grant: %s holds key %s, but the signature is from %s", keyPath, field, want)
-		}
-		return nil
-	}
-	return fmt.Errorf("grant: ssh-keygen did not report a fingerprint for %s", keyPath)
+	fmt.Fprintln(stdout, base64.StdEncoding.EncodeToString(encoded))
+	fmt.Fprintf(stderr, "signed with %s %s\n", signer.Type(), ssh.FingerprintSHA256(signer))
+	fmt.Fprintln(stderr, "paste the line above into CRH (POST /api/authorizations)")
+	return nil
 }

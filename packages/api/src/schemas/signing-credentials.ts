@@ -25,9 +25,22 @@ export const SigningCredentialsResponseSchema = z.object({
 
 export const SigningCredentialResponseSchema = z.object({ signingCredential: SigningCredentialViewSchema });
 
-/** `POST /api/me/signing-credentials/ssh`: an OpenSSH public key line. */
+/** `POST /api/me/signing-credentials/ssh/challenge`: the exact bytes to sign and the deadline. */
+export const SshSigningChallengeResponseSchema = z
+	.object({
+		challenge: z.string().describe("Base64url of the bytes to sign; `crhu register` decodes it."),
+		expiresAt: z.string().describe("ISO 8601; the registration must be submitted before this time."),
+	})
+	.meta({ id: "SshSigningChallenge" });
+
+/**
+ * `POST /api/me/signing-credentials/ssh`: the SSHSIG over the challenge. The public key is taken from
+ * the signature, so a user can only register a key it can sign with.
+ */
 export const SshSigningCredentialBodySchema = z.object({
-	publicKey: z.string().describe("An OpenSSH public key line such as `ssh-ed25519 AAAA… comment`."),
+	signature: z
+		.string()
+		.describe("The armored SSHSIG over the challenge, or its base64 blob; namespace `crh-register-v1`."),
 	name: z.string().optional().describe("A display name; the key is also its own identity."),
 });
 

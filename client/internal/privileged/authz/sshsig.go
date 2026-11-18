@@ -45,6 +45,12 @@ type SSHSIGResult struct {
 // ecdsa-sha2-nistp256 and their sk-* variants. An sk-* signature must assert user
 // presence; OpenSSH's ssh-keygen -Y verify does not enforce that, but crha does.
 func VerifySSHSIG(blob, message []byte) (*SSHSIGResult, error) {
+	return VerifySSHSIGNamespace(blob, message, protocol.AuthNamespace)
+}
+
+// VerifySSHSIGNamespace is VerifySSHSIG for another SSHSIG namespace, such as the registration
+// namespace `crh-register-v1`.
+func VerifySSHSIGNamespace(blob, message []byte, wantNamespace string) (*SSHSIGResult, error) {
 	key, reader, err := parseSSHSIGKey(blob)
 	if err != nil {
 		return nil, err
@@ -69,8 +75,8 @@ func VerifySSHSIG(blob, message []byte) (*SSHSIGResult, error) {
 		return nil, fmt.Errorf("authz: sshsig: %d trailing bytes", len(reader.rest()))
 	}
 
-	if string(namespace) != protocol.AuthNamespace {
-		return nil, fmt.Errorf("authz: sshsig: namespace is %q, want %q", string(namespace), protocol.AuthNamespace)
+	if string(namespace) != wantNamespace {
+		return nil, fmt.Errorf("authz: sshsig: namespace is %q, want %q", string(namespace), wantNamespace)
 	}
 	if len(reserved) != 0 {
 		return nil, errors.New("authz: sshsig: reserved field is not empty")

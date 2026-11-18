@@ -75,7 +75,7 @@ approvals and privilege.
 | [crhs configuration](doc/guide/reference/crhs-config.md)             | `crhs.toml` and system settings                     |
 | [crha configuration](doc/guide/reference/crha-config.md)             | `crha.toml`                                         |
 | [Privileged configuration](doc/guide/reference/privileged-config.md) | `privileged.toml`                                   |
-| [Command line](doc/guide/reference/cli.md)                           | `crhs` and `crha` commands                          |
+| [Command line](doc/guide/reference/cli.md)                           | `crhs`, `crha` and `crhu` commands                  |
 
 **Design**
 
@@ -100,7 +100,7 @@ approvals and privilege.
 | ----------- | -------------------------------------------------------------- |
 | `server/`   | crhs (TypeScript, Node.js)                                     |
 | `web/`      | The WebUI (React)                                              |
-| `client/`   | crha (Go)                                                      |
+| `client/`   | crha and crhu (Go)                                             |
 | `packages/` | Shared TypeScript packages: API types, the CRH protocol, Noise |
 | `doc/`      | The guide and the design documents                             |
 

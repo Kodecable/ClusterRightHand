@@ -31,7 +31,7 @@ import {
 	loadAuthorizationSigningKeys,
 } from "../src/privilege/key.ts";
 import { type AuthorizationCommand, buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
-import { signSshsig, verifySshsig } from "../src/privilege/sshsig.ts";
+import { REGISTER_NAMESPACE, signSshsig, verifySshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
@@ -40,6 +40,7 @@ import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helper
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { createSshKey, type TestSshKey } from "./helpers/authenticator.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { registerSshCredential } from "./helpers/signing-credentials.ts";
 
 const WEBAUTHN = { rpId: "crh.example.com", rpName: "ClusterRightHand", origins: ["https://crh.example.com"] };
 
@@ -100,6 +101,7 @@ describe("user authorizations", () => {
 			signingKeys,
 			webauthn: WEBAUTHN,
 			clockWarnMs: 60_000,
+			serverFingerprint: "test-server",
 		});
 		owner = { userId: ownerUser.id, cookie: await login(app, "owner", "password-123") };
 		other = { userId: otherUser.id, cookie: await login(app, "other", "password-123") };
@@ -117,10 +119,7 @@ describe("user authorizations", () => {
 	});
 
 	async function addSshSigningCredential(key: TestSshKey, cookie: string): Promise<void> {
-		const res = await call(app, "/api/me/signing-credentials/ssh", {
-			cookie,
-			body: { publicKey: key.line, name: "test" },
-		});
+		const res = await registerSshCredential(app, cookie, key, "test");
 		expect(res.status).toBe(201);
 	}
 
@@ -295,7 +294,7 @@ describe("user authorizations", () => {
 		return sign.payload;
 	};
 
-	/** Signs payload bytes with an SSH key and wraps the authorization as `crha grant` prints it. */
+	/** Signs payload bytes with an SSH key and wraps the authorization as `crhu sign` prints it. */
 	const signedAuthorization = (payload: Uint8Array, key: TestSshKey = ownerKey): string => {
 		const signature: Signature = { kind: "sshsig", blob: signSshsig(key.privateKey, key.blob, payload) };
 		const authorization: Authorization = { payload, signatures: [signature] };
@@ -371,7 +370,10 @@ describe("user authorizations", () => {
 		);
 		expect(new Date(pending.deadline).getTime() - Date.now()).toBeGreaterThan(23.9 * HOUR);
 		expect(pending.passkeys).toEqual([]);
-		expect((authorization as { options: { kind: string }[] }).options.map((option) => option.kind)).toEqual(["sign"]);
+		const options = (authorization as { options: { kind: string; fingerprints?: string[] }[] }).options;
+		expect(options.map((option) => option.kind)).toEqual(["sign"]);
+		// The matching SSH credential is named as a hint for `crhu sign`; it is not a trust decision.
+		expect(options[0]?.fingerprints).toEqual([ownerKey.fingerprint]);
 
 		// Only the owner may read the payload; an administrator with access gets a 403.
 		const forbidden = await call(app, `/api/tasks/${task.id}/authorization`, { cookie: adminCookie });
@@ -633,12 +635,25 @@ describe("user authorizations", () => {
 		expect(task.id).not.toBe(waiting.id);
 	});
 
-	it("refuses a submission signed by another user's key, an expired one, one without a deadline and one issued in the future", async () => {
+	it("refuses a submission in another namespace, signed by another user's key, expired, undated or issued in the future", async () => {
 		const { node } = await connect("pending-2", (id) => summaryOf(id, [ownerEntry()]));
 		const task = await createPrivileged(node.id);
 		await waitState(task.id, "awaiting_authorization");
 		const pending = signOf((await pendingFor(task.id)).authorization);
 		const payloadBytes = new Uint8Array(Buffer.from(pending.payload, "base64"));
+
+		// A signature in the registration namespace never verifies as an authorization.
+		const registrationSignature: Signature = {
+			kind: "sshsig",
+			blob: signSshsig(ownerKey.privateKey, ownerKey.blob, payloadBytes, { namespace: REGISTER_NAMESPACE }),
+		};
+		const crossNamespace = await submit(
+			Buffer.from(
+				encodeCbor(authorizationCodec.encode({ payload: payloadBytes, signatures: [registrationSignature] })),
+			).toString("base64"),
+		);
+		expect(crossNamespace.status).toBe(400);
+		expect(((await crossNamespace.json()) as { error: string }).error).toMatch(/namespace/);
 
 		const foreign = await submit(signedAuthorization(payloadBytes, otherKey));
 		expect(foreign.status).toBe(400);
@@ -710,6 +725,7 @@ describe("user authorizations", () => {
 		expect(waiting.authorization?.options[0]).toMatchObject({
 			kind: "sign",
 			entries: [{ name: "alice", cosign: "available" }],
+			fingerprints: [ownerKey.fingerprint],
 		});
 		const pending = signOf((await pendingFor(task.id)).authorization);
 		const res = await submit(signedAuthorization(new Uint8Array(Buffer.from(pending.payload, "base64"))));

@@ -157,7 +157,7 @@ results use the public address ([Reverse proxy and TLS](install.md#reverse-proxy
 
 Set `privileged: true` on `exec` or a file tool. On a `forward` node the task may also need your
 signature after the rules allow it; sign it on the task page or the Approvals page with a Passkey or
-`crha grant`, then call `task_wait`. SSH nodes ignore the flag.
+`crhu sign`, then call `task_wait`. SSH nodes ignore the flag.
 
 ## Differences from agent sessions
 
