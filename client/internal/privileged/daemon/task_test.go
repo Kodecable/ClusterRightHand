@@ -342,7 +342,7 @@ func TestUsedPersistsAcrossRestart(t *testing.T) {
 }
 
 // TestRoleChecks covers SO_PEERCRED role selection: a forward hello is refused when the uid is
-// not unprivileged_uid, while a local uid can still approve.
+// not unprivileged_uid, while a local uid can still manage the window.
 func TestRoleChecks(t *testing.T) {
 	keys := newTestKeys(t)
 	uid := os.Getuid()
@@ -368,9 +368,9 @@ func TestRoleChecks(t *testing.T) {
 		t.Fatalf("local dial: %v", err)
 	}
 	defer local.Close()
-	entries, err := local.Pending(requestContext(t))
-	if err != nil || len(entries) != 0 {
-		t.Fatalf("pending = %v, %v", entries, err)
+	state, err := local.Window(requestContext(t))
+	if err != nil || state.Kind != protocol.WindowStateClosed {
+		t.Fatalf("window = %+v, %v", state, err)
 	}
 }
 

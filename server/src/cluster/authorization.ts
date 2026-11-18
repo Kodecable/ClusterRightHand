@@ -1,64 +1,73 @@
 /**
  * The authorization state of one task, stored as JSON in `tasks.authorization` and shown by the task
- * views (doc/design/privilege.md "Server-side authorization"): the last plan, the paths already tried, the signature that was sent,
- * the attempt and the last rejection from crha. The state outlives a re-plan, so a retry never sends
- * the same crhs signature path twice.
+ * views (doc/design/privilege.md "Server-side authorization"): the options the owner can take, what crha's
+ * rejections ruled out (crhs's signature under a window, the owner authorizations up to a time), the
+ * signature that was sent, the attempt and the last rejection from crha.
  *
- * While a task waits for its owner, `pending` holds the exact payload bytes the owner must sign. They
- * are stored, not recomputed, so the same payload survives a crhs restart and only changes on a
- * re-plan (a new attempt or a changed trust digest, doc/design/privilege.md "Authorization path").
+ * While a task waits for its owner, `options` holds the ways to authorize it. A `sign` option carries
+ * the exact payload bytes the owner must sign; they are stored, not recomputed, and a sync pass keeps
+ * them while they still ask for the same thing (doc/design/privilege.md "Authorization path").
  */
-import type {
-	PendingPayloadView,
-	PlannedPathView,
-	TaskAuthorizationPlanView,
-	TaskAuthorizationRejection,
-} from "@crh/api";
+import type { AuthorizationOption, PendingPayloadView, TaskAuthorizationRejection } from "@crh/api";
 import type { Signature } from "@crh/protocol";
-import type { AuthorizationPlan, PlannedPath } from "../privilege/planner.ts";
+import type { BuiltAuthorization } from "../privilege/payload.ts";
+import { authorizationDeadline } from "../privilege/payload.ts";
+import type { PlannedOption } from "../privilege/planner.ts";
 import { parseTaskAuthorization, type TaskAuthorizationRecord } from "../privilege/task-authorization.ts";
 
-export type { PendingPayloadView, PlannedPathView, TaskAuthorizationPlanView, TaskAuthorizationRejection };
+export type { PendingPayloadView, TaskAuthorizationRecord, TaskAuthorizationRejection };
 
-export { parseTaskAuthorization, type TaskAuthorizationRecord };
+export { parseTaskAuthorization };
 
-function pathView(path: PlannedPath): PlannedPathView {
-	switch (path.path) {
-		case "crhs":
-			return { path: "crhs", entries: [{ name: path.entry.name, role: "crhs" }] };
-		case "user":
-			return {
-				path: "user",
-				entries: path.entries.map((entry) => ({
-					name: entry.entry.name,
-					role: "user",
-					credential: entry.credential.kind,
-					...(entry.cosignRequired
-						? { cosign: entry.cosignAvailable ? ("available" as const) : ("missing" as const) }
-						: {}),
-				})),
-				ttlMs: path.ttlMs,
-			};
-		case "local":
-			return { path: "local", entries: [{ name: path.entry.name, role: "local" }] };
-	}
-}
-
-/** The plan as it is stored and displayed. */
-export function planView(plan: AuthorizationPlan): TaskAuthorizationPlanView {
+/** The payload as the record stores it and the owner's endpoint serves it. */
+function payloadViewOf(authorization: BuiltAuthorization): PendingPayloadView {
 	return {
-		paths: plan.paths.map(pathView),
-		...(plan.reason === undefined ? {} : { reason: plan.reason }),
+		payload: Buffer.from(authorization.bytes).toString("base64"),
+		id: authorization.id,
+		deadline: authorizationDeadline(authorization.payload.deadlineMs),
+		taskIds: authorization.payload.taskIds ?? [],
+		attempt: authorization.payload.attempt ?? 0,
 	};
 }
 
+/** One planned option as the task record stores it: a `sign` option keeps the exact payload bytes. */
+function optionRecord(option: PlannedOption): AuthorizationOption {
+	if (option.kind === "local_window") {
+		return { kind: "local_window", nodeId: option.nodeId, nodeName: option.nodeName };
+	}
+	return {
+		kind: "sign",
+		entries: option.entries.map((entry) => ({
+			name: entry.entry.name,
+			role: "user",
+			credential: entry.credential.kind,
+			...(entry.cosignRequired
+				? { cosign: entry.cosignAvailable ? ("available" as const) : ("missing" as const) }
+				: {}),
+		})),
+		ttlMs: option.ttlMs,
+		payload: payloadViewOf(option.authorization),
+	};
+}
+
+/** The options of a plan, in the stored form. */
+export function optionRecords(options: readonly PlannedOption[]): AuthorizationOption[] {
+	return options.map(optionRecord);
+}
+
 /**
- * The record as a task view shows it: the pending payload itself is only served to the owner by its
- * own endpoint (doc/design/privilege.md "Authorizations"), so every other view drops it.
+ * The record as a task view shows it: the payload bytes are only served to the owner by its own
+ * endpoint (doc/design/privilege.md "Authorizations"), so every other view drops them.
  */
 export function authorizationView(json: string | null): TaskAuthorizationRecord | null {
 	const record = parseTaskAuthorization(json);
-	return record ? { ...record, pending: null } : null;
+	if (!record) return null;
+	return { ...record, options: record.options.map(withoutPayload) };
+}
+
+function withoutPayload(option: AuthorizationOption): AuthorizationOption {
+	if (option.kind !== "sign") return option;
+	return { ...option, payload: null };
 }
 
 export function serializeTaskAuthorization(record: TaskAuthorizationRecord): string {

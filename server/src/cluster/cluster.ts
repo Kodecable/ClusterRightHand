@@ -211,6 +211,8 @@ export class Cluster {
 			links.closeLinks(this.#core);
 			for (const t of this.#core.unknownTimers.values()) clearTimeout(t);
 			this.#core.unknownTimers.clear();
+			for (const t of this.#core.authorizationRefresh.values()) clearTimeout(t);
+			this.#core.authorizationRefresh.clear();
 			this.#core.cancelledBy.clear();
 			for (const transfer of this.#core.dataTransfers.values()) {
 				transfer.close();
@@ -310,8 +312,8 @@ export class Cluster {
 
 	/**
 	 * POST /api/authorizations: checks a user's authorization and stores it (for display and reuse). The
-	 * waiting tasks it covers are judged, claimed and sent in the background, so this returns
-	 * once the authorization is stored; their outcome shows up in the task states (doc/design/privilege.md "Authorizations").
+	 * waiting units it may cover are synced in the background, so this returns once the authorization
+	 * is stored; their outcome shows up in the task states (doc/design/privilege.md "Authorizations").
 	 */
 	submitAuthorization(user: SessionUser, submitted: SubmittedAuthorization): Promise<{ id: string }> {
 		return authorizations.submitAuthorization(this.#core, user, submitted);
@@ -406,8 +408,7 @@ export class Cluster {
 
 	/**
 	 * POST /api/tasks/:id/authorization/reject: the owner declines to sign a waiting task. The task ends
-	 * `rejected`/`authorization_rejected` with the reason, and an outstanding local approval request is
-	 * withdrawn. Returns false when the task is no longer waiting for its signature
+	 * `rejected`/`authorization_declined` with the reason. Returns false when the task is no longer waiting
 	 * (doc/design/privilege.md "Waiting for signatures"). Without a reason the default message is stored.
 	 * A task group's members pass `audit: false`: the group's one event names the group instead.
 	 */
@@ -416,12 +417,21 @@ export class Cluster {
 	}
 
 	/**
-	 * Ends the tasks whose signature has not arrived within AUTHORIZATION_WAIT_MS since they began to wait
-	 * (doc/design/privilege.md "Waiting for signatures"): from the approval decision when there was one, else from creation.
-	 * Run at startup and by the periodic sweep; returns how many tasks it ended.
+	 * Where a task group's authorization sync reads the owner's rejection of a group that still runs, so a
+	 * member that waits again is rejected instead of planned (doc/design/privilege.md "Waiting for
+	 * signatures"). TaskGroups, which owns the runs, sets it.
 	 */
-	expireAuthorizationWaits(nowMs?: number): Promise<number> {
-		return authorizations.expireAuthorizationWaits(this.#core, nowMs);
+	set groupAuthorizationRejection(read: (groupId: string) => { reason: string; by: Actor } | undefined) {
+		this.#core.groupRejection = read;
+	}
+
+	/**
+	 * Ends the tasks whose authorization has not arrived within AUTHORIZATION_WAIT_MS since they began to
+	 * wait, and asks for a sync of the waits a pass or a refresh timer missed (doc/design/privilege.md
+	 * "Waiting for signatures"). Run at startup and by the periodic sweep; returns how many tasks it ended.
+	 */
+	sweepAuthorizationWaits(nowMs?: number): Promise<number> {
+		return authorizations.sweepAuthorizationWaits(this.#core, nowMs);
 	}
 
 	/**

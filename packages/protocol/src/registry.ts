@@ -20,13 +20,7 @@ import {
 	taskStatusCodec,
 	welcomeCodec,
 } from "./messages.ts";
-import {
-	localDecisionCodec,
-	localRequestCodec,
-	localStateCodec,
-	localWithdrawCodec,
-	trustReportCodec,
-} from "./privileged.ts";
+import { trustReportCodec } from "./privileged.ts";
 import type { Codec, Infer } from "./schema.ts";
 
 export interface CommandDefinition<Q = unknown, R = unknown> {
@@ -42,8 +36,6 @@ export const COMMANDS = {
 	"task.input": { request: taskInputCodec, response: emptyCodec },
 	"task.cancel": { request: taskCancelCodec, response: emptyCodec },
 	"task.query": { request: taskQueryCodec, response: taskStatusCodec },
-	"local.request": { request: localRequestCodec, response: localStateCodec },
-	"local.withdraw": { request: localWithdrawCodec, response: emptyCodec },
 } as const satisfies Record<string, CommandDefinition>;
 
 /** Every event. */
@@ -55,7 +47,6 @@ export const EVENTS = {
 	"task.output.ack": outputAckCodec,
 	"task.exit.ack": taskExitAckCodec,
 	"trust.summary": trustReportCodec,
-	"local.decision": localDecisionCodec,
 } as const satisfies Record<string, Codec<unknown>>;
 
 export type CommandName = keyof typeof COMMANDS;
@@ -78,8 +69,5 @@ export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 	"node.status",
 	"task.output.ack",
 	"task.exit.ack",
-	"local.request",
-	"local.withdraw",
 	"trust.summary",
-	"local.decision",
 ]);

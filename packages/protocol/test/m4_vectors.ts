@@ -23,18 +23,16 @@ import {
 	authorizationPayloadCodec,
 	encodeAuthorizationPayload,
 	lengthPrefixed,
-	localDecisionCodec,
-	localRequestCodec,
-	localWithdrawCodec,
 	PRIV_MAJOR,
 	PRIV_MINOR,
-	pendingEntryCodec,
 	privHelloCodec,
 	privWelcomeCodec,
 	type Signature,
 	type TrustSummary,
 	trustReportCodec,
 	trustSummaryCodec,
+	windowOpenCodec,
+	windowStateCodec,
 } from "../src/privileged.ts";
 import type { Codec } from "../src/schema.ts";
 
@@ -800,7 +798,7 @@ const TRUST: TrustSummary = {
 			source: "local",
 			role: "local",
 			key: { kind: "local", uids: [0, 1000] },
-			kinds: ["execute"],
+			kinds: [],
 			requireExact: false,
 			requireTask: false,
 			requireUv: false,
@@ -810,6 +808,7 @@ const TRUST: TrustSummary = {
 			envAllow: [],
 		},
 	],
+	localWindow: { kind: "open", openedAtMs: NOW + 1000, openedByUid: 1000, untilMs: NOW + 1_800_000 },
 };
 
 function bodyVectors(): (HexVector & { codec: string; digestHex?: string })[] {
@@ -836,35 +835,16 @@ function bodyVectors(): (HexVector & { codec: string; digestHex?: string })[] {
 		body("trust.report.not-forward", "TrustReport not_forward", "TrustReport", trustReportCodec, {
 			kind: "not_forward",
 		}),
-		body("local.request", "local approval request", "LocalRequest", localRequestCodec, {
-			taskId: "0192f000-0000-7000-8000-000000000021",
-			attempt: 2,
-			spec: execArgv,
-			note: "crhs signature was rejected; falling back to local approval",
-			inputPreview: new Uint8Array(0),
+		body("window.state.open", "local approval window open until a time", "WindowState", windowStateCodec, {
+			kind: "open",
+			openedAtMs: NOW,
+			openedByUid: 1000,
+			untilMs: NOW + 1_800_000,
 		}),
-		body("local.withdraw", "withdraw a local approval request", "LocalWithdraw", localWithdrawCodec, {
-			taskId: "0192f000-0000-7000-8000-000000000021",
-			attempt: 2,
+		body("window.state.closed", "local approval window closed", "WindowState", windowStateCodec, {
+			kind: "closed",
 		}),
-		body("local.decision.approved", "approved", "LocalDecision", localDecisionCodec, {
-			taskId: "0192f000-0000-7000-8000-000000000021",
-			attempt: 2,
-			state: { kind: "approved" },
-		}),
-		body("local.decision.denied", "denied with a message", "LocalDecision", localDecisionCodec, {
-			taskId: "0192f000-0000-7000-8000-000000000021",
-			attempt: 2,
-			state: { kind: "denied", message: "denied by uid 1000" },
-		}),
-		body("pending.entry", "one crha pending entry", "PendingEntry", pendingEntryCodec, {
-			taskId: "0192f000-0000-7000-8000-000000000021",
-			attempt: 2,
-			spec: execArgv,
-			note: "",
-			receivedAtMs: NOW,
-			inputPreview: new Uint8Array(0),
-		}),
+		body("window.open", "crh-priv window.open request", "WindowOpen", windowOpenCodec, { durationMs: 1_800_000 }),
 	];
 }
 

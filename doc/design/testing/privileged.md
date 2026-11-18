@@ -19,15 +19,14 @@ restart and reload the processes inside the container through a control script.
 - the task environment: identity, fixed `PATH`, discovered shell;
 - `forward` with crhs-signed authorizations, with user-only trust and `crha grant`, and with required
   cosignatures;
-- local approval, including recovery after the privileged mode restarts and fallback after a refused
-  crhs signature;
+- the local approval window: opening it releases a crhs-signed task the crhs entry denies, it closes
+  with `crha lock` and does not survive a privileged-mode restart, and `max_window` caps it;
 - one-shot replay protection and the persistent used list;
 - guard rules against symlinks, unnormalized paths, shell commands hiding behind a prefix rule, and
   environment variables;
-- trust digest changes, re-planning, and an unavailable privileged mode;
+- trust digest changes, authorization syncs, and an unavailable privileged mode;
 - SSH nodes ignoring the privileged flag;
-- task groups signed once, a refusing node retrying alone, and groups that only local approval could
-  authorize.
+- task groups signed once, a refusing node retrying alone, and groups that wait for a local window.
 
 Two cases are provoked deliberately: a crhs authorization that expires before it arrives (to test the
 fallback), and one node of a group configured with the wrong node id (to test a partial refusal).

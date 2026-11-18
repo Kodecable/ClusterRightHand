@@ -38,7 +38,7 @@ func TestLogWritesFileAndMirror(t *testing.T) {
 			Event: "task.finished", TaskID: "t1", Outcome: "exit 0", DurationMS: 12,
 			OutputEnd: 3,
 		},
-		{Event: "local.approve", TaskID: "t3", Attempt: 2, UID: &uid},
+		{Event: "window.opened", UID: &uid, UntilMS: 1_700_000_000_000},
 		{Event: "config.reloaded", Detail: "digest changed"},
 	}
 	for _, rec := range records {

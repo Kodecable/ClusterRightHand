@@ -13,14 +13,12 @@ import {
 	authorizationCodec,
 	authorizationPayloadCodec,
 	decodeAuthorizationPayload,
-	localDecisionCodec,
-	localRequestCodec,
-	localWithdrawCodec,
-	pendingEntryCodec,
 	privHelloCodec,
 	privWelcomeCodec,
 	trustReportCodec,
 	trustSummaryCodec,
+	windowOpenCodec,
+	windowStateCodec,
 } from "../src/privileged.ts";
 import type { Codec } from "../src/schema.ts";
 
@@ -297,10 +295,8 @@ describe("test/interop/m4_vectors.json", () => {
 		const codecs: Record<string, Codec<unknown>> = {
 			TrustSummary: trustSummaryCodec as Codec<unknown>,
 			TrustReport: trustReportCodec as Codec<unknown>,
-			LocalRequest: localRequestCodec as Codec<unknown>,
-			LocalWithdraw: localWithdrawCodec as Codec<unknown>,
-			LocalDecision: localDecisionCodec as Codec<unknown>,
-			PendingEntry: pendingEntryCodec as Codec<unknown>,
+			WindowState: windowStateCodec as Codec<unknown>,
+			WindowOpen: windowOpenCodec as Codec<unknown>,
 		};
 		for (const vector of vectors.bodies) {
 			const codec = codecs[vector.codec];

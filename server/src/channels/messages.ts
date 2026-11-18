@@ -141,11 +141,19 @@ interface CardText extends CardLabels {
 	approveHint: (id: string) => string;
 	rejectHint: (id: string) => string;
 	signatureHint: (link: string | null) => string;
+	/** The command that opens a local approval window on a node. */
+	signatureWindowHint: (nodeName: string) => string;
+	/** The owner already signed; the task is sent when its node is back. */
+	signatureAwaitingNodeHint: string;
 	quotaDetail: (status: QuotaStatus) => string;
 	quotaContinue: string;
 	quotaStop: string;
 	approvedResult: (by: string) => string;
 	rejectedResult: (by: string, reason: string | null) => string;
+	/** A signature wait that ended with the task sent to its node. */
+	authorizedResult: string;
+	/** A signature wait that ended because nothing could authorize the task. */
+	authorizationFailedResult: (reason: string) => string;
 	expired: string;
 	/** The name Auto Review's decisions read as. */
 	autoReview: string;
@@ -178,11 +186,15 @@ const EN_CARD: CardText = {
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [reason]`,
 	signatureHint: (link) => `Sign in the WebUI${link ? `: ${link}` : ""}`,
+	signatureWindowHint: (nodeName) => `Run sudo crha approve --for 30m on ${nodeName}`,
+	signatureAwaitingNodeHint: "Signed: sent when the node is back online",
 	quotaDetail: (status) => quotaLine(status, "en"),
 	quotaContinue: "Continue: /quota add <tokens>",
 	quotaStop: "End this turn: /quota stop",
 	approvedResult: (by) => `✅ Approved · by ${oneLine(by)}`,
 	rejectedResult: (by, reason) => `❌ Rejected · by ${oneLine(by)}${reason ? `: ${oneLine(reason)}` : ""}`,
+	authorizedResult: "✅ Authorized",
+	authorizationFailedResult: (reason) => `❌ Not authorized: ${oneLine(reason)}`,
 	expired: "Expired",
 	autoReview: "Auto Review",
 };
@@ -214,11 +226,15 @@ const ZH_CARD: CardText = {
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [原因]`,
 	signatureHint: (link) => `在 WebUI 中签名${link ? `：${link}` : ""}`,
+	signatureWindowHint: (nodeName) => `在 ${nodeName} 上运行 sudo crha approve --for 30m`,
+	signatureAwaitingNodeHint: "已签名：节点上线后发送",
 	quotaDetail: (status) => quotaLine(status, "zh-CN"),
 	quotaContinue: "继续：/quota add <tokens>",
 	quotaStop: "结束本回合：/quota stop",
 	approvedResult: (by) => `✅ 已批准 · 由 ${oneLine(by)}`,
 	rejectedResult: (by, reason) => `❌ 已拒绝 · 由 ${oneLine(by)}${reason ? `：${oneLine(reason)}` : ""}`,
+	authorizedResult: "✅ 已授权",
+	authorizationFailedResult: (reason) => `❌ 未能授权：${oneLine(reason)}`,
 	expired: "已失效",
 	autoReview: "Auto Review",
 };
@@ -291,19 +307,43 @@ function approvalCardFor(
 	return card;
 }
 
-/** A card for a task or task group waiting for the user's signature; its only hint is the WebUI link. */
+/** The options a signature card lists, derived from the task's or task group's stored options. */
+export interface SignatureCardOptions {
+	/** A `sign` option is offered: link to the WebUI. */
+	sign: boolean;
+	/** The node names of `local_window` options: run the command there. */
+	localWindows: readonly string[];
+	/** A task the owner already signed waits for its node to come back. */
+	awaitingNode: boolean;
+	/** The surface takes buttons, so its reject control is a button and the hint says how to use it. */
+	withButtons: boolean;
+	/** A default notification account routed the card rather than a chat thread. */
+	withSource: boolean;
+}
+
+/**
+ * A card for a task or task group waiting for the user's signature: the ways to authorize it (a WebUI
+ * signature and/or a local approval window on a node), and where to reject the wait instead
+ * (doc/design/privilege.md "Authorization path").
+ */
 function signatureCardFor(
 	request: ApprovalRequest,
 	link: string | null,
-	options: { withSource: boolean },
+	options: SignatureCardOptions,
 	labels: CardText,
 ): ChatCard {
 	const meta = metaText(request, options.withSource, labels);
+	const hints: string[] = [];
+	if (options.sign) hints.push(labels.signatureHint(link));
+	for (const nodeName of options.localWindows) hints.push(labels.signatureWindowHint(nodeName));
+	if (options.awaitingNode) hints.push(labels.signatureAwaitingNodeHint);
+	// The reject hint mirrors an approval card: with buttons the control is the button, otherwise the command.
+	hints.push(options.withButtons ? labels.rejectWithButtons(request.id) : labels.rejectHint(request.id));
 	const card: ChatCard = {
 		title: labels.signatureTitle,
 		privileged: request.privileged,
 		detail: actionDetail(request.action, labels),
-		hints: [labels.signatureHint(link)],
+		hints,
 	};
 	if (meta !== undefined) card.meta = meta;
 	if (request.review !== undefined) {
@@ -377,10 +417,12 @@ export interface BotMessages {
 	card: CardText;
 	/** The one approval card every channel renders (doc/design/channels.md "Approvals"). */
 	approvalCard: (request: ApprovalRequest, options: { withButtons: boolean; withSource: boolean }) => ChatCard;
-	signatureCard: (request: ApprovalRequest, link: string | null, options: { withSource: boolean }) => ChatCard;
+	signatureCard: (request: ApprovalRequest, link: string | null, options: SignatureCardOptions) => ChatCard;
 	quotaCard: (title: string, status: QuotaStatus) => ChatCard;
 	approvedResult: (by: string) => string;
 	rejectedResult: (by: string, reason: string | null) => string;
+	authorizedResult: string;
+	authorizationFailedResult: (reason: string) => string;
 	expiredResult: string;
 	sessionNotYours: string;
 	couldNotReadHistory: (problem: string) => string;
@@ -479,6 +521,8 @@ const en: BotMessages = {
 	quotaCard: (title, status) => quotaCardFor(title, status, EN_CARD),
 	approvedResult: (by) => EN_CARD.approvedResult(by),
 	rejectedResult: (by, reason) => EN_CARD.rejectedResult(by, reason),
+	authorizedResult: EN_CARD.authorizedResult,
+	authorizationFailedResult: (reason) => EN_CARD.authorizationFailedResult(reason),
 	expiredResult: EN_CARD.expired,
 	sessionNotYours: "That session is not yours to attach.",
 	couldNotReadHistory: (problem) => `Could not read the session's history:\n${codeBlock(problem)}`,
@@ -619,6 +663,8 @@ const zhCN: BotMessages = {
 	quotaCard: (title, status) => quotaCardFor(title, status, ZH_CARD),
 	approvedResult: (by) => ZH_CARD.approvedResult(by),
 	rejectedResult: (by, reason) => ZH_CARD.rejectedResult(by, reason),
+	authorizedResult: ZH_CARD.authorizedResult,
+	authorizationFailedResult: (reason) => ZH_CARD.authorizationFailedResult(reason),
 	expiredResult: ZH_CARD.expired,
 	sessionNotYours: "该会话不属于你，无法附加。",
 	couldNotReadHistory: (problem) => `无法读取会话历史：\n${codeBlock(problem)}`,

@@ -12,7 +12,6 @@ const (
 	CodeUnsupportedKind    = "unsupported_kind"
 	CodeUnknownTask        = "unknown_task"
 	CodeAlreadyAccepted    = "already_accepted"
-	CodeAlreadyDecided     = "already_decided"
 	CodeLocalNotTrusted    = "local_not_trusted"
 	// CodeBusy refuses a transfer because this node already runs one (doc/design/library.md
 	// "Data connections"). crhs schedules transfers, so it is a backstop.

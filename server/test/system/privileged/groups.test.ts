@@ -4,8 +4,8 @@
  *
  * One user signature covers the tasks of both nodes (one shared payload); a node whose
  * authorization is refused independently retries alone (attempt + 1) and is re-signed alone while
- * the node that already ran is not touched; a group whose only remaining path is local approval
- * fails directly.
+ * the node that already ran is not touched; a group whose only remaining path is a local approval
+ * window waits for the window instead of failing.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -45,7 +45,7 @@ describePodman("privileged system: task groups", () => {
 		key: ownerPublicKey,
 		kinds: ["execute"],
 	});
-	const localEntry = (): TrustSpec => ({ name: "local-admins", role: "local", uids: [0], kinds: ["execute"] });
+	const localEntry = (): TrustSpec => ({ name: "local-admins", role: "local", uids: [0], kinds: [] });
 
 	async function group(body: { argv?: string[]; shell?: string }) {
 		const command = body.shell !== undefined ? { shell: body.shell } : { argv: body.argv ?? ["id", "-u"] };
@@ -77,12 +77,12 @@ describePodman("privileged system: task groups", () => {
 		if (res.status !== 200 || !res.json.taskGroup?.authorization) {
 			throw new Error(`no task group payload: ${res.status} ${JSON.stringify(res.json)}`);
 		}
-		const pending = res.json.taskGroup.authorization as {
-			id: string;
-			payload: string;
-			attempt: number;
-			decoded: { taskIds: string[]; nodes: string[] };
-		};
+		const options = res.json.taskGroup.authorization.options as {
+			kind: string;
+			payload?: { id: string; payload: string; attempt: number; decoded: { taskIds: string[]; nodes: string[] } };
+		}[];
+		const pending = options.find((option) => option.kind === "sign")?.payload;
+		if (!pending) throw new Error(`no sign option: ${JSON.stringify(options)}`);
 		return {
 			id: pending.id,
 			payload: pending.payload,
@@ -232,24 +232,21 @@ describePodman("privileged system: task groups", () => {
 		expect(rows[0].authorization?.payloadId).toBe(rows[1].authorization?.payloadId);
 	}, 90_000);
 
-	it("fails a group whose only remaining path is local approval", async () => {
+	it("fails a group that only a local approval window could authorize", async () => {
 		await a.setTrust([localEntry()]);
 		await b.setTrust([localEntry()], b.nodeId);
 		const g = await group({ argv: ["true"] });
-		// A group's own state is `finished` even when tasks were rejected; the tasks carry the error.
-		const done = await waitFor(
-			"the group to finish",
+		// A task group is never offered a local window, so with no other option its members fail.
+		const ended = await waitFor(
+			"the group's members to fail",
 			async () => {
-				const value = await getGroup(g.id);
-				return value.state === "finished" ? value : undefined;
+				const value = (await getGroup(g.id)) as {
+					tasks: { state: string; errorCode: string | null }[];
+				};
+				return value.tasks.length === 2 && value.tasks.every((task) => task.state === "rejected") ? value : undefined;
 			},
 			20_000,
 		);
-		expect(done.tasks).toHaveLength(2);
-		for (const task of done.tasks) {
-			expect(task.state).toBe("rejected");
-			expect(task.errorCode).toBe("authorization_required");
-			expect(task.errorMessage?.toLowerCase()).toContain("local");
-		}
+		for (const task of ended.tasks) expect(task.errorCode).toBe("authorization_required");
 	}, 90_000);
 });

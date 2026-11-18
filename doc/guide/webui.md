@@ -337,7 +337,7 @@ when it was requested. Click a row to open it:
 | Type | Your options |
 |---|---|
 | **Approval** | Approve, Always allow, or Reject |
-| **Signature** | Sign with a Passkey or `crha grant`, sign by hand with `ssh-keygen`, use a local `crha approve` when the node allows it, or Reject ([Signing](#signing-with-an-ssh-key-or-a-passkey)) |
+| **Signature** / **Local window** | The options the server planned: sign with a Passkey or `crha grant`, sign by hand with `ssh-keygen`, open a local approval window on the node, or Reject ([Signing](#signing-with-an-ssh-key-or-a-passkey)) |
 | **Quota** | Add tokens or stop the run; the row opens the session, where the decision panel shows it |
 
 **Always allow** adds an allow rule, prefilled from the operation, to the session, schedule or token
@@ -360,14 +360,18 @@ revoked here. To withdraw a signer, change the node's trust configuration.
 
 ### Signing with an SSH key or a Passkey
 
-When a privileged task waits for your signature, its decision offers:
+When a privileged task waits for an authorization, its decision shows the options crhs planned:
 
 - **Passkey**, if the node trusts one of your Passkeys for this command;
 - **crha grant**: copy the command, run it on your workstation, and paste its output back with
   **Submit authorization**;
 - **ssh-keygen**: the same steps by hand, with the same paste box;
-- **Local approval**, if the node allows it: run the copied `crha approve` command on the node instead;
+- **Local window**, if the plan offers it: run the copied `sudo crha approve --for 30m` command on
+  the named node instead. While that window is open crhs can run any privileged task there, so prefer
+  a signature when only this task matters. A task group is never offered a local window;
 - **Reject**, with an optional reason; the task ends rejected and the reason is shown on it.
+
+A task whose plan is still being written shows "Preparing…" and keeps Reject available.
 
 Register your SSH keys and Passkeys on **Signing credentials**. **Generate trust config** there builds the
 `[[trust]]` entries for a node's `privileged.toml`. Passkeys need the WebUI to be served over HTTPS with a hostname.

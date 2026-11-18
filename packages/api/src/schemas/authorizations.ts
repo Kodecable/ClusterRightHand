@@ -1,83 +1,35 @@
 /**
  * Runtime schemas for privileged-task authorizations (`../authorizations.ts`,
- * doc/design/privilege.md "Authorization path"): plans, the payload to sign, pending views,
- * the administrator's list and the owner's rejection.
+ * doc/design/privilege.md "Authorization path"): the options a waiting task offers its owner, the
+ * payload a `sign` option carries, pending views, the administrator's list and the owner's rejection.
  */
 import { z } from "zod";
 import { RuleMethodSchema } from "./policy.ts";
 import { TaskStateSchema } from "./task-state.ts";
 
-/** The three ways a node can accept a privileged task. */
-export const AuthorizationPathSchema = z.enum(["crhs", "user", "local"]);
+/** The paths a crha rejection can rule out (doc/design/privilege.md "Authorization path"). */
+export const AuthorizationPathSchema = z.enum(["crhs", "user"]);
 
-/** One entry of a planned path. */
+/** One trust entry that can sign a `sign` option. */
 export const PlannedPathEntrySchema = z
 	.object({
 		name: z.string(),
-		role: z.enum(["crhs", "user", "local"]),
+		role: z.enum(["crhs", "user"]),
 		credential: z.enum(["sshsig", "webauthn"]).optional(),
 		cosign: z.enum(["required", "available", "missing"]).optional(),
 	})
 	.meta({ id: "PlannedPathEntry" });
 
-/** One path of a task's authorization plan (doc/design/privilege.md "Authorization path"). */
-export const PlannedPathViewSchema = z
-	.object({
-		path: AuthorizationPathSchema,
-		entries: z.array(PlannedPathEntrySchema),
-		ttlMs: z
-			.number()
-			.optional()
-			.describe("user path only: how long the payload is valid, capped by the strictest accepting entry."),
-	})
-	.meta({ id: "PlannedPathView" });
-
-export const TaskAuthorizationPlanViewSchema = z
-	.object({
-		paths: z.array(PlannedPathViewSchema),
-		reason: z.string().optional().describe("Why there is no usable path; set exactly when `paths` is empty."),
-	})
-	.meta({ id: "TaskAuthorizationPlanView" });
-
-/** The payload the owner has to sign, as stored on the task record. */
+/** The exact payload a `sign` option asks the owner to sign. */
 export const PendingPayloadViewSchema = z
 	.object({
 		payload: z.string().describe("Base64 of the exact CBOR payload bytes."),
 		id: z.string().describe("Hex SHA-256 of the payload bytes: the authorization id a submission carries."),
-		deadline: z.string().nullable().describe("ISO 8601; never null for a planned user path."),
+		deadline: z.string().nullable().describe("ISO 8601; never null for a planned sign option."),
 		taskIds: z.array(z.string()).describe("The task ids the payload covers."),
 		attempt: z.number().describe("The attempt every covered task uses (a task group shares the highest one)."),
 	})
 	.meta({ id: "PendingPayloadView" });
-
-export const TaskAuthorizationRejectionSchema = z
-	.object({
-		code: z.string(),
-		message: z.string(),
-		attempt: z.number().describe("The attempt crha rejected."),
-		at: z.string(),
-	})
-	.meta({ id: "TaskAuthorizationRejection" });
-
-/** The authorization state of a privileged task (doc/design/privilege.md "Server-side authorization"). */
-export const TaskAuthorizationViewSchema = z
-	.object({
-		plan: TaskAuthorizationPlanViewSchema,
-		tried: z.array(AuthorizationPathSchema).describe("Paths a crha rejection already ruled out for this task."),
-		dispatchedPath: AuthorizationPathSchema.nullable().describe(
-			"The path the last `task.start` used; null when nothing was sent yet.",
-		),
-		payloadId: z.string().nullable().describe("The `authorizations.id` of the last signature sent."),
-		attempt: z.number().describe("The attempt of the last `task.start`."),
-		trustDigest: z.string().nullable().describe("Hex digest of the TrustSummary the plan was computed from."),
-		pending: PendingPayloadViewSchema.nullable().describe(
-			"Always null in a task view: the payload has its own endpoint.",
-		),
-		local: z.object({ attempt: z.number() }).nullable().describe("The attempt a `local.request` was sent for."),
-		lastRejection: TaskAuthorizationRejectionSchema.nullable(),
-		updatedAt: z.string(),
-	})
-	.meta({ id: "TaskAuthorizationView" });
 
 /** The decoded form of a pending authorization payload. */
 export const DecodedAuthorizationPayloadSchema = z
@@ -114,20 +66,111 @@ export const PendingPasskeySchema = z
 	})
 	.meta({ id: "PendingPasskey" });
 
-/** The payload a waiting task's owner has to sign. */
+/** The payload of a `sign` option as the owner's waiting page renders it. */
+export const PendingSignPayloadSchema = PendingPayloadViewSchema.extend({
+	decoded: DecodedAuthorizationPayloadSchema,
+	challenge: z.string().describe("Base64url of the WebAuthn challenge derived from the payload."),
+	passkeys: z.array(PendingPasskeySchema),
+}).meta({ id: "PendingSignPayload" });
+
+/** One way the owner can authorize: a signature over a stored payload. */
+export const SignAuthorizationOptionSchema = z
+	.object({
+		kind: z.literal("sign"),
+		entries: z.array(PlannedPathEntrySchema),
+		ttlMs: z.number().describe("How long the payload is valid, capped by the strictest accepting entry."),
+		payload: PendingPayloadViewSchema.nullable().describe(
+			"The exact bytes to sign; null in a task view, served only by the owner's endpoint.",
+		),
+	})
+	.meta({ id: "SignAuthorizationOption" });
+
+/** One way the owner can authorize: opening a local approval window on one node. */
+export const LocalWindowAuthorizationOptionSchema = z
+	.object({
+		kind: z.literal("local_window"),
+		nodeId: z.string(),
+		nodeName: z.string(),
+	})
+	.meta({ id: "LocalWindowAuthorizationOption" });
+
+/** Not a choice: the owner already signed, and the task is sent when its absent node is back. */
+export const AwaitingNodeAuthorizationOptionSchema = z
+	.object({ kind: z.literal("awaiting_node") })
+	.meta({ id: "AwaitingNodeAuthorizationOption" });
+
+/** One option a waiting task or task group offers its owner. */
+export const AuthorizationOptionSchema = z
+	.discriminatedUnion("kind", [
+		SignAuthorizationOptionSchema,
+		LocalWindowAuthorizationOptionSchema,
+		AwaitingNodeAuthorizationOptionSchema,
+	])
+	.meta({ id: "AuthorizationOption" });
+
+export const TaskAuthorizationRejectionSchema = z
+	.object({
+		code: z.string(),
+		message: z.string(),
+		attempt: z.number().describe("The attempt crha rejected."),
+		at: z.string(),
+	})
+	.meta({ id: "TaskAuthorizationRejection" });
+
+/** The authorization state of a privileged task (doc/design/privilege.md "Server-side authorization"). */
+export const TaskAuthorizationViewSchema = z
+	.object({
+		options: z
+			.array(AuthorizationOptionSchema)
+			.describe("The ways the owner can authorize; empty until the first plan is written."),
+		crhsRejected: z
+			.object({
+				window: z
+					.number()
+					.nullable()
+					.describe("The node's local window identity (`openedAtMs`) when crha rejected; null when none was open."),
+			})
+			.nullable()
+			.describe("Set when crha rejected crhs's own signature: that path stays ruled out under the same window."),
+		rejectedBefore: z
+			.string()
+			.nullable()
+			.describe("Owner authorizations stored at or before this time are not used again for this task."),
+		dispatchedPath: AuthorizationPathSchema.nullable().describe(
+			"The path the last `task.start` used; null when nothing was sent yet.",
+		),
+		payloadId: z.string().nullable().describe("The `authorizations.id` of the last signature sent."),
+		attempt: z.number().describe("The attempt of the last `task.start`."),
+		trustDigest: z.string().nullable().describe("Hex digest of the TrustSummary the plan was computed from."),
+		lastRejection: TaskAuthorizationRejectionSchema.nullable(),
+		updatedAt: z.string(),
+	})
+	.meta({ id: "TaskAuthorizationView" });
+
+/** A `sign` option as the owner's waiting page renders it: the stored payload plus how to sign it. */
+export const PendingSignOptionSchema = z
+	.object({
+		kind: z.literal("sign"),
+		entries: z.array(PlannedPathEntrySchema),
+		ttlMs: z.number(),
+		payload: PendingSignPayloadSchema,
+	})
+	.meta({ id: "PendingSignOption" });
+
+/** One option the owner's waiting page renders. */
+export const PendingAuthorizationOptionSchema = z
+	.discriminatedUnion("kind", [
+		PendingSignOptionSchema,
+		LocalWindowAuthorizationOptionSchema,
+		AwaitingNodeAuthorizationOptionSchema,
+	])
+	.meta({ id: "PendingAuthorizationOption" });
+
+/** The options a waiting task's or task group's owner can take. */
 export const PendingAuthorizationSchema = z
 	.object({
-		id: z.string(),
-		payload: z.string(),
-		decoded: DecodedAuthorizationPayloadSchema,
-		challenge: z.string(),
-		deadline: z.string().nullable(),
-		taskIds: z.array(z.string()),
-		attempt: z.number(),
-		passkeys: z.array(PendingPasskeySchema),
-		localRequested: z.boolean(),
+		options: z.array(PendingAuthorizationOptionSchema),
 		lastRejection: TaskAuthorizationRejectionSchema.nullable(),
-		tried: z.array(AuthorizationPathSchema),
 	})
 	.meta({ id: "PendingAuthorization" });
 
@@ -138,13 +181,11 @@ export const TaskGroupPendingTaskSchema = z
 		nodeName: z.string(),
 		attempt: z.number(),
 		state: TaskStateSchema,
-		localRequested: z.boolean(),
 		lastRejection: TaskAuthorizationRejectionSchema.nullable(),
-		tried: z.array(AuthorizationPathSchema),
 	})
 	.meta({ id: "TaskGroupPendingTask" });
 
-/** A task group's waiting tasks around the payload they share. */
+/** A task group's waiting tasks around the options they share. */
 export const TaskGroupPendingSchema = z
 	.object({
 		authorization: PendingAuthorizationSchema,
@@ -160,7 +201,7 @@ export const RejectAuthorizationBodySchema = z.object({
 /** `POST /api/authorizations`: a pasted signed authorization or a Passkey assertion for a payload. */
 export const SubmitAuthorizationBodySchema = z.object({
 	authorization: z.string().optional().describe("Base64 of a CBOR Authorization, e.g. the output of `crha grant`."),
-	payloadId: z.string().optional().describe("The pending payload's id, with `webauthn`."),
+	payload: z.string().optional().describe("Base64 of the exact payload bytes the Passkey signed, with `webauthn`."),
 	webauthn: z.unknown().optional().describe("The AuthenticationResponseJSON of the waiting page's Passkey button."),
 });
 
@@ -193,9 +234,9 @@ export const AuthorizationSubmittedResponseSchema = z
 	.meta({ id: "AuthorizationSubmittedResponse" });
 
 export const TaskAuthorizationResponseSchema = z.object({
-	authorization: PendingAuthorizationSchema.nullable().describe("Null when nothing is waiting any more."),
+	authorization: PendingAuthorizationSchema.nullable().describe("Null when no plan is written yet."),
 });
 
 export const TaskGroupAuthorizationResponseSchema = z.object({
-	taskGroup: TaskGroupPendingSchema.nullable().describe("Null when nothing is waiting any more."),
+	taskGroup: TaskGroupPendingSchema.nullable().describe("Null when no plan is written yet."),
 });

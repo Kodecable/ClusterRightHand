@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
@@ -25,7 +26,7 @@ func newKeypair(t *testing.T) noise.Keypair {
 func TestLoadKeypairChecksModeBeforeDecoding(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "identity.key")
 	want := newKeypair(t)
-	if err := SaveKeypair(path, want); err != nil {
+	if err := SaveKeypair(path, want, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, err := LoadKeypair(path)
@@ -52,7 +53,7 @@ func TestLoadKeypairChecksModeBeforeDecoding(t *testing.T) {
 func TestSaveKeypairMode(t *testing.T) {
 	dir := t.TempDir()
 	keyPath := filepath.Join(dir, "identity.key")
-	if err := SaveKeypair(keyPath, newKeypair(t)); err != nil {
+	if err := SaveKeypair(keyPath, newKeypair(t), nil); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(keyPath)
@@ -64,7 +65,7 @@ func TestSaveKeypairMode(t *testing.T) {
 	}
 
 	serverPath := filepath.Join(dir, "server.pub")
-	if err := SaveServerKey(serverPath, make([]byte, noise.KeyLen)); err != nil {
+	if err := SaveServerKey(serverPath, make([]byte, noise.KeyLen), nil); err != nil {
 		t.Fatal(err)
 	}
 	fi, err = os.Stat(serverPath)
@@ -81,7 +82,7 @@ func TestSaveKeypairMode(t *testing.T) {
 func TestWriteKeyNeverOverwrites(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "identity.key")
 	first := newKeypair(t)
-	if err := SaveKeypair(path, first); err != nil {
+	if err := SaveKeypair(path, first, nil); err != nil {
 		t.Fatal(err)
 	}
 	before, err := os.ReadFile(path)
@@ -89,7 +90,7 @@ func TestWriteKeyNeverOverwrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := SaveKeypair(path, newKeypair(t)); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if err := SaveKeypair(path, newKeypair(t), nil); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("got %v, want already exists", err)
 	}
 	after, err := os.ReadFile(path)
@@ -119,7 +120,7 @@ func TestWriteKeyIgnoresLeftoverTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := newKeypair(t)
-	if err := SaveKeypair(path, want); err != nil {
+	if err := SaveKeypair(path, want, nil); err != nil {
 		t.Fatalf("write after a leftover temp: %v", err)
 	}
 	got, err := LoadKeypair(path)
@@ -131,5 +132,34 @@ func TestWriteKeyIgnoresLeftoverTemp(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSaveKeypairOwner covers the owner set on the temporary file before publication: the
+// published key belongs to the requested uid/gid, which a non-root writer can ask for when it
+// names its own. The setup path uses this to publish root-written keys as crha's.
+func TestSaveKeypairOwner(t *testing.T) {
+	owner := &Owner{UID: uint32(os.Geteuid()), GID: uint32(os.Getegid())}
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "identity.key")
+	if err := SaveKeypair(keyPath, newKeypair(t), owner); err != nil {
+		t.Fatal(err)
+	}
+	serverPath := filepath.Join(dir, "server.pub")
+	if err := SaveServerKey(serverPath, make([]byte, noise.KeyLen), owner); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{keyPath, serverPath} {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok {
+			t.Fatalf("%s: cannot determine the owner", path)
+		}
+		if st.Uid != owner.UID || st.Gid != owner.GID {
+			t.Fatalf("%s owner = %d:%d, want %d:%d", path, st.Uid, st.Gid, owner.UID, owner.GID)
+		}
 	}
 }

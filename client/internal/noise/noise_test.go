@@ -105,8 +105,9 @@ func TestPrologueUsesProtocolMajor(t *testing.T) {
 func TestPrologueMismatchFailsHandshake(t *testing.T) {
 	client, server := pair(t)
 	ch := challenge()
-	// A peer from major 1 builds the old prologue; the handshake must fail before any payload.
-	other := append([]byte("crh/1"), ch...)
+	// A peer from another major builds a different prologue; the handshake must fail before
+	// any payload.
+	other := append([]byte("crh/0"), ch...)
 	ini, err := newInitiatorPrologue(client, server.Public, other, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +121,7 @@ func TestPrologueMismatchFailsHandshake(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := res.ReadInit(m1); err == nil {
-		t.Fatal("handshake with a major-1 prologue accepted")
+		t.Fatal("handshake with another major prologue accepted")
 	}
 }
 

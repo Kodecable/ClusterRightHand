@@ -1,6 +1,6 @@
 /**
  * Rejecting a signature wait (doc/design/privilege.md "Waiting for signatures"): the owner declines to
- * sign, so the waiting task ends as `rejected` with `authorization_rejected`, like any other
+ * sign, so the waiting task ends as `rejected` with `authorization_declined`, like any other
  * authorization that did not go through.
  */
 import { parseTaskAuthorization } from "../authorization.ts";
@@ -8,8 +8,11 @@ import type { ClusterCore } from "../core.ts";
 import type { Actor } from "../types.ts";
 import { finishAuthorization } from "./common.ts";
 
-/** The error code of a signature wait its owner rejected. */
-const AUTHORIZATION_REJECTED = "authorization_rejected";
+/**
+ * The error code of a wait its owner rejected. It is not crha's `authorization_rejected`, so a task the
+ * owner turned down is never mistaken for one the node refused.
+ */
+export const AUTHORIZATION_DECLINED = "authorization_declined";
 
 /** What a task says when its owner rejected the wait without giving a reason. */
 export const AUTHORIZATION_REJECTED_MESSAGE = "the owner rejected the authorization";
@@ -21,9 +24,8 @@ export function rejectionMessage(reason: string): string {
 }
 
 /**
- * Ends a task waiting for its owner's signature as `authorization_rejected`, with an outstanding local
- * request withdrawn like any other ending of the wait. Runs in the task's turn on a fresh read; returns
- * false when the task is no longer waiting. `options.audit` is false for a task group's members, whose
+ * Ends a task waiting for its owner's authorization as `authorization_declined`. Runs in the task's turn on
+ * a fresh read; returns false when the task is no longer waiting. `options.audit` is false for a task group's members, whose
  * one event names the group instead.
  */
 export async function rejectAuthorizationWait(
@@ -37,14 +39,15 @@ export async function rejectAuthorizationWait(
 	const ended = await core.taskQueue.run(id, async () => {
 		const row = await core.row(id);
 		if (row?.state !== "awaiting_authorization") return false;
+		const record = parseTaskAuthorization(row.authorization);
 		return finishAuthorization(
 			core,
 			id,
 			row,
 			"rejected",
-			AUTHORIZATION_REJECTED,
+			AUTHORIZATION_DECLINED,
 			message,
-			parseTaskAuthorization(row.authorization),
+			record ? { ...record, options: [] } : null,
 		);
 	});
 	if (ended && options.audit !== false) {

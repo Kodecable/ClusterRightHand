@@ -1,13 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { type TaskSpec, taskSpecToJson } from "@crh/protocol";
-import { type Insertable, sql } from "kysely";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { refreshGroupPending } from "../src/cluster/authorization/plan.ts";
-import {
-	parseTaskAuthorization,
-	serializeTaskAuthorization,
-	type TaskAuthorizationRecord,
-} from "../src/cluster/authorization.ts";
+import type { Insertable } from "kysely";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClusterCore } from "../src/cluster/core.ts";
 import { insertTask, writeTask } from "../src/cluster/task-rows.ts";
 import { cancelTask } from "../src/cluster/task-wait.ts";
@@ -72,22 +65,6 @@ function taskValues(
 		handler_type: null,
 		handler_session_id: null,
 		...extra,
-	};
-}
-
-/** The stored record of a waiting member whose plan has a user path. */
-function authorizationRecord(attempt: number, pending: boolean): TaskAuthorizationRecord {
-	return {
-		plan: { paths: [{ path: "user", entries: [], ttlMs: 3_600_000 }] },
-		tried: [],
-		dispatchedPath: null,
-		payloadId: null,
-		attempt,
-		trustDigest: null,
-		pending: pending ? { payload: "AA==", id: "payload", deadline: NOW, taskIds: [], attempt } : null,
-		local: null,
-		lastRejection: null,
-		updatedAt: NOW,
 	};
 }
 
@@ -167,174 +144,21 @@ describe("task row versions", () => {
 	});
 });
 
-describe("group payload refresh under concurrent member changes", () => {
+describe("task rows and waits", () => {
 	let db: Db;
 	let orgId: string;
-	let core: ClusterCore;
+	let _core: ClusterCore;
 
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
 		orgId = await defaultOrgId(db);
-		core = new ClusterCore(db);
+		_core = new ClusterCore(db);
 	});
 
 	afterEach(async () => {
 		await db.destroy();
 	});
 
-	it("re-reads and recomputes when a member changed after the round read it", async () => {
-		const groupId = "group-1";
-		await db
-			.insertInto("task_groups")
-			.values({
-				id: groupId,
-				org_id: orgId,
-				targets: "[]",
-				node_ids: "[]",
-				kind: "exec",
-				parallel: 2,
-				fail_fast: 0,
-				output_mode: "status",
-				privileged: 0,
-				skipped: "[]",
-				state: "awaiting_authorization",
-				actor_type: "user",
-				actor_id: "user-1",
-				on_behalf_of_user_id: "user-1",
-				created_at: NOW,
-				finished_at: null,
-				spec: SPEC,
-				timeout_ms: null,
-				rule_chain: null,
-				approval: null,
-				pending_input: null,
-				root_session_id: null,
-				handler_type: null,
-				handler_session_id: null,
-			})
-			.execute();
-		const members = ["member-a", "member-b"];
-		for (const [index, id] of members.entries()) {
-			await insertTask(
-				db,
-				taskValues(id, orgId, "awaiting_authorization", {
-					task_group_id: groupId,
-					node_id: randomUUID(),
-					attempt: 1,
-					created_at: `2026-01-01T00:00:0${index}.000Z`,
-					authorization: serializeTaskAuthorization(authorizationRecord(1, true)),
-				}),
-			);
-		}
-
-		// The first member write is made to race another path's change of member-b: before it runs,
-		// member-b moves to attempt 2 and its rev advances. Its rev-guarded write therefore misses, and
-		// the refresh has to read the group again and recompute.
-		const originalUpdate = db.updateTable.bind(db);
-		let changed = false;
-		const hook = (builder: object): object =>
-			new Proxy(builder, {
-				get(target, property) {
-					const value = Reflect.get(target, property, target);
-					if (typeof value !== "function") return value;
-					if (property === "executeTakeFirst") {
-						return async () => {
-							if (!changed) {
-								changed = true;
-								await sql`update tasks set attempt = 2, rev = rev + 1 where id = ${"member-b"}`.execute(db);
-							}
-							return value.call(target);
-						};
-					}
-					// Every Kysely builder method returns a fresh builder; wrap it so the final execute is seen.
-					return (...args: unknown[]) => {
-						const next: unknown = value.apply(target, args);
-						return next !== null && typeof next === "object" && "executeTakeFirst" in next ? hook(next) : next;
-					};
-				},
-			});
-		Object.defineProperty(db, "updateTable", {
-			configurable: true,
-			value: ((table: "tasks") => hook(originalUpdate(table))) as typeof db.updateTable,
-		});
-		try {
-			await refreshGroupPending(core, groupId);
-		} finally {
-			Object.defineProperty(db, "updateTable", { configurable: true, value: originalUpdate });
-		}
-		expect(changed).toBe(true);
-
-		const rows = await db
-			.selectFrom("tasks")
-			.selectAll()
-			.where("task_group_id", "=", groupId)
-			.orderBy("created_at")
-			.execute();
-		expect(rows.map((row) => row.attempt)).toEqual([2, 2]);
-		for (const row of rows) {
-			expect(parseTaskAuthorization(row.authorization)).toMatchObject({
-				attempt: 2,
-				pending: { attempt: 2 },
-			});
-		}
-	});
-	it("leaves a group parked when its shared payload cannot be built", async () => {
-		const groupId = "group-unbuildable";
-		// A readable spec with an empty argv: specFromRow accepts it, buildTaskGroupAuthorization throws.
-		const unbuildable = JSON.stringify(
-			taskSpecToJson({ kind: "exec", command: { argv: [] }, env: {}, cwd: "", stdin: null }),
-		);
-		await db
-			.insertInto("task_groups")
-			.values({
-				id: groupId,
-				org_id: orgId,
-				targets: "[]",
-				node_ids: "[]",
-				kind: "exec",
-				parallel: 1,
-				fail_fast: 0,
-				output_mode: "status",
-				privileged: 0,
-				skipped: "[]",
-				state: "awaiting_authorization",
-				actor_type: "user",
-				actor_id: "user-1",
-				on_behalf_of_user_id: "user-1",
-				created_at: NOW,
-				finished_at: null,
-				spec: unbuildable,
-				timeout_ms: null,
-				rule_chain: null,
-				approval: null,
-				pending_input: null,
-				root_session_id: null,
-				handler_type: null,
-				handler_session_id: null,
-			})
-			.execute();
-		await insertTask(
-			db,
-			taskValues("member-parked", orgId, "awaiting_authorization", {
-				task_group_id: groupId,
-				node_id: randomUUID(),
-				authorization: serializeTaskAuthorization(authorizationRecord(1, true)),
-			}),
-		);
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		let warned = false;
-		try {
-			await expect(refreshGroupPending(core, groupId)).resolves.toBeUndefined();
-			warned = warn.mock.calls.some((call) => String(call[0]).includes(groupId));
-		} finally {
-			warn.mockRestore();
-		}
-		const row = await db.selectFrom("tasks").selectAll().where("id", "=", "member-parked").executeTakeFirstOrThrow();
-		// The member keeps the payload it was parked with; the refresh did not reject the whole group.
-		expect(row).toMatchObject({ state: "awaiting_authorization", attempt: 1 });
-		expect(parseTaskAuthorization(row.authorization)).toMatchObject({ attempt: 1, pending: { attempt: 1 } });
-		expect(warned).toBe(true);
-	});
 	it("a cancel of a waiting task follows a row another path bumped in between", async () => {
 		await insertTask(db, taskValues("t-cancel", orgId, "awaiting_authorization"));
 		const core = new ClusterCore(db);

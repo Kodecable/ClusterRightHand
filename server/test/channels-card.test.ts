@@ -168,10 +168,13 @@ describe("chat cards", () => {
 				review: undefined,
 			}),
 			"https://crh.example/approvals/tasks/task-1",
-			{ withSource: false },
+			{ sign: true, localWindows: [], awaitingNode: false, withButtons: false, withSource: false },
 		);
 		expect(card.title).toBe("Signature needed");
-		expect(card.hints).toEqual(["Sign in the WebUI: https://crh.example/approvals/tasks/task-1"]);
+		expect(card.hints).toEqual([
+			"Sign in the WebUI: https://crh.example/approvals/tasks/task-1",
+			"/reject task-1 [reason]",
+		]);
 		expect(plain(card)).toBe(
 			[
 				"Signature needed",
@@ -179,10 +182,35 @@ describe("chat cards", () => {
 				"Read file /etc/hosts (lines 2-4)",
 				"",
 				"Sign in the WebUI: https://crh.example/approvals/tasks/task-1",
+				"/reject task-1 [reason]",
 			].join("\n"),
 		);
 		expect(plain(card)).not.toContain("/approve");
-		expect(plain(card)).not.toContain("/reject");
+
+		// A surface with buttons carries the reject button, so its hint says how to reject with a reason.
+		const buttonCard = messagesFor("en").signatureCard(
+			request({ phase: "awaiting_signature", nodes: ["app-1"], review: undefined }),
+			"https://crh.example/approvals/tasks/task-1",
+			{ sign: true, localWindows: [], awaitingNode: false, withButtons: true, withSource: false },
+		);
+		expect(buttonCard.hints).toEqual([
+			"Sign in the WebUI: https://crh.example/approvals/tasks/task-1",
+			"Reject with a reason: /reject task-1 reason",
+		]);
+
+		const windowCard = messagesFor("en").signatureCard(
+			request({ phase: "awaiting_signature", nodes: ["app-1"], review: undefined }),
+			"https://crh.example/approvals/tasks/task-1",
+			{ sign: false, localWindows: ["app-1"], awaitingNode: false, withButtons: false, withSource: false },
+		);
+		expect(windowCard.hints).toEqual(["Run sudo crha approve --for 30m on app-1", "/reject task-1 [reason]"]);
+
+		const signedCard = messagesFor("zh-CN").signatureCard(
+			request({ phase: "awaiting_signature", nodes: ["app-1"], review: undefined }),
+			"https://crh.example/approvals/tasks/task-1",
+			{ sign: false, localWindows: [], awaitingNode: true, withButtons: false, withSource: false },
+		);
+		expect(signedCard.hints).toEqual(["已签名：节点上线后发送", "/reject task-1 [原因]"]);
 	});
 
 	it("renders the quota card with the session title once, never wrapped in sessionBody", () => {

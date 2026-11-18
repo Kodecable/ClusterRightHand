@@ -24,21 +24,33 @@ import (
 // the way production does, only without an escalation tool: the helper is this very binary, re-run
 // with the helper's arguments, so no sudo or doas is needed (doc/design/privilege.md "Native mode"). The
 // fake-helper mode is a stand-in helper for the lost task.start response tests.
+// nativeSpoolEnv passes the test's spool directory to the helper subprocess. Only this test file
+// reads it: production takes the spool location from StdioOptions, never from the environment.
+const nativeSpoolEnv = "CRH_TEST_NATIVE_SPOOL"
+
 func TestMain(m *testing.M) {
 	// The helper stages task stdin below a privileged state directory. The test process is not
-	// root, so point it at a temporary directory that the helper process inherits; in the helper
-	// process itself the same variable points at its own temporary directory.
-	spool, spoolErr := os.MkdirTemp("", "crh-test-stdin-")
-	if spoolErr == nil {
-		os.Setenv(helper.SpoolRootEnv, spool)
+	// root, so point it at a temporary directory; the helper subprocess inherits the path below,
+	// and only the process that created the directory removes it.
+	spool := os.Getenv(nativeSpoolEnv)
+	owned := false
+	if spool == "" {
+		dir, err := os.MkdirTemp("", "crh-test-stdin-")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "native test spool:", err)
+		} else {
+			spool, owned = dir, true
+			os.Setenv(nativeSpoolEnv, spool)
+		}
 	}
 	cleanup := func() {
-		if spoolErr == nil {
+		if owned {
 			_ = os.RemoveAll(spool)
 		}
 	}
 	if len(os.Args) >= 3 && os.Args[1] == "privileged" && os.Args[2] == "stdio" {
-		err := helper.Stdio(context.Background(), os.Stdin, os.Stdout, os.Stderr, version.Version)
+		err := helper.Stdio(context.Background(), os.Stdin, os.Stdout, os.Stderr, version.Version,
+			helper.StdioOptions{SpoolRoot: spool})
 		cleanup()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "crha privileged stdio:", err)

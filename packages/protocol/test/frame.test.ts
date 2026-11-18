@@ -43,7 +43,7 @@ describe("frames", () => {
 			source: "local" as const,
 			role: "local" as const,
 			key: { kind: "local" as const, uids: [0, 1000] },
-			kinds: ["execute" as const],
+			kinds: [],
 			requireExact: false,
 			requireTask: false,
 			requireUv: false,
@@ -61,6 +61,7 @@ describe("frames", () => {
 				privileged: { uid: 0, gid: 0, user: "root" },
 			},
 			trust,
+			localWindow: { kind: "closed" },
 		};
 		const frame: Frame = { kind: "event", name: "trust.summary", body: { kind: "ok", summary } };
 		expect(decodeFrame(encodeFrame(frame))).toEqual(frame);

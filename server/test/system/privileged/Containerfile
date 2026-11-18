@@ -32,9 +32,10 @@ RUN printf '%s\n' 'permit nopass crha as root cmd /usr/local/bin/crha args privi
 
 # Directories and the mode-0 sshd drop-in. The host keys and authorized_keys are bind-mounted at
 # /opt/crh/ssh by the harness; nothing secret is baked into the image.
-RUN mkdir -p /run/crha /run/sshd /var/lib/crha/privileged /var/log/crha /opt/crh/ssh \
+RUN mkdir -p /run/crha /run/sshd /var/lib/crha /var/lib/crha-privileged /var/log/crha /opt/crh/ssh \
  && chown crha:crha /var/lib/crha /var/log/crha /home/crha \
- && chown root:root /var/lib/crha/privileged \
+ && chown root:root /var/lib/crha-privileged \
+ && chmod 0700 /var/lib/crha-privileged \
  && chmod 0755 /run/crha /run/sshd /opt/crh/ssh
 COPY fixtures/sshd_config /etc/ssh/sshd_config.priv
 

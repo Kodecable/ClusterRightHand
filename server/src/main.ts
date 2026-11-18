@@ -255,7 +255,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		audit,
 	});
 	// Signature waits that outlived their deadline while crhs was down end before requests are served.
-	await cluster.expireAuthorizationWaits();
+	await cluster.sweepAuthorizationWaits();
 	// A token that expired while crhs was down must not leave its waiting work behind either.
 	await cancelExpiredTokenWaits(db, cluster, taskGroups);
 	// Chat channels (doc/design/channels.md): adapters for the stored bots, started before requests arrive. The
@@ -321,7 +321,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 			sweepRun = Promise.all([
 				deleteExpiredWebSessions(db).catch((err: unknown) => console.error("session sweep failed:", err)),
 				cluster
-					.expireAuthorizationWaits()
+					.sweepAuthorizationWaits()
 					.catch((err: unknown) => console.error("authorization wait sweep failed:", err)),
 				cancelExpiredTokenWaits(db, cluster, taskGroups).catch((err: unknown) =>
 					console.error("API token expiry sweep failed:", err),

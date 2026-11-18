@@ -68,8 +68,7 @@ type unionDef[T any] struct {
 	// worded differently (a task result says "protocol: file.read result has no body").
 	bodyName string
 	// kindSuffix is what the unknown-branch encode error adds after the name: " kind" for every
-	// union but output mode and local state, whose messages read "unknown output mode" and "unknown
-	// local state".
+	// union but output mode, whose message reads "unknown output mode".
 	kindSuffix string
 	branches   []unionBranch[T]
 }
@@ -93,7 +92,7 @@ func newUnion[T any](name string, branches ...unionBranch[T]) unionDef[T] {
 }
 
 // newBareUnion defines a union whose unknown-branch encode error says only "unknown <name> %q":
-// output mode and local state are written that way.
+// output mode is written that way.
 func newBareUnion[T any](name string, branches ...unionBranch[T]) unionDef[T] {
 	return unionDef[T]{name: name, bodyName: name, branches: branches}
 }

@@ -144,7 +144,7 @@ const TRUST_SUMMARY: TrustSummary = {
 			source: "local",
 			role: "local",
 			key: { kind: "local", uids: [0, 1000] },
-			kinds: ["execute"],
+			kinds: [],
 			requireExact: false,
 			requireTask: false,
 			requireUv: false,
@@ -154,6 +154,7 @@ const TRUST_SUMMARY: TrustSummary = {
 			envAllow: [],
 		},
 	],
+	localWindow: { kind: "open", openedAtMs: 1700000001000, openedByUid: 1000, untilMs: 1700001800000 },
 };
 
 const EXEC_ARGV: TaskStart = {
@@ -509,44 +510,6 @@ export function buildFixture(): CrhFramesFixture {
 		error: { code: "internal_error", message: "boom" },
 	});
 
-	// Optional commands and events.
-	addFrame(
-		"request.local.request",
-		'request id=14 cmd=local.request body=[task_id="t-read", attempt=1, spec=["file.read", [path="/etc/hosts", startLine=1, lineCount=100]], note="restart nginx", input_preview=bytes(0)]',
-		{
-			kind: "request",
-			id: 14,
-			cmd: "local.request",
-			body: {
-				taskId: "t-read",
-				attempt: 1,
-				spec: { kind: "file.read", path: "/etc/hosts", startLine: 1, lineCount: 100 },
-				note: "restart nginx",
-				inputPreview: new Uint8Array(0),
-			},
-		},
-	);
-	addFrame("response.local.request", 'response id=14 cmd=local.request ok=true body=["pending", []]', {
-		kind: "response",
-		id: 14,
-		cmd: "local.request",
-		ok: true,
-		body: { kind: "pending" },
-	});
-	addFrame("request.local.withdraw", 'request id=15 cmd=local.withdraw body=[task_id="t-read", attempt=1]', {
-		kind: "request",
-		id: 15,
-		cmd: "local.withdraw",
-		body: { taskId: "t-read", attempt: 1 },
-	});
-	addFrame("response.local.withdraw", "response id=15 cmd=local.withdraw ok=true body=[]", {
-		kind: "response",
-		id: 15,
-		cmd: "local.withdraw",
-		ok: true,
-		body: {},
-	});
-
 	// Events.
 	addFrame("event.task.output", "event task.output body=[task_id=\"t-exec-argv\", offset=0, data=h'68656c6c6f0a']", {
 		kind: "event",
@@ -717,19 +680,9 @@ export function buildFixture(): CrhFramesFixture {
 	});
 	addFrame(
 		"event.trust.summary",
-		'event trust.summary body=["ok", [node_id="node-1", aliases=["0192f000-0000-7000-8000-0000000000a1"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user="crha"], [uid=0, gid=0, user="root"]], trust=[[name="crhs", source="local", role="crhs", key=["sshsig", [public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing", fingerprint="SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"]], kinds=["execute","cosign"], require_exact=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[["exec", "prefix", "systemctl restart "]], deny=[], env_allow=[]], [name="alice-passkey", source="local", role="user", key=["webauthn", [credential_id=32 bytes of 0x11, cose_key=h\'a5010203262001215820\', rp_id="crh.example.com", origins=["https://crh.example.com"]]], kinds=["execute"], require_exact=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=["DEBIAN_FRONTEND"]], [name="local-admins", source="local", role="local", key=["local", [uids=[0, 1000]]], kinds=["execute"], require_exact=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]]]',
+		'event trust.summary body=["ok", [node_id="node-1", aliases=["0192f000-0000-7000-8000-0000000000a1"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user="crha"], [uid=0, gid=0, user="root"]], trust=[[name="crhs", source="local", role="crhs", key=["sshsig", [public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing", fingerprint="SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"]], kinds=["execute","cosign"], require_exact=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[["exec", "prefix", "systemctl restart "]], deny=[], env_allow=[]], [name="alice-passkey", source="local", role="user", key=["webauthn", [credential_id=32 bytes of 0x11, cose_key=h\'a5010203262001215820\', rp_id="crh.example.com", origins=["https://crh.example.com"]]], kinds=["execute"], require_exact=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=["DEBIAN_FRONTEND"]], [name="local-admins", source="local", role="local", key=["local", [uids=[0, 1000]]], kinds=[], require_exact=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]], local_window=["open", [opened_at_ms=1700000001000, opened_by_uid=1000, until_ms=1700001800000]]]',
 		{ kind: "event", name: "trust.summary", body: { kind: "ok", summary: TRUST_SUMMARY } },
 	);
-	addFrame(
-		"event.local.decision",
-		'event local.decision body=[task_id="t-read", attempt=1, state=["denied", [message="not now"]]]',
-		{
-			kind: "event",
-			name: "local.decision",
-			body: { taskId: "t-read", attempt: 1, state: { kind: "denied", message: "not now" } },
-		},
-	);
-
 	// Negative cases.
 	addNegative(
 		"negative.tuple_length",

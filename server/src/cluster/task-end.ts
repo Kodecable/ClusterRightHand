@@ -61,8 +61,6 @@ interface TaskEnd {
 	onChange?: string;
 	/** Whether task.finished is audited (default true); the approval paths audit themselves. */
 	audit?: boolean;
-	/** Runs after the row was written (and matched), after the waiters are woken: an outstanding local request. */
-	afterWrite?: () => void;
 }
 
 /** The error code of a task stopped because its on_behalf_of user lost access to the node. */
@@ -418,7 +416,6 @@ export async function endTask(core: ClusterCore, id: string, end: TaskEnd): Prom
 	else if (end.live === "keep") keepUnknownOutput(core, id);
 	if (end.notify !== false) core.notify(id);
 	if (updated) {
-		end.afterWrite?.();
 		const sync =
 			end.group === "row" ? syncGroupOfTask(core, id) : end.group ? syncGroupState(core, end.group) : undefined;
 		if (sync) {

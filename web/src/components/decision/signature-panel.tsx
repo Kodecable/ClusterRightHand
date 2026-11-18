@@ -1,20 +1,32 @@
-import type { ApprovalRequest, PendingAuthorization, PendingPasskey } from "@crh/api";
+import type {
+	ApprovalRequest,
+	LocalWindowAuthorizationOption,
+	NodeTrust,
+	PendingAuthorization,
+	PendingPasskey,
+	PendingSignOption,
+} from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startAuthentication } from "@simplewebauthn/browser";
+import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { ErrorText } from "@/components/error-state";
+import { DateTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage } from "@/lib/api/client";
+import { enc, errorMessage, http } from "@/lib/api/client";
 import { grantCommand, sshKeygenRecipe } from "@/lib/authorization";
 import { type DecisionVariant, requestCardContent } from "./content";
 import { DecisionCard, DecisionTab, DecisionTabList, DecisionTabs } from "./decision";
 import { RejectDecision } from "./reject";
 
 /** The pasted output of a signing recipe or a Passkey assertion, as the authorization endpoint takes it. */
-export type SubmitSignature = { authorization: string } | { payloadId: string; webauthn: unknown };
+export type SubmitSignature = { authorization: string } | { payload: string; webauthn: unknown };
+
+/** The command a local administrator runs on the node to open a window (doc/design/privilege.md "Local approval window"). */
+const LOCAL_WINDOW_COMMAND = "sudo crha approve --for 30m";
 
 /** A one-line command with the copy button that puts the whole command on the clipboard. */
 function CommandLine({ text, label }: { text: string; label: string }) {
@@ -59,11 +71,73 @@ function PasteBox({
 	);
 }
 
+/** The node's last trust report, for the local window state; polled like the node trust panel. */
+function useNodeTrustSummary(nodeId: string) {
+	return useQuery({
+		queryKey: ["node-trust", nodeId],
+		queryFn: ({ signal }) =>
+			http.get<{ trust: NodeTrust }>(`/nodes/${enc(nodeId)}/trust`, { signal }).then((r) => r.trust.summary),
+		refetchInterval: 10_000,
+	});
+}
+
+/** Whether the node trust view knows the window is open; absent while its query is loading or failed. */
+function LocalWindowState({ option }: { option: LocalWindowAuthorizationOption }) {
+	const summary = useNodeTrustSummary(option.nodeId);
+	const window = summary.data?.localWindow;
+	if (window?.kind === "open") {
+		return (
+			<p className="text-xs text-muted-foreground">
+				<Trans>
+					A local approval window is open on {option.nodeName} until{" "}
+					<DateTime value={new Date(window.untilMs).toISOString()} />; crhs can run this task without a signature.
+				</Trans>
+			</p>
+		);
+	}
+	return (
+		<p className="text-xs text-muted-foreground">
+			<Trans>
+				Run this on {option.nodeName} as a user in its local trust entries. The window lets crhs run this task there
+				without a signature; while it is open, crhs can run any privileged task on that node, including changing its
+				trust configuration.
+			</Trans>
+		</p>
+	);
+}
+
+/** The local-window options: one command block per node, with the window state when the trust view knows it. */
+function LocalWindowOptions({ options }: { options: readonly LocalWindowAuthorizationOption[] }) {
+	const { t } = useLingui();
+	return (
+		<div className="grid min-w-0 gap-3">
+			{options.map((option) => (
+				<div key={`${option.nodeId}`} className="grid min-w-0 gap-2">
+					<CommandLine text={LOCAL_WINDOW_COMMAND} label={t`Copy command`} />
+					<LocalWindowState option={option} />
+				</div>
+			))}
+		</div>
+	);
+}
+
+/** The sign option of a pending view; a group has one shared payload. */
+function signOptionOf(pending: PendingAuthorization | undefined): PendingSignOption | undefined {
+	return pending?.options.find((option): option is PendingSignOption => option.kind === "sign");
+}
+
+function windowOptionsOf(pending: PendingAuthorization | undefined): LocalWindowAuthorizationOption[] {
+	return (pending?.options ?? []).filter(
+		(option): option is LocalWindowAuthorizationOption => option.kind === "local_window",
+	);
+}
+
 /**
  * A pending signature wait (doc/design/webui.md "Shared components"): the same compact ApprovalRequest and
- * card layout as an approval, then how to sign it — a trusted Passkey, `crha grant`, the `ssh-keygen`
- * recipe, a local `crha approve`, or Reject. The full command and recipe stay on one truncated line; the
- * copy buttons copy every character.
+ * card layout as an approval, then the options the server planned — a trusted Passkey, `crha grant`, the
+ * `ssh-keygen` recipe, a local approval window — and always Reject. A task whose plan is still being
+ * written shows "Preparing…". The full command and recipe stay on one truncated line; the copy buttons
+ * copy every character.
  */
 export function SignaturePanel({
 	request,
@@ -83,9 +157,9 @@ export function SignaturePanel({
 }: {
 	request: ApprovalRequest;
 	variant?: DecisionVariant;
-	/** Undefined while the server prepares the payload. */
+	/** Undefined while the server prepares the plan, or when the endpoint has no options yet. */
 	pending?: PendingAuthorization;
-	/** The pending payload could not be read (for example by a viewer who may not sign). */
+	/** The options could not be read (for example by a viewer who may not sign). */
 	pendingError?: unknown;
 	onSubmit: (input: SubmitSignature) => Promise<unknown>;
 	onChanged?: () => void;
@@ -106,21 +180,35 @@ export function SignaturePanel({
 	// `crha grant` until a Passkey is known to be trusted; then the Passkey tab is the default.
 	const [tab, setTab] = useState("grant");
 	const initialised = useRef(false);
+	const sign = signOptionOf(pending);
+	const windows = windowOptionsOf(pending);
+	const awaitingNode = pending?.options.some((option) => option.kind === "awaiting_node") === true;
 	useEffect(() => {
 		if (pending === undefined || initialised.current) return;
 		initialised.current = true;
-		if (pending.passkeys.length > 0) setTab("passkey");
+		const plannedSign = signOptionOf(pending);
+		if (plannedSign !== undefined) {
+			setTab(plannedSign.payload.passkeys.length > 0 ? "passkey" : "grant");
+		} else if (windowOptionsOf(pending).length > 0) {
+			setTab("window");
+		}
 	}, [pending]);
 
 	const disabled = busy || working;
-	const passkeys = pending?.passkeys ?? [];
-	const localAvailable = pending?.localRequested === true && request.kind === "task";
-	const localTaskId = pending?.taskIds[0] ?? request.id;
-	const localCommand = `crha approve ${localTaskId}`;
+	const passkeys = sign?.payload.passkeys ?? [];
 	const content = requestCardContent(request, { variant, i18n });
+	const ready = pending !== undefined && pending.options.length > 0;
+	const tabs = [
+		...(sign !== undefined && passkeys.length > 0 ? ["passkey"] : []),
+		...(sign !== undefined ? ["grant", "keygen"] : []),
+		...(windows.length > 0 ? ["window"] : []),
+		"reject",
+	];
+	// A sync pass can remove the tab the owner had selected; fall back to the first one still offered.
+	const activeTab = tabs.includes(tab) ? tab : (tabs[0] ?? "reject");
 
 	const submitPaste = async () => {
-		if (pasted.trim() === "") return;
+		if (pasted.trim() === "" || sign === undefined) return;
 		setWorking(true);
 		setLocalError(undefined);
 		try {
@@ -136,20 +224,22 @@ export function SignaturePanel({
 	};
 
 	const signPasskey = async (passkey: PendingPasskey) => {
-		if (pending === undefined) return;
+		if (sign === undefined) return;
+		const signedPayload = sign.payload.payload;
 		setWorking(true);
 		setLocalError(undefined);
 		try {
 			const response = await startAuthentication({
 				optionsJSON: {
 					rpId: passkey.rpId,
-					challenge: pending.challenge,
+					challenge: sign.payload.challenge,
 					allowCredentials: [{ id: passkey.credentialId, type: "public-key" }],
 					userVerification: passkey.requireUv ? "required" : "preferred",
 					timeout: 60_000,
 				},
 			});
-			await onSubmit({ payloadId: pending.id, webauthn: response });
+			// The bytes this assertion signed: a payload refreshed meanwhile does not invalidate it.
+			await onSubmit({ payload: signedPayload, webauthn: response });
 			setDone(t`Signed with Passkey "${passkey.name}".`);
 			onChanged?.();
 		} catch (caught) {
@@ -175,84 +265,80 @@ export function SignaturePanel({
 				<ErrorText error={pendingError} />
 			) : (
 				<>
-					<DecisionTabs value={tab} onValueChange={setTab}>
-						<DecisionTabList label={t`How to sign`}>
-							{passkeys.length > 0 && (
-								<DecisionTab value="passkey">
-									<Trans>Passkey</Trans>
-								</DecisionTab>
-							)}
-							<DecisionTab value="grant">crha grant</DecisionTab>
-							<DecisionTab value="keygen">ssh-keygen</DecisionTab>
-							{localAvailable && (
-								<DecisionTab value="local">
-									<Trans>Local approval</Trans>
-								</DecisionTab>
-							)}
-							<DecisionTab value="reject">
-								<Trans>Reject</Trans>
-							</DecisionTab>
-						</DecisionTabList>
-						{passkeys.length > 0 && (
-							<TabsContent value="passkey" className="grid min-w-0 gap-2 pt-1">
-								<p className="text-xs text-muted-foreground">
-									<Trans>Sign with a Passkey this node trusts for this command.</Trans>
-								</p>
-								<div className="flex flex-wrap justify-end gap-2">
-									{passkeys.map((passkey) => (
-										<Button
-											key={`${passkey.credentialId}@${passkey.rpId}`}
-											type="button"
-											disabled={disabled}
-											onClick={() => void signPasskey(passkey)}
-										>
-											<Trans>Sign with Passkey “{passkey.name}”</Trans>
-										</Button>
-									))}
-								</div>
-							</TabsContent>
-						)}
-						<TabsContent value="grant" className="grid min-w-0 gap-2 pt-1">
-							{pending === undefined ? (
-								<p className="text-sm text-muted-foreground">
-									<Trans>Preparing the payload to sign…</Trans>
-								</p>
-							) : (
-								<>
-									<CommandLine text={grantCommand(pending.payload)} label={t`Copy command`} />
-									<PasteBox value={pasted} disabled={disabled} onChange={setPasted} />
-									{submitButton}
-								</>
-							)}
-						</TabsContent>
-						<TabsContent value="keygen" className="grid min-w-0 gap-2 pt-1">
-							{pending === undefined ? (
-								<p className="text-sm text-muted-foreground">
-									<Trans>Preparing the payload to sign…</Trans>
-								</p>
-							) : (
-								<>
-									<CommandLine text={sshKeygenRecipe(pending.payload)} label={t`Copy command`} />
-									<PasteBox value={pasted} disabled={disabled} onChange={setPasted} />
-									{submitButton}
-								</>
-							)}
-						</TabsContent>
-						{localAvailable && (
-							<TabsContent value="local" className="grid min-w-0 gap-2 pt-1">
-								<CommandLine text={localCommand} label={t`Copy command`} />
-								<p className="text-xs text-muted-foreground">
-									<Trans>
-										Run this on the node as a user in its local trust entries; the task then runs with that approval
-										instead.
-									</Trans>
-								</p>
-							</TabsContent>
-						)}
-						<TabsContent value="reject" className="min-w-0 pt-1">
+					{!ready ? (
+						<div className="grid gap-3">
+							<p className="text-sm text-muted-foreground">
+								<Trans>Preparing the payload to sign…</Trans>
+							</p>
 							<RejectDecision busy={rejectBusy} onReject={onReject} />
-						</TabsContent>
-					</DecisionTabs>
+						</div>
+					) : (
+						<DecisionTabs value={activeTab} onValueChange={setTab}>
+							{awaitingNode && (
+								<p className="text-sm text-muted-foreground">
+									<Trans>Signed. The task is sent when its node is back online.</Trans>
+								</p>
+							)}
+							<DecisionTabList label={t`How to sign`}>
+								{sign !== undefined && passkeys.length > 0 && (
+									<DecisionTab value="passkey">
+										<Trans>Passkey</Trans>
+									</DecisionTab>
+								)}
+								{sign !== undefined && <DecisionTab value="grant">crha grant</DecisionTab>}
+								{sign !== undefined && <DecisionTab value="keygen">ssh-keygen</DecisionTab>}
+								{windows.length > 0 && (
+									<DecisionTab value="window">
+										<Trans>Local window</Trans>
+									</DecisionTab>
+								)}
+								<DecisionTab value="reject">
+									<Trans>Reject</Trans>
+								</DecisionTab>
+							</DecisionTabList>
+							{sign !== undefined && passkeys.length > 0 && (
+								<TabsContent value="passkey" className="grid min-w-0 gap-2 pt-1">
+									<p className="text-xs text-muted-foreground">
+										<Trans>Sign with a Passkey this node trusts for this command.</Trans>
+									</p>
+									<div className="flex flex-wrap justify-end gap-2">
+										{passkeys.map((passkey) => (
+											<Button
+												key={`${passkey.credentialId}@${passkey.rpId}`}
+												type="button"
+												disabled={disabled}
+												onClick={() => void signPasskey(passkey)}
+											>
+												<Trans>Sign with Passkey “{passkey.name}”</Trans>
+											</Button>
+										))}
+									</div>
+								</TabsContent>
+							)}
+							{sign !== undefined && (
+								<TabsContent value="grant" className="grid min-w-0 gap-2 pt-1">
+									<CommandLine text={grantCommand(sign.payload.payload)} label={t`Copy command`} />
+									<PasteBox value={pasted} disabled={disabled} onChange={setPasted} />
+									{submitButton}
+								</TabsContent>
+							)}
+							{sign !== undefined && (
+								<TabsContent value="keygen" className="grid min-w-0 gap-2 pt-1">
+									<CommandLine text={sshKeygenRecipe(sign.payload.payload)} label={t`Copy command`} />
+									<PasteBox value={pasted} disabled={disabled} onChange={setPasted} />
+									{submitButton}
+								</TabsContent>
+							)}
+							{windows.length > 0 && (
+								<TabsContent value="window" className="grid min-w-0 gap-2 pt-1">
+									<LocalWindowOptions options={windows} />
+								</TabsContent>
+							)}
+							<TabsContent value="reject" className="min-w-0 pt-1">
+								<RejectDecision busy={rejectBusy} onReject={onReject} />
+							</TabsContent>
+						</DecisionTabs>
+					)}
 					{localError !== undefined && <ErrorText error={localError} />}
 					{error !== undefined && <ErrorText error={error} />}
 					{rejectError !== undefined && <ErrorText error={rejectError} />}

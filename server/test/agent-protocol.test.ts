@@ -192,9 +192,9 @@ describe("agent wire protocol", () => {
 			});
 		});
 
-		it("rejects a major-1 peer at the Noise handshake", async () => {
+		it("rejects another major at the Noise handshake", async () => {
 			// The prologue carries the major version, so the old peer fails before its payload is read.
-			const { ws, hs, closed } = await agents.prepare(generateKeyPair(), "crh/1");
+			const { ws, hs, closed } = await agents.prepare(generateKeyPair(), "crh/0");
 			ws.send(hs.writeMessage(encodeCbor(handshakeInitCodec.encode(handshakeInit()))));
 			await expect(closed).resolves.toEqual({ code: 1008, reason: "handshake failed" });
 		});

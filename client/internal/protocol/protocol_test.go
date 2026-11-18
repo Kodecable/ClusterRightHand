@@ -9,9 +9,6 @@ func TestRequiredNames(t *testing.T) {
 	want := []string{
 		"facts",
 		"hello",
-		"local.decision",
-		"local.request",
-		"local.withdraw",
 		"node.status",
 		"ping",
 		"task.cancel",
@@ -40,8 +37,8 @@ func TestRequiredNames(t *testing.T) {
 	if RequiredSet().Has("trust.query") {
 		t.Fatal("crh-priv name trust.query is declared in the crhs <-> crha handshake")
 	}
-	if Major := ProtocolMajor; Major != 0 {
-		t.Fatalf("ProtocolMajor = %d, want 0", Major)
+	if Major := ProtocolMajor; Major != 1 {
+		t.Fatalf("ProtocolMajor = %d, want 1", Major)
 	}
 	if Minor := ProtocolMinor; Minor != 0 {
 		t.Fatalf("ProtocolMinor = %d, want 0", Minor)

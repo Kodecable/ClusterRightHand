@@ -53,14 +53,30 @@ if ! "$dir/node/bin/node" --version >/dev/null 2>&1; then
 	exit 1
 fi
 target=/opt/crhs/versions/$version
+tmp=/opt/crhs/versions/.$version.tmp.$$
+# A failed copy leaves nothing behind: the version directory only appears once it is complete.
+trap 'rm -rf "$tmp"' EXIT
+install -d -m 0755 -o root -g root /opt/crhs /opt/crhs/versions
 if [ -e "$target" ]; then
 	if [ "$(cat "$target/VERSION" 2>/dev/null)" != "$version" ]; then
 		echo "install.sh: $target exists with another VERSION; remove it first" >&2
 		exit 1
 	fi
+	# An older install.sh kept the ownership of the user who unpacked the tarball, who could then
+	# write to what the crhs service and root run; running install.sh again repairs that.
+	chown -R root:root "$target"
+	chmod -R go-w "$target"
+	echo "install.sh: repaired ownership of $target"
 else
-	install -d -m 0755 "$target"
-	cp -a "$dir/." "$target/"
+	# Copy next to the target and fix ownership there, so the installed tree is never writable by
+	# that user; mv then publishes it in one step.
+	# cp -R without -p creates every file as root, so the unpacking user never owns one, not even
+	# for a moment in which they could open it for writing and keep the descriptor.
+	install -d -m 0755 -o root -g root "$tmp"
+	cp -R "$dir/." "$tmp/"
+	chown -R root:root "$tmp"
+	chmod -R go-w "$tmp"
+	mv "$tmp" "$target"
 fi
 ln -sfn "$target" /opt/crhs/current
 ln -sfn /opt/crhs/current/bin/crhs /usr/local/bin/crhs
@@ -78,9 +94,19 @@ const CRHA_INSTALL = `#!/bin/sh
 # Installs crha and enrolls this node.
 set -eu
 dir=$(dirname "$(readlink -f "$0")")
-install -m 0755 "$dir/crha" /usr/local/bin/crha
+install -m 0755 -o root -g root "$dir/crha" /usr/local/bin/crha
 # An upgrade keeps the existing enrollment; only a new node is enrolled.
 if [ -e /etc/crha/crha.toml ]; then
+	# The privileged state directory moved out of crha's own /var/lib/crha, which the privileged
+	# mode now refuses. Move a configuration that still names the old default.
+	conf=/etc/crha/privileged.toml
+	if [ -f "$conf" ] && grep -Eq '^[[:space:]]*state_dir[[:space:]]*=[[:space:]]*"/var/lib/crha/privileged/?"[[:space:]]*$' "$conf"; then
+		owner=root:root
+		if [ -d /var/lib/crha/privileged ]; then owner=$(stat -c %u:%g /var/lib/crha/privileged); fi
+		install -d -o "\${owner%:*}" -g "\${owner#*:}" -m 0700 /var/lib/crha-privileged
+		sed -i -E 's|^([[:space:]]*state_dir[[:space:]]*=[[:space:]]*)"/var/lib/crha/privileged/?"|\\1"/var/lib/crha-privileged"|' "$conf"
+		echo "crha: moved the privileged state_dir in $conf to /var/lib/crha-privileged"
+	fi
 	echo "installed crha; restart it: sudo systemctl restart crha-privileged crha (crha-privileged only in forward mode)"
 elif [ -t 0 ]; then
 	crha enroll
@@ -429,7 +455,11 @@ async function stageOci(arches: Arch[]): Promise<void> {
 	}
 }
 
-/** tar --sort=name ... | gzip -n: the top directory only, with fixed mtime and owner. */
+/**
+ * tar --sort=name ... | gzip -n: the top directory only, with fixed mtime and owner. Modes are
+ * normalized too: an archive unpacked as root must not keep group/world write bits from the build
+ * tree, and the same release should extract the same way whatever the builder's umask.
+ */
 async function gzipTar(top: string): Promise<void> {
 	const out = join(releaseDir, `${top}.tar.gz`);
 	const tar = spawn(
@@ -442,6 +472,7 @@ async function gzipTar(top: string): Promise<void> {
 			"--owner=0",
 			"--group=0",
 			"--numeric-owner",
+			"--mode=go-w",
 			"-cf",
 			"-",
 			top,

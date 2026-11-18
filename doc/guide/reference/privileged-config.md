@@ -13,7 +13,9 @@ others; otherwise the privileged mode refuses it. Unknown keys and duplicate ent
 to `socket`, `socket_group`, `state_dir` and `log` need a restart.
 
 Editing this file through CRH is itself a privileged task, which an existing trusted signer must
-authorize. Deny crhs writes under `/etc/crha/` so that crhs cannot change whom the node trusts.
+authorize. Deny crhs writes under `/etc/crha/` so that crhs cannot change whom the node trusts. While a
+local approval window is open, that deny rule does not apply: crhs can change the trust configuration
+during the window (doc/design/privilege.md "Local approval window").
 
 Durations use Go syntax (`"60s"`, `"5m"`, `"24h"`); there is no day unit.
 
@@ -26,7 +28,7 @@ Durations use Go syntax (`"60s"`, `"5m"`, `"24h"`); there is no day unit.
 | `unprivileged_uid` | integer | required | The uid of `crha run`. Only this uid may submit tasks. |
 | `socket` | path | required | The socket to listen on; must match `[privileged].socket` in `crha.toml`. |
 | `socket_group` | group name | `"crha"` | Group of the socket, so that `crha run` can connect. |
-| `state_dir` | path | required | Directory for the record of executed tasks, which prevents replays. |
+| `state_dir` | path | required | Directory for the record of executed tasks, which prevents replays. It must be a real directory owned by the user the privileged mode runs as and not writable by group or others; its parents must not be writable by the unprivileged account either. `/var/lib/crha-privileged` is the usual path. |
 | `log` | path | required | Log of every accepted and refused task (JSON lines, also written to standard error). It is not rotated automatically. |
 | `clock_skew` | duration | `"60s"` | Tolerance when checking an authorization's issue time and deadline. Shown in the WebUI as **Authorization clock tolerance**. |
 
@@ -38,15 +40,16 @@ Each `[[trust]]` table names one signer:
 |---|---|---|---|
 | `crhs` | `sshsig` | `execute`, `cosign` | crhs's signing key |
 | `user` | `sshsig` or `webauthn` | `execute`, `require-cosign` | A user's SSH key, FIDO key or Passkey |
-| `local` | none | `execute` | Local users who approve with `crha approve` |
+| `local` | none | none | Local users who open the approval window with `crha approve --for` |
 
 - `execute`: may authorize a task alone.
 - `cosign`: crhs may confirm user authorizations that require it.
 - `require-cosign`: this user's authorizations also need crhs's confirmation.
 
-Without a `crhs` entry, crhs cannot authorize anything on this node. Without a `local` entry, nobody can
-approve locally, not even root. The **Generate trust config** dialog on the WebUI's **Signing
-credentials** page produces basic entries.
+Without a `crhs` entry, crhs cannot authorize anything on this node, and a local approval window
+cannot be opened either (there is no key with which to verify crhs's signature). Without a `local`
+entry, nobody can open a window, not even root. The **Generate trust config** dialog on the WebUI's
+**Signing credentials** page produces basic entries.
 
 ## Trust entry fields
 
@@ -57,17 +60,22 @@ credentials** page produces basic entries.
 | `format` | `crhs`, `user` | `sshsig` or `webauthn`. |
 | `key` | `sshsig`, `webauthn` | For `sshsig`, one `authorized_keys` line without options (Ed25519, ECDSA P-256, or their `sk-` FIDO forms). For `webauthn`, `cose:` and the base64url public key. |
 | `credential_id`, `rp_id`, `origins` | `webauthn` | The Passkey's credential id, relying-party id and allowed origins. |
-| `uids` | `local` | The uids that may approve. |
-| `kinds` | all | See above. |
-| `max_ttl` | all | Longest accepted lifetime of an authorization. |
-| `require_exact` | all | Accept only exact command authorizations, not prefixes. Recommended for crhs. |
+| `uids` | `local` | The uids that may open and close the window. Required. |
+| `max_window` | `local` | Longest window those uids may open; default `"1h"`. |
+| `kinds` | `crhs`, `user` | See above. A `local` entry has none. |
+| `max_ttl` | `crhs`, `user` | Longest accepted lifetime of an authorization; at least `5m`. |
+| `require_exact` | `crhs`, `user` | Accept only exact command authorizations, not prefixes. Recommended for crhs. |
 | `require_task` | `user` | Accept only one-shot authorizations for specific tasks. (crhs authorizations are always one-shot.) |
 | `require_uv` | `user` | Require user verification (PIN or biometric). Needs a Passkey or an `sk-` key. |
-| `allow`, `deny` | all | [Guard rules](#guard-rules). |
-| `env_allow` | all | Environment variables a task may set. `PATH` is always fixed. |
+| `allow`, `deny` | `crhs`, `user` | [Guard rules](#guard-rules). |
+| `env_allow` | `crhs`, `user` | Environment variables a task may set. `PATH` is always fixed. |
 
-`max_ttl`, `require_exact`, `allow` and `deny` limit what an entry may authorize; they do not apply when
-crhs only cosigns a user's authorization.
+A `local` entry only has `uids` and `max_window`. Setting `kinds`, `max_ttl`, `require_exact`,
+`require_task`, `require_uv`, `allow`, `deny` or `env_allow` on it is a configuration error: an open
+window waives all of those limits (doc/design/privilege.md "Local approval window").
+
+`max_ttl`, `require_exact`, `allow` and `deny` limit what an entry may authorize; they do not apply
+when crhs only cosigns a user's authorization.
 
 ## Guard rules
 
@@ -97,7 +105,7 @@ deny = [{ method = "file.write", prefix = "/etc/crha/" }]
 node_id          = "0192f000-0000-7000-8000-000000000001"
 unprivileged_uid = 998
 socket           = "/run/crha/privileged.sock"
-state_dir        = "/var/lib/crha/privileged"
+state_dir        = "/var/lib/crha-privileged"
 log              = "/var/log/crha/privileged.jsonl"
 
 [[trust]]
@@ -150,12 +158,12 @@ key    = "ssh-ed25519 AAAA… crhs-signing"
 kinds  = ["cosign"]
 ```
 
-**Local approval by root and uid 1000:**
+**A local approval window of up to two hours, opened by root or uid 1000:**
 
 ```toml
 [[trust]]
-name  = "local-admins"
-role  = "local"
-uids  = [0, 1000]
-kinds = ["execute"]
+name       = "local-admins"
+role       = "local"
+uids       = [0, 1000]
+max_window = "2h"
 ```

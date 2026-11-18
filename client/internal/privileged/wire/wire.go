@@ -20,7 +20,7 @@ const (
 	// version the crh-priv protocol itself, not the crhs <-> crha protocol. A peer with a different
 	// major is refused, because crha and its privileged mode always upgrade together
 	// (doc/design/protocol.md "crh-priv"). The minor stays additive and never refuses a handshake.
-	PrivMajor = 0
+	PrivMajor = 1
 	PrivMinor = 0
 	// MaxFrameBytes bounds one frame. Length 0 and lengths above it are protocol errors.
 	MaxFrameBytes = protocol.MaxFrameBytes
@@ -61,14 +61,14 @@ func (r *Role) UnmarshalCBOR(data []byte) error {
 }
 
 // crh-priv commands that are not part of the crhs <-> crha registry: trust.query is the
-// forward role's explicit query, pending.list and local.approve / local.deny are the local
-// role's. They are registered on the Peer that needs them instead of in
+// forward role's explicit query, and window.status, window.open and window.close are the
+// local role's. They are registered on the Peer that needs them instead of in
 // client/internal/protocol, so crha's crhs-facing handshake never advertises them.
 const (
 	CmdTrustQuery   = "trust.query"
-	CmdPendingList  = "pending.list"
-	CmdLocalApprove = "local.approve"
-	CmdLocalDeny    = "local.deny"
+	CmdWindowStatus = "window.status"
+	CmdWindowOpen   = "window.open"
+	CmdWindowClose  = "window.close"
 )
 
 // EventTransferData carries one chunk of a file.pull task's content from the privileged mode to the
@@ -104,17 +104,14 @@ func NamesFor(role Role) []string {
 		names := append(coreNames(),
 			CmdTrustQuery,
 			protocol.EventTrustSummary,
-			protocol.CmdLocalRequest,
-			protocol.CmdLocalWithdraw,
-			protocol.EventLocalDecision,
 		)
 		slices.Sort(names)
 		return names
 	case RoleLocal:
 		names := []string{
-			CmdPendingList,
-			CmdLocalApprove,
-			CmdLocalDeny,
+			CmdWindowStatus,
+			CmdWindowOpen,
+			CmdWindowClose,
 		}
 		slices.Sort(names)
 		return names
@@ -169,16 +166,15 @@ func RegisterSchemas(peer *protocol.Peer, role Role) {
 			func() any { return new(protocol.Empty) },
 			func() any { return new(protocol.TrustSummary) })
 	case RoleLocal:
-		register(CmdPendingList,
+		register(CmdWindowStatus,
 			func() any { return new(protocol.Empty) },
-			func() any { return new([]protocol.PendingEntry) })
-		registerVerdict := func(cmd string) {
-			register(cmd,
-				func() any { return new(protocol.LocalVerdict) },
-				func() any { return new(protocol.Empty) })
-		}
-		registerVerdict(CmdLocalApprove)
-		registerVerdict(CmdLocalDeny)
+			func() any { return new(protocol.WindowState) })
+		register(CmdWindowOpen,
+			func() any { return new(protocol.WindowOpen) },
+			func() any { return new(protocol.WindowState) })
+		register(CmdWindowClose,
+			func() any { return new(protocol.Empty) },
+			func() any { return new(protocol.WindowState) })
 	}
 }
 

@@ -100,13 +100,15 @@ A failed escalation fails the task; it never falls back to running unprivileged.
 ### Trust configuration
 
 On a `forward` node, `privileged.toml` lists who may authorize privileged tasks: crhs's signing keys,
-users' SSH keys or Passkeys, and local users who approve with `crha approve`. Only the node's root can
-change it. Changing it through CRH is itself a privileged task that needs an existing trusted signer, so
-crhs cannot add itself.
+users' SSH keys or Passkeys, and local users who may open the approval window with
+`crha approve --for`. Only the node's root can change it. Changing it through CRH is itself a
+privileged task that needs an existing trusted signer, so crhs cannot add itself. While a local window is
+open, this restriction does not apply: crhs can change the trust configuration until the window closes.
 
 - Give each entry the narrowest scope that works: guard rules for the commands and paths it may
   authorize, `require_exact` for fixed commands, a short `max_ttl`, and `require_task` for one-shot use.
-- Deny crhs writes under `/etc/crha/`, so crhs cannot edit crha's configuration.
+- Deny crhs writes under `/etc/crha/`, so crhs cannot edit crha's configuration. An open local window
+  waives this rule on purpose; open one only for a crhs that is meant to reconfigure the node.
 - Use `require-cosign` on a user entry when crhs's rules should also confirm every use of that user's
   signature.
 - Guard rules match the command or path only, not input or file content: allowing `bash` allows any
@@ -118,8 +120,11 @@ crhs cannot add itself.
 thing and ask you to sign another. A Passkey is therefore not stronger than an SSH key here. Signing with
 `crha grant` on your own workstation shows you the payload locally.
 
-**Local approval.** A local approver sees the full task on the node with `crha pending`, and approves
-exactly that task; crhs cannot change it afterwards.
+**Local approval window.** A local administrator opens a time-limited window with
+`sudo crha approve --for 30m`. While it is open, crhs holds the privileged identity on that node and can
+run any privileged task there, including changing `privileged.toml`; the window closes on expiry,
+`crha lock`, or a privileged-mode restart. Use a user-signed exact authorization when one task needs to
+be approved.
 
 ## Clocks
 
@@ -152,7 +157,7 @@ calls and configuration changes. Its guarantees are limited:
   is no built-in export.
 - On each `forward` node, the privileged mode keeps its own log of every privileged task, which crhs
   cannot change. If that log cannot be written, the task is refused.
-- Local approvals are recorded only in the node's privileged log. `crhs` CLI commands are audited with
+- Local approval windows are recorded only in the node's privileged log. `crhs` CLI commands are audited with
   the actor `cli`, the OS user and host; they record the supported path, but cannot stop someone with
   access to the master key file or the database from bypassing `crhs`.
 

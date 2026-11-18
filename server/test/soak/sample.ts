@@ -112,8 +112,8 @@ state_kb=$(du -sk /var/lib/crha 2>/dev/null | cut -f1)
 output_kb=$(du -sk /var/lib/crha/output 2>/dev/null | cut -f1)
 log_kb=$(du -sk /var/log/crha 2>/dev/null | cut -f1)
 used_lines=0
-if [ -f /var/lib/crha/privileged/used ]; then
-	used_lines=$(wc -l < /var/lib/crha/privileged/used 2>/dev/null | tr -d ' ')
+if [ -f /var/lib/crha-privileged/used ]; then
+	used_lines=$(wc -l < /var/lib/crha-privileged/used 2>/dev/null | tr -d ' ')
 fi
 printf 'rss_run=%s\\n' "\${rss_run:-0}"
 printf 'rss_priv=%s\\n' "\${rss_priv:-0}"

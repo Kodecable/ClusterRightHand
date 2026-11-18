@@ -25,7 +25,7 @@ export const CLIENT_DIR = resolve(SUITE_DIR, "../../../../client");
 export const CONTAINER_CRHA = "/usr/local/bin/crha";
 export const PRIV_SOCKET = "/run/crha/privileged.sock";
 /** privileged.toml state_dir: the used list the tests read at a fixed path. */
-export const PRIV_STATE_DIR = "/var/lib/crha/privileged";
+export const PRIV_STATE_DIR = "/var/lib/crha-privileged";
 /** privileged.toml log: the local audit jsonl; the path is explicit because crha has no defaults. */
 export const PRIV_LOG_PATH = "/var/log/crha/privileged.jsonl";
 export const UNPRIVILEGED_UID = 998;
@@ -205,6 +205,7 @@ export interface TrustSpec {
 	requireTask?: boolean;
 	requireUv?: boolean;
 	maxTtl?: string;
+	maxWindow?: string;
 	allow?: GuardRuleSpec[];
 	deny?: GuardRuleSpec[];
 	envAllow?: string[];
@@ -510,6 +511,7 @@ function trustEntryToml(entry: TrustSpec): string[] {
 	if (entry.requireTask !== undefined) lines.push(`require_task = ${entry.requireTask}`);
 	if (entry.requireUv) lines.push("require_uv = true");
 	field("max_ttl", entry.maxTtl);
+	field("max_window", entry.maxWindow);
 	field("env_allow", undefined);
 	if (entry.envAllow) lines.push(`env_allow = [${entry.envAllow.map(tomlString).join(", ")}]`);
 	for (const [kind, rules] of [
@@ -552,18 +554,24 @@ export interface PendingAuthorization {
 	challenge: string;
 	taskIds: string[];
 	attempt: number;
-	localRequested: boolean;
-	tried: string[];
+	crhsRejected: { window: number | null } | null;
+	rejectedBefore: string | null;
 	lastRejection: unknown;
+}
+
+/** The sign option's payload of the waiting page. */
+export async function pendingSignOf(crhs: InProcessCrhs, taskId: string): Promise<PendingAuthorization> {
+	const view = (await crhs.api(`/api/tasks/${taskId}/authorization`)) as {
+		json: { authorization?: { options?: { kind: string; payload?: PendingAuthorization }[] } };
+	};
+	const sign = view.json.authorization?.options?.find((option) => option.kind === "sign");
+	if (!sign?.payload) throw new Error(`task ${taskId} has no sign option`);
+	return sign.payload;
 }
 
 /** The exact payload bytes the owner must sign (GET /api/tasks/:id/authorization). */
 export async function pendingAuthorization(crhs: InProcessCrhs, taskId: string): Promise<PendingAuthorization> {
-	const res = await crhs.api(`/api/tasks/${taskId}/authorization`);
-	if (res.status !== 200 || !res.json.authorization) {
-		throw new Error(`task ${taskId} has no pending authorization: ${res.status} ${JSON.stringify(res.json)}`);
-	}
-	return res.json.authorization as PendingAuthorization;
+	return pendingSignOf(crhs, taskId);
 }
 
 /** Signs a pending payload on the host with the real CLI: `crha grant --payload … --key … --yes`. */

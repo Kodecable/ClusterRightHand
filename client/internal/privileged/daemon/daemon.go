@@ -1,6 +1,6 @@
 // Package daemon implements crha's privileged mode: the unix-socket server that verifies
 // authorizations for privileged tasks, executes them as its own Linux user, records the used
-// list, exposes local approval and pushes the trust summary
+// list, keeps the time-limited local approval window and pushes the trust summary
 // (doc/design/privilege.md "The privileged mode", doc/design/protocol.md "crh-priv").
 package daemon
 
@@ -83,8 +83,11 @@ type Server struct {
 	// next busy period; unregisterTask closes it when the last task finished.
 	idle chan struct{}
 
-	approvalMu sync.Mutex
-	approvals  map[approvalKey]*approval
+	// windowMu guards the local approval window and its expiry timer. The window lives in
+	// memory only, so a restart closes it.
+	windowMu    sync.Mutex
+	window      *localWindow
+	windowTimer *time.Timer
 
 	connWG sync.WaitGroup
 }
@@ -132,7 +135,6 @@ func New(cfg *config.Config, opts Options) (*Server, error) {
 		forwards:     make(map[*conn]struct{}),
 		tasks:        make(map[*taskrun.Task]struct{}),
 		idle:         make(chan struct{}),
-		approvals:    make(map[approvalKey]*approval),
 	}
 	close(s.idle)
 	s.cfg.Store(cfg)
@@ -287,6 +289,9 @@ func (s *Server) shutdown() {
 		s.log.Warn("tasks did not stop during shutdown", "tasks", len(tasks))
 	}
 	_ = s.store.Close()
+	s.windowMu.Lock()
+	s.stopWindowTimerLocked()
+	s.windowMu.Unlock()
 	if s.socketPath != "" {
 		_ = os.Remove(s.socketPath)
 	}
@@ -377,14 +382,19 @@ func (s *Server) reload() {
 		_ = s.opts.Log.Log(audit.Record{Event: "config.reload_failed", Detail: err.Error()})
 		return
 	}
+	// A window that the new configuration can no longer back is closed before the digest is
+	// computed, so the pushed summary already reflects the closed state.
+	s.closeWindowForReload(next)
 	old := s.cfg.Load()
 	oldSummary := old.Summary()
+	oldSummary.LocalWindow = s.windowState()
 	oldDigest, err := protocol.TrustDigest(oldSummary)
 	if err != nil {
 		s.log.Error("cannot digest the current trust summary", "err", err)
 		return
 	}
 	summary := next.Summary()
+	summary.LocalWindow = s.windowState()
 	digest, err := protocol.TrustDigest(summary)
 	if err != nil {
 		s.log.Error("cannot digest the new trust summary, keeping the current configuration", "err", err)
@@ -414,11 +424,6 @@ func (s *Server) reload() {
 		// that connection.
 		c.enqueue(protocol.EventTrustSummary, report)
 	}
-}
-
-// localUIDAllowed reports whether uid is in a local trust entry of the current configuration.
-func (s *Server) localUIDAllowed(uid uint32) bool {
-	return s.Config().LocalEntry(uid) != nil
 }
 
 // peerCredential returns the uid and gid of the peer of a unix connection (SO_PEERCRED).

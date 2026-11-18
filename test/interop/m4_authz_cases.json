@@ -179,7 +179,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -224,7 +224,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -234,7 +234,7 @@
 		},
 		{
 			"id": "crhs.no-authorization",
-			"description": "no authorization and no local approval",
+			"description": "no authorization",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -303,7 +303,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -328,7 +328,7 @@
 				}
 			},
 			"authorization": null,
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -407,7 +407,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -452,7 +452,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -531,7 +531,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -576,7 +576,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -655,7 +655,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -705,7 +705,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -784,7 +784,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -829,7 +829,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -908,7 +908,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -953,7 +953,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -1032,7 +1032,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -1077,7 +1077,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -1156,7 +1156,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -1201,7 +1201,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -1280,7 +1280,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -1325,7 +1325,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -1404,7 +1404,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -1449,7 +1449,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -1528,7 +1528,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -1573,7 +1573,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -1652,7 +1652,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -1697,7 +1697,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -1776,7 +1776,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -1820,7 +1820,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -1899,7 +1899,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -1944,7 +1944,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -2023,7 +2023,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -2068,7 +2068,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -2147,7 +2147,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -2192,7 +2192,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -2271,7 +2271,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -2316,7 +2316,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": ["0192f000-0000-7000-8000-000000000001"],
 			"expect": {
@@ -2395,7 +2395,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -2440,7 +2440,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": ["0192f000-0000-7000-8000-000000000001"],
 			"used_pairs": [],
 			"expect": {
@@ -2519,7 +2519,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -2564,7 +2564,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -2643,7 +2643,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -2690,7 +2690,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -2769,7 +2769,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -2814,7 +2814,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -2893,7 +2893,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -2938,7 +2938,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3017,7 +3017,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -3062,7 +3062,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3141,7 +3141,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -3190,7 +3190,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3269,7 +3269,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -3318,7 +3318,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3397,7 +3397,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -3439,7 +3439,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3518,7 +3518,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -3565,7 +3565,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3644,7 +3644,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -3689,7 +3689,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3723,7 +3723,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -3768,7 +3768,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3847,7 +3847,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -3887,7 +3887,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -3966,7 +3966,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4006,7 +4006,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -4085,7 +4085,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4130,7 +4130,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -4209,7 +4209,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4250,7 +4250,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -4329,7 +4329,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4370,7 +4370,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -4449,7 +4449,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4489,7 +4489,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -4568,7 +4568,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4616,7 +4616,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -4695,7 +4695,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4733,7 +4733,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -4812,7 +4812,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4859,7 +4859,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -4938,7 +4938,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -4983,7 +4983,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -5062,7 +5062,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -5107,7 +5107,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -5186,7 +5186,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -5231,7 +5231,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -5310,7 +5310,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -5355,7 +5355,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -5434,7 +5434,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -5479,7 +5479,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -5558,7 +5558,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -5611,7 +5611,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -5690,7 +5690,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -5735,7 +5735,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": ["0192f000-0000-7000-8000-000000000002"],
 			"expect": {
@@ -5814,7 +5814,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -5859,7 +5859,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -5938,7 +5938,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -5983,7 +5983,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6062,7 +6062,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -6107,7 +6107,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6186,7 +6186,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -6231,7 +6231,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6310,7 +6310,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -6355,7 +6355,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6395,7 +6395,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -6440,7 +6440,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6480,7 +6480,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -6525,7 +6525,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6604,7 +6604,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -6649,7 +6649,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6728,7 +6728,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -6778,7 +6778,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6857,7 +6857,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -6911,7 +6911,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -6990,7 +6990,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -7040,7 +7040,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -7119,7 +7119,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -7169,7 +7169,7 @@
 					}
 				]
 			},
-			"local_approval": null,
+			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
@@ -7178,8 +7178,8 @@
 			}
 		},
 		{
-			"id": "local.approved",
-			"description": "task.start after crha approve with the same spec",
+			"id": "window.crhs.accepted",
+			"description": "crhs signature accepted while the local window is open",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -7248,7 +7248,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -7272,10 +7272,31 @@
 					"stdin": null
 				}
 			},
-			"authorization": null,
-			"local_approval": {
-				"uid": 1000,
-				"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
 			},
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -7285,8 +7306,8 @@
 			}
 		},
 		{
-			"id": "local.spec-changed",
-			"description": "the spec hash differs from the one approved",
+			"id": "window.crhs.guard-ignored",
+			"description": "the open window ignores the crhs entry's deny rules",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -7355,7 +7376,139 @@
 				{
 					"name": "local-admins",
 					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "file.write",
+					"path": "/etc/crha/privileged.toml",
+					"content": {
+						"size": 0,
+						"sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+					},
+					"overwrite": true,
+					"mode": 420,
+					"owner": "",
+					"group": "",
+					"createParentDirs": false
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "file.write",
+						"exact": "/etc/crha/privileged.toml",
+						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "window.crhs.max-ttl-ignored",
+			"description": "the open window ignores the crhs entry's max_ttl",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
 					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -7379,10 +7532,800 @@
 					"stdin": null
 				}
 			},
-			"authorization": null,
-			"local_approval": {
-				"uid": 1000,
-				"spec_sha256": "c5a6ddce59913c4a61ddddbd492bd79d28b91ec290bf4c7fc967151bdef18eec"
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "window.crhs.require-exact-ignored",
+			"description": "the open window ignores require_exact",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "window.crhs.no-execute-kind",
+			"description": "the open window needs no execute kind on the crhs entry",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "window.crhs.expired",
+			"description": "the deadline is still enforced while the window is open",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793015400000,
+					"deadline_ms": 1793015939999,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_expired",
+				"step": 4
+			}
+		},
+		{
+			"id": "window.crhs.executed",
+			"description": "the one-shot check is still enforced while the window is open",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": ["0192f000-0000-7000-8000-000000000001"],
+			"used_pairs": [],
+			"expect": {
+				"result": "already_accepted",
+				"step": 5
+			}
+		},
+		{
+			"id": "window.crhs.used",
+			"description": "an already used authorization is still refused while the window is open",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": [],
+			"used_pairs": ["0192f000-0000-7000-8000-000000000001"],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 5
+			}
+		},
+		{
+			"id": "window.crhs.spec-mismatch",
+			"description": "the command limit is still enforced while the window is open",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {
+						"DEBIAN_FRONTEND": "noninteractive"
+					},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
 			},
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -7392,8 +8335,8 @@
 			}
 		},
 		{
-			"id": "local.executed",
-			"description": "an approved task id that already ran",
+			"id": "window.crhs.reusable",
+			"description": "crhs authorizations must still be one-shot while the window is open",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -7462,7 +8405,7 @@
 				{
 					"name": "local-admins",
 					"role": "local",
-					"kinds": ["execute"],
+					"kinds": [],
 					"require_exact": false,
 					"require_task": false,
 					"require_uv": false,
@@ -7486,16 +8429,435 @@
 					"stdin": null
 				}
 			},
-			"authorization": null,
-			"local_approval": {
-				"uid": 1000,
-				"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"exact": "systemctl restart nginx",
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
 			},
-			"executed_task_ids": ["0192f000-0000-7000-8000-000000000001"],
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
-				"result": "already_accepted",
+				"result": "authorization_rejected",
 				"step": 5
+			}
+		},
+		{
+			"id": "window.closed.guard-applies",
+			"description": "a closed window applies the crhs entry's deny rules",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "file.write",
+					"path": "/etc/crha/privileged.toml",
+					"content": {
+						"size": 0,
+						"sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+					},
+					"overwrite": true,
+					"mode": 420,
+					"owner": "",
+					"group": "",
+					"createParentDirs": false
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "file.write",
+						"exact": "/etc/crha/privileged.toml",
+						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 7
+			}
+		},
+		{
+			"id": "window.expired.at-now",
+			"description": "a window whose until equals now is closed",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "file.write",
+					"path": "/etc/crha/privileged.toml",
+					"content": {
+						"size": 0,
+						"sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+					},
+					"overwrite": true,
+					"mode": 420,
+					"owner": "",
+					"group": "",
+					"createParentDirs": false
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "file.write",
+						"exact": "/etc/crha/privileged.toml",
+						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793014200000,
+				"opened_by": 1000,
+				"until_ms": 1793016000000
+			},
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 7
+			}
+		},
+		{
+			"id": "window.user-not-affected",
+			"description": "the open window does not bypass a user entry's rules",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_exact": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_exact": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "file.write",
+					"path": "/etc/crha/privileged.toml",
+					"content": {
+						"size": 0,
+						"sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+					},
+					"overwrite": true,
+					"mode": 420,
+					"owner": "",
+					"group": "",
+					"createParentDirs": false
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "file.write",
+						"exact": "/etc/crha/privileged.toml",
+						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": {
+				"opened_at_ms": 1793015940000,
+				"opened_by": 1000,
+				"until_ms": 1793017800000
+			},
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 7
 			}
 		}
 	]

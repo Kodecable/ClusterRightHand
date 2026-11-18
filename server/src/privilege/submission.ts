@@ -28,7 +28,6 @@ import { errorText, UserError } from "../util/errors.ts";
 import { type AuthzEntry, type AuthzSignature, authzEntryFromTrust } from "./authz.ts";
 import { webauthnSigningCredentials } from "./signing-credentials.ts";
 import { parseAuthorizedKey, sshsigKeyBlob, verifySshsig } from "./sshsig.ts";
-import { parseTaskAuthorization } from "./task-authorization.ts";
 import { verifyAssertion } from "./webauthn.ts";
 
 /** A client error of POST /api/authorizations; the route answers 400 with the message. */
@@ -84,14 +83,15 @@ function submittedOf(
 }
 
 /**
- * A Passkey assertion from the waiting page: the server rebuilds the `webauthn` Signature itself.
- * The payload comes from the task's stored pending payload (never from the client), and the
- * assertion must verify against one of the submitting user's own credentials.
+ * A Passkey assertion from the waiting page: the server rebuilds the `webauthn` Signature itself. The
+ * page sends the payload bytes it had signed, so a payload a sync pass refreshed meanwhile still
+ * verifies; the assertion must verify over exactly those bytes, against one of the submitting user's
+ * own credentials.
  */
 export async function parseWebauthnSubmission(
 	db: Db,
 	userId: string,
-	payloadId: string,
+	payloadBase64: string,
 	response: unknown,
 ): Promise<SubmittedAuthorization> {
 	const value = response as AuthenticationResponseJSON;
@@ -107,18 +107,14 @@ export async function parseWebauthnSubmission(
 	) {
 		throw new SubmissionError("webauthn must be an AuthenticationResponseJSON");
 	}
-	const payloadBytes = await findPendingPayload(db, userId, payloadId);
-	if (!payloadBytes) {
-		throw new SubmissionError("no pending authorization with that id; reload the waiting page");
-	}
+	// The bytes the browser signed, as the paste path takes a whole authorization: the assertion below
+	// only verifies over exactly these bytes, and the planner judges them like any other submission.
+	const payloadBytes = Uint8Array.from(Buffer.from(payloadBase64, "base64"));
 	let payload: AuthorizationPayload;
 	try {
 		payload = decodeAuthorizationPayload(payloadBytes);
 	} catch (err) {
-		throw new SubmissionError(`the pending payload cannot be decoded: ${errorText(err)}`);
-	}
-	if (Buffer.from(createHash("sha256").update(payloadBytes).digest()).toString("hex") !== payloadId) {
-		throw new SubmissionError("the pending payload does not hash to that id");
+		throw new SubmissionError(`the payload cannot be decoded: ${errorText(err)}`);
 	}
 	const credential = (await webauthnSigningCredentials(db, userId)).find(
 		(candidate) => candidate.credentialId === value.id,
@@ -130,21 +126,6 @@ export async function parseWebauthnSubmission(
 		throw new SubmissionError(`the Passkey assertion does not verify: ${errorText(err)}`);
 	}
 	return submittedOf(payload, payloadBytes, [signatureOfAssertion(value)]);
-}
-
-/** The stored pending payload of one of the user's waiting tasks. */
-async function findPendingPayload(db: Db, userId: string, payloadId: string): Promise<Uint8Array | null> {
-	const rows = await db
-		.selectFrom("tasks")
-		.select(["authorization"])
-		.where("state", "=", "awaiting_authorization")
-		.where("on_behalf_of_user_id", "=", userId)
-		.execute();
-	for (const row of rows) {
-		const pending = parseTaskAuthorization(row.authorization)?.pending;
-		if (pending?.id === payloadId) return Uint8Array.from(Buffer.from(pending.payload, "base64"));
-	}
-	return null;
 }
 
 /** base64url text to bytes, rejecting padding and non-base64url characters. */

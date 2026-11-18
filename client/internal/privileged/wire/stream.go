@@ -23,7 +23,7 @@ func NewStream(r io.Reader, w io.Writer, negotiated protocol.Set) *Stream {
 }
 
 // NewStreamFor is NewStream plus the role's crh-priv-only command schemas, so Peer.Request and
-// Peer.Receive validate trust.query or pending.list bodies like any registered command.
+// Peer.Receive validate trust.query or window.open bodies like any registered command.
 func NewStreamFor(r io.Reader, w io.Writer, negotiated protocol.Set, role Role) *Stream {
 	s := NewStream(r, w, negotiated)
 	RegisterSchemas(s.peer, role)

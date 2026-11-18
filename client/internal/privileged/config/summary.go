@@ -54,7 +54,8 @@ func (c *Config) Summary() *protocol.TrustSummary {
 			Unprivileged: runningIdentity(c.UnprivilegedUID),
 			Privileged:   runningIdentity(uint32(os.Geteuid())),
 		},
-		Trust: trust,
+		Trust:       trust,
+		LocalWindow: protocol.ClosedWindow(),
 	}
 }
 

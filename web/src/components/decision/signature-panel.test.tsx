@@ -1,7 +1,7 @@
-import type { ApprovalRequest, PendingAuthorization, PendingPasskey } from "@crh/api";
+import type { ApprovalRequest, PendingAuthorization, PendingPasskey, PendingSignOption } from "@crh/api";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { grantCommand, sshKeygenRecipe } from "@/lib/authorization";
 import { copyText } from "@/lib/clipboard";
 import { renderWithRouter } from "@/test/render";
@@ -13,10 +13,17 @@ vi.mock("@simplewebauthn/browser", () => ({
 
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 
+const trust = vi.hoisted(() => ({
+	window: null as
+		| null
+		| { kind: "open"; openedAtMs: number; openedByUid: number; untilMs: number }
+		| { kind: "closed" },
+}));
+
 const PAYLOAD = "o2dub2RlcwFhZ3JvdXA6d2Vi";
 const OPERATION = "systemctl restart nginx";
 
-const pending = (overrides: Partial<PendingAuthorization> = {}): PendingAuthorization => ({
+const signPayload = (overrides: Partial<PendingSignOption["payload"]> = {}): PendingSignOption["payload"] => ({
 	id: "a".repeat(64),
 	payload: PAYLOAD,
 	challenge: "challenge-b64url",
@@ -24,9 +31,6 @@ const pending = (overrides: Partial<PendingAuthorization> = {}): PendingAuthoriz
 	taskIds: ["task-1"],
 	attempt: 2,
 	passkeys: [],
-	localRequested: false,
-	lastRejection: null,
-	tried: ["crhs"],
 	decoded: {
 		nodes: ["node-1"],
 		command: {
@@ -41,6 +45,20 @@ const pending = (overrides: Partial<PendingAuthorization> = {}): PendingAuthoriz
 		attempt: 2,
 		note: "",
 	},
+	...overrides,
+});
+
+const signOption = (overrides: Partial<PendingSignOption> = {}): PendingSignOption => ({
+	kind: "sign",
+	entries: [{ name: "alice", role: "user", credential: "sshsig" }],
+	ttlMs: 86_400_000,
+	payload: signPayload(),
+	...overrides,
+});
+
+const pending = (overrides: Partial<PendingAuthorization> = {}): PendingAuthorization => ({
+	options: [signOption()],
+	lastRejection: null,
 	...overrides,
 });
 
@@ -84,6 +102,24 @@ function renderPanel(overrides: {
 	);
 }
 
+beforeEach(() => {
+	trust.window = { kind: "closed" };
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(
+			async () =>
+				new Response(JSON.stringify({ trust: { summary: { localWindow: trust.window } } }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				}),
+		),
+	);
+});
+
+afterEach(() => {
+	vi.unstubAllGlobals();
+});
+
 describe("SignaturePanel", () => {
 	test("renders the compact ApprovalRequest as its summary and defaults to crha grant", async () => {
 		await renderPanel({});
@@ -123,7 +159,13 @@ describe("SignaturePanel", () => {
 		const onSubmit = vi.fn(async (_input: SubmitSignature) => {});
 		await renderPanel({
 			pending: pending({
-				passkeys: [passkey(), passkey({ credentialId: "b3RoZXI", name: "Backup", rpId: "other.example.com" })],
+				options: [
+					signOption({
+						payload: signPayload({
+							passkeys: [passkey(), passkey({ credentialId: "b3RoZXI", name: "Backup", rpId: "other.example.com" })],
+						}),
+					}),
+				],
 			}),
 			onSubmit,
 		});
@@ -139,12 +181,18 @@ describe("SignaturePanel", () => {
 		});
 		await waitFor(() =>
 			expect(onSubmit).toHaveBeenCalledWith({
-				payloadId: "a".repeat(64),
+				payload: PAYLOAD,
 				webauthn: { id: "credential-1", response: { clientDataJSON: "x" } },
 			}),
 		);
 		// The second credential keeps its own RP: task groups can mix RPs.
 		expect(screen.getByRole("button", { name: "Sign with Passkey “Backup”" })).toBeInTheDocument();
+	});
+
+	test("a task the owner already signed says it waits for its node", async () => {
+		renderPanel({ pending: pending({ options: [{ kind: "awaiting_node" }] }) });
+		expect(await screen.findByText("Signed. The task is sent when its node is back online.")).toBeInTheDocument();
+		expect(screen.getByRole("tab", { name: "Reject" })).toBeInTheDocument();
 	});
 
 	test("the pasted authorization is submitted from the crha grant tab", async () => {
@@ -158,17 +206,38 @@ describe("SignaturePanel", () => {
 		expect(await screen.findByRole("status")).toHaveTextContent("Authorization submitted.");
 	});
 
-	test("no Local approval tab is offered when the payload does not allow one", async () => {
+	test("no Local window tab is offered when the plan has only a sign option", async () => {
 		await renderPanel({});
-		expect(screen.queryByRole("tab", { name: "Local approval" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("tab", { name: "Local window" })).not.toBeInTheDocument();
 	});
 
-	test("the Local approval tab shows the crha approve command when it is available", async () => {
-		await renderPanel({ pending: pending({ localRequested: true }) });
-		fireEvent.click(screen.getByRole("tab", { name: "Local approval" }));
+	test("the Local window tab shows the command and the node", async () => {
+		await renderPanel({
+			pending: pending({
+				options: [signOption(), { kind: "local_window", nodeId: "node-1", nodeName: "worker-01" }],
+			}),
+		});
+		trust.window = { kind: "closed" };
+		fireEvent.click(screen.getByRole("tab", { name: "Local window" }));
 		await waitFor(() => expect(screen.getAllByRole("button", { name: "Copy command" })).toHaveLength(1));
-		expect(screen.getByText(/crha approve task-1/)).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Copy command" })).toBeInTheDocument();
+		expect(screen.getByText("sudo crha approve --for 30m")).toBeInTheDocument();
+		expect(screen.getByText(/Run this on worker-01/)).toBeInTheDocument();
+	});
+
+	test("the Local window tab reports a window that is already open", async () => {
+		trust.window = {
+			kind: "open",
+			openedAtMs: Date.now() - 60_000,
+			openedByUid: 1000,
+			untilMs: Date.parse("2026-10-31T12:00:00.000Z"),
+		};
+		await renderPanel({
+			pending: pending({ options: [{ kind: "local_window", nodeId: "node-1", nodeName: "worker-01" }] }),
+		});
+		fireEvent.click(screen.getByRole("tab", { name: "Local window" }));
+		expect(await screen.findByText(/A local approval window is open on worker-01/)).toBeInTheDocument();
+		// The command stays visible, so the owner can still open a fresh window.
+		expect(screen.getByText("sudo crha approve --for 30m")).toBeInTheDocument();
 	});
 
 	test("a task group's signature request names its nodes, not the stored UUIDs", async () => {
@@ -192,9 +261,9 @@ describe("SignaturePanel", () => {
 		expect(onReject).toHaveBeenCalledWith("not signing");
 	});
 
-	test("without a payload the waiting message is shown but Reject is still available", async () => {
+	test("without a plan yet the preparing message is shown but Reject is still available", async () => {
 		await renderWithRouter(<SignaturePanel request={request()} onSubmit={async () => {}} onReject={() => {}} />);
 		expect(screen.getByText("Preparing the payload to sign…")).toBeInTheDocument();
-		expect(screen.getByRole("tab", { name: "Reject" })).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
 	});
 });

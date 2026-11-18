@@ -721,7 +721,7 @@ func TestStdioFailsWithoutShell(t *testing.T) {
 	}
 	defer r.Close()
 	defer w.Close()
-	err = Stdio(context.Background(), r, io.Discard, io.Discard, testVersion)
+	err = Stdio(context.Background(), r, io.Discard, io.Discard, testVersion, StdioOptions{})
 	if err == nil || !strings.Contains(err.Error(), "no sh") {
 		t.Fatalf("Stdio = %v, want the shell resolution failure", err)
 	}
@@ -753,7 +753,7 @@ func TestStdioRefusesTerminal(t *testing.T) {
 		// The test binary's stdin is not a terminal under `go test`, but do not fail if it is.
 		t.Log("test stdin is a terminal")
 	}
-	if err := Stdio(context.Background(), slave, io.Discard, io.Discard, testVersion); err == nil || !strings.Contains(err.Error(), "terminal") {
+	if err := Stdio(context.Background(), slave, io.Discard, io.Discard, testVersion, StdioOptions{}); err == nil || !strings.Contains(err.Error(), "terminal") {
 		t.Fatalf("Stdio on a terminal = %v, want a refusal", err)
 	}
 
@@ -764,7 +764,7 @@ func TestStdioRefusesTerminal(t *testing.T) {
 	}
 	defer r.Close()
 	w.Close()
-	if err := Stdio(context.Background(), r, io.Discard, io.Discard, testVersion); err == nil {
+	if err := Stdio(context.Background(), r, io.Discard, io.Discard, testVersion, StdioOptions{}); err == nil {
 		t.Fatal("expected a handshake error")
 	}
 }

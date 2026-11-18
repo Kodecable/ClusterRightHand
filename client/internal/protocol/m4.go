@@ -6,8 +6,9 @@ import (
 	"fmt"
 )
 
-// Privilege wire types: the authorization object, TrustSummary and local approval
-// (doc/design/protocol.md "Privilege messages"). The crh-priv handshake types live with the crh-priv framing.
+// Privilege wire types: the authorization object, TrustSummary with the local approval window,
+// and the window commands (doc/design/protocol.md "Privilege messages"). The crh-priv handshake
+// types live with the crh-priv framing.
 //
 // Every type mirrors the corresponding codec in packages/protocol/src/privileged.ts:
 // fixed-length tuples in declaration order, [tag, body] unions, text enums, and CBOR null
@@ -219,7 +220,57 @@ type TrustSummary struct {
 	ClockSkewMS Uint
 	Identities  Identities
 	Trust       []TrustEntry
+	// LocalWindow is the node's local approval window (doc/design/privilege.md "Local approval window").
+	LocalWindow WindowState
 }
+
+// WindowStateKind is a WindowState union tag.
+type WindowStateKind string
+
+const (
+	WindowStateClosed WindowStateKind = "closed"
+	WindowStateOpen   WindowStateKind = "open"
+)
+
+// OpenWindow is the "open" WindowState body: when the window was opened, by which local uid, and
+// when it closes.
+type OpenWindow struct {
+	_           struct{} `cbor:",toarray"`
+	OpenedAtMS  Int
+	OpenedByUID Uint
+	UntilMS     Int
+}
+
+// WindowState is the local approval window of a node: closed, or open until a time.
+type WindowState struct {
+	Kind   WindowStateKind
+	Opened *OpenWindow
+}
+
+// windowStateUnion is the WindowState union: a closed window has an empty body.
+var windowStateUnion = newUnion("window state",
+	unionEmpty[WindowState]("closed"),
+	withMissing(unionPtr[WindowState]("open", func(w *WindowState) **OpenWindow { return &w.Opened }),
+		"protocol: open window has no body"),
+)
+
+// MarshalCBOR encodes a WindowState as [tag, body].
+func (w WindowState) MarshalCBOR() ([]byte, error) {
+	return windowStateUnion.marshal(w, string(w.Kind))
+}
+
+// UnmarshalCBOR decodes [tag, body] into the matching WindowState branch.
+func (w *WindowState) UnmarshalCBOR(data []byte) error {
+	tag, err := windowStateUnion.unmarshal(data, w)
+	if err != nil {
+		return err
+	}
+	w.Kind = WindowStateKind(tag)
+	return nil
+}
+
+// ClosedWindow returns the state of a node with no open local approval window.
+func ClosedWindow() WindowState { return WindowState{Kind: WindowStateClosed} }
 
 // TrustReportKind is a TrustReport union tag.
 type TrustReportKind string
@@ -263,68 +314,10 @@ func (r *TrustReport) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-// LocalRequest is the local.request command body. InputPreview is the first bytes of the task's
-// stdin or file content, so an approver can see what will be executed; nil means the sender did not
-// provide one (doc/design/privilege.md "Local approval").
-type LocalRequest struct {
-	_            struct{} `cbor:",toarray"`
-	TaskID       string
-	Attempt      Uint
-	Spec         TaskSpec
-	Note         string
-	InputPreview []byte
-}
-
-// LocalStateKind is a LocalState union tag.
-type LocalStateKind string
-
-const (
-	LocalStatePending  LocalStateKind = "pending"
-	LocalStateApproved LocalStateKind = "approved"
-	LocalStateDenied   LocalStateKind = "denied"
-)
-
-// LocalState is the state of one local approval.
-type LocalState struct {
-	Kind    LocalStateKind
-	Message string
-}
-
-// localStateUnion is the LocalState union: a pending or approved request has an empty body, a denied
-// one carries its reason.
-var localStateUnion = newBareUnion("local state",
-	unionEmpty[LocalState]("pending"),
-	unionEmpty[LocalState]("approved"),
-	unionMessage("denied", func(s LocalState) string { return s.Message },
-		func(s *LocalState, message string) { s.Message = message }),
-)
-
-// MarshalCBOR encodes a LocalState as [tag, body].
-func (s LocalState) MarshalCBOR() ([]byte, error) { return localStateUnion.marshal(s, string(s.Kind)) }
-
-// UnmarshalCBOR decodes [tag, body] into the matching LocalState branch.
-func (s *LocalState) UnmarshalCBOR(data []byte) error {
-	tag, err := localStateUnion.unmarshal(data, s)
-	if err != nil {
-		return err
-	}
-	s.Kind = LocalStateKind(tag)
-	return nil
-}
-
-// LocalWithdraw is the local.withdraw request body.
-type LocalWithdraw struct {
-	_       struct{} `cbor:",toarray"`
-	TaskID  string
-	Attempt Uint
-}
-
-// LocalDecision is the local.decision event body.
-type LocalDecision struct {
-	_       struct{} `cbor:",toarray"`
-	TaskID  string
-	Attempt Uint
-	State   LocalState
+// WindowOpen is the crh-priv window.open request body: how long the window should stay open.
+type WindowOpen struct {
+	_          struct{} `cbor:",toarray"`
+	DurationMS Uint
 }
 
 // AuthMatchKind is an AuthMatch union tag.
@@ -451,29 +444,6 @@ type Authorization struct {
 	_          struct{} `cbor:",toarray"`
 	Payload    []byte
 	Signatures []Signature
-}
-
-// PendingEntry is one entry of the crh-priv pending.list response. InputPreview is the beginning of
-// the task's stdin or file content, as sent with local.request.
-type PendingEntry struct {
-	_            struct{} `cbor:",toarray"`
-	TaskID       string
-	Attempt      Uint
-	Spec         TaskSpec
-	Note         string
-	ReceivedAtMS Int
-	InputPreview []byte
-}
-
-// LocalVerdict is the crh-priv local.approve / local.deny request body. SpecSHA256 binds the
-// verdict to the exact spec the approver saw: the privileged mode refuses it when the pending
-// record's hash differs (doc/design/protocol.md "crh-priv", doc/design/privilege.md "Local approval").
-type LocalVerdict struct {
-	_          struct{} `cbor:",toarray"`
-	TaskID     string
-	Attempt    Uint
-	SpecSHA256 Hash
-	Message    string
 }
 
 // DecodeAuthorizationPayload strictly decodes payload bytes and enforces the structural

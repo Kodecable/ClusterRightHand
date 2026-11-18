@@ -352,25 +352,38 @@ async function approvalRequestRows(db: Db, userId: string) {
 }
 
 /**
- * Tasks and task groups that passed their rules but still wait for this user's signature. Both entry
- * points share this one list: the approvals page shows them in their own section and the header
- * count adds them up (doc/design/privilege.md). A task that belongs to a task group is signed through the
- * task group, so only the task group is listed: one signature, one entry.
+ * Tasks and task groups that passed their rules but still wait for this user's authorization. Both
+ * entry points share this one list: the approvals page shows them in their own section and the header
+ * count adds them up (doc/design/privilege.md). A task that belongs to a task group is authorized
+ * through the task group, so only the task group is listed: one decision, one entry.
  */
 async function signatureRequestRows(db: Db, userId: string) {
 	const tasks = await db
 		.selectFrom("tasks")
-		.select("id")
+		.select(["id", "authorization"])
 		.where("state", "=", "awaiting_authorization")
 		.where("on_behalf_of_user_id", "=", userId)
 		.where("task_group_id", "is", null)
 		.orderBy("created_at")
 		.execute();
+	// A group whose members are partly running keeps the state `running`; it still waits while one member
+	// is in `awaiting_authorization` (doc/design/execution.md "Task groups").
 	const taskGroups = await db
 		.selectFrom("task_groups")
 		.select("id")
-		.where("state", "=", "awaiting_authorization")
 		.where("on_behalf_of_user_id", "=", userId)
+		.where((eb) =>
+			eb.or([
+				eb("state", "=", "awaiting_authorization"),
+				eb.exists(
+					eb
+						.selectFrom("tasks")
+						.select("tasks.id")
+						.whereRef("tasks.task_group_id", "=", "task_groups.id")
+						.where("tasks.state", "=", "awaiting_authorization"),
+				),
+			]),
+		)
 		.orderBy("created_at")
 		.execute();
 	return { tasks, taskGroups };

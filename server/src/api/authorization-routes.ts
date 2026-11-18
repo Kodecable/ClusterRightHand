@@ -1,6 +1,6 @@
 /**
  * User authorizations (doc/design/privilege.md "Authorization path"): submitting a signed authorization
- * (pasted `crha grant` output or a Passkey assertion), the administrators' list, the pending payload
+ * (pasted `crha grant` output or a Passkey assertion), the administrators' list, the options
  * the waiting page shows its owner, and the owner rejecting the wait instead of signing it.
  */
 import {
@@ -80,12 +80,12 @@ const taskAuthorizationRoute = defineRoute({
 	method: "get",
 	path: "/tasks/{id}/authorization",
 	tags: TAGS,
-	summary: "The pending payload a task's owner has to sign",
+	summary: "The authorization options a task's owner can take",
 	agent: "deny", // signing material and the challenge
 	request: { params: IdParamSchema },
 	responses: {
 		200: {
-			description: "The pending payload, or null when nothing is waiting",
+			description: "The options, or null when no plan is written yet",
 			...json(TaskAuthorizationResponseSchema),
 		},
 		403: { description: "Only the task's owner can authorize it", ...json(ErrorResponseSchema) },
@@ -115,7 +115,7 @@ const groupAuthorizationRoute = defineRoute({
 	request: { params: IdParamSchema },
 	responses: {
 		200: {
-			description: "The pending payload, or null when nothing is waiting",
+			description: "The options, or null when no plan is written yet",
 			...json(TaskGroupAuthorizationResponseSchema),
 		},
 		403: { description: "Only the task group's owner can authorize it", ...json(ErrorResponseSchema) },
@@ -147,21 +147,22 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 
 	/**
 	 * Accepts `{ authorization: base64 }` (CBOR Authorization, e.g. `crha grant` output) or
-	 * `{ payloadId, webauthn: AuthenticationResponseJSON }` from the waiting page's Passkey button.
+	 * `{ payload: base64, webauthn: AuthenticationResponseJSON }` from the waiting page's Passkey button: the
+	 * bytes the browser signed, so a payload refreshed while the owner was signing still verifies.
 	 */
 	app.openapi(submitRoute, async (c) => {
 		const user = c.get("user");
 		const body = c.req.valid("json");
 		if (!options.cluster) throw new HTTPException(503, { message: "the cluster is not running" });
 		const authorization = body.authorization;
-		const payloadId = body.payloadId;
+		const payload = body.payload;
 		let submitted: SubmittedAuthorization;
 		if (typeof authorization === "string") {
 			submitted = parseSubmittedAuthorization(authorization);
-		} else if (typeof payloadId === "string" && typeof body.webauthn === "object" && body.webauthn !== null) {
-			submitted = await parseWebauthnSubmission(db, user.userId, payloadId, body.webauthn);
+		} else if (typeof payload === "string" && typeof body.webauthn === "object" && body.webauthn !== null) {
+			submitted = await parseWebauthnSubmission(db, user.userId, payload, body.webauthn);
 		} else {
-			throw new UserError("give authorization (base64) or payloadId and webauthn");
+			throw new UserError("give authorization (base64) or payload and webauthn");
 		}
 		const result = await options.cluster.submitAuthorization(user, submitted);
 		// The submission's dispatch continues in the background; its outcome shows up in the task states.
@@ -214,7 +215,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		return c.json({ items, nextCursor: page.nextCursor }, 200);
 	});
 
-	/** The pending payload of a task, for its owner (doc/design/privilege.md "Authorizations"); other users get a 403. */
+	/** The options of a task, for its owner (doc/design/privilege.md "Authorizations"); other users get a 403. */
 	app.openapi(taskAuthorizationRoute, async (c) => {
 		const { id } = c.req.valid("param");
 		const found = await authorizationTask(db, c.get("user"), id);
@@ -224,7 +225,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 
 	/**
 	 * Rejects the task's signature wait instead of signing it (doc/design/privilege.md "Waiting for signatures"):
-	 * the task ends `rejected` with `authorization_rejected` and the reason, or the default text. Only its
+	 * the task ends `rejected` with `authorization_declined` and the reason, or the default text. Only its
 	 * owner may answer; anyone else gets the same 404 as a task they cannot see.
 	 */
 	app.openapi(rejectTaskRoute, async (c) => {
@@ -244,7 +245,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		return c.json({ ok: true as const }, 200);
 	});
 
-	/** The shared payload of a task group's waiting tasks; only the task group's owner may read it. */
+	/** The shared options of a task group's waiting tasks; only the task group's owner may read them. */
 	app.openapi(groupAuthorizationRoute, async (c) => {
 		const user = c.get("user");
 		const { id } = c.req.valid("param");
@@ -255,7 +256,7 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 
 	/**
 	 * Rejects the signature wait of a task group's owner (doc/design/privilege.md "Waiting for signatures"):
-	 * every member still waiting ends `rejected` with `authorization_rejected` and the reason, and the
+	 * every member still waiting ends `rejected` with `authorization_declined` and the reason, and the
 	 * group ends `rejected`. Members already finished are untouched, and only the owner may answer.
 	 */
 	app.openapi(rejectGroupRoute, async (c) => {
@@ -263,7 +264,8 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		const { id } = c.req.valid("param");
 		const found = await authorizationTaskGroup(db, c.get("user"), id);
 		if (!found.owner) throw new NotFoundError("no such task group");
-		if (found.row.state !== "awaiting_authorization") {
+		// A partly dispatched group is `running`; it still waits while another member needs a signature.
+		if (found.row.state !== "awaiting_authorization" && !(await options.taskGroups.hasAuthorizationWait(id))) {
 			throw new HTTPException(409, { message: "the task group is not waiting for authorization" });
 		}
 		const rejected = await options.taskGroups.rejectAuthorization(

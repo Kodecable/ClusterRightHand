@@ -224,7 +224,7 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const taskGroup = await visibleTaskGroup(c.get("user"), id);
 		if (!taskGroup) throw new NotFoundError("no such task group");
 		const request =
-			taskGroup.state === "awaiting_approval" || taskGroup.state === "awaiting_authorization"
+			taskGroup.state === "awaiting_approval" || awaitsAuthorization(taskGroup)
 				? await approvalRequestForTaskGroup(db, taskGroup)
 				: null;
 		return c.json({ taskGroup, request }, 200);
@@ -240,11 +240,18 @@ export function taskRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups) {
 		const waited = (await taskGroups.wait(taskGroup.id, timeout)) ?? taskGroup;
 		// The request travels with every wait answer too, so the panel keeps its data while the page follows an open row.
 		const request =
-			waited.state === "awaiting_approval" || waited.state === "awaiting_authorization"
+			waited.state === "awaiting_approval" || awaitsAuthorization(waited)
 				? await approvalRequestForTaskGroup(db, waited)
 				: null;
 		return c.json({ taskGroup: waited, request }, 200);
 	});
+
+	/**
+	 * Whether the group waits for a signature: itself, or through a member while other members already run
+	 * (the group is then `running`, not `awaiting_authorization`).
+	 */
+	const awaitsAuthorization = (group: { state: string; tasks: readonly { state: string }[] }): boolean =>
+		group.state === "awaiting_authorization" || group.tasks.some((task) => task.state === "awaiting_authorization");
 
 	/** A task group is visible by its relation to the user (admins, its owner, or a session viewer). */
 	const visibleTaskGroup = async (user: AppEnv["Variables"]["user"], id: string) => {

@@ -357,8 +357,6 @@ func (a *Agent) newPeer(ctx context.Context, conn *transport.Conn, ns *nodeStatu
 	if !tasks {
 		return peer
 	}
-	peer.HandleRequest(protocol.CmdLocalRequest, a.handleLocalRequest)
-	peer.HandleRequest(protocol.CmdLocalWithdraw, a.handleLocalWithdraw)
 	peer.HandleRequest(protocol.CmdTaskStart, a.handleTaskStart)
 	peer.HandleRequest(protocol.CmdTaskInput, a.handleTaskInput)
 	peer.HandleRequest(protocol.CmdTaskCancel, a.handleTaskCancel)

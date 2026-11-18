@@ -254,20 +254,28 @@ lines are, in order:
 - a blank line, then the command hints: with buttons only `Reject with a reason: /reject <id> reason`;
   without buttons `/approve <id>` and `/reject <id> [reason]`.
 
-A signature card carries the same body and the one hint `Sign in the WebUI: <link>`; it offers no
-approve or reject. A quota card's meta is the session title (or the localized new-session name), its
+A signature card carries the same body and the hints for the ways the owner can authorize it: `Sign
+in the WebUI: <link>`, the `sudo crha approve --for 30m` command for a local window, and the reject
+control — a Reject button with `Reject with a reason: /reject <id> reason` where the platform takes
+buttons, otherwise `/reject <id> [reason]`. It offers no approve: `/approve` never decides a signature
+wait. A quota card's meta is the session title (or the localized new-session name), its
 detail used first (`Used N · N left`, or `Used up, over by N` when exhausted, with full separators and
 never a negative remaining), and its hints `Continue: /quota add <tokens>` and `End this turn:
 /quota stop`; it is never wrapped in the session title again.
 
 A waiting approval is sent where the session's notifications go. A request Auto Review is still
 reviewing is not sent: the card appears only when the review escalates it to the user, and not when the
-review approves it (the operation simply runs).
+review approves it (the operation simply runs). A signature wait gets its card once its options are
+written (doc/design/privilege.md "Waiting for signatures"); when a sync pass changes them, the card is
+edited. A rule approval of the same task is settled first: its card ends with the decision, and the
+signature card follows as a new message. A partly dispatched task group keeps the group state
+`running`, but it still has a signature wait: its card stays while any member is in
+`awaiting_authorization`.
 
 | Wait | In the chat |
 |---|---|
 | A rule approval that needs no signature (task, task group, extension call), privileged or not | Approve and Reject buttons, and `/approve <id>`, `/reject <id> [reason]` |
-| An approval that needs a signature | A **Signature needed** card and a link to its page in the WebUI |
+| An approval that needs a signature | A **Signature needed** card, a link to its page in the WebUI, its local-window command when planned, a "signed, sent when the node is back" line when the owner already signed for an absent node, and a Reject button (or `/reject <id> [reason]`) |
 | Used-up quota | A **Token quota used up** card, `/quota add <tokens>` to raise it and go on, and `/quota stop` to end the turn |
 
 A request without a session — an API token's task, a user's direct task, an extension call made outside
@@ -283,16 +291,24 @@ decision, cancellation or rule re-evaluation, crhs first deletes the tracked mes
 refuses deletion, it edits the card replacing only its hints with the result line: `✅ Approved · by
 <user>`, `❌ Rejected · by <user>: <reason>`, or `Expired` for a wait that ended otherwise (task gone,
 cancelled, rule re-evaluation, session stopped, quota wait over). Auto Review's approval reads `✅
-Approved · by Auto Review`. When editing fails too, the result line is sent as a new message, so the
+Approved · by Auto Review`. A signature card ends with how the signature wait ended, read from its
+tasks rather than from the earlier approval: `❌ Rejected · by <owner>: <reason>` when the owner
+rejected it (in the WebUI or the chat; `authorization_declined`), `✅ Authorized` once a task was sent
+to its node, `Expired` when the wait ran out, and `❌ Not authorized: <reason>` when nothing could
+authorize it, crha's own refusals included. A group's card reads only the members that waited while
+the card was up, so a member that ran before the wait does not decide it. When editing fails too, the result line is sent as a new message, so the
 chat never keeps a stale card. The `/approve` and `/reject` command reply uses the same line.
 
-`/approve` and `/reject` may omit the id: when exactly one approval is waiting for the user in this
-chat (a card tracked for the chat target), that request is decided. For `/reject`, an argument that is
-not a waiting request id is the reason, so `/reject not now` rejects the only waiting request with
-reason "not now". With none or several waiting, the bot replies with the localized usage, and `/help`
-explains both forms. A kind without the `buttons` capability sends no buttons: the command hints are
-the way to decide, and a notification outside a thread carries the session link (a signature card
-carries its own WebUI link instead).
+`/approve` and `/reject` may omit the id: when exactly one approval or signature wait is waiting for
+the user in this chat (a card tracked for the chat target), that request is decided. For `/reject`, an
+argument that is not a waiting request id is the reason, so `/reject not now` rejects the only waiting
+request with reason "not now". `/approve` only ever decides a rule approval: given a signature wait it
+answers like an unknown id. `/reject` rejects either kind through the same server function as the
+WebUI's reject routes (the task's or the task group's `authorization/reject`), so a signature wait ends
+`rejected` with `authorization_declined` exactly as it does from the WebUI. With none or several
+waiting, the bot replies with the localized usage, and `/help` explains both forms. A kind without the
+`buttons` capability sends no buttons: the command hints are the way to decide, and a notification
+outside a thread carries the session link (a signature card carries its own WebUI link instead).
 
 ## Channel kinds
 

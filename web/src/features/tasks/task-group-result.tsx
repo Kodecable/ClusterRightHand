@@ -107,9 +107,11 @@ export function TaskGroupResult({
 					/>
 				)}
 
-			{taskGroup.state === "awaiting_authorization" && canSign && request !== undefined && request !== null && (
-				<SignatureWait request={request} variant="page" onChanged={onChanged} />
-			)}
+			{(taskGroup.state === "awaiting_authorization" ||
+				taskGroup.tasks.some((task) => task.state === "awaiting_authorization")) &&
+				canSign &&
+				request !== undefined &&
+				request !== null && <SignatureWait request={request} variant="page" onChanged={onChanged} />}
 
 			{taskGroup.approval && (
 				<RequestDetails

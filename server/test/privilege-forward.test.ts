@@ -13,12 +13,11 @@ import {
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
-import { dispatchCrhs } from "../src/cluster/authorization/authorized-start.ts";
+import { claimCrhs } from "../src/cluster/authorization/authorized-start.ts";
 import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { ClusterCore } from "../src/cluster/core.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
-import type { NodeLink } from "../src/cluster/links.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { trustDigest } from "../src/cluster/trust.ts";
@@ -78,7 +77,7 @@ describe("privileged forward dispatch", () => {
 		signing = newest;
 		audit = new Audit(db);
 		// A short trust wait keeps the "no report" case fast; every other test reports before dispatching.
-		cluster = new Cluster(db, { signingKeys, trustWaitMs: 100, audit, nodeOfflineGraceMs: 10 });
+		cluster = new Cluster(db, { signingKeys, audit, nodeOfflineGraceMs: 10 });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -159,6 +158,7 @@ describe("privileged forward dispatch", () => {
 		clockSkewMs: 0,
 		identities: IDENTITIES,
 		trust,
+		localWindow: { kind: "closed" },
 	});
 
 	const sshEntry = (name: string, role: TrustEntry["role"], overrides: Partial<TrustEntry> = {}): TrustEntry => ({
@@ -324,6 +324,73 @@ describe("privileged forward dispatch", () => {
 			expect(JSON.parse(events[1]?.detail as string)).toMatchObject({ new_digest: null, status: "unavailable" });
 		});
 
+		it("parks a task until a local window opens, then dispatches through crhs", async () => {
+			const { node, crha } = await connect("window-open");
+			const denied = crhsEntry({
+				deny: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
+			});
+			const local = sshEntry("local-admins", "local", {
+				key: { kind: "local", uids: [0] },
+				kinds: [],
+			});
+			const closed = summaryOf(node.id, [denied, local]);
+			crha.trust({ kind: "ok", summary: closed });
+			await waitTrust(node.id, closed);
+
+			const task = await createPrivileged(node.id);
+			await waitFor("the task waits for a window", async () => {
+				const view = await taskView(task.id);
+				return view.state === "awaiting_authorization" ? view : undefined;
+			});
+			const parked = await taskView(task.id);
+			expect(parked.authorization?.options).toContainEqual({
+				kind: "local_window",
+				nodeId: node.id,
+				nodeName: "window-open",
+			});
+			expect(crha.starts).toHaveLength(0);
+
+			// Simulate an earlier crhs rejection: a closed-window refusal must not make crhs refuse
+			// to sign again when a new window opens.
+			await db
+				.updateTable("tasks")
+				.set({
+					authorization: JSON.stringify({
+						...parked.authorization,
+						crhsRejected: { window: null },
+						lastRejection: {
+							code: "authorization_rejected",
+							message: "step 7: deny rule matched",
+							attempt: 1,
+							at: new Date(Date.now() - 60_000).toISOString(),
+						},
+					}),
+				})
+				.where("id", "=", task.id)
+				.execute();
+
+			// The node's administrator opens the window: the pushed summary re-plans the task, and
+			// crhs signs its ordinary one-shot authorization.
+			const open: TrustSummary = {
+				...closed,
+				localWindow: {
+					kind: "open",
+					openedAtMs: Date.now() - 1_000,
+					openedByUid: 0,
+					untilMs: Date.now() + 30 * 60_000,
+				},
+			};
+			crha.trust({ kind: "ok", summary: open });
+			await waitFor("task.start through the window", () => crha.starts.length === 1);
+			expect(crha.starts[0]).toMatchObject({ taskId: task.id, attempt: 1, privileged: true });
+			expect(crha.starts[0]?.authorizations).toHaveLength(1);
+			const running = await waitFor("the window task running", async () => {
+				const view = await taskView(task.id);
+				return view.state === "running" ? view : undefined;
+			});
+			expect(running.authorization?.dispatchedPath).toBe("crhs");
+		});
+
 		it("never sends revocations.add, not even after a trust report or a dispatch", async () => {
 			const { node, crha } = await connect("no-revocations");
 			const summary = summaryOf(node.id, [crhsEntry()]);
@@ -383,7 +450,7 @@ describe("privileged forward dispatch", () => {
 						{ entry: authzEntryFromTrust(summary.trust[0] as TrustEntry), valid: true, userVerified: false },
 					],
 				},
-				localApproval: null,
+				window: null,
 			});
 			expect(decision).toMatchObject({ result: "accepted", entry: "crhs" });
 
@@ -416,7 +483,7 @@ describe("privileged forward dispatch", () => {
 				attempt: 1,
 				trustDigest: trustDigest(summary),
 			});
-			expect(running.authorization?.plan.paths.map((path) => path.path)).toEqual(["crhs"]);
+			expect(running.authorization?.options).toEqual([]);
 		});
 
 		it("signs with the newest key each node trusts and the older key for a node that has not caught up", async () => {
@@ -484,7 +551,8 @@ describe("privileged forward dispatch", () => {
 			const created = await createPrivileged(node.id);
 			const waiting = await waitFor("awaiting_authorization with the user plan", async () => {
 				const view = await taskView(created.id);
-				return view.state === "awaiting_authorization" && view.authorization?.plan.paths[0]?.path === "user"
+				return view.state === "awaiting_authorization" &&
+					view.authorization?.options.some((option) => option.kind === "sign")
 					? view
 					: undefined;
 			});
@@ -502,12 +570,13 @@ describe("privileged forward dispatch", () => {
 					.executeTakeFirst(),
 			).toBeDefined();
 			expect(waiting.authorization).toMatchObject({
-				tried: ["crhs"],
+				crhsRejected: { window: null },
 				dispatchedPath: null,
 				attempt: 2,
 				lastRejection: { code: "authorization_rejected", message: "step 7: deny rule matched", attempt: 1 },
 			});
-			expect(waiting.authorization?.plan.paths[0]?.entries).toEqual([
+			const sign = waiting.authorization?.options.find((option) => option.kind === "sign");
+			expect(sign?.kind === "sign" ? sign.entries : null).toEqual([
 				{ name: "alice", role: "user", credential: "sshsig" },
 			]);
 			const row = await db.selectFrom("tasks").select("attempt").where("id", "=", created.id).executeTakeFirstOrThrow();
@@ -547,7 +616,7 @@ describe("privileged forward dispatch", () => {
 				const view = await taskView(created.id);
 				return view.state === "awaiting_authorization" ? view : undefined;
 			});
-			expect(waiting.authorization?.plan.paths.map((path) => path.path)).toEqual(["user"]);
+			expect(waiting.authorization?.options.map((option) => option.kind)).toEqual(["sign"]);
 			expect(crha.starts).toHaveLength(0);
 
 			// The node now trusts crhs's key as well, so the same task can be dispatched without a signature.
@@ -564,7 +633,7 @@ describe("privileged forward dispatch", () => {
 				attempt: 1,
 				trustDigest: trustDigest(after),
 			});
-			expect(running.authorization?.plan.paths.map((path) => path.path)).toEqual(["crhs", "user"]);
+			expect(running.authorization?.options).toEqual([]);
 		});
 
 		it("rejects a waiting task when the new trust summary leaves no path", async () => {
@@ -588,7 +657,7 @@ describe("privileged forward dispatch", () => {
 			});
 			expect(rejected.errorCode).toBe("authorization_required");
 			expect(rejected.errorMessage).toContain("no one on this node can authorize this command");
-			expect(rejected.authorization?.plan.paths).toEqual([]);
+			expect(rejected.authorization?.options).toEqual([]);
 			expect(crha.starts).toHaveLength(0);
 		});
 
@@ -612,7 +681,7 @@ describe("privileged forward dispatch", () => {
 			expect(crha.starts).toHaveLength(0);
 		});
 
-		it("does not plan from a trust summary kept from a previous connection", async () => {
+		it("plans from the trust summary a previous connection reported", async () => {
 			const { node, crha, key } = await connect("forward-11");
 			const summary = summaryOf(node.id, [crhsEntry()]);
 			crha.trust({ kind: "ok", summary });
@@ -621,31 +690,28 @@ describe("privileged forward dispatch", () => {
 			await crha.closed;
 			await waitFor("link detached", () => !cluster.isConnected(node.id));
 
-			// The node comes back but has not pushed its summary on the new connection yet.
+			// The node comes back but has not pushed its summary on the new connection yet: crhs plans from
+			// the one it kept, and crha decides (a refusal would be retried like any other).
 			const second = await agents.connect(key, handshakeInit());
 			expect(await second.peer.request("hello", { ...START, privilegedMode: "forward" })).toEqual({ acks: [] });
 			await waitFor("link ready again", () => cluster.isConnected(node.id));
 
 			const created = await createPrivileged(node.id);
-			const failed = await waitFor("errored", async () => {
-				const view = await taskView(created.id);
-				return view.state === "errored" ? view : undefined;
-			});
-			expect(failed.errorCode).toBe("privileged_unavailable");
-			expect(failed.errorMessage).toContain("on this connection");
-			expect(second.starts).toHaveLength(0);
+			await waitFor("task.start", () => second.starts.length === 1);
+			expect(second.starts[0]?.taskId).toBe(created.id);
 		});
 
-		it("fails with privileged_unavailable when no report arrives", async () => {
+		it("waits for a node that never reported and plans on its first report", async () => {
 			const { node, crha } = await connect("forward-6");
 			const created = await createPrivileged(node.id);
-			const failed = await waitFor("errored", async () => {
-				const view = await taskView(created.id);
-				return view.state === "errored" ? view : undefined;
-			});
-			expect(failed.errorCode).toBe("privileged_unavailable");
-			expect(failed.errorMessage).toContain("has not reported a trust summary");
+			await waitFor("waiting", async () => (await taskView(created.id)).state === "awaiting_authorization");
+			// Nothing to plan from yet: no options, nothing sent, the task waits (the WebUI shows it as being prepared).
+			expect((await taskView(created.id)).authorization?.options).toEqual([]);
 			expect(crha.starts).toHaveLength(0);
+
+			crha.trust({ kind: "ok", summary: summaryOf(node.id, [crhsEntry()]) });
+			await waitFor("task.start", () => crha.starts.length === 1);
+			expect(crha.starts[0]?.taskId).toBe(created.id);
 		});
 
 		it("sends native privileged tasks without authorizations", async () => {
@@ -1025,7 +1091,7 @@ describe("privileged forward dispatch", () => {
 					attempt: 1,
 					timeout_ms: null,
 					output_mode: "full",
-					state: "awaiting_approval",
+					state: "awaiting_authorization",
 					exit_code: null,
 					signal: null,
 					timed_out: 0,
@@ -1067,33 +1133,9 @@ describe("privileged forward dispatch", () => {
 				taskIds: [id],
 				attempt: 1,
 			});
-			const record: TaskAuthorizationRecord = {
-				plan: { paths: [] },
-				tried: [],
-				dispatchedPath: null,
-				payloadId: null,
-				attempt: 1,
-				trustDigest: null,
-				pending: null,
-				local: null,
-				lastRejection: null,
-				updatedAt: now,
-			};
 			const core = new ClusterCore(db, { signingKeys, audit });
-			await dispatchCrhs(
-				core,
-				id,
-				row,
-				node,
-				{} as unknown as NodeLink,
-				EXEC,
-				new Uint8Array(),
-				{},
-				record,
-				authorization,
-				signing.fingerprint,
-				["awaiting_approval"],
-			);
+			const claim = await core.taskQueue.run(id, () => claimCrhs(core, row, node, authorization, signing.fingerprint));
+			expect(claim).toBeNull();
 
 			await audit.flush();
 			expect(await auditRows("authorization.issued")).toEqual([]);

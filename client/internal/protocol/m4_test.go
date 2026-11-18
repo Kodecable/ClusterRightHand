@@ -173,28 +173,16 @@ func decodeM4Body(t *testing.T, codec string, raw []byte) any {
 			t.Fatalf("decode TrustReport: %v", err)
 		}
 		return &v
-	case "LocalRequest":
-		var v LocalRequest
+	case "WindowState":
+		var v WindowState
 		if err := Unmarshal(raw, &v); err != nil {
-			t.Fatalf("decode LocalRequest: %v", err)
+			t.Fatalf("decode WindowState: %v", err)
 		}
 		return &v
-	case "LocalWithdraw":
-		var v LocalWithdraw
+	case "WindowOpen":
+		var v WindowOpen
 		if err := Unmarshal(raw, &v); err != nil {
-			t.Fatalf("decode LocalWithdraw: %v", err)
-		}
-		return &v
-	case "LocalDecision":
-		var v LocalDecision
-		if err := Unmarshal(raw, &v); err != nil {
-			t.Fatalf("decode LocalDecision: %v", err)
-		}
-		return &v
-	case "PendingEntry":
-		var v PendingEntry
-		if err := Unmarshal(raw, &v); err != nil {
-			t.Fatalf("decode PendingEntry: %v", err)
+			t.Fatalf("decode WindowOpen: %v", err)
 		}
 		return &v
 	default:
@@ -238,10 +226,7 @@ func TestM4BodyVectors(t *testing.T) {
 	}
 	// Every codec this file mirrors must appear in the fixture, so a lost vector cannot
 	// silently shrink coverage.
-	for _, codec := range []string{
-		"TrustSummary", "TrustReport", "LocalRequest",
-		"LocalWithdraw", "LocalDecision", "PendingEntry",
-	} {
+	for _, codec := range []string{"TrustSummary", "TrustReport", "WindowState", "WindowOpen"} {
 		if !seen[codec] {
 			t.Errorf("fixture has no %s body vector", codec)
 		}
@@ -254,17 +239,13 @@ func TestM4UnionBranches(t *testing.T) {
 		name string
 		run  func(t *testing.T)
 	}{
-		{"LocalState.pending", func(t *testing.T) {
-			checkRoundTrip(t, "", LocalState{Kind: LocalStatePending})
+		{"WindowState.closed", func(t *testing.T) {
+			checkRoundTrip(t, "", ClosedWindow())
 		}},
-		{"LocalState.approved", func(t *testing.T) {
-			checkRoundTrip(t, "", LocalState{Kind: LocalStateApproved})
-		}},
-		{"LocalState.denied", func(t *testing.T) {
-			checkRoundTrip(t, "", LocalState{Kind: LocalStateDenied, Message: "no"})
-		}},
-		{"LocalVerdict", func(t *testing.T) {
-			checkRoundTrip(t, "", LocalVerdict{TaskID: "t", Attempt: 2, Message: "ok"})
+		{"WindowState.open", func(t *testing.T) {
+			checkRoundTrip(t, "", WindowState{Kind: WindowStateOpen, Opened: &OpenWindow{
+				OpenedAtMS: 1, OpenedByUID: 1000, UntilMS: 2,
+			}})
 		}},
 		{"TrustKey.sshsig", func(t *testing.T) {
 			checkRoundTrip(t, "", TrustKey{Kind: TrustKeySSHSig, SSHSig: &SSHTrustKey{
@@ -282,6 +263,7 @@ func TestM4UnionBranches(t *testing.T) {
 		{"TrustReport.ok", func(t *testing.T) {
 			checkRoundTrip(t, "", TrustReport{Kind: TrustReportOK, Summary: &TrustSummary{
 				NodeID: "n", Aliases: []string{}, ClockSkewMS: 1000, Trust: []TrustEntry{},
+				LocalWindow: ClosedWindow(),
 			}})
 		}},
 		{"AuthMatch.exact", func(t *testing.T) {

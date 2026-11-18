@@ -71,7 +71,8 @@ crha status --config /etc/crha/crha.toml
 ```
 
 `crha enroll` sets up the node: it creates the `crha` user and group, `/etc/crha`, `/var/lib/crha`,
-`crha.toml`, the enrolled keys, `privileged.toml` for `forward` mode and the systemd units. It asks its
+`crha.toml`, the enrolled keys, `privileged.toml` and `/var/lib/crha-privileged` for `forward` mode, and
+the systemd units. It asks its
 questions on the terminal, showing each default; `--answers <file>` answers them ahead with one JSON
 object (a file holding the token must be readable only by its owner), and `--save-answers <file>` writes
 an interactive run's answers without the token. Without a terminal every question must be answered by
@@ -127,29 +128,32 @@ crha grant --key ~/.ssh/id_ed25519 \
 always required. `--exact` with `--spec-sha256` limits the authorization to one exact task; `--task`
 makes it one-shot. Submit a reusable authorization through `POST /api/authorizations`.
 
-## crha pending, approve and deny
+## crha approve and lock
 
-Local approval on the node, for users listed in a `local` trust entry. These commands talk directly to
+The local approval window, for users listed in a `local` trust entry. These commands talk directly to
 the privileged mode; crhs is not involved.
 
 ```sh
-sudo crha pending
-sudo crha approve 0192f000-0000-7000-8000-000000000010
-sudo crha deny 0192f000-0000-7000-8000-000000000010 --message "not during business hours"
+sudo crha approve                  # print the current window state
+sudo crha approve --for 30m        # open or replace the window for 30 minutes
+sudo crha lock                     # close the window early
 ```
 
-`approve` and `deny` show the full task and ask for confirmation (`--yes` skips it). The approval is
-bound to what you saw: if the task changed meanwhile, the privileged mode refuses it.
+While the window is open, a task authorized by crhs's own signature runs on the node without the
+limits of its crhs trust entry, including its guard rules and `max_ttl`. crhs effectively holds the
+privileged identity on the node, so open a window only when you mean that. The window closes on
+expiry, on `crha lock`, or when the privileged mode restarts. The length must be positive and no
+longer than `max_window` of the local entries that list your uid (one hour by default); the command
+prints the window's end time. A node with no `crhs` entry cannot open a window.
 
-They connect to `/run/crha/privileged.sock` unless `--socket` or `CRHA_PRIVILEGED_SOCKET` names another
-socket.
+`--for` takes a Go duration (`30m`, `2h`). They connect to `/run/crha/privileged.sock` unless
+`--socket` or `CRHA_PRIVILEGED_SOCKET` names another socket.
 
 ## Environment variables
 
 | Variable | Used by | Meaning |
 |---|---|---|
 | `CRHA_TASK_HOME`, `CRHA_TASK_USER`, `CRHA_TASK_LOGNAME`, `CRHA_TASK_SHELL` | crha | Override the account and shell given to tasks ([crha configuration](crha-config.md#environment-overrides)). |
-| `CRHA_PRIVILEGED_SOCKET` | `crha pending`, `approve`, `deny` | The privileged mode's socket. |
-| `CRHA_PRIVILEGED_STDIN_DIR` | `crha privileged stdio` | Where the `native` helper stages task input. |
+| `CRHA_PRIVILEGED_SOCKET` | `crha approve`, `crha lock` | The privileged mode's socket. |
 | `UV_THREADPOOL_SIZE` | crhs | Node.js worker threads; raise it together with `auth.argon2_concurrency` in **System settings**. |
 | `RE2_DOWNLOAD_MIRROR` | `npm ci` in the crhs tar without Node | Mirror for the prebuilt RE2 module. |

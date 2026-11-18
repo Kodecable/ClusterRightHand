@@ -211,14 +211,20 @@ describe("TaskResult", () => {
 				task={baseTask({
 					state: "awaiting_authorization",
 					authorization: {
-						plan: { paths: [{ path: "user", entries: [{ name: "laptop", role: "user" }] }] },
-						tried: [],
+						options: [
+							{
+								kind: "sign",
+								entries: [{ name: "laptop", role: "user", credential: "sshsig" }],
+								ttlMs: 3_600_000,
+								payload: null,
+							},
+						],
+						crhsRejected: null,
+						rejectedBefore: null,
 						dispatchedPath: null,
 						payloadId: "p1",
 						attempt: 3,
 						trustDigest: null,
-						pending: null,
-						local: null,
 						lastRejection: null,
 						updatedAt: "2026-01-01T00:00:00.000Z",
 					},

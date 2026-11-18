@@ -1,11 +1,9 @@
 package daemon
 
 import (
-	"errors"
 	"io"
 	"net"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -63,53 +61,24 @@ func waitForwardCount(t *testing.T, s *Server, want int) {
 	t.Fatalf("forward connections = %d, want %d", len(s.forwardConns()), want)
 }
 
-// TestSlowForwardDoesNotBlockDecision covers the broadcast path: pushLocalDecision enqueues for
-// every forward connection and returns, while the connection that never reads is closed by its
-// per-frame write deadline.
-func TestSlowForwardDoesNotBlockDecision(t *testing.T) {
+// TestPushTrustSummaryDoesNotBlock covers the broadcast path: pushTrustSummary enqueues for every
+// forward connection and returns without waiting for a peer that stopped reading.
+func TestPushTrustSummaryDoesNotBlock(t *testing.T) {
 	keys := newTestKeys(t)
 	env := localEnv(t, keys)
-	env.writeTimeout = 150 * time.Millisecond
-	env.restart()
-	slow := dialForwardNoRead(t, env.paths.Socket)
+	dialForwardNoRead(t, env.paths.Socket)
 
-	// Enough bytes to fill the unix socket buffers several times over: the drain goroutine blocks
-	// in Write, hits the deadline and closes the connection.
-	decision := protocol.LocalDecision{
-		TaskID:  "slow-forward",
-		Attempt: 1,
-		State: protocol.LocalState{
-			Kind:    protocol.LocalStateDenied,
-			Message: strings.Repeat("x", 55<<10),
-		},
-	}
-	pushed := make(chan struct{})
+	done := make(chan struct{})
 	go func() {
-		for range forwardOutboxSize {
-			env.server.pushLocalDecision(decision)
+		for range 4 * forwardOutboxSize {
+			env.server.pushTrustSummary()
 		}
-		close(pushed)
+		close(done)
 	}()
 	select {
-	case <-pushed:
+	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("pushLocalDecision blocked on a connection that does not read")
-	}
-
-	// Wait past the write deadline before reading: reading earlier would drain the socket and let
-	// the blocked write succeed instead of timing out.
-	time.Sleep(3 * env.writeTimeout)
-	_ = slow.SetReadDeadline(time.Now().Add(5 * time.Second))
-	buf := make([]byte, 32<<10)
-	for {
-		_, err := slow.Read(buf)
-		if err == nil {
-			continue
-		}
-		if errors.Is(err, os.ErrDeadlineExceeded) {
-			t.Fatal("the slow forward connection was not closed by the write deadline")
-		}
-		return
+		t.Fatal("pushTrustSummary blocked on a connection that does not read")
 	}
 }
 
@@ -130,7 +99,7 @@ func TestReloadDoesNotBlockOnASlowForward(t *testing.T) {
 		}
 		<-release
 		return io.ErrClosedPipe
-	}, protocol.NewSet(protocol.EventTrustSummary, protocol.EventLocalDecision))
+	}, protocol.NewSet(protocol.EventTrustSummary))
 	nc, other := net.Pipe()
 	c := &conn{s: env.server, nc: nc, outbox: make(chan outbound, forwardOutboxSize)}
 	c.setPeer(peer, nil)

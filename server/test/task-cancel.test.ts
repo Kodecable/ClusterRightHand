@@ -61,7 +61,7 @@ describe("cancelling a task before its task.start", () => {
 
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
-		core = new ClusterCore(db, { nodeOfflineGraceMs: GRACE_MS, trustWaitMs: 20 });
+		core = new ClusterCore(db, { nodeOfflineGraceMs: GRACE_MS });
 		const user = await createUser(db, { username: "owner", kind: "admin", password: "password-123" });
 		userId = user.id;
 		const id = newId();
@@ -150,14 +150,13 @@ describe("cancelling a task before its task.start", () => {
 	};
 
 	const record = (): TaskAuthorizationRecord => ({
-		plan: { paths: [] },
-		tried: [],
+		options: [],
+		crhsRejected: null,
+		rejectedBefore: null,
 		dispatchedPath: "crhs",
 		payloadId: null,
 		attempt: 1,
 		trustDigest: null,
-		pending: null,
-		local: null,
 		lastRejection: null,
 		updatedAt: new Date().toISOString(),
 	});
@@ -181,7 +180,6 @@ describe("cancelling a task before its task.start", () => {
 			ready: true,
 			queried: new Set(),
 			trustFresh: true,
-			trustWaiters: new Set(),
 		};
 		return { link, requests };
 	};
@@ -191,7 +189,7 @@ describe("cancelling a task before its task.start", () => {
 
 	it("cancels while the node is offline and never sends the start after it reconnects", async () => {
 		const id = await seedTask("dispatched");
-		const sending = sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record());
+		const sending = sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record(), () => {});
 		// The task is claimed and the dispatch is now inside the offline grace.
 		await waitFor("the dispatch to wait for the node", () => core.linkWaiters.has(node.id));
 		expect(await cancelTask(core, id)).toBe(true);
@@ -208,7 +206,7 @@ describe("cancelling a task before its task.start", () => {
 
 	it("ends a cancelled task as cancelled when the grace runs out without a reconnect", async () => {
 		const id = await seedTask("dispatched");
-		const sending = sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record());
+		const sending = sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record(), () => {});
 		await waitFor("the dispatch to wait for the node", () => core.linkWaiters.has(node.id));
 		expect(await cancelTask(core, id)).toBe(true);
 		// No node comes back: the task still ends as the cancellation, not as node_offline.
@@ -229,7 +227,7 @@ describe("cancelling a task before its task.start", () => {
 		const id = await seedTask("cancelled", { error_message: CANCELLED_MESSAGE, finished_at: new Date().toISOString() });
 		const fake = fakeNode();
 		core.links.set(node.id, fake.link);
-		await sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record());
+		await sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record(), () => {});
 		expect(fake.requests).toHaveLength(0);
 		expect(await core.row(id)).toMatchObject({ state: "cancelled", error_message: CANCELLED_MESSAGE });
 	});
@@ -248,7 +246,7 @@ describe("cancelling a task before its task.start", () => {
 		const id = await seedTask("unknown", { error_code: "dispatch_unconfirmed" });
 		const fake = fakeNode();
 		core.links.set(node.id, fake.link);
-		await sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record());
+		await sendAuthorizedStart(core, node.id, await startOf(id), new Uint8Array(0), record(), () => {});
 		expect(fake.requests).toHaveLength(0);
 		expect(await core.row(id)).toMatchObject({ state: "unknown", error_code: "dispatch_unconfirmed" });
 	});

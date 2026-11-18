@@ -15,8 +15,6 @@ import {
 	type HandshakeResponse,
 	handshakeInitCodec,
 	handshakeResponseCodec,
-	type LocalRequest,
-	type LocalState,
 	NOISE_PROLOGUE_PREFIX,
 	Peer,
 	PROTOCOL_MAJOR,
@@ -265,10 +263,6 @@ export class FakeCrha {
 	readonly commands: string[] = [];
 	/** Every task.input chunk the server sent, in order. */
 	readonly inputs: { taskId: string; offset: number; data: Uint8Array }[] = [];
-	/** Every local.request the server sent, in order. */
-	readonly localRequests: LocalRequest[] = [];
-	/** Every local.withdraw the server sent, in order. */
-	readonly localWithdrawals: { taskId: string; attempt: number }[] = [];
 	/** The task ids of every task.query the server sent, in order. */
 	readonly queries: string[] = [];
 	/** The task ids of every task.exit.ack, in order. */
@@ -284,9 +278,6 @@ export class FakeCrha {
 		state: "unknown",
 		outputEnd: 0,
 	});
-	/** Answers local.request; the request is recorded first. */
-	answerLocal: (request: LocalRequest) => LocalState | Promise<LocalState> = () => ({ kind: "pending" });
-
 	constructor(
 		ws: WebSocket,
 		peer: Peer,
@@ -315,18 +306,9 @@ export class FakeCrha {
 			this.queries.push(query.taskId);
 			return this.answerQuery(query.taskId);
 		});
-		peer.onRequest("local.request", async (request) => {
-			this.localRequests.push(request);
-			return this.answerLocal(request);
-		});
-		peer.onRequest("local.withdraw", (withdraw) => {
-			this.localWithdrawals.push(withdraw);
-			return {};
-		});
 		peer.onEvent("task.exit.ack", (ack) => {
 			this.exitAcks.push(ack.taskId);
 		});
-		peer.onEvent("local.decision", () => {});
 	}
 
 	/** Pushes a trust.summary event (doc/design/protocol.md "Trust summary"). */

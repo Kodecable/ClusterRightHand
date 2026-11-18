@@ -65,9 +65,11 @@ the transfer itself uses `too_large` and `input_mismatch` (a size or SHA-256 mis
 
 ## Version negotiation
 
-The version is major 0, minor 0. The Noise prologue is `"crh/0"` followed by the server's challenge,
+The version is major 1, minor 0. The Noise prologue is `"crh/1"` followed by the server's challenge,
 so peers of different majors fail the Noise handshake before a payload is read; the payload's major is
-checked too.
+checked too. Major 1 removed the per-task local approval commands (`local.request`, `local.withdraw`
+and `local.decision`) and added the local approval window to `TrustSummary`; it is an incompatible
+change, so crhs and crha are upgraded together.
 
 - An incompatible change bumps the major and the prologue. There is no compatibility layer across
   majors: crhs, crha and its privileged mode are upgraded together.
@@ -114,7 +116,9 @@ timeouts and its output mode; the fields are in `messages.ts`. Acceptance is the
 - `authorization_required`, `authorization_invalid`, `authorization_expired` and
   `authorization_rejected` are retryable: the task returns to waiting and may be sent again with a
   higher attempt. A rule or path denial is retryable because it does not prove that the owner's
-  signature would also be denied; crhs never retries its own signature path, so this cannot loop.
+  signature would also be denied. crhs never sends what was refused again: its own signature only
+  under a different local window, and only owner authorizations stored after the refused one, so
+  this cannot loop (doc/design/privilege.md "The planner").
 - `cancelled` means a cancel came first and the task does not run. Every other code is terminal and
   gives the task `errored`: `invalid_spec`, `unsupported_kind`, `privileged_unsupported`,
   `privileged_unavailable`, `already_accepted`. `local_policy_denied` is reserved.
@@ -122,8 +126,8 @@ timeouts and its output mode; the fields are in `messages.ts`. Acceptance is the
   sends no output.
 - Input arrives after acceptance, in order and possibly pipelined, and is checked against its declared
   size and SHA-256; a mismatch or an incomplete input kills the task.
-- A non-privileged task, and every task in `native` or `ignore` mode or with a local approval,
-  carries no authorization; a privileged task carries at most one, as a CBOR
+- A non-privileged task, and every task in `native` or `ignore` mode, carries no authorization; a
+  privileged task in `forward` mode carries at most one, as a CBOR
   [authorization object](#authorization-object).
 
 ## Events
@@ -164,42 +168,36 @@ fit in one frame, so `file.list` stops at 32 KiB of entries and sets `truncated`
 
 ## Privilege messages
 
-The trust report and the local approval flow are part of the required command set. crhs never queries
-trust: crha pushes it after `hello` and on every change, and a mode that is not `forward` reports
-`not_forward`.
+The trust report is part of the required command set. crhs never queries trust: crha pushes it after
+`hello` and on every change, and a mode that is not `forward` reports `not_forward`.
 
 | Name | Direction | Purpose |
 |---|---|---|
-| `trust.summary` | crha → crhs, event | The privileged mode's current [trust summary](#trust-summary). |
-| `local.request` | crhs → crha, command | Asks for a local approval and returns the current local state. |
-| `local.withdraw` | crhs → crha, command | Withdraws a request that is no longer needed. |
-| `local.decision` | crha → crhs, event | The verdict after `crha approve` or `crha deny`. |
+| `trust.summary` | crha → crhs, event | The privileged mode's current [trust summary](#trust-summary), including its local approval window. |
 
-Local approval is only for a single task and does not occupy `task.start`:
-
-1. crhs sends `local.request` with the task, attempt, spec, note and the first 4 KiB of input; a
-   repeat for the same task id and attempt is idempotent.
-2. crha sends `local.decision` after `crha approve` or `crha deny`.
-3. On approval, crhs sends `task.start` with the same attempt and no authorization; the node checks
-   that the spec hash still matches and consumes the approval.
-
-crhs withdraws the request when the owner signs in the WebUI or the task is cancelled. Records live
-in the privileged mode's memory: after a restart the next `ok` summary makes crhs re-request what it
-still waits for, and a lost record gives `authorization_required` with the ordinary retry. A
-disconnect is safe: without `task.start` nothing runs, and a waiting task does not become `unknown`.
-Errors are `local_not_trusted` (terminal), `invalid_spec` and `privileged_unavailable`.
+There is no per-task local approval exchange. A local administrator opens a window on the node with
+`crha approve --for`, and crha pushes a new `trust.summary` when the window opens, closes or
+expires. While it is open, crhs may send an ordinary crhs-signed `task.start`; the node waives its
+crhs entry's limits (doc/design/privilege.md "Local approval window"). A task whose plan offers a
+`local_window` option stays in `awaiting_authorization` with that option on its record; the next
+`ok` summary syncs it, and the surfaces render the command text themselves. crhs does not compare the
+window's times with its own clock: the window is open until the node reports it closed.
 
 ### Trust summary
 
 `TrustSummary` reports the node id, its trust aliases, the clock skew, the run identities of both
-modes, and the trust entries: key, role, kinds (`execute`, `cosign`, `require-cosign`), the
-`require_*` constraints, an optional TTL cap, and allow and deny rules. The shapes are in
-`messages.ts`; what an entry means is in [Trust configuration](privilege.md#trust-configuration).
+modes, the local approval window, and the trust entries: key, role, kinds (`execute`, `cosign`,
+`require-cosign`), the `require_*` constraints, an optional TTL cap, and allow and deny rules. The
+shapes are in `messages.ts`; what an entry means is in
+[Trust configuration](privilege.md#trust-configuration).
 
 - `digest = SHA-256(CBOR(TrustSummary))` lets crhs detect a change and is recorded with the task.
 - `aliases` are node-configured UUIDs; an authorization addressed to the node id or an alias is
   accepted. They are not crhs node groups.
 - The run identities are here, not in `hello` or `facts`.
+- `local_window` is `closed` or `open` with the opening time, the opening uid and the until time.
+  A node with no open window still uses `closed`; the field changes the digest, so opening or closing
+  a window syncs waiting tasks.
 
 ### Authorization object
 
@@ -231,7 +229,7 @@ payload.
 ### crh-priv
 
 The modes speak `crh-priv` over a unix socket (`forward`), the helper's stdio (`native`), or the same
-socket for `crha pending`, `crha approve` and `crha deny` (the `local` role). It reuses the CBOR
+socket for `crha approve`, `crha lock` and their state query (the `local` role). It reuses the CBOR
 profile, frames and strict decoding, but not the CRH protocol.
 
 - No Noise: threats inside the host are out of scope, and the peer's identity comes from
@@ -241,12 +239,17 @@ profile, frames and strict decoding, but not the CRH protocol.
   The major must match, and the minor is additive. `forward` and `native` also require an equal
   `crha_version`, because the modes come from one binary; a mismatch in `forward` makes privileged
   tasks fail with `privileged_unavailable`.
-- Each role requires its names (`task.*` and the trust names for `forward`, `task.*` for `native`, all
-  names for `local`); the rest are optional and negotiated by intersection.
+- Each role requires its names (`task.*` and `trust.query`/`trust.summary` for `forward`, `task.*`
+  for `native`, `window.status`/`window.open`/`window.close` for `local`); the rest are optional and
+  negotiated by intersection.
 - The role must match the peer: `forward` for the unprivileged uid, `local` for a local approver,
   `native` only on stdio.
 - The task bodies are shared with CRH; `native` skips authorization and there are no acks, because
-  the unprivileged mode writes its own output file. The trust and local names complete the set.
+  the unprivileged mode writes its own output file. The trust and window names complete the set.
+- The local role has three commands: `window.status` (empty request, current window state),
+  `window.open` (a length in milliseconds, opens or replaces the window) and `window.close` (empty
+  request). Each answers with the window state: `closed`, or `open` with the opening time, the
+  opening uid and the until time.
 
 A forwarded `task.start` has a 30-second timeout. A timed-out start is treated as accepted because it
 may still run: the unprivileged mode asks the privileged mode to cancel it and ends the task as
@@ -277,10 +280,10 @@ registration state: crhs pushes every change.
 A data connection carries the bytes of one `file.push` or `file.pull` transfer
 ([File plane](library.md#file-plane)). It is a separate WebSocket to its own path on the same listener,
 so a large transfer never delays the control connection. The path is the control path plus `/data`
-(`/agent/data`), and the `crh-data/0` prologue keeps the two handshakes apart.
+(`/agent/data`), and the `crh-data/1` prologue keeps the two handshakes apart.
 
 - The transport is the control connection's: WSS outside, Noise IK inside, the node's static key, and a
-  server challenge in the prologue. The prologue prefix is `"crh-data/0"`, so a data handshake can never
+  server challenge in the prologue. The prologue prefix is `"crh-data/1"`, so a data handshake can never
   be taken for a control one, or the reverse.
 - The client payload holds `protocol_major`, the task id and the transfer id; the server payload holds
   `protocol_major` only. A privileged `file.pull` in `forward` mode sends its chunks to the

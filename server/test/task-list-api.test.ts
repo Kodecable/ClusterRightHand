@@ -113,6 +113,19 @@ describe("task list api (sqlite)", () => {
 		onBehalfOfUserId: uid.alice as string,
 	});
 
+	/** A parked signature wait: the approvals list includes every awaiting task, with or without options. */
+	const waitingAuthorization = (_taskId: string): string =>
+		JSON.stringify({
+			options: [],
+			tried: [],
+			dispatchedPath: null,
+			payloadId: null,
+			attempt: 1,
+			trustDigest: null,
+			lastRejection: null,
+			updatedAt: new Date().toISOString(),
+		});
+
 	const list = async (who: string, query = "") =>
 		(await call(app, `/api/tasks${query}`, { cookie: cookies[who] })).json() as Promise<{
 			items: TaskView[];
@@ -167,7 +180,11 @@ describe("task list api (sqlite)", () => {
 			// The server only reads these rows, so the group assignment and the signature wait are set directly.
 			await db
 				.updateTable("tasks")
-				.set({ state: "awaiting_authorization", task_group_id: groupId })
+				.set({
+					state: "awaiting_authorization",
+					task_group_id: groupId,
+					authorization: waitingAuthorization(member.id),
+				})
 				.where("id", "=", member.id)
 				.execute();
 			members.push(member.id);
@@ -382,7 +399,11 @@ describe("task list api (sqlite)", () => {
 
 	it("lists the signature waits on the approvals page", async () => {
 		const signature = await mkTask({ nodeId: n1 });
-		await db.updateTable("tasks").set({ state: "awaiting_authorization" }).where("id", "=", signature.id).execute();
+		await db
+			.updateTable("tasks")
+			.set({ state: "awaiting_authorization", authorization: waitingAuthorization(signature.id) })
+			.where("id", "=", signature.id)
+			.execute();
 		const res = (await (await call(app, "/api/approvals", { cookie: cookies.alice })).json()) as {
 			authorizations: { tasks: TaskView[]; taskGroups: TaskGroupView[] };
 		};

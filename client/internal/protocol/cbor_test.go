@@ -484,11 +484,11 @@ func TestPeekMajorArrayHeaders(t *testing.T) {
 		name string
 		hex  string
 	}{
-		{"length 6", "86000000"},
-		{"length 24", "9818000000"},
-		{"length 300", "99012c000000"},
-		{"length 70000", "9a00011170000000"},
-		{"later element is a float", "8200f93e00"},
+		{"length 6", "86010000"},
+		{"length 24", "9818010000"},
+		{"length 300", "99012c010000"},
+		{"length 70000", "9a0001117001000000"},
+		{"later element is a float", "8201f93e00"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			major, err := PeekMajor(mustHex(t, test.hex))

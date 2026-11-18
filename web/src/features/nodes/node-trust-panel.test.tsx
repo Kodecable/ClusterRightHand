@@ -65,6 +65,46 @@ describe("NodeTrustPanel report status", () => {
 		expect(screen.getByText("The node has not reported its trust configuration")).toBeInTheDocument();
 	});
 
+	test("shows the local approval window state", async () => {
+		const summary: TrustSummary = {
+			nodeId: "node-1",
+			aliases: [],
+			clockSkewMs: 60_000,
+			identities: {
+				unprivileged: { uid: 998, gid: 998, user: "crha" },
+				privileged: { uid: 0, gid: 0, user: "root" },
+			},
+			trust: [],
+			localWindow: { kind: "closed" },
+		};
+		renderPanel(trust({ status: "ok", summary }));
+		expect(await screen.findByText("Local approval window")).toBeInTheDocument();
+		expect(screen.getByText("closed")).toBeInTheDocument();
+	});
+
+	test("shows an open local approval window with its until time and opener", async () => {
+		const summary: TrustSummary = {
+			nodeId: "node-1",
+			aliases: [],
+			clockSkewMs: 60_000,
+			identities: {
+				unprivileged: { uid: 998, gid: 998, user: "crha" },
+				privileged: { uid: 0, gid: 0, user: "root" },
+			},
+			trust: [],
+			localWindow: {
+				kind: "open",
+				openedAtMs: Date.parse("2026-01-01T00:00:00.000Z"),
+				openedByUid: 1000,
+				untilMs: Date.parse("2026-01-01T01:00:00.000Z"),
+			},
+		};
+		renderPanel(trust({ status: "ok", summary }));
+		expect(await screen.findByText("Local approval window")).toBeInTheDocument();
+		expect(screen.getByText(/open until/)).toBeInTheDocument();
+		expect(screen.getByText(/opened by uid 1000/)).toBeInTheDocument();
+	});
+
 	test("the clock row names the authorization tolerance, not a measured offset", async () => {
 		const summary: TrustSummary = {
 			nodeId: "node-1",
@@ -75,6 +115,7 @@ describe("NodeTrustPanel report status", () => {
 				privileged: { uid: 0, gid: 0, user: "root" },
 			},
 			trust: [],
+			localWindow: { kind: "closed" },
 		};
 		renderPanel(trust({ status: "ok", summary }));
 		expect(await screen.findByText("Authorization clock tolerance")).toBeInTheDocument();

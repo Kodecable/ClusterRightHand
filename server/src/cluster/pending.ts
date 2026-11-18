@@ -1,12 +1,17 @@
 /**
- * The pending authorization of a task or task group, as the owner's waiting page shows it
- * (doc/design/privilege.md "Authorization path"). Only the owner may read the payload: it is the exact
+ * The options of a task or task group waiting for its owner, as the owner's waiting page shows them
+ * (doc/design/privilege.md "Authorization path"). Only the owner may read the sign payload: it is the exact
  * bytes to sign, and nothing about it is secret, but another user has nothing to do with it.
  */
 import type {
+	AuthorizationOption,
 	DecodedAuthorizationPayload,
+	LocalWindowAuthorizationOption,
 	PendingAuthorization,
+	PendingAuthorizationOption,
 	PendingPasskey,
+	PendingSignOption,
+	PendingSignPayload,
 	TaskGroupPending,
 	TaskGroupPendingTask,
 } from "@crh/api";
@@ -15,7 +20,7 @@ import { decodeAuthorizationPayload } from "@crh/protocol";
 import { webauthnSigningCredentials } from "../privilege/signing-credentials.ts";
 import { webauthnChallenge } from "../privilege/webauthn.ts";
 import type { Db } from "../storage/db.ts";
-import { type PendingPayloadView, parseTaskAuthorization, type TaskAuthorizationRecord } from "./authorization.ts";
+import { parseTaskAuthorization, type TaskAuthorizationRecord } from "./authorization.ts";
 import { getNode } from "./nodes.ts";
 import { parseTrustReport } from "./trust.ts";
 
@@ -23,8 +28,6 @@ import { parseTrustReport } from "./trust.ts";
 export type DecodedPayloadView = DecodedAuthorizationPayload;
 
 export type { PendingPasskey };
-
-export type PendingAuthorizationView = PendingAuthorization;
 
 /** The decoded payload of a stored record; null when the row cannot be decoded (fail closed). */
 export function decodedPayloadOf(payload: AuthorizationPayload): DecodedPayloadView {
@@ -49,48 +52,52 @@ export function decodedPayloadOf(payload: AuthorizationPayload): DecodedPayloadV
 	};
 }
 
-/** The view of a stored pending payload; null when it cannot be decoded. */
-export function pendingViewOf(pending: PendingPayloadView): PendingAuthorizationView | null {
-	const bytes = Buffer.from(pending.payload, "base64");
-	let payload: AuthorizationPayload;
+/** The view of a stored sign payload; null when it cannot be decoded. */
+export function signPayloadViewOf(payload: {
+	payload: string;
+	id: string;
+	deadline: string | null;
+	taskIds: string[];
+	attempt: number;
+}): PendingSignPayload | null {
+	const bytes = Uint8Array.from(Buffer.from(payload.payload, "base64"));
+	let decoded: AuthorizationPayload;
 	try {
-		payload = decodeAuthorizationPayload(Uint8Array.from(bytes));
+		decoded = decodeAuthorizationPayload(bytes);
 	} catch {
 		return null;
 	}
 	return {
-		id: pending.id,
-		payload: pending.payload,
-		decoded: decodedPayloadOf(payload),
-		challenge: Buffer.from(webauthnChallenge(Uint8Array.from(bytes))).toString("base64url"),
-		deadline: pending.deadline,
-		taskIds: pending.taskIds,
-		attempt: pending.attempt,
+		id: payload.id,
+		payload: payload.payload,
+		decoded: decodedPayloadOf(decoded),
+		challenge: Buffer.from(webauthnChallenge(bytes)).toString("base64url"),
+		deadline: payload.deadline,
+		taskIds: payload.taskIds,
+		attempt: payload.attempt,
 		passkeys: [],
-		localRequested: false,
-		lastRejection: null,
-		tried: [],
 	};
 }
 
-/** The owner's Passkeys that the node trusts for the task's plan; empty without a trust summary. */
+/** The owner's Passkeys the node trusts for the sign options' entries; empty without a trust summary. */
 async function passkeysFor(
 	db: Db,
 	userId: string,
 	nodeId: string,
-	record: TaskAuthorizationRecord | null,
+	options: readonly AuthorizationOption[],
 ): Promise<PendingPasskey[]> {
-	if (!record) return [];
-	const node = await getNode(db, nodeId);
-	const summary = node ? parseTrustReport(node.trust_report) : null;
-	if (summary?.kind !== "ok") return [];
 	const planned = new Set(
-		record.plan.paths.filter((path) => path.path === "user").flatMap((path) => path.entries.map((entry) => entry.name)),
+		options
+			.filter((option): option is Extract<AuthorizationOption, { kind: "sign" }> => option.kind === "sign")
+			.flatMap((option) => option.entries.map((entry) => entry.name)),
 	);
 	if (planned.size === 0) return [];
+	const node = await getNode(db, nodeId);
+	const report = node ? parseTrustReport(node.trust_report) : null;
+	if (report?.kind !== "ok") return [];
 	const credentials = await webauthnSigningCredentials(db, userId);
 	const out: PendingPasskey[] = [];
-	for (const entry of summary.summary.trust) {
+	for (const entry of report.summary.trust) {
 		if (entry.role !== "user" || entry.key.kind !== "webauthn" || entry.kinds.length === 0) continue;
 		if (!planned.has(entry.name)) continue;
 		const credentialId = Buffer.from(entry.key.credentialId).toString("base64url");
@@ -108,23 +115,47 @@ async function passkeysFor(
 	return out;
 }
 
-/** The waiting page of one task; null when it has no pending payload. */
+/** One stored option as the owner's waiting page renders it; a sign option with no payload is still preparing. */
+async function pendingOption(
+	db: Db,
+	userId: string,
+	nodeId: string,
+	option: AuthorizationOption,
+): Promise<PendingAuthorizationOption | null> {
+	if (option.kind === "local_window") return option satisfies LocalWindowAuthorizationOption;
+	if (option.kind === "awaiting_node") return option;
+	if (option.payload === null) return null;
+	const payload = signPayloadViewOf(option.payload);
+	if (!payload) return null;
+	payload.passkeys = await passkeysFor(db, userId, nodeId, [option]);
+	return { kind: "sign", entries: option.entries, ttlMs: option.ttlMs, payload } satisfies PendingSignOption;
+}
+
+/** The options of a stored record, for the owner's endpoint; null when nothing is planned yet. */
+async function pendingOptions(
+	db: Db,
+	userId: string,
+	nodeId: string,
+	record: TaskAuthorizationRecord,
+): Promise<PendingAuthorizationOption[]> {
+	const out: PendingAuthorizationOption[] = [];
+	for (const option of record.options) {
+		const view = await pendingOption(db, userId, nodeId, option);
+		if (view) out.push(view);
+	}
+	return out;
+}
+
+/** The waiting page of one task; null when no plan is written yet. */
 export async function pendingForTask(
 	db: Db,
 	row: { node_id: string; on_behalf_of_user_id: string; authorization: string | null },
-): Promise<PendingAuthorizationView | null> {
+): Promise<PendingAuthorization | null> {
 	const record = parseTaskAuthorization(row.authorization);
-	const pending = record?.pending;
-	if (!pending) return null;
-	const view = pendingViewOf(pending);
-	if (!view) return null;
-	return {
-		...view,
-		passkeys: await passkeysFor(db, row.on_behalf_of_user_id, row.node_id, record),
-		localRequested: record?.local !== null && record?.local !== undefined,
-		lastRejection: record?.lastRejection ?? null,
-		tried: record?.tried ?? [],
-	};
+	if (!record) return null;
+	const options = await pendingOptions(db, row.on_behalf_of_user_id, row.node_id, record);
+	if (options.length === 0) return null;
+	return { options, lastRejection: record.lastRejection };
 }
 
 export type { TaskGroupPendingTask };
@@ -132,8 +163,8 @@ export type { TaskGroupPendingTask };
 export type TaskGroupPendingView = TaskGroupPending;
 
 /**
- * The shared payload of a group's waiting tasks (all of them hold the same one) and the state
- * of each task, including those whose plan has no user path.
+ * The options of a group's waiting tasks (all of them hold the same one) and the state of each
+ * waiting task.
  */
 export async function pendingForTaskGroup(
 	db: Db,
@@ -147,38 +178,48 @@ export async function pendingForTaskGroup(
 		.orderBy("created_at")
 		.execute();
 	const records = rows.map((row) => ({ row, record: parseTaskAuthorization(row.authorization) }));
-	const holder = records.find((entry) => entry.row.state === "awaiting_authorization" && entry.record?.pending);
-	if (!holder?.record?.pending) return null;
-	const base = pendingViewOf(holder.record.pending);
-	if (!base) return null;
-	const perTask = await Promise.all(
-		records
-			.filter((entry) => entry.row.state === "awaiting_authorization")
-			.map(async (entry) => {
-				const node = await getNode(db, entry.row.node_id);
-				return {
-					id: entry.row.id,
-					nodeId: entry.row.node_id,
-					nodeName: node?.name ?? entry.row.node_id,
-					attempt: entry.row.attempt,
-					state: entry.row.state,
-					localRequested: entry.record?.local !== null && entry.record?.local !== undefined,
-					lastRejection: entry.record?.lastRejection ?? null,
-					tried: entry.record?.tried ?? [],
-				} satisfies TaskGroupPendingTask;
-			}),
-	);
-	// The group payload is one signature for every node; offer every Passkey that any waiting node trusts.
-	const merged: PendingPasskey[] = [];
-	const seen = new Set<string>();
-	for (const entry of records) {
-		if (entry.row.state !== "awaiting_authorization") continue;
-		for (const passkey of await passkeysFor(db, userId, entry.row.node_id, entry.record)) {
-			const key = `${passkey.credentialId}\0${passkey.rpId}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			merged.push(passkey);
+	const holder = records.find((entry) => entry.row.state === "awaiting_authorization" && entry.record?.options.length);
+	if (!holder?.record) return null;
+	const options = await pendingOptions(db, userId, holder.row.node_id, holder.record);
+	if (options.length === 0) return null;
+	// A group's sign option is one payload; offer every Passkey any waiting node trusts for it.
+	for (const option of options) {
+		if (option.kind !== "sign") continue;
+		const merged: PendingPasskey[] = [];
+		const seen = new Set<string>();
+		for (const entry of records) {
+			if (entry.row.state !== "awaiting_authorization") continue;
+			for (const passkey of await passkeysFor(db, userId, entry.row.node_id, entry.record?.options ?? [])) {
+				const key = `${passkey.credentialId}\0${passkey.rpId}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				merged.push(passkey);
+			}
 		}
+		option.payload.passkeys = merged;
 	}
-	return { authorization: { ...base, passkeys: merged }, tasks: perTask };
+	const perTask = records
+		.filter((entry) => entry.row.state === "awaiting_authorization")
+		.map((entry) => {
+			return {
+				id: entry.row.id,
+				nodeId: entry.row.node_id,
+				nodeName: entry.row.node_id,
+				attempt: entry.row.attempt,
+				state: entry.row.state,
+				lastRejection: entry.record?.lastRejection ?? null,
+			} satisfies TaskGroupPendingTask;
+		});
+	// Node names are display data: resolve them in one query, not one per task.
+	const nodeRows = await db
+		.selectFrom("nodes")
+		.select(["id", "name"])
+		.where("id", "in", [...new Set(perTask.map((task) => task.nodeId))])
+		.execute();
+	const names = new Map(nodeRows.map((node) => [node.id, node.name] as const));
+	for (const task of perTask) task.nodeName = names.get(task.nodeId) ?? task.nodeId;
+	return {
+		authorization: { options, lastRejection: holder.record.lastRejection },
+		tasks: perTask,
+	};
 }

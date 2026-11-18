@@ -186,7 +186,7 @@ cancellation that overtakes the task is not lost.
 ### Task row concurrency
 
 Many paths write the same task row: dispatch, approvals, signatures, node responses and events,
-disconnects, re-planning and sweeps. Three rules keep this correct:
+disconnects, authorization syncs and sweeps. Three rules keep this correct:
 
 1. **Correctness comes from the row version.** Every update increments the row's version, and a write
    based on an earlier read is a compare-and-set on that version. A miss means another path changed
@@ -195,10 +195,11 @@ disconnects, re-planning and sweeps. Three rules keep this correct:
 2. **Queues only reduce conflicts, and a turn stays short.** Each task has a queue, and a turn only
    reads, decides and writes. Waiting for a node or for a response happens between turns: the first
    turn claims the task, the wait happens outside, and the next turn writes the result with a fresh
-   comparison. Queues nest in one direction only (task, then group, then trust), which rules out
-   deadlocks. Tests fail if a turn waits.
+   comparison. Queues nest in one direction only (task, then trust), which rules out deadlocks.
+   Tests fail if a turn waits. An authorization sync pass takes task turns, but no turn ever waits for
+   a sync pass: inside a turn or a pass, a sync is only requested.
 3. **HTTP requests wait only for what must be synchronous.** Submitting a signature stores it and
-   returns; planning and dispatch continue in the background. A rule change records its decisions at
+   returns; the authorization sync and dispatch continue in the background. A rule change records its decisions at
    once and dispatches in the background, so editing a rule never waits for an offline node's grace
    period.
 

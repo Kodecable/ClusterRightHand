@@ -108,7 +108,7 @@ describe("Passkey authorization submission", () => {
 		await bindMasterKey(db, masterKey);
 		signing = await loadAuthorizationSigningKey(db, masterKey);
 		audit = new Audit(db);
-		cluster = new Cluster(db, { authorizationKey: signing, trustWaitMs: 100, audit, nodeOfflineGraceMs: 10 });
+		cluster = new Cluster(db, { authorizationKey: signing, audit, nodeOfflineGraceMs: 10 });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -222,6 +222,7 @@ describe("Passkey authorization submission", () => {
 			clockSkewMs: 60_000,
 			identities: IDENTITIES,
 			trust,
+			localWindow: { kind: "closed" },
 		};
 		crha.trust({ kind: "ok", summary });
 		await waitFor("trust stored", async () => {
@@ -229,6 +230,21 @@ describe("Passkey authorization submission", () => {
 			return row?.trust_digest === trustDigest(summary);
 		});
 		return { node, crha };
+	};
+
+	interface PendingSign {
+		id: string;
+		payload: string;
+		challenge: string;
+		passkeys: { credentialId: string; rpId: string; requireUv: boolean }[];
+	}
+
+	/** The sign option's payload of an owner authorization view. */
+	const signOf = (authorization: Record<string, unknown> | null | undefined): PendingSign => {
+		const options = (authorization?.options ?? []) as { kind: string; payload?: PendingSign }[];
+		const sign = options.find((option) => option.kind === "sign");
+		if (!sign?.payload) throw new Error("missing sign payload");
+		return sign.payload;
 	};
 
 	it("signs a pending payload with a Passkey and dispatches the task", async () => {
@@ -243,17 +259,16 @@ describe("Passkey authorization submission", () => {
 			const view = await cluster.getTask(task.id);
 			return view?.state === "awaiting_authorization";
 		});
-		const pending = (await (await call(app, `/api/tasks/${task.id}/authorization`, { cookie })).json()) as {
-			authorization: {
-				id: string;
-				payload: string;
-				challenge: string;
-				passkeys: { credentialId: string; rpId: string; requireUv: boolean }[];
-			};
-		};
-		const payload = new Uint8Array(Buffer.from(pending.authorization.payload, "base64"));
-		expect(pending.authorization.challenge).toBe(b64url(webauthnChallenge(payload)));
-		expect(pending.authorization.passkeys).toEqual([
+		const pending = signOf(
+			(
+				(await (await call(app, `/api/tasks/${task.id}/authorization`, { cookie })).json()) as {
+					authorization: Record<string, unknown>;
+				}
+			).authorization,
+		);
+		const payload = new Uint8Array(Buffer.from(pending.payload, "base64"));
+		expect(pending.challenge).toBe(b64url(webauthnChallenge(payload)));
+		expect(pending.passkeys).toEqual([
 			{
 				credentialId: b64url(authenticator.credentialId),
 				name: "yubikey",
@@ -265,13 +280,25 @@ describe("Passkey authorization submission", () => {
 		]);
 
 		const response = authenticator.assertionResponse(payload);
+		// The offered payload changes while the owner signs (a sync pass refreshed it): the bytes the
+		// Passkey signed are what is submitted and judged, not what the task offers now.
+		const row = await db
+			.selectFrom("tasks")
+			.select("authorization")
+			.where("id", "=", task.id)
+			.executeTakeFirstOrThrow();
+		await db
+			.updateTable("tasks")
+			.set({ authorization: JSON.stringify({ ...JSON.parse(row.authorization ?? "{}"), options: [] }) })
+			.where("id", "=", task.id)
+			.execute();
 		const res = await call(app, "/api/authorizations", {
 			cookie,
-			body: { payloadId: pending.authorization.id, webauthn: response },
+			body: { payload: pending.payload, webauthn: response },
 		});
 		expect(res.status).toBe(200);
 		expect((await res.json()) as Record<string, unknown>).toEqual({
-			authorization: { id: pending.authorization.id },
+			authorization: { id: pending.id },
 		});
 		await waitFor("task.start", () => crha.starts.length === 1);
 		const wire = authorizationCodec.decode(decodeCbor(crha.starts[0]?.authorizations[0] as Uint8Array));
@@ -317,13 +344,17 @@ describe("Passkey authorization submission", () => {
 			const view = await cluster.getTask(task.id);
 			return view?.state === "awaiting_authorization";
 		});
-		const pending = (await (await call(app, `/api/tasks/${task.id}/authorization`, { cookie })).json()) as {
-			authorization: { id: string; payload: string };
-		};
-		const payload = new Uint8Array(Buffer.from(pending.authorization.payload, "base64"));
+		const pending = signOf(
+			(
+				(await (await call(app, `/api/tasks/${task.id}/authorization`, { cookie })).json()) as {
+					authorization: Record<string, unknown>;
+				}
+			).authorization,
+		);
+		const payload = new Uint8Array(Buffer.from(pending.payload, "base64"));
 		const res = await call(app, "/api/authorizations", {
 			cookie,
-			body: { payloadId: pending.authorization.id, webauthn: eddsa.assertionResponse(payload) },
+			body: { payload: pending.payload, webauthn: eddsa.assertionResponse(payload) },
 		});
 		expect(res.status).toBe(200);
 		await waitFor("task.start", () => crha.starts.length === 1);
@@ -343,16 +374,20 @@ describe("Passkey authorization submission", () => {
 			const view = await cluster.getTask(task.id);
 			return view?.state === "awaiting_authorization";
 		});
-		const pending = (await (await call(app, `/api/tasks/${task.id}/authorization`, { cookie })).json()) as {
-			authorization: { id: string; payload: string };
-		};
-		const payload = new Uint8Array(Buffer.from(pending.authorization.payload, "base64"));
+		const pending = signOf(
+			(
+				(await (await call(app, `/api/tasks/${task.id}/authorization`, { cookie })).json()) as {
+					authorization: Record<string, unknown>;
+				}
+			).authorization,
+		);
+		const payload = new Uint8Array(Buffer.from(pending.payload, "base64"));
 
 		// A different payload (a re-plan, a phishing page) does not verify.
 		const other = new TextEncoder().encode("some other payload");
 		const wrongPayload = await call(app, "/api/authorizations", {
 			cookie,
-			body: { payloadId: pending.authorization.id, webauthn: authenticator.assertionResponse(other) },
+			body: { payload: pending.payload, webauthn: authenticator.assertionResponse(other) },
 		});
 		expect(wrongPayload.status).toBe(400);
 
@@ -360,18 +395,21 @@ describe("Passkey authorization submission", () => {
 		const foreign = new SoftwareAuthenticator();
 		const unknown = await call(app, "/api/authorizations", {
 			cookie,
-			body: { payloadId: pending.authorization.id, webauthn: foreign.assertionResponse(payload) },
+			body: { payload: pending.payload, webauthn: foreign.assertionResponse(payload) },
 		});
 		expect(unknown.status).toBe(400);
 		expect(((await unknown.json()) as { error: string }).error).toMatch(/not one of yours/);
 
-		// The payload id must be one of this user's pending payloads.
-		const missing = await call(app, "/api/authorizations", {
+		// Bytes that are no payload at all.
+		const garbage = await call(app, "/api/authorizations", {
 			cookie,
-			body: { payloadId: "0".repeat(64), webauthn: authenticator.assertionResponse(payload) },
+			body: {
+				payload: Buffer.from("not a payload").toString("base64"),
+				webauthn: authenticator.assertionResponse(payload),
+			},
 		});
-		expect(missing.status).toBe(400);
-		expect(((await missing.json()) as { error: string }).error).toMatch(/no pending authorization/);
+		expect(garbage.status).toBe(400);
+		expect(((await garbage.json()) as { error: string }).error).toMatch(/cannot be decoded/);
 		expect((await cluster.getTask(task.id))?.state).toBe("awaiting_authorization");
 	});
 });

@@ -91,7 +91,10 @@ coalesced or dropped a request. Three primitives in `server/src/util` cover the 
 Persisted state transitions still use rev-checked (compare-and-set) writes: these primitives order
 work inside one process, they do not replace the database's conditional write. Do not add a new
 per-key promise map: pick one of the three, or say in one line why the map is something else (a
-registry of live runs, a connection cache). `StateRefreshes` is built on `KeyedReconciler`.
+registry of live runs, a connection cache). `StateRefreshes` and the authorization sync of privileged
+tasks (doc/design/privilege.md "Authorization path") are built on `KeyedReconciler`. Code that runs
+inside a pass, or inside a `KeyedQueue` turn, may request another pass but must never wait for one: a
+pass waiting for its own key would wait for itself.
 
 ## Technology choices
 
@@ -120,7 +123,7 @@ one definition of the HTTP API. The Go client is a separate module under `client
    ([Authorization rules](access-control.md#authorization-rules)).
 4. The node's privilege mode decides what else is needed. For a `forward` node, crhs plans an
    authorization from the node's trust report: it signs one itself if the node trusts crhs for this
-   command, or uses or waits for U's signature or a local approval
+   command or a local approval window is open, or uses or waits for U's signature or a window
    ([Authorization path](privilege.md#authorization-path)).
 5. crha forwards the task to its privileged mode, which verifies the authorization, runs the command and
    streams the output back. crhs keeps the head and tail; the complete output stays on the node.

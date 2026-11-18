@@ -49,7 +49,7 @@ The nfpm scripts in `packaging/nfpm/` are shared by deb and rpm. On an upgrade t
 restarts `crha-privileged.service` before `crha.service` when systemd is running, so both run the same
 version; on a first install it prints `run: sudo crha enroll`. Removal stops, disables and deletes only
 the `/etc/systemd/system/crha*.service` units that carry `X-CRH-Managed=1`, then reloads systemd;
-`/etc/crha` and `/var/lib/crha` are left alone.
+`/etc/crha`, `/var/lib/crha` and `/var/lib/crha-privileged` are left alone.
 
 The rpm packages are signed when `CRH_RPM_KEY_FILE` names an ASCII-armored private key; nfpm reads the
 passphrase from `NFPM_RPM_PASSPHRASE`. Without it the rpms stay unsigned; the deb package is never
@@ -168,7 +168,7 @@ Run as root. It asks:
 | Check the TLS certificate against the system CAs (the token's fingerprint authenticates crhs either way) | yes | `tls_verify` |
 | Re-enroll, keeping the node's id, name, groups and grants (asked first when already enrolled) | no | `replace` |
 | Privileged mode: `ignore` or `forward` | `ignore` | `privileged.mode` |
-| Let local root approve with `crha approve` (forward) | yes | `privileged.local_root` |
+| Let local root open the local approval window (forward) | yes | `privileged.local_root` |
 | Trust entries from the WebUI's **Generate trust config**, ending with a line `.`; empty to configure later (forward) | empty | `privileged.trust` |
 | Start the services | yes | `service.start` |
 
@@ -181,10 +181,10 @@ exist).
 
 It then creates the `crha` user and group when missing, `/etc/crha` (root:crha, 0750) and `/var/lib/crha`
 (crha, 0700); writes `crha.toml` (root:crha, 0640); enrolls, writing the keys (owned by crha) only after
-crhs accepted the token, as before; for `forward`, writes `privileged.toml` (root, 0600) with the
-enrolled node id, crha's uid, the local root entry and the pasted entries, which are parsed first; writes
-the units; enables them, starting them if asked; and prints the node id and key fingerprint to compare
-when approving the node in the WebUI.
+crhs accepted the token, as before; for `forward`, creates `/var/lib/crha-privileged` (root, 0700) and
+writes `privileged.toml` (root, 0600) with the enrolled node id, crha's uid, the local root entry and the
+pasted entries, which are parsed first; writes the units; enables them, starting them if asked; and
+prints the node id and key fingerprint to compare when approving the node in the WebUI.
 
 `crha register --config <file>` is the step underneath, for a manual layout and for tests: it reads
 the token from standard input, uses the server and paths of an existing `crha.toml`, and only registers

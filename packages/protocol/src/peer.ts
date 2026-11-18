@@ -62,8 +62,7 @@ export interface RequestOptions {
  * Default deadline for one request. Every caller-side command round trip is expected
  * to complete well inside this: a forwarded crh-priv request already gives up after
  * 30 s (`DefaultForwardRequestTimeout` in the Go agent), and no command waits for a
- * human or for a whole task run — `local.request` answers `pending` immediately and
- * task results arrive as events. A command that genuinely needs longer can pass
+ * human or for a whole task run — task results arrive as events. A command that genuinely needs longer can pass
  * `{ timeoutMs }` explicitly (or `0` to wait until close).
  */
 export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;

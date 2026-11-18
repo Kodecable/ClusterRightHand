@@ -270,6 +270,11 @@ msgstr "A limit of 0 allows nothing. Lowering a limit below the current usage ke
 msgid "A line alone is longer than the 50 KB a page keeps."
 msgstr "A line alone is longer than the 50 KB a page keeps."
 
+#. placeholder {0}: option.nodeName
+#: src/components/decision/signature-panel.tsx
+msgid "A local approval window is open on {0} until <0/>; crhs can run this task without a signature."
+msgstr "A local approval window is open on {0} until <0/>; crhs can run this task without a signature."
+
 #: src/features/settings/providers.ts
 msgid "A mapped level value is required."
 msgstr "A mapped level value is required."
@@ -1184,6 +1189,10 @@ msgstr "Clock warning threshold"
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Close"
 msgstr "Close"
+
+#: src/features/nodes/node-trust.tsx
+msgid "closed"
+msgstr "closed"
 
 #: src/app/shell/nav.ts
 msgid "Cluster"
@@ -2245,8 +2254,8 @@ msgid "Footnotes"
 msgstr "Footnotes"
 
 #: src/features/signing-credentials/trust-config-dialog.tsx
-msgid "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
-msgstr "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
+msgid "For command limits, lifetimes, a local approval window and other advanced options, see the documentation and edit privileged.toml by hand."
+msgstr "For command limits, lifetimes, a local approval window and other advanced options, see the documentation and edit privileged.toml by hand."
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Fork from here"
@@ -2702,9 +2711,19 @@ msgstr "Loading the tool list…"
 msgid "Loading…"
 msgstr "Loading…"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Local approval window"
+msgstr "Local approval window"
+
 #: src/components/decision/signature-panel.tsx
-msgid "Local approval"
-msgstr "Local approval"
+#: src/features/approvals/pages.tsx
+msgid "Local window"
+msgstr "Local window"
+
+#. placeholder {0}: option.nodeName
+#: src/components/task-facts.tsx
+msgid "Local window on {0}"
+msgstr "Local window on {0}"
 
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
@@ -3505,6 +3524,11 @@ msgstr "Open the task"
 msgid "Open the task group"
 msgstr "Open the task group"
 
+#. placeholder {0}: data.summary.localWindow.openedByUid
+#: src/features/nodes/node-trust.tsx
+msgid "open until <0/> (opened by uid {0} at <1/>)"
+msgstr "open until <0/> (opened by uid {0} at <1/>)"
+
 #: src/components/decision/request-details.tsx
 #: src/features/approvals/pages.tsx
 msgid "Operation"
@@ -4277,9 +4301,10 @@ msgstr "Run started."
 msgid "Run task"
 msgstr "Run task"
 
+#. placeholder {0}: option.nodeName
 #: src/components/decision/signature-panel.tsx
-msgid "Run this on the node as a user in its local trust entries; the task then runs with that approval instead."
-msgstr "Run this on the node as a user in its local trust entries; the task then runs with that approval instead."
+msgid "Run this on {0} as a user in its local trust entries. The window lets crhs run this task there without a signature; while it is open, crhs can run any privileged task on that node, including changing its trust configuration."
+msgstr "Run this on {0} as a user in its local trust entries. The window lets crhs run this task there without a signature; while it is open, crhs can run any privileged task on that node, including changing its trust configuration."
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Run this on the node:"
@@ -4613,6 +4638,10 @@ msgstr "Showing first {maxLines} of {lines} lines"
 msgid "Shown to the model; an MCP server's own instructions otherwise"
 msgstr "Shown to the model; an MCP server's own instructions otherwise"
 
+#: src/components/task-facts.tsx
+msgid "Sign"
+msgstr "Sign"
+
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
 msgstr "Sign in"
@@ -4655,6 +4684,14 @@ msgstr "Signed in as {name}"
 #: src/components/decision/signature-panel.tsx
 msgid "Signed with Passkey \"{0}\"."
 msgstr "Signed with Passkey \"{0}\"."
+
+#: src/components/task-facts.tsx
+msgid "Signed; waiting for the node to come back"
+msgstr "Signed; waiting for the node to come back"
+
+#: src/components/decision/signature-panel.tsx
+msgid "Signed. The task is sent when its node is back online."
+msgstr "Signed. The task is sent when its node is back online."
 
 #: src/app/shell/nav.ts
 #: src/features/signing-credentials/pages.tsx

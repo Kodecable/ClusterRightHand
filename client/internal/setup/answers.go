@@ -276,7 +276,7 @@ func collectAnswers(file *fileAnswers, existing *config.Config, enrolled bool, i
 		return resolved{}, fmt.Errorf("privileged.mode must be \"ignore\" or \"forward\", got %q", a.Mode)
 	}
 	if a.Mode == "forward" {
-		if a.LocalRoot, err = yesNo(privilegedLocalRoot(file), "Let local root approve with crha approve", true); err != nil {
+		if a.LocalRoot, err = yesNo(privilegedLocalRoot(file), "Let local root open the local approval window", true); err != nil {
 			return resolved{}, err
 		}
 		if file != nil && file.Privileged != nil && file.Privileged.Trust != nil {

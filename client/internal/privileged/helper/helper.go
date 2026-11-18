@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/statedir"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/taskrun"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
@@ -40,12 +41,25 @@ type Options struct {
 }
 
 // DefaultSpoolRoot is the state directory the native helper stages stdin in when it has no
-// privileged.toml (native mode). SpoolRootEnv overrides it.
-const DefaultSpoolRoot = "/var/lib/crha/privileged"
+// privileged.toml (native mode). It is outside crha's state directory.
+const DefaultSpoolRoot = statedir.DefaultDir
 
-// SpoolRootEnv names the environment variable that overrides DefaultSpoolRoot, for a helper whose
-// state directory is not the default one.
-const SpoolRootEnv = "CRHA_PRIVILEGED_STDIN_DIR"
+// StdioOptions configures Stdio. It is not read from the environment or the command line: the
+// helper is started by crha through sudo/doas/run0, so its caller must not choose where a
+// privileged task's stdin is staged. Tests set SpoolRoot to a temporary directory.
+type StdioOptions struct {
+	// SpoolRoot is the privileged state directory whose stdin subdirectory stages input. Empty
+	// uses DefaultSpoolRoot.
+	SpoolRoot string
+}
+
+// spoolRoot returns the privileged state directory for stdin staging.
+func (o StdioOptions) spoolRoot() string {
+	if o.SpoolRoot != "" {
+		return o.SpoolRoot
+	}
+	return DefaultSpoolRoot
+}
 
 // resolveEnv resolves the helper's execution environment when it starts. It is a variable so tests
 // can exercise a node without a shell, which must fail the handshake (and with it the node's
@@ -54,17 +68,9 @@ var resolveEnv = func() (*execenv.Environment, error) {
 	return execenv.Resolve(execenv.Options{Privileged: true})
 }
 
-// spoolRoot returns the privileged state directory for stdin staging.
-func spoolRoot() string {
-	if dir := os.Getenv(SpoolRootEnv); dir != "" {
-		return dir
-	}
-	return DefaultSpoolRoot
-}
-
 // Stdio runs the helper on the process's standard streams. stdin must be the crh-priv stream; a
 // terminal is refused, because a person at a keyboard is not crha's non-privileged mode.
-func Stdio(ctx context.Context, in *os.File, out, log io.Writer, crhaVersion string) error {
+func Stdio(ctx context.Context, in *os.File, out, log io.Writer, crhaVersion string, opts StdioOptions) error {
 	if IsTerminal(in) {
 		return errors.New("refusing to run the native helper on a terminal: stdin must be the crh-priv stream from crha's non-privileged mode")
 	}
@@ -75,7 +81,7 @@ func Stdio(ctx context.Context, in *os.File, out, log io.Writer, crhaVersion str
 	if err != nil {
 		return err
 	}
-	return Run(ctx, in, out, Options{Version: crhaVersion, Log: log, Env: env, SpoolRoot: spoolRoot()})
+	return Run(ctx, in, out, Options{Version: crhaVersion, Log: log, Env: env, SpoolRoot: opts.spoolRoot()})
 }
 
 // IsTerminal reports whether f is a terminal.

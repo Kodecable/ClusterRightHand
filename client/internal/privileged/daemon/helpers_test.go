@@ -225,10 +225,9 @@ kinds  = %s
 func localTrust(name string, uids []uint32, extra string) string {
 	return fmt.Sprintf(`
 [[trust]]
-name  = %q
-role  = "local"
-uids  = %v
-kinds = ["execute"]
+name = %q
+role = "local"
+uids = %v
 %s
 `, name, uids, extra)
 }
@@ -386,7 +385,6 @@ type forwardClient struct {
 	outputs   chan protocol.TaskOutput
 	exits     chan protocol.TaskExit
 	summaries chan protocol.TrustReport
-	decisions chan protocol.LocalDecision
 	done      chan struct{}
 }
 
@@ -428,7 +426,6 @@ func dialForward(t *testing.T, socket string) *forwardClient {
 		outputs:   make(chan protocol.TaskOutput, 512),
 		exits:     make(chan protocol.TaskExit, 64),
 		summaries: make(chan protocol.TrustReport, 16),
-		decisions: make(chan protocol.LocalDecision, 16),
 		done:      make(chan struct{}),
 	}
 	c.peer = c.stream.Peer()
@@ -456,14 +453,6 @@ func dialForward(t *testing.T, socket string) *forwardClient {
 		c.summaries <- report
 		return nil
 	})
-	c.peer.HandleEvent(protocol.EventLocalDecision, func(body cbor.RawMessage) error {
-		var decision protocol.LocalDecision
-		if err := protocol.Unmarshal(body, &decision); err != nil {
-			return err
-		}
-		c.decisions <- decision
-		return nil
-	})
 	go func() {
 		_ = c.stream.Run()
 		close(c.done)
@@ -481,17 +470,6 @@ func (c *forwardClient) close() {
 func (c *forwardClient) start(ctx context.Context, ts protocol.TaskStart) error {
 	var empty protocol.Empty
 	return c.peer.Request(ctx, protocol.CmdTaskStart, ts, &empty)
-}
-
-func (c *forwardClient) localRequest(ctx context.Context, req protocol.LocalRequest) (protocol.LocalState, error) {
-	var state protocol.LocalState
-	err := c.peer.Request(ctx, protocol.CmdLocalRequest, req, &state)
-	return state, err
-}
-
-func (c *forwardClient) withdrawLocal(ctx context.Context, taskID string, attempt uint64) error {
-	var empty protocol.Empty
-	return c.peer.Request(ctx, protocol.CmdLocalWithdraw, protocol.LocalWithdraw{TaskID: taskID, Attempt: protocol.Uint(attempt)}, &empty)
 }
 
 func (c *forwardClient) waitExit(timeout time.Duration) protocol.TaskExit {
@@ -525,17 +503,6 @@ func (c *forwardClient) waitSummary(timeout time.Duration) protocol.TrustReport 
 	case <-time.After(timeout):
 		c.t.Fatal("timed out waiting for trust.summary")
 		return protocol.TrustReport{}
-	}
-}
-
-func (c *forwardClient) waitDecision(timeout time.Duration) protocol.LocalDecision {
-	c.t.Helper()
-	select {
-	case decision := <-c.decisions:
-		return decision
-	case <-time.After(timeout):
-		c.t.Fatal("timed out waiting for local.decision")
-		return protocol.LocalDecision{}
 	}
 }
 

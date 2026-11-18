@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -133,6 +134,21 @@ func TestSpoolWithoutStateDir(t *testing.T) {
 	var remote *protocol.RemoteError
 	if !errors.As(err, &remote) || remote.Code != protocol.CodeInternalError {
 		t.Fatalf("got %v, want an internal error for the missing staging directory", err)
+	}
+}
+
+// TestSpoolRefusesInsecureStateDir covers the shared state-directory check at the stdin spool: a
+// group-writable directory is refused before a spool file is created in it.
+func TestSpoolRefusesInsecureStateDir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	_, err := New(stdinStart(3, protocol.Hash(sha256.Sum256([]byte("abc")))), func(uint64, []byte) error { return nil }, nil, nil, root)
+	var remote *protocol.RemoteError
+	if !errors.As(err, &remote) || remote.Code != protocol.CodeInternalError ||
+		!strings.Contains(remote.Message, "writable by group or others") {
+		t.Fatalf("got %v, want a refusal of the group-writable state directory", err)
 	}
 }
 

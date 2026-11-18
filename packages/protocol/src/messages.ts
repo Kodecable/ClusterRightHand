@@ -22,11 +22,12 @@ import {
 	union,
 } from "./schema.ts";
 
-export const PROTOCOL_MAJOR = 0;
+export const PROTOCOL_MAJOR = 1;
 /**
  * An incompatible change bumps the major version and the Noise prologue, so a peer with another
  * major is refused at the handshake (doc/design/protocol.md "Handshake payloads"). The minor version is additive:
- * new commands and events are negotiated through the handshake's `commands` field.
+ * new commands and events are negotiated through the handshake's `commands` field. Major 1 removed the
+ * per-task local approval commands and added the local window state to TrustSummary.
  */
 export const PROTOCOL_MINOR = 0;
 
@@ -38,10 +39,10 @@ export const PROTOCOL_MINOR = 0;
 export const NOISE_PROLOGUE_PREFIX = `crh/${PROTOCOL_MAJOR}`;
 
 /**
- * The data connection's Noise prologue prefix, `"crh-data/0"` (doc/design/protocol.md "Data connections").
+ * The data connection's Noise prologue prefix, `"crh-data/1"` (doc/design/protocol.md "Data connections").
  * Its own prefix means a data handshake can never be taken for a control one, or the reverse.
  */
-export const DATA_NOISE_PROLOGUE_PREFIX = "crh-data/0";
+export const DATA_NOISE_PROLOGUE_PREFIX = "crh-data/1";
 
 /** One data frame is at most this many bytes, so it fits a Noise message (doc/design/protocol.md "Data connections"). */
 export const DATA_CHUNK_BYTES = 32 * 1024;

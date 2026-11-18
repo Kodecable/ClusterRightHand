@@ -96,9 +96,10 @@ type jsonAuthorization struct {
 	Signatures []jsonSignature `json:"signatures"`
 }
 
-type jsonLocalApproval struct {
-	UID        uint32 `json:"uid"`
-	SpecSHA256 string `json:"spec_sha256"`
+type jsonWindow struct {
+	OpenedAtMS int64  `json:"opened_at_ms"`
+	OpenedBy   uint32 `json:"opened_by"`
+	UntilMS    int64  `json:"until_ms"`
 }
 
 type jsonCase struct {
@@ -117,7 +118,7 @@ type jsonCase struct {
 		Spec    jsonSpec `json:"spec"`
 	} `json:"task"`
 	Authorization   *jsonAuthorization `json:"authorization"`
-	LocalApproval   *jsonLocalApproval `json:"local_approval"`
+	Window          *jsonWindow        `json:"window"`
 	ExecutedTaskIDs []string           `json:"executed_task_ids"`
 	UsedPairs       []string           `json:"used_pairs"`
 	Expect          struct {
@@ -353,10 +354,11 @@ func buildInput(t *testing.T, testCase *jsonCase) Input {
 		}
 		input.Authorization = authorization
 	}
-	if testCase.LocalApproval != nil {
-		input.LocalApproval = &LocalApproval{
-			UID:        testCase.LocalApproval.UID,
-			SpecSHA256: mustHex32(t, testCase.LocalApproval.SpecSHA256),
+	if testCase.Window != nil {
+		input.Window = &Window{
+			OpenedBy: testCase.Window.OpenedBy,
+			OpenedAt: time.UnixMilli(testCase.Window.OpenedAtMS),
+			Until:    time.UnixMilli(testCase.Window.UntilMS),
 		}
 	}
 	return input

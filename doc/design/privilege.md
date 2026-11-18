@@ -1,8 +1,8 @@
 # Privilege and authorization
 
 A privileged task is a task that a node runs only after it has verified an authorization. The
-authorization comes from crhs, from the task's owner, or from a local approval on the node, and the
-node makes the final decision. This document covers the modes, authorizations, trust configuration,
+authorization comes from crhs, from the task's owner, or from a time-limited local approval window
+on the node, and the node makes the final decision. This document covers the modes, authorizations, trust configuration,
 the node's validation, and how crhs chooses a path. Message formats are in
 [Privilege messages](protocol.md#privilege-messages).
 
@@ -17,7 +17,7 @@ operation that needs an authorization.
 
 | Concern | How it is handled |
 |---|---|
-| Compromised crhs | A node that trusts only users cannot be made to run a privileged task by crhs alone. |
+| Compromised crhs | A node that trusts only users cannot be made to run a privileged task by crhs alone. While a local approval window is open, crhs can run any privileged task on that node until the window closes. |
 | Network attacker | The Noise channel between crhs and crha ([Transport security](protocol.md#transport-security)). |
 | Prompt injection, agent overreach, a stolen API token | crhs rules, and the node's trust configuration. |
 
@@ -63,12 +63,14 @@ execution. `run0` support is experimental.
 ## The privileged mode
 
 The privileged mode listens on a local Unix socket and tells peers apart by their uid
-(`SO_PEERCRED`): the unprivileged mode's uid submits tasks, and uids in a `local` trust entry approve
-tasks locally. It keeps a used list and a local log of every privileged task.
+(`SO_PEERCRED`): the unprivileged mode's uid submits tasks, and uids in a `local` trust entry open and
+close the local approval window. It keeps a used list and a local log of every privileged task.
 
 Editing the trust configuration is itself a privileged task: a `file.write` to `privileged.toml`
 followed by a reload. It needs an authorization from an existing trust entry or a local edit, so crhs
 cannot change what a node trusts. The recommended crhs trust entry denies writes under `/etc/crha/`.
+While a local approval window is open, that restriction is deliberately lifted: crhs can change the
+trust configuration as well.
 
 Each process reloads only its own configuration file on SIGHUP. A file that fails to load leaves the
 running configuration in place.
@@ -102,6 +104,11 @@ An authorization is a signed payload that names the nodes it addresses, an optio
 an issue time, a deadline, and optionally the tasks it is for. All signatures, including a crhs
 cosignature, cover the same payload, so signers can never disagree about what they approved. The
 encoding is in [Authorization object](protocol.md#authorization-object).
+
+While a task waits, its stored authorization record holds the planner's options: each `sign` option
+carries the exact payload bytes to sign, so the same bytes survive a crhs restart and stay as they are
+while they still ask for the same thing ([The planner](#the-planner)). The payload itself is served only to the task's owner; every other task view shows the
+options without the bytes.
 
 - **Deadline.** Every authorization must have one. A node refuses one without a deadline, crhs refuses
   to store it, and `crha grant` refuses to sign it, because there is no revocation: an authorization
@@ -137,7 +144,12 @@ the list is full, the oldest records are evicted and an in-memory watermark refu
 issued at or before an evicted one that could still be valid. The watermark is not persisted: after a
 restart, an authorization whose record was both evicted and compacted away could run again before its
 deadline. This is an accepted trade-off. `--no-persist-used` keeps the list in memory only, for
-devices with limited flash endurance, with the same trade-off after every restart.
+devices with limited flash endurance, with the same trade-off after every restart. Moving `state_dir`
+to another directory starts with an empty used list, with the same trade-off.
+
+The state directory must belong to the privileged mode's user, must not be writable by group or
+others, and no parent may be writable by the unprivileged account; otherwise the privileged mode
+refuses to start. crha owns `/var/lib/crha`, so the default is `/var/lib/crha-privileged`, beside it.
 
 ### Signing methods
 
@@ -167,7 +179,7 @@ A node's privileged mode trusts the signers listed in `privileged.toml`
 |---|---|---|
 | `crhs` | crhs's signing keys | `execute`, `cosign` |
 | `user` | A user's SSH key, FIDO key or Passkey | `execute`, `require-cosign` |
-| `local` | Local uids, approving with `crha approve` | `execute` |
+| `local` | Local uids, opening the window with `crha approve --for` | Opens the window; no task limits |
 
 `execute` lets a signer authorize a task alone. `cosign` lets crhs confirm a user authorization that
 requires it, and `require-cosign` makes a user's authorizations need that confirmation. crhs's two
@@ -177,6 +189,8 @@ for each other.
 
 An entry can also limit what it authorizes: guard rules, an environment allowlist, a maximum lifetime,
 `exact`-only (`require_exact`), one-shot only (`require_task`) and user verification (`require_uv`).
+A `local` entry has none of these: it only lists `uids` and a `max_window`. The other limit fields are
+configuration errors on it, because an open window waives every such limit.
 
 The configuration must belong to the privileged mode's user and not be writable by others. Unknown
 keys and duplicate names are errors.
@@ -222,7 +236,8 @@ The privileged mode checks a `task.start` in nine steps. Steps 1 and 9 concern t
 execution; steps 2–8 are the decision, and the Go and TypeScript implementations share test cases for
 them.
 
-1. **Peer.** The caller's uid is the unprivileged mode's, or a local approver's for a local approval.
+1. **Peer.** The caller's uid is the unprivileged mode's, or a local approver's for the window
+   commands.
 2. **Task.** File paths satisfy [Methods and targets](#methods-and-targets).
 3. **Signatures.** Each signature is matched to a trust entry by key and verified. Signatures for
    other nodes' entries are ignored; one that matches an entry but fails verification invalidates the
@@ -238,6 +253,13 @@ them.
 7. **Entry.** The entry can `execute`, its guard rules and environment allowlist pass, and user
    verification is present if required.
 8. **Cosignature.** If the user entry requires it, a valid crhs cosignature is present.
+
+When the local approval window is open at validation time, step 4 skips `max_ttl` and `require_exact`
+for a crhs signature, and step 7 is skipped entirely: the entry does not need the `execute` kind, its
+guard rules do not apply, and its environment allowlist does not apply. The signature must still
+verify, the body checks in step 4 still apply (addresses this node, not issued in the future, deadline
+not passed), the one-shot and used-list checks in step 5 still apply, and the signed command limit in
+step 6 still applies, because that is what crhs signed. The window never applies to a `user` signature.
 9. **Record and run.** The task is written to the used list and the local log, then runs. If the log
    cannot be written, the task is refused, because no privileged task may run unlogged.
 
@@ -266,21 +288,51 @@ connection handshake does not ([Handshake and replay protection](protocol.md#han
 - Having the node remember the latest time it has seen was rejected: a clock that jumps forward and
   is corrected would make every authorization look expired and lock privileged execution.
 
-## Local approval
+## Local approval window
 
-An administrator logged in to the node runs `crha pending` to list waiting tasks and `crha approve` or
-`crha deny` to decide. The commands talk directly to the privileged mode's socket; crhs is not
-involved and no key is needed.
+A local administrator logged in to the node runs `sudo crha approve --for 30m` to open a time-limited
+window. The command talks directly to the privileged mode's socket; crhs is not involved and no key is
+needed. `crha approve` without `--for` prints the current state, and `sudo crha lock` closes the window
+early.
 
-1. crhs sends `local.request` with the task's spec and a preview of its input. It does not send the
-   task itself yet.
-2. `crha pending` shows the full spec and its hash. Approving sends that hash, and the node refuses it
-   if the pending spec differs, so crhs cannot swap the spec after the approver has seen it.
-3. After the approval, crhs sends `task.start` without an authorization, and the node checks it
-   against the approved spec and the approver's `local` entry.
+A window is node trust state, not an answer to one task: opening it releases every privileged task
+waiting on the node, for every user and every task group, and crhs sends each of them with its own
+signature at once. `crha approve --for` says so when it opens the window.
 
-Pending approvals live only in the privileged mode's memory; after a restart, crhs asks again. Local
-approval is for single tasks only: approving node by node defeats the purpose of a task group.
+While the window is open, a task authorized by crhs's own signature runs on this node without the
+node's other limits: no guard rules allow or deny it, the environment allowlist does not apply,
+`max_ttl` and `require_exact` do not apply, and neither does the `execute` kind of the crhs entry. This
+is deliberate: it lets crhs repair or reconfigure the node, including writing `/etc/crha/`. It is
+equivalent to temporarily handing the privileged identity to crhs, like a sudo timestamp. The window
+closes when it expires, when `crha lock` runs, or when the privileged mode restarts; it lives in memory
+only. Opening it again replaces the current window.
+
+The window length must be positive and at most the `max_window` of the local entries that list the
+caller's uid (one hour by default). A node with no `crhs` entry cannot use a window at all: there is no
+key with which to verify crhs's signature, and `crha approve --for` refuses.
+
+While the window is open, a crhs authorization still has to verify, address this node, be issued and
+not expired, respect the one-shot and used-list rules, and match its own command limit. Those checks
+are the authorization crhs signed, not node policy. A window covers task groups as well; it is node
+trust state, not a task decision.
+
+The node reports the window in its trust summary and pushes a new summary when it opens or closes
+(including expiry), so crhs syncs the waiting tasks. The window is also recorded in the local log:
+opening (uid, until), closing (uid or expiry), and every task accepted through it.
+
+crhs never compares the window's times, which are the node's clock, with its own. A window counts as
+open until the node reports it closed, and its `openedAtMs` serves only to tell one window from the
+next. Clock differences and the time a push takes are not handled: when crhs sends a crhs signature
+for a window that has just closed on the node, crha refuses it, and that refusal is handled like any
+other.
+
+Known issue, low priority: crhs records a refusal of its own signature under the window the node
+reports after the refusal. A window opened between the refusal and that report is recorded as the one
+that refused, so crhs does not sign that task again under it; opening the window once more (a new
+`openedAtMs`) lets it. Fixing it would need crha to report the window it decided under.
+
+To gate one exact task instead, use a user-signed `exact` authorization: a window is a deliberate,
+time-limited trust decision, not a per-task approval.
 
 ## Waiting for signatures
 
@@ -288,18 +340,36 @@ A task that passed its rules but needs a signature is `awaiting_authorization`, 
 `awaiting_approval`. Approval waits never expire, but a signature wait ends the task as `expired`
 with `authorization_wait_expired` after 24 hours, the same as the default lifetime of an owner's
 authorization. The owner can also reject the wait with a reason: the task ends `rejected` with
-`authorization_rejected`, because that is an explicit decision. Stopping a session, or a session's run
+`authorization_declined`, because that is an explicit decision. The code is not crha's
+`authorization_rejected`, so a task the owner turned down is never mistaken for one the node refused. Stopping a session, or a session's run
 ending, cancels the waits of the tasks it created: those tasks end `cancelled`
 ([Session state](agent-runtime.md#session-state)).
 
-The owner signs from the approvals page, the task page or the session's tool card. A task group's
-signature wait counts once.
+A task whose plan offers a `local_window` option carries only the node id and name: the WebUI and
+the chat card render the `sudo crha approve --for 30m` command themselves, and the WebUI shows the
+window state from the node's trust view. Opening the window pushes a trust summary that syncs the
+task; if no window opens, the wait expires like any other authorization wait. A task group is never
+offered a `local_window`: its members can only be released by a signature.
+
+The owner sees every option on the approvals page, the task page or the session's tool card: a
+`sign` option is the signature panel (a Passkey, `crha grant` or the `ssh-keygen` recipe), a
+`local_window` option is the command block, and Reject is always available. A task whose options are
+not written yet shows "Preparing…" in the WebUI and gets no chat card until they are; a planned task
+always has at least one option.
+The owner signs from the approvals page, the task page or the session's tool card, and may reject the
+wait from the same places or from the chat (`/reject` or the card's Reject button). A task group's
+signature wait counts once; a partly dispatched group still shows it while any member is in
+`awaiting_authorization`, even though the group itself is `running`. Rejecting a partly dispatched
+group ends its waiting members; the members already sent run on, and a member that crha refuses
+afterwards is rejected too instead of asking anew.
 
 ## Revoking trust
 
 There is no revocation of individual authorizations. To withdraw a signer, remove or replace its trust
 entry in `privileged.toml` and reload the privileged mode. Running tasks continue; later tasks are
-checked against the new configuration.
+checked against the new configuration. A reload also closes an open local approval window when the
+node lost its `crhs` entry or the opening uid is no longer in a `local` entry; `crha lock` closes one
+immediately.
 
 A revocation list was rejected because crhs would distribute it, and crhs is exactly the party that
 cannot be trusted when revocation matters. A node also sees only the authorizations addressed to it,
@@ -319,12 +389,78 @@ The privileged mode reports its trust configuration to crhs after connecting and
 crhs never asks for it. Before forwarding an authorization refusal, the unprivileged mode refreshes the
 report, so crhs plans its retry from the node's current state. A change is recorded in the audit log.
 
-If the report is missing, unavailable or older than the current connection, a `forward` node's
-privileged task fails with `privileged_unavailable`. A task records the trust digest it was planned
-with and is planned again if the digest changes while it waits.
+crhs plans from the last report it stored, whichever connection sent it. Whether that report is still
+current is not tracked: crha decides, and a refusal is handled like any other. A node that never
+reported leaves its tasks waiting with no options until its first report; a report that says the
+privileged mode is unavailable ends them `errored` with `privileged_unavailable`. A trust report whose
+digest changed, and the first report on a new connection, sync the node's waiting tasks, so a
+signature submitted while the node was away is used when it reconnects.
 
 Authorizations submitted by users are stored for reuse after crhs checks their deadline, and are
-removed by retention after they expire.
+removed by retention after they expire. A submission only verifies and stores the authorization
+synchronously; the sync it requests does the claiming, cosigning and sending. Submitting a payload the
+owner already stored adds its new signatures (another key, a Passkey with user verification) to that
+row, so signing again is not lost and still counts as one signature. A Passkey submission carries the
+payload bytes the browser signed, so a payload a pass replaced while the owner was signing still
+verifies. The authorization id is
+the payload's hash, so a payload another user already stored (or crhs signed) is refused, and that
+row is left alone.
+
+### The planner
+
+Authorization planning is one pure state machine (`server/src/privilege/planner.ts`). It performs no
+I/O and holds no prose: its input is either one task or a whole task group, the trust summaries of
+their nodes (including the `localWindow` state), crhs's own signing keys and the owner's stored
+authorizations. Its output is exactly one of:
+
+- **usable**: authorizations that may be claimed and sent now — crhs's own signature (an open local
+  window counts, as the node's own decision does), or a stored owner authorization the node would
+  accept, with crhs's cosignature when the entry requires one. Only a task whose node is connected is
+  ever usable: a task.start to an absent node would only wait out its grace;
+- **options**: the ways the owner could authorize, plus the tasks that have no option at all;
+- **failure**: no usable path and no known option.
+
+The planner judges with the same decision port the node runs (`authz.ts`), so it cannot pick a path
+the node would reject. A plan is still only a prediction: crha re-verifies everything before
+executing, and a planning mistake can only cause waiting or a refusal, never extra privilege.
+
+An option is one of:
+
+- `sign`: a user-signature path — the accepting trust entries, their credential kinds, whether a
+  cosignature is available or missing, and the payload's lifetime — with the exact payload bytes to
+  sign. A task group gets one shared payload covering all of its waiting members, at the highest of
+  their attempts. The bytes are stored on the task and kept while they still ask for the same thing:
+  the same tasks at the same attempts, accepted by the same entries, and not yet due for a refresh
+  (a quarter of the payload's lifetime before its deadline, at most a minute). The owner may be
+  signing them at that moment, so a pass that changes nothing writes nothing. A user entry whose
+  `max_ttl` is under a minute is treated as absent: its payload would leave no time to sign. crha
+  itself refuses a `max_ttl` under five minutes, so only an older node can report one.
+- `local_window`: only for one single task whose node has a `local` entry with uids and trusts one
+  of crhs's signing keys. It carries just the node id and name; the surfaces render the command
+  text. A task group is never offered a window.
+
+A unit (a task group, or a task in none) asks its owner for at most two signatures. An owner
+authorization stored since the unit was created that names every one of its waiting tasks (or their
+nodes) and its command counts as one, whatever crha made of it. Once two exist, the planner offers
+no `sign` option: a third signature would meet the same refusal.
+
+What a crha refusal rules out is kept on the task. A refused crhs signature rules out crhs's own path
+while the node reports the same local window (none, or the same `openedAtMs`); a new window makes it
+usable again. A refused owner authorization rules out every owner authorization stored up to it: the
+planner uses the newest stored authorizations first, and only ones stored after the refused one are
+used for the task again. So nothing crha refused is sent again, and the number of sends is bounded.
+
+A task on an absent node is not kept waiting for its node. If a stored owner authorization covers
+it, it waits with the `awaiting_node` marker (the owner has nothing left to do; the surfaces say it
+is sent when the node is back), and the node's next report sends it. If the owner can still sign, it
+waits with its `sign` option like any other task. Otherwise it ends `errored` with `node_offline` at
+once, even when crhs could sign it once the node returned: a quick answer lets the agent that asked
+for it go on, which matters more than waiting for a node that may not come back.
+
+A task with no usable path and no option fails at once: `rejected` with the last crha code (or
+`authorization_required` when nothing was ever refused), keeping the last rejection message from
+crha when there is one. A reusable authorization blocked only by a missing node group alias ends
+`errored` with `alias_missing` instead.
 
 ### Authorization path
 
@@ -334,23 +470,54 @@ For a privileged task, crhs:
    directly in the WebUI skips them.
 2. Applies the node's mode: `native` and `ignore` need nothing more, `reject` refuses, and `forward`
    continues.
-3. Plans from the node's trust report, for the owner only:
-   - If a crhs entry can authorize alone, crhs signs a one-shot `exact` authorization with a short
-     deadline (five minutes by default) and sends the task.
-   - If the owner's user entries can authorize, crhs reuses a valid authorization the owner already
-     signed, or waits for the owner to sign one (valid for 24 hours by default), and adds a
-     cosignature if required.
-   - If a `local` entry can authorize and the task is not part of a group, crhs also offers local
-     approval. Whichever decision comes first wins, and the other is withdrawn.
-   - If nobody can authorize, crhs refuses at once and says so.
+3. Moves the task to `awaiting_authorization` with no options yet and syncs its unit: the task, or
+   its whole task group.
 
-When a node refuses an authorization, crhs plans again with the refreshed trust report and the next
-attempt. It never retries its own signature, so this cannot loop; it falls back to the owner's
-signature or a local approval, and ends the task as `rejected` when neither is available. Tasks that
-already ran are not rolled back.
+A sync pass reads the unit's waiting tasks as they are, plans them once for the owner, and acts on
+the one result:
 
-When the nodes of a task group trust Passkeys for different sites, the owner signs once per site, and
-each signature releases only the nodes that accept it.
+- **usable**: claim every usable task first, then send each `task.start` without waiting for the
+  answers. A crhs signature is a one-shot `exact` authorization with a short deadline (five minutes
+  by default); a stored owner authorization is reused with a cosignature added if required, and that
+  cosignature is stored with it. Tasks the result does not cover are planned by the next pass.
+- **options**: write the options on each waiting task's record. A `sign` option arms a timer that
+  syncs the unit again when the payload is due for a refresh.
+- **failure**: end the tasks `rejected` with the last crha code and message, or `errored` with
+  `alias_missing` when only a missing node group alias stands between a stored reusable
+  authorization and the node.
+
+Every write checks the row's revision as the pass read it. A task that changed in the meantime is
+left alone, and the pass asks for another one instead of retrying itself. A pass only ever raises a
+waiting task's attempt, to the one its group's shared payload carries; a task that was claimed, sent,
+or ended is no longer read by any pass, so nothing a pass writes reaches it.
+
+Passes run through one `KeyedReconciler` keyed by unit ([Concurrency](architecture.md#concurrency)):
+passes of one unit never overlap, and the requests made during a pass fold into one more pass that
+reads newer rows. Every event only requests a sync of the units it concerns; there is no second
+dispatch path:
+
+- the first dispatch of a task (step 3), and a member of a task group entering the wait;
+- a trust report whose digest changed, and the first report on a new connection, for the node's
+  waiting units. A local window opening or closing changes the digest, so it syncs them too;
+- a submitted authorization, for the submitting user's waiting units it may cover. Units on a node
+  that is away are not waited for: the node's next report syncs them;
+- a node refusing an authorization: crhs records the refusal and what it rules out, advances that
+  task's attempt and syncs its unit;
+- a `sign` payload due for a refresh, by its timer, and the periodic sweep (and the one at startup)
+  for waits whose timer died with the process or that have no options yet.
+
+Code inside a pass or inside a task turn only requests a sync and never waits for one: a pass
+waiting for its own unit would wait for itself.
+
+A task group syncs as a unit: one planner call produces one overall plan or one set of options for
+the frontend. Members that no longer need authorization are not read and never touched. When crha
+refuses one member, that member waits again at the next attempt, and the group's next payload covers
+it together with the members still waiting, at that attempt.
+
+When the nodes of a task group trust Passkeys for different sites, the group payload is the same for
+all of them; a signature releases the nodes that accept it, and the next pass plans the rest.
+
+Tasks that already ran are not rolled back.
 
 ### Authorization signing key
 

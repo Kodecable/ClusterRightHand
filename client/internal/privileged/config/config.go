@@ -25,6 +25,9 @@ const (
 	DefaultSocketGroup = "crha"
 	// DefaultClockSkew is the tolerance applied to authorization times.
 	DefaultClockSkew = 60 * time.Second
+	// DefaultMaxWindow is the longest local approval window an entry allows when it sets no
+	// max_window (doc/design/privilege.md "Local approval window").
+	DefaultMaxWindow = time.Hour
 )
 
 // Signature formats of a trust entry.
@@ -56,10 +59,12 @@ type Trust struct {
 	RequireTask  bool
 	RequireUV    bool
 	// MaxTTL is max_ttl; nil means no limit.
-	MaxTTL   *time.Duration
-	Allow    []protocol.GuardRule
-	Deny     []protocol.GuardRule
-	EnvAllow []string
+	MaxTTL *time.Duration
+	// MaxWindow is max_window of a local entry: the longest window it may open.
+	MaxWindow time.Duration
+	Allow     []protocol.GuardRule
+	Deny      []protocol.GuardRule
+	EnvAllow  []string
 
 	// guard is Allow and Deny compiled once when the entry is built.
 	guard *authz.Guard
@@ -70,7 +75,7 @@ type Trust struct {
 	SSHKeyText string
 	// WebAuthn is the credential of a webauthn entry.
 	WebAuthn *protocol.WebAuthnTrustKey
-	// UIDs are the uids allowed to approve locally; local entries only.
+	// UIDs are the uids allowed to open the local approval window; local entries only.
 	UIDs []uint32
 }
 
@@ -146,6 +151,7 @@ type rawTrust struct {
 	RequireTask  *bool     `toml:"require_task"`
 	RequireUV    bool      `toml:"require_uv"`
 	MaxTTL       string    `toml:"max_ttl"`
+	MaxWindow    string    `toml:"max_window"`
 	Allow        []rawRule `toml:"allow"`
 	Deny         []rawRule `toml:"deny"`
 	EnvAllow     []string  `toml:"env_allow"`
@@ -322,7 +328,38 @@ func (c *Config) LocalEntry(uid uint32) *Trust {
 	return nil
 }
 
-// HasLocalEntry reports whether the configuration has any local trust entry.
+// HasCRHSEntry reports whether the configuration trusts any crhs signing key. Without one,
+// a local approval window cannot authorize anything: there is nothing to verify crhs's
+// signature with (doc/design/privilege.md "Local approval window").
+func (c *Config) HasCRHSEntry() bool {
+	for i := range c.Trust {
+		if c.Trust[i].Role == protocol.TrustRoleCRHS {
+			return true
+		}
+	}
+	return false
+}
+
+// LocalWindowLimit returns the longest local approval window uid may open: the largest
+// max_window among the local entries that list it. It returns zero when no local entry lists
+// uid (that uid cannot open a window at all).
+func (c *Config) LocalWindowLimit(uid uint32) time.Duration {
+	var limit time.Duration
+	for i := range c.Trust {
+		entry := &c.Trust[i]
+		if entry.Role != protocol.TrustRoleLocal {
+			continue
+		}
+		for _, allowed := range entry.UIDs {
+			if allowed == uid && entry.MaxWindow > limit {
+				limit = entry.MaxWindow
+			}
+		}
+	}
+	return limit
+}
+
+// HasLocalEntry reports whether any local trust entry exists.
 func (c *Config) HasLocalEntry() bool {
 	for i := range c.Trust {
 		if c.Trust[i].Role == protocol.TrustRoleLocal {

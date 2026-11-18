@@ -118,14 +118,16 @@ export async function waitFor<T>(
 
 /** The authorization bookkeeping of a privileged task (doc/design/privilege.md "Server-side authorization"). */
 export interface TaskAuthorizationJson {
-	plan: { paths: { path: "crhs" | "user" | "local"; entries?: unknown[] }[]; reason?: string };
-	tried: string[];
+	options: (
+		| { kind: "sign"; entries: { name: string; role: string }[]; ttlMs: number; payload: unknown }
+		| { kind: "local_window"; nodeId: string; nodeName: string }
+	)[];
+	crhsRejected: { window: number | null } | null;
+	rejectedBefore: string | null;
 	dispatchedPath: string | null;
 	payloadId: string | null;
 	attempt: number;
 	trustDigest: string | null;
-	pending: unknown;
-	local: { attempt: number } | null;
 	lastRejection: { code: string; message: string; attempt: number; at: string } | null;
 	updatedAt: string;
 }

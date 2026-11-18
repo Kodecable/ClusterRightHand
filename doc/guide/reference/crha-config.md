@@ -45,8 +45,8 @@ All paths must be absolute. Files that crha keeps in `state_dir`:
 | `NOTES.md` | Node notes, unless `notes` is set |
 | `output/` | Complete task output, unless `[output].dir` is set |
 
-The only built-in absolute path is the local approval socket used by `crha pending`, `crha approve`
-and `crha deny`: `/run/crha/privileged.sock`, unless `--socket` or `CRHA_PRIVILEGED_SOCKET` says
+The only built-in absolute path is the local approval socket used by `crha approve` and
+`crha lock`: `/run/crha/privileged.sock`, unless `--socket` or `CRHA_PRIVILEGED_SOCKET` says
 otherwise.
 
 ## Top-level keys
@@ -96,8 +96,7 @@ defaults:
 |---|---|
 | `CRHA_TASK_HOME`, `CRHA_TASK_USER`, `CRHA_TASK_LOGNAME` | Override the account variables, for accounts not listed in `/etc/passwd` (crha does not use NSS). |
 | `CRHA_TASK_SHELL` | The shell for shell commands; an absolute path to an executable. |
-| `CRHA_PRIVILEGED_SOCKET` | The socket for `crha pending`, `approve` and `deny`. |
-| `CRHA_PRIVILEGED_STDIN_DIR` | Where the `native` helper stages task input (default `/var/lib/crha/privileged`). |
+| `CRHA_PRIVILEGED_SOCKET` | The socket for `crha approve` and `crha lock`. |
 
 For `native` mode, sudo drops these variables unless sudoers keeps them (`env_keep += "CRHA_TASK_*"`).
 Tasks cannot set `CRHA_TASK_*` variables themselves.

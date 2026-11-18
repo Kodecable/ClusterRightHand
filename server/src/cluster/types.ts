@@ -116,8 +116,6 @@ export interface ClusterOptions {
 	signingKeys?: AuthorizationSigningKeyStore;
 	/** A single key for callers that do not manage a set; ignored when `signingKeys` is given. */
 	authorizationKey?: AuthorizationSigningKey;
-	/** How long a forward dispatch waits for the first trust.summary of its connection. */
-	trustWaitMs?: number;
 	/** Runtime settings; when given, clock warnings read the current value per event. */
 	settings?: SettingsStore;
 	/** Static fallback for callers (mostly tests) that do not pass `settings`. */

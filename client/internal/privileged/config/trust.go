@@ -16,6 +16,12 @@ import (
 
 // buildTrust validates one [[trust]] entry against the role/format/kinds table of
 // doc/design/privilege.md "Trust configuration" and the field table below it.
+
+// minMaxTTL is the shortest max_ttl a trust entry may set: an authorization that lives a few
+// seconds leaves its signer no time to sign it, and crhs offers no signature for less than a
+// minute (doc/guide/reference/privileged-config.md).
+const minMaxTTL = 5 * time.Minute
+
 func buildTrust(raw *rawTrust) (*Trust, error) {
 	if raw.Name == "" {
 		return nil, errors.New("name: required")
@@ -26,7 +32,7 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 	default:
 		return nil, fmt.Errorf("role: %q is not crhs, user or local", raw.Role)
 	}
-	t := &Trust{Name: raw.Name, Role: role, Format: raw.Format}
+	t := &Trust{Name: raw.Name, Role: role, Format: raw.Format, MaxWindow: DefaultMaxWindow}
 
 	// format: crhs signs with SSHSIG only, users may use SSHSIG or WebAuthn, and local
 	// entries approve through the socket instead of signing.
@@ -43,6 +49,19 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 		if raw.Format != "" {
 			return nil, errors.New("format: a local entry approves on the node and has no format")
 		}
+	}
+
+	if role == protocol.TrustRoleLocal {
+		if err := buildLocalTrust(raw, t); err != nil {
+			return nil, err
+		}
+		if err := buildKey(raw, t); err != nil {
+			return nil, err
+		}
+		return t, nil
+	}
+	if raw.MaxWindow != "" {
+		return nil, errors.New("max_window: only a local entry opens a window")
 	}
 
 	kinds, err := buildKinds(raw.Kinds, role)
@@ -62,10 +81,6 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 		t.RequireTask = true
 	case protocol.TrustRoleUser:
 		t.RequireTask = raw.RequireTask != nil && *raw.RequireTask
-	case protocol.TrustRoleLocal:
-		if raw.RequireTask != nil {
-			return nil, errors.New("require_task: only user entries can require task_ids")
-		}
 	}
 
 	if raw.MaxTTL != "" {
@@ -73,8 +88,8 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 		if err != nil {
 			return nil, fmt.Errorf("max_ttl: %w", err)
 		}
-		if ttl <= 0 {
-			return nil, errors.New("max_ttl: must be positive")
+		if ttl < minMaxTTL {
+			return nil, fmt.Errorf("max_ttl: must be at least %s", minMaxTTL)
 		}
 		t.MaxTTL = &ttl
 	}
@@ -110,6 +125,47 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 	return t, nil
 }
 
+// buildLocalTrust validates the fields of a local entry. A local entry only names uids and
+// max_window: the open window waives every other limit, so setting one would be misleading
+// (doc/design/privilege.md "Local approval window").
+func buildLocalTrust(raw *rawTrust, t *Trust) error {
+	if len(raw.Kinds) > 0 {
+		return errors.New("kinds: a local entry has no kinds; it opens a time-limited window")
+	}
+	if raw.RequireExact {
+		return errors.New("require_exact: a local entry opens a time-limited window and has no other limits")
+	}
+	if raw.RequireTask != nil {
+		return errors.New("require_task: a local entry opens a time-limited window and has no other limits")
+	}
+	if raw.RequireUV {
+		return errors.New("require_uv: a local entry opens a time-limited window and has no other limits")
+	}
+	if raw.MaxTTL != "" {
+		return errors.New("max_ttl: a local entry opens a time-limited window; use max_window")
+	}
+	if len(raw.Allow) > 0 {
+		return errors.New("allow: a local entry opens a time-limited window and has no guard rules")
+	}
+	if len(raw.Deny) > 0 {
+		return errors.New("deny: a local entry opens a time-limited window and has no guard rules")
+	}
+	if len(raw.EnvAllow) > 0 {
+		return errors.New("env_allow: a local entry opens a time-limited window and has no environment limits")
+	}
+	if raw.MaxWindow != "" {
+		window, err := time.ParseDuration(raw.MaxWindow)
+		if err != nil {
+			return fmt.Errorf("max_window: %w", err)
+		}
+		if window <= 0 {
+			return errors.New("max_window: must be positive")
+		}
+		t.MaxWindow = window
+	}
+	return nil
+}
+
 func buildKinds(in []string, role protocol.TrustRole) ([]protocol.TrustKind, error) {
 	if len(in) == 0 {
 		return nil, errors.New("kinds: required")
@@ -130,10 +186,6 @@ func buildKinds(in []string, role protocol.TrustRole) ([]protocol.TrustKind, err
 		case protocol.TrustRoleUser:
 			if kind != protocol.TrustKindExecute && kind != protocol.TrustKindRequireCosign {
 				return nil, fmt.Errorf("kinds: a user entry takes execute or require-cosign, got %q", name)
-			}
-		case protocol.TrustRoleLocal:
-			if kind != protocol.TrustKindExecute {
-				return nil, fmt.Errorf("kinds: a local entry takes execute only, got %q", name)
 			}
 		}
 		out = append(out, kind)

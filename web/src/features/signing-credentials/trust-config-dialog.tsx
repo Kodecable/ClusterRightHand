@@ -111,8 +111,8 @@ export function TrustConfigDialog({ open, onOpenChange }: { open: boolean; onOpe
 						</section>
 						<p className="text-xs text-muted-foreground">
 							<Trans>
-								For command limits, lifetimes, local approval and other advanced options, see the documentation and edit
-								privileged.toml by hand.
+								For command limits, lifetimes, a local approval window and other advanced options, see the documentation
+								and edit privileged.toml by hand.
 							</Trans>
 						</p>
 					</div>

@@ -14,13 +14,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
-	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/statedir"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/taskinput"
 )
@@ -128,31 +128,25 @@ func newSpool(root string, size uint64) (*os.File, *protocol.RemoteError) {
 	return f, nil
 }
 
-// prepareSpoolDir returns root/stdin, creating it 0700 and owned by the privileged process. An
-// existing directory with another owner is refused: staging a task's stdin must not write into
-// somebody else's directory.
+// prepareSpoolDir returns root/stdin, creating it 0700 and owned by the privileged process. The
+// state directory and its ancestors are verified first: staging a task's stdin must not write into
+// a directory that an unprivileged account could rename away and replace.
 func prepareSpoolDir(root string) (string, error) {
 	if root == "" {
 		return "", errors.New("no stdin staging directory is configured")
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", err
+	}
+	if err := statedir.Verify(root); err != nil {
+		return "", err
 	}
 	dir := filepath.Join(root, spoolSubdir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	fi, err := os.Lstat(dir)
-	if err != nil {
+	if err := statedir.Verify(dir); err != nil {
 		return "", err
-	}
-	if !fi.IsDir() {
-		return "", fmt.Errorf("%s is not a directory", dir)
-	}
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return "", fmt.Errorf("cannot determine the owner of %s", dir)
-	}
-	if int(st.Uid) != os.Geteuid() {
-		return "", fmt.Errorf("%s is owned by uid %d, but the privileged mode runs as uid %d",
-			dir, st.Uid, os.Geteuid())
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return "", err

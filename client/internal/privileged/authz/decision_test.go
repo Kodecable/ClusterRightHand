@@ -52,78 +52,135 @@ func TestDecidePathCheckPrecedesAuthorization(t *testing.T) {
 	}
 }
 
-func TestDecideLocalApproval(t *testing.T) {
-	spec := execSpec()
+// windowAuthorization builds a one-shot exact authorization for spec, signed by entry.
+func windowAuthorization(t *testing.T, now time.Time, taskID string, spec *protocol.TaskSpec, entry *Entry) *Authorization {
+	t.Helper()
 	hash, err := protocol.SpecSHA256(spec)
 	if err != nil {
 		t.Fatalf("SpecSHA256: %v", err)
 	}
-	ttl := 5 * time.Minute
+	method, target, err := Target(spec)
+	if err != nil {
+		t.Fatalf("Target: %v", err)
+	}
+	deadline := protocol.Int(now.Add(time.Minute).UnixMilli())
+	taskIDs := []string{taskID}
+	attempt := protocol.Uint(1)
+	payload := &protocol.AuthorizationPayload{
+		V:     protocol.AuthPayloadVersion,
+		Nodes: []string{"n"},
+		Command: &protocol.AuthCommand{
+			Method: protocol.Method(method),
+			Match: protocol.AuthMatch{Kind: protocol.AuthMatchExact, Exact: &protocol.AuthExact{
+				Target: target, SpecSHA256: hash,
+			}},
+		},
+		IssuedAtMS: protocol.Int(now.UnixMilli()),
+		DeadlineMS: &deadline,
+		TaskIDs:    &taskIDs,
+		Attempt:    &attempt,
+	}
+	bytes, err := protocol.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
+	return &Authorization{Payload: bytes, Decoded: payload, Signatures: []Signature{{Entry: entry, Valid: true}}}
+}
+
+// An open local approval window lets a crhs signature through without the crhs entry's own
+// limits, while the signed command limit, the deadline and the one-shot checks still apply.
+func TestDecideLocalWindow(t *testing.T) {
+	now := testNow()
+	spec := execSpec()
+	ttl := time.Minute
+	entry := Entry{
+		Name:         "crhs",
+		Role:         protocol.TrustRoleCRHS,
+		Kinds:        []protocol.TrustKind{protocol.TrustKindExecute},
+		RequireExact: true,
+		MaxTTL:       &ttl,
+		Deny:         []protocol.GuardRule{{Method: protocol.MethodExec, Match: protocol.GuardMatchAny}},
+		EnvAllow:     []string{},
+	}
 	base := Input{
-		Now:           testNow(),
+		Now:           now,
 		NodeID:        "n",
 		Task:          Task{ID: "t", Attempt: 1, Spec: spec},
-		LocalApproval: &LocalApproval{UID: 1000, SpecSHA256: hash},
-		Trust: []Entry{{
-			Name:     "local-admins",
-			Role:     protocol.TrustRoleLocal,
-			Kinds:    []protocol.TrustKind{protocol.TrustKindExecute},
-			MaxTTL:   &ttl,
-			EnvAllow: []string{},
-			UIDs:     []uint32{1000},
-		}},
+		Trust:         []Entry{entry},
+		Authorization: windowAuthorization(t, now, "t", spec, &entry),
+		Window:        &Window{OpenedBy: 1000, OpenedAt: now.Add(-time.Minute), Until: now.Add(time.Minute)},
 	}
 
-	t.Run("approved", func(t *testing.T) {
+	t.Run("accepted", func(t *testing.T) {
 		decision := Decide(base)
-		if decision.Result != ResultAccepted || decision.Entry != "local-admins" {
-			t.Fatalf("got %s, want accepted by local-admins", decision)
+		if decision.Result != ResultAccepted || decision.Entry != "crhs" || !decision.Window {
+			t.Fatalf("got %s, want accepted by crhs through the window", decision)
 		}
 	})
 
-	t.Run("uid not trusted", func(t *testing.T) {
+	t.Run("closed window applies the entry rules", func(t *testing.T) {
 		input := base
-		input.LocalApproval = &LocalApproval{UID: 1001, SpecSHA256: hash}
+		input.Window = &Window{OpenedBy: 1000, OpenedAt: now.Add(-2 * time.Minute), Until: now}
 		decision := Decide(input)
-		if decision.Result != ResultRequired || decision.Step != StepSignatures {
-			t.Fatalf("got %s, want %s at step %d", decision, ResultRequired, StepSignatures)
+		if decision.Result != ResultRejected || decision.Step != StepTrust {
+			t.Fatalf("got %s, want %s at step %d", decision, ResultRejected, StepTrust)
 		}
 	})
 
-	t.Run("spec changed", func(t *testing.T) {
+	t.Run("deadline still enforced", func(t *testing.T) {
 		input := base
-		input.LocalApproval = &LocalApproval{UID: 1000, SpecSHA256: [32]byte{}}
+		deadline := protocol.Int(now.Add(-2 * time.Minute).UnixMilli())
+		copied := *base.Authorization.Decoded
+		copied.DeadlineMS = &deadline
+		bytes, err := protocol.Marshal(&copied)
+		if err != nil {
+			t.Fatalf("encode payload: %v", err)
+		}
+		input.Authorization = &Authorization{Payload: bytes, Decoded: &copied, Signatures: base.Authorization.Signatures}
+		decision := Decide(input)
+		if decision.Result != ResultExpired || decision.Step != StepAuthorization {
+			t.Fatalf("got %s, want %s at step %d", decision, ResultExpired, StepAuthorization)
+		}
+	})
+
+	t.Run("command limit still enforced", func(t *testing.T) {
+		input := base
+		copied := *base.Authorization.Decoded
+		copied.Command = &protocol.AuthCommand{
+			Method: protocol.MethodExec,
+			Match: protocol.AuthMatch{Kind: protocol.AuthMatchExact, Exact: &protocol.AuthExact{
+				Target: "echo hi", SpecSHA256: [32]byte{},
+			}},
+		}
+		bytes, err := protocol.Marshal(&copied)
+		if err != nil {
+			t.Fatalf("encode payload: %v", err)
+		}
+		input.Authorization = &Authorization{Payload: bytes, Decoded: &copied, Signatures: base.Authorization.Signatures}
 		decision := Decide(input)
 		if decision.Result != ResultRejected || decision.Step != StepCommand {
 			t.Fatalf("got %s, want %s at step %d", decision, ResultRejected, StepCommand)
 		}
 	})
 
-	t.Run("without execute", func(t *testing.T) {
+	t.Run("one-shot still enforced", func(t *testing.T) {
 		input := base
-		input.Trust = []Entry{{
-			Name: "local-admins", Role: protocol.TrustRoleLocal, UIDs: []uint32{1000},
-		}}
+		input.Executed = func(string) bool { return true }
 		decision := Decide(input)
-		if decision.Result != ResultRejected || decision.Step != StepTrust {
-			t.Fatalf("got %s, want %s at step %d", decision, ResultRejected, StepTrust)
+		if decision.Result != ResultAlreadyAccepted || decision.Step != StepOneShot {
+			t.Fatalf("got %s, want %s at step %d", decision, ResultAlreadyAccepted, StepOneShot)
 		}
 	})
 
-	t.Run("environment rejected", func(t *testing.T) {
+	t.Run("user entries are not affected", func(t *testing.T) {
+		user := Entry{Name: "alice", Role: protocol.TrustRoleUser, Kinds: []protocol.TrustKind{protocol.TrustKindExecute}}
 		input := base
-		input.Task.Spec = &protocol.TaskSpec{Kind: protocol.TaskSpecExec, Exec: &protocol.ExecSpec{
-			Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"env"}},
-			Env:     map[string]string{"LD_PRELOAD": "/tmp/x.so"},
-		}}
-		changed, err := protocol.SpecSHA256(input.Task.Spec)
-		if err != nil {
-			t.Fatalf("SpecSHA256: %v", err)
-		}
-		input.LocalApproval = &LocalApproval{UID: 1000, SpecSHA256: changed}
+		input.Trust = []Entry{user}
+		input.Authorization = windowAuthorization(t, now, "t", spec, &user)
 		decision := Decide(input)
-		if decision.Result != ResultRejected || decision.Step != StepTrust {
-			t.Fatalf("got %s, want %s at step %d", decision, ResultRejected, StepTrust)
+		// The user entry has no rules, so it is accepted, but never through the window.
+		if decision.Result != ResultAccepted || decision.Window {
+			t.Fatalf("got %s, want accepted by alice without the window", decision)
 		}
 	})
 }

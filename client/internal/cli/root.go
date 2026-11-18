@@ -30,9 +30,8 @@ func NewRootCmd() *cobra.Command {
 		newStatusCmd(),
 		newUpgradeCmd(),
 		newGrantCmd(),
-		newPendingCmd(),
 		newApproveCmd(),
-		newDenyCmd(),
+		newLockCmd(),
 		newVersionCmd(),
 	)
 	return root

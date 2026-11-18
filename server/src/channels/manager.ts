@@ -24,6 +24,7 @@ import type { Audit } from "../audit/audit.ts";
 import { userActor } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { approvalPhaseOf } from "../cluster/approval.ts";
+import { AUTHORIZATION_DECLINED } from "../cluster/authorization/reject.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import {
@@ -39,6 +40,7 @@ import type { LibraryBackend } from "../library/backend.ts";
 import { beginLibraryUpload } from "../library/files.ts";
 import { findUserLibrary, libraryRef } from "../library/library.ts";
 import { validateLibraryPath } from "../library/paths.ts";
+import { parseTaskAuthorization } from "../privilege/task-authorization.ts";
 import type { ScheduleReportInput } from "../scheduler/scheduler.ts";
 import { attachmentContent, resolveAttachments } from "../sessions/attachments.ts";
 import { rootSessionIdOf } from "../sessions/session-chain.ts";
@@ -163,11 +165,26 @@ interface TrackedMessage {
 	messageId: string;
 	/** The card the message shows, so a final edit can replace only its hints. */
 	card: ChatCard;
+	/** The rows of buttons the message was sent with, kept so a refreshed card keeps them. */
+	buttons: readonly (readonly import("./model.ts").ChannelButton[])[];
 	/** A line the manager appended after the card (the session link); kept when the card is edited. */
 	suffix: string;
 	/** The language the message was written in; its ending is written in the same one. */
 	locale: UserSettingsLocale;
+	/**
+	 * What the card asks for: an approval decision, or an authorization (signature) of an approved
+	 * task. Each ends on its own: an approval card when the decision is made, a signature card when the
+	 * task stops waiting for its authorization (doc/design/channels.md "Approvals").
+	 */
+	kind: TrackedKind;
+	/**
+	 * A signature card's tasks: those that waited for their authorization while the card was up. Its
+	 * ending reads only these, so a group member that ran before the wait does not decide it.
+	 */
+	members: readonly string[];
 }
+
+type TrackedKind = "approval" | "signature";
 
 interface Route {
 	adapterName: string;
@@ -358,11 +375,53 @@ function monthPath(now: Date): string {
 	return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+/**
+ * The options a signature card lists, from the task records of a waiting task or task group; null while
+ * the authorization is still being prepared (no options written yet): no card is sent for that.
+ */
+function signatureCardOptions(
+	records: readonly ({ options: readonly { kind: string; nodeName?: string }[] } | null | undefined)[],
+): { sign: boolean; localWindows: string[]; awaitingNode: boolean } | null {
+	let sign = false;
+	let awaitingNode = false;
+	const localWindows: string[] = [];
+	for (const record of records) {
+		if (!record) continue;
+		for (const option of record.options) {
+			if (option.kind === "sign") sign = true;
+			else if (option.kind === "awaiting_node") awaitingNode = true;
+			else if (option.kind === "local_window" && option.nodeName && !localWindows.includes(option.nodeName)) {
+				localWindows.push(option.nodeName);
+			}
+		}
+	}
+	return sign || awaitingNode || localWindows.length > 0 ? { sign, localWindows, awaitingNode } : null;
+}
+
 function approvalKey(kind: "task" | "task_group" | "external_call", id: string): string {
 	return `${kind}:${id}`;
 }
 
-type WaitRow = { state: string; handler_type: string | null; on_behalf_of_user_id: string; approval: string | null };
+/**
+ * What a chat decision may target: an approval of a task, group or external call, or the signature wait
+ * of a task or task group (`authorization_task`/`authorization_task_group`, rejected only).
+ */
+type WaitingKind = "task" | "task_group" | "external_call" | "authorization_task" | "authorization_task_group";
+
+/** The `channel.approval` audit reads an authorization wait as the task or group it belongs to. */
+function auditKindOf(kind: WaitingKind | "quota"): "task" | "task_group" | "external_call" | "quota" {
+	if (kind === "authorization_task") return "task";
+	if (kind === "authorization_task_group") return "task_group";
+	return kind;
+}
+
+type WaitRow = {
+	id: string;
+	state: string;
+	handler_type: string | null;
+	on_behalf_of_user_id: string;
+	approval: string | null;
+};
 
 /**
  * Whether a session's chat messages wait for the user: an approval or signature that is shown in the chat.
@@ -373,6 +432,7 @@ function hasWait(
 	groups: readonly WaitRow[],
 	calls: readonly WaitRow[],
 	owner: string,
+	authorizationWaitingGroups?: ReadonlySet<string>,
 ): boolean {
 	for (const task of tasks) {
 		if (task.on_behalf_of_user_id !== owner) continue;
@@ -388,6 +448,8 @@ function hasWait(
 	for (const group of groups) {
 		if (group.on_behalf_of_user_id !== owner) continue;
 		if (group.state === "awaiting_authorization") return true;
+		// A partly dispatched group is `running` while a member still waits for a signature.
+		if (authorizationWaitingGroups?.has(group.id)) return true;
 		if (
 			group.state === "awaiting_approval" &&
 			group.handler_type === "user" &&
@@ -1144,7 +1206,7 @@ export class ChannelManager {
 			.select(["id", "username", "kind", "status"])
 			.where("id", "=", userId)
 			.executeTakeFirst();
-		if (!userRow || userRow.status !== "active") {
+		if (userRow?.status !== "active") {
 			await adapter.sendText(target, platform.accountNotActive);
 			return;
 		}
@@ -2160,16 +2222,18 @@ export class ChannelManager {
 		m: BotMessages,
 	): Promise<void> {
 		const decision = command.name === "approve" ? "approved" : "rejected";
+		// `/approve` never decides a signature wait: only rejecting one is a decision the chat may make.
+		const authorizations = command.name === "reject";
 		const explicit = command.args[0];
 		let id: string | undefined;
 		let reason = "";
-		if (explicit !== undefined && (await this.#waitingApprovalKind(user, explicit)) !== undefined) {
+		if (explicit !== undefined && (await this.#waitingApprovalKind(user, explicit, { authorizations })) !== undefined) {
 			id = explicit;
 			reason = command.name === "reject" ? command.args.slice(1).join(" ").trim().slice(0, 1000) : "";
 		} else if (explicit !== undefined && command.name === "reject") {
 			// `/reject <reason…>` without an id: a reason's first word is not a request id. If exactly one
 			// request waits in this chat, every argument is the reason.
-			const waiting = await this.#waitingApprovalsInChat(row, user, target);
+			const waiting = await this.#waitingApprovalsInChat(row, user, target, { authorizations });
 			if (waiting.length === 1) {
 				id = waiting[0]?.id;
 				reason = command.args.join(" ").trim().slice(0, 1000);
@@ -2181,7 +2245,7 @@ export class ChannelManager {
 			await adapter.sendText(target, m.noWaitingApproval);
 			return;
 		} else {
-			const waiting = await this.#waitingApprovalsInChat(row, user, target);
+			const waiting = await this.#waitingApprovalsInChat(row, user, target, { authorizations });
 			if (waiting.length !== 1) {
 				await adapter.sendText(target, m.decideUsage(command.name, command.name === "reject"));
 				return;
@@ -2207,32 +2271,45 @@ export class ChannelManager {
 		);
 	}
 
-	/** The wait a command may decide: a user's, still waiting, past Auto Review and with a rule chain. */
+	/**
+	 * The wait a command may decide: a user's, still waiting, past Auto Review and with a rule chain. With
+	 * `authorizations`, a signature wait of the user's task or task group is a valid target for a rejection.
+	 */
 	async #waitingApprovalKind(
 		user: SessionUser,
 		id: string,
-	): Promise<"task" | "task_group" | "external_call" | undefined> {
+		options: { authorizations: boolean },
+	): Promise<WaitingKind | undefined> {
 		const task = await this.#options.cluster.getTask(id);
-		if (
-			task &&
-			task.onBehalfOfUserId === user.userId &&
-			task.state === "awaiting_approval" &&
-			task.handlerType === "user" &&
-			task.phase !== "reviewing" &&
-			task.ruleChain
-		) {
-			return "task";
+		if (task && task.onBehalfOfUserId === user.userId) {
+			if (
+				task.state === "awaiting_approval" &&
+				task.handlerType === "user" &&
+				task.phase !== "reviewing" &&
+				task.ruleChain
+			) {
+				return "task";
+			}
+			if (options.authorizations && task.state === "awaiting_authorization") return "authorization_task";
 		}
 		const group = await this.#options.taskGroups.get(id);
-		if (
-			group &&
-			group.onBehalfOfUserId === user.userId &&
-			group.state === "awaiting_approval" &&
-			group.handlerType === "user" &&
-			group.phase !== "reviewing" &&
-			group.ruleChain
-		) {
-			return "task_group";
+		if (group && group.onBehalfOfUserId === user.userId) {
+			if (
+				group.state === "awaiting_approval" &&
+				group.handlerType === "user" &&
+				group.phase !== "reviewing" &&
+				group.ruleChain
+			) {
+				return "task_group";
+			}
+			// A group with running members keeps its own state `running` while other members still wait.
+			if (
+				options.authorizations &&
+				(group.state === "awaiting_authorization" ||
+					group.tasks.some((member) => member.state === "awaiting_authorization"))
+			) {
+				return "authorization_task_group";
+			}
 		}
 		const call = await getExternalCall(this.#options.db, id);
 		if (
@@ -2248,13 +2325,14 @@ export class ChannelManager {
 		return undefined;
 	}
 
-	/** Waiting approvals whose card is tracked for this chat: `/approve` and `/reject` without an id use them. */
+	/** Waiting requests whose card is tracked for this chat: `/approve` and `/reject` without an id use them. */
 	async #waitingApprovalsInChat(
 		row: ChannelRow,
 		user: SessionUser,
 		target: ChannelTarget,
-	): Promise<{ id: string; kind: "task" | "task_group" | "external_call" }[]> {
-		const waiting: { id: string; kind: "task" | "task_group" | "external_call" }[] = [];
+		options: { authorizations: boolean },
+	): Promise<{ id: string; kind: WaitingKind }[]> {
+		const waiting: { id: string; kind: WaitingKind }[] = [];
 		for (const [key, tracked] of this.#tracked) {
 			if (tracked.adapterName !== row.name) continue;
 			if (tracked.target.chatId !== target.chatId) continue;
@@ -2263,7 +2341,7 @@ export class ChannelManager {
 			const [kind, id] = key.split(":");
 			if (!id || (kind !== "task" && kind !== "task_group" && kind !== "external_call")) continue;
 			if (waiting.some((entry) => entry.id === id)) continue;
-			const actual = await this.#waitingApprovalKind(user, id);
+			const actual = await this.#waitingApprovalKind(user, id, options);
 			if (actual !== undefined) waiting.push({ id, kind: actual });
 		}
 		return waiting;
@@ -2279,12 +2357,26 @@ export class ChannelManager {
 		id: string,
 		decision: "approved" | "rejected",
 		reason?: string,
-	): Promise<{ kind: "task" | "task_group" | "external_call"; key: string } | undefined> {
-		const kind = await this.#waitingApprovalKind(user, id);
+	): Promise<{ kind: WaitingKind; key: string } | undefined> {
+		// An authorization wait can only be rejected; `/approve` and an approve button never target one.
+		const kind = await this.#waitingApprovalKind(user, id, { authorizations: decision === "rejected" });
 		if (!kind) return undefined;
+		const by = { type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId };
+		if (kind === "authorization_task") {
+			// The same server function as POST /tasks/{id}/authorization/reject.
+			const ok = await this.#options.cluster.rejectAuthorization(id, reason ?? "", by);
+			if (!ok) return undefined;
+			return { kind, key: approvalKey("task", id) };
+		}
+		if (kind === "authorization_task_group") {
+			// The same server function as POST /task-groups/{id}/authorization/reject.
+			const ok = await this.#options.taskGroups.rejectAuthorization(id, reason ?? "", by);
+			if (!ok) return undefined;
+			return { kind, key: approvalKey("task_group", id) };
+		}
 		const record = {
 			decision,
-			by: { type: "user" as const, id: user.userId, onBehalfOfUserId: user.userId },
+			by,
 			at: new Date().toISOString(),
 			...(reason ? { reason } : {}),
 		};
@@ -2305,7 +2397,7 @@ export class ChannelManager {
 
 	async #auditChannelApproval(
 		user: SessionUser,
-		kind: string,
+		kind: WaitingKind | "quota",
 		id: string,
 		decision: string,
 		channel: string,
@@ -2320,7 +2412,7 @@ export class ChannelManager {
 				channel,
 				via: platform,
 				...(threadId ? { thread_id: threadId } : {}),
-				approval_kind: kind,
+				approval_kind: auditKindOf(kind),
 				decision,
 			},
 		});
@@ -2931,7 +3023,7 @@ export class ChannelManager {
 			.select(["id", "username", "kind", "status"])
 			.where("id", "=", owner)
 			.executeTakeFirst();
-		if (!userRow || userRow.status !== "active") return;
+		if (userRow?.status !== "active") return;
 		const locale = botLocale(await this.#userLocale(owner), presser.language_code);
 		const m = messagesFor(locale);
 		try {
@@ -3159,18 +3251,29 @@ export class ChannelManager {
 		// Pushed texts follow the account they are routed to when the user has no saved locale.
 		const locale = botLocale(await this.#userLocale(owner), route?.account.language_code);
 		const m = messagesFor(locale);
+		// A task that belongs to a task group is authorized through the group, so only the group's card is sent.
 		const tasks = await this.#options.db
 			.selectFrom("tasks")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
 			.where("root_session_id", "=", rootId)
+			.where("task_group_id", "is", null)
 			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
 			.execute();
 		for (const task of tasks) await this.#syncTaskWait(rootId, task, owner, route, locale, m);
+		// A partly dispatched group is `running`, so its signature wait is found through its waiting members.
+		const waitingGroupIds = await this.#waitingAuthorizationGroupIds("root_session_id", rootId);
 		const groups = await this.#options.db
 			.selectFrom("task_groups")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
 			.where("root_session_id", "=", rootId)
-			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
+			.where((eb) =>
+				waitingGroupIds.length === 0
+					? eb("state", "in", ["awaiting_approval", "awaiting_authorization"])
+					: eb.or([
+							eb("state", "in", ["awaiting_approval", "awaiting_authorization"]),
+							eb("id", "in", waitingGroupIds),
+						]),
+			)
 			.execute();
 		for (const group of groups) await this.#syncGroupWait(rootId, group, owner, route, locale, m);
 		const calls = await this.#options.db
@@ -3182,7 +3285,20 @@ export class ChannelManager {
 		for (const call of calls) await this.#syncCallWait(rootId, call, owner, route, locale, m);
 		await this.#syncQuotaWait(rootId, owner, route, locale, m);
 		// A run waiting for the user shows no draft: drop any draft that a progress update created before the wait.
-		if (hasWait(tasks, groups, calls, owner)) this.#dropDraft(rootId);
+		if (hasWait(tasks, groups, calls, owner, new Set(waitingGroupIds))) this.#dropDraft(rootId);
+	}
+
+	/** Ids of task groups with a member still waiting for a signature, for a session root or for orphans. */
+	async #waitingAuthorizationGroupIds(column: "root_session_id", value: string | null): Promise<string[]> {
+		const rows = await this.#options.db
+			.selectFrom("tasks")
+			.select("task_group_id")
+			.where(column, "is", value)
+			.where("task_group_id", "is not", null)
+			.where("state", "=", "awaiting_authorization")
+			.groupBy("task_group_id")
+			.execute();
+		return rows.flatMap((row) => (row.task_group_id === null ? [] : [row.task_group_id]));
 	}
 
 	async #syncTaskWait(
@@ -3202,14 +3318,28 @@ export class ChannelManager {
 		if (task.on_behalf_of_user_id !== owner) return;
 		const key = approvalKey("task", task.id);
 		if (task.state === "awaiting_authorization") {
-			if (!route || this.#tracked.has(key)) return;
+			// The approval card of the same task is settled first; the signature card follows it.
+			const tracked = this.#tracked.get(key);
+			if (tracked?.kind === "approval") return;
 			const view = await this.#options.cluster.getTask(task.id);
 			if (!view) return;
+			const options = signatureCardOptions([view.authorization]);
+			if (!options) return;
 			const request = await approvalRequestForTask(this.#options.db, view);
 			const link = this.#webUrl(`/approvals/tasks/${task.id}`);
-			const card = m.signatureCard(request, link, { withSource: route.notification === true });
-			// The signature hint already carries the WebUI link; do not append the session link again.
-			await this.#sendTracked(key, rootId, route, card, [], locale, true, false);
+			const card = m.signatureCard(request, link, {
+				...options,
+				withButtons: route?.adapter.capabilities.buttons === true,
+				withSource: route?.notification === true,
+			});
+			if (tracked) {
+				// A sync pass may write new options while the wait goes on: show the current ones.
+				await this.#refreshSignatureCard(tracked, card, [task.id]);
+				return;
+			}
+			if (!route) return;
+			const buttons = route.adapter.capabilities.buttons ? [[{ text: m.rejectButton, data: `ap:t:${task.id}:r` }]] : [];
+			await this.#sendTracked(key, rootId, route, card, buttons, locale, true, "signature", [task.id]);
 			return;
 		}
 		if (task.handler_type !== "user") return;
@@ -3249,14 +3379,47 @@ export class ChannelManager {
 	): Promise<void> {
 		if (group.on_behalf_of_user_id !== owner) return;
 		const key = approvalKey("task_group", group.id);
-		if (group.state === "awaiting_authorization") {
-			if (!route || this.#tracked.has(key)) return;
+		// A group whose members are partly running keeps the state `running`; it still waits when one member
+		// is in `awaiting_authorization` (doc/design/execution.md "Task groups").
+		if (group.state === "awaiting_authorization" || group.state === "running") {
+			const tracked = this.#tracked.get(key);
+			if (tracked?.kind === "approval") return;
 			const view = await this.#options.taskGroups.get(group.id);
 			if (!view) return;
+			const waiting = view.tasks.filter((member) => member.state === "awaiting_authorization");
+			const options = signatureCardOptions(waiting.map((member) => member.authorization));
+			if (!options) return;
 			const request = await approvalRequestForTaskGroup(this.#options.db, view);
 			const link = this.#webUrl(`/approvals/task-groups/${group.id}`);
-			const card = m.signatureCard(request, link, { withSource: route.notification === true });
-			await this.#sendTracked(key, rootId, route, card, [], locale, true, false);
+			const card = m.signatureCard(request, link, {
+				...options,
+				withButtons: route?.adapter.capabilities.buttons === true,
+				withSource: route?.notification === true,
+			});
+			if (tracked) {
+				// A sync pass may write new shared options while the wait goes on: show the current ones.
+				await this.#refreshSignatureCard(
+					tracked,
+					card,
+					waiting.map((member) => member.id),
+				);
+				return;
+			}
+			if (!route) return;
+			const buttons = route.adapter.capabilities.buttons
+				? [[{ text: m.rejectButton, data: `ap:g:${group.id}:r` }]]
+				: [];
+			await this.#sendTracked(
+				key,
+				rootId,
+				route,
+				card,
+				buttons,
+				locale,
+				true,
+				"signature",
+				waiting.map((member) => member.id),
+			);
 			return;
 		}
 		if (group.handler_type !== "user") return;
@@ -3344,31 +3507,47 @@ export class ChannelManager {
 			.selectFrom("tasks")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
 			.where("root_session_id", "is", null)
+			.where("task_group_id", "is", null)
 			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
 			.execute();
 		for (const task of tasks) {
 			const key = approvalKey("task", task.id);
-			if (this.#tracked.has(key)) continue;
 			const signature = task.state === "awaiting_authorization";
+			const tracked = this.#tracked.get(key);
+			// An approval card is settled before its signature card follows; an approval card never changes.
+			if (tracked?.kind === "approval") continue;
 			if (!signature) {
+				if (tracked) continue;
 				if (task.handler_type !== "user") continue;
 				if (approvalPhaseOf(task.state, task.handler_type, task.approval) === "reviewing") continue;
 			}
 			const view = await this.#options.cluster.getTask(task.id);
 			if (!view) continue;
+			const options = signature ? signatureCardOptions([view.authorization]) : null;
+			if (signature && !options) continue;
 			const sent = await context(task.on_behalf_of_user_id);
 			if (!sent) continue;
 			const request = await approvalRequestForTask(this.#options.db, view);
-			const card = signature
+			const card = options
 				? sent.m.signatureCard(request, this.#webUrl(`/approvals/tasks/${task.id}`), {
+						...options,
+						withButtons: sent.route.adapter.capabilities.buttons,
 						withSource: sent.route.notification === true,
 					})
 				: sent.m.approvalCard(request, {
 						withButtons: sent.route.adapter.capabilities.buttons,
 						withSource: sent.route.notification === true,
 					});
-			const buttons =
-				!signature && sent.route.adapter.capabilities.buttons
+			if (tracked) {
+				// A sync pass changed the options of a waiting task without a session: edit its card.
+				await this.#refreshSignatureCard(tracked, card, [task.id]);
+				continue;
+			}
+			const buttons = signature
+				? sent.route.adapter.capabilities.buttons
+					? [[{ text: sent.m.rejectButton, data: `ap:t:${task.id}:r` }]]
+					: []
+				: sent.route.adapter.capabilities.buttons
 					? [
 							[
 								{ text: sent.m.approveButton, data: `ap:t:${task.id}:a` },
@@ -3376,37 +3555,75 @@ export class ChannelManager {
 							],
 						]
 					: [];
-			await this.#sendTracked(key, null, sent.route, card, buttons, sent.locale, true, !signature);
+			await this.#sendTracked(
+				key,
+				null,
+				sent.route,
+				card,
+				buttons,
+				sent.locale,
+				true,
+				signature ? "signature" : "approval",
+				signature ? [task.id] : [],
+			);
 		}
+		const waitingGroupIds = await this.#waitingAuthorizationGroupIds("root_session_id", null);
 		const groups = await this.#options.db
 			.selectFrom("task_groups")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
 			.where("root_session_id", "is", null)
-			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
+			.where((eb) =>
+				waitingGroupIds.length === 0
+					? eb("state", "in", ["awaiting_approval", "awaiting_authorization"])
+					: eb.or([
+							eb("state", "in", ["awaiting_approval", "awaiting_authorization"]),
+							eb("id", "in", waitingGroupIds),
+						]),
+			)
 			.execute();
 		for (const group of groups) {
 			const key = approvalKey("task_group", group.id);
-			if (this.#tracked.has(key)) continue;
-			const signature = group.state === "awaiting_authorization";
+			const view = await this.#options.taskGroups.get(group.id);
+			if (!view) continue;
+			// A partly dispatched group is `running` while a member still waits for a signature.
+			const waiting = view.tasks.filter((member) => member.state === "awaiting_authorization");
+			const signature = group.state === "awaiting_authorization" || waiting.length > 0;
+			const tracked = this.#tracked.get(key);
+			if (tracked?.kind === "approval") continue;
 			if (!signature) {
+				if (tracked) continue;
 				if (group.handler_type !== "user") continue;
 				if (approvalPhaseOf(group.state, group.handler_type, group.approval) === "reviewing") continue;
 			}
-			const view = await this.#options.taskGroups.get(group.id);
-			if (!view) continue;
+			const options = signature ? signatureCardOptions(waiting.map((member) => member.authorization)) : null;
+			if (signature && !options) continue;
 			const sent = await context(group.on_behalf_of_user_id);
 			if (!sent) continue;
 			const request = await approvalRequestForTaskGroup(this.#options.db, view);
-			const card = signature
+			const card = options
 				? sent.m.signatureCard(request, this.#webUrl(`/approvals/task-groups/${group.id}`), {
+						...options,
+						withButtons: sent.route.adapter.capabilities.buttons,
 						withSource: sent.route.notification === true,
 					})
 				: sent.m.approvalCard(request, {
 						withButtons: sent.route.adapter.capabilities.buttons,
 						withSource: sent.route.notification === true,
 					});
-			const buttons =
-				!signature && sent.route.adapter.capabilities.buttons
+			if (tracked) {
+				// A sync pass changed the shared options of a group without a session: edit its card.
+				await this.#refreshSignatureCard(
+					tracked,
+					card,
+					waiting.map((member) => member.id),
+				);
+				continue;
+			}
+			const buttons = signature
+				? sent.route.adapter.capabilities.buttons
+					? [[{ text: sent.m.rejectButton, data: `ap:g:${group.id}:r` }]]
+					: []
+				: sent.route.adapter.capabilities.buttons
 					? [
 							[
 								{ text: sent.m.approveButton, data: `ap:g:${group.id}:a` },
@@ -3414,7 +3631,17 @@ export class ChannelManager {
 							],
 						]
 					: [];
-			await this.#sendTracked(key, null, sent.route, card, buttons, sent.locale, true, !signature);
+			await this.#sendTracked(
+				key,
+				null,
+				sent.route,
+				card,
+				buttons,
+				sent.locale,
+				true,
+				signature ? "signature" : "approval",
+				waiting.map((member) => member.id),
+			);
 		}
 		const callRows = await this.#options.db
 			.selectFrom("external_calls")
@@ -3485,6 +3712,30 @@ export class ChannelManager {
 		return adapter.capabilities.markdown ? undefined : { plain: true };
 	}
 
+	/**
+	 * Edits a tracked signature card whose options changed (a sync pass wrote new options: a window closed,
+	 * a payload was refreshed, a member left the group's wait), keeping the message, its buttons and its suffix.
+	 */
+	async #refreshSignatureCard(tracked: TrackedMessage, card: ChatCard, members: readonly string[]): Promise<void> {
+		// Every task that waited while the card was up decides its ending, also when the text stays the same.
+		tracked.members = [...new Set([...tracked.members, ...members])];
+		if (this.#settling.has(tracked.key) || JSON.stringify(tracked.card) === JSON.stringify(card)) return;
+		const adapter = this.#adapters.get(tracked.adapterName)?.adapter;
+		if (!adapter) return;
+		const m = messagesFor(tracked.locale);
+		const text = renderCard(card, m.card, this.#formatOf(adapter));
+		const body = tracked.suffix === "" ? text : `${text}\n\n${tracked.suffix}`;
+		try {
+			await adapter.editText(tracked.target, tracked.messageId, body, {
+				...(this.#plainOption(adapter) ?? {}),
+				buttons: tracked.buttons,
+			});
+			tracked.card = card;
+		} catch (err) {
+			console.error("channels: refreshing a signature card failed:", err);
+		}
+	}
+
 	async #sendTracked(
 		key: string,
 		rootId: string | null,
@@ -3493,7 +3744,8 @@ export class ChannelManager {
 		buttons: readonly (readonly import("./model.ts").ChannelButton[])[],
 		locale: UserSettingsLocale,
 		waiting?: boolean,
-		withSessionLink = true,
+		kind: TrackedKind = "approval",
+		members: readonly string[] = [],
 	): Promise<void> {
 		// The run now waits for the user: its draft expires on its own and is not shown again until the run goes on.
 		if (waiting === true && rootId !== null) this.#dropDraft(rootId);
@@ -3507,9 +3759,11 @@ export class ChannelManager {
 		const format = this.#formatOf(route.adapter);
 		const text = renderCard(card, m.card, format);
 		// A card already names the request; the session link is only for a notification without a thread and
-		// without buttons. A signature card carries its own WebUI link, so it passes `withSessionLink: false`.
+		// without buttons. A signature card carries its own WebUI link.
 		const link =
-			withSessionLink && rootId !== null && route.thread === undefined && !buttonsOn ? this.#sessionLink(rootId) : null;
+			kind === "approval" && rootId !== null && route.thread === undefined && !buttonsOn
+				? this.#sessionLink(rootId)
+				: null;
 		const suffix = link === null ? "" : m.openSessionLink(link);
 		const body = suffix === "" ? text : `${text}\n\n${suffix}`;
 		let sent: SentMessage;
@@ -3533,8 +3787,11 @@ export class ChannelManager {
 			target: route.target,
 			messageId: sent.messageId,
 			card,
+			buttons: withSwitch,
 			suffix,
 			locale,
+			kind,
+			members,
 		});
 		// A decision can land while the card is being sent, before its message id is known. Check once more
 		// after this tick so the card is not left behind until the fallback sweep.
@@ -3551,7 +3808,7 @@ export class ChannelManager {
 	async #settleTracked(rootId: string): Promise<void> {
 		for (const [key, tracked] of [...this.#tracked]) {
 			if (tracked.rootSessionId !== rootId || this.#settling.has(key)) continue;
-			const ending = await this.#waitEnding(key, messagesFor(tracked.locale));
+			const ending = await this.#waitEnding(tracked, messagesFor(tracked.locale));
 			if (ending === undefined) continue;
 			this.#settling.add(key);
 			try {
@@ -3579,7 +3836,7 @@ export class ChannelManager {
 		if (this.#stopped) return;
 		for (const [key, tracked] of [...this.#tracked]) {
 			if (this.#settling.has(key)) continue;
-			const ending = await this.#waitEnding(key, messagesFor(tracked.locale));
+			const ending = await this.#waitEnding(tracked, messagesFor(tracked.locale));
 			if (ending === undefined) continue;
 			this.#settling.add(key);
 			try {
@@ -3641,7 +3898,8 @@ export class ChannelManager {
 	}
 
 	/** `undefined` while the wait goes on; otherwise how it ended. */
-	async #waitEnding(key: string, m: BotMessages): Promise<string | undefined> {
+	async #waitEnding(tracked: TrackedMessage, m: BotMessages): Promise<string | undefined> {
+		const { key, kind: card } = tracked;
 		if (key.startsWith("quota:")) {
 			const rootId = key.slice("quota:".length);
 			const row = await this.#options.db
@@ -3668,11 +3926,15 @@ export class ChannelManager {
 		if (kind === "task") {
 			const row = await this.#options.db
 				.selectFrom("tasks")
-				.select(["state", "approval"])
+				.select(["state", "approval", "error_code", "error_message", "authorization", "on_behalf_of_user_id"])
 				.where("id", "=", id)
 				.executeTakeFirst();
 			if (!row) return m.expiredResult;
-			if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") return undefined;
+			if (card === "signature") {
+				if (row.state === "awaiting_authorization") return undefined;
+				return this.#authorizationEnding([row], m);
+			}
+			if (row.state === "awaiting_approval") return undefined;
 			return this.#decisionEnding(row.approval, m);
 		}
 		if (kind === "task_group") {
@@ -3682,7 +3944,29 @@ export class ChannelManager {
 				.where("id", "=", id)
 				.executeTakeFirst();
 			if (!row) return m.expiredResult;
-			if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") return undefined;
+			if (card === "signature") {
+				// The group still waits while any member does, also one that only began waiting since.
+				const waiting = await this.#options.db
+					.selectFrom("tasks")
+					.select("id")
+					.where("task_group_id", "=", id)
+					.where("state", "=", "awaiting_authorization")
+					.limit(1)
+					.executeTakeFirst();
+				if (waiting) return undefined;
+				// Only the members that waited while the card was up decide how it ended.
+				const members =
+					tracked.members.length === 0
+						? []
+						: await this.#options.db
+								.selectFrom("tasks")
+								.select(["state", "error_code", "error_message", "authorization", "on_behalf_of_user_id"])
+								.where("task_group_id", "=", id)
+								.where("id", "in", tracked.members)
+								.execute();
+				return this.#authorizationEnding(members, m);
+			}
+			if (row.state === "awaiting_approval") return undefined;
 			return this.#decisionEnding(row.approval, m);
 		}
 		const row = await getExternalCall(this.#options.db, id);
@@ -3696,6 +3980,40 @@ export class ChannelManager {
 	 * and every other way a wait ended (rules changed, the row was cancelled, the session stopped) is
 	 * "Expired".
 	 */
+	/**
+	 * How a signature wait ended, from the tasks it covered: the owner rejected it, it ran out of time, the
+	 * task was sent to its node, or nothing could authorize it.
+	 */
+	async #authorizationEnding(
+		rows: readonly {
+			state: string;
+			error_code: string | null;
+			error_message: string | null;
+			authorization: string | null;
+			on_behalf_of_user_id: string;
+		}[],
+		m: BotMessages,
+	): Promise<string> {
+		const rejected = rows.find((row) => row.error_code === AUTHORIZATION_DECLINED);
+		if (rejected) {
+			// Only the owner can reject a signature wait.
+			const owner = await this.#options.db
+				.selectFrom("users")
+				.select("username")
+				.where("id", "=", rejected.on_behalf_of_user_id)
+				.executeTakeFirst();
+			return m.rejectedResult(owner?.username ?? rejected.on_behalf_of_user_id, rejected.error_message);
+		}
+		if (rows.some((row) => parseTaskAuthorization(row.authorization)?.dispatchedPath != null)) {
+			return m.authorizedResult;
+		}
+		if (rows.length > 0 && rows.every((row) => row.error_code === "authorization_wait_expired")) {
+			return m.expiredResult;
+		}
+		const failed = rows.find((row) => row.error_message);
+		return failed?.error_message ? m.authorizationFailedResult(failed.error_message) : m.expiredResult;
+	}
+
 	async #decisionEnding(approvalJson: string | null, m: BotMessages): Promise<string> {
 		if (!approvalJson) return m.expiredResult;
 		try {
@@ -3828,7 +4146,7 @@ export class ChannelManager {
 			.select(["id", "username", "kind", "status"])
 			.where("id", "=", account.user_id)
 			.executeTakeFirst();
-		if (!user || user.status !== "active") return undefined;
+		if (user?.status !== "active") return undefined;
 		return {
 			sessionId: `channel:${account.id}`,
 			userId: user.id,

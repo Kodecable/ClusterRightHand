@@ -11,7 +11,7 @@ import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import { newId } from "../util/id.ts";
 import { pendingReview } from "./approval.ts";
-import { planPrivileged } from "./authorization/plan.ts";
+import { startAuthorization } from "./authorization/sync.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
@@ -227,8 +227,8 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 /** What the dispatch turn decided, for the work that runs after it. */
 type DispatchTurn =
 	| { kind: "done" }
-	/** A privileged task on a forward node: planPrivileged decides the path outside the turn. */
-	| { kind: "plan"; link: NodeLink }
+	/** A privileged task on a forward node: its authorization starts outside the turn. */
+	| { kind: "authorize" }
 	/** The plain claim matched: the start may be sent (outside the turn) from this row. */
 	| { kind: "claimed"; row: Selectable<TasksTable> };
 
@@ -257,13 +257,10 @@ export async function dispatch(
 		return current;
 	});
 	if (!before) return;
-	const nodeNow = await getNode(core.db, node.id);
 	const ssh = node.transport === "ssh";
-	// A forward privileged task also waits for its new connection's trust report.
-	const trust = !ssh && before.privileged === 1 && nodeNow?.privileged_mode === "forward";
-	// A connected node dispatches at once; planPrivileged then waits for the trust report as before.
-	// A node that is off when crhs wants to send gets the grace to reconnect, not an instant failure.
-	const ready = await core.readyNode(node.id, { trust });
+	// A connected node dispatches at once. A node that is off when crhs wants to send gets the grace
+	// to reconnect, not an instant failure.
+	const ready = await core.readyNode(node.id);
 	if (!ready) {
 		// The row may have been cancelled or settled while the grace ran: only a still-waiting task fails.
 		await endIfNodeUnready(core, id, ready, async (current) => {
@@ -297,7 +294,7 @@ export async function dispatch(
 		// A privileged task on a forward node needs an authorization before task.start (doc/design/privilege.md "Authorization path").
 		// native/ignore/reject nodes, SSH nodes and ordinary tasks keep the plain claim below.
 		if (!ssh && link && current.privileged === 1 && fresh.privileged_mode === "forward") {
-			return { kind: "plan", link };
+			return { kind: "authorize" };
 		}
 		const claimed = await writeTask(
 			core.db,
@@ -315,10 +312,10 @@ export async function dispatch(
 		core.notify(id);
 		return { kind: "claimed", row: current };
 	});
-	if (outcome.kind === "plan") {
-		// The plan waits for the trust report and plans in its own turn, outside this one. The
-		// transfer slot stays held until the task ends (busy if that is how it ends).
-		await planPrivileged(core, id, fresh, outcome.link, spec, inputBytes, opts, ["awaiting_approval"]);
+	if (outcome.kind === "authorize") {
+		// The authorization runs in its own turns and passes, outside this one. The transfer slot stays
+		// held until the task ends (busy if that is how it ends).
+		await startAuthorization(core, id, inputBytes, ["awaiting_approval"]);
 		return;
 	}
 	if (outcome.kind !== "claimed") {

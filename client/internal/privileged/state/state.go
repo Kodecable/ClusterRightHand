@@ -31,11 +31,14 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/statedir"
 )
 
 const (
 	usedFileName = "used"
-	// localRetention is how long a record without an authorization is kept: a local approval.
+	// localRetention is how long a record without an authorization is kept. Such a record can only
+	// come from a used file written before the local approval window replaced per-task approvals.
 	localRetention = 24 * time.Hour
 	// minRetentionMargin is the least time a record with an authorization is kept past its
 	// deadline. A larger clock_skew extends it, so a one-shot authorization cannot be used
@@ -55,18 +58,17 @@ var rebuildFloor = 1024
 var ErrAlreadyRecorded = errors.New("state: task is already recorded")
 
 // Record is one line of the used list: a task that ran, the authorization that allowed it
-// (absent for a local approval), the authorization's times and the spec hash.
+// (absent only in a legacy local-approval record), the authorization's times and the spec hash.
 type Record struct {
 	TaskID  string `json:"task_id"`
 	Attempt uint64 `json:"attempt,omitempty"`
-	// AuthorizationID is the hex authorization id; empty when the task was approved
-	// locally instead.
+	// AuthorizationID is the hex authorization id; empty only in a legacy local-approval record.
 	AuthorizationID string `json:"authorization_id,omitempty"`
 	// IssuedAtMS is the authorization's issued_at in Unix milliseconds. It is zero (and
-	// omitted) for a local approval, which has no authorization.
+	// omitted) in a legacy local-approval record.
 	IssuedAtMS int64 `json:"issued_at_ms,omitempty"`
-	// DeadlineMS is the authorization's deadline in Unix milliseconds; zero for a local
-	// approval, which has no authorization.
+	// DeadlineMS is the authorization's deadline in Unix milliseconds; zero in a legacy
+	// local-approval record.
 	DeadlineMS int64 `json:"deadline_ms,omitempty"`
 	// SpecSHA256 is the hex hash of the executed spec, for auditing and for correlating
 	// the record with the local log.
@@ -123,8 +125,9 @@ type Store struct {
 
 // Open loads the used list in dir, drops the records the retention rules no longer cover,
 // applies the in-memory cap, rewrites the compacted file and opens it for appending. dir is
-// created with mode 0700 when it does not exist. With Options.NoPersist the file is never
-// touched and the list starts empty.
+// created with mode 0700 when it does not exist, and is refused when it or a parent could be
+// replaced by an unprivileged account (statedir.Verify). With Options.NoPersist the file is never
+// touched and the list starts empty; an existing dir is still verified.
 func Open(dir string, opts Options) (*Store, error) {
 	if dir == "" {
 		return nil, errors.New("state: empty directory")
@@ -147,17 +150,22 @@ func Open(dir string, opts Options) (*Store, error) {
 		s.log = slog.New(slog.DiscardHandler)
 	}
 	if s.noPersist {
+		if _, err := os.Lstat(dir); err == nil {
+			if err := statedir.Verify(dir); err != nil {
+				return nil, err
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("state: %w", err)
+		}
 		return s, nil
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("state: create %s: %w", dir, err)
 	}
-	fi, err := os.Stat(dir)
-	if err != nil {
-		return nil, fmt.Errorf("state: %w", err)
-	}
-	if !fi.IsDir() {
-		return nil, fmt.Errorf("state: %s is not a directory", dir)
+	// The directory holds the used list and the stdin spool. Refuse one that crha could rename
+	// away and replace with a directory of its own.
+	if err := statedir.Verify(dir); err != nil {
+		return nil, err
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -165,9 +173,11 @@ func Open(dir string, opts Options) (*Store, error) {
 	if err := s.compact(); err != nil {
 		return nil, err
 	}
-	if s.used, err = openAppend(s.usedPath); err != nil {
+	used, err := openAppend(s.usedPath)
+	if err != nil {
 		return nil, err
 	}
+	s.used = used
 	return s, nil
 }
 
@@ -212,7 +222,8 @@ func (s *Store) load() error {
 }
 
 // keep applies the retention rules: a record with an authorization is kept until
-// deadline+max(1h, clock_skew); a local approval is kept 24h after it was accepted.
+// deadline+max(1h, clock_skew); a legacy local-approval record is kept 24h after it was
+// accepted.
 func (s *Store) keep(rec Record, now time.Time) bool {
 	if rec.AuthorizationID != "" {
 		return !now.After(time.UnixMilli(rec.DeadlineMS).Add(s.retentionMargin()))

@@ -5,7 +5,7 @@
  *
  * A piece is a *turn*: every run() is tracked with AsyncLocalStorage, so code running inside it
  * can ask whether it is in a turn (and which), and the task queue can refuse work that waits for a node
- * while it holds a task's slot. Turns nest (taskQueue → groupQueue → trustQueue), so a stack is kept.
+ * while it holds a task's slot. Turns nest (taskQueue → trustQueue), so a stack is kept.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 

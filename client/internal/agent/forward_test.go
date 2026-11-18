@@ -205,10 +205,9 @@ kinds  = %s
 func localTrust(name string, uids []uint32) string {
 	return fmt.Sprintf(`
 [[trust]]
-name  = %q
-role  = "local"
-uids  = %v
-kinds = ["execute"]
+name = %q
+role = "local"
+uids = %v
 `, name, uids)
 }
 
@@ -308,7 +307,6 @@ type crhsWatch struct {
 	outputs   chan protocol.TaskOutput
 	exits     chan protocol.TaskExit
 	summaries chan protocol.TrustReport
-	decisions chan protocol.LocalDecision
 }
 
 func newCRHSWatch() *crhsWatch {
@@ -317,7 +315,6 @@ func newCRHSWatch() *crhsWatch {
 		outputs:   make(chan protocol.TaskOutput, 512),
 		exits:     make(chan protocol.TaskExit, 16),
 		summaries: make(chan protocol.TrustReport, 16),
-		decisions: make(chan protocol.LocalDecision, 16),
 	}
 }
 
@@ -345,14 +342,6 @@ func (w *crhsWatch) setup(p *protocol.Peer) {
 			return err
 		}
 		w.summaries <- report
-		return nil
-	})
-	p.HandleEvent(protocol.EventLocalDecision, func(body cbor.RawMessage) error {
-		var decision protocol.LocalDecision
-		if err := protocol.Unmarshal(body, &decision); err != nil {
-			return err
-		}
-		w.decisions <- decision
 		return nil
 	})
 }
@@ -495,21 +484,17 @@ func expectRemoteCode(t *testing.T, err error, code string) *protocol.RemoteErro
 
 // ------------------------------- tests -------------------------------
 
-// TestTrustSummaryNotForward covers the report of every mode that does not forward: crha advertises
-// the privilege commands and answers them with privileged_unsupported.
+// TestTrustSummaryNotForward covers the report of every mode that does not forward: crha answers
+// a privileged task.start with privileged_unsupported.
 func TestTrustSummaryNotForward(t *testing.T) {
-	for _, mode := range []string{config.ModeNative, config.ModeIgnore, config.ModeReject} {
+	for _, mode := range []string{config.ModeReject} {
 		t.Run(mode, func(t *testing.T) {
 			w := newCRHSWatch()
 			a := newTestAgent(t, Options{PrivilegedMode: mode})
-			replies := make(chan error, 2)
+			replies := make(chan error, 1)
 			serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
 				var empty protocol.Empty
-				var state protocol.LocalState
-				replies <- p.Request(ctx, protocol.CmdLocalRequest, protocol.LocalRequest{
-					TaskID: "t1", Attempt: 1, Spec: forwardedExecTask("t1", "/bin/true").Spec,
-				}, &state)
-				replies <- p.Request(ctx, protocol.CmdLocalWithdraw, protocol.LocalWithdraw{TaskID: "t1", Attempt: 1}, &empty)
+				replies <- p.Request(ctx, protocol.CmdTaskStart, forwardedExecTask("t1", "/bin/true"), &empty)
 				return nil
 			})
 
@@ -517,11 +502,9 @@ func TestTrustSummaryNotForward(t *testing.T) {
 			if report.Kind != protocol.TrustReportNotForward {
 				t.Fatalf("trust.summary = %+v, want not_forward", report)
 			}
-			for range 2 {
-				remote := expectRemoteCode(t, waitCh(t, replies, "reply"), "privileged_unsupported")
-				if want := "privileged mode is " + mode + ", not forward"; remote.Message != want {
-					t.Fatalf("message = %q, want %q", remote.Message, want)
-				}
+			remote := expectRemoteCode(t, waitCh(t, replies, "reply"), "privileged_unsupported")
+			if want := "privileged tasks are not supported by this crha"; remote.Message != want {
+				t.Fatalf("message = %q, want %q", remote.Message, want)
 			}
 		})
 	}
@@ -840,80 +823,52 @@ func TestForwardRefreshBeforeRefusal(t *testing.T) {
 	}
 }
 
-// TestForwardLocalApproval covers local.request through the daemon, the local.decision event to
-// crhs and the task.start that the approval covers.
-func TestForwardLocalApproval(t *testing.T) {
+// TestForwardWindowTrustSummary covers a window opened through the daemon: the agent relays the
+// changed trust summary, with the open window, to crhs, and the close as well.
+func TestForwardWindowTrustSummary(t *testing.T) {
 	keys := newPrivKeys(t)
 	env := newPrivEnv(t, keys, func(e *privEnv) string {
-		return e.baseConfig() + localTrust("local-admins", []uint32{uint32(os.Getuid())})
+		return e.baseConfig() + sshTrust("crhs", "crhs", e.keys.crhsLine, `["execute"]`) +
+			localTrust("local-admins", []uint32{uint32(os.Getuid())})
 	})
 	env.start()
 	a := forwardAgent(t, Options{PrivilegedSocket: env.socket})
 	waitForward(t, a)
 
-	ts := forwardedExecTask("fwd-local", "/bin/echo", "approved locally")
 	w := newCRHSWatch()
-	requested := make(chan error, 1)
-	replies := make(chan error, 1)
-	serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
-		var state protocol.LocalState
-		err := p.Request(ctx, protocol.CmdLocalRequest, protocol.LocalRequest{
-			TaskID: ts.TaskID, Attempt: 1, Spec: ts.Spec, Note: "please run",
-		}, &state)
+	done := make(chan error, 1)
+	serveForward(t, a, w, func(ctx context.Context, _ *protocol.Peer) error {
+		// The initial summary has no open window.
+		initial := waitCh(t, w.summaries, "the initial trust.summary")
+		if initial.Kind != protocol.TrustReportOK || initial.Summary == nil ||
+			initial.Summary.LocalWindow.Kind != protocol.WindowStateClosed {
+			return fmt.Errorf("initial window = %+v", initial.Summary)
+		}
+		client, err := localclient.Dial(ctx, env.socket, version.Version)
 		if err != nil {
-			requested <- err
-			return nil
+			return err
 		}
-		if state.Kind != protocol.LocalStatePending {
-			requested <- fmt.Errorf("local.request state = %+v, want pending", state)
-			return nil
+		defer client.Close()
+		if _, err := client.Open(ctx, 5*time.Minute); err != nil {
+			return err
 		}
-		requested <- nil
-		select {
-		case decision := <-w.decisions:
-			if decision.TaskID != ts.TaskID || decision.State.Kind != protocol.LocalStateApproved {
-				return fmt.Errorf("local.decision = %+v", decision)
-			}
-		case <-time.After(10 * time.Second):
-			return fmt.Errorf("local.decision: %w", errTimeout)
+		opened := waitCh(t, w.summaries, "the opened trust.summary")
+		if opened.Summary == nil || opened.Summary.LocalWindow.Kind != protocol.WindowStateOpen ||
+			opened.Summary.LocalWindow.Opened == nil {
+			return fmt.Errorf("opened window = %+v", opened.Summary)
 		}
-		replies <- requestStart(ctx, p, ts)
+		if _, err := client.CloseWindow(ctx); err != nil {
+			return err
+		}
+		closed := waitCh(t, w.summaries, "the closed trust.summary")
+		if closed.Summary == nil || closed.Summary.LocalWindow.Kind != protocol.WindowStateClosed {
+			return fmt.Errorf("closed window = %+v", closed.Summary)
+		}
+		done <- nil
 		return nil
 	})
-
-	if err := waitCh(t, requested, "the local.request response"); err != nil {
-		t.Fatalf("local.request: %v", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	client, err := localclient.Dial(ctx, env.socket, version.Version)
-	if err != nil {
-		t.Fatalf("local client: %v", err)
-	}
-	defer client.Close()
-	entries, err := client.Pending(ctx)
-	if err != nil {
-		t.Fatalf("pending.list: %v", err)
-	}
-	if len(entries) != 1 || entries[0].TaskID != ts.TaskID {
-		t.Fatalf("pending.list = %+v", entries)
-	}
-	hash, err := protocol.SpecSHA256(&entries[0].Spec)
-	if err != nil {
-		t.Fatalf("spec hash: %v", err)
-	}
-	if err := client.Approve(ctx, ts.TaskID, 1, hash, ""); err != nil {
-		t.Fatalf("local.approve: %v", err)
-	}
-	if err := waitCh(t, replies, "task.start response"); err != nil {
-		t.Fatalf("task.start after approval: %v", err)
-	}
-	output, exit := waitExit(t, w)
-	if output != "approved locally\n" {
-		t.Fatalf("output = %q", output)
-	}
-	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
-		t.Fatalf("task.exit = %+v", exit)
+	if err := waitCh(t, done, "the window trust summaries"); err != nil {
+		t.Fatalf("window trust summaries: %v", err)
 	}
 }
 
@@ -1154,6 +1109,7 @@ func newWedgedDaemon(t *testing.T, socket string) *wedgedDaemon {
 							Unprivileged: protocol.Identity{UID: 1000, GID: 1000, User: "crha"},
 							Privileged:   protocol.Identity{UID: 0, GID: 0, User: "root"},
 						},
+						LocalWindow: protocol.ClosedWindow(),
 					}, nil
 				})
 				peer.HandleRequest(protocol.CmdTaskStart, func(context.Context, cbor.RawMessage) (any, error) {

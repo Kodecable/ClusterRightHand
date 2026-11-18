@@ -494,7 +494,21 @@ describe("approvals api (sqlite)", () => {
 	it("returns an awaiting_signature request for a task waiting for a signature", async () => {
 		const tok = await newToken();
 		const t = await mkTask(tok);
-		await db.updateTable("tasks").set({ state: "awaiting_authorization" }).where("id", "=", t.id).execute();
+		const waiting = JSON.stringify({
+			options: [],
+			tried: [],
+			dispatchedPath: null,
+			payloadId: null,
+			attempt: 1,
+			trustDigest: null,
+			lastRejection: null,
+			updatedAt: new Date().toISOString(),
+		});
+		await db
+			.updateTable("tasks")
+			.set({ state: "awaiting_authorization", authorization: waiting })
+			.where("id", "=", t.id)
+			.execute();
 		const list = await pending("alice");
 		const request = list.requests?.find((item) => item.id === t.id);
 		expect(request).toMatchObject({ kind: "task", id: t.id, phase: "awaiting_signature" });

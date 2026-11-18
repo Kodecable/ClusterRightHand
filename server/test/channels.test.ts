@@ -827,7 +827,7 @@ describe("channels", () => {
 		expect(plainText(linkMessage)).toContain("Nodes: node-x");
 		expect(plainText(linkMessage)).toContain("Sign in the WebUI: https://crh.example/approvals/tasks/sign-task");
 		expect(plainText(linkMessage)).not.toContain("/approve");
-		expect(plainText(linkMessage)).not.toContain("/reject");
+		expect(plainText(linkMessage)).toContain("Reject with a reason: /reject sign-task reason");
 
 		await db
 			.updateTable("sessions")
@@ -888,6 +888,302 @@ describe("channels", () => {
 			.where("id", "=", next?.session_id ?? "")
 			.executeTakeFirst();
 		expect(stopped?.state).toBe("idle");
+	});
+
+	it("rejects an authorization wait by command with a reason, and never approves one", async () => {
+		const userId = 8211;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const taskId = "sign-reject-command";
+		await insertSignatureTask(thread.sessionId, taskId);
+		await wakeWait(thread.sessionId);
+		const card = await fake.waitForSent((call) => plainText(call).includes("Signature needed"));
+		expect(plainText(card)).toContain("Sign in the WebUI: https://crh.example/approvals/tasks/sign-reject-command");
+		expect(plainText(card)).toContain("/reject sign-reject-command");
+		const markup = (card.body.reply_markup as { inline_keyboard: { callback_data: string }[][] }).inline_keyboard;
+		expect(markup.flat().map((button) => button.callback_data)).toContain(`ap:t:${taskId}:r`);
+		expect(markup.flat().map((button) => button.callback_data)).not.toContain(`ap:t:${taskId}:a`);
+
+		fake.text(userId, `/reject ${taskId} not now`);
+		await fake.waitForSent((call) => plainText(call).includes("❌ Rejected · by alice: not now"));
+		const rejected = await db
+			.selectFrom("tasks")
+			.select(["state", "error_code", "error_message"])
+			.where("id", "=", taskId)
+			.executeTakeFirst();
+		expect(rejected).toMatchObject({
+			state: "rejected",
+			error_code: "authorization_declined",
+			error_message: "not now",
+		});
+		const events = await db
+			.selectFrom("audit_events")
+			.select(["action", "target_id", "detail"])
+			.where("action", "=", "channel.approval")
+			.where("target_id", "=", taskId)
+			.orderBy("seq", "desc")
+			.execute();
+		expect(events[0]).toMatchObject({ action: "channel.approval", target_id: taskId });
+		expect(JSON.parse(events[0]?.detail ?? "{}")).toMatchObject({ decision: "rejected", approval_kind: "task" });
+
+		// `/approve` is not a way to answer a signature wait: it asks for a real approval id and leaves it waiting.
+		const approveId = "sign-approve-refused";
+		await insertSignatureTask(thread.sessionId, approveId);
+		await wakeWait(thread.sessionId);
+		await fake.waitForSent((call) => plainText(call).includes(`/reject ${approveId}`));
+		fake.text(userId, `/approve ${approveId}`);
+		await fake.waitForSent(
+			(call) =>
+				String(call.body.chat_id) === String(userId) &&
+				plainText(call).includes("No waiting approval with that id is yours to decide."),
+		);
+		const waiting = await db.selectFrom("tasks").select("state").where("id", "=", approveId).executeTakeFirst();
+		expect(waiting?.state).toBe("awaiting_authorization");
+		fake.text(userId, "/approve");
+		await fake.waitForSent(
+			(call) => String(call.body.chat_id) === String(userId) && plainText(call).includes("Use /approve <id>."),
+		);
+	});
+
+	it("rejects the only authorization wait in the chat when /reject leaves the id out", async () => {
+		const userId = 8212;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const taskId = "sign-reject-reason-only";
+		await insertSignatureTask(thread.sessionId, taskId);
+		await wakeWait(thread.sessionId);
+		await fake.waitForSent((call) => plainText(call).includes(`/reject ${taskId}`));
+		fake.text(userId, "/reject too risky");
+		await fake.waitForSent(
+			(call) =>
+				String(call.body.chat_id) === String(userId) && plainText(call).includes("❌ Rejected · by alice: too risky"),
+		);
+		const rejected = await db
+			.selectFrom("tasks")
+			.select(["state", "error_code", "error_message"])
+			.where("id", "=", taskId)
+			.executeTakeFirst();
+		expect(rejected).toMatchObject({
+			state: "rejected",
+			error_code: "authorization_declined",
+			error_message: "too risky",
+		});
+	});
+
+	it("rejects a task group's signature wait from its card button, and never approves one", async () => {
+		const userId = 8213;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const groupId = "sign-group-reject";
+		const taskId = "sign-group-reject-member";
+		// A partly dispatched group is `running` while its remaining member still waits for a signature.
+		await insertSignatureGroup(thread.sessionId, groupId, taskId, "running");
+		await wakeWait(thread.sessionId);
+		const card = await fake.waitForSent((call) => plainText(call).includes(`/reject ${groupId}`));
+		expect(plainText(card)).toContain("Signature needed");
+		const markup = (card.body.reply_markup as { inline_keyboard: { callback_data: string }[][] }).inline_keyboard;
+		const reject = markup.flat().find((button) => button.callback_data === `ap:g:${groupId}:r`);
+		if (!reject) throw new Error("missing group reject button");
+		expect(markup.flat().map((button) => button.callback_data)).not.toContain(`ap:g:${groupId}:a`);
+
+		const deletesBefore = fake.callsOf("deleteMessage").length;
+		fake.callback(userId, reject.callback_data, {});
+		await fake.waitFor("deleteMessage", () => fake.callsOf("deleteMessage").length > deletesBefore);
+		const rejectedGroup = await db
+			.selectFrom("task_groups")
+			.select("state")
+			.where("id", "=", groupId)
+			.executeTakeFirst();
+		expect(rejectedGroup?.state).toBe("rejected");
+		const rejectedMember = await db
+			.selectFrom("tasks")
+			.select(["state", "error_code"])
+			.where("id", "=", taskId)
+			.executeTakeFirst();
+		expect(rejectedMember).toMatchObject({ state: "rejected", error_code: "authorization_declined" });
+
+		// `/approve` does not target a group signature wait either.
+		const approveGroup = "sign-group-approve";
+		const approveTask = "sign-group-approve-member";
+		await insertSignatureGroup(thread.sessionId, approveGroup, approveTask);
+		await wakeWait(thread.sessionId);
+		await fake.waitForSent((call) => plainText(call).includes(`/reject ${approveGroup}`));
+		fake.text(userId, `/approve ${approveGroup}`);
+		await fake.waitForSent(
+			(call) =>
+				String(call.body.chat_id) === String(userId) &&
+				plainText(call).includes("No waiting approval with that id is yours to decide."),
+		);
+		const stillWaiting = await db
+			.selectFrom("task_groups")
+			.select("state")
+			.where("id", "=", approveGroup)
+			.executeTakeFirst();
+		expect(stillWaiting?.state).toBe("awaiting_authorization");
+	});
+
+	it("edits a tracked signature card when the recorded options change", async () => {
+		const userId = 8214;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const taskId = "sign-options-refresh";
+		await insertSignatureTask(thread.sessionId, taskId);
+		await wakeWait(thread.sessionId);
+		const card = await fake.waitForSent((call) => plainText(call).includes("Signature needed"));
+		const before = (card.body.reply_markup as { inline_keyboard: { callback_data: string }[][] }).inline_keyboard;
+
+		const row = await db.selectFrom("tasks").select("authorization").where("id", "=", taskId).executeTakeFirstOrThrow();
+		const record = JSON.parse(row.authorization ?? "{}") as { options: unknown[] };
+		record.options = [{ kind: "local_window", nodeId: "node-y", nodeName: "node-edge" }];
+		await db
+			.updateTable("tasks")
+			.set({ authorization: JSON.stringify(record), rev: 2 })
+			.where("id", "=", taskId)
+			.execute();
+		await channels.refreshWaits(thread.sessionId);
+		const edited = await fake.waitFor("editMessageText", (call) =>
+			plainText(call).includes("Run sudo crha approve --for 30m on node-edge"),
+		);
+		expect(plainText(edited)).toContain("Signature needed");
+		expect(plainText(edited)).toContain(`/reject ${taskId}`);
+		const after = (edited.body.reply_markup as { inline_keyboard: { callback_data: string }[][] }).inline_keyboard;
+		expect(after.flat().map((button) => button.callback_data)).toEqual(
+			before.flat().map((button) => button.callback_data),
+		);
+	});
+
+	it("ends a signature card with how the wait really ended, not with the earlier approval", async () => {
+		const userId = 8215;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const approval = JSON.stringify({
+			evaluation: { result: "require-approval", levels: [] },
+			decision: { decision: "approved", by: { type: "user", id: aliceId }, at: new Date().toISOString() },
+		});
+		const ending = async (taskId: string, set: Record<string, unknown>, text: string) => {
+			await insertSignatureTask(thread.sessionId, taskId);
+			await db.updateTable("tasks").set({ approval }).where("id", "=", taskId).execute();
+			await wakeWait(thread.sessionId);
+			await fake.waitForSent((call) => plainText(call).includes(`/reject ${taskId}`));
+			await db.updateTable("tasks").set(set).where("id", "=", taskId).execute();
+			fake.failNextDeleteMessageIn(userId);
+			await channels.refreshWaits(thread.sessionId);
+			const edited = await fake.waitFor(
+				"editMessageText",
+				(call) => String(call.body.chat_id) === String(userId) && plainText(call).includes(text),
+			);
+			expect(plainText(edited)).toContain("Signature needed");
+			expect(plainText(edited)).not.toContain("Approved");
+		};
+		// Rejected in the WebUI by its owner, with the reason.
+		await ending(
+			"sign-ending-rejected",
+			{ state: "rejected", error_code: "authorization_declined", error_message: "not today" },
+			"❌ Rejected · by alice: not today",
+		);
+		// The node refused and nothing else could authorize it: not the owner's rejection.
+		await ending(
+			"sign-ending-refused",
+			{
+				state: "rejected",
+				error_code: "authorization_rejected",
+				error_message: "step 7: deny rule matched; no one on this node can authorize this command",
+			},
+			"❌ Not authorized: step 7: deny rule matched",
+		);
+		// The wait ran out.
+		await ending(
+			"sign-ending-expired",
+			{ state: "expired", error_code: "authorization_wait_expired", error_message: "no signature arrived" },
+			"Expired",
+		);
+		// The owner signed and the task was sent.
+		await ending(
+			"sign-ending-authorized",
+			{
+				state: "running",
+				authorization: JSON.stringify({
+					options: [],
+					crhsRejected: null,
+					rejectedBefore: null,
+					dispatchedPath: "user",
+					payloadId: "sign-payload",
+					attempt: 1,
+					trustDigest: null,
+					lastRejection: null,
+					updatedAt: new Date().toISOString(),
+				}),
+			},
+			"✅ Authorized",
+		);
+	});
+
+	it("ends a group's signature card from the members that waited, not one that ran before", async () => {
+		const userId = 8217;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const groupId = "sign-ending-group";
+		// One member already ran before the wait; the other waits for its signature.
+		await insertSignatureGroup(thread.sessionId, groupId, "sign-ending-ran", "running");
+		await db
+			.updateTable("tasks")
+			.set({
+				state: "exited",
+				exit_code: 0,
+				authorization: JSON.stringify({
+					options: [],
+					crhsRejected: null,
+					rejectedBefore: null,
+					dispatchedPath: "crhs",
+					payloadId: "earlier",
+					attempt: 1,
+					trustDigest: null,
+					lastRejection: null,
+					updatedAt: new Date().toISOString(),
+				}),
+			})
+			.where("id", "=", "sign-ending-ran")
+			.execute();
+		await insertSignatureTask(thread.sessionId, "sign-ending-waits", groupId);
+		await wakeWait(thread.sessionId);
+		await fake.waitForSent((call) => plainText(call).includes(`/reject ${groupId}`));
+
+		// The waiting member runs out of time: the card says so, not "Authorized".
+		await db
+			.updateTable("tasks")
+			.set({ state: "expired", error_code: "authorization_wait_expired", error_message: "no signature arrived" })
+			.where("id", "=", "sign-ending-waits")
+			.execute();
+		fake.failNextDeleteMessageIn(userId);
+		await channels.refreshWaits(thread.sessionId);
+		const edited = await fake.waitFor(
+			"editMessageText",
+			(call) => String(call.body.chat_id) === String(userId) && plainText(call).includes("Expired"),
+		);
+		expect(plainText(edited)).not.toContain("Authorized");
+	});
+
+	it("sends no signature card while the authorization is still being prepared", async () => {
+		const userId = 8216;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const taskId = "sign-preparing";
+		await insertSignatureTask(thread.sessionId, taskId);
+		const row = await db.selectFrom("tasks").select("authorization").where("id", "=", taskId).executeTakeFirstOrThrow();
+		const prepared = row.authorization;
+		await db
+			.updateTable("tasks")
+			.set({ authorization: JSON.stringify({ ...JSON.parse(prepared ?? "{}"), options: [] }) })
+			.where("id", "=", taskId)
+			.execute();
+		await wakeWait(thread.sessionId);
+		await channels.refreshWaits(thread.sessionId);
+		expect(fake.calls.some((call) => plainText(call).includes(`/reject ${taskId}`))).toBe(false);
+
+		// Its options are written: the card follows.
+		await db.updateTable("tasks").set({ authorization: prepared, rev: 2 }).where("id", "=", taskId).execute();
+		await channels.refreshWaits(thread.sessionId);
+		await fake.waitForSent((call) => plainText(call).includes(`/reject ${taskId}`));
 	});
 
 	it("records the WebUI only when a user message is submitted there", async () => {
@@ -2935,7 +3231,30 @@ async function insertOrphanTask(id: string, tokenId: string): Promise<string> {
 			attempt: 1,
 			rev: 1,
 			privileged: 0,
-			authorization: null,
+			authorization: JSON.stringify({
+				options: [
+					{
+						kind: "sign",
+						entries: [{ name: "alice", role: "user", credential: "sshsig" }],
+						ttlMs: 3_600_000,
+						payload: {
+							payload: "AA==",
+							id: "sign-payload",
+							deadline: new Date(Date.now() + 3_600_000).toISOString(),
+							taskIds: [id],
+							attempt: 1,
+						},
+					},
+				],
+				crhsRejected: null,
+				rejectedBefore: null,
+				dispatchedPath: null,
+				payloadId: null,
+				attempt: 1,
+				trustDigest: null,
+				lastRejection: null,
+				updatedAt: new Date().toISOString(),
+			}),
 			timeout_ms: null,
 			output_mode: "full",
 			max_lines: null,
@@ -2974,14 +3293,57 @@ async function insertOrphanTask(id: string, tokenId: string): Promise<string> {
 	return id;
 }
 
-async function insertSignatureTask(sessionId: string, id: string): Promise<string> {
+/** A task group waiting for a signature with one member, inserted directly like insertSignatureTask. */
+async function insertSignatureGroup(
+	sessionId: string,
+	groupId: string,
+	taskId: string,
+	state: "awaiting_authorization" | "running" = "awaiting_authorization",
+): Promise<string> {
+	const spec = JSON.stringify({ kind: "exec", command: { argv: ["true"] } });
+	await db
+		.insertInto("task_groups")
+		.values({
+			id: groupId,
+			org_id: orgId,
+			targets: JSON.stringify(["node-x"]),
+			node_ids: JSON.stringify(["node-x"]),
+			kind: "exec",
+			parallel: 1,
+			fail_fast: 0,
+			skipped: "[]",
+			state,
+			actor_type: "session",
+			actor_id: sessionId,
+			on_behalf_of_user_id: aliceId,
+			created_at: new Date().toISOString(),
+			finished_at: null,
+			rule_chain: JSON.stringify([{ type: "user", id: aliceId }]),
+			approval: null,
+			pending_input: null,
+			spec,
+			timeout_ms: null,
+			root_session_id: sessionId,
+			handler_type: "user",
+			handler_session_id: null,
+			output_mode: "status",
+			privileged: 1,
+			node_max_lines: null,
+			node_max_bytes: null,
+		})
+		.execute();
+	await insertSignatureTask(sessionId, taskId, groupId);
+	return groupId;
+}
+
+async function insertSignatureTask(sessionId: string, id: string, groupId: string | null = null): Promise<string> {
 	await db
 		.insertInto("tasks")
 		.values({
 			id,
 			org_id: orgId,
 			node_id: "node-x",
-			task_group_id: null,
+			task_group_id: groupId,
 			kind: "exec",
 			spec: JSON.stringify({ kind: "exec", command: { argv: ["true"] } }),
 			input_size: null,
@@ -2989,7 +3351,30 @@ async function insertSignatureTask(sessionId: string, id: string): Promise<strin
 			attempt: 1,
 			rev: 1,
 			privileged: 0,
-			authorization: null,
+			authorization: JSON.stringify({
+				options: [
+					{
+						kind: "sign",
+						entries: [{ name: "alice", role: "user", credential: "sshsig" }],
+						ttlMs: 3_600_000,
+						payload: {
+							payload: "AA==",
+							id: "sign-payload",
+							deadline: new Date(Date.now() + 3_600_000).toISOString(),
+							taskIds: [id],
+							attempt: 1,
+						},
+					},
+				],
+				crhsRejected: null,
+				rejectedBefore: null,
+				dispatchedPath: null,
+				payloadId: null,
+				attempt: 1,
+				trustDigest: null,
+				lastRejection: null,
+				updatedAt: new Date().toISOString(),
+			}),
 			timeout_ms: null,
 			output_mode: "full",
 			max_lines: null,

@@ -176,9 +176,10 @@ export class TaskGroups {
 	 */
 	readonly #cancelled = new Map<string, string>();
 	/**
-	 * In-memory rejection of a group's signature wait, set by rejectAuthorization() with the reason and
+	 * The owner's rejection of a group's authorization, set by rejectAuthorization() with the reason and
 	 * the owner who gave it. The run ends the group `rejected` once its waiting members ended, like a
-	 * cancellation ends the run it stops (doc/design/privilege.md "Waiting for signatures").
+	 * cancellation ends the run it stops, and the group's authorization sync rejects a member that waits
+	 * again instead of planning it (doc/design/privilege.md "Waiting for signatures").
 	 */
 	readonly #authorizationRejected = new Map<string, { reason: string; by: Actor }>();
 	/** Called once for every group that starts waiting for approval (Auto Review hooks in here). */
@@ -198,6 +199,7 @@ export class TaskGroups {
 		this.#db = db;
 		this.#cluster = cluster;
 		this.#audit = options.audit;
+		cluster.groupAuthorizationRejection = (id) => this.#authorizationRejected.get(id);
 	}
 
 	/** Whether endWaits() has run: wait no longer sleeps and the catalog wait loops stop. */
@@ -320,14 +322,31 @@ export class TaskGroups {
 	}
 
 	/**
+	 * Whether the group has a member still waiting for a signature. The group's own state is `running`
+	 * as soon as one member is dispatched, so the approvals list, the chat card and reject must ask this.
+	 */
+	async hasAuthorizationWait(id: string): Promise<boolean> {
+		const row = await this.#db
+			.selectFrom("tasks")
+			.select("id")
+			.where("task_group_id", "=", id)
+			.where("state", "=", "awaiting_authorization")
+			.limit(1)
+			.executeTakeFirst();
+		return row !== undefined;
+	}
+
+	/**
 	 * Rejects a group's signature wait (doc/design/privilege.md "Waiting for signatures"): every member
-	 * still waiting for its authorization ends `rejected`/`authorization_rejected` with the reason, and
+	 * still waiting for its authorization ends `rejected`/`authorization_declined` with the reason, and
 	 * the run ends the group `rejected`. Members already finished are left alone. Returns false unless
 	 * the group still waits for a signature: the caller's read may be stale (another path settled it).
 	 */
 	async rejectAuthorization(id: string, reason: string, by: Actor): Promise<boolean> {
 		const row = await this.#row(id);
-		if (row?.state !== "awaiting_authorization" || this.#authorizationRejected.has(id)) return false;
+		if (!row || GROUP_TERMINAL.has(row.state) || this.#authorizationRejected.has(id)) return false;
+		// A partly dispatched group is `running` while its other members still wait for a signature.
+		if (row.state !== "awaiting_authorization" && !(await this.hasAuthorizationWait(id))) return false;
 		const message = rejectionMessage(reason);
 		this.#authorizationRejected.set(id, { reason: message, by });
 		await this.#rejectWaitingMembers(id, message, by);
@@ -337,6 +356,8 @@ export class TaskGroups {
 			if (current && !GROUP_TERMINAL.has(current.state)) {
 				const started = await this.#startedNodes(id);
 				const nodeIds = JSON.parse(current.node_ids) as string[];
+				// A member's ending re-derives the group's state in the background (the last waiting member
+				// makes it `running`), so match any non-terminal state rather than the state read above.
 				await this.#db
 					.updateTable("task_groups")
 					.set({
@@ -347,7 +368,7 @@ export class TaskGroups {
 						handler_session_id: null,
 					})
 					.where("id", "=", id)
-					.where("state", "=", current.state)
+					.where("state", "not in", [...GROUP_TERMINAL])
 					.execute();
 			}
 			this.#settle(id);
@@ -1056,7 +1077,12 @@ export class TaskGroups {
 			handlerType: row.handler_type,
 			handlerSessionId: row.handler_session_id,
 			purpose: row.purpose,
-			phase: approvalPhase(row.state, row.handler_type, approval?.review),
+			// A partly dispatched group is `running` while a member still waits for a signature; the phase
+			// still says what the group waits for (doc/design/execution.md "Task groups").
+			phase:
+				row.state === "awaiting_authorization" || tasks.some((task) => task.state === "awaiting_authorization")
+					? "awaiting_signature"
+					: approvalPhase(row.state, row.handler_type, approval?.review),
 		};
 		view.outcome = taskGroupOutcome(view);
 		return view;

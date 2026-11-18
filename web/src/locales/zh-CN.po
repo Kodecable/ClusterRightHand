@@ -270,6 +270,11 @@ msgstr "限制为 0 表示不允许任何文件。将限制降低到当前用量
 msgid "A line alone is longer than the 50 KB a page keeps."
 msgstr "单独一行超过一页保留的 50 KB。"
 
+#. placeholder {0}: option.nodeName
+#: src/components/decision/signature-panel.tsx
+msgid "A local approval window is open on {0} until <0/>; crhs can run this task without a signature."
+msgstr "本地批准窗口已在 {0} 上开放，至 <0/> 为止；crhs 无需签名即可运行此任务。"
+
 #: src/features/settings/providers.ts
 msgid "A mapped level value is required."
 msgstr "填写映射值后才可使用该档。"
@@ -1184,6 +1189,10 @@ msgstr "时钟警告阈值"
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Close"
 msgstr "关闭"
+
+#: src/features/nodes/node-trust.tsx
+msgid "closed"
+msgstr "已关闭"
 
 #: src/app/shell/nav.ts
 msgid "Cluster"
@@ -2245,8 +2254,8 @@ msgid "Footnotes"
 msgstr "脚注"
 
 #: src/features/signing-credentials/trust-config-dialog.tsx
-msgid "For command limits, lifetimes, local approval and other advanced options, see the documentation and edit privileged.toml by hand."
-msgstr "命令限制、有效期、本地批准等高级选项请参考文档，手动编辑 privileged.toml"
+msgid "For command limits, lifetimes, a local approval window and other advanced options, see the documentation and edit privileged.toml by hand."
+msgstr "命令限制、有效期、本地批准窗口等高级选项请参考文档，手动编辑 privileged.toml。"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "Fork from here"
@@ -2702,9 +2711,19 @@ msgstr "正在加载工具列表…"
 msgid "Loading…"
 msgstr "正在加载…"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Local approval window"
+msgstr "本地批准窗口"
+
 #: src/components/decision/signature-panel.tsx
-msgid "Local approval"
-msgstr "本地批准"
+#: src/features/approvals/pages.tsx
+msgid "Local window"
+msgstr "本地窗口"
+
+#. placeholder {0}: option.nodeName
+#: src/components/task-facts.tsx
+msgid "Local window on {0}"
+msgstr "{0} 上的本地窗口"
 
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
@@ -3505,6 +3524,11 @@ msgstr "打开任务"
 msgid "Open the task group"
 msgstr "打开任务组"
 
+#. placeholder {0}: data.summary.localWindow.openedByUid
+#: src/features/nodes/node-trust.tsx
+msgid "open until <0/> (opened by uid {0} at <1/>)"
+msgstr "开放至 <0/>（由 uid {0} 于 <1/> 开启）"
+
 #: src/components/decision/request-details.tsx
 #: src/features/approvals/pages.tsx
 msgid "Operation"
@@ -4277,9 +4301,10 @@ msgstr "运行已开始。"
 msgid "Run task"
 msgstr "运行任务"
 
+#. placeholder {0}: option.nodeName
 #: src/components/decision/signature-panel.tsx
-msgid "Run this on the node as a user in its local trust entries; the task then runs with that approval instead."
-msgstr "在节点上以本地信任条目中的用户身份运行此命令；任务将改用该批准继续运行。"
+msgid "Run this on {0} as a user in its local trust entries. The window lets crhs run this task there without a signature; while it is open, crhs can run any privileged task on that node, including changing its trust configuration."
+msgstr "在 {0} 上以本地信任条目中的用户身份运行此命令。窗口开放期间，crhs 无需签名即可在该节点运行此任务；同时可在该节点运行任何特权任务，包括修改其信任配置。"
 
 #: src/features/nodes/add-node-dialog.tsx
 msgid "Run this on the node:"
@@ -4613,6 +4638,10 @@ msgstr "显示前 {maxLines} 行，共 {lines} 行"
 msgid "Shown to the model; an MCP server's own instructions otherwise"
 msgstr "展示给模型；否则使用 MCP 服务器自己的说明"
 
+#: src/components/task-facts.tsx
+msgid "Sign"
+msgstr "签名"
+
 #: src/features/auth/login-page.tsx
 msgid "Sign in"
 msgstr "登录"
@@ -4655,6 +4684,14 @@ msgstr "已登录为 {name}"
 #: src/components/decision/signature-panel.tsx
 msgid "Signed with Passkey \"{0}\"."
 msgstr "已使用 Passkey“{0}”签名。"
+
+#: src/components/task-facts.tsx
+msgid "Signed; waiting for the node to come back"
+msgstr "已签名，等待节点上线"
+
+#: src/components/decision/signature-panel.tsx
+msgid "Signed. The task is sent when its node is back online."
+msgstr "已签名。节点上线后即发送该任务。"
 
 #: src/app/shell/nav.ts
 #: src/features/signing-credentials/pages.tsx

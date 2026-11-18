@@ -165,12 +165,6 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 		case CmdTaskQuery:
 			var v TaskQuery
 			return v, Unmarshal(frame.Body, &v)
-		case CmdLocalRequest:
-			var v LocalRequest
-			return v, Unmarshal(frame.Body, &v)
-		case CmdLocalWithdraw:
-			var v LocalWithdraw
-			return v, Unmarshal(frame.Body, &v)
 		}
 	case FrameResponse:
 		switch frame.Name {
@@ -185,12 +179,6 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 			return v, Unmarshal(frame.Body, &v)
 		case CmdTaskQuery:
 			var v TaskStatus
-			return v, Unmarshal(frame.Body, &v)
-		case CmdLocalWithdraw:
-			var v Empty
-			return v, Unmarshal(frame.Body, &v)
-		case CmdLocalRequest:
-			var v LocalState
 			return v, Unmarshal(frame.Body, &v)
 		}
 	case FrameEvent:
@@ -215,9 +203,6 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 			return v, Unmarshal(frame.Body, &v)
 		case EventTrustSummary:
 			var v TrustReport
-			return v, Unmarshal(frame.Body, &v)
-		case EventLocalDecision:
-			var v LocalDecision
 			return v, Unmarshal(frame.Body, &v)
 		}
 	}
@@ -283,7 +268,7 @@ func fixtureCommands() []string {
 	return []string{
 		CmdHello, CmdPing, CmdTaskStart, CmdTaskInput, CmdTaskCancel, CmdTaskQuery,
 		EventTaskOutput, EventTaskExit, EventFacts, EventNodeStatus, EventOutputAck, EventTaskExitAck,
-		CmdLocalRequest, CmdLocalWithdraw, EventTrustSummary, EventLocalDecision,
+		EventTrustSummary,
 	}
 }
 
@@ -365,12 +350,7 @@ var fixtureExpectedIDs = []string{
 	"event.node.status.rejected",
 	"event.task.output.ack",
 	"event.task.exit.ack",
-	"request.local.request",
-	"response.local.request",
-	"request.local.withdraw",
-	"response.local.withdraw",
 	"event.trust.summary",
-	"event.local.decision",
 }
 
 func expectedFixtureValue(id string) (any, bool) {
@@ -766,34 +746,6 @@ func expectedFixtureValue(id string) (any, bool) {
 			Body: TaskExitAck{TaskID: "t-exec-argv"},
 		}, true
 
-	case "request.local.request":
-		return fixtureFrame{
-			Kind: FrameRequest, ID: 14, Name: CmdLocalRequest,
-			Body: LocalRequest{
-				TaskID:  "t-read",
-				Attempt: 1,
-				Spec: TaskSpec{Kind: TaskSpecFileRead, FileRead: &FileReadSpec{
-					Path: "/etc/hosts", StartLine: 1, LineCount: 100,
-				}},
-				Note:         "restart nginx",
-				InputPreview: []byte{},
-			},
-		}, true
-	case "response.local.request":
-		return fixtureFrame{
-			Kind: FrameResponse, ID: 14, Name: CmdLocalRequest, OK: true,
-			Body: LocalState{Kind: LocalStatePending},
-		}, true
-	case "request.local.withdraw":
-		return fixtureFrame{
-			Kind: FrameRequest, ID: 15, Name: CmdLocalWithdraw,
-			Body: LocalWithdraw{TaskID: "t-read", Attempt: 1},
-		}, true
-	case "response.local.withdraw":
-		return fixtureFrame{
-			Kind: FrameResponse, ID: 15, Name: CmdLocalWithdraw, OK: true,
-			Body: Empty{},
-		}, true
 	case "event.trust.summary":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventTrustSummary,
@@ -851,7 +803,7 @@ func expectedFixtureValue(id string) (any, bool) {
 						Key: TrustKey{Kind: TrustKeyLocal, Local: &LocalTrustKey{
 							UIDs: []Uint{0, 1000},
 						}},
-						Kinds:        []TrustKind{TrustKindExecute},
+						Kinds:        []TrustKind{},
 						RequireExact: false,
 						RequireTask:  false,
 						RequireUV:    false,
@@ -861,16 +813,10 @@ func expectedFixtureValue(id string) (any, bool) {
 						EnvAllow:     []string{},
 					},
 				},
+				LocalWindow: WindowState{Kind: WindowStateOpen, Opened: &OpenWindow{
+					OpenedAtMS: 1700000001000, OpenedByUID: 1000, UntilMS: 1700001800000,
+				}},
 			}},
-		}, true
-	case "event.local.decision":
-		return fixtureFrame{
-			Kind: FrameEvent, Name: EventLocalDecision,
-			Body: LocalDecision{
-				TaskID:  "t-read",
-				Attempt: 1,
-				State:   LocalState{Kind: LocalStateDenied, Message: "not now"},
-			},
 		}, true
 	}
 	return nil, false

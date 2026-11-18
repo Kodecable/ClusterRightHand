@@ -256,7 +256,7 @@ run it from a terminal.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
-			return helper.Stdio(ctx, os.Stdin, os.Stdout, os.Stderr, version.Version)
+			return helper.Stdio(ctx, os.Stdin, os.Stdout, os.Stderr, version.Version, helper.StdioOptions{})
 		},
 	}
 

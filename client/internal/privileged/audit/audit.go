@@ -55,8 +55,11 @@ type Record struct {
 	OutputEnd  uint64 `json:"output_end,omitempty"`
 	DurationMS int64  `json:"duration_ms,omitempty"`
 
-	// UID is the approver of a local approve/deny.
+	// UID is the local uid that opened or closed an approval window, or that opened the window a
+	// task was accepted through.
 	UID *uint32 `json:"uid,omitempty"`
+	// UntilMS is the window's deadline, logged when a window opens, closes or expires.
+	UntilMS int64 `json:"until_ms,omitempty"`
 	// Detail carries free-form context, for example why a reload failed.
 	Detail string `json:"detail,omitempty"`
 }

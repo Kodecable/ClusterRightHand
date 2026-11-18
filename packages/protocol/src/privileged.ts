@@ -1,11 +1,10 @@
 /**
- * Privilege wire types (doc/design/protocol.md "Privilege messages"): the authorization object, TrustSummary,
- * local approval and the crh-priv handshake. Only the shapes and the structural
+ * Privilege wire types (doc/design/protocol.md "Privilege messages"): the authorization object, TrustSummary
+ * with the local approval window, the window commands and the crh-priv handshake. Only the shapes and the structural
  * invariants of protocol.md live here; signature checks and hashing are left to
  * the callers, which run under Node.
  */
 import { decode as decodeCbor, encode as encodeCbor } from "./cbor.ts";
-import { taskSpecCodec } from "./messages.ts";
 import {
 	bool,
 	bytes,
@@ -27,7 +26,7 @@ import {
 export const AUTH_NAMESPACE = "crh-auth-v1";
 export const AUTH_PAYLOAD_VERSION = 1;
 
-export const PRIV_MAJOR = 0;
+export const PRIV_MAJOR = 1;
 /**
  * Incompatible changes bump the major version, so a peer with another major is refused; the minor
  * stays additive and never refuses a handshake.
@@ -85,6 +84,16 @@ export const trustEntryCodec = tuple([
 ]);
 export type TrustEntry = Infer<typeof trustEntryCodec>;
 
+export const windowStateCodec = union({
+	closed: tuple([]),
+	open: tuple([
+		["openedAtMs", int],
+		["openedByUid", uint],
+		["untilMs", int],
+	]),
+});
+export type WindowState = Infer<typeof windowStateCodec>;
+
 export const trustSummaryCodec = tuple([
 	["nodeId", text],
 	["aliases", list(text)],
@@ -97,6 +106,7 @@ export const trustSummaryCodec = tuple([
 		]),
 	],
 	["trust", list(trustEntryCodec)],
+	["localWindow", windowStateCodec],
 ]);
 export type TrustSummary = Infer<typeof trustSummaryCodec>;
 
@@ -106,40 +116,6 @@ export const trustReportCodec = union({
 	not_forward: tuple([]),
 });
 export type TrustReport = Infer<typeof trustReportCodec>;
-
-// ---------------------------------------------------------------------------
-// Local approval
-// ---------------------------------------------------------------------------
-
-export const localRequestCodec = tuple([
-	["taskId", text],
-	["attempt", uint],
-	["spec", taskSpecCodec],
-	["note", text],
-	/** The beginning of the task's stdin or file content, so the approver can see it. */
-	["inputPreview", bytes],
-]);
-export type LocalRequest = Infer<typeof localRequestCodec>;
-
-export const localStateCodec = union({
-	pending: tuple([]),
-	approved: tuple([]),
-	denied: tuple([["message", text]]),
-});
-export type LocalState = Infer<typeof localStateCodec>;
-
-export const localWithdrawCodec = tuple([
-	["taskId", text],
-	["attempt", uint],
-]);
-export type LocalWithdraw = Infer<typeof localWithdrawCodec>;
-
-export const localDecisionCodec = tuple([
-	["taskId", text],
-	["attempt", uint],
-	["state", localStateCodec],
-]);
-export type LocalDecision = Infer<typeof localDecisionCodec>;
 
 // ---------------------------------------------------------------------------
 // Authorization object
@@ -239,24 +215,8 @@ export const privWelcomeCodec = tuple([
 ]);
 export type PrivWelcome = Infer<typeof privWelcomeCodec>;
 
-export const pendingEntryCodec = tuple([
-	["taskId", text],
-	["attempt", uint],
-	["spec", taskSpecCodec],
-	["note", text],
-	["receivedAtMs", int],
-	["inputPreview", bytes],
-]);
-export type PendingEntry = Infer<typeof pendingEntryCodec>;
-
-export const localVerdictCodec = tuple([
-	["taskId", text],
-	["attempt", uint],
-	/** The spec the approver saw; the privileged mode refuses a verdict with another hash. */
-	["specSha256", sha256],
-	["message", text],
-]);
-export type LocalVerdict = Infer<typeof localVerdictCodec>;
+export const windowOpenCodec = tuple([["durationMs", uint]]);
+export type WindowOpen = Infer<typeof windowOpenCodec>;
 
 /** crh-priv frames on a stream: a 4-byte big-endian length, then the frame. */
 export function lengthPrefixed(frame: Uint8Array): Uint8Array {

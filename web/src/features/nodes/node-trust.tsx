@@ -191,6 +191,19 @@ export function NodeTrustPanel({ nodeId }: { nodeId: string }) {
 											value: formatDuration(Math.abs(data.summary.clockSkewMs), locale),
 										},
 										{
+											label: t`Local approval window`,
+											value:
+												data.summary.localWindow.kind === "open" ? (
+													<Trans>
+														open until <DateTime value={new Date(data.summary.localWindow.untilMs).toISOString()} />{" "}
+														(opened by uid {data.summary.localWindow.openedByUid} at{" "}
+														<DateTime value={new Date(data.summary.localWindow.openedAtMs).toISOString()} />)
+													</Trans>
+												) : (
+													t`closed`
+												),
+										},
+										{
 											label: t`Unprivileged identity`,
 											value: `${data.summary.identities.unprivileged.user} (uid ${data.summary.identities.unprivileged.uid}, gid ${data.summary.identities.unprivileged.gid})`,
 											mono: true,

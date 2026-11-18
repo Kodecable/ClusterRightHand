@@ -14,6 +14,7 @@ import {
 	type TrustReport,
 	type TrustSummary,
 	trustSummaryCodec,
+	type WindowState,
 } from "@crh/protocol";
 import type { Audit } from "../audit/audit.ts";
 import type { Db } from "../storage/db.ts";
@@ -169,6 +170,35 @@ function ruleFromJson(value: unknown): GuardRule {
 	};
 }
 
+function windowToJson(window: WindowState): Record<string, unknown> {
+	return window.kind === "open"
+		? {
+				kind: "open",
+				openedAtMs: window.openedAtMs,
+				openedByUid: window.openedByUid,
+				untilMs: window.untilMs,
+			}
+		: { kind: "closed" };
+}
+
+function windowFromJson(value: unknown): WindowState {
+	const o = asObject(value, "localWindow");
+	const kind = asString(o.kind, "localWindow.kind");
+	switch (kind) {
+		case "open":
+			return {
+				kind: "open",
+				openedAtMs: asNumber(o.openedAtMs, "localWindow.openedAtMs"),
+				openedByUid: asNumber(o.openedByUid, "localWindow.openedByUid"),
+				untilMs: asNumber(o.untilMs, "localWindow.untilMs"),
+			};
+		case "closed":
+			return { kind: "closed" };
+		default:
+			throw new Error(`stored trust report: unknown window state ${kind}`);
+	}
+}
+
 function entryToJson(entry: TrustEntry): Record<string, unknown> {
 	return {
 		name: entry.name,
@@ -214,6 +244,7 @@ export function trustSummaryToJson(summary: TrustSummary): Record<string, unknow
 			privileged: identityToJson(summary.identities.privileged),
 		},
 		trust: summary.trust.map(entryToJson),
+		localWindow: windowToJson(summary.localWindow),
 	};
 }
 
@@ -229,6 +260,7 @@ export function trustSummaryFromJson(value: unknown): TrustSummary {
 			privileged: identityFromJson(identities.privileged),
 		},
 		trust: asArray(o.trust, "summary.trust").map(entryFromJson),
+		localWindow: windowFromJson(o.localWindow),
 	};
 	// Validates enums, integer ranges, UTF-8 and byte lengths: a damaged row is not trusted.
 	trustSummaryCodec.encode(summary);

@@ -16,6 +16,7 @@ import { AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
+import { KeyedReconciler } from "../util/keyed-reconciler.ts";
 import type { GroupBudget } from "./batch-output.ts";
 import type { DataTransfer } from "./data-transfer.ts";
 import type { NodeLink } from "./links.ts";
@@ -58,7 +59,6 @@ export class ClusterCore {
 	readonly audit: Audit | undefined;
 	/** The signing keys crhs may use; `add`/`delete` update it live (doc/design/privilege.md "Authorization signing key"). */
 	readonly signingKeys: AuthorizationSigningKeyStore;
-	readonly trustWaitMs: number;
 	/** System settings, read per event so a clock_warn change applies without a restart. */
 	readonly settings: ClusterOptions["settings"];
 	readonly #clockWarnMs: number;
@@ -100,8 +100,19 @@ export class ClusterCore {
 	readonly taskQueue = new KeyedQueue(TASK_QUEUE_LABEL);
 	/** Serializes trust.summary processing per node, so a rejection never plans against an older report. */
 	readonly trustQueue = new KeyedQueue("trust queue");
-	/** Serializes the shared payload of a task group's waiting tasks. */
-	readonly groupQueue = new KeyedQueue("task group queue");
+	/**
+	 * The authorization sync passes, one unit (a task group, or a task in none) at a time
+	 * (doc/design/privilege.md "Authorization path"). Never awaited inside a task turn or a pass.
+	 */
+	readonly authorizationSync = new KeyedReconciler<void>();
+	/** The timer that syncs a unit again when its sign payload is due for a refresh, by unit key. */
+	readonly authorizationRefresh = new Map<string, NodeJS.Timeout>();
+	/**
+	 * The owner's rejection of a task group's authorization while the group still runs, as TaskGroups
+	 * records it: a member that waits again is rejected instead of planned. A group's run does not
+	 * outlive the process, so neither does this.
+	 */
+	groupRejection: ((groupId: string) => { reason: string; by: Actor } | undefined) | undefined;
 	/** The staging directory of file plane transfers (doc/design/library.md "File plane"). */
 	readonly transferRoot: string;
 	/** How long a data connection may stay silent before its transfer fails (DATA_IDLE_TIMEOUT_MS). */
@@ -133,7 +144,6 @@ export class ClusterCore {
 		this.sshRoute = options.sshRoute;
 		this.audit = options.audit;
 		this.signingKeys = options.signingKeys ?? AuthorizationSigningKeyStore.fromKey(options.authorizationKey);
-		this.trustWaitMs = options.trustWaitMs ?? 5_000;
 		this.settings = options.settings;
 		this.transferRoot = options.transferRoot ?? join(tmpdir(), "crhs-staging");
 		this.dataIdleTimeoutMs = options.dataIdleTimeoutMs ?? DATA_IDLE_TIMEOUT_MS;
@@ -193,8 +203,7 @@ export class ClusterCore {
 
 	/**
 	 * A task queue turn only reads the row, decides and writes it. A path that would wait for a
-	 * node (`waitNodeReady`, `waitTrust`) or send a request that waits for an answer (`task.start`,
-	 * `local.request`) calls this first. Under tests it throws, so a regression fails the suite; in
+	 * node (`waitNodeReady`) or send a request that waits for an answer (`task.start`) calls this first. Under tests it throws, so a regression fails the suite; in
 	 * production it is logged once with a stack and the work continues (a violation must never crash
 	 * the cluster).
 	 */
@@ -242,41 +251,23 @@ export class ClusterCore {
 		});
 	}
 
-	/** Waits for this connection's first trust summary; crhs does not query it itself. */
-	waitTrust(link: NodeLink, timeoutMs: number = this.trustWaitMs): Promise<void> {
-		this.assertOutsideTaskTurn("waitTrust");
-		if (link.trustFresh) return Promise.resolve();
-		return new Promise<void>((resolve) => {
-			const wake = () => {
-				clearTimeout(timer);
-				link.trustWaiters.delete(wake);
-				resolve();
-			};
-			const timer = setTimeout(wake, timeoutMs);
-			link.trustWaiters.add(wake);
-		});
-	}
-
 	/** A node that is ready right now, without waiting: an online link (or an SSH route). */
 	readyNodeNow(nodeId: string): Promise<ReadyNode | undefined> {
-		return this.#readyNode(nodeId, { trust: false }, 0);
+		return this.#readyNode(nodeId);
 	}
 
-	/**
-	 * A node ready to take a task.start: at once when it is connected, else after waitNodeReady.
-	 * `trust` applies only to the wait: a connected node is ready even before its new trust report.
-	 */
-	async readyNode(nodeId: string, options: { trust?: boolean } = {}): Promise<ReadyNode | undefined> {
-		return (await this.readyNodeNow(nodeId)) ?? (await this.waitNodeReady(nodeId, options));
+	/** A node ready to take a task.start: at once when it is connected, else after waitNodeReady. */
+	async readyNode(nodeId: string): Promise<ReadyNode | undefined> {
+		return (await this.readyNodeNow(nodeId)) ?? (await this.waitNodeReady(nodeId));
 	}
 
 	/**
 	 * Waits up to NODE_OFFLINE_GRACE_MS for a node to be ready to take a task.start: an active,
-	 * ready link, and for a forward privileged task also a fresh trust report. SSH nodes have no
+	 * ready link. SSH nodes have no
 	 * connection to wait for: they are ready while a route exists. Returns undefined when the grace
 	 * ran out, the server is closing or waits were ended.
 	 */
-	async waitNodeReady(nodeId: string, options: { trust?: boolean } = {}): Promise<ReadyNode | undefined> {
+	async waitNodeReady(nodeId: string): Promise<ReadyNode | undefined> {
 		this.assertOutsideTaskTurn("waitNodeReady");
 		// An SSH node has no standing connection to wait for: without a route it can never become ready, so
 		// fail at once instead of polling for the whole grace (doc/design/execution.md "Node offline").
@@ -284,7 +275,7 @@ export class ClusterCore {
 		if (node?.transport === "ssh" && this.sshRoute === undefined) return undefined;
 		const deadline = Date.now() + this.nodeOfflineGraceMs;
 		for (;;) {
-			const ready = await this.#readyNode(nodeId, options, deadline);
+			const ready = await this.#readyNode(nodeId);
 			if (ready) return ready;
 			if (this.closing || this.waitsEnded) return undefined;
 			const left = deadline - Date.now();
@@ -294,7 +285,7 @@ export class ClusterCore {
 		}
 	}
 
-	async #readyNode(nodeId: string, options: { trust?: boolean }, deadline: number): Promise<ReadyNode | undefined> {
+	async #readyNode(nodeId: string): Promise<ReadyNode | undefined> {
 		const node = await getNode(this.db, nodeId);
 		if (!node) return undefined;
 		if (node.transport === "ssh") {
@@ -302,12 +293,6 @@ export class ClusterCore {
 		}
 		const link = this.links.get(nodeId);
 		if (node.status !== "active" || !link || link.conn.closed || !link.ready) return undefined;
-		if (options.trust && !link.trustFresh) {
-			const left = deadline - Date.now();
-			if (left <= 0) return undefined;
-			await this.waitTrust(link, Math.min(left, this.trustWaitMs));
-			return undefined;
-		}
 		return { node, link };
 	}
 
@@ -323,27 +308,15 @@ export class ClusterCore {
 		for (const waiters of [...this.waiters.values()]) for (const wake of [...waiters]) wake();
 		this.waiters.clear();
 		for (const nodeId of [...this.linkWaiters.keys()]) this.notifyLink(nodeId);
-		for (const link of this.links.values()) for (const wake of [...link.trustWaiters]) wake();
 	}
 
 	/** Waits until the pending background writes and the keyed task queues have settled. */
 	async drain(): Promise<void> {
 		for (;;) {
-			const pending = [
-				...this.pending,
-				...this.taskQueue.pending,
-				...this.trustQueue.pending,
-				...this.groupQueue.pending,
-			];
+			const pending = [...this.pending, ...this.taskQueue.pending, ...this.trustQueue.pending];
 			if (pending.length === 0) return;
 			await Promise.all(pending);
-			if (
-				this.pending.size === 0 &&
-				this.taskQueue.size === 0 &&
-				this.trustQueue.size === 0 &&
-				this.groupQueue.size === 0
-			)
-				return;
+			if (this.pending.size === 0 && this.taskQueue.size === 0 && this.trustQueue.size === 0) return;
 		}
 	}
 }

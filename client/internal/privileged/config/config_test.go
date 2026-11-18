@@ -141,10 +141,10 @@ require_uv    = true
 kinds         = ["execute", "require-cosign"]
 
 [[trust]]
-name  = "local-admins"
-role  = "local"
-uids  = [0, 1000]
-kinds = ["execute"]
+name       = "local-admins"
+role       = "local"
+uids       = [0, 1000]
+max_window = "30m"
 `, files.Socket, files.StateDir, files.LogPath, crhsLine, testSKLine(), credentialID, cose)
 	return files
 }
@@ -259,8 +259,11 @@ func TestParseFullConfig(t *testing.T) {
 	if local.Role != protocol.TrustRoleLocal || !reflect.DeepEqual(local.UIDs, []uint32{0, 1000}) {
 		t.Fatalf("local entry: %+v", local)
 	}
-	if local.RequireTask {
-		t.Fatal("local entry requires task ids")
+	if local.MaxWindow.String() != "30m0s" {
+		t.Fatalf("local max_window = %v", local.MaxWindow)
+	}
+	if local.RequireTask || len(local.Kinds) != 0 {
+		t.Fatalf("local entry has kinds or require_task: %+v", local)
 	}
 }
 
@@ -318,8 +321,11 @@ func TestSummary(t *testing.T) {
 
 	local := summary.Trust[3]
 	if local.Key.Kind != protocol.TrustKeyLocal || local.Key.Local == nil ||
-		!reflect.DeepEqual(local.Key.Local.UIDs, []protocol.Uint{0, 1000}) {
+		!reflect.DeepEqual(local.Key.Local.UIDs, []protocol.Uint{0, 1000}) || len(local.Kinds) != 0 {
 		t.Fatalf("local summary = %+v", local)
+	}
+	if summary.LocalWindow.Kind != protocol.WindowStateClosed {
+		t.Fatalf("summary window = %+v, want closed", summary.LocalWindow)
 	}
 	// Every slice of the summary must be encodable: nil would become CBOR null and violate
 	// the schema.
@@ -382,6 +388,9 @@ func TestLookups(t *testing.T) {
 	if !cfg.HasLocalEntry() {
 		t.Fatal("HasLocalEntry = false")
 	}
+	if !cfg.HasCRHSEntry() {
+		t.Fatal("HasCRHSEntry = false")
+	}
 	// Root is not implicitly trusted: a configuration without a local entry has none even
 	// though root would be a natural default.
 	noLocal, err := Parse([]byte(minimalConfig(t)))
@@ -390,6 +399,11 @@ func TestLookups(t *testing.T) {
 	}
 	if got := noLocal.LocalEntry(0); got != nil || noLocal.HasLocalEntry() {
 		t.Fatalf("minimal config has a local entry: %v", got)
+	}
+	noCrhs := strings.Replace(minimalConfig(t), `role   = "crhs"`, `role   = "user"`, 1)
+	noCrhs = strings.Replace(noCrhs, "format = \"sshsig\"", "format = \"sshsig\"", 1)
+	if cfg, err := Parse([]byte(noCrhs)); err != nil || cfg.HasCRHSEntry() {
+		t.Fatalf("HasCRHSEntry with no crhs entry = %v, %v", cfg != nil && cfg.HasCRHSEntry(), err)
 	}
 }
 
@@ -450,6 +464,7 @@ func TestParseRejects(t *testing.T) {
 			strings.Replace(base, `kinds  = ["execute"]`, `kinds  = ["execute", "execute"]`, 1), "duplicate"},
 		{"bad max_ttl", strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nmax_ttl = \"soon\"", 1), "max_ttl"},
 		{"zero max_ttl", strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nmax_ttl = \"0s\"", 1), "max_ttl"},
+		{"short max_ttl", strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nmax_ttl = \"4m59s\"", 1), "at least 5m0s"},
 		{"rule without method",
 			strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nallow = [{ prefix = \"/etc/\" }]", 1), "method is required"},
 		{"rule with prefix and regex",
@@ -462,12 +477,21 @@ func TestParseRejects(t *testing.T) {
 			strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nenv_allow = [\"PATH\"]", 1), "PATH is fixed"},
 		{"env_allow invalid name",
 			strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nenv_allow = [\"A=B\"]", 1), "invalid variable name"},
-		{"duplicate trust names", base + "\n[[trust]]\nname = \"crhs\"\nrole = \"local\"\nuids = [0]\nkinds = [\"execute\"]\n", "duplicate name"},
-		{"local with format", localEntry(t, "format = \"sshsig\"\nuids = [0]\nkinds = [\"execute\"]"), "no format"},
-		{"local without uids", localEntry(t, "kinds = [\"execute\"]"), "uids: required"},
-		{"local with require_task", localEntry(t, "uids = [0]\nrequire_task = true\nkinds = [\"execute\"]"), "require_task"},
-		{"local with key", localEntry(t, "uids = [0]\nkey = \"ssh-ed25519 AAAA\"\nkinds = [\"execute\"]"), "not by a key"},
-		{"local kinds cosign", localEntry(t, "uids = [0]\nkinds = [\"cosign\"]"), "takes execute only"},
+		{"duplicate trust names", base + "\n[[trust]]\nname = \"crhs\"\nrole = \"local\"\nuids = [0]\n", "duplicate name"},
+		{"local with format", localEntry(t, "format = \"sshsig\"\nuids = [0]"), "no format"},
+		{"local without uids", localEntry(t, ""), "uids: required"},
+		{"local with require_task", localEntry(t, "uids = [0]\nrequire_task = true"), "require_task"},
+		{"local with key", localEntry(t, "uids = [0]\nkey = \"ssh-ed25519 AAAA\""), "not by a key"},
+		{"local kinds", localEntry(t, "uids = [0]\nkinds = [\"execute\"]"), "a local entry has no kinds"},
+		{"local allow", localEntry(t, "uids = [0]\nallow = [{ method = \"exec\" }]"), "allow: a local entry"},
+		{"local deny", localEntry(t, "uids = [0]\ndeny = [{ method = \"exec\" }]"), "deny: a local entry"},
+		{"local env_allow", localEntry(t, "uids = [0]\nenv_allow = [\"FOO\"]"), "env_allow: a local entry"},
+		{"local max_ttl", localEntry(t, "uids = [0]\nmax_ttl = \"5m\""), "use max_window"},
+		{"local require_exact", localEntry(t, "uids = [0]\nrequire_exact = true"), "require_exact: a local entry"},
+		{"local require_uv", localEntry(t, "uids = [0]\nrequire_uv = true"), "require_uv: a local entry"},
+		{"local max_window", localEntry(t, "uids = [0]\nmax_window = \"0s\""), "max_window: must be positive"},
+		{"local bad max_window", localEntry(t, "uids = [0]\nmax_window = \"soon\""), "max_window"},
+		{"crhs max_window", strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nmax_window = \"1h\"", 1), "only a local entry"},
 		{"user without format", userEntry(t, "", "kinds = [\"execute\"]"), "needs \"sshsig\" or \"webauthn\""},
 		{"user kinds cosign", userEntry(t, "format = \"sshsig\"\nkey = "+quote(line), "kinds = [\"cosign\"]"), "user entry takes execute or require-cosign"},
 		{"user sshsig without key", userEntry(t, "format = \"sshsig\"", "kinds = [\"execute\"]"), "key: required"},

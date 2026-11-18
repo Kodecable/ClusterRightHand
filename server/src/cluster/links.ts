@@ -17,7 +17,6 @@ import {
 	type TaskStatus,
 	type Welcome,
 } from "@crh/protocol";
-import { onLocalDecision } from "./authorization/local-approval.ts";
 import type { NodeConnection } from "./connection.ts";
 import type { ClusterCore } from "./core.ts";
 import { dropLive, newLive, ownLive } from "./live-output.ts";
@@ -42,10 +41,11 @@ export interface NodeLink {
 	ready: boolean;
 	/** Task ids we asked about with TaskQuery after Hello. */
 	queried: Set<string>;
-	/** Whether this connection has reported its trust summary; the cached report is stale until then. */
+	/**
+	 * Whether this connection has reported its trust summary. Shown in the node view; the first report on
+	 * a connection syncs the node's waiting authorizations (doc/design/privilege.md "Trust cache").
+	 */
 	trustFresh: boolean;
-	/** Dispatches waiting for the first trust summary of this connection. */
-	trustWaiters: Set<() => void>;
 }
 
 export function isConnected(core: ClusterCore, nodeId: string): boolean {
@@ -145,7 +145,6 @@ export function attach(core: ClusterCore, conn: NodeConnection, node: NodeRow): 
 		ready: false,
 		queried: new Set(),
 		trustFresh: false,
-		trustWaiters: new Set(),
 	};
 	core.links.set(node.id, link);
 	// A dispatch waiting out the offline grace re-checks the link now, then waits for hello.
@@ -247,7 +246,6 @@ function registerActive(core: ClusterCore, conn: NodeConnection, link: NodeLink)
 	peer.onEvent("facts", (facts) => core.trackHandler(onFacts(core, conn.nodeId, facts)));
 	// Pushed once after hello and again on every change (doc/design/protocol.md "Privilege messages").
 	peer.onEvent("trust.summary", (report) => core.trackHandler(onTrustSummary(core, link, report)));
-	peer.onEvent("local.decision", (decision) => core.trackHandler(onLocalDecision(core, link, decision)));
 }
 
 /**
@@ -279,11 +277,6 @@ async function onFacts(core: ClusterCore, nodeId: string, facts: Facts): Promise
 		const seconds = ms % 1000 === 0 ? String(ms / 1000) : (ms / 1000).toFixed(1);
 		console.warn(`node ${nodeId}: clock differs from crhs by ${seconds} s (more than ${clockWarnMs / 1000} s)`);
 	}
-}
-
-/** Waits for this connection's first trust summary; crhs does not query it itself. */
-export function waitTrust(core: ClusterCore, link: NodeLink, timeoutMs?: number): Promise<void> {
-	return core.waitTrust(link, timeoutMs);
 }
 
 /** Reconciles the client's task list with ours, answers with Welcome, then queries the rest. */

@@ -42,13 +42,30 @@ import {
 } from "./api";
 
 /** What kind of decision a row holds; the table's first column. */
-type DecisionType = "approval" | "signature" | "quota";
+type DecisionType = "approval" | "signature" | "local_window" | "quota";
 
 const TYPE_LABELS: Record<DecisionType, MessageDescriptor> = {
 	approval: msg`Approval`,
 	signature: msg`Signature`,
+	local_window: msg`Local window`,
 	quota: msg`Quota`,
 };
+
+/** A signature wait is labelled by its plan's option kinds; no plan yet reads as a signature. */
+function signatureType(view: TaskView | TaskGroupView): DecisionType {
+	const records = "tasks" in view ? view.tasks.map((task) => task.authorization) : [view.authorization];
+	const options = records.flatMap((record) => record?.options ?? []);
+	if (options.some((option) => option.kind === "sign")) return "signature";
+	if (options.some((option) => option.kind === "local_window")) return "local_window";
+	return "signature";
+}
+
+/** Whether a task group waits for a signature, even while other members already run. */
+function groupAwaitsSignature(group: TaskGroupView): boolean {
+	return (
+		group.state === "awaiting_authorization" || group.tasks.some((task) => task.state === "awaiting_authorization")
+	);
+}
 
 /** One row of the approvals table: a task, task group or session whose decision waits for the user. */
 interface DecisionRow {
@@ -83,7 +100,7 @@ function taskRow(
 	const operation = request !== undefined ? actionText(i18n, request.action) : taskTitle(i18n, task);
 	return {
 		key: `${type}:task:${task.id}`,
-		type,
+		type: type === "signature" ? signatureType(task) : type,
 		operation,
 		...(request !== undefined
 			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes }
@@ -104,7 +121,7 @@ function taskGroupRow(
 	const operation = request !== undefined ? actionText(i18n, request.action) : taskTitle(i18n, taskGroup);
 	return {
 		key: `${type}:task-group:${taskGroup.id}`,
-		type,
+		type: type === "signature" ? signatureType(taskGroup) : type,
 		operation,
 		...(request !== undefined
 			? { requestNodes: request.nodes ?? [], moreNodes: request.moreNodes }
@@ -387,7 +404,8 @@ export function ApprovalTaskGroupPage() {
 	const view = taskGroup.data;
 	const request = view.request ?? undefined;
 	const awaitingApproval = view.state === "awaiting_approval";
-	const awaitingSignature = view.state === "awaiting_authorization";
+	// A group with running members keeps `running`; it still waits while one member needs a signature.
+	const awaitingSignature = groupAwaitsSignature(view);
 	return (
 		<Page width="detail" data-testid="approval-detail">
 			<DetailBackLink />

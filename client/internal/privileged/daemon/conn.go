@@ -30,9 +30,9 @@ const (
 	// reading must not block a caller (or the daemon's Run loop) forever; a write that exceeds
 	// it closes the connection because the stream cannot be resumed in the middle of a frame.
 	writeFrameTimeout = 10 * time.Second
-	// maxForwardConns caps the forward connections that receive trust.summary and local.decision.
-	// Forward connections are the unprivileged peer's; refusing beyond the cap keeps one process
-	// from adding connections without limit.
+	// maxForwardConns caps the forward connections that receive trust.summary. Forward
+	// connections are the unprivileged peer's; refusing beyond the cap keeps one process from
+	// adding connections without limit.
 	maxForwardConns = 8
 	// forwardOutboxSize buffers the events queued for one forward connection. Enqueuing never
 	// waits for the peer; the writer drains the queue on its own goroutine.
@@ -63,8 +63,8 @@ type conn struct {
 	closed  bool
 	// done is closed by close so a queued writer stops even before the socket is torn down.
 	done chan struct{}
-	// outbox holds trust.summary and local.decision events for this connection. Their order is
-	// kept, and a slow peer only delays its own goroutine, never pushLocalDecision or reload.
+	// outbox holds trust.summary events for this connection. Their order is kept, and a slow
+	// peer only delays its own goroutine, never pushTrustSummary or reload.
 	outbox chan outbound
 
 	closeOnce sync.Once
@@ -229,9 +229,8 @@ func (c *conn) doneSignal() chan struct{} {
 	return c.done
 }
 
-// addForward adds c to the set of connections that receive trust.summary and local.decision. It
-// reports false when maxForwardConns connections are already registered; an existing c is
-// idempotent.
+// addForward adds c to the set of connections that receive trust.summary. It reports false
+// when maxForwardConns connections are already registered; an existing c is idempotent.
 func (s *Server) addForward(c *conn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -328,12 +327,10 @@ func (c *conn) registerHandlers() {
 		p.HandleRequest(protocol.CmdTaskStart, c.handleTaskStart)
 		session.HandleRequests()
 		p.HandleRequest(wire.CmdTrustQuery, c.handleTrustQuery)
-		p.HandleRequest(protocol.CmdLocalRequest, c.handleLocalRequest)
-		p.HandleRequest(protocol.CmdLocalWithdraw, c.handleLocalWithdraw)
 	case wire.RoleLocal:
-		p.HandleRequest(wire.CmdPendingList, c.handlePendingList)
-		p.HandleRequest(wire.CmdLocalApprove, c.handleLocalApprove)
-		p.HandleRequest(wire.CmdLocalDeny, c.handleLocalDeny)
+		p.HandleRequest(wire.CmdWindowStatus, c.handleWindowStatus)
+		p.HandleRequest(wire.CmdWindowOpen, c.handleWindowOpen)
+		p.HandleRequest(wire.CmdWindowClose, c.handleWindowClose)
 	}
 }
 
@@ -418,7 +415,7 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 	if decided.authorization != nil {
 		authID = record.AuthorizationID
 	}
-	if err := c.s.opts.Log.Log(audit.Record{
+	acceptedRecord := audit.Record{
 		Event:           "task.accepted",
 		TaskID:          ts.TaskID,
 		Attempt:         ts.Attempt,
@@ -426,7 +423,13 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		AuthorizationID: authID,
 		SpecSHA256:      record.SpecSHA256,
 		Spec:            &ts.Spec,
-	}); err != nil {
+	}
+	if decided.window != nil {
+		uid := decided.window.openedBy
+		acceptedRecord.UID = &uid
+		acceptedRecord.Detail = fmt.Sprintf("via local window opened by uid %d", uid)
+	}
+	if err := c.s.opts.Log.Log(acceptedRecord); err != nil {
 		// The acceptance is already persisted, so the task id is burned either way. Do not
 		// execute a privileged task whose acceptance could not be audited.
 		c.s.log.Error("write the local log; refusing to execute", "task", ts.TaskID, "err", err)
@@ -436,14 +439,11 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 	session.Add(task)
 	accepted = true
 	c.s.registerTask(task)
-	if decided.approval != nil {
-		c.s.consumeApproval(approvalKey{taskID: ts.TaskID, attempt: uint64(ts.Attempt)})
-	}
 	return protocol.Deferred{Body: protocol.Empty{}, After: func() { session.Launch(task) }}, nil
 }
 
 // executionStart prepares the task.start the executor receives. The cwd of a task that was
-// not authorized with an exact command (or by a local approval) is fixed to "/".
+// not authorized with an exact command is fixed to "/".
 func executionStart(ts *protocol.TaskStart, decided *decidedTask) protocol.TaskStart {
 	out := *ts
 	if decided.exact || ts.Spec.Kind != protocol.TaskSpecExec || ts.Spec.Exec == nil {
@@ -490,7 +490,7 @@ func (c *conn) handleTrustQuery(_ context.Context, raw cbor.RawMessage) (any, er
 	if err := protocol.UnmarshalBody(raw, &empty); err != nil {
 		return nil, err
 	}
-	return c.s.Config().Summary(), nil
+	return c.s.summary(), nil
 }
 
 // logRefusal records a refused task.start in the local log. The code, step and message are
@@ -508,52 +508,43 @@ func (s *Server) logRefusal(ts *protocol.TaskStart, refused *refusal) {
 	}
 }
 
-func (c *conn) handlePendingList(_ context.Context, raw cbor.RawMessage) (any, error) {
+func (c *conn) handleWindowStatus(_ context.Context, raw cbor.RawMessage) (any, error) {
 	var empty protocol.Empty
 	if err := protocol.UnmarshalBody(raw, &empty); err != nil {
 		return nil, err
 	}
-	return c.s.pendingEntries(), nil
+	if !c.s.localUIDAllowed(c.uid) {
+		return nil, &protocol.RemoteError{
+			Code: protocol.CodeLocalNotTrusted, Message: fmt.Sprintf("uid %d is not a local approver", c.uid),
+		}
+	}
+	return c.s.windowState(), nil
 }
 
-func (c *conn) handleLocalRequest(_ context.Context, raw cbor.RawMessage) (any, error) {
-	var req protocol.LocalRequest
-	if err := protocol.UnmarshalBody(raw, &req); err != nil {
+func (c *conn) handleWindowOpen(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var open protocol.WindowOpen
+	if err := protocol.UnmarshalBody(raw, &open); err != nil {
 		return nil, err
 	}
-	state, refusal := c.s.requestLocal(&req)
+	ms := uint64(open.DurationMS)
+	if ms == 0 || ms > uint64(1<<63-1)/uint64(time.Millisecond) {
+		return nil, &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: "the window length is out of range"}
+	}
+	state, refusal := c.s.openWindow(c.uid, time.Duration(ms)*time.Millisecond)
 	if refusal != nil {
 		return nil, refusal
 	}
 	return state, nil
 }
 
-func (c *conn) handleLocalWithdraw(_ context.Context, raw cbor.RawMessage) (any, error) {
-	var withdraw protocol.LocalWithdraw
-	if err := protocol.UnmarshalBody(raw, &withdraw); err != nil {
+func (c *conn) handleWindowClose(_ context.Context, raw cbor.RawMessage) (any, error) {
+	var empty protocol.Empty
+	if err := protocol.UnmarshalBody(raw, &empty); err != nil {
 		return nil, err
 	}
-	c.s.withdrawLocal(withdraw.TaskID, uint64(withdraw.Attempt))
-	return protocol.Empty{}, nil
-}
-
-func (c *conn) handleLocalApprove(_ context.Context, raw cbor.RawMessage) (any, error) {
-	return c.decideLocal(raw, true)
-}
-
-func (c *conn) handleLocalDeny(_ context.Context, raw cbor.RawMessage) (any, error) {
-	return c.decideLocal(raw, false)
-}
-
-func (c *conn) decideLocal(raw cbor.RawMessage, approve bool) (any, error) {
-	var verdict protocol.LocalVerdict
-	if err := protocol.UnmarshalBody(raw, &verdict); err != nil {
-		return nil, err
-	}
-	if _, refusal := c.s.decideLocal(c.uid, &verdict, approve); refusal != nil {
+	state, refusal := c.s.closeWindow(c.uid)
+	if refusal != nil {
 		return nil, refusal
 	}
-	// The decision itself reaches crhs as the local.decision event; the command's success
-	// response is empty.
-	return protocol.Empty{}, nil
+	return state, nil
 }

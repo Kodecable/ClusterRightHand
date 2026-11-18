@@ -10,12 +10,13 @@ set -eu
 CTL=/usr/local/bin/privctl.sh
 READY=/etc/crha/.ready
 
-mkdir -p /run/priv /run/sshd /run/crha /var/log/crha
+mkdir -p /run/priv /run/sshd /run/crha /var/lib/crha /var/lib/crha-privileged /var/log/crha
 
 # The state directory belongs to the non-privileged account; the privileged mode's used list
-# stay root-only (doc/design/privilege.md "The privileged mode").
+# stays root-only, outside that directory (doc/design/privilege.md "The privileged mode").
 chown crha:crha /var/lib/crha /var/log/crha 2>/dev/null || true
-chown root:root /var/lib/crha/privileged 2>/dev/null || true
+chown root:root /var/lib/crha-privileged 2>/dev/null || true
+chmod 0700 /var/lib/crha-privileged 2>/dev/null || true
 chmod 0755 /run/crha
 
 if [ "${PRIV_NO_SSHD:-0}" != "1" ]; then

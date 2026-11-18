@@ -529,6 +529,48 @@ func TestOpenErrors(t *testing.T) {
 	}
 }
 
+// TestOpenRefusesInsecureStateDir covers the startup check shared with the stdin spool: a symlink
+// or a group-writable directory could be swapped by the unprivileged account, so the used list
+// must not be opened there.
+func TestOpenRefusesInsecureStateDir(t *testing.T) {
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(link, Options{}); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("Open(symlink) = %v, want a symbolic-link refusal", err)
+	}
+
+	group := filepath.Join(base, "group")
+	if err := os.Mkdir(group, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(group, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(group, Options{}); err == nil || !strings.Contains(err.Error(), "writable by group or others") {
+		t.Fatalf("Open(group-writable) = %v, want a mode refusal", err)
+	}
+
+	if os.Geteuid() == 0 {
+		other := filepath.Join(base, "other")
+		if err := os.Mkdir(other, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chown(other, 12345, 12345); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Open(other, Options{}); err == nil || !strings.Contains(err.Error(), "owned by uid 12345") {
+			t.Fatalf("Open(other-owned) = %v, want an owner refusal", err)
+		}
+	}
+}
+
 // TestNoPersist covers the in-memory-only switch: no directory or file is created, an existing
 // file is not read, and duplicate detection and eviction still work.
 func TestNoPersist(t *testing.T) {

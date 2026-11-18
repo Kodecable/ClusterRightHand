@@ -83,7 +83,14 @@ const CONTEXT: TrustWarningContext = {
 };
 
 function summary(trust: TrustEntry[], aliases: string[] = []): TrustSummary {
-	return { nodeId: NODE, aliases, clockSkewMs: 60_000, identities: IDENTITIES, trust };
+	return {
+		nodeId: NODE,
+		aliases,
+		clockSkewMs: 60_000,
+		identities: IDENTITIES,
+		trust,
+		localWindow: { kind: "closed" },
+	};
 }
 
 function warnings(

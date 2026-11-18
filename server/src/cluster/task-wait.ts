@@ -2,8 +2,6 @@
 import type { Selectable } from "kysely";
 import { requestSourceFor, requestSourcesFor, sourceActorKey } from "../request-source.ts";
 import type { TasksTable } from "../storage/schema.ts";
-import { withdrawLocal } from "./authorization/common.ts";
-import { parseTaskAuthorization } from "./authorization.ts";
 import type { ClusterCore } from "./core.ts";
 import { CANCELLED_BEFORE_START_MESSAGE, cancelledTaskFields, endTask, requestTaskCancel } from "./task-end.ts";
 import { toView } from "./task-view.ts";
@@ -184,14 +182,10 @@ export async function cancelTask(
 	if (row.state === "awaiting_approval" || row.state === "awaiting_authorization") {
 		if (by) core.cancelledBy.set(id, by);
 		// A cancel is the user's decision, not one derived from the row: when another path bumped `rev` in
-		// between (a group refresh, a re-plan), read again and cancel the current row instead of giving up.
-		// The withdrawn local request is the one on the row that is actually cancelled.
+		// between (a group refresh, an authorization sync), read again and cancel the current row instead of giving up.
 		for (let attempt = 0; attempt < CANCEL_ROUNDS; attempt++) {
-			const record = parseTaskAuthorization(row.authorization);
-			const link = core.links.get(row.node_id);
 			const written = await endTask(core, id, {
 				write: { from: [row.state], rev: row.rev, outOfTurn: true, set: cancelledTaskFields(message) },
-				afterWrite: () => withdrawLocal(link, id, record),
 				group: row.task_group_id,
 				onChange: row.actor_id,
 			});

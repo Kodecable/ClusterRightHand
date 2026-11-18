@@ -50,7 +50,7 @@ describe("the in-turn assertion", () => {
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
 		// No node in the database: the wait outside a turn fails at once instead of running out a grace.
-		core = new ClusterCore(db, { nodeOfflineGraceMs: 0, trustWaitMs: 0 });
+		core = new ClusterCore(db, { nodeOfflineGraceMs: 0 });
 	});
 
 	afterEach(async () => {
@@ -61,20 +61,6 @@ describe("the in-turn assertion", () => {
 	it("throws when waitNodeReady is called inside a task queue turn", async () => {
 		await expect(core.taskQueue.run("task-1", () => core.waitNodeReady("node"))).rejects.toThrow(
 			"waitNodeReady inside a task queue turn",
-		);
-	});
-
-	it("throws when waitTrust is called inside a task queue turn, even for a fresh link", async () => {
-		const link = {
-			conn: { nodeId: "node" },
-			active: true,
-			ready: true,
-			queried: new Set<string>(),
-			trustFresh: true,
-			trustWaiters: new Set<() => void>(),
-		} as unknown as NodeLink;
-		await expect(core.taskQueue.run("task-1", () => core.waitTrust(link))).rejects.toThrow(
-			"waitTrust inside a task queue turn",
 		);
 	});
 

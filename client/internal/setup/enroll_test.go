@@ -23,6 +23,7 @@ type fakeHost struct {
 	root        string
 	rootUser    bool
 	uid         uint32
+	gid         uint32
 	executable  string
 	groupExists bool
 	userExists  bool
@@ -32,12 +33,20 @@ type fakeHost struct {
 
 func newFakeHost(t *testing.T) *fakeHost {
 	t.Helper()
-	return &fakeHost{root: t.TempDir(), rootUser: true, uid: 998, executable: "/usr/local/bin/crha"}
+	// The fake tree lives in t.TempDir(), so the directories ensureDirectory creates already
+	// belong to this process. Reporting the same uid/gid lets the skip path be exercised without
+	// actually changing owners, which a non-root test cannot do.
+	return &fakeHost{
+		root: t.TempDir(), rootUser: true,
+		uid: uint32(os.Geteuid()), gid: uint32(os.Getegid()),
+		executable: "/usr/local/bin/crha",
+	}
 }
 
 func (h *fakeHost) Root() string                { return h.root }
 func (h *fakeHost) IsRoot() bool                { return h.rootUser }
 func (h *fakeHost) UID(string) (uint32, error)  { return h.uid, nil }
+func (h *fakeHost) GID(string) (uint32, error)  { return h.gid, nil }
 func (h *fakeHost) Executable() (string, error) { return h.executable, nil }
 
 func (h *fakeHost) Exec(_ context.Context, name string, args ...string) (CommandResult, error) {
@@ -361,7 +370,7 @@ func TestRunFullForward(t *testing.T) {
 		"/var/lib/crha":                               0o700,
 		"/etc/crha/crha.toml":                         0o640,
 		"/etc/crha/privileged.toml":                   0o600,
-		"/var/lib/crha/privileged":                    0o700,
+		"/var/lib/crha-privileged":                    0o700,
 		"/var/log/crha":                               0o750,
 		"/etc/systemd/system/crha.service":            0o644,
 		"/etc/systemd/system/crha-privileged.service": 0o644,
@@ -385,16 +394,22 @@ func TestRunFullForward(t *testing.T) {
 	}
 	if !host.chowned("/etc/crha", "root", "crha") || !host.chowned("/var/lib/crha", "crha", "crha") ||
 		!host.chowned("/etc/crha/crha.toml", "root", "crha") ||
-		!host.chowned("/var/lib/crha/identity.key", "crha", "crha") ||
-		!host.chowned("/var/lib/crha/server.pub", "crha", "crha") {
+		!host.chowned("/var/lib/crha-privileged", "root", "root") {
 		t.Fatalf("chowns = %v", host.chowns)
+	}
+	// The keys get their owner at publication time inside enroll.Run; setup must not chown them
+	// after the fact by path.
+	for _, path := range []string{"/var/lib/crha/identity.key", "/var/lib/crha/server.pub"} {
+		if host.chowned(path, "crha", "crha") {
+			t.Fatalf("setup chowned %s after enrollment: %v", path, host.chowns)
+		}
 	}
 
 	privileged, err := privconfig.Load(at(host, PrivilegedConfigPath))
 	if err != nil {
 		t.Fatalf("generated privileged.toml does not validate: %v", err)
 	}
-	if privileged.NodeID != "0192f000-0000-7000-8000-000000000001" || privileged.UnprivilegedUID != 998 ||
+	if privileged.NodeID != "0192f000-0000-7000-8000-000000000001" || privileged.UnprivilegedUID != host.uid ||
 		privileged.Socket != PrivilegedSocket || privileged.SocketGroup != "crha" ||
 		privileged.StateDir != PrivilegedStateDir || privileged.LogPath != PrivilegedLogPath {
 		t.Fatalf("privileged config = %+v", privileged)
@@ -511,6 +526,11 @@ func TestRunKeepSkipsEnrollment(t *testing.T) {
 	}
 	if *calls != 1 {
 		t.Fatalf("keep path registered the node again: register calls = %d, want 1", *calls)
+	}
+	for _, path := range []string{"/var/lib/crha/identity.key", "/var/lib/crha/server.pub"} {
+		if host.chowned(path, "crha", "crha") {
+			t.Fatalf("the keep path touched %s: %v", path, host.chowns)
+		}
 	}
 	for _, want := range []string{
 		"skipped: system group crha",
@@ -733,5 +753,83 @@ func TestInteractiveFileAnsweredDoesNotConfirm(t *testing.T) {
 	}
 	if answers.Server != "https://crh.example.com" || answers.Mode != "ignore" || !answers.Start {
 		t.Fatalf("answers = %+v", answers)
+	}
+}
+
+// TestEnsureDirectoryRepairsAndRefuses covers the existing-directory branch: a real directory is
+// brought to the requested owner and mode, and a symlink or non-directory is refused instead of
+// being followed.
+func TestEnsureDirectoryRepairsAndRefuses(t *testing.T) {
+	host := newFakeHost(t)
+	var said []string
+	say := func(line string) { said = append(said, line) }
+
+	good := at(host, "/good")
+	if err := os.Mkdir(good, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureDirectory(host, "/good", 0o700, "crha", "crha", say); err != nil {
+		t.Fatal(err)
+	}
+	if len(said) != 1 || said[0] != "skipped: /good" {
+		t.Fatalf("correct directory: %v", said)
+	}
+
+	loose := at(host, "/loose")
+	if err := os.Mkdir(loose, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	said = nil
+	if err := ensureDirectory(host, "/loose", 0o700, "crha", "crha", say); err != nil {
+		t.Fatal(err)
+	}
+	if len(said) != 1 || said[0] != "fixed: /loose (mode 0700)" {
+		t.Fatalf("mode repair: %v", said)
+	}
+	if fi, err := os.Stat(loose); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Fatalf("loose mode after repair = %v, %v", fi.Mode().Perm(), err)
+	}
+
+	// The fake host reports another owner, so the owner branch asks for a chown and says so.
+	other := at(host, "/other")
+	if err := os.Mkdir(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	host.uid++
+	said = nil
+	if err := ensureDirectory(host, "/other", 0o700, "crha", "crha", say); err != nil {
+		t.Fatal(err)
+	}
+	if !host.chowned("/other", "crha", "crha") {
+		t.Fatalf("owner repair did not chown: %v", host.chowns)
+	}
+	if len(said) != 1 || said[0] != "fixed: /other (owner crha:crha)" {
+		t.Fatalf("owner repair: %v", said)
+	}
+
+	host.chowns = nil
+	target := at(host, "/target")
+	if err := os.Mkdir(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := at(host, "/link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureDirectory(host, "/link", 0o700, "crha", "crha", say); err == nil ||
+		!strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("symlink = %v, want a refusal", err)
+	}
+
+	file := at(host, "/file")
+	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureDirectory(host, "/file", 0o700, "crha", "crha", say); err == nil ||
+		!strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("regular file = %v, want a refusal", err)
+	}
+	if len(host.chowns) != 0 {
+		t.Fatalf("a refused path was chowned: %v", host.chowns)
 	}
 }

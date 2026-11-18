@@ -83,8 +83,9 @@ Each crha node chooses how it handles privileged tasks in `crha.toml`:
 | `native` | Runs it as another identity through `sudo`, `doas` or `run0`. The node checks no authorization. |
 | `forward` | Hands it to a separate privileged process that checks the authorization against its own trust configuration. |
 
-Only `forward` protects the node from a compromised crhs: if the node trusts only user signatures or
-local approval, crhs alone cannot make it run a privileged task. See [Security](security.md).
+Only `forward` protects the node from a compromised crhs: if the node trusts only user signatures, crhs
+alone cannot make it run a privileged task. A local approval window deliberately hands that identity to
+crhs for its duration. See [Security](security.md).
 
 ## Authorizations
 
@@ -95,7 +96,7 @@ Passkey in the WebUI. It always has a deadline, and it is either one-shot (for s
 reusable (for any matching command until the deadline). A node can also approve a task locally
 without a signature.
 
-A task that waits for a signature is rejected after 24 hours.
+A task that waits for an authorization is rejected after 24 hours.
 
 ## Rules and approvals
 

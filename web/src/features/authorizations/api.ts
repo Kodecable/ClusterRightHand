@@ -32,7 +32,7 @@ export function useAuthorizations(filters: AuthorizationFilters = {}) {
 	});
 }
 
-/** The pending payload of a waiting task or task group, polled while the decision is open. */
+/** The options of a waiting task or task group, polled while the decision is open. */
 export function usePendingAuthorization(kind: "task" | "task_group", id: string | undefined) {
 	return useQuery({
 		queryKey: authorizationKeys.pending(kind, id ?? ""),
@@ -57,7 +57,7 @@ export function usePendingAuthorization(kind: "task" | "task_group", id: string 
 	});
 }
 
-export type SubmitAuthorizationInput = { authorization: string } | { payloadId: string; webauthn: unknown };
+export type SubmitAuthorizationInput = { authorization: string } | { payload: string; webauthn: unknown };
 
 /** The dispatch usually claims the task within this window; refresh once more after it. */
 const DISPATCH_REFRESH_MS = 1_000;
@@ -93,7 +93,7 @@ export interface RejectAuthorizationInput {
 
 /**
  * The owner declining to sign (doc/design/privilege.md "Waiting for signatures"): the task ends
- * `rejected` with `authorization_rejected` and the reason, or the server's
+ * `rejected` with `authorization_declined` and the reason, or the server's
  * default text. A 409 means the wait already ended, so the lists are refreshed.
  */
 export function useRejectAuthorization() {

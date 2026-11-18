@@ -21,7 +21,9 @@ const (
 	// incompatible change bumps the major version and the Noise prologue, so a peer with another
 	// major fails the handshake itself (doc/design/protocol.md "Handshake payloads"). The minor version is
 	// additive: new commands and events are negotiated through the handshake's commands field.
-	ProtocolMajor = 0
+	// Major 1 removed the per-task local approval commands and added the local window state to
+	// TrustSummary.
+	ProtocolMajor = 1
 	ProtocolMinor = 0
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440
@@ -35,7 +37,7 @@ const (
 	MaxNameBytes = 64
 	// DataNoiseProloguePrefix starts the data connection's Noise prologue; it keeps a data handshake
 	// from being taken for a control one, or the reverse (doc/design/protocol.md "Data connections").
-	DataNoiseProloguePrefix = "crh-data/0"
+	DataNoiseProloguePrefix = "crh-data/1"
 	// DataChunkBytes is the largest chunk of a data connection frame (doc/design/protocol.md
 	// "Data connections").
 	DataChunkBytes = 32 << 10
@@ -69,12 +71,10 @@ const (
 	EventTaskExitAck = "task.exit.ack"
 )
 
-// Privilege command and event names (doc/design/protocol.md "Privilege messages").
+// Privilege event name (doc/design/protocol.md "Privilege messages"). crhs never queries the
+// trust summary: crha pushes it after hello and on every change.
 const (
-	CmdLocalRequest    = "local.request"
-	CmdLocalWithdraw   = "local.withdraw"
-	EventTrustSummary  = "trust.summary"
-	EventLocalDecision = "local.decision"
+	EventTrustSummary = "trust.summary"
 )
 
 // commandNames and eventNames are every command and event name: the set every peer must
@@ -87,8 +87,6 @@ var (
 		CmdTaskInput,
 		CmdTaskCancel,
 		CmdTaskQuery,
-		CmdLocalRequest,
-		CmdLocalWithdraw,
 	}
 	eventNames = []string{
 		EventTaskOutput,
@@ -98,7 +96,6 @@ var (
 		EventOutputAck,
 		EventTaskExitAck,
 		EventTrustSummary,
-		EventLocalDecision,
 	}
 )
 
@@ -137,14 +134,6 @@ var commandSchemas = map[string]commandSchema{
 		request:  func() any { return new(TaskQuery) },
 		response: func() any { return new(TaskStatus) },
 	},
-	CmdLocalRequest: {
-		request:  func() any { return new(LocalRequest) },
-		response: func() any { return new(LocalState) },
-	},
-	CmdLocalWithdraw: {
-		request:  func() any { return new(LocalWithdraw) },
-		response: func() any { return new(Empty) },
-	},
 }
 
 // validateRequest decodes raw as the command's request body. The body was either encoded by Marshal
@@ -162,14 +151,13 @@ func (s commandSchema) validateResponse(raw cbor.RawMessage) error {
 // eventSchemas names the body type of every event this package knows, so Emit can validate an
 // outgoing body the same way a receiver validates a command body.
 var eventSchemas = map[string]func() any{
-	EventTaskOutput:    func() any { return new(TaskOutput) },
-	EventTaskExit:      func() any { return new(TaskExit) },
-	EventFacts:         func() any { return new(Facts) },
-	EventNodeStatus:    func() any { return new(NodeStatus) },
-	EventOutputAck:     func() any { return new(OutputAck) },
-	EventTaskExitAck:   func() any { return new(TaskExitAck) },
-	EventTrustSummary:  func() any { return new(TrustReport) },
-	EventLocalDecision: func() any { return new(LocalDecision) },
+	EventTaskOutput:   func() any { return new(TaskOutput) },
+	EventTaskExit:     func() any { return new(TaskExit) },
+	EventFacts:        func() any { return new(Facts) },
+	EventNodeStatus:   func() any { return new(NodeStatus) },
+	EventOutputAck:    func() any { return new(OutputAck) },
+	EventTaskExitAck:  func() any { return new(TaskExitAck) },
+	EventTrustSummary: func() any { return new(TrustReport) },
 }
 
 // validateEventBody decodes raw as the named event's body. A name outside the schema is

@@ -46,7 +46,7 @@ interface CaseJson {
 		payload: PayloadJson;
 		signatures: { entry: string; valid: boolean; uv: boolean }[];
 	};
-	local_approval: null | { uid: number; spec_sha256: string };
+	window: null | { opened_at_ms: number; opened_by: number; until_ms: number };
 	executed_task_ids: string[];
 	used_pairs: string[];
 	expect: { result: string; step: number | null };
@@ -135,8 +135,12 @@ describe("test/interop/m4_authz_cases.json", () => {
 			trust,
 			task: { id: testCase.task.task_id, attempt: testCase.task.attempt, spec: specOf(testCase.task.spec) },
 			authorization: testCase.authorization ? authorizationOf(testCase.authorization, trust) : null,
-			localApproval: testCase.local_approval
-				? { uid: testCase.local_approval.uid, specSha256: bytesOf(testCase.local_approval.spec_sha256) }
+			window: testCase.window
+				? {
+						openedBy: testCase.window.opened_by,
+						openedAtMs: testCase.window.opened_at_ms,
+						untilMs: testCase.window.until_ms,
+					}
 				: null,
 			executed: (taskId) => testCase.executed_task_ids.includes(taskId),
 			used: (_id, taskId) => testCase.used_pairs.includes(taskId),
@@ -163,7 +167,7 @@ describe("test/interop/m4_authz_cases.json", () => {
 			trust,
 			task: { id: base.task.task_id, attempt: base.task.attempt, spec: specOf(base.task.spec) },
 			authorization: tampered,
-			localApproval: null,
+			window: null,
 		});
 		expect(decision).toMatchObject({
 			result: "authorization_invalid",
@@ -184,7 +188,7 @@ describe("test/interop/m4_authz_cases.json", () => {
 			aliases: base.node.aliases,
 			trust,
 			task: { id: base.task.task_id, attempt: base.task.attempt, spec: specOf(base.task.spec) },
-			localApproval: null,
+			window: null,
 		};
 		expect(decide({ ...input, authorization: { ...authorization, payload: new Uint8Array([1, 2, 3]) } })).toMatchObject(
 			{ result: "authorization_invalid", step: 3 },

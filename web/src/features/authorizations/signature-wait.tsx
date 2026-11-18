@@ -29,6 +29,8 @@ export function SignatureWait({
 	const submit = useSubmitAuthorization();
 	const reject = useRejectAuthorization();
 
+	// A task whose plan is still being written has no options yet: the panel shows "Preparing…" and
+	// keeps Reject available. A parked task always has at least one option.
 	return (
 		<SignaturePanel
 			request={request}

@@ -77,6 +77,7 @@ const SUMMARY: TrustSummary = {
 		privileged: { uid: 0, gid: 0, user: "root" },
 	},
 	trust: [SSHSIG, WEBAUTHN, LOCAL],
+	localWindow: { kind: "closed" },
 };
 
 describe("trust report storage", () => {
@@ -136,16 +137,17 @@ describe("trust report storage", () => {
 
 describe("task authorization record", () => {
 	const record: TaskAuthorizationRecord = {
-		plan: {
-			paths: [
-				{ path: "user", entries: [{ name: "alice", role: "user", credential: "sshsig" }] },
-				{ path: "local", entries: [{ name: "local-admins", role: "local" }] },
-			],
-		},
-		tried: ["crhs"],
+		options: [
+			{
+				kind: "sign",
+				entries: [{ name: "alice", role: "user", credential: "sshsig" }],
+				ttlMs: 3_600_000,
+				payload: { payload: "AA==", id: "6d4a", deadline: "2026-01-02T00:00:00.000Z", taskIds: ["t1"], attempt: 2 },
+			},
+		],
+		crhsRejected: { window: null },
+		rejectedBefore: null,
 		dispatchedPath: null,
-		pending: null,
-		local: null,
 		payloadId: "6d4a",
 		attempt: 2,
 		trustDigest: trustDigest(SUMMARY),
@@ -160,9 +162,11 @@ describe("task authorization record", () => {
 	it("treats a damaged record as absent and restores missing optional fields", () => {
 		expect(parseTaskAuthorization(null)).toBeNull();
 		expect(parseTaskAuthorization("not json")).toBeNull();
-		expect(parseTaskAuthorization('{"plan":[]}')).toBeNull();
 		expect(parseTaskAuthorization("[1,2,3]")).toBeNull();
-		expect(parseTaskAuthorization('{"plan":{"paths":[]},"tried":[]}')).toMatchObject({
+		expect(parseTaskAuthorization("{}")).toMatchObject({
+			options: [],
+			crhsRejected: null,
+			rejectedBefore: null,
 			dispatchedPath: null,
 			payloadId: null,
 			attempt: 1,

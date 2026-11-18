@@ -9,6 +9,8 @@ LABEL org.opencontainers.image.title="ClusterRightHand server" \
 	org.opencontainers.image.licenses="MIT"
 
 COPY . /opt/crhs/
+# The image runs as node: nothing in its own code may be writable by group or others.
+RUN chmod -R go-w /opt/crhs
 RUN install -d -o node -g node -m 0700 /crhs-data
 WORKDIR /opt/crhs
 ENV CRHS_DATA_DIR=/crhs-data

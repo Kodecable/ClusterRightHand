@@ -21,9 +21,8 @@ export const TASK_QUEUE_LABEL = "task queue";
 /** Where a write may say why it is allowed outside the task's turn. */
 export interface TaskRowWriteOptions {
 	/**
-	 * Allows a rev-guarded write outside a turn of the task's queue. Only the documented exceptions use
-	 * it: a cancel (the user's own decision, retried against the current row) and the task-group payload
-	 * refresh (writes member rows at their rev on the group queue, never entering a member's task queue).
+	 * Allows a rev-guarded write outside a turn of the task's queue. Only the documented exception uses
+	 * it: a cancel (the user's own decision, retried against the current row).
 	 */
 	outOfTurn?: boolean;
 }

@@ -78,8 +78,8 @@ command are not sent. An unknown command gets a short hint instead of being pass
 | `/quota` | Shows the session's token quota |
 | `/quota add <tokens>` | Raises the quota and continues |
 | `/quota stop` | Ends the turn that waits for tokens |
-| `/approve [<id>]` | Approves a waiting request; with no id, the only one waiting in this chat |
-| `/reject [<id>] [reason]` | Rejects it; with no id, every word is the reason for the only waiting request |
+| `/approve [<id>]` | Approves a waiting approval; with no id, the only one waiting in this chat (never a signature wait) |
+| `/reject [<id>] [reason]` | Rejects a waiting approval or signature wait; with no id, every word is the reason for the only waiting request |
 | `/help` | Lists the commands |
 
 The lists number their items across pages: page 2 starts at 6, and the text ends with the exact hint,
@@ -115,8 +115,10 @@ discards the draft.
   Reject buttons plus the `/approve` and `/reject` commands; Satori shows the commands. The card names
   what waits, the nodes, any Auto Review risk and the command hints, and `/approve` or `/reject` without
   an id decides the only request waiting in that chat. An approval that needs a signature sends a
-  **Signature needed** card whose link opens its page in the WebUI, and "always allow" stays in the
-  WebUI because it changes rules.
+  **Signature needed** card whose link opens its page in the WebUI, with a Reject button (or the
+  `/reject <id> [reason]` hint) and, when the plan offers one, the local-window command; `/approve` does
+  not apply to it. "Always allow" stays in the WebUI because it changes rules. A task group whose other
+  members already run still shows this card while one member waits.
 - When a session runs out of token quota, the chat shows a **Token quota used up** card with the quota
   and the `/quota` commands. A decided or ended card is deleted, or its hints are replaced by the
   result, so no stale approval stays in the chat.

@@ -261,11 +261,11 @@ it("a signature wait expires AUTHORIZATION_WAIT_MS after it began", async () => 
 		.where("id", "=", approvedLate)
 		.execute();
 
-	expect(await cluster.expireAuthorizationWaits(now)).toBe(1);
+	expect(await cluster.sweepAuthorizationWaits(now)).toBe(1);
 	expect(await taskRow(old)).toMatchObject({ state: "expired", error_code: "authorization_wait_expired" });
 	expect(await taskRow(young)).toMatchObject({ state: "awaiting_authorization" });
 	expect(await taskRow(approvedLate)).toMatchObject({ state: "awaiting_authorization" });
-	expect(await cluster.expireAuthorizationWaits(now + AUTHORIZATION_WAIT_MS)).toBe(2);
+	expect(await cluster.sweepAuthorizationWaits(now + AUTHORIZATION_WAIT_MS)).toBe(2);
 });
 
 it("keeps expiring later signature waits when one row cannot be ended", async () => {
@@ -287,7 +287,7 @@ it("keeps expiring later signature waits when one row cannot be ended", async ()
 	const error = vi.spyOn(console, "error").mockImplementation(() => {});
 	let logged = false;
 	try {
-		expect(await cluster.expireAuthorizationWaits(now)).toBe(1);
+		expect(await cluster.sweepAuthorizationWaits(now)).toBe(1);
 		logged = error.mock.calls.some((call) => String(call[0]).includes(failing));
 	} finally {
 		error.mockRestore();

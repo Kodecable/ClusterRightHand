@@ -100,7 +100,11 @@ const taskRequest = (view: TaskView, overrides: Partial<ApprovalRequest> = {}): 
 const groupRequest = (view: TaskGroupView, overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => ({
 	kind: "task_group",
 	id: view.id,
-	phase: view.phase ?? (view.state === "awaiting_authorization" ? "awaiting_signature" : "awaiting_user"),
+	phase:
+		view.phase ??
+		(view.state === "awaiting_authorization" || view.tasks.some((task) => task.state === "awaiting_authorization")
+			? "awaiting_signature"
+			: "awaiting_user"),
 	source: { type: "user", userId: "u1", username: "ada" },
 	action: { type: "exec", command: view.summary || view.id },
 	nodes: ["worker-01", "worker-02"],
@@ -204,25 +208,32 @@ const externalCall = (overrides: Partial<ExternalCallView> = {}): ExternalCallVi
 	}) as ExternalCallView;
 
 const pending = (): PendingAuthorization => ({
-	id: "a".repeat(64),
-	payload: "o2dub2RlcwFhZ3JvdXA6d2Vi",
-	challenge: "challenge-b64url",
-	deadline: "2026-10-31T12:00:00.000Z",
-	taskIds: ["task-1"],
-	attempt: 2,
-	passkeys: [],
-	localRequested: false,
+	options: [
+		{
+			kind: "sign",
+			entries: [{ name: "alice", role: "user", credential: "sshsig" }],
+			ttlMs: 86_400_000,
+			payload: {
+				id: "a".repeat(64),
+				payload: "o2dub2RlcwFhZ3JvdXA6d2Vi",
+				challenge: "challenge-b64url",
+				deadline: "2026-10-31T12:00:00.000Z",
+				taskIds: ["task-1"],
+				attempt: 2,
+				passkeys: [],
+				decoded: {
+					nodes: ["node-1"],
+					command: { method: "exec", match: "exact", target: OPERATION, specSha256: "b".repeat(64) },
+					issuedAt: "2026-10-30T12:00:00.000Z",
+					deadline: "2026-10-31T12:00:00.000Z",
+					taskIds: ["task-1"],
+					attempt: 2,
+					note: "",
+				},
+			},
+		},
+	],
 	lastRejection: null,
-	tried: [],
-	decoded: {
-		nodes: ["node-1"],
-		command: { method: "exec", match: "exact", target: OPERATION, specSha256: "b".repeat(64) },
-		issuedAt: "2026-10-30T12:00:00.000Z",
-		deadline: "2026-10-31T12:00:00.000Z",
-		taskIds: ["task-1"],
-		attempt: 2,
-		note: "",
-	},
 });
 
 interface MockState {
@@ -397,7 +408,7 @@ describe("ApprovalTaskPage", () => {
 		});
 		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
 		const region = await screen.findByRole("region", { name: "Your signature is needed" });
-		expect(within(region).getByRole("tab", { name: "crha grant" })).toHaveAttribute("aria-selected", "true");
+		expect(await within(region).findByRole("tab", { name: "crha grant" })).toHaveAttribute("aria-selected", "true");
 		fireEvent.click(within(region).getByRole("tab", { name: "Reject" }));
 		fireEvent.change(within(region).getByLabelText("Reason (optional)"), {
 			target: { value: "  not signing  " },
@@ -483,6 +494,22 @@ describe("ApprovalTaskGroupPage", () => {
 		const details = await screen.findByRole("region", { name: "Request details" });
 		expect(within(details).getByTestId("request-content")).toHaveTextContent("Operation");
 		expect(within(details).getByTestId("request-evaluations")).toBeInTheDocument();
+	});
+
+	test("a partly dispatched task group still shows its member's signature wait", async () => {
+		mockApi({
+			taskGroup: group({
+				state: "running",
+				tasks: [task({ id: "task-1", state: "awaiting_authorization" })],
+			}),
+			pending: pending(),
+		});
+		await renderPage(
+			<ApprovalTaskGroupPage />,
+			"/approvals/task-groups/$taskGroupId",
+			"/approvals/task-groups/group-1",
+		);
+		expect(await screen.findByRole("region", { name: "Your signature is needed" })).toBeInTheDocument();
 	});
 
 	test("a task group waiting for its signature shows the same signature decision", async () => {

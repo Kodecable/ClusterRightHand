@@ -479,8 +479,9 @@ describe("TaskPage and TaskGroupPage", () => {
 		await renderPage(<TaskPage />);
 
 		const decision = await screen.findByRole("region", { name: "Your signature is needed" });
-		expect(within(decision).getByRole("tab", { name: "crha grant" })).toBeInTheDocument();
-		expect(within(decision).getByRole("tab", { name: "Reject" })).toBeInTheDocument();
+		// This row has no stored plan yet, so the panel shows "Preparing…" and keeps Reject available.
+		expect(within(decision).getByText("Preparing the payload to sign…")).toBeInTheDocument();
+		expect(within(decision).getByRole("button", { name: "Reject" })).toBeInTheDocument();
 	});
 
 	test("an exited task with an approval still shows the rule chain evaluation", async () => {

@@ -147,7 +147,7 @@ stop-all)
 	;;
 reset-priv-state)
 	stop_daemon priv || true
-	rm -f /var/lib/crha/privileged/used
+	rm -f /var/lib/crha-privileged/used
 	;;
 wait-priv-socket) wait_socket ;;
 status)

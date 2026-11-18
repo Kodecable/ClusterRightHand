@@ -56,6 +56,10 @@ sudo ./install.sh
 links `/usr/local/bin/crhs`. On a new host it runs `crhs init` on a terminal, or prints the command;
 when `/etc/crhs/crhs.toml` already exists it only reminds you to restart crhs.
 
+`install.sh` installs the files owned by root and not writable by group or others. Running it again for
+a version that is already installed repairs the ownership and permissions of that directory, so
+re-running it repairs an installation made by an older release.
+
 ### Container image
 
 The image (`ghcr.io/kodecable/crhs:<version>` in these examples) runs as uid 1000 and keeps all state
@@ -256,17 +260,18 @@ A package-managed crha is updated by the package manager only. On a first instal
    | Check the TLS certificate against the system CAs | yes (the token authenticates crhs either way) |
    | Re-enroll, keeping the node's id, name, groups and grants (only when already enrolled) | no |
    | Privileged mode (`ignore` or `forward`) | `ignore` |
-   | Let local root approve with `crha approve` (forward) | yes |
+   | Let local root open the local approval window (forward) | yes |
    | Trust entries (forward) | empty, configured later |
    | Start the services | yes |
 
    For `forward`, paste the entries from **Signing credentials** → **Generate trust config**, ending
-   with a line `.`; an empty answer leaves them for later. Local root approval lets the uids in a
-   `local` trust entry approve tasks with `crha approve`.
+   with a line `.`; an empty answer leaves them for later. Local root approval lets uid 0 open the
+   local approval window with `crha approve --for`; add other uids to the `local` entry later.
 
    It creates the `crha` user and group, `/etc/crha`, `/var/lib/crha`, `crha.toml`, the enrolled keys
-   and, for `forward`, `privileged.toml`; writes and starts `crha.service`, plus
-   `crha-privileged.service` for `forward`; and prints the node id and key fingerprint.
+   and, for `forward`, `privileged.toml` and `/var/lib/crha-privileged`; writes and starts
+   `crha.service`, plus `crha-privileged.service` for `forward`; and prints the node id and key
+   fingerprint.
 3. Approve the node (below), comparing the fingerprint.
 
 If the node was enrolled before, use **Re-enroll** on its page instead of **New node**. `crha enroll`
@@ -317,6 +322,9 @@ change them later, edit the file and reload the privileged mode:
 sudoedit /etc/crha/privileged.toml
 sudo systemctl reload crha-privileged
 ```
+
+The privileged mode keeps its used list in `/var/lib/crha-privileged` (root, 0700), outside crha's own
+state directory, and refuses a state directory below a directory crha can modify.
 
 The **Signing credentials** page generates trust entries. All fields are in the
 [privileged configuration reference](reference/privileged-config.md).

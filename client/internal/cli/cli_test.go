@@ -3,8 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -15,13 +13,11 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
-	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
@@ -29,7 +25,7 @@ func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
 		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "stdio"},
 		{"enroll"}, {"register"}, {"status"}, {"upgrade"},
-		{"grant"}, {"pending"}, {"approve"}, {"deny"}, {"version"},
+		{"grant"}, {"approve"}, {"lock"}, {"version"},
 	}
 	root := NewRootCmd()
 	for _, p := range paths {
@@ -128,9 +124,9 @@ func TestApprovalSocket(t *testing.T) {
 	}
 }
 
-// TestApprovalSocketHelp checks that the local approval flags document the env var and default.
+// TestApprovalSocketHelp checks that the local window flags document the env var and default.
 func TestApprovalSocketHelp(t *testing.T) {
-	for _, cmd := range []*cobra.Command{newPendingCmd(), newApproveCmd(), newDenyCmd()} {
+	for _, cmd := range []*cobra.Command{newApproveCmd(), newLockCmd()} {
 		flag := cmd.Flags().Lookup("socket")
 		if flag == nil {
 			t.Fatalf("%s has no --socket flag", cmd.Name())
@@ -207,222 +203,6 @@ func TestVersionOutput(t *testing.T) {
 	}
 }
 
-func TestChooseEntry(t *testing.T) {
-	entries := []protocol.PendingEntry{
-		{TaskID: "a", Attempt: 1},
-		{TaskID: "a", Attempt: 3},
-		{TaskID: "b", Attempt: 2},
-	}
-	if entry, ok := chooseEntry(entries, "a", 0); !ok || entry.Attempt != 3 {
-		t.Fatalf("highest attempt = %v, %v", entry, ok)
-	}
-	if entry, ok := chooseEntry(entries, "a", 1); !ok || entry.Attempt != 1 {
-		t.Fatalf("requested attempt = %v, %v", entry, ok)
-	}
-	if _, ok := chooseEntry(entries, "a", 2); ok {
-		t.Fatal("non-pending attempt selected")
-	}
-	if _, ok := chooseEntry(entries, "c", 0); ok {
-		t.Fatal("unknown task selected")
-	}
-}
-
-// TestApprovalView covers the specification `crha pending`, `crha approve` and `crha deny` show:
-// every field of the spec and the spec_sha256 the verdict is bound to (doc/design/privilege.md "Local approval").
-func TestApprovalView(t *testing.T) {
-	data := []byte("hello")
-	sum := sha256.Sum256(data)
-	stdin := &protocol.InputRef{Size: protocol.Uint(len(data)), SHA256: protocol.Hash(sum)}
-	entries := []protocol.PendingEntry{
-		{
-			TaskID: "t-exec", Attempt: 2, Note: "restart nginx",
-			ReceivedAtMS: protocol.Int(time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC).UnixMilli()),
-			Spec: protocol.TaskSpec{Kind: protocol.TaskSpecExec, Exec: &protocol.ExecSpec{
-				Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"systemctl", "restart", "nginx"}},
-				Env:     map[string]string{"DEBIAN_FRONTEND": "noninteractive"},
-				Cwd:     "/srv",
-				Stdin:   stdin,
-			}},
-			InputPreview: []byte("hello"),
-		},
-		{
-			TaskID: "t-write", Attempt: 1,
-			Spec: protocol.TaskSpec{Kind: protocol.TaskSpecFileWrite, FileWrite: &protocol.FileWriteSpec{
-				Path:      "/etc/nginx/nginx.conf",
-				Content:   *stdin,
-				Overwrite: true,
-				Mode:      0o4755,
-				Owner:     "root",
-				Group:     "root",
-			}},
-			InputPreview: []byte("hello"),
-		},
-		{
-			TaskID: "t-edit", Attempt: 1,
-			Spec: protocol.TaskSpec{Kind: protocol.TaskSpecFileEdit, FileEdit: &protocol.FileEditSpec{
-				Path:  "/etc/hosts",
-				Edits: []protocol.Edit{{OldText: "a", NewText: "b"}},
-			}},
-		},
-		{
-			TaskID: "t-read", Attempt: 1,
-			Spec: protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{
-				Path: "/var/log/app.log", StartLine: 10, LineCount: 50,
-			}},
-		},
-	}
-
-	exec := approvalViewFor(&entries[0])
-	hash, err := protocol.SpecSHA256(&entries[0].Spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if exec.TaskID != "t-exec" || exec.Attempt != 2 || exec.Method != "exec" ||
-		exec.Target != "systemctl restart nginx" || exec.Cwd != "/srv" || exec.Note != "restart nginx" {
-		t.Fatalf("exec view = %+v", exec)
-	}
-	if strings.Join(exec.Argv, " ") != "systemctl restart nginx" || exec.Env["DEBIAN_FRONTEND"] != "noninteractive" {
-		t.Fatalf("exec command = %+v", exec)
-	}
-	if exec.Stdin == nil || exec.Stdin.Size != 5 || exec.Stdin.SHA256 != hex.EncodeToString(sum[:]) {
-		t.Fatalf("stdin = %+v", exec.Stdin)
-	}
-	if exec.Stdin.Preview != "hello" {
-		t.Fatalf("stdin preview = %q, want hello", exec.Stdin.Preview)
-	}
-	if exec.SpecSHA256 != hex.EncodeToString(hash[:]) {
-		t.Fatalf("spec_sha256 = %q, want %x", exec.SpecSHA256, hash)
-	}
-	if exec.ReceivedAt != formatMillis(time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC).UnixMilli()) {
-		t.Fatalf("received_at = %q", exec.ReceivedAt)
-	}
-
-	write := approvalViewFor(&entries[1])
-	if write.Method != "file.write" || write.Path != "/etc/nginx/nginx.conf" || write.Content == nil ||
-		write.Content.Size != 5 || write.Content.Preview != "hello" ||
-		write.Mode != "0o4755" || write.Owner != "root" || write.Group != "root" ||
-		write.Overwrite == nil || !*write.Overwrite {
-		t.Fatalf("write view = %+v", write)
-	}
-
-	edit := approvalViewFor(&entries[2])
-	if edit.Method != "file.write" || edit.Path != "/etc/hosts" || len(edit.Edits) != 1 ||
-		edit.Edits[0].OldText != "a" || edit.Edits[0].NewText != "b" {
-		t.Fatalf("edit view = %+v", edit)
-	}
-
-	// A read's line range is part of the specification the approver decides on, so it is shown too.
-	read := approvalViewFor(&entries[3])
-	if read.Method != "file.read" || read.Path != "/var/log/app.log" || read.StartLine != 10 || read.LineCount != 50 {
-		t.Fatalf("read view = %+v", read)
-	}
-
-	var out bytes.Buffer
-	if err := printApproval(&out, exec); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "spec_sha256") || !strings.Contains(out.String(), exec.SpecSHA256) {
-		t.Fatalf("printed view has no spec hash:\n%s", out.String())
-	}
-	out.Reset()
-	if err := printApproval(&out, read); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), `"start_line": 10`) || !strings.Contains(out.String(), `"line_count": 50`) {
-		t.Fatalf("printed read view has no line range:\n%s", out.String())
-	}
-}
-
-// TestApprovalPreview covers what an approver sees of stdin or file content: text with control
-// characters escaped, a truncation marker, a binary description, and the interpreter warning.
-func TestApprovalPreview(t *testing.T) {
-	sha := "abc123"
-	for _, tc := range []struct {
-		name    string
-		preview []byte
-		size    uint64
-		want    string
-	}{
-		{"text", []byte("echo hello\n"), 11, "echo hello\n"},
-		{"control characters", []byte("a\x00b\x1b[31m\n\t"), 10, "a\\x00b\\x1b[31m\n\t"},
-		{"empty", []byte{}, 0, "(empty)"},
-		{"truncated", bytes.Repeat([]byte("x"), 4096), 5000, strings.Repeat("x", 4096) + "\n(904 more bytes)"},
-		{"binary", []byte{0xff, 0xfe, 0x00}, 3, "binary, 3 bytes, sha256 " + sha},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := approvalPreviewText(tc.preview, tc.size, sha); got != tc.want {
-				t.Fatalf("preview = %q, want %q", got, tc.want)
-			}
-		})
-	}
-
-	for _, tc := range []struct {
-		name  string
-		argv  []string
-		stdin *approvalInput
-		want  string
-	}{{"bash reads stdin", []string{"/bin/bash", "-s"}, &approvalInput{Size: 3}, `warning: stdin is executed as a script by "bash"`},
-		{"python3 reads stdin", []string{"python3.12", "-"}, &approvalInput{Size: 3}, `warning: stdin is executed as a script by "python3.12"`},
-		{"no stdin", []string{"bash"}, nil, ""},
-		{"empty stdin", []string{"bash"}, &approvalInput{Size: 0}, ""},
-		{"not an interpreter", []string{"bashful"}, &approvalInput{Size: 3}, ""},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			view := approvalView{Argv: tc.argv, Stdin: tc.stdin}
-			var out bytes.Buffer
-			if err := printApproval(&out, view); err != nil {
-				t.Fatal(err)
-			}
-			if tc.want == "" {
-				if strings.Contains(out.String(), "warning:") {
-					t.Fatalf("unexpected warning:\n%s", out.String())
-				}
-				return
-			}
-			if !strings.Contains(out.String(), tc.want) {
-				t.Fatalf("output has no %q:\n%s", tc.want, out.String())
-			}
-		})
-	}
-
-	// The preview is printed as text below the JSON view, so a newline in a script stays a line
-	// break instead of becoming a JSON escape.
-	view := approvalView{Stdin: &approvalInput{Size: 11, Preview: "echo hello\n"}}
-	var out bytes.Buffer
-	if err := printApproval(&out, view); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out.String(), "stdin preview:\necho hello\n") {
-		t.Fatalf("output has no readable preview:\n%s", out.String())
-	}
-	if strings.Contains(out.String(), `"preview"`) {
-		t.Fatalf("preview is still inside the JSON view:\n%s", out.String())
-	}
-}
-
-// TestConfirmApproval covers the confirmation of a local verdict: --yes skips it, a terminal is
-// asked, and without a terminal the verdict is refused.
-func TestConfirmApproval(t *testing.T) {
-	if err := confirmApproval("Approve?", true); err != nil {
-		t.Fatalf("--yes was refused: %v", err)
-	}
-	answerTerminal(t, "yes\n")
-	if err := confirmApproval("Approve?", false); err != nil {
-		t.Fatalf("a yes answer was refused: %v", err)
-	}
-	answerTerminal(t, "no\n")
-	if err := confirmApproval("Approve?", false); err == nil {
-		t.Fatal("a no answer was accepted")
-	}
-	noTerminal(t)
-	err := confirmApproval("Approve?", false)
-	if err == nil || !strings.Contains(err.Error(), "--yes") {
-		t.Fatalf("no terminal: %v, want a --yes hint", err)
-	}
-}
-
-// TestStartupFailsWithoutShell checks that both modes refuse to start when no sh can be resolved:
-// a node that cannot say which shell runs its `shell` tasks must not run tasks at all.
 func TestStartupFailsWithoutShell(t *testing.T) {
 	old := resolveEnv
 	resolveEnv = func(execenv.Options) (*execenv.Environment, error) {

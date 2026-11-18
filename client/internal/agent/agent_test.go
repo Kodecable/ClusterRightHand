@@ -192,15 +192,11 @@ func registerCore(peer *protocol.Peer) {
 		var exit protocol.TaskExit
 		return protocol.Unmarshal(body, &exit)
 	})
-	// crha reports its trust summary after every hello response and relays the privileged mode's
-	// local decisions; a fake crhs must consume them like the real one.
+	// crha reports its trust summary after every hello response; a fake crhs must consume it like
+	// the real one.
 	peer.HandleEvent(protocol.EventTrustSummary, func(body cbor.RawMessage) error {
 		var report protocol.TrustReport
 		return protocol.Unmarshal(body, &report)
-	})
-	peer.HandleEvent(protocol.EventLocalDecision, func(body cbor.RawMessage) error {
-		var decision protocol.LocalDecision
-		return protocol.Unmarshal(body, &decision)
 	})
 }
 

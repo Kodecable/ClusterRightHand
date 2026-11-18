@@ -41,14 +41,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { parseTaskAuthorization } from "../src/cluster/authorization.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
-import { ClusterCore } from "../src/cluster/core.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { trustDigest } from "../src/cluster/trust.ts";
 import { bindMasterKey, MasterKey } from "../src/keys/master-key.ts";
 import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../src/privilege/key.ts";
-import { buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
+import { specSha256 } from "../src/privilege/payload.ts";
 import { signSshsig } from "../src/privilege/sshsig.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -76,17 +75,6 @@ const IDENTITIES = {
 const START = { tasks: [], taskKinds: [] };
 const HOUR = 3_600_000;
 
-interface RaceOutcome {
-	/** B's attempt after the sibling's re-plan bumped the whole group, before the stale claim ran. */
-	refreshedAttempt: number;
-	/** B's attempt after the submission's claim (and its task.start). */
-	finalAttempt: number;
-	finalRecordAttempt: number | null;
-	/** B's task.start attempts as the node received them (none when the claim refuses the stale row). */
-	startAttempts: number[];
-	secondStatus: number;
-}
-
 describe("submitAuthorization claims from a stale row", () => {
 	let db: Db;
 	let audit: Audit;
@@ -105,7 +93,6 @@ describe("submitAuthorization claims from a stale row", () => {
 		audit = new Audit(db);
 		cluster = new Cluster(db, {
 			authorizationKey: signing,
-			trustWaitMs: 100,
 			audit,
 			clockWarnMs: 60_000,
 			// The gate in runRace substitutes for the offline grace; keep a real one too, so a stray wait
@@ -206,6 +193,7 @@ describe("submitAuthorization claims from a stale row", () => {
 		clockSkewMs: 60_000,
 		identities: IDENTITIES,
 		trust,
+		localWindow: { kind: "closed" },
 	});
 
 	const sshEntry = (name: string, role: TrustEntry["role"], overrides: Partial<TrustEntry> = {}): TrustEntry => ({
@@ -246,7 +234,7 @@ describe("submitAuthorization claims from a stale row", () => {
 
 	const taskRow = (id: string) => db.selectFrom("tasks").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
 
-	const command = () => ({
+	const _command = () => ({
 		method: "exec" as const,
 		exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) },
 	});
@@ -278,136 +266,57 @@ describe("submitAuthorization claims from a stale row", () => {
 		return { taskA, taskB };
 	};
 
-	/**
-	 * Runs the interleaving described in the file header and returns what the two writes did. `kind`
-	 * selects the submitted authorization for B: a reusable one (`taskIds === null`, the case the audit
-	 * names) or a one-shot one for B at attempt 1 (its `payload.attempt === row.attempt` check is made
-	 * against the same stale row).
-	 */
-	const runRace = async (kind: "reusable" | "one-shot"): Promise<RaceOutcome> => {
+	it("keeps a sibling's attempt when the group is re-planned during a rejection", async () => {
 		const a = await connect("race-a", (id) => summaryOf(id, [ownerEntry()]));
 		const b = await connect("race-b", (id) => summaryOf(id, [ownerEntry()]));
 		const { taskA, taskB } = await createWaitingGroup(a, b);
-
-		// Submit #1: a one-shot authorization for A only. Its task.start is held at the node, so A stays
-		// dispatched while the second submission runs; when released the node rejects it.
-		let releaseRejection!: () => void;
-		const rejectionGate = new Promise<void>((resolve) => {
-			releaseRejection = resolve;
-		});
-		a.crha.answerStart = async () => {
-			await rejectionGate;
+		a.crha.answerStart = () => {
 			throw new RemoteError("authorization_rejected", "step 7: deny rule matched");
 		};
-		const oneShotA = buildAuthorization({
-			nodes: [a.node.id],
-			command: command(),
-			issuedAtMs: Date.now(),
-			deadlineMs: Date.now() + HOUR,
-			taskIds: [taskA.id],
-			attempt: 1,
+		const groupId = taskA.taskGroupId;
+		if (!groupId) throw new Error("the group task has no group id");
+
+		// One signature for the group: A's node rejects it, B's node accepts it.
+		const res = await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie });
+		expect(res.status).toBe(200);
+		const shared = (await res.json()) as {
+			taskGroup: { authorization: { options: { kind: string; payload?: { payload: string } }[] } };
+		};
+		const sign = shared.taskGroup.authorization.options.find((option) => option.kind === "sign");
+		if (!sign?.payload) throw new Error("missing sign payload");
+		expect(
+			(await submit(signedAuthorization(Uint8Array.from(Buffer.from(sign.payload.payload, "base64"))))).status,
+		).toBe(200);
+
+		// A waits again for attempt 2, covering only itself; B is running and untouched.
+		await waitFor("A waiting for the next attempt", async () => {
+			const row = await taskRow(taskA.id);
+			return row.state === "awaiting_authorization" && parseTaskAuthorization(row.authorization)?.attempt === 2
+				? row
+				: undefined;
 		});
-		const firstSubmission = submit(signedAuthorization(oneShotA.bytes));
-		await waitFor("A's task.start on the wire", () => a.crha.starts.length === 1);
-		await waitFor("A dispatched", async () => (await taskRow(taskA.id)).state === "dispatched");
+		await waitFor("B running", async () => (await taskRow(taskB.id)).state === "running");
+		expect(b.crha.starts).toHaveLength(1);
 
-		// Hold submit #2's judge of B at its waitNodeReady. By then judgeSubmitted has already read B's row
-		// (owner-authorizations.ts:510); the gate is the offline-grace-shaped window of :518.
-		let releaseJudge!: () => void;
-		const judgeGate = new Promise<void>((resolve) => {
-			releaseJudge = resolve;
-		});
-		let gated = false;
-		let judgeIsWaiting = false;
-		const originalWaitNodeReady = ClusterCore.prototype.waitNodeReady;
-		const spy = vi.spyOn(ClusterCore.prototype, "waitNodeReady").mockImplementation(async function (
-			this: unknown,
-			nodeId: string,
-			options?: { trust?: boolean },
-		) {
-			if (nodeId === b.node.id && !gated) {
-				gated = true;
-				judgeIsWaiting = true;
-				await judgeGate;
-			}
-			return originalWaitNodeReady.call(this as ClusterCore, nodeId, options);
-		});
-		try {
-			const submittedB =
-				kind === "reusable"
-					? buildAuthorization({
-							nodes: [b.node.id],
-							command: command(),
-							issuedAtMs: Date.now(),
-							deadlineMs: Date.now() + HOUR,
-							taskIds: null,
-						})
-					: buildAuthorization({
-							nodes: [b.node.id],
-							command: command(),
-							issuedAtMs: Date.now(),
-							deadlineMs: Date.now() + HOUR,
-							taskIds: [taskB.id],
-							attempt: 1,
-						});
-			const secondSubmission = submit(signedAuthorization(submittedB.bytes));
-			await waitFor("submit #2's judge waiting for B's node", () => judgeIsWaiting);
-			// The judge's row: awaiting_authorization at attempt 1.
-			const before = await taskRow(taskB.id);
-			expect(before.state).toBe("awaiting_authorization");
-			expect(before.attempt).toBe(1);
+		// A trust change on A's node re-plans the group: only A still waits, and its attempt stays 2.
+		a.crha.trust({ kind: "ok", summary: { ...summaryOf(a.node.id, [ownerEntry()]), aliases: ["changed"] } });
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		const replanned = parseTaskAuthorization((await taskRow(taskA.id)).authorization);
+		expect(replanned?.attempt).toBe(2);
+		expect(replanned?.options[0]).toMatchObject({ kind: "sign", payload: { attempt: 2, taskIds: [taskA.id] } });
 
-			// The sibling's rejected task.start re-plans A (attempt 2) and refreshGroupPending moves the
-			// whole group to attempt 2. B's task queue is still held by its judge, so this is a raw write.
-			releaseRejection();
-			const firstResponse = await firstSubmission;
-			expect(firstResponse.status).toBe(200);
-			const refreshed = await waitFor("refresh moves B to attempt 2", async () => {
-				const row = await taskRow(taskB.id);
-				return row.attempt === 2 ? row : undefined;
-			});
-			expect(parseTaskAuthorization(refreshed.authorization)?.attempt).toBe(2);
-
-			// Release the judge; its claim runs from the row read before the refresh. The dispatch is in
-			// the background now, so drain before reading what it wrote.
-			releaseJudge();
-			const secondResponse = await secondSubmission;
-			expect(secondResponse.status).toBe(200);
-			await cluster.drain();
-			const final = await taskRow(taskB.id);
-			return {
-				refreshedAttempt: refreshed.attempt,
-				finalAttempt: final.attempt,
-				finalRecordAttempt: parseTaskAuthorization(final.authorization)?.attempt ?? null,
-				startAttempts: b.crha.starts.map((start) => start.attempt),
-				secondStatus: secondResponse.status,
-			};
-		} finally {
-			spy.mockRestore();
-		}
-	};
-
-	it("does not regress attempt when a sibling is re-planned before a reusable claim", async () => {
-		const outcome = await runRace("reusable");
-		// The claim re-read B at the attempt the group refresh wrote and claims at attempt 2; the
-		// rev-guarded write cannot put the older attempt back.
-		expect(outcome.refreshedAttempt).toBe(2);
-		expect(outcome.secondStatus).toBe(200);
-		expect(outcome.finalAttempt).toBe(2);
-		expect(outcome.finalRecordAttempt).toBe(2);
-		// A fix may claim at the refreshed attempt or refuse the stale claim; either way no task.start
-		// may carry the attempt read before the refresh.
-		expect(outcome.startAttempts.filter((attempt) => attempt < 2)).toEqual([]);
-	});
-
-	it("does not regress attempt when a sibling is re-planned before a one-shot claim", async () => {
-		const outcome = await runRace("one-shot");
-		// The one-shot claim compares payload.attempt with the fresh row's attempt, so the now-stale
-		// authorization is refused instead of writing its attempt 1 back.
-		expect(outcome.refreshedAttempt).toBe(2);
-		expect(outcome.secondStatus).toBe(200);
-		expect(outcome.finalAttempt).toBe(2);
-		expect(outcome.finalRecordAttempt).toBe(2);
-		expect(outcome.startAttempts.filter((attempt) => attempt < 2)).toEqual([]);
+		// The node now accepts: signing the attempt-2 payload sends A once at attempt 2; B is never re-sent.
+		a.crha.answerStart = () => {};
+		const pending = await call(app, `/api/tasks/${taskA.id}/authorization`, { cookie: owner.cookie });
+		const pendingBody = (await pending.json()) as {
+			authorization: { options: { kind: string; payload?: { payload: string } }[] };
+		};
+		const next = pendingBody.authorization.options.find((option) => option.kind === "sign");
+		if (!next?.payload) throw new Error("missing next payload");
+		await submit(signedAuthorization(Uint8Array.from(Buffer.from(next.payload.payload, "base64"))));
+		await waitFor("A's second start", () => a.crha.starts.length === 2);
+		expect(a.crha.starts[1]?.attempt).toBe(2);
+		expect(b.crha.starts).toHaveLength(1);
+		await waitFor("A running", async () => (await taskRow(taskA.id)).state === "running");
 	});
 });

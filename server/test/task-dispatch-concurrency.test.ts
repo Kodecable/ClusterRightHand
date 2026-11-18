@@ -5,7 +5,7 @@
  * task is not blocked meanwhile.
  */
 import { generateKeyPair } from "@crh/noise";
-import type { TaskSpec } from "@crh/protocol";
+import type { TaskSpec, TrustSummary } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiToken } from "../src/auth/api-tokens.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -52,7 +52,7 @@ describe("main chain dispatch and the task queue", () => {
 		const masterKey = MasterKey.generate();
 		await bindMasterKey(db, masterKey);
 		signing = await loadAuthorizationSigningKey(db, masterKey);
-		cluster = new Cluster(db, { authorizationKey: signing, trustWaitMs: 100, nodeOfflineGraceMs: GRACE_MS });
+		cluster = new Cluster(db, { authorizationKey: signing, nodeOfflineGraceMs: GRACE_MS });
 		const identity: ServerIdentity = { keyPair: generateKeyPair(), fingerprint: "test-fingerprint" };
 		agents = await TestAgentServer.start(db, identity, cluster);
 		ownerId = (await createUser(db, { username: "owner", kind: "member", password: "password-123" })).id;
@@ -125,12 +125,13 @@ describe("main chain dispatch and the task queue", () => {
 		});
 		await waitFor("link ready", () => cluster.isConnected(node.id));
 		if (options.trust !== false) {
-			const summary = {
+			const summary: TrustSummary = {
 				nodeId: node.id,
 				aliases: [],
 				clockSkewMs: 0,
 				identities: IDENTITIES,
 				trust: [crhsEntry()],
+				localWindow: { kind: "closed" },
 			};
 			crha.trust({ kind: "ok", summary });
 			await waitFor("trust stored", async () => (await rowNode(node.id))?.trust_digest === trustDigest(summary));
@@ -204,10 +205,10 @@ describe("main chain dispatch and the task queue", () => {
 		expect(Date.now() - started).toBeLessThan(2_000);
 
 		// The late acceptance settles in the queue after the exit and must not overwrite it.
+		// createTask returned once the task was claimed; the send runs on, outside the authorization pass.
+		await created;
 		releaseStart();
-		const view = await created;
-		expect(view.state).toBe("exited");
-		await new Promise((resolve) => setTimeout(resolve, 50));
+		await cluster.drain();
 		expect((await rowOf(id))?.state).toBe("exited");
 	});
 

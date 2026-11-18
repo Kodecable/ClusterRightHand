@@ -505,8 +505,8 @@ func TestHandshakeDifferentMinorAccepted(t *testing.T) {
 	})
 }
 
-// TestRoleNames covers the per-role command sets: native keeps the 1.0 task set, forward adds
-// the forward-only names and local adds its approval names.
+// TestRoleNames covers the per-role command sets: native keeps the task set, forward adds
+// trust.query and trust.summary, and local adds its window commands.
 func TestRoleNames(t *testing.T) {
 	core := []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start", "transfer.data"}
 	if got := Names(); !reflect.DeepEqual(got, core) {
@@ -520,11 +520,10 @@ func TestRoleNames(t *testing.T) {
 		want []string
 	}{
 		{RoleForward, []string{
-			"local.decision", "local.request", "local.withdraw",
 			"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
 			"transfer.data", "trust.query", "trust.summary",
 		}},
-		{RoleLocal, []string{"local.approve", "local.deny", "pending.list"}},
+		{RoleLocal, []string{"window.close", "window.open", "window.status"}},
 	}
 	for _, tc := range cases {
 		if got := NamesFor(tc.role); !reflect.DeepEqual(got, tc.want) {
@@ -567,9 +566,9 @@ func TestLocalHandshake(t *testing.T) {
 	// rejected locally by Peer.Request before anything is written.
 	stream := NewStreamFor(client, client, negotiated, RoleLocal)
 	var empty protocol.Empty
-	err = stream.Peer().Request(context.Background(), CmdLocalApprove, protocol.Empty{}, &empty)
+	err = stream.Peer().Request(context.Background(), CmdWindowOpen, protocol.Empty{}, &empty)
 	if err == nil || !strings.Contains(err.Error(), "body") {
-		t.Fatalf("local.approve with an empty body = %v, want a local schema rejection", err)
+		t.Fatalf("window.open with an empty body = %v, want a local schema rejection", err)
 	}
 }
 

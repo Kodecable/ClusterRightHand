@@ -12,11 +12,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/enroll"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
+	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/statedir"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
@@ -31,8 +34,9 @@ const (
 	PrivilegedConfigPath = "/etc/crha/privileged.toml"
 	// PrivilegedSocket is the local approval socket of forward mode.
 	PrivilegedSocket = "/run/crha/privileged.sock"
-	// PrivilegedStateDir holds the privileged mode's used-task records.
-	PrivilegedStateDir = "/var/lib/crha/privileged"
+	// PrivilegedStateDir holds the privileged mode's used-task records. It is outside StateDir:
+	// crha owns StateDir, so anything root keeps below it could be renamed away by crha.
+	PrivilegedStateDir = statedir.DefaultDir
 	// PrivilegedLogPath is the privileged mode's audit log.
 	PrivilegedLogPath = "/var/log/crha/privileged.jsonl"
 	// UnitDir is where crha writes its units.
@@ -170,7 +174,22 @@ func Run(ctx context.Context, opts Options) (err error) {
 				if err != nil {
 					return enroll.Result{}, err
 				}
-				return enroll.Run(ctx, cfg, token, enroll.Options{Replace: replace, Env: env, Root: host.Root()})
+				// The keys are written as root. They must belong to crha from the moment their
+				// final names exist, so the owner is set on the temporary file before publication.
+				uid, err := host.UID(SystemUser)
+				if err != nil {
+					return enroll.Result{}, fmt.Errorf("look up uid of %s: %w", SystemUser, err)
+				}
+				gid, err := host.GID(SystemUser)
+				if err != nil {
+					return enroll.Result{}, fmt.Errorf("look up gid of %s: %w", SystemUser, err)
+				}
+				return enroll.Run(ctx, cfg, token, enroll.Options{
+					Replace: replace,
+					Env:     env,
+					Root:    host.Root(),
+					Owner:   &identity.Owner{UID: uid, GID: gid},
+				})
 			}
 		}
 		result, err = register(ctx, cfg, answers.Token, answers.Replace)
@@ -178,11 +197,6 @@ func Run(ctx context.Context, opts Options) (err error) {
 			return err
 		}
 		fmt.Fprintf(out, "enrolled as node %s, waiting for approval\nnode key fingerprint: %s\n", result.NodeID, result.Fingerprint)
-	}
-	for _, path := range []string{cfg.IdentityKeyPath(), cfg.ServerKeyPath()} {
-		if err := host.Chown(at(host, path), SystemUser, SystemUser); err != nil {
-			return err
-		}
 	}
 
 	if mode == config.ModeForward {
@@ -286,26 +300,78 @@ func ensureSystemUser(ctx context.Context, host Host, say func(string)) error {
 	return nil
 }
 
+// ensureDirectory creates path with the requested owner and mode, or repairs an existing real
+// directory. A symlink or non-directory is refused: root never follows a path below a directory
+// the unprivileged account controls.
 func ensureDirectory(host Host, path string, mode os.FileMode, owner, group string, say func(string)) error {
 	actual := at(host, path)
-	ok, err := exists(actual)
+	info, err := os.Lstat(actual)
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(actual, 0o755); err != nil {
+			return err
+		}
+		if err := chmodDirectory(actual, mode); err != nil {
+			return err
+		}
+		if err := host.Chown(actual, owner, group); err != nil {
+			return err
+		}
+		say("created: " + path)
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	if ok {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symbolic link, not a directory", path)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", path)
+	}
+	uid, err := host.UID(owner)
+	if err != nil {
+		return fmt.Errorf("look up uid of %s: %w", owner, err)
+	}
+	gid, err := host.GID(group)
+	if err != nil {
+		return fmt.Errorf("look up gid of %s: %w", group, err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("cannot determine the owner of %s", path)
+	}
+	var fixes []string
+	if st.Uid != uid || st.Gid != gid {
+		if err := host.Chown(actual, owner, group); err != nil {
+			return err
+		}
+		fixes = append(fixes, fmt.Sprintf("owner %s:%s", owner, group))
+	}
+	if info.Mode().Perm() != mode.Perm() {
+		if err := chmodDirectory(actual, mode); err != nil {
+			return err
+		}
+		fixes = append(fixes, fmt.Sprintf("mode %04o", mode.Perm()))
+	}
+	if len(fixes) > 0 {
+		say("fixed: " + path + " (" + strings.Join(fixes, ", ") + ")")
+	} else {
 		say("skipped: " + path)
-		return nil
 	}
-	if err := os.MkdirAll(actual, 0o755); err != nil {
+	return nil
+}
+
+// chmodDirectory changes a directory's mode through a descriptor opened without following a
+// symlink. A path swapped after the Lstat therefore cannot redirect root's chmod to another file.
+func chmodDirectory(path string, mode os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
+	if err != nil {
 		return err
 	}
-	if err := os.Chmod(actual, mode); err != nil {
-		return err
+	defer f.Close()
+	if err := f.Chmod(mode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
 	}
-	if err := host.Chown(actual, owner, group); err != nil {
-		return err
-	}
-	say("created: " + path)
 	return nil
 }
 
@@ -468,7 +534,6 @@ func renderPrivilegedConfig(nodeID string, uid uint32, localRoot bool, trust str
 			`name = "local-root"`,
 			`role = "local"`,
 			"uids = [0]",
-			`kinds = ["execute"]`,
 		)
 	}
 	if trust = strings.TrimSpace(trust); trust != "" {

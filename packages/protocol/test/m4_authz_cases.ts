@@ -59,8 +59,8 @@ interface Case {
 		/** In signature order. `entry` names the signer; a name with no trust entry here is a key this node does not trust. `valid` is the crypto result. */
 		signatures: { entry: string; valid: boolean; uv: boolean }[];
 	};
-	/** For task.start after `crha approve`: who approved and the spec hash recorded at approval. */
-	local_approval: null | { uid: number; spec_sha256: string };
+	/** The local approval window state when the decision runs; null means closed. */
+	window: null | { opened_at_ms: number; opened_by: number; until_ms: number };
 	/** Task ids already executed on this node, and (authorization, task id) pairs already used. */
 	executed_task_ids: string[];
 	used_pairs: string[];
@@ -150,7 +150,8 @@ const CRHS = entry("crhs", "crhs", {
 	],
 });
 const USER = entry("alice", "user", { max_ttl_ms: 86_400_000, env_allow: ["DEBIAN_FRONTEND"] });
-const LOCAL = entry("local-admins", "local", { uids: [0, 1000] });
+const LOCAL = entry("local-admins", "local", { kinds: [], uids: [0, 1000] });
+const WINDOW_OPEN = { opened_at_ms: NOW - 60_000, opened_by: 1000, until_ms: NOW + 1_800_000 };
 
 const exactRestart = { method: "exec" as const, exact: "systemctl restart nginx", spec_sha256: specHash(RESTART) };
 
@@ -176,7 +177,7 @@ function base(id: string, description: string, overrides: Partial<Case> = {}): C
 		trust: [CRHS, USER, LOCAL],
 		task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART) },
 		authorization: { payload: crhsPayload(), signatures: [{ entry: "crhs", valid: true, uv: false }] },
-		local_approval: null,
+		window: null,
 		executed_task_ids: [],
 		used_pairs: [],
 		expect: { result: "accepted", step: null },
@@ -197,7 +198,7 @@ function cases(): Case[] {
 	return [
 		// --- crhs execute -------------------------------------------------------------------
 		base("crhs.exact.accept", "crhs single-command authorization within its rules"),
-		base("crhs.no-authorization", "no authorization and no local approval", {
+		base("crhs.no-authorization", "no authorization", {
 			authorization: null,
 			...reject("authorization_required", 3),
 		}),
@@ -587,21 +588,89 @@ function cases(): Case[] {
 			...reject("authorization_expired", 4),
 		}),
 
-		// --- local approval ------------------------------------------------------------------
-		base("local.approved", "task.start after crha approve with the same spec", {
-			authorization: null,
-			local_approval: { uid: 1000, spec_sha256: specHash(RESTART) },
+		// --- local approval window -----------------------------------------------------------
+		base("window.crhs.accepted", "crhs signature accepted while the local window is open", {
+			window: WINDOW_OPEN,
 		}),
-		base("local.spec-changed", "the spec hash differs from the one approved", {
-			authorization: null,
-			local_approval: { uid: 1000, spec_sha256: specHash(RESTART_ENV) },
-			...reject("authorization_rejected", 6),
+		base("window.crhs.guard-ignored", "the open window ignores the crhs entry's deny rules", {
+			window: WINDOW_OPEN,
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
+			authorization: signedBy(
+				crhsPayload({
+					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+				}),
+				"crhs",
+			),
 		}),
-		base("local.executed", "an approved task id that already ran", {
-			authorization: null,
-			local_approval: { uid: 1000, spec_sha256: specHash(RESTART) },
+		base("window.crhs.max-ttl-ignored", "the open window ignores the crhs entry's max_ttl", {
+			window: WINDOW_OPEN,
+			authorization: signedBy(crhsPayload({ deadline_ms: NOW + 600_000 }), "crhs"),
+		}),
+		base("window.crhs.require-exact-ignored", "the open window ignores require_exact", {
+			window: WINDOW_OPEN,
+			authorization: signedBy(crhsPayload({ command: { method: "exec", prefix: "systemctl restart " } }), "crhs"),
+		}),
+		base("window.crhs.no-execute-kind", "the open window needs no execute kind on the crhs entry", {
+			window: WINDOW_OPEN,
+			trust: [{ ...CRHS, kinds: ["cosign"] }, USER, LOCAL],
+		}),
+		base("window.crhs.expired", "the deadline is still enforced while the window is open", {
+			window: WINDOW_OPEN,
+			authorization: signedBy(crhsPayload({ issued_at_ms: NOW - 600_000, deadline_ms: NOW - 60_001 }), "crhs"),
+			...reject("authorization_expired", 4),
+		}),
+		base("window.crhs.executed", "the one-shot check is still enforced while the window is open", {
+			window: WINDOW_OPEN,
 			executed_task_ids: [TASK],
 			...reject("already_accepted", 5),
+		}),
+		base("window.crhs.used", "an already used authorization is still refused while the window is open", {
+			window: WINDOW_OPEN,
+			used_pairs: [TASK],
+			...reject("authorization_rejected", 5),
+		}),
+		base("window.crhs.spec-mismatch", "the command limit is still enforced while the window is open", {
+			window: WINDOW_OPEN,
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART_ENV) },
+			...reject("authorization_rejected", 6),
+		}),
+		base("window.crhs.reusable", "crhs authorizations must still be one-shot while the window is open", {
+			window: WINDOW_OPEN,
+			authorization: signedBy(crhsPayload({ task_ids: null, attempt: null }), "crhs"),
+			...reject("authorization_rejected", 5),
+		}),
+		base("window.closed.guard-applies", "a closed window applies the crhs entry's deny rules", {
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
+			authorization: signedBy(
+				crhsPayload({
+					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+				}),
+				"crhs",
+			),
+			...reject("authorization_rejected", 7),
+		}),
+		base("window.expired.at-now", "a window whose until equals now is closed", {
+			window: { opened_at_ms: NOW - 1_800_000, opened_by: 1000, until_ms: NOW },
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
+			authorization: signedBy(
+				crhsPayload({
+					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+				}),
+				"crhs",
+			),
+			...reject("authorization_rejected", 7),
+		}),
+		base("window.user-not-affected", "the open window does not bypass a user entry's rules", {
+			window: WINDOW_OPEN,
+			trust: [CRHS, { ...USER, deny: [{ method: "file.write", match: "prefix", pattern: "/etc/crha/" }] }, LOCAL],
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
+			authorization: signedBy(
+				userOneShot({
+					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+				}),
+				"alice",
+			),
+			...reject("authorization_rejected", 7),
 		}),
 	];
 }

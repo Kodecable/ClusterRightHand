@@ -328,6 +328,7 @@ describeBackends("nodes", (backend) => {
 					privileged: { uid: 0, gid: 0, user: "root" },
 				},
 				trust: [],
+				localWindow: { kind: "closed" },
 			};
 			await recordTrustReport(db, n.id, { kind: "ok", summary });
 			const [node] = await listNodesForUser(db, u, { crhsFingerprints: ["SHA256:crhs"] });

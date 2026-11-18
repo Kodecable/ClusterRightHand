@@ -52,7 +52,7 @@ type Entry struct {
 	// Guard is Allow and Deny compiled (CompileGuard). nil compiles them for every decision.
 	Guard    *Guard
 	EnvAllow []string
-	// UIDs are the uids allowed to approve locally; used only for role local.
+	// UIDs are the uids allowed to open the local approval window; used only for role local.
 	UIDs []uint32
 }
 
@@ -86,11 +86,12 @@ type Authorization struct {
 	Signatures []Signature
 }
 
-// LocalApproval is an approved local.request: who approved, and the spec hash recorded at
-// approval time.
-type LocalApproval struct {
-	UID        uint32
-	SpecSHA256 [32]byte
+// Window is an open local approval window of the node (doc/design/privilege.md "Local approval window").
+// It is the daemon's in-memory state, so a zero value or a nil pointer means closed.
+type Window struct {
+	OpenedBy uint32
+	OpenedAt time.Time
+	Until    time.Time
 }
 
 // Input is everything the pure decision needs. Executed, Used and Watermarked are the
@@ -104,7 +105,8 @@ type Input struct {
 	Task      Task
 
 	Authorization *Authorization
-	LocalApproval *LocalApproval
+	// Window is the local approval window when it is open at Now; nil means closed.
+	Window *Window
 
 	// Executed reports whether the task id already ran on this node.
 	Executed func(taskID string) bool
@@ -119,9 +121,12 @@ type Input struct {
 // verification step otherwise; Entry is the accepting trust entry's name, empty on
 // failure. Message is for the local log and the task.start error message.
 type Decision struct {
-	Result  Result
-	Step    int
-	Entry   string
+	Result Result
+	Step   int
+	Entry  string
+	// Window is true when an open local approval window let a crhs signature through without
+	// the entry's own rules (doc/design/privilege.md "Local approval window").
+	Window  bool
 	Message string
 }
 
@@ -150,58 +155,22 @@ func Decide(in Input) Decision {
 		return failure(ResultRejected, StepTaskCheck, "task spec hash: %v", err)
 	}
 	if in.Authorization == nil {
-		return decideLocal(in, method, target, specHash)
+		return failure(ResultRequired, StepSignatures, "no authorization")
 	}
 	return decideAuthorization(in, method, target, specHash)
 }
 
-// decideLocal handles a task.start after crha approve: the local approval takes the place
-// of the authorization object, so steps 3, 4 and the command part of step 6 do not apply.
-func decideLocal(in Input, method, target string, specHash [32]byte) Decision {
-	// A task id that already ran is already accepted, whether or not an approval is still
-	// recorded: crhs never resends an accepted task, and a consumed approval is gone.
-	if in.taskExecuted(in.Task.ID) {
-		return failure(ResultAlreadyAccepted, StepOneShot, "task %s already ran on this node", in.Task.ID)
-	}
-	approval := in.LocalApproval
-	if approval == nil {
-		return failure(ResultRequired, StepSignatures, "no authorization and no local approval")
-	}
-	var entries []*Entry
-	for i := range in.Trust {
-		entry := &in.Trust[i]
-		if entry.Role != protocol.TrustRoleLocal {
-			continue
-		}
-		if slices.Contains(entry.UIDs, approval.UID) {
-			entries = append(entries, entry)
-		}
-	}
-	if len(entries) == 0 {
-		return failure(ResultRequired, StepSignatures, "uid %d is not in a local trust entry", approval.UID)
-	}
+// windowOpen reports whether the local approval window is open at Now. A window closes at
+// its until time, so the boundary itself is closed.
+func (in Input) windowOpen() bool {
+	return in.Window != nil && in.Now.Before(in.Window.Until)
+}
 
-	var first *Decision
-	for _, entry := range entries {
-		if in.taskExecuted(in.Task.ID) {
-			return failure(ResultAlreadyAccepted, StepOneShot, "task %s already ran on this node", in.Task.ID)
-		}
-		if approval.SpecSHA256 != specHash {
-			decision := failure(ResultRejected, StepCommand, "spec hash differs from the approved one")
-			if first == nil {
-				first = &decision
-			}
-			continue
-		}
-		if decision, ok := checkTrust(entry, in, method, target); !ok {
-			if first == nil {
-				first = &decision
-			}
-			continue
-		}
-		return accepted(entry.Name)
-	}
-	return *first
+// windowApplies reports whether an open window waives the trust entry's own limits for one
+// signature: only a crhs signature, because the window hands the privileged identity to crhs
+// (doc/design/privilege.md "Local approval window").
+func (in Input) windowApplies(entry *Entry) bool {
+	return in.windowOpen() && entry.Role == protocol.TrustRoleCRHS
 }
 
 // decideAuthorization handles task.start with an authorization object.
@@ -266,6 +235,9 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 	method, target string, specHash [32]byte) (Decision, bool) {
 	entry := signature.Entry
 	payload := auth.Decoded
+	// An open local window waives the crhs entry's own limits (max_ttl, require_exact) and
+	// step 7 entirely; the signed command limit of step 6 still applies.
+	viaWindow := in.windowApplies(entry)
 
 	// Step 4: the authorization body.
 	if !addressedTo(payload.Nodes, in.NodeID, in.Aliases) {
@@ -286,14 +258,16 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 	if int64(*payload.DeadlineMS) < nowMS-skewMS {
 		return failure(ResultExpired, StepAuthorization, "authorization has expired"), false
 	}
-	if entry.MaxTTL != nil {
-		if int64(*payload.DeadlineMS)-issuedAtMS > entry.MaxTTL.Milliseconds() {
-			return failure(ResultExpired, StepAuthorization, "authorization ttl exceeds max_ttl"), false
+	if !viaWindow {
+		if entry.MaxTTL != nil {
+			if int64(*payload.DeadlineMS)-issuedAtMS > entry.MaxTTL.Milliseconds() {
+				return failure(ResultExpired, StepAuthorization, "authorization ttl exceeds max_ttl"), false
+			}
 		}
-	}
-	if entry.RequireExact {
-		if payload.Command == nil || payload.Command.Match.Kind != protocol.AuthMatchExact {
-			return failure(ResultRejected, StepAuthorization, "trust entry requires an exact command"), false
+		if entry.RequireExact {
+			if payload.Command == nil || payload.Command.Match.Kind != protocol.AuthMatchExact {
+				return failure(ResultRejected, StepAuthorization, "trust entry requires an exact command"), false
+			}
 		}
 	}
 
@@ -336,25 +310,30 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 		return failure(ResultRejected, StepCommand, "authorization does not cover this task"), false
 	}
 
-	// Step 7: the trust entry.
-	if decision, ok := checkTrust(entry, in, method, target); !ok {
-		return decision, false
-	}
-	if entry.RequireUV && !signature.UserVerified {
-		return failure(ResultRejected, StepTrust, "trust entry requires user verification"), false
+	// Step 7: the trust entry. The window skips it for crhs signatures: no execute kind, no
+	// guard rules and no environment allowlist apply while crhs holds the privileged identity.
+	if !viaWindow {
+		if decision, ok := checkTrust(entry, in, method, target); !ok {
+			return decision, false
+		}
+		if entry.RequireUV && !signature.UserVerified {
+			return failure(ResultRejected, StepTrust, "trust entry requires user verification"), false
+		}
 	}
 
 	// Step 8: cosignature.
-	if cosignRequired(entry) {
+	if !viaWindow && cosignRequired(entry) {
 		if !hasCosign(auth) {
 			return failure(ResultRejected, StepCosign, "authorization requires a crhs cosignature"), false
 		}
 	}
+	if viaWindow {
+		return acceptedViaWindow(entry.Name), true
+	}
 	return accepted(entry.Name), true
 }
 
-// checkTrust evaluates the trust entry parts of step 7 common to authorization candidates
-// and local approvals.
+// checkTrust evaluates the trust entry parts of step 7 for an authorization candidate.
 func checkTrust(entry *Entry, in Input, method, target string) (Decision, bool) {
 	if !entry.HasKind(protocol.TrustKindExecute) {
 		return failure(ResultRejected, StepTrust, "trust entry %q cannot authorize (no execute)", entry.Name), false
@@ -473,6 +452,10 @@ func (in Input) authorizationWatermarked(issuedAtMS int64) bool {
 
 func accepted(entry string) Decision {
 	return Decision{Result: ResultAccepted, Entry: entry}
+}
+
+func acceptedViaWindow(entry string) Decision {
+	return Decision{Result: ResultAccepted, Entry: entry, Window: true}
 }
 
 func failure(result Result, step int, format string, args ...any) Decision {

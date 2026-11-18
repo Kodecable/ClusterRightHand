@@ -1,6 +1,7 @@
 // Package localclient is the crha CLI's client of the privileged mode's unix socket, in the
-// crh-priv `local` role (doc/design/protocol.md "crh-priv", doc/design/privilege.md "Local approval"). The privileged
-// mode identifies the caller by SO_PEERCRED; the caller must be in a local trust entry.
+// crh-priv `local` role (doc/design/protocol.md "crh-priv", doc/design/privilege.md "Local approval window"). The privileged
+// mode identifies the caller by SO_PEERCRED; the caller must be in a local trust entry. The
+// client only manages the local approval window.
 package localclient
 
 import (
@@ -73,37 +74,32 @@ func (c *Client) Close() error {
 	return err
 }
 
-// Pending lists the tasks waiting for local approval.
-func (c *Client) Pending(ctx context.Context) ([]protocol.PendingEntry, error) {
-	var entries []protocol.PendingEntry
-	if err := c.peer.Request(ctx, wire.CmdPendingList, protocol.Empty{}, &entries); err != nil {
-		return nil, err
+// Window reports the current local approval window.
+func (c *Client) Window(ctx context.Context) (protocol.WindowState, error) {
+	var state protocol.WindowState
+	if err := c.peer.Request(ctx, wire.CmdWindowStatus, protocol.Empty{}, &state); err != nil {
+		return protocol.ClosedWindow(), err
 	}
-	if entries == nil {
-		entries = []protocol.PendingEntry{}
+	return state, nil
+}
+
+// Open opens or replaces the local approval window for length and returns its state.
+func (c *Client) Open(ctx context.Context, length time.Duration) (protocol.WindowState, error) {
+	var state protocol.WindowState
+	ms := uint64(length / time.Millisecond)
+	if err := c.peer.Request(ctx, wire.CmdWindowOpen, protocol.WindowOpen{
+		DurationMS: protocol.Uint(ms),
+	}, &state); err != nil {
+		return protocol.ClosedWindow(), err
 	}
-	return entries, nil
+	return state, nil
 }
 
-// Approve approves one pending task. specSHA256 is the hash of the spec the approver saw: the
-// privileged mode refuses the verdict when the pending record has another hash
-// (doc/design/privilege.md "Local approval").
-func (c *Client) Approve(ctx context.Context, taskID string, attempt uint64, specSHA256 [32]byte, message string) error {
-	return c.verdict(ctx, wire.CmdLocalApprove, taskID, attempt, specSHA256, message)
-}
-
-// Deny denies one pending task with an optional message. specSHA256 binds the verdict to the
-// spec the approver saw, as with Approve.
-func (c *Client) Deny(ctx context.Context, taskID string, attempt uint64, specSHA256 [32]byte, message string) error {
-	return c.verdict(ctx, wire.CmdLocalDeny, taskID, attempt, specSHA256, message)
-}
-
-func (c *Client) verdict(ctx context.Context, cmd, taskID string, attempt uint64, specSHA256 [32]byte, message string) error {
-	var empty protocol.Empty
-	return c.peer.Request(ctx, cmd, protocol.LocalVerdict{
-		TaskID:     taskID,
-		Attempt:    protocol.Uint(attempt),
-		SpecSHA256: protocol.Hash(specSHA256),
-		Message:    message,
-	}, &empty)
+// CloseWindow closes the local approval window early and returns its new state.
+func (c *Client) CloseWindow(ctx context.Context) (protocol.WindowState, error) {
+	var state protocol.WindowState
+	if err := c.peer.Request(ctx, wire.CmdWindowClose, protocol.Empty{}, &state); err != nil {
+		return protocol.ClosedWindow(), err
+	}
+	return state, nil
 }

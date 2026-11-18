@@ -12,37 +12,44 @@ import { taskErrorText } from "@/lib/task-output";
 import { cn, MONO_CELL } from "@/lib/utils";
 import { InternalLink } from "./internal-link";
 
-/** The authorization plan of a task that waits for a signature (doc/design/privilege.md "Authorization path"). */
-function AuthorizationPlan({ record }: { record: TaskAuthorizationView }) {
+/** The options a task waiting for a signature offers its owner (doc/design/privilege.md "Authorization path"). */
+function AuthorizationOptions({ record }: { record: TaskAuthorizationView }) {
 	return (
 		<div className="mt-1 grid gap-1 text-xs">
-			{record.plan.paths.length > 0 && (
+			{record.options.length > 0 && (
 				<ul className="list-disc pl-4">
-					{record.plan.paths.map((path) => (
-						<li key={path.path} className="break-words [overflow-wrap:anywhere]">
-							<span className="font-medium">{path.path}</span>
-							{path.entries.length > 0 && (
-								<>
-									{": "}
-									{path.entries.map((entry) => `${entry.name} (${entry.role})`).join(", ")}
-									{path.entries.some((entry) => entry.cosign) && (
-										<>
-											{" · "}
-											{path.entries.some((entry) => entry.cosign === "missing") ? (
-												<Trans>cosignature unavailable</Trans>
-											) : (
-												<Trans>cosignature available</Trans>
-											)}
-										</>
-									)}
-								</>
-							)}
-						</li>
-					))}
+					{record.options.map((option) =>
+						option.kind === "sign" ? (
+							<li key="sign" className="break-words [overflow-wrap:anywhere]">
+								<Trans>Sign</Trans>
+								{option.entries.length > 0 && (
+									<>
+										{": "}
+										{option.entries.map((entry) => `${entry.name} (${entry.role})`).join(", ")}
+										{option.entries.some((entry) => entry.cosign) && (
+											<>
+												{" · "}
+												{option.entries.some((entry) => entry.cosign === "missing") ? (
+													<Trans>cosignature unavailable</Trans>
+												) : (
+													<Trans>cosignature available</Trans>
+												)}
+											</>
+										)}
+									</>
+								)}
+							</li>
+						) : option.kind === "local_window" ? (
+							<li key={`window-${option.nodeId}`} className="break-words [overflow-wrap:anywhere]">
+								<Trans>Local window on {option.nodeName}</Trans>
+							</li>
+						) : (
+							<li key="awaiting-node" className="break-words [overflow-wrap:anywhere]">
+								<Trans>Signed; waiting for the node to come back</Trans>
+							</li>
+						),
+					)}
 				</ul>
-			)}
-			{record.plan.reason !== undefined && record.plan.reason !== "" && (
-				<p className="text-muted-foreground break-words [overflow-wrap:anywhere]">{record.plan.reason}</p>
 			)}
 			{record.lastRejection !== null && (
 				<p className="text-danger break-words [overflow-wrap:anywhere]">
@@ -184,7 +191,7 @@ export function TaskFacts({
 									)}
 									{task.authorization ? <> (attempt {task.authorization.attempt})</> : null}
 								</span>
-								{task.authorization ? <AuthorizationPlan record={task.authorization} /> : null}
+								{task.authorization ? <AuthorizationOptions record={task.authorization} /> : null}
 							</div>
 						),
 					},

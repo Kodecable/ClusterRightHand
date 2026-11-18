@@ -314,6 +314,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0006_image_state" },
 			{ name: "0007_extensions" },
 			{ name: "0008_channels" },
+			{ name: "0009_authorization_lookup" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});

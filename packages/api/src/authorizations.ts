@@ -1,46 +1,41 @@
 /**
- * Privileged-task authorization: plans, the payload to sign, pending views
- * and the administrator's list (doc/design/privilege.md "Authorization path").
+ * Privileged-task authorization: the options a waiting task offers its owner, the payload to sign,
+ * pending views and the administrator's list (doc/design/privilege.md "Authorization path").
  * The types are derived from their schemas in `schemas/authorizations.ts`.
  */
 
 import type { z } from "zod";
 import type {
+	AuthorizationOptionSchema,
 	AuthorizationPathSchema,
 	AuthorizationSummarySchema,
+	AwaitingNodeAuthorizationOptionSchema,
 	DecodedAuthorizationPayloadSchema,
+	LocalWindowAuthorizationOptionSchema,
+	PendingAuthorizationOptionSchema,
 	PendingAuthorizationSchema,
 	PendingPasskeySchema,
 	PendingPayloadViewSchema,
+	PendingSignOptionSchema,
+	PendingSignPayloadSchema,
 	PlannedPathEntrySchema,
-	PlannedPathViewSchema,
 	RejectAuthorizationBodySchema,
+	SignAuthorizationOptionSchema,
 	SubmitAuthorizationBodySchema,
-	TaskAuthorizationPlanViewSchema,
 	TaskAuthorizationRejectionSchema,
 	TaskAuthorizationViewSchema,
 	TaskGroupPendingSchema,
 	TaskGroupPendingTaskSchema,
 } from "./schemas/authorizations.ts";
 
-/** The three ways a node can accept a privileged task. */
+/** The two paths a crha rejection can rule out. */
 export type AuthorizationPath = z.infer<typeof AuthorizationPathSchema>;
 
-/** One entry of a planned path. */
+/** One trust entry of a `sign` option. */
 export type PlannedPathEntry = z.infer<typeof PlannedPathEntrySchema>;
 
-/** One path of a task's authorization plan (doc/design/privilege.md "Authorization path"). */
-export type PlannedPathView = z.infer<typeof PlannedPathViewSchema>;
-
-export type TaskAuthorizationPlanView = z.infer<typeof TaskAuthorizationPlanViewSchema>;
-
-/** The payload the owner has to sign, as stored on the task record. */
+/** The exact payload a `sign` option asks the owner to sign, as stored on the task record. */
 export type PendingPayloadView = z.infer<typeof PendingPayloadViewSchema>;
-
-export type TaskAuthorizationRejection = z.infer<typeof TaskAuthorizationRejectionSchema>;
-
-/** The authorization state of a privileged task (doc/design/privilege.md "Server-side authorization"). */
-export type TaskAuthorizationView = z.infer<typeof TaskAuthorizationViewSchema>;
 
 /** The decoded form of a pending authorization payload. */
 export type DecodedAuthorizationPayload = z.infer<typeof DecodedAuthorizationPayloadSchema>;
@@ -48,8 +43,34 @@ export type DecodedAuthorizationPayload = z.infer<typeof DecodedAuthorizationPay
 /** One of the owner's Passkeys the node trusts for the payload. */
 export type PendingPasskey = z.infer<typeof PendingPasskeySchema>;
 
-/** The payload a waiting task's owner has to sign. */
+/** The payload of a `sign` option as the owner's waiting page renders it. */
+export type PendingSignPayload = z.infer<typeof PendingSignPayloadSchema>;
+
+/** A `sign` option: the payload plus the trust entries that would accept it. */
+export type SignAuthorizationOption = z.infer<typeof SignAuthorizationOptionSchema>;
+
+/** A `local_window` option: open a window on this node. */
+export type LocalWindowAuthorizationOption = z.infer<typeof LocalWindowAuthorizationOptionSchema>;
+
+/** The owner already signed; the task is sent when its absent node is back. */
+export type AwaitingNodeAuthorizationOption = z.infer<typeof AwaitingNodeAuthorizationOptionSchema>;
+
+/** One option a waiting task or task group offers its owner. */
+export type AuthorizationOption = z.infer<typeof AuthorizationOptionSchema>;
+
+/** A `sign` option as the owner's waiting page renders it. */
+export type PendingSignOption = z.infer<typeof PendingSignOptionSchema>;
+
+/** One option the owner's waiting page renders. */
+export type PendingAuthorizationOption = z.infer<typeof PendingAuthorizationOptionSchema>;
+
+/** The options a waiting task's or task group's owner can take. */
 export type PendingAuthorization = z.infer<typeof PendingAuthorizationSchema>;
+
+export type TaskAuthorizationRejection = z.infer<typeof TaskAuthorizationRejectionSchema>;
+
+/** The authorization state of a privileged task (doc/design/privilege.md "Server-side authorization"). */
+export type TaskAuthorizationView = z.infer<typeof TaskAuthorizationViewSchema>;
 
 export type TaskGroupPendingTask = z.infer<typeof TaskGroupPendingTaskSchema>;
 

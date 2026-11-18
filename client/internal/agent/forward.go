@@ -10,7 +10,6 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
@@ -115,8 +114,8 @@ type forwardConn struct {
 	conn   net.Conn
 	stream *wire.Stream
 	peer   *protocol.Peer
-	// negotiated is what both sides implement; the daemon's crh-priv 1.0 subset has no
-	// local.* commands (doc/design/protocol.md "crh-priv").
+	// negotiated is what both sides implement; the daemon's crh-priv forward subset has no
+	// window commands (doc/design/protocol.md "crh-priv").
 	negotiated protocol.Set
 	done       chan struct{}
 	runErr     error
@@ -186,7 +185,6 @@ func (a *Agent) dialForward(ctx context.Context) (*forwardConn, error) {
 	fc.peer.HandleEvent(wire.EventTransferData, transfer)
 	fc.peer.HandleEvent(protocol.EventTaskExit, exit)
 	fc.peer.HandleEvent(protocol.EventTrustSummary, a.handleForwardSummary)
-	fc.peer.HandleEvent(protocol.EventLocalDecision, a.handleForwardLocalDecision)
 	return fc, nil
 }
 
@@ -436,32 +434,6 @@ func (a *Agent) handleForwardSummary(body cbor.RawMessage) error {
 	return nil
 }
 
-// handleForwardLocalDecision forwards a local approve or deny decision to crhs.
-func (a *Agent) handleForwardLocalDecision(body cbor.RawMessage) error {
-	var decision protocol.LocalDecision
-	if err := protocol.UnmarshalBody(body, &decision); err != nil {
-		return err
-	}
-	a.emitLocalDecision(decision)
-	return nil
-}
-
-// emitLocalDecision relays one local.decision event to crhs. It is called from the daemon's read
-// loop, so the frame goes out before any later frame this side sends on the crhs connection.
-func (a *Agent) emitLocalDecision(decision protocol.LocalDecision) {
-	a.mu.Lock()
-	conn, peer := a.conn, a.peer
-	a.mu.Unlock()
-	if peer == nil || conn == nil || !conn.Negotiated.Has(protocol.EventLocalDecision) {
-		return
-	}
-	if err := peer.Emit(protocol.EventLocalDecision, decision); err != nil {
-		if !errors.Is(err, protocol.ErrClosed) {
-			a.log.Warn("relay local.decision", "task", decision.TaskID, "err", err)
-		}
-	}
-}
-
 // trustReporter tracks the trust report crha knows and the one crhs was last told on the current
 // connection, so trust.summary is only sent when it changed (doc/design/protocol.md "Trust summary").
 type trustReporter struct {
@@ -608,35 +580,4 @@ func (a *Agent) cancelForwardTask(taskID string) {
 	if err := a.relayForward(ctx, protocol.CmdTaskCancel, protocol.TaskCancel{TaskID: taskID}, nil); err != nil {
 		a.log.Debug("cancel a forwarded task", "task", taskID, "err", err)
 	}
-}
-
-// handleLocalRequest relays a local approval request and its state (doc/design/privilege.md "Local approval").
-func (a *Agent) handleLocalRequest(ctx context.Context, body cbor.RawMessage) (any, error) {
-	if a.mode() != config.ModeForward {
-		return nil, notForwardError(a.mode())
-	}
-	var req protocol.LocalRequest
-	if err := protocol.UnmarshalBody(body, &req); err != nil {
-		return nil, err
-	}
-	var state protocol.LocalState
-	if err := a.relayForward(ctx, protocol.CmdLocalRequest, req, &state); err != nil {
-		return nil, err
-	}
-	return state, nil
-}
-
-// handleLocalWithdraw relays a withdrawn local approval request.
-func (a *Agent) handleLocalWithdraw(ctx context.Context, body cbor.RawMessage) (any, error) {
-	if a.mode() != config.ModeForward {
-		return nil, notForwardError(a.mode())
-	}
-	var withdraw protocol.LocalWithdraw
-	if err := protocol.UnmarshalBody(body, &withdraw); err != nil {
-		return nil, err
-	}
-	if err := a.relayForward(ctx, protocol.CmdLocalWithdraw, withdraw, nil); err != nil {
-		return nil, err
-	}
-	return protocol.Empty{}, nil
 }

@@ -851,14 +851,20 @@ describe("exec text results", () => {
 
 function authorizationRecord(): TaskAuthorizationRecord {
 	return {
-		plan: { paths: [{ path: "user", entries: [{ name: "alice", role: "user", credential: "sshsig" }] }] },
-		tried: ["crhs"],
+		options: [
+			{
+				kind: "sign",
+				entries: [{ name: "alice", role: "user", credential: "sshsig" }],
+				ttlMs: 3_600_000,
+				payload: null,
+			},
+		],
+		crhsRejected: { window: null },
+		rejectedBefore: null,
 		dispatchedPath: null,
 		payloadId: "6d4a",
 		attempt: 2,
 		trustDigest: "abc",
-		pending: null,
-		local: null,
 		lastRejection: null,
 		updatedAt: "2026-01-01T00:00:00.000Z",
 	};

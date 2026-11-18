@@ -354,7 +354,7 @@ export interface TasksTable extends ApprovalColumns {
 	 */
 	rev: ColumnType<number, number | undefined, number>;
 	privileged: number;
-	/** JSON authorization plan/state (doc/design/privilege.md "Server-side authorization"): plan, payload id, attempt, trust digest, tried paths, last rejection. */
+	/** JSON authorization state (doc/design/privilege.md "Server-side authorization"): options, payload id, attempt, trust digest, what refusals ruled out, last rejection. */
 	authorization: ColumnType<string | null, string | null | undefined, string | null>;
 	timeout_ms: number | null;
 	/** `full` for a single task; the task group's mode for its tasks. */

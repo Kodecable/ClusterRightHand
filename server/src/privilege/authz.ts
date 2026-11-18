@@ -103,10 +103,11 @@ export interface AuthzAuthorization {
 	signatures: readonly AuthzSignature[];
 }
 
-export interface AuthzLocalApproval {
-	uid: number;
-	/** The spec hash recorded when the request was approved. */
-	specSha256: Uint8Array;
+/** The node's local approval window while it is open (doc/design/privilege.md "Local approval window"). */
+export interface AuthzWindow {
+	openedBy: number;
+	openedAtMs: number;
+	untilMs: number;
 }
 
 export interface AuthzInput {
@@ -118,7 +119,8 @@ export interface AuthzInput {
 	trust: readonly AuthzEntry[];
 	task: AuthzTask;
 	authorization: AuthzAuthorization | null;
-	localApproval: AuthzLocalApproval | null;
+	/** The local approval window when it is open at `now`; null means closed. */
+	window: AuthzWindow | null;
 	/** Whether the task id already ran on this node. */
 	executed?: (taskId: string) => boolean;
 	/** Whether (authorization id, task id) is already in the used list. */
@@ -132,6 +134,8 @@ export interface AuthzDecision {
 	/** The accepting trust entry's name; null unless accepted. */
 	entry: string | null;
 	message: string;
+	/** True when an open local approval window let a crhs signature through. */
+	viaWindow?: boolean;
 }
 
 /** Decides steps 2–8. See `AuthzInput` for the state the caller must supply. */
@@ -145,40 +149,20 @@ export function decide(input: AuthzInput): AuthzDecision {
 	} catch (err) {
 		return failure("authorization_rejected", STEP.task, errorText(err));
 	}
-	if (input.authorization === null) return decideLocal(input, method, target, specHash);
+	if (input.authorization === null) {
+		return failure("authorization_required", STEP.signatures, "no authorization");
+	}
 	return decideAuthorization(input, method, target, specHash);
 }
 
-/**
- * task.start after `crha approve`: the local approval replaces the authorization object, so steps 3,
- * 4 and the command part of step 6 do not apply (doc/design/privilege.md "Local approval").
- */
-function decideLocal(input: AuthzInput, method: Method, target: string, specHash: Uint8Array): AuthzDecision {
-	const approval = input.localApproval;
-	if (approval === null) {
-		return failure("authorization_required", STEP.signatures, "no authorization and no local approval");
-	}
-	const entries = input.trust.filter((entry) => entry.role === "local" && entry.uids.includes(approval.uid));
-	if (entries.length === 0) {
-		return failure("authorization_required", STEP.signatures, `uid ${approval.uid} is not in a local trust entry`);
-	}
-	let first: AuthzDecision | undefined;
-	for (const entry of entries) {
-		if (taskExecuted(input, input.task.id)) {
-			return failure("already_accepted", STEP.oneShot, `task ${input.task.id} already ran on this node`);
-		}
-		if (!bytesEqual(approval.specSha256, specHash)) {
-			first ??= failure("authorization_rejected", STEP.command, "spec hash differs from the approved one");
-			continue;
-		}
-		const trusted = checkTrust(entry, input, method, target);
-		if (!trusted.ok) {
-			first ??= trusted.decision;
-			continue;
-		}
-		return accepted(entry.name);
-	}
-	return first as AuthzDecision;
+/** Whether the local approval window is open at `now`; the boundary itself is closed. */
+function windowOpen(input: AuthzInput): boolean {
+	return input.window !== null && input.now < input.window.untilMs;
+}
+
+/** The window waives only a crhs entry's own limits (doc/design/privilege.md "Local approval window"). */
+function windowApplies(input: AuthzInput, entry: AuthzEntry): boolean {
+	return windowOpen(input) && entry.role === "crhs";
 }
 
 function decideAuthorization(input: AuthzInput, method: Method, target: string, specHash: Uint8Array): AuthzDecision {
@@ -263,6 +247,9 @@ function checkCandidate(
 	specHash: Uint8Array,
 ): Checked {
 	const entry = signature.entry as AuthzEntry;
+	// An open local window waives the crhs entry's own limits (max_ttl, require_exact) and step
+	// 7 entirely; the signed command limit of step 6 still applies.
+	const viaWindow = windowApplies(input, entry);
 	// Step 4: the authorization body.
 	if (!addressedTo(payload.nodes, input.nodeId, input.aliases)) {
 		return no("authorization_invalid", STEP.authorization, "payload does not address this node");
@@ -280,14 +267,16 @@ function checkCandidate(
 	if (payload.deadlineMs < input.now - input.clockSkewMs) {
 		return no("authorization_expired", STEP.authorization, "authorization has expired");
 	}
-	if (entry.maxTtlMs !== null) {
-		if (payload.deadlineMs - issuedAtMs > entry.maxTtlMs) {
-			return no("authorization_expired", STEP.authorization, "authorization ttl exceeds max_ttl");
+	if (!viaWindow) {
+		if (entry.maxTtlMs !== null) {
+			if (payload.deadlineMs - issuedAtMs > entry.maxTtlMs) {
+				return no("authorization_expired", STEP.authorization, "authorization ttl exceeds max_ttl");
+			}
 		}
-	}
-	if (entry.requireExact) {
-		if (payload.command === null || payload.command.match.kind !== "exact") {
-			return no("authorization_rejected", STEP.authorization, "trust entry requires an exact command");
+		if (entry.requireExact) {
+			if (payload.command === null || payload.command.match.kind !== "exact") {
+				return no("authorization_rejected", STEP.authorization, "trust entry requires an exact command");
+			}
 		}
 	}
 
@@ -327,18 +316,21 @@ function checkCandidate(
 		return no("authorization_rejected", STEP.command, "authorization does not cover this task");
 	}
 
-	// Step 7: the trust entry.
-	const trusted = checkTrust(entry, input, method, target);
-	if (!trusted.ok) return trusted;
-	if (entry.requireUv && !signature.userVerified) {
-		return no("authorization_rejected", STEP.trust, "trust entry requires user verification");
+	// Step 7: the trust entry. The window skips it for crhs signatures: no execute kind, no
+	// guard rules and no environment allowlist apply while crhs holds the privileged identity.
+	if (!viaWindow) {
+		const trusted = checkTrust(entry, input, method, target);
+		if (!trusted.ok) return trusted;
+		if (entry.requireUv && !signature.userVerified) {
+			return no("authorization_rejected", STEP.trust, "trust entry requires user verification");
+		}
 	}
 
 	// Step 8: cosignature.
-	if (cosignRequired(entry) && !hasCosign(verifiedEntries(authorization))) {
+	if (!viaWindow && cosignRequired(entry) && !hasCosign(verifiedEntries(authorization))) {
 		return no("authorization_rejected", STEP.cosign, "authorization requires a crhs cosignature");
 	}
-	return { ok: true, decision: accepted(entry.name) };
+	return { ok: true, decision: accepted(entry.name, viaWindow) };
 }
 
 /** The trust entry parts of step 7, shared with local approvals. */
@@ -424,8 +416,8 @@ function pairUsed(input: AuthzInput, id: Uint8Array, taskId: string): boolean {
 	return input.used?.(id, taskId) ?? false;
 }
 
-function accepted(entry: string): AuthzDecision {
-	return { result: "accepted", step: null, entry, message: "" };
+function accepted(entry: string, viaWindow = false): AuthzDecision {
+	return { result: "accepted", step: null, entry, message: "", viaWindow };
 }
 
 function failure(result: AuthzResult, step: number, message: string): AuthzDecision {

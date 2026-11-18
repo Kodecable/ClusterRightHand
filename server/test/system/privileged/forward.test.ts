@@ -4,8 +4,8 @@
  * - crhs-signed authorizations for exec and file tasks.
  * - a node that only trusts the user: crhs alone cannot escalate, the owner's signature makes it run.
  * - require-cosign: the user signature and crhs's cosignature are both needed.
- * - local approval with `crha pending` / `approve` / `deny`, surviving a privileged mode restart, and
- *   the attempt + 1 fallback after a crhs signature was refused.
+ * - a local approval window: `crha approve --for` releases a crhs-signed task on a node whose
+ *   crhs entry denies it, the window closes with `crha lock` and does not survive a restart.
  * - one-shot replay, the persisted used list and a privileged mode restart.
  * - symlinks, path traversal, env and prefix attempts.
  * - trust digest changes, re-planning a waiting task, and privileged_unavailable.
@@ -36,6 +36,7 @@ import {
 	sshKeygen,
 	submitAuthorization,
 	type TrustSpec,
+	waitTrustDigestChange,
 } from "./harness.ts";
 
 const describePodman = describe.skipIf(!podmanAvailable);
@@ -78,16 +79,31 @@ describePodman("privileged system: forward", () => {
 		requireExact: true,
 		...extra,
 	});
-	const localEntry = (uids = [0]): TrustSpec => ({ name: "local-admins", role: "local", uids, kinds: ["execute"] });
+	const localEntry = (uids = [0], extra: Partial<TrustSpec> = {}): TrustSpec => ({
+		name: "local-admins",
+		role: "local",
+		uids,
+		kinds: [],
+		...extra,
+	});
 
 	const task = (body: Record<string, unknown>, waitMs = 1000) => node.task(body, waitMs);
 
 	async function waitAwaiting(id: string, timeoutMs = 20_000): Promise<void> {
-		await waitFor(
-			`task ${id} to wait for an authorization`,
-			async () => (await crhs.getTask(id)).state === "awaiting_authorization",
-			timeoutMs,
-		);
+		let last = "";
+		try {
+			await waitFor(
+				`task ${id} to wait for an authorization`,
+				async () => {
+					const t = await crhs.getTask(id);
+					last = `${t.state} ${t.errorCode ?? ""} ${t.errorMessage ?? ""} ${JSON.stringify(t.authorization?.options)}`;
+					return t.state === "awaiting_authorization";
+				},
+				timeoutMs,
+			);
+		} catch (err) {
+			throw new Error(`${err instanceof Error ? err.message : String(err)}; last: ${last}`);
+		}
 	}
 
 	async function waitTerminal(id: string, timeoutMs = 30_000) {
@@ -97,7 +113,7 @@ describePodman("privileged system: forward", () => {
 				`task ${id} to finish`,
 				async () => {
 					const t = await crhs.getTask(id);
-					last = `${t.state} ${t.errorCode ?? ""} ${t.errorMessage ?? ""} ${JSON.stringify(t.authorization?.plan)}`;
+					last = `${t.state} ${t.errorCode ?? ""} ${t.errorMessage ?? ""} ${JSON.stringify(t.authorization?.options)}`;
 					return t.state !== "running" && t.state !== "dispatched" && t.state !== "awaiting_authorization"
 						? t
 						: undefined;
@@ -222,8 +238,7 @@ describePodman("privileged system: forward", () => {
 			const waiting = await crhs.getTask(t.id);
 			expect(waiting.outputBytes).toBe(0);
 			expect(waiting.authorization?.dispatchedPath).toBeNull();
-			const paths = (waiting.authorization?.plan.paths ?? []).map((p: { path: string }) => p.path);
-			expect(paths).toEqual(["user"]);
+			expect((waiting.authorization?.options ?? []).map((option) => option.kind)).toEqual(["sign"]);
 		}, 60_000);
 
 		it("runs after the owner signs the pending payload with crha grant", async () => {
@@ -270,7 +285,7 @@ describePodman("privileged system: forward", () => {
 			await waitAwaiting(t.id);
 			// A cosign-only crhs entry cannot execute by itself; only the owner's entry is a path.
 			const waiting = await crhs.getTask(t.id);
-			expect((waiting.authorization?.plan.paths ?? []).map((p: { path: string }) => p.path)).toEqual(["user"]);
+			expect((waiting.authorization?.options ?? []).map((option) => option.kind)).toEqual(["sign"]);
 			const submitted = await authorizeWithCli(node, t.id);
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
@@ -325,123 +340,97 @@ describePodman("privileged system: forward", () => {
 	});
 
 	// -----------------------------------------------------------------------
-	describe("item 6: local approval", () => {
+	describe("item 6: local approval window", () => {
 		beforeAll(async () => {
 			await node.ctl("reset-priv-state");
 			await node.ctl("start-priv");
-			await node.setTrust([localEntry([0])]);
+			// The crhs entry denies every exec task, so only an open window can release one.
+			await node.setTrust([crhsEntry({ deny: [{ method: "exec" }] }), localEntry([0])]);
 		}, 90_000);
 
-		it("lists and approves a pending task as a trusted uid", async () => {
+		it("opens a window, runs a crhs task, and locks it again", async () => {
 			const t = await task({ kind: "exec", argv: ["id", "-u"] });
 			await waitAwaiting(t.id);
 			const waiting = await crhs.getTask(t.id);
-			// A local-only plan has no payload to sign; the request itself is the authorization path.
-			expect(waiting.authorization?.local).toEqual({ attempt: 1 });
-			expect(waiting.authorization?.pending).toBeNull();
-			const listed = await node.execAs(0, ["/usr/local/bin/crha", "pending"]);
-			expect(listed.code).toBe(0);
-			expect(listed.stdout).toContain(t.id);
-			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id, "--yes"]);
-			expect(approved.code).toBe(0);
+			// A task waiting for a window offers a local_window option instead of a sign payload.
+			expect(waiting.authorization?.options).toContainEqual(expect.objectContaining({ kind: "local_window" }));
+			expect(waiting.authorization?.options?.some((option) => option.kind === "sign")).toBe(false);
+
+			const closed = await node.execAs(0, ["/usr/local/bin/crha", "approve"]);
+			expect(closed.code).toBe(0);
+			expect(closed.stdout).toContain("closed");
+
+			const opened = await node.execAs(0, ["/usr/local/bin/crha", "approve", "--for", "1m"]);
+			expect(opened.code).toBe(0);
+			expect(opened.stdout).toContain("open until");
+
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
 			expect(done.outputHead).toBe("0\n");
-			expect(done.authorization?.dispatchedPath).toBe("local");
-		}, 60_000);
+			expect(done.authorization?.dispatchedPath).toBe("crhs");
 
-		it("denies a pending task", async () => {
-			const t = await task({ kind: "exec", argv: ["true"] });
-			await waitAwaiting(t.id);
-			const denied = await node.execAs(0, ["/usr/local/bin/crha", "deny", t.id, "--message", "not today", "--yes"]);
-			expect(denied.code).toBe(0);
-			const done = await waitTerminal(t.id);
-			expect(done.state).toBe("rejected");
-			expect(done.errorCode).toBe("authorization_rejected");
-			expect(done.errorMessage).toContain("not today");
-		}, 60_000);
-
-		it("re-registers the request after the privileged mode restarts", async () => {
-			const t = await task({ kind: "exec", argv: ["id", "-u"] });
-			await waitAwaiting(t.id);
-			await node.ctl("restart-priv");
-			// crhs sends local.request again after the new `ok` trust report.
-			await waitFor(
-				"the approval request to be re-sent",
-				async () => {
-					const listed = await node.execAs(0, ["/usr/local/bin/crha", "pending"]);
-					return listed.stdout.includes(t.id);
-				},
-				30_000,
-			);
-			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id, "--yes"]);
-			expect(approved.code).toBe(0);
-			const done = await waitTerminal(t.id);
-			expect(done.state).toBe("exited");
-			expect(done.authorization?.dispatchedPath).toBe("local");
+			const locked = await node.execAs(0, ["/usr/local/bin/crha", "lock"]);
+			expect(locked.code).toBe(0);
+			expect(locked.stdout).toContain("closed");
 		}, 90_000);
 
-		it("keeps the request across a disconnect of the non-privileged mode", async () => {
-			const t = await task({ kind: "exec", argv: ["id", "-u"] });
-			await waitAwaiting(t.id);
-			await node.ctl("restart-crha");
-			await waitFor(
-				"the node to reconnect",
-				async () => (await crhs.api(`/api/nodes/${node.nodeId}`)).json.node.connected === true,
-				45_000,
-			);
-			// The task is still awaiting, not unknown, and crhs re-sends local.request after the
-			// new trust report (doc/design/privilege.md "Local approval").
-			const during = await crhs.getTask(t.id);
-			expect(during.state).toBe("awaiting_authorization");
-			await waitFor(
-				"the approval request after the reconnect",
+		it("refuses a window longer than max_window", async () => {
+			// max_window is not part of the trust summary, so the digest does not change: wait for
+			// the reload by the refusal itself.
+			await node.reloadTrust([crhsEntry({ deny: [{ method: "exec" }] }), localEntry([0], { maxWindow: "1m" })]);
+			const over = await waitFor(
+				"the reloaded max_window",
 				async () => {
-					const listed = await node.execAs(0, ["/usr/local/bin/crha", "pending"]);
-					return listed.stdout.includes(t.id);
+					const r = await node.execAs(0, ["/usr/local/bin/crha", "approve", "--for", "5m"]);
+					if (r.code === 0) await node.execAs(0, ["/usr/local/bin/crha", "lock"]);
+					return r.code !== 0 ? r : undefined;
 				},
 				30_000,
 			);
-			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id, "--yes"]);
-			expect(approved.code).toBe(0);
+			expect(over.stderr).toContain("1m0s");
+			const ok = await node.execAs(0, ["/usr/local/bin/crha", "approve", "--for", "1m"]);
+			expect(ok.code).toBe(0);
+			await node.execAs(0, ["/usr/local/bin/crha", "lock"]);
+
+			// Back to the default limit for the next case.
+			await node.reloadTrust([crhsEntry({ deny: [{ method: "exec" }] }), localEntry([0])]);
+			await waitFor(
+				"the default max_window",
+				async () => {
+					const r = await node.execAs(0, ["/usr/local/bin/crha", "approve", "--for", "5m"]);
+					return r.code === 0 ? r : undefined;
+				},
+				30_000,
+			);
+			await node.execAs(0, ["/usr/local/bin/crha", "lock"]);
+		}, 90_000);
+
+		it("loses the window when the privileged mode restarts", async () => {
+			const before = (await node.trust()).digest;
+			const opened = await node.execAs(0, ["/usr/local/bin/crha", "approve", "--for", "10m"]);
+			expect(opened.code).toBe(0);
+			const withWindow = await waitTrustDigestChange(node, before);
+			await node.ctl("restart-priv");
+			// crha reconnects to the restarted privileged mode and reports the closed window.
+			await waitTrustDigestChange(node, withWindow);
+			const state = await node.execAs(0, ["/usr/local/bin/crha", "approve"]);
+			expect(state.code).toBe(0);
+			expect(state.stdout).toContain("closed");
+
+			// A task created afterwards waits for a new window; opening one releases it.
+			const t = await task({ kind: "exec", argv: ["id", "-u"] });
+			await waitAwaiting(t.id);
+			const reopened = await node.execAs(0, ["/usr/local/bin/crha", "approve", "--for", "1m"]);
+			expect(reopened.code).toBe(0);
 			const done = await waitTerminal(t.id);
 			expect(done.state).toBe("exited");
-			expect(done.authorization?.dispatchedPath).toBe("local");
+			expect(done.authorization?.dispatchedPath).toBe("crhs");
 		}, 120_000);
 
-		it("falls back to local approval with attempt + 1 after crha refused crhs's signature", async () => {
-			// clock_skew 0 and max_ttl 1ms: the crhs-signed payload is expired by the time the node
-			// looks at it, so task.start is refused before acceptance and the retry must go local.
-			await node.setTrust([crhsEntry({ maxTtl: "1ms" }), localEntry([0])]);
-			// Task creation itself waits for the daemon's task.start response, so the request has to
-			// be in flight while the privileged mode is stopped; SIGCONT then releases the refusal.
-			const pid = (await node.exec(["/bin/cat", "/run/priv/priv.pid"])).stdout.trim();
-			expect(pid).toMatch(/^\d+$/);
-			await node.exec(["/bin/kill", "-STOP", pid]);
-			const creating = task({ kind: "exec", argv: ["id", "-u"] });
-			await new Promise((r) => setTimeout(r, 300));
-			await node.exec(["/bin/kill", "-CONT", pid]);
-			const t = await creating;
-			const retried = await waitFor(
-				"the retry to wait for local approval",
-				async () => {
-					const row = await crhs.getTask(t.id);
-					return row.state === "awaiting_authorization" && row.authorization?.attempt === 2 ? row : undefined;
-				},
-				30_000,
-			);
-			expect(retried.authorization?.tried).toContain("crhs");
-			expect(retried.authorization?.lastRejection?.code).toMatch(/^authorization_/);
-			expect(retried.authorization?.pending).toBeNull();
-			expect(retried.authorization?.local).toEqual({ attempt: 2 });
-			const approved = await node.execAs(0, ["/usr/local/bin/crha", "approve", t.id, "--yes"]);
-			expect(approved.code).toBe(0);
-			const done = await waitTerminal(t.id);
-			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
-			expect(done.outputHead).toBe("0\n");
-			expect(done.authorization?.attempt).toBe(2);
-			expect(done.authorization?.dispatchedPath).toBe("local");
-		}, 90_000);
+		afterAll(async () => {
+			// A window left open would change the trust digest when it expires during a later case.
+			await node.execAs(0, ["/usr/local/bin/crha", "lock"]);
+		});
 	});
 
 	// -----------------------------------------------------------------------
@@ -453,7 +442,9 @@ describePodman("privileged system: forward", () => {
 		it("executes a one-shot user authorization once and records it as used", async () => {
 			await node.ctl("reset-priv-state");
 			await node.ctl("start-priv");
-			await node.setTrust([userEntry()]);
+			// The same trust as beforeAll: the digest need not change, so wait for the report instead.
+			await node.reloadTrust([userEntry()]);
+			await node.waitTrust("ok");
 			await node.exec(["/bin/sh", "-c", "rm -f /root/crh-runs"]);
 			const t = await task({ kind: "exec", shell: "echo run >> /root/crh-runs; wc -l < /root/crh-runs" });
 			await waitAwaiting(t.id);
@@ -461,7 +452,7 @@ describePodman("privileged system: forward", () => {
 			const done = await waitTerminal(t.id);
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
 			expect(done.outputHead.trim()).toBe("1");
-			const used = await node.exec(["/bin/cat", "/var/lib/crha/privileged/used"]);
+			const used = await node.exec(["/bin/cat", "/var/lib/crha-privileged/used"]);
 			expect(used.code).toBe(0);
 			expect(used.stdout).toContain(t.id);
 			expect(used.stdout).toContain(submitted.id);
@@ -474,7 +465,7 @@ describePodman("privileged system: forward", () => {
 			// The used list survives a privileged mode restart.
 			await node.ctl("restart-priv");
 			await node.waitTrust("ok");
-			const usedAfter = await node.exec(["/bin/cat", "/var/lib/crha/privileged/used"]);
+			const usedAfter = await node.exec(["/bin/cat", "/var/lib/crha-privileged/used"]);
 			expect(usedAfter.stdout).toContain(t.id);
 			await submitAuthorization(crhs, submitted.authorization);
 			expect((await node.exec(["/bin/sh", "-c", "wc -l < /root/crh-runs"])).stdout.trim()).toBe("1");

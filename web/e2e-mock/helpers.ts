@@ -1848,6 +1848,7 @@ export function trustedNode(nodeId: string): NodeTrust {
 					envAllow: [],
 				},
 			],
+			localWindow: { kind: "closed" },
 		},
 	};
 }

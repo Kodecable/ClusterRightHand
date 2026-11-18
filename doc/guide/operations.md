@@ -66,6 +66,21 @@ sudo podman run -d --name crhs -p 8080:8080 -v /srv/crhs:/crhs-data ghcr.io/kode
 **crhs, tar without Node.** Replace the directory with the new bundle, run `npm ci --omit=dev` in it,
 then `sudo systemctl restart crhs`.
 
+**crha, forward nodes.** The privileged state directory moved to `/var/lib/crha-privileged`. The deb and
+rpm packages and the tar's `install.sh` move a `state_dir` that still names the old default
+`/var/lib/crha/privileged`. Any other layout must be changed by hand before the new version starts:
+point `state_dir` in `/etc/crha/privileged.toml` at `/var/lib/crha-privileged` and create that
+directory, owned by the privileged mode's user, with mode 0700:
+
+```sh
+sudo install -d -o root -g root -m 0700 /var/lib/crha-privileged
+sudoedit /etc/crha/privileged.toml
+```
+
+The privileged mode refuses the old location and any state directory below a directory crha can
+modify, so an unchanged file leaves it stopped. The used list starts empty, the same accepted
+trade-off as the watermark ([Privilege and authorization](../design/privilege.md#used-list)).
+
 **crha, deb and rpm.** Install the new package; the package restarts `crha-privileged` and then `crha`.
 The rpm signing key must already be imported ([deb and rpm](install.md#deb-and-rpm)):
 
@@ -211,7 +226,7 @@ each node's `privileged.toml` and reload the node when convenient, then delete t
 trusts it. crhs uses the newest key each node trusts, so nodes may be updated one at a time. Deleting a
 compromised key stops crhs signing with it at once, but a node that still lists it continues to trust it;
 remove the entry there as well. With no keys left crhs signs nothing and falls back to the owner's
-signature or a local approval.
+signature or a local approval window.
 
 ## Clock synchronization
 
@@ -268,7 +283,7 @@ reach every hop.
 
 ### A task waits for an authorization
 
-The rules allowed the task, but a `forward` node needs a signature or a local approval. You can:
+The rules allowed the task, but a `forward` node needs a signature or an open local approval window. You can:
 
 - sign with a Passkey on the task page or the Approvals page;
 - sign with an SSH key on your workstation, then paste the result into the WebUI:
@@ -277,13 +292,15 @@ The rules allowed the task, but a `forward` node needs a signature or a local ap
   crha grant --key ~/.ssh/id_ed25519 --payload '<payload from the WebUI>'
   ```
 
-- approve on the node, if your uid is in a `local` trust entry: `sudo crha pending`, then
-  `sudo crha approve <task-id>`.
+- open the window on the node, if your uid is in a `local` trust entry:
+  `sudo crha approve --for 30m`. While it is open, crhs can run any privileged task on that node, and
+  every privileged task already waiting there runs at once, whoever started it. Close it with
+  `sudo crha lock` when done.
 
-The wait expires after 24 hours. If nobody can authorize the command, crhs refuses the task and says
-which paths it tried; check the node's trust panel. `alias_missing` means a group authorization was
-used for a node whose `aliases` lack that group. `privileged_unavailable` means the node's privileged
-mode is not running or has not reported its trust configuration.
+The wait expires after 24 hours. If nobody can authorize the command, crhs refuses the task with the
+last code and message the node gave; check the node's trust panel. `alias_missing` means a group
+authorization was used for a node whose `aliases` lack that group. `privileged_unavailable` means the
+node's privileged mode is not running or has not reported its trust configuration.
 
 ### A task ended as unknown
 

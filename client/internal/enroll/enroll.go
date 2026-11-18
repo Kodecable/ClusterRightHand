@@ -43,6 +43,10 @@ type Options struct {
 	// Root prefixes every path under StateDir, so tests can run against a temporary filesystem root.
 	// Empty means the real paths.
 	Root string
+	// Owner is the uid/gid the new keys get before they are published. `crha enroll` passes crha's
+	// owner because it writes the keys as root into crha's state directory; nil leaves the writer's
+	// owner, which is what the tests' non-root case needs.
+	Owner *identity.Owner
 }
 
 // Run performs one enrollment against crhs. The configuration must be loaded and validated.
@@ -103,10 +107,10 @@ func Run(ctx context.Context, cfg *config.Config, token string, opts Options) (r
 	}
 	defer conn.Close("enrolled")
 	// Only now persist the keys: a rejected token leaves no half-enrolled state behind.
-	if err := identity.SaveServerKey(serverKeyPath, serverKey); err != nil {
+	if err := identity.SaveServerKey(serverKeyPath, serverKey, opts.Owner); err != nil {
 		return Result{}, err
 	}
-	if err := identity.SaveKeypair(identityPath, key); err != nil {
+	if err := identity.SaveKeypair(identityPath, key, opts.Owner); err != nil {
 		return Result{}, err
 	}
 	result = Result{NodeID: conn.Response.NodeID, Fingerprint: identity.Fingerprint(key.Public)}

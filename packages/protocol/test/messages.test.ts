@@ -350,8 +350,8 @@ describe("message codecs", () => {
 		expect(() => taskExitCodec.decode(["t-1", ["code", 0], false, false, 0, 0, ""])).toThrow(SchemaError);
 	});
 
-	it("uses protocol 0.0 and requires every name", () => {
-		expect(PROTOCOL_MAJOR).toBe(0);
+	it("uses protocol 1.0 and requires every name", () => {
+		expect(PROTOCOL_MAJOR).toBe(1);
 		expect(PROTOCOL_MINOR).toBe(0);
 		expect(REQUIRED_NAMES).toEqual([
 			"hello",
@@ -366,10 +366,7 @@ describe("message codecs", () => {
 			"node.status",
 			"task.output.ack",
 			"task.exit.ack",
-			"local.request",
-			"local.withdraw",
 			"trust.summary",
-			"local.decision",
 		]);
 		expect(REQUIRED_NAMES).not.toContain("trust.query");
 		expect(REQUIRED_NAMES).not.toContain("revocations.set");
@@ -378,8 +375,6 @@ describe("message codecs", () => {
 	it("registers every command and event", () => {
 		expect(Object.keys(COMMANDS).sort()).toEqual([
 			"hello",
-			"local.request",
-			"local.withdraw",
 			"ping",
 			"task.cancel",
 			"task.input",
@@ -388,7 +383,6 @@ describe("message codecs", () => {
 		]);
 		expect(Object.keys(EVENTS).sort()).toEqual([
 			"facts",
-			"local.decision",
 			"node.status",
 			"task.exit",
 			"task.exit.ack",
