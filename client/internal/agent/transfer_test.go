@@ -245,22 +245,17 @@ func TestAbortIncompleteInputsLeavesFilePushAlone(t *testing.T) {
 func TestRelayTransferHandsChunksToTheTransferQueue(t *testing.T) {
 	a := newTestAgent(t, Options{})
 	relayed := &task{
-		id:                  "relay-queue",
-		transferQueue:       make(chan []byte, 1),
-		transferQueueClosed: make(chan struct{}),
-		doneCh:              make(chan struct{}),
+		id:            "relay-queue",
+		transferQueue: newTransferQueue(),
+		doneCh:        make(chan struct{}),
 	}
 	// No data connection: the event handler only queues the chunk and never waits for one.
 	if err := a.relayTransfer(relayed, &protocol.TaskOutput{TaskID: relayed.id, Data: []byte("chunk")}); err != nil {
 		t.Fatalf("relayTransfer: %v", err)
 	}
-	select {
-	case got := <-relayed.transferQueue:
-		if !bytes.Equal(got, []byte("chunk")) {
-			t.Fatalf("queued %q, want %q", got, "chunk")
-		}
-	default:
-		t.Fatal("the chunk was not queued")
+	got, ok := relayed.transferQueue.pop()
+	if !ok || !bytes.Equal(got, []byte("chunk")) {
+		t.Fatalf("queued %q (ok %v), want %q", got, ok, "chunk")
 	}
 }
 

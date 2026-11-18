@@ -401,6 +401,19 @@ describeBackends("api ssh nodes", (backend) => {
 		});
 	});
 
+	it("closes a deleted SSH node's pooled connection", async () => {
+		const created = await req("root", "/api/ssh-nodes", target({ name: "delete-box" }));
+		expect(created.status).toBe(201);
+		const id = ((await created.json()) as { node: { id: string } }).node.id;
+		const close = vi.spyOn(cluster, "closeSshNode");
+		try {
+			expect((await req("root", `/api/nodes/${id}`, {}, "DELETE")).status).toBe(200);
+			expect(close).toHaveBeenCalledWith(id);
+		} finally {
+			close.mockRestore();
+		}
+	});
+
 	describe("node groups", () => {
 		const put = (who: string, id: string, body: unknown) => req(who, `/api/nodes/${id}/node-groups`, body, "PUT");
 

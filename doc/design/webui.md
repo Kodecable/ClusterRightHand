@@ -272,7 +272,8 @@ tighter of the file-count and total-size limits, with the exact ratios in a tool
 warning near a limit.
 Uploads take the button or a drop on the page, one at a time, in a dialog with the overall progress,
 the speed and the time left. A refused file is skipped and listed with the limit it hit, and cancel
-stops the remaining uploads. There are no folder objects: an upload goes to the current path, and a
+stops the remaining uploads. Leaving the page, or any other unmount of the queue, aborts the file in
+flight and stops the rest. There are no folder objects: an upload goes to the current path, and a
 path with `/` in an upload or rename creates the directories ([Libraries](library.md)).
 
 ### Node pages

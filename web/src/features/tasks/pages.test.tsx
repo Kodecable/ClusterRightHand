@@ -35,6 +35,7 @@ const TASK: TaskView = {
 	maxLines: null,
 	maxBytes: null,
 	outputFile: null,
+	outputLost: false,
 	outputMode: "status",
 	privileged: false,
 	authorization: null,

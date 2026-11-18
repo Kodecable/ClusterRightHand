@@ -31,6 +31,7 @@ const baseTask = (overrides: Partial<TaskView> = {}): TaskView =>
 		outputLines: 1,
 		notice: null,
 		outputFile: null,
+		outputLost: false,
 		outputMode: "full",
 		privileged: false,
 		result: null,
@@ -53,6 +54,18 @@ describe("TaskResult", () => {
 		const mark = screen.getByText("Privileged");
 		expect(mark).toHaveAttribute("data-slot", "privileged-mark");
 		expect(mark).toHaveClass("text-warn");
+	});
+
+	test("warns that the output is incomplete when the node lost part of it", async () => {
+		const lost = "Output incomplete: the node lost part of this task's output.";
+		await renderWithRouter(<TaskResult task={baseTask({ outputLost: true })} />);
+		const warning = screen.getByText(lost);
+		expect(warning.closest('[data-slot="warning-banner"]')).not.toBeNull();
+	});
+
+	test("shows no lost-output warning when the output is complete", async () => {
+		await renderWithRouter(<TaskResult task={baseTask()} />);
+		expect(screen.queryByText("Output incomplete: the node lost part of this task's output.")).not.toBeInTheDocument();
 	});
 
 	test("the state stays a neutral Finished for a non-zero exit; only the outcome is red", async () => {

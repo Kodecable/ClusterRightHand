@@ -67,6 +67,25 @@ describe("useUploadQueue", () => {
 		expect(result.current.done).toBe(0);
 	});
 
+	test("unmount aborts the file in flight", async () => {
+		let signal: AbortSignal | undefined;
+		const upload = vi.fn<UploadFile>(
+			(_candidate, _onProgress, fileSignal) =>
+				new Promise<void>((_resolve, reject) => {
+					signal = fileSignal;
+					fileSignal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+				}),
+		);
+		const { result, unmount } = renderHook(() => useUploadQueue(upload));
+
+		act(() => result.current.start([file("a.bin", 1)]));
+		await waitFor(() => expect(upload).toHaveBeenCalledTimes(1));
+		expect(signal?.aborted).toBe(false);
+
+		unmount();
+		expect(signal?.aborted).toBe(true);
+	});
+
 	test("reports the speed and the remaining time from the processed bytes", async () => {
 		let release: () => void = () => {};
 		let now = 0;

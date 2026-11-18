@@ -9,7 +9,7 @@ import type { TasksTable } from "../storage/schema.ts";
 import type { ClusterCore } from "./core.ts";
 import { parseTransferRecord } from "./data-transfer.ts";
 import { dropLive, type Live } from "./live-output.ts";
-import { markNodeSeen, type NodeRow, setSshNodeFacts } from "./nodes.ts";
+import { getNode, markNodeSeen, type NodeRow, setSshNodeFacts } from "./nodes.ts";
 import { LineCounter } from "./output.ts";
 import { connect as connectSsh, SshError, type SshSession } from "./ssh/connection.ts";
 import {
@@ -32,38 +32,116 @@ export interface SshConnection {
 	sh: string;
 }
 
+/** What a pooled session is opened for: a changed route must not reuse it. */
+function routeDigest(node: NodeRow): string {
+	return JSON.stringify([
+		node.ssh_host,
+		node.ssh_port,
+		node.ssh_user,
+		node.ssh_host_fingerprint,
+		node.ssh_credential_id,
+		node.ssh_jumps,
+	]);
+}
+
+function routeGeneration(core: ClusterCore, nodeId: string): number {
+	return core.sshRouteGenerations.get(nodeId) ?? 0;
+}
+
 /**
  * The pooled connection of an SSH node, after its first-time shell probe. Every new connection probes
  * before its first task: its tasks run on the sh it found, and the node's facts carry the result
  * (doc/design/execution.md "SSH execution"). A probe that fails keeps the previous facts and falls back to /bin/sh;
  * it never fails a task.
+ *
+ * A node row can be read before a route change: the connection re-reads the row and, when the node's route
+ * generation moved while it dialled, closes that connection and retries once with the new route.
  */
 function sshSession(core: ClusterCore, node: NodeRow): Promise<SshConnection> {
 	const existing = core.sshSessions.get(node.id);
 	if (existing) return existing;
-	const route = core.sshRoute as NonNullable<ClusterOptions["sshRoute"]>;
-	const link = (async (): Promise<SshConnection> => {
-		const session = await connectSsh(await route(node));
-		let shells: SshShells | null = null;
-		try {
-			shells = await probeShells(session);
-		} catch (err) {
-			console.warn(`node ${node.id}: shell probe failed: ${err instanceof Error ? err.message : String(err)}`);
-		}
-		const sh = shells?.sh ?? "/bin/sh";
-		if (shells !== null) {
-			await setSshNodeFacts(core.db, node.id, { sh, bash: shells.bash }).catch((err: unknown) =>
-				console.warn(`node ${node.id}: store shell facts: ${err instanceof Error ? err.message : String(err)}`),
-			);
-		}
-		return { session, sh };
-	})();
+	const { link, adopted } = openSshSession(core, node);
 	core.sshSessions.set(node.id, link);
 	link.then(
-		(l) => l.session.onClose(() => core.sshSessions.get(node.id) === link && core.sshSessions.delete(node.id)),
-		() => core.sshSessions.delete(node.id),
+		(l) => {
+			// The dial resolved to another dial's pooled connection: that dial owns it.
+			if (adopted()) return;
+			// A close may have landed between the generation check and this handler: do not keep that session.
+			if (core.sshSessions.get(node.id) !== link) {
+				l.session.close();
+				return;
+			}
+			core.sshConnections.set(node.id, l);
+			l.session.onClose(() => {
+				if (core.sshSessions.get(node.id) === link) {
+					core.sshSessions.delete(node.id);
+					core.sshConnections.delete(node.id);
+				}
+			});
+		},
+		() => {
+			// A delayed failure must not remove a newer entry for the same node.
+			if (core.sshSessions.get(node.id) === link) {
+				core.sshSessions.delete(node.id);
+				core.sshConnections.delete(node.id);
+			}
+		},
 	);
 	return link;
+}
+
+/**
+ * Dials the node's current route. `adopted()` is true when the dial gave up its own connection and resolved to
+ * the one another dial pooled; its caller must then neither register nor close that connection.
+ */
+function openSshSession(core: ClusterCore, node: NodeRow): { link: Promise<SshConnection>; adopted: () => boolean } {
+	const route = core.sshRoute as NonNullable<ClusterOptions["sshRoute"]>;
+	let adopted = false;
+	let link!: Promise<SshConnection>;
+	link = (async (): Promise<SshConnection> => {
+		for (let attempt = 0; ; attempt++) {
+			const generation = routeGeneration(core, node.id);
+			// Re-read the node: the row a waiting task was created with may name an old route.
+			const current = (await getNode(core.db, node.id)) ?? node;
+			const digest = routeDigest(current);
+			const session = await connectSsh(await route(current));
+			let shells: SshShells | null = null;
+			try {
+				shells = await probeShells(session);
+			} catch (err) {
+				console.warn(`node ${node.id}: shell probe failed: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			const sh = shells?.sh ?? "/bin/sh";
+			if (shells !== null) {
+				await setSshNodeFacts(core.db, node.id, { sh, bash: shells.bash }).catch((err: unknown) =>
+					console.warn(`node ${node.id}: store shell facts: ${err instanceof Error ? err.message : String(err)}`),
+				);
+			}
+			const fresh = await getNode(core.db, node.id);
+			if (routeGeneration(core, node.id) === generation && fresh !== undefined && routeDigest(fresh) === digest) {
+				// A concurrent dial may have pooled a connection first; use that one and close this duplicate.
+				const pooled = core.sshSessions.get(node.id);
+				if (pooled === undefined || pooled === link) {
+					core.sshSessions.set(node.id, link);
+					return { session, sh };
+				}
+				session.close();
+				adopted = true;
+				return pooled;
+			}
+			// The route changed while this connection was made: it is for the old one, so close it and use the
+			// connection a newer dial may already have pooled, or dial the new route once more.
+			if (core.sshSessions.get(node.id) === link) core.sshSessions.delete(node.id);
+			session.close();
+			const newer = core.sshSessions.get(node.id);
+			if (newer !== undefined && newer !== link) {
+				adopted = true;
+				return newer;
+			}
+			if (attempt >= 1) throw new Error("the node's SSH route changed while connecting");
+		}
+	})();
+	return { link, adopted: () => adopted };
 }
 
 /** Aborts every running SSH task and closes every pooled session; close() waits for the writes. */
@@ -80,18 +158,17 @@ export function closeSsh(core: ClusterCore): void {
 
 /**
  * Closes one node's pooled session, e.g. after its route changed: the next task dials the new route.
- * Running tasks fail through the session's close and become `unknown(connection_lost)`.
+ * Running tasks fail through the session's close and become `unknown(connection_lost)`. The route generation
+ * is bumped even without a pooled session, so a connection still being made for the old route is closed.
  */
 export function closeSshNode(core: ClusterCore, nodeId: string): void {
-	const session = core.sshSessions.get(nodeId);
-	if (!session) return;
+	core.sshRouteGenerations.set(nodeId, routeGeneration(core, nodeId) + 1);
 	core.sshSessions.delete(nodeId);
-	void session
-		.then(
-			(x) => x.session.close(),
-			() => {},
-		)
-		.catch((err: unknown) => console.error("ssh session close failed:", err));
+	// Only a settled connection is closed here. A dial still in flight notices the new generation itself,
+	// closes the connection it made for the old route and retries; closing its promise could close the new one.
+	const connection = core.sshConnections.get(nodeId);
+	core.sshConnections.delete(nodeId);
+	connection?.session.close();
 }
 
 export async function runSsh(

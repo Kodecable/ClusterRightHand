@@ -386,6 +386,8 @@ export interface TasksTable extends ApprovalColumns {
 	/** Total lines of the merged output, reported by crha in task.exit. */
 	output_lines: number | null;
 	output_file: string | null;
+	/** 1 when crha lost buffered output before the task exited (doc/design/execution.md "Output"). */
+	output_lost: ColumnType<number, number | undefined, number>;
 	/** The task's structured result in the JSON form of doc/design/protocol.md "Task results"; null when it has none. */
 	result: string | null;
 	late_result: string | null;

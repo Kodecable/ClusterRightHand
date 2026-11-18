@@ -42,6 +42,11 @@ export function escapeMarkdown(text: string): string {
 		.replace(/([!#$()*+\-.=>[\]\\_`{|}~])/g, "\\$1");
 }
 
+/** A delivered file's source: a WebUI URL stays a link, a raw path is escaped so it renders literally. */
+function fileSource(source: string): string {
+	return /^https?:\/\//i.test(source) ? source : escapeMarkdown(source);
+}
+
 /**
  * The escape for a multi-line value such as a replayed user message: each line is escaped on its own and the lines
  * become paragraphs, so the user's lines stay lines in a rich message (doc/design/channels.md "Conversations").
@@ -528,7 +533,7 @@ const en: BotMessages = {
 	couldNotReadHistory: (problem) => `Could not read the session's history:\n${codeBlock(problem)}`,
 	historyUser: (text) => `**You**\n\n${escapeMarkdownLines(text)}`,
 	historyAssistant: (text) => `**Assistant**\n\n${text}`,
-	fileOffered: (name, source) => `File offered: ${escapeMarkdown(name)}\n\n${source}`,
+	fileOffered: (name, source) => `File offered: ${escapeMarkdown(name)}\n\n${fileSource(source)}`,
 	runFailed: (problem) => `The run failed:\n${codeBlock(problem)}`,
 	reportStatus: (name, outcome, time) =>
 		outcome === "succeeded"
@@ -670,7 +675,7 @@ const zhCN: BotMessages = {
 	couldNotReadHistory: (problem) => `无法读取会话历史：\n${codeBlock(problem)}`,
 	historyUser: (text) => `**你**\n\n${escapeMarkdownLines(text)}`,
 	historyAssistant: (text) => `**助手**\n\n${text}`,
-	fileOffered: (name, source) => `文件已提供：${escapeMarkdown(name)}\n\n${source}`,
+	fileOffered: (name, source) => `文件已提供：${escapeMarkdown(name)}\n\n${fileSource(source)}`,
 	runFailed: (problem) => `运行失败：\n${codeBlock(problem)}`,
 	reportStatus: (name, outcome, time) =>
 		outcome === "succeeded"

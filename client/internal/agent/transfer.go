@@ -228,25 +228,29 @@ func (a *Agent) pushTransfer(t *task, conn DataConn, ctx context.Context, reset 
 // transferSend directly; a privileged pull's chunks arrive on the shared crh-priv read loop and are
 // queued for this goroutine, so a slow data connection never stalls that loop.
 func (a *Agent) pullTransfer(t *task, conn DataConn, ctx context.Context, reset func()) {
-	defer close(t.transferQueueClosed)
+	defer t.transferQueue.close()
 	// drain sends everything already queued; false means the data connection is gone.
 	drain := func() bool {
 		for {
-			select {
-			case data := <-t.transferQueue:
-				if err := a.sendTransferData(ctx, conn, t, data, reset); err != nil {
-					return false
-				}
-			default:
+			data, ok := t.transferQueue.pop()
+			if !ok {
 				return true
+			}
+			if err := a.sendTransferData(ctx, conn, t, data, reset); err != nil {
+				return false
 			}
 		}
 	}
 	for {
 		select {
-		case data := <-t.transferQueue:
-			if err := a.sendTransferData(ctx, conn, t, data, reset); err != nil {
+		case <-t.transferQueue.ready():
+			if !drain() {
 				// The data connection is gone; crhs fails the transfer and cancels the task.
+				a.markTransferDone(t)
+				return
+			}
+			if t.transferQueue.isClosed() {
+				// The queue overflowed and failed the transfer; the task ends with its exit.
 				a.markTransferDone(t)
 				return
 			}

@@ -7,6 +7,7 @@ import { PrivilegedMark } from "@/components/privileged-mark";
 import { DateTime } from "@/components/relative-time";
 import { TaskStatusBadge } from "@/components/status-badge";
 import { TaskOutcomeBadge } from "@/components/task-outcome";
+import { WarningBanner } from "@/components/warning-banner";
 import { useAuth } from "@/lib/session";
 import { taskErrorText } from "@/lib/task-output";
 import { cn, MONO_CELL } from "@/lib/utils";
@@ -207,6 +208,18 @@ export function TaskFacts({
 			: []),
 		...extra,
 		...timestampFacts(task.createdAt, task.finishedAt),
+		...(task.outputLost
+			? [
+					{
+						label: <Trans>Output</Trans>,
+						value: (
+							<WarningBanner icon>
+								<Trans>Output incomplete: the node lost part of this task's output.</Trans>
+							</WarningBanner>
+						),
+					},
+				]
+			: []),
 		...(task.outputFile !== null ? [{ label: <Trans>Output file</Trans>, value: task.outputFile, mono: true }] : []),
 	];
 

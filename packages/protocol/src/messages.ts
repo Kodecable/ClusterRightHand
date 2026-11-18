@@ -383,11 +383,15 @@ export const taskExitCodec = tuple([
 	["outcome", outcomeCodec],
 	["timedOut", bool],
 	["cancelled", bool],
-	// The end offset of the task's one output stream (doc/design/protocol.md "Events").
+	// The end offset of the output crha can still deliver; a lost tail is omitted
+	// (doc/design/protocol.md "Events").
 	["outputEnd", uint],
 	["outputFile", text],
-	// The line count of the output: the same bytes the output file holds (doc/design/protocol.md "Events").
+	// The line count of the whole output stream (doc/design/protocol.md "Events").
 	["outputLines", uint],
+	// Whether crha lost buffered output; OutputEnd then ends before the loss
+	// (doc/design/protocol.md "Events").
+	["outputLost", bool],
 	["result", nullable(taskResultCodec)],
 ]);
 export type TaskExit = Infer<typeof taskExitCodec>;

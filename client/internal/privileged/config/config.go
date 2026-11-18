@@ -242,6 +242,7 @@ func build(raw *rawConfig) (*Config, error) {
 
 	trust := make([]Trust, 0, len(raw.Trust))
 	names := make(map[string]struct{}, len(raw.Trust))
+	keys := make(map[string]string, len(raw.Trust))
 	for i := range raw.Trust {
 		entry, err := buildTrust(&raw.Trust[i])
 		if err != nil {
@@ -251,10 +252,31 @@ func build(raw *rawConfig) (*Config, error) {
 			return nil, fmt.Errorf("trust[%d]: duplicate name %q", i, entry.Name)
 		}
 		names[entry.Name] = struct{}{}
+		// An entry is selected by its key, so the same key in two entries would make the choice
+		// depend on their order (doc/design/privilege.md "Trust configuration").
+		if entry.SSHKey != nil {
+			if err := addTrustKey(keys, "ssh:"+ssh.FingerprintSHA256(entry.SSHKey), entry.Name, i); err != nil {
+				return nil, err
+			}
+		}
+		if entry.WebAuthn != nil {
+			if err := addTrustKey(keys, "webauthn:"+string(entry.WebAuthn.CredentialID), entry.Name, i); err != nil {
+				return nil, err
+			}
+		}
 		trust = append(trust, *entry)
 	}
 	c.Trust = trust
 	return c, nil
+}
+
+// addTrustKey records one trust key and refuses it when another entry already uses it.
+func addTrustKey(keys map[string]string, key, name string, i int) error {
+	if prev, dup := keys[key]; dup {
+		return fmt.Errorf("trust[%d]: key is already used by trust entry %q", i, prev)
+	}
+	keys[key] = name
+	return nil
 }
 
 func orDefault(v, def string) string {

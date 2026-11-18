@@ -332,6 +332,7 @@ var fixtureExpectedIDs = []string{
 	"response.error",
 	"event.task.output",
 	"event.task.exit.code",
+	"event.task.exit.lost",
 	"event.task.exit.signal",
 	"event.task.exit.error",
 	"event.task.exit.error.bom",
@@ -598,6 +599,20 @@ func expectedFixtureValue(id string) (any, bool) {
 				OutputEnd:   6,
 				OutputFile:  "",
 				OutputLines: 1,
+			},
+		}, true
+	case "event.task.exit.lost":
+		return fixtureFrame{
+			Kind: FrameEvent, Name: EventTaskExit,
+			Body: TaskExit{
+				TaskID:      "t-lost",
+				Outcome:     Outcome{Kind: OutcomeCode, Code: 0},
+				TimedOut:    false,
+				Cancelled:   false,
+				OutputEnd:   2,
+				OutputFile:  "",
+				OutputLines: 3,
+				OutputLost:  true,
 			},
 		}, true
 	case "event.task.exit.signal":

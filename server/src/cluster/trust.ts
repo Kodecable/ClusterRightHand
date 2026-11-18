@@ -46,6 +46,7 @@ export async function signingKeyTrust(
 		if (report?.kind !== "ok") continue;
 		const entries = new Map<string, TrustEntry>();
 		for (const entry of report.summary.trust) {
+			// crha refuses two entries with one key, so this only guards a malformed report.
 			if (entry.key.kind !== "sshsig" || entries.has(entry.key.fingerprint)) continue;
 			entries.set(entry.key.fingerprint, entry);
 		}

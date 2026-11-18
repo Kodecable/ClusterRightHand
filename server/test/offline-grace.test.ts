@@ -158,6 +158,7 @@ describe("node offline grace", () => {
 			outputEnd: 0,
 			outputFile: "",
 			outputLines: 0,
+			outputLost: false,
 			result: null,
 		});
 		const view = await groups.wait(groupId, 2_000);

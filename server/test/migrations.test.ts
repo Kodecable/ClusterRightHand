@@ -14,6 +14,7 @@ import * as m0008 from "../src/storage/migrations/0008_channels.ts";
 import * as m0009 from "../src/storage/migrations/0009_authorization_lookup.ts";
 import * as m0010 from "../src/storage/migrations/0010_review_tool_task.ts";
 import * as m0011 from "../src/storage/migrations/0011_delete_ssh_signing_credentials.ts";
+import * as m0012 from "../src/storage/migrations/0012_task_output_lost.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 // Opening a schema runs the migrator or creates tables under the shared DDL lock; in the full parallel
@@ -217,8 +218,18 @@ describeBackends("initial migration", (backend) => {
 		expect(sessions).toContain("forked_from_entry_id");
 		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_fingerprint");
 		expect(await tableColumns(backend, db, "tasks")).toEqual(
-			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose", "source_tool_task"]),
+			expect.arrayContaining([
+				"rev",
+				"output_head",
+				"result",
+				"transfer",
+				"purpose",
+				"source_tool_task",
+				"output_lost",
+			]),
 		);
+		// Output loss is a stored fact; existing rows default to "not lost".
+		expect(await isNotNull(backend, db, "tasks", "output_lost")).toBe(true);
 		// The state carries a cancellation; there is no separate flag column.
 		expect(await tableColumns(backend, db, "tasks")).not.toContain("cancelled");
 		expect(await tableColumns(backend, db, "task_groups")).toEqual(
@@ -325,6 +336,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0009_authorization_lookup" },
 			{ name: "0010_review_tool_task" },
 			{ name: "0011_delete_ssh_signing_credentials" },
+			{ name: "0012_task_output_lost" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
@@ -608,5 +620,50 @@ describe("library backfill migration", () => {
 				created_at: "2026-01-02T00:00:00.000Z",
 			},
 		]);
+	});
+});
+
+describe("task output lost migration", () => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite", { migrate: false });
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("adds output_lost non-null with a false default for existing rows", async () => {
+		const before = {
+			"0001_initial": m0001,
+			"0002_task_transfer": m0002,
+			"0003_libraries": m0003,
+			"0004_purpose_and_image_cache": m0004,
+			"0005_task_group_transfer": m0005,
+			"0006_image_state": m0006,
+			"0007_extensions": m0007,
+			"0008_channels": m0008,
+			"0009_authorization_lookup": m0009,
+			"0010_review_tool_task": m0010,
+			"0011_delete_ssh_signing_credentials": m0011,
+		};
+		await runMigrations(db, before);
+		const now = "2026-01-01T00:00:00.000Z";
+		await sql`insert into orgs (id, name, created_at) values ('org-1', 'Org', ${now})`.execute(db);
+		await sql`
+			insert into tasks (
+				id, org_id, node_id, kind, spec, privileged, state, timed_out, actor_type, actor_id,
+				on_behalf_of_user_id, created_at
+			) values ('task-1', 'org-1', 'node-1', 'exec', '{}', 0, 'running', 0, 'user', 'user-1',
+				'user-1', ${now})`.execute(db);
+
+		await runMigrations(db, { ...before, "0012_task_output_lost": m0012 });
+
+		expect(await tableColumns("sqlite", db, "tasks")).toContain("output_lost");
+		expect(await isNotNull("sqlite", db, "tasks", "output_lost")).toBe(true);
+		const rows = await sql<{ output_lost: number }>`
+			select output_lost from tasks where id = 'task-1'`.execute(db);
+		expect(rows.rows[0]?.output_lost).toBe(0);
 	});
 });

@@ -77,16 +77,22 @@ func fileWrite(ctx context.Context, acc fileAccess, s *protocol.FileWriteSpec, i
 	case t.existing != nil:
 		mode = editMode(t.existing.mode)
 	}
+	ownerKept, groupKept := true, true
 	if t.existing != nil && uid < 0 && gid < 0 {
-		if err := tmp.Chown(t.existing.uid, t.existing.gid); err != nil && !errors.Is(err, syscall.EPERM) {
-			return nil, err
+		if err := tmp.Chown(t.existing.uid, t.existing.gid); err != nil {
+			if !errors.Is(err, syscall.EPERM) {
+				return nil, err
+			}
+			// Best effort: only root can usually restore another owner. The mode must not keep bits
+			// that would grant that owner's rights to this file's actual owner.
+			ownerKept, groupKept = false, false
 		}
 	} else if uid >= 0 || gid >= 0 {
 		if err := tmp.Chown(uid, gid); err != nil {
 			return nil, err
 		}
 	}
-	if err := tmp.Chmod(mode); err != nil {
+	if err := tmp.Chmod(modeAfterOwnerRestore(mode, ownerKept, groupKept)); err != nil {
 		return nil, err
 	}
 	if err := publishAt(t.dir, tmpName, tmp, t.name, path, !s.Overwrite); err != nil {

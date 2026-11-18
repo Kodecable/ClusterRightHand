@@ -70,7 +70,7 @@ when an administrator asks. A built-in extension has no connection and is always
   Concurrent calls share one attempt, and after a failed attempt in the last 10 s a call fails at once
   without trying again, so a looping model cannot hammer the server.
 - **Calls in flight.** A connection lost during a call ends that call `unknown`, as a restart does;
-  it is not repeated on the new connection.
+  it is not repeated on the new connection. The dead client and transport are closed before the retry.
 - The Extensions page shows each MCP extension's state, last error and next attempt.
 
 ## Tools for the model
@@ -140,6 +140,8 @@ tasks use, plus only the state that must survive while the call is in progress.
   calling again. A replay that finds the row still waiting but cannot run it — the extension was deleted,
   disabled or is unavailable, the tool is no longer listed, or the rules now deny it — ends it `failed` or
   `rejected`, so it does not stay on the approvals page without a waiter.
+- An approved call re-reads the acting user's available extensions before it runs. A grant revoked, or an
+  extension disabled, while the call waited ends it `failed` without calling the extension.
 - Terminal rows are kept for one day by a built-in retention policy, not a System setting, after which
   the sweep deletes them ([Retention](data-model.md#retention)). Rows still waiting or running are never
   deleted.

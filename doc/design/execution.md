@@ -57,7 +57,9 @@ Edits run entirely on the node: the file is read, matched, changed and written b
 the network. The text being replaced is itself the conflict check. If someone changed another part of
 the file, the edit succeeds and keeps their change; if they changed the same segment, the edit fails and
 the agent reads the file again. An approval binds the edits themselves, so an edit approved earlier still
-applies only if its text is still there.
+applies only if its text is still there. Matching treats CRLF and LF as equal, but only the matched
+span is replaced: every other byte, including a lone CR, is kept, and the replacement gets the file's
+detected line ending.
 
 - `file.write` refuses to replace an existing file unless `overwrite` is set, so a model cannot destroy
   content with a whole-file write by accident.
@@ -244,7 +246,10 @@ node group references or `_all`; a single node is a single task, and anything el
   total size. SSH nodes have no such file.
 - **Output is resumable.** Output carries byte offsets. crha keeps what crhs has not received until crhs
   acknowledges the task's end, and after a reconnect, or a crhs restart, resends from where crhs
-  stopped. crhs records a task as finished only when its output is complete.
+  stopped. crhs records a task as finished only when its output is complete. If the node itself loses
+  buffered output, its exit stops at the last contiguous byte it can deliver and names no output file;
+  the task still ends with the output crhs received, is marked as having lost output, and the WebUI and
+  the agent's task result say the output is incomplete.
 - **crhs notices are not output.** A notice from crhs, such as "privileged was ignored on this SSH node",
   is stored separately and shown above the output, so a file page stays exactly the file's bytes.
 
@@ -311,6 +316,9 @@ root execution.
 - A cancellation registered before the command starts prevents it from running at all.
 - Each node reuses one connection with keepalives. If a pooled connection turns out to be dead before a
   task starts, crhs retries once on a new connection.
+- A connection made for a route that changed while it dialled is closed, not pooled; the task re-reads
+  the node and dials the new route once. Deleting a node closes its pooled connection like a route
+  change does.
 - A failure before the command starts is a connection failure (`connect_failed` or
   `host_key_mismatch`); a disconnect after it starts makes the task `unknown`.
 

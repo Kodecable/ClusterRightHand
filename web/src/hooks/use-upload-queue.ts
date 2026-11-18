@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "@/lib/api/client";
 
 /** What one file of an upload queue is doing. */
@@ -153,6 +153,9 @@ export function useUploadQueue(upload: UploadFile): UploadQueue {
 		canceledRef.current = true;
 		controllerRef.current?.abort();
 	}, []);
+
+	// The component going away ends the batch: the file in flight is aborted instead of uploading unseen.
+	useEffect(() => cancel, [cancel]);
 
 	const clear = useCallback(() => {
 		if (running) return;

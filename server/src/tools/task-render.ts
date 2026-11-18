@@ -24,6 +24,7 @@ export function taskDetails(task: TaskView, nodeName: string): Record<string, un
 	if (task.exitCode !== null) out.exit_code = task.exitCode;
 	if (task.signal !== null) out.signal = task.signal;
 	if (task.timedOut) out.timed_out = true;
+	if (task.outputLost) out.output_lost = true;
 	if (task.errorCode !== null) out.error = { code: task.errorCode, message: task.errorMessage ?? "" };
 	return out;
 }
@@ -161,6 +162,11 @@ function taskStatusLine(task: TaskView, label: string, info?: NodePrivilege): st
 	}
 }
 
+/** The note line of a task whose node lost output: what is shown is only a prefix, not the whole stream. */
+function lostOutputHint(task: TaskView): string | undefined {
+	return task.outputLost ? noteLine(["Output incomplete: the node lost part of this task's output."]) : undefined;
+}
+
 function isWaiting(task: TaskView): boolean {
 	return task.state === "awaiting_approval" || task.state === "awaiting_authorization";
 }
@@ -260,6 +266,7 @@ export function execTaskResult(
 	const { text, keptLines } = taskSourceText(task);
 	const note = [
 		taskStatusLine(task, nodeName, privilege),
+		lostOutputHint(task),
 		truncationHint(keptLines, task.outputLines, task.outputFile, transport, bytesTruncated(task, text)),
 		noticeLine(task, privilege),
 	]
@@ -326,6 +333,7 @@ function groupTextResult(
 		const { text, keptLines } = taskSourceText(task);
 		const note = [
 			taskStatusLine(task, nodeName, privilege),
+			lostOutputHint(task),
 			truncationHint(keptLines, task.outputLines, task.outputFile, transport, bytesTruncated(task, text)),
 			noticeLine(task, privilege),
 		]

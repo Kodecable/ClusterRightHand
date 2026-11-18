@@ -433,6 +433,7 @@ describe("agent wire protocol", () => {
 			outputEnd: 3,
 			outputFile: "",
 			outputLines: 1,
+			outputLost: false,
 			result: null,
 		});
 		const view = await waitFor("exited", async () => {
@@ -473,6 +474,7 @@ describe("agent wire protocol", () => {
 			outputEnd: 14,
 			outputFile: "",
 			outputLines: 3,
+			outputLost: false,
 			result: null,
 		});
 		const view = await waitFor("exited", async () => {
@@ -522,6 +524,7 @@ describe("agent wire protocol", () => {
 			outputEnd: 1234,
 			outputFile: "/var/lib/crha/output/t.log",
 			outputLines: 7,
+			outputLost: false,
 			result: null,
 		});
 		const view = await waitFor("exited", async () => {
@@ -573,6 +576,7 @@ describe("agent wire protocol", () => {
 				outputEnd: data.length,
 				outputFile: "/tmp/text.log",
 				outputLines: 1,
+				outputLost: false,
 				result: null,
 			});
 		}
@@ -624,6 +628,7 @@ describe("agent wire protocol", () => {
 				outputEnd: data.length,
 				outputFile: "/tmp/caps.log",
 				outputLines: 2,
+				outputLost: false,
 				result: null,
 			});
 		}
@@ -683,6 +688,7 @@ describe("agent wire protocol", () => {
 				outputEnd: data.length,
 				outputFile: "/tmp/text.log",
 				outputLines: 1,
+				outputLost: false,
 				result: null,
 			});
 		}
@@ -736,6 +742,7 @@ describe("agent wire protocol", () => {
 			outputEnd: data.length,
 			outputFile: "/tmp/text.log",
 			outputLines: 1,
+			outputLost: false,
 			result: null,
 		};
 		first.crha.peer.emit("task.output", { taskId: firstTaskId, offset: 0, data });
@@ -776,6 +783,7 @@ describe("agent wire protocol", () => {
 				outputEnd: data.length,
 				outputFile: "/tmp/text.log",
 				outputLines: 1,
+				outputLost: false,
 				result: null,
 			});
 		}
@@ -842,6 +850,7 @@ describe("agent wire protocol", () => {
 			outputEnd: 4,
 			outputFile: "",
 			outputLines: 1,
+			outputLost: false,
 			result: null,
 		});
 		const late = await waitFor("late result", async () => {
@@ -902,6 +911,7 @@ describe("agent wire protocol", () => {
 			outputEnd: 0,
 			outputFile: "",
 			outputLines: 0,
+			outputLost: false,
 			result: null,
 		});
 		const late = await waitFor("late result without live", async () => {
@@ -1055,6 +1065,7 @@ describe("agent wire protocol", () => {
 				outputEnd: 4,
 				outputFile: "",
 				outputLines: 1,
+				outputLost: false,
 			});
 			const view = await waitFor("exited after replay", async () => {
 				const t = await cluster.getTask(taskId);

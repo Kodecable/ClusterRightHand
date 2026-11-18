@@ -80,6 +80,13 @@ export class ClusterCore {
 	 * lives as long as the session, so not SingleFlight (that forgets the entry when creation settles).
 	 */
 	readonly sshSessions = new Map<string, Promise<SshConnection>>();
+	/** The settled session behind each pooled entry, for closing a node's connection without racing a dial. */
+	readonly sshConnections = new Map<string, SshConnection>();
+	/**
+	 * The route generation of each SSH node, bumped when its route changes. A connection created for an older
+	 * generation is closed instead of pooled, so a task cannot cache the route it read before the change.
+	 */
+	readonly sshRouteGenerations = new Map<string, number>();
 	/** The abort of each running SSH task, so a cancel can stop it. */
 	readonly sshCancels = new Map<string, AbortController>();
 	/** A task between dispatch and its recorded end: output accumulates here, not in the database. */

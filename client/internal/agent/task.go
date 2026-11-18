@@ -23,9 +23,83 @@ const cancelTombstoneTTL = 10 * time.Minute
 // maxCancelTombstones is a variable so tests can lower it.
 var maxCancelTombstones = 1024
 
-// transferQueueChunks bounds a privileged pull's chunks waiting for the data connection: a slow
-// connection applies backpressure after this many frames instead of stalling the shared read loop.
-const transferQueueChunks = 64
+// transferQueueBytes bounds the data buffered for a privileged pull while its data connection is
+// slow. A transfer that exceeds it fails instead of blocking the shared crh-priv read loop.
+const transferQueueBytes = 8 << 20
+
+// transferQueue is one task's FIFO of transfer chunks with a byte cap. push never blocks, so the
+// crh-priv read loop never waits on a slow data connection.
+type transferQueue struct {
+	mu     sync.Mutex
+	chunks [][]byte
+	bytes  int
+	closed bool
+	wake   chan struct{}
+}
+
+var errTransferQueueClosed = errors.New("the transfer queue is closed")
+
+func newTransferQueue() *transferQueue {
+	return &transferQueue{wake: make(chan struct{}, 1)}
+}
+
+// push appends a chunk unless the queue is closed or the cap would be exceeded. It never blocks.
+func (q *transferQueue) push(data []byte) error {
+	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return errTransferQueueClosed
+	}
+	if q.bytes+len(data) > transferQueueBytes {
+		q.mu.Unlock()
+		return fmt.Errorf("the transfer buffer exceeds %d bytes", transferQueueBytes)
+	}
+	q.chunks = append(q.chunks, data)
+	q.bytes += len(data)
+	q.mu.Unlock()
+	q.signal()
+	return nil
+}
+
+// pop removes the oldest chunk, or reports false when the queue is empty.
+func (q *transferQueue) pop() ([]byte, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.chunks) == 0 {
+		return nil, false
+	}
+	data := q.chunks[0]
+	q.chunks[0] = nil
+	q.chunks = q.chunks[1:]
+	q.bytes -= len(data)
+	return data, true
+}
+
+// isClosed reports whether close discarded the queue.
+func (q *transferQueue) isClosed() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.closed
+}
+
+// close discards the buffered chunks and wakes the transfer goroutine. It is idempotent.
+func (q *transferQueue) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.chunks = nil
+	q.bytes = 0
+	q.mu.Unlock()
+	q.signal()
+}
+
+func (q *transferQueue) signal() {
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (q *transferQueue) ready() <-chan struct{} { return q.wake }
 
 // cancelTombstone is one recorded cancellation, with the time it was recorded for expiry and for
 // telling a stale order entry from a newer tombstone of the same id.
@@ -64,10 +138,9 @@ type task struct {
 	// transferReady is closed once transferSend is set.
 	transferReady chan struct{}
 	// transferQueue hands a privileged pull's chunks to the transfer goroutine, so the shared
-	// crh-priv read loop never waits on the data connection. transferQueueClosed is closed when
-	// nothing drains the queue any more. Both are nil for kinds that send their bytes locally.
-	transferQueue       chan []byte
-	transferQueueClosed chan struct{}
+	// crh-priv read loop never waits on the data connection. It is nil for kinds that send their
+	// bytes locally.
+	transferQueue *transferQueue
 	// doneCh is closed when done and result are set, so a transfer can wait without polling.
 	doneCh   chan struct{}
 	doneOnce sync.Once
@@ -141,20 +214,28 @@ func (a *Agent) emitTransfer(t *task, data []byte) error {
 // the transfer goroutine instead of sending it here. This handler runs in the shared crh-priv read
 // loop under relayRouter.mu, so waiting on the data connection would stall every other privileged
 // task's events, and this task's cancel, behind one slow pull (doc/design/protocol.md "crh-priv").
-// The event stream is ordered, so the queued chunks stay in order.
+// The event stream is ordered, so the queued chunks stay in order. A full queue fails this
+// transfer; waiting for room would stall every other task's events behind it.
 func (a *Agent) relayTransfer(t *task, chunk *protocol.TaskOutput) error {
 	if t.transferQueue == nil {
 		return errors.New("the task has no transfer queue")
 	}
-	select {
-	case t.transferQueue <- chunk.Data:
-		return nil
-	case <-t.transferQueueClosed:
-		// The transfer goroutine is gone: the data connection failed, and crhs ends the task.
-		return nil
-	case <-t.doneCh:
+	if a.taskDone(t) {
+		// The ordered stream cannot deliver transfer data after task.exit; drop it.
 		return nil
 	}
+	err := t.transferQueue.push(chunk.Data)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, errTransferQueueClosed) {
+		// The transfer goroutine is gone: the data connection failed, and crhs ends the task.
+		return nil
+	}
+	// The consumer is behind past the cap: stop this transfer instead of blocking the read loop.
+	t.transferQueue.close()
+	a.failTransfer(t, protocol.CodeIOError, err.Error())
+	return nil
 }
 
 func (t *task) status() protocol.TaskStatus {
@@ -254,13 +335,13 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		doneCh:         make(chan struct{}),
 	}
 	if kind == protocol.TaskSpecFilePull {
-		t.transferQueue = make(chan []byte, transferQueueChunks)
-		t.transferQueueClosed = make(chan struct{})
+		t.transferQueue = newTransferQueue()
 	}
 	if ref := taskinput.Ref(&ts.Spec); ref != nil {
 		// A zero-size input still commits crhs to the SHA-256 of empty input. A different hash can
 		// never match, so refuse the task before accepting it.
 		if err := taskinput.ValidateRef(ref); err != nil {
+			t.output.Discard()
 			releaseClaim()
 			return nil, err
 		}
@@ -269,6 +350,7 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	runCtx, cancel := context.WithCancel(context.Background()) // tasks outlive connections
 	t.cancel, t.runCtx = cancel, runCtx
 	if err := run.prepare(a, ctx, t); err != nil {
+		t.output.Discard()
 		cancel()
 		releaseClaim()
 		return nil, err

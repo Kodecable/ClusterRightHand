@@ -336,3 +336,78 @@ func TestOutputCoalescingKeepsInterleaving(t *testing.T) {
 		t.Fatalf("ReadAt output = %q", got)
 	}
 }
+
+// TestOutputSpillFailureReportsLostOffset forces a spill write failure and memory overflow: the bytes
+// before the first lost byte are still readable, and LostAt names that boundary.
+func TestOutputSpillFailureReportsLostOffset(t *testing.T) {
+	o := NewOutput("lost", t.TempDir(), OutputOptions{AlwaysSpill: true})
+	if _, err := o.Writer().Write([]byte("good")); err != nil {
+		t.Fatal(err)
+	}
+	// A broken spill file: the next write falls back to memory.
+	o.mu.Lock()
+	if err := o.file.Close(); err != nil {
+		o.mu.Unlock()
+		t.Fatal(err)
+	}
+	o.mu.Unlock()
+	if _, err := o.Writer().Write([]byte("kept")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Writer().Write(make([]byte, maxMemoryOutput)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := o.ReadAt(0, 64)
+	if err != nil || string(got) != "goodkept" {
+		t.Fatalf("ReadAt(0) = %q, %v, want the kept bytes", got, err)
+	}
+	if _, err := o.ReadAt(8, 8); err == nil {
+		t.Fatal("ReadAt into the lost range succeeded")
+	}
+	lostAt, lost := o.LostAt()
+	if !lost || lostAt != 8 {
+		t.Fatalf("LostAt = %d, %v, want 8, true", lostAt, lost)
+	}
+	if end := o.End(); end != 8+maxMemoryOutput {
+		t.Fatalf("End = %d, want %d", end, 8+maxMemoryOutput)
+	}
+}
+
+// TestOutputDiscardRemovesSpillFile covers the file an output that no task uses must not leave.
+func TestOutputDiscardRemovesSpillFile(t *testing.T) {
+	dir := t.TempDir()
+	o := NewOutput("discard", dir, OutputOptions{AlwaysSpill: true})
+	if o.Path() == "" {
+		t.Fatal("AlwaysSpill did not create the file")
+	}
+	o.Discard()
+	if _, err := os.Stat(filepath.Join(dir, "discard.log")); !os.IsNotExist(err) {
+		t.Fatalf("spill file still exists: %v", err)
+	}
+}
+
+// TestOutputDoesNotSpillAfterLoss covers the bytes discarded under memory pressure: a spill that
+// starts working later must not write them back (as zeros) and hide the loss.
+func TestOutputDoesNotSpillAfterLoss(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "late")
+	o := NewOutput("late", dir, OutputOptions{SpillBytes: 1})
+	if _, err := o.Writer().Write([]byte("ab")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Writer().Write(make([]byte, maxMemoryOutput)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Writer().Write([]byte("cd")); err != nil {
+		t.Fatal(err)
+	}
+	if lostAt, lost := o.LostAt(); !lost || lostAt != 2 {
+		t.Fatalf("LostAt = %d, %v, want 2, true", lostAt, lost)
+	}
+	if path := o.Path(); path != "" {
+		t.Fatalf("spilled to %q after losing output", path)
+	}
+}

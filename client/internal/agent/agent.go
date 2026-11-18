@@ -494,7 +494,8 @@ func (a *Agent) nextOutbound() *outbound {
 			if end := t.output.End(); t.sent < end {
 				data, err := t.output.ReadAt(t.sent, outputChunk)
 				if err != nil || len(data) == 0 {
-					// Lost output (memory cap without a spill file): skip it; TaskExit's end tells crhs.
+					// Lost output (memory cap without a spill file): skip it; TaskExit's end stops at
+					// the bytes crha can still deliver.
 					a.log.Warn("output lost", "task", t.id, "err", err)
 					t.sent = end
 				} else {

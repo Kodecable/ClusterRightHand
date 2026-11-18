@@ -130,9 +130,18 @@ describe("SSH tasks", () => {
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
 		cluster = new Cluster(db, {
-			// The route is never dialled: the module's connect is faked above.
-			sshRoute: async () => ({
-				hops: [{ host: "127.0.0.1", port: 22, user: "root", hostFingerprint: "SHA256:fake", privateKey: "fake-key" }],
+			// The route is never dialled: the module's connect is faked above. The hop follows the node's host,
+			// so a test can tell which route a connection was made for.
+			sshRoute: async (node) => ({
+				hops: [
+					{
+						host: node.ssh_host ?? "127.0.0.1",
+						port: 22,
+						user: "root",
+						hostFingerprint: "SHA256:fake",
+						privateKey: "fake-key",
+					},
+				],
 			}),
 		});
 		const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
@@ -322,6 +331,105 @@ describe("SSH tasks", () => {
 		const next = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
 		await waitFor("finished", async () => (await view(next.id)).state === "exited");
 		expect(connects).toBe(2);
+	});
+
+	it("closes a connection made for a route replaced while it connected, and dials the new route", async () => {
+		const node = await addSshNode("ssh-stale-route");
+		const oldSession = new FakeSession();
+		const newSession = new FakeSession();
+		const routes: SshRoute[] = [];
+		let releaseOld!: (session: FakeSession) => void;
+		fake.connect = (route) => {
+			routes.push(route as SshRoute);
+			if (routes.length === 1) {
+				return new Promise((resolve) => {
+					releaseOld = resolve;
+				});
+			}
+			return Promise.resolve(newSession);
+		};
+		const task = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("dialled", async () => (routes.length >= 1 ? true : undefined));
+
+		// The route changes while the first connect is still in flight.
+		await db.updateTable("nodes").set({ ssh_host: "new.example" }).where("id", "=", node.id).execute();
+		cluster.closeSshNode(node.id);
+		releaseOld(oldSession);
+
+		await waitFor("finished", async () => (await view(task.id)).state === "exited");
+		expect(oldSession.closed).toBe(true);
+		expect(routes.map((route) => route.hops.at(-1)?.host)).toEqual(["127.0.0.1", "new.example"]);
+		expect(oldSession.taskCommands()).toHaveLength(0);
+		expect(newSession.taskCommands()).toHaveLength(1);
+	});
+
+	it("keeps the newer pooled connection when a stale connect succeeds after it", async () => {
+		const node = await addSshNode("ssh-stale-success");
+		const oldSession = new FakeSession();
+		const newer = new FakeSession();
+		const routes: SshRoute[] = [];
+		let releaseOld!: (session: FakeSession) => void;
+		fake.connect = (route) => {
+			routes.push(route as SshRoute);
+			if (routes.length === 1) {
+				return new Promise((resolve) => {
+					releaseOld = resolve;
+				});
+			}
+			return Promise.resolve(newer);
+		};
+		const first = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("dialled", async () => (routes.length >= 1 ? true : undefined));
+
+		await db.updateTable("nodes").set({ ssh_host: "new.example" }).where("id", "=", node.id).execute();
+		cluster.closeSshNode(node.id);
+		const second = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("second finished", async () => (await view(second.id)).state === "exited");
+
+		// The old connect now succeeds: it is for the old route, so it closes itself and runs on the newer one.
+		releaseOld(oldSession);
+		await waitFor("first finished", async () => (await view(first.id)).state === "exited");
+		expect(oldSession.closed).toBe(true);
+		expect(newer.closed).toBe(false);
+		const third = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("third finished", async () => (await view(third.id)).state === "exited");
+		expect(routes).toHaveLength(2);
+		expect(newer.taskCommands()).toHaveLength(3);
+	});
+
+	it("does not let a delayed failed connect remove the newer pooled connection", async () => {
+		const node = await addSshNode("ssh-stale-failure");
+		const newer = new FakeSession();
+		const routes: SshRoute[] = [];
+		let rejectOld!: (error: Error) => void;
+		fake.connect = (route) => {
+			routes.push(route as SshRoute);
+			if (routes.length === 1) {
+				return new Promise((_resolve, reject) => {
+					rejectOld = reject;
+				});
+			}
+			return Promise.resolve(newer);
+		};
+		const first = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("dialled", async () => (routes.length >= 1 ? true : undefined));
+
+		await db.updateTable("nodes").set({ ssh_host: "new.example" }).where("id", "=", node.id).execute();
+		cluster.closeSshNode(node.id);
+		const second = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("second finished", async () => (await view(second.id)).state === "exited");
+		expect(routes).toHaveLength(2);
+
+		// The old connect now fails. Its failure handler must leave the newer pool entry alone.
+		rejectOld(new Error("the old route is gone"));
+		await waitFor("first errored", async () => {
+			const current = await view(first.id);
+			return current.state === "errored" ? current : undefined;
+		});
+		const third = await cluster.createTask({ nodeId: node.id, spec: EXEC, actor: actor() });
+		await waitFor("third finished", async () => (await view(third.id)).state === "exited");
+		expect(routes).toHaveLength(2);
+		expect(newer.taskCommands()).toHaveLength(2);
 	});
 
 	it("makes a task running on the closed connection unknown", async () => {

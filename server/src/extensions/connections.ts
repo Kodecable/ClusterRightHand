@@ -478,8 +478,12 @@ export class McpConnections {
 				// trusted to be connected.
 				const message = redactUrlsInText(errorText(err));
 				if (state.client === client) {
+					const transport = state.transport;
 					state.client = undefined;
 					state.transport = undefined;
+					// The call left the connection unusable: close what this state still held before it retries.
+					void client.close().catch(() => {});
+					void transport?.close().catch(() => {});
 					state.attempt += 1;
 					state.lastFailureAt = this.#now();
 					this.#setStatus(state, "unavailable", message);

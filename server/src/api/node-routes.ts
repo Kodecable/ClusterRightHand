@@ -617,6 +617,8 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		await manageable(c, id);
 		const before = await getNode(db, id);
 		await deleteNode(db, id);
+		// The route is gone: a pooled SSH connection to it must not stay open.
+		options.cluster?.closeSshNode(id);
 		// tasks.node_id has no foreign key: a waiting task would survive its node and could never dispatch.
 		await options.cluster?.endNodeTasks(id);
 		void c.get("audit").record({

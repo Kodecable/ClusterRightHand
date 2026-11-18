@@ -65,6 +65,7 @@ function task(overrides: Partial<TaskView>): TaskView {
 		maxLines: null,
 		maxBytes: null,
 		outputFile: null,
+		outputLost: false,
 		outputMode: "full",
 		privileged: false,
 		authorization: null,
@@ -758,6 +759,18 @@ describe("exec text results", () => {
 		expect(texts(crha)[1]).not.toContain("SSH");
 		const whole = execTaskResult(ctx, task({ outputTail: "a\n", outputTailLines: 1, outputLines: 1 }), "web-1");
 		expect(texts(whole)[1]).toBe("[web-1, exit 0]");
+	});
+
+	it("says when the node lost part of the output", () => {
+		const result = execTaskResult(
+			ctx,
+			task({ outputTail: "ok\n", outputTailLines: 1, outputLines: 3, outputLost: true }),
+			"web-1",
+		);
+		expect(texts(result)[1]).toContain("[Output incomplete: the node lost part of this task's output.]");
+		expect(taskDetails(task({ outputLost: true }), "web-1")).toMatchObject({ output_lost: true });
+		const complete = execTaskResult(ctx, task({ outputTail: "ok\n", outputTailLines: 1, outputLines: 1 }), "web-1");
+		expect(texts(complete)[1]).toBe("[web-1, exit 0]");
 	});
 
 	it("brackets every synthesized note line, the notice included", () => {

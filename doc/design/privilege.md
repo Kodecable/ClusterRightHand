@@ -205,7 +205,7 @@ A `local` entry has none of these: it only lists `uids` and a `max_window`. The 
 configuration errors on it, because an open window waives every such limit.
 
 The configuration must belong to the privileged mode's user and not be writable by others. Unknown
-keys and duplicate names are errors.
+keys, duplicate names, and a key or credential id used by two entries are errors.
 
 ### Guard rules
 

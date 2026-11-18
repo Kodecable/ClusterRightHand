@@ -1082,6 +1082,29 @@ func TestFileEditCRLF(t *testing.T) {
 	}
 }
 
+func TestFileEditKeepsLoneCROutsideTheEdit(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "f")
+	writeFile(t, p, "a\rb\nc", 0o644)
+	if _, err := edit(t, p, "c", "d"); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFileStr(t, p); got != "a\rb\nd" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestModeAfterOwnerRestore(t *testing.T) {
+	mode := fs.ModeSetuid | fs.ModeSetgid | 0o755
+	if got := modeAfterOwnerRestore(mode, true, true); got != mode {
+		t.Fatalf("restored mode = %v, want %v", got, mode)
+	}
+	for _, tc := range []struct{ owner, group bool }{{false, true}, {true, false}, {false, false}} {
+		if got := modeAfterOwnerRestore(mode, tc.owner, tc.group); got != 0o755 {
+			t.Fatalf("mode with owner %v group %v = %v, want 0755", tc.owner, tc.group, got)
+		}
+	}
+}
+
 func TestFileEditBOM(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "f")
 	writeFile(t, p, "\xEF\xBB\xBFhello\n", 0o644)

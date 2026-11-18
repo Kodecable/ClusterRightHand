@@ -62,12 +62,9 @@ func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, e
 	}
 	text := string(raw)
 	ending := detectLineEnding(text)
-	out, err := applyEdits(normalizeToLF(text), s.Edits, path)
+	out, err := applyEdits(text, s.Edits, ending, path)
 	if err != nil {
 		return nil, err
-	}
-	if ending == "\r\n" {
-		out = strings.ReplaceAll(out, "\n", "\r\n")
 	}
 
 	tmpName, tmp, err := createTempAt(t.dir, t.name)
@@ -85,10 +82,16 @@ func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, e
 		return nil, err
 	}
 	uid, gid := statIDs(fi)
-	if err := tmp.Chown(uid, gid); err != nil && !errors.Is(err, os.ErrPermission) {
-		return nil, err
+	ownerKept, groupKept := true, true
+	if err := tmp.Chown(uid, gid); err != nil {
+		if !errors.Is(err, os.ErrPermission) {
+			return nil, err
+		}
+		// Best effort: only root can usually restore another owner. The mode must not keep bits that
+		// would grant that owner's rights to this file's actual owner.
+		ownerKept, groupKept = false, false
 	}
-	if err := tmp.Chmod(editMode(statMode(fi))); err != nil {
+	if err := tmp.Chmod(modeAfterOwnerRestore(editMode(statMode(fi)), ownerKept, groupKept)); err != nil {
 		return nil, err
 	}
 	if err := publishAt(t.dir, tmpName, tmp, t.name, path, false); err != nil {
@@ -119,9 +122,35 @@ type matchedEdit struct {
 	newText              string
 }
 
-// applyEdits matches every edit against the original content (exactly once, without overlap)
-// and applies them all at once.
-func applyEdits(content string, edits []protocol.Edit, path string) (string, error) {
+// normalizeWithOffsets applies normalizeToLF and maps every normalized byte offset back to the
+// original, so an edit can replace only the bytes its match came from.
+func normalizeWithOffsets(s string) (string, []int) {
+	var b strings.Builder
+	b.Grow(len(s))
+	offsets := make([]int, 0, len(s)+1)
+	for i := 0; i < len(s); {
+		offsets = append(offsets, i)
+		if s[i] == '\r' {
+			b.WriteByte('\n')
+			if i+1 < len(s) && s[i+1] == '\n' {
+				i += 2
+			} else {
+				i++
+			}
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	offsets = append(offsets, len(s))
+	return b.String(), offsets
+}
+
+// applyEdits matches every edit against the original content (exactly once, without overlap) and
+// applies them all at once. Matching treats CRLF and LF as equal; only the matched span changes, so
+// a lone CR elsewhere in the file is left byte-for-byte, and the replacement uses the file's ending.
+func applyEdits(content string, edits []protocol.Edit, ending, path string) (string, error) {
+	normalized, offsets := normalizeWithOffsets(content)
 	var matched []matchedEdit
 	for i := range edits {
 		e := &edits[i]
@@ -129,14 +158,16 @@ func applyEdits(content string, edits []protocol.Edit, path string) (string, err
 		if old == "" {
 			return "", errf(protocol.CodeInvalidSpec, "edits[%d].old_text must not be empty in %s", i, path)
 		}
-		idx := strings.Index(content, old)
+		idx := strings.Index(normalized, old)
 		if idx < 0 {
 			return "", errf(protocol.CodeEditNoMatch, "could not find edits[%d] in %s; old_text must match exactly including whitespace and newlines", i, path)
 		}
-		if n := strings.Count(content, old); n > 1 {
+		if n := strings.Count(normalized, old); n > 1 {
 			return "", errf(protocol.CodeEditAmbiguous, "found %d occurrences of edits[%d] in %s; add more context to make it unique", n, i, path)
 		}
-		matched = append(matched, matchedEdit{i, idx, len(old), normalizeToLF(e.NewText)})
+		start, end := offsets[idx], offsets[idx+len(old)]
+		newText := strings.ReplaceAll(normalizeToLF(e.NewText), "\n", ending)
+		matched = append(matched, matchedEdit{i, start, end - start, newText})
 	}
 	sort.Slice(matched, func(a, b int) bool { return matched[a].start < matched[b].start })
 	for i := 1; i < len(matched); i++ {

@@ -140,6 +140,7 @@ func TestRoundTripAllTypes(t *testing.T) {
 				OutputEnd:   3,
 				OutputFile:  "/tmp/out.log",
 				OutputLines: 5,
+				OutputLost:  true,
 			})
 		}},
 		{"TaskExit with a result", "", func(t *testing.T) {

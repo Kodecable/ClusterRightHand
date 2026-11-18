@@ -331,6 +331,7 @@ export class FakeCrha {
 			outputEnd: 0,
 			outputFile: "",
 			outputLines: 0,
+			outputLost: false,
 			result: null,
 			...extra,
 		});

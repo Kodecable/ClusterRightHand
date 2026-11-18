@@ -11,6 +11,7 @@ import * as m0008 from "./migrations/0008_channels.ts";
 import * as m0009 from "./migrations/0009_authorization_lookup.ts";
 import * as m0010 from "./migrations/0010_review_tool_task.ts";
 import * as m0011 from "./migrations/0011_delete_ssh_signing_credentials.ts";
+import * as m0012 from "./migrations/0012_task_output_lost.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -25,6 +26,7 @@ const migrations: Record<string, Migration> = {
 	"0009_authorization_lookup": m0009,
 	"0010_review_tool_task": m0010,
 	"0011_delete_ssh_signing_credentials": m0011,
+	"0012_task_output_lost": m0012,
 };
 
 /** Options shared by the migration entry points. */

@@ -119,6 +119,7 @@ const taskExit: TaskExit = {
 	outputEnd: 6,
 	outputFile: "",
 	outputLines: 1,
+	outputLost: false,
 	result: null,
 };
 const readResult: TaskResult = { kind: "file.read", from: 1, to: 2, eof: true, total: 3, tooLong: false };
@@ -210,6 +211,7 @@ const cases: [string, Codec<unknown>, unknown][] = [
 		linkTarget: "/tmp/y",
 	}),
 	asCase("TaskExit", taskExitCodec, taskExit),
+	asCase("TaskExit with lost output", taskExitCodec, { ...taskExit, outputLost: true }),
 	asCase("TaskExit with a result", taskExitCodec, { ...taskExit, result: readResult }),
 	asCase("Hello", helloCodec, hello),
 	asCase("Welcome", welcomeCodec, welcome),

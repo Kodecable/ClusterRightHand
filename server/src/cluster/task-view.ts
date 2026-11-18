@@ -55,6 +55,7 @@ export function toView(row: Selectable<TasksTable>, live: Live | undefined, sour
 		maxLines: row.max_lines,
 		maxBytes: row.max_bytes,
 		outputFile: row.output_file,
+		outputLost: row.output_lost === 1,
 		outputMode: row.output_mode,
 		privileged: row.privileged === 1,
 		authorization: authorizationView(row.authorization),

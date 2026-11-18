@@ -12,7 +12,7 @@ import {
 } from "@crh/protocol";
 import type { SFTPWrapper } from "ssh2";
 import type { TransferWrite } from "../../library/transfer-location.ts";
-import { applyEdits, detectLineEnding, MAX_EDIT_SIZE, normalizeToLF, toBytesString, UTF8_BOM } from "./file-edit.ts";
+import { applyEdits, detectLineEnding, MAX_EDIT_SIZE, toBytesString, UTF8_BOM } from "./file-edit.ts";
 import {
 	checkPath,
 	FileTaskError,
@@ -28,6 +28,17 @@ import {
 } from "./file-sftp.ts";
 
 export { FileTaskError };
+
+const S_ISUID = 0o4000;
+const S_ISGID = 0o2000;
+
+/**
+ * The mode to fchmod after restoring ownership: setuid and setgid are cleared when the old owner
+ * or group could not be restored, so the bits never grant another identity's rights.
+ */
+export function modeAfterOwnerRestore(mode: number, ownerKept: boolean, groupKept: boolean): number {
+	return ownerKept && groupKept ? mode : mode & ~(S_ISUID | S_ISGID);
+}
 
 const DEFAULT_LIST_LIMIT = 500;
 const MAX_LIST_LIMIT = 5000;
@@ -316,11 +327,15 @@ async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefin
 		} else if (existing) {
 			mode = existing.mode & 0o7777;
 		}
+		let ownerKept = true;
 		if (existing) {
 			// Best effort: only root can usually do this.
-			await sftp.fchown(tmp.handle, existing.uid, existing.gid).catch(() => {});
+			ownerKept = await sftp.fchown(tmp.handle, existing.uid, existing.gid).then(
+				() => true,
+				() => false,
+			);
 		}
-		await sftp.fchmod(tmp.handle, mode);
+		await sftp.fchmod(tmp.handle, modeAfterOwnerRestore(mode, ownerKept, ownerKept));
 		checkAborted(ctx.signal);
 		await publish(sftp, tmp, path, !s.overwrite);
 		ok = true;
@@ -372,8 +387,14 @@ async function filePush(ctx: Ctx, s: FilePushSpec, transfer: SftpTransfer | unde
 		} else if (existing) {
 			mode = existing.mode & 0o7777;
 		}
-		if (existing) await sftp.fchown(tmp.handle, existing.uid, existing.gid).catch(() => {});
-		await sftp.fchmod(tmp.handle, mode);
+		let ownerKept = true;
+		if (existing) {
+			ownerKept = await sftp.fchown(tmp.handle, existing.uid, existing.gid).then(
+				() => true,
+				() => false,
+			);
+		}
+		await sftp.fchmod(tmp.handle, modeAfterOwnerRestore(mode, ownerKept, ownerKept));
 		checkAborted(ctx.signal);
 		await publish(sftp, tmp, path, !s.overwrite);
 		ok = true;
@@ -469,22 +490,23 @@ async function fileEdit(ctx: Ctx, s: FileEditSpec): Promise<TaskResult> {
 	}
 	const text = raw.toString("latin1");
 	const ending = detectLineEnding(text);
-	let out = applyEdits(
-		normalizeToLF(text),
+	const out = applyEdits(
+		text,
 		s.edits.map((e) => ({ oldText: toBytesString(e.oldText), newText: toBytesString(e.newText) })),
+		ending,
 		path,
 	);
-	if (ending === "\r\n") {
-		out = out.replaceAll("\n", "\r\n");
-	}
 	const result = Buffer.concat([bom, Buffer.from(out, "latin1")]);
 
 	const tmp = await createTemp(sftp, path);
 	let ok = false;
 	try {
 		await writeAll(ctx, tmp, result);
-		await sftp.fchown(tmp.handle, st.uid, st.gid).catch(() => {});
-		await sftp.fchmod(tmp.handle, st.mode & 0o7777);
+		const ownerKept = await sftp.fchown(tmp.handle, st.uid, st.gid).then(
+			() => true,
+			() => false,
+		);
+		await sftp.fchmod(tmp.handle, modeAfterOwnerRestore(st.mode & 0o7777, ownerKept, ownerKept));
 		checkAborted(ctx.signal);
 		await publish(sftp, tmp, path, false);
 		ok = true;

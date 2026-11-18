@@ -164,6 +164,7 @@ export function buildTransferFixture(): TransferFixture {
 				outputEnd: 0,
 				outputFile: "",
 				outputLines: 0,
+				outputLost: false,
 				result: PULL_RESULT,
 			},
 		}),

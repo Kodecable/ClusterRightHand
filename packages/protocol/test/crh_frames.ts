@@ -234,9 +234,9 @@ const EDIT_RESULT: TaskResult = { kind: "file.edit", replacements: 2 };
 
 /**
  * The task.exit frame of a task that ran cleanly, kept `outputEnd` bytes, counted `outputLines`
- * lines of output and reported `result`.
+ * lines of output, reported whether output was lost and returned `result`.
  */
-function exitFrame(taskId: string, result: TaskResult, outputEnd = 0, outputLines = 0): Frame {
+function exitFrame(taskId: string, result: TaskResult, outputEnd = 0, outputLines = 0, outputLost = false): Frame {
 	return {
 		kind: "event",
 		name: "task.exit",
@@ -248,6 +248,7 @@ function exitFrame(taskId: string, result: TaskResult, outputEnd = 0, outputLine
 			outputEnd,
 			outputFile: "",
 			outputLines,
+			outputLost,
 			result,
 		},
 	};
@@ -518,7 +519,7 @@ export function buildFixture(): CrhFramesFixture {
 	});
 	addFrame(
 		"event.task.exit.code",
-		'event task.exit body=[task_id="t-exec-argv", outcome=["code", 0], timed_out=false, cancelled=false, output_end=6, output_file="", output_lines=1, result=null]',
+		'event task.exit body=[task_id="t-exec-argv", outcome=["code", 0], timed_out=false, cancelled=false, output_end=6, output_file="", output_lines=1, output_lost=false, result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -530,13 +531,33 @@ export function buildFixture(): CrhFramesFixture {
 				outputEnd: 6,
 				outputFile: "",
 				outputLines: 1,
+				outputLost: false,
+				result: null,
+			},
+		},
+	);
+	addFrame(
+		"event.task.exit.lost",
+		'event task.exit body=[task_id="t-lost", outcome=["code", 0], timed_out=false, cancelled=false, output_end=2, output_file="", output_lines=3, output_lost=true, result=null]',
+		{
+			kind: "event",
+			name: "task.exit",
+			body: {
+				taskId: "t-lost",
+				outcome: { kind: "code", value: 0 },
+				timedOut: false,
+				cancelled: false,
+				outputEnd: 2,
+				outputFile: "",
+				outputLines: 3,
+				outputLost: true,
 				result: null,
 			},
 		},
 	);
 	addFrame(
 		"event.task.exit.signal",
-		'event task.exit body=[task_id="t-exec-shell", outcome=["signal", "TERM"], timed_out=false, cancelled=true, output_end=3, output_file="", output_lines=0, result=null]',
+		'event task.exit body=[task_id="t-exec-shell", outcome=["signal", "TERM"], timed_out=false, cancelled=true, output_end=3, output_file="", output_lines=0, output_lost=false, result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -548,13 +569,14 @@ export function buildFixture(): CrhFramesFixture {
 				outputEnd: 3,
 				outputFile: "",
 				outputLines: 0,
+				outputLost: false,
 				result: null,
 			},
 		},
 	);
 	addFrame(
 		"event.task.exit.error",
-		'event task.exit body=[task_id="t-edit", outcome=["error", [code="internal_error", message="failed"]], timed_out=true, cancelled=false, output_end=0, output_file="/tmp/out", output_lines=0, result=null]',
+		'event task.exit body=[task_id="t-edit", outcome=["error", [code="internal_error", message="failed"]], timed_out=true, cancelled=false, output_end=0, output_file="/tmp/out", output_lines=0, output_lost=false, result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -566,13 +588,14 @@ export function buildFixture(): CrhFramesFixture {
 				outputEnd: 0,
 				outputFile: "/tmp/out",
 				outputLines: 0,
+				outputLost: false,
 				result: null,
 			},
 		},
 	);
 	addFrame(
 		"event.task.exit.error.bom",
-		'event task.exit body=[task_id="t-bom", outcome=["error", [code="io_error", message="\\uFEFFbom"]], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=null]',
+		'event task.exit body=[task_id="t-bom", outcome=["error", [code="io_error", message="\\uFEFFbom"]], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, output_lost=false, result=null]',
 		{
 			kind: "event",
 			name: "task.exit",
@@ -584,6 +607,7 @@ export function buildFixture(): CrhFramesFixture {
 				outputEnd: 0,
 				outputFile: "",
 				outputLines: 0,
+				outputLost: false,
 				result: null,
 			},
 		},
@@ -592,27 +616,27 @@ export function buildFixture(): CrhFramesFixture {
 	// "Task results"). One frame per kind; the tag is the task kind.
 	addFrame(
 		"event.task.exit.result.file.read",
-		'event task.exit body=[task_id="t-read", outcome=["code", 0], timed_out=false, cancelled=false, output_end=8, output_file="", output_lines=0, result=["file.read", [from=1, to=2, eof=true, total=3, too_long=false]]]',
+		'event task.exit body=[task_id="t-read", outcome=["code", 0], timed_out=false, cancelled=false, output_end=8, output_file="", output_lines=0, output_lost=false, result=["file.read", [from=1, to=2, eof=true, total=3, too_long=false]]]',
 		exitFrame("t-read", READ_RESULT, 8),
 	);
 	addFrame(
 		"event.task.exit.result.file.stat",
-		'event task.exit body=[task_id="t-stat", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=["file.stat", [path="/tmp/x", type="file", size=7, mode="0644", uid=1000, gid=1000, owner="alice", group="alice", mtime="2026-01-01T00:00:00Z", link_target=null]]]',
+		'event task.exit body=[task_id="t-stat", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, output_lost=false, result=["file.stat", [path="/tmp/x", type="file", size=7, mode="0644", uid=1000, gid=1000, owner="alice", group="alice", mtime="2026-01-01T00:00:00Z", link_target=null]]]',
 		exitFrame("t-stat", STAT_RESULT),
 	);
 	addFrame(
 		"event.task.exit.result.file.list",
-		'event task.exit body=[task_id="t-list", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=["file.list", [entries=[[name="f.txt", type="file", size=7, mode="0644", mtime="2026-01-01T00:00:00Z"]], truncated=false]]]',
+		'event task.exit body=[task_id="t-list", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, output_lost=false, result=["file.list", [entries=[[name="f.txt", type="file", size=7, mode="0644", mtime="2026-01-01T00:00:00Z"]], truncated=false]]]',
 		exitFrame("t-list", LIST_RESULT),
 	);
 	addFrame(
 		"event.task.exit.result.file.write",
-		'event task.exit body=[task_id="t-write", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=["file.write", [bytes=3, created=true]]]',
+		'event task.exit body=[task_id="t-write", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, output_lost=false, result=["file.write", [bytes=3, created=true]]]',
 		exitFrame("t-write", WRITE_RESULT),
 	);
 	addFrame(
 		"event.task.exit.result.file.edit",
-		'event task.exit body=[task_id="t-edit-result", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, result=["file.edit", [replacements=2]]]',
+		'event task.exit body=[task_id="t-edit-result", outcome=["code", 0], timed_out=false, cancelled=false, output_end=0, output_file="", output_lines=0, output_lost=false, result=["file.edit", [replacements=2]]]',
 		exitFrame("t-edit-result", EDIT_RESULT),
 	);
 	addFrame("event.facts", `event facts body=${FACTS_TEXT}`, { kind: "event", name: "facts", body: FACTS });
@@ -787,22 +811,26 @@ export function buildFixture(): CrhFramesFixture {
 	addNegative(
 		"negative.task_exit_result_unknown",
 		'task.exit result has the tag "exec", which reports no structured result',
-		encodeCbor([2, "task.exit", ["t-bad", ["code", 0], false, false, 0, 0, "", ["exec", []]]]),
+		encodeCbor([2, "task.exit", ["t-bad", ["code", 0], false, false, 0, "", 0, false, ["exec", []]]]),
 	);
 	addNegative(
 		"negative.task_exit_result_map",
 		"task.exit result is a free-form map instead of the typed result of the task kind",
-		encodeCbor([2, "task.exit", ["t-bad", ["code", 0], false, false, 0, 0, "", new Map([["from", 1]])]]),
+		encodeCbor([2, "task.exit", ["t-bad", ["code", 0], false, false, 0, "", 0, false, new Map([["from", 1]])]]),
 	);
 	addNegative(
 		"negative.task_exit_result_short",
 		"task.exit file.read result has 4 elements instead of 5",
-		encodeCbor([2, "task.exit", ["t-bad", ["code", 0], false, false, 0, 0, "", ["file.read", [1, 2, true, null]]]]),
+		encodeCbor([
+			2,
+			"task.exit",
+			["t-bad", ["code", 0], false, false, 0, "", 0, false, ["file.read", [1, 2, true, null]]],
+		]),
 	);
 	addNegative(
 		"negative.int_below_min",
 		"task.exit outcome code is -9007199254740992 (-2^53), below the int minimum -(2^53 - 1)",
-		encodeCbor([2, "task.exit", ["t-bad", ["code", -9007199254740992n], false, false, 0, 0, ""]]),
+		encodeCbor([2, "task.exit", ["t-bad", ["code", -9007199254740992n], false, false, 0, "", 0, false, null]]),
 	);
 	{
 		const source = Buffer.from(

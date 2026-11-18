@@ -94,6 +94,7 @@ export const TaskViewSchema = z
 		maxLines: z.number().nullable().describe("The task's output budget; null is the default for its mode."),
 		maxBytes: z.number().nullable(),
 		outputFile: z.string().nullable(),
+		outputLost: z.boolean().describe("Whether crha lost part of this task's output; the kept output is incomplete."),
 		outputMode: OutputModeSchema,
 		privileged: z.boolean().describe("Whether this is a privileged task (doc/design/privilege.md)."),
 		authorization: TaskAuthorizationViewSchema.nullable().describe("The authorization state of a privileged task."),

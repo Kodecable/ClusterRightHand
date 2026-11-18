@@ -138,7 +138,9 @@ func (o *Output) append(p []byte) {
 		o.dropped = true
 	}
 	if o.memoryBytes+n > maxMemoryOutput {
-		// Over the memory cap: keep offsets consistent but discard the bytes.
+		// Over the memory cap: keep offsets consistent but discard the bytes. Never spill after
+		// this: a later spill cannot recover the discarded bytes.
+		o.dropped = true
 		if last := o.coalescible(lost, n); last != nil {
 			last.length += n
 		} else {
@@ -261,6 +263,36 @@ func (o *Output) Release() {
 		o.file.Close()
 		o.file = nil
 	}
+}
+
+// Discard closes and removes the spill file of an output no task will use.
+func (o *Output) Discard() {
+	o.Close()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.file != nil {
+		_ = o.file.Close()
+		o.file = nil
+	}
+	if o.path != "" {
+		_ = os.Remove(o.path)
+		o.path = ""
+	}
+	o.segments = nil
+	o.memoryBytes = 0
+}
+
+// LostAt returns the offset where output was first discarded under memory pressure. Output after
+// that offset is gone, so only the prefix before it can be delivered.
+func (o *Output) LostAt() (uint64, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for _, s := range o.segments {
+		if s.place == lost {
+			return s.off, true
+		}
+	}
+	return o.end, false
 }
 
 // End returns the current end offset of the output stream.

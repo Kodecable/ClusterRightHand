@@ -87,4 +87,72 @@ describe("a transfer task's id", () => {
 		});
 		expect(core.usedTransfers.has(transferId)).toBe(false);
 	});
+
+	it("releases a transfer slot only for the ending that won the row", async () => {
+		const id = newId();
+		const values: Insertable<TasksTable> = {
+			id,
+			org_id: await defaultOrgId(db),
+			node_id: "node-1",
+			task_group_id: null,
+			kind: "file.pull",
+			spec: JSON.stringify({ kind: "file.pull", path: "/etc/app.conf", maxBytes: 1024 }),
+			input_size: null,
+			input_sha256: null,
+			privileged: 0,
+			attempt: 1,
+			timeout_ms: null,
+			output_mode: "status",
+			state: "running",
+			exit_code: null,
+			signal: null,
+			timed_out: 0,
+			error_code: null,
+			error_message: null,
+			actor_type: "user",
+			actor_id: userId,
+			on_behalf_of_user_id: userId,
+			created_at: now(),
+			dispatched_at: now(),
+			accepted_at: now(),
+			finished_at: null,
+			output_bytes: 0,
+			output_head: null,
+			output_tail: null,
+			output_lines: null,
+			notice: null,
+			result: null,
+			output_file: null,
+			late_result: null,
+			rule_chain: null,
+			approval: null,
+			pending_input: null,
+			root_session_id: null,
+			handler_type: null,
+			handler_session_id: null,
+			transfer: null,
+		};
+		await db.insertInto("tasks").values(values).execute();
+		await core.transferScheduler.acquire(id, "node-1");
+		expect(core.transferScheduler.holds(id)).toBe(true);
+
+		const row = await db.selectFrom("tasks").select("rev").where("id", "=", id).executeTakeFirstOrThrow();
+		const lost = await core.taskQueue.run(id, () =>
+			endTask(core, id, {
+				write: { from: ["running"], rev: row.rev + 1, set: { state: "exited", exit_code: 0 } },
+				live: "none",
+			}),
+		);
+		expect(lost).toBe(false);
+		expect(core.transferScheduler.holds(id)).toBe(true);
+
+		const won = await core.taskQueue.run(id, () =>
+			endTask(core, id, {
+				write: { from: ["running"], rev: row.rev, set: { state: "exited", exit_code: 0 } },
+				live: "none",
+			}),
+		);
+		expect(won).toBe(true);
+		expect(core.transferScheduler.holds(id)).toBe(false);
+	});
 });

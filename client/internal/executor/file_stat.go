@@ -86,6 +86,15 @@ func groupName(gid int) string {
 	return ""
 }
 
+// modeAfterOwnerRestore clears setuid and setgid when the published file did not keep the old owner
+// or group: chmod would otherwise restore bits that grant another identity the old owner's rights.
+func modeAfterOwnerRestore(mode fs.FileMode, ownerKept, groupKept bool) fs.FileMode {
+	if ownerKept && groupKept {
+		return mode
+	}
+	return mode &^ (fs.ModeSetuid | fs.ModeSetgid)
+}
+
 // editMode returns the mode a file.write or file.edit keeps: the permission bits plus setuid, setgid
 // and sticky.
 func editMode(mode uint32) fs.FileMode {

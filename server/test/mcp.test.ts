@@ -104,6 +104,7 @@ describe("MCP links", () => {
 			maxLines: null,
 			maxBytes: null,
 			outputFile: null,
+			outputLost: false,
 			outputMode: "full",
 			privileged: false,
 			authorization: null,

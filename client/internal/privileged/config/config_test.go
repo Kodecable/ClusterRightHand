@@ -478,6 +478,28 @@ func TestParseRejects(t *testing.T) {
 		{"env_allow invalid name",
 			strings.Replace(base, "kinds  = [\"execute\"]", "kinds  = [\"execute\"]\nenv_allow = [\"A=B\"]", 1), "invalid variable name"},
 		{"duplicate trust names", base + "\n[[trust]]\nname = \"crhs\"\nrole = \"local\"\nuids = [0]\n", "duplicate name"},
+		{"duplicate trust keys",
+			setKey(base, "key", quote(line)) + fmt.Sprintf(`
+[[trust]]
+name   = "alice"
+role   = "user"
+format = "sshsig"
+key    = %q
+kinds  = ["execute"]
+`, line), `trust[1]: key is already used by trust entry "crhs"`},
+		{"duplicate webauthn credential ids",
+			userEntry(t, fmt.Sprintf("format = \"webauthn\"\nkey = \"cose:%s\"\ncredential_id = %q\nrp_id = \"crh.example.com\"\norigins = [\"https://crh.example.com\"]", cose, credentialID), "kinds = [\"execute\"]") +
+				fmt.Sprintf(`
+[[trust]]
+name          = "bob"
+role          = "user"
+format        = "webauthn"
+key           = "cose:%s"
+credential_id = %q
+rp_id         = "crh.example.com"
+origins       = ["https://crh.example.com"]
+kinds         = ["execute"]
+`, cose, credentialID), `trust[1]: key is already used by trust entry "alice"`},
 		{"local with format", localEntry(t, "format = \"sshsig\"\nuids = [0]"), "no format"},
 		{"local without uids", localEntry(t, ""), "uids: required"},
 		{"local with require_task", localEntry(t, "uids = [0]\nrequire_task = true"), "require_task"},

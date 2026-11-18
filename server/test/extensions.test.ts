@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RulePreset } from "@crh/api";
+import { Client } from "@modelcontextprotocol/client";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as z from "zod/v4";
@@ -91,6 +92,8 @@ interface FakeState {
 	failureMessage: string | null;
 	hangTools: boolean;
 	hangConnections: boolean;
+	/** Fails a request after the connection is up, as a dropped link would. */
+	failCalls: boolean;
 	/** Fetches that reached the fake endpoint, one per connection attempt plus its requests. */
 	requests: number;
 }
@@ -181,6 +184,7 @@ function fakeFetch(state: FakeState, handler: ReturnType<typeof fakeMcp>) {
 		if (state.failConnections) throw new Error(state.failureMessage ?? "connection refused");
 		// A server that accepts the request but never answers: only the connect timeout ends the attempt.
 		if (state.hangConnections) return await new Promise<Response>(() => {});
+		if (state.failCalls) throw new Error("the connection was reset");
 		return handler.fetch(new Request(url, init));
 	};
 }
@@ -247,6 +251,7 @@ describe("MCP extensions", () => {
 			failureMessage: null,
 			hangTools: false,
 			hangConnections: false,
+			failCalls: false,
 			requests: 0,
 		};
 		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)), backoffBaseMs: 1000 });
@@ -479,6 +484,31 @@ describe("MCP extensions", () => {
 		const actions = (await db.selectFrom("audit_events").select("action").execute()).map((row) => row.action);
 		expect(actions).toContain("external_call.started");
 		expect(actions).toContain("external_call.finished");
+	});
+
+	it("fails a waiting call whose extension was revoked before it ran", async () => {
+		await addServer({ preset: "ask" });
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		const pending = runExtensionTool({ ...ctx, callKey: "revoked-while-waiting" }, "fake", "write_thing", {
+			value: 1,
+		});
+		const waiting = await waitFor(async () => {
+			const rows = await db.selectFrom("external_calls").selectAll().execute();
+			return rows.find((row) => row.state === "awaiting_approval");
+		});
+		// The grant goes while the call waits; approving it now must not reach the server.
+		await db.deleteFrom("extension_grants").execute();
+		const decided = await decideExternalCall(db, waiting.id, {
+			decision: "approved",
+			by: { type: "user", id: user.userId },
+			at: new Date().toISOString(),
+		});
+		expect(decided).toBe(true);
+		const result = await pending;
+		expect(result.isError).toBe(true);
+		expect(result.content.map((block) => block.text).join("\n")).toContain("no longer available");
+		expect(state.calls).toHaveLength(0);
+		expect(await getExternalCall(db, waiting.id)).toMatchObject({ state: "failed", arguments: null });
 	});
 
 	it("keeps an external call in progress while Auto Review judges it, then links the approval", async () => {
@@ -833,6 +863,23 @@ describe("MCP extensions", () => {
 		expect(replay.isError).toBe(true);
 		expect(replay.content.map((block) => block.text).join("\n")).toContain("unknown");
 		expect(state.calls.length).toBe(callsBefore);
+
+		// A request that drops after the connection is up has an unknown outcome too, and its client is closed.
+		state.hangTools = false;
+		await mcp.reconnect("fake");
+		const closeSpy = vi.spyOn(Client.prototype, "close");
+		try {
+			state.failCalls = true;
+			const lost = await mcp.callTool("fake", "echo", { message: "x" }).then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+			expect(lost).toBeInstanceOf(ExtensionCallLostError);
+			expect(closeSpy).toHaveBeenCalled();
+			expect(mcp.status("fake").state).toBe("unavailable");
+		} finally {
+			closeSpy.mockRestore();
+		}
 	});
 
 	it("finishes a replayed waiting call when the extension is unavailable", async () => {

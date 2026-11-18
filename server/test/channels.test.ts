@@ -65,6 +65,28 @@ const manyFaux = fauxProvider({
 const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 const slowModel = () => ({ provider: slowFaux.provider.id, modelId: slowFaux.getModel().id });
 
+/** A channel manager on the test bot; without `publicUrl`, WebUI links fall back to raw paths. */
+function newChannels(publicUrl: string | null): ChannelManager {
+	return new ChannelManager({
+		db,
+		masterKey,
+		runtime,
+		models,
+		cluster,
+		taskGroups,
+		audit,
+		libraryBackend: backend,
+		...(publicUrl === null ? {} : { publicUrl }),
+		telegramApiRoot: fake.apiRoot,
+		pollTimeoutSeconds: 1,
+		backoffBaseMs: 20,
+		backoffMaxMs: 100,
+		progressIntervalMs: 0,
+		draftKeepaliveMs: 50,
+		unlinkedReplyLimit: 5,
+	});
+}
+
 beforeAll(async () => {
 	db = await openTestDb("sqlite");
 	root = await mkdtemp(join(tmpdir(), "crhs-channels-"));
@@ -115,24 +137,7 @@ beforeAll(async () => {
 			.execute();
 	}
 	fake = await startFakeTelegram({ token: "123456:TEST_TOKEN" });
-	channels = new ChannelManager({
-		db,
-		masterKey,
-		runtime,
-		models,
-		cluster,
-		taskGroups,
-		audit,
-		libraryBackend: backend,
-		publicUrl: "https://crh.example",
-		telegramApiRoot: fake.apiRoot,
-		pollTimeoutSeconds: 1,
-		backoffBaseMs: 20,
-		backoffMaxMs: 100,
-		progressIntervalMs: 0,
-		draftKeepaliveMs: 50,
-		unlinkedReplyLimit: 5,
-	});
+	channels = newChannels("https://crh.example");
 	await channels.start();
 	app = makeApp(db, undefined, {
 		cluster,
@@ -854,6 +859,44 @@ describe("channels", () => {
 		});
 		await channels.refreshWaits(thread.sessionId);
 		await fake.waitFor("deleteMessage", () => fake.callsOf("deleteMessage").length > deletesBefore);
+	});
+
+	it("ends the approval card before sending the signature card of the same task", async () => {
+		const userId = 8041;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const taskId = "approval-then-signature";
+		await insertApprovalTask(thread.sessionId, taskId);
+		await wakeWait(thread.sessionId);
+		const approval = await fake.waitForSent((call) => plainText(call).includes(`/reject ${taskId} reason`));
+		expect(plainText(approval)).toContain("Approval needed");
+		const deletesBefore = fake.callsOf("deleteMessage").length;
+
+		// The owner decides in the WebUI (the same path the route takes).
+		const decided = await cluster.decide(
+			taskId,
+			{
+				decision: "approved",
+				by: { type: "user", id: aliceId, onBehalfOfUserId: aliceId },
+				at: new Date().toISOString(),
+			},
+			{ handlerType: "user" },
+		);
+		expect(decided).toBe("node_deleted");
+		// The approved task waits for its signature next, as a privileged dispatch leaves it.
+		await db
+			.updateTable("tasks")
+			.set({ state: "awaiting_authorization", handler_type: "user", handler_session_id: null })
+			.where("id", "=", taskId)
+			.execute();
+		await channels.refreshWaits(thread.sessionId);
+
+		// The approval card is gone before the signature card of the same task is sent.
+		await fake.waitFor("deleteMessage", () => fake.callsOf("deleteMessage").length > deletesBefore);
+		const signature = await fake.waitForSent((call) => plainText(call).includes("Signature needed"));
+		expect(plainText(signature)).toContain(`/reject ${taskId}`);
+		const row = await db.selectFrom("tasks").select("state").where("id", "=", taskId).executeTakeFirst();
+		expect(row?.state).toBe("awaiting_authorization");
 	});
 
 	it("runs one more wait sync when a state change lands during a sync, so a new approval still reaches chat", async () => {
@@ -1714,6 +1757,64 @@ describe("channels", () => {
 		expect(
 			fake.callsOf("sendMessageDraft").filter((call) => fake.calls.indexOf(call) > fake.calls.indexOf(delivery)),
 		).toHaveLength(0);
+
+		// Without a public URL the raw path is shown; its Markdown characters still have to be escaped.
+		await channels.stop();
+		channels = newChannels(null);
+		await channels.start();
+		app = makeApp(db, undefined, {
+			cluster,
+			taskGroups,
+			audit,
+			masterKey,
+			libraryBackend: backend,
+			agent: { runtime, models },
+			channels,
+		});
+		try {
+			const rawPath = "docs/a_b*c.txt";
+			const rawUpload = beginLibraryUpload(db, backend, {
+				library: library.row,
+				path: rawPath,
+				overwrite: false,
+				rename: false,
+				createdBy: aliceId,
+			});
+			await rawUpload.write(Buffer.from("raw"));
+			await rawUpload.finish();
+			await rawUpload.commit();
+			faux.setResponses([
+				fauxAssistantMessage(
+					[
+						fauxToolCall("copy_file", {
+							source: { library: "user:alice", path: rawPath },
+							destination: { user_interface: true },
+						}),
+					],
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("raw delivered"),
+			]);
+			fake.calls.length = 0;
+			fake.text(userId, "deliver the raw path");
+			await fake.waitForSent((call) => plainText(call).includes("raw delivered"));
+			const rawDelivery = await fake.waitForSent((call) => plainText(call).includes("File offered: a_b*c.txt"));
+			expect(sentText(rawDelivery)).toContain("docs/a\\_b\\*c\\.txt");
+			expect(markdownEscapesToText(sentText(rawDelivery))).toContain(rawPath);
+		} finally {
+			await channels.stop();
+			channels = newChannels("https://crh.example");
+			await channels.start();
+			app = makeApp(db, undefined, {
+				cluster,
+				taskGroups,
+				audit,
+				masterKey,
+				libraryBackend: backend,
+				agent: { runtime, models },
+				channels,
+			});
+		}
 	});
 
 	it("drops the progress draft while waiting and starts a new one when the run goes on", async () => {
@@ -3512,7 +3613,7 @@ async function insertSignatureTask(sessionId: string, id: string, groupId: strin
 			node_id: "node-x",
 			task_group_id: groupId,
 			kind: "exec",
-			spec: JSON.stringify({ kind: "exec", command: { argv: ["true"] } }),
+			spec: JSON.stringify({ kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null }),
 			input_size: null,
 			input_sha256: null,
 			attempt: 1,
@@ -3576,6 +3677,20 @@ async function insertSignatureTask(sessionId: string, id: string, groupId: strin
 			handler_type: "user",
 			handler_session_id: null,
 		})
+		.execute();
+	return id;
+}
+
+/** A task waiting for its owner's approval, carrying the sign options its signature wait will use. */
+async function insertApprovalTask(sessionId: string, id: string): Promise<string> {
+	await insertSignatureTask(sessionId, id);
+	await db
+		.updateTable("tasks")
+		.set({
+			state: "awaiting_approval",
+			approval: JSON.stringify({ evaluation: { result: "require-approval", levels: [] } }),
+		})
+		.where("id", "=", id)
 		.execute();
 	return id;
 }

@@ -27,6 +27,7 @@ import {
 	type SessionExtension,
 } from "../extensions/model.ts";
 import { buildSearchIndex, searchIndexRecord, searchQueryTerms } from "../extensions/search-index.ts";
+import { extensionsForUser } from "../extensions/store.ts";
 import { copyLibraryFile } from "../library/files.ts";
 import { type ImageCache, REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
@@ -1797,6 +1798,17 @@ export async function runExtensionTool(
 		}
 	}
 	if (row.state !== "running") return settledResult(row, extensionName, toolName);
+	// The approval may have waited a long time: a grant revoked, or the extension disabled, while it waited
+	// means nobody may run this call now. Read the user's availability again instead of trusting the dispatch
+	// snapshot, and end the call without contacting the extension.
+	const available = await extensionsForUser(ctx.db, ctx.user.userId);
+	if (!available.some((candidate) => candidate.name === extensionName)) {
+		await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
+		return errorResult("text", "unavailable", `the extension ${extensionName} is no longer available to you`, {
+			extension: extensionName,
+			tool: toolName,
+		});
+	}
 	let resultValue: unknown;
 	try {
 		resultValue = await extension.call(toolName, arguments_, {

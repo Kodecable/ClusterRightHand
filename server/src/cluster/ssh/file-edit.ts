@@ -19,6 +19,29 @@ export function normalizeToLF(s: string): string {
 	return s.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
 }
 
+/**
+ * Applies normalizeToLF and maps every normalized byte offset back to the original, so an edit can
+ * replace only the bytes its match came from.
+ */
+function normalizeWithOffsets(s: string): { text: string; offsets: Uint32Array } {
+	const raw = Buffer.from(s, "latin1");
+	const out = Buffer.allocUnsafe(raw.length);
+	const offsets = new Uint32Array(raw.length + 1);
+	let n = 0;
+	for (let i = 0; i < raw.length; ) {
+		offsets[n++] = i;
+		if (raw[i] === 0x0d) {
+			out[n - 1] = 0x0a;
+			i += i + 1 < raw.length && raw[i + 1] === 0x0a ? 2 : 1;
+			continue;
+		}
+		out[n - 1] = raw[i] as number;
+		i++;
+	}
+	offsets[n] = raw.length;
+	return { text: out.subarray(0, n).toString("latin1"), offsets: offsets.subarray(0, n + 1) };
+}
+
 export const toBytesString = (s: string): string => Buffer.from(s, "utf8").toString("latin1");
 
 function countNonOverlapping(s: string, sub: string): number {
@@ -38,30 +61,41 @@ interface Matched {
 
 /**
  * Matches every edit against the original content (exactly once, without overlap) and applies
- * them all at once. `edits` texts are byte strings (latin1).
+ * them all at once. Matching treats CRLF and LF as equal; only the matched span changes, so a lone
+ * CR elsewhere in the file is copied as it was, and the replacement uses the file's line ending.
+ * `edits` texts are byte strings (latin1).
  */
-export function applyEdits(content: string, edits: { oldText: string; newText: string }[], path: string): string {
+export function applyEdits(
+	content: string,
+	edits: { oldText: string; newText: string }[],
+	lineEnding: string,
+	path: string,
+): string {
+	const { text: normalized, offsets } = normalizeWithOffsets(content);
 	const matched: Matched[] = [];
 	edits.forEach((e, i) => {
 		const old = normalizeToLF(e.oldText);
 		if (old === "") {
 			throw new FileTaskError("invalid_spec", `edits[${i}].old_text must not be empty in ${path}`);
 		}
-		const idx = content.indexOf(old);
+		const idx = normalized.indexOf(old);
 		if (idx < 0) {
 			throw new FileTaskError(
 				"edit_no_match",
 				`could not find edits[${i}] in ${path}; old_text must match exactly including whitespace and newlines`,
 			);
 		}
-		const n = countNonOverlapping(content, old);
+		const n = countNonOverlapping(normalized, old);
 		if (n > 1) {
 			throw new FileTaskError(
 				"edit_ambiguous",
 				`found ${n} occurrences of edits[${i}] in ${path}; add more context to make it unique`,
 			);
 		}
-		matched.push({ index: i, start: idx, length: old.length, newText: normalizeToLF(e.newText) });
+		const start = offsets[idx] as number;
+		const end = offsets[idx + old.length] as number;
+		const newText = normalizeToLF(e.newText).replaceAll("\n", lineEnding);
+		matched.push({ index: i, start, length: end - start, newText });
 	});
 	matched.sort((a, b) => a.start - b.start);
 	for (let i = 1; i < matched.length; i++) {

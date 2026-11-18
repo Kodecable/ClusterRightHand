@@ -107,6 +107,7 @@ describe("file.list over SFTP", () => {
 				outputEnd: 0,
 				outputFile: "",
 				outputLines: 0,
+				outputLost: false,
 				result,
 			},
 		});

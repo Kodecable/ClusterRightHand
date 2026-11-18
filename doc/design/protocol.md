@@ -145,7 +145,10 @@ An event has no response; an unnegotiated or undecodable event closes the connec
 
 Output is delivered in order at byte offsets in the streaming modes, and crha keeps the complete
 output on the node. On reconnect `welcome.acks` gives where crhs stopped receiving each task, and the
-node resumes there; `task.exit.ack` ends the retention. A `task.exit` whose `output_end` exceeds the
+node resumes there; `task.exit.ack` ends the retention. If the node loses output, its `task.exit`
+reports as `output_end` only the contiguous prefix it can still deliver and names no output file, so
+crhs records the task with the bytes it received, and sets `output_lost` so every surface can tell the
+output is incomplete; it is false when nothing was lost. A `task.exit` whose `output_end` still exceeds the
 received bytes means lost output, so crhs closes the connection and the node resends after
 reconnecting.
 
@@ -154,8 +157,8 @@ means unknown rather than empty. Unknown text keys are ignored, so a fact can be
 minor bump; removing one or changing its type needs a major. Facts are not signed or hashed, and node
 groups are crhs data that the node does not report.
 
-`task.exit` ends the task with an outcome (exit code, signal or error), the timeout and cancellation
-flags, the output end, the output file and line count, and an optional result.
+`task.exit` ends the task with an outcome (exit code, signal or error), the timeout, cancellation and
+output-lost flags, the output end, the output file and line count, and an optional result.
 
 **Known limitation:** crhs never sends `task.output.ack`; crha accepts and ignores it, so a node
 keeps output for resending until `task.exit.ack`.

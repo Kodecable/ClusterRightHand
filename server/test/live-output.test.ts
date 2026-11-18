@@ -7,6 +7,7 @@ import { ClusterCore } from "../src/cluster/core.ts";
 import { dropLive, newLive, releaseGroupBudget } from "../src/cluster/live-output.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { onExit } from "../src/cluster/task-end.ts";
+import { toView } from "../src/cluster/task-view.ts";
 import { waitTask } from "../src/cluster/task-wait.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -181,6 +182,7 @@ describe("live output budgets", () => {
 			outputEnd: 0,
 			outputFile: "",
 			outputLines: 0,
+			outputLost: false,
 			result: null,
 		};
 		const conn = { nodeId: node.id, peer: { emit: () => {} } } as unknown as NodeConnection;
@@ -190,6 +192,45 @@ describe("live output budgets", () => {
 		expect(core.budgets.size).toBe(0);
 		const row = await db.selectFrom("tasks").select("late_result").where("id", "=", taskId).executeTakeFirstOrThrow();
 		expect(row.late_result).not.toBeNull();
+	});
+
+	it("records an exit that reports only the delivered output prefix", async () => {
+		const taskId = await seedTask("running", { output_mode: "full" });
+		const live = newLive(core, taskId, node.id, "full", null);
+		live.output.append(0, Buffer.from("ok"));
+		let acked = false;
+		const conn = {
+			nodeId: node.id,
+			peer: {
+				emit: (name: string) => {
+					if (name === "task.exit.ack") acked = true;
+				},
+			},
+			close: () => {
+				throw new Error("the connection was closed");
+			},
+		} as unknown as NodeConnection;
+		const exit: TaskExit = {
+			taskId,
+			outcome: { kind: "code", value: 0 },
+			timedOut: false,
+			cancelled: false,
+			outputEnd: 2,
+			outputFile: "",
+			outputLines: 3,
+			outputLost: true,
+			result: null,
+		};
+
+		await onExit(core, conn, exit);
+
+		const row = await db.selectFrom("tasks").selectAll().where("id", "=", taskId).executeTakeFirstOrThrow();
+		expect(row.state).toBe("exited");
+		expect(Number(row.output_bytes)).toBe(2);
+		expect(row.output_file).toBeNull();
+		expect(row.output_lost).toBe(1);
+		expect(toView(row, undefined, { type: "user", userId: ownerId, username: "owner" }).outputLost).toBe(true);
+		expect(acked).toBe(true);
 	});
 
 	it("removes a link wait's empty set when it times out", async () => {

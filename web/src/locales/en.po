@@ -3581,6 +3581,7 @@ msgstr "Outcome"
 msgid "output"
 msgstr "output"
 
+#: src/components/task-facts.tsx
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Output"
 msgstr "Output"
@@ -3588,6 +3589,10 @@ msgstr "Output"
 #: src/components/task-facts.tsx
 msgid "Output file"
 msgstr "Output file"
+
+#: src/components/task-facts.tsx
+msgid "Output incomplete: the node lost part of this task's output."
+msgstr "Output incomplete: the node lost part of this task's output."
 
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Overall upload progress"

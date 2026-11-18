@@ -82,8 +82,10 @@ type TaskStart struct {
 }
 
 // TaskExit is the task.exit event body. Result carries the task's structured result; it is nil for
-// a kind that reports none (doc/design/protocol.md "Task results"). OutputEnd is the end offset of the task's
-// one output stream and OutputLines the line count of the same bytes the output file holds.
+// a kind that reports none (doc/design/protocol.md "Task results"). OutputEnd is the end offset of the output crha
+// can still deliver (a lost tail is omitted), OutputLines counts the whole stream, and OutputFile is
+// empty when no complete output file exists. OutputLost says crha lost buffered output, so OutputEnd
+// ends before the loss and the output is incomplete.
 type TaskExit struct {
 	_           struct{} `cbor:",toarray"`
 	TaskID      string
@@ -93,6 +95,7 @@ type TaskExit struct {
 	OutputEnd   Uint
 	OutputFile  string
 	OutputLines Uint
+	OutputLost  bool
 	Result      *TaskResult
 }
 

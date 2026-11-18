@@ -343,6 +343,7 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 		...outputColumns(output),
 		output_lines: exit.outputLines,
 		output_file: exit.outputFile || null,
+		output_lost: exit.outputLost ? 1 : 0,
 	};
 	if (row.state === "unknown") {
 		// Already reported as unknown: keep that answer, but record what really happened.
@@ -368,6 +369,7 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 				...outputColumns(output),
 				output_lines: exit.outputLines,
 				output_file: exit.outputFile || null,
+				output_lost: fields.output_lost,
 			},
 		);
 	} else if (!TERMINAL.has(row.state)) {
@@ -397,7 +399,7 @@ export async function endTask(core: ClusterCore, id: string, end: TaskEnd): Prom
 		updated = await writeTerminal(core, id, write.from, write.set, write.nodeId, write.rev, write.outOfTurn);
 	}
 	// A transfer slot is freed by whichever ending won the row; release is idempotent.
-	core.transferScheduler.release(id);
+	if (updated) core.transferScheduler.release(id);
 	if (!updated && !end.always) return false;
 	// The task no longer runs, so its transfer id may be used again. Until this point it could
 	// open one data connection only (doc/design/protocol.md "Data connections").

@@ -29,10 +29,20 @@ func errorExit(taskID, code, message string) *protocol.TaskExit {
 }
 
 // finishOutput closes the task's output and records the stream ends and output file on its exit, so
-// the pump sends every byte the exit reports before task.exit.
+// the pump sends every byte the exit reports before task.exit. Lost output is not reported as sent:
+// the end is the contiguous prefix crha still has, the exit names no complete output file, and
+// OutputLost marks the output as incomplete.
 func finishOutput(exit *protocol.TaskExit, output *executor.Output) {
 	output.Close()
-	exit.OutputEnd = protocol.Uint(output.End())
-	exit.OutputFile = protocol.CleanText(output.Path())
+	end := output.End()
+	lostAt, lost := output.LostAt()
+	exit.OutputLost = lost
+	if lost {
+		end = lostAt
+		exit.OutputFile = ""
+	} else {
+		exit.OutputFile = protocol.CleanText(output.Path())
+	}
+	exit.OutputEnd = protocol.Uint(end)
 	exit.OutputLines = protocol.Uint(output.Lines())
 }

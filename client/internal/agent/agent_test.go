@@ -1777,3 +1777,36 @@ func TestClockWarn(t *testing.T) {
 		t.Fatalf("%d warnings with clock_warn = 0", got)
 	}
 }
+
+// TestRefusedStartLeavesNoOutputFile covers the output file a refused task must not leave behind.
+func TestRefusedStartLeavesNoOutputFile(t *testing.T) {
+	dir := t.TempDir()
+	a := newTestAgent(t, Options{OutputDir: dir})
+	ts := protocol.TaskStart{
+		TaskID: "refused-1",
+		Spec: protocol.TaskSpec{
+			Kind: protocol.TaskSpecFileWrite,
+			FileWrite: &protocol.FileWriteSpec{
+				Path: filepath.Join(dir, "f"),
+				Content: protocol.InputRef{
+					Size:   0,
+					SHA256: hashOf([]byte("not empty")),
+				},
+			},
+		},
+		// Status output always spills, so a refusal would leave the .log behind.
+		Output: protocol.OutputMode{Kind: protocol.OutputStatus},
+	}
+	if _, err := a.start(context.Background(), &ts); err == nil {
+		t.Fatal("the task was accepted")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".log") {
+			t.Fatalf("refused task left %s", e.Name())
+		}
+	}
+}

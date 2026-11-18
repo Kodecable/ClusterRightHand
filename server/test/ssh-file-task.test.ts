@@ -282,6 +282,10 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		await exec(`printf 'one\\r\\ntwo\\r\\nthree\\r\\n' > ${p("crlf")}`);
 		await edit(p("crlf"), "one\ntwo", "1\n2\n2.5");
 		expect(await cat("crlf")).toBe("1\r\n2\r\n2.5\r\nthree\r\n");
+		// A lone CR outside the edit is not a line ending and stays byte-for-byte.
+		await exec(`printf 'a\\rb\\nc' > ${p("cr")}`);
+		await edit(p("cr"), "c", "d");
+		expect(await cat("cr")).toBe("a\rb\nd");
 		await exec(`printf '\\xEF\\xBB\\xBFhello\\n' > ${p("bom")}`);
 		await edit(p("bom"), "hello", "bye");
 		expect(await cat("bom")).toBe("\uFEFFbye\n");

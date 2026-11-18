@@ -164,8 +164,9 @@ crhs schedules transfers; nodes keep no queue:
 A transfer that finds the queue full fails with `busy` at once rather than waiting. crha refuses a second
 concurrent transfer with `busy` as well, as a backstop; crhs retries that refusal for a few seconds,
 because it frees a node's slot when the task ends while the node may still be finishing the previous
-transfer. A staged copy counts as one transfer per leg. With one transfer per node, a large transfer
-delays the next one on that node, including a small `view_image`.
+transfer. A staged copy counts as one transfer per leg. A transfer slot is released only by the ending
+that won the task's row, so a losing ending does not free a slot another task now holds. With one
+transfer per node, a large transfer delays the next one on that node, including a small `view_image`.
 
 ### SSH nodes
 
