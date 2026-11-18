@@ -218,6 +218,9 @@ export function libraryRoutes(db: Db, options: LibraryRoutesOptions = {}) {
 		c.header("X-Content-Type-Options", "nosniff");
 		c.header("Content-Security-Policy", "sandbox");
 		c.header("Content-Disposition", contentDisposition(inline ? "inline" : "attachment", filename));
+		// Hono serves HEAD through this GET handler and drops the body, so opening the read stream would
+		// leak its descriptor: answer with the headers only.
+		if (c.req.method === "HEAD") return c.body(null, 200);
 		return c.body(Readable.toWeb(backend().get(row.object_key)) as unknown as ReadableStream);
 	});
 

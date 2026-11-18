@@ -51,10 +51,10 @@ export interface CreateTaskInput {
 	 */
 	id?: string;
 	/**
-	 * The durable tool call that created this task, when a tool call did: Auto Review finds the call's name and
-	 * arguments in that session's transcript (doc/design/access-control.md "Auto Review").
+	 * The durable tool task of the tool call that created this task, when a tool call did: Auto Review finds the
+	 * call's name and arguments in that session's transcript (doc/design/access-control.md "Auto Review").
 	 */
-	sourceCallId?: string;
+	sourceToolTask?: string | null;
 	/**
 	 * The file plane transfer, as JSON { transferId, location }, for file.push/file.pull tasks
 	 * (doc/design/library.md "File plane").

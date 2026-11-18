@@ -90,7 +90,7 @@ export interface ToolContext {
 	signal?: AbortSignal;
 	/** Stable per tool call: tasks get ids derived from it, so a rerun after a crash reattaches to them. */
 	callKey?: string;
-	/** The durable tool call id (the transcript's call id); recorded on tasks and external calls for Auto Review. */
+	/** The model's call id (the transcript's call id, which providers may reuse); tasks and calls are bound by `callKey`. */
 	callId?: string;
 	/** Seconds a call waits for its result when the caller gives no `wait` (MCP: 30; agents: 600). */
 	defaultWaitS?: number;
@@ -802,7 +802,7 @@ const copyFile = define({
 					actor,
 					chain,
 					privileged,
-					sourceCallId: ctx.callId,
+					sourceToolTask: ctx.callKey ?? null,
 					...(id ? { id } : {}),
 				});
 				const done = (await waitBlockingTask(ctx, task.id)) ?? task;
@@ -829,7 +829,7 @@ const copyFile = define({
 					actor,
 					chain,
 					privileged,
-					sourceCallId: ctx.callId,
+					sourceToolTask: ctx.callKey ?? null,
 					...(id ? { id } : {}),
 				});
 			} catch (err) {
@@ -859,7 +859,7 @@ const copyFile = define({
 				createdBy: ctx.user.userId,
 				actor,
 				chain,
-				sourceCallId: ctx.callId,
+				sourceToolTask: ctx.callKey ?? null,
 				...(id ? { id } : {}),
 			});
 			const done = (await waitBlockingTask(ctx, task.id)) ?? task;
@@ -880,7 +880,7 @@ const copyFile = define({
 			actor,
 			chain,
 			privileged,
-			sourceCallId: ctx.callId,
+			sourceToolTask: ctx.callKey ?? null,
 			...(pullId ? { id: pullId } : {}),
 		});
 		const pulled = (await waitBlockingTask(ctx, pull.id)) ?? pull;
@@ -910,7 +910,7 @@ const copyFile = define({
 					actor,
 					chain,
 					privileged,
-					sourceCallId: ctx.callId,
+					sourceToolTask: ctx.callKey ?? null,
 					...(id ? { id } : {}),
 				});
 				const done = (await waitBlockingTask(ctx, task.id)) ?? task;
@@ -939,7 +939,7 @@ const copyFile = define({
 			actor,
 			chain,
 			privileged,
-			sourceCallId: ctx.callId,
+			sourceToolTask: ctx.callKey ?? null,
 			...(id ? { id } : {}),
 		});
 		return fileJsonGroupResult(ctx, await waitBlockingGroup(ctx, groupId), names);
@@ -986,7 +986,7 @@ async function offerToUser(
 		actor: ctx.actor,
 		chain: ctx.chain,
 		privileged: false,
-		sourceCallId: ctx.callId,
+		sourceToolTask: ctx.callKey ?? null,
 		...(id ? { id } : {}),
 	});
 	const done = (await waitBlockingTask(ctx, task.id)) ?? task;
@@ -1114,7 +1114,7 @@ const viewImage = define({
 				location,
 				actor: ctx.actor,
 				chain: ctx.chain,
-				sourceCallId: ctx.callId,
+				sourceToolTask: ctx.callKey ?? null,
 				...(ctx.callKey ? { id: derivedId(`image:${ctx.callKey}`) } : {}),
 			});
 			const done = (await waitBlockingTask(ctx, task.id)) ?? task;
@@ -1643,8 +1643,8 @@ export async function runExtensionTool(
 	arguments_: Record<string, unknown>,
 ): Promise<ToolResult> {
 	if (!ctx.extensions) throw new UserError("extensions are not configured", "unavailable");
-	// The row id derives from durable's tool call key, which is unique; the model's own call id may repeat, so
-	// it is only recorded (source_call_id) for Auto Review to find the call in the transcript.
+	// The row id derives from durable's tool call key, which is unique; the same key is recorded
+	// (source_tool_task) for Auto Review to find exactly this call in the transcript.
 	const callKey = ctx.callKey ?? newId();
 	const id = externalCallId(callKey);
 	// A replayed tool call finds its row and returns what the first attempt produced, without connecting again.
@@ -1716,10 +1716,14 @@ export async function runExtensionTool(
 	} else {
 		// Auto Review judging this call must not look like a user-facing approval: the pending marker is
 		// written with the row, and only a routing to an agent or the final verdict replaces it.
-		const reviewPlanned = evaluation.result === "require-approval" && (await ctx.willReview?.(ctx.chain)) === true;
+		// Auto Review judges tool calls, so a call without a durable tool task is the user's from the start.
+		const reviewPlanned =
+			evaluation.result === "require-approval" &&
+			ctx.callKey !== undefined &&
+			(await ctx.willReview?.(ctx.chain)) === true;
 		const created = await createExternalCall(ctx.db, {
 			callKey,
-			sourceCallId: ctx.callId ?? null,
+			sourceToolTask: ctx.callKey ?? null,
 			orgId: await defaultOrgId(ctx.db),
 			actorType: ctx.actor.type,
 			actorId: ctx.actor.id,

@@ -739,6 +739,75 @@ describeBackends("task groups", (backend) => {
 		expect(view?.tasks).toEqual([]);
 	});
 
+	it("keeps a group cancelled when its approval decision and a cancel race", async () => {
+		const ref = await addChain("ask");
+		const probe = probeDb(db);
+		const probedCluster = new Cluster(probe.db, { nodeOfflineGraceMs: 10 });
+		const groups = new TaskGroups(probe.db, probedCluster);
+		try {
+			const nodeIds = [ids["web-1"], ids["web-2"]] as string[];
+			const id = await groups.create({
+				targets: [nodeIds[0] as string],
+				nodeIds,
+				spec: spec(),
+				actor: actor(),
+				chain: [ref],
+			});
+			expect((await groups.get(id))?.state).toBe("awaiting_approval");
+
+			let release!: () => void;
+			const paused = new Promise<void>((resolve) => (release = resolve));
+			let reached!: () => void;
+			const gate = new Promise<void>((resolve) => (reached = resolve));
+			// Hold the decision after it writes `running`, where it reads the started nodes before #start()
+			// registers the run: the window a cancel used to slip into.
+			probe.onNext(
+				(node) => node.kind === "SelectQueryNode" && tableOf(node) === "tasks",
+				async () => {
+					reached();
+					await paused;
+				},
+			);
+			const decision = groups.decide(id, {
+				decision: "approved",
+				by: { type: "user", id: user.userId },
+				at: new Date().toISOString(),
+				reason: "approved by hand",
+			});
+			await gate;
+
+			let started!: () => void;
+			const cancelStarted = new Promise<void>((resolve) => (started = resolve));
+			probe.onNext(
+				(node) => node.kind === "SelectQueryNode" && tableOf(node) === "task_groups",
+				() => started(),
+			);
+			const cancellation = groups.cancel(id, "the user cancelled the batch");
+			await cancelStarted;
+			// The cancel now waits for the decision's queue slot, so this race ends in the timeout; without
+			// the queue it settled during the pause. The pause is released either way and the assertions
+			// below judge the outcome.
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			await Promise.race([
+				cancellation,
+				new Promise<void>((resolve) => {
+					timer = setTimeout(resolve, 100);
+				}),
+			]);
+			clearTimeout(timer);
+			release();
+			expect(await decision).toBe(true);
+
+			const view = await groups.wait(id, 5000);
+			expect(view?.state).toBe("cancelled");
+			// The cancellation was recorded before any member was created, so the whole batch is skipped.
+			expect(view?.tasks).toEqual([]);
+			expect(view?.skipped.sort()).toEqual([...nodeIds].sort());
+		} finally {
+			await probedCluster.close();
+		}
+	});
+
 	/** Inserts a task row as a previous process would have left it. */
 	const insertTask = async (input: {
 		group: string;

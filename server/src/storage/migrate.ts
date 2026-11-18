@@ -9,6 +9,7 @@ import * as m0006 from "./migrations/0006_image_state.ts";
 import * as m0007 from "./migrations/0007_extensions.ts";
 import * as m0008 from "./migrations/0008_channels.ts";
 import * as m0009 from "./migrations/0009_authorization_lookup.ts";
+import * as m0010 from "./migrations/0010_review_tool_task.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -21,6 +22,7 @@ const migrations: Record<string, Migration> = {
 	"0007_extensions": m0007,
 	"0008_channels": m0008,
 	"0009_authorization_lookup": m0009,
+	"0010_review_tool_task": m0010,
 };
 
 /** Options shared by the migration entry points. */

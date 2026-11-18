@@ -1,5 +1,5 @@
 import type { TaskSpec } from "@crh/protocol";
-import { fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai/providers/faux";
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
@@ -16,6 +16,7 @@ import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { waitSubmission } from "./helpers/runtime.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -78,6 +79,19 @@ beforeAll(async () => {
 			ssh_jumps: null,
 		})
 		.execute();
+	await db
+		.insertInto("node_access_grants")
+		.values({
+			id: newId(),
+			org_id: await defaultOrgId(db),
+			grantee_type: "user",
+			grantee_id: user.id,
+			target_type: "node",
+			target_id: nodeId,
+			created_by_user_id: user.id,
+			created_at: now,
+		})
+		.execute();
 });
 
 afterAll(async () => {
@@ -95,28 +109,62 @@ it("charges an Auto Review answer to the reviewed session and its chain", async 
 		title: "reviewed",
 		budgetRemaining: 1_000_000,
 	});
-	faux.setResponses([fauxAssistantMessage([fauxText(ANSWER)])]);
-	const task = await cluster.createTask({
-		nodeId,
-		spec,
-		chain: [{ type: "session", id: session.id }],
-		actor: { type: "session", id: session.id, onBehalfOfUserId: owner.userId },
+	// The reviewed task must come from a real tool call: Auto Review reads the durable tool task that call
+	// recorded (source_tool_task), and a task created directly is escalated without asking the model.
+	let beforeReview: { budget: number; usage: number; context: number | null; remaining: number | null } | undefined;
+	faux.setResponses([
+		fauxAssistantMessage(
+			[fauxToolCall("exec", { targets: ["review-node"], cmd: "echo hi", wait: 0 }, { id: "quota-call" })],
+			{ stopReason: "toolUse" },
+		),
+		async () => {
+			// The main turn that issued the tool call has already been charged; the review's charge lands only
+			// after this answer is returned (the exec tool blocks while the task waits for approval).
+			beforeReview = {
+				budget: await budgetUsedTokens(db, session.id),
+				usage: await usageTokens(db, session.id),
+				context: await contextTokens(db, session.id),
+				remaining: (await runtime.getSession(session.id))?.budgetRemaining ?? null,
+			};
+			return fauxAssistantMessage([fauxText(ANSWER)]);
+		},
+	]);
+	const submission = await runtime.submit(session.id, owner, "run the command", "review-quota-call");
+	const task = await waitFor("the task created by the tool call", async () => {
+		const row = await db
+			.selectFrom("tasks")
+			.select(["id", "source_tool_task"])
+			.where("actor_id", "=", session.id)
+			.executeTakeFirst();
+		return row ? row : undefined;
 	});
-	const charged = await waitFor("the review's charge", async () => {
-		const used = await budgetUsedTokens(db, session.id);
-		return used > 0 ? used : undefined;
+	expect(task.source_tool_task).not.toBeNull();
+	const reviewed = await waitFor("the review verdict", async () => {
+		const view = await cluster.getTask(task.id);
+		const review = view?.approval?.review as { decision?: string } | null | undefined;
+		return review?.decision ? view : undefined;
 	});
+	const afterReview = {
+		budget: await budgetUsedTokens(db, session.id),
+		usage: await usageTokens(db, session.id),
+		context: await contextTokens(db, session.id),
+		remaining: (await runtime.getSession(session.id))?.budgetRemaining ?? null,
+	};
+	if (!beforeReview) throw new Error("the review never started");
 	const tokens = Math.ceil(ANSWER.length / 4);
-	expect(charged).toBe(tokens);
-	expect((await runtime.getSession(session.id))?.budgetRemaining).toBe(1_000_000 - tokens);
-	// The review's request counts in the usage measure too, and a review never sets the context fill.
-	expect(await usageTokens(db, session.id)).toBeGreaterThan(tokens);
-	expect(await contextTokens(db, session.id)).toBeNull();
-	const reviewed = await cluster.getTask(task.id);
-	expect(reviewed?.approval?.review).toMatchObject({
+	// Only the review's output grew the budget and spent the quota while the main turn waited for the approval.
+	expect(afterReview.budget - beforeReview.budget).toBe(tokens);
+	expect(afterReview.remaining).toBe((beforeReview.remaining ?? 0) - tokens);
+	// The review's request counts in the usage measure too, and a review never moves the context fill.
+	expect(afterReview.usage - beforeReview.usage).toBeGreaterThan(tokens);
+	expect(afterReview.context).toBe(beforeReview.context);
+	expect(afterReview.context).not.toBeNull();
+	expect(reviewed.approval?.review).toMatchObject({
 		decision: "escalate",
 		model: `${faux.provider.id}/${faux.getModel().id}`,
 	});
+	await runtime.abort(session.id, owner);
+	await waitSubmission(runtime, session.id, submission);
 });
 
 it("does not review a task whose root is an API token", async () => {

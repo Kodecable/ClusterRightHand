@@ -168,7 +168,7 @@ export async function readNotes(ctx: ToolContext, nodeId: string, path: string):
 		spec: notesSpec(path),
 		actor: ctx.actor,
 		chain: ctx.chain,
-		sourceCallId: ctx.callId,
+		sourceToolTask: ctx.callKey ?? null,
 		...(id ? { id } : {}),
 	});
 	const t = (await ctx.cluster.waitTask(created.id, NOTES_WAIT_MS, ctx.signal)) ?? created;
@@ -210,7 +210,7 @@ export async function readNotesBatch(
 				maxBytes: NOTES_BYTES,
 				actor: ctx.actor,
 				chain: ctx.chain,
-				sourceCallId: ctx.callId,
+				sourceToolTask: ctx.callKey ?? null,
 				...(id ? { id } : {}),
 			});
 		}),

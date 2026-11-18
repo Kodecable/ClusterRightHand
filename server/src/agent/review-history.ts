@@ -282,22 +282,3 @@ export interface ReviewToolCallRecord {
 	name: string;
 	arguments: unknown;
 }
-
-/**
- * Every tool call of a conversation's assistant entries, oldest first, pending ones included. The reviewer
- * uses it to recover the call under review exactly as the model requested it.
- */
-export function reviewToolCalls(entries: readonly EntryRecord[]): ReviewToolCallRecord[] {
-	const calls: ReviewToolCallRecord[] = [];
-	for (const entry of entries) {
-		if (entry.kind !== "pi.assistant") continue;
-		const message = entry.model?.[0];
-		if (!Array.isArray(message?.content)) continue;
-		for (const block of message.content) {
-			const call = block as { type?: unknown; id?: unknown; name?: unknown; arguments?: unknown };
-			if (call.type !== "toolCall" || typeof call.id !== "string" || typeof call.name !== "string") continue;
-			calls.push({ id: call.id, name: call.name, arguments: call.arguments });
-		}
-	}
-	return calls;
-}

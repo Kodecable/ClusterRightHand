@@ -309,7 +309,7 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 		chain: ctx.chain,
 		...(ctx.signal ? { signal: ctx.signal } : {}),
 		privileged: args.privileged === true,
-		sourceCallId: ctx.callId,
+		sourceToolTask: ctx.callKey ?? null,
 	};
 	if (resolved.singleNode) {
 		const nodeId = resolved.nodeIds[0] as string;
@@ -327,7 +327,7 @@ async function createCall(ctx: ToolContext, args: CallArgs, options: StartOption
 			chain: ctx.chain,
 			...(ctx.signal ? { signal: ctx.signal } : {}),
 			privileged: args.privileged === true,
-			sourceCallId: ctx.callId,
+			sourceToolTask: ctx.callKey ?? null,
 			...(id ? { id } : {}),
 		});
 		const info = (await nodeInfos(ctx, [nodeId])).get(nodeId);

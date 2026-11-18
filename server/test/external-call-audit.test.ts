@@ -56,7 +56,7 @@ async function waitingCall(callKey: string) {
 		annotations: null,
 		ruleChain: [{ type: "session", id: `session-${callKey}` }],
 		rootSessionId: null,
-		sourceCallId: null,
+		sourceToolTask: null,
 		approval: { evaluation: { result: "require-approval", levels: [] } },
 		state: "awaiting_approval",
 	});

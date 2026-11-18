@@ -138,10 +138,9 @@ nodes, the batch settings, its state and a single approval for the whole group.
 - `rev` is the row version used for compare-and-set writes ([Task row concurrency](execution.md#task-row-concurrency)).
 - crhs never stores complete output; the complete output stays on the node.
 - A task keeps no foreign key to its node or group, so history survives their deletion.
-- `source_call_id` is the transcript id of the tool call that created the task or task group (model-supplied,
-  so it can repeat; the latest match is used); Auto Review reads that call's name and arguments from the
-  session transcript. It is null when an API token, MCP or the WebUI
-  created the work, and the review then falls back to the recorded summary
+- `source_tool_task` is the durable tool task of the tool call that created the task or task group; Auto
+  Review reads that call's name and arguments from the session transcript. It is null when an API token,
+  MCP or the WebUI created the work, and Auto Review then does not apply
   ([Auto Review](access-control.md#auto-review)).
 - The approval record's `review` is either Auto Review's pending marker
   (`{ status: "pending", startedAt }`) or its settled verdict. The marker is written into the same JSON
@@ -180,9 +179,9 @@ availability and a reference to one encrypted `secrets` row holding the request 
 row, which has no connection settings and is seeded by the migration. `extension_grants` says who may use
 an extension when its availability is `granted`. `external_calls` is the small object an external approval
 belongs to: its id is derived from the durable tool call key, and it carries the approval columns a task has,
-the extension, tool, arguments, operation, `source_call_id` (the model's id for the tool call, which can repeat,
-so it only lets Auto Review find the call in the transcript) and the state that must survive while the call is
-in progress. A
+the extension, tool, arguments, operation, `source_tool_task` (the durable tool task of the tool call,
+so Auto Review can read exactly that call) and the state that must survive while the call is in
+progress. A
 terminal row keeps only its state and `finished_at` as the "already ran" marker and clears its arguments;
 the result is in the transcript and the decision in the audit log. `sessions.disabled_extensions` is the
 JSON list of extensions the owner turned off ([Extensions](extensions.md)). `sessions.last_used_from`

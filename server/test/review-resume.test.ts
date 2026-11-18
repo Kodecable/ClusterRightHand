@@ -1,5 +1,12 @@
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { MemoryStorage } from "@earendil-works/pi-durable";
+import {
+	type ConversationId,
+	type EntryId,
+	MemoryStorage,
+	type StorageWrite,
+	type TaskId,
+} from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
@@ -35,6 +42,7 @@ let runtime: AgentRuntime;
 let cluster: Cluster;
 let groups: TaskGroups;
 let audit: Audit;
+let storage: MemoryStorage;
 let owner: SessionUser;
 let sessionId = "";
 let nodeId = "";
@@ -57,9 +65,10 @@ beforeAll(async () => {
 	const models = new ModelConfig(db, MasterKey.generate());
 	models.addProvider(faux.provider);
 	await models.reload();
+	storage = new MemoryStorage();
 	runtime = await AgentRuntime.open({
 		db,
-		storage: new MemoryStorage(),
+		storage,
 		models,
 		cluster,
 		taskGroups: groups,
@@ -122,24 +131,74 @@ afterAll(async () => {
 
 const chain = () => [{ type: "session" as const, id: sessionId }];
 
+/** Records the assistant entry and the terminal pi.tool task of one call the reviewer can read. */
+async function recordToolCall(name: string, args: Record<string, unknown>, callId: string): Promise<string> {
+	const row = await db
+		.selectFrom("sessions")
+		.select("conversation_id")
+		.where("id", "=", sessionId)
+		.executeTakeFirstOrThrow();
+	const conversationId = Number(row.conversation_id) as ConversationId;
+	const entryId = await storage.mintId<EntryId>();
+	const toolTaskId = await storage.mintId<TaskId>();
+	await storage.commit(
+		[
+			{
+				type: "entry",
+				value: {
+					id: entryId,
+					conversationId,
+					kind: "pi.assistant",
+					model: [
+						{
+							role: "assistant",
+							content: [{ type: "toolCall", id: callId, name, arguments: args }],
+							timestamp: Date.now(),
+						},
+					],
+				},
+			},
+			{
+				type: "task",
+				value: {
+					id: toolTaskId,
+					conversationId,
+					kind: "pi.tool",
+					version: 1,
+					input: { kind: "model", assistant: entryId, callId },
+					background: false,
+					abortRequested: false,
+					state: { status: "terminal", outcome: { status: "completed", result: { kind: "model", entryId } } },
+				},
+			},
+		] as unknown as StorageWrite[],
+		BACKGROUND_CONTEXT,
+	);
+	return String(toolTaskId);
+}
+
 it("re-reviews a task, a task group and an external call left pending by a restart", async () => {
+	const taskCall = await recordToolCall("exec", { targets: [nodeId], cmd: "true" }, "call-0");
 	const savedTaskHook = cluster.onAwaitingApproval;
 	cluster.onAwaitingApproval = undefined;
 	const task = await cluster.createTask({
 		nodeId,
 		spec: { kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null },
+		sourceToolTask: taskCall,
 		chain: chain(),
 		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
 	});
 	cluster.onAwaitingApproval = savedTaskHook;
 	expect(isPendingReview(task.approval?.review)).toBe(true);
 
+	const groupCall = await recordToolCall("exec", { targets: [nodeId], cmd: "true" }, "call-0");
 	const savedGroupHook = groups.onAwaitingApproval;
 	groups.onAwaitingApproval = undefined;
 	const groupId = await groups.create({
 		targets: [nodeId],
 		nodeIds: [nodeId],
 		spec: { kind: "exec", command: { argv: ["true"] }, env: {}, cwd: "", stdin: null },
+		sourceToolTask: groupCall,
 		chain: chain(),
 		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
 	});
@@ -147,6 +206,7 @@ it("re-reviews a task, a task group and an external call left pending by a resta
 	const group = await groups.get(groupId);
 	expect(isPendingReview(group?.approval?.review)).toBe(true);
 
+	const externalCall = await recordToolCall("ext__test__echo", { message: "hi" }, "call-0");
 	const callKey = "resume-call";
 	const { row: call } = await createExternalCall(db, {
 		callKey,
@@ -161,7 +221,7 @@ it("re-reviews a task, a task group and an external call left pending by a resta
 		annotations: null,
 		ruleChain: chain(),
 		rootSessionId: sessionId,
-		sourceCallId: null,
+		sourceToolTask: externalCall,
 		approval: {
 			evaluation: { result: "require-approval", levels: [] },
 			review: pendingReview(new Date().toISOString()),

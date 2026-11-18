@@ -1,17 +1,10 @@
 import type { EntryRecord } from "@earendil-works/pi-durable";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-	apiRouteSummary,
-	PENDING_CALL_ARG_BYTES,
-	reviewGroupOperation,
-	reviewInput,
-	reviewTaskOperation,
-} from "../src/agent/review.ts";
+import { apiRouteSummary, reviewGroupOperation, reviewInput, reviewTaskOperation } from "../src/agent/review.ts";
 import {
 	type ReviewHistoryEntry,
 	reviewHistoryEntries,
 	reviewTimeline,
-	reviewToolCalls,
 	TOOL_CALL_ARG_BYTES,
 	TOOL_CALL_BYTES,
 	USER_TURNS,
@@ -284,29 +277,16 @@ describe("review operation block", () => {
 		expect(operation.note).toBeUndefined();
 	});
 
-	it("cuts an argument above 16 KiB and notes the original size", () => {
-		const content = "x".repeat(PENDING_CALL_ARG_BYTES + 1024);
+	it("passes oversized arguments complete", () => {
+		const content = "MARKER-AT-THE-END".repeat(8_000);
 		const arguments_ = { content, overwrite: false };
-		const originalBytes = Buffer.byteLength(JSON.stringify(arguments_), "utf8");
 		const block = reviewTaskOperation(taskView(), { id: "call-1", name: "write_file", arguments: arguments_ }, null, [
 			web,
 		]);
 		const call = block.tool_call as { arguments: unknown; arguments_note?: string };
-		expect(typeof call.arguments).toBe("string");
-		expect(Buffer.byteLength(call.arguments as string, "utf8")).toBeLessThanOrEqual(PENDING_CALL_ARG_BYTES);
-		expect(call.arguments_note).toBe(`arguments cut from ${originalBytes} bytes`);
-	});
-
-	it("falls back to the recorded summary when no tool call was recorded", () => {
-		const operation = operationOf(reviewInput([], reviewTaskOperation(taskView(), null, null, [web])));
-		expect(operation).toMatchObject({
-			requested_by: "session-1",
-			operation: "file.write",
-			target: "/etc/app.conf",
-			on: [web],
-		});
-		expect(operation.tool_call).toBeUndefined();
-		expect(operation.note).toContain("the original tool call was not found");
+		expect(call.arguments).toBe(arguments_);
+		expect(call.arguments_note).toBeUndefined();
+		expect(JSON.stringify(block)).toContain("MARKER-AT-THE-END");
 	});
 
 	it("names every flagged member of a task group, not only the first", () => {
@@ -325,39 +305,13 @@ describe("review operation block", () => {
 				],
 			},
 		} as unknown as TaskGroupView;
-		const block = reviewGroupOperation(group, null, null, [web, { id: "node-2", name: "web-2", groups: [] }]);
+		const block = reviewGroupOperation(group, { id: "call-1", name: "exec", arguments: { command: "true" } }, null, [
+			web,
+			{ id: "node-2", name: "web-2", groups: [] },
+		]);
 		expect(block.trusted_context).toEqual({
 			nodes: [web, { id: "node-2", name: "web-2", groups: [] }],
 			flagged: [{ node: "node-1", method: "exec", target: "true" }],
 		});
-	});
-});
-
-describe("reviewToolCalls", () => {
-	it("finds a pending call's exact name and arguments", () => {
-		const entries = [
-			{
-				id: 1,
-				conversationId: 1,
-				kind: "pi.assistant",
-				model: [
-					{
-						role: "assistant",
-						content: [
-							{ type: "text", text: "ASSISTANT-SECRET" },
-							{
-								type: "toolCall",
-								id: "call-pending",
-								name: "write_file",
-								arguments: { content: "listen 80;", overwrite: false },
-							},
-						],
-					},
-				],
-			},
-		] as unknown as EntryRecord[];
-		expect(reviewToolCalls(entries)).toEqual([
-			{ id: "call-pending", name: "write_file", arguments: { content: "listen 80;", overwrite: false } },
-		]);
 	});
 });

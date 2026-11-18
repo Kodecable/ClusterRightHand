@@ -238,7 +238,7 @@ it("escalates a request whose review fails outside the model call, instead of le
 		history: async () => {
 			throw new Error("history unavailable");
 		},
-		toolCalls: async () => [],
+		toolCall: async () => null,
 		builtinToolDescription: async () => null,
 		toolDescription: async () => null,
 	});

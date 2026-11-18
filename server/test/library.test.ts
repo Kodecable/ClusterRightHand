@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import type { LibraryFile, LibraryFilesResponse, LibraryListResponse } from "@crh/api";
 import { sql } from "kysely";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLibraryBackend, getBytes, putBytes } from "../src/library/backend.ts";
 import { beginLibraryUpload } from "../src/library/files.ts";
 import { findLibraryByRef } from "../src/library/library.ts";
@@ -331,6 +331,24 @@ describe("library API", () => {
 			headers: { host: "localhost:8080", cookie: alice },
 		});
 		expect(plain.headers.get("content-disposition")).toContain("attachment");
+	});
+
+	it("answers HEAD with the file's size and type without opening it", async () => {
+		const data = Buffer.from("head only\n");
+		expect((await upload(alice, "user:alice", "docs/head.txt", data)).status).toBe(201);
+		const get = vi.spyOn(backend, "get");
+		const response = await app.request(`${lib("user:alice")}/file?path=docs/head.txt`, {
+			method: "HEAD",
+			headers: { host: "localhost:8080", cookie: alice },
+		});
+		expect(response.status).toBe(200);
+		expect(response.headers.get("content-length")).toBe(String(data.length));
+		expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+		expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(response.headers.get("content-security-policy")).toBe("sandbox");
+		expect(response.headers.get("content-disposition")).toContain("attachment");
+		expect(await response.text()).toBe("");
+		expect(get).not.toHaveBeenCalled();
 	});
 
 	it("refuses another member's library with 404 and lets an administrator reach it", async () => {

@@ -404,7 +404,7 @@ describe("MCP extensions", () => {
 	it("runs two calls whose model call ids repeat, keyed by durable's call key", async () => {
 		await addServer();
 		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
-		// Some providers reuse call ids such as "call_0" across turns; only durable's key identifies a call.
+		// Some providers reuse call ids such as "call_0" across turns; the durable tool task key names the call.
 		const first = await runExtensionTool({ ...ctx, callKey: "turn-1", callId: "call_0" }, "fake", "echo", {
 			message: "one",
 		});
@@ -415,7 +415,7 @@ describe("MCP extensions", () => {
 		expect(second.content.map((block) => block.text).join("\n")).toContain("echo: two");
 		expect(await getExternalCall(db, externalCallId("turn-2"))).toMatchObject({
 			state: "succeeded",
-			source_call_id: "call_0",
+			source_tool_task: "turn-2",
 		});
 	});
 
@@ -491,6 +491,8 @@ describe("MCP extensions", () => {
 		const ctx = {
 			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
 			externalCallUrl: (id: string) => `/approvals/external-calls/${id}`,
+			// Auto Review judges tool calls: the call needs its durable tool task.
+			callKey: "41",
 			willReview: async () => true,
 			reviewExternalCall: async () => {
 				await reviewGate;
@@ -537,6 +539,7 @@ describe("MCP extensions", () => {
 		const ctx = {
 			...base,
 			externalCallUrl: (id: string) => `/approvals/external-calls/${id}`,
+			callKey: "42",
 			willReview: async () => true,
 			reviewExternalCall: async (id: string) => {
 				await decideExternalCall(db, id, {

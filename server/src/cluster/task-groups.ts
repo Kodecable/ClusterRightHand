@@ -289,7 +289,9 @@ export class TaskGroups {
 	 * checked by the group's workers before they take the next node and after every wait, so a large batch
 	 * stops creating members even though only the members that exist can be cancelled. A group with no run
 	 * in this process (still waiting for approval, or left over by a caller) moves to `cancelled` here; a
-	 * running group's worker moves it when it returns, so the run and its skipped nodes agree.
+	 * running group's worker moves it when it returns, so the run and its skipped nodes agree. The end-state
+	 * write runs on the group's approval queue, so a decision in flight starts its run first, which then sees
+	 * the flag, instead of the run starting after the row was ended here.
 	 *
 	 * Returns false when the group is already terminal (nothing to cancel).
 	 */
@@ -297,24 +299,32 @@ export class TaskGroups {
 		const row = await this.#row(id);
 		if (!row || GROUP_TERMINAL.has(row.state)) return false;
 		this.#cancelled.set(id, reason);
-		const owned = this.#running.has(id);
-		let ended = false;
-		if (!owned) {
+		// A decide() in flight holds this queue slot: once it returns, its run is registered here, so the
+		// flag is what ends the group. Without the slot, the guard below could match the `running` row a
+		// decision wrote and the run it then starts would never see this cancellation.
+		const ended = await this.#approvalQueue.run(id, async () => {
+			if (this.#running.has(id)) return false;
 			// Nobody in this process owns the group (waiting for approval, or a stale row): end it here.
-			ended = await this.#markCancelled(id, row);
+			const current = await this.#row(id);
+			if (!current || GROUP_TERMINAL.has(current.state)) {
+				// The decision in flight ended it (rejected): no run will ever read the flag.
+				this.#cancelled.delete(id);
+				return false;
+			}
+			let cancelled = await this.#markCancelled(id, current);
 			// A member's state sync can move the group between the read and the write; one retry on the
 			// current row is enough, and a decision that started a run is left to that run's worker.
-			if (!ended && !this.#running.has(id)) {
-				const current = await this.#row(id);
-				if (current && !GROUP_TERMINAL.has(current.state)) ended = await this.#markCancelled(id, current);
+			if (!cancelled && !this.#running.has(id)) {
+				const retry = await this.#row(id);
+				if (retry && !GROUP_TERMINAL.has(retry.state)) cancelled = await this.#markCancelled(id, retry);
 			}
-			if (ended) {
-				this.#cluster.releaseGroupBudget(id);
-				this.#settle(id);
-				this.#cancelled.delete(id);
-				await this.#discardTransfer(id);
-			}
-		}
+			if (!cancelled) return false;
+			this.#cluster.releaseGroupBudget(id);
+			this.#settle(id);
+			this.#cancelled.delete(id);
+			await this.#discardTransfer(id);
+			return true;
+		});
 		// Cancel what exists either way: this wakes a worker parked in waitTask so it can see the flag,
 		// and ends the waiting members of a group that had no run to do it.
 		await this.#cancelMembers(id, reason, by);
@@ -465,7 +475,8 @@ export class TaskGroups {
 		const waiting = approval?.nodes.some((n) => n.evaluation.result === "require-approval") ?? false;
 		// Auto Review will judge this group: mark it in the same write that enters awaiting_approval, so no
 		// user-facing approval appears while the reviewer decides (doc/design/access-control.md "Auto Review").
-		if (waiting && approval && (await this.#cluster.willReview(input.chain ?? null))) {
+		// Auto Review judges tool calls: a group no tool call made is the user's from the start.
+		if (waiting && approval && input.sourceToolTask && (await this.#cluster.willReview(input.chain ?? null))) {
 			approval.review = pendingReview(now());
 		}
 		// Group waiting approvals by session tree: the first session of the chain, which is its root for a session or
@@ -504,7 +515,7 @@ export class TaskGroups {
 				handler_session_id: null,
 				purpose: input.purpose ?? null,
 				transfer: input.transferLocation ? JSON.stringify(input.transferLocation) : null,
-				source_call_id: input.sourceCallId ?? null,
+				source_tool_task: input.sourceToolTask ?? null,
 			})
 			.execute();
 		this.#auditLater({

@@ -314,21 +314,22 @@ ranges are marked in place: a leading `[earlier history omitted]`, and `[N earli
 here]` where tool calls were dropped between kept entries.
 
 The operation block is the original tool call, not a summary: the tool's name and arguments exactly as
-the model requested them, plus the tool's description (a cluster tool's, an MCP tool's from its
-extension's list, and for `crhs-api`'s `api_request` the matched API route's summary). Arguments above
-16 KiB are cut with a note of the original size.
+the model requested them and complete, plus the tool's description (a cluster tool's, an MCP tool's from
+its extension's list, and for `crhs-api`'s `api_request` the matched API route's summary). A request
+whose operation does not fit the review model's context even without the history goes to the user.
 
 crhs resolves the trusted context: every target node's id, name and node group names, and the part the
 rules flagged for approval — the method and target of a task, or one method/target per flagged member
 of a task group.
 
-A task, task group or external call records the transcript id of the tool call that created it
-(`source_call_id`), and the reviewer reads that call from the requesting session's transcript. A model may
-reuse call ids, so the latest call with that id is taken; row ids stay derived from durable's own tool call
-key, which is unique. When no call is recorded or the transcript no longer has it (an API token or MCP
-request, which do not get Auto Review, or work created by the WebUI), the block falls back to the
-recorded method/target summary and says so. The call under review has no result yet, so it stays out of
-the history facts above.
+A task, task group or external call records the durable tool task of the tool call that created it
+(`source_tool_task`), and the reviewer reads that call, complete, from the requesting session's
+transcript. A model may reuse call ids, so the durable task, not the id, identifies the call. Auto Review
+judges tool calls: a request no tool call made (an API token or MCP request, or work created by the
+WebUI) never enters it and waits for the user from the start. When the tool task is gone (after
+retention, for example) or does not name a matching call, the request goes to the user without a model
+call: a review that cannot see the exact call cannot stand in for the user's decision. The call under review has no result yet, so it stays out of the history
+facts above.
 
 A task, task group or external call records the pending marker only when the root's preset is Auto
 Review and a review model resolves, so other requests are user-facing from the start. The marker is

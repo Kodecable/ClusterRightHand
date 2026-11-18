@@ -61,7 +61,7 @@ func (s *Server) summary() *protocol.TrustSummary {
 
 // openWindow opens or replaces the local approval window for uid. The requested length must
 // be positive and at most the largest max_window of the local entries that list uid
-// (doc/design/privilege.md "Local approval").
+// (doc/design/privilege.md "Local approval window").
 func (s *Server) openWindow(uid uint32, requested time.Duration) (protocol.WindowState, *protocol.RemoteError) {
 	if requested <= 0 {
 		return protocol.ClosedWindow(), &protocol.RemoteError{

@@ -117,7 +117,8 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	const waiting = verdict === "require-approval" && input.noWait !== true;
 	// Auto Review will judge this request: mark it in the same write that enters awaiting_approval, so no
 	// user-facing approval appears while the reviewer decides (doc/design/access-control.md "Auto Review").
-	if (waiting && approval && (await core.onReviewPlanned?.(input.chain ?? null)) === true) {
+	// Auto Review judges tool calls: a request no tool call made is the user's from the start.
+	if (waiting && approval && input.sourceToolTask && (await core.onReviewPlanned?.(input.chain ?? null)) === true) {
 		approval.review = pendingReview(now());
 	}
 	// A group member that cannot wait ends here instead of parking inside a group that already started:
@@ -179,7 +180,7 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		handler_session_id: null,
 		transfer: input.transfer ?? null,
 		purpose: input.purpose ?? null,
-		source_call_id: input.sourceCallId ?? null,
+		source_tool_task: input.sourceToolTask ?? null,
 	};
 	await endTask(core, id, {
 		write: { insert: values, ended: endedAtCreation },

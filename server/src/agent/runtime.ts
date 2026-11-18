@@ -46,7 +46,7 @@ import {
 	latestEntryId,
 	type RunReportContent,
 	reviewHistory,
-	reviewToolCalls,
+	reviewToolCall,
 	runReport,
 	type SessionStopOptions,
 	sessionAt,
@@ -228,7 +228,7 @@ export class AgentRuntime {
 			presets,
 			{
 				history: (sessionId) => reviewHistory(runtime.#host, sessionId),
-				toolCalls: (sessionId) => reviewToolCalls(runtime.#host, sessionId),
+				toolCall: (sessionId, toolTaskId) => reviewToolCall(runtime.#host, sessionId, toolTaskId),
 				builtinToolDescription: async (toolName) => {
 					return TOOLS.find((tool) => tool.name === toolName)?.description ?? null;
 				},

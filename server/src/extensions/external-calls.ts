@@ -89,8 +89,8 @@ export interface ExternalCallInput {
 	annotations: ExtensionToolAnnotations | null;
 	ruleChain: RuleRef[];
 	rootSessionId: string | null;
-	/** The transcript id of the tool call (model-supplied, may repeat), so Auto Review can find it. */
-	sourceCallId?: string | null;
+	/** The durable tool task of the tool call, so Auto Review can find exactly that call. */
+	sourceToolTask?: string | null;
 	approval: ApprovalRecord;
 	state: "awaiting_approval" | "running";
 }
@@ -134,7 +134,7 @@ export async function createExternalCall(
 			approval: JSON.stringify(input.approval),
 			pending_input: null,
 			root_session_id: input.rootSessionId,
-			source_call_id: input.sourceCallId ?? null,
+			source_tool_task: input.sourceToolTask ?? null,
 			handler_type: input.state === "awaiting_approval" ? "user" : null,
 			handler_session_id: null,
 			state: input.state,

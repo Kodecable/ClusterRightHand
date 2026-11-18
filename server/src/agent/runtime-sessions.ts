@@ -8,6 +8,9 @@ import {
 	type EntryId,
 	type EntryRecord as PiEntryRecord,
 	type SnapshotEvent as PiSnapshotEvent,
+	type TaskId,
+	ToolTask,
+	type ToolTaskInput,
 	watchEvents,
 } from "@earendil-works/pi-durable";
 import { userActor } from "../audit/audit.ts";
@@ -26,12 +29,7 @@ import { newId } from "../util/id.ts";
 import { sessionExtensionViews } from "./extension.ts";
 import { type ModelRef, modelRefView, thinkingLevelOf } from "./models.ts";
 import { setQuota } from "./quota.ts";
-import {
-	type ReviewHistoryEntry,
-	type ReviewToolCallRecord,
-	reviewHistoryEntries,
-	reviewToolCalls as reviewToolCallsOf,
-} from "./review-history.ts";
+import { type ReviewHistoryEntry, type ReviewToolCallRecord, reviewHistoryEntries } from "./review-history.ts";
 import type { RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts";
 import { endSessionWork, refreshState } from "./runtime-state.ts";
@@ -1001,15 +999,57 @@ export async function reviewHistory(host: RuntimeHost, sessionId: string): Promi
 	return reviewHistoryEntries(await transcriptEntries(host, row.conversation_id));
 }
 
-/** The session transcript's tool calls, pending ones included, for the reviewer's operation block. */
-export async function reviewToolCalls(host: RuntimeHost, sessionId: string): Promise<ReviewToolCallRecord[]> {
-	const row = await host.db
-		.selectFrom("sessions")
-		.select("conversation_id")
-		.where("id", "=", sessionId)
-		.executeTakeFirst();
-	if (!row) return [];
-	return reviewToolCallsOf(await transcriptEntries(host, row.conversation_id));
+/**
+ * The tool call behind a durable tool task, exactly as the model requested it, for the reviewer's operation
+ * block. The task's input names the assistant entry and the call id, so a reused model call id cannot select
+ * another call. Null when the task is unknown, too old for retention, belongs to another conversation or is
+ * not a tool task, or when its entry no longer holds exactly one matching call.
+ */
+export async function reviewToolCall(
+	host: RuntimeHost,
+	sessionId: string,
+	toolTaskId: string,
+): Promise<ReviewToolCallRecord | null> {
+	try {
+		if (!/^\d+$/.test(toolTaskId)) return null;
+		const id = Number(toolTaskId);
+		if (!Number.isSafeInteger(id) || id <= 0) return null;
+		const row = await host.db
+			.selectFrom("sessions")
+			.select("conversation_id")
+			.where("id", "=", sessionId)
+			.executeTakeFirst();
+		if (!row) return null;
+		const task = await host.harness().getTask(id as unknown as TaskId, host.context);
+		if (!task || task.kind !== ToolTask.definition.name) return null;
+		if (String(task.conversationId) !== row.conversation_id) return null;
+		const input = task.input as ToolTaskInput;
+		if (input?.kind === "nested") {
+			return { id: `${input.parentCallId}/${input.key}`, name: input.call.name, arguments: input.call.arguments };
+		}
+		if (input?.kind !== "model" || typeof input.callId !== "string") return null;
+		const conversation = await conversationOf(host, row);
+		if (!conversation) return null;
+		const page = await conversation.entries(
+			{ order: "ascending", minEntryId: input.assistant, maxEntryId: input.assistant },
+			1,
+			undefined,
+			host.context,
+		);
+		const entry = page.items[0];
+		if (entry?.kind !== "pi.assistant") return null;
+		const blocks = entry.model?.[0]?.content;
+		if (!Array.isArray(blocks)) return null;
+		const matches = blocks.filter(
+			(block) => block.type === "toolCall" && (block as { id?: unknown }).id === input.callId,
+		);
+		const call = matches[0] as { name?: unknown; arguments?: unknown } | undefined;
+		if (matches.length !== 1 || !call || typeof call.name !== "string") return null;
+		return { id: input.callId, name: call.name, arguments: call.arguments };
+	} catch (err) {
+		console.error(`review: reading the tool call ${toolTaskId} of session ${sessionId} failed:`, err);
+		return null;
+	}
 }
 
 /** One message of a chat's history replay (doc/design/channels.md "Conversations"). */

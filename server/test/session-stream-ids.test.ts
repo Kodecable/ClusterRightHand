@@ -1,6 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { TaskSpec } from "@crh/protocol";
 import { getOpenCodeSessionHeaders } from "@earendil-works/pi-ai/utils/identity";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -33,6 +32,19 @@ interface Recorded {
 	body: Record<string, unknown>;
 }
 
+/** Set before a submission whose main request must answer with an exec tool call. */
+let toolCallOnNextMain = false;
+
+function systemPromptOf(body: Record<string, unknown>): string {
+	const messages = body.messages as { role?: string; content?: unknown }[] | undefined;
+	const system = messages?.find((message) => message.role === "system");
+	if (typeof system?.content === "string") return system.content;
+	if (Array.isArray(system?.content)) {
+		return system.content.flatMap((part) => (part?.type === "text" ? [String(part.text)] : [])).join("");
+	}
+	return "";
+}
+
 function startStub(): Promise<{ server: Server; url: string; requests: Recorded[] }> {
 	const requests: Recorded[] = [];
 	const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -55,8 +67,32 @@ function startStub(): Promise<{ server: Server; url: string; requests: Recorded[
 						choices: [{ index: 0, delta, finish_reason: finish }],
 					})}\n\n`,
 				);
-			chunk({ role: "assistant", content: "ok" });
-			chunk({}, "stop");
+			const prompt = systemPromptOf(body);
+			const main =
+				prompt !== "" &&
+				!prompt.includes("submit_review") &&
+				!prompt.includes("Write a short title") &&
+				!prompt.includes("context summarization assistant");
+			if (main && toolCallOnNextMain) {
+				// The main model asks for an exec task; Auto Review then binds the request to this call.
+				toolCallOnNextMain = false;
+				chunk({ role: "assistant", content: null });
+				chunk({
+					tool_calls: [
+						{
+							index: 0,
+							id: "call_1",
+							type: "function",
+							function: { name: "exec", arguments: '{"targets":["stream-node"],"cmd":"echo hi",' },
+						},
+					],
+				});
+				chunk({ tool_calls: [{ index: 0, function: { arguments: '"wait":0}' } }] });
+				chunk({}, "tool_calls");
+			} else {
+				chunk({ role: "assistant", content: "ok" });
+				chunk({}, "stop");
+			}
 			res.write(
 				`data: ${JSON.stringify({
 					id: "chatcmpl-1",
@@ -84,17 +120,10 @@ let cluster: Cluster;
 let owner: SessionUser;
 let stub: { server: Server; url: string; requests: Recorded[] };
 let nodeId = "";
-const spec: TaskSpec = { kind: "exec", command: { argv: ["echo", "hi"] }, env: {}, cwd: "", stdin: null };
 
 /** The system prompt of a request, to tell the four streams apart. */
 function systemPrompt(request: Recorded): string {
-	const messages = request.body.messages as { role?: string; content?: unknown }[] | undefined;
-	const system = messages?.find((message) => message.role === "system");
-	if (typeof system?.content === "string") return system.content;
-	if (Array.isArray(system?.content)) {
-		return system.content.flatMap((part) => (part?.type === "text" ? [String(part.text)] : [])).join("");
-	}
-	return "";
+	return systemPromptOf(request.body);
 }
 
 /** The custom provider's configured header and body field of a request. */
@@ -130,6 +159,17 @@ async function waitFor<T>(what: string, probe: () => T | undefined, timeoutMs = 
 	}
 }
 
+/** `waitFor` for a probe that must read the database. */
+async function waitForAsync<T>(what: string, probe: () => Promise<T | undefined>, timeoutMs = 10_000): Promise<T> {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const value = await probe();
+		if (value !== undefined) return value;
+		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+		await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+}
+
 beforeAll(async () => {
 	db = await openTestDb("sqlite");
 	const audit = new Audit(db);
@@ -144,7 +184,9 @@ beforeAll(async () => {
 		name: "stream-stub",
 		baseUrl: stub.url,
 		apiKey: "sk-stub",
-		models: [{ id: "m-1", api: "openai-completions", contextWindow: 1024, maxTokens: 256, input: ["text"] }],
+		// The review's operation block includes the tool description, so it needs a real context window;
+		// with the old 1024-token model the review escalated as too large before making a request.
+		models: [{ id: "m-1", api: "openai-completions", contextWindow: 8192, maxTokens: 256, input: ["text"] }],
 		sessionId: { headers: ["x-crh-session"], body: ["metadata.session_id"] },
 	});
 	await models.reload();
@@ -186,6 +228,19 @@ beforeAll(async () => {
 			ssh_host_fingerprint: null,
 			ssh_credential_id: null,
 			ssh_jumps: null,
+		})
+		.execute();
+	await db
+		.insertInto("node_access_grants")
+		.values({
+			id: newId(),
+			org_id: await defaultOrgId(db),
+			grantee_type: "user",
+			grantee_id: user.id,
+			target_type: "node",
+			target_id: nodeId,
+			created_by_user_id: user.id,
+			created_at: now,
 		})
 		.execute();
 });
@@ -237,15 +292,32 @@ it("gives main, compaction, review and title their own provider session fields",
 		body: streamSessionId(session.id, "title"),
 	});
 
-	// A task under the Auto Review root is reviewed by the same model.
-	const task = await cluster.createTask({
-		nodeId,
-		spec,
-		chain: [{ type: "session", id: session.id }],
-		actor: { type: "session", id: session.id, onBehalfOfUserId: owner.userId },
+	// A task under the Auto Review root is reviewed by the same model. The run's model asks for an exec task,
+	// so the reviewed task is bound to the durable tool task of a real call.
+	toolCallOnNextMain = true;
+	const second = await runtime.submit(session.id, owner, "run the tool", "stream-main-2");
+	const task = await waitForAsync("the task created by the tool call", async () => {
+		const row = await db
+			.selectFrom("tasks")
+			.select(["id", "source_tool_task"])
+			.where("actor_id", "=", session.id)
+			.executeTakeFirst();
+		return row?.source_tool_task ? row : undefined;
 	});
-	await waitFor("the review request", () => stub.requests.find(isReview));
-	expect(task.id).toBeTruthy();
+	const review = await waitFor("the review request", () => stub.requests.find(isReview));
+	const verdict = await waitForAsync("the review verdict", async () => {
+		const current = await cluster.getTask(task.id);
+		const reviewed = current?.approval?.review as { decision?: string } | null | undefined;
+		return reviewed?.decision ? reviewed : undefined;
+	});
+	expect(verdict.decision).toBe("escalate");
+	// Auto Review escalated the call, so the run waits for its owner: rejecting it lets the run end.
+	await cluster.decide(task.id, {
+		decision: "rejected",
+		by: { type: "user", id: owner.userId },
+		at: new Date().toISOString(),
+	});
+	expect((await waitSubmission(runtime, session.id, second)).status).toBe("done");
 
 	// A manual compaction summarizes through the session's own model, with its own request stream.
 	await runtime.compact(session.id, owner);
@@ -260,12 +332,7 @@ it("gives main, compaction, review and title their own provider session fields",
 		body: streamSessionId(session.id, "compaction"),
 	});
 
-	const values = [
-		sessionFields(main),
-		sessionFields(title),
-		sessionFields(compaction),
-		sessionFields(stub.requests.find(isReview) as Recorded),
-	];
+	const values = [sessionFields(main), sessionFields(title), sessionFields(compaction), sessionFields(review)];
 	for (const fields of values) expect(fields.header).toBe(fields.body);
 	expect(new Set(values.map((fields) => fields.header)).size).toBe(4);
 });

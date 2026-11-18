@@ -45,7 +45,8 @@ let models: ModelConfig;
 let masterKey: MasterKey;
 let app: App;
 let scheduler: Scheduler;
-const faux = fauxProvider();
+// A second model lets the run-session review test tell the session's chosen model from the schedule's template.
+const faux = fauxProvider({ models: [{ id: "faux-1" }, { id: "session-review-model" }] });
 const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 
 /** Reports the scheduler sent in this test, in order. */
@@ -578,33 +579,42 @@ it("builds the [session] chain for approvals and Auto Review", async () => {
 		.executeTakeFirstOrThrow();
 	expect(row).toMatchObject({ root_session_id: sessionId, handler_type: "user", handler_session_id: null });
 
-	// Auto Review reads the rule preset and the model from the run session's own root.
+	// Auto Review reads the rule preset and the model from the run session's own root. The run's model issues
+	// the exec call, so the reviewed task is bound to the durable tool task of a real call.
 	await runtime.modelPresets.update("review", { model: model() });
 	const auto = await makeSchedule(owner, { name: "auto", rulePreset: "auto_review" });
-	faux.setResponses([fauxAssistantMessage([fauxText("scheduled")])]);
-	const autoRun = await scheduler.runNow(auto.id, owner);
-	await waitFor("the Auto Review run to settle", async () =>
-		(await runOf(autoRun.id))?.status === "succeeded" ? true : undefined,
-	);
 	faux.setResponses([
+		fauxAssistantMessage(
+			[fauxToolCall("exec", { targets: [nodeId], cmd: "echo hi", wait: 0 }, { id: "auto-review-call" })],
+			{ stopReason: "toolUse" },
+		),
 		fauxAssistantMessage([
 			fauxToolCall("submit_review", { decision: "approve", risk: "low", reason: "only lists nodes" }),
 		]),
+		fauxAssistantMessage([fauxText("scheduled")]),
 	]);
-	const reviewed = await cluster.createTask({
-		nodeId,
-		spec: execSpec,
-		chain: [{ type: "session", id: autoRun.sessionId as string }],
-		actor: { type: "session", id: autoRun.sessionId as string, onBehalfOfUserId: owner.userId },
+	const autoRun = await scheduler.runNow(auto.id, owner);
+	const autoSession = autoRun.sessionId as string;
+	const autoTask = await waitFor("the Auto Review task", async () => {
+		const stored = await db
+			.selectFrom("tasks")
+			.select(["id", "source_tool_task", "rule_chain"])
+			.where("actor_id", "=", autoSession)
+			.executeTakeFirst();
+		return stored?.source_tool_task ? stored : undefined;
 	});
+	expect(JSON.parse(autoTask.rule_chain ?? "[]")).toEqual([{ type: "session", id: autoSession }]);
 	await waitFor("Auto Review's decision", async () => {
-		const current = await cluster.getTask(reviewed.id);
+		const current = await cluster.getTask(autoTask.id);
 		const approval = current?.approval as { decision?: { by: { type: string } } } | null;
 		return approval?.decision ? true : undefined;
 	});
-	const decided = await cluster.getTask(reviewed.id);
+	const decided = await cluster.getTask(autoTask.id);
 	const approval = decided?.approval as { decision?: { by: { type: string; id: string } } } | null;
 	expect(approval?.decision?.by).toEqual({ type: "system", id: "auto-review" });
+	await waitFor("the Auto Review run to settle", async () =>
+		(await runOf(autoRun.id))?.status === "succeeded" ? true : undefined,
+	);
 	await runtime.modelPresets.update("review", { model: null });
 });
 
@@ -745,23 +755,32 @@ it("Auto Review in a run session without a review model uses the session's own m
 	const nodeId = await addNode(owner);
 	await runtime.modelPresets.update("review", { model: null });
 	const schedule = await makeSchedule(owner, { rulePreset: "auto_review" });
-	faux.setResponses([fauxAssistantMessage([fauxText("run")])]);
+	// The run's model issues a real tool call, so the task Auto Review reads is bound to that call. The
+	// recorded model differs from the schedule's, which proves the run session (not the schedule) supplied it.
+	faux.setResponses([
+		fauxAssistantMessage(
+			[fauxToolCall("exec", { targets: [nodeId], cmd: "echo hi", wait: 0 }, { id: "review-model-call" })],
+			{ stopReason: "toolUse" },
+		),
+		fauxAssistantMessage([fauxText('{"decision":"escalate","reason":"check it"}')]),
+		fauxAssistantMessage([fauxText("run")]),
+	]);
 	await startAt("2026-01-05T09:01:00.000Z");
 	const run = await scheduler.runNow(schedule.id, owner);
 	const sessionId = run.sessionId as string;
-	// Point the run session at a model the review can name but not call: the verdict still records which model
-	// was chosen, which proves the run session (not the schedule) supplied it.
 	const sessionModel = { provider: faux.provider.id, modelId: "session-review-model" };
 	await db
 		.updateTable("sessions")
 		.set({ model: JSON.stringify(sessionModel) })
 		.where("id", "=", sessionId)
 		.execute();
-	const reviewed = await cluster.createTask({
-		nodeId,
-		spec: execSpec,
-		chain: [{ type: "session", id: sessionId }],
-		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
+	const reviewed = await waitFor("the task created by the session's tool call", async () => {
+		const stored = await db
+			.selectFrom("tasks")
+			.select(["id", "source_tool_task"])
+			.where("actor_id", "=", sessionId)
+			.executeTakeFirst();
+		return stored?.source_tool_task ? stored : undefined;
 	});
 	const verdict = await waitFor("the review verdict", async () => {
 		const current = await cluster.getTask(reviewed.id);
@@ -772,6 +791,13 @@ it("Auto Review in a run session without a review model uses the session's own m
 		decision: "escalate",
 		model: `${sessionModel.provider}/${sessionModel.modelId}`,
 	});
+	// Auto Review escalated the call, so the run waits for its owner: rejecting it lets the run end.
+	await cluster.decide(reviewed.id, {
+		decision: "rejected",
+		by: { type: "user", id: owner.userId },
+		at: new Date().toISOString(),
+	});
+	await waitFor("the run to settle", async () => ((await runOf(run.id))?.status === "succeeded" ? true : undefined));
 });
 
 it("keeps historical task chains with a schedule ref evaluable and displayable after the schedule is deleted", async () => {

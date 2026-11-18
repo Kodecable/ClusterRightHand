@@ -9,6 +9,10 @@ import * as m0003 from "../src/storage/migrations/0003_libraries.ts";
 import * as m0004 from "../src/storage/migrations/0004_purpose_and_image_cache.ts";
 import * as m0005 from "../src/storage/migrations/0005_task_group_transfer.ts";
 import * as m0006 from "../src/storage/migrations/0006_image_state.ts";
+import * as m0007 from "../src/storage/migrations/0007_extensions.ts";
+import * as m0008 from "../src/storage/migrations/0008_channels.ts";
+import * as m0009 from "../src/storage/migrations/0009_authorization_lookup.ts";
+import * as m0010 from "../src/storage/migrations/0010_review_tool_task.ts";
 import { type Backend, describeBackends, openTestDb, withDdlLockOn } from "./helpers/db.ts";
 
 // Opening a schema runs the migrator or creates tables under the shared DDL lock; in the full parallel
@@ -187,12 +191,12 @@ describeBackends("initial migration", (backend) => {
 			"approval",
 			"pending_input",
 			"root_session_id",
-			"source_call_id",
 			"handler_type",
 			"handler_session_id",
 			"state",
 			"created_at",
 			"finished_at",
+			"source_tool_task",
 		]);
 		// A terminal row clears its arguments, so the column is nullable.
 		expect(await isNotNull(backend, db, "external_calls", "arguments")).toBe(false);
@@ -212,13 +216,16 @@ describeBackends("initial migration", (backend) => {
 		expect(sessions).toContain("forked_from_entry_id");
 		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_fingerprint");
 		expect(await tableColumns(backend, db, "tasks")).toEqual(
-			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose", "source_call_id"]),
+			expect.arrayContaining(["rev", "output_head", "result", "transfer", "purpose", "source_tool_task"]),
 		);
 		// The state carries a cancellation; there is no separate flag column.
 		expect(await tableColumns(backend, db, "tasks")).not.toContain("cancelled");
 		expect(await tableColumns(backend, db, "task_groups")).toEqual(
-			expect.arrayContaining(["transfer", "source_call_id"]),
+			expect.arrayContaining(["transfer", "source_tool_task"]),
 		);
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("source_call_id");
+		expect(await tableColumns(backend, db, "task_groups")).not.toContain("source_call_id");
+		expect(await tableColumns(backend, db, "external_calls")).not.toContain("source_call_id");
 		expect(await tableColumns(backend, db, "sessions")).toContain("last_used_from");
 		expect(await tableColumns(backend, db, "channels")).toEqual(
 			expect.arrayContaining([
@@ -315,6 +322,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0007_extensions" },
 			{ name: "0008_channels" },
 			{ name: "0009_authorization_lookup" },
+			{ name: "0010_review_tool_task" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
@@ -430,6 +438,70 @@ describe("image state migration", () => {
 			.where("sha256", "=", "abc")
 			.executeTakeFirstOrThrow();
 		expect(row).toEqual({ stored_at: "2026-01-02T00:00:00.000Z" });
+	});
+});
+
+describe("review tool task migration", () => {
+	let db: Db;
+
+	beforeEach(async () => {
+		db = await openTestDb("sqlite", { migrate: false });
+	});
+
+	afterEach(async () => {
+		await db.destroy();
+	});
+
+	it("replaces the model call id with the durable tool task and drops its values", async () => {
+		const before = {
+			"0001_initial": m0001,
+			"0002_task_transfer": m0002,
+			"0003_libraries": m0003,
+			"0004_purpose_and_image_cache": m0004,
+			"0005_task_group_transfer": m0005,
+			"0006_image_state": m0006,
+			"0007_extensions": m0007,
+			"0008_channels": m0008,
+			"0009_authorization_lookup": m0009,
+		};
+		await runMigrations(db, before);
+		const now = "2026-01-01T00:00:00.000Z";
+		await sql`insert into orgs (id, name, created_at) values ('org-1', 'Org', ${now})`.execute(db);
+		await sql`
+			insert into tasks (
+				id, org_id, node_id, kind, spec, privileged, state, timed_out, actor_type, actor_id,
+				on_behalf_of_user_id, created_at, source_call_id
+			) values ('task-1', 'org-1', 'node-1', 'exec', '{}', 0, 'awaiting_approval', 0, 'session', 'session-1',
+				'user-1', ${now}, 'call_0')`.execute(db);
+		await sql`
+			insert into task_groups (
+				id, org_id, targets, node_ids, kind, parallel, fail_fast, skipped, state, actor_type, actor_id,
+				on_behalf_of_user_id, created_at, source_call_id
+			) values ('group-1', 'org-1', '[]', '[]', 'exec', 1, 0, '[]', 'awaiting_approval', 'session', 'session-1',
+				'user-1', ${now}, 'call_0')`.execute(db);
+		await sql`
+			insert into external_calls (
+				id, org_id, actor_type, actor_id, on_behalf_of_user_id, extension_name, tool_name, operation,
+				source_call_id, state, created_at
+			) values ('call-1', 'org-1', 'session', 'session-1', 'user-1', 'test', 'echo', '{}', 'call_0',
+				'awaiting_approval', ${now})`.execute(db);
+
+		await runMigrations(db, { ...before, "0010_review_tool_task": m0010 });
+
+		for (const table of ["tasks", "task_groups", "external_calls"]) {
+			expect(await tableColumns("sqlite", db, table), table).toContain("source_tool_task");
+			expect(await tableColumns("sqlite", db, table), table).not.toContain("source_call_id");
+		}
+		const tasks = await sql<{ source_tool_task: string | null }>`
+			select source_tool_task from tasks where id = 'task-1'`.execute(db);
+		const groups = await sql<{ source_tool_task: string | null }>`
+			select source_tool_task from task_groups where id = 'group-1'`.execute(db);
+		const calls = await sql<{ source_tool_task: string | null }>`
+			select source_tool_task from external_calls where id = 'call-1'`.execute(db);
+		// The old values were model call ids; they are dropped, not carried over.
+		expect(tasks.rows[0]?.source_tool_task).toBeNull();
+		expect(groups.rows[0]?.source_tool_task).toBeNull();
+		expect(calls.rows[0]?.source_tool_task).toBeNull();
 	});
 });
 
