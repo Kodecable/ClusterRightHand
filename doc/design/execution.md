@@ -128,6 +128,8 @@ The transitions:
   `dispatch_interrupted`: its input lived in memory and nobody would release it again.
 - A task group interrupted by a restart or an internal error ends as `interrupted`. Members that did not
   start are cancelled and nodes without a member are recorded as skipped. Groups are never retried.
+- A group member whose node was deleted before its task was created is skipped, and the group continues
+  with its other nodes.
 - The command's own exit code is never the state: it is `exited` plus the outcome, and `errored` means the
   platform could not run or finish the command.
 

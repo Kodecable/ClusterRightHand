@@ -15,7 +15,6 @@ import { startAuthorization } from "./authorization/sync.ts";
 import { checkedOutputLimits } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
-import type { NodeLink } from "./links.ts";
 import { newLive } from "./live-output.ts";
 import { userCanAccessNode } from "./node-access.ts";
 import { nodeGroupIdsForNodes } from "./node-groups.ts";
@@ -81,6 +80,20 @@ export async function evaluateForNodes(
 }
 
 /**
+ * A task's node was deleted between target resolution and task creation. A task group skips that member
+ * and keeps going; every other caller fails the same way it did for a missing node.
+ */
+export class NodeGoneError extends Error {
+	override name = "NodeGoneError";
+	readonly nodeId: string;
+
+	constructor(nodeId: string) {
+		super(`no such node: ${nodeId}`);
+		this.nodeId = nodeId;
+	}
+}
+
+/**
  * Creates a task. With a rule chain it is first judged: denied, left waiting for approval, or
  * dispatched. A node that is not connected at dispatch gets the offline grace and then
  * fails with node_offline.
@@ -89,7 +102,7 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	if (core.closing) throw new Error("the server is shutting down");
 	const limits = checkedOutputLimits(input.maxLines, input.maxBytes);
 	const node = await getNode(core.db, input.nodeId);
-	if (!node) throw new Error(`no such node: ${input.nodeId}`);
+	if (!node) throw new NodeGoneError(input.nodeId);
 	const kind = input.spec.kind;
 	if (input.id) {
 		const existing = await getTask(core, input.id);

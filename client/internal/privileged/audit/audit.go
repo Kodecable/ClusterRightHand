@@ -64,6 +64,13 @@ type Record struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// logFile is the append-only log; tests replace it with a fake to observe Sync.
+type logFile interface {
+	Write([]byte) (int, error)
+	Sync() error
+	Close() error
+}
+
 // Logger appends records to the local log file and mirrors them. It is safe for
 // concurrent use.
 type Logger struct {
@@ -72,7 +79,7 @@ type Logger struct {
 	now    func() time.Time
 
 	mu   sync.Mutex
-	file *os.File
+	file logFile
 }
 
 // Open opens (creating if needed) the log at path with mode 0600. The parent directory
@@ -109,9 +116,9 @@ func Open(path string, opts Options) (*Logger, error) {
 // Path returns the log file path.
 func (l *Logger) Path() string { return l.path }
 
-// Log appends one record. The record is written and flushed before Log returns, so a
-// task is logged before it starts. A mirror write failure is ignored: journald may not
-// be there, and the file is the durable copy.
+// Log appends one record and syncs it before Log returns, so a task is logged
+// before it starts even if the machine loses power. A mirror write failure is
+// ignored: journald may not be there, and the file is the durable copy.
 func (l *Logger) Log(rec Record) error {
 	if rec.Event == "" {
 		return fmt.Errorf("audit: record has no event")
@@ -136,6 +143,9 @@ func (l *Logger) Log(rec Record) error {
 
 	if _, err := l.file.Write(data); err != nil {
 		return fmt.Errorf("audit: append: %w", err)
+	}
+	if err := l.file.Sync(); err != nil {
+		return fmt.Errorf("audit: sync: %w", err)
 	}
 	if l.mirror != nil {
 		_, _ = l.mirror.Write(data)

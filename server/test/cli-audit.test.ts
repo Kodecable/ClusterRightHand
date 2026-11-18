@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendCliAudit, cliDetail } from "../src/audit/cli.ts";
+import { createWebSession } from "../src/auth/sessions.ts";
 import { addUser, changePassword, exportKeys, importKeys, initKeys } from "../src/cli/commands.ts";
 import { loadServerIdentity } from "../src/cluster/identity.ts";
 import type { Config } from "../src/config.ts";
@@ -117,6 +118,19 @@ describe("CLI audit", () => {
 			revoked_api_tokens: 0,
 		});
 		expect(JSON.stringify(event)).not.toContain("new-carol-password");
+	});
+
+	it("revokes the user's web sessions with the new password", async () => {
+		const carol = await addUser(db, "carol", { password: "carol-password", kind: "member" });
+		const dave = await addUser(db, "dave", { password: "dave-password", kind: "member" });
+		await createWebSession(db, carol.id);
+		await createWebSession(db, carol.id);
+		await createWebSession(db, dave.id);
+
+		await changePassword(db, "carol", "new-carol-password");
+
+		const remaining = await db.selectFrom("web_sessions").select(["user_id"]).execute();
+		expect(remaining).toEqual([{ user_id: dave.id }]);
 	});
 
 	it("records keys init with the non-secret master key id", async () => {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, summarize } from "../src/cluster/cluster.ts";
+import { deleteNode } from "../src/cluster/nodes.ts";
 import { GROUP_INTERRUPTED_REASON, outputModeFor, resolveTargets, TaskGroups } from "../src/cluster/task-groups.ts";
 import { taskStartOf } from "../src/cluster/task-start.ts";
 import type { Rule, RulePreset } from "../src/policy/rules.ts";
@@ -231,6 +232,24 @@ describeBackends("task groups", (backend) => {
 		expect(view?.tasks.map((t) => t.nodeId).sort()).toEqual([...nodeIds].sort());
 		expect(view?.tasks.every((t) => t.state === "errored" && t.errorCode === "node_offline")).toBe(true);
 		expect(view?.skipped).toEqual([]);
+	});
+
+	it("skips a member whose node was deleted and finishes the group", async () => {
+		const groups = new TaskGroups(db, cluster);
+		const kept = ids["web-1"] as string;
+		const gone = ids["web-2"] as string;
+		await deleteNode(db, gone);
+		const id = await groups.create({
+			targets: [kept],
+			nodeIds: [kept, gone],
+			spec: spec(),
+			actor: actor(),
+			parallel: 2,
+		});
+		const view = await groups.wait(id, 5000);
+		expect(view?.state).toBe("finished");
+		expect(view?.tasks.map((task) => task.nodeId)).toEqual([kept]);
+		expect(view?.skipped).toEqual([gone]);
 	});
 
 	it("gives every member the group's timeout", async () => {

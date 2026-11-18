@@ -121,3 +121,14 @@ func TestRunRestoresKeysOnFailure(t *testing.T) {
 		t.Fatalf("identity = %q, %v; want it restored", data, readErr)
 	}
 }
+
+func TestServerKeyClientHonorsProxy(t *testing.T) {
+	client := serverKeyClient(&config.Config{TLSVerify: config.TLSVerifyNone})
+	transport, ok := client.Transport.(*http.Transport)
+	if !ok || transport.Proxy == nil {
+		t.Fatalf("the unverified server-key client does not use the proxy environment: %#v", client.Transport)
+	}
+	if serverKeyClient(&config.Config{TLSVerify: config.TLSVerifySystem}) != http.DefaultClient {
+		t.Fatal("a verified server-key fetch should use http.DefaultClient")
+	}
+}

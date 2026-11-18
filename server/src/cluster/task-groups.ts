@@ -37,6 +37,7 @@ import type { Cluster } from "./cluster.ts";
 import { listNodesForUser } from "./nodes.ts";
 import { taskGroupOutcome } from "./outcome.ts";
 import { operationOfJson, specFromRow } from "./spec.ts";
+import { NodeGoneError } from "./task-dispatch.ts";
 import { pendingInputColumn, pendingInputOf } from "./task-start.ts";
 import {
 	type Actor,
@@ -587,6 +588,8 @@ export class TaskGroups {
 		approvedBy?: ApprovalDecision,
 	): Promise<void> {
 		const queue = [...nodeIds];
+		// The nodes whose member was never created because the node was deleted while the group ran.
+		const skipped: string[] = [];
 		// Tasks that wait for an authorization signature do not hold a worker slot: another node may still
 		// start, and the group waits for them only at the end (doc/design/execution.md "State machine").
 		const parked: TaskView[] = [];
@@ -620,7 +623,15 @@ export class TaskGroups {
 					queue.unshift(nodeId);
 					return;
 				}
-				const created = await this.#cluster.createTask(this.#taskInput(input, id, nodeId, approvedBy));
+				let created: TaskView;
+				try {
+					created = await this.#cluster.createTask(this.#taskInput(input, id, nodeId, approvedBy));
+				} catch (err) {
+					if (!(err instanceof NodeGoneError)) throw err;
+					// The node was deleted while the group ran: skip its member and let the other nodes run.
+					skipped.push(nodeId);
+					continue;
+				}
 				// cancel() cancelled the members it could see before this one existed; end it before waiting.
 				if (cancelled()) {
 					await this.#cluster.cancelTask(created.id, this.#cancelled.get(id) ?? GROUP_CANCELLED_REASON);
@@ -700,9 +711,9 @@ export class TaskGroups {
 				// Shutdown leaves an unfinished group to recover(), which marks it interrupted on the next start.
 				if (!this.#cluster.closing && !abandoned) {
 					if (failure !== undefined) await this.#fail(id, nodeIds, failure);
-					else if (cancelled()) await this.#finishCancelled(id, queue);
-					else if (rejected()) await this.#finishRejected(id, queue);
-					else await this.#finish(id, queue);
+					else if (cancelled()) await this.#finishCancelled(id, [...queue, ...skipped]);
+					else if (rejected()) await this.#finishRejected(id, [...queue, ...skipped]);
+					else await this.#finish(id, [...queue, ...skipped]);
 				}
 			} finally {
 				// The group is done as a whole; its tasks may already have been dropped one by one.

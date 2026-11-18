@@ -1,6 +1,7 @@
+import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { activateLocale } from "@/test/render";
 import { LocaleProvider, resolveInitialLocale, useLocale } from "./i18n";
 
@@ -80,5 +81,28 @@ describe("LocaleProvider", () => {
 		fireEvent.click(screen.getByRole("button", { name: "en" }));
 		await waitFor(() => expect(screen.getByText("Theme")).toBeInTheDocument());
 		expect(document.documentElement.lang).toBe("en");
+	});
+
+	test("a failed activation resets switching and keeps the old locale", async () => {
+		activateLocale("en");
+		render(
+			<LocaleProvider initialLocale="en">
+				<Probe />
+			</LocaleProvider>,
+		);
+		const load = vi.spyOn(i18n, "loadAndActivate").mockImplementationOnce(() => {
+			throw new Error("catalogue unavailable");
+		});
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			fireEvent.click(screen.getByRole("button", { name: "zh" }));
+			await waitFor(() => expect(screen.getByTestId("switching")).toHaveTextContent("false"));
+			expect(screen.getByTestId("locale")).toHaveTextContent("en");
+			expect(screen.getByText("Theme")).toBeInTheDocument();
+			expect(window.localStorage.getItem("crh.locale")).toBeNull();
+		} finally {
+			load.mockRestore();
+			error.mockRestore();
+		}
 	});
 });

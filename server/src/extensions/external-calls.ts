@@ -456,7 +456,7 @@ export async function cancelWaitingExternalCall(db: Db, id: string): Promise<boo
 /**
  * Waits until the call leaves `awaiting_approval` (approved, rejected or cancelled), woken by whichever
  * path writes the decision (doc/design/extensions.md "External calls"). The waiter is registered before
- * `onWaiting` runs, so a decision made while the call is announced is not missed.
+ * the row is read and before `onWaiting` runs, so a decision made in either gap is not missed.
  */
 export async function waitExternalCall(
 	db: Db,
@@ -471,9 +471,6 @@ export async function waitExternalCall(
 ): Promise<ExternalCallRow> {
 	let announced = false;
 	for (;;) {
-		const row = await getExternalCall(db, id);
-		if (!row) throw new UserError("the external call is gone", "not_found");
-		if (row.state !== "awaiting_approval") return row;
 		let resolveWake!: () => void;
 		const changed = new Promise<void>((resolve) => {
 			resolveWake = resolve;
@@ -489,6 +486,9 @@ export async function waitExternalCall(
 			else options.signal?.addEventListener("abort", onAbort, { once: true });
 		});
 		try {
+			const row = await getExternalCall(db, id);
+			if (!row) throw new UserError("the external call is gone", "not_found");
+			if (row.state !== "awaiting_approval") return row;
 			if (!announced) {
 				announced = true;
 				await options.onWaiting?.();

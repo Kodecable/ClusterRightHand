@@ -1,6 +1,10 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { HealthResponseSchema } from "@crh/api/schemas";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { OpenAPIHono } from "@hono/zod-openapi";
+import type { Context } from "hono";
 import { sql } from "kysely";
 import { ModelCatalogue, type ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
@@ -46,6 +50,41 @@ import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
 import { userRoutes } from "./user-routes.ts";
 import { userSettingsRoutes } from "./user-settings-routes.ts";
+
+/**
+ * The WebUI document's policy: the bundle and its fetches are same-origin. `script-src` allows the inline
+ * scripts of index.html by their hash (the theme bootstrap) and cap's WebAssembly; `worker-src blob:` its
+ * proof-of-work worker; `img-src data: blob:` image previews and the bundled math styles; and
+ * `style-src 'unsafe-inline'` the style attributes React writes.
+ */
+export function webUiCsp(indexHtml: string): string {
+	const hashes = [...indexHtml.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
+		(match) =>
+			`'sha256-${createHash("sha256")
+				.update(match[1] ?? "")
+				.digest("base64")}'`,
+	);
+	return [
+		"default-src 'self'",
+		"base-uri 'self'",
+		"object-src 'none'",
+		"frame-ancestors 'none'",
+		"form-action 'self'",
+		"connect-src 'self'",
+		"img-src 'self' data: blob:",
+		"font-src 'self'",
+		"style-src 'self' 'unsafe-inline'",
+		["script-src 'self'", ...hashes, "'wasm-unsafe-eval'"].join(" "),
+		"worker-src 'self' blob:",
+	].join("; ");
+}
+
+/** Headers for the WebUI document; API responses and file downloads keep their own. */
+function setWebUiHeaders(c: Context, csp: string): void {
+	c.header("Content-Security-Policy", csp);
+	c.header("X-Frame-Options", "DENY");
+	c.header("Referrer-Policy", "same-origin");
+}
 
 const healthRoute = defineRoute({
 	method: "get",
@@ -290,12 +329,26 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 
 	if (options.webRoot) {
 		const root = options.webRoot;
+		// The shell is fixed for the process's lifetime, so its inline scripts are hashed once.
+		let indexHtml = "";
+		try {
+			indexHtml = readFileSync(join(root, "index.html"), "utf8");
+		} catch {
+			// No built shell: nothing inline to allow.
+		}
+		const csp = webUiCsp(indexHtml);
 		const isApi = (path: string) => path.startsWith("/api/") || path.startsWith("/agent") || path === "/mcp";
-		app.use("/*", async (c, next) => (isApi(c.req.path) ? next() : serveStatic({ root })(c, next)));
+		app.use("/*", async (c, next) => {
+			if (isApi(c.req.path)) return next();
+			setWebUiHeaders(c, csp);
+			return serveStatic({ root })(c, next);
+		});
 		// Client-side routes: anything else gets the app shell.
-		app.get("*", async (c, next) =>
-			isApi(c.req.path) ? c.json({ error: "not found" }, 404) : serveStatic({ root, path: "index.html" })(c, next),
-		);
+		app.get("*", async (c, next) => {
+			if (isApi(c.req.path)) return c.json({ error: "not found" }, 404);
+			setWebUiHeaders(c, csp);
+			return serveStatic({ root, path: "index.html" })(c, next);
+		});
 	}
 
 	// The built-in extensions read this app's routes: `crhs-docs` renders the API reference from the same

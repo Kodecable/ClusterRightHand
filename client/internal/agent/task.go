@@ -219,18 +219,26 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	}
 	// One transfer per node: a second one is refused with busy before it is accepted. crhs
 	// schedules transfers, so this is a backstop (doc/design/library.md "Data connections").
-	if isTransferKind(ts.Spec.Kind) && !a.claimTransfer() {
+	claimed := isTransferKind(ts.Spec.Kind)
+	if claimed && !a.claimTransfer() {
 		return nil, &protocol.RemoteError{Code: protocol.CodeBusy, Message: "this node is already running a transfer"}
+	}
+	// Only a task that claimed the slot may free it: a refused ordinary task must not release the
+	// transfer another task is running.
+	releaseClaim := func() {
+		if claimed {
+			a.releaseTransfer()
+		}
 	}
 	// The mode decides how the task runs. A privileged task this mode cannot run is refused before
 	// an output file or an input stream is created for it.
 	run, err := a.newRun(ts)
 	if err != nil {
-		a.releaseTransfer()
+		releaseClaim()
 		return nil, err
 	}
 	if err := checkTaskKind(ts.Spec); err != nil {
-		a.releaseTransfer()
+		releaseClaim()
 		return nil, err
 	}
 
@@ -253,7 +261,7 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		// A zero-size input still commits crhs to the SHA-256 of empty input. A different hash can
 		// never match, so refuse the task before accepting it.
 		if err := taskinput.ValidateRef(ref); err != nil {
-			a.releaseTransfer()
+			releaseClaim()
 			return nil, err
 		}
 		t.input = taskinput.New(ref)
@@ -262,7 +270,7 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 	t.cancel, t.runCtx = cancel, runCtx
 	if err := run.prepare(a, ctx, t); err != nil {
 		cancel()
-		a.releaseTransfer()
+		releaseClaim()
 		return nil, err
 	}
 	a.mu.Lock()

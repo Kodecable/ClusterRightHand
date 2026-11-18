@@ -35,8 +35,6 @@ import { apiRouter, defineRoute, json } from "./openapi.ts";
 
 /** Verified against when the username does not exist, so both cases take the same time. */
 const dummyHash = hashPassword("crh-dummy-password");
-/** A failed attempt's audit record keeps at most this much of the request's username. */
-const MAX_AUDITED_USERNAME = 256;
 /** `base64url_nopad(SHA-256(...))` is 43 characters. */
 const CAPTCHA_TAG_RE = /^[A-Za-z0-9_-]{43}$/;
 const TAGS = ["Auth"];
@@ -225,7 +223,7 @@ export function authRoutes(db: Db, options: AuthRoutesOptions = {}) {
 					actor: { type: "system", id: "auth", onBehalfOfUserId: user?.id ?? null },
 					action: "auth.login_failed",
 					target: user ? { type: "user", id: user.id } : undefined,
-					detail: { username: username.slice(0, MAX_AUDITED_USERNAME), reason, address },
+					detail: { username, reason, address },
 				});
 			let ok: boolean;
 			try {

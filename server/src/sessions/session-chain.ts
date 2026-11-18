@@ -12,16 +12,29 @@ import type { SessionsTable } from "../storage/schema.ts";
 export type SessionRow = Selectable<SessionsTable>;
 
 /**
+ * A cycle guard for the session tree. Legitimate subagents nest at most `MAX_SUBAGENT_DEPTH` levels, but old
+ * data may be deeper, so the bound is well above the real limit: it only stops a corrupt parent cycle. Shared
+ * by every downward or upward walk so one bad parent id cannot spin a query forever.
+ */
+export const MAX_SESSION_TREE_DEPTH = 100;
+
+/**
  * The session and its ancestors as rows, this session first and the root last. A missing row (a session whose
- * parent was deleted) ends the walk, like a parent id of null. `undefined` starts nowhere, so a caller that
- * already has a parent id can walk from it.
+ * parent was deleted) ends the walk, like a parent id of null. A corrupt parent cycle and a chain deeper than
+ * `MAX_SESSION_TREE_DEPTH` stop it too. `undefined` starts nowhere, so a caller that already has a parent id
+ * can walk from it.
  */
 export async function* sessionAncestors(db: Db, sessionId: string | null | undefined): AsyncGenerator<SessionRow> {
+	const seen = new Set<string>();
+	let depth = 0;
 	for (let id = sessionId ?? null; id; ) {
+		if (seen.has(id) || depth >= MAX_SESSION_TREE_DEPTH) return;
+		seen.add(id);
 		const row = await db.selectFrom("sessions").selectAll().where("id", "=", id).executeTakeFirst();
 		if (!row) return;
 		yield row;
 		id = row.parent_session_id;
+		depth++;
 	}
 }
 
@@ -49,13 +62,8 @@ export async function parentOf(db: Db, sessionId: string): Promise<string | null
 }
 
 /**
- * A cycle guard for the session tree. Legitimate subagents nest at most `MAX_SUBAGENT_DEPTH` levels, but old
- * data may be deeper, so the bound is well above the real limit: it only stops a corrupt parent cycle. Shared
- * by every downward or upward walk so one bad parent id cannot spin a query forever.
+ * The ids of every session below this one, depth first. One recursive query, not one query per level.
  */
-export const MAX_SESSION_TREE_DEPTH = 100;
-
-/** The ids of every session below this one, depth first. One recursive query, not one query per level. */
 export async function sessionDescendants(db: Db, sessionId: string): Promise<string[]> {
 	const result = await sql<{ id: string }>`
 		with recursive session_tree(id, depth, path) as (

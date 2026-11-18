@@ -52,7 +52,11 @@ class WebdavLibraryBackend implements LibraryBackend {
 
 	/** Creates the collection once; a WebDAV server answers 405 when it already exists. */
 	#ensureCollection(): Promise<void> {
-		this.#collection ??= this.#mkcol(this.#base);
+		this.#collection ??= this.#mkcol(this.#base).catch((err: unknown) => {
+			// A failed MKCOL is not cached: the next write retries instead of failing forever.
+			this.#collection = undefined;
+			throw err;
+		});
 		return this.#collection;
 	}
 

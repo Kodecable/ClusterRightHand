@@ -22,6 +22,7 @@ import {
 } from "../approvals/request.ts";
 import type { Audit } from "../audit/audit.ts";
 import { userActor } from "../audit/audit.ts";
+import { LoginLimiter } from "../auth/login-limiter.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { approvalPhaseOf } from "../cluster/approval.ts";
 import { AUTHORIZATION_DECLINED } from "../cluster/authorization/reject.ts";
@@ -486,6 +487,8 @@ export class ChannelManager {
 	/** Keys a settle is acting on, so a concurrent sweep does not delete/edit the same card twice. */
 	readonly #settling = new Set<string>();
 	readonly #unlinkedReplied = new Set<string>();
+	/** Wrong link codes are online guesses: the login limiter's per-key failure count fits the chat account. */
+	readonly #linkCodeLimiter = new LoginLimiter();
 	/** Each channel's admin operations, so a reload never overlaps another for the same name. */
 	readonly #channelOps = new KeyedQueue("channel admin queue");
 	/** Wait syncs per root: a state change during a sync asks for one more pass that reads the newer waits. */
@@ -1196,11 +1199,17 @@ export class ChannelManager {
 			await adapter.sendText(target, platform.linkMissingCode);
 			return;
 		}
+		const attemptKey = `channel-link:${row.id}:${message.platformUserId}`;
+		if (!this.#linkCodeLimiter.reserve([attemptKey])) {
+			await adapter.sendText(target, platform.linkInvalidCode);
+			return;
+		}
 		const userId = await consumeLinkCode(this.#options.db, code);
 		if (!userId) {
 			await adapter.sendText(target, platform.linkInvalidCode);
 			return;
 		}
+		this.#linkCodeLimiter.reset([attemptKey]);
 		const userRow = await this.#options.db
 			.selectFrom("users")
 			.select(["id", "username", "kind", "status"])

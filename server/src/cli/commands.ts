@@ -4,6 +4,7 @@ import type { LibraryLimits } from "@crh/api";
 import { keyPairFromPrivate } from "@crh/noise";
 import type { AuditInput } from "../audit/audit.ts";
 import { appendCliAudit, cliInput } from "../audit/cli.ts";
+import { revokeUserWebSessions } from "../auth/sessions.ts";
 import { keyFingerprint } from "../cluster/identity.ts";
 import type { Config } from "../config.ts";
 import { buildKeyExport, decryptKeyExport, encryptKeyExport, type KeyExport } from "../keys/export.ts";
@@ -89,6 +90,8 @@ export async function changePassword(
 			),
 		);
 	});
+	// The reset is the WebUI administrator's: sessions opened with the old password end here too.
+	await revokeUserWebSessions(db, user.id);
 	return { id: user.id, username: user.username };
 }
 

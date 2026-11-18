@@ -42,7 +42,9 @@ answered once with how to link and otherwise ignored.
 
 - **Linking.** In the WebUI's **Settings → Chat** a user creates a one-time link code (valid for 10
   minutes) and sends `/link <code>` to the bot in a private chat. The account is identified by channel,
-  platform and the platform's user id. A code is single use and bound to the user who created it.
+  platform and the platform's user id. A code is single use and bound to the user who created it; a new
+  code replaces the user's previous unused one, and repeated wrong codes from one chat account are
+  rate-limited like wrong passwords.
 - **Unlinking** is possible from the WebUI and with `/unlink` in the chat. Disabling a CRH user stops
   all of their accounts.
 - A linked account acts with the user's authority for everything a chat can do, including approvals

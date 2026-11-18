@@ -8,7 +8,7 @@ import type { TaskGroups } from "../cluster/task-groups.ts";
 import type { Db } from "../storage/db.ts";
 
 /** Cancels waiting requests through the same path every other cancellation takes. */
-async function cancelWaiting(
+export async function cancelWaiting(
 	cluster: Cluster,
 	taskGroups: TaskGroups,
 	table: "tasks" | "task_groups",
@@ -45,6 +45,33 @@ export async function cancelWaitingTokenWork(
 			.where("state", "=", "awaiting_approval")
 			.where("actor_type", "=", "api_token")
 			.where("actor_id", "=", tokenId)
+			.execute();
+		cancelled += await cancelWaiting(cluster, taskGroups, table, rows, reason, by);
+	}
+	return cancelled;
+}
+
+/**
+ * Cancels the work a disabled user left waiting for an approval or a signature. Nobody will decide it
+ * anymore, and the user can no longer reach the node to run it. A router built without a cluster and
+ * task groups still disables the user; only this cancellation is skipped there.
+ */
+export async function cancelWaitingUserWork(
+	db: Db,
+	cluster: Cluster | undefined,
+	taskGroups: TaskGroups | undefined,
+	userId: string,
+	reason: string,
+	by?: Actor,
+): Promise<number> {
+	if (!cluster || !taskGroups) return 0;
+	let cancelled = 0;
+	for (const table of ["tasks", "task_groups"] as const) {
+		const rows = await db
+			.selectFrom(table)
+			.select("id")
+			.where("state", "in", ["awaiting_approval", "awaiting_authorization"])
+			.where("on_behalf_of_user_id", "=", userId)
 			.execute();
 		cancelled += await cancelWaiting(cluster, taskGroups, table, rows, reason, by);
 	}

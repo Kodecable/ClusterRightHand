@@ -1,3 +1,4 @@
+import { LOGIN_USERNAME_MAX_CHARS } from "@crh/api/schemas";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
@@ -149,27 +150,15 @@ describe("request body limits (sqlite)", () => {
 		expect(await res.json()).toEqual({ error: "stdin too large" });
 	});
 
-	it("truncates the username kept in a failed login's audit record", async () => {
-		const username = "u".repeat(300);
+	it("refuses an over-long username before a failed login is audited", async () => {
+		const username = "u".repeat(LOGIN_USERNAME_MAX_CHARS + 1);
 		const res = await call(app, "/api/auth/login", { body: { username, password: "wrong-password" } });
-		expect(res.status).toBe(401);
-		const row = await (async () => {
-			for (let i = 0; i < 100; i++) {
-				const found = await db
-					.selectFrom("audit_events")
-					.select("detail")
-					.where("action", "=", "auth.login_failed")
-					.execute()
-					.then((rows) =>
-						rows.find((r) => (JSON.parse(r.detail) as { username?: string }).username?.startsWith("uuu")),
-					);
-				if (found) return found;
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
-			return undefined;
-		})();
-		expect(row).toBeDefined();
-		const detail = JSON.parse(row?.detail ?? "{}") as { username?: string };
-		expect(detail.username).toBe(username.slice(0, 256));
+		expect(res.status).toBe(400);
+		const rows = await db
+			.selectFrom("audit_events")
+			.select("detail")
+			.where("action", "=", "auth.login_failed")
+			.execute();
+		expect(rows.filter((row) => row.detail.includes(username.slice(0, 64)))).toHaveLength(0);
 	});
 });

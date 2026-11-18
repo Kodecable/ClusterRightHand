@@ -324,6 +324,28 @@ func TestTransferBusyBackstop(t *testing.T) {
 	a.releaseTransfer()
 }
 
+func TestNonTransferRejectionKeepsTransferSlot(t *testing.T) {
+	a := newTestAgent(t, Options{})
+	if !a.claimTransfer() {
+		t.Fatal("the first transfer claim failed")
+	}
+	defer a.releaseTransfer()
+
+	// An invalid ordinary task is refused after the claim step; it never took the transfer slot.
+	ts := protocol.TaskStart{
+		TaskID: "bad-exec", Attempt: 1,
+		Spec:   protocol.TaskSpec{Kind: protocol.TaskSpecExec},
+		Output: protocol.OutputMode{Kind: protocol.OutputStatus},
+	}
+	if _, err := a.start(context.Background(), &ts); err == nil {
+		t.Fatal("a task without an exec body was accepted")
+	}
+	if a.claimTransfer() {
+		a.releaseTransfer()
+		t.Fatal("a rejected non-transfer task released the transfer slot")
+	}
+}
+
 func TestTransferIdleTimeoutFailsTask(t *testing.T) {
 	old := transferIdleTimeout
 	transferIdleTimeout = 50 * time.Millisecond

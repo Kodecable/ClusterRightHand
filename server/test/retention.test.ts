@@ -275,6 +275,24 @@ describeBackends("retention sweep", (backend) => {
 	const externalCallIds = async (): Promise<string[]> =>
 		(await db.selectFrom("external_calls").select("id").orderBy("id").execute()).map((row) => row.id);
 
+	const insertLinkCode = async (id: string, expiresAt: string, usedAt: string | null): Promise<void> => {
+		await db
+			.insertInto("channel_link_codes")
+			.values({
+				id,
+				org_id: orgId,
+				user_id: "user-1",
+				code_hash: `hash-${id}`,
+				expires_at: expiresAt,
+				used_at: usedAt,
+				created_at: OLD,
+			})
+			.execute();
+	};
+
+	const linkCodeIds = async (): Promise<string[]> =>
+		(await db.selectFrom("channel_link_codes").select("id").orderBy("id").execute()).map((row) => row.id);
+
 	const insertAuditEvent = async (seq: number, ts: string): Promise<void> => {
 		await db
 			.insertInto("audit_events")
@@ -469,6 +487,20 @@ describeBackends("retention sweep", (backend) => {
 		expect(EXTERNAL_CALL_RETENTION_MS).toBe(DAY);
 	});
 
+	it("deletes used and expired channel link codes, as built-in policy", async () => {
+		const expired = new Date(NOW_MS - 1000).toISOString();
+		const live = new Date(NOW_MS + DAY).toISOString();
+		await insertLinkCode("expired", expired, null);
+		await insertLinkCode("used", live, OLD);
+		await insertLinkCode("used-expired", expired, OLD);
+		await insertLinkCode("live", live, null);
+
+		const counts = await runRetention(db, { tasksMs: null, auditMs: null, piTasksMs: null }, NOW);
+
+		expect(counts.channelLinkCodes).toBe(3);
+		expect(await linkCodeIds()).toEqual(["live"]);
+	});
+
 	it("deletes old audit events only below max(seq) - 16384", async () => {
 		for (let seq = 1; seq <= 10; seq++) await insertAuditEvent(seq, AUDIT_OLD);
 		// Exactly on the floor (20000 - 16384 = 3616) is deletable; just above it is kept.
@@ -627,6 +659,7 @@ describeBackends("retention sweep", (backend) => {
 			authorizations: 1,
 			auditEvents: 1,
 			externalCalls: 0,
+			channelLinkCodes: 0,
 			piTasks: 0,
 		});
 		expect(await taskIds()).toEqual(["old-exited"]);
@@ -692,6 +725,7 @@ describeBackends("retention sweep", (backend) => {
 			authorizations: 0,
 			auditEvents: 0,
 			externalCalls: 0,
+			channelLinkCodes: 0,
 			piTasks: 0,
 		});
 	});
@@ -705,6 +739,7 @@ describeBackends("retention sweep", (backend) => {
 			authorizations: 0,
 			auditEvents: 0,
 			externalCalls: 0,
+			channelLinkCodes: 0,
 			piTasks: 0,
 		});
 		expect(console.log).not.toHaveBeenCalled();
@@ -820,6 +855,7 @@ describe("retention sweep scheduler", () => {
 		authorizations: 0,
 		auditEvents: 0,
 		externalCalls: 0,
+		channelLinkCodes: 0,
 		piTasks: 0,
 	};
 	const STARTUP_DELAY_MS = 5_000;

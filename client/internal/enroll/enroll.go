@@ -207,6 +207,18 @@ func ParseToken(token string) (fingerprint, secret string, err error) {
 	return parts[1], parts[2], nil
 }
 
+// serverKeyClient is the client fetchServerKey uses. With certificate verification off it still honors
+// the proxy environment, like the agent connection (transport.Dial).
+func serverKeyClient(cfg *config.Config) *http.Client {
+	if cfg.TLSVerify != config.TLSVerifyNone {
+		return http.DefaultClient
+	}
+	return &http.Client{Transport: &http.Transport{
+		Proxy:           http.ProxyFromEnvironment,
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // checked against the fingerprint below
+	}}
+}
+
 // fetchServerKey gets crhs's public key over HTTPS and accepts it only if it matches the token, so the
 // token alone bootstraps trust (like kubeadm's discovery token CA hash).
 func fetchServerKey(ctx context.Context, cfg *config.Config, fingerprint string) ([]byte, error) {
@@ -215,10 +227,7 @@ func fetchServerKey(ctx context.Context, cfg *config.Config, fingerprint string)
 	if err != nil {
 		return nil, err
 	}
-	client := http.DefaultClient
-	if cfg.TLSVerify == config.TLSVerifyNone {
-		client = &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}} //nolint:gosec // checked against the fingerprint below
-	}
+	client := serverKeyClient(cfg)
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

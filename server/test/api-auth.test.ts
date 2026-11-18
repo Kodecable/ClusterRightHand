@@ -1,4 +1,5 @@
 import { argon2Sync } from "node:crypto";
+import { LOGIN_USERNAME_MAX_CHARS } from "@crh/api/schemas";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { LoginLimiter } from "../src/auth/login-limiter.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -69,6 +70,20 @@ describeBackends("api auth", (backend) => {
 		it("rejects a user without a password", async () => {
 			const res = await call(app, "/api/auth/login", { body: { username: "nopass", password: "anything-at-all" } });
 			expect(res.status).toBe(401);
+		});
+
+		it("bounds the username before the rate limiter sees it", async () => {
+			const limiter = new LoginLimiter();
+			const bounded = makeApp(db, limiter);
+			const long = "a".repeat(LOGIN_USERNAME_MAX_CHARS + 1);
+			const res = await call(bounded, "/api/auth/login", { body: { username: long, password: "whatever" } });
+			expect(res.status).toBe(400);
+			expect(limiter.size).toBe(0);
+			// The bound itself is a valid schema value and reaches authentication, not validation.
+			const max = await call(bounded, "/api/auth/login", {
+				body: { username: "a".repeat(LOGIN_USERNAME_MAX_CHARS), password: "whatever" },
+			});
+			expect(max.status).toBe(401);
 		});
 
 		it("rehashes an accepted password without applying the policy to it", async () => {

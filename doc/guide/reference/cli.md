@@ -14,7 +14,7 @@ the tar with Node. Every command except `init` reads the configuration file (`--
 | `serve` | Run the server. This is the default command. |
 | `init [--answers <file>] [--save-answers <file>]` | Set up this host: user, directories, configuration, key, database, administrator and systemd unit. |
 | `user add <username>` | Create a user; `--admin` makes an administrator. |
-| `user passwd <username>` | Set a user's password. |
+| `user passwd <username>` | Set a user's password and sign out their WebUI sessions. |
 | `keys init` | Create the master key file for a new database. |
 | `keys export --out <file>` | Write a passphrase-protected backup of crhs's keys. |
 | `keys import <file>` | Restore the master key file from an export. |

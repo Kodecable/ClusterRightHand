@@ -78,11 +78,16 @@ export async function nodeAccess(db: Db, user: SessionUser, nodeId: string): Pro
 
 /**
  * Whether a user id may reach a node. Used where only the actor's stored id is available (the on_behalf_of
- * user of a task before it is dispatched); the user may have been deleted, in which case they have no access.
+ * user of a task before it is dispatched); the user may have been deleted or disabled, in which case they
+ * have no access.
  */
 export async function userCanAccessNode(db: Db, userId: string, nodeId: string): Promise<boolean> {
-	const user = await db.selectFrom("users").select(["id", "kind"]).where("id", "=", userId).executeTakeFirst();
-	if (!user) return false;
+	const user = await db
+		.selectFrom("users")
+		.select(["id", "kind", "status"])
+		.where("id", "=", userId)
+		.executeTakeFirst();
+	if (user?.status !== "active") return false;
 	return (
 		(await nodeAccess(db, { userId: user.id, username: "", kind: user.kind, sessionId: "" }, nodeId)) !== undefined
 	);

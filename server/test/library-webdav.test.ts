@@ -14,6 +14,7 @@ function startWebdav() {
 	const objects = new Map<string, { data: Buffer; lastModified: number }>();
 	const methods: string[] = [];
 	const depths: string[] = [];
+	let failMkcolOnce = false;
 	const entry = (name: string, lastModified?: number): string =>
 		`<D:response><D:href>${BASE_PATH}${name}</D:href><D:propstat><D:prop>` +
 		(lastModified === undefined
@@ -30,6 +31,11 @@ function startWebdav() {
 		const relative = decodeURIComponent(url.pathname.slice(BASE_PATH.length)).replace(/\/$/, "");
 		const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : "";
 		if (req.method === "MKCOL") {
+			if (failMkcolOnce) {
+				failMkcolOnce = false;
+				res.writeHead(500).end();
+				return;
+			}
 			if (!collections.has(parent)) res.writeHead(409).end();
 			else if (collections.has(relative)) res.writeHead(405).end();
 			else {
@@ -91,6 +97,9 @@ function startWebdav() {
 		objects,
 		methods,
 		depths,
+		failNextMkcol(): void {
+			failMkcolOnce = true;
+		},
 		async start(): Promise<string> {
 			await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 			const port = (server.address() as AddressInfo).port;
@@ -135,5 +144,15 @@ describe("WebDAV library backend", () => {
 
 		await backend.delete(KEY);
 		expect(fake.objects.has(`${shard}/${KEY}`)).toBe(false);
+	});
+
+	it("retries the collection after a failed MKCOL instead of caching the failure", async () => {
+		fake.failNextMkcol();
+		const data = Buffer.from("retried content");
+		await expect(putBytes(backend, KEY, data)).rejects.toThrow(/MKCOL .* failed with 500/);
+		expect(fake.collections.has("")).toBe(true);
+
+		await putBytes(backend, KEY, data);
+		expect(await getBytes(backend, KEY)).toEqual(data);
 	});
 });

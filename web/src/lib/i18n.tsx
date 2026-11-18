@@ -59,11 +59,16 @@ export function LocaleProvider({ initialLocale, children }: { initialLocale: Loc
 		(next: Locale) => {
 			if (next === locale) return;
 			setSwitching(true);
-			void activateLocale(next).then(() => {
-				writeStorage(LOCALE_STORAGE_KEY, next);
-				setLocaleState(next);
-				setSwitching(false);
-			});
+			void activateLocale(next)
+				.then(() => {
+					writeStorage(LOCALE_STORAGE_KEY, next);
+					setLocaleState(next);
+				})
+				.catch((error: unknown) => {
+					// The old locale stays active; the switch is simply over.
+					console.error(`failed to switch the locale to ${next}:`, error);
+				})
+				.finally(() => setSwitching(false));
 		},
 		[locale],
 	);

@@ -9,9 +9,12 @@ import { UserSchema } from "./users.ts";
 /** `GET /api/auth/login-options`: whether this crhs asks for a proof of work. */
 export const LoginOptionsResponseSchema = z.object({ captcha: z.enum(["cap", "none"]) });
 
+/** A login username is bounded so the rate limiter's keys and the audit detail stay small. */
+export const LOGIN_USERNAME_MAX_CHARS = 256;
+
 /** `POST /api/auth/login/challenge`: the tag is the browser's salted password digest. */
 export const LoginChallengeBodySchema = z.object({
-	username: z.string(),
+	username: z.string().max(LOGIN_USERNAME_MAX_CHARS),
 	tag: z.string().describe("base64url_nopad(SHA-256(UTF-8(username) || 0x00 || UTF-8(password)))."),
 });
 
@@ -26,7 +29,7 @@ export const LoginChallengeResponseSchema = z
 
 /** `POST /api/auth/login`; `cap` is the proof-of-work submission, ignored when captcha is off. */
 export const LoginBodySchema = z.object({
-	username: z.string(),
+	username: z.string().max(LOGIN_USERNAME_MAX_CHARS),
 	password: z.string(),
 	cap: z.unknown().optional(),
 });

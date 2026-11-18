@@ -3,6 +3,7 @@ package audit
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,6 +99,46 @@ func TestLogWritesFileAndMirror(t *testing.T) {
 	}
 	if refused["code"] != "authorization_rejected" || refused["step"] != float64(7) {
 		t.Fatalf("refused record = %v", refused)
+	}
+}
+
+type fakeLogFile struct {
+	writes  int
+	syncs   int
+	syncErr error
+	closed  bool
+}
+
+func (f *fakeLogFile) Write(p []byte) (int, error) {
+	f.writes++
+	return len(p), nil
+}
+
+func (f *fakeLogFile) Sync() error {
+	f.syncs++
+	return f.syncErr
+}
+
+func (f *fakeLogFile) Close() error {
+	f.closed = true
+	return nil
+}
+
+func TestLogSyncsEveryRecord(t *testing.T) {
+	file := &fakeLogFile{}
+	logger := &Logger{file: file}
+	for _, event := range []string{"task.accepted", "task.finished"} {
+		if err := logger.Log(Record{Event: event}); err != nil {
+			t.Fatalf("Log(%s): %v", event, err)
+		}
+	}
+	if file.writes != 2 || file.syncs != 2 {
+		t.Fatalf("writes = %d, syncs = %d; want 2 each", file.writes, file.syncs)
+	}
+
+	file.syncErr = errors.New("disk went away")
+	if err := logger.Log(Record{Event: "task.refused"}); err == nil || !strings.Contains(err.Error(), "audit: sync:") {
+		t.Fatalf("Log with a failed Sync = %v, want the sync error", err)
 	}
 }
 

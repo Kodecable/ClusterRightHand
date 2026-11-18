@@ -32,6 +32,7 @@ export interface RetentionCounts {
 	authorizations: number;
 	auditEvents: number;
 	externalCalls: number;
+	channelLinkCodes: number;
 	piTasks: number;
 }
 
@@ -64,6 +65,7 @@ export async function runRetention(
 		authorizations: 0,
 		auditEvents: 0,
 		externalCalls: 0,
+		channelLinkCodes: 0,
 		piTasks: 0,
 	};
 	const batchSize = options.batchSize ?? RETENTION_BATCH_SIZE;
@@ -87,6 +89,10 @@ export async function runRetention(
 		counts.externalCalls = await deleteTable("external_calls", () =>
 			deleteOldExternalCalls(db, externalCutoff, batchSize, signal),
 		);
+		// A link code can only link an account before it is used or expires; spent rows have no further use.
+		counts.channelLinkCodes = await deleteTable("channel_link_codes", () =>
+			deleteSpentLinkCodes(db, now.toISOString(), batchSize, signal),
+		);
 		if (retention.piTasksMs !== null) {
 			const cutoff = now.getTime() - retention.piTasksMs;
 			counts.piTasks = await deleteTable("pi_tasks", () => deleteOldPiTasks(db, cutoff, batchSize, signal));
@@ -101,12 +107,14 @@ export async function runRetention(
 		counts.authorizations +
 		counts.auditEvents +
 		counts.externalCalls +
+		counts.channelLinkCodes +
 		counts.piTasks;
 	if (total > 0) {
 		console.log(
 			`retention: deleted ${counts.tasks} task(s), ${counts.taskGroups} task group(s), ` +
 				`${counts.authorizations} authorization(s), ${counts.auditEvents} audit event(s), ` +
-				`${counts.externalCalls} external call(s), ${counts.piTasks} durable task(s)`,
+				`${counts.externalCalls} external call(s), ${counts.channelLinkCodes} channel link code(s), ` +
+				`${counts.piTasks} durable task(s)`,
 		);
 	}
 	return counts;
@@ -311,6 +319,38 @@ async function deleteOldExternalCalls(
 		async (rows) => {
 			const result = await db
 				.deleteFrom("external_calls")
+				.where(
+					"id",
+					"in",
+					rows.map((row) => row.id),
+				)
+				.executeTakeFirst();
+			return Number(result.numDeletedRows);
+		},
+	);
+}
+
+async function deleteSpentLinkCodes(
+	db: Db,
+	now: string,
+	batchSize: number,
+	signal: AbortSignal | undefined,
+): Promise<number> {
+	return deleteInBatches<{ id: string }>(
+		batchSize,
+		signal,
+		(limit) =>
+			db
+				.selectFrom("channel_link_codes")
+				.select("id")
+				// A used code cannot link again, and an expired one is refused; both are spent.
+				.where((eb) => eb.or([eb("used_at", "is not", null), eb("expires_at", "<", now)]))
+				.orderBy("expires_at")
+				.limit(limit)
+				.execute(),
+		async (rows) => {
+			const result = await db
+				.deleteFrom("channel_link_codes")
 				.where(
 					"id",
 					"in",

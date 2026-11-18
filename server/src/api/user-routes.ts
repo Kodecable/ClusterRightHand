@@ -46,7 +46,7 @@ import {
 	renameUserGroup,
 } from "../users/user-groups.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
-import { cancelRevokedTokenWaits } from "./api-token-waits.ts";
+import { cancelRevokedTokenWaits, cancelWaitingUserWork } from "./api-token-waits.ts";
 import { requireAdmin, requireAdminOrSelf } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
@@ -338,6 +338,13 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			options.sessions?.endUserStreams(id);
 			// Including the per-session event streams, which outlive this request.
 			await options.sessions?.publishVisibilityChanged();
+			// Their waiting work has no owner left to decide or run it (doc/design/access-control.md "User types").
+			const actor = c.get("user");
+			await cancelWaitingUserWork(db, options.cluster, options.taskGroups, id, "the user was disabled", {
+				type: "user",
+				id: actor.userId,
+				onBehalfOfUserId: actor.userId,
+			});
 			// A disabled owner's schedules stop firing (doc/design/scheduling.md "Lifecycle").
 			await Scheduler.disableForOwner(db, id, c.get("audit"), userActor(c.get("user")));
 			// Their chat accounts are unlinked (doc/design/channels.md "Accounts").

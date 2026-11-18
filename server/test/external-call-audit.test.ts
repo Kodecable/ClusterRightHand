@@ -3,12 +3,18 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
-import { createExternalCall, getExternalCall, waitExternalCall } from "../src/extensions/external-calls.ts";
+import {
+	createExternalCall,
+	decideExternalCall,
+	getExternalCall,
+	waitExternalCall,
+} from "../src/extensions/external-calls.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { probeDb, tableOf } from "./helpers/db-probe.ts";
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -62,6 +68,35 @@ async function waitingCall(callKey: string) {
 	});
 	return row;
 }
+
+it("does not lose a decision written between the read and the wait", async () => {
+	const row = await waitingCall(`wake-${++seq}`);
+	const probe = probeDb(db);
+	// Decide the call after its row was read but before waitExternalCall resumes: without a registered
+	// waiter that wake is lost, and the old code waited forever.
+	probe.onNext(
+		(node) => tableOf(node) === "external_calls" && node.kind === "SelectQueryNode",
+		async () => {
+			expect(
+				await decideExternalCall(db, row.id, {
+					decision: "rejected",
+					by: { type: "user", id: owner.userId },
+					at: new Date().toISOString(),
+				}),
+			).toBe(true);
+		},
+	);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error("waitExternalCall missed the decision")), 2000);
+	});
+	try {
+		const waited = await Promise.race([waitExternalCall(probe.db, row.id), timeout]);
+		expect(waited.state).toBe("rejected");
+	} finally {
+		clearTimeout(timer);
+	}
+});
 
 it("records a user decision on an external call", async () => {
 	const row = await waitingCall(`decision-${++seq}`);

@@ -441,6 +441,49 @@ describe("channels", () => {
 		).toBeUndefined();
 	});
 
+	it("a new link code invalidates the previous unused one", async () => {
+		const first = await channels.createLinkCode(aliceId);
+		const second = await channels.createLinkCode(aliceId);
+		const unused = await db
+			.selectFrom("channel_link_codes")
+			.select("id")
+			.where("user_id", "=", aliceId)
+			.where("used_at", "is", null)
+			.execute();
+		expect(unused).toHaveLength(1);
+
+		const before = fake.calls.length;
+		fake.text(7601, `/link ${first.code}`);
+		await fake.waitForSent(
+			(call) => fake.calls.indexOf(call) >= before && plainText(call).includes("invalid, expired or already used"),
+		);
+		fake.text(7601, `/link ${second.code}`);
+		await fake.waitForSent((call) => fake.calls.indexOf(call) >= before && plainText(call).includes("Linked."));
+	});
+
+	it("limits repeated wrong link codes from one chat account", async () => {
+		const account = 210001;
+		const before = fake.calls.length;
+		const invalid = () =>
+			fake.calls.slice(before).filter((call) => plainText(call).includes("invalid, expired or already used")).length;
+		for (let attempt = 0; attempt < 10; attempt++) fake.text(account, `/link WRONG${attempt}`);
+		await fake.waitForSent(() => invalid() >= 10);
+
+		// The eleventh attempt is refused even with a valid code.
+		const blockedAt = fake.calls.length;
+		const code = await channels.createLinkCode(aliceId);
+		fake.text(account, `/link ${code.code}`);
+		await fake.waitForSent(
+			(call) => fake.calls.indexOf(call) >= blockedAt && plainText(call).includes("invalid, expired or already used"),
+		);
+
+		// Another chat account is not limited by this one's failures.
+		const other = await channels.createLinkCode(aliceId);
+		const linkedAt = fake.calls.length;
+		fake.text(210002, `/link ${other.code}`);
+		await fake.waitForSent((call) => fake.calls.indexOf(call) >= linkedAt && plainText(call).includes("Linked."));
+	});
+
 	it("clears the default notification account when that account is unlinked", async () => {
 		const userId = 7251;
 		await link(userId);

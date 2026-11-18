@@ -312,7 +312,10 @@ function newLinkCode(): string {
 	return code;
 }
 
-/** Creates a one-time code for this user, valid for ten minutes; only its hash is stored. */
+/**
+ * Creates a one-time code for this user, valid for ten minutes; only its hash is stored. A new code
+ * invalidates the user's earlier unused ones, so only the latest can link an account.
+ */
 export async function createLinkCode(
 	db: Db,
 	userId: string,
@@ -321,18 +324,21 @@ export async function createLinkCode(
 	const orgId = await defaultOrgId(db);
 	const code = newLinkCode();
 	const expiresAt = new Date(now.getTime() + LINK_CODE_TTL_MS).toISOString();
-	await db
-		.insertInto("channel_link_codes")
-		.values({
-			id: newId(),
-			org_id: orgId,
-			user_id: userId,
-			code_hash: hashToken(code),
-			expires_at: expiresAt,
-			used_at: null,
-			created_at: now.toISOString(),
-		})
-		.execute();
+	await db.transaction().execute(async (trx) => {
+		await trx.deleteFrom("channel_link_codes").where("user_id", "=", userId).where("used_at", "is", null).execute();
+		await trx
+			.insertInto("channel_link_codes")
+			.values({
+				id: newId(),
+				org_id: orgId,
+				user_id: userId,
+				code_hash: hashToken(code),
+				expires_at: expiresAt,
+				used_at: null,
+				created_at: now.toISOString(),
+			})
+			.execute();
+	});
 	return { code, expiresAt };
 }
 

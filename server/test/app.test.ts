@@ -36,4 +36,40 @@ describe("web root", () => {
 			await db.destroy();
 		}
 	});
+
+	it("sends the WebUI's security headers on the document, not on API responses", async () => {
+		const { mkdtemp, writeFile } = await import("node:fs/promises");
+		const { join } = await import("node:path");
+		const { tmpdir } = await import("node:os");
+		const root = await mkdtemp(join(tmpdir(), "crh-web-"));
+		const inline = "document.documentElement.dataset.theme = 'dark'";
+		await writeFile(
+			join(root, "index.html"),
+			`<html><script>${inline}</script><script type="module" src="/assets/app.js"></script>shell</html>`,
+		);
+		const { createHash } = await import("node:crypto");
+		const hash = `'sha256-${createHash("sha256").update(inline).digest("base64")}'`;
+		const db = openDb({ driver: "sqlite", path: ":memory:" });
+		try {
+			const app = createApp(db, { webRoot: root });
+			for (const path of ["/", "/nodes/x"]) {
+				const res = await app.request(path);
+				const csp = res.headers.get("content-security-policy") ?? "";
+				expect(csp).toContain("default-src 'self'");
+				expect(csp).toContain("frame-ancestors 'none'");
+				expect(csp).toContain("base-uri 'self'");
+				expect(csp).toContain("object-src 'none'");
+				// Only the shell's own inline script runs: by its hash, never 'unsafe-inline'.
+				expect(csp).toContain(`script-src 'self' ${hash} 'wasm-unsafe-eval'`);
+				expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+				expect(res.headers.get("x-frame-options")).toBe("DENY");
+				expect(res.headers.get("referrer-policy")).toBe("same-origin");
+			}
+			const health = await app.request("/api/health");
+			expect(health.headers.get("content-security-policy")).toBeNull();
+			expect(health.headers.get("x-frame-options")).toBeNull();
+		} finally {
+			await db.destroy();
+		}
+	});
 });

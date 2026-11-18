@@ -241,6 +241,8 @@ startup and then hourly, in small batches, and each table is swept independently
 - Terminal `external_calls` rows are always kept for one day after `finished_at`, independent of these
   settings. The row is the replay marker a tool call that reruns after a crash finds by id; a waiting or
   running call is never deleted ([External calls](extensions.md#external-calls)).
+- Used or expired `channel_link_codes` rows are always deleted by the sweep: they can no longer link an
+  account.
 - The newest 16384 audit sequence numbers are always kept. This prevents a large forward clock jump from
   wiping the log, and keeps SQLite from reusing sequence numbers.
 - Retention cannot be shorter than one day, because a tool call that reruns after a crash finds its task

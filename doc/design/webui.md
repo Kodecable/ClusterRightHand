@@ -2,7 +2,9 @@
 
 The WebUI is a single-page React application in `web/`. crhs serves the built assets and answers
 every path outside `/api`, `/agent` and `/mcp` with `index.html`
-([Architecture](architecture.md#components)).
+([Architecture](architecture.md#components)). The shell is served with a Content-Security-Policy that
+allows only same-origin resources (plus inline styles, the theme bootstrap by its hash, and the captcha's
+worker and WebAssembly) and refuses framing.
 
 Three requirements shape the design:
 
