@@ -1,11 +1,14 @@
 import type {
 	ExtensionAvailability,
+	ExtensionConfigView,
+	ExtensionDescriptionSource,
 	ExtensionGrant,
 	ExtensionIdentityHeaders,
 	ExtensionInput,
 	ExtensionView,
 } from "@crh/api";
 import type { Selectable } from "kysely";
+import { canonicalJson } from "../audit/audit.ts";
 import { secretAad } from "../keys/export.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
@@ -13,7 +16,8 @@ import { defaultOrgId } from "../storage/org.ts";
 import type { ExtensionsTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import { builtinProvider, RESERVED_EXTENSION_NAMES } from "./builtin.ts";
+import { type BuiltinExtensionProvider, builtinProvider, RESERVED_EXTENSION_NAMES } from "./builtin.ts";
+import type { ExtensionTool } from "./model.ts";
 
 /**
  * Stored extensions and their grants (doc/design/extensions.md "Extensions"). One table holds both kinds:
@@ -26,6 +30,8 @@ import { builtinProvider, RESERVED_EXTENSION_NAMES } from "./builtin.ts";
 export type ExtensionRow = Selectable<ExtensionsTable>;
 
 const SECRET_KIND = "extension_headers";
+/** The `secrets` kind of a built-in's secret settings. */
+const CONFIG_SECRET_KIND = "extension_config";
 
 /** The default per-call timeout of an MCP extension: 5 minutes. */
 export const DEFAULT_EXTENSION_TIMEOUT_MS = 5 * 60_000;
@@ -377,25 +383,192 @@ async function assertGranteesExist(db: Db, orgId: string, grants: ExtensionGrant
 	}
 }
 
-/** Updates the fields of a built-in row; the connection fields are not part of its input. */
+type ConfigValue = string | number | boolean;
+
+/** A built-in row's stored settings: the plain values and the names of the secret ones that are set. */
+function storedConfig(row: Pick<ExtensionRow, "config">): { values: Record<string, ConfigValue>; secrets: string[] } {
+	if (!row.config) return { values: {}, secrets: [] };
+	try {
+		const value = JSON.parse(row.config) as { values?: unknown; secrets?: unknown };
+		const values =
+			typeof value.values === "object" && value.values !== null && !Array.isArray(value.values)
+				? (value.values as Record<string, ConfigValue>)
+				: {};
+		const secrets = Array.isArray(value.secrets)
+			? value.secrets.filter((entry): entry is string => typeof entry === "string")
+			: [];
+		return { values, secrets };
+	} catch {
+		return { values: {}, secrets: [] };
+	}
+}
+
+/** The required settings of a built-in that are not set; it cannot be enabled or called until they are. */
+export function missingBuiltinConfig(row: Pick<ExtensionRow, "config">, provider: BuiltinExtensionProvider): string[] {
+	const stored = storedConfig(row);
+	return (provider.config ?? [])
+		.filter((field) => field.required)
+		.filter((field) =>
+			field.kind === "secret" ? !stored.secrets.includes(field.key) : stored.values[field.key] === undefined,
+		)
+		.map((field) => field.key);
+}
+
+async function readConfigSecrets(
+	db: Db,
+	masterKey: MasterKey,
+	secretId: string | null,
+): Promise<Record<string, string>> {
+	if (!secretId) return {};
+	const secret = await db.selectFrom("secrets").select(["ciphertext"]).where("id", "=", secretId).executeTakeFirst();
+	if (!secret) return {};
+	return JSON.parse(
+		masterKey.decrypt(secret.ciphertext, secretAad(secretId, CONFIG_SECRET_KIND)).toString("utf8"),
+	) as Record<string, string>;
+}
+
+/** A built-in's settings for a call: defaults, the plain values set, and the secrets decrypted. */
+export async function readBuiltinConfig(
+	db: Db,
+	masterKey: MasterKey,
+	row: ExtensionRow,
+	provider: BuiltinExtensionProvider,
+): Promise<Record<string, ConfigValue>> {
+	const stored = storedConfig(row);
+	let secrets: Record<string, string>;
+	try {
+		secrets = await readConfigSecrets(db, masterKey, row.config_secret_id);
+	} catch {
+		throw new Error(`the stored settings of extension ${row.name} cannot be decrypted`);
+	}
+	const out: Record<string, ConfigValue> = {};
+	for (const field of provider.config ?? []) {
+		const value = field.kind === "secret" ? secrets[field.key] : stored.values[field.key];
+		if (value !== undefined) out[field.key] = value;
+		else if (field.default !== null) out[field.key] = field.default;
+	}
+	return out;
+}
+
+/** The administrator's view of a built-in's settings; secret values never leave crhs. */
+function builtinConfigView(row: ExtensionRow): ExtensionConfigView | null {
+	const provider = row.kind === "builtin" ? builtinProvider(row.name) : undefined;
+	if (!provider?.config || provider.config.length === 0) return null;
+	const stored = storedConfig(row);
+	const values: Record<string, ConfigValue> = {};
+	for (const field of provider.config) {
+		const value = stored.values[field.key];
+		if (field.kind !== "secret" && value !== undefined) values[field.key] = value;
+	}
+	return {
+		fields: [...provider.config],
+		values,
+		secretsSet: provider.config
+			.filter((field) => field.kind === "secret" && stored.secrets.includes(field.key))
+			.map((field) => field.key),
+		missing: missingBuiltinConfig(row, provider),
+	};
+}
+
+/**
+ * Applies a settings change to a built-in inside the caller's transaction: omitted keys keep their value,
+ * null (or an empty string) removes one so its default applies, and a secret is re-encrypted with the
+ * others. Returns the new columns.
+ */
+async function applyBuiltinConfig(
+	trx: Db,
+	masterKey: MasterKey,
+	row: ExtensionRow,
+	provider: BuiltinExtensionProvider,
+	input: Record<string, ConfigValue | null>,
+	orgId: string,
+	now: string,
+): Promise<{ config: string | null; config_secret_id: string | null }> {
+	const fields = new Map((provider.config ?? []).map((field) => [field.key, field]));
+	if (fields.size === 0) throw new UserError(`the extension ${row.name} has no settings`);
+	const stored = storedConfig(row);
+	const values = { ...stored.values };
+	let secrets: Record<string, string> | undefined;
+	for (const [key, value] of Object.entries(input)) {
+		const field = fields.get(key);
+		if (!field) throw new UserError(`the extension ${row.name} has no setting ${key}`);
+		if (value !== null) {
+			const expected = field.kind === "secret" ? "string" : field.kind;
+			if (typeof value !== expected) throw new UserError(`the setting ${key} must be a ${expected}`);
+			if (typeof value === "string" && value.length > 4000) throw new UserError(`the setting ${key} is too long`);
+		}
+		if (field.kind === "secret") {
+			secrets ??= await readConfigSecrets(trx, masterKey, row.config_secret_id).catch(() => ({}));
+			if (value === null || value === "") delete secrets[key];
+			else secrets[key] = value as string;
+		} else if (value === null || value === "") {
+			delete values[key];
+		} else {
+			values[key] = value;
+		}
+	}
+	let secretId = row.config_secret_id;
+	let secretNames = stored.secrets;
+	if (secrets !== undefined) {
+		if (secretId) await trx.deleteFrom("secrets").where("id", "=", secretId).execute();
+		secretId = null;
+		secretNames = Object.keys(secrets);
+		if (secretNames.length > 0) {
+			secretId = newId();
+			await trx
+				.insertInto("secrets")
+				.values({
+					id: secretId,
+					org_id: orgId,
+					kind: CONFIG_SECRET_KIND,
+					ciphertext: masterKey.encrypt(
+						Buffer.from(JSON.stringify(secrets), "utf8"),
+						secretAad(secretId, CONFIG_SECRET_KIND),
+					),
+					created_at: now,
+				})
+				.execute();
+		}
+	}
+	const empty = Object.keys(values).length === 0 && secretNames.length === 0;
+	return { config: empty ? null : JSON.stringify({ values, secrets: secretNames }), config_secret_id: secretId };
+}
+
+/**
+ * Updates the fields of a built-in row; the connection fields are not part of its input, and neither is the
+ * description: it is a constant of crhs, so a new version's wording reaches every installation.
+ */
 async function saveBuiltin(
 	db: Db,
+	masterKey: MasterKey,
 	row: ExtensionRow,
 	input: ExtensionInput,
 	adminUserId: string,
 ): Promise<{ row: ExtensionRow; created: false }> {
-	for (const field of MCP_ONLY_FIELDS) {
+	for (const field of [...MCP_ONLY_FIELDS, "description"] as const) {
 		if (input[field] !== undefined) throw new UserError(`${field} cannot be set on a built-in extension`);
 	}
+	const provider = builtinProvider(row.name);
+	if (!provider) throw new UserError(`the built-in extension ${row.name} is not available in this crhs`);
 	const now = new Date().toISOString();
 	const grants = parseGrants(input.grants);
 	const orgId = await defaultOrgId(db);
 	await db.transaction().execute(async (trx) => {
+		const config =
+			input.config === undefined
+				? { config: row.config, config_secret_id: row.config_secret_id }
+				: await applyBuiltinConfig(trx, masterKey, row, provider, input.config, orgId, now);
+		const enabled = parseBoolean(input.enabled, row.enabled === 1);
+		// A required setting such as an API key must be there before sessions can use the extension.
+		const missing = missingBuiltinConfig(config, provider);
+		if (enabled && missing.length > 0) {
+			throw new UserError(`set ${missing.join(", ")} before enabling ${row.name}`);
+		}
 		await trx
 			.updateTable("extensions")
 			.set({
-				description: input.description === undefined ? row.description : parseDescription(input.description),
-				enabled: parseBoolean(input.enabled, row.enabled === 1) ? 1 : 0,
+				...config,
+				enabled: enabled ? 1 : 0,
 				list_directly: parseBoolean(input.listDirectly, row.list_directly === 1) ? 1 : 0,
 				availability: parseAvailability(input.availability, row.availability),
 				updated_at: now,
@@ -436,9 +609,11 @@ export async function saveExtension(
 	validateExtensionName(name);
 	const existing = await getExtensionRow(db, name);
 	if (!existing && RESERVED_EXTENSION_NAMES.has(name)) {
-		throw new UserError("the extension names crhs-docs and crhs-api are reserved for the built-in extensions");
+		throw new UserError(`the extension name ${name} is reserved for a built-in extension`);
 	}
-	if (existing?.kind === "builtin") return saveBuiltin(db, existing, input, adminUserId);
+	if (existing?.kind === "builtin") return saveBuiltin(db, masterKey, existing, input, adminUserId);
+	if (input.config !== undefined)
+		throw new UserError("settings are for built-in extensions; an MCP extension uses headers");
 	const orgId = await defaultOrgId(db);
 	const now = new Date().toISOString();
 	const url = input.url === undefined ? (existing?.url ?? undefined) : parseUrl(input.url);
@@ -544,6 +719,112 @@ export async function deleteExtension(db: Db, name: string): Promise<void> {
 	});
 }
 
+/**
+ * The description the model is shown and where it comes from (doc/design/extensions.md "Extensions"): a
+ * built-in's constant; for an MCP extension the administrator's text, else what the server last reported,
+ * its `instructions` (written for the model) before its `serverInfo.description` (written for people).
+ */
+export function effectiveExtensionDescription(
+	row: Pick<ExtensionRow, "kind" | "name" | "description" | "server_instructions" | "server_description">,
+): { text: string | null; source: ExtensionDescriptionSource | null } {
+	if (row.kind === "builtin") {
+		const text = builtinProvider(row.name)?.description ?? null;
+		return { text, source: text === null ? null : "builtin" };
+	}
+	if (row.description !== null) return { text: row.description, source: "admin" };
+	if (row.server_instructions) return { text: row.server_instructions, source: "instructions" };
+	if (row.server_description) return { text: row.server_description, source: "server" };
+	return { text: null, source: null };
+}
+
+/** What an MCP server reported at its last refresh, as the extension row caches it. */
+export interface ExtensionCache {
+	instructions: string | null;
+	description: string | null;
+	tools: ExtensionTool[];
+	toolsRev: number;
+	refreshedAt: string | null;
+	refreshError: string | null;
+}
+
+/** The cached tool list of a row; a damaged value reads as no list, which the next refresh replaces. */
+export function cachedTools(row: Pick<ExtensionRow, "tools">): ExtensionTool[] {
+	if (!row.tools) return [];
+	try {
+		const value = JSON.parse(row.tools) as unknown;
+		return Array.isArray(value) ? (value as ExtensionTool[]) : [];
+	} catch {
+		return [];
+	}
+}
+
+export function extensionCacheOf(row: ExtensionRow): ExtensionCache {
+	return {
+		instructions: row.server_instructions,
+		description: row.server_description,
+		tools: cachedTools(row),
+		toolsRev: row.tools_rev,
+		refreshedAt: row.refreshed_at,
+		refreshError: row.refresh_error,
+	};
+}
+
+/** Stores what a refresh found; a failed refresh writes only its error and keeps the last list. */
+export async function saveExtensionCache(db: Db, name: string, cache: ExtensionCache): Promise<void> {
+	const orgId = await defaultOrgId(db);
+	await db
+		.updateTable("extensions")
+		.set({
+			server_instructions: cache.instructions,
+			server_description: cache.description,
+			tools: JSON.stringify(cache.tools),
+			tools_rev: cache.toolsRev,
+			refreshed_at: cache.refreshedAt,
+			refresh_error: cache.refreshError,
+		})
+		.where("org_id", "=", orgId)
+		.where("name", "=", name)
+		.where("kind", "=", "mcp")
+		.execute();
+}
+
+/** The part of a tool that decides whether it changed: everything the model and the rules see. */
+function toolDefinition(tool: ExtensionTool): string {
+	return canonicalJson({
+		title: tool.title,
+		description: tool.description,
+		inputSchema: tool.inputSchema,
+		annotations: tool.annotations,
+	});
+}
+
+/** Whether two definitions of a tool take the same arguments. */
+export function sameInputSchema(a: ExtensionTool, b: ExtensionTool): boolean {
+	return canonicalJson(a.inputSchema) === canonicalJson(b.inputSchema);
+}
+
+/**
+ * A new listing against the cached one: an unchanged tool keeps its rev; if anything was added, removed or
+ * changed, `tools_rev` goes up by one and the added and changed tools take it.
+ */
+export function revisedTools(
+	previous: readonly ExtensionTool[],
+	previousRev: number,
+	listed: readonly ExtensionTool[],
+): { tools: ExtensionTool[]; toolsRev: number } {
+	const before = new Map(previous.map((tool) => [tool.name, tool]));
+	const nextRev = previousRev + 1;
+	let changed = listed.length !== previous.length;
+	const tools = listed.map((tool) => {
+		const old = before.get(tool.name);
+		if (old && toolDefinition(old) === toolDefinition(tool)) return { ...tool, rev: old.rev ?? previousRev };
+		changed = true;
+		return { ...tool, rev: nextRev };
+	});
+	if (!changed) return { tools, toolsRev: previousRev };
+	return { tools, toolsRev: nextRev };
+}
+
 /** The administrator's view of an extension, with stored header names but never their values. */
 export async function extensionView(
 	db: Db,
@@ -561,11 +842,14 @@ export async function extensionView(
 			headerNames = [];
 		}
 	}
+	const effective = effectiveExtensionDescription(row);
 	return {
 		id: row.id,
 		name: row.name,
 		kind: row.kind,
-		description: row.description ?? (row.kind === "builtin" ? (builtinProvider(row.name)?.description ?? null) : null),
+		description: isMcp ? row.description : null,
+		effectiveDescription: effective.text,
+		descriptionSource: effective.source,
 		url: isMcp ? row.url : null,
 		hasHeaders: isMcp && row.headers_secret_id !== null,
 		headerNames,
@@ -576,6 +860,7 @@ export async function extensionView(
 		trustAnnotations: isMcp ? row.trust_annotations === 1 : null,
 		timeoutSeconds: isMcp && row.timeout_ms !== null ? row.timeout_ms / 1000 : null,
 		grants,
+		config: builtinConfigView(row),
 		status,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,

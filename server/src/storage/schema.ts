@@ -152,7 +152,10 @@ export interface ExtensionsTable {
 	/** Lowercase letters, digits and `-`, not starting with a digit; unique across both kinds. */
 	name: string;
 	kind: "mcp" | "builtin";
-	/** Shown to the model; null means the MCP server's own instructions or the built-in's default. */
+	/**
+	 * The administrator's description of an MCP extension; null means the server's own. Always null for a
+	 * built-in extension, whose description is a constant of crhs.
+	 */
 	description: string | null;
 	/** The Streamable HTTP endpoint; null for a built-in extension. */
 	url: string | null;
@@ -168,6 +171,22 @@ export interface ExtensionsTable {
 	trust_annotations: number | null;
 	/** The per-call timeout; null for a built-in extension. */
 	timeout_ms: number | null;
+	/** The MCP server's `instructions` at its last successful listing. */
+	server_instructions: string | null;
+	/** The MCP server's `serverInfo.description` at its last successful listing. */
+	server_description: string | null;
+	/** JSON list of the server's tools at its last successful listing, each with the rev it last changed at. */
+	tools: string | null;
+	/** Bumped whenever a refresh finds a tool added, removed or changed. */
+	tools_rev: Generated<number>;
+	/** When the tool list was last refreshed successfully. */
+	refreshed_at: string | null;
+	/** Why the last refresh failed; null when it succeeded. */
+	refresh_error: string | null;
+	/** A built-in's settings: JSON { values, secrets } with the plain values and the names of the secrets set. */
+	config: string | null;
+	/** The `secrets` row with a built-in's secret settings, encrypted with the master key. */
+	config_secret_id: string | null;
 	created_at: CreatedAt;
 	updated_at: string;
 }
@@ -219,6 +238,8 @@ export interface ExternalCallsTable extends ApprovalColumns {
 	annotations: string | null;
 	/** The durable tool task of the tool call that made it, for Auto Review; null when no tool call made it. */
 	source_tool_task: string | null;
+	/** The tool's rev when the call was judged; a changed tool ends a call that waited. Null for a built-in. */
+	tool_rev: number | null;
 	state: ExternalCallState;
 	created_at: CreatedAt;
 	finished_at: string | null;

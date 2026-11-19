@@ -89,6 +89,8 @@ export interface ExternalCallInput {
 	arguments: Record<string, unknown>;
 	operation: Operation;
 	annotations: ExtensionToolAnnotations | null;
+	/** The tool's rev when the call was judged (doc/design/extensions.md "MCP connections"); null for a built-in. */
+	toolRev?: number | null;
 	ruleChain: RuleRef[];
 	rootSessionId: string | null;
 	/** The durable tool task of the tool call, so Auto Review can find exactly that call. */
@@ -123,6 +125,7 @@ export async function createExternalCall(
 			arguments: JSON.stringify(input.arguments),
 			operation: JSON.stringify(input.operation),
 			annotations: input.annotations ? JSON.stringify(input.annotations) : null,
+			tool_rev: input.toolRev ?? null,
 			rule_chain: JSON.stringify(input.ruleChain),
 			approval: JSON.stringify(input.approval),
 			pending_input: null,

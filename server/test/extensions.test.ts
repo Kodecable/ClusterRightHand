@@ -39,6 +39,7 @@ import {
 	extensionNamesForUser,
 	extensionsForUser,
 	parseDisabledExtensionNames,
+	revisedTools,
 	saveExtension,
 } from "../src/extensions/store.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
@@ -96,6 +97,12 @@ interface FakeState {
 	failCalls: boolean;
 	/** Fetches that reached the fake endpoint, one per connection attempt plus its requests. */
 	requests: number;
+	/** What the server reports about itself at initialization. */
+	instructions?: string;
+	serverDescription?: string;
+	/** Changes `echo` for servers created from now on: a new input schema, or a write instead of a read. */
+	echoTakesCount?: boolean;
+	echoWrites?: boolean;
 }
 
 const PNG = Buffer.from(
@@ -106,17 +113,26 @@ const PNG = Buffer.from(
 /** An in-process Streamable HTTP MCP server; `handler.fetch` is the network. */
 function fakeMcp(state: FakeState) {
 	return createMcpHandler(() => {
-		const server = new McpServer({ name: "fake", version: "1.0.0" });
+		const server = new McpServer(
+			{
+				name: "fake",
+				version: "1.0.0",
+				...(state.serverDescription === undefined ? {} : { description: state.serverDescription }),
+			},
+			state.instructions === undefined ? {} : { instructions: state.instructions },
+		);
 		server.registerTool(
 			"echo",
 			{
 				description: "Echo the message back",
-				inputSchema: z.object({ message: z.string() }),
-				annotations: { readOnlyHint: true },
+				inputSchema: state.echoTakesCount
+					? z.object({ message: z.string(), count: z.number() })
+					: z.object({ message: z.string() }),
+				annotations: { readOnlyHint: state.echoWrites !== true },
 			},
-			async ({ message }) => {
-				state.calls.push({ tool: "echo", arguments: { message } });
-				return { content: [{ type: "text", text: `echo: ${message}` }] };
+			async (args: { message: string }) => {
+				state.calls.push({ tool: "echo", arguments: args });
+				return { content: [{ type: "text", text: `echo: ${args.message}` }] };
 			},
 		);
 		server.registerTool(
@@ -254,7 +270,7 @@ describe("MCP extensions", () => {
 			failCalls: false,
 			requests: 0,
 		};
-		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)), backoffBaseMs: 1000 });
+		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)) });
 		imageDir = await mkdtemp(join(tmpdir(), "crh-ext-"));
 	});
 
@@ -347,6 +363,7 @@ describe("MCP extensions", () => {
 				status: () => readyStatus(1),
 				tools: () => [tool],
 				ensureAvailable: async () => {},
+				prepareCall: async () => {},
 				refreshTools: async () => [tool],
 				call,
 				operation: () => ({ method: "ext.read", target: "fake/echo" }),
@@ -661,23 +678,24 @@ describe("MCP extensions", () => {
 		expect(extension.tools?.map((tool) => tool.name)).toEqual(["ext__fake__echo"]);
 	});
 
-	it("backs off exponentially and lets an administrator reconnect at once", async () => {
+	it("records a failed connection without retrying on its own, and lets an administrator reconnect at once", async () => {
 		vi.useFakeTimers();
 		try {
 			await addServer();
 			state.failConnections = true;
-			await expect(mcp.ensureConnected("fake")).rejects.toThrow();
+			await expect(mcp.prepareCall("fake")).rejects.toThrow();
 			const unavailable = mcp.status("fake");
 			expect(unavailable.state).toBe("unavailable");
-			expect(unavailable.nextAttemptAt).not.toBeNull();
-			// The first retry waits the 1 s base delay (with its jitter band), not twice that.
-			const wait = Date.parse(unavailable.nextAttemptAt ?? "") - Date.now();
-			expect(wait).toBeGreaterThanOrEqual(800);
-			expect(wait).toBeLessThanOrEqual(1_200);
+			expect(unavailable.connected).toBe(false);
+			// No backoff: past the first refresh of a server never listed (within a minute), nothing contacts it
+			// again until a call, an administrator or the daily refresh.
+			await vi.advanceTimersByTimeAsync(61_000);
+			const requests = state.requests;
+			await vi.advanceTimersByTimeAsync(60 * 60_000);
+			expect(state.requests).toBe(requests);
 			state.failConnections = false;
-			// The administrator's reconnect always tries at once and resets the backoff.
 			expect((await mcp.reconnect("fake")).state).toBe("ready");
-			expect(mcp.status("fake").nextAttemptAt).toBeNull();
+			expect(mcp.status("fake").connected).toBe(true);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -688,43 +706,26 @@ describe("MCP extensions", () => {
 		try {
 			await addServer();
 			state.failConnections = true;
-			await expect(mcp.ensureConnected("fake", { immediate: true })).rejects.toThrow();
+			await expect(mcp.prepareCall("fake")).rejects.toThrow();
 			const attempts = state.requests;
 			// A second call within the window does not touch the server.
-			await expect(mcp.ensureConnected("fake", { immediate: true })).rejects.toThrow(/connection refused/);
+			await expect(mcp.prepareCall("fake")).rejects.toThrow(/connection refused/);
 			expect(state.requests).toBe(attempts);
 			// Once the window has passed, the call attempts the connection again.
 			vi.setSystemTime(Date.now() + 10_001);
-			await expect(mcp.ensureConnected("fake", { immediate: true })).rejects.toThrow();
+			await expect(mcp.prepareCall("fake")).rejects.toThrow();
 			expect(state.requests).toBeGreaterThan(attempts);
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	it("continues the backoff schedule after a failed call attempt instead of restarting it", async () => {
-		vi.useFakeTimers();
-		try {
-			await addServer();
-			state.failConnections = true;
-			await expect(mcp.ensureConnected("fake")).rejects.toThrow();
-			const scheduled = mcp.status("fake").nextAttemptAt;
-			expect(scheduled).not.toBeNull();
-			vi.setSystemTime(Date.now() + 10_001);
-			await expect(mcp.ensureConnected("fake", { immediate: true })).rejects.toThrow();
-			// The retry that was already scheduled stays; it is not rescheduled from scratch.
-			expect(mcp.status("fake").nextAttemptAt).toBe(scheduled);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	it("does not retry a server disabled while a connection attempt is in flight", async () => {
+	it("does not contact a server disabled while a connection attempt is in flight", async () => {
 		vi.useFakeTimers();
 		try {
 			await addServer();
 			state.hangConnections = true;
-			const attempt = mcp.ensureConnected("fake").then(
+			const attempt = mcp.prepareCall("fake").then(
 				() => undefined,
 				() => undefined,
 			);
@@ -733,16 +734,15 @@ describe("MCP extensions", () => {
 			expect(state.requests).toBe(1);
 			await saveExtension(db, masterKey, "fake", { enabled: false }, user.userId);
 			const invalidation = mcp.invalidate("fake", { keepTools: true });
-			// The attempt fails while invalidate waits for it; its catch must not re-arm a retry.
 			await vi.advanceTimersByTimeAsync(10_000);
 			await invalidation;
 			await attempt;
 			expect(mcp.status("fake").state).toBe("unknown");
+			// A disabled extension has no scheduled refresh.
 			expect(mcp.status("fake").nextAttemptAt).toBeNull();
 			const requests = state.requests;
-			await vi.advanceTimersByTimeAsync(120_000);
+			await vi.advanceTimersByTimeAsync(48 * 60 * 60_000);
 			expect(state.requests).toBe(requests);
-			expect(mcp.status("fake").nextAttemptAt).toBeNull();
 			// A direct attempt on the disabled server is refused without contacting it.
 			await expect(mcp.reconnect("fake")).resolves.toMatchObject({ state: "unavailable" });
 			expect(mcp.status("fake").lastError).toContain("disabled");
@@ -756,20 +756,23 @@ describe("MCP extensions", () => {
 		await saveExtension(db, masterKey, "fake", { url: "http://mcp.test/mcp?api_key=top-secret" }, user.userId);
 		state.failConnections = true;
 		state.failureMessage = "could not reach http://mcp.test/mcp?api_key=top-secret (connection refused)";
-		const error = await mcp.ensureConnected("fake").catch((err: unknown) => err);
+		const error = await mcp.prepareCall("fake").catch((err: unknown) => err);
 		expect(String(error)).not.toContain("top-secret");
 		const lastError = mcp.status("fake").lastError;
 		expect(lastError).not.toBeNull();
 		expect(lastError).not.toContain("top-secret");
 		expect(lastError).toContain("http://mcp.test/mcp");
+		// The row keeps the error for the next process, redacted too.
+		const row = await db.selectFrom("extensions").select("refresh_error").where("name", "=", "fake").executeTakeFirst();
+		expect(row?.refresh_error).not.toContain("top-secret");
 	});
 
-	it("bounds an on-demand connection at the connect timeout", async () => {
+	it("bounds a connection attempt at the connect timeout", async () => {
 		vi.useFakeTimers();
 		try {
 			await addServer();
 			state.hangConnections = true;
-			const outcome = mcp.ensureConnected("fake", { immediate: true }).then(
+			const outcome = mcp.prepareCall("fake").then(
 				() => undefined,
 				(error: unknown) => error,
 			);
@@ -779,7 +782,6 @@ describe("MCP extensions", () => {
 			expect(error).toBeInstanceOf(ExtensionUnavailableError);
 			expect((error as Error).message).toContain("timed out");
 			expect(mcp.status("fake").state).toBe("unavailable");
-			expect(mcp.status("fake").nextAttemptAt).not.toBeNull();
 		} finally {
 			vi.useRealTimers();
 		}
@@ -790,10 +792,7 @@ describe("MCP extensions", () => {
 		try {
 			await addServer();
 			state.hangConnections = true;
-			const both = Promise.allSettled([
-				mcp.ensureConnected("fake", { immediate: true }),
-				mcp.ensureConnected("fake", { immediate: true }),
-			]);
+			const both = Promise.allSettled([mcp.prepareCall("fake"), mcp.prepareCall("fake")]);
 			await vi.advanceTimersByTimeAsync(10_000);
 			const results = await both;
 			expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
@@ -805,19 +804,156 @@ describe("MCP extensions", () => {
 
 	it("keeps the last tool list across a configuration change and drops it on deletion", async () => {
 		await addServer();
-		await mcp.ensureConnected("fake");
+		await mcp.prepareCall("fake");
 		const cached = mcp.tools("fake").length;
 		expect(cached).toBeGreaterThan(0);
 		await mcp.invalidate("fake", { keepTools: true });
 		expect(mcp.status("fake").state).toBe("unknown");
 		expect(mcp.tools("fake")).toHaveLength(cached);
+		// The changed configuration is checked soon, not a day later.
+		const next = Date.parse(mcp.status("fake").nextAttemptAt ?? "");
+		expect(next - Date.now()).toBeLessThanOrEqual(60_000);
 		await mcp.invalidate("fake");
 		expect(mcp.tools("fake")).toHaveLength(0);
 	});
 
+	it("caches the tools and the server's description on the row, so a restart searches without connecting", async () => {
+		state.instructions = "Use echo to repeat things.";
+		state.serverDescription = "A fake server for tests";
+		await saveExtension(
+			db,
+			masterKey,
+			"fake",
+			{ url: "http://mcp.test/mcp", grants: [{ granteeType: "user", granteeId: user.userId }] },
+			user.userId,
+		);
+		await createRootRuleSet(db, await defaultOrgId(db), { type: "session", id: sessionId }, "ask");
+		await mcp.prepareCall("fake");
+		const row = await db.selectFrom("extensions").selectAll().where("name", "=", "fake").executeTakeFirstOrThrow();
+		expect(row.server_instructions).toBe("Use echo to repeat things.");
+		expect(row.server_description).toBe("A fake server for tests");
+		expect(row.tools_rev).toBe(1);
+		expect(row.refreshed_at).not.toBeNull();
+		await mcp.close();
+
+		// A new process: the cache loads without a connection; search and the description use it.
+		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)) });
+		await mcp.start();
+		const requests = state.requests;
+		const found = await search("echo");
+		expect((found.results as { tool: string }[]).map((entry) => entry.tool)).toEqual(["echo"]);
+		const ctx = await context({ name: "fake", description: null, enabled: true, available: true });
+		const fake = (entries: ToolContext["extensions"]) => entries?.find((entry) => entry.extension.name === "fake");
+		expect(fake(ctx.extensions)?.extension.description).toBe("Use echo to repeat things.");
+		expect(mcp.status("fake")).toMatchObject({ state: "ready", connected: false });
+		expect(state.requests).toBe(requests);
+
+		// Without instructions the server's own description is used; the administrator's text wins over both.
+		await db.updateTable("extensions").set({ server_instructions: null }).where("name", "=", "fake").execute();
+		await mcp.close();
+		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)) });
+		const again = await context({ name: "fake", description: null, enabled: true, available: true });
+		expect(fake(again.extensions)?.extension.description).toBe("A fake server for tests");
+		await saveExtension(db, masterKey, "fake", { description: "Ours" }, user.userId);
+		const ours = await context({ name: "fake", description: null, enabled: true, available: true });
+		expect(fake(ours.extensions)?.extension.description).toBe("Ours");
+	});
+
+	it("closes an idle connection and refreshes the list on schedule without staying connected", async () => {
+		await mcp.close();
+		mcp = new McpConnections({
+			db,
+			masterKey,
+			fetch: fakeFetch(state, fakeMcp(state)),
+			idleDisconnectMs: 40,
+			refreshIntervalMs: 200,
+			random: () => 0,
+		});
+		await addServer({ preset: "yolo" });
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		expect((await runExtensionTool(ctx, "fake", "echo", { message: "hi" })).isError).toBe(false);
+		expect(mcp.status("fake").connected).toBe(true);
+		await waitFor(async () => (mcp.status("fake").connected ? undefined : true));
+		// The scheduled refresh connects, lists, and closes again.
+		const refreshed = mcp.status("fake").refreshedAt;
+		const requests = state.requests;
+		await waitFor(async () => (mcp.status("fake").refreshedAt !== refreshed ? true : undefined));
+		expect(state.requests).toBeGreaterThan(requests);
+		await waitFor(async () => (mcp.status("fake").connected ? undefined : true));
+	});
+
+	it("refuses a call built for an input schema the server no longer has, with the new schema", async () => {
+		await mcp.close();
+		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)), idleDisconnectMs: 20 });
+		await addServer({ preset: "yolo" });
+		await mcp.prepareCall("fake");
+		await waitFor(async () => (mcp.status("fake").connected ? undefined : true));
+		state.echoTakesCount = true;
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		const result = await runExtensionTool(ctx, "fake", "echo", { message: "hi" });
+		expect(result.isError).toBe(true);
+		const text = result.content.map((block) => block.text).join("\n");
+		expect(text).toContain("changed since the call was made");
+		expect(text).toContain('"count"');
+		expect(state.calls).toEqual([]);
+		// The model calls again with the schema it was given, and the call runs.
+		const retry = await runExtensionTool({ ...ctx, callKey: "retry" }, "fake", "echo", { message: "hi", count: 1 });
+		expect(retry.isError).toBe(false);
+	});
+
+	it("judges a call on the server's current annotations: a tool that became a write needs approval", async () => {
+		await mcp.close();
+		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)), idleDisconnectMs: 20 });
+		await addServer({ preset: "ask" });
+		await mcp.prepareCall("fake");
+		await waitFor(async () => (mcp.status("fake").connected ? undefined : true));
+		const before = mcp.tool("fake", "echo")?.rev;
+		state.echoWrites = true;
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		const controller = new AbortController();
+		const pending = runExtensionTool({ ...ctx, callKey: "now-a-write", signal: controller.signal }, "fake", "echo", {
+			message: "hi",
+		});
+		const row = await waitFor(async () => {
+			const found = await getExternalCall(db, externalCallId("now-a-write"));
+			return found?.state === "awaiting_approval" ? found : undefined;
+		});
+		expect(JSON.parse(row.operation)).toMatchObject({ method: "ext.write" });
+		expect(row.tool_rev).toBe(mcp.tool("fake", "echo")?.rev);
+		expect(row.tool_rev).not.toBe(before);
+		controller.abort();
+		await pending;
+	});
+
+	it("ends an approved call whose tool changed while it waited, without calling it", async () => {
+		await mcp.close();
+		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)), idleDisconnectMs: 20 });
+		await addServer({ preset: "ask" });
+		const ctx = await context({ name: "fake", description: "A fake server", enabled: true, available: true });
+		const pending = runExtensionTool({ ...ctx, callKey: "changes-while-waiting" }, "fake", "write_thing", {
+			value: 1,
+		});
+		const id = externalCallId("changes-while-waiting");
+		await waitFor(async () => ((await getExternalCall(db, id))?.state === "awaiting_approval" ? true : undefined));
+		await waitFor(async () => (mcp.status("fake").connected ? undefined : true));
+		// The call was judged at write_thing's rev then; the server lists it at another rev now.
+		expect((await getExternalCall(db, id))?.tool_rev).toBe(mcp.tool("fake", "write_thing")?.rev);
+		await db.updateTable("external_calls").set({ tool_rev: 99 }).where("id", "=", id).execute();
+		await decideExternalCall(db, id, {
+			decision: "approved",
+			by: { type: "user", id: user.userId },
+			at: new Date().toISOString(),
+		});
+		const result = await pending;
+		expect(result.isError).toBe(true);
+		expect(result.content.map((block) => block.text).join("\n")).toContain("changed since the call was made");
+		expect(state.calls).toEqual([]);
+		expect((await getExternalCall(db, id))?.state).toBe("failed");
+	});
+
 	it("searches the last known list with a stale note while unavailable, and call_tool fails at once", async () => {
 		await addServer();
-		await mcp.ensureConnected("fake");
+		await mcp.prepareCall("fake");
 		state.failConnections = true;
 		await mcp.reconnect("fake");
 		expect(mcp.status("fake").state).toBe("unavailable");
@@ -1298,5 +1434,39 @@ describe("MCP extensions", () => {
 		expect(text).toContain("audio/wav");
 		expect(text).toContain("application/octet-stream");
 		expect(text).toContain("fake/mixed");
+	});
+});
+
+describe("tool revs", () => {
+	const tool = (name: string, description: string | null = null): ExtensionTool => ({
+		name,
+		title: null,
+		description,
+		inputSchema: { type: "object", properties: { a: { type: "string" } } },
+		annotations: { readOnlyHint: true },
+	});
+
+	it("keeps the rev of an unchanged listing and gives added and changed tools the next one", () => {
+		const first = revisedTools([], 0, [tool("a"), tool("b")]);
+		expect(first.toolsRev).toBe(1);
+		expect(first.tools.map((entry) => entry.rev)).toEqual([1, 1]);
+		// The same definitions in another key order are the same tools.
+		const same = revisedTools(first.tools, first.toolsRev, [
+			{ ...tool("b"), inputSchema: { properties: { a: { type: "string" } }, type: "object" } },
+			tool("a"),
+		]);
+		expect(same.toolsRev).toBe(1);
+		expect(same.tools.map((entry) => entry.rev)).toEqual([1, 1]);
+		const changed = revisedTools(same.tools, same.toolsRev, [tool("a", "now described"), tool("b"), tool("c")]);
+		expect(changed.toolsRev).toBe(2);
+		expect(changed.tools.map((entry) => [entry.name, entry.rev])).toEqual([
+			["a", 2],
+			["b", 1],
+			["c", 2],
+		]);
+		// A removal alone moves the list's rev; the remaining tools keep theirs.
+		const removed = revisedTools(changed.tools, changed.toolsRev, [tool("b")]);
+		expect(removed.toolsRev).toBe(3);
+		expect(removed.tools.map((entry) => entry.rev)).toEqual([1]);
 	});
 });

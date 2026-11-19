@@ -423,9 +423,10 @@ export function pageLines(
 	kind: string,
 	offset: number,
 	limit: number,
+	source = "docs",
 ): DocPage {
 	const total = lines.length;
-	if (total === 0) return { output: "", note: `[docs, ${where}, the ${kind} is empty]` };
+	if (total === 0) return { output: "", note: `[${source}, ${where}, the ${kind} is empty]` };
 	const from = Math.max(1, offset);
 	if (from > total) {
 		throw new UserError(`offset ${from} is past the end of this ${kind} (${total} lines)`, "invalid_argument");
@@ -455,8 +456,8 @@ export function pageLines(
 	return {
 		output: kept.join("\n"),
 		note: more
-			? `[docs, ${where}, lines ${from}-${to} of ${total}; use offset=${to + 1} to continue]`
-			: `[docs, ${where}, lines ${from}-${to} of ${total} (end of ${kind})]`,
+			? `[${source}, ${where}, lines ${from}-${to} of ${total}; use offset=${to + 1} to continue]`
+			: `[${source}, ${where}, lines ${from}-${to} of ${total} (end of ${kind})]`,
 	};
 }
 

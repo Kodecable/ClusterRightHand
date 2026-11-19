@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useDirectory } from "@/features/users/api";
 import { useSaveExtension } from "./api";
+import { BuiltinSettings, initialSettings, type SettingsDraft, settingsChanges } from "./extension-settings";
 
 interface HeaderRow {
 	id: string;
@@ -24,7 +25,8 @@ function headerRows(extension: ExtensionView | undefined): HeaderRow[] {
 
 /**
  * The extension editor (doc/design/extensions.md "Extensions"): every field of an MCP extension, with the
- * request headers write-only, or a built-in's enabled, list directly, availability, grants and description.
+ * request headers write-only, or a built-in's enabled, list directly, availability and grants (its
+ * description is a constant of crhs and only shown).
  * The stored header names are listed, but their values never come back; changing the URL of an extension
  * with stored headers requires entering them again or removing them.
  */
@@ -43,6 +45,11 @@ export function ExtensionDialog({
 	const builtin = existing?.kind === "builtin";
 	const [name, setName] = useState(existing?.name ?? "");
 	const [description, setDescription] = useState(existing?.description ?? "");
+	// What the server last reported, used while the administrator's description is empty.
+	const serverDescription =
+		existing?.descriptionSource === "instructions" || existing?.descriptionSource === "server"
+			? existing.effectiveDescription
+			: null;
 	const [url, setUrl] = useState(existing?.url ?? "");
 	const [timeoutSeconds, setTimeoutSeconds] = useState(String(existing?.timeoutSeconds ?? 300));
 	const [enabled, setEnabled] = useState(existing?.enabled ?? true);
@@ -59,6 +66,8 @@ export function ExtensionDialog({
 	const [grantee, setGrantee] = useState("");
 	const [granteeType, setGranteeType] = useState<"user" | "user_group">("user");
 	const [error, setError] = useState<string>();
+	const [settings, setSettings] = useState<SettingsDraft>(() => initialSettings(existing?.config ?? null));
+	const [clearedSecrets, setClearedSecrets] = useState<string[]>([]);
 
 	const directoryNames = new Map<string, string>([
 		...(directory.data?.users ?? []).map((user) => [`user:${user.id}`, user.displayName || user.username] as const),
@@ -76,17 +85,13 @@ export function ExtensionDialog({
 	const urlChanged = existing !== undefined && existing.url !== null && existing.url !== url.trim();
 	const submit = () => {
 		setError(undefined);
-		const common = {
-			description: description.trim() === "" ? null : description.trim(),
-			enabled,
-			listDirectly,
-			availability,
-			grants,
-		};
+		const common = { enabled, listDirectly, availability, grants };
 		if (builtin) {
-			// A built-in has no URL, headers, identity headers, annotation trust or timeout to change.
+			// A built-in has no URL, headers, identity headers, annotation trust or timeout to change, and its
+			// description is a constant of crhs. Only its changed settings are sent.
+			const config = settingsChanges(existing?.config ?? null, settings, clearedSecrets);
 			save.mutate(
-				{ name: existing?.name ?? name.trim(), body: common },
+				{ name: existing?.name ?? name.trim(), body: { ...common, ...(config === undefined ? {} : { config }) } },
 				{
 					onSuccess: () => {
 						onSaved();
@@ -107,6 +112,9 @@ export function ExtensionDialog({
 		}
 		const body = {
 			...common,
+			// Empty uses what the server reports about itself; the field is never filled with it, or saving would
+			// freeze today's text.
+			description: description.trim() === "" ? null : description.trim(),
 			url: url.trim(),
 			identityHeaders: { username: identityUsername.trim() || null, session: identitySession.trim() || null },
 			trustAnnotations,
@@ -137,7 +145,7 @@ export function ExtensionDialog({
 				builtin ? (
 					<Trans>
 						A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are
-						listed directly, its availability, its grants and its description.
+						listed directly, its availability and its grants.
 					</Trans>
 				) : (
 					<Trans>
@@ -166,12 +174,32 @@ export function ExtensionDialog({
 			</div>
 			<div className="grid gap-1.5">
 				<Label htmlFor="extension-description">{t`Description`}</Label>
-				<Input
-					id="extension-description"
-					value={description}
-					placeholder={t`Shown to the model; an MCP server's own instructions otherwise`}
-					onChange={(event) => setDescription(event.target.value)}
-				/>
+				{builtin ? (
+					<p id="extension-description" className="text-sm text-muted-foreground">
+						{existing?.effectiveDescription}
+					</p>
+				) : (
+					<>
+						<Input
+							id="extension-description"
+							value={description}
+							placeholder={serverDescription ?? t`Empty: the server's own description, once it has been listed`}
+							onChange={(event) => setDescription(event.target.value)}
+						/>
+						<p className="text-xs text-muted-foreground">
+							{serverDescription === null ? (
+								<Trans>
+									Shown to the model. Leave it empty to use what the server reports about itself; it is read when the
+									server is first listed.
+								</Trans>
+							) : (
+								<Trans>
+									Shown to the model. Leave it empty to use what the server reports, shown as the placeholder.
+								</Trans>
+							)}
+						</p>
+					</>
+				)}
 			</div>
 			{!builtin && (
 				<>
@@ -292,6 +320,18 @@ export function ExtensionDialog({
 						</div>
 					</fieldset>
 				</>
+			)}
+			{builtin && existing?.config && (
+				<BuiltinSettings
+					extension={existing.name}
+					config={existing.config}
+					draft={settings}
+					cleared={clearedSecrets}
+					onChange={(key, value) => setSettings({ ...settings, [key]: value })}
+					onClear={(key, clear) =>
+						setClearedSecrets(clear ? [...clearedSecrets, key] : clearedSecrets.filter((entry) => entry !== key))
+					}
+				/>
 			)}
 			<fieldset className="grid gap-2">
 				<legend className="text-sm font-medium">{t`Behavior`}</legend>

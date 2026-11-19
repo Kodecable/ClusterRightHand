@@ -225,8 +225,8 @@ msgid "A base URL is required."
 msgstr "必须填写 Base URL。"
 
 #: src/features/settings/extension-dialog.tsx
-msgid "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability, its grants and its description."
-msgstr "内置扩展随 crhs 一起提供，始终就绪。你可以停用它，修改其工具是否直接列出、可用范围、授权对象和描述。"
+msgid "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability and its grants."
+msgstr "内置扩展随 crhs 提供，始终可用。你可以停用它，或修改是否直接列出其工具、可用范围和授权。"
 
 #: src/lib/task-form.ts
 msgid "A command is required."
@@ -239,6 +239,10 @@ msgstr "cron 表达式必须正好有五个字段。"
 #: src/features/schedules/scheduleForm.ts
 msgid "A cron expression is required."
 msgstr "需要填写 cron 表达式。"
+
+#: src/features/settings/extension-settings.tsx
+msgid "A DeepSeek API key; Search and Fetch are billed to its account per successful request."
+msgstr "DeepSeek API 密钥；Search 和 Fetch 每次成功请求都会计入该账户的费用。"
 
 #: src/features/nodes/access-grants.tsx
 msgid "A granted user or user group can see the nodes in this node group and run tasks on them."
@@ -646,6 +650,7 @@ msgstr "任意目标"
 msgid "Anything using this token stops working immediately. This cannot be undone."
 msgstr "使用该令牌的一切都会立即失效，且无法撤销。"
 
+#: src/features/settings/extension-settings.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "API key"
@@ -868,6 +873,7 @@ msgstr "上一步"
 msgid "Back to the session list"
 msgstr "返回会话列表"
 
+#: src/features/settings/extension-settings.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Base URL"
@@ -1246,6 +1252,7 @@ msgstr "用以下命令连接 Claude Code："
 
 #: src/components/status-badge.tsx
 #: src/features/channels/channels-page.tsx
+#: src/features/settings/extensions.tsx
 msgid "Connected"
 msgstr "已连接"
 
@@ -1909,6 +1916,10 @@ msgstr "编辑 SSH 路由"
 msgid "Empty file."
 msgstr "空文件。"
 
+#: src/features/settings/extension-dialog.tsx
+msgid "Empty: the server's own description, once it has been listed"
+msgstr "留空：使用服务器自己的描述（首次列出工具后获取）"
+
 #: src/features/users/pages.tsx
 msgid "Enable"
 msgstr "启用"
@@ -2395,6 +2406,10 @@ msgstr "身份请求头"
 msgid "Idle"
 msgstr "空闲"
 
+#: src/features/settings/extensions.tsx
+msgid "Idle, connects on use"
+msgstr "空闲，使用时连接"
+
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
 msgstr "忽略（SSH）"
@@ -2655,6 +2670,10 @@ msgstr "直接将其工具列入模型的工具列表"
 #: src/features/settings/provider-dialog.tsx
 msgid "List provider models"
 msgstr "列出提供方模型"
+
+#: src/features/settings/extensions.tsx
+msgid "Listed <0/>"
+msgstr "<0/>列出"
 
 #: src/features/settings/extensions.tsx
 msgid "Listed directly"
@@ -3023,13 +3042,13 @@ msgstr "下一步"
 msgid "Next attempt"
 msgstr "下次尝试"
 
+#: src/features/settings/extensions.tsx
+msgid "Next refresh: <0/>"
+msgstr "下次刷新：<0/>"
+
 #: src/features/schedules/pages.tsx
 msgid "Next run"
 msgstr "下次运行"
-
-#: src/features/settings/extensions.tsx
-msgid "Next try: <0/>"
-msgstr "下次尝试：<0/>"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
@@ -3347,8 +3366,8 @@ msgid "Not confirmed"
 msgstr "未确认"
 
 #: src/features/settings/extensions.tsx
-msgid "Not connected yet"
-msgstr "尚未连接"
+msgid "Not listed yet"
+msgstr "尚未列出"
 
 #: src/features/nodes/node-trust.tsx
 msgid "not reported"
@@ -4072,6 +4091,10 @@ msgstr "移除已存储的请求头"
 msgid "Remove the stored key"
 msgstr "删除已保存的密钥"
 
+#: src/features/settings/extension-settings.tsx
+msgid "Remove the stored value"
+msgstr "删除已保存的值"
+
 #: src/features/node-groups/dialogs.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/rename-node-button.tsx
@@ -4587,6 +4610,11 @@ msgstr "设置密码"
 msgid "Set the RP ID and at least one allowed origin together, or leave both empty."
 msgstr "RP ID 和至少一个允许的源必须一起设置，或都留空。"
 
+#: src/features/settings/extension-settings.tsx
+msgid "Set; leave empty to keep it"
+msgstr "已设置；留空则保持不变"
+
+#: src/features/settings/extension-settings.tsx
 #: src/features/settings/user-settings-dialog.tsx
 msgid "Settings"
 msgstr "设置"
@@ -4644,8 +4672,12 @@ msgid "Showing first {maxLines} of {lines} lines"
 msgstr "显示前 {maxLines} 行，共 {lines} 行"
 
 #: src/features/settings/extension-dialog.tsx
-msgid "Shown to the model; an MCP server's own instructions otherwise"
-msgstr "展示给模型；否则使用 MCP 服务器自己的说明"
+msgid "Shown to the model. Leave it empty to use what the server reports about itself; it is read when the server is first listed."
+msgstr "展示给模型。留空则使用服务器对自身的描述，首次列出工具时读取。"
+
+#: src/features/settings/extension-dialog.tsx
+msgid "Shown to the model. Leave it empty to use what the server reports, shown as the placeholder."
+msgstr "展示给模型。留空则使用服务器报告的描述，即占位文字所示内容。"
 
 #: src/components/task-facts.tsx
 msgid "Sign"
@@ -5038,6 +5070,10 @@ msgstr "view_image 结果的字节，保存在 crhs 本地磁盘上的可丢弃�
 msgid "The credential and its private key are deleted. This cannot be undone."
 msgstr "凭据及其私钥将被删除，此操作无法撤销。"
 
+#: src/features/settings/extension-settings.tsx
+msgid "The DeepSeek API base URL."
+msgstr "DeepSeek API 的基础地址。"
+
 #: src/features/users/new-user-dialog.tsx
 msgid "The display name must be at most 100 characters."
 msgstr "显示名最多 100 个字符。"
@@ -5181,6 +5217,10 @@ msgstr "会话正在等待签名。"
 #: src/features/sessions/session-banner.tsx
 msgid "The session is waiting for an approval."
 msgstr "会话正在等待审批。"
+
+#: src/features/settings/extension-settings.tsx
+msgid "The settings marked * are required before the extension can be enabled."
+msgstr "标 * 的设置项填写后才能启用该扩展。"
 
 #: src/lib/task-form.ts
 msgid "The start line must be a whole number of at least 1."

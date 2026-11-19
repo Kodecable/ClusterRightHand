@@ -27,7 +27,7 @@ import {
 	type SessionExtension,
 } from "../extensions/model.ts";
 import { buildSearchIndex, searchIndexRecord, searchQueryTerms } from "../extensions/search-index.ts";
-import { extensionsForUser } from "../extensions/store.ts";
+import { extensionsForUser, sameInputSchema } from "../extensions/store.ts";
 import { copyLibraryFile } from "../library/files.ts";
 import { type ImageCache, REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
@@ -1399,7 +1399,7 @@ function extensionOf(ctx: ToolContext, name: string): SessionExtension {
 	return entry;
 }
 
-/** Connects the extensions a search may use; failures leave them unavailable with their last known tools. */
+/** Lists the extensions a search may use that were never listed; a cached list is searched without connecting. */
 async function prepareSearchExtensions(entries: readonly SessionExtension[]): Promise<void> {
 	const available = entries.filter((entry) => entry.extension.status().state !== "unavailable");
 	await Promise.allSettled(available.map((entry) => entry.extension.ensureAvailable()));
@@ -1639,6 +1639,22 @@ async function finishOrphanedCallQuietly(
 	}
 }
 
+/** Whether a tool changed since the call was judged: its rev moved. A built-in's tools carry no rev. */
+function toolChangedSince(row: ExternalCallRow, tool: ExtensionTool): boolean {
+	return row.tool_rev !== null && tool.rev !== undefined && tool.rev !== row.tool_rev;
+}
+
+/** The answer to a call made against a tool definition that changed: the current schema, to build the call again. */
+function toolChangedResult(extension: string, tool: ExtensionTool): ToolResult {
+	return errorResult(
+		"text",
+		"tool_changed",
+		`the tool ${extension}/${tool.name} changed since the call was made, so it was not run; check its current input ` +
+			`schema and call it again: ${JSON.stringify(tool.inputSchema)}`,
+		{ extension, tool: tool.name },
+	);
+}
+
 /**
  * Runs one extension call under the rules and approvals (doc/design/extensions.md "Rules and approvals" and
  * "External calls"): a denied call never starts, an approval waits in the WebUI (or Auto Review settles it),
@@ -1670,8 +1686,12 @@ export async function runExtensionTool(
 		throw err;
 	}
 	const extension = entry.extension;
+	// The definition the model most likely built its arguments from: the one it could have found before this call.
+	const seen = extension.tools().find((candidate) => candidate.name === toolName);
 	try {
-		await extension.ensureAvailable({ immediate: true });
+		// Connects now and brings the tool list up to date, so the call is judged on the server's current
+		// definitions (doc/design/extensions.md "MCP connections").
+		await extension.prepareCall();
 	} catch (err) {
 		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
 		return errorResult(
@@ -1698,6 +1718,13 @@ export async function runExtensionTool(
 			tool: toolName,
 		});
 	}
+	// A waiting call from an earlier attempt was judged on the tool as it was then; a changed tool ends it.
+	if (existing && toolChangedSince(existing, tool)) {
+		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
+		return toolChangedResult(extensionName, tool);
+	}
+	// Arguments built for an input schema the server no longer has would be read differently: ask again.
+	if (!existing && seen !== undefined && !sameInputSchema(seen, tool)) return toolChangedResult(extensionName, tool);
 	let operation: Operation;
 	let evaluation: Evaluation;
 	try {
@@ -1742,6 +1769,7 @@ export async function runExtensionTool(
 			arguments: arguments_,
 			operation,
 			annotations: tool.annotations,
+			toolRev: tool.rev ?? null,
 			ruleChain: ctx.chain,
 			rootSessionId: ctx.rootSessionId ?? null,
 			approval: { evaluation, ...(reviewPlanned ? { review: pendingReview(new Date().toISOString()) } : {}) },
@@ -1757,6 +1785,7 @@ export async function runExtensionTool(
 			});
 		}
 	}
+	const waited = row.state === "awaiting_approval";
 	if (row.state === "awaiting_approval") {
 		// Up the chain first, like a task: an ancestor's agent decides; only when none takes it does Auto
 		// Review judge it (once), then the owner in the WebUI (doc/design/access-control.md "Approvals").
@@ -1814,6 +1843,35 @@ export async function runExtensionTool(
 			extension: extensionName,
 			tool: toolName,
 		});
+	}
+	if (waited) {
+		// The approval may have waited a long time: the connection was closed meanwhile, and the tool may have
+		// changed. What was approved is the call to the tool as it was then.
+		try {
+			await extension.prepareCall();
+		} catch (err) {
+			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
+			return errorResult(
+				"text",
+				"unavailable",
+				`the extension ${extensionName} is unavailable: ${(err as Error).message}`,
+				{
+					extension: extensionName,
+					tool: toolName,
+				},
+			);
+		}
+		const current = extension.tools().find((candidate) => candidate.name === toolName);
+		if (!current || toolChangedSince(row, current)) {
+			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
+			if (!current) {
+				return errorResult("text", "unknown_tool", `the extension ${extensionName} has no tool named ${toolName}`, {
+					extension: extensionName,
+					tool: toolName,
+				});
+			}
+			return toolChangedResult(extensionName, current);
+		}
 	}
 	let resultValue: unknown;
 	try {

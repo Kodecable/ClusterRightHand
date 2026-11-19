@@ -222,6 +222,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	const imageCache = new ImageCache(db, join(dataDir, "image-cache"), () => settings.current().imageCache);
 	// One connection per MCP server for all sessions (doc/design/extensions.md "MCP connections").
 	const mcp = new McpConnections({ db, masterKey });
+	// Each MCP extension's cached tools and description load now and its daily refresh is scheduled; nothing
+	// connects until a call, a first listing or that refresh needs it.
+	await mcp.start();
 	const cluster = new Cluster(db, {
 		sshRoute: (node) => nodeRoute(db, masterKey, node),
 		signingKeys,

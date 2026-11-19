@@ -4,12 +4,15 @@
  * `used_bytes + delta` into string concatenation. The values here are above 2^31 and below 2^53.
  */
 import pg from "pg";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { configurePgInt8AsNumber } from "../src/storage/pg-int8.ts";
 import { newId } from "../src/util/id.ts";
 import { describeBackends, openTestDb } from "./helpers/db.ts";
+
+// Every case migrates a fresh PostgreSQL schema, which is slow when the suite runs in parallel.
+vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 const BIG = 2 ** 31 + 12_345;
 

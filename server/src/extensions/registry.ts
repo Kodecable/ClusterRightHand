@@ -6,10 +6,11 @@ import {
 	type Extension,
 	type ExtensionCallContext,
 	type ExtensionTool,
+	ExtensionUnavailableError,
 	readyStatus,
 	type SessionExtension,
 } from "./model.ts";
-import { DEFAULT_EXTENSION_TIMEOUT_MS, type ExtensionRow, extensionsForUser } from "./store.ts";
+import { DEFAULT_EXTENSION_TIMEOUT_MS, type ExtensionRow, extensionsForUser, missingBuiltinConfig } from "./store.ts";
 
 /**
  * The adapters behind the unified extension interface (doc/design/extensions.md): a row becomes an `Extension`
@@ -26,6 +27,8 @@ class McpExtension implements Extension {
 	constructor(connections: McpConnections, row: ExtensionRow) {
 		this.#connections = connections;
 		this.#row = row;
+		// The row carries the cached tool list and description; the connections keep whichever is newer.
+		connections.seed(row);
 	}
 
 	get name(): string {
@@ -35,7 +38,9 @@ class McpExtension implements Extension {
 		return "mcp";
 	}
 	get description(): string | null {
-		return this.#row.description ?? this.#connections.instructions(this.#row.name) ?? null;
+		// The administrator's text, else what the server last reported (doc/design/extensions.md "Extensions").
+		const name = this.#row.name;
+		return this.#row.description ?? this.#connections.instructions(name) ?? this.#connections.serverDescription(name);
 	}
 	get enabled(): boolean {
 		return this.#row.enabled === 1;
@@ -52,8 +57,11 @@ class McpExtension implements Extension {
 	tools(): readonly ExtensionTool[] {
 		return this.#connections.tools(this.#row.name);
 	}
-	async ensureAvailable(options: { immediate?: boolean } = {}): Promise<void> {
-		await this.#connections.ensureConnected(this.#row.name, options);
+	ensureAvailable(): Promise<void> {
+		return this.#connections.ensureListed(this.#row.name);
+	}
+	prepareCall(): Promise<void> {
+		return this.#connections.prepareCall(this.#row.name);
 	}
 	refreshTools(): Promise<readonly ExtensionTool[]> {
 		return this.#connections.refreshTools(this.#row.name);
@@ -73,14 +81,16 @@ class McpExtension implements Extension {
 	}
 }
 
-/** A built-in extension: it runs inside crhs, has no connection and is always ready. */
+/** A built-in extension: it runs inside crhs, has no connection, and is ready once its required settings are set. */
 class BuiltinExtension implements Extension {
 	readonly #row: ExtensionRow;
 	readonly #provider: BuiltinExtensionProvider;
+	readonly #connections: McpConnections | undefined;
 
-	constructor(row: ExtensionRow, provider: BuiltinExtensionProvider) {
+	constructor(row: ExtensionRow, provider: BuiltinExtensionProvider, connections: McpConnections | undefined) {
 		this.#row = row;
 		this.#provider = provider;
+		this.#connections = connections;
 	}
 
 	get name(): string {
@@ -90,7 +100,8 @@ class BuiltinExtension implements Extension {
 		return "builtin";
 	}
 	get description(): string | null {
-		return this.#row.description ?? this.#provider.description;
+		// A constant of crhs: it is never stored, so a new version's wording reaches every installation.
+		return this.#provider.description;
 	}
 	get enabled(): boolean {
 		return this.#row.enabled === 1;
@@ -102,17 +113,29 @@ class BuiltinExtension implements Extension {
 		return this.#row.availability;
 	}
 	status(): ExtensionStatus {
+		const missing = missingBuiltinConfig(this.#row, this.#provider);
+		if (missing.length > 0) {
+			return {
+				...readyStatus(this.#provider.tools().length),
+				state: "unavailable",
+				lastError: `needs ${missing.join(", ")}; an administrator sets it on the Extensions page`,
+			};
+		}
 		return readyStatus(this.#provider.tools().length);
 	}
 	tools(): readonly ExtensionTool[] {
 		return this.#provider.tools();
 	}
 	async ensureAvailable(): Promise<void> {}
+	async prepareCall(): Promise<void> {}
 	async refreshTools(): Promise<readonly ExtensionTool[]> {
 		return this.#provider.tools();
 	}
-	call(tool: string, args: Record<string, unknown>, context: ExtensionCallContext): Promise<unknown> {
-		return this.#provider.call(tool, args, context);
+	async call(tool: string, args: Record<string, unknown>, context: ExtensionCallContext): Promise<unknown> {
+		if (!this.#provider.config || this.#provider.config.length === 0) return this.#provider.call(tool, args, context);
+		if (!this.#connections) throw new ExtensionUnavailableError(`${this.#row.name} has no settings in this process`);
+		const config = await this.#connections.builtinConfig(this.#row, this.#provider);
+		return this.#provider.call(tool, args, { ...context, config });
 	}
 	operation(tool: string, args: Record<string, unknown>): Operation {
 		return this.#provider.operation(tool, args);
@@ -123,7 +146,7 @@ class BuiltinExtension implements Extension {
 export function extensionOf(row: ExtensionRow, connections: McpConnections | undefined): Extension | undefined {
 	if (row.kind === "builtin") {
 		const provider = builtinProvider(row.name);
-		return provider ? new BuiltinExtension(row, provider) : undefined;
+		return provider ? new BuiltinExtension(row, provider, connections) : undefined;
 	}
 	return connections ? new McpExtension(connections, row) : undefined;
 }

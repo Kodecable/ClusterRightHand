@@ -75,7 +75,7 @@ beforeAll(async () => {
 	models.addProvider(faux.provider);
 	await models.reload();
 	const masterKey = MasterKey.generate();
-	mcp = new McpConnections({ db, masterKey, fetch: fakeFetch, backoffBaseMs: 1000 });
+	mcp = new McpConnections({ db, masterKey, fetch: fakeFetch });
 	runtime = await AgentRuntime.open({
 		db,
 		storage: new MemoryStorage(),
@@ -99,7 +99,7 @@ beforeAll(async () => {
 		user.id,
 	);
 	runtime.installExtensionTools(row, []);
-	await mcp.ensureConnected("fake");
+	await mcp.prepareCall("fake");
 });
 
 afterAll(async () => {

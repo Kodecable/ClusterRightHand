@@ -199,6 +199,7 @@ describeBackends("initial migration", (backend) => {
 			"created_at",
 			"finished_at",
 			"source_tool_task",
+			"tool_rev",
 		]);
 		// A terminal row clears its arguments, so the column is nullable.
 		expect(await isNotNull(backend, db, "external_calls", "arguments")).toBe(false);
@@ -313,6 +314,8 @@ describeBackends("initial migration", (backend) => {
 		expect(rows).toEqual([
 			{ name: "crhs-api", kind: "builtin", enabled: 1, list_directly: 1, availability: "everyone" },
 			{ name: "crhs-docs", kind: "builtin", enabled: 1, list_directly: 1, availability: "everyone" },
+			// Billed per call and needs an API key first: shipped disabled.
+			{ name: "crhs-ds-search", kind: "builtin", enabled: 0, list_directly: 1, availability: "everyone" },
 		]);
 	});
 
@@ -338,6 +341,8 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0011_delete_ssh_signing_credentials" },
 			{ name: "0012_task_output_lost" },
 			{ name: "0013_bigint_byte_columns" },
+			{ name: "0014_extension_cache" },
+			{ name: "0015_builtin_config" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});

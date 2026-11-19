@@ -45,12 +45,16 @@ tool count, availability and whether they are enabled. There are two kinds:
 
 - **MCP extensions** connect to a Streamable HTTP MCP server. Each needs a name (lowercase letters,
   digits and `-`), its URL and optionally fixed request headers, which are stored encrypted and never
-  shown again. Changing a URL therefore asks for the headers again or for removing them. **Reconnect**
-  tries the connection at once; **Tools** lists what the server offers.
-- **Built-in extensions** ship with crhs: `crhs-docs` serves the documentation and the API reference, and
-  `crhs-api` lets a session make crhs API requests as its owner. They are always ready and cannot be
-  deleted; an administrator can disable one, change whether its tools are listed directly, and set its
-  availability and grants. `crhs-docs` offers `search_docs` (keyword search over the documentation and the
+  shown again. Changing a URL therefore asks for the headers again or for removing them. Leave the
+  description empty to use what the server reports about itself. crhs connects only when it needs the
+  server and closes an idle connection after 10 minutes; the tool list is refreshed daily and kept between
+  connections. **Reconnect** connects and lists the tools at once; **Tools** lists what the server offers.
+- **Built-in extensions** ship with crhs: `crhs-docs` serves the documentation and the API reference,
+  `crhs-api` lets a session make crhs API requests as its owner, and `crhs-ds-search` searches the web and
+  fetches pages through DeepSeek's Search and Fetch APIs. They cannot be deleted; an administrator can
+  disable one, change whether its tools are listed directly, and set its availability, grants and
+  settings. `crhs-ds-search` ships disabled: enter a DeepSeek API key in its settings first, since every
+  successful search or fetch is billed to that account. A built-in's description is fixed by crhs. `crhs-docs` offers `search_docs` (keyword search over the documentation and the
   API reference, with the path, heading and a snippet of each match) and `read_doc` (a directory listing, a
   Markdown outline or one section with its subsections, and whole text files, paged when long). The API
   reference is rendered from the running version's API document, one page per tag; routes an agent may not

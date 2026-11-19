@@ -189,12 +189,15 @@ row per kind.
 
 `extensions` holds both kinds in one table, distinguished by `kind`: an MCP server's URL, behaviour flags,
 availability and a reference to one encrypted `secrets` row holding the request headers, or a built-in's
-row, which has no connection settings and is seeded by the migration. `extension_grants` says who may use
+row, which has no connection settings and is seeded by the migration. A built-in's description is never
+stored: it is a constant of crhs. An MCP row also caches what the server last reported, since crhs connects
+only on use: `tools` (each with the `tools_rev` it last changed at), `tools_rev`, `server_instructions`,
+`server_description`, `refreshed_at` and `refresh_error`. `extension_grants` says who may use
 an extension when its availability is `granted`. `external_calls` is the small object an external approval
 belongs to: its id is derived from the durable tool call key, and it carries the approval columns a task has,
-the extension, tool, arguments, operation, `source_tool_task` (the durable tool task of the tool call,
-so Auto Review can read exactly that call) and the state that must survive while the call is in
-progress. A
+the extension, tool, arguments, operation, `tool_rev` (the tool's rev it was judged at), `source_tool_task`
+(the durable tool task of the tool call, so Auto Review can read exactly that call) and the state that must
+survive while the call is in progress. A
 terminal row keeps only its state and `finished_at` as the "already ran" marker and clears its arguments;
 the result is in the transcript and the decision in the audit log. `sessions.disabled_extensions` is the
 JSON list of extensions the owner turned off ([Extensions](extensions.md)). `sessions.last_used_from`

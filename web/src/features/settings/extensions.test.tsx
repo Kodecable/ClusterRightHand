@@ -9,6 +9,8 @@ const MCP: ExtensionView = {
 	name: "github",
 	kind: "mcp",
 	description: "GitHub tools",
+	effectiveDescription: "GitHub tools",
+	descriptionSource: "admin",
 	url: "https://mcp.github.test/mcp",
 	hasHeaders: true,
 	headerNames: ["Authorization"],
@@ -22,7 +24,15 @@ const MCP: ExtensionView = {
 		{ granteeType: "user", granteeId: "u1" },
 		{ granteeType: "user_group", granteeId: "g1" },
 	],
-	status: { state: "ready", lastError: null, nextAttemptAt: null, toolCount: 3 },
+	config: null,
+	status: {
+		state: "ready",
+		lastError: null,
+		nextAttemptAt: null,
+		toolCount: 3,
+		connected: false,
+		refreshedAt: "2026-01-01T00:00:00.000Z",
+	},
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
 };
@@ -31,7 +41,9 @@ const BUILTIN: ExtensionView = {
 	id: "srv-docs",
 	name: "crhs-docs",
 	kind: "builtin",
-	description: "The documentation",
+	description: null,
+	effectiveDescription: "The documentation",
+	descriptionSource: "builtin",
 	url: null,
 	hasHeaders: false,
 	headerNames: [],
@@ -42,9 +54,41 @@ const BUILTIN: ExtensionView = {
 	trustAnnotations: null,
 	timeoutSeconds: null,
 	grants: [],
-	status: { state: "ready", lastError: null, nextAttemptAt: null, toolCount: 0 },
+	config: null,
+	status: {
+		state: "ready",
+		lastError: null,
+		nextAttemptAt: null,
+		toolCount: 0,
+		connected: false,
+		refreshedAt: null,
+	},
 	createdAt: "2026-01-01T00:00:00.000Z",
 	updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+const DS_SEARCH: ExtensionView = {
+	...BUILTIN,
+	id: "srv-ds",
+	name: "crhs-ds-search",
+	enabled: false,
+	effectiveDescription: "Web search and page fetch",
+	config: {
+		fields: [
+			{ key: "apiKey", label: "API key", kind: "secret", required: true, description: "A key", default: null },
+			{
+				key: "baseUrl",
+				label: "Base URL",
+				kind: "string",
+				required: false,
+				description: "The base URL",
+				default: "https://api.deepseek.com",
+			},
+		],
+		values: {},
+		secretsSet: [],
+		missing: ["apiKey"],
+	},
 };
 
 function extensionWith(extension: ExtensionView, overrides: Partial<ExtensionView>): ExtensionView {
@@ -56,6 +100,8 @@ interface MockOptions {
 	first?: ExtensionView[];
 	/** State of the fake MCP extension after clicking Reconnect. */
 	reconnect?: boolean;
+	/** Bodies of the PUTs, by path. */
+	saved?: { path: string; body: unknown }[];
 }
 
 function mockApi(options: MockOptions = {}) {
@@ -74,6 +120,10 @@ function mockApi(options: MockOptions = {}) {
 					extension.name === "github" && reconnected ? { ...extension, status: MCP.status } : extension,
 				),
 			});
+		}
+		if (method === "PUT") {
+			options.saved?.push({ path, body: JSON.parse(String(init?.body)) });
+			return json({ extension: DS_SEARCH });
 		}
 		if (method === "POST" && path === "/api/extensions/github/reconnect") {
 			reconnected = true;
@@ -163,7 +213,46 @@ describe("extensions settings page", () => {
 		expect(screen.queryByLabelText("Timeout (seconds)")).not.toBeInTheDocument();
 		expect(screen.queryByLabelText("Request headers")).not.toBeInTheDocument();
 		expect(screen.getByRole("radio", { name: "Everyone" })).toBeChecked();
-		expect(screen.getByLabelText("Description")).toBeInTheDocument();
+		// A built-in's description is a constant of crhs: shown, not editable.
+		expect(screen.getByText("The documentation")).toBeInTheDocument();
+		expect(screen.queryByRole("textbox", { name: "Description" })).not.toBeInTheDocument();
+	});
+
+	test("sets a built-in's API key without showing it, and sends only what changed", async () => {
+		const saved: { path: string; body: unknown }[] = [];
+		mockApi({ first: [MCP, BUILTIN, DS_SEARCH], saved });
+		await renderWithRouter(<ExtensionsPage />);
+		expect(await screen.findByText("crhs-ds-search")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Edit crhs-ds-search" }));
+		await waitFor(() => expect(screen.getByTestId("extension-dialog")).toBeInTheDocument());
+		const key = screen.getByLabelText(/API key/);
+		expect(key).toHaveAttribute("type", "password");
+		expect(screen.getByLabelText("Base URL")).toHaveAttribute("placeholder", "https://api.deepseek.com");
+		fireEvent.change(key, { target: { value: "sk-test" } });
+		fireEvent.click(screen.getByRole("checkbox", { name: "Enabled (a disabled extension is invisible to sessions)" }));
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(saved).toHaveLength(1));
+		expect(saved[0]?.path).toBe("/api/extensions/crhs-ds-search");
+		expect(saved[0]?.body).toMatchObject({ enabled: true, config: { apiKey: "sk-test" } });
+		const body = saved[0]?.body as { config: Record<string, unknown> } | undefined;
+		expect(body?.config).not.toHaveProperty("baseUrl");
+	});
+
+	test("leaves an MCP description empty and shows what the server reports instead", async () => {
+		const reported = extensionWith(MCP, {
+			description: null,
+			effectiveDescription: "Use these tools to manage GitHub issues.",
+			descriptionSource: "instructions",
+		});
+		mockApi({ first: [reported, BUILTIN] });
+		await renderWithRouter(<ExtensionsPage />);
+		expect(await screen.findByText("github")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Edit github" }));
+		await waitFor(() => expect(screen.getByTestId("extension-dialog")).toBeInTheDocument());
+		const field = screen.getByRole("textbox", { name: "Description" });
+		// Never prefilled: saving would otherwise freeze the server's current text as the administrator's.
+		expect(field).toHaveValue("");
+		expect(field).toHaveAttribute("placeholder", "Use these tools to manage GitHub issues.");
 	});
 
 	test("refreshes the list after the Tools dialog connects", async () => {
@@ -171,13 +260,20 @@ describe("extensions settings page", () => {
 			first: [
 				extensionWith(MCP, {
 					grants: [],
-					status: { state: "unknown", lastError: null, nextAttemptAt: null, toolCount: 0 },
+					status: {
+						state: "unknown",
+						lastError: null,
+						nextAttemptAt: null,
+						toolCount: 0,
+						connected: false,
+						refreshedAt: null,
+					},
 				}),
 				BUILTIN,
 			],
 		});
 		await renderWithRouter(<ExtensionsPage />);
-		expect(await screen.findByText("Not connected yet")).toBeInTheDocument();
+		expect(await screen.findByText("Not listed yet")).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "View tools of github" }));
 		expect(await screen.findByTestId("extension-tool-list")).toHaveTextContent("create_issue");
 		// Listing connected to the extension; the table now shows the fresh status without a reload.
@@ -194,6 +290,8 @@ describe("extensions settings page", () => {
 						lastError: "connection refused",
 						nextAttemptAt: "2026-01-01T00:05:00.000Z",
 						toolCount: 0,
+						connected: false,
+						refreshedAt: null,
 					},
 				}),
 				BUILTIN,

@@ -39,6 +39,7 @@ describe("api extensions", () => {
 		expect(body.extensions.map((extension) => [extension.name, extension.kind])).toEqual([
 			["crhs-api", "builtin"],
 			["crhs-docs", "builtin"],
+			["crhs-ds-search", "builtin"],
 		]);
 	});
 
@@ -102,16 +103,29 @@ describe("api extensions", () => {
 		expect(url.status).toBe(400);
 		expect(((await url.json()) as { error: string }).error).toMatch(/url cannot be set on a built-in extension/);
 
+		// A built-in's description is a constant of crhs.
+		const described = await call(app, "/api/extensions/crhs-docs", {
+			method: "PUT",
+			cookie: admin,
+			body: { description: "Our documentation" },
+		});
+		expect(described.status).toBe(400);
+		expect(((await described.json()) as { error: string }).error).toMatch(
+			/description cannot be set on a built-in extension/,
+		);
+
 		const saved = await call(app, "/api/extensions/crhs-docs", {
 			method: "PUT",
 			cookie: admin,
-			body: { description: "Our documentation", availability: "granted", enabled: false },
+			body: { availability: "granted", enabled: false },
 		});
 		expect(saved.status).toBe(200);
 		const { extension } = (await saved.json()) as {
 			extension: {
 				kind: string;
 				description: string | null;
+				effectiveDescription: string | null;
+				descriptionSource: string | null;
 				availability: string;
 				enabled: boolean;
 				url: string | null;
@@ -121,13 +135,15 @@ describe("api extensions", () => {
 		};
 		expect(extension).toMatchObject({
 			kind: "builtin",
-			description: "Our documentation",
+			description: null,
+			descriptionSource: "builtin",
 			availability: "granted",
 			enabled: false,
 			url: null,
 			trustAnnotations: null,
 			timeoutSeconds: null,
 		});
+		expect(extension.effectiveDescription).toContain("documentation");
 	});
 
 	it("deletes an unknown extension as a 404, not a body error", async () => {

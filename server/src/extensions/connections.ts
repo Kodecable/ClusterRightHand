@@ -9,22 +9,49 @@ import {
 } from "@modelcontextprotocol/client";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
-import { BACKOFF_BASE_MS, BACKOFF_MAX_MS, backoffDelay } from "../util/backoff.ts";
 import { errorText } from "../util/errors.ts";
 import { redactUrlsInText } from "../util/url.ts";
 import { CRH_VERSION } from "../version.ts";
+import type { BuiltinExtensionProvider } from "./builtin.ts";
 import { ExtensionCallLostError, type ExtensionTool, ExtensionToolError, ExtensionUnavailableError } from "./model.ts";
-import { type ExtensionRow, getExtensionRow, mcpExtensionConfig } from "./store.ts";
+import {
+	type ExtensionRow,
+	extensionCacheOf,
+	getExtensionRow,
+	listExtensionRows,
+	mcpExtensionConfig,
+	readBuiltinConfig,
+	revisedTools,
+	saveExtensionCache,
+} from "./store.ts";
 
 /**
- * The MCP client connections behind extensions (doc/design/extensions.md "MCP connections"): one connection per
- * server for all sessions, opened when it is first needed, with the tool list cached and refreshed on
- * `notifications/tools/list_changed`, on reconnect and when an administrator asks. A failed connection is
- * retried with exponential backoff; while it is unavailable the last error is kept and its last tool list
- * stays searchable.
+ * The MCP client connections behind extensions (doc/design/extensions.md "MCP connections"). crhs connects to a
+ * server only when it needs it: a call, a first listing, an administrator, or the daily refresh. A connection
+ * left idle is closed. What the server reported — its tools, its `instructions` and `serverInfo.description` —
+ * is cached on the extension row, so search, the tool guide and the direct tools work without a connection
+ * and survive a restart.
+ *
+ * Every tool carries the rev at which its definition last changed. A call is judged on the definitions a fresh
+ * connection lists, and a call that waited for approval runs only if its tool's rev is unchanged.
  *
  * The module holds no pi types: the agent layer installs the direct tools when a list changes.
  */
+
+/** A connection with no call for this long is closed; the next call connects again. */
+export const MCP_IDLE_DISCONNECT_MS = 10 * 60_000;
+/** Every MCP extension's tool list and description are refreshed this often, connected or not. */
+export const MCP_REFRESH_INTERVAL_MS = 24 * 60 * 60_000;
+/** An extension never listed yet is refreshed within this window of startup or of being configured. */
+const FIRST_REFRESH_WINDOW_MS = 60_000;
+/** The scheduled refresh is spread over this fraction of the interval, so servers are not all hit at once. */
+const REFRESH_JITTER = 0.1;
+const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
+/**
+ * A call on an unreachable server gives up at once when a connection attempt failed within this window
+ * (doc/design/extensions.md "MCP connections"): one hung or looping model cannot hammer the server.
+ */
+const FAILED_ATTEMPT_WINDOW_MS = 10_000;
 
 /** The CRH identity sent to a server for one call; the identity headers are not authentication. */
 export interface McpIdentity {
@@ -32,7 +59,6 @@ export interface McpIdentity {
 	sessionId: string;
 }
 
-/** How a server waits for its next automatic attempt (diagnostics and the settings page). */
 export interface McpConnectionOptions {
 	db: Db;
 	masterKey: MasterKey;
@@ -40,44 +66,49 @@ export interface McpConnectionOptions {
 	fetch?: FetchLike;
 	/** Called when a server's tool list changes, so the agent layer can reinstall its direct tools. */
 	onToolsChanged?: (server: ExtensionRow, tools: readonly ExtensionTool[]) => void;
-	/** Called when a server's connection state changes, for diagnostics. */
+	/** Called when a server's state changes, for diagnostics. */
 	onStatusChanged?: (name: string, status: ExtensionStatus) => void;
-	/** Backoff base in milliseconds; tests shorten it. */
-	backoffBaseMs?: number;
-	/** Backoff cap in milliseconds (5 minutes by default). */
-	backoffMaxMs?: number;
-	/** How long an on-demand connection attempt may take (10 s by default); tests shorten it. */
+	/** How long an idle connection stays open; tests shorten it. */
+	idleDisconnectMs?: number;
+	/** How often the tool list is refreshed; tests shorten it. */
+	refreshIntervalMs?: number;
+	/** How long a connection attempt may take (10 s by default); tests shorten it. */
 	connectTimeoutMs?: number;
-	/** The clock the failure window reads; tests inject one. */
+	/** The clock; tests inject one. */
 	now?: () => number;
-	/** Skill/version reported to the server. */
+	/** Random numbers for the refresh spread; tests make it fixed. */
+	random?: () => number;
+	/** Version reported to the server. */
 	version?: string;
 }
 
 interface ServerState {
+	name: string;
 	row: ExtensionRow | null;
+	/** The state of the last refresh, or `connecting` while one runs. */
 	status: ExtensionStatus["state"];
 	lastError: string | null;
-	nextAttemptAt: string | null;
-	attempt: number;
+	refreshedAt: string | null;
+	nextRefreshAt: string | null;
+	tools: ExtensionTool[];
+	toolsRev: number;
+	instructions: string | null;
+	serverDescription: string | null;
+	/** Whether the cache was loaded from the row. */
+	seeded: boolean;
 	client?: Client;
 	transport?: StreamableHTTPClientTransport;
-	tools: ExtensionTool[];
-	instructions: string | null;
-	retryTimer?: ReturnType<typeof setTimeout>;
+	/** The connected server announces `tools/list_changed`, so a live list stays current without asking. */
+	listChanged: boolean;
 	connecting?: Promise<void>;
+	refreshTimer?: ReturnType<typeof setTimeout>;
+	idleTimer?: ReturnType<typeof setTimeout>;
+	/** Calls in flight on the connection; an idle close waits for them. */
+	inFlight: number;
 	/** When the last connection attempt failed; a call in the next window tries no further. */
 	lastFailureAt: number | null;
 }
 
-const DEFAULT_BACKOFF_BASE_MS = BACKOFF_BASE_MS;
-const DEFAULT_BACKOFF_MAX_MS = BACKOFF_MAX_MS;
-const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
-/**
- * A call on an unavailable server gives up at once when a connection attempt failed within this window
- * (doc/design/extensions.md "MCP connections"): one hung or looping model cannot hammer the server.
- */
-const FAILED_ATTEMPT_WINDOW_MS = 10_000;
 function toTool(tool: Tool): ExtensionTool {
 	const annotations = (tool.annotations ?? null) as ExtensionToolAnnotations | null;
 	return {
@@ -109,17 +140,30 @@ export class McpConnections {
 		this.#options.onToolsChanged = handler;
 	}
 
+	/** Loads every MCP extension's cache and schedules its refresh (startup). Nothing connects here. */
+	async start(): Promise<void> {
+		for (const row of await listExtensionRows(this.#options.db)) {
+			if (row.kind === "mcp") this.seed(row);
+		}
+	}
+
 	#state(name: string): ServerState {
 		let state = this.#states.get(name);
 		if (!state) {
 			state = {
+				name,
 				row: null,
 				status: "unknown",
 				lastError: null,
-				nextAttemptAt: null,
-				attempt: 0,
+				refreshedAt: null,
+				nextRefreshAt: null,
 				tools: [],
+				toolsRev: 0,
 				instructions: null,
+				serverDescription: null,
+				seeded: false,
+				listChanged: false,
+				inFlight: 0,
 				lastFailureAt: null,
 			};
 			this.#states.set(name, state);
@@ -127,16 +171,42 @@ export class McpConnections {
 		return state;
 	}
 
+	/**
+	 * Takes a stored row's cache when this process has nothing newer: at startup, and whenever an adapter is
+	 * built for a row another path wrote. Schedules the row's refresh if none is scheduled.
+	 */
+	seed(row: ExtensionRow): void {
+		if (row.kind !== "mcp" || this.#closing) return;
+		const state = this.#state(row.name);
+		state.row = row;
+		if (!state.seeded || row.tools_rev > state.toolsRev) {
+			const cache = extensionCacheOf(row);
+			state.tools = cache.tools;
+			state.toolsRev = cache.toolsRev;
+			state.instructions = cache.instructions;
+			state.serverDescription = cache.description;
+			state.refreshedAt = cache.refreshedAt;
+			state.lastError = cache.refreshError;
+			if (state.status !== "connecting") {
+				state.status = cache.refreshError !== null ? "unavailable" : cache.refreshedAt !== null ? "ready" : "unknown";
+			}
+			state.seeded = true;
+		}
+		if (state.refreshTimer === undefined && row.enabled === 1) this.#scheduleRefresh(state);
+	}
+
 	#statusOf(state: ServerState): ExtensionStatus {
 		return {
 			state: state.status,
 			lastError: state.lastError,
-			nextAttemptAt: state.nextAttemptAt,
+			nextAttemptAt: state.nextRefreshAt,
 			toolCount: state.tools.length,
+			connected: state.client !== undefined,
+			refreshedAt: state.refreshedAt,
 		};
 	}
 
-	/** The status last known in this process; a server never connected here reports `unknown`. */
+	/** The state last known in this process; a server never listed reports `unknown`. */
 	status(name: string): ExtensionStatus {
 		return this.#statusOf(this.#state(name));
 	}
@@ -145,123 +215,175 @@ export class McpConnections {
 		return new Map(names.map((name) => [name, this.status(name)]));
 	}
 
-	/** The tool list last listed for a server; empty before the first successful connection. */
+	/** The tool list last listed for a server; empty before the first successful listing. */
 	tools(name: string): readonly ExtensionTool[] {
 		return this.#state(name).tools;
 	}
 
+	/** The server's own `instructions` at its last listing. */
 	instructions(name: string): string | null {
 		return this.#state(name).instructions;
 	}
 
-	#setStatus(state: ServerState, status: ExtensionStatus["state"], error: string | null = null): void {
-		state.status = status;
-		state.lastError = error;
-		const name = state.row?.name;
-		if (name !== undefined) this.#options.onStatusChanged?.(name, this.#statusOf(state));
+	/** The server's `serverInfo.description` at its last listing. */
+	serverDescription(name: string): string | null {
+		return this.#state(name).serverDescription;
 	}
 
-	/** The delay before attempt number `attempt` (1-based), shared with chat channels. */
-	#backoffDelay(attempt: number): number {
-		return backoffDelay(attempt, {
-			baseMs: this.#options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS,
-			maxMs: this.#options.backoffMaxMs ?? DEFAULT_BACKOFF_MAX_MS,
-		});
+	/** The tool as last listed, if it is still listed. */
+	tool(name: string, toolName: string): ExtensionTool | undefined {
+		return this.#states.get(name)?.tools.find((candidate) => candidate.name === toolName);
 	}
 
-	#clearRetry(state: ServerState): void {
-		if (state.retryTimer !== undefined) clearTimeout(state.retryTimer);
-		state.retryTimer = undefined;
-		state.nextAttemptAt = null;
+	#notifyStatus(state: ServerState): void {
+		this.#options.onStatusChanged?.(state.name, this.#statusOf(state));
 	}
 
 	#now(): number {
 		return this.#options.now ? this.#options.now() : Date.now();
 	}
 
-	/** Schedules the next automatic attempt; an administrator's reconnect, or one whose call failed, discards it. */
-	#scheduleRetry(name: string, state: ServerState): void {
-		this.#clearRetry(state);
-		if (this.#closing) return;
-		// `attempt` is the number of the failed attempt, so the first retry waits the base delay (1 s).
-		const delay = this.#backoffDelay(state.attempt);
-		state.nextAttemptAt = new Date(this.#now() + delay).toISOString();
-		state.retryTimer = setTimeout(() => {
-			state.retryTimer = undefined;
-			state.nextAttemptAt = null;
-			void this.#connect(name, state).catch(() => undefined);
-		}, delay);
-		// A pending retry must not keep the process alive by itself.
-		state.retryTimer.unref?.();
+	#refreshInterval(): number {
+		return this.#options.refreshIntervalMs ?? MCP_REFRESH_INTERVAL_MS;
+	}
+
+	#clearRefresh(state: ServerState): void {
+		if (state.refreshTimer !== undefined) clearTimeout(state.refreshTimer);
+		state.refreshTimer = undefined;
+		state.nextRefreshAt = null;
+	}
+
+	#clearIdle(state: ServerState): void {
+		if (state.idleTimer !== undefined) clearTimeout(state.idleTimer);
+		state.idleTimer = undefined;
 	}
 
 	/**
-	 * Drops a server's connection: deleted by an administrator (the whole state goes), or reset for a
-	 * configuration change, where the last known tool list stays so a direct tool is not lost until the next
-	 * connection. A config change does not mean the tools changed.
+	 * The next refresh: one interval after the last successful one, spread by the jitter; a server never
+	 * listed is refreshed soon, within the first-refresh window.
 	 */
-	async invalidate(name: string, options: { keepTools?: boolean } = {}): Promise<void> {
-		const state = this.#states.get(name);
-		if (!state) return;
-		this.#clearRetry(state);
-		await this.#closeState(state);
-		// An attempt that failed while it was awaited scheduled its retry after the first clear.
-		this.#clearRetry(state);
-		if (!options.keepTools) {
-			this.#states.delete(name);
-			return;
+	#scheduleRefresh(state: ServerState, options: { afterAttempt?: boolean } = {}): void {
+		this.#clearRefresh(state);
+		if (this.#closing) return;
+		const interval = this.#refreshInterval();
+		const random = this.#options.random ?? Math.random;
+		let delay: number;
+		if (state.refreshedAt === null && !options.afterAttempt) {
+			// Never listed: soon, spread only over the first-refresh window.
+			delay = random() * Math.min(FIRST_REFRESH_WINDOW_MS, interval);
+		} else {
+			const base = options.afterAttempt
+				? interval
+				: Math.max(0, Date.parse(state.refreshedAt ?? "") + interval - this.#now());
+			delay = base + random() * interval * REFRESH_JITTER;
 		}
-		state.attempt = 0;
-		state.lastFailureAt = null;
-		state.instructions = null;
-		this.#setStatus(state, "unknown");
+		state.nextRefreshAt = new Date(this.#now() + delay).toISOString();
+		state.refreshTimer = setTimeout(() => {
+			state.refreshTimer = undefined;
+			state.nextRefreshAt = null;
+			void this.#scheduledRefresh(state);
+		}, delay);
+		// A pending refresh must not keep the process alive by itself.
+		state.refreshTimer.unref?.();
 	}
 
-	/** Closes one state's client; a close during a connection attempt is joined. */
-	async #closeState(state: ServerState): Promise<void> {
-		const connecting = state.connecting;
-		if (connecting) await connecting.catch(() => undefined);
+	/** The daily refresh: list the tools on the live connection, or connect for it and close again. */
+	async #scheduledRefresh(state: ServerState): Promise<void> {
+		try {
+			if (state.client) {
+				await this.#listTools(state, state.client);
+			} else {
+				await this.#connect(state);
+				// Nobody is using the connection the refresh opened: close it again at once.
+				if (state.inFlight === 0 && state.idleTimer === undefined) await this.#disconnect(state);
+			}
+		} catch {
+			// The state carries the error; the cache stays for search and the tool guide.
+		}
+		if (state.row?.enabled === 1 && this.#states.get(state.name) === state) {
+			this.#scheduleRefresh(state, { afterAttempt: true });
+		}
+	}
+
+	/** Closes the connection after the idle time; calls in flight keep it open until they end. */
+	#touch(state: ServerState): void {
+		this.#clearIdle(state);
+		if (this.#closing || !state.client) return;
+		state.idleTimer = setTimeout(() => {
+			state.idleTimer = undefined;
+			if (state.inFlight > 0) return;
+			void this.#disconnect(state);
+		}, this.#options.idleDisconnectMs ?? MCP_IDLE_DISCONNECT_MS);
+		state.idleTimer.unref?.();
+	}
+
+	/** Closes the client; the cache and the refresh schedule stay. */
+	async #disconnect(state: ServerState): Promise<void> {
+		this.#clearIdle(state);
 		const client = state.client;
 		state.client = undefined;
 		state.transport = undefined;
 		if (client) await client.close().catch(() => undefined);
-	}
-
-	/** The server's row, read fresh at every connection so an edited URL or header is used at once. */
-	async #freshRow(name: string): Promise<ExtensionRow | undefined> {
-		return getExtensionRow(this.#options.db, name);
+		this.#notifyStatus(state);
 	}
 
 	/**
-	 * Connects one server now, sharing an attempt in flight. Throws on failure; the state then holds the
-	 * error and the retry schedule. `keepSchedule` is an on-demand attempt for a waiting call: it leaves a
-	 * scheduled retry in place, so a failure moves the backoff schedule on instead of restarting it.
+	 * Drops a server's connection: deleted by an administrator (the whole state goes), or reset for a
+	 * configuration change, where the cached tool list stays so a direct tool is not lost until the next
+	 * listing, and a refresh is scheduled soon to check the new configuration.
 	 */
-	async #connect(
-		name: string,
-		state: ServerState,
-		options: { keepSchedule?: boolean; timeoutMs?: number } = {},
-	): Promise<void> {
+	async invalidate(name: string, options: { keepTools?: boolean } = {}): Promise<void> {
+		const state = this.#states.get(name);
+		if (!state) return;
+		this.#clearRefresh(state);
+		const connecting = state.connecting;
+		if (connecting) await connecting.catch(() => undefined);
+		await this.#disconnect(state);
+		this.#clearRefresh(state);
+		if (!options.keepTools) {
+			this.#states.delete(name);
+			return;
+		}
+		state.lastFailureAt = null;
+		state.lastError = null;
+		state.status = "unknown";
+		state.refreshedAt = null;
+		const row = await getExtensionRow(this.#options.db, name);
+		if (row) {
+			state.row = row;
+			if (row.kind === "mcp" && row.enabled === 1) this.#scheduleRefresh(state);
+		}
+		this.#notifyStatus(state);
+	}
+
+	/**
+	 * Connects one server now, sharing an attempt in flight, and lists its tools. Throws on failure; the state
+	 * and the row then hold the error, and the cache stays.
+	 */
+	async #connect(state: ServerState, options: { timeoutMs?: number } = {}): Promise<void> {
 		if (this.#closing) throw new ExtensionUnavailableError("crhs is shutting down");
 		if (state.connecting) return state.connecting;
+		const name = state.name;
 		const attempt = (async () => {
-			if (!options.keepSchedule) this.#clearRetry(state);
-			this.#setStatus(state, "connecting");
+			state.status = "connecting";
+			this.#notifyStatus(state);
 			// Close a previous client first: reconnect and an edited configuration both start from scratch.
-			const previous = state.client;
+			const old = state.client;
 			state.client = undefined;
 			state.transport = undefined;
-			if (previous) await previous.close().catch(() => undefined);
-			const row = await this.#freshRow(name);
+			if (old) await old.close().catch(() => undefined);
+			const row = await getExtensionRow(this.#options.db, name);
 			if (row?.kind !== "mcp" || row.enabled !== 1) {
-				// A disabled or deleted extension must not be contacted, even when a call or a stale retry asks
-				// for it (doc/design/extensions.md "MCP connections").
-				this.#clearRetry(state);
+				// A disabled or deleted extension must not be contacted, even when a call or a stale timer asks.
+				this.#clearRefresh(state);
 				const message = row?.kind === "mcp" ? "the extension is disabled" : "no such MCP extension";
-				this.#setStatus(state, "unavailable", message);
+				state.status = "unavailable";
+				state.lastError = message;
+				this.#notifyStatus(state);
 				throw new ExtensionUnavailableError(message);
 			}
 			state.row = row;
+			if (!state.seeded) this.seed(row);
 			const config = await mcpExtensionConfig(this.#options.db, this.#options.masterKey, row);
 			const identity = this.#identity;
 			const baseFetch = this.#fetch;
@@ -279,8 +401,8 @@ export class McpConnections {
 					listChanged: {
 						tools: {
 							onChanged: (error, tools) => {
-								if (error || !tools) return;
-								this.#setTools(state, tools).catch((err: unknown) => {
+								if (error || !tools || state.client !== client) return;
+								this.#setTools(state, client, tools).catch((err: unknown) => {
 									console.error(`mcp: refreshing the tool list of ${name} failed:`, redactUrlsInText(errorText(err)));
 								});
 							},
@@ -291,7 +413,7 @@ export class McpConnections {
 			const transport = new StreamableHTTPClientTransport(new URL(config.url), {
 				requestInit: { headers: config.headers },
 				fetch: fetchWithIdentity,
-				// crhs owns the backoff; the transport must not retry the event stream behind its back.
+				// crhs owns reconnecting: the transport must not retry the event stream behind its back.
 				reconnectionOptions: {
 					initialReconnectionDelay: 1000,
 					maxReconnectionDelay: 300_000,
@@ -308,35 +430,30 @@ export class McpConnections {
 					transport,
 					options.timeoutMs ?? this.#options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
 				);
-				const result = await client.listTools();
-				await this.#setTools(state, result.tools);
+				state.listChanged = client.getServerCapabilities()?.tools?.listChanged === true;
 				state.instructions = client.getInstructions() ?? null;
-				state.attempt = 0;
+				state.serverDescription = client.getServerVersion()?.description ?? null;
+				await this.#listTools(state, client);
 				state.lastFailureAt = null;
-				// A successful attempt resets the backoff, a scheduled retry included.
-				this.#clearRetry(state);
-				this.#setStatus(state, "ready");
-				// The connection dropping later is a failure like a refused one: retry with backoff.
+				// A connection that drops is closed here; the next use connects again. The cache stays valid.
 				transport.onclose = () => {
 					if (this.#closing || state.client !== client) return;
 					state.client = undefined;
 					state.transport = undefined;
-					state.attempt += 1;
-					this.#setStatus(state, "unavailable", "the connection closed");
-					this.#scheduleRetry(name, state);
+					this.#clearIdle(state);
+					this.#notifyStatus(state);
 				};
+				this.#touch(state);
 			} catch (err) {
-				state.client = undefined;
-				state.transport = undefined;
+				if (state.client === client) {
+					state.client = undefined;
+					state.transport = undefined;
+				}
 				await client.close().catch(() => undefined);
-				state.attempt += 1;
 				state.lastFailureAt = this.#now();
 				// A token in the endpoint's query must not reach the status page or a tool result.
 				const message = redactUrlsInText(errorText(err));
-				this.#setStatus(state, "unavailable", message);
-				// An on-demand attempt with a retry still scheduled leaves that schedule alone; otherwise
-				// this failure schedules the next one (scheduled attempt, administrator, first use).
-				if (!(options.keepSchedule === true && state.retryTimer !== undefined)) this.#scheduleRetry(name, state);
+				await this.#recordFailure(state, message);
 				throw new ExtensionUnavailableError(message);
 			}
 		})();
@@ -372,80 +489,134 @@ export class McpConnections {
 		}
 	}
 
-	async #setTools(state: ServerState, tools: readonly Tool[]): Promise<void> {
-		state.tools = tools.map(toTool);
-		// Read the row again: the administrator may have flipped a flag since this connection was opened.
-		if (state.row) state.row = (await this.#freshRow(state.row.name)) ?? state.row;
-		if (state.row) {
-			this.#options.onToolsChanged?.(state.row, state.tools);
-			this.#options.onStatusChanged?.(state.row.name, this.#statusOf(state));
+	/** Lists the tools on a live client and records them; a failure is recorded and rethrown. */
+	async #listTools(state: ServerState, client: Client): Promise<void> {
+		let listed: Tool[];
+		try {
+			listed = (await client.listTools({}, { cacheMode: "refresh" })).tools;
+		} catch (err) {
+			const message = redactUrlsInText(errorText(err));
+			await this.#recordFailure(state, message);
+			throw new ExtensionUnavailableError(message);
 		}
+		await this.#setTools(state, client, listed);
 	}
 
 	/**
-	 * Makes sure a server is connected. `immediate` (a call, an administrator's reconnect) tries now
-	 * instead of waiting for a scheduled retry; without one a server in backoff stays unavailable.
+	 * Records a listing: per-tool revs, the server's description, the refresh time, in memory and on the row.
+	 * The agent layer reinstalls direct tools only when the list changed.
 	 */
-	async ensureConnected(name: string, options: { immediate?: boolean } = {}): Promise<ServerState> {
+	async #setTools(state: ServerState, client: Client, listed: readonly Tool[]): Promise<void> {
+		// A listing from a client that was replaced meanwhile is stale.
+		if (state.client !== client) return;
+		const revised = revisedTools(state.tools, state.toolsRev, listed.map(toTool));
+		const changed = revised.toolsRev !== state.toolsRev;
+		state.tools = revised.tools;
+		state.toolsRev = revised.toolsRev;
+		state.refreshedAt = new Date(this.#now()).toISOString();
+		state.status = "ready";
+		state.lastError = null;
+		await saveExtensionCache(this.#options.db, state.name, {
+			instructions: state.instructions,
+			description: state.serverDescription,
+			tools: state.tools,
+			toolsRev: state.toolsRev,
+			refreshedAt: state.refreshedAt,
+			refreshError: null,
+		});
+		// Read the row again: the administrator may have flipped a flag since this connection was opened.
+		state.row = (await getExtensionRow(this.#options.db, state.name)) ?? state.row;
+		if (changed && state.row) this.#options.onToolsChanged?.(state.row, state.tools);
+		this.#notifyStatus(state);
+	}
+
+	/** A failed connection or listing: the error goes to the state and the row, the cache stays. */
+	async #recordFailure(state: ServerState, message: string): Promise<void> {
+		state.status = "unavailable";
+		state.lastError = message;
+		this.#notifyStatus(state);
+		const orgId = state.row?.org_id;
+		if (orgId === undefined) return;
+		await this.#options.db
+			.updateTable("extensions")
+			.set({ refresh_error: message })
+			.where("org_id", "=", orgId)
+			.where("name", "=", state.name)
+			.where("kind", "=", "mcp")
+			.execute()
+			.catch(() => undefined);
+	}
+
+	/**
+	 * Makes sure a tool list is known before a search. A server with a cached list is not contacted: search
+	 * works on the cache, and the daily refresh and calls keep it current.
+	 */
+	async ensureListed(name: string): Promise<void> {
 		const state = this.#state(name);
-		if (state.status === "ready" && state.client) return state;
-		// A connection attempt in flight is shared, whichever path started it.
-		if (state.connecting) {
-			await state.connecting;
-			return state;
-		}
-		if (!options.immediate) {
-			if (state.status === "unavailable")
-				throw new ExtensionUnavailableError(state.lastError ?? "the server is unavailable");
-			await this.#connect(name, state);
-			return state;
-		}
-		// A call right after a failed attempt fails at once instead of hammering the server; the scheduled
-		// retry is the next try.
+		if (state.refreshedAt !== null || state.tools.length > 0) return;
+		if (state.connecting) return state.connecting;
 		if (state.lastFailureAt !== null && this.#now() - state.lastFailureAt < FAILED_ATTEMPT_WINDOW_MS) {
 			throw new ExtensionUnavailableError(state.lastError ?? "the server is unavailable");
 		}
-		await this.#connect(name, state, { keepSchedule: true });
-		return state;
+		await this.#connect(state);
 	}
 
-	/** An administrator asked: connect now and reload the tools, even when it was ready. */
+	/**
+	 * Gets a server ready for a call: connected, with a tool list as current as the server's: a fresh
+	 * connection lists its tools, and a live one that does not announce list changes is asked again. A call
+	 * right after a failed attempt fails at once instead of hammering the server.
+	 */
+	async prepareCall(name: string): Promise<void> {
+		const state = this.#state(name);
+		if (state.connecting) {
+			await state.connecting;
+			return;
+		}
+		if (state.client) {
+			if (!state.listChanged) await this.#listTools(state, state.client);
+			this.#touch(state);
+			return;
+		}
+		if (state.lastFailureAt !== null && this.#now() - state.lastFailureAt < FAILED_ATTEMPT_WINDOW_MS) {
+			throw new ExtensionUnavailableError(state.lastError ?? "the server is unavailable");
+		}
+		await this.#connect(state);
+	}
+
+	/** An administrator asked: connect now and reload the tools, even when connected. */
 	async reconnect(name: string): Promise<ExtensionStatus> {
 		const state = this.#state(name);
-		this.#clearRetry(state);
-		await this.#closeState(state);
-		state.status = "unknown";
-		state.attempt = 0;
+		const connecting = state.connecting;
+		if (connecting) await connecting.catch(() => undefined);
+		await this.#disconnect(state);
+		state.lastFailureAt = null;
 		try {
-			await this.#connect(name, state);
+			await this.#connect(state);
 		} catch {
-			// The state carries the error and its retry.
+			// The state carries the error.
 		}
 		return this.#statusOf(state);
 	}
 
-	/** Reloads the tool list of a connected server (the settings page's "view tools" also uses this). */
+	/** Reloads the tool list now (the settings page's "view tools"). */
 	async refreshTools(name: string): Promise<readonly ExtensionTool[]> {
 		const state = this.#state(name);
-		if (state.status !== "ready" || !state.client) {
-			await this.ensureConnected(name, { immediate: true });
+		if (state.connecting) await state.connecting.catch(() => undefined);
+		if (state.client) {
+			await this.#listTools(state, state.client);
+			this.#touch(state);
+		} else {
+			state.lastFailureAt = null;
+			await this.#connect(state);
 		}
-		const client = this.#state(name).client;
-		if (!client) throw new ExtensionUnavailableError("the server is unavailable");
-		const result = await client.listTools({}, { cacheMode: "refresh" });
-		await this.#setTools(state, result.tools);
 		return state.tools;
 	}
 
-	/** The tool's annotations from the last listing, if it is still listed. */
-	tool(name: string, toolName: string): ExtensionTool | undefined {
-		return this.#states.get(name)?.tools.find((candidate) => candidate.name === toolName);
-	}
-
 	/**
-	 * Calls a tool with the per-server timeout. The identity headers carry the calling user and session.
-	 * A timeout or an abort aborts the request, which the Streamable HTTP transport turns into an MCP
-	 * cancellation; a connection failure after the request started has an unknown outcome.
+	 * Calls a tool with the per-server timeout on the connection `prepareCall` made. The identity headers
+	 * carry the calling user and session. A timeout or an abort aborts the request, which the Streamable HTTP
+	 * transport turns into an MCP cancellation; a connection failure after the request started has an unknown
+	 * outcome.
 	 */
 	async callTool(
 		name: string,
@@ -453,9 +624,12 @@ export class McpConnections {
 		args: Record<string, unknown>,
 		options: { signal?: AbortSignal; identity?: McpIdentity; timeoutMs?: number } = {},
 	): Promise<unknown> {
-		const state = await this.ensureConnected(name, { immediate: true });
+		const state = this.#state(name);
+		if (!state.client) await this.prepareCall(name);
 		const client = state.client;
-		if (!client) throw new ExtensionUnavailableError("the server is unavailable");
+		if (!client) throw new ExtensionUnavailableError(state.lastError ?? "the server is unavailable");
+		state.inFlight += 1;
+		this.#clearIdle(state);
 		const timeoutMs = options.timeoutMs ?? state.row?.timeout_ms ?? 300_000;
 		const controller = new AbortController();
 		let timedOut = false;
@@ -474,36 +648,50 @@ export class McpConnections {
 				if (timedOut) throw new ExtensionCallLostError(`the call timed out after ${timeoutMs / 1000} s`);
 				if (options.signal?.aborted) throw new ExtensionCallLostError("the call was aborted");
 				if (err instanceof ProtocolError) throw new ExtensionToolError(errorText(err));
-				// The request did not complete normally: its outcome is unknown, and the server is no longer
-				// trusted to be connected.
+				// The request did not complete normally: its outcome is unknown, and the connection is no longer
+				// trusted. The next call connects again.
 				const message = redactUrlsInText(errorText(err));
 				if (state.client === client) {
 					const transport = state.transport;
 					state.client = undefined;
 					state.transport = undefined;
-					// The call left the connection unusable: close what this state still held before it retries.
 					void client.close().catch(() => {});
 					void transport?.close().catch(() => {});
-					state.attempt += 1;
 					state.lastFailureAt = this.#now();
-					this.#setStatus(state, "unavailable", message);
-					this.#scheduleRetry(name, state);
+					state.status = "unavailable";
+					state.lastError = message;
+					this.#notifyStatus(state);
 				}
 				throw new ExtensionCallLostError(message);
 			} finally {
 				clearTimeout(timer);
 				options.signal?.removeEventListener("abort", onAbort);
+				state.inFlight -= 1;
+				if (state.inFlight === 0) this.#touch(state);
 			}
 		};
 		return options.identity ? this.#identity.run(options.identity, run) : run();
+	}
+
+	/**
+	 * A built-in extension's settings for a call, secrets decrypted. It lives here because this object holds
+	 * the database and the master key for every extension.
+	 */
+	builtinConfig(
+		row: ExtensionRow,
+		provider: BuiltinExtensionProvider,
+	): Promise<Record<string, string | number | boolean>> {
+		return readBuiltinConfig(this.#options.db, this.#options.masterKey, row, provider);
 	}
 
 	/** Closes every connection and timer; a later call reports shutdown. */
 	async close(): Promise<void> {
 		this.#closing = true;
 		for (const state of this.#states.values()) {
-			this.#clearRetry(state);
-			await this.#closeState(state);
+			this.#clearRefresh(state);
+			const connecting = state.connecting;
+			if (connecting) await connecting.catch(() => undefined);
+			await this.#disconnect(state);
 		}
 		this.#states.clear();
 	}

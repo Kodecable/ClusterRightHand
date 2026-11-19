@@ -20,7 +20,7 @@ import { extensionKeys, useDeleteExtension, useExtensions, useExtensionTools, us
 import { ExtensionDialog } from "./extension-dialog";
 
 const STATE_LABEL = {
-	unknown: <Trans>Not connected yet</Trans>,
+	unknown: <Trans>Not listed yet</Trans>,
 	connecting: <Trans>Connecting</Trans>,
 	ready: <Trans>Ready</Trans>,
 	unavailable: <Trans>Unavailable</Trans>,
@@ -37,10 +37,22 @@ function StateCell({ extension }: { extension: ExtensionView }) {
 			<StatusText tone={status.state === "ready" ? "ok" : status.state === "unavailable" ? "danger" : "muted"}>
 				{STATE_LABEL[status.state]}
 			</StatusText>
-			{status.state === "unavailable" && status.nextAttemptAt !== null && (
+			{extension.kind === "mcp" && (
+				<span className="text-muted-foreground">
+					{status.connected ? <Trans>Connected</Trans> : <Trans>Idle, connects on use</Trans>}
+				</span>
+			)}
+			{status.refreshedAt !== null && (
 				<span className="text-muted-foreground">
 					<Trans>
-						Next try: <RelativeTime value={status.nextAttemptAt} />
+						Listed <RelativeTime value={status.refreshedAt} />
+					</Trans>
+				</span>
+			)}
+			{status.nextAttemptAt !== null && (
+				<span className="text-muted-foreground">
+					<Trans>
+						Next refresh: <RelativeTime value={status.nextAttemptAt} />
 					</Trans>
 				</span>
 			)}

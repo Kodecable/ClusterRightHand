@@ -87,7 +87,7 @@ beforeAll(async () => {
 	models.addProvider(faux.provider);
 	await models.reload();
 	masterKey = MasterKey.generate();
-	mcp = new McpConnections({ db, masterKey, fetch: fakeFetch, backoffBaseMs: 1000 });
+	mcp = new McpConnections({ db, masterKey, fetch: fakeFetch });
 	runtime = await AgentRuntime.open({
 		db,
 		storage: new MemoryStorage(),
@@ -100,7 +100,7 @@ beforeAll(async () => {
 	const user = await createUser(db, { username: "owner", kind: "member", password: "password-123" });
 	owner = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
 	await addServer({ listDirectly: true, enabled: true, granted: true });
-	await mcp.ensureConnected("fake");
+	await mcp.prepareCall("fake");
 	runtime.installExtensionTools((await getExtensionRow(db, "fake")) as ExtensionRow, mcp.tools("fake"));
 	const session = await runtime.createSession(owner, { title: "direct tools", model: model(), rulePreset: "ask" });
 	sessionId = session.id;

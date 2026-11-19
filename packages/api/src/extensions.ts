@@ -8,6 +8,9 @@
 import type { z } from "zod";
 import type {
 	ExtensionAvailabilitySchema,
+	ExtensionConfigFieldSchema,
+	ExtensionConfigViewSchema,
+	ExtensionDescriptionSourceSchema,
 	ExtensionGrantSchema,
 	ExtensionHeaderSchema,
 	ExtensionIdentityHeadersSchema,
@@ -46,6 +49,15 @@ export type ExtensionIdentityHeaders = z.infer<typeof ExtensionIdentityHeadersSc
 export type ExtensionState = z.infer<typeof ExtensionStateSchema>;
 
 export type ExtensionStatus = z.infer<typeof ExtensionStatusSchema>;
+
+/** One setting a built-in extension declares. */
+export type ExtensionConfigField = z.infer<typeof ExtensionConfigFieldSchema>;
+
+/** A built-in extension's settings as administrators see them; secret values never come back. */
+export type ExtensionConfigView = z.infer<typeof ExtensionConfigViewSchema>;
+
+/** Where an extension's description comes from (doc/design/extensions.md "Extensions"). */
+export type ExtensionDescriptionSource = z.infer<typeof ExtensionDescriptionSourceSchema>;
 
 /** One tool as the extension listed it. */
 export type ExtensionToolView = z.infer<typeof ExtensionToolViewSchema>;

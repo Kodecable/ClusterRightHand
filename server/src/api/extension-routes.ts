@@ -12,7 +12,7 @@ import {
 import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
 import type { McpConnections } from "../extensions/connections.ts";
-import type { ExtensionTool } from "../extensions/model.ts";
+import { type ExtensionTool, unprovidedStatus } from "../extensions/model.ts";
 import { extensionOf } from "../extensions/registry.ts";
 import {
 	deleteExtension,
@@ -99,7 +99,7 @@ export interface ExtensionRoutesOptions {
 
 /**
  * The administrator's extensions (doc/design/extensions.md "Extensions"): create, edit and delete MCP
- * extensions, change a built-in's enabled/list directly/availability/grants/description and view its tools.
+ * extensions, change a built-in's enabled/list directly/availability/grants and view its tools.
  * Header values are write-only; the view reports only which headers are stored. Every change is audited as
  * configuration without header values. Requires a WebUI session and an administrator.
  */
@@ -113,12 +113,7 @@ export function extensionRoutes(db: Db, options: ExtensionRoutesOptions) {
 		return Promise.all(
 			rows.map((row) => {
 				const extension = extensionOf(row, options.connections);
-				const status = extension?.status() ?? {
-					state: "unavailable" as const,
-					lastError: "this extension is not available in this crhs",
-					nextAttemptAt: null,
-					toolCount: 0,
-				};
+				const status = extension?.status() ?? unprovidedStatus();
 				return extensionView(db, options.masterKey, row, status);
 			}),
 		);
@@ -140,12 +135,7 @@ export function extensionRoutes(db: Db, options: ExtensionRoutesOptions) {
 			db,
 			options.masterKey,
 			row,
-			extensionOf(row, options.connections)?.status() ?? {
-				state: "unavailable",
-				lastError: "this extension is not available in this crhs",
-				nextAttemptAt: null,
-				toolCount: 0,
-			},
+			extensionOf(row, options.connections)?.status() ?? unprovidedStatus(),
 		);
 		void c.get("audit").record({
 			actor: userActor(c.get("user")),
@@ -164,6 +154,10 @@ export function extensionRoutes(db: Db, options: ExtensionRoutesOptions) {
 				header_names: view.headerNames,
 				identity_headers: view.identityHeaders,
 				grants: view.grants,
+				// A built-in's plain settings and which secrets are set; secret values are never recorded.
+				...(view.config === null
+					? {}
+					: { config: { values: view.config.values, secrets_set: view.config.secretsSet } }),
 			},
 		});
 		return c.json({ extension: view }, 200);
@@ -212,7 +206,7 @@ export function extensionRoutes(db: Db, options: ExtensionRoutesOptions) {
 		return c.json({ tools, status: options.connections.status(name) }, 200);
 	});
 
-	/** Reconnect now, instead of waiting for the next backoff attempt. */
+	/** Reconnect and refresh the tool list now, instead of waiting for the next use or scheduled refresh. */
 	app.openapi(reconnectRoute, async (c) => {
 		const { name } = c.req.valid("param");
 		const row = await getExtensionRow(db, name);

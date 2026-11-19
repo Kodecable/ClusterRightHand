@@ -13,6 +13,8 @@ import * as m0010 from "./migrations/0010_review_tool_task.ts";
 import * as m0011 from "./migrations/0011_delete_ssh_signing_credentials.ts";
 import * as m0012 from "./migrations/0012_task_output_lost.ts";
 import * as m0013 from "./migrations/0013_bigint_byte_columns.ts";
+import * as m0014 from "./migrations/0014_extension_cache.ts";
+import * as m0015 from "./migrations/0015_builtin_config.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -29,6 +31,8 @@ const migrations: Record<string, Migration> = {
 	"0011_delete_ssh_signing_credentials": m0011,
 	"0012_task_output_lost": m0012,
 	"0013_bigint_byte_columns": m0013,
+	"0014_extension_cache": m0014,
+	"0015_builtin_config": m0015,
 };
 
 /** Options shared by the migration entry points. */

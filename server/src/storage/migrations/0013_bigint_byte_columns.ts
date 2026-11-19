@@ -2,7 +2,7 @@ import type { Kysely } from "kysely";
 import { isPostgres } from "../dialect.ts";
 
 /**
- * Byte counts that can pass 2^31 become `bigint` on PostgreSQL (doc/design/data-model.md "Size limits").
+ * Byte counts that can pass 2^31 become `bigint` on PostgreSQL (doc/design/data-model.md "Storage backends").
  * Every listed column counts bytes of input, output, a library or the image cache; a 2 GiB file or
  * output total overflows PostgreSQL's `integer` (int4) and the insert fails. SQLite's `integer` is
  * already a 64-bit value, so it needs no change.

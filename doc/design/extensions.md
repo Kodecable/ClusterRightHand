@@ -25,7 +25,7 @@ The scope of the first version:
 | Field | Kind | Meaning |
 |---|---|---|
 | Name | both | Lowercase letters, digits and `-`, not starting with a digit; unique across both kinds. Tools and rules use it. `crhs-docs` and `crhs-api` are reserved |
-| Description | both | Shown to the model with the extension; an MCP extension defaults to the server's own `instructions` |
+| Description | both | Shown to the model with the extension. A built-in's is a constant of crhs. An MCP extension's is the administrator's text, empty by default, which means what the server reports: its `instructions`, else its `serverInfo.description` |
 | Enabled | both | A disabled extension is invisible to sessions |
 | List directly | both | Its tools appear in the model's tool list instead of only through search; on by default for built-in extensions |
 | Availability | both | Every user, or only the granted users and user groups; built-in extensions default to every user, MCP extensions to granted only |
@@ -37,7 +37,12 @@ The scope of the first version:
 
 - Built-in extensions exist from the start and cannot be deleted; an administrator can disable them,
   change "list directly" and their availability. "Every user" suits them because they expose only what
-  the session owner can already do, under the same rules.
+  the session owner can already do, under the same rules. Their description is not stored, so a new
+  version's wording reaches every installation.
+- An MCP extension's description is left empty unless the server's own is wrong for this installation.
+  The `instructions` come first because they are written for the model; `serverInfo.description` is a
+  one-line summary for people. The editor shows the reported text as a placeholder and never fills it in,
+  so saving does not freeze it.
 - Changing the URL of an MCP extension with stored headers requires entering the headers again or
   removing them, the same rule as for model provider keys, so a credential cannot be sent to a new
   endpoint unnoticed.
@@ -54,24 +59,36 @@ The scope of the first version:
 
 ### MCP connections
 
-crhs connects to an MCP server when it is first needed and keeps one connection per server for all
-sessions. It caches the tool list, refreshes it on `notifications/tools/list_changed`, on reconnect and
-when an administrator asks. A built-in extension has no connection and is always ready.
+crhs connects to an MCP server only when it needs it, and keeps what the server reported on the extension
+row: the tool list, its `instructions` and `serverInfo.description`, and when it was listed. Search, the
+tool guide, the direct tools and the Extensions page work on that cache, without a connection and across
+restarts. A built-in extension has no connection and is always ready.
 
-- **Disconnects.** A failed attempt is retried after 1 s, doubling, with jitter, capped at 5 minutes (the
-  jittered delay never exceeds the cap); a successful connection resets it. An administrator's "reconnect"
-  tries at once.
-- **While unavailable.** The extension stays in the session's list marked unavailable rather than
-  hidden, with the last error, so the model can tell the user. `search_tools` still searches the last
-  known tool list and says it may be stale.
-- **`call_tool` on an unavailable extension** makes one immediate connection attempt (10 s connect
-  timeout) instead of waiting for the next scheduled one. On success the call proceeds and the backoff
-  resets; on failure the call fails with `unavailable` and the error, and the backoff schedule goes on.
-  Concurrent calls share one attempt, and after a failed attempt in the last 10 s a call fails at once
-  without trying again, so a looping model cannot hammer the server.
-- **Calls in flight.** A connection lost during a call ends that call `unknown`, as a restart does;
-  it is not repeated on the new connection. The dead client and transport are closed before the retry.
-- The Extensions page shows each MCP extension's state, last error and next attempt.
+- **On use.** A call connects at once, or uses the open connection, and brings the tool list up to date
+  first: a fresh connection lists the tools, and an open one is asked again unless the server announces
+  `tools/list_changed`. A server never listed is connected once by the first search that needs it. An
+  administrator's "view tools" or "reconnect" lists at once.
+- **Idle.** A connection with no call for 10 minutes is closed; calls in flight keep it open. A connection
+  that drops is simply closed: the next use connects again. There is no background retry.
+- **Daily refresh.** Every enabled MCP extension is listed once a day, spread by a jitter, connecting for
+  it and closing again when nobody uses the connection. A new or reconfigured extension is listed within
+  a minute. A failed refresh keeps the cache and records the error.
+- **Failures.** The state shown to sessions is the last refresh's: unavailable when it failed. A call still
+  tries to connect, except within 10 s of a failed attempt, so a looping model cannot hammer the server.
+  Concurrent calls share one attempt, which is bounded at 10 s.
+- **Tool revs.** The row has a `tools_rev` that goes up whenever a listing finds a tool added, removed or
+  changed (title, description, input schema or annotations), and each tool carries the rev at which it
+  last changed.
+- **Changed tools.** A call is judged on the definitions the fresh listing returns, so a tool whose
+  annotations changed is judged by the rules as it is now. A call whose arguments were built for an input
+  schema the server no longer has is refused with `tool_changed` and the current schema, and the model
+  builds it again. An external call records its tool's rev; when it ran only after an approval, crhs lists
+  the tools again and refuses it with `tool_changed` if that rev moved: what was approved was the call to
+  the tool as it was then. A per-tool rev keeps a change to one tool from ending approvals of the others.
+- **Calls in flight.** A connection lost during a call ends that call `unknown`, as a restart does; it is
+  not repeated on the new connection.
+- The Extensions page shows each MCP extension's state, last error, whether it is connected, when it was
+  last listed and the next refresh.
 
 ## Tools for the model
 
@@ -120,9 +137,14 @@ never privileged. As with files, `allow ext.write` also allows `ext.read` on the
 - Annotations are trusted because an administrator chose to connect the server. An MCP extension whose
   annotations are not trustworthy can be switched to "trust annotations: off", which makes all its
   tools `ext.write`.
-- A built-in extension states its own operations: the `crhs-docs` tools are `ext.read`, and `api_request`
-  becomes an `api.read` or `api.write` operation on the route ([API requests](#api-requests)). There is
-  no second approval for the tool call itself.
+- A built-in extension states its own operations: the `crhs-docs` and `crhs-ds-search` tools are
+  `ext.read`, and `api_request` becomes an `api.read` or `api.write` operation on the route
+  ([API requests](#api-requests)). There is no second approval for the tool call itself.
+- A tool that reaches the web, such as `crhs-ds-search` or an MCP search server whose tools are
+  `readOnlyHint`, is an `ext.read` and the Ask preset allows it. What the model puts in a query or a URL
+  leaves crhs, so a model steered by injected content could send data out through it. That is accepted
+  for search and fetch, which sessions need routinely; an administrator who wants each one approved adds
+  a rule that asks for the extension's target, or keeps the extension to granted users.
 - Auto Review sees the extension, the tool, its annotations and the arguments, never the conversation.
 
 ### External calls
@@ -187,8 +209,21 @@ An extension result is converted to the cluster tools' output form ([Tool output
 | `crhs-docs` | `search_docs` | Keyword search over the documentation and the API reference; returns the best sections and text files with their path, heading and a snippet |
 | `crhs-docs` | `read_doc` | A directory listing, a Markdown outline or one section with its subsections, and whole text files (`path`, optional `section`), paged for long content |
 | `crhs-api` | `api_request` | One crhs API request as the session owner |
+| `crhs-ds-search` | `search` | A web search through DeepSeek's Search API: title, URL, date and a summary written for a model per result |
+| `crhs-ds-search` | `fetch` | One web page through DeepSeek's Fetch API, as Markdown; a page longer than one tool result continues at an offset |
 
 They are split so that an administrator can turn off API requests and keep the documentation.
+
+A built-in extension can declare settings, which the administrator sets on the Extensions page: plain
+values, and secrets such as an API key that are encrypted with the master key like an MCP extension's
+headers and never returned. A required setting must be set before the extension can be enabled, and a
+built-in missing one is unavailable. `crhs-ds-search` has an API key and the API's base URL. It ships
+disabled: both of its endpoints are billed to the key's DeepSeek account per successful request. It adds
+no limits of its own: the API's limits (50 results, a 128-character query, an 8192-character URL, the QPS
+limits) and the output limit of one tool result are the only bounds. A page longer than one result ends
+with the offset to continue at, and continuing fetches the page again; there is no cache, so a page is
+never served stale and nothing fetched stays in crhs. It retries what DeepSeek says to retry (408, 429,
+5xx) a few times and reports an exhausted balance or a refused key as unavailable.
 
 The model gets the whole documentation and the whole API instead of a curated set of tools with metadata of
 their own:

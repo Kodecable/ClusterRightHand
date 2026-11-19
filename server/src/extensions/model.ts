@@ -22,6 +22,11 @@ export interface ExtensionTool {
 	description: string | null;
 	inputSchema: Record<string, unknown>;
 	annotations: ExtensionToolAnnotations | null;
+	/**
+	 * The extension's `tools_rev` at which this tool's definition last changed (doc/design/extensions.md
+	 * "MCP connections"); absent for a built-in extension, whose tools change only with crhs.
+	 */
+	rev?: number;
 }
 
 /** The CRH identity sent to an MCP extension for one call; the identity headers are not authentication. */
@@ -42,6 +47,8 @@ export interface ExtensionCallContext {
 		db: Db;
 		actor: { type: string; id: string; onBehalfOfUserId: string };
 	};
+	/** A built-in extension's settings, secrets decrypted and defaults applied; set by the registry. */
+	config?: Readonly<Record<string, string | number | boolean>>;
 }
 
 /** One extension as the session sees it: its configuration, its state and how to call it. */
@@ -52,12 +59,21 @@ export interface Extension {
 	readonly enabled: boolean;
 	readonly listDirectly: boolean;
 	readonly availability: ExtensionAvailability;
-	/** The connection state; a built-in extension is always `ready`. */
+	/** The state of the last refresh and the connection; a built-in extension is always `ready`. */
 	status(): ExtensionStatus;
 	/** The tool list last known for this extension; empty before the first listing. */
 	tools(): readonly ExtensionTool[];
-	/** Makes the extension reachable before a search or a call; a no-op for a built-in extension. */
-	ensureAvailable(options?: { immediate?: boolean }): Promise<void>;
+	/**
+	 * Makes sure a tool list is known before a search: an MCP extension never listed yet connects once; one
+	 * with a cached list does not connect. A no-op for a built-in extension.
+	 */
+	ensureAvailable(): Promise<void>;
+	/**
+	 * Gets an MCP extension ready for a call: connects at once (or fails, see the failure window) and brings
+	 * the tool list up to date, so the call is judged on the server's current definitions. A no-op for a
+	 * built-in extension.
+	 */
+	prepareCall(): Promise<void>;
 	/** Reloads the tool list where the extension supports it. */
 	refreshTools(): Promise<readonly ExtensionTool[]>;
 	/** Calls one tool; a connection-level loss of an MCP call is an `ExtensionCallLostError`. */
@@ -79,7 +95,26 @@ export interface SessionExtension {
 
 /** A built-in extension's tools are always there; the state is ready. */
 export function readyStatus(toolCount: number): ExtensionStatus {
-	return { state: "ready" satisfies ExtensionState, lastError: null, nextAttemptAt: null, toolCount };
+	return {
+		state: "ready" satisfies ExtensionState,
+		lastError: null,
+		nextAttemptAt: null,
+		toolCount,
+		connected: false,
+		refreshedAt: null,
+	};
+}
+
+/** An extension this process cannot provide, e.g. a built-in that another crhs version stored. */
+export function unprovidedStatus(): ExtensionStatus {
+	return {
+		state: "unavailable",
+		lastError: "this extension is not available in this crhs",
+		nextAttemptAt: null,
+		toolCount: 0,
+		connected: false,
+		refreshedAt: null,
+	};
 }
 
 /** The call succeeded but a connection-level failure makes its outcome unknown. */

@@ -225,8 +225,8 @@ msgid "A base URL is required."
 msgstr "A base URL is required."
 
 #: src/features/settings/extension-dialog.tsx
-msgid "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability, its grants and its description."
-msgstr "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability, its grants and its description."
+msgid "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability and its grants."
+msgstr "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability and its grants."
 
 #: src/lib/task-form.ts
 msgid "A command is required."
@@ -239,6 +239,10 @@ msgstr "A cron expression has exactly five fields."
 #: src/features/schedules/scheduleForm.ts
 msgid "A cron expression is required."
 msgstr "A cron expression is required."
+
+#: src/features/settings/extension-settings.tsx
+msgid "A DeepSeek API key; Search and Fetch are billed to its account per successful request."
+msgstr "A DeepSeek API key; Search and Fetch are billed to its account per successful request."
 
 #: src/features/nodes/access-grants.tsx
 msgid "A granted user or user group can see the nodes in this node group and run tasks on them."
@@ -646,6 +650,7 @@ msgstr "any target"
 msgid "Anything using this token stops working immediately. This cannot be undone."
 msgstr "Anything using this token stops working immediately. This cannot be undone."
 
+#: src/features/settings/extension-settings.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "API key"
@@ -868,6 +873,7 @@ msgstr "Back"
 msgid "Back to the session list"
 msgstr "Back to the session list"
 
+#: src/features/settings/extension-settings.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Base URL"
@@ -1246,6 +1252,7 @@ msgstr "Connect Claude Code with:"
 
 #: src/components/status-badge.tsx
 #: src/features/channels/channels-page.tsx
+#: src/features/settings/extensions.tsx
 msgid "Connected"
 msgstr "Connected"
 
@@ -1909,6 +1916,10 @@ msgstr "Edit SSH route"
 msgid "Empty file."
 msgstr "Empty file."
 
+#: src/features/settings/extension-dialog.tsx
+msgid "Empty: the server's own description, once it has been listed"
+msgstr "Empty: the server's own description, once it has been listed"
+
 #: src/features/users/pages.tsx
 msgid "Enable"
 msgstr "Enable"
@@ -2395,6 +2406,10 @@ msgstr "Identity headers"
 msgid "Idle"
 msgstr "Idle"
 
+#: src/features/settings/extensions.tsx
+msgid "Idle, connects on use"
+msgstr "Idle, connects on use"
+
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
 msgstr "ignored (SSH)"
@@ -2655,6 +2670,10 @@ msgstr "List its tools directly in the model's tool list"
 #: src/features/settings/provider-dialog.tsx
 msgid "List provider models"
 msgstr "List provider models"
+
+#: src/features/settings/extensions.tsx
+msgid "Listed <0/>"
+msgstr "Listed <0/>"
 
 #: src/features/settings/extensions.tsx
 msgid "Listed directly"
@@ -3023,13 +3042,13 @@ msgstr "Next"
 msgid "Next attempt"
 msgstr "Next attempt"
 
+#: src/features/settings/extensions.tsx
+msgid "Next refresh: <0/>"
+msgstr "Next refresh: <0/>"
+
 #: src/features/schedules/pages.tsx
 msgid "Next run"
 msgstr "Next run"
-
-#: src/features/settings/extensions.tsx
-msgid "Next try: <0/>"
-msgstr "Next try: <0/>"
 
 #: src/features/schedules/schedule-form.tsx
 msgid "Nightly check"
@@ -3347,8 +3366,8 @@ msgid "Not confirmed"
 msgstr "Not confirmed"
 
 #: src/features/settings/extensions.tsx
-msgid "Not connected yet"
-msgstr "Not connected yet"
+msgid "Not listed yet"
+msgstr "Not listed yet"
 
 #: src/features/nodes/node-trust.tsx
 msgid "not reported"
@@ -4072,6 +4091,10 @@ msgstr "Remove stored headers"
 msgid "Remove the stored key"
 msgstr "Remove the stored key"
 
+#: src/features/settings/extension-settings.tsx
+msgid "Remove the stored value"
+msgstr "Remove the stored value"
+
 #: src/features/node-groups/dialogs.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/rename-node-button.tsx
@@ -4587,6 +4610,11 @@ msgstr "Set password"
 msgid "Set the RP ID and at least one allowed origin together, or leave both empty."
 msgstr "Set the RP ID and at least one allowed origin together, or leave both empty."
 
+#: src/features/settings/extension-settings.tsx
+msgid "Set; leave empty to keep it"
+msgstr "Set; leave empty to keep it"
+
+#: src/features/settings/extension-settings.tsx
 #: src/features/settings/user-settings-dialog.tsx
 msgid "Settings"
 msgstr "Settings"
@@ -4644,8 +4672,12 @@ msgid "Showing first {maxLines} of {lines} lines"
 msgstr "Showing first {maxLines} of {lines} lines"
 
 #: src/features/settings/extension-dialog.tsx
-msgid "Shown to the model; an MCP server's own instructions otherwise"
-msgstr "Shown to the model; an MCP server's own instructions otherwise"
+msgid "Shown to the model. Leave it empty to use what the server reports about itself; it is read when the server is first listed."
+msgstr "Shown to the model. Leave it empty to use what the server reports about itself; it is read when the server is first listed."
+
+#: src/features/settings/extension-dialog.tsx
+msgid "Shown to the model. Leave it empty to use what the server reports, shown as the placeholder."
+msgstr "Shown to the model. Leave it empty to use what the server reports, shown as the placeholder."
 
 #: src/components/task-facts.tsx
 msgid "Sign"
@@ -5038,6 +5070,10 @@ msgstr "The bytes behind view_image results, kept in a disposable directory on c
 msgid "The credential and its private key are deleted. This cannot be undone."
 msgstr "The credential and its private key are deleted. This cannot be undone."
 
+#: src/features/settings/extension-settings.tsx
+msgid "The DeepSeek API base URL."
+msgstr "The DeepSeek API base URL."
+
 #: src/features/users/new-user-dialog.tsx
 msgid "The display name must be at most 100 characters."
 msgstr "The display name must be at most 100 characters."
@@ -5181,6 +5217,10 @@ msgstr "The session is waiting for a signature."
 #: src/features/sessions/session-banner.tsx
 msgid "The session is waiting for an approval."
 msgstr "The session is waiting for an approval."
+
+#: src/features/settings/extension-settings.tsx
+msgid "The settings marked * are required before the extension can be enabled."
+msgstr "The settings marked * are required before the extension can be enabled."
 
 #: src/lib/task-form.ts
 msgid "The start line must be a whole number of at least 1."

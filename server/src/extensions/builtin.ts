@@ -1,4 +1,4 @@
-import type { Operation } from "@crh/api";
+import type { ExtensionConfigField, Operation } from "@crh/api";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import type { InternalRequestIdentity } from "../api/context.ts";
 import { UserError } from "../util/errors.ts";
@@ -21,6 +21,7 @@ import {
 	searchDocs,
 } from "./docs.ts";
 import { defaultDocsRoot } from "./docs-source.ts";
+import { dsSearch } from "./ds-search.ts";
 import {
 	type ExtensionCallContext,
 	type ExtensionTool,
@@ -43,8 +44,13 @@ import {
 export interface BuiltinExtensionProvider {
 	/** The extension's stable name; also the reserved extension name. */
 	readonly name: string;
-	/** The description shown to the model when the row has none of its own. */
+	/** The description shown to the model: a constant, never stored or edited (doc/design/extensions.md "Extensions"). */
 	readonly description: string;
+	/**
+	 * The settings an administrator gives it, such as an API key; none for most. A required setting must be
+	 * set before the extension can be enabled, and a secret one is encrypted and never returned.
+	 */
+	readonly config?: readonly ExtensionConfigField[];
 	/** The tools of the running crhs version; recomputed, so it cannot describe another version. */
 	tools(): readonly ExtensionTool[];
 	call(tool: string, args: Record<string, unknown>, context: ExtensionCallContext): Promise<unknown>;
@@ -366,8 +372,8 @@ const api: BuiltinExtensionProvider = {
 	},
 };
 
-/** The built-in extensions this crhs ships; the names `crhs-docs` and `crhs-api` are reserved for them. */
-export const BUILTIN_EXTENSIONS: readonly BuiltinExtensionProvider[] = [docs, api];
+/** The built-in extensions this crhs ships; their names are reserved. */
+export const BUILTIN_EXTENSIONS: readonly BuiltinExtensionProvider[] = [docs, api, dsSearch];
 
 /** The reserved names, for validation when an MCP extension is created. */
 export const RESERVED_EXTENSION_NAMES: ReadonlySet<string> = new Set(BUILTIN_EXTENSIONS.map((entry) => entry.name));

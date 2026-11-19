@@ -19,12 +19,48 @@ export const ExtensionHeaderSchema = z.object({ name: z.string(), value: z.strin
 /** How an extension's connection currently behaves (doc/design/extensions.md "MCP connections"). */
 export const ExtensionStateSchema = z.enum(["unknown", "connecting", "ready", "unavailable"]);
 
+/**
+ * Where an extension's description comes from: the administrator's text, the MCP server's `instructions`,
+ * its `serverInfo.description`, or crhs's constant for a built-in extension.
+ */
+export const ExtensionDescriptionSourceSchema = z.enum(["admin", "instructions", "server", "builtin"]);
+
+/** One setting a built-in extension declares (doc/design/extensions.md "Built-in extensions"). */
+export const ExtensionConfigFieldSchema = z
+	.object({
+		key: z.string(),
+		label: z.string(),
+		kind: z.enum(["string", "secret", "number", "boolean"]),
+		required: z.boolean(),
+		description: z.string(),
+		default: z.union([z.string(), z.number(), z.boolean()]).nullable(),
+	})
+	.meta({ id: "ExtensionConfigField" });
+
+/** A built-in's settings: the declared fields, the plain values set, and which secrets are set (never their values). */
+export const ExtensionConfigViewSchema = z
+	.object({
+		fields: z.array(ExtensionConfigFieldSchema),
+		values: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+		secretsSet: z.array(z.string()),
+		missing: z
+			.array(z.string())
+			.describe("Required settings that are not set; the extension cannot be enabled until they are."),
+	})
+	.meta({ id: "ExtensionConfigView" });
+
 export const ExtensionStatusSchema = z
 	.object({
-		state: ExtensionStateSchema,
-		lastError: z.string().nullable().describe("Why the last connection attempt failed; null when it succeeded."),
-		nextAttemptAt: z.string().nullable().describe("When the next automatic attempt happens while unavailable."),
+		state: ExtensionStateSchema.describe(
+			"From the last refresh of the tool list: ready when it succeeded, unavailable when it failed, unknown before the first.",
+		),
+		lastError: z.string().nullable().describe("Why the last refresh or connection failed; null when it succeeded."),
+		nextAttemptAt: z.string().nullable().describe("When the next scheduled refresh of the tool list happens."),
 		toolCount: z.number().describe("Tools of the last successful listing; 0 before the first one."),
+		connected: z
+			.boolean()
+			.describe("Whether crhs holds a connection now; it connects on use and disconnects when idle."),
+		refreshedAt: z.string().nullable().describe("When the tool list was last refreshed successfully."),
 	})
 	.meta({ id: "ExtensionStatus" });
 
@@ -71,7 +107,14 @@ export const ExtensionViewSchema = z
 		id: z.string(),
 		name: z.string(),
 		kind: ExtensionKindSchema,
-		description: z.string().nullable().describe("Shown to the model with the extension; may be null."),
+		description: z
+			.string()
+			.nullable()
+			.describe(
+				"The administrator's description of an MCP extension; null uses the server's own, and always null for a built-in.",
+			),
+		effectiveDescription: z.string().nullable().describe("What the model is shown: see descriptionSource."),
+		descriptionSource: ExtensionDescriptionSourceSchema.nullable().describe("Where effectiveDescription comes from."),
 		url: z.string().nullable().describe("The Streamable HTTP endpoint; null for a built-in extension."),
 		hasHeaders: z.boolean().describe("Whether headers are stored; their values are never returned."),
 		headerNames: z.array(z.string()).describe("The stored header names, for display only."),
@@ -88,6 +131,7 @@ export const ExtensionViewSchema = z
 			.nullable()
 			.describe("Per call; a longer one also protects a slow server; null for a built-in."),
 		grants: z.array(ExtensionGrantSchema),
+		config: ExtensionConfigViewSchema.nullable().describe("A built-in's settings; null when it has none."),
 		status: ExtensionStatusSchema,
 		createdAt: z.string(),
 		updatedAt: z.string(),
@@ -114,6 +158,12 @@ export const ExtensionInputSchema = z.object({
 	trustAnnotations: z.boolean().optional(),
 	timeoutSeconds: z.number().optional(),
 	grants: z.array(ExtensionGrantSchema).optional(),
+	config: z
+		.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()]))
+		.optional()
+		.describe(
+			"A built-in's settings by key; omitted keys keep their value and null removes one. Secret values are write-only.",
+		),
 });
 
 export const ExtensionListResponseSchema = z.object({ extensions: z.array(ExtensionViewSchema) });
