@@ -546,7 +546,8 @@ func TestGrantWrongSigner(t *testing.T) {
 	}
 
 	fake := filepath.Join(dir, "ssh-keygen")
-	script := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"-Y\" ]; then\n  cat %q\n  exit 0\nfi\nexec %q \"$@\"\n", signaturePath, real)
+	// ssh-keygen -Y sign writes the signature beside the payload file, its last argument.
+	script := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"-Y\" ]; then\n  for last; do :; done\n  cp %q \"$last.sig\"\n  exit 0\nfi\nexec %q \"$@\"\n", signaturePath, real)
 	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}

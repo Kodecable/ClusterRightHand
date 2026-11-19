@@ -3,6 +3,7 @@ package crhu
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"net"
 	"os"
 	"path/filepath"
@@ -63,7 +64,7 @@ func TestDiscoverCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	candidates, err := discoverCandidates(&keyChoice{keyDirs: []string{keyDir}})
+	candidates, _, err := discoverCandidates(&keyChoice{keyDirs: []string{keyDir}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +81,66 @@ func TestDiscoverCandidates(t *testing.T) {
 	}
 
 	// A missing --key-dir is an error; a missing ~/.ssh is not.
-	if _, err := discoverCandidates(&keyChoice{keyDirs: []string{filepath.Join(t.TempDir(), "missing")}}); err == nil {
+	if _, _, err := discoverCandidates(&keyChoice{keyDirs: []string{filepath.Join(t.TempDir(), "missing")}}); err == nil {
 		t.Fatal("a missing --key-dir was accepted")
 	}
-	if _, err := discoverCandidates(&keyChoice{}); err != nil {
+	if _, _, err := discoverCandidates(&keyChoice{}); err != nil {
 		t.Fatalf("a home without .ssh: %v", err)
+	}
+}
+
+// writeRSAPubKey writes an authorized_keys line for a fresh RSA key, a type CRH does not verify,
+// and returns its fingerprint.
+func writeRSAPubKey(t *testing.T, path string) string {
+	t.Helper()
+	private, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := ssh.NewPublicKey(&private.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, ssh.MarshalAuthorizedKey(key), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return ssh.FingerprintSHA256(key)
+}
+
+// TestKeyChoiceSkipsUnsupported covers keys of a type CRH does not verify: discovery never offers
+// them, and an error names them instead of letting ssh-keygen sign something that cannot verify.
+func TestKeyChoiceSkipsUnsupported(t *testing.T) {
+	home := isolatedHome(t)
+	rsaKey := writeRSAPubKey(t, filepath.Join(home, ".ssh", "id_rsa.pub"))
+
+	candidates, unsupported, err := discoverCandidates(&keyChoice{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 || len(unsupported) != 1 || unsupported[0].fingerprint != rsaKey {
+		t.Fatalf("candidates = %+v, unsupported = %+v", candidates, unsupported)
+	}
+	if _, err := (&keyChoice{}).signer("register"); err == nil || !strings.Contains(err.Error(), rsaKey) ||
+		!strings.Contains(err.Error(), "ssh-rsa") {
+		t.Fatalf("only an RSA key = %v", err)
+	}
+	if _, err := (&keyChoice{hints: []string{rsaKey}}).signer("register"); err == nil || !strings.Contains(err.Error(), "ssh-rsa") {
+		t.Fatalf("--hint of an RSA key = %v", err)
+	}
+	// --key is checked through the .pub beside it, before ssh-keygen runs.
+	if _, err := (&keyChoice{key: filepath.Join(home, ".ssh", "id_rsa")}).signer("register"); err == nil ||
+		!strings.Contains(err.Error(), "ssh-rsa") {
+		t.Fatalf("--key of an RSA key = %v", err)
+	}
+
+	// With a supported key beside it, the RSA key does not make the choice ambiguous.
+	ed := writePubKey(t, filepath.Join(home, ".ssh", "id_ed25519.pub"), "ed")
+	candidate, err := (&keyChoice{yes: true}).signer("register")
+	if err != nil || candidate.fingerprint != ed {
+		t.Fatalf("signer = %+v, %v; want %s", candidate, err, ed)
 	}
 }
 
@@ -190,7 +246,7 @@ func TestAgentCandidates(t *testing.T) {
 	}()
 	t.Setenv("SSH_AUTH_SOCK", socket)
 
-	candidates, err := discoverCandidates(&keyChoice{})
+	candidates, _, err := discoverCandidates(&keyChoice{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -49,8 +49,9 @@ one-shot. Every authorization carries a deadline.
 input. The spec, its rendered method and target, and the resulting hash are shown before signing.
 
 The payload is shown and confirmed before signing. crhu runs
-"ssh-keygen -Y sign -n crh-auth-v1" with the payload on stdin and never reads the private key
-itself, so OpenSSH handles encrypted keys, ssh-agent and FIDO touches. The printed line is what
+"ssh-keygen -Y sign -n crh-auth-v1" on the payload and never reads the private key itself, so
+OpenSSH handles encrypted keys (the passphrase is asked on the terminal), ssh-agent and FIDO
+touches. The printed line is what
 the WebUI accepts (POST /api/authorizations).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

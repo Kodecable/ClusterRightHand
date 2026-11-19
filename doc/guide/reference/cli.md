@@ -160,7 +160,10 @@ Without `--key`, `crhu` looks for signing keys in this order: ssh-agent identiti
 several, the fingerprints and comments are listed and you choose on the terminal. `--hint` selects
 the first candidate whose fingerprint matches (the WebUI puts the credentials matching the plan's
 entries in the copied command), and `--key` uses exactly that file. `--yes` skips the payload
-confirmation; without it the exact bytes are shown and confirmed on `/dev/tty`.
+confirmation; without it the exact bytes are shown and confirmed on `/dev/tty`. Only key types CRH
+verifies are candidates (ed25519, ecdsa-sha2-nistp256 and their FIDO `sk-` variants); an RSA or
+other key is skipped, and named in the error when nothing else is left. The passphrase of an
+encrypted key, or a FIDO PIN, is asked on the terminal by `ssh-keygen`.
 
 The signature is checked before anything is printed. The printed line is the base64 Authorization
 that the WebUI accepts (`sign`, `grant`) or the SSHSIG that the registration form accepts

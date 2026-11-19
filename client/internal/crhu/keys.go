@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/sshkey"
 )
 
 // keyChoice selects the SSH key a command signs with. The key itself is never read: ssh-keygen
@@ -83,11 +85,20 @@ func (c keyCandidate) describe() string {
 
 // discoverCandidates lists the keys that could sign, in order: the agent's identities, then
 // ~/.ssh/*.pub, then each --key-dir. Duplicates by fingerprint keep their first position; an
-// agent identity that also has a .pub file uses that file.
-func discoverCandidates(opts *keyChoice) ([]keyCandidate, error) {
-	var candidates []keyCandidate
+// agent identity that also has a .pub file uses that file. A key of a type CRH does not verify
+// (RSA, DSA, ECDSA P-384/P-521) is never a candidate; it is returned in unsupported so an error
+// can name it.
+func discoverCandidates(opts *keyChoice) (candidates, unsupported []keyCandidate, err error) {
 	byFingerprint := make(map[string]int)
+	skipped := make(map[string]bool)
 	add := func(candidate keyCandidate) {
+		if !sshkey.Supported(candidate.publicKey.Type()) {
+			if !skipped[candidate.fingerprint] {
+				skipped[candidate.fingerprint] = true
+				unsupported = append(unsupported, candidate)
+			}
+			return
+		}
 		if index, ok := byFingerprint[candidate.fingerprint]; ok {
 			// A .pub file for an agent-only key gives ssh-keygen a path to read.
 			if candidates[index].path == "" && candidate.path != "" {
@@ -116,10 +127,10 @@ func discoverCandidates(opts *keyChoice) ([]keyCandidate, error) {
 	}
 	for _, dir := range opts.keyDirs {
 		if err := addPubKeys(dir, add); err != nil {
-			return nil, fmt.Errorf("--key-dir %s: %w", dir, err)
+			return nil, nil, fmt.Errorf("--key-dir %s: %w", dir, err)
 		}
 	}
-	return candidates, nil
+	return candidates, unsupported, nil
 }
 
 // addPubKeys adds every parsable *.pub in dir. A malformed public key is skipped: the directory
@@ -152,6 +163,9 @@ func addPubKeys(dir string, add func(keyCandidate)) error {
 // wins; without either a single candidate is used automatically.
 func (o *keyChoice) signer(command string) (keyCandidate, error) {
 	if o.key != "" {
+		if err := checkKeyFileType(o.key); err != nil {
+			return keyCandidate{}, fmt.Errorf("%s: %w", command, err)
+		}
 		return keyCandidate{path: o.key}, nil
 	}
 	for _, hint := range o.hints {
@@ -159,7 +173,7 @@ func (o *keyChoice) signer(command string) (keyCandidate, error) {
 			return keyCandidate{}, fmt.Errorf("%s: --hint %q is not a SHA256 fingerprint", command, hint)
 		}
 	}
-	candidates, err := discoverCandidates(o)
+	candidates, unsupported, err := discoverCandidates(o)
 	if err != nil {
 		return keyCandidate{}, fmt.Errorf("%s: %w", command, err)
 	}
@@ -171,10 +185,22 @@ func (o *keyChoice) signer(command string) (keyCandidate, error) {
 				}
 			}
 		}
+		for _, candidate := range unsupported {
+			for _, hint := range o.hints {
+				if candidate.fingerprint == hint {
+					return keyCandidate{}, fmt.Errorf("%s: --hint %s is a %s key; %s", command, hint,
+						candidate.publicKey.Type(), supportedKeyTypes)
+				}
+			}
+		}
 		return keyCandidate{}, fmt.Errorf("%s: no key matches --hint; wanted %s; found %s",
 			command, strings.Join(o.hints, ", "), describeCandidates(candidates))
 	}
 	if len(candidates) == 0 {
+		if len(unsupported) > 0 {
+			return keyCandidate{}, fmt.Errorf("%s: no usable SSH signing key found; %s; skipped %s",
+				command, supportedKeyTypes, describeUnsupported(unsupported))
+		}
 		return keyCandidate{}, fmt.Errorf("%s: no SSH signing key found; pass --key or --hint", command)
 	}
 	if len(candidates) == 1 {
@@ -185,6 +211,44 @@ func (o *keyChoice) signer(command string) (keyCandidate, error) {
 			command, candidateList(candidates))
 	}
 	return chooseCandidate(command, candidates)
+}
+
+// supportedKeyTypes tells the user which keys CRH verifies; it ends an error about any other key.
+const supportedKeyTypes = "CRH accepts only ed25519, ecdsa-sha2-nistp256 and their FIDO sk- variants"
+
+// describeUnsupported names the keys discovery skipped, with their types.
+func describeUnsupported(keys []keyCandidate) string {
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		where := key.path
+		if where == "" {
+			where = "ssh-agent"
+		}
+		parts = append(parts, fmt.Sprintf("%s %s (%s)", key.publicKey.Type(), key.fingerprint, where))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// checkKeyFileType refuses a --key whose public key is of a type CRH does not verify, before
+// ssh-keygen asks for a passphrase or a touch. The public key is read from the path itself when it
+// is a .pub file, else from the .pub beside it; when neither parses the check is left to the
+// signature verification after signing.
+func checkKeyFileType(path string) error {
+	for _, candidate := range []string{path, path + ".pub"} {
+		data, err := os.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+		key, _, _, _, err := ssh.ParseAuthorizedKey(data)
+		if err != nil {
+			continue
+		}
+		if !sshkey.Supported(key.Type()) {
+			return fmt.Errorf("--key %s is a %s key; %s", path, key.Type(), supportedKeyTypes)
+		}
+		return nil
+	}
+	return nil
 }
 
 // describeCandidates is the compact form used in errors: fingerprints and their sources.

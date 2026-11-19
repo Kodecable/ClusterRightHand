@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -170,25 +171,46 @@ func confirmAuthorization(command string) (bool, error) {
 	return confirmed, nil
 }
 
-// signPayload runs ssh-keygen -Y sign with the payload on stdin and returns the SSHSIG blob and the
-// signer's key. The signature is verified locally in the given namespace before it is used, and the
-// key file must hold the key that signed.
+// signPayload runs ssh-keygen -Y sign and returns the SSHSIG blob and the signer's key. The
+// signature is verified locally in the given namespace before it is used, and the key file must
+// hold the key that signed.
+//
+// The payload is passed as a file, not on stdin: ssh-keygen asks for a passphrase or a FIDO PIN on
+// the terminal only when its stdin is one, and otherwise falls back to ssh-askpass, which a plain
+// terminal session usually lacks. So stdin is the controlling terminal when there is one; without
+// one ssh-keygen keeps its own fallback (agent, unencrypted key, SSH_ASKPASS).
 func signPayload(payload []byte, keyPath, namespace, command string) ([]byte, ssh.PublicKey, error) {
 	program, err := exec.LookPath(sshKeygen)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: ssh-keygen is required to sign: %w", command, err)
 	}
-	cmd := exec.Command(program, "-Y", "sign", "-n", namespace, "-f", keyPath)
-	cmd.Stdin = bytes.NewReader(payload)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	dir, err := os.MkdirTemp("", "crhu-sign-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: create a temporary directory: %w", command, err)
+	}
+	defer os.RemoveAll(dir)
+	payloadPath := filepath.Join(dir, "payload")
+	if err := os.WriteFile(payloadPath, payload, 0o600); err != nil {
+		return nil, nil, fmt.Errorf("%s: write the payload: %w", command, err)
+	}
+	cmd := exec.Command(program, "-Y", "sign", "-n", namespace, "-f", keyPath, payloadPath)
+	if terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
+		defer terminal.Close()
+		cmd.Stdin = terminal
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if message := strings.TrimSpace(stderr.String()); message != "" {
 			return nil, nil, fmt.Errorf("%s: ssh-keygen -Y sign: %w: %s", command, err, message)
 		}
 		return nil, nil, fmt.Errorf("%s: ssh-keygen -Y sign: %w", command, err)
 	}
-	blob, err := dearmorSignature(stdout.Bytes())
+	armored, err := os.ReadFile(payloadPath + ".sig")
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s: read the signature from ssh-keygen: %w", command, err)
+	}
+	blob, err := dearmorSignature(armored)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", command, err)
 	}
