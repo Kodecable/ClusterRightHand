@@ -32,14 +32,8 @@ import { openTestDb } from "./helpers/db.ts";
 
 const FACTS: Facts = {
 	hostname: "node-1",
-	osId: "ubuntu",
-	osVersionId: "24.04",
-	osPrettyName: "Ubuntu 24.04 LTS",
-	kernel: "6.8.0",
-	arch: "x86_64",
-	initSystem: "systemd",
-	packageManagers: ["apt"],
-	privilegeTools: ["sudo"],
+	platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+	hints: "Found systemd.\nFound apt.\nFound sudo.",
 	notesPath: "/etc/crh-notes.md",
 	clockOffsetMs: 12,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },

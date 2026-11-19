@@ -59,14 +59,16 @@ export const TrustWarningSchema = z
 export const NodeFactsSchema = z
 	.object({
 		hostname: z.string().optional(),
-		osId: z.string().optional(),
-		osVersionId: z.string().optional(),
-		osPrettyName: z.string().optional(),
-		kernel: z.string().optional(),
-		arch: z.string().optional(),
-		initSystem: z.string().optional(),
-		packageManagers: z.array(z.string()).optional(),
-		privilegeTools: z.array(z.string()).optional(),
+		platform: z
+			.string()
+			.optional()
+			.describe(
+				'For people and models, never parsed: "<os>, <arch>, <distribution>", such as "linux, amd64, Ubuntu 24.04.4 LTS".',
+			),
+		hints: z
+			.string()
+			.optional()
+			.describe('Short sentences about the system for people and models ("Found apt."), at most 16 lines and 1 KiB.'),
 		notesPath: z.string().optional(),
 		clockOffsetMs: z.number().optional(),
 		shells: z

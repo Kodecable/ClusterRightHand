@@ -59,14 +59,8 @@ const digest = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
 
 const facts: Facts = {
 	hostname: "node-1",
-	osId: "ubuntu",
-	osVersionId: "24.04",
-	osPrettyName: "Ubuntu 24.04 LTS",
-	kernel: "6.8.0",
-	arch: "x86_64",
-	initSystem: "systemd",
-	packageManagers: ["apt"],
-	privilegeTools: ["sudo"],
+	platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+	hints: "Found systemd.\nPID 1 is systemd.\nFound apt.\nFound sudo.",
 	notesPath: "/etc/notes",
 	clockOffsetMs: -5,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
@@ -237,17 +231,11 @@ describe("message codecs", () => {
 		const encoded = decodeCbor(encodeCbor(factsCodec.encode(facts))) as Map<string, unknown>;
 		expect(encoded).toBeInstanceOf(Map);
 		expect([...encoded.keys()].sort()).toEqual([
-			"arch",
 			"clock_offset_ms",
+			"hints",
 			"hostname",
-			"init_system",
-			"kernel",
 			"notes_path",
-			"os_id",
-			"os_pretty_name",
-			"os_version_id",
-			"package_managers",
-			"privilege_tools",
+			"platform",
 			"shells",
 		]);
 		expect(encoded.get("shells")).toEqual(
@@ -304,7 +292,7 @@ describe("message codecs", () => {
 			new Map<string, unknown>([["hostname", 1]]),
 			new Map<string, unknown>([
 				["hostname", "node-1"],
-				["os_id", 1],
+				["platform", 1],
 			]),
 			new Map<string, unknown>([
 				["hostname", "node-1"],

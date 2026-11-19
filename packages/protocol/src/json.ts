@@ -542,19 +542,34 @@ function shellsFromJson(value: unknown): Shells {
 	return out;
 }
 
+/** The bounds of Facts.hints, in lines and UTF-8 bytes (doc/design/protocol.md "Events"). */
+export const MAX_HINT_LINES = 16;
+export const MAX_HINT_BYTES = 1024;
+
+/**
+ * Keeps whole lines of a node's hints within MAX_HINT_LINES and MAX_HINT_BYTES. crha truncates too; crhs does
+ * it again because the node's report is not trusted.
+ */
+export function truncateHints(hints: string): string {
+	const kept: string[] = [];
+	let bytes = 0;
+	for (const line of hints.split("\n")) {
+		if (kept.length === MAX_HINT_LINES) break;
+		const add = Buffer.byteLength(line, "utf8") + (kept.length > 0 ? 1 : 0);
+		if (bytes + add > MAX_HINT_BYTES) break;
+		kept.push(line);
+		bytes += add;
+	}
+	return kept.join("\n");
+}
+
 /** Convert Facts to the camelCase JSON form stored on the node row; absent facts stay absent. */
 export function factsToJson(value: Facts): JsonFacts {
 	const out: JsonFacts = {
 		hostname: text(value.hostname, "hostname"),
 	};
-	if (value.osId !== undefined) out.osId = text(value.osId, "osId");
-	if (value.osVersionId !== undefined) out.osVersionId = text(value.osVersionId, "osVersionId");
-	if (value.osPrettyName !== undefined) out.osPrettyName = text(value.osPrettyName, "osPrettyName");
-	if (value.kernel !== undefined) out.kernel = text(value.kernel, "kernel");
-	if (value.arch !== undefined) out.arch = text(value.arch, "arch");
-	if (value.initSystem !== undefined) out.initSystem = text(value.initSystem, "initSystem");
-	if (value.packageManagers !== undefined) out.packageManagers = texts(value.packageManagers, "packageManagers");
-	if (value.privilegeTools !== undefined) out.privilegeTools = texts(value.privilegeTools, "privilegeTools");
+	if (value.platform !== undefined) out.platform = text(value.platform, "platform");
+	if (value.hints !== undefined) out.hints = truncateHints(text(value.hints, "hints"));
 	if (value.notesPath !== undefined) out.notesPath = text(value.notesPath, "notesPath");
 	if (value.clockOffsetMs !== undefined) out.clockOffsetMs = int(value.clockOffsetMs, "clockOffsetMs");
 	if (value.shells !== undefined) out.shells = shellsToJson(value.shells);
@@ -570,14 +585,8 @@ export function factsFromJson(value: unknown): JsonFacts {
 	if (!isRecord(value)) bad("facts", "not an object");
 	const out: JsonFacts = {};
 	if (Object.hasOwn(value, "hostname")) out.hostname = text(value.hostname, "hostname");
-	if (Object.hasOwn(value, "osId")) out.osId = text(value.osId, "osId");
-	if (Object.hasOwn(value, "osVersionId")) out.osVersionId = text(value.osVersionId, "osVersionId");
-	if (Object.hasOwn(value, "osPrettyName")) out.osPrettyName = text(value.osPrettyName, "osPrettyName");
-	if (Object.hasOwn(value, "kernel")) out.kernel = text(value.kernel, "kernel");
-	if (Object.hasOwn(value, "arch")) out.arch = text(value.arch, "arch");
-	if (Object.hasOwn(value, "initSystem")) out.initSystem = text(value.initSystem, "initSystem");
-	if (Object.hasOwn(value, "packageManagers")) out.packageManagers = texts(value.packageManagers, "packageManagers");
-	if (Object.hasOwn(value, "privilegeTools")) out.privilegeTools = texts(value.privilegeTools, "privilegeTools");
+	if (Object.hasOwn(value, "platform")) out.platform = text(value.platform, "platform");
+	if (Object.hasOwn(value, "hints")) out.hints = text(value.hints, "hints");
 	if (Object.hasOwn(value, "notesPath")) out.notesPath = text(value.notesPath, "notesPath");
 	if (Object.hasOwn(value, "clockOffsetMs")) out.clockOffsetMs = int(value.clockOffsetMs, "clockOffsetMs");
 	if (Object.hasOwn(value, "shells") && value.shells !== null) out.shells = shellsFromJson(value.shells);

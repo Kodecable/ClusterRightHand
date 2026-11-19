@@ -87,14 +87,13 @@ export const shellsCodec: Codec<Shells> = {
  */
 export interface Facts {
 	hostname: string;
-	osId?: string;
-	osVersionId?: string;
-	osPrettyName?: string;
-	kernel?: string;
-	arch?: string;
-	initSystem?: string;
-	packageManagers?: string[];
-	privilegeTools?: string[];
+	/**
+	 * One line for people and models, such as "linux, amd64, Ubuntu 24.04.4 LTS". Never parsed: nothing may
+	 * branch on it.
+	 */
+	platform?: string;
+	/** Short sentences about the system for people and models ("Found apt."), at most 16 lines and 1 KiB. */
+	hints?: string;
 	notesPath?: string;
 	clockOffsetMs?: number;
 	shells?: Shells;
@@ -102,14 +101,8 @@ export interface Facts {
 
 export const factsCodec = keyedMap<Facts>("facts", [
 	{ wire: "hostname", field: "hostname", codec: text, required: true },
-	{ wire: "os_id", field: "osId", codec: text },
-	{ wire: "os_version_id", field: "osVersionId", codec: text },
-	{ wire: "os_pretty_name", field: "osPrettyName", codec: text },
-	{ wire: "kernel", field: "kernel", codec: text },
-	{ wire: "arch", field: "arch", codec: text },
-	{ wire: "init_system", field: "initSystem", codec: text },
-	{ wire: "package_managers", field: "packageManagers", codec: list(text) },
-	{ wire: "privilege_tools", field: "privilegeTools", codec: list(text) },
+	{ wire: "platform", field: "platform", codec: text },
+	{ wire: "hints", field: "hints", codec: text },
 	{ wire: "notes_path", field: "notesPath", codec: text },
 	{ wire: "clock_offset_ms", field: "clockOffsetMs", codec: int },
 	{ wire: "shells", field: "shells", codec: shellsCodec },

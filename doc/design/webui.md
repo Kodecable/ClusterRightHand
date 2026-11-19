@@ -285,8 +285,11 @@ path with `/` in an upload or rename creates the directories ([Libraries](librar
 The node list folds enrollment and reachability into one status: pending approval, connected or
 offline for a crha node, and active for an SSH node, which has no standing connection.
 
-The node page shows the last trust report the node sent ([Privilege](privilege.md#trust-cache)). The
-report is the node's own view; crhs only displays it. A **Generate trust config** dialog on the signing
+The node page's overview has what is used day to day, the platform line included, with trust warnings
+at the top: each has its own border and icon, so the list has no heading. A **Technical details** tab
+shows the facts, fully, and the last trust report the node sent ([Privilege](privilege.md#trust-cache))
+with the `aliases` line for `privileged.toml`: they are for diagnosis. The report is the node's own view;
+crhs only displays it. A **Generate trust config** dialog on the signing
 credentials page builds basic `[[trust]]` entries for a node's `privileged.toml`, which an administrator
 copies to the node: crhs cannot change what a node trusts. The measured clock offset is shown only as a
 warning, because it is measured once per connection ([Privilege](privilege.md#clock)).

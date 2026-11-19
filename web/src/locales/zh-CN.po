@@ -2148,10 +2148,9 @@ msgstr "扩展：{enabled}/{total}"
 msgid "Extra headers"
 msgstr "额外请求头"
 
-#. placeholder {0}: facts.length
 #: src/features/nodes/pages.tsx
-msgid "Facts ({0})"
-msgstr "信息（{0}）"
+msgid "Facts"
+msgstr "节点信息"
 
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Fail fast"
@@ -3561,10 +3560,6 @@ msgstr "归组织所有的 SSH 密钥，crhs 用它们连接节点。只有管�
 msgid "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
 msgstr "允许使用 Passkey 的源，例如 https://crh.example.com。留空则从每个请求中推导。"
 
-#: src/features/nodes/pages.tsx
-msgid "OS"
-msgstr "操作系统"
-
 #: src/components/task-facts.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -3703,6 +3698,7 @@ msgid "Plain text shown to users before they link a chat, such as how to reach t
 msgstr "在用户关联聊天前显示的纯文本，例如如何找到机器人。"
 
 #: src/features/channels/channel-dialog.tsx
+#: src/features/nodes/pages.tsx
 msgid "Platform"
 msgstr "平台"
 
@@ -5001,6 +4997,10 @@ msgstr "此任务组中的任务"
 msgid "Tasks of {0}"
 msgstr "{0} 的任务"
 
+#: src/features/nodes/pages.tsx
+msgid "Technical details"
+msgstr "技术信息"
+
 #: src/components/test-connection.tsx
 msgid "Test connection"
 msgstr "测试连接"
@@ -5106,6 +5106,10 @@ msgstr "节点组将正好包含这里选中的节点。"
 #: src/lib/task-output.ts
 msgid "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
 msgstr "节点没有此任务所在节点组的别名。请把节点组的 UUID 加入节点上 privileged.toml 的 aliases，然后重新运行任务。"
+
+#: src/features/nodes/pages.tsx
+msgid "The node has not reported any facts yet."
+msgstr "节点尚未上报任何信息。"
 
 #: src/features/nodes/node-trust.tsx
 msgid "The node has not reported its trust configuration"

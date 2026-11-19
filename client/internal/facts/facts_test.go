@@ -49,17 +49,51 @@ func TestOSReleaseFallback(t *testing.T) {
 	}
 }
 
-func TestInitSystem(t *testing.T) {
+func TestPlatform(t *testing.T) {
+	tests := []struct {
+		name string
+		osr  map[string]string
+		want string
+	}{
+		{"pretty name", map[string]string{"PRETTY_NAME": "Ubuntu 24.04.4 LTS", "NAME": "Ubuntu"}, "linux, amd64, Ubuntu 24.04.4 LTS"},
+		{"name and version", map[string]string{"NAME": "Alpine Linux", "VERSION_ID": "3.20"}, "linux, amd64, Alpine Linux 3.20"},
+		{"id", map[string]string{"ID": "arch"}, "linux, amd64, arch"},
+		{"nothing", nil, "linux, amd64"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := platform("linux", "amd64", tc.osr); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHints(t *testing.T) {
+	lookFor := func(names ...string) func(string) (string, error) {
+		return func(n string) (string, error) {
+			for _, name := range names {
+				if n == name {
+					return "/usr/bin/" + n, nil
+				}
+			}
+			return "", errors.New("not found")
+		}
+	}
 	tests := []struct {
 		name  string
 		files map[string]string
-		want  string
+		look  func(string) (string, error)
+		want  []string
 	}{
-		{"systemd", map[string]string{"run/systemd/system/x": "", "proc/1/comm": "init\n"}, "systemd"},
-		{"openrc-run", map[string]string{"sbin/openrc-run": ""}, "openrc"},
-		{"openrc-dir", map[string]string{"run/openrc/x": ""}, "openrc"},
-		{"comm", map[string]string{"proc/1/comm": "runit\n"}, "runit"},
-		{"none", nil, ""},
+		{
+			"systemd",
+			map[string]string{"run/systemd/system/x": "", "proc/1/comm": "systemd\n"},
+			lookFor("apt", "sudo"),
+			[]string{"Found systemd.", "PID 1 is systemd.", "Found apt.", "Found sudo."},
+		},
+		{"openrc", map[string]string{"sbin/openrc-run": ""}, lookFor("apk", "doas"), []string{"Found OpenRC.", "Found apk.", "Found doas."}},
+		{"container", map[string]string{"proc/1/comm": "sh\n"}, lookFor(), []string{"PID 1 is sh.", "No sudo, doas or run0 found."}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,10 +101,30 @@ func TestInitSystem(t *testing.T) {
 			for p, c := range tc.files {
 				write(t, root, p, c)
 			}
-			if got := initSystem(root); got != tc.want {
+			got := hints(root, tc.look)
+			// The kernel line comes last and depends on the machine running the test.
+			if len(got) == 0 || !strings.HasPrefix(got[len(got)-1], "Kernel ") {
+				t.Fatalf("no kernel line: %q", got)
+			}
+			if got = got[:len(got)-1]; !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("got %q want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTruncateHints(t *testing.T) {
+	lines := make([]string, 30)
+	for i := range lines {
+		lines[i] = "Found tool."
+	}
+	if got := strings.Split(TruncateHints(strings.Join(lines, "\n")), "\n"); len(got) != protocol.MaxHintLines {
+		t.Fatalf("lines: got %d", len(got))
+	}
+	long := strings.Repeat("x", 600)
+	got := TruncateHints(long + "\n" + long + "\n" + "short")
+	if got != long {
+		t.Fatalf("bytes: kept %d bytes, want only the first line", len(got))
 	}
 }
 
@@ -85,16 +139,12 @@ func TestCollect(t *testing.T) {
 		}
 		return "", errors.New("not found")
 	}
-	f := collect(root, look)
-	if text(f.OSID) != "fedora" || text(f.OSVersionID) != "40" || text(f.OSPrettyName) != "Fedora Linux 40" ||
-		text(f.InitSystem) != "systemd" {
-		t.Fatalf("unexpected facts: %v", f)
+	f := collect(root, look, "linux", "arm64")
+	if text(f.Platform) != "linux, arm64, Fedora Linux 40" {
+		t.Fatalf("platform: %q", text(f.Platform))
 	}
-	if !reflect.DeepEqual(f.PackageManagers, []string{"dnf", "nix"}) || !reflect.DeepEqual(f.PrivilegeTools, []string{"doas"}) {
-		t.Fatalf("tools: %v %v", f.PackageManagers, f.PrivilegeTools)
-	}
-	if text(f.Kernel) == "" || text(f.Arch) == "" {
-		t.Fatalf("kernel/arch empty: %v", f)
+	if !strings.HasPrefix(text(f.Hints), "Found systemd.\nFound dnf.\nFound nix.\nFound doas.\nKernel ") {
+		t.Fatalf("hints: %q", text(f.Hints))
 	}
 }
 
@@ -109,27 +159,15 @@ func text(p *string) string {
 func TestClean(t *testing.T) {
 	bash := "/bin/bash\xff"
 	f := Clean(protocol.Facts{
-		Hostname:        "bad\xffhost",
-		OSID:            ptr("os\xff"),
-		OSVersionID:     ptr("1"),
-		OSPrettyName:    ptr("pretty\xff"),
-		Kernel:          ptr("6.0\xff"),
-		Arch:            ptr("amd64"),
-		InitSystem:      ptr("systemd\xff"),
-		PackageManagers: []string{"apt", "dnf\xff"},
-		PrivilegeTools:  []string{"sudo\xff"},
-		NotesPath:       ptr("/etc/notes\xff"),
-		Shells:          &protocol.Shells{Sh: "/bin/sh\xff", Bash: &bash},
+		Hostname:  "bad\xffhost",
+		Platform:  ptr("linux, amd64, pretty\xff"),
+		Hints:     ptr("Found apt\xff."),
+		NotesPath: ptr("/etc/notes\xff"),
+		Shells:    &protocol.Shells{Sh: "/bin/sh\xff", Bash: &bash},
 	})
-	texts := []string{f.Hostname, text(f.OSID), text(f.OSPrettyName), text(f.Kernel), text(f.InitSystem), text(f.NotesPath)}
-	for _, s := range texts {
+	for _, s := range []string{f.Hostname, text(f.Platform), text(f.Hints), text(f.NotesPath)} {
 		if strings.ContainsRune(s, '\xff') {
 			t.Fatalf("uncleaned text %q", s)
-		}
-	}
-	for _, s := range append(append([]string{}, f.PackageManagers...), f.PrivilegeTools...) {
-		if strings.ContainsRune(s, '\xff') {
-			t.Fatalf("uncleaned list entry %q", s)
 		}
 	}
 	if f.Shells == nil || strings.ContainsRune(f.Shells.Sh, '\xff') || f.Shells.Bash == nil ||
@@ -137,7 +175,7 @@ func TestClean(t *testing.T) {
 		t.Fatalf("uncleaned shells %+v", f.Shells)
 	}
 	// An absent optional fact stays absent.
-	if Clean(protocol.Facts{Hostname: "h"}).OSID != nil {
+	if Clean(protocol.Facts{Hostname: "h"}).Platform != nil {
 		t.Fatal("Clean invented an absent fact")
 	}
 }

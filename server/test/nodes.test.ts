@@ -35,14 +35,8 @@ const FP = "dummy-fingerprint";
 const INVALID = "invalid, expired or already used enrollment token";
 const FACTS: Facts = {
 	hostname: "Host",
-	osId: "linux",
-	osVersionId: "1",
-	osPrettyName: "Linux",
-	kernel: "6.1",
-	arch: "x86_64",
-	initSystem: "systemd",
-	packageManagers: ["apt"],
-	privilegeTools: ["sudo"],
+	platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+	hints: "Found systemd.\nFound apt.\nFound sudo.",
 	notesPath: "/etc/crh-notes.md",
 	clockOffsetMs: 0,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },

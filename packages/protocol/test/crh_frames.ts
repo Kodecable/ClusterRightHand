@@ -35,23 +35,16 @@ const bytesOf = (hexText: string): Uint8Array => Uint8Array.from(Buffer.from(hex
 
 const FACTS: Facts = {
 	hostname: "node-1",
-	osId: "ubuntu",
-	osVersionId: "24.04",
-	osPrettyName: "Ubuntu 24.04 LTS",
-	kernel: "6.8.0-31-generic",
-	arch: "x86_64",
-	initSystem: "systemd",
-	packageManagers: ["apt", "snap"],
-	privilegeTools: ["sudo"],
+	platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+	hints: "Found systemd.\nPID 1 is systemd.\nFound apt.\nFound sudo.",
 	notesPath: "/etc/crh/notes",
 	clockOffsetMs: -1234,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
 };
 
 const FACTS_TEXT =
-	'facts={hostname="node-1", os_id="ubuntu", os_version_id="24.04", ' +
-	'os_pretty_name="Ubuntu 24.04 LTS", kernel="6.8.0-31-generic", arch="x86_64", init_system="systemd", ' +
-	'package_managers=["apt","snap"], privilege_tools=["sudo"], notes_path="/etc/crh/notes", ' +
+	'facts={hostname="node-1", platform="linux, amd64, Ubuntu 24.04.4 LTS", ' +
+	'hints="Found systemd.\\nPID 1 is systemd.\\nFound apt.\\nFound sudo.", notes_path="/etc/crh/notes", ' +
 	'clock_offset_ms=-1234, shells={sh="/bin/sh", bash="/usr/bin/bash"}}';
 
 /**
@@ -61,14 +54,8 @@ const FACTS_TEXT =
 function factsMap(overrides: readonly (readonly [string, unknown])[] = []): Map<string, unknown> {
 	return new Map<string, unknown>([
 		["hostname", "node-1"],
-		["os_id", "ubuntu"],
-		["os_version_id", "24.04"],
-		["os_pretty_name", "Ubuntu 24.04 LTS"],
-		["kernel", "6.8.0-31-generic"],
-		["arch", "x86_64"],
-		["init_system", "systemd"],
-		["package_managers", ["apt", "snap"]],
-		["privilege_tools", ["sudo"]],
+		["platform", "linux, amd64, Ubuntu 24.04.4 LTS"],
+		["hints", "Found systemd.\nPID 1 is systemd.\nFound apt.\nFound sudo."],
 		["notes_path", "/etc/crh/notes"],
 		["clock_offset_ms", -1234],
 		[

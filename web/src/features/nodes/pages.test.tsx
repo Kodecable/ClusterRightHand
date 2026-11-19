@@ -238,6 +238,8 @@ describe("NodeDetailPage", () => {
 			</QueryClientProvider>,
 		);
 
+		// The aliases sit with the trust report on the Technical details tab.
+		fireEvent.click(await screen.findByRole("tab", { name: "Technical details" }));
 		expect(await screen.findByText('aliases = ["group-1", "group-2"]')).toBeInTheDocument();
 		expect(screen.getByRole("heading", { name: "Aliases for privileged.toml" })).toBeInTheDocument();
 		expect(screen.getByRole("button", { name: "Copy aliases" })).toBeInTheDocument();

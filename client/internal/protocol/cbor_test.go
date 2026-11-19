@@ -314,9 +314,9 @@ func TestMarshalRejectsInvalidUTF8(t *testing.T) {
 			Command: Command{Kind: CommandArgv, Argv: []string{"true"}},
 			Env:     map[string]string{"KEY": bad},
 		}},
-		{"string slice element", Facts{
-			Hostname:        "node-1",
-			PackageManagers: []string{"apt", bad},
+		{"fact text", Facts{
+			Hostname: "node-1",
+			Hints:    ptr(bad),
 		}},
 		{"error message", Error{Code: "internal_error", Message: bad}},
 	}

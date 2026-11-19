@@ -34,7 +34,7 @@ const WARNINGS: TrustWarning[] = [
 describe("TrustWarningList", () => {
 	test("lists each warning with its severity and values", () => {
 		renderWithI18n(<TrustWarningList warnings={WARNINGS} />);
-		expect(screen.getByText("Trust warnings")).toBeInTheDocument();
+		expect(screen.getByRole("region", { name: "Trust warnings" })).toBeInTheDocument();
 		const items = screen.getAllByRole("listitem");
 		expect(items).toHaveLength(3);
 		expect(items[0]).toHaveAttribute("data-severity", "danger");
@@ -48,7 +48,7 @@ describe("TrustWarningList", () => {
 
 	test("translates the warnings in zh-CN", () => {
 		renderWithI18n(<TrustWarningList warnings={WARNINGS} />, "zh-CN");
-		expect(screen.getByText("信任警告")).toBeInTheDocument();
+		expect(screen.getByRole("region", { name: "信任警告" })).toBeInTheDocument();
 		expect(screen.getByText(/此别名指向节点不在其中的节点组/)).toBeInTheDocument();
 	});
 });

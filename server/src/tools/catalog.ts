@@ -260,7 +260,7 @@ const listNodes = define({
 					connected,
 					node_groups: n.nodeGroups.map((group) => group.name),
 					hostname: n.hostname,
-					os: n.facts?.osPrettyName ?? n.facts?.osId,
+					platform: n.facts?.platform,
 					client_version: n.clientVersion,
 					last_seen_at: n.lastSeenAt,
 					privileged_mode: n.privilegedMode,

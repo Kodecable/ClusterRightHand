@@ -24,29 +24,90 @@ var (
 // Collect gathers facts about the local system. NotesPath and ClockOffsetMs are left for the
 // caller.
 func Collect() protocol.Facts {
-	return collect("/", exec.LookPath)
+	return collect("/", exec.LookPath, runtime.GOOS, runtime.GOARCH)
 }
 
-func collect(root string, lookPath func(string) (string, error)) protocol.Facts {
+// collect builds the two descriptive facts (doc/design/protocol.md "Events"): platform and hints are
+// written for people and models, so they are sentences and a summary line, not fields to parse.
+func collect(root string, lookPath func(string) (string, error), goos, goarch string) protocol.Facts {
 	f := protocol.Facts{
-		InitSystem:      optionalText(initSystem(root)),
-		PackageManagers: optionalTexts(found(lookPath, packageManagers)),
-		PrivilegeTools:  optionalTexts(found(lookPath, privilegeTools)),
-		Arch:            optionalText(runtime.GOARCH),
+		Platform: optionalText(platform(goos, goarch, osRelease(root))),
+		Hints:    optionalText(TruncateHints(strings.Join(hints(root, lookPath), "\n"))),
 	}
 	f.Hostname, _ = os.Hostname()
-	var u unix.Utsname
-	if unix.Uname(&u) == nil {
-		f.Kernel = optionalText(unixString(u.Release[:]))
-		if m := unixString(u.Machine[:]); m != "" {
-			f.Arch = optionalText(m)
+	return Clean(f)
+}
+
+// platform is "<os>, <arch>, <distribution>": crha's own GOOS and GOARCH, then the os-release name. The
+// distribution falls back to NAME VERSION_ID and then ID, and is left out when nothing names it.
+func platform(goos, goarch string, osr map[string]string) string {
+	parts := []string{goos, goarch}
+	name := osr["PRETTY_NAME"]
+	if name == "" {
+		name = strings.TrimSpace(osr["NAME"] + " " + osr["VERSION_ID"])
+	}
+	if name == "" {
+		name = osr["ID"]
+	}
+	if name != "" {
+		parts = append(parts, name)
+	}
+	return strings.Join(parts, ", ")
+}
+
+// hints are the sentences a model needs before it runs anything: the init system and PID 1, the
+// package managers and privilege tools on PATH (and their absence), and the kernel.
+func hints(root string, lookPath func(string) (string, error)) []string {
+	var out []string
+	switch {
+	case exists(root, "run/systemd/system"):
+		out = append(out, "Found systemd.")
+	case exists(root, "sbin/openrc-run"), exists(root, "run/openrc"):
+		out = append(out, "Found OpenRC.")
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "proc/1/comm")); err == nil {
+		if comm := strings.TrimSpace(string(data)); comm != "" {
+			out = append(out, "PID 1 is "+filepath.Base(comm)+".")
 		}
 	}
-	osr := osRelease(root)
-	f.OSID = optionalText(osr["ID"])
-	f.OSVersionID = optionalText(osr["VERSION_ID"])
-	f.OSPrettyName = optionalText(osr["PRETTY_NAME"])
-	return Clean(f)
+	for _, name := range found(lookPath, packageManagers) {
+		out = append(out, "Found "+name+".")
+	}
+	tools := found(lookPath, privilegeTools)
+	for _, name := range tools {
+		out = append(out, "Found "+name+".")
+	}
+	if len(tools) == 0 {
+		out = append(out, "No sudo, doas or run0 found.")
+	}
+	var u unix.Utsname
+	if unix.Uname(&u) == nil {
+		if release := unixString(u.Release[:]); release != "" {
+			out = append(out, "Kernel "+release+".")
+		}
+	}
+	return out
+}
+
+// TruncateHints keeps whole lines within protocol.MaxHintLines lines and protocol.MaxHintBytes bytes.
+func TruncateHints(text string) string {
+	var kept []string
+	size := 0
+	for _, line := range strings.Split(text, "\n") {
+		if len(kept) == protocol.MaxHintLines {
+			break
+		}
+		add := len(line)
+		if len(kept) > 0 {
+			add++
+		}
+		if size+add > protocol.MaxHintBytes {
+			break
+		}
+		kept = append(kept, line)
+		size += add
+	}
+	return strings.Join(kept, "\n")
 }
 
 // optionalText is an optional text fact. The node reports a value it did not find as absent, which
@@ -58,27 +119,13 @@ func optionalText(s string) *string {
 	return &s
 }
 
-// optionalTexts is an optional list fact; an empty list is absent.
-func optionalTexts(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	return values
-}
-
 // Clean returns f with every text field passed through protocol.CleanText. Facts come from
 // outside the process (/etc/os-release, the host name), and the protocol
 // encoder rejects invalid UTF-8 instead of letting a frame break the connection.
 func Clean(f protocol.Facts) protocol.Facts {
 	f.Hostname = protocol.CleanText(f.Hostname)
-	f.OSID = cleanTextPtr(f.OSID)
-	f.OSVersionID = cleanTextPtr(f.OSVersionID)
-	f.OSPrettyName = cleanTextPtr(f.OSPrettyName)
-	f.Kernel = cleanTextPtr(f.Kernel)
-	f.Arch = cleanTextPtr(f.Arch)
-	f.InitSystem = cleanTextPtr(f.InitSystem)
-	f.PackageManagers = cleanTexts(f.PackageManagers)
-	f.PrivilegeTools = cleanTexts(f.PrivilegeTools)
+	f.Platform = cleanTextPtr(f.Platform)
+	f.Hints = cleanTextPtr(f.Hints)
 	f.NotesPath = cleanTextPtr(f.NotesPath)
 	if f.Shells != nil {
 		shells := *f.Shells
@@ -99,17 +146,6 @@ func cleanTextPtr(p *string) *string {
 	}
 	cleaned := protocol.CleanText(*p)
 	return &cleaned
-}
-
-func cleanTexts(values []string) []string {
-	if values == nil {
-		return nil
-	}
-	out := make([]string, len(values))
-	for i, v := range values {
-		out[i] = protocol.CleanText(v)
-	}
-	return out
 }
 
 func unixString(b []byte) string {
@@ -171,18 +207,4 @@ func unquote(v string) string {
 func exists(root, p string) bool {
 	_, err := os.Stat(filepath.Join(root, p))
 	return err == nil
-}
-
-func initSystem(root string) string {
-	switch {
-	case exists(root, "run/systemd/system"):
-		return "systemd"
-	case exists(root, "sbin/openrc-run"), exists(root, "run/openrc"):
-		return "openrc"
-	}
-	data, err := os.ReadFile(filepath.Join(root, "proc/1/comm"))
-	if err != nil {
-		return ""
-	}
-	return filepath.Base(strings.TrimSpace(string(data)))
 }

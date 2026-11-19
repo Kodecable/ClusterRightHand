@@ -2,7 +2,7 @@ import type { PublicNode } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
 import { EmptyState } from "@/components/empty-state";
@@ -23,7 +23,6 @@ import { AddNodeDialog } from "./add-node-dialog";
 import { AddSshNodeDialog } from "./add-ssh-node-dialog";
 import { useNode, useNodes } from "./api";
 import { ClockWarning, clockWarningText } from "./clock-warning";
-import { osName } from "./commands";
 import { DeleteNodeDialog } from "./delete-node-dialog";
 import { EditSshRouteDialog } from "./edit-ssh-route-dialog";
 import { canRunOn } from "./node-access";
@@ -74,7 +73,8 @@ export function NodesPage() {
 			{
 				id: "status",
 				header: t`Status`,
-				size: 100,
+				// Room for the status and its clock and trust warning badges side by side.
+				size: 200,
 				cell: ({ row }) => (
 					<span className="flex items-center gap-1.5">
 						<NodeStatusBadge status={row.original.status} connected={row.original.connected} />
@@ -94,12 +94,6 @@ export function NodesPage() {
 						<span className="truncate">{row.original.hostname}</span>
 					),
 				meta: { title: (node: PublicNode) => node.hostname ?? undefined },
-			},
-			{
-				id: "os",
-				header: t`OS`,
-				size: 140,
-				cell: ({ row }) => <span className="truncate">{osName(row.original.facts)}</span>,
 			},
 			{
 				id: "nodeGroups",
@@ -202,8 +196,10 @@ export function NodesPage() {
 	);
 }
 
-function factValue(value: unknown): string {
-	return typeof value === "string" ? value : JSON.stringify(value);
+/** One fact as shown: text as is (hints keep their lines), anything else as JSON. */
+function factValue(value: unknown): ReactNode {
+	if (typeof value !== "string") return JSON.stringify(value);
+	return <span className="whitespace-pre-line">{value}</span>;
 }
 
 /**
@@ -221,7 +217,7 @@ export function NodeDetailPage() {
 	const [editingRoute, setEditingRoute] = useState(false);
 	const [reenrolling, setReenrolling] = useState(false);
 	const [deleting, setDeleting] = useState(false);
-	const [tab, setTab] = useState<"overview" | "files">("overview");
+	const [tab, setTab] = useState<"overview" | "technical" | "files">("overview");
 	const details = node.data?.node;
 
 	if (node.isError) {
@@ -305,10 +301,13 @@ export function NodeDetailPage() {
 				}
 			/>
 
-			<Tabs value={tab} onValueChange={(next) => setTab(next as "overview" | "files")}>
+			<Tabs value={tab} onValueChange={(next) => setTab(next as "overview" | "technical" | "files")}>
 				<TabsList variant="line" aria-label={t`Node views`}>
 					<TabsTrigger value="overview">
 						<Trans>Overview</Trans>
+					</TabsTrigger>
+					<TabsTrigger value="technical">
+						<Trans>Technical details</Trans>
 					</TabsTrigger>
 					<TabsTrigger value="files">
 						<Trans>Files</Trans>
@@ -321,7 +320,7 @@ export function NodeDetailPage() {
 						items={[
 							{ label: t`Transport`, value: details.transport === "ssh" ? t`SSH` : t`crha client` },
 							{ label: t`Hostname`, value: details.hostname ?? "–", mono: true },
-							{ label: t`OS`, value: osName(details.facts) },
+							{ label: t`Platform`, value: details.facts?.platform ?? "–" },
 							{
 								label: t`Privileged mode`,
 								value: details.transport === "ssh" ? t`ignored (SSH)` : (details.privilegedMode ?? "–"),
@@ -347,19 +346,6 @@ export function NodeDetailPage() {
 						]}
 					/>
 
-					{facts.length > 0 && (
-						<details className="rounded-lg border p-3">
-							<summary className="cursor-pointer text-sm font-medium">
-								<Trans>Facts ({facts.length})</Trans>
-							</summary>
-							<div className="mt-2">
-								<KeyValueList
-									items={facts.map(([key, value]) => ({ label: key, value: factValue(value), mono: true }))}
-								/>
-							</div>
-						</details>
-					)}
-
 					{editingGroups && <NodeGroupsDialog node={details} onClose={() => setEditingGroups(false)} />}
 					{editingRoute && node.data?.ssh && (
 						<EditSshRouteDialog node={details} details={node.data.ssh} onClose={() => setEditingRoute(false)} />
@@ -370,6 +356,25 @@ export function NodeDetailPage() {
 					{details.transport === "ssh" && node.data?.ssh && (
 						<SshNodeSection node={details} details={node.data.ssh} canRun={canRun} />
 					)}
+					<NodeAccessSection targetType="node" targetId={details.id} targetName={details.name} />
+					<NodeTaskList nodeId={details.id} />
+				</TabsContent>
+				<TabsContent value="technical" className="grid gap-3">
+					{/* What the node reported and how it trusts signers: for diagnosis, not daily use. */}
+					<section className="grid gap-2" aria-labelledby="node-facts-heading" data-testid="node-facts">
+						<h2 id="node-facts-heading" className="text-sm font-medium">
+							<Trans>Facts</Trans>
+						</h2>
+						{facts.length > 0 ? (
+							<KeyValueList
+								items={facts.map(([key, value]) => ({ label: key, value: factValue(value), mono: true }))}
+							/>
+						) : (
+							<p className="text-sm text-muted-foreground">
+								<Trans>The node has not reported any facts yet.</Trans>
+							</p>
+						)}
+					</section>
 					{details.transport === "client" && (
 						<>
 							<NodeTrustPanel nodeId={details.id} />
@@ -393,9 +398,6 @@ export function NodeDetailPage() {
 							)}
 						</>
 					)}
-
-					<NodeAccessSection targetType="node" targetId={details.id} targetName={details.name} />
-					<NodeTaskList nodeId={details.id} />
 				</TabsContent>
 				<TabsContent value="files">
 					<NodeFiles nodeId={details.id} nodeName={details.name} />

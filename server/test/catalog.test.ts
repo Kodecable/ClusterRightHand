@@ -349,7 +349,7 @@ describe("non-task tools", () => {
 		try {
 			const client = await addNode(f.db, f.user.userId, {
 				name: "client-1",
-				facts: { hostname: "client-1", osId: "debian", osPrettyName: "Debian 12" },
+				facts: { hostname: "client-1", platform: "linux, amd64, Debian GNU/Linux 12 (bookworm)" },
 				clientVersion: "3.0.0",
 				lastSeenAt: "2026-01-02T00:00:00.000Z",
 			});
@@ -362,7 +362,7 @@ describe("non-task tools", () => {
 			expect(nodes.find((n) => n.name === "client-1")).toMatchObject({
 				connected: true,
 				node_groups: ["prod"],
-				os: "Debian 12",
+				platform: "linux, amd64, Debian GNU/Linux 12 (bookworm)",
 				client_version: "3.0.0",
 				last_seen_at: "2026-01-02T00:00:00.000Z",
 				can_run_tasks: true,
@@ -384,14 +384,8 @@ describe("non-task tools", () => {
 				name: "web-1",
 				facts: {
 					hostname: "web-1",
-					osId: "ubuntu",
-					osVersionId: "24.04",
-					osPrettyName: "Ubuntu 24.04",
-					kernel: "6.8",
-					arch: "x86_64",
-					initSystem: "systemd",
-					packageManagers: ["apt"],
-					privilegeTools: ["sudo"],
+					platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+					hints: "Found systemd.\nFound apt.\nFound sudo.",
 					notesPath: "/etc/crh/notes.md",
 					clockOffsetMs: 1200,
 					shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
@@ -426,14 +420,8 @@ describe("non-task tools", () => {
 				last_seen_at: "2026-01-02T00:00:00.000Z",
 				facts: {
 					hostname: "web-1",
-					os_id: "ubuntu",
-					os_version_id: "24.04",
-					os_pretty_name: "Ubuntu 24.04",
-					kernel: "6.8",
-					arch: "x86_64",
-					init_system: "systemd",
-					package_managers: ["apt"],
-					privilege_tools: ["sudo"],
+					platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+					hints: "Found systemd.\nFound apt.\nFound sudo.",
 					notes_path: "/etc/crh/notes.md",
 					clock_offset_ms: 1200,
 					shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },

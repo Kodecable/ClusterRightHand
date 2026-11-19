@@ -274,18 +274,12 @@ func fixtureCommands() []string {
 
 func fixtureFacts() Facts {
 	return Facts{
-		Hostname:        "node-1",
-		OSID:            ptr("ubuntu"),
-		OSVersionID:     ptr("24.04"),
-		OSPrettyName:    ptr("Ubuntu 24.04 LTS"),
-		Kernel:          ptr("6.8.0-31-generic"),
-		Arch:            ptr("x86_64"),
-		InitSystem:      ptr("systemd"),
-		PackageManagers: []string{"apt", "snap"},
-		PrivilegeTools:  []string{"sudo"},
-		NotesPath:       ptr("/etc/crh/notes"),
-		ClockOffsetMS:   ptr(Int(-1234)),
-		Shells:          &Shells{Sh: "/bin/sh", Bash: ptr("/usr/bin/bash")},
+		Hostname:      "node-1",
+		Platform:      ptr("linux, amd64, Ubuntu 24.04.4 LTS"),
+		Hints:         ptr("Found systemd.\nPID 1 is systemd.\nFound apt.\nFound sudo."),
+		NotesPath:     ptr("/etc/crh/notes"),
+		ClockOffsetMS: ptr(Int(-1234)),
+		Shells:        &Shells{Sh: "/bin/sh", Bash: ptr("/usr/bin/bash")},
 	}
 }
 
@@ -721,18 +715,12 @@ func expectedFixtureValue(id string) (any, bool) {
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventFacts,
 			Body: Facts{
-				Hostname:        "node-1",
-				OSID:            ptr("ubuntu"),
-				OSVersionID:     ptr("24.04"),
-				OSPrettyName:    ptr("Ubuntu 24.04 LTS"),
-				Kernel:          ptr("6.8.0-31-generic"),
-				Arch:            ptr("x86_64"),
-				InitSystem:      ptr("systemd"),
-				PackageManagers: []string{"apt", "snap"},
-				PrivilegeTools:  []string{"sudo"},
-				NotesPath:       ptr("/etc/crh/notes"),
-				ClockOffsetMS:   ptr(Int(-1234)),
-				Shells:          &Shells{Sh: "/bin/sh"},
+				Hostname:      "node-1",
+				Platform:      ptr("linux, amd64, Ubuntu 24.04.4 LTS"),
+				Hints:         ptr("Found systemd.\nPID 1 is systemd.\nFound apt.\nFound sudo."),
+				NotesPath:     ptr("/etc/crh/notes"),
+				ClockOffsetMS: ptr(Int(-1234)),
+				Shells:        &Shells{Sh: "/bin/sh"},
 			},
 		}, true
 	case "event.node.status":

@@ -1504,14 +1504,8 @@ describe("user authorizations", () => {
 		const { node, crha } = await connect("clock-1", (id) => summaryOf(id, []));
 		const facts = (clockOffsetMs: number): Facts => ({
 			hostname: node.name,
-			osId: "ubuntu",
-			osVersionId: "24.04",
-			osPrettyName: "Ubuntu 24.04",
-			kernel: "6.8",
-			arch: "x86_64",
-			initSystem: "systemd",
-			packageManagers: ["apt"],
-			privilegeTools: ["sudo"],
+			platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+			hints: "Found systemd.\nFound apt.\nFound sudo.",
 			notesPath: "",
 			clockOffsetMs,
 			shells: { sh: "/bin/sh", bash: null },

@@ -22,14 +22,8 @@ function factsWire(facts: JsonFacts | null): Record<string, unknown> | null {
 	if (!facts) return null;
 	const out: Record<string, unknown> = {};
 	if (facts.hostname !== undefined) out.hostname = facts.hostname;
-	if (facts.osId !== undefined) out.os_id = facts.osId;
-	if (facts.osVersionId !== undefined) out.os_version_id = facts.osVersionId;
-	if (facts.osPrettyName !== undefined) out.os_pretty_name = facts.osPrettyName;
-	if (facts.kernel !== undefined) out.kernel = facts.kernel;
-	if (facts.arch !== undefined) out.arch = facts.arch;
-	if (facts.initSystem !== undefined) out.init_system = facts.initSystem;
-	if (facts.packageManagers !== undefined) out.package_managers = facts.packageManagers;
-	if (facts.privilegeTools !== undefined) out.privilege_tools = facts.privilegeTools;
+	if (facts.platform !== undefined) out.platform = facts.platform;
+	if (facts.hints !== undefined) out.hints = facts.hints;
 	if (facts.notesPath !== undefined) out.notes_path = facts.notesPath;
 	if (facts.clockOffsetMs !== undefined) out.clock_offset_ms = facts.clockOffsetMs;
 	if (facts.shells !== undefined) out.shells = facts.shells;

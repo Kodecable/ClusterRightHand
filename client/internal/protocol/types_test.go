@@ -46,18 +46,12 @@ func checkRoundTrip[T any](t *testing.T, wantHex string, v T) {
 
 func sampleFacts() Facts {
 	return Facts{
-		Hostname:        "node-1",
-		OSID:            ptr("ubuntu"),
-		OSVersionID:     ptr("24.04"),
-		OSPrettyName:    ptr("Ubuntu 24.04 LTS"),
-		Kernel:          ptr("6.8.0"),
-		Arch:            ptr("amd64"),
-		InitSystem:      ptr("systemd"),
-		PackageManagers: []string{"apt"},
-		PrivilegeTools:  []string{"sudo"},
-		NotesPath:       ptr("/var/lib/crha/notes"),
-		ClockOffsetMS:   ptr(Int(12)),
-		Shells:          &Shells{Sh: "/bin/sh", Bash: ptr("/usr/bin/bash")},
+		Hostname:      "node-1",
+		Platform:      ptr("linux, amd64, Ubuntu 24.04.4 LTS"),
+		Hints:         ptr("Found systemd.\nPID 1 is systemd.\nFound apt.\nFound sudo."),
+		NotesPath:     ptr("/var/lib/crha/notes"),
+		ClockOffsetMS: ptr(Int(12)),
+		Shells:        &Shells{Sh: "/bin/sh", Bash: ptr("/usr/bin/bash")},
 	}
 }
 
@@ -518,10 +512,7 @@ func TestFactsMapKeys(t *testing.T) {
 	if err := Unmarshal(data, &raw); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		"arch", "clock_offset_ms", "hostname", "init_system", "kernel", "notes_path",
-		"os_id", "os_pretty_name", "os_version_id", "package_managers", "privilege_tools", "shells",
-	}
+	want := []string{"clock_offset_ms", "hints", "hostname", "notes_path", "platform", "shells"}
 	if len(raw) != len(want) {
 		t.Fatalf("Facts has %d keys, want %d: %v", len(raw), len(want), raw)
 	}

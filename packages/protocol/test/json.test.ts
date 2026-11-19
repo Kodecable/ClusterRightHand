@@ -4,6 +4,8 @@ import {
 	factsToJson,
 	JsonError,
 	type JsonTaskSpec,
+	MAX_HINT_BYTES,
+	MAX_HINT_LINES,
 	taskSpecFromJson,
 	taskSpecToJson,
 } from "../src/json.ts";
@@ -13,14 +15,8 @@ const digest = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
 
 const facts: Facts = {
 	hostname: "node-1",
-	osId: "ubuntu",
-	osVersionId: "24.04",
-	osPrettyName: "Ubuntu 24.04 LTS",
-	kernel: "6.8.0",
-	arch: "x86_64",
-	initSystem: "systemd",
-	packageManagers: ["apt", "snap"],
-	privilegeTools: ["sudo"],
+	platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+	hints: "Found systemd.\nPID 1 is systemd.\nFound apt.\nFound sudo.",
 	notesPath: "/etc/notes",
 	clockOffsetMs: -1234,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
@@ -197,8 +193,17 @@ describe("JSON forms", () => {
 		expect(factsFromJson(factsToJson(nullBash))).toEqual(nullBash);
 	});
 
+	it("bounds a node's hints to whole lines within 16 lines and 1 KiB, whatever the node sent", () => {
+		const many = Array.from({ length: 40 }, (_, index) => `Found tool${index}.`).join("\n");
+		expect(factsToJson({ hostname: "h", hints: many }).hints?.split("\n")).toHaveLength(MAX_HINT_LINES);
+		const wide = "界".repeat(300);
+		const kept = factsToJson({ hostname: "h", hints: `${wide}\n${wide}` }).hints ?? "";
+		expect(kept).toBe(wide);
+		expect(Buffer.byteLength(kept, "utf8")).toBeLessThanOrEqual(MAX_HINT_BYTES);
+	});
+
 	it("reads partial stored rows: no shells, or shells only for an SSH node", () => {
-		const { shells: _shells, osId: _osId, ...legacy } = factsJson;
+		const { shells: _shells, platform: _platform, ...legacy } = factsJson;
 		expect(factsFromJson(legacy)).toEqual(legacy);
 		const ssh = { shells: { sh: "/bin/sh", bash: null } };
 		expect(factsFromJson(ssh)).toEqual(ssh);

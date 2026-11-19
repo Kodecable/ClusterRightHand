@@ -157,6 +157,21 @@ means unknown rather than empty. Unknown text keys are ignored, so a fact can be
 minor bump; removing one or changing its type needs a major. Facts are not signed or hashed, and node
 groups are crhs data that the node does not report.
 
+The system itself is described in two facts written for people and models, never for code: nothing in
+crhs or the WebUI may parse them or branch on them.
+
+- `platform` is one line, `<os>, <arch>, <distribution>`: crha's own Go `GOOS` and `GOARCH`, then the
+  `PRETTY_NAME` of `os-release` (else `NAME VERSION_ID`, else `ID`), such as `linux, amd64, Ubuntu
+  24.04.4 LTS`.
+- `hints` are short sentences a model needs before it runs anything, one per line: the init system and
+  PID 1, the package managers and privilege tools on `PATH` (and their absence), the kernel. At most 16
+  lines and 1 KiB, in whole lines; crha truncates and crhs truncates again, since the report is the
+  node's.
+
+Separate fields such as an OS id, a version and a package manager list were dropped: a field invites
+code to rely on a detection that is only a guess (a package manager on `PATH` is not necessarily the
+system's, and PID 1 in a container is rarely an init system).
+
 `task.exit` ends the task with an outcome (exit code, signal or error), the timeout, cancellation and
 output-lost flags, the output end, the output file and line count, and an optional result.
 

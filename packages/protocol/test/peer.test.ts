@@ -7,14 +7,8 @@ import { type CommandResponse, REQUIRED_NAMES } from "../src/registry.ts";
 
 const FACTS: Facts = {
 	hostname: "node-1",
-	osId: "ubuntu",
-	osVersionId: "24.04",
-	osPrettyName: "Ubuntu 24.04 LTS",
-	kernel: "6.8.0",
-	arch: "x86_64",
-	initSystem: "systemd",
-	packageManagers: ["apt"],
-	privilegeTools: ["sudo"],
+	platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+	hints: "Found systemd.\nPID 1 is systemd.\nFound apt.\nFound sudo.",
 	notesPath: "/etc/notes",
 	clockOffsetMs: 0,
 	shells: { sh: "/bin/sh", bash: null },

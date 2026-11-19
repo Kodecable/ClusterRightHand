@@ -2148,10 +2148,9 @@ msgstr "Extensions: {enabled}/{total}"
 msgid "Extra headers"
 msgstr "Extra headers"
 
-#. placeholder {0}: facts.length
 #: src/features/nodes/pages.tsx
-msgid "Facts ({0})"
-msgstr "Facts ({0})"
+msgid "Facts"
+msgstr "Facts"
 
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Fail fast"
@@ -3561,10 +3560,6 @@ msgstr "Organization-owned SSH keys that crhs uses to reach nodes. Only administ
 msgid "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
 msgstr "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
 
-#: src/features/nodes/pages.tsx
-msgid "OS"
-msgstr "OS"
-
 #: src/components/task-facts.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
@@ -3703,6 +3698,7 @@ msgid "Plain text shown to users before they link a chat, such as how to reach t
 msgstr "Plain text shown to users before they link a chat, such as how to reach the bot."
 
 #: src/features/channels/channel-dialog.tsx
+#: src/features/nodes/pages.tsx
 msgid "Platform"
 msgstr "Platform"
 
@@ -5001,6 +4997,10 @@ msgstr "Tasks in this task group"
 msgid "Tasks of {0}"
 msgstr "Tasks of {0}"
 
+#: src/features/nodes/pages.tsx
+msgid "Technical details"
+msgstr "Technical details"
+
 #: src/components/test-connection.tsx
 msgid "Test connection"
 msgstr "Test connection"
@@ -5106,6 +5106,10 @@ msgstr "The node group contains exactly the nodes selected here."
 #: src/lib/task-output.ts
 msgid "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
 msgstr "The node has no alias for this task's node group. Add the node group UUID to aliases in privileged.toml on the node, then run the task again."
+
+#: src/features/nodes/pages.tsx
+msgid "The node has not reported any facts yet."
+msgstr "The node has not reported any facts yet."
 
 #: src/features/nodes/node-trust.tsx
 msgid "The node has not reported its trust configuration"

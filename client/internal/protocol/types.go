@@ -106,18 +106,22 @@ type TaskExit struct {
 type Facts struct {
 	Hostname string
 
-	OSID            *string
-	OSVersionID     *string
-	OSPrettyName    *string
-	Kernel          *string
-	Arch            *string
-	InitSystem      *string
-	PackageManagers []string
-	PrivilegeTools  []string
-	NotesPath       *string
-	ClockOffsetMS   *Int
-	Shells          *Shells
+	// Platform is one line for people and models, such as "linux, amd64, Ubuntu 24.04.4 LTS". It is not
+	// meant to be parsed: nothing may branch on it.
+	Platform *string
+	// Hints are short sentences about the system for people and models ("Found apt."), at most
+	// MaxHintLines lines and MaxHintBytes bytes. Not meant to be parsed either.
+	Hints         *string
+	NotesPath     *string
+	ClockOffsetMS *Int
+	Shells        *Shells
 }
+
+// The bounds of Facts.Hints: the node truncates to them, and crhs truncates again.
+const (
+	MaxHintLines = 16
+	MaxHintBytes = 1024
+)
 
 // Shells is the shells a node discovered when crha started (doc/design/execution.md "The exec environment").
 // Sh is always present. Bash is nil when the node has none and is then omitted from the map: an
@@ -139,18 +143,8 @@ func (f Facts) MarshalCBOR() ([]byte, error) {
 			m = append(m, profileMapEntry{key: key, value: *value})
 		}
 	}
-	text("os_id", f.OSID)
-	text("os_version_id", f.OSVersionID)
-	text("os_pretty_name", f.OSPrettyName)
-	text("kernel", f.Kernel)
-	text("arch", f.Arch)
-	text("init_system", f.InitSystem)
-	if f.PackageManagers != nil {
-		m = append(m, profileMapEntry{key: "package_managers", value: f.PackageManagers})
-	}
-	if f.PrivilegeTools != nil {
-		m = append(m, profileMapEntry{key: "privilege_tools", value: f.PrivilegeTools})
-	}
+	text("platform", f.Platform)
+	text("hints", f.Hints)
 	text("notes_path", f.NotesPath)
 	if f.ClockOffsetMS != nil {
 		m = append(m, profileMapEntry{key: "clock_offset_ms", value: *f.ClockOffsetMS})
@@ -184,22 +178,10 @@ func (f *Facts) UnmarshalCBOR(data []byte) error {
 		case "hostname":
 			out.Hostname, err = factText(entry.value, key)
 			hostname = true
-		case "os_id":
-			out.OSID, err = factTextPtr(entry.value, key)
-		case "os_version_id":
-			out.OSVersionID, err = factTextPtr(entry.value, key)
-		case "os_pretty_name":
-			out.OSPrettyName, err = factTextPtr(entry.value, key)
-		case "kernel":
-			out.Kernel, err = factTextPtr(entry.value, key)
-		case "arch":
-			out.Arch, err = factTextPtr(entry.value, key)
-		case "init_system":
-			out.InitSystem, err = factTextPtr(entry.value, key)
-		case "package_managers":
-			out.PackageManagers, err = factTexts(entry.value, key)
-		case "privilege_tools":
-			out.PrivilegeTools, err = factTexts(entry.value, key)
+		case "platform":
+			out.Platform, err = factTextPtr(entry.value, key)
+		case "hints":
+			out.Hints, err = factTextPtr(entry.value, key)
 		case "notes_path":
 			out.NotesPath, err = factTextPtr(entry.value, key)
 		case "clock_offset_ms":
@@ -261,23 +243,6 @@ func factTextPtr(value any, key string) (*string, error) {
 		return nil, err
 	}
 	return &s, nil
-}
-
-// factTexts reads a [text] fact value.
-func factTexts(value any, key string) ([]string, error) {
-	items, ok := value.([]any)
-	if !ok {
-		return nil, fmt.Errorf("facts: %s is not an array", key)
-	}
-	out := make([]string, len(items))
-	for i, item := range items {
-		s, ok := item.(string)
-		if !ok {
-			return nil, fmt.Errorf("facts: %s[%d] is not text", key, i)
-		}
-		out[i] = s
-	}
-	return out, nil
 }
 
 // factInt reads an int fact value.

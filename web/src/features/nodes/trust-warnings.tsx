@@ -77,16 +77,11 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 
 /** The trust warnings of a node, as a list whose colour and icon follow the severity. */
 export function TrustWarningList({ warnings, className }: { warnings: readonly TrustWarning[]; className?: string }) {
+	const { t } = useLingui();
 	if (warnings.length === 0) return null;
 	return (
-		<section
-			aria-labelledby="trust-warnings-heading"
-			data-testid="trust-warnings"
-			className={cn("grid gap-2", className)}
-		>
-			<h2 id="trust-warnings-heading" className="text-sm font-medium">
-				<Trans>Trust warnings</Trans>
-			</h2>
+		// Each warning has its own border, icon and colour, so the list needs no heading of its own.
+		<section aria-label={t`Trust warnings`} data-testid="trust-warnings" className={cn("grid gap-2", className)}>
 			<ul className="grid gap-2">
 				{warnings.map((warning) => {
 					const Icon = SEVERITY_ICONS[warning.severity];

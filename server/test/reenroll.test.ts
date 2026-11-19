@@ -16,14 +16,8 @@ vi.setConfig({ testTimeout: 30000, hookTimeout: 30000 });
 
 const FACTS: Facts = {
 	hostname: "old-host",
-	osId: "ubuntu",
-	osVersionId: "24.04",
-	osPrettyName: "Ubuntu 24.04 LTS",
-	kernel: "6.8.0",
-	arch: "x86_64",
-	initSystem: "systemd",
-	packageManagers: ["apt"],
-	privilegeTools: ["sudo"],
+	platform: "linux, amd64, Ubuntu 24.04.4 LTS",
+	hints: "Found systemd.\nFound apt.\nFound sudo.",
 	notesPath: "/etc/crh-notes.md",
 	clockOffsetMs: 0,
 	shells: { sh: "/bin/sh", bash: "/usr/bin/bash" },
