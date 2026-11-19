@@ -1800,6 +1800,7 @@ msgid "Done"
 msgstr "完成"
 
 #: src/components/file-manager/file-list.tsx
+#: src/features/downloads/pages.tsx
 msgid "Download"
 msgstr "下载"
 
@@ -5059,6 +5060,10 @@ msgstr "DeepSeek API 的基础地址。"
 msgid "The display name must be at most 100 characters."
 msgstr "显示名最多 100 个字符。"
 
+#: src/features/downloads/pages.tsx
+msgid "The download starts on its own. If it does not, click the file."
+msgstr "下载会自动开始；如果没有开始，请点击文件。"
+
 #: src/features/settings/extensions.tsx
 msgid "The extension lists no tools."
 msgstr "该扩展没有列出任何工具。"
@@ -5310,6 +5315,10 @@ msgstr "此操作无法撤销。"
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "此凭据正被节点使用，无法删除。"
 
+#: src/features/downloads/pages.tsx
+msgid "This download link is incomplete."
+msgstr "此下载链接不完整。"
+
 #: src/features/approvals/pages.tsx
 msgid "This external call doesn't exist or you don't have access."
 msgstr "此外部调用不存在，或你没有访问权限。"
@@ -5321,6 +5330,10 @@ msgstr "无法预览此文件"
 #: src/features/sessions/attachment-chip.tsx
 msgid "This file could not be checked."
 msgstr "无法检查此文件。"
+
+#: src/features/downloads/pages.tsx
+msgid "This file doesn't exist or you don't have access."
+msgstr "此文件不存在，或你没有访问权限。"
 
 #: src/features/sessions/attachment-chip.tsx
 msgid "This file is no longer available."

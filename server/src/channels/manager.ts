@@ -2878,7 +2878,7 @@ export class ChannelManager {
 		const delivery = (details as { delivery?: { name?: unknown; source?: unknown } }).delivery;
 		if (!delivery || typeof delivery.name !== "string") return;
 		const source = delivery.source as
-			| { library?: unknown; path?: unknown; node?: unknown; nodeId?: unknown }
+			| { library?: unknown; libraryId?: unknown; path?: unknown; node?: unknown; nodeId?: unknown }
 			| undefined;
 		if (!source) return;
 		const key = source.library
@@ -2890,15 +2890,28 @@ export class ChannelManager {
 		run.deliveries.push({ name: delivery.name, source: this.#deliveryLink(source) });
 	}
 
-	/** The WebUI link a delivered file is shown as, or its path when no public URL is configured. */
-	#deliveryLink(source: { library?: unknown; path?: unknown; node?: unknown; nodeId?: unknown }): string {
-		const link =
-			source.library !== undefined
-				? this.#webUrl(
-						`/library/${encodeURIComponent(String(source.library))}?path=${encodeURIComponent(String(source.path))}`,
-					)
-				: this.#webUrl(`/nodes/${encodeURIComponent(String(source.nodeId ?? source.node))}`);
-		return link ?? String(source.path ?? "");
+	/**
+	 * The WebUI download link a delivered file is shown as, or its path when no public URL is configured. The
+	 * `/download` page signs the reader in, checks access as that user and starts the download; a library is
+	 * named by its id (the reference rides along as a fallback), so a renamed group keeps the link.
+	 */
+	#deliveryLink(source: {
+		library?: unknown;
+		libraryId?: unknown;
+		path?: unknown;
+		node?: unknown;
+		nodeId?: unknown;
+	}): string {
+		const path = String(source.path ?? "");
+		const search = new URLSearchParams();
+		if (source.library !== undefined) {
+			if (source.libraryId !== undefined) search.set("libraryId", String(source.libraryId));
+			search.set("library", String(source.library));
+		} else {
+			search.set("nodeId", String(source.nodeId ?? source.node));
+		}
+		search.set("path", path);
+		return this.#webUrl(`/download?${search.toString()}`) ?? path;
 	}
 
 	async #sendDeliveries(sessionId: string, run: RunState): Promise<void> {

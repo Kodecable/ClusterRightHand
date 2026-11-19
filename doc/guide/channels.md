@@ -108,8 +108,9 @@ discards the draft.
   session was archived or is no longer yours — the chat announces it and links to it in the WebUI.
 - Files you send must fit your library's single-file limit set by an administrator; a larger one is
   refused with a message.
-- Files the assistant delivers are sent as links that open in the WebUI; opening one goes through the
-  normal sign-in and access checks.
+- Files the assistant delivers are sent as download links to the WebUI; opening one goes through the
+  normal sign-in and access checks, then the download starts. The links need the public URL set in
+  System settings; without it the file's path is sent instead.
 - A failed turn sends the error.
 - When a session needs an approval that can be decided without a signature, Telegram shows Approve and
   Reject buttons plus the `/approve` and `/reject` commands; Satori shows the commands. The card names

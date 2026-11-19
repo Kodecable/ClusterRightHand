@@ -1806,7 +1806,10 @@ describe("channels", () => {
 		fake.text(userId, "deliver it");
 		await fake.waitForSent((call) => plainText(call).includes("delivered"));
 		const delivery = await fake.waitForSent((call) => plainText(call).includes("File offered: a.txt"));
-		expect(plainText(delivery)).toContain("https://crh.example/library/user%3Aalice?path=docs%2Fa.txt");
+		// A download link (not the library browser, which would open the path as a directory), naming the library by id.
+		expect(plainText(delivery)).toContain(
+			`https://crh.example/download?libraryId=${library.row.id}&library=user%3Aalice&path=docs%2Fa.txt`,
+		);
 		expect(thread.sessionId).toBeDefined();
 		expect(fake.callsOf("sendMessageDraft").length).toBeGreaterThan(0);
 		// A delivery goes out after the run, so no draft follows it.
@@ -3148,7 +3151,9 @@ describe("channels", () => {
 			expect(plainText(tail)).toContain("Paragraph 519:");
 			expect(plainText(tail)).toContain("END-OF-REPORT");
 			expect(plainText(tail)).toContain("File offered: report.txt");
-			expect(plainText(tail)).toContain("https://crh.example/library/user%3Aalice?path=reports%2Freport.txt");
+			expect(plainText(tail)).toContain(
+				`https://crh.example/download?libraryId=${library.row.id}&library=user%3Aalice&path=reports%2Freport.txt`,
+			);
 			expect(tail.body.reply_markup).toEqual({
 				inline_keyboard: [[{ text: "Open session", callback_data: `switch:${run.sessionId}` }]],
 			});

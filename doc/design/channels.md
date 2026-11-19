@@ -198,8 +198,9 @@ Satori, and are never converted from one to the other.
   `Stopped.` message as `/stop` and is audited as `session.stop` with source `channel_draft_stop`.
 - **Delivered files** (`copy_file` to `user_interface`) are sent as WebUI download links, or as their
   path escaped for the platform's message format when no public URL is configured, never as
-  attachments. Opening one goes through the normal sign-in and access checks
-  ([Deliveries](library.md#deliveries)).
+  attachments. A link opens the WebUI's `/download` page with the library id (and reference) or the node
+  id and the path, so opening one goes through the normal sign-in and access checks and starts the
+  download ([Download page](webui.md#download-page), [Deliveries](library.md#deliveries)).
 - **A failed turn** sends a "The run failed" line and then the error as its own language-less code
   block, with a fence longer than any backtick run inside the error. The other messages that embed a raw
   problem (`couldNotSaveFile`, `couldNotSendMessage`, `couldNotStartSession`, `couldNotStop`,

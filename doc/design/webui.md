@@ -277,6 +277,18 @@ stops the remaining uploads. Leaving the page, or any other unmount of the queue
 flight and stops the rest. There are no folder objects: an upload goes to the current path, and a
 path with `/` in an upload or rename creates the directories ([Libraries](library.md)).
 
+### Download page
+
+`/download` is the target of a download link made outside the WebUI, such as a file a chat channel
+delivered ([Channels](channels.md)). The link names a library file by `libraryId`, with the `library`
+reference as a fallback for a library the reader's list does not show, or a node file by `nodeId`, and the
+`path`. The page sits behind sign-in like any other, so a signed-out reader signs in and comes back to the
+same link. It then checks the file as the signed-in user (a library stat, or a `file.stat` on the node),
+shows it as a file box and starts the download once; a click on the box downloads it again. A missing file
+and one the reader cannot reach get the same message. The query string is read as it is, so a path or id
+is never reparsed. Links inside the WebUI (attachments, delivered files, the file managers) download from
+the API directly, since their reader is already signed in.
+
 ### Node pages
 
 The node list folds enrollment and reachability into one status: pending approval, connected or

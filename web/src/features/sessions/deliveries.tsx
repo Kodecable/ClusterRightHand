@@ -1,24 +1,15 @@
 import { FileBox } from "@/components/file-box";
 import { useLibraries } from "@/features/library/api";
-import { enc, queryString } from "@/lib/api/client";
+import { libraryFileUrls, nodeFileUrls } from "@/lib/file-urls";
 import type { DeliveryDetails } from "./tool-details";
 
 /** Where a delivered file downloads from, resolving a library by its id so a renamed group keeps the link. */
 function deliveryUrls(delivery: DeliveryDetails, libraryRef: string | undefined) {
 	if ("library" in delivery.source) {
 		const ref = libraryRef ?? delivery.source.library;
-		const base = `/api/libraries/${enc(ref)}/file${queryString({ path: delivery.source.path })}`;
-		return {
-			download: base,
-			preview: `/api/libraries/${enc(ref)}/file${queryString({ path: delivery.source.path, preview: "1" })}`,
-			source: ref,
-		};
+		return { ...libraryFileUrls(ref, delivery.source.path), source: ref };
 	}
-	return {
-		download: `/api/nodes/${enc(delivery.source.nodeId)}/file${queryString({ path: delivery.source.path })}`,
-		preview: `/api/nodes/${enc(delivery.source.nodeId)}/file${queryString({ path: delivery.source.path, preview: "1" })}`,
-		source: delivery.source.node,
-	};
+	return { ...nodeFileUrls(delivery.source.nodeId, delivery.source.path), source: delivery.source.node };
 }
 
 /** One delivered file: its name, where it came from and its size; clicking it downloads the file. */

@@ -69,3 +69,24 @@ describe("detail routes", () => {
 		expect(deps?.({ params: { [param]: "a" } })).toEqual(deps?.({ params: { [param]: "a" } }));
 	});
 });
+
+describe("download links", () => {
+	test("a signed-out reader signs in first and comes back to the same link", async () => {
+		mockSession(MEMBER);
+		await router.navigate({ href: "/download?libraryId=lib-1&library=user%3Aada&path=docs%2Fa.txt" });
+
+		expect(router.state.location.pathname).toBe("/login");
+		const back = (router.state.location.search as { redirect?: string }).redirect ?? "";
+		expect(back).toContain("/download?");
+		expect(back).toContain("path=docs%2Fa.txt");
+	});
+
+	test("a signed-in reader reaches the download page", async () => {
+		mockSession(MEMBER);
+		await authStore.load();
+
+		await router.navigate({ href: "/download?nodeId=node-1&path=%2Ftmp%2Fa.txt" });
+
+		expect(router.state.location.pathname).toBe("/download");
+	});
+});

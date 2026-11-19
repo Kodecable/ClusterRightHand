@@ -157,6 +157,18 @@ const libraryRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/library/pages"), "LibraryPage"),
 });
 
+// --- downloads ------------------------------------------------------------
+
+/**
+ * A download link from outside the WebUI (a file a chat channel delivered): signing in happens on the way,
+ * then the page checks the file and starts the download. The page reads the raw query string itself.
+ */
+const downloadRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/download",
+	component: lazyRouteComponent(() => import("@/features/downloads/pages"), "DownloadPage"),
+});
+
 // --- schedules ------------------------------------------------------------
 
 const schedulesRoute = createRoute({
@@ -360,6 +372,7 @@ const routeTree = rootRoute.addChildren([
 		sessionsRoute.addChildren([sessionsIndexRoute, newSessionRoute, sessionRoute]),
 		libraryIndexRoute,
 		libraryRoute,
+		downloadRoute,
 		schedulesRoute,
 		scheduleDetailRoute,
 		tasksRoute,

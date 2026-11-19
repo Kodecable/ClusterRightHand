@@ -1800,6 +1800,7 @@ msgid "Done"
 msgstr "Done"
 
 #: src/components/file-manager/file-list.tsx
+#: src/features/downloads/pages.tsx
 msgid "Download"
 msgstr "Download"
 
@@ -5059,6 +5060,10 @@ msgstr "The DeepSeek API base URL."
 msgid "The display name must be at most 100 characters."
 msgstr "The display name must be at most 100 characters."
 
+#: src/features/downloads/pages.tsx
+msgid "The download starts on its own. If it does not, click the file."
+msgstr "The download starts on its own. If it does not, click the file."
+
 #: src/features/settings/extensions.tsx
 msgid "The extension lists no tools."
 msgstr "The extension lists no tools."
@@ -5310,6 +5315,10 @@ msgstr "This cannot be undone."
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "This credential is used by a node and cannot be deleted."
 
+#: src/features/downloads/pages.tsx
+msgid "This download link is incomplete."
+msgstr "This download link is incomplete."
+
 #: src/features/approvals/pages.tsx
 msgid "This external call doesn't exist or you don't have access."
 msgstr "This external call doesn't exist or you don't have access."
@@ -5321,6 +5330,10 @@ msgstr "This file cannot be previewed"
 #: src/features/sessions/attachment-chip.tsx
 msgid "This file could not be checked."
 msgstr "This file could not be checked."
+
+#: src/features/downloads/pages.tsx
+msgid "This file doesn't exist or you don't have access."
+msgstr "This file doesn't exist or you don't have access."
 
 #: src/features/sessions/attachment-chip.tsx
 msgid "This file is no longer available."
