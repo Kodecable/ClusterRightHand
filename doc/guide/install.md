@@ -299,10 +299,11 @@ It uses the workstation's `ssh-keygen` and ssh-agent, so no key material is stor
 3. Approve the node (below), comparing the fingerprint.
 
 If the node was enrolled before, use **Re-enroll** on its page instead of **New node**. `crha enroll`
-asks first whether to re-enroll: answering no keeps the enrollment, needs no token and takes the server,
-TLS setting and privileged mode from the existing `crha.toml`; answering yes replaces the key and keeps
-the node's id, name, node groups and grants
-([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)).
+asks first whether to re-enroll: answering no keeps the enrollment and needs no token; answering yes
+replaces the key and keeps the node's id, name, node groups and grants
+([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)). Either way, an
+existing `/etc/crha/crha.toml` is kept as it is and supplies the crhs address, TLS setting and
+privileged mode, so those questions are not asked; to change one, edit `crha.toml` first.
 
 `--answers` and `--save-answers` work as in `crhs init`; a file holding the token must be readable only by
 its owner. On an enrolled node the `replace` answer is also required, and `forward` adds
@@ -340,7 +341,11 @@ crha ALL=(root) NOPASSWD: /usr/bin/crha privileged stdio
 ```
 
 For `forward`, `crha enroll` writes `/etc/crha/privileged.toml` with the trust entries you pasted. To
-change them later, edit the file and reload the privileged mode:
+switch an enrolled `ignore` node to `forward`, set `mode = "forward"` and
+`socket = "/run/crha/privileged.sock"` under `[privileged]` in `/etc/crha/crha.toml`, then re-enroll it
+with a **Re-enroll** token: `crha enroll` asks the local root and trust questions and writes
+`privileged.toml` (it needs the node id, which only enrollment returns) and `crha-privileged.service`.
+To change the trust entries later, edit the file and reload the privileged mode:
 
 ```sh
 sudoedit /etc/crha/privileged.toml

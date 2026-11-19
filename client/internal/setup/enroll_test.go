@@ -223,7 +223,7 @@ func TestAnswersFileSecretPermissions(t *testing.T) {
 
 func TestMissingAnswersListsEveryField(t *testing.T) {
 	empty := &fileAnswers{Version: 1}
-	_, err := collectAnswers(empty, nil, false, false, strings.NewReader(""), io.Discard, func(string) {})
+	_, err := collectAnswers(empty, existingSetup{enrolled: false}, false, strings.NewReader(""), io.Discard, func(string) {})
 	if err == nil {
 		t.Fatal("empty answers were accepted without a terminal")
 	}
@@ -233,14 +233,14 @@ func TestMissingAnswersListsEveryField(t *testing.T) {
 		}
 	}
 	forward := &fileAnswers{Version: 1, Privileged: &filePrivileged{Mode: ptr("forward")}}
-	_, err = collectAnswers(forward, nil, false, false, strings.NewReader(""), io.Discard, func(string) {})
+	_, err = collectAnswers(forward, existingSetup{enrolled: false}, false, strings.NewReader(""), io.Discard, func(string) {})
 	for _, field := range []string{"privileged.local_root", "privileged.trust"} {
 		if !strings.Contains(err.Error(), field) {
 			t.Fatalf("forward error %q does not name %s", err, field)
 		}
 	}
 	enrolled := &fileAnswers{Version: 1}
-	_, err = collectAnswers(enrolled, nil, true, false, strings.NewReader(""), io.Discard, func(string) {})
+	_, err = collectAnswers(enrolled, existingSetup{enrolled: true}, false, strings.NewReader(""), io.Discard, func(string) {})
 	if !strings.Contains(err.Error(), "replace") {
 		t.Fatalf("enrolled error %q does not name replace", err)
 	}
@@ -252,7 +252,7 @@ func TestMissingAnswersListsEveryField(t *testing.T) {
 		Privilege: config.Privileged{Mode: config.ModeIgnore},
 	}
 	keep := &fileAnswers{Version: 1, Replace: ptr(false), Service: &fileService{Start: ptr(true)}}
-	answers, err := collectAnswers(keep, existing, true, false, strings.NewReader(""), io.Discard, func(string) {})
+	answers, err := collectAnswers(keep, existingSetup{config: existing, enrolled: true}, false, strings.NewReader(""), io.Discard, func(string) {})
 	if err != nil {
 		t.Fatalf("keep answers refused: %v", err)
 	}
@@ -261,13 +261,13 @@ func TestMissingAnswersListsEveryField(t *testing.T) {
 		t.Fatalf("keep answers = %+v", answers)
 	}
 	keepNoStart := &fileAnswers{Version: 1, Replace: ptr(false)}
-	_, err = collectAnswers(keepNoStart, existing, true, false, strings.NewReader(""), io.Discard, func(string) {})
+	_, err = collectAnswers(keepNoStart, existingSetup{config: existing, enrolled: true}, false, strings.NewReader(""), io.Discard, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "service.start") ||
 		strings.Contains(err.Error(), "server") || strings.Contains(err.Error(), "token") {
 		t.Fatalf("keep answers without service.start = %v", err)
 	}
 	// Keeping needs the file whose mode and server it inherits.
-	_, err = collectAnswers(keep, nil, true, false, strings.NewReader(""), io.Discard, func(string) {})
+	_, err = collectAnswers(keep, existingSetup{enrolled: true}, false, strings.NewReader(""), io.Discard, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "crha.toml is missing") {
 		t.Fatalf("keep answers without crha.toml = %v", err)
 	}
@@ -618,39 +618,147 @@ func TestRunKeepWithoutConfigFails(t *testing.T) {
 }
 
 // TestInteractiveReplaceIsAskedFirst covers that on an enrolled node the re-enroll question comes
-// before the server and the token, and that the summary names the choice.
+// first, that the existing crha.toml answers the server, TLS and privileged mode questions instead of
+// asking them, and that the summary names the choice and where the values came from.
 func TestInteractiveReplaceIsAskedFirst(t *testing.T) {
 	existing := &config.Config{
-		Server: "https://old.example.com", TLSVerify: "system", StateDir: StateDir,
+		Server: "https://old.example.com", TLSVerify: "none", StateDir: StateDir,
 		Privilege: config.Privileged{Mode: config.ModeIgnore},
 	}
 	file := &fileAnswers{
-		Version:    1,
-		Server:     ptr("https://crh.example.com"),
-		Token:      ptr("crh1.fp.secret"),
-		TLSVerify:  ptr("system"),
-		Privileged: &filePrivileged{Mode: ptr("ignore")},
-		Service:    &fileService{Start: ptr(true)},
+		Version: 1,
+		Token:   ptr("crh1.fp.secret"),
+		Service: &fileService{Start: ptr(true)},
 	}
 	var prompts, out strings.Builder
-	answers, err := collectAnswers(file, existing, true, true, strings.NewReader("y\ny\n"), &prompts,
+	answers, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true, strings.NewReader("y\ny\n"), &prompts,
 		func(line string) { out.WriteString(line + "\n") })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !answers.Replace || answers.Keep {
-		t.Fatalf("answers = %+v, want a re-enrollment", answers)
+	if !answers.Replace || answers.Keep || !answers.FromConfig {
+		t.Fatalf("answers = %+v, want a re-enrollment answered by crha.toml", answers)
+	}
+	if answers.Server != existing.Server || answers.TLSVerify != "none" || answers.Mode != config.ModeIgnore {
+		t.Fatalf("re-enroll answers = %+v, want the crha.toml values", answers)
 	}
 	if !strings.HasPrefix(prompts.String(), "Re-enroll, keeping") {
 		t.Fatalf("first prompt is not the re-enroll question: %q", prompts.String())
 	}
-	for _, unwanted := range []string{"crhs address", "Enrollment token"} {
+	for _, unwanted := range []string{"crhs address", "Enrollment token", "TLS certificate", "Privileged mode", "local root", "trust entries"} {
 		if strings.Contains(prompts.String(), unwanted) {
-			t.Fatalf("file-answered %q was asked: %q", unwanted, prompts.String())
+			t.Fatalf("re-enroll asked %q: %q", unwanted, prompts.String())
 		}
 	}
-	if !strings.Contains(out.String(), "enrollment: re-enroll") {
-		t.Fatalf("summary has no enrollment choice:\n%s", out.String())
+	for _, want := range []string{
+		"enrollment: re-enroll",
+		"crhs address: https://old.example.com (from crha.toml)",
+		"privileged mode: ignore (from crha.toml)",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("summary has no %q:\n%s", want, out.String())
+		}
+	}
+}
+
+// TestInteractiveReplaceForwardWithoutPrivilegedConfig covers that re-enrolling a forward node whose
+// privileged.toml is missing still asks the local root and trust questions, which that file needs.
+func TestInteractiveReplaceForwardWithoutPrivilegedConfig(t *testing.T) {
+	existing := &config.Config{
+		Server: "https://crh.example.com", TLSVerify: "system", StateDir: StateDir,
+		Privilege: config.Privileged{Mode: config.ModeForward},
+	}
+	file := &fileAnswers{Version: 1, Token: ptr("crh1.fp.secret"), Service: &fileService{Start: ptr(true)}}
+	var prompts strings.Builder
+	answers, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true,
+		strings.NewReader("y\n\n.\ny\n"), &prompts, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !answers.PrivilegedAnswers || !answers.LocalRoot || answers.Mode != config.ModeForward {
+		t.Fatalf("answers = %+v, want the privileged questions answered", answers)
+	}
+	if strings.Contains(prompts.String(), "Privileged mode") {
+		t.Fatalf("re-enroll asked the privileged mode: %q", prompts.String())
+	}
+
+	// With privileged.toml present, nothing privileged is asked.
+	prompts.Reset()
+	answers, err = collectAnswers(file, existingSetup{config: existing, enrolled: true, privilegedConfig: true}, true,
+		strings.NewReader("y\ny\n"), &prompts, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answers.PrivilegedAnswers || strings.Contains(prompts.String(), "local root") {
+		t.Fatalf("answers = %+v, prompts %q: privileged questions asked although privileged.toml exists", answers, prompts.String())
+	}
+}
+
+// TestAnswersContradictingConfigAreRefused covers that a server, TLS or mode answer that differs from
+// the existing crha.toml is an error rather than silently dropped; an equal value is accepted.
+func TestAnswersContradictingConfigAreRefused(t *testing.T) {
+	existing := &config.Config{
+		Server: "https://crh.example.com", TLSVerify: "system", StateDir: StateDir,
+		Privilege: config.Privileged{Mode: config.ModeIgnore},
+	}
+	state := existingSetup{config: existing, enrolled: true}
+	file := &fileAnswers{
+		Version:    1,
+		Replace:    ptr(true),
+		Server:     ptr("https://crh.example.com"),
+		Token:      ptr("crh1.fp.secret"),
+		TLSVerify:  ptr("system"),
+		Privileged: &filePrivileged{Mode: ptr("forward")},
+		Service:    &fileService{Start: ptr(true)},
+	}
+	_, err := collectAnswers(file, state, false, strings.NewReader(""), io.Discard, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), `privileged.mode is "forward" in the answers file but "ignore" in crha.toml`) {
+		t.Fatalf("contradicting mode = %v", err)
+	}
+	file.Privileged.Mode = ptr("ignore")
+	answers, err := collectAnswers(file, state, false, strings.NewReader(""), io.Discard, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !answers.FromConfig || answers.Mode != config.ModeIgnore {
+		t.Fatalf("answers = %+v", answers)
+	}
+}
+
+// TestRunReplaceWritesMissingPrivilegedConfig covers a re-enrollment of a forward node whose
+// privileged.toml is gone: crha.toml is kept, and privileged.toml is written with the node id.
+func TestRunReplaceWritesMissingPrivilegedConfig(t *testing.T) {
+	host := newFakeHost(t)
+	register, calls := fakeRegister(host)
+	if err := runEnroll(t, host, forwardAnswers(t), register, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(at(host, PrivilegedConfigPath)); err != nil {
+		t.Fatal(err)
+	}
+	configBefore := readFile(t, at(host, DefaultConfigPath))
+	answers := map[string]any{
+		"version":    1,
+		"replace":    true,
+		"token":      "crh1.fp.secret",
+		"privileged": map[string]any{"local_root": true, "trust": trustEntry(t)},
+		"service":    map[string]any{"start": true},
+	}
+	var out strings.Builder
+	if err := runEnroll(t, host, answers, register, &out); err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 2 {
+		t.Fatalf("register calls = %d, want 2", *calls)
+	}
+	if readFile(t, at(host, DefaultConfigPath)) != configBefore {
+		t.Fatal("re-enrollment rewrote crha.toml")
+	}
+	if !strings.Contains(out.String(), "wrote: "+PrivilegedConfigPath) {
+		t.Fatalf("privileged.toml was not written:\n%s", out.String())
+	}
+	if !strings.Contains(readFile(t, at(host, PrivilegedConfigPath)), "0192f000-0000-7000-8000-000000000001") {
+		t.Fatal("privileged.toml has no node id")
 	}
 }
 
@@ -663,7 +771,7 @@ func TestInteractiveKeepAsksOnlyTheService(t *testing.T) {
 	}
 	file := &fileAnswers{Version: 1, Replace: ptr(false)}
 	var prompts, out strings.Builder
-	answers, err := collectAnswers(file, existing, true, true, strings.NewReader("\ny\n"), &prompts,
+	answers, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true, strings.NewReader("\ny\n"), &prompts,
 		func(line string) { out.WriteString(line + "\n") })
 	if err != nil {
 		t.Fatal(err)
@@ -744,7 +852,7 @@ func TestInteractiveFileAnsweredDoesNotConfirm(t *testing.T) {
 		Service: &fileService{Start: ptr(true)},
 	}
 	var prompts strings.Builder
-	answers, err := collectAnswers(file, nil, false, true, strings.NewReader("n\n"), &prompts, func(string) {})
+	answers, err := collectAnswers(file, existingSetup{enrolled: false}, true, strings.NewReader("n\n"), &prompts, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}

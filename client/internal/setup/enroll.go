@@ -98,7 +98,8 @@ func Run(ctx context.Context, opts Options) (err error) {
 			return err
 		}
 	}
-	// An existing crha.toml decides where the identity key lives; the file is never rewritten.
+	// An existing crha.toml decides where the identity key lives and answers the server, TLS and
+	// privileged mode questions; the file is never rewritten.
 	existing, err := loadConfig(host, configPath)
 	if err != nil {
 		return err
@@ -115,7 +116,12 @@ func Run(ctx context.Context, opts Options) (err error) {
 	if opts.Interactive != nil {
 		interactive = *opts.Interactive
 	}
-	answers, err := collectAnswers(file, existing, enrolled, interactive, input, promptOut, say)
+	privilegedConfig, err := exists(at(host, PrivilegedConfigPath))
+	if err != nil {
+		return err
+	}
+	state := existingSetup{config: existing, enrolled: enrolled, privilegedConfig: privilegedConfig}
+	answers, err := collectAnswers(file, state, interactive, input, promptOut, say)
 	if err != nil {
 		return err
 	}
@@ -437,7 +443,7 @@ func checkKeep(host Host, answers resolved) error {
 // validateTrust checks the pasted trust entries before anything is written. The node id and crha's
 // uid are not known yet, so placeholders stand in for them: the file must parse as a whole.
 func validateTrust(answers resolved) error {
-	if answers.Mode != config.ModeForward {
+	if !answers.PrivilegedAnswers {
 		return nil
 	}
 	content := renderPrivilegedConfig("00000000-0000-0000-0000-000000000000", 0, answers.LocalRoot, answers.Trust)

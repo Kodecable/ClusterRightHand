@@ -184,10 +184,14 @@ Run as root. It asks:
 
 `native` and `reject` are left to a manual `crha.toml`.
 
-On an enrolled node, answering no to `replace` keeps the existing enrollment: the server, the TLS
-setting and the privileged mode come from the existing `crha.toml`, no token is needed, the enrollment
-step is skipped and every other step runs as usual (for `forward`, `privileged.toml` must already
-exist).
+An existing `crha.toml` is never rewritten, so it answers the server, TLS and privileged mode
+questions, which are then not asked; an answers file that gives a different value for one of them is
+refused rather than silently ignored. On an enrolled node, answering yes to `replace` therefore asks
+only for the token (plus the local root and trust questions when the mode is `forward` and
+`privileged.toml` is missing). Answering no keeps the existing enrollment: no token is needed, the
+enrollment step is skipped and every other step runs as usual (for `forward`, `privileged.toml` must
+already exist). Changing the server, TLS setting or mode of an enrolled node means editing `crha.toml`
+first.
 
 It then creates the `crha` user and group when missing, `/etc/crha` (root:crha, 0750) and `/var/lib/crha`
 (crha, 0700); writes `crha.toml` (root:crha, 0640); enrolls, writing the keys (owned by crha) only after
