@@ -293,7 +293,7 @@ export function TranscriptRow({
 					))}
 					{(item.text !== "" || item.attachments === undefined) && (
 						<div
-							className="max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground"
+							className="max-w-[85%] rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap break-words text-primary-foreground selection:bg-primary-foreground selection:text-primary"
 							data-testid="user-message"
 						>
 							{item.text}

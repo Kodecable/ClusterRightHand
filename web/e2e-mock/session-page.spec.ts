@@ -242,6 +242,27 @@ test("while a message is sending the composer box keeps one background", async (
 	expect(background).toMatch(/^rgba\(0, 0, 0, 0\)$|\/ 0\)$/);
 });
 
+test("selected text stays visible on the user's bubble and elsewhere follows the theme", async ({ page }) => {
+	await openFooterPage(page);
+	const colors = await page.getByTestId("user-message").evaluate((bubble) => {
+		const style = getComputedStyle(bubble);
+		const selection = getComputedStyle(bubble, "::selection");
+		const page = getComputedStyle(document.body, "::selection");
+		return {
+			bubble: style.backgroundColor,
+			text: style.color,
+			selectionBackground: selection.backgroundColor,
+			selectionText: selection.color,
+			pageSelection: page.backgroundColor,
+		};
+	});
+	// The bubble is painted in the primary colour, so its selection is inverted rather than primary-tinted.
+	expect(colors.selectionBackground).toBe(colors.text);
+	expect(colors.selectionText).toBe(colors.bubble);
+	// Everywhere else the selection is a translucent tint of the theme, not the system highlight.
+	expect(colors.pageSelection).toMatch(/\/ 0\.2\d*\)$/);
+});
+
 test("at 390 px the merged stop/send button switches with the draft and nothing overflows", async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await openFooterPage(page, { state: "running" });

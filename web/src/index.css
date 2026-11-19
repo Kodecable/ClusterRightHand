@@ -195,6 +195,13 @@ html[data-theme="dark"] {
 		margin: 0;
 	}
 
+	/* Selected text uses the theme instead of the system highlight; the text keeps its own colour. A surface
+	   painted in the primary colour (the user's message bubble) inverts it instead, since a primary-tinted
+	   selection would vanish on it. */
+	::selection {
+		background-color: color-mix(in oklab, var(--primary) 25%, transparent);
+	}
+
 	/* Tailwind v4's preflight makes buttons `cursor: default`; interactive controls are still pointers. */
 	button:not(:disabled),
 	[role="button"]:not([aria-disabled="true"]),
