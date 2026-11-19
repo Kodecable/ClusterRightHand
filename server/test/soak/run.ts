@@ -570,7 +570,7 @@ async function main(): Promise<number> {
 			format: "sshsig",
 			key: crhsKey,
 			kinds: ["execute"],
-			requireExact: true,
+			requireSpec: true,
 			allow: [{ method: "exec" }, { method: "file.read" }, { method: "file.write" }],
 		};
 

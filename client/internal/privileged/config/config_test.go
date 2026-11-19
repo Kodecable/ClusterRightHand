@@ -106,7 +106,7 @@ role          = "crhs"
 format        = "sshsig"
 key           = %q
 kinds         = ["execute", "cosign"]
-require_exact = true
+require_spec = true
 max_ttl       = "5m"
 env_allow     = ["DEBIAN_FRONTEND"]
 allow = [
@@ -216,7 +216,7 @@ func TestParseFullConfig(t *testing.T) {
 	if !reflect.DeepEqual(crhs.Kinds, []protocol.TrustKind{protocol.TrustKindExecute, protocol.TrustKindCosign}) {
 		t.Fatalf("crhs kinds = %v", crhs.Kinds)
 	}
-	if !crhs.RequireExact || !crhs.RequireTask || crhs.RequireUV {
+	if !crhs.RequireSpec || !crhs.RequireTask || crhs.RequireUV {
 		t.Fatalf("crhs flags: %+v", crhs)
 	}
 	if crhs.MaxTTL == nil || crhs.MaxTTL.String() != "5m0s" {
@@ -309,7 +309,7 @@ func TestSummary(t *testing.T) {
 	if crhs.MaxTTLMS == nil || *crhs.MaxTTLMS != 300000 {
 		t.Fatalf("max_ttl_ms = %v", crhs.MaxTTLMS)
 	}
-	if !crhs.RequireExact || !crhs.RequireTask || crhs.RequireUV {
+	if !crhs.RequireSpec || !crhs.RequireTask || crhs.RequireUV {
 		t.Fatalf("crhs summary flags = %+v", crhs)
 	}
 
@@ -509,7 +509,7 @@ kinds         = ["execute"]
 		{"local deny", localEntry(t, "uids = [0]\ndeny = [{ method = \"exec\" }]"), "deny: a local entry"},
 		{"local env_allow", localEntry(t, "uids = [0]\nenv_allow = [\"FOO\"]"), "env_allow: a local entry"},
 		{"local max_ttl", localEntry(t, "uids = [0]\nmax_ttl = \"5m\""), "use max_window"},
-		{"local require_exact", localEntry(t, "uids = [0]\nrequire_exact = true"), "require_exact: a local entry"},
+		{"local require_spec", localEntry(t, "uids = [0]\nrequire_spec = true"), "require_spec: a local entry"},
 		{"local require_uv", localEntry(t, "uids = [0]\nrequire_uv = true"), "require_uv: a local entry"},
 		{"local max_window", localEntry(t, "uids = [0]\nmax_window = \"0s\""), "max_window: must be positive"},
 		{"local bad max_window", localEntry(t, "uids = [0]\nmax_window = \"soon\""), "max_window"},

@@ -63,6 +63,8 @@ export function pushFile(core: ClusterCore, input: PushFileInput): Promise<TaskV
 	if (location.size === null || location.sha256 === null) {
 		throw new UserError("a push source must have a size and sha256");
 	}
+	// A file task keeps only the nine permission bits (doc/design/execution.md "File tasks").
+	if ((mode ?? 0) > 0o777) throw new UserError("mode must be at most 0777");
 	const transferId = randomUUID();
 	const spec: TaskSpec = {
 		kind: "file.push",

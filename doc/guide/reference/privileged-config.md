@@ -60,21 +60,21 @@ entry, nobody can open a window, not even root. The **Generate trust config** di
 | `format` | `crhs`, `user` | `sshsig` or `webauthn`. |
 | `key` | `sshsig`, `webauthn` | For `sshsig`, one `authorized_keys` line without options (Ed25519, ECDSA P-256, or their `sk-` FIDO forms). For `webauthn`, `cose:` and the base64url public key. |
 | `credential_id`, `rp_id`, `origins` | `webauthn` | The Passkey's credential id, relying-party id and allowed origins. |
-| `uids` | `local` | The uids that may open and close the window. Required. |
+| `uids` | `local` | The uids that may open and close the window. Required. Listing `unprivileged_uid` lets crhs open the window itself. |
 | `max_window` | `local` | Longest window those uids may open; default `"1h"`. |
 | `kinds` | `crhs`, `user` | See above. A `local` entry has none. |
 | `max_ttl` | `crhs`, `user` | Longest accepted lifetime of an authorization; at least `5m`. |
-| `require_exact` | `crhs`, `user` | Accept only exact command authorizations, not prefixes. Recommended for crhs. |
+| `require_spec` | `crhs`, `user` | Accept only `spec` command authorizations (the complete task spec by hash), not prefixes. Recommended for crhs. |
 | `require_task` | `user` | Accept only one-shot authorizations for specific tasks. (crhs authorizations are always one-shot.) |
 | `require_uv` | `user` | Require user verification (PIN or biometric). Needs a Passkey or an `sk-` key. |
 | `allow`, `deny` | `crhs`, `user` | [Guard rules](#guard-rules). |
 | `env_allow` | `crhs`, `user` | Environment variables a task may set. `PATH` is always fixed. |
 
-A `local` entry only has `uids` and `max_window`. Setting `kinds`, `max_ttl`, `require_exact`,
+A `local` entry only has `uids` and `max_window`. Setting `kinds`, `max_ttl`, `require_spec`,
 `require_task`, `require_uv`, `allow`, `deny` or `env_allow` on it is a configuration error: an open
 window waives all of those limits (doc/design/privilege.md "Local approval window").
 
-`max_ttl`, `require_exact`, `allow` and `deny` limit what an entry may authorize; they do not apply
+`max_ttl`, `require_spec`, `allow` and `deny` limit what an entry may authorize; they do not apply
 when crhs only cosigns a user's authorization.
 
 ## Guard rules
@@ -114,7 +114,7 @@ role          = "crhs"
 format        = "sshsig"
 key           = "ssh-ed25519 AAAA… crhs-signing"
 kinds         = ["execute"]
-require_exact = true
+require_spec  = true
 max_ttl       = "5m"
 allow = [
   { method = "exec",       prefix = "systemctl restart " },

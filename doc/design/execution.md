@@ -63,6 +63,12 @@ detected line ending.
 
 - `file.write` refuses to replace an existing file unless `overwrite` is set, so a model cannot destroy
   content with a whole-file write by accident.
+- A requested `mode` is the nine permission bits only. Above `0777` is refused everywhere: the API
+  answers `400`, the task spec the hub builds and the agent tools refuse it before a node sees it, and
+  crha and the SFTP path refuse it with `invalid_spec`. A mode kept from an existing file is masked to
+  the nine bits, so overwriting or editing a setuid file clears them. Changing setuid, setgid or sticky
+  needs an `exec chmod` under a `spec` authorization
+  ([Methods and targets](privilege.md#methods-and-targets)).
 - Writes go through a temporary file in the target directory and a rename. In a world-writable directory
   without the sticky bit another user could swap the temporary file, so such directories are not
   supported targets.

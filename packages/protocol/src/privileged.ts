@@ -74,7 +74,7 @@ export const trustEntryCodec = tuple([
 	["role", enumOf("crhs", "user", "local")],
 	["key", trustKeyCodec],
 	["kinds", list(enumOf("execute", "cosign", "require-cosign"))],
-	["requireExact", bool],
+	["requireSpec", bool],
 	["requireTask", bool],
 	["requireUv", bool],
 	["maxTtlMs", nullable(uint)],
@@ -121,19 +121,17 @@ export type TrustReport = Infer<typeof trustReportCodec>;
 // Authorization object
 // ---------------------------------------------------------------------------
 
-export const authMatchCodec = union({
-	exact: tuple([
+/**
+ * The command limit of an authorization: the hash of the complete task spec (the method follows
+ * from the spec), or a method and target prefix. `null` on the payload means any command.
+ */
+export const authCommandCodec = union({
+	spec: sha256,
+	prefix: tuple([
+		["method", method],
 		["target", text],
-		["specSha256", sha256],
 	]),
-	prefix: tuple([["target", text]]),
 });
-export type AuthMatch = Infer<typeof authMatchCodec>;
-
-export const authCommandCodec = tuple([
-	["method", method],
-	["match", authMatchCodec],
-]);
 export type AuthCommand = Infer<typeof authCommandCodec>;
 
 export const authorizationPayloadCodec = tuple([

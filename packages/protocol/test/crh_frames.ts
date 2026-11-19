@@ -111,7 +111,7 @@ const TRUST_SUMMARY: TrustSummary = {
 				fingerprint: "SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU",
 			},
 			kinds: ["execute", "cosign"],
-			requireExact: true,
+			requireSpec: true,
 			requireTask: true,
 			requireUv: false,
 			maxTtlMs: 300000,
@@ -131,7 +131,7 @@ const TRUST_SUMMARY: TrustSummary = {
 				origins: ["https://crh.example.com"],
 			},
 			kinds: ["execute"],
-			requireExact: false,
+			requireSpec: false,
 			requireTask: true,
 			requireUv: true,
 			maxTtlMs: null,
@@ -145,7 +145,7 @@ const TRUST_SUMMARY: TrustSummary = {
 			role: "local",
 			key: { kind: "local", uids: [0, 1000] },
 			kinds: [],
-			requireExact: false,
+			requireSpec: false,
 			requireTask: false,
 			requireUv: false,
 			maxTtlMs: null,
@@ -704,7 +704,7 @@ export function buildFixture(): CrhFramesFixture {
 	});
 	addFrame(
 		"event.trust.summary",
-		'event trust.summary body=["ok", [node_id="node-1", aliases=["0192f000-0000-7000-8000-0000000000a1"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user="crha"], [uid=0, gid=0, user="root"]], trust=[[name="crhs", source="local", role="crhs", key=["sshsig", [public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing", fingerprint="SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"]], kinds=["execute","cosign"], require_exact=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[["exec", "prefix", "systemctl restart "]], deny=[], env_allow=[]], [name="alice-passkey", source="local", role="user", key=["webauthn", [credential_id=32 bytes of 0x11, cose_key=h\'a5010203262001215820\', rp_id="crh.example.com", origins=["https://crh.example.com"]]], kinds=["execute"], require_exact=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=["DEBIAN_FRONTEND"]], [name="local-admins", source="local", role="local", key=["local", [uids=[0, 1000]]], kinds=[], require_exact=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]], local_window=["open", [opened_at_ms=1700000001000, opened_by_uid=1000, until_ms=1700001800000]]]',
+		'event trust.summary body=["ok", [node_id="node-1", aliases=["0192f000-0000-7000-8000-0000000000a1"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user="crha"], [uid=0, gid=0, user="root"]], trust=[[name="crhs", source="local", role="crhs", key=["sshsig", [public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing", fingerprint="SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"]], kinds=["execute","cosign"], require_spec=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[["exec", "prefix", "systemctl restart "]], deny=[], env_allow=[]], [name="alice-passkey", source="local", role="user", key=["webauthn", [credential_id=32 bytes of 0x11, cose_key=h\'a5010203262001215820\', rp_id="crh.example.com", origins=["https://crh.example.com"]]], kinds=["execute"], require_spec=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=["DEBIAN_FRONTEND"]], [name="local-admins", source="local", role="local", key=["local", [uids=[0, 1000]]], kinds=[], require_spec=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]], local_window=["open", [opened_at_ms=1700000001000, opened_by_uid=1000, until_ms=1700001800000]]]',
 		{ kind: "event", name: "trust.summary", body: { kind: "ok", summary: TRUST_SUMMARY } },
 	);
 	// Negative cases.

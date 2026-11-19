@@ -34,6 +34,9 @@ import {
 
 export const TELEGRAM_PLATFORM = "telegram";
 
+/** A file download moves more bytes than an API call, so it is bounded more loosely. */
+const DOWNLOAD_TIMEOUT_MS = 120_000;
+
 export interface TelegramChannelOptions {
 	channelId: string;
 	token: string;
@@ -43,6 +46,8 @@ export interface TelegramChannelOptions {
 	fetch?: typeof fetch;
 	/** Long-poll seconds; tests shorten it. */
 	pollTimeoutSeconds?: number;
+	/** A file download's timeout; tests shorten it. */
+	downloadTimeoutMs?: number;
 	/** The last handled update id, restored from the database. */
 	initialCursor: number;
 	/** Persists a handled update id. */
@@ -121,6 +126,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 	readonly #apiRoot: string;
 	readonly #fetchImpl: typeof fetch;
 	readonly #pollTimeoutSeconds: number;
+	readonly #downloadTimeoutMs: number;
 	readonly #onCursor: (updateId: number) => Promise<void>;
 	#handlers: ChannelHandlers | undefined;
 	#offset: number;
@@ -133,6 +139,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 		this.#apiRoot = options.apiRoot ?? "https://api.telegram.org";
 		this.#fetchImpl = options.fetch ?? fetch;
 		this.#pollTimeoutSeconds = options.pollTimeoutSeconds ?? 30;
+		this.#downloadTimeoutMs = options.downloadTimeoutMs ?? DOWNLOAD_TIMEOUT_MS;
 		this.#onCursor = options.onCursor;
 		this.#offset = options.initialCursor + 1;
 		this.#api = new Api(options.token, {
@@ -395,7 +402,12 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 		const info = await this.#api.getFile(file.fileId);
 		if (!info.file_path) throw new Error("Telegram did not give the file's path");
 		const url = `${this.#apiRoot}/file/bot${this.#token}/${info.file_path}`;
-		const response = await this.#fetchImpl(url);
+		const response = await this.#fetchImpl(url, { signal: this.timeoutSignal(this.#downloadTimeoutMs) }).catch(
+			(err: unknown) => {
+				// A timeout or a refused connection: the URL carries the token, so the text is redacted.
+				throw new Error(this.redact(`Telegram file download failed: ${errorText(err)}`));
+			},
+		);
 		if (!response.ok) throw new Error(`Telegram file download failed with ${response.status}`);
 		const bytes = await readResponseBytes(response, options.maxBytes);
 		const fromPath = info.file_path.slice(info.file_path.lastIndexOf("/") + 1);

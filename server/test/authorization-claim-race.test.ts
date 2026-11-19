@@ -206,7 +206,7 @@ describe("submitAuthorization claims from a stale row", () => {
 		role,
 		key: { kind: "sshsig", publicKey: `ssh-ed25519 AAAA${name}`, fingerprint: `SHA256:${name}` },
 		kinds: ["execute"],
-		requireExact: false,
+		requireSpec: false,
 		requireTask: false,
 		requireUv: false,
 		maxTtlMs: null,
@@ -238,10 +238,7 @@ describe("submitAuthorization claims from a stale row", () => {
 
 	const taskRow = (id: string) => db.selectFrom("tasks").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
 
-	const _command = () => ({
-		method: "exec" as const,
-		exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) },
-	});
+	const _command = () => ({ specSha256: specSha256(EXEC) });
 
 	/** Creates a two-member privileged group and waits until both members wait for a signature. */
 	const createWaitingGroup = async (

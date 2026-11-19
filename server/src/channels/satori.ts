@@ -34,15 +34,36 @@ import { splitMarkdown } from "./telegram-format.ts";
  * private messages are handled. A gateway in front of Telegram still reports `telegram` as the platform.
  */
 
-/** True when `url` is an http(s) URL on the same origin as the gateway base URL. */
-function sameOrigin(url: string, base: string): boolean {
+/**
+ * True when `url` is a file the gateway serves itself and may be fetched directly with the token: an http(s) URL on
+ * the gateway's own origin (Koishi's Telegram adapter serves files from `<selfUrl>/telegram/...` without listing them
+ * as proxy roots), but not under the gateway's `/v1/` API other than `/v1/proxy/`. The token authorizes that API,
+ * admin routes included, so a message must never pick one of its paths.
+ */
+function gatewayFileUrl(url: string, base: string): boolean {
 	try {
 		const target = new URL(url);
-		return (target.protocol === "http:" || target.protocol === "https:") && target.origin === new URL(base).origin;
+		const gateway = new URL(base);
+		if (!(target.protocol === "http:" || target.protocol === "https:") || target.origin !== gateway.origin) {
+			return false;
+		}
+		// The URL parser already resolved `..` and percent-encoded dots. Repeated slashes are collapsed and an
+		// encoded slash or backslash is refused outright, since a server may read either as a separator.
+		const path = target.pathname.toLowerCase();
+		if (/%2f|%5c/.test(path)) return false;
+		const collapsed = path.replace(/\/{2,}/g, "/");
+		const proxy = `${gateway.pathname.replace(/\/+$/, "")}/v1/proxy/`.toLowerCase();
+		// Any `/v1/` segment counts, not only the base's: behind a path prefix the same origin may route it too.
+		return collapsed.startsWith(proxy) || !collapsed.includes("/v1/");
 	} catch {
 		return false;
 	}
 }
+
+/** API calls give up after this long: a gateway that never answers must not hold the channel. */
+const CALL_TIMEOUT_MS = 30_000;
+/** A file download moves more bytes, so it is bounded more loosely. */
+const DOWNLOAD_TIMEOUT_MS = 120_000;
 
 /** What the gateway accepts in one `message.create`; longer text is split first. */
 export const SATORI_TEXT_LIMIT = 4000;
@@ -89,6 +110,10 @@ export interface SatoriChannelOptions {
 	initialCursor: number;
 	/** Persists a handled sn. */
 	onCursor: (sn: number) => Promise<void>;
+	/** An API call's timeout; tests shorten it. */
+	callTimeoutMs?: number;
+	/** A file download's timeout; tests shorten it. */
+	downloadTimeoutMs?: number;
 	connection?: ChannelConnectionOptions;
 }
 
@@ -196,6 +221,8 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 	readonly #token: string;
 	readonly #botId: string;
 	readonly #fetchImpl: typeof fetch;
+	readonly #callTimeoutMs: number;
+	readonly #downloadTimeoutMs: number;
 	readonly #onCursor: (sn: number) => Promise<void>;
 	#handlers: ChannelHandlers | undefined;
 	#sn: number;
@@ -211,6 +238,8 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 		this.platform = `satori:${options.platform}`;
 		this.#botId = options.botId;
 		this.#fetchImpl = options.fetch ?? fetch;
+		this.#callTimeoutMs = options.callTimeoutMs ?? CALL_TIMEOUT_MS;
+		this.#downloadTimeoutMs = options.downloadTimeoutMs ?? DOWNLOAD_TIMEOUT_MS;
 		this.#onCursor = options.onCursor;
 		this.#sn = options.initialCursor;
 	}
@@ -434,6 +463,10 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 			method: "POST",
 			headers: this.#headers(true),
 			body: JSON.stringify(body),
+			signal: this.timeoutSignal(this.#callTimeoutMs),
+		}).catch((err: unknown) => {
+			// A timeout or a refused connection: the URL carries the token, so the text is redacted.
+			throw new Error(this.redact(`satori ${resource}.${method} failed: ${errorText(err)}`));
 		});
 		const text = await response.text();
 		if (!response.ok) {
@@ -495,9 +528,9 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 
 	/**
 	 * Reads an inbound file without letting a message make crhs fetch an arbitrary address: a `data:` URL is
-	 * decoded in place, an http(s) URL on the gateway's own origin is fetched directly (Koishi's Telegram adapter
-	 * serves files from `<selfUrl>/telegram/...` without listing them as proxy roots), and anything else goes
-	 * through the gateway's proxy, which checks it against its proxy roots.
+	 * decoded in place, a file the gateway serves on its own origin is fetched directly (gatewayFileUrl), and anything
+	 * else goes through the gateway's proxy, which checks it against its proxy roots. A path under the gateway's `/v1/`
+	 * API, such as `/v1/admin/...`, is never fetched directly with the token; it goes through the proxy as well.
 	 */
 	async downloadFile(
 		file: InboundFile,
@@ -515,8 +548,11 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 			const name = file.name ?? "file";
 			return { bytes, name, mediaType: mediaTypeOf(name, file.mediaType, match[1] || null) };
 		}
-		const response = await this.#fetchImpl(sameOrigin(src, this.#base) ? src : `${this.#base}/v1/proxy/${src}`, {
+		const response = await this.#fetchImpl(gatewayFileUrl(src, this.#base) ? src : `${this.#base}/v1/proxy/${src}`, {
 			headers: this.#headers(false),
+			signal: this.timeoutSignal(this.#downloadTimeoutMs),
+		}).catch((err: unknown) => {
+			throw new Error(this.redact(`satori file download failed: ${errorText(err)}`));
 		});
 		if (!response.ok) {
 			const detail = await response.text().catch(() => "");
@@ -524,7 +560,10 @@ export class SatoriChannel extends ChannelConnection implements ChannelAdapter {
 				this.redact(`satori file download failed with ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`),
 			);
 		}
-		const bytes = await readResponseBytes(response, options.maxBytes);
+		const bytes = await readResponseBytes(response, options.maxBytes).catch((err: unknown) => {
+			if (err instanceof FileTooLargeError) throw err;
+			throw new Error(this.redact(`satori file download failed: ${errorText(err)}`));
+		});
 		const name = file.name ?? fileNameOf(src) ?? "file";
 		return {
 			bytes,

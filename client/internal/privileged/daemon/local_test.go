@@ -237,7 +237,7 @@ func TestTaskThroughWindow(t *testing.T) {
 	ctx := requestContext(t)
 
 	ts := execTask("window-1", 1, "/bin/echo", "via-window")
-	payload := payloadFor(ts.TaskID, 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor(ts.TaskID, 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 
 	// With the window closed, the crhs entry's deny rule refuses the task.
@@ -289,14 +289,14 @@ func TestWindowDoesNotBypassCommandLimit(t *testing.T) {
 		t.Fatalf("window.open: %v", err)
 	}
 	ts := execTask("window-2", 1, "/bin/echo", "other")
-	// The payload pins another command, so its exact command limit still refuses this task.
+	// The payload pins another command, so its spec command limit still refuses this task.
 	other := execTask("window-2", 1, "/bin/echo", "signed")
-	payload := payloadFor(ts.TaskID, 1, exactCommand(t, &other.Spec), nil)
+	payload := payloadFor(ts.TaskID, 1, specCommand(t, &other.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	err := forward.start(ctx, ts)
 	var remote *protocol.RemoteError
 	if !errors.As(err, &remote) || remote.Code != string(authz.ResultRejected) || !strings.Contains(remote.Message, "step 6") {
-		t.Fatalf("task.start with a mismatched exact command = %v, want a step 6 rejection", err)
+		t.Fatalf("task.start with a mismatched spec command = %v, want a step 6 rejection", err)
 	}
 }
 

@@ -27,7 +27,6 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
-	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/daemon"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/localclient"
@@ -218,13 +217,9 @@ func (e *privEnv) crhsOnlyConfig() string {
 
 // ------------------------------- authorizations -------------------------------
 
-// exactPayload builds a one-shot payload for the complete spec of a task.
-func exactPayload(t *testing.T, signer ssh.Signer, taskID string, spec *protocol.TaskSpec) *protocol.AuthorizationPayload {
+// specPayload builds a one-shot payload for the complete spec of a task.
+func specPayload(t *testing.T, signer ssh.Signer, taskID string, spec *protocol.TaskSpec) *protocol.AuthorizationPayload {
 	t.Helper()
-	method, target, err := authz.Target(spec)
-	if err != nil {
-		t.Fatalf("target: %v", err)
-	}
 	hash, err := protocol.SpecSHA256(spec)
 	if err != nil {
 		t.Fatal(err)
@@ -233,12 +228,9 @@ func exactPayload(t *testing.T, signer ssh.Signer, taskID string, spec *protocol
 	attempt := protocol.Uint(1)
 	deadline := protocol.Int(time.Now().Add(5 * time.Minute).UnixMilli())
 	return &protocol.AuthorizationPayload{
-		V:     protocol.AuthPayloadVersion,
-		Nodes: []string{"0192f000-0000-7000-8000-000000000001"},
-		Command: &protocol.AuthCommand{Method: protocol.Method(method), Match: protocol.AuthMatch{
-			Kind:  protocol.AuthMatchExact,
-			Exact: &protocol.AuthExact{Target: target, SpecSHA256: protocol.Hash(hash)},
-		}},
+		V:          protocol.AuthPayloadVersion,
+		Nodes:      []string{"0192f000-0000-7000-8000-000000000001"},
+		Command:    protocol.SpecCommand(hash),
 		IssuedAtMS: protocol.Int(time.Now().Add(-time.Minute).UnixMilli()),
 		DeadlineMS: &deadline,
 		TaskIDs:    &ids,
@@ -595,9 +587,9 @@ func TestForwardDaemonVersionMismatch(t *testing.T) {
 	}
 }
 
-// TestForwardExactExec runs a crhs-signed exact exec task through the privileged mode: the accepted
+// TestForwardSpecExec runs a crhs-signed spec exec task through the privileged mode: the accepted
 // response precedes the output, and the output and the outcome reach crhs.
-func TestForwardExactExec(t *testing.T) {
+func TestForwardSpecExec(t *testing.T) {
 	keys := newPrivKeys(t)
 	env := newPrivEnv(t, keys, func(e *privEnv) string { return e.crhsOnlyConfig() })
 	env.start()
@@ -608,7 +600,7 @@ func TestForwardExactExec(t *testing.T) {
 	replies := make(chan error, 1)
 	serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
 		ts := forwardedExecTask("fwd-exec", "/bin/sh", "-c", "printf out; printf oops >&2; exit 3")
-		ts.Authorizations = [][]byte{authorize(t, keys.crhs, exactPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
+		ts.Authorizations = [][]byte{authorize(t, keys.crhs, specPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
 		replies <- requestStart(ctx, p, ts)
 		return nil
 	})
@@ -665,7 +657,7 @@ func TestForwardFileWrite(t *testing.T) {
 		}},
 		Output: protocol.OutputMode{Kind: protocol.OutputText},
 	}
-	ts.Authorizations = [][]byte{authorize(t, keys.crhs, exactPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
+	ts.Authorizations = [][]byte{authorize(t, keys.crhs, specPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
 
 	w := newCRHSWatch()
 	replies := make(chan error, 1)
@@ -720,12 +712,12 @@ func TestForwardAuthorizationOnlyUserSigned(t *testing.T) {
 	serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
 		// A crhs signature matches no trust entry: the authorization is invalid.
 		denied := forwardedExecTask("fwd-denied", "/bin/true")
-		denied.Authorizations = [][]byte{authorize(t, keys.crhs, exactPayload(t, keys.crhs, denied.TaskID, &denied.Spec))}
+		denied.Authorizations = [][]byte{authorize(t, keys.crhs, specPayload(t, keys.crhs, denied.TaskID, &denied.Spec))}
 		replies <- requestStart(ctx, p, denied)
 
 		// The owner's user key may execute.
 		allowed := forwardedExecTask("fwd-allowed", "/bin/echo", "owner approved")
-		allowed.Authorizations = [][]byte{authorize(t, keys.user, exactPayload(t, keys.user, allowed.TaskID, &allowed.Spec))}
+		allowed.Authorizations = [][]byte{authorize(t, keys.user, specPayload(t, keys.user, allowed.TaskID, &allowed.Spec))}
 		replies <- requestStart(ctx, p, allowed)
 		return nil
 	})
@@ -758,7 +750,7 @@ func TestForwardAuthorizationLacksExecute(t *testing.T) {
 	replies := make(chan error, 1)
 	serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
 		ts := forwardedExecTask("fwd-cosign", "/bin/true")
-		ts.Authorizations = [][]byte{authorize(t, keys.crhs, exactPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
+		ts.Authorizations = [][]byte{authorize(t, keys.crhs, specPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
 		replies <- requestStart(ctx, p, ts)
 		return nil
 	})
@@ -885,7 +877,7 @@ func TestForwardHelperLost(t *testing.T) {
 	accepted := make(chan error, 1)
 	serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
 		ts := forwardedExecTask("fwd-lost", "/bin/sh", "-c", "sleep 30")
-		ts.Authorizations = [][]byte{authorize(t, keys.crhs, exactPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
+		ts.Authorizations = [][]byte{authorize(t, keys.crhs, specPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
 		accepted <- requestStart(ctx, p, ts)
 		return nil
 	})
@@ -920,7 +912,7 @@ func TestForwardCancelAndQuery(t *testing.T) {
 	queried := make(chan protocol.TaskStatus, 1)
 	serveForward(t, a, w, func(ctx context.Context, p *protocol.Peer) error {
 		ts := forwardedExecTask("fwd-cancel", "/bin/sh", "-c", "sleep 30")
-		ts.Authorizations = [][]byte{authorize(t, keys.crhs, exactPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
+		ts.Authorizations = [][]byte{authorize(t, keys.crhs, specPayload(t, keys.crhs, ts.TaskID, &ts.Spec))}
 		if err := requestStart(ctx, p, ts); err != nil {
 			replies <- err
 			return nil

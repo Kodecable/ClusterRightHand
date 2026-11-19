@@ -318,9 +318,17 @@ export function SignaturePanel({
 							{sign !== undefined && (
 								<TabsContent value="grant" className="grid min-w-0 gap-2 pt-1">
 									<CommandLine
-										text={grantCommand(sign.payload.payload, sign.fingerprints ?? [])}
+										text={grantCommand(
+											sign.payload.payload,
+											sign.payload.decoded.command?.match === "spec" ? sign.payload.spec : undefined,
+											sign.fingerprints ?? [],
+										)}
 										label={t`Copy command`}
 									/>
+									<p className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+										<Trans>Or copy the spec to bind it with</Trans> <code className="font-mono">crhu grant --spec</code>
+										<CopyButton text={sign.payload.spec} label={t`Copy spec`} showLabel />
+									</p>
 									<PasteBox value={pasted} disabled={disabled} onChange={setPasted} />
 									{submitButton}
 								</TabsContent>

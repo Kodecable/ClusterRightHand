@@ -448,7 +448,7 @@ function parseTask(body: Record<string, unknown>): { spec: TaskSpec; input?: Uin
 					path: str(body, "path"),
 					content: EMPTY_INPUT_REF,
 					overwrite: body.overwrite === true,
-					mode: optionalInt(body, "mode") ?? 0,
+					mode: fileMode(body),
 					owner: optionalString(body, "owner") ?? "",
 					group: optionalString(body, "group") ?? "",
 					createParentDirs: optionalBool(body, "createParentDirs") === true,
@@ -492,6 +492,17 @@ function optionalString(body: Record<string, unknown>, key: string): string | un
 	if (value === undefined) return undefined;
 	if (typeof value !== "string") throw new UserError(`${key} must be a string`);
 	return value;
+}
+
+/** A requested mode: at most the nine permission bits (doc/design/execution.md "File tasks"). */
+function fileMode(body: Record<string, unknown>): number {
+	const mode = optionalInt(body, "mode") ?? 0;
+	if (mode > 0o777) {
+		throw new UserError(
+			"mode must be at most 0777: setuid, setgid and sticky need an exec chmod under a spec authorization",
+		);
+	}
+	return mode;
 }
 
 function optionalInt(body: Record<string, unknown>, key: string): number | undefined {

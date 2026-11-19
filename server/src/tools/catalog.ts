@@ -439,7 +439,13 @@ function modeBits(mode: unknown): number {
 			"invalid_argument",
 		);
 	}
-	return Number.parseInt(mode, 8);
+	const bits = Number.parseInt(mode, 8);
+	// Setuid, setgid and sticky are not permission bits a file task may set; an exec chmod under a
+	// spec authorization is the only way (doc/design/execution.md "File tasks").
+	if (bits > 0o777) {
+		throw new UserError("mode must be at most 0777", "invalid_argument");
+	}
+	return bits;
 }
 
 const writeFile = define({

@@ -39,12 +39,12 @@ const (
 // caller's verifier: a signature is already mapped to an Entry (or to nil) when it reaches
 // Decide.
 type Entry struct {
-	Name         string
-	Role         protocol.TrustRole
-	Kinds        []protocol.TrustKind
-	RequireExact bool
-	RequireTask  bool
-	RequireUV    bool
+	Name        string
+	Role        protocol.TrustRole
+	Kinds       []protocol.TrustKind
+	RequireSpec bool
+	RequireTask bool
+	RequireUV   bool
 	// MaxTTL is the max_ttl field; nil means no limit.
 	MaxTTL *time.Duration
 	Allow  []protocol.GuardRule
@@ -235,7 +235,7 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 	method, target string, specHash [32]byte) (Decision, bool) {
 	entry := signature.Entry
 	payload := auth.Decoded
-	// An open local window waives the crhs entry's own limits (max_ttl, require_exact) and
+	// An open local window waives the crhs entry's own limits (max_ttl, require_spec) and
 	// step 7 entirely; the signed command limit of step 6 still applies.
 	viaWindow := in.windowApplies(entry)
 
@@ -264,9 +264,9 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 				return failure(ResultExpired, StepAuthorization, "authorization ttl exceeds max_ttl"), false
 			}
 		}
-		if entry.RequireExact {
-			if payload.Command == nil || payload.Command.Match.Kind != protocol.AuthMatchExact {
-				return failure(ResultRejected, StepAuthorization, "trust entry requires an exact command"), false
+		if entry.RequireSpec {
+			if payload.Command == nil || payload.Command.Kind != protocol.AuthCommandSpec {
+				return failure(ResultRejected, StepAuthorization, "trust entry requires a spec command"), false
 			}
 		}
 	}
@@ -354,7 +354,7 @@ func cosignRequired(entry *Entry) bool {
 }
 
 // hasCosign reports whether the payload carries a valid crhs signature with the cosign
-// kind. The cosign entry's own require_exact, max_ttl and allow/deny rules do not apply.
+// kind. The cosign entry's own require_spec, max_ttl and allow/deny rules do not apply.
 func hasCosign(auth *Authorization) bool {
 	for i := range auth.Signatures {
 		signature := &auth.Signatures[i]
@@ -410,20 +410,17 @@ func commandCovers(command *protocol.AuthCommand, method, target string, specHas
 	if command == nil {
 		return true
 	}
-	switch command.Match.Kind {
-	case protocol.AuthMatchExact:
-		if command.Match.Exact == nil {
+	switch command.Kind {
+	case protocol.AuthCommandSpec:
+		// The hash covers the whole spec, environment and content included, so method and target
+		// need no separate check: a different method renders a different spec.
+		return command.Spec != nil && *command.Spec == protocol.Hash(specHash)
+	case protocol.AuthCommandPrefix:
+		if command.Prefix == nil {
 			return false
 		}
-		return string(command.Method) == method &&
-			command.Match.Exact.Target == target &&
-			command.Match.Exact.SpecSHA256 == specHash
-	case protocol.AuthMatchPrefix:
-		if command.Match.Prefix == nil {
-			return false
-		}
-		return methodCovers(string(command.Method), method) &&
-			strings.HasPrefix(target, command.Match.Prefix.Target)
+		return methodCovers(string(command.Prefix.Method), method) &&
+			strings.HasPrefix(target, command.Prefix.Target)
 	default:
 		return false
 	}

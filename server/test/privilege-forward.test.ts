@@ -167,7 +167,7 @@ describe("privileged forward dispatch", () => {
 		role,
 		key: { kind: "sshsig", publicKey: `ssh-ed25519 AAAA${name} ${name}`, fingerprint: `SHA256:${name}` },
 		kinds: ["execute"],
-		requireExact: false,
+		requireSpec: false,
 		requireTask: false,
 		requireUv: false,
 		maxTtlMs: null,
@@ -182,7 +182,7 @@ describe("privileged forward dispatch", () => {
 		sshEntry(name, "crhs", {
 			key: { kind: "sshsig", publicKey: key.authorizedKey, fingerprint: key.fingerprint },
 			kinds: ["execute", "cosign"],
-			requireExact: true,
+			requireSpec: true,
 			maxTtlMs: 5 * 60 * 1000,
 			allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
 			...overrides,
@@ -428,12 +428,9 @@ describe("privileged forward dispatch", () => {
 				keyType: "ssh-ed25519",
 			});
 			const payload = decodeAuthorizationPayload(authorization.payload);
-			expect(payload).toMatchObject({
-				nodes: [node.id],
-				taskIds: [created.id],
-				attempt: 1,
-				command: { method: "exec" },
-			});
+			expect(payload).toMatchObject({ nodes: [node.id], taskIds: [created.id], attempt: 1 });
+			if (payload.command?.kind !== "spec") throw new Error("expected a spec command");
+			expect(Buffer.from(payload.command.value).toString("hex")).toBe(Buffer.from(specSha256(EXEC)).toString("hex"));
 
 			// The real decision port accepts it for the summary the node reported.
 			const decision = decide({
@@ -1124,10 +1121,7 @@ describe("privileged forward dispatch", () => {
 
 			const authorization = buildAuthorization({
 				nodes: [node.id],
-				command: {
-					method: "exec",
-					exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) },
-				},
+				command: { specSha256: specSha256(EXEC) },
 				issuedAtMs: Date.now(),
 				deadlineMs: Date.now() + 60_000,
 				taskIds: [id],

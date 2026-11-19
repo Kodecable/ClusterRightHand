@@ -136,13 +136,18 @@ protecting anything. A grant on a node group follows the group's current members
 
 Every user and every user group has a library. A personal library is reachable only by its user, a
 user group library by the user group's members, and administrators reach every library without access
-checks. An agent session reaches its owner's libraries ([Libraries](library.md#libraries)).
+checks. An agent session's library tools reach its owner's libraries; an administrator's agent reaches
+the others through `api_request` ([Libraries](library.md#libraries)).
 
 Sessions can be shared with users and user groups at two levels: `view` (read the session) and `chat`
 (also send messages and stop runs). Nodes are not shared; they are granted.
 
 - A shared session still acts as its owner, with the owner's node access and the session's own rules.
   The audit log records both the owner and the user who sent the message.
+- This includes the owner's role: `api_request` runs as the owner, so a `chat` share on an
+  administrator's session lets members ask its agent for administrative requests, decided by the
+  session's rules. Sharing an administrator's session at `chat` level is a delegation of that authority;
+  share a session with tighter rules, or at `view` level, when that is not meant.
 - Only the owner can share a session or change its configuration. A session cannot be shared with its
   owner or with the caller, so an administrator cannot turn read-only access into chat access.
 - A share on a root session covers its subagents. Revoking a share closes event streams that it

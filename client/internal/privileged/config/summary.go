@@ -14,18 +14,18 @@ import (
 // Entry returns the trust entry in the form the authorization decision uses.
 func (t *Trust) Entry() authz.Entry {
 	return authz.Entry{
-		Name:         t.Name,
-		Role:         t.Role,
-		Kinds:        t.Kinds,
-		RequireExact: t.RequireExact,
-		RequireTask:  t.RequireTask,
-		RequireUV:    t.RequireUV,
-		MaxTTL:       t.MaxTTL,
-		Allow:        t.Allow,
-		Deny:         t.Deny,
-		Guard:        t.guard,
-		EnvAllow:     t.EnvAllow,
-		UIDs:         t.UIDs,
+		Name:        t.Name,
+		Role:        t.Role,
+		Kinds:       t.Kinds,
+		RequireSpec: t.RequireSpec,
+		RequireTask: t.RequireTask,
+		RequireUV:   t.RequireUV,
+		MaxTTL:      t.MaxTTL,
+		Allow:       t.Allow,
+		Deny:        t.Deny,
+		Guard:       t.guard,
+		EnvAllow:    t.EnvAllow,
+		UIDs:        t.UIDs,
 	}
 }
 
@@ -67,18 +67,18 @@ func (t *Trust) Summary() protocol.TrustEntry {
 		maxTTL = &ms
 	}
 	return protocol.TrustEntry{
-		Name:         t.Name,
-		Source:       protocol.TrustSourceLocal,
-		Role:         t.Role,
-		Key:          t.summaryKey(),
-		Kinds:        append([]protocol.TrustKind{}, t.Kinds...),
-		RequireExact: t.RequireExact,
-		RequireTask:  t.RequireTask,
-		RequireUV:    t.RequireUV,
-		MaxTTLMS:     maxTTL,
-		Allow:        append([]protocol.GuardRule{}, t.Allow...),
-		Deny:         append([]protocol.GuardRule{}, t.Deny...),
-		EnvAllow:     append([]string{}, t.EnvAllow...),
+		Name:        t.Name,
+		Source:      protocol.TrustSourceLocal,
+		Role:        t.Role,
+		Key:         t.summaryKey(),
+		Kinds:       append([]protocol.TrustKind{}, t.Kinds...),
+		RequireSpec: t.RequireSpec,
+		RequireTask: t.RequireTask,
+		RequireUV:   t.RequireUV,
+		MaxTTLMS:    maxTTL,
+		Allow:       append([]protocol.GuardRule{}, t.Allow...),
+		Deny:        append([]protocol.GuardRule{}, t.Deny...),
+		EnvAllow:    append([]string{}, t.EnvAllow...),
 	}
 }
 

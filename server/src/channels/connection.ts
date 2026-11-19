@@ -74,6 +74,16 @@ export abstract class ChannelConnection {
 		return { ...this.#status };
 	}
 
+	/**
+	 * `timeoutMs` as an AbortSignal, combined with the running loop's stop signal when there is one. Covers
+	 * calls made outside `run`, such as an API call or a file download, without outliving the connection.
+	 */
+	protected timeoutSignal(timeoutMs: number): AbortSignal {
+		const timeout = AbortSignal.timeout(timeoutMs);
+		const stop = this.#abort?.signal;
+		return stop === undefined ? timeout : AbortSignal.any([timeout, stop]);
+	}
+
 	/** Marks a successful connection; `account` is the bot's label when the platform reported one. */
 	protected markConnected(account?: string | null): void {
 		this.#attempt = 0;

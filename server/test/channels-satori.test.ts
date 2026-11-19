@@ -286,24 +286,33 @@ describe("satori channels", () => {
 		await runtime.waitForIdle();
 	});
 
-	it("fetches a file on the gateway's own origin directly and decodes a data URL in place", async () => {
+	it("fetches a gateway-served file directly, proxies its API paths, and decodes a data URL in place", async () => {
 		const userId = "7110";
 		await link(userId);
 		await chatSession(userId);
+		// Koishi's Telegram adapter serves files on the gateway's own origin outside its proxy roots: fetched directly.
 		const own = `${fake.origin}/telegram/424242/photos/own.png`;
 		fake.addFile(own, { bytes: PNG_1PX, name: "own.png", mediaType: "image/png" });
+		// A path under the gateway's /v1/ API (admin routes included) is never fetched with the token: it is proxied.
+		const api = `${fake.origin}/v1/admin/photos/api.png`;
+		fake.addFile(api, { bytes: PNG_1PX, name: "api.png", mediaType: "image/png" });
 		const inline = `data:image/png;base64,${Buffer.from(PNG_1PX).toString("base64")}`;
-		faux.setResponses([fauxAssistantMessage("two photos")]);
+		faux.setResponses([fauxAssistantMessage("three photos")]);
 		fake.sendEvent({
 			channel: { id: userId, type: 1 },
 			user: { id: userId, name: "Tester", nick: "Tester" },
-			message: { id: "p-2", content: `<img src="${own}" title="own.png"/><img src="${inline}" title="inline.png"/>` },
+			message: {
+				id: "p-2",
+				content: `<img src="${own}" title="own.png"/><img src="${api}" title="api.png"/><img src="${inline}" title="inline.png"/>`,
+			},
 		});
-		await waitForContent("two photos");
-		expect(fake.directRequests).toContain("/telegram/424242/photos/own.png");
-		expect(fake.proxyRequests).toHaveLength(0);
+		await waitForContent("three photos");
+		const proxied = await fake.waitForProxy((path) => path === api);
+		expect(proxied.path).toBe(api);
+		expect(fake.directRequests).toEqual(["/telegram/424242/photos/own.png"]);
 		const files = await db.selectFrom("library_files").select("path").where("path", "like", "attachments/%").execute();
-		expect(files.map((file) => file.path).join(" ")).toContain("inline.png");
+		const paths = files.map((file) => file.path).join(" ");
+		for (const name of ["inline.png", "own.png", "api.png"]) expect(paths).toContain(name);
 		await runtime.waitForIdle();
 	});
 

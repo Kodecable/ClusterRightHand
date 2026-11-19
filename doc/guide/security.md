@@ -106,13 +106,13 @@ privileged task that needs an existing trusted signer, so crhs cannot add itself
 open, this restriction does not apply: crhs can change the trust configuration until the window closes.
 
 - Give each entry the narrowest scope that works: guard rules for the commands and paths it may
-  authorize, `require_exact` for fixed commands, a short `max_ttl`, and `require_task` for one-shot use.
+  authorize, `require_spec` for fixed commands, a short `max_ttl`, and `require_task` for one-shot use.
 - Deny crhs writes under `/etc/crha/`, so crhs cannot edit crha's configuration. An open local window
   waives this rule on purpose; open one only for a crhs that is meant to reconfigure the node.
 - Use `require-cosign` on a user entry when crhs's rules should also confirm every use of that user's
   signature.
 - Guard rules match the command or path only, not input or file content: allowing `bash` allows any
-  script. Use exact authorizations when the content matters.
+  script. Use a `spec` authorization when the content matters.
 - Keep `aliases` limited to the node groups the node actually belongs to. An extra alias lets the node
   accept authorizations meant for another group; the node page warns about it.
 
@@ -123,8 +123,8 @@ thing and ask you to sign another. A Passkey is therefore not stronger than an S
 **Local approval window.** A local administrator opens a time-limited window with
 `sudo crha approve --for 30m`. While it is open, crhs holds the privileged identity on that node and can
 run any privileged task there, including changing `privileged.toml`; the window closes on expiry,
-`crha lock`, or a privileged-mode restart. Use a user-signed exact authorization when one task needs to
-be approved.
+`crha lock`, or a privileged-mode restart. Use a user-signed `spec` authorization when one task needs
+to be approved.
 
 ## Clocks
 

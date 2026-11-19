@@ -1845,7 +1845,7 @@ export function trustedNode(nodeId: string): NodeTrust {
 					role: "crhs",
 					key: { kind: "sshsig", publicKey: "ssh-ed25519 AAAAcrhs crhs", fingerprint: "SHA256:crhs" },
 					kinds: ["execute", "cosign"],
-					requireExact: true,
+					requireSpec: true,
 					requireTask: false,
 					requireUv: false,
 					maxTtlMs: 300_000,

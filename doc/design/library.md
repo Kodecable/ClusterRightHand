@@ -34,9 +34,12 @@ The scope is deliberately narrow:
   owner while the person typing is someone else, a model can read it as itself, and a group could be
   named `me`.
 - An agent session acts as its owner, so it reaches the owner's library and the libraries of the owner's
-  groups. Users chatting in a shared session do not lend their own libraries. The administrator bypass
-  is for the WebUI and API only: an administrator's agent sessions and API tokens reach the same
-  libraries as a member's would.
+  groups. Users chatting in a shared session do not lend their own libraries. The agent's library tools
+  (`list_dir`, `stat`, `copy_file`, `view_image`) reach only those libraries, even for an administrator,
+  so a model working with files stays in its owner's scope. `api_request` runs as the owner
+  ([API requests](extensions.md#api-requests)), so an administrator's agent reaches every library through
+  the library routes, as it reaches every other administrative route; the session's rules decide those
+  requests like any other.
 
 ### Paths
 
@@ -122,7 +125,7 @@ audit and retention apply as they do to `file.read` and `file.write`.
 | `file.push` | crhs → node | `file.write` | Writes the received bytes to a path, atomically, like `file.write` |
 | `file.pull` | node → crhs | `file.read` | Sends a regular file's bytes to crhs |
 
-- `file.push` carries the size and SHA-256 of the content in its spec, so an `exact` authorization or an
+- `file.push` carries the size and SHA-256 of the content in its spec, so a `spec` authorization or an
   approval binds the content, as with `file.write`. It also takes `overwrite`, `mode`, `owner` and `group`
   with `file.write`'s meaning.
 - `file.pull` carries `max_bytes`, the most the destination accepts; the node refuses a larger file with
@@ -134,7 +137,7 @@ audit and retention apply as they do to `file.read` and `file.write`.
   their own transfer id and the same source location, while node-to-nodes members all read the one
   staging file. A transfer already streaming when crhs stops fails, like any interrupted transfer.
 - The transfer endpoint (which data connection crhs accepts) is routing, not something the node does, so
-  the spec hash an approval or `exact` authorization binds leaves the transfer id out.
+  the spec hash an approval or `spec` authorization binds leaves the transfer id out.
 - The approval view shows the path, size, SHA-256 and the library source, not the content.
 - Neither kind has a timeout; a stalled transfer fails through the data connection's idle timeout.
 - Privileged transfers in `forward` mode pass through the privileged mode over `crh-priv`, as file content

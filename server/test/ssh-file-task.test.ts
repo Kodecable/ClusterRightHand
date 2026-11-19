@@ -229,6 +229,25 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		expect(await modeOf("m")).toBe("600");
 	});
 
+	it("refuses a mode above 0777", async () => {
+		for (const mode of [0o1000, 0o4755, 0o2755, 0o1755]) {
+			expect(await code(write(p(`bad-${mode}`), "x", { mode }))).toBe("invalid_spec");
+		}
+		await noTemps();
+	});
+
+	it("clears setuid and setgid of a kept mode", async () => {
+		await put("suid", "old", "6755");
+		const out = of(await write(p("suid"), "new", { overwrite: true }), "file.write");
+		expect(out.created).toBe(false);
+		expect(await modeOf("suid")).toBe("755");
+
+		await put("suid-edit", "alpha\n", "4755");
+		await edit(p("suid-edit"), "alpha", "beta");
+		expect(await modeOf("suid-edit")).toBe("755");
+		await noTemps();
+	});
+
 	it("fails with exists unless overwrite", async () => {
 		await put("e", "old");
 		expect(await code(write(p("e"), "new"))).toBe("exists");

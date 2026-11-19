@@ -208,7 +208,7 @@ export interface TrustSpec {
 	origins?: string[];
 	uids?: number[];
 	kinds: ("execute" | "cosign" | "require-cosign")[];
-	requireExact?: boolean;
+	requireSpec?: boolean;
 	requireTask?: boolean;
 	requireUv?: boolean;
 	maxTtl?: string;
@@ -516,7 +516,7 @@ function trustEntryToml(entry: TrustSpec): string[] {
 	if (entry.origins) lines.push(`origins = [${entry.origins.map(tomlString).join(", ")}]`);
 	if (entry.uids) lines.push(`uids = [${entry.uids.join(", ")}]`);
 	lines.push(`kinds = [${entry.kinds.map(tomlString).join(", ")}]`);
-	if (entry.requireExact) lines.push("require_exact = true");
+	if (entry.requireSpec) lines.push("require_spec = true");
 	if (entry.requireTask !== undefined) lines.push(`require_task = ${entry.requireTask}`);
 	if (entry.requireUv) lines.push("require_uv = true");
 	field("max_ttl", entry.maxTtl);
@@ -571,9 +571,11 @@ export async function registerSshCredential(crhs: InProcessCrhs, crhuBin: string
 export interface PendingAuthorization {
 	id: string;
 	payload: string;
+	/** Base64 of the canonical spec the payload binds, for `crhu sign --spec`. */
+	spec: string;
 	decoded: {
 		nodes: string[];
-		command: { method: string; match: string; target: string; specSha256?: string } | null;
+		command: { match: string; method?: string; target?: string; specSha256?: string } | null;
 		taskIds: string[] | null;
 		attempt: number | null;
 		deadline: string | null;
@@ -601,9 +603,22 @@ export async function pendingAuthorization(crhs: InProcessCrhs, taskId: string):
 	return pendingSignOf(crhs, taskId);
 }
 
-/** Signs a pending payload on the host with the real CLI: `crhu sign --payload … --key … --yes`. */
-export async function signPayload(crhuBin: string, keyPath: string, payload: string): Promise<string> {
-	const res = await run(crhuBin, ["sign", "--payload", payload, "--key", keyPath, "--yes"]);
+/** Signs a pending payload on the host with the real CLI: `crhu sign --payload … --spec … --key … --yes`. */
+export async function signPayload(
+	crhuBin: string,
+	keyPath: string,
+	pending: { payload: string; spec: string },
+): Promise<string> {
+	const res = await run(crhuBin, [
+		"sign",
+		"--payload",
+		pending.payload,
+		"--spec",
+		pending.spec,
+		"--key",
+		keyPath,
+		"--yes",
+	]);
 	if (res.code !== 0) throw new Error(`crhu sign failed:\n${res.stdout}\n${res.stderr}`);
 	const line = res.stdout
 		.split("\n")
@@ -627,7 +642,7 @@ export async function authorizeWithCli(
 	taskId: string,
 ): Promise<{ id: string; authorization: string }> {
 	const pending = await pendingAuthorization(node.crhs, taskId);
-	const authorization = await signPayload(node.crhuBin, node.userKeyPath, pending.payload);
+	const authorization = await signPayload(node.crhuBin, node.userKeyPath, pending);
 	const res = await submitAuthorization(node.crhs, authorization);
 	if (res.status !== 200) throw new Error(`submit authorization: ${res.status} ${JSON.stringify(res.json)}`);
 	return { id: res.json.authorization?.id ?? pending.id, authorization };

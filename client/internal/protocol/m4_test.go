@@ -266,11 +266,14 @@ func TestM4UnionBranches(t *testing.T) {
 				LocalWindow: ClosedWindow(),
 			}})
 		}},
-		{"AuthMatch.exact", func(t *testing.T) {
-			checkRoundTrip(t, "", AuthMatch{Kind: AuthMatchExact, Exact: &AuthExact{Target: "t", SpecSHA256: Hash{1}}})
+		{"AuthCommand.spec", func(t *testing.T) {
+			checkRoundTrip(t, "", *SpecCommand([32]byte{1}))
 		}},
-		{"AuthMatch.prefix", func(t *testing.T) {
-			checkRoundTrip(t, "", AuthMatch{Kind: AuthMatchPrefix, Prefix: &AuthPrefix{Target: "t"}})
+		{"AuthCommand.prefix", func(t *testing.T) {
+			checkRoundTrip(t, "", AuthCommand{Kind: AuthCommandPrefix, Prefix: &AuthPrefix{
+				Method: MethodFileWrite,
+				Target: "t",
+			}})
 		}},
 	}
 	for _, test := range tests {

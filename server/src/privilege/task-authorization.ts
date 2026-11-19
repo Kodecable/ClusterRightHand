@@ -93,12 +93,13 @@ function parseEntries(value: unknown): SignEntry[] {
 	return entries;
 }
 
-/** The stored exact payload of a sign option; null when the option has none yet or it is damaged. */
+/** The stored payload of a sign option and the spec it binds; null when the option has none yet or it is damaged. */
 function parsePayload(value: unknown): SignPayload | null {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
 	const payload = value as Record<string, unknown>;
 	if (
 		typeof payload.payload !== "string" ||
+		typeof payload.spec !== "string" ||
 		typeof payload.id !== "string" ||
 		!Array.isArray(payload.taskIds) ||
 		typeof payload.attempt !== "number" ||
@@ -108,6 +109,7 @@ function parsePayload(value: unknown): SignPayload | null {
 	}
 	return {
 		payload: payload.payload,
+		spec: payload.spec,
 		id: payload.id,
 		deadline: payload.deadline,
 		taskIds: payload.taskIds.filter((id): id is string => typeof id === "string"),

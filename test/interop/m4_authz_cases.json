@@ -109,8 +109,8 @@
 	],
 	"cases": [
 		{
-			"id": "crhs.exact.accept",
-			"description": "crhs single-command authorization within its rules",
+			"id": "crhs.spec.accept",
+			"description": "crhs spec authorization within its rules",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -122,7 +122,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -167,7 +167,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -180,7 +180,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -207,8 +207,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -246,7 +244,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -291,7 +289,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -304,7 +302,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -350,7 +348,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -395,7 +393,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -408,7 +406,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -435,8 +433,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -474,7 +470,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -519,7 +515,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -532,7 +528,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -559,8 +555,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -598,7 +592,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -643,7 +637,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -656,7 +650,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -683,8 +677,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -727,7 +719,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -772,7 +764,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -785,7 +777,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -812,8 +804,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000002"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -851,7 +841,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -896,7 +886,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -909,7 +899,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -936,8 +926,6 @@
 				"payload": {
 					"nodes": ["group:web"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -975,7 +963,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -1020,7 +1008,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -1033,7 +1021,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -1060,8 +1048,6 @@
 				"payload": {
 					"nodes": ["*"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -1099,7 +1085,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -1144,7 +1130,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -1157,7 +1143,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -1184,8 +1170,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -1223,7 +1207,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -1268,7 +1252,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -1281,7 +1265,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -1308,8 +1292,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -1347,7 +1329,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -1392,7 +1374,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -1405,7 +1387,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -1432,8 +1414,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -1471,7 +1451,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -1516,7 +1496,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -1529,7 +1509,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -1556,8 +1536,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -1595,7 +1573,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -1640,7 +1618,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -1653,7 +1631,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -1680,8 +1658,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -1706,8 +1682,8 @@
 			}
 		},
 		{
-			"id": "crhs.require-exact",
-			"description": "crhs entry requires exact; payload is a prefix",
+			"id": "crhs.require-spec",
+			"description": "crhs entry requires a spec command; payload is a prefix",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -1719,7 +1695,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -1764,7 +1740,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -1777,7 +1753,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -1842,7 +1818,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -1887,7 +1863,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -1900,7 +1876,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -1927,8 +1903,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -1966,7 +1940,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -2011,7 +1985,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -2024,7 +1998,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -2051,8 +2025,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -2090,7 +2062,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -2135,7 +2107,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -2148,7 +2120,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -2175,8 +2147,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -2214,7 +2184,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -2259,7 +2229,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -2272,7 +2242,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -2299,8 +2269,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -2338,7 +2306,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -2383,7 +2351,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -2396,7 +2364,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -2423,8 +2391,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -2449,8 +2415,8 @@
 			}
 		},
 		{
-			"id": "crhs.exact-target-mismatch",
-			"description": "exact target differs from the task",
+			"id": "crhs.spec-mismatch",
+			"description": "env changed, so the spec hash differs",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -2462,7 +2428,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -2507,7 +2473,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -2520,131 +2486,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
-					"require_task": false,
-					"require_uv": false,
-					"max_ttl_ms": null,
-					"allow": [],
-					"deny": [],
-					"env_allow": [],
-					"uids": [0, 1000]
-				}
-			],
-			"task": {
-				"task_id": "0192f000-0000-7000-8000-000000000001",
-				"attempt": 1,
-				"spec": {
-					"kind": "exec",
-					"command": {
-						"argv": ["systemctl", "restart", "apache2"]
-					},
-					"env": {},
-					"cwd": "",
-					"stdin": null
-				}
-			},
-			"authorization": {
-				"payload": {
-					"nodes": ["0192f000-0000-7000-8000-000000000001"],
-					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
-						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
-					},
-					"issued_at_ms": 1793016000000,
-					"deadline_ms": 1793016300000,
-					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
-					"attempt": 1
-				},
-				"signatures": [
-					{
-						"entry": "crhs",
-						"valid": true,
-						"uv": false
-					}
-				]
-			},
-			"window": null,
-			"executed_task_ids": [],
-			"used_pairs": [],
-			"expect": {
-				"result": "authorization_rejected",
-				"step": 6
-			}
-		},
-		{
-			"id": "crhs.exact-spec-mismatch",
-			"description": "same target, but env changed so spec_sha256 differs",
-			"now_ms": 1793016000000,
-			"clock_skew_ms": 60000,
-			"node": {
-				"id": "0192f000-0000-7000-8000-000000000001",
-				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
-			},
-			"trust": [
-				{
-					"name": "crhs",
-					"role": "crhs",
-					"kinds": ["execute", "cosign"],
-					"require_exact": true,
-					"require_task": true,
-					"require_uv": false,
-					"max_ttl_ms": 300000,
-					"allow": [
-						{
-							"method": "exec",
-							"match": "prefix",
-							"pattern": "systemctl restart "
-						},
-						{
-							"method": "exec",
-							"match": "regex",
-							"pattern": "apt-get (update|upgrade -y)"
-						},
-						{
-							"method": "file.write",
-							"match": "prefix",
-							"pattern": "/etc/nginx/"
-						},
-						{
-							"method": "file.read",
-							"match": "any",
-							"pattern": ""
-						}
-					],
-					"deny": [
-						{
-							"method": "file.read",
-							"match": "regex",
-							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
-						},
-						{
-							"method": "file.write",
-							"match": "prefix",
-							"pattern": "/etc/crha/"
-						}
-					],
-					"env_allow": [],
-					"uids": []
-				},
-				{
-					"name": "alice",
-					"role": "user",
-					"kinds": ["execute"],
-					"require_exact": false,
-					"require_task": false,
-					"require_uv": false,
-					"max_ttl_ms": 86400000,
-					"allow": [],
-					"deny": [],
-					"env_allow": ["DEBIAN_FRONTEND"],
-					"uids": []
-				},
-				{
-					"name": "local-admins",
-					"role": "local",
-					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -2673,8 +2515,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -2712,7 +2552,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -2757,7 +2597,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -2770,7 +2610,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -2797,8 +2637,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "/bin/sh -c 'systemctl restart nginx; id'",
 						"spec_sha256": "c8d9cc1db79ad9240343e187d90d2708a53e898ccec9df5bbc684ad3ec8379ba"
 					},
 					"issued_at_ms": 1793016000000,
@@ -2836,7 +2674,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -2881,7 +2719,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -2894,7 +2732,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -2921,8 +2759,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "apt-get upgrade -y",
 						"spec_sha256": "8cf97def02246b7e3dd66497420fec2f8bd244d0d1cc244882a9f633abfe630d"
 					},
 					"issued_at_ms": 1793016000000,
@@ -2960,7 +2796,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -3005,7 +2841,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3018,7 +2854,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3045,8 +2881,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "apt-get update --fix-missing",
 						"spec_sha256": "0359f72d14906a176db7f4b83bf793c0a1a5c4562f80c1e8a26e3d9138c301b7"
 					},
 					"issued_at_ms": 1793016000000,
@@ -3084,7 +2918,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -3129,7 +2963,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3142,7 +2976,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3173,8 +3007,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "file.write",
-						"exact": "/etc/nginx/nginx.conf",
 						"spec_sha256": "80560dfd5f1a48de359462fb3689a1ad84b27275671d1bb1736f8dd287f010d6"
 					},
 					"issued_at_ms": 1793016000000,
@@ -3212,7 +3044,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -3257,7 +3089,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3270,7 +3102,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3301,8 +3133,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "file.write",
-						"exact": "/etc/crha/privileged.toml",
 						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
 					},
 					"issued_at_ms": 1793016000000,
@@ -3340,7 +3170,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -3385,7 +3215,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3398,7 +3228,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3422,8 +3252,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "file.read",
-						"exact": "/etc/shadow",
 						"spec_sha256": "6d761d1f3745191dbb559e2dc1f028682db78dd62d8db3ce24a3ea5e62cad634"
 					},
 					"issued_at_ms": 1793016000000,
@@ -3461,7 +3289,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -3506,7 +3334,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3519,7 +3347,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3548,8 +3376,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "c5a6ddce59913c4a61ddddbd492bd79d28b91ec290bf4c7fc967151bdef18eec"
 					},
 					"issued_at_ms": 1793016000000,
@@ -3587,7 +3413,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -3632,7 +3458,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3645,7 +3471,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3672,8 +3498,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -3711,7 +3535,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3724,7 +3548,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3751,8 +3575,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -3790,7 +3612,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -3835,7 +3657,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3848,7 +3670,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3870,8 +3692,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -3909,7 +3729,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -3954,7 +3774,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -3967,7 +3787,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -3989,8 +3809,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -4028,7 +3846,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -4073,7 +3891,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -4086,7 +3904,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -4113,8 +3931,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -4152,7 +3968,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -4197,7 +4013,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -4210,7 +4026,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -4272,7 +4088,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -4317,7 +4133,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -4330,7 +4146,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -4392,7 +4208,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -4437,7 +4253,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -4450,7 +4266,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -4511,7 +4327,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -4556,7 +4372,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -4569,7 +4385,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -4626,7 +4442,7 @@
 		},
 		{
 			"id": "user.any-command",
-			"description": "command null covers any task (no require_exact on the user entry)",
+			"description": "command null covers any task (no require_spec on the user entry)",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -4638,7 +4454,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -4683,7 +4499,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -4696,7 +4512,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -4755,7 +4571,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -4800,7 +4616,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -4813,7 +4629,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -4842,8 +4658,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "c5a6ddce59913c4a61ddddbd492bd79d28b91ec290bf4c7fc967151bdef18eec"
 					},
 					"issued_at_ms": 1793016000000,
@@ -4881,7 +4695,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -4926,7 +4740,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -4939,7 +4753,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -4966,8 +4780,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -5005,7 +4817,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -5050,7 +4862,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": true,
 					"max_ttl_ms": 86400000,
@@ -5063,7 +4875,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5090,8 +4902,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -5129,7 +4939,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -5174,7 +4984,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": true,
 					"max_ttl_ms": 86400000,
@@ -5187,7 +4997,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5214,8 +5024,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -5253,7 +5061,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -5298,7 +5106,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5311,7 +5119,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5338,8 +5146,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -5377,7 +5183,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -5422,7 +5228,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5435,7 +5241,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5462,8 +5268,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -5501,7 +5305,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -5546,7 +5350,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -5559,7 +5363,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5590,8 +5394,6 @@
 						"0192f000-0000-7000-8000-000000000003"
 					],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -5633,7 +5435,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -5678,7 +5480,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -5691,7 +5493,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5718,8 +5520,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000002", "0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -5757,7 +5557,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -5802,7 +5602,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -5815,7 +5615,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5842,8 +5642,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000002", "0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -5881,7 +5679,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -5926,7 +5724,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -5939,7 +5737,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -5966,8 +5764,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000002", "0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6005,7 +5801,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -6050,7 +5846,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6063,7 +5859,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -6090,8 +5886,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6129,7 +5923,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -6174,7 +5968,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6187,7 +5981,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -6214,8 +6008,6 @@
 				"payload": {
 					"nodes": ["group:web"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6253,7 +6045,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -6298,7 +6090,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6311,7 +6103,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -6338,8 +6130,6 @@
 				"payload": {
 					"nodes": ["*"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6377,7 +6167,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6396,7 +6186,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -6423,8 +6213,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "a",
 						"spec_sha256": "95251c769ab931ca5274adde9dbc16674214e2e02d8e097c88f156fa534d4851"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6462,7 +6250,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6481,7 +6269,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -6508,8 +6296,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6547,7 +6333,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -6592,7 +6378,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute", "require-cosign"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6605,7 +6391,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -6632,8 +6418,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6671,7 +6455,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -6716,7 +6500,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute", "require-cosign"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6729,7 +6513,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -6756,8 +6540,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6800,7 +6582,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -6845,7 +6627,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute", "require-cosign"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6858,7 +6640,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -6889,8 +6671,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "file.write",
-						"exact": "/etc/crha/privileged.toml",
 						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
 					},
 					"issued_at_ms": 1793016000000,
@@ -6933,7 +6713,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -6978,7 +6758,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute", "require-cosign"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -6991,7 +6771,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -7018,8 +6798,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -7062,7 +6840,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -7107,7 +6885,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute", "require-cosign"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -7120,7 +6898,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -7147,8 +6925,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -7191,7 +6967,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -7236,7 +7012,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -7249,7 +7025,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -7276,8 +7052,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -7319,7 +7093,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -7364,7 +7138,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -7377,7 +7151,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -7408,8 +7182,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "file.write",
-						"exact": "/etc/crha/privileged.toml",
 						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
 					},
 					"issued_at_ms": 1793016000000,
@@ -7451,7 +7223,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -7496,7 +7268,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -7509,7 +7281,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -7536,8 +7308,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -7566,8 +7336,8 @@
 			}
 		},
 		{
-			"id": "window.crhs.require-exact-ignored",
-			"description": "the open window ignores require_exact",
+			"id": "window.crhs.require-spec-ignored",
+			"description": "the open window ignores require_spec",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -7579,7 +7349,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -7624,7 +7394,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -7637,7 +7407,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -7706,7 +7476,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -7751,7 +7521,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -7764,7 +7534,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -7791,8 +7561,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -7834,7 +7602,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -7879,7 +7647,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -7892,7 +7660,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -7919,8 +7687,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793015400000,
@@ -7962,7 +7728,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -8007,7 +7773,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -8020,7 +7786,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -8047,8 +7813,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -8090,7 +7854,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -8135,7 +7899,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -8148,7 +7912,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -8175,8 +7939,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -8218,7 +7980,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -8263,7 +8025,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -8276,7 +8038,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -8305,8 +8067,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -8348,7 +8108,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -8393,7 +8153,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -8406,7 +8166,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -8433,8 +8193,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "exec",
-						"exact": "systemctl restart nginx",
 						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
 					},
 					"issued_at_ms": 1793016000000,
@@ -8476,7 +8234,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -8521,7 +8279,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -8534,7 +8292,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -8565,8 +8323,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "file.write",
-						"exact": "/etc/crha/privileged.toml",
 						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
 					},
 					"issued_at_ms": 1793016000000,
@@ -8604,7 +8360,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -8649,7 +8405,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -8662,7 +8418,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -8693,8 +8449,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "file.write",
-						"exact": "/etc/crha/privileged.toml",
 						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
 					},
 					"issued_at_ms": 1793016000000,
@@ -8736,7 +8490,7 @@
 					"name": "crhs",
 					"role": "crhs",
 					"kinds": ["execute", "cosign"],
-					"require_exact": true,
+					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
 					"max_ttl_ms": 300000,
@@ -8781,7 +8535,7 @@
 					"name": "alice",
 					"role": "user",
 					"kinds": ["execute"],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": 86400000,
@@ -8800,7 +8554,7 @@
 					"name": "local-admins",
 					"role": "local",
 					"kinds": [],
-					"require_exact": false,
+					"require_spec": false,
 					"require_task": false,
 					"require_uv": false,
 					"max_ttl_ms": null,
@@ -8831,8 +8585,6 @@
 				"payload": {
 					"nodes": ["0192f000-0000-7000-8000-000000000001"],
 					"command": {
-						"method": "file.write",
-						"exact": "/etc/crha/privileged.toml",
 						"spec_sha256": "003a083a707aa89a2160ee251cfbe17417707f242d67e9bba6007458e25f4503"
 					},
 					"issued_at_ms": 1793016000000,

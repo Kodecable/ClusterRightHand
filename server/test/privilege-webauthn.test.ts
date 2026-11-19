@@ -144,7 +144,7 @@ describe("Passkey authorization submission", () => {
 				origins: [authenticator.origin],
 			},
 			kinds: ["execute"],
-			requireExact: false,
+			requireSpec: false,
 			requireTask: false,
 			requireUv: true,
 			maxTtlMs: 24 * 3_600_000,

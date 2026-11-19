@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -401,9 +402,6 @@ func fileModeBits(t *testing.T, path string) string {
 	return fmt.Sprintf("%04o", st.Mode&0o7777)
 }
 
-// TestFileWriteSpecialModes covers the mode of a file.write: setuid, setgid and sticky are kept,
-// both when the request names them and when an existing file's mode is reused
-// (doc/design/privilege.md "Methods and targets").
 func TestPrivilegedFileWriteCreateParentDirs(t *testing.T) {
 	dir := privateDir(t)
 	p := filepath.Join(dir, "a", "b", "f")
@@ -485,6 +483,9 @@ func TestPrivilegedFileWriteCreateParentDirsRefusesSymlink(t *testing.T) {
 	}
 }
 
+// TestFileWriteSpecialModes covers the mode of a file.write: setuid, setgid and sticky are refused,
+// requested or kept, because a file task keeps only the nine permission bits
+// (doc/design/execution.md "File tasks").
 func TestFileWriteSpecialModes(t *testing.T) {
 	test := func(t *testing.T, run func(t *testing.T, spec *protocol.FileWriteSpec, input io.Reader) error) {
 		dir := privateDir(t)
@@ -501,26 +502,39 @@ func TestFileWriteSpecialModes(t *testing.T) {
 				path := filepath.Join(dir, "mode-"+tc.name)
 				spec := writeSpec(path, "content")
 				spec.Mode = protocol.Uint(tc.mode)
-				if err := run(t, spec, strings.NewReader("content")); err != nil {
-					t.Fatalf("write: %v", err)
+				if err := run(t, spec, strings.NewReader("content")); err == nil {
+					t.Fatalf("mode %04o was accepted", tc.mode)
+				} else {
+					wantCode(t, err, "invalid_spec")
 				}
-				if got := fileModeBits(t, path); got != fmt.Sprintf("%04o", tc.mode) {
-					t.Fatalf("mode = %s, want %04o", got, tc.mode)
-				}
-				noTemps(t, dir)
-
-				// Overwriting with mode 0 keeps the existing bits.
-				overwrite := writeSpec(path, "other")
-				overwrite.Overwrite = true
-				if err := run(t, overwrite, strings.NewReader("other")); err != nil {
-					t.Fatalf("overwrite: %v", err)
-				}
-				if got := fileModeBits(t, path); got != fmt.Sprintf("%04o", tc.mode) {
-					t.Fatalf("overwrite mode = %s, want the existing %04o", got, tc.mode)
+				if _, err := os.Lstat(path); !os.IsNotExist(err) {
+					t.Fatalf("mode %04o created the target", tc.mode)
 				}
 				noTemps(t, dir)
 			})
 		}
+
+		// Overwriting with mode 0 keeps an existing mode, masked to the permission bits.
+		path := filepath.Join(dir, "kept")
+		spec := writeSpec(path, "content")
+		if err := run(t, spec, strings.NewReader("content")); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if err := os.Chmod(path, 0o755|fs.ModeSetuid|fs.ModeSetgid|fs.ModeSticky); err != nil {
+			t.Fatal(err)
+		}
+		if fileModeBits(t, path) == "0755" {
+			t.Skip("the filesystem does not keep setuid, setgid or sticky")
+		}
+		overwrite := writeSpec(path, "other")
+		overwrite.Overwrite = true
+		if err := run(t, overwrite, strings.NewReader("other")); err != nil {
+			t.Fatalf("overwrite: %v", err)
+		}
+		if got := fileModeBits(t, path); got != "0755" {
+			t.Fatalf("overwrite mode = %s, want the masked 0755", got)
+		}
+		noTemps(t, dir)
 	}
 
 	t.Run("unprivileged", func(t *testing.T) {

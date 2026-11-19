@@ -14,11 +14,11 @@ import type { Method } from "../policy/rules.ts";
 import { isUuid } from "../util/names.ts";
 
 /**
- * The spec an `exact` authorization binds: a transfer's endpoint is crhs-side routing (which data
+ * The spec a `spec` authorization binds: a transfer's endpoint is crhs-side routing (which data
  * connection to accept), not part of what the node does, so it is left out of the hash. That lets one
  * approval or group authorization cover every member of a copy while each member has its own transfer id.
  */
-function authorizedSpec(spec: TaskSpec): TaskSpec {
+export function authorizedSpec(spec: TaskSpec): TaskSpec {
 	switch (spec.kind) {
 		case "file.push":
 			return { ...spec, endpoint: { ...spec.endpoint, transferId: "" } };
@@ -29,13 +29,14 @@ function authorizedSpec(spec: TaskSpec): TaskSpec {
 	}
 }
 
-/** SHA-256(CBOR(spec without the transfer endpoint)): what an `exact` authorization commits to. */
+/** CBOR of the canonical spec an authorization binds: what SpecSHA256 hashes. */
+export function specBytes(spec: TaskSpec): Uint8Array {
+	return Uint8Array.from(encodeCbor(taskSpecCodec.encode(authorizedSpec(spec))));
+}
+
+/** SHA-256(CBOR(spec without the transfer endpoint)): what a `spec` authorization commits to. */
 export function specSha256(spec: TaskSpec): Uint8Array {
-	return Uint8Array.from(
-		createHash("sha256")
-			.update(encodeCbor(taskSpecCodec.encode(authorizedSpec(spec))))
-			.digest(),
-	);
+	return Uint8Array.from(createHash("sha256").update(specBytes(spec)).digest());
 }
 
 /** SHA-256 of the payload bytes: the authorization id used for storage. */
@@ -58,10 +59,8 @@ export interface BuiltAuthorization {
 	id: string;
 }
 
-/** The command restriction of a payload: exact is bound to one spec, prefix only to a target prefix. */
-export type AuthorizationCommand =
-	| { method: Method; exact: { target: string; specSha256: Uint8Array } }
-	| { method: Method; prefix: string };
+/** The command restriction of a payload: a complete spec by hash, or a method and target prefix. */
+export type AuthorizationCommand = { specSha256: Uint8Array } | { method: Method; prefix: string };
 
 export interface BuildAuthorizationInput {
 	/** Node or node group UUIDs, or exactly `["*"]`. */
@@ -104,19 +103,13 @@ export function buildAuthorization(input: BuildAuthorizationInput): BuiltAuthori
 	const command: AuthorizationPayload["command"] =
 		input.command === null
 			? null
-			: "exact" in input.command
-				? {
-						// An authorization covers the task methods only; external MCP methods are never privileged.
-						method: input.command.method as "exec" | "file.read" | "file.write",
-						match: {
-							kind: "exact",
-							target: input.command.exact.target,
-							specSha256: input.command.exact.specSha256,
-						},
-					}
+			: "specSha256" in input.command
+				? { kind: "spec", value: input.command.specSha256 }
 				: {
+						// An authorization covers the task methods only; external MCP methods are never privileged.
+						kind: "prefix",
 						method: input.command.method as "exec" | "file.read" | "file.write",
-						match: { kind: "prefix", target: input.command.prefix },
+						target: input.command.prefix,
 					};
 	const payload: AuthorizationPayload = {
 		v: 1,

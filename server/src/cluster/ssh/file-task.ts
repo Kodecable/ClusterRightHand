@@ -29,15 +29,17 @@ import {
 
 export { FileTaskError };
 
-const S_ISUID = 0o4000;
-const S_ISGID = 0o2000;
+/** The largest requestable mode: the nine permission bits (doc/design/execution.md "File tasks"). */
+const MAX_FILE_MODE = 0o777;
 
-/**
- * The mode to fchmod after restoring ownership: setuid and setgid are cleared when the old owner
- * or group could not be restored, so the bits never grant another identity's rights.
- */
-export function modeAfterOwnerRestore(mode: number, ownerKept: boolean, groupKept: boolean): number {
-	return ownerKept && groupKept ? mode : mode & ~(S_ISUID | S_ISGID);
+/** Refuses a requested mode that asks for setuid, setgid or sticky. */
+function checkFileMode(mode: number): void {
+	if (mode > MAX_FILE_MODE) {
+		throw new FileTaskError(
+			"invalid_spec",
+			`mode ${mode.toString(8).padStart(4, "0")} asks for bits above 0777; use an exec chmod under a spec authorization`,
+		);
+	}
 }
 
 const DEFAULT_LIST_LIMIT = 500;
@@ -304,6 +306,7 @@ async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefin
 	if (s.owner !== "" || s.group !== "") {
 		throw new FileTaskError("invalid_spec", "owner/group are not supported on SSH nodes");
 	}
+	checkFileMode(s.mode);
 	const data = input ?? new Uint8Array(0);
 	const existing = await sftp.lstatOpt(path);
 	if (existing && (existing.mode & S_IFMT) === S_IFDIR) {
@@ -323,19 +326,16 @@ async function fileWrite(ctx: Ctx, s: FileWriteSpec, input: Uint8Array | undefin
 		await writeAll(ctx, tmp, data);
 		let mode = 0o644;
 		if (s.mode !== 0) {
-			mode = s.mode & 0o7777;
+			mode = s.mode;
 		} else if (existing) {
-			mode = existing.mode & 0o7777;
+			// A kept mode is the nine permission bits only, so a setuid destination loses the bit.
+			mode = existing.mode & 0o777;
 		}
-		let ownerKept = true;
 		if (existing) {
 			// Best effort: only root can usually do this.
-			ownerKept = await sftp.fchown(tmp.handle, existing.uid, existing.gid).then(
-				() => true,
-				() => false,
-			);
+			await sftp.fchown(tmp.handle, existing.uid, existing.gid).catch(() => {});
 		}
-		await sftp.fchmod(tmp.handle, modeAfterOwnerRestore(mode, ownerKept, ownerKept));
+		await sftp.fchmod(tmp.handle, mode);
 		checkAborted(ctx.signal);
 		await publish(sftp, tmp, path, !s.overwrite);
 		ok = true;
@@ -355,6 +355,7 @@ async function filePush(ctx: Ctx, s: FilePushSpec, transfer: SftpTransfer | unde
 	if (s.owner !== "" || s.group !== "") {
 		throw new FileTaskError("invalid_spec", "owner/group are not supported on SSH nodes");
 	}
+	checkFileMode(s.mode);
 	const existing = await sftp.lstatOpt(path);
 	if (existing && (existing.mode & S_IFMT) === S_IFDIR) {
 		throw new FileTaskError("is_directory", `${path} is a directory`);
@@ -383,18 +384,15 @@ async function filePush(ctx: Ctx, s: FilePushSpec, transfer: SftpTransfer | unde
 		}
 		let mode = 0o644;
 		if (s.mode !== 0) {
-			mode = s.mode & 0o7777;
+			mode = s.mode;
 		} else if (existing) {
-			mode = existing.mode & 0o7777;
+			// A kept mode is the nine permission bits only, so a setuid destination loses the bit.
+			mode = existing.mode & 0o777;
 		}
-		let ownerKept = true;
 		if (existing) {
-			ownerKept = await sftp.fchown(tmp.handle, existing.uid, existing.gid).then(
-				() => true,
-				() => false,
-			);
+			await sftp.fchown(tmp.handle, existing.uid, existing.gid).catch(() => {});
 		}
-		await sftp.fchmod(tmp.handle, modeAfterOwnerRestore(mode, ownerKept, ownerKept));
+		await sftp.fchmod(tmp.handle, mode);
 		checkAborted(ctx.signal);
 		await publish(sftp, tmp, path, !s.overwrite);
 		ok = true;
@@ -502,11 +500,9 @@ async function fileEdit(ctx: Ctx, s: FileEditSpec): Promise<TaskResult> {
 	let ok = false;
 	try {
 		await writeAll(ctx, tmp, result);
-		const ownerKept = await sftp.fchown(tmp.handle, st.uid, st.gid).then(
-			() => true,
-			() => false,
-		);
-		await sftp.fchmod(tmp.handle, modeAfterOwnerRestore(st.mode & 0o7777, ownerKept, ownerKept));
+		await sftp.fchown(tmp.handle, st.uid, st.gid).catch(() => {});
+		// The edit keeps the nine permission bits only, so a setuid file loses the bit.
+		await sftp.fchmod(tmp.handle, st.mode & 0o777);
 		checkAborted(ctx.signal);
 		await publish(sftp, tmp, path, false);
 		ok = true;

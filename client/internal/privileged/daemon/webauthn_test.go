@@ -134,7 +134,7 @@ func TestWebAuthnPasskey(t *testing.T) {
 
 	// The UV flag is present and require_uv is satisfied.
 	ts := execTask("passkey-1", 1, "/bin/echo", "passkey")
-	payload := payloadFor("passkey-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("passkey-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{passkey.authorize(t, payload, true)}
 	if err := client.start(ctx, ts); err != nil {
 		t.Fatalf("task.start: %v", err)
@@ -149,7 +149,7 @@ func TestWebAuthnPasskey(t *testing.T) {
 
 	// The signature itself verifies without UV, but Decide's step 7 requires it.
 	ts = execTask("passkey-2", 1, "/bin/echo", "no-uv")
-	payload = payloadFor("passkey-2", 1, exactCommand(t, &ts.Spec), nil)
+	payload = payloadFor("passkey-2", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{passkey.authorize(t, payload, false)}
 	expectRemoteCode(t, client.start(ctx, ts), "authorization_rejected")
 

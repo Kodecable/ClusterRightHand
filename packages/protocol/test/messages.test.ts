@@ -406,6 +406,32 @@ describe("message codecs", () => {
 		expect(response.state).toBe("unknown");
 	});
 
+	it("refuses a requested file mode above 0777", () => {
+		const spec = (mode: number) =>
+			({
+				kind: "file.write",
+				path: "/tmp/x",
+				content: { size: 0, sha256: new Uint8Array(32) },
+				overwrite: false,
+				mode,
+				owner: "",
+				group: "",
+				createParentDirs: false,
+			}) as const;
+		for (const mode of [0o777, 0o644, 0]) {
+			expect(() => taskSpecCodec.encode(spec(mode))).not.toThrow();
+		}
+		for (const mode of [0o1000, 0o4755, 0o2755, 0o1755]) {
+			expect(() => taskSpecCodec.encode(spec(mode))).toThrow(/file mode: above 0777/);
+		}
+		// A decoded spec is checked too, so a peer cannot send the bits either.
+		const bytes = encodeCbor(taskSpecCodec.encode(spec(0o755)));
+		const tampered = decodeCbor(bytes) as unknown[];
+		const body = tampered[1] as unknown[];
+		body[3] = 0o4755;
+		expect(() => taskSpecCodec.decode(decodeCbor(encodeCbor(tampered)))).toThrow(/file mode: above 0777/);
+	});
+
 	it("rejects an untagged union value that matches more than one branch", () => {
 		const ambiguous = { argv: ["echo", "hi"], shell: "echo hi" } as unknown as Command;
 		expect(() => commandCodec.encode(ambiguous)).toThrow(SchemaError);

@@ -87,7 +87,7 @@ describeBackends("authorization signing key", (backend) => {
 			role: "crhs",
 			key: { kind: "sshsig", publicKey: "ssh-ed25519 AAAA", fingerprint },
 			kinds,
-			requireExact: false,
+			requireSpec: false,
 			requireTask: false,
 			requireUv: false,
 			maxTtlMs: null,

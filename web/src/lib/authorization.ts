@@ -6,12 +6,24 @@
  */
 
 /**
- * The `crhu sign` command that signs the payload. The fingerprints are the owner's SSH credentials
- * that match the plan's user entries; they only help `crhu` choose the key.
+ * The largest base64 spec that still fits on one command line. A larger one exceeds the argument
+ * size limit, so the command reads it from standard input instead.
  */
-export function grantCommand(payload: string, fingerprints: readonly string[] = []): string {
+export const SPEC_ARGUMENT_LIMIT = 100 * 1024;
+
+/**
+ * The `crhu sign` command that signs the payload. A payload whose command limit is a spec carries only the
+ * hash, so the complete spec (`--spec`) accompanies it; a large one is read from standard input with a
+ * heredoc. The fingerprints are the owner's SSH credentials that match the plan's user entries; they only
+ * help `crhu` choose the key. A prefix or unrestricted payload has nothing to check the spec against, so
+ * `--spec` is left out for it.
+ */
+export function grantCommand(payload: string, spec?: string, fingerprints: readonly string[] = []): string {
 	const hints = fingerprints.map((fingerprint) => ` --hint ${fingerprint}`).join("");
-	return `crhu sign --payload ${payload}${hints}`;
+	const head = `crhu sign --payload ${payload}${hints}`;
+	if (spec === undefined) return head;
+	if (spec.length > SPEC_ARGUMENT_LIMIT) return `${head} --spec - <<'EOF'\n${spec}\nEOF`;
+	return `${head} --spec ${spec}`;
 }
 
 /**
@@ -23,7 +35,7 @@ export function sshKeygenRecipe(payload: string): string {
 	return [
 		`printf %s '${payload}' | base64 -d > crh-payload.bin`,
 		"ssh-keygen -Y sign -n crh-auth-v1 -f ~/.ssh/id_ed25519 crh-payload.bin",
-		"# crh-payload.bin.sig is the armored SSHSIG; POST /api/authorizations takes the base64 Authorization that `crhu sign` prints",
+		"# crh-payload.bin.sig is the armored SSHSIG; `crhu sign` prints the base64 Authorization the API takes",
 	].join("\n");
 }
 

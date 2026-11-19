@@ -606,15 +606,12 @@ export interface PayloadVector extends HexVector {
 function payloadVectors(): { payloads: PayloadVector[]; negative: HexVector[] } {
 	const cases: [string, string, AuthorizationPayload][] = [
 		[
-			"payload.crhs-exact",
-			"crhs single-command authorization: exact + one task + short deadline",
+			"payload.crhs-spec",
+			"crhs single-command authorization: spec + one task + short deadline",
 			{
 				v: 1,
 				nodes: ["01JB0000000000000000000001"],
-				command: {
-					method: "exec",
-					match: { kind: "exact", target: "systemctl restart nginx", specSha256: specSha256(execArgv) },
-				},
+				command: { kind: "spec", value: specSha256(execArgv) },
 				issuedAtMs: NOW,
 				deadlineMs: NOW + 300_000,
 				taskIds: ["0192f000-0000-7000-8000-000000000001"],
@@ -628,10 +625,7 @@ function payloadVectors(): { payloads: PayloadVector[]; negative: HexVector[] } 
 			{
 				v: 1,
 				nodes: ["01JB0000000000000000000001", "01JB0000000000000000000002", "01JB0000000000000000000003"],
-				command: {
-					method: "exec",
-					match: { kind: "exact", target: "systemctl restart nginx", specSha256: specSha256(execArgv) },
-				},
+				command: { kind: "spec", value: specSha256(execArgv) },
 				issuedAtMs: NOW,
 				deadlineMs: NOW + 3_600_000,
 				taskIds: [
@@ -649,7 +643,7 @@ function payloadVectors(): { payloads: PayloadVector[]; negative: HexVector[] } 
 			{
 				v: 1,
 				nodes: ["group:web"],
-				command: { method: "file.write", match: { kind: "prefix", target: "/etc/nginx/" } },
+				command: { kind: "prefix", method: "file.write", target: "/etc/nginx/" },
 				issuedAtMs: NOW,
 				deadlineMs: NOW + 86_400_000,
 				taskIds: null,
@@ -692,13 +686,18 @@ function payloadVectors(): { payloads: PayloadVector[]; negative: HexVector[] } 
 		{ id: "payload.attempt-0", description: "attempt 0", hex: withField(6, 0) },
 		{
 			id: "payload.short-sha",
-			description: "spec_sha256 of 31 bytes",
-			hex: withField(2, ["exec", ["exact", ["x", new Uint8Array(31)]]]),
+			description: "spec of 31 bytes",
+			hex: withField(2, ["spec", new Uint8Array(31)]),
 		},
 		{
 			id: "payload.unknown-method",
 			description: "method file.edit (not a method)",
-			hex: withField(2, ["file.edit", ["prefix", ["/"]]]),
+			hex: withField(2, ["prefix", ["file.edit", "/"]]),
+		},
+		{
+			id: "payload.unknown-command",
+			description: "unknown command limit",
+			hex: withField(2, ["exact", new Uint8Array(32)]),
 		},
 		{ id: "payload.extra-element", description: "nine elements", hex: raw([...encoded, ""]) },
 		{ id: "payload.note-null", description: "note is null instead of an empty string", hex: withField(7, null) },
@@ -757,7 +756,7 @@ const TRUST: TrustSummary = {
 				fingerprint: "SHA256:aaaa",
 			},
 			kinds: ["execute", "cosign"],
-			requireExact: true,
+			requireSpec: true,
 			requireTask: true,
 			requireUv: false,
 			maxTtlMs: 300_000,
@@ -785,7 +784,7 @@ const TRUST: TrustSummary = {
 				origins: [ORIGIN],
 			},
 			kinds: ["execute", "require-cosign"],
-			requireExact: false,
+			requireSpec: false,
 			requireTask: false,
 			requireUv: true,
 			maxTtlMs: null,
@@ -799,7 +798,7 @@ const TRUST: TrustSummary = {
 			role: "local",
 			key: { kind: "local", uids: [0, 1000] },
 			kinds: [],
-			requireExact: false,
+			requireSpec: false,
 			requireTask: false,
 			requireUv: false,
 			maxTtlMs: null,

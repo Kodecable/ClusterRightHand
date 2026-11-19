@@ -52,29 +52,20 @@ func TestDecidePathCheckPrecedesAuthorization(t *testing.T) {
 	}
 }
 
-// windowAuthorization builds a one-shot exact authorization for spec, signed by entry.
+// windowAuthorization builds a one-shot spec authorization for spec, signed by entry.
 func windowAuthorization(t *testing.T, now time.Time, taskID string, spec *protocol.TaskSpec, entry *Entry) *Authorization {
 	t.Helper()
 	hash, err := protocol.SpecSHA256(spec)
 	if err != nil {
 		t.Fatalf("SpecSHA256: %v", err)
 	}
-	method, target, err := Target(spec)
-	if err != nil {
-		t.Fatalf("Target: %v", err)
-	}
 	deadline := protocol.Int(now.Add(time.Minute).UnixMilli())
 	taskIDs := []string{taskID}
 	attempt := protocol.Uint(1)
 	payload := &protocol.AuthorizationPayload{
-		V:     protocol.AuthPayloadVersion,
-		Nodes: []string{"n"},
-		Command: &protocol.AuthCommand{
-			Method: protocol.Method(method),
-			Match: protocol.AuthMatch{Kind: protocol.AuthMatchExact, Exact: &protocol.AuthExact{
-				Target: target, SpecSHA256: hash,
-			}},
-		},
+		V:          protocol.AuthPayloadVersion,
+		Nodes:      []string{"n"},
+		Command:    protocol.SpecCommand(hash),
 		IssuedAtMS: protocol.Int(now.UnixMilli()),
 		DeadlineMS: &deadline,
 		TaskIDs:    &taskIDs,
@@ -94,13 +85,13 @@ func TestDecideLocalWindow(t *testing.T) {
 	spec := execSpec()
 	ttl := time.Minute
 	entry := Entry{
-		Name:         "crhs",
-		Role:         protocol.TrustRoleCRHS,
-		Kinds:        []protocol.TrustKind{protocol.TrustKindExecute},
-		RequireExact: true,
-		MaxTTL:       &ttl,
-		Deny:         []protocol.GuardRule{{Method: protocol.MethodExec, Match: protocol.GuardMatchAny}},
-		EnvAllow:     []string{},
+		Name:        "crhs",
+		Role:        protocol.TrustRoleCRHS,
+		Kinds:       []protocol.TrustKind{protocol.TrustKindExecute},
+		RequireSpec: true,
+		MaxTTL:      &ttl,
+		Deny:        []protocol.GuardRule{{Method: protocol.MethodExec, Match: protocol.GuardMatchAny}},
+		EnvAllow:    []string{},
 	}
 	base := Input{
 		Now:           now,
@@ -146,12 +137,7 @@ func TestDecideLocalWindow(t *testing.T) {
 	t.Run("command limit still enforced", func(t *testing.T) {
 		input := base
 		copied := *base.Authorization.Decoded
-		copied.Command = &protocol.AuthCommand{
-			Method: protocol.MethodExec,
-			Match: protocol.AuthMatch{Kind: protocol.AuthMatchExact, Exact: &protocol.AuthExact{
-				Target: "echo hi", SpecSHA256: [32]byte{},
-			}},
-		}
+		copied.Command = protocol.SpecCommand([32]byte{})
 		bytes, err := protocol.Marshal(&copied)
 		if err != nil {
 			t.Fatalf("encode payload: %v", err)

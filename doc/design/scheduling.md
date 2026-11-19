@@ -118,7 +118,7 @@ Privileged tasks follow the ordinary [authorization path](privilege.md#authoriza
 requests go only to the owner. A task runs unattended if the node trusts crhs for it, or if the owner has
 already signed a reusable authorization that covers it.
 
-To run a fixed privileged command unattended, the owner signs a reusable `exact` authorization for that
+To run a fixed privileged command unattended, the owner signs a reusable `spec` authorization for that
 command with a deadline, and the message asks the agent to run exactly that command; any other spelling
 does not match and waits for a signature. The node does not know the timetable, so such an authorization
 works at any time before its deadline. If every execution should also pass crhs's rules, the owner's

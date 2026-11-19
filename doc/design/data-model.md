@@ -138,6 +138,9 @@ nodes, the batch settings, its state and a single approval for the whole group.
 - The `state` column is the whole lifecycle, including the terminal `cancelled` and `expired` states;
   there is no separate cancellation flag.
 - `rev` is the row version used for compare-and-set writes ([Task row concurrency](execution.md#task-row-concurrency)).
+- The authorization plan is the stored options of a waiting task. A `sign` option keeps the exact payload
+  bytes and the complete task spec they bind, so the owner's signing page still has them after a crhs
+  restart ([The planner](privilege.md#the-planner)).
 - crhs never stores complete output; the complete output stays on the node.
 - A task keeps no foreign key to its node or group, so history survives their deletion.
 - `source_tool_task` is the durable tool task of the tool call that created the task or task group; Auto

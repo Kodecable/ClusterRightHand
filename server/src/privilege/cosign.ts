@@ -20,7 +20,7 @@ export function cosignRequired(entry: CosignTrust): boolean {
 /**
  * Whether one of the entries offers the cosign kind. The planner passes the summary's own crhs
  * entries; the decision port passes the entries whose signatures verified on the payload. The cosign
- * entry's own require_exact, max_ttl and allow/deny rules do not apply (doc/design/privilege.md "Cosigning").
+ * entry's own require_spec, max_ttl and allow/deny rules do not apply (doc/design/privilege.md "Cosigning").
  */
 export function hasCosign(entries: Iterable<CosignTrust | null | undefined>): boolean {
 	for (const entry of entries) {

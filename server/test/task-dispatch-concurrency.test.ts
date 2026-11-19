@@ -148,7 +148,7 @@ describe("main chain dispatch and the task queue", () => {
 		role: "crhs" as const,
 		key: { kind: "sshsig" as const, publicKey: signing.authorizedKey, fingerprint: signing.fingerprint },
 		kinds: ["execute" as const, "cosign" as const],
-		requireExact: true,
+		requireSpec: true,
 		requireTask: false,
 		requireUv: false,
 		maxTtlMs: 5 * 60 * 1000,

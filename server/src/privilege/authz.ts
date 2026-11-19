@@ -48,7 +48,7 @@ export interface AuthzEntry {
 	name: string;
 	role: TrustRole;
 	kinds: readonly TrustKind[];
-	requireExact: boolean;
+	requireSpec: boolean;
 	requireTask: boolean;
 	requireUv: boolean;
 	/** max_ttl in milliseconds; null means no limit. */
@@ -66,7 +66,7 @@ export function authzEntryFromTrust(entry: TrustSummaryEntry): AuthzEntry {
 		name: entry.name,
 		role: entry.role,
 		kinds: entry.kinds,
-		requireExact: entry.requireExact,
+		requireSpec: entry.requireSpec,
 		requireTask: entry.requireTask,
 		requireUv: entry.requireUv,
 		maxTtlMs: entry.maxTtlMs,
@@ -247,7 +247,7 @@ function checkCandidate(
 	specHash: Uint8Array,
 ): Checked {
 	const entry = signature.entry as AuthzEntry;
-	// An open local window waives the crhs entry's own limits (max_ttl, require_exact) and step
+	// An open local window waives the crhs entry's own limits (max_ttl, require_spec) and step
 	// 7 entirely; the signed command limit of step 6 still applies.
 	const viaWindow = windowApplies(input, entry);
 	// Step 4: the authorization body.
@@ -273,9 +273,9 @@ function checkCandidate(
 				return no("authorization_expired", STEP.authorization, "authorization ttl exceeds max_ttl");
 			}
 		}
-		if (entry.requireExact) {
-			if (payload.command === null || payload.command.match.kind !== "exact") {
-				return no("authorization_rejected", STEP.authorization, "trust entry requires an exact command");
+		if (entry.requireSpec) {
+			if (payload.command === null || payload.command.kind !== "spec") {
+				return no("authorization_rejected", STEP.authorization, "trust entry requires a spec command");
 			}
 		}
 	}
@@ -395,12 +395,12 @@ function commandCovers(
 	specHash: Uint8Array,
 ): boolean {
 	if (command === null) return true;
-	if (command.match.kind === "exact") {
-		return (
-			command.method === method && command.match.target === target && bytesEqual(command.match.specSha256, specHash)
-		);
+	if (command.kind === "spec") {
+		// The hash covers the whole spec, environment and content included, so the method and target
+		// need no separate check: a different method renders a different spec.
+		return bytesEqual(command.value, specHash);
 	}
-	return methodCovers(command.method, method) && target.startsWith(command.match.target);
+	return methodCovers(command.method, method) && target.startsWith(command.target);
 }
 
 /** file.write includes file.read; the reverse never holds. */

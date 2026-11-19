@@ -1,7 +1,8 @@
 /**
  * The options of a task or task group waiting for its owner, as the owner's waiting page shows them
- * (doc/design/privilege.md "Authorization path"). Only the owner may read the sign payload: it is the exact
- * bytes to sign, and nothing about it is secret, but another user has nothing to do with it.
+ * (doc/design/privilege.md "Authorization path"). Only the owner may read the sign payload and the spec it
+ * binds: they are the exact bytes to sign and what those bytes cover, and nothing about them is secret, but
+ * another user has nothing to do with them.
  */
 import type {
 	AuthorizationOption,
@@ -36,14 +37,9 @@ export function decodedPayloadOf(payload: AuthorizationPayload): DecodedPayloadV
 		command:
 			payload.command === null
 				? null
-				: payload.command.match.kind === "exact"
-					? {
-							method: payload.command.method,
-							match: "exact",
-							target: payload.command.match.target,
-							specSha256: Buffer.from(payload.command.match.specSha256).toString("hex"),
-						}
-					: { method: payload.command.method, match: "prefix", target: payload.command.match.target },
+				: payload.command.kind === "spec"
+					? { match: "spec", specSha256: Buffer.from(payload.command.value).toString("hex") }
+					: { method: payload.command.method, match: "prefix", target: payload.command.target },
 		issuedAt: new Date(payload.issuedAtMs).toISOString(),
 		deadline: payload.deadlineMs === null ? null : new Date(payload.deadlineMs).toISOString(),
 		taskIds: payload.taskIds,
@@ -55,6 +51,7 @@ export function decodedPayloadOf(payload: AuthorizationPayload): DecodedPayloadV
 /** The view of a stored sign payload; null when it cannot be decoded. */
 export function signPayloadViewOf(payload: {
 	payload: string;
+	spec: string;
 	id: string;
 	deadline: string | null;
 	taskIds: string[];
@@ -70,6 +67,7 @@ export function signPayloadViewOf(payload: {
 	return {
 		id: payload.id,
 		payload: payload.payload,
+		spec: payload.spec,
 		decoded: decodedPayloadOf(decoded),
 		challenge: Buffer.from(webauthnChallenge(bytes)).toString("base64url"),
 		deadline: payload.deadline,

@@ -51,13 +51,13 @@ type Config struct {
 
 // Trust is one validated [[trust]] entry.
 type Trust struct {
-	Name         string
-	Role         protocol.TrustRole
-	Format       string
-	Kinds        []protocol.TrustKind
-	RequireExact bool
-	RequireTask  bool
-	RequireUV    bool
+	Name        string
+	Role        protocol.TrustRole
+	Format      string
+	Kinds       []protocol.TrustKind
+	RequireSpec bool
+	RequireTask bool
+	RequireUV   bool
 	// MaxTTL is max_ttl; nil means no limit.
 	MaxTTL *time.Duration
 	// MaxWindow is max_window of a local entry: the longest window it may open.
@@ -147,7 +147,7 @@ type rawTrust struct {
 	Origins      []string  `toml:"origins"`
 	UIDs         []uint32  `toml:"uids"`
 	Kinds        []string  `toml:"kinds"`
-	RequireExact bool      `toml:"require_exact"`
+	RequireSpec  bool      `toml:"require_spec"`
 	RequireTask  *bool     `toml:"require_task"`
 	RequireUV    bool      `toml:"require_uv"`
 	MaxTTL       string    `toml:"max_ttl"`

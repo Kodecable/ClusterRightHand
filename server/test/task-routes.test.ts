@@ -229,6 +229,28 @@ describe("task routes: privileged (sqlite)", () => {
 		}
 	});
 
+	it("refuses a requested mode above 0777", async () => {
+		for (const mode of [0o1000, 0o4755, 0o2755, 0o1755]) {
+			const res = await post(`/api/nodes/${nodeId}/tasks`, {
+				kind: "file.write",
+				path: "/tmp/mode",
+				content: "a",
+				mode,
+			});
+			expect(res.status).toBe(400);
+			expect(((await res.json()) as { error: string }).error).toContain("mode must be at most 0777");
+		}
+		// The nine permission bits are accepted.
+		const ok = await post(`/api/nodes/${nodeId}/tasks`, {
+			kind: "file.write",
+			path: "/tmp/mode",
+			content: "a",
+			mode: 0o755,
+			waitMs: 1000,
+		});
+		expect(ok.status).toBe(201);
+	});
+
 	it("rejects a non-boolean flag instead of ignoring it", async () => {
 		for (const path of [`/api/nodes/${nodeId}/tasks`, "/api/task-groups"]) {
 			const res = await post(path, { kind: "exec", argv: ["true"], targets: ["n1"], privileged: "yes" });

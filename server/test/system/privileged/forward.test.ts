@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { taskSpecFromJson } from "@crh/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { specSha256 } from "../../../src/privilege/payload.ts";
+import { specBytes } from "../../../src/privilege/payload.ts";
 import { InProcessCrhs, waitFor } from "../../e2e/harness.ts";
 import {
 	authorizeWithCli,
@@ -76,7 +76,7 @@ describePodman("privileged system: forward", () => {
 		format: "sshsig",
 		key: crhsKey,
 		kinds: ["execute"],
-		requireExact: true,
+		requireSpec: true,
 		...extra,
 	});
 	const localEntry = (uids = [0], extra: Partial<TrustSpec> = {}): TrustSpec => ({
@@ -261,7 +261,7 @@ describePodman("privileged system: forward", () => {
 			const pending = await pendingAuthorization(crhs, t.id);
 			const strangerKey = join(tmp, "stranger-key");
 			await sshKeygen(strangerKey);
-			const authorization = await signPayload(node.crhuBin, strangerKey, pending.payload);
+			const authorization = await signPayload(node.crhuBin, strangerKey, pending);
 			const res = await submitAuthorization(crhs, authorization);
 			expect(res.status).toBe(400);
 			expect(res.json.error).toContain("signing credentials");
@@ -307,17 +307,13 @@ describePodman("privileged system: forward", () => {
 			// A reusable authorization has no task ids, and crhs only cosigns one-shot payloads
 			// (doc/design/privilege.md "Cosigning"), so this signature can never satisfy require-cosign.
 			const spec = taskSpecFromJson({ kind: "exec", command: { argv: ["id", "-u"] }, env: {}, cwd: "", stdin: null });
-			const sha = Buffer.from(specSha256(spec)).toString("hex");
+			const specB64 = Buffer.from(specBytes(spec)).toString("base64");
 			const signed = await runFile(node.crhuBin, [
 				"grant",
 				"--nodes",
 				node.nodeId,
-				"--method",
-				"exec",
-				"--exact",
-				"id -u",
-				"--spec-sha256",
-				sha,
+				"--spec",
+				specB64,
 				"--deadline",
 				"10m",
 				"--key",
@@ -481,18 +477,14 @@ describePodman("privileged system: forward", () => {
 				cwd: "",
 				stdin: null,
 			});
-			const sha = Buffer.from(specSha256(spec)).toString("hex");
+			const specB64 = Buffer.from(specBytes(spec)).toString("base64");
 			// crhu needs ssh-keygen and the private key, so it runs on the host like the owner would.
 			const signed = await runFile(node.crhuBin, [
 				"grant",
 				"--nodes",
 				node.nodeId,
-				"--method",
-				"exec",
-				"--exact",
-				"id -u --",
-				"--spec-sha256",
-				sha,
+				"--spec",
+				specB64,
 				"--deadline",
 				"10m",
 				"--key",

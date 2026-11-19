@@ -2,20 +2,32 @@ import { describe, expect, test } from "vitest";
 import {
 	base64urlToBase64,
 	grantCommand,
+	SPEC_ARGUMENT_LIMIT,
 	sshKeygenRecipe,
 	sshRegistrationCommand,
 	sshRegistrationRecipe,
 } from "./authorization";
 
 describe("signing recipes", () => {
-	test("crhu sign carries the matching credential fingerprints as hints", () => {
+	test("crhu sign carries the spec and the matching credential fingerprints as hints", () => {
+		expect(grantCommand("AQID", "c3BlYw==")).toBe("crhu sign --payload AQID --spec c3BlYw==");
+		expect(grantCommand("AQID", "c3BlYw==", ["SHA256:one"])).toBe(
+			"crhu sign --payload AQID --hint SHA256:one --spec c3BlYw==",
+		);
+		// A payload with no spec command limit has nothing to check a spec against.
 		expect(grantCommand("AQID")).toBe("crhu sign --payload AQID");
-		expect(grantCommand("AQID", ["SHA256:one"])).toBe("crhu sign --payload AQID --hint SHA256:one");
+		expect(grantCommand("AQID", undefined, ["SHA256:one"])).toBe("crhu sign --payload AQID --hint SHA256:one");
+	});
+
+	test("a spec too large for the argument list is read from a heredoc", () => {
+		const spec = "A".repeat(SPEC_ARGUMENT_LIMIT + 1);
+		expect(grantCommand("AQID", spec)).toBe(`crhu sign --payload AQID --spec - <<'EOF'\n${spec}\nEOF`);
+		expect(grantCommand("AQID", "A".repeat(SPEC_ARGUMENT_LIMIT))).toContain("--spec AAAA");
 	});
 
 	test("the manual payload recipe names the output the endpoint takes", () => {
 		const recipe = sshKeygenRecipe("AQID");
-		expect(recipe).toContain("base64 Authorization that `crhu sign` prints");
+		expect(recipe).toContain("`crhu sign` prints the base64 Authorization the API takes");
 	});
 
 	test("registration commands sign the decoded challenge bytes", () => {

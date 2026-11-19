@@ -213,10 +213,11 @@ payload.
   compares it with the original, so a signature over non-canonical bytes is rejected.
 - **Nodes** are node UUIDs, node-group UUIDs, or `["*"]`. The list cannot be empty; names are
   resolved to UUIDs before signing, so a rename does not invalidate an authorization.
-- **Command** is `null` for any method and any target, or `exact` (target and `spec_sha256`) or
-  `prefix` (target only). `spec_sha256 = SHA-256(CBOR(TaskSpec))` covers environment, working
-  directory, input hash and content, so an `exact` approval covers what runs. A `file.push`/`file.pull`
-  endpoint's transfer id is crhs-side routing and is left out, so a group's members hash alike.
+- **Command** is `null` for any command, `spec` (a `spec_sha256` alone) or `prefix` (a method and a
+  target). `spec_sha256 = SHA-256(CBOR(TaskSpec))` covers the method and target, environment, working
+  directory, input hash and content, and mode and owner, so a `spec` approval covers what runs; the
+  method follows from the spec, so the command does not repeat it. A `file.push`/`file.pull` endpoint's
+  transfer id is crhs-side routing and is left out, so a group's members hash alike.
 - **Reusable or one-shot.** `task_ids` and `attempt` are both `null` (reusable until the deadline) or
   both set (one-shot). A one-shot authorization has unique task ids and `attempt ≥ 1`, may list only
   node UUIDs, and binds position by position: the task id must be listed, the node id at that

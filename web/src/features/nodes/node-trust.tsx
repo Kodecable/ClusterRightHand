@@ -50,7 +50,7 @@ export function guardRuleText(rule: GuardRule, anyTarget = "any target"): string
 
 function trustFlags(entry: TrustEntry): string {
 	return (
-		[entry.requireExact && "require_exact", entry.requireTask && "require_task", entry.requireUv && "require_uv"]
+		[entry.requireSpec && "require_spec", entry.requireTask && "require_task", entry.requireUv && "require_uv"]
 			.filter(Boolean)
 			.join(", ") || "–"
 	);

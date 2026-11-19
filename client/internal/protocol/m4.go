@@ -193,19 +193,19 @@ func (k *TrustKind) UnmarshalCBOR(data []byte) error { return trustKinds.unmarsh
 
 // TrustEntry is one item of TrustSummary.trust.
 type TrustEntry struct {
-	_            struct{} `cbor:",toarray"`
-	Name         string
-	Source       TrustSource
-	Role         TrustRole
-	Key          TrustKey
-	Kinds        []TrustKind
-	RequireExact bool
-	RequireTask  bool
-	RequireUV    bool
-	MaxTTLMS     *Uint
-	Allow        []GuardRule
-	Deny         []GuardRule
-	EnvAllow     []string
+	_           struct{} `cbor:",toarray"`
+	Name        string
+	Source      TrustSource
+	Role        TrustRole
+	Key         TrustKey
+	Kinds       []TrustKind
+	RequireSpec bool
+	RequireTask bool
+	RequireUV   bool
+	MaxTTLMS    *Uint
+	Allow       []GuardRule
+	Deny        []GuardRule
+	EnvAllow    []string
 }
 
 // Identities is the unprivileged/privileged pair of TrustSummary.identities.
@@ -323,60 +323,59 @@ type WindowOpen struct {
 	DurationMS Uint
 }
 
-// AuthMatchKind is an AuthMatch union tag.
-type AuthMatchKind string
+// AuthCommandKind is an AuthCommand union tag.
+type AuthCommandKind string
 
 const (
-	AuthMatchExact  AuthMatchKind = "exact"
-	AuthMatchPrefix AuthMatchKind = "prefix"
+	// AuthCommandSpec binds the complete task spec by its hash. The method follows from the spec
+	// (doc/design/privilege.md "Methods and targets"), so the command carries only the hash.
+	AuthCommandSpec AuthCommandKind = "spec"
+	// AuthCommandPrefix binds a method and a target prefix.
+	AuthCommandPrefix AuthCommandKind = "prefix"
 )
 
-// AuthExact is the "exact" AuthMatch body: the rendered target and the complete task spec
-// hash the authorization was issued for.
-type AuthExact struct {
-	_          struct{} `cbor:",toarray"`
-	Target     string
-	SpecSHA256 Hash
-}
-
-// AuthPrefix is the "prefix" AuthMatch body.
+// AuthPrefix is the "prefix" AuthCommand body.
 type AuthPrefix struct {
 	_      struct{} `cbor:",toarray"`
+	Method Method
 	Target string
 }
 
-// AuthMatch is the union of ways an authorization constrains the target.
-type AuthMatch struct {
-	Kind AuthMatchKind
+// AuthCommand is the optional command restriction of an authorization payload: the hash of the
+// complete task spec, or a method and target prefix. Absent means any command.
+type AuthCommand struct {
+	Kind AuthCommandKind
 
-	Exact  *AuthExact
+	Spec   *Hash
 	Prefix *AuthPrefix
 }
 
-// authMatchUnion is the AuthMatch union: how an authorization constrains the target.
-var authMatchUnion = newUnion("auth match",
-	unionPtr[AuthMatch]("exact", func(m *AuthMatch) **AuthExact { return &m.Exact }),
-	unionPtr[AuthMatch]("prefix", func(m *AuthMatch) **AuthPrefix { return &m.Prefix }),
+// authCommandUnion is the AuthCommand union: how an authorization constrains the command.
+var authCommandUnion = newUnion("auth command",
+	unionPtr[AuthCommand]("spec", func(c *AuthCommand) **Hash { return &c.Spec }),
+	unionPtr[AuthCommand]("prefix", func(c *AuthCommand) **AuthPrefix { return &c.Prefix }),
 )
 
-// MarshalCBOR encodes an AuthMatch as [tag, body].
-func (m AuthMatch) MarshalCBOR() ([]byte, error) { return authMatchUnion.marshal(m, string(m.Kind)) }
+// MarshalCBOR encodes an AuthCommand as [tag, body].
+func (c AuthCommand) MarshalCBOR() ([]byte, error) {
+	return authCommandUnion.marshal(c, string(c.Kind))
+}
 
-// UnmarshalCBOR decodes [tag, body] into the matching AuthMatch branch.
-func (m *AuthMatch) UnmarshalCBOR(data []byte) error {
-	tag, err := authMatchUnion.unmarshal(data, m)
+// UnmarshalCBOR decodes [tag, body] into the matching AuthCommand branch.
+func (c *AuthCommand) UnmarshalCBOR(data []byte) error {
+	tag, err := authCommandUnion.unmarshal(data, c)
 	if err != nil {
 		return err
 	}
-	m.Kind = AuthMatchKind(tag)
+	c.Kind = AuthCommandKind(tag)
 	return nil
 }
 
-// AuthCommand is the optional command restriction of an authorization payload.
-type AuthCommand struct {
-	_      struct{} `cbor:",toarray"`
-	Method Method
-	Match  AuthMatch
+// SpecCommand returns a command restriction that binds the complete task spec whose hash
+// (SpecSHA256) is hash.
+func SpecCommand(hash [32]byte) *AuthCommand {
+	value := Hash(hash)
+	return &AuthCommand{Kind: AuthCommandSpec, Spec: &value}
 }
 
 // AuthorizationPayload is CBOR(AuthorizationPayload), the bytes that are signed.
@@ -513,8 +512,8 @@ func AuthorizationID(payload []byte) [32]byte {
 	return sha256.Sum256(payload)
 }
 
-// SpecSHA256 is SHA-256 of the canonical CBOR encoding of spec. It is the value an exact
-// authorization pins in spec_sha256.
+// SpecSHA256 is SHA-256 of the canonical CBOR encoding of spec. It is what a `spec` command
+// limit binds, and the signer checks it in crhu before signing.
 //
 // A file.push/file.pull endpoint is crhs-side routing, so its transfer id is left out: every member of
 // a copy task group then hashes like the group's spec and one authorization covers them all.

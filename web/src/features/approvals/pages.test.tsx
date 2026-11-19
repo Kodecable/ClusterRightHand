@@ -216,6 +216,7 @@ const pending = (): PendingAuthorization => ({
 			payload: {
 				id: "a".repeat(64),
 				payload: "o2dub2RlcwFhZ3JvdXA6d2Vi",
+				spec: "oWNraW5kZGV4ZWNhYXJndgaDZ2FyZ3ZjeXN0ZW1jdGw=",
 				challenge: "challenge-b64url",
 				deadline: "2026-10-31T12:00:00.000Z",
 				taskIds: ["task-1"],
@@ -223,7 +224,7 @@ const pending = (): PendingAuthorization => ({
 				passkeys: [],
 				decoded: {
 					nodes: ["node-1"],
-					command: { method: "exec", match: "exact", target: OPERATION, specSha256: "b".repeat(64) },
+					command: { match: "spec", specSha256: "b".repeat(64) },
 					issuedAt: "2026-10-30T12:00:00.000Z",
 					deadline: "2026-10-31T12:00:00.000Z",
 					taskIds: ["task-1"],

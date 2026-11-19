@@ -1482,7 +1482,8 @@ describe("file tool JSON results", () => {
 			await write({ mode: "755" });
 			expect(created[1]?.spec).toMatchObject({ mode: 0o755, createParentDirs: false });
 
-			for (const mode of ["0o644", "0648", "77777", "077777", "rw-r--r--"]) {
+			// Only the nine permission bits: 4755, 2755 and 1755 would ask for setuid, setgid or sticky.
+			for (const mode of ["0o644", "0648", "77777", "077777", "rw-r--r--", "4755", "2755", "1755", "7777"]) {
 				const bad = await callTool(
 					tool("write_file") as never,
 					{ targets: ["web-1"], path: "/x", content: "a", mode },

@@ -99,7 +99,7 @@ func TestDisconnectTaskFinishes(t *testing.T) {
 	forward := dialForward(t, env.paths.Socket)
 
 	ts := execTask("disconnect-1", 1, "/bin/sh", "-c", "sleep 0.2; printf done")
-	payload := payloadFor("disconnect-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("disconnect-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := forward.start(requestContext(t), ts); err != nil {
 		t.Fatalf("task.start: %v", err)
@@ -139,19 +139,19 @@ func TestForcedCwdUnlessExact(t *testing.T) {
 		t.Fatalf("prefix task cwd output = %q, want %q", got, "/\n")
 	}
 
-	// An exact authorization pins the whole spec, including cwd.
+	// A spec authorization pins the whole spec, including cwd.
 	ts = execTask("cwd-2", 1, "/bin/pwd")
 	ts.Spec.Exec.Cwd = env.paths.Dir
-	payload = payloadFor("cwd-2", 1, exactCommand(t, &ts.Spec), nil)
+	payload = payloadFor("cwd-2", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := forward.start(ctx, ts); err != nil {
-		t.Fatalf("exact task.start: %v", err)
+		t.Fatalf("spec task.start: %v", err)
 	}
 	if exit := forward.waitExit(15 * time.Second); exit.Outcome.Code != 0 {
-		t.Fatalf("exact task.exit = %+v", exit)
+		t.Fatalf("spec task.exit = %+v", exit)
 	}
 	if got := forward.output(); got != env.paths.Dir+"\n" {
-		t.Fatalf("exact task cwd output = %q, want %q", got, env.paths.Dir+"\n")
+		t.Fatalf("spec task cwd output = %q, want %q", got, env.paths.Dir+"\n")
 	}
 }
 
@@ -172,7 +172,7 @@ func TestEnvAllowRefused(t *testing.T) {
 
 	ts = execTask("env-2", 1, "/bin/sh", "-c", `printf "$FOO"`)
 	ts.Spec.Exec.Env = map[string]string{"FOO": "visible"}
-	payload = payloadFor("env-2", 1, exactCommand(t, &ts.Spec), nil)
+	payload = payloadFor("env-2", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := forward.start(ctx, ts); err != nil {
 		t.Fatalf("allowed env task.start: %v", err)

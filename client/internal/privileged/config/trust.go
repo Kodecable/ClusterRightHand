@@ -70,7 +70,7 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 		return nil, err
 	}
 	t.Kinds = kinds
-	t.RequireExact = raw.RequireExact
+	t.RequireSpec = raw.RequireSpec
 	t.RequireUV = raw.RequireUV
 	switch role {
 	case protocol.TrustRoleCRHS:
@@ -133,8 +133,8 @@ func buildLocalTrust(raw *rawTrust, t *Trust) error {
 	if len(raw.Kinds) > 0 {
 		return errors.New("kinds: a local entry has no kinds; it opens a time-limited window")
 	}
-	if raw.RequireExact {
-		return errors.New("require_exact: a local entry opens a time-limited window and has no other limits")
+	if raw.RequireSpec {
+		return errors.New("require_spec: a local entry opens a time-limited window and has no other limits")
 	}
 	if raw.RequireTask != nil {
 		return errors.New("require_task: a local entry opens a time-limited window and has no other limits")

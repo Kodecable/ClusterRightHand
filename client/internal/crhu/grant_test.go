@@ -2,6 +2,7 @@ package crhu
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -63,8 +65,15 @@ func useSSHKeygen(t *testing.T, path string) {
 // runCLI executes crhu with args and returns its stdout and stderr.
 func runCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
+	return runCLIWithStdin(t, "", args...)
+}
+
+// runCLIWithStdin executes crhu with args and the given standard input.
+func runCLIWithStdin(t *testing.T, stdin string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
 	root := NewRootCmd()
 	var out, errOut bytes.Buffer
+	root.SetIn(strings.NewReader(stdin))
 	root.SetOut(&out)
 	root.SetErr(&errOut)
 	root.SetArgs(args)
@@ -72,38 +81,70 @@ func runCLI(t *testing.T, args ...string) (stdout, stderr string, err error) {
 	return out.String(), errOut.String(), err
 }
 
+// testExecSpec returns a complete exec task spec and the base64 --spec value of its canonical
+// CBOR encoding.
+func testExecSpec(t *testing.T) (*protocol.TaskSpec, string) {
+	t.Helper()
+	spec := &protocol.TaskSpec{Kind: protocol.TaskSpecExec, Exec: &protocol.ExecSpec{
+		Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"systemctl", "restart", "nginx"}},
+		Env:     map[string]string{"DEBIAN_FRONTEND": "noninteractive"},
+	}}
+	return spec, encodeSpec(t, spec)
+}
+
+// encodeSpec renders a spec as the --spec value: standard base64 of its canonical CBOR encoding.
+func encodeSpec(t *testing.T, spec *protocol.TaskSpec) string {
+	t.Helper()
+	raw, err := protocol.Marshal(spec)
+	if err != nil {
+		t.Fatalf("encode spec: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// mustSpecHash computes the hash a `spec` command binds.
+func mustSpecHash(t *testing.T, spec *protocol.TaskSpec) [32]byte {
+	t.Helper()
+	hash, err := protocol.SpecSHA256(spec)
+	if err != nil {
+		t.Fatalf("spec hash: %v", err)
+	}
+	return hash
+}
+
 // TestGrantBuildPayload covers the payload the flags build, and the flag combinations that are
 // refused before anything is shown or signed.
 func TestGrantBuildPayload(t *testing.T) {
 	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
-	hash := strings.Repeat("ab", 32)
+	spec, encoded := testExecSpec(t)
+	hash := mustSpecHash(t, spec)
 	opts := &grantOptions{
-		nodes:      []string{testNodeA, testNodeB},
-		method:     "exec",
-		exact:      "systemctl restart nginx",
-		specSHA256: hash,
-		deadline:   "90m",
-		tasks:      []string{"task-1", "task-2"},
-		attempt:    3,
-		note:       "restart to load the new certificate",
-		keys:       keyChoice{key: "/keys/id_ed25519"},
+		nodes:    []string{testNodeA, testNodeB},
+		spec:     encoded,
+		deadline: "90m",
+		tasks:    []string{"task-1", "task-2"},
+		attempt:  3,
+		note:     "restart to load the new certificate",
+		keys:     keyChoice{key: "/keys/id_ed25519"},
 	}
 	if err := opts.validate(); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
-	payload, err := buildPayload(opts, now)
+	payload, bound, err := buildPayload(opts, now, strings.NewReader(""))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if payload.V != protocol.AuthPayloadVersion || len(payload.Nodes) != 2 || payload.Nodes[0] != testNodeA {
 		t.Fatalf("payload = %+v", payload)
 	}
-	if payload.Command == nil || payload.Command.Method != protocol.MethodExec || payload.Command.Match.Kind != protocol.AuthMatchExact {
+	if payload.Command == nil || payload.Command.Kind != protocol.AuthCommandSpec || payload.Command.Spec == nil {
 		t.Fatalf("command = %+v", payload.Command)
 	}
-	if payload.Command.Match.Exact.Target != "systemctl restart nginx" ||
-		fmt.Sprintf("%x", payload.Command.Match.Exact.SpecSHA256) != hash {
-		t.Fatalf("exact = %+v", payload.Command.Match.Exact)
+	if *payload.Command.Spec != protocol.Hash(hash) {
+		t.Fatalf("spec hash = %x, want %x", *payload.Command.Spec, hash)
+	}
+	if !reflect.DeepEqual(bound, spec) {
+		t.Fatalf("bound spec = %+v, want %+v", bound, spec)
 	}
 	if payload.IssuedAtMS != protocol.Int(now.UnixMilli()) {
 		t.Fatalf("issued_at = %d", payload.IssuedAtMS)
@@ -118,21 +159,25 @@ func TestGrantBuildPayload(t *testing.T) {
 		t.Fatalf("note = %q", payload.Note)
 	}
 
-	// A prefix authorization has no spec hash, and no command is only allowed explicitly.
-	prefix, err := buildPayload(&grantOptions{
+	// A prefix authorization keeps its explicit method, and no command is only allowed explicitly.
+	prefix, boundPrefix, err := buildPayload(&grantOptions{
 		nodes: []string{"*"}, method: "file.write", prefix: "/etc/nginx/", deadline: "1h", keys: keyChoice{key: "k"},
-	}, now)
+	}, now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prefix.Command == nil || prefix.Command.Match.Kind != protocol.AuthMatchPrefix || prefix.Command.Match.Prefix.Target != "/etc/nginx/" {
+	if prefix.Command == nil || prefix.Command.Kind != protocol.AuthCommandPrefix ||
+		prefix.Command.Prefix.Method != protocol.MethodFileWrite || prefix.Command.Prefix.Target != "/etc/nginx/" {
 		t.Fatalf("prefix command = %+v", prefix.Command)
 	}
-	any, err := buildPayload(&grantOptions{nodes: []string{"*"}, anyCommand: true, keys: keyChoice{key: "k"}}, now)
+	if boundPrefix != nil {
+		t.Fatalf("prefix grant bound a spec: %+v", boundPrefix)
+	}
+	any, boundAny, err := buildPayload(&grantOptions{nodes: []string{"*"}, anyCommand: true, keys: keyChoice{key: "k"}}, now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if any.Command != nil || any.DeadlineMS != nil || any.TaskIDs != nil || any.Attempt != nil {
+	if any.Command != nil || boundAny != nil || any.DeadlineMS != nil || any.TaskIDs != nil || any.Attempt != nil {
 		t.Fatalf("unrestricted payload = %+v", any)
 	}
 
@@ -145,12 +190,13 @@ func TestGrantBuildPayload(t *testing.T) {
 		{"no nodes", grantOptions{anyCommand: true, deadline: "1h", keys: keyChoice{key: "k"}}, "--nodes is required"},
 		{"name node", grantOptions{nodes: []string{"node-1"}, anyCommand: true, deadline: "1h", keys: keyChoice{key: "k"}}, "not a node or node group UUID"},
 		{"group node", grantOptions{nodes: []string{"group:web"}, anyCommand: true, deadline: "1h", keys: keyChoice{key: "k"}}, "no longer accepts"},
-		{"no method", grantOptions{nodes: []string{testNodeA}, deadline: "1h", keys: keyChoice{key: "k"}}, "--method is required"},
-		{"method without match", grantOptions{nodes: []string{testNodeA}, method: "exec", deadline: "1h", keys: keyChoice{key: "k"}}, "needs --exact or --prefix"},
-		{"exact without hash", grantOptions{nodes: []string{testNodeA}, method: "exec", exact: "x", deadline: "1h", keys: keyChoice{key: "k"}}, "--exact requires --spec-sha256"},
-		{"hash without exact", grantOptions{nodes: []string{testNodeA}, method: "exec", prefix: "x", specSHA256: hash, deadline: "1h", keys: keyChoice{key: "k"}}, "--spec-sha256 requires --exact"},
-		{"bad method", grantOptions{nodes: []string{testNodeA}, method: "run", exact: "x", specSHA256: hash, deadline: "1h", keys: keyChoice{key: "k"}}, "is not exec"},
-		{"bad hash", grantOptions{nodes: []string{testNodeA}, method: "exec", exact: "x", specSHA256: "zz", deadline: "1h", keys: keyChoice{key: "k"}}, "32 bytes of hex"},
+		{"no command limit", grantOptions{nodes: []string{testNodeA}, deadline: "1h", keys: keyChoice{key: "k"}}, "one of --any-command, --spec or --prefix"},
+		{"spec and prefix", grantOptions{nodes: []string{testNodeA}, spec: encoded, prefix: "/etc/nginx/", deadline: "1h", keys: keyChoice{key: "k"}}, "--spec and --prefix cannot be combined"},
+		{"spec and method", grantOptions{nodes: []string{testNodeA}, spec: encoded, method: "exec", deadline: "1h", keys: keyChoice{key: "k"}}, "--method is only for --prefix"},
+		{"spec and any", grantOptions{nodes: []string{testNodeA}, spec: encoded, anyCommand: true, deadline: "1h", keys: keyChoice{key: "k"}}, "--any-command cannot be combined with --spec"},
+		{"prefix without method", grantOptions{nodes: []string{testNodeA}, prefix: "/etc/nginx/", deadline: "1h", keys: keyChoice{key: "k"}}, "--prefix needs --method"},
+		{"bad method", grantOptions{nodes: []string{testNodeA}, method: "run", prefix: "/x", deadline: "1h", keys: keyChoice{key: "k"}}, "is not exec"},
+		{"bad spec", grantOptions{nodes: []string{testNodeA}, spec: "not base64!", deadline: "1h", keys: keyChoice{key: "k"}}, "not standard base64"},
 		{"task without deadline", grantOptions{nodes: []string{testNodeA}, anyCommand: true, tasks: []string{"t"}, keys: keyChoice{key: "k"}}, "--deadline is required"},
 		{"task with a group node", grantOptions{nodes: []string{"group:web"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, keys: keyChoice{key: "k"}}, "node UUIDs"},
 		{"task with a star node", grantOptions{nodes: []string{"*"}, anyCommand: true, deadline: "1h", tasks: []string{"t"}, keys: keyChoice{key: "k"}}, "node UUIDs"},
@@ -195,7 +241,10 @@ func TestGrantPayloadMode(t *testing.T) {
 	if !bytes.Equal(gotRaw, raw) {
 		t.Fatal("the payload bytes changed")
 	}
-	shown := grantViewFor(got, gotRaw)
+	shown, err := grantViewFor(got, nil, gotRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if shown.Nodes[0] != testNodeA || shown.Command != nil || shown.Note != "from the WebUI" {
 		t.Fatalf("view = %+v", shown)
 	}
@@ -279,7 +328,7 @@ func grantPayloadForTest(opts *grantOptions) (*protocol.AuthorizationPayload, []
 	if err := opts.validate(); err != nil {
 		return nil, nil, err
 	}
-	payload, err := buildPayload(opts, time.Now())
+	payload, _, err := buildPayload(opts, time.Now(), strings.NewReader(""))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -334,12 +383,11 @@ func TestGrantEndToEnd(t *testing.T) {
 	keyPath, public := generateSSHKey(t)
 	useSSHKeygen(t, "ssh-keygen")
 
-	hash := strings.Repeat("cd", 32)
+	spec, encoded := testExecSpec(t)
+	hash := mustSpecHash(t, spec)
 	stdout, stderr, err := runCLI(t, "grant",
 		"--nodes", testNodeA+","+testNodeB,
-		"--method", "exec",
-		"--exact", "systemctl restart nginx",
-		"--spec-sha256", hash,
+		"--spec", encoded,
 		"--deadline", "1h",
 		"--note", "signed in a test",
 		"--key", keyPath,
@@ -358,9 +406,8 @@ func TestGrantEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if payload.Command.Match.Exact.Target != "systemctl restart nginx" ||
-		fmt.Sprintf("%x", payload.Command.Match.Exact.SpecSHA256) != hash ||
-		payload.Note != "signed in a test" {
+	if payload.Command.Kind != protocol.AuthCommandSpec || payload.Command.Spec == nil ||
+		*payload.Command.Spec != protocol.Hash(hash) || payload.Note != "signed in a test" {
 		t.Fatalf("payload = %+v", payload)
 	}
 	result, err := authz.VerifySSHSIG(authorization.Signatures[0].SSHSig.Blob, authorization.Payload)
@@ -535,7 +582,8 @@ func TestGrantLongFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Nodes) != 2 || payload.Command.Match.Prefix.Target != "systemctl restart " {
+	if len(payload.Nodes) != 2 || payload.Command.Kind != protocol.AuthCommandPrefix ||
+		payload.Command.Prefix.Target != "systemctl restart " {
 		t.Fatalf("payload = %+v", payload)
 	}
 	if payload.TaskIDs == nil || len(*payload.TaskIDs) != 2 || *payload.Attempt != 2 {
@@ -571,7 +619,7 @@ func TestGrantPrefixWarning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := payload.Command.Match.Prefix.Target; got != "systemctl restart nginx" {
+	if got := payload.Command.Prefix.Target; got != "systemctl restart nginx" {
 		t.Fatalf("prefix = %q, want the given one unchanged", got)
 	}
 
@@ -586,6 +634,231 @@ func TestGrantPrefixWarning(t *testing.T) {
 	}
 	if strings.Contains(stderr, "also matches longer words") {
 		t.Fatalf("a word-boundary prefix was warned about:\n%s", stderr)
+	}
+}
+
+// webuiPayload builds the base64 payload the WebUI hands to `crhu sign`.
+func webuiPayload(t *testing.T, command *protocol.AuthCommand, nodes ...string) string {
+	t.Helper()
+	if len(nodes) == 0 {
+		nodes = []string{testNodeA}
+	}
+	deadline := protocol.Int(time.Now().Add(time.Hour).UnixMilli())
+	payload := &protocol.AuthorizationPayload{
+		V:          protocol.AuthPayloadVersion,
+		Nodes:      nodes,
+		Command:    command,
+		IssuedAtMS: protocol.Int(time.Now().Add(-time.Minute).UnixMilli()),
+		DeadlineMS: &deadline,
+	}
+	raw, err := protocol.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// TestGrantSpec covers `crhu grant --spec`: the method comes from the spec, the hash is computed by
+// crhu, the spec is shown before confirmation, and --spec - reads standard input.
+func TestGrantSpec(t *testing.T) {
+	keyPath, _ := generateSSHKey(t)
+	useSSHKeygen(t, "ssh-keygen")
+	spec, encoded := testExecSpec(t)
+	hash := mustSpecHash(t, spec)
+
+	stdout, stderr, err := runCLI(t, "grant",
+		"--nodes", testNodeA, "--spec", encoded, "--deadline", "1h", "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("grant --spec: %v\nstderr: %s", err, stderr)
+	}
+	payload, err := protocol.DecodeAuthorizationPayload(decodeAuthorization(t, stdout).Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Command.Kind != protocol.AuthCommandSpec || payload.Command.Spec == nil ||
+		*payload.Command.Spec != protocol.Hash(hash) {
+		t.Fatalf("command = %+v", payload.Command)
+	}
+	for _, want := range []string{
+		`"match": "spec"`, `"method": "exec"`, `"target": "systemctl restart nginx"`,
+		fmt.Sprintf("%x", hash), `"argv"`, `"DEBIAN_FRONTEND"`, `"spec_sha256"`,
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("the confirmation has no %q:\n%s", want, stderr)
+		}
+	}
+
+	// The same spec from standard input binds the same hash.
+	stdout, _, err = runCLIWithStdin(t, encoded, "grant",
+		"--nodes", testNodeA, "--spec", "-", "--deadline", "1h", "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("grant --spec -: %v", err)
+	}
+	fromStdin, err := protocol.DecodeAuthorizationPayload(decodeAuthorization(t, stdout).Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *fromStdin.Command.Spec != protocol.Hash(hash) {
+		t.Fatalf("--spec - bound %x", *fromStdin.Command.Spec)
+	}
+
+	// A spec that does not decode, and a spec without a renderable target, are refused.
+	for _, tc := range []struct{ name, spec, want string }{
+		{"not base64", "not base64!", "not standard base64"},
+		{"not a spec", base64.StdEncoding.EncodeToString([]byte{1, 2, 3}), "--spec:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := runCLI(t, "grant", "--nodes", testNodeA, "--spec", tc.spec, "--deadline", "1h", "--key", keyPath, "--yes")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestSignSpec covers `crhu sign --spec`: a payload with a spec command carries only the hash, so
+// the signer must supply the spec, which is shown and must match.
+func TestSignSpec(t *testing.T) {
+	keyPath, _ := generateSSHKey(t)
+	useSSHKeygen(t, "ssh-keygen")
+	spec, encoded := testExecSpec(t)
+	hash := mustSpecHash(t, spec)
+	payload := webuiPayload(t, protocol.SpecCommand(hash))
+
+	stdout, stderr, err := runCLI(t, "sign", "--payload", payload, "--spec", encoded, "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("sign --spec: %v\nstderr: %s", err, stderr)
+	}
+	signed := decodeAuthorization(t, stdout)
+	result, err := authz.VerifySSHSIG(signed.Signatures[0].SSHSig.Blob, signed.Payload)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if result.PublicKey == nil {
+		t.Fatal("no public key")
+	}
+	for _, want := range []string{`"kind": "exec"`, `"method": "exec"`, `"target": "systemctl restart nginx"`, fmt.Sprintf("%x", hash)} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("the confirmation has no %q:\n%s", want, stderr)
+		}
+	}
+
+	// Missing: the payload holds only a hash.
+	_, _, err = runCLI(t, "sign", "--payload", payload, "--key", keyPath, "--yes")
+	if err == nil || !strings.Contains(err.Error(), "--spec is required") {
+		t.Fatalf("sign without --spec = %v", err)
+	}
+
+	// Mismatching: another spec hashes differently.
+	other := &protocol.TaskSpec{Kind: protocol.TaskSpecExec, Exec: &protocol.ExecSpec{
+		Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"echo", "hi"}},
+	}}
+	_, _, err = runCLI(t, "sign", "--payload", payload, "--spec", encodeSpec(t, other), "--key", keyPath, "--yes")
+	if err == nil || !strings.Contains(err.Error(), "does not match the payload") {
+		t.Fatalf("mismatching --spec = %v", err)
+	}
+
+	// Standard input, for a spec too large for the argument list.
+	stdout, _, err = runCLIWithStdin(t, encoded, "sign", "--payload", payload, "--spec", "-", "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("sign --spec -: %v", err)
+	}
+	if !bytes.Equal(decodeAuthorization(t, stdout).Payload, signed.Payload) {
+		t.Fatal("--spec - signed different payload bytes")
+	}
+
+	// A prefix payload has nothing for --spec to check it against.
+	prefix := webuiPayload(t, &protocol.AuthCommand{Kind: protocol.AuthCommandPrefix, Prefix: &protocol.AuthPrefix{
+		Method: protocol.MethodExec, Target: "systemctl restart ",
+	}})
+	_, _, err = runCLI(t, "sign", "--payload", prefix, "--spec", encoded, "--key", keyPath, "--yes")
+	if err == nil || !strings.Contains(err.Error(), "only for a payload whose command limit is a spec") {
+		t.Fatalf("--spec for a prefix payload = %v", err)
+	}
+
+	// Content files are hashed and matched against the spec's input reference.
+	content := []byte("worker_processes 4;\n")
+	writeSpec := &protocol.TaskSpec{Kind: protocol.TaskSpecFileWrite, FileWrite: &protocol.FileWriteSpec{
+		Path:      "/etc/nginx/nginx.conf",
+		Content:   protocol.InputRef{Size: protocol.Uint(len(content)), SHA256: protocol.Hash(sha256.Sum256(content))},
+		Overwrite: true,
+		Mode:      0o644,
+	}}
+	writePayload := webuiPayload(t, protocol.SpecCommand(mustSpecHash(t, writeSpec)))
+	path := filepath.Join(t.TempDir(), "nginx.conf")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err = runCLI(t, "sign", "--payload", writePayload, "--spec", encodeSpec(t, writeSpec),
+		"--content", path, "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("sign --content: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(stderr, "matches the spec's content") {
+		t.Fatalf("stderr does not report the match:\n%s", stderr)
+	}
+
+	// A file with other bytes is refused before signing.
+	otherPath := filepath.Join(t.TempDir(), "other.conf")
+	if err := os.WriteFile(otherPath, []byte("worker_processes 8;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = runCLI(t, "sign", "--payload", writePayload, "--spec", encodeSpec(t, writeSpec),
+		"--content", otherPath, "--key", keyPath, "--yes")
+	if err == nil || !strings.Contains(err.Error(), "does not match the spec's content") {
+		t.Fatalf("mismatching --content = %v", err)
+	}
+
+	// --content without --spec has nothing to match against.
+	anyPayload := webuiPayload(t, nil)
+	_, _, err = runCLI(t, "sign", "--payload", anyPayload, "--content", path, "--key", keyPath, "--yes")
+	if err == nil || !strings.Contains(err.Error(), "--content needs --spec") {
+		t.Fatalf("--content without --spec = %v", err)
+	}
+}
+
+// TestSignPrefixWarning covers the trailing-slash warning of a file prefix: a prefix that does not
+// end in "/" also matches sibling paths, and the signed prefix is unchanged.
+func TestSignPrefixWarning(t *testing.T) {
+	keyPath, _ := generateSSHKey(t)
+	useSSHKeygen(t, "ssh-keygen")
+
+	payload := webuiPayload(t, &protocol.AuthCommand{Kind: protocol.AuthCommandPrefix, Prefix: &protocol.AuthPrefix{
+		Method: protocol.MethodFileWrite, Target: "/etc/nginx",
+	}})
+	_, stderr, err := runCLI(t, "sign", "--payload", payload, "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	for _, want := range []string{"warning: --prefix", "also matches sibling paths", "/etc/nginx-evil", `end it with "/"`} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr has no %q:\n%s", want, stderr)
+		}
+	}
+
+	// A prefix that already ends at a directory boundary needs no warning, and an exec prefix is
+	// judged by its word boundary instead.
+	clean := webuiPayload(t, &protocol.AuthCommand{Kind: protocol.AuthCommandPrefix, Prefix: &protocol.AuthPrefix{
+		Method: protocol.MethodFileWrite, Target: "/etc/nginx/",
+	}})
+	if _, stderr, err = runCLI(t, "sign", "--payload", clean, "--key", keyPath, "--yes"); err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+	if strings.Contains(stderr, "also matches sibling paths") {
+		t.Fatalf("a directory-boundary prefix was warned about:\n%s", stderr)
+	}
+
+	// `crhu grant --prefix` carries the same warning for a file method.
+	stdout, stderr, err := runCLI(t, "grant", "--nodes", testNodeA, "--method", "file.write",
+		"--prefix", "/etc/nginx", "--deadline", "1h", "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("grant: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(stderr, "also matches sibling paths") {
+		t.Fatalf("grant stderr has no file-prefix warning:\n%s", stderr)
+	}
+	if _, err := protocol.DecodeAuthorizationPayload(decodeAuthorization(t, stdout).Payload); err != nil {
+		t.Fatal(err)
 	}
 }
 

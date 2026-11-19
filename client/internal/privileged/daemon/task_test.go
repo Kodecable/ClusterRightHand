@@ -55,7 +55,7 @@ func TestExactExecRuns(t *testing.T) {
 	client := dialForward(t, env.paths.Socket)
 
 	ts := execTask("exec-1", 1, "/bin/echo", "ok")
-	payload := payloadFor("exec-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("exec-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := client.start(requestContext(t), ts); err != nil {
 		t.Fatalf("task.start: %v", err)
@@ -84,7 +84,7 @@ func TestExactFileWriteRuns(t *testing.T) {
 
 	path := filepath.Join(env.paths.Dir, "written")
 	ts := fileWriteTask("write-1", 1, path)
-	payload := payloadFor("write-1", 1, exactCommandFor(t, protocol.MethodFileWrite, &ts.Spec), nil)
+	payload := payloadFor("write-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := client.start(requestContext(t), ts); err != nil {
 		t.Fatalf("task.start: %v", err)
@@ -108,7 +108,7 @@ func TestReplayRefused(t *testing.T) {
 	client := dialForward(t, env.paths.Socket)
 
 	ts := execTask("replay-1", 1, "/bin/echo", "once")
-	payload := payloadFor("replay-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("replay-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	ctx := requestContext(t)
 	if err := client.start(ctx, ts); err != nil {
@@ -129,7 +129,7 @@ func TestExpiredRefused(t *testing.T) {
 
 	ts := execTask("expired-1", 1, "/bin/echo", "late")
 	past := time.Now().Add(-time.Hour)
-	payload := payloadFor("expired-1", 1, exactCommand(t, &ts.Spec), &past)
+	payload := payloadFor("expired-1", 1, specCommand(t, &ts.Spec), &past)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	err := client.start(requestContext(t), ts)
 	remote := expectRemoteCode(t, err, "authorization_expired")
@@ -153,7 +153,7 @@ func TestStagingFailureKeepsTaskIDUnused(t *testing.T) {
 
 	huge := execTask("staging-1", 1, "/bin/true")
 	huge.Spec.Exec.Stdin = &protocol.InputRef{Size: protocol.Uint(1<<53 - 1), SHA256: protocol.Hash{}}
-	payload := payloadFor("staging-1", 1, exactCommand(t, &huge.Spec), nil)
+	payload := payloadFor("staging-1", 1, specCommand(t, &huge.Spec), nil)
 	huge.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	remote := expectRemoteCode(t, client.start(ctx, huge), protocol.CodeInputTooLarge)
 	if remote.Message == "" {
@@ -167,7 +167,7 @@ func TestStagingFailureKeepsTaskIDUnused(t *testing.T) {
 	// The id was not used: a retry with a higher attempt starts a normal task instead of
 	// being refused as already_accepted.
 	retry := execTask("staging-1", 2, "/bin/echo", "retried")
-	payload = payloadFor("staging-1", 2, exactCommand(t, &retry.Spec), nil)
+	payload = payloadFor("staging-1", 2, specCommand(t, &retry.Spec), nil)
 	retry.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := client.start(ctx, retry); err != nil {
 		t.Fatalf("retry task.start: %v", err)
@@ -187,7 +187,7 @@ func TestWrongAttemptRefused(t *testing.T) {
 	client := dialForward(t, env.paths.Socket)
 
 	ts := execTask("attempt-1", 1, "/bin/echo", "x")
-	payload := payloadFor("attempt-1", 2, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("attempt-1", 2, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	expectRemoteCode(t, client.start(requestContext(t), ts), "authorization_invalid")
 }
@@ -203,13 +203,13 @@ func TestUserOnlyTrust(t *testing.T) {
 
 	// A crhs signature on a node that does not trust crhs is ignored entirely.
 	ts := execTask("user-1", 1, "/bin/echo", "crhs")
-	payload := payloadFor("user-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("user-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	expectRemoteCode(t, client.start(ctx, ts), "authorization_invalid")
 
 	// The user's own signature works.
 	ts = execTask("user-2", 1, "/bin/echo", "user")
-	payload = payloadFor("user-2", 1, exactCommand(t, &ts.Spec), nil)
+	payload = payloadFor("user-2", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.user)}
 	if err := client.start(ctx, ts); err != nil {
 		t.Fatalf("user task.start: %v", err)
@@ -231,12 +231,12 @@ func TestRequireCosign(t *testing.T) {
 	ctx := requestContext(t)
 
 	ts := execTask("cosign-1", 1, "/bin/echo", "no-cosign")
-	payload := payloadFor("cosign-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("cosign-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.user)}
 	expectRemoteCode(t, client.start(ctx, ts), "authorization_rejected")
 
 	ts = execTask("cosign-2", 1, "/bin/echo", "cosigned")
-	payload = payloadFor("cosign-2", 1, exactCommand(t, &ts.Spec), nil)
+	payload = payloadFor("cosign-2", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.user, keys.crhs)}
 	if err := client.start(ctx, ts); err != nil {
 		t.Fatalf("cosigned task.start: %v", err)
@@ -258,7 +258,7 @@ func TestNoDeadlineRefused(t *testing.T) {
 	client := dialForward(t, env.paths.Socket)
 
 	ts := execTask("no-deadline-1", 1, "/bin/echo", "late")
-	payload := payloadFor("no-deadline-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("no-deadline-1", 1, specCommand(t, &ts.Spec), nil)
 	payload.DeadlineMS = nil
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	remote := expectRemoteCode(t, client.start(requestContext(t), ts), "authorization_expired")
@@ -329,7 +329,7 @@ func TestUsedPersistsAcrossRestart(t *testing.T) {
 	ctx := requestContext(t)
 
 	ts := execTask("used-1", 1, "/bin/echo", "used")
-	payload := payloadFor("used-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("used-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := client.start(ctx, ts); err != nil {
 		t.Fatalf("task.start: %v", err)
@@ -433,7 +433,7 @@ func TestTaskInput(t *testing.T) {
 	sum := sha256.Sum256(data)
 	ts := execTask("input-1", 1, "/bin/cat")
 	ts.Spec.Exec.Stdin = &protocol.InputRef{Size: protocol.Uint(len(data)), SHA256: protocol.Hash(sum)}
-	payload := payloadFor("input-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("input-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := client.start(ctx, ts); err != nil {
 		t.Fatalf("task.start: %v", err)
@@ -465,7 +465,7 @@ func TestTaskCancel(t *testing.T) {
 	ctx := requestContext(t)
 
 	ts := execTask("cancel-1", 1, "/bin/sleep", "30")
-	payload := payloadFor("cancel-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("cancel-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := client.start(ctx, ts); err != nil {
 		t.Fatalf("task.start: %v", err)
@@ -487,7 +487,7 @@ func TestTaskTimeout(t *testing.T) {
 
 	ts := execTask("timeout-1", 1, "/bin/sleep", "30")
 	ts.TimeoutMS = 200
-	payload := payloadFor("timeout-1", 1, exactCommand(t, &ts.Spec), nil)
+	payload := payloadFor("timeout-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 	if err := client.start(requestContext(t), ts); err != nil {
 		t.Fatalf("task.start: %v", err)
@@ -525,7 +525,7 @@ func TestFinishedTasksLeaveConnection(t *testing.T) {
 		id := fmt.Sprintf("finished-%d", i)
 		lastID = id
 		ts := execTask(id, 1, "/bin/true")
-		payload := payloadFor(id, 1, exactCommand(t, &ts.Spec), nil)
+		payload := payloadFor(id, 1, specCommand(t, &ts.Spec), nil)
 		ts.Authorizations = [][]byte{authorize(t, payload, keys.crhs)}
 		if err := client.start(ctx, ts); err != nil {
 			t.Fatalf("task.start %s: %v", id, err)

@@ -22,7 +22,7 @@ import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { trustDigest } from "../src/cluster/trust.ts";
 import { bindMasterKey, MasterKey } from "../src/keys/master-key.ts";
 import { type AuthorizationSigningKey, loadAuthorizationSigningKey } from "../src/privilege/key.ts";
-import { buildAuthorization, specSha256 } from "../src/privilege/payload.ts";
+import { buildAuthorization, specBytes, specSha256 } from "../src/privilege/payload.ts";
 import { planAuthorization } from "../src/privilege/planner.ts";
 import { signSshsig } from "../src/privilege/sshsig.ts";
 import { signaturesToJson } from "../src/privilege/submission.ts";
@@ -184,7 +184,7 @@ describe("authorization paths and the task queue", () => {
 		role,
 		key: { kind: "sshsig", publicKey: `ssh-ed25519 AAAA${name}`, fingerprint: `SHA256:${name}` },
 		kinds: ["execute"],
-		requireExact: false,
+		requireSpec: false,
 		requireTask: false,
 		requireUv: false,
 		maxTtlMs: null,
@@ -207,7 +207,7 @@ describe("authorization paths and the task queue", () => {
 		sshEntry("crhs", "crhs", {
 			key: { kind: "sshsig", publicKey: signing.authorizedKey, fingerprint: signing.fingerprint },
 			kinds: ["execute", "cosign"],
-			requireExact: true,
+			requireSpec: true,
 			maxTtlMs: 5 * 60 * 1000,
 			allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
 		});
@@ -223,7 +223,7 @@ describe("authorization paths and the task queue", () => {
 		const deadlineMs = Date.now() + HOUR;
 		const built = buildAuthorization({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now(),
 			deadlineMs,
 			taskIds: [taskId],
@@ -630,7 +630,7 @@ describe("authorization paths and the task queue", () => {
 		// sync keeps it): its timer replaces it half a second before its deadline.
 		const short = buildAuthorization({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now(),
 			deadlineMs: Date.now() + 2_000,
 			taskIds: [task.id],
@@ -649,6 +649,7 @@ describe("authorization paths and the task queue", () => {
 									...option,
 									payload: {
 										payload: Buffer.from(short.bytes).toString("base64"),
+										spec: Buffer.from(specBytes(EXEC)).toString("base64"),
 										id: short.id,
 										deadline: new Date(short.payload.deadlineMs as number).toISOString(),
 										taskIds: [task.id],
@@ -680,7 +681,7 @@ describe("authorization paths and the task queue", () => {
 		// A payload that came due while no timer ran (crhs was down) is replaced by the sweep.
 		const stale = buildAuthorization({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now() - 10_000,
 			deadlineMs: Date.now() - 1_000,
 			taskIds: [task.id],
@@ -695,6 +696,7 @@ describe("authorization paths and the task queue", () => {
 						...option,
 						payload: {
 							payload: Buffer.from(stale.bytes).toString("base64"),
+							spec: Buffer.from(specBytes(EXEC)).toString("base64"),
 							id: stale.id,
 							deadline: new Date(Date.now() - 1_000).toISOString(),
 							taskIds: [task.id],

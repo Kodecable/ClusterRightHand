@@ -29,7 +29,7 @@ function entry(
 		role,
 		key,
 		kinds: ["execute"],
-		requireExact: false,
+		requireSpec: false,
 		requireTask: false,
 		requireUv: false,
 		maxTtlMs: null,

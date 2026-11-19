@@ -46,7 +46,7 @@ func newApproveCmd() *cobra.Command {
 
 While the window is open, a privileged task authorized by crhs's own signature runs on this
 node without the limits of the node's crhs trust entry: no guard rules, environment
-allowlist, require_exact, max_ttl or execute-kind requirement apply. crhs effectively holds
+allowlist, require_spec, max_ttl or execute-kind requirement apply. crhs effectively holds
 the privileged identity on this node, including the ability to change the trust
 configuration, so open the window only when you mean that.
 

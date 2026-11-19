@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
@@ -20,8 +22,7 @@ type grantOptions struct {
 	nodes      []string
 	method     string
 	anyCommand bool
-	exact      string
-	specSHA256 string
+	spec       string
 	prefix     string
 	deadline   string
 	tasks      []string
@@ -37,9 +38,15 @@ func newGrantCmd() *cobra.Command {
 		Short: "Build and sign an offline authorization",
 		Long: `Build an authorization, sign it with an SSH key and print it as base64.
 
---nodes gives the node or node group UUIDs the authorization is for, --method with --exact or
---prefix restricts what it allows, --deadline (required) bounds how long it can be used, and --task
-makes it one-shot. Every authorization carries a deadline.
+--nodes gives the node or node group UUIDs the authorization is for. Exactly one command limit
+restricts what it allows: --spec binds one complete task spec by its hash (the method is derived
+from the spec), and --method with --prefix binds a method and a target prefix; --any-command leaves
+it unrestricted. --deadline (required) bounds how long it can be used, and --task makes it
+one-shot. Every authorization carries a deadline.
+
+--spec is standard base64 of the canonical CBOR TaskSpec that the payload's spec_sha256 hashes
+(the encoding SpecSHA256 uses, with a file transfer's id stripped); --spec - reads it from standard
+input. The spec, its rendered method and target, and the resulting hash are shown before signing.
 
 The payload is shown and confirmed before signing. crhu runs
 "ssh-keygen -Y sign -n crh-auth-v1" with the payload on stdin and never reads the private key
@@ -52,17 +59,15 @@ the WebUI accepts (POST /api/authorizations).`,
 	}
 	f := cmd.Flags()
 	f.StringSliceVar(&opts.nodes, "nodes", nil, `node or node group UUIDs, or "*"`)
-	f.StringVar(&opts.method, "method", "", "exec, file.read or file.write")
+	f.StringVar(&opts.method, "method", "", "exec, file.read or file.write (with --prefix)")
 	f.BoolVar(&opts.anyCommand, "any-command", false, "do not restrict the method and target")
-	f.StringVar(&opts.exact, "exact", "", "allow exactly this target")
-	f.StringVar(&opts.specSHA256, "spec-sha256", "", "hex SHA-256 of the complete task spec (with --exact)")
+	f.StringVar(&opts.spec, "spec", "", "base64 of the canonical CBOR task spec to bind, or - for stdin")
 	f.StringVar(&opts.prefix, "prefix", "", "allow targets starting with this prefix")
 	f.StringVar(&opts.deadline, "deadline", "", "deadline (required): a duration (24h) or an RFC 3339 time")
 	f.StringArrayVar(&opts.tasks, "task", nil, "bind the authorization to a task id (repeatable)")
 	f.Uint64Var(&opts.attempt, "attempt", 0, "task attempt (default 1 with --task)")
 	f.StringVar(&opts.note, "note", "", "note shown with the authorization; it is signed")
 	opts.keys.addFlags(f, true)
-	cmd.MarkFlagsMutuallyExclusive("exact", "prefix")
 	return cmd
 }
 
@@ -72,7 +77,7 @@ func runGrant(cmd *cobra.Command, opts *grantOptions) error {
 	if err := opts.validate(); err != nil {
 		return err
 	}
-	payload, err := buildPayload(opts, time.Now())
+	payload, spec, err := buildPayload(opts, time.Now(), cmd.InOrStdin())
 	if err != nil {
 		return err
 	}
@@ -80,7 +85,7 @@ func runGrant(cmd *cobra.Command, opts *grantOptions) error {
 	if err != nil {
 		return fmt.Errorf("grant: encode the payload: %w", err)
 	}
-	return signAuthorization(cmd, &opts.keys, "grant", payload, raw)
+	return signAuthorization(cmd, &opts.keys, "grant", payload, spec, raw)
 }
 
 // validate checks the flags before anything is shown or signed.
@@ -98,18 +103,21 @@ func (o *grantOptions) validate() error {
 		if o.method != "" {
 			return errors.New("grant: --any-command and --method cannot be combined")
 		}
-	case o.method == "":
-		return errors.New("grant: --method is required unless --any-command is given")
-	case o.exact == "" && o.prefix == "":
-		return errors.New("grant: --method needs --exact or --prefix")
-	}
-	switch {
-	case o.exact != "" && o.specSHA256 == "":
-		return errors.New("grant: --exact requires --spec-sha256")
-	case o.specSHA256 != "" && o.exact == "":
-		return errors.New("grant: --spec-sha256 requires --exact")
-	case o.anyCommand && (o.exact != "" || o.prefix != "" || o.specSHA256 != ""):
-		return errors.New("grant: --any-command cannot be combined with --exact, --prefix or --spec-sha256")
+		if o.spec != "" || o.prefix != "" {
+			return errors.New("grant: --any-command cannot be combined with --spec or --prefix")
+		}
+	case o.spec != "" && o.prefix != "":
+		return errors.New("grant: --spec and --prefix cannot be combined")
+	case o.spec != "":
+		if o.method != "" {
+			return errors.New("grant: --spec derives the method from the spec; --method is only for --prefix")
+		}
+	case o.prefix != "":
+		if o.method == "" {
+			return errors.New("grant: --prefix needs --method")
+		}
+	default:
+		return errors.New("grant: one of --any-command, --spec or --prefix is required")
 	}
 	if len(o.tasks) > 0 {
 		if err := checkOneShotNodes(o.nodes, o.tasks); err != nil {
@@ -136,11 +144,12 @@ func checkOneShotNodes(nodes, tasks []string) error {
 	return nil
 }
 
-// buildPayload constructs an authorization payload from the flags. It is issued now.
-func buildPayload(opts *grantOptions, now time.Time) (*protocol.AuthorizationPayload, error) {
+// buildPayload constructs an authorization payload from the flags. It is issued now. The spec a
+// `--spec` command binds is returned with it, for the confirmation display.
+func buildPayload(opts *grantOptions, now time.Time, stdin io.Reader) (*protocol.AuthorizationPayload, *protocol.TaskSpec, error) {
 	nodes, err := grantNodes(opts.nodes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	payload := &protocol.AuthorizationPayload{
 		V:          protocol.AuthPayloadVersion,
@@ -148,34 +157,38 @@ func buildPayload(opts *grantOptions, now time.Time) (*protocol.AuthorizationPay
 		IssuedAtMS: protocol.Int(now.UnixMilli()),
 		Note:       opts.note,
 	}
-	if !opts.anyCommand {
+	var boundSpec *protocol.TaskSpec
+	switch {
+	case opts.spec != "":
+		spec, err := readSpec(opts.spec, stdin)
+		if err != nil {
+			return nil, nil, fmt.Errorf("grant: %w", err)
+		}
+		// The rendered method and target are what a guard rule matches, so a spec the node cannot
+		// render is one no authorization should bind.
+		if _, _, err := authz.Target(spec); err != nil {
+			return nil, nil, fmt.Errorf("grant: --spec: %w", err)
+		}
+		hash, err := protocol.SpecSHA256(spec)
+		if err != nil {
+			return nil, nil, fmt.Errorf("grant: --spec: %w", err)
+		}
+		payload.Command = protocol.SpecCommand(hash)
+		boundSpec = spec
+	case opts.prefix != "":
 		method, err := grantMethod(opts.method)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		command := &protocol.AuthCommand{Method: method}
-		switch {
-		case opts.exact != "":
-			hash, err := parseSpecSHA256(opts.specSHA256)
-			if err != nil {
-				return nil, err
-			}
-			command.Match = protocol.AuthMatch{
-				Kind:  protocol.AuthMatchExact,
-				Exact: &protocol.AuthExact{Target: opts.exact, SpecSHA256: protocol.Hash(hash)},
-			}
-		case opts.prefix != "":
-			command.Match = protocol.AuthMatch{
-				Kind:   protocol.AuthMatchPrefix,
-				Prefix: &protocol.AuthPrefix{Target: opts.prefix},
-			}
-		}
-		payload.Command = command
+		payload.Command = &protocol.AuthCommand{Kind: protocol.AuthCommandPrefix, Prefix: &protocol.AuthPrefix{
+			Method: method,
+			Target: opts.prefix,
+		}}
 	}
 	if opts.deadline != "" {
 		deadline, err := parseDeadline(opts.deadline, now)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		ms := protocol.Int(deadline.UnixMilli())
 		payload.DeadlineMS = &ms
@@ -189,7 +202,7 @@ func buildPayload(opts *grantOptions, now time.Time) (*protocol.AuthorizationPay
 		value := protocol.Uint(attempt)
 		payload.TaskIDs, payload.Attempt = &tasks, &value
 	}
-	return payload, nil
+	return payload, boundSpec, nil
 }
 
 // grantNodes validates the --nodes the authorization is addressed to: node or node group UUIDs, or
@@ -231,17 +244,6 @@ func grantMethod(name string) (protocol.Method, error) {
 	}
 }
 
-// parseSpecSHA256 parses the hex spec hash of an exact authorization.
-func parseSpecSHA256(text string) ([32]byte, error) {
-	var hash [32]byte
-	raw, err := hex.DecodeString(text)
-	if err != nil || len(raw) != len(hash) {
-		return hash, fmt.Errorf("grant: --spec-sha256 %q is not 32 bytes of hex", text)
-	}
-	copy(hash[:], raw)
-	return hash, nil
-}
-
 // parseDeadline parses --deadline: a positive duration from now, or an RFC 3339 time in the
 // future.
 func parseDeadline(text string, now time.Time) (time.Time, error) {
@@ -261,25 +263,38 @@ func parseDeadline(text string, now time.Time) (time.Time, error) {
 	return deadline, nil
 }
 
-// prefixWarning explains that a prefix is matched by characters, not words: when it does not end
-// at a word boundary it also allows longer targets. Matching itself is unchanged.
-func prefixWarning(payload *protocol.AuthorizationPayload) string {
-	command := payload.Command
-	if command == nil || command.Match.Kind != protocol.AuthMatchPrefix || command.Match.Prefix == nil {
+// prefixWarning explains that a prefix is matched by characters, not path components or words: a
+// file prefix that does not end in "/" also allows sibling paths, and an exec prefix that does not
+// end in a space also allows longer arguments. Matching itself is unchanged.
+func prefixWarning(command *protocol.AuthCommand) string {
+	if command == nil || command.Kind != protocol.AuthCommandPrefix || command.Prefix == nil {
 		return ""
 	}
-	prefix := command.Match.Prefix.Target
-	if strings.HasSuffix(prefix, " ") || strings.HasSuffix(prefix, "/") {
+	prefix := command.Prefix.Target
+	switch command.Prefix.Method {
+	case protocol.MethodExec:
+		if strings.HasSuffix(prefix, " ") {
+			return ""
+		}
+		return fmt.Sprintf("warning: --prefix %q also matches longer words, for example %q; end it with a space if longer matches are not intended",
+			prefix, prefix+"-evil")
+	case protocol.MethodFileRead, protocol.MethodFileWrite:
+		if strings.HasSuffix(prefix, "/") {
+			return ""
+		}
+		return fmt.Sprintf("warning: --prefix %q also matches sibling paths, for example %q; end it with \"/\" to keep it to one directory",
+			prefix, prefix+"-evil")
+	default:
 		return ""
 	}
-	return fmt.Sprintf("warning: --prefix %q also matches longer words, for example %q; end it with a space if longer matches are not intended",
-		prefix, prefix+"-evil")
 }
 
-// grantView is the human-readable form of a payload: what the user confirms before signing.
+// grantView is the human-readable form of a payload and, when the signer has it, the spec a `spec`
+// command binds: what the user confirms before signing.
 type grantView struct {
 	Nodes           []string      `json:"nodes"`
 	Command         *grantCommand `json:"command"`
+	Spec            *specView     `json:"spec,omitempty"`
 	IssuedAt        string        `json:"issued_at"`
 	IssuedAtMS      int64         `json:"issued_at_ms"`
 	Deadline        *string       `json:"deadline"`
@@ -290,17 +305,19 @@ type grantView struct {
 	AuthorizationID string        `json:"authorization_id"`
 }
 
-// grantCommand is the command restriction of a payload as shown to the user.
+// grantCommand is the command restriction of a payload as shown to the user. A spec command
+// derives its method and target from the spec the signer supplies.
 type grantCommand struct {
-	Method     string `json:"method"`
+	Method     string `json:"method,omitempty"`
 	Match      string `json:"match"`
-	Target     string `json:"target"`
+	Target     string `json:"target,omitempty"`
 	SpecSHA256 string `json:"spec_sha256,omitempty"`
 }
 
 // grantViewFor renders a payload for confirmation. Times are RFC 3339 with milliseconds; the
-// raw millisecond values are repeated for exact comparison.
-func grantViewFor(payload *protocol.AuthorizationPayload, raw []byte) grantView {
+// raw millisecond values are repeated for exact comparison. spec is the complete task spec a
+// `spec` command binds, when the signer supplied it.
+func grantViewFor(payload *protocol.AuthorizationPayload, spec *protocol.TaskSpec, raw []byte) (grantView, error) {
 	id := protocol.AuthorizationID(raw)
 	view := grantView{
 		Nodes:           append([]string{}, payload.Nodes...),
@@ -309,18 +326,31 @@ func grantViewFor(payload *protocol.AuthorizationPayload, raw []byte) grantView 
 		Note:            payload.Note,
 		AuthorizationID: hex.EncodeToString(id[:]),
 	}
+	if spec != nil {
+		shown, err := specViewFor(spec)
+		if err != nil {
+			return grantView{}, fmt.Errorf("show the spec: %w", err)
+		}
+		view.Spec = shown
+	}
 	if command := payload.Command; command != nil {
-		shown := &grantCommand{Method: string(command.Method)}
-		switch match := command.Match; match.Kind {
-		case protocol.AuthMatchExact:
-			if match.Exact != nil {
-				shown.Match, shown.Target = "exact", match.Exact.Target
-				shown.SpecSHA256 = hex.EncodeToString(match.Exact.SpecSHA256[:])
+		shown := &grantCommand{Match: string(command.Kind)}
+		switch command.Kind {
+		case protocol.AuthCommandSpec:
+			if command.Spec == nil {
+				return grantView{}, errors.New("the payload has a spec command with no hash")
 			}
-		case protocol.AuthMatchPrefix:
-			if match.Prefix != nil {
-				shown.Match, shown.Target = "prefix", match.Prefix.Target
+			shown.SpecSHA256 = hex.EncodeToString(command.Spec[:])
+			if view.Spec != nil {
+				shown.Method, shown.Target = view.Spec.Method, view.Spec.Target
 			}
+		case protocol.AuthCommandPrefix:
+			if command.Prefix == nil {
+				return grantView{}, errors.New("the payload has a prefix command with no target")
+			}
+			shown.Method, shown.Target = string(command.Prefix.Method), command.Prefix.Target
+		default:
+			return grantView{}, fmt.Errorf("the payload has an unknown command limit %q", string(command.Kind))
 		}
 		view.Command = shown
 	}
@@ -336,7 +366,7 @@ func grantViewFor(payload *protocol.AuthorizationPayload, raw []byte) grantView 
 		attempt := uint64(*payload.Attempt)
 		view.Attempt = &attempt
 	}
-	return view
+	return view, nil
 }
 
 // formatMillis renders a Unix millisecond timestamp as RFC 3339 with milliseconds.
@@ -344,18 +374,22 @@ func formatMillis(ms int64) string {
 	return time.UnixMilli(ms).Format("2006-01-02T15:04:05.000Z07:00")
 }
 
-// signAuthorization shows a payload, selects the signing key, confirms and prints the signed
-// authorization as the one base64 line the WebUI accepts.
-func signAuthorization(cmd *cobra.Command, keys *keyChoice, command string, payload *protocol.AuthorizationPayload, raw []byte) error {
+// signAuthorization shows a payload (and the spec it binds), selects the signing key, confirms and
+// prints the signed authorization as the one base64 line the WebUI accepts.
+func signAuthorization(cmd *cobra.Command, keys *keyChoice, command string, payload *protocol.AuthorizationPayload, spec *protocol.TaskSpec, raw []byte) error {
 	stdout, stderr := cmd.OutOrStdout(), cmd.ErrOrStderr()
-	if warning := prefixWarning(payload); warning != "" {
+	if warning := prefixWarning(payload.Command); warning != "" {
 		fmt.Fprintln(stderr, warning)
 	}
-	view, err := json.MarshalIndent(grantViewFor(payload, raw), "", "  ")
+	view, err := grantViewFor(payload, spec, raw)
+	if err != nil {
+		return fmt.Errorf("%s: %w", command, err)
+	}
+	shown, err := json.MarshalIndent(view, "", "  ")
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "%s\n", view)
+	fmt.Fprintf(stderr, "%s\n", shown)
 
 	candidate, err := keys.signer(command)
 	if err != nil {

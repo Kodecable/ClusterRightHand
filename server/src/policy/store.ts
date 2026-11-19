@@ -1,5 +1,6 @@
 import type { RuleRef as ApiRuleRef, StoredRuleSet as ApiStoredRuleSet } from "@crh/api";
 import type { Db } from "../storage/db.ts";
+import { isPostgres } from "../storage/dialect.ts";
 import type { RuleScopeType, RuleSetsTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
@@ -26,13 +27,22 @@ export function parseRulePreset(raw: unknown): RulePreset {
 	return raw as RulePreset;
 }
 
-export async function getRuleSet(db: Db, ref: RuleRef): Promise<StoredRuleSet | undefined> {
-	const row = await db
+/**
+ * Reads a rule set. `forUpdate` takes the row lock a read-modify-write needs on PostgreSQL; it is never set on
+ * SQLite, which has no such syntax and serializes its writers anyway.
+ */
+export async function getRuleSet(
+	db: Db,
+	ref: RuleRef,
+	options: { forUpdate?: boolean } = {},
+): Promise<StoredRuleSet | undefined> {
+	let query = db
 		.selectFrom("rule_sets")
 		.selectAll()
 		.where("scope_type", "=", ref.type as RuleScopeType)
-		.where("scope_id", "=", ref.id)
-		.executeTakeFirst();
+		.where("scope_id", "=", ref.id);
+	if (options.forUpdate === true) query = query.forUpdate();
+	const row = await query.executeTakeFirst();
 	return row ? fromRow(row) : undefined;
 }
 
@@ -106,7 +116,10 @@ export async function setRules(db: Db, ref: RuleRef, rules: Rule[]): Promise<voi
 /** "Always allow": appends a rule, inside a transaction so concurrent appends are not lost. */
 export async function appendRule(db: Db, ref: RuleRef, rule: Rule): Promise<void> {
 	await db.transaction().execute(async (trx) => {
-		const current = await getRuleSet(trx, ref);
+		// PostgreSQL needs the row lock: two concurrent appends would otherwise both read the same list and the
+		// second write would drop the first's rule. SQLite has no FOR UPDATE, and its transactions serialize
+		// writers already.
+		const current = await getRuleSet(trx, ref, { forUpdate: isPostgres(trx) });
 		if (!current) throw new NotFoundError("no such rule set");
 		await setRules(trx, ref, [...current.rules, rule]);
 	});

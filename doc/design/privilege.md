@@ -96,7 +96,14 @@ Every task has one method and one normalized target, which authorizations and gu
   is no weaker fallback. Hard links and bind mounts are not prevented, so a directory a rule allows
   should be writable only by the target identity.
 - Reads and edits accept regular files only, so opening a device or FIFO has no side effect.
-- A `prefix` authorization and guard rules do not constrain file mode or owner; use `exact` for that.
+- A file task's `mode` is the nine permission bits only. Setuid, setgid and sticky are refused, and
+  overwriting or editing such a file clears them; changing them needs an `exec chmod` under a `spec`
+  authorization. A `prefix` grant lets crhs choose the content, the mode bits and the owner of a new
+  file under the prefix, so keep prefixes narrow and end a file prefix with `/`.
+- A Passkey or FIDO key signs in the WebUI, which crhs serves: that path cannot let the signer check
+  the spec independently, and a compromised crhs could show one spec and ask for another. `crhu` with
+  an SSH key can: it decodes the spec the payload binds, recomputes its hash and shows every field
+  before signing ([Signing methods](#signing-methods)).
 
 ## Authorizations
 
@@ -106,9 +113,10 @@ cosignature, cover the same payload, so signers can never disagree about what th
 encoding is in [Authorization object](protocol.md#authorization-object).
 
 While a task waits, its stored authorization record holds the planner's options: each `sign` option
-carries the exact payload bytes to sign, so the same bytes survive a crhs restart and stay as they are
-while they still ask for the same thing ([The planner](#the-planner)). The payload itself is served only to the task's owner; every other task view shows the
-options without the bytes.
+carries the exact payload bytes to sign and the complete task spec they bind, so the same bytes survive
+a crhs restart and stay as they are while they still ask for the same thing
+([The planner](#the-planner)). Both are served only to the task's owner; every other task view shows the
+options without them.
 
 - **Deadline.** Every authorization must have one. A node refuses one without a deadline, crhs refuses
   to store it, and crhu refuses to sign it, because there is no revocation: an authorization
@@ -117,12 +125,13 @@ options without the bytes.
 - **Nodes.** Node UUIDs, node group UUIDs, or `*` (every node that trusts the signer). Names are
   resolved before signing, so renaming does not affect issued authorizations. A node accepts an
   authorization that names its own id or one of its [trust aliases](#trust-aliases).
-- **Command limit.** `exact` binds the method, the target and the hash of the complete task spec,
-  including environment, working directory, input and file content. A file plane transfer's endpoint
-  (which data connection crhs accepts) is routing and is left out, so one group authorization covers
-  members with different transfer ids. Approving "write `/etc/nginx/nginx.conf`" therefore approves that
-  content. `prefix` binds only the method and a target prefix, not input or content. No limit means any
-  command.
+- **Command limit.** `spec` binds one complete task spec by its `spec_sha256`, the hash of the
+  canonical CBOR spec, so the method, target, environment, working directory, input content, mode and
+  owner are all covered. The method and target follow from the spec, so the command carries only the
+  hash; the signer supplies the spec and checks the hash with `crhu --spec`. A file plane transfer's
+  endpoint (which data connection crhs accepts) is routing and is left out, so one group authorization
+  covers members with different transfer ids. `prefix` binds only the method and a target prefix, not
+  input, content, mode or owner. No limit means any command.
 - **One-shot or reusable.** A one-shot authorization lists task ids and an attempt number and is valid
   only for those tasks; a reusable one is valid for any matching task until its deadline. Scheduled
   tasks and authorizations pre-signed with `crhu grant` rely on reuse. crhs authorizations, all
@@ -163,6 +172,11 @@ SSHSIG was chosen because users already have SSH keys and agents, `ssh-keygen` h
 agents and FIDO touch, and any authorization can be checked by hand with `ssh-keygen -Y verify`.
 crhu never reads the private key.
 
+A `spec` command limit carries only the hash, so `crhu sign` takes the spec as `--spec` (base64 of the
+canonical CBOR spec, or `--spec -` for a large one): it recomputes the hash, refuses a mismatch, and
+shows every field, the method and target the node would match included. `--content` hashes a local file
+and matches it against the spec's input, so the signer checks the bytes as well as the spec.
+
 Registering an SSH credential proves possession: crhs issues a short-lived, single-use challenge in
 the separate `crh-register-v1` namespace, and the user signs it with the key. crhs takes the public key
 from the SSHSIG itself, so a public key alone can never be registered for someone else. The challenge
@@ -200,7 +214,7 @@ crhs entry means crhs takes no part in privileged tasks. Only crhs can cosign, s
 for each other.
 
 An entry can also limit what it authorizes: guard rules, an environment allowlist, a maximum lifetime,
-`exact`-only (`require_exact`), one-shot only (`require_task`) and user verification (`require_uv`).
+`spec`-only (`require_spec`), one-shot only (`require_task`) and user verification (`require_uv`).
 A `local` entry has none of these: it only lists `uids` and a `max_window`. The other limit fields are
 configuration errors on it, because an open window waives every such limit.
 
@@ -216,7 +230,7 @@ refuses; if `allow` rules exist, one must match.
 - A `file.write` allow rule also allows reading the same paths; a `file.write` deny rule blocks only
   writes, as in crhs rules.
 - Rules constrain the target only, not input or content: allowing `exec bash` allows any script. Use
-  `exact` authorizations when content matters.
+  a `spec` authorization when content matters.
 - A task may carry only the environment variables an entry allows, and `PATH` is fixed, so variables
   like `LD_PRELOAD` cannot bypass command rules.
 - The node is the authority on regular expressions. crhs evaluates the same rules only to plan, and a
@@ -227,7 +241,7 @@ refuses; if `allow` rules exist, one must match.
 With `require-cosign`, a user's authorization runs only when crhs has also signed the same payload.
 crhs cannot run the task alone, and the user cannot bypass crhs rules. A cosignature confirms the
 object the user signed rather than authorizing on its own, so the crhs entry's other limits (guard
-rules, `require_exact`, `max_ttl`) do not apply to it.
+rules, `require_spec`, `max_ttl`) do not apply to it.
 
 ### Trust aliases
 
@@ -256,17 +270,17 @@ them.
    whole authorization. Each matching `crhs` or `user` signature is a candidate for steps 4–8; the
    first candidate that passes wins.
 4. **Body.** The authorization addresses this node, is not issued in the future, has a deadline that
-   has not passed, and respects `max_ttl` and `require_exact`, all within the clock tolerance.
+   has not passed, and respects `max_ttl` and `require_spec`, all within the clock tolerance.
 5. **One-shot.** The task has not run before and the authorization is newer than the watermark. A
    one-shot authorization lists this task with the same attempt and has not been used for it. crhs
    authorizations, cosignatures and `require_task` entries must be one-shot.
-6. **Command limit.** `exact` matches method, target and spec hash; `prefix` matches method and
+6. **Command limit.** `spec` matches the task's complete-spec hash; `prefix` matches method and
    target prefix.
 7. **Entry.** The entry can `execute`, its guard rules and environment allowlist pass, and user
    verification is present if required.
 8. **Cosignature.** If the user entry requires it, a valid crhs cosignature is present.
 
-When the local approval window is open at validation time, step 4 skips `max_ttl` and `require_exact`
+When the local approval window is open at validation time, step 4 skips `max_ttl` and `require_spec`
 for a crhs signature, and step 7 is skipped entirely: the entry does not need the `execute` kind, its
 guard rules do not apply, and its environment allowlist does not apply. The signature must still
 verify, the body checks in step 4 still apply (addresses this node, not issued in the future, deadline
@@ -313,14 +327,17 @@ signature at once. `crha approve --for` says so when it opens the window.
 
 While the window is open, a task authorized by crhs's own signature runs on this node without the
 node's other limits: no guard rules allow or deny it, the environment allowlist does not apply,
-`max_ttl` and `require_exact` do not apply, and neither does the `execute` kind of the crhs entry. This
+`max_ttl` and `require_spec` do not apply, and neither does the `execute` kind of the crhs entry. This
 is deliberate: it lets crhs repair or reconfigure the node, including writing `/etc/crha/`. It is
 equivalent to temporarily handing the privileged identity to crhs, like a sudo timestamp. The window
 closes when it expires, when `crha lock` runs, or when the privileged mode restarts; it lives in memory
 only. Opening it again replaces the current window.
 
 The window length must be positive and at most the `max_window` of the local entries that list the
-caller's uid (one hour by default). A node with no `crhs` entry cannot use a window at all: there is no
+caller's uid (one hour by default). The configuration does not keep `unprivileged_uid` out of `uids`:
+listing it lets `crha run`, and so any task crhs sends, open the window, which hands crhs the
+privileged identity whenever it asks. That is a valid choice for a node that fully trusts crhs, and it
+is the administrator's to make. A node with no `crhs` entry cannot use a window at all: there is no
 key with which to verify crhs's signature, and `crha approve --for` refuses.
 
 While the window is open, a crhs authorization still has to verify, address this node, be issued and
@@ -343,7 +360,7 @@ reports after the refusal. A window opened between the refusal and that report i
 that refused, so crhs does not sign that task again under it; opening the window once more (a new
 `openedAtMs`) lets it. Fixing it would need crha to report the window it decided under.
 
-To gate one exact task instead, use a user-signed `exact` authorization: a window is a deliberate,
+To gate one task instead, use a user-signed `spec` authorization: a window is a deliberate,
 time-limited trust decision, not a per-task approval.
 
 ## Waiting for signatures
@@ -440,8 +457,9 @@ An option is one of:
 
 - `sign`: a user-signature path — the accepting trust entries, their credential kinds, whether a
   cosignature is available or missing, and the payload's lifetime — with the exact payload bytes to
-  sign. A task group gets one shared payload covering all of its waiting members, at the highest of
-  their attempts. The bytes are stored on the task and kept while they still ask for the same thing:
+  sign and the complete task spec they bind (a task group's spec for a group), so `crhu sign --spec`
+  can check the hash. A task group gets one shared payload covering all of its waiting members, at the
+  highest of their attempts. The bytes and the spec are stored on the task and kept while they still ask for the same thing:
   the same tasks at the same attempts, accepted by the same entries, and not yet due for a refresh
   (a quarter of the payload's lifetime before its deadline, at most a minute). The owner may be
   signing them at that moment, so a pass that changes nothing writes nothing. A user entry whose
@@ -489,7 +507,7 @@ A sync pass reads the unit's waiting tasks as they are, plans them once for the 
 the one result:
 
 - **usable**: claim every usable task first, then send each `task.start` without waiting for the
-  answers. A crhs signature is a one-shot `exact` authorization with a short deadline (five minutes
+  answers. A crhs signature is a one-shot `spec` authorization with a short deadline (five minutes
   by default); a stored owner authorization is reused with a cosignature added if required, and that
   cosignature is stored with it. Tasks the result does not cover are planned by the next pass.
 - **options**: write the options on each waiting task's record. A `sign` option arms a timer that

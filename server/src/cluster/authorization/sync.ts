@@ -648,12 +648,7 @@ function clearRefresh(core: ClusterCore, unit: AuthorizationUnit): void {
 /** An authorization command with its byte hash as hex, for the audit detail. */
 function commandForAudit(command: SubmittedAuthorization["payload"]["command"]): Record<string, unknown> | null {
 	if (command === null) return null;
-	return command.match.kind === "exact"
-		? {
-				method: command.method,
-				match: "exact",
-				target: command.match.target,
-				spec_sha256: Buffer.from(command.match.specSha256).toString("hex"),
-			}
-		: { method: command.method, match: "prefix", target: command.match.target };
+	return command.kind === "spec"
+		? { match: "spec", spec_sha256: Buffer.from(command.value).toString("hex") }
+		: { method: command.method, match: "prefix", target: command.target };
 }

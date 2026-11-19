@@ -202,7 +202,7 @@ describe("user authorizations", () => {
 		role,
 		key: { kind: "sshsig", publicKey: `ssh-ed25519 AAAA${name}`, fingerprint: `SHA256:${name}` },
 		kinds: ["execute"],
-		requireExact: false,
+		requireSpec: false,
 		requireTask: false,
 		requireUv: false,
 		maxTtlMs: null,
@@ -239,7 +239,7 @@ describe("user authorizations", () => {
 		sshEntry(name, "crhs", {
 			key: { kind: "sshsig", publicKey: key.authorizedKey, fingerprint: key.fingerprint },
 			kinds: ["execute", "cosign"],
-			requireExact: true,
+			requireSpec: true,
 			maxTtlMs: 5 * 60 * 1000,
 			allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
 			...overrides,
@@ -313,10 +313,7 @@ describe("user authorizations", () => {
 		const deadlineMs = Date.now() + HOUR;
 		const built = buildAuthorization({
 			nodes: input.nodes,
-			command: input.command ?? {
-				method: "exec",
-				exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) },
-			},
+			command: input.command ?? { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now(),
 			deadlineMs,
 			taskIds: null,
@@ -358,12 +355,7 @@ describe("user authorizations", () => {
 			nodes: [node.id],
 			taskIds: [task.id],
 			attempt: 1,
-			command: {
-				method: "exec",
-				match: "exact",
-				target: "systemctl restart nginx",
-				specSha256: Buffer.from(specSha256(EXEC)).toString("hex"),
-			},
+			command: { match: "spec", specSha256: Buffer.from(specSha256(EXEC)).toString("hex") },
 		});
 		expect(pending.challenge).toBe(
 			Buffer.from(createHash("sha256").update("crh-auth-v1\0").update(payloadBytes).digest()).toString("base64url"),
@@ -508,7 +500,7 @@ describe("user authorizations", () => {
 		await db.updateTable("tasks").set({ spec: "not a task spec" }).where("id", "=", poisoned.id).execute();
 		const built = buildAuthorization({
 			nodes: [node.id, other.node.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now(),
 			deadlineMs: Date.now() + HOUR,
 			taskIds: [poisoned.id, covered.id],
@@ -530,7 +522,7 @@ describe("user authorizations", () => {
 		await db.updateTable("tasks").set({ spec: "not a task spec" }).where("id", "=", task.id).execute();
 		const built = buildAuthorization({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now(),
 			deadlineMs: Date.now() + HOUR,
 			taskIds: [task.id],
@@ -664,7 +656,7 @@ describe("user authorizations", () => {
 
 		const expired = buildAuthorization({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now() - 2 * HOUR,
 			deadlineMs: Date.now() - HOUR,
 			taskIds: [task.id],
@@ -680,7 +672,7 @@ describe("user authorizations", () => {
 		// crhs refuses an authorization whose issued_at is too far ahead of its own clock.
 		const future = buildAuthorization({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now() + HOUR,
 			deadlineMs: Date.now() + 2 * HOUR,
 			taskIds: [task.id],
@@ -697,7 +689,7 @@ describe("user authorizations", () => {
 		// could never be accepted by the node anyway.
 		const withoutDeadline = buildAuthorization({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(EXEC) } },
+			command: { specSha256: specSha256(EXEC) },
 			issuedAtMs: Date.now() - 60_000,
 			deadlineMs: null,
 			taskIds: [task.id],
@@ -984,7 +976,7 @@ describe("user authorizations", () => {
 		const stored: TaskSpec = { ...EXEC, command: { argv: ["cat"] }, stdin: stdinRef };
 		await seedReusable({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "cat", specSha256: specSha256(stored) } },
+			command: { specSha256: specSha256(stored) },
 		});
 		// The task is dispatched at once (no approval, no parking): its bytes exist only in memory here.
 		const task = await cluster.createTask({
@@ -1019,7 +1011,7 @@ describe("user authorizations", () => {
 		};
 		await seedReusable({
 			nodes: [node.id],
-			command: { method: "file.write", exact: { target: "/tmp/reuse.txt", specSha256: specSha256(stored) } },
+			command: { method: "file.write", specSha256: specSha256(stored) },
 		});
 		const task = await cluster.createTask({
 			nodeId: node.id,
@@ -1040,7 +1032,7 @@ describe("user authorizations", () => {
 		const stored: TaskSpec = { ...EXEC, command: { argv: ["cat"] }, stdin: stdinRef };
 		await seedReusable({
 			nodes: [node.id],
-			command: { method: "exec", exact: { target: "cat", specSha256: specSha256(stored) } },
+			command: { specSha256: specSha256(stored) },
 		});
 		let reject = true;
 		crha.answerStart = () => {
@@ -1503,12 +1495,7 @@ describe("user authorizations", () => {
 		expect(stored?.issuerUsername).toBe("other");
 		expect(list.items.find((entry) => entry.id === mine)?.issuerUsername).toBe("owner");
 		expect(stored).not.toHaveProperty("revokedAt");
-		expect(stored?.command).toEqual({
-			method: "exec",
-			match: "exact",
-			target: "systemctl restart nginx",
-			specSha256: Buffer.from(specSha256(EXEC)).toString("hex"),
-		});
+		expect(stored?.command).toEqual({ match: "spec", specSha256: Buffer.from(specSha256(EXEC)).toString("hex") });
 		expect(stored?.nodes).toEqual(["0192f000-0000-7000-8000-000000000002"]);
 		expect(stored?.taskIds).toBeNull();
 	});

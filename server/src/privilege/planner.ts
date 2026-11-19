@@ -137,12 +137,14 @@ export interface PlannedSignEntry {
 	canAssertUv: boolean;
 }
 
-/** A `sign` option: the exact stored payload and how the owner signs it. */
+/** A `sign` option: the exact stored payload, the complete spec it binds, and how the owner signs it. */
 export interface PlannedSignOption {
 	kind: "sign";
 	entries: PlannedSignEntry[];
 	ttlMs: number;
 	authorization: BuiltAuthorization;
+	/** The complete task spec (a task group's group spec) the payload binds; shown to the signer. */
+	spec: TaskSpec;
 }
 
 /** A `local_window` option: the owner opens a window on this one node. */
@@ -333,12 +335,13 @@ function entryAccepts(
 	return decision.result === "accepted" && decision.entry === entryName;
 }
 
-/** Builds the one-shot exact payload for one task on one node. */
+/** Builds the one-shot spec payload for one task on one node. */
 function buildTaskAuthorization(task: PlannerTask, now: number, ttlMs: number, note: string): BuiltAuthorization {
-	const { method, target } = privilegedTarget(task.spec);
+	// Render the target first: a spec the node could not match is refused here, before a payload is built.
+	privilegedTarget(task.spec);
 	return buildAuthorization({
 		nodes: [task.node.id],
-		command: { method, exact: { target, specSha256: specSha256(task.spec) } },
+		command: { specSha256: specSha256(task.spec) },
 		issuedAtMs: now,
 		deadlineMs: now + ttlMs,
 		taskIds: [task.id],
@@ -551,6 +554,9 @@ function addressesTask(stored: StoredOwnerAuthorization, task: PlannerTask): boo
 		if (!payload.nodes.some((name) => name === "*" || names.has(name))) return false;
 	}
 	if (payload.command === null) return true;
+	if (payload.command.kind === "spec") {
+		return Buffer.from(payload.command.value).equals(Buffer.from(specSha256(task.spec)));
+	}
 	let method: string;
 	let target: string;
 	try {
@@ -558,14 +564,9 @@ function addressesTask(stored: StoredOwnerAuthorization, task: PlannerTask): boo
 	} catch {
 		return false;
 	}
-	if (payload.command.method !== method) return false;
-	if (payload.command.match.kind === "exact") {
-		return (
-			payload.command.match.target === target &&
-			Buffer.from(payload.command.match.specSha256).equals(Buffer.from(specSha256(task.spec)))
-		);
-	}
-	return target.startsWith(payload.command.match.target);
+	const methodAllowed =
+		payload.command.method === method || (payload.command.method === "file.write" && method === "file.read");
+	return methodAllowed && target.startsWith(payload.command.target);
 }
 
 /**
@@ -673,13 +674,14 @@ export function buildTaskGroupAuthorization(input: {
 	ttlMs: number;
 	note?: string;
 }): BuiltAuthorization {
-	const { method, target } = privilegedTarget(input.spec);
+	// Render the target first, like buildTaskAuthorization: an unrenderable spec is refused here.
+	privilegedTarget(input.spec);
 	if (input.nodeIds.length !== input.taskIds.length) {
 		throw new Error("a one-shot authorization needs exactly one node per task id");
 	}
 	return buildAuthorization({
 		nodes: input.nodeIds,
-		command: { method, exact: { target, specSha256: specSha256(input.spec) } },
+		command: { specSha256: specSha256(input.spec) },
 		issuedAtMs: input.issuedAtMs,
 		deadlineMs: input.issuedAtMs + input.ttlMs,
 		taskIds: input.taskIds,
@@ -697,6 +699,9 @@ function planSign(input: PlannerInput, tasks: readonly PlannerTask[], now: numbe
 	// The attempt a shared one-shot payload carries: the highest one, which the caller writes on every
 	// covered task (doc/design/protocol.md "Authorization object").
 	const attempt = group ? Math.max(...tasks.map((task) => task.attempt)) : (tasks[0] as PlannerTask).attempt;
+	// The spec the payload binds: a group's group spec, or the one task's spec. It is shown to the
+	// signer, who checks the hash the payload carries against it (doc/design/privilege.md "Authorizations").
+	const boundSpec = groupSpec ?? (tasks[0] as PlannerTask).spec;
 	const buildShared = (covered: readonly PlannerTask[], ttlMs: number): BuiltAuthorization => {
 		if (groupSpec === null) return buildTaskAuthorization(tasks[0] as PlannerTask, now, ttlMs, note);
 		return buildTaskGroupAuthorization({
@@ -773,7 +778,7 @@ function planSign(input: PlannerInput, tasks: readonly PlannerTask[], now: numbe
 			}
 			if (entries.length === 0) return null;
 			const kept = keptPayload(input, next, attempt, acceptable, now);
-			return { kind: "sign", entries, ttlMs, authorization: kept ?? authorization };
+			return { kind: "sign", entries, ttlMs, authorization: kept ?? authorization, spec: boundSpec };
 		}
 		covered = next;
 		if (covered.length === 0) return null;

@@ -56,22 +56,22 @@ type jsonRule struct {
 }
 
 type jsonEntry struct {
-	Name         string     `json:"name"`
-	Role         string     `json:"role"`
-	Kinds        []string   `json:"kinds"`
-	RequireExact bool       `json:"require_exact"`
-	RequireTask  bool       `json:"require_task"`
-	RequireUV    bool       `json:"require_uv"`
-	MaxTTLMS     *int64     `json:"max_ttl_ms"`
-	Allow        []jsonRule `json:"allow"`
-	Deny         []jsonRule `json:"deny"`
-	EnvAllow     []string   `json:"env_allow"`
-	UIDs         []uint32   `json:"uids"`
+	Name        string     `json:"name"`
+	Role        string     `json:"role"`
+	Kinds       []string   `json:"kinds"`
+	RequireSpec bool       `json:"require_spec"`
+	RequireTask bool       `json:"require_task"`
+	RequireUV   bool       `json:"require_uv"`
+	MaxTTLMS    *int64     `json:"max_ttl_ms"`
+	Allow       []jsonRule `json:"allow"`
+	Deny        []jsonRule `json:"deny"`
+	EnvAllow    []string   `json:"env_allow"`
+	UIDs        []uint32   `json:"uids"`
 }
 
+// jsonAuthCommand is one command limit: a complete-spec hash, or a method and target prefix.
 type jsonAuthCommand struct {
-	Method     string  `json:"method"`
-	Exact      *string `json:"exact"`
+	Method     *string `json:"method"`
 	Prefix     *string `json:"prefix"`
 	SpecSHA256 *string `json:"spec_sha256"`
 }
@@ -237,13 +237,13 @@ func trustEntries(t *testing.T, raw []jsonEntry) []Entry {
 	entries := make([]Entry, len(raw))
 	for i, source := range raw {
 		entry := Entry{
-			Name:         source.Name,
-			Role:         protocol.TrustRole(source.Role),
-			RequireExact: source.RequireExact,
-			RequireTask:  source.RequireTask,
-			RequireUV:    source.RequireUV,
-			EnvAllow:     source.EnvAllow,
-			UIDs:         source.UIDs,
+			Name:        source.Name,
+			Role:        protocol.TrustRole(source.Role),
+			RequireSpec: source.RequireSpec,
+			RequireTask: source.RequireTask,
+			RequireUV:   source.RequireUV,
+			EnvAllow:    source.EnvAllow,
+			UIDs:        source.UIDs,
 		}
 		for _, kind := range source.Kinds {
 			entry.Kinds = append(entry.Kinds, protocol.TrustKind(kind))
@@ -272,23 +272,18 @@ func authCommand(t *testing.T, raw *jsonAuthCommand) *protocol.AuthCommand {
 	if raw == nil {
 		return nil
 	}
-	command := &protocol.AuthCommand{Method: protocol.Method(raw.Method)}
 	switch {
-	case raw.Exact != nil && raw.Prefix == nil:
-		if raw.SpecSHA256 == nil {
-			t.Fatalf("exact auth command has no spec_sha256")
-		}
-		command.Match = protocol.AuthMatch{Kind: protocol.AuthMatchExact, Exact: &protocol.AuthExact{
-			Target: *raw.Exact, SpecSHA256: mustHex32(t, *raw.SpecSHA256),
-		}}
-	case raw.Prefix != nil && raw.Exact == nil:
-		command.Match = protocol.AuthMatch{Kind: protocol.AuthMatchPrefix, Prefix: &protocol.AuthPrefix{
+	case raw.Prefix != nil && raw.Method != nil:
+		return &protocol.AuthCommand{Kind: protocol.AuthCommandPrefix, Prefix: &protocol.AuthPrefix{
+			Method: protocol.Method(*raw.Method),
 			Target: *raw.Prefix,
 		}}
+	case raw.SpecSHA256 != nil:
+		return protocol.SpecCommand(mustHex32(t, *raw.SpecSHA256))
 	default:
-		t.Fatalf("auth command needs exactly one of exact or prefix")
+		t.Fatalf("auth command needs exactly one of spec_sha256 or method and prefix")
+		return nil
 	}
-	return command
 }
 
 func authorizationPayload(t *testing.T, raw jsonPayload) *protocol.AuthorizationPayload {

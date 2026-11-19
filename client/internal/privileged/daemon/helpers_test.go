@@ -21,7 +21,6 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
-	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
@@ -282,26 +281,14 @@ func payloadFor(taskID string, attempt uint64, command *protocol.AuthCommand, de
 	return p
 }
 
-// exactCommand builds an exact command restriction for spec.
-func exactCommand(t *testing.T, spec *protocol.TaskSpec) *protocol.AuthCommand {
+// specCommand builds a command restriction that binds the complete spec.
+func specCommand(t *testing.T, spec *protocol.TaskSpec) *protocol.AuthCommand {
 	t.Helper()
-	return exactCommandFor(t, protocol.MethodExec, spec)
-}
-
-// exactCommandFor builds an exact command restriction with the given method.
-func exactCommandFor(t *testing.T, method protocol.Method, spec *protocol.TaskSpec) *protocol.AuthCommand {
-	t.Helper()
-	target, err := targetOf(spec)
-	if err != nil {
-		t.Fatalf("target: %v", err)
-	}
 	hash, err := protocol.SpecSHA256(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &protocol.AuthCommand{Method: method, Match: protocol.AuthMatch{
-		Kind: protocol.AuthMatchExact, Exact: &protocol.AuthExact{Target: target, SpecSHA256: protocol.Hash(hash)},
-	}}
+	return protocol.SpecCommand(hash)
 }
 
 // marshalPayload returns the payload bytes that are signed and hashed.
@@ -316,8 +303,9 @@ func marshalPayload(t *testing.T, payload *protocol.AuthorizationPayload) []byte
 
 // prefixCommand builds a prefix command restriction.
 func prefixCommand(method protocol.Method, target string) *protocol.AuthCommand {
-	return &protocol.AuthCommand{Method: method, Match: protocol.AuthMatch{
-		Kind: protocol.AuthMatchPrefix, Prefix: &protocol.AuthPrefix{Target: target},
+	return &protocol.AuthCommand{Kind: protocol.AuthCommandPrefix, Prefix: &protocol.AuthPrefix{
+		Method: method,
+		Target: target,
 	}}
 }
 
@@ -504,12 +492,6 @@ func (c *forwardClient) waitSummary(timeout time.Duration) protocol.TrustReport 
 		c.t.Fatal("timed out waiting for trust.summary")
 		return protocol.TrustReport{}
 	}
-}
-
-// targetOf renders the method and target of a task spec with authz.Target.
-func targetOf(spec *protocol.TaskSpec) (string, error) {
-	_, target, err := authz.Target(spec)
-	return target, err
 }
 
 // logRecords reads the local log written so far.

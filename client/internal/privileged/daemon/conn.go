@@ -443,10 +443,10 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 }
 
 // executionStart prepares the task.start the executor receives. The cwd of a task that was
-// not authorized with an exact command is fixed to "/".
+// not authorized with a spec command is fixed to "/".
 func executionStart(ts *protocol.TaskStart, decided *decidedTask) protocol.TaskStart {
 	out := *ts
-	if decided.exact || ts.Spec.Kind != protocol.TaskSpecExec || ts.Spec.Exec == nil {
+	if decided.spec || ts.Spec.Kind != protocol.TaskSpecExec || ts.Spec.Exec == nil {
 		return out
 	}
 	exec := *ts.Spec.Exec

@@ -23,6 +23,8 @@ import (
 // signOptions are the flags of `crhu sign`.
 type signOptions struct {
 	payload string
+	spec    string
+	content []string
 	keys    keyChoice
 }
 
@@ -42,22 +44,29 @@ func newSignCmd() *cobra.Command {
 		Short: "Sign an authorization payload from the WebUI",
 		Long: `Sign the payload of a WebUI authorization request and print the signed authorization.
 
---payload is the base64 payload the WebUI shows. The exact bytes are signed with
-"ssh-keygen -Y sign -n crh-auth-v1", so encrypted keys, ssh-agent and FIDO touches work; crhu never
-reads the private key itself. The payload is shown and confirmed first. The printed line is what the
-WebUI accepts (POST /api/authorizations).`,
+--payload is the base64 payload the WebUI shows. When its command limit is a spec, the payload
+carries only the hash of the complete task spec, so --spec (standard base64 of the canonical CBOR
+TaskSpec, or - for stdin) is required: crhu decodes it, recomputes its SHA-256 and refuses a
+mismatch, then shows every field of the spec before signing. A --content file is hashed and matched
+against the spec's input reference (exec stdin, file.write content or a file.push transfer).
+
+The exact payload bytes are signed with "ssh-keygen -Y sign -n crh-auth-v1", so encrypted keys,
+ssh-agent and FIDO touches work; crhu never reads the private key itself. The payload is shown and
+confirmed first. The printed line is what the WebUI accepts (POST /api/authorizations).`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runSign(cmd, opts)
 		},
 	}
 	cmd.Flags().StringVar(&opts.payload, "payload", "", "base64 payload from the WebUI")
+	cmd.Flags().StringVar(&opts.spec, "spec", "", "base64 of the complete task spec the payload binds, or - for stdin")
+	cmd.Flags().StringArrayVar(&opts.content, "content", nil, "file whose bytes must match the spec's input reference (repeatable)")
 	opts.keys.addFlags(cmd.Flags(), true)
 	return cmd
 }
 
-// runSign decodes the WebUI payload, shows it, asks for confirmation and prints the signed
-// authorization.
+// runSign decodes the WebUI payload, checks it against the spec the user supplies, shows it, asks
+// for confirmation and prints the signed authorization.
 func runSign(cmd *cobra.Command, opts *signOptions) error {
 	if strings.TrimSpace(opts.payload) == "" {
 		return errors.New("sign: --payload is required")
@@ -66,7 +75,56 @@ func runSign(cmd *cobra.Command, opts *signOptions) error {
 	if err != nil {
 		return err
 	}
-	return signAuthorization(cmd, &opts.keys, "sign", payload, raw)
+	spec, err := checkSpecOption(cmd, payload, opts)
+	if err != nil {
+		return err
+	}
+	var matches []string
+	if len(opts.content) > 0 {
+		if spec == nil {
+			return errors.New("sign: --content needs --spec to match the files against")
+		}
+		matches, err = checkContents(spec, opts.content)
+		if err != nil {
+			return fmt.Errorf("sign: %w", err)
+		}
+	}
+	for _, line := range matches {
+		fmt.Fprintln(cmd.ErrOrStderr(), line)
+	}
+	return signAuthorization(cmd, &opts.keys, "sign", payload, spec, raw)
+}
+
+// checkSpecOption decodes --spec and matches it with the payload's command limit. A spec command
+// binds only a hash, so --spec is required for it and refused for every other command limit: there
+// would be nothing to check it against.
+func checkSpecOption(cmd *cobra.Command, payload *protocol.AuthorizationPayload, opts *signOptions) (*protocol.TaskSpec, error) {
+	command := payload.Command
+	if command == nil || command.Kind != protocol.AuthCommandSpec {
+		if opts.spec != "" {
+			return nil, errors.New("sign: --spec is only for a payload whose command limit is a spec; this payload has none to check it against")
+		}
+		return nil, nil
+	}
+	if opts.spec == "" {
+		return nil, errors.New("sign: --spec is required: the payload carries only the hash of the complete task spec")
+	}
+	if command.Spec == nil {
+		return nil, errors.New("sign: the payload's spec command has no hash")
+	}
+	spec, err := readSpec(opts.spec, cmd.InOrStdin())
+	if err != nil {
+		return nil, fmt.Errorf("sign: %w", err)
+	}
+	hash, err := protocol.SpecSHA256(spec)
+	if err != nil {
+		return nil, fmt.Errorf("sign: --spec: %w", err)
+	}
+	if protocol.Hash(hash) != *command.Spec {
+		return nil, fmt.Errorf("sign: --spec does not match the payload: the spec hashes to %s, the payload binds %s",
+			hexHash(protocol.Hash(hash)), hexHash(*command.Spec))
+	}
+	return spec, nil
 }
 
 // decodePayload decodes the base64 payload of a WebUI authorization request. The protocol decoder

@@ -14,6 +14,7 @@ import {
 	keyedMap,
 	list,
 	nullable,
+	SchemaError,
 	sha256,
 	text,
 	textMap,
@@ -223,6 +224,26 @@ export const transferEndpointCodec = union({
 });
 export type TransferEndpoint = Infer<typeof transferEndpointCodec>;
 
+/**
+ * The largest requested file mode: the nine permission bits. Setuid, setgid and sticky are not
+ * requestable; changing them needs an exec chmod under a `spec` authorization
+ * (doc/design/execution.md "File tasks").
+ */
+export const MAX_FILE_MODE = 0o777;
+
+function checkFileMode(value: number): number {
+	const mode = uint.encode(value) as number;
+	if (mode > MAX_FILE_MODE) throw new SchemaError(`file mode: above 0777: ${mode}`);
+	return mode;
+}
+
+/** A requested file mode, at most the nine permission bits. */
+export const fileModeCodec: Codec<number> = {
+	name: "file mode",
+	encode: checkFileMode,
+	decode: checkFileMode,
+};
+
 export const taskSpecCodec = union({
 	exec: execSpecCodec,
 	"file.read": tuple([
@@ -234,7 +255,7 @@ export const taskSpecCodec = union({
 		["path", text],
 		["content", inputRefCodec],
 		["overwrite", bool],
-		["mode", uint],
+		["mode", fileModeCodec],
 		["owner", text],
 		["group", text],
 		["createParentDirs", bool],
@@ -244,7 +265,7 @@ export const taskSpecCodec = union({
 		["size", uint],
 		["sha256", sha256],
 		["overwrite", bool],
-		["mode", uint],
+		["mode", fileModeCodec],
 		["owner", text],
 		["group", text],
 		["createParentDirs", bool],

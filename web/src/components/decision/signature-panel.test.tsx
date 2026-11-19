@@ -21,11 +21,13 @@ const trust = vi.hoisted(() => ({
 }));
 
 const PAYLOAD = "o2dub2RlcwFhZ3JvdXA6d2Vi";
+const SPEC = "oWNraW5kZGV4ZWNhYXJndgaDZ2FyZ3ZjeXN0ZW1jdGw=";
 const OPERATION = "systemctl restart nginx";
 
 const signPayload = (overrides: Partial<PendingSignOption["payload"]> = {}): PendingSignOption["payload"] => ({
 	id: "a".repeat(64),
 	payload: PAYLOAD,
+	spec: SPEC,
 	challenge: "challenge-b64url",
 	deadline: "2026-10-31T12:00:00.000Z",
 	taskIds: ["task-1"],
@@ -33,12 +35,7 @@ const signPayload = (overrides: Partial<PendingSignOption["payload"]> = {}): Pen
 	passkeys: [],
 	decoded: {
 		nodes: ["node-1"],
-		command: {
-			method: "exec",
-			match: "exact",
-			target: OPERATION,
-			specSha256: "b".repeat(64),
-		},
+		command: { match: "spec", specSha256: "b".repeat(64) },
 		issuedAt: "2026-10-30T12:00:00.000Z",
 		deadline: "2026-10-31T12:00:00.000Z",
 		taskIds: ["task-1"],
@@ -141,18 +138,24 @@ describe("SignaturePanel", () => {
 	test("the copy button copies the full crhu sign command", async () => {
 		await renderPanel({});
 		fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
-		await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(grantCommand(PAYLOAD)));
+		await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(grantCommand(PAYLOAD, SPEC)));
 		// The visible line truncates; the full command stays in the title.
-		expect(screen.getByTestId("decision-command")).toHaveAttribute("title", grantCommand(PAYLOAD));
+		expect(screen.getByTestId("decision-command")).toHaveAttribute("title", grantCommand(PAYLOAD, SPEC));
 	});
 
 	test("the copied command carries the matching credential fingerprints as hints", async () => {
 		const fingerprints = ["SHA256:one", "SHA256:two"];
 		await renderPanel({ pending: pending({ options: [signOption({ fingerprints })] }) });
-		const command = grantCommand(PAYLOAD, fingerprints);
+		const command = grantCommand(PAYLOAD, SPEC, fingerprints);
 		fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
 		await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(command));
 		expect(screen.getByTestId("decision-command")).toHaveAttribute("title", command);
+	});
+
+	test("the Copy spec button copies the base64 spec for crhu grant --spec", async () => {
+		await renderPanel({});
+		fireEvent.click(screen.getByRole("button", { name: "Copy spec" }));
+		await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(SPEC));
 	});
 
 	test("the ssh-keygen tab copies the full manual recipe", async () => {

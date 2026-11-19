@@ -106,12 +106,6 @@ msgstr "{0}（最新）"
 msgid "{0} {id}"
 msgstr "{0} {id}"
 
-#. placeholder {0}: command.method
-#. placeholder {1}: command.target
-#: src/features/authorizations/pages.tsx
-msgid "{0} exact {1}"
-msgstr "{0} 精确匹配 {1}"
-
 #. placeholder {0}: user.username
 #: src/features/users/user-group-dialogs.tsx
 msgid "{0} gains the node access this user group grants."
@@ -1369,6 +1363,10 @@ msgstr "复制公钥"
 #: src/features/sessions/transcript-row.tsx
 msgid "Copy reply"
 msgstr "复制回复"
+
+#: src/components/decision/signature-panel.tsx
+msgid "Copy spec"
+msgstr "复制任务规格"
 
 #: src/components/task-facts.tsx
 msgid "Copy task group id"
@@ -3555,6 +3553,10 @@ msgstr "可选；默认使用节点的主机名。"
 msgid "Optional. It is encrypted with the master key and never shown again."
 msgstr "可选。它会用主密钥加密，之后不再显示。"
 
+#: src/components/decision/signature-panel.tsx
+msgid "Or copy the spec to bind it with"
+msgstr "或复制任务规格，用它绑定"
+
 #: src/features/signing-credentials/pages.tsx
 msgid "Or sign the challenge by hand with ssh-keygen:"
 msgstr "或者手动使用 ssh-keygen 签名挑战："
@@ -4755,6 +4757,11 @@ msgstr "请求源：{0}"
 #: src/components/decision/content.tsx
 msgid "Source: <0/>"
 msgstr "请求源：<0/>"
+
+#. placeholder {0}: command.specSha256
+#: src/features/authorizations/pages.tsx
+msgid "spec {0}"
+msgstr "任务规格 {0}"
 
 #: src/components/upload/upload-progress-dialog.tsx
 msgid "Speed"

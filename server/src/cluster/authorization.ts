@@ -5,13 +5,14 @@
  * signature that was sent, the attempt and the last rejection from crha.
  *
  * While a task waits for its owner, `options` holds the ways to authorize it. A `sign` option carries
- * the exact payload bytes the owner must sign; they are stored, not recomputed, and a sync pass keeps
- * them while they still ask for the same thing (doc/design/privilege.md "Authorization path").
+ * the exact payload bytes the owner must sign and the complete spec those bytes bind; they are stored,
+ * not recomputed, and a sync pass keeps them while they still ask for the same thing
+ * (doc/design/privilege.md "Authorization path").
  */
 import type { AuthorizationOption, PendingPayloadView, TaskAuthorizationRejection } from "@crh/api";
-import type { Signature } from "@crh/protocol";
+import type { Signature, TaskSpec } from "@crh/protocol";
 import type { BuiltAuthorization } from "../privilege/payload.ts";
-import { authorizationDeadline } from "../privilege/payload.ts";
+import { authorizationDeadline, specBytes } from "../privilege/payload.ts";
 import type { PlannedOption } from "../privilege/planner.ts";
 import { parseTaskAuthorization, type TaskAuthorizationRecord } from "../privilege/task-authorization.ts";
 
@@ -19,10 +20,11 @@ export type { PendingPayloadView, TaskAuthorizationRecord, TaskAuthorizationReje
 
 export { parseTaskAuthorization };
 
-/** The payload as the record stores it and the owner's endpoint serves it. */
-function payloadViewOf(authorization: BuiltAuthorization): PendingPayloadView {
+/** The payload and the spec it binds, as the record stores them and the owner's endpoint serves them. */
+function payloadViewOf(authorization: BuiltAuthorization, spec: TaskSpec): PendingPayloadView {
 	return {
 		payload: Buffer.from(authorization.bytes).toString("base64"),
+		spec: Buffer.from(specBytes(spec)).toString("base64"),
 		id: authorization.id,
 		deadline: authorizationDeadline(authorization.payload.deadlineMs),
 		taskIds: authorization.payload.taskIds ?? [],
@@ -52,7 +54,7 @@ function optionRecord(option: PlannedOption): AuthorizationOption {
 		})),
 		...(fingerprints.length > 0 ? { fingerprints } : {}),
 		ttlMs: option.ttlMs,
-		payload: payloadViewOf(option.authorization),
+		payload: payloadViewOf(option.authorization, option.spec),
 	};
 }
 

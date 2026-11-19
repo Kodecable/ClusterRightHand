@@ -19,9 +19,9 @@ type decidedTask struct {
 	authorization   *authz.Authorization
 	payload         *protocol.AuthorizationPayload
 	authorizationID [32]byte
-	// exact reports whether the cwd of the task is left as specified: an exact authorization
+	// spec reports whether the cwd of the task is left as specified: a spec authorization
 	// pins the complete spec.
-	exact bool
+	spec bool
 	// window is the local approval window a crhs signature was accepted through; nil when the
 	// task used the ordinary entry rules.
 	window *localWindow
@@ -111,8 +111,8 @@ func (s *Server) decide(ts *protocol.TaskStart) (*decidedTask, *refusal) {
 		decided.window = window
 	}
 	if authorization != nil && authorization.Decoded != nil && authorization.Decoded.Command != nil &&
-		authorization.Decoded.Command.Match.Kind == protocol.AuthMatchExact {
-		decided.exact = true
+		authorization.Decoded.Command.Kind == protocol.AuthCommandSpec {
+		decided.spec = true
 	}
 	return decided, nil
 }

@@ -67,7 +67,7 @@ function sshEntry(
 			fingerprint: key.fingerprint,
 		},
 		kinds: ["execute"],
-		requireExact: false,
+		requireSpec: false,
 		requireTask: false,
 		requireUv: false,
 		maxTtlMs: null,
@@ -80,7 +80,7 @@ function sshEntry(
 
 const CRHS = sshEntry("crhs", "crhs", CRHS_KEY, {
 	kinds: ["execute", "cosign"],
-	requireExact: true,
+	requireSpec: true,
 	maxTtlMs: 300_000,
 	allow: [{ method: "exec", match: "prefix", pattern: "systemctl restart " }],
 });
@@ -150,16 +150,14 @@ describe("authorization planner", () => {
 		expect(payload).toMatchObject({
 			v: 1,
 			nodes: [NODE],
-			command: { method: "exec", match: { kind: "exact", target: "systemctl restart nginx" } },
+			command: { kind: "spec", value: specSha256(RESTART) },
 			issuedAtMs: NOW,
 			deadlineMs: NOW + CRHS_AUTHORIZATION_TTL_MS,
 			taskIds: [TASK],
 			attempt: 1,
 		});
-		if (payload.command?.match.kind !== "exact") throw new Error("not an exact command");
-		expect(Buffer.from(payload.command.match.specSha256).toString("hex")).toBe(
-			Buffer.from(specSha256(RESTART)).toString("hex"),
-		);
+		if (payload.command?.kind !== "spec") throw new Error("not a spec command");
+		expect(Buffer.from(payload.command.value).toString("hex")).toBe(Buffer.from(specSha256(RESTART)).toString("hex"));
 		expect(Buffer.from(id, "hex").toString("hex")).toBe(Buffer.from(authorizationId(bytes)).toString("hex"));
 		expect(decodeAuthorizationPayload(bytes)).toEqual(payload);
 	});
@@ -524,7 +522,7 @@ describe("authorization planner", () => {
 	it("only uses a crhs trust entry for crhs's own signing keys", async () => {
 		const FOREIGN_KEY = createSshKey("ssh-ed25519");
 		const foreign = sshEntry("other-crhs", "crhs", FOREIGN_KEY);
-		const own = sshEntry("crhs", "crhs", CRHS_KEY, { requireExact: true, maxTtlMs: 300_000, allow: [anyRule()] });
+		const own = sshEntry("crhs", "crhs", CRHS_KEY, { requireSpec: true, maxTtlMs: 300_000, allow: [anyRule()] });
 		const ownKey = await plan({
 			target: {
 				kind: "task",
@@ -545,8 +543,8 @@ describe("authorization planner", () => {
 
 	it("uses the newest key the node trusts and skips a node that trusts none", async () => {
 		const newer = crhsKey("crhs-new");
-		const older = sshEntry("crhs-old", "crhs", CRHS_KEY, { requireExact: true, maxTtlMs: 300_000, allow: [anyRule()] });
-		const newest = sshEntry("crhs-new", "crhs", newer, { requireExact: true, maxTtlMs: 300_000, allow: [anyRule()] });
+		const older = sshEntry("crhs-old", "crhs", CRHS_KEY, { requireSpec: true, maxTtlMs: 300_000, allow: [anyRule()] });
+		const newest = sshEntry("crhs-new", "crhs", newer, { requireSpec: true, maxTtlMs: 300_000, allow: [anyRule()] });
 		const both = await plan({
 			target: {
 				kind: "task",
@@ -624,7 +622,7 @@ describe("authorization planner", () => {
 			{ ...CRHS, deny: [anyRule()] },
 			{ ...CRHS, kinds: ["cosign" as const] },
 			{ ...CRHS, maxTtlMs: 1 },
-			{ ...CRHS, requireExact: false },
+			{ ...CRHS, requireSpec: false },
 		]) {
 			const open: TrustSummary = {
 				...summary(NODE, [entry]),
@@ -660,7 +658,7 @@ describe("authorization planner", () => {
 		// A reusable authorization: no task ids.
 		const reusable = buildAuthorization({
 			nodes: [group.id],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(RESTART) } },
+			command: { specSha256: specSha256(RESTART) },
 			issuedAtMs: NOW,
 			deadlineMs: NOW + 60_000,
 			taskIds: null,
@@ -783,7 +781,7 @@ describe("authorization planner", () => {
 		// The owner already signed: it waits for its node, asking nothing more.
 		const built = buildAuthorization({
 			nodes: [NODE],
-			command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(RESTART) } },
+			command: { specSha256: specSha256(RESTART) },
 			issuedAtMs: NOW,
 			deadlineMs: NOW + 60_000,
 			taskIds: [TASK],
@@ -809,7 +807,7 @@ describe("authorization planner", () => {
 		const signed = (issuedAtMs: number, createdAtMs: number) => {
 			const built = buildAuthorization({
 				nodes: [NODE],
-				command: { method: "exec", exact: { target: "systemctl restart nginx", specSha256: specSha256(RESTART) } },
+				command: { specSha256: specSha256(RESTART) },
 				issuedAtMs,
 				deadlineMs: issuedAtMs + 60_000,
 				taskIds: [TASK],
@@ -956,7 +954,7 @@ describe("task group authorization payload", () => {
 			issuedAtMs: NOW,
 			deadlineMs: NOW + 3_600_000,
 			note: "batch restart",
-			command: { method: "exec", match: { kind: "exact", target: "systemctl restart nginx" } },
+			command: { kind: "spec", value: specSha256(RESTART) },
 		});
 		expect(decodeAuthorizationPayload(built.bytes)).toEqual(built.payload);
 	});

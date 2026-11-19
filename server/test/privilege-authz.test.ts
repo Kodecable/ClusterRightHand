@@ -15,7 +15,7 @@ interface EntryJson {
 	name: string;
 	role: "crhs" | "user" | "local";
 	kinds: ("execute" | "cosign" | "require-cosign")[];
-	require_exact: boolean;
+	require_spec: boolean;
 	require_task: boolean;
 	require_uv: boolean;
 	max_ttl_ms: number | null;
@@ -27,7 +27,7 @@ interface EntryJson {
 
 interface PayloadJson {
 	nodes: string[];
-	command: null | { method: Method; exact?: string; prefix?: string; spec_sha256?: string };
+	command: null | { spec_sha256: string } | { method: Method; prefix: string };
 	issued_at_ms: number;
 	deadline_ms: number | null;
 	task_ids: string[] | null;
@@ -63,7 +63,7 @@ function entryOf(json: EntryJson): AuthzEntry {
 		name: json.name,
 		role: json.role,
 		kinds: json.kinds,
-		requireExact: json.require_exact,
+		requireSpec: json.require_spec,
 		requireTask: json.require_task,
 		requireUv: json.require_uv,
 		maxTtlMs: json.max_ttl_ms,
@@ -78,19 +78,9 @@ function payloadOf(json: PayloadJson): AuthorizationPayload {
 	let command: AuthorizationPayload["command"] = null;
 	if (json.command) {
 		command =
-			json.command.exact !== undefined
-				? {
-						method: json.command.method,
-						match: {
-							kind: "exact",
-							target: json.command.exact,
-							specSha256: bytesOf(json.command.spec_sha256 ?? ""),
-						},
-					}
-				: {
-						method: json.command.method,
-						match: { kind: "prefix", target: json.command.prefix ?? "" },
-					};
+			"spec_sha256" in json.command
+				? { kind: "spec", value: bytesOf(json.command.spec_sha256) }
+				: { kind: "prefix", method: json.command.method, target: json.command.prefix };
 	}
 	return {
 		v: 1,

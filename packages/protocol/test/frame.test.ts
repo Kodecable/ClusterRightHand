@@ -44,7 +44,7 @@ describe("frames", () => {
 			role: "local" as const,
 			key: { kind: "local" as const, uids: [0, 1000] },
 			kinds: [],
-			requireExact: false,
+			requireSpec: false,
 			requireTask: false,
 			requireUv: false,
 			maxTtlMs: null,

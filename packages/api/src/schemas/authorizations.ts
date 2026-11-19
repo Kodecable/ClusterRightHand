@@ -20,10 +20,15 @@ export const PlannedPathEntrySchema = z
 	})
 	.meta({ id: "PlannedPathEntry" });
 
-/** The exact payload a `sign` option asks the owner to sign. */
+/** The exact payload a `sign` option asks the owner to sign, and the complete spec it binds. */
 export const PendingPayloadViewSchema = z
 	.object({
 		payload: z.string().describe("Base64 of the exact CBOR payload bytes."),
+		spec: z
+			.string()
+			.describe(
+				"Base64 of the canonical CBOR TaskSpec the payload binds, so `crhu sign --spec` can check the hash; served only to the owner, with the payload.",
+			),
 		id: z.string().describe("Hex SHA-256 of the payload bytes: the authorization id a submission carries."),
 		deadline: z.string().nullable().describe("ISO 8601; never null for a planned sign option."),
 		taskIds: z.array(z.string()).describe("The task ids the payload covers."),
@@ -37,12 +42,7 @@ export const DecodedAuthorizationPayloadSchema = z
 		nodes: z.array(z.string()),
 		command: z
 			.union([
-				z.object({
-					method: RuleMethodSchema,
-					match: z.literal("exact"),
-					target: z.string(),
-					specSha256: z.string(),
-				}),
+				z.object({ match: z.literal("spec"), specSha256: z.string() }),
 				z.object({ method: RuleMethodSchema, match: z.literal("prefix"), target: z.string() }),
 			])
 			.nullable(),

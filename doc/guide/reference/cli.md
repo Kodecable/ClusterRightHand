@@ -113,23 +113,43 @@ ssh-agent and FIDO keys work, and it verifies the result before printing it.
 
 | Command | Purpose |
 |---|---|
-| `sign --payload <base64> [--hint <SHA256:…>]… [--key <path>] [--key-dir <dir>]… [--yes]` | Sign the payload of a WebUI authorization request. |
-| `grant --nodes <ids> --deadline <time> [--method … --exact … --spec-sha256 … \| --prefix …] [--any-command] [--task …] [--note …] [--hint …] [--key …]` | Build and sign a reusable or one-shot offline authorization. |
+| `sign --payload <base64> [--spec <base64> \| --spec -] [--content <file>]… [--hint <SHA256:…>]… [--key <path>] [--key-dir <dir>]… [--yes]` | Sign the payload of a WebUI authorization request. |
+| `grant --nodes <ids> --deadline <time> [--spec <base64> \| --spec - \| --method … --prefix … \| --any-command] [--task …] [--note …] [--hint …] [--key …]` | Build and sign a reusable or one-shot offline authorization. |
 | `register <challenge> [--hint …] [--key …] [--key-dir …]` | Sign the challenge shown when registering an SSH signing credential. |
 | `version` | Show the version. |
 
 `--nodes` takes node or node group UUIDs (shown in the WebUI) or `*`, never names. Every
-authorization needs `--deadline`, either a duration (`24h`) or an RFC 3339 time. `--exact` with
-`--spec-sha256` limits it to one exact task; `--prefix` limits the command target; `--task` makes it
-one-shot. Submit a signed authorization through `POST /api/authorizations`.
+authorization needs `--deadline`, either a duration (`24h`) or an RFC 3339 time. Exactly one command
+limit restricts it: `--spec` binds the complete task spec by its hash (the method is derived from the
+spec), `--method` with `--prefix` binds a method and a target prefix, and `--any-command` leaves it
+unrestricted. `--task` makes it one-shot. Submit a signed authorization through
+`POST /api/authorizations`.
+
+`--spec` is standard base64 of the canonical CBOR task spec, the encoding `spec_sha256` hashes; `--spec
+-` reads it from standard input, for a spec too large for the argument list. `crhu sign` requires it
+whenever the payload's command limit is a `spec` (the payload carries only the hash): it decodes the
+spec, recomputes the hash and refuses a mismatch, then shows every field, the method and target the
+node would match included. `--content` hashes a local file and matches it against the spec's input
+(an exec `stdin`, a `file.write` content or a `file.push` transfer), refusing a mismatch, so the signer
+checks the bytes as well as the spec. A prefix that does not end in `/` for a file method, or in a space
+for `exec`, is warned about: it also matches longer targets.
 
 ```sh
-# The payload from the WebUI, with the hints the page shows
-crhu sign --payload '<payload from the WebUI>' --hint SHA256:… --hint SHA256:…
+# The payload and spec from the WebUI, with the hints the page shows
+crhu sign --payload '<payload from the WebUI>' --spec '<spec from the WebUI>' --hint SHA256:…
+
+# A spec too large for the argument list is read from standard input
+crhu sign --payload '<payload>' --spec - <<'EOF'
+<spec from the WebUI>
+EOF
 
 # A reusable authorization for a scheduled task
 crhu grant --nodes 0192f000-0000-7000-8000-000000000001 \
   --method exec --prefix "systemctl restart " --deadline 720h --key ~/.ssh/id_ed25519
+
+# The same for one task, bound by its spec
+crhu grant --nodes 0192f000-0000-7000-8000-000000000001 \
+  --spec '<spec from the WebUI>' --deadline 720h --key ~/.ssh/id_ed25519
 
 # The registration challenge from Signing credentials
 crhu register '<challenge from the WebUI>'

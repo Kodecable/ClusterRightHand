@@ -86,29 +86,11 @@ func groupName(gid int) string {
 	return ""
 }
 
-// modeAfterOwnerRestore clears setuid and setgid when the published file did not keep the old owner
-// or group: chmod would otherwise restore bits that grant another identity the old owner's rights.
-func modeAfterOwnerRestore(mode fs.FileMode, ownerKept, groupKept bool) fs.FileMode {
-	if ownerKept && groupKept {
-		return mode
-	}
-	return mode &^ (fs.ModeSetuid | fs.ModeSetgid)
-}
-
-// editMode returns the mode a file.write or file.edit keeps: the permission bits plus setuid, setgid
-// and sticky.
+// editMode returns the mode a file.write or file.edit keeps: only the nine permission bits. Setuid,
+// setgid and sticky are never kept, so overwriting or editing such a file clears them
+// (doc/design/execution.md "File tasks").
 func editMode(mode uint32) fs.FileMode {
-	m := fs.FileMode(mode & 0o777)
-	if mode&unix.S_ISUID != 0 {
-		m |= fs.ModeSetuid
-	}
-	if mode&unix.S_ISGID != 0 {
-		m |= fs.ModeSetgid
-	}
-	if mode&unix.S_ISVTX != 0 {
-		m |= fs.ModeSticky
-	}
-	return m
+	return fs.FileMode(mode & 0o777)
 }
 
 // fileMode converts a raw stat mode to the fs.FileMode flags the listing helpers understand.

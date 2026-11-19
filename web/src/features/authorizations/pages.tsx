@@ -28,7 +28,7 @@ function AuthorizationIssuer({ entry }: { entry: Pick<AuthorizationSummary, "iss
 }
 export function authorizationCommandText(i18n: I18n, command: DecodedAuthorizationPayload["command"]): string {
 	if (command === null) return i18n._(msg`any method and target`);
-	if (command.match === "exact") return i18n._(msg`${command.method} exact ${command.target}`);
+	if (command.match === "spec") return i18n._(msg`spec ${command.specSha256}`);
 	return i18n._(msg`${command.method} prefix ${command.target}`);
 }
 

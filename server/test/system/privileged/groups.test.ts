@@ -72,28 +72,35 @@ describePodman("privileged system: task groups", () => {
 
 	async function groupPayload(
 		groupId: string,
-	): Promise<{ id: string; payload: string; attempt: number; taskIds: string[]; nodes: string[] }> {
+	): Promise<{ id: string; payload: string; spec: string; attempt: number; taskIds: string[]; nodes: string[] }> {
 		const res = await crhs.api(`/api/task-groups/${groupId}/authorization`);
 		if (res.status !== 200 || !res.json.taskGroup?.authorization) {
 			throw new Error(`no task group payload: ${res.status} ${JSON.stringify(res.json)}`);
 		}
 		const options = res.json.taskGroup.authorization.options as {
 			kind: string;
-			payload?: { id: string; payload: string; attempt: number; decoded: { taskIds: string[]; nodes: string[] } };
+			payload?: {
+				id: string;
+				payload: string;
+				spec: string;
+				attempt: number;
+				decoded: { taskIds: string[]; nodes: string[] };
+			};
 		}[];
 		const pending = options.find((option) => option.kind === "sign")?.payload;
 		if (!pending) throw new Error(`no sign option: ${JSON.stringify(options)}`);
 		return {
 			id: pending.id,
 			payload: pending.payload,
+			spec: pending.spec,
 			attempt: pending.attempt,
 			taskIds: pending.decoded.taskIds,
 			nodes: pending.decoded.nodes,
 		};
 	}
 
-	async function signAndSubmit(payload: string): Promise<{ status: number }> {
-		const authorization = await signPayload(join(tmp, "crhu"), join(tmp, "owner-key"), payload);
+	async function signAndSubmit(pending: { payload: string; spec: string }): Promise<{ status: number }> {
+		const authorization = await signPayload(join(tmp, "crhu"), join(tmp, "owner-key"), pending);
 		const res = await submitAuthorization(crhs, authorization);
 		// The dispatch continues in the background; the caller waits for the task states.
 		await crhs.cluster.drain();
@@ -141,7 +148,7 @@ describePodman("privileged system: task groups", () => {
 		expect(shared.taskIds).toHaveLength(2);
 		expect(shared.nodes.sort()).toEqual([a.nodeId, b.nodeId].sort());
 		// One signature covers both tasks.
-		const submitted = await signAndSubmit(shared.payload);
+		const submitted = await signAndSubmit(shared);
 		expect(submitted.status).toBe(200);
 		// A runs; B's crha refuses the payload (step 4: another node) and B retries with attempt + 1.
 		const aTaskId = g.tasks.find((t) => t.nodeId === a.nodeId)?.id ?? "";
@@ -179,7 +186,7 @@ describePodman("privileged system: task groups", () => {
 			},
 			30_000,
 		);
-		const second = await signAndSubmit(finalPayload.payload);
+		const second = await signAndSubmit(finalPayload);
 		expect(second.status).toBe(200);
 		const bRow = await waitFor(
 			"B to finish",
@@ -213,7 +220,7 @@ describePodman("privileged system: task groups", () => {
 		);
 		const shared = await groupPayload(g.id);
 		expect(shared.taskIds).toHaveLength(2);
-		const submitted = await signAndSubmit(shared.payload);
+		const submitted = await signAndSubmit(shared);
 		expect(submitted.status).toBe(200);
 		const finished = await waitFor(
 			"both tasks to finish",

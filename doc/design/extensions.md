@@ -252,7 +252,8 @@ a WebUI request.
 - **Identity.** The request is authenticated as the session owner and attributed to the session: audit
   events name the session as the actor, on behalf of the owner. Shared users of the session do not lend
   their identity, as with every other tool. The identity travels in the request's environment, which a
-  network request cannot set.
+  network request cannot set. An administrator's session therefore makes administrative requests,
+  including to every library, subject to its rules ([Ownership, access grants and sharing](access-control.md#ownership-access-grants-and-sharing)).
 - **Access.** The route's declared agent access decides first ([Route definitions](webui.md#route-definitions)):
   `deny`, an unknown route and a path outside `/api` are refused without rules. The others become an
   operation for the rule chain:

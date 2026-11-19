@@ -82,16 +82,12 @@ func fileEdit(acc fileAccess, s *protocol.FileEditSpec) (*protocol.TaskResult, e
 		return nil, err
 	}
 	uid, gid := statIDs(fi)
-	ownerKept, groupKept := true, true
-	if err := tmp.Chown(uid, gid); err != nil {
-		if !errors.Is(err, os.ErrPermission) {
-			return nil, err
-		}
-		// Best effort: only root can usually restore another owner. The mode must not keep bits that
-		// would grant that owner's rights to this file's actual owner.
-		ownerKept, groupKept = false, false
+	if err := tmp.Chown(uid, gid); err != nil && !errors.Is(err, os.ErrPermission) {
+		// Best effort: only root can usually restore another owner, and the kept mode is the nine
+		// permission bits only.
+		return nil, err
 	}
-	if err := tmp.Chmod(modeAfterOwnerRestore(editMode(statMode(fi)), ownerKept, groupKept)); err != nil {
+	if err := tmp.Chmod(editMode(statMode(fi))); err != nil {
 		return nil, err
 	}
 	if err := publishAt(t.dir, tmpName, tmp, t.name, path, false); err != nil {

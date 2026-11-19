@@ -1093,15 +1093,86 @@ func TestFileEditKeepsLoneCROutsideTheEdit(t *testing.T) {
 	}
 }
 
-func TestModeAfterOwnerRestore(t *testing.T) {
-	mode := fs.ModeSetuid | fs.ModeSetgid | 0o755
-	if got := modeAfterOwnerRestore(mode, true, true); got != mode {
-		t.Fatalf("restored mode = %v, want %v", got, mode)
-	}
-	for _, tc := range []struct{ owner, group bool }{{false, true}, {true, false}, {false, false}} {
-		if got := modeAfterOwnerRestore(mode, tc.owner, tc.group); got != 0o755 {
-			t.Fatalf("mode with owner %v group %v = %v, want 0755", tc.owner, tc.group, got)
+// TestEditModeKeepsOnlyPermissionBits covers that a kept mode is the nine permission bits: setuid,
+// setgid and sticky are never carried over (doc/design/execution.md "File tasks").
+func TestEditModeKeepsOnlyPermissionBits(t *testing.T) {
+	for _, tc := range []struct {
+		mode uint32
+		want fs.FileMode
+	}{
+		{0o644, 0o644},
+		{0o4755, 0o755},
+		{0o2755, 0o755},
+		{0o1755, 0o755},
+		{0o7777, 0o777},
+	} {
+		if got := editMode(tc.mode); got != tc.want {
+			t.Fatalf("editMode(%04o) = %v, want %v", tc.mode, got, tc.want)
 		}
+	}
+}
+
+// TestFileWriteRefusesModeAbove0777 covers the mode limit: setuid, setgid and sticky need an exec
+// chmod under a spec authorization, never a file write.
+func TestFileWriteRefusesModeAbove0777(t *testing.T) {
+	dir := t.TempDir()
+	for _, mode := range []uint32{0o1000, 0o4755, 0o2755, 0o1755} {
+		s := writeSpec(filepath.Join(dir, "f"), "x")
+		s.Mode = protocol.Uint(mode)
+		_, err := run(t, s, strings.NewReader("x"))
+		wantCode(t, err, "invalid_spec")
+		if _, err := os.Lstat(filepath.Join(dir, "f")); !os.IsNotExist(err) {
+			t.Fatalf("mode %04o created the target", mode)
+		}
+	}
+	// file.push goes through the same check.
+	push := pushSpec(filepath.Join(dir, "p"), []byte("x"))
+	push.Mode = 0o4755
+	_, err := run(t, push, bytes.NewReader([]byte("x")))
+	wantCode(t, err, "invalid_spec")
+	noTemps(t, dir)
+}
+
+// TestFileWriteAndEditClearSetuid covers the masking of a kept mode: overwriting or editing a setuid
+// file publishes the nine permission bits only.
+func TestFileWriteAndEditClearSetuid(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "f")
+	writeFile(t, p, "old", 0o755)
+	if err := os.Chmod(p, 0o755|fs.ModeSetuid|fs.ModeSetgid); err != nil {
+		t.Skipf("the filesystem does not keep setuid: %v", err)
+	}
+	if fi, err := os.Stat(p); err != nil || fi.Mode()&fs.ModeSetuid == 0 {
+		t.Skip("the filesystem does not keep setuid")
+	}
+	overwrite := writeSpec(p, "new")
+	overwrite.Overwrite = true
+	if _, err := run(t, overwrite, strings.NewReader("new")); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&(fs.ModeSetuid|fs.ModeSetgid) != 0 {
+		t.Fatalf("mode %v kept setuid or setgid", fi.Mode())
+	}
+	if fi.Mode().Perm() != 0o755 {
+		t.Fatalf("mode = %v, want 0755", fi.Mode())
+	}
+
+	if err := os.Chmod(p, 0o755|fs.ModeSetuid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := edit(t, p, "new", "newer"); err != nil {
+		t.Fatal(err)
+	}
+	fi, err = os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&fs.ModeSetuid != 0 {
+		t.Fatalf("mode %v kept setuid after the edit", fi.Mode())
 	}
 }
 

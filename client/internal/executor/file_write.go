@@ -29,6 +29,11 @@ func fileWrite(ctx context.Context, acc fileAccess, s *protocol.FileWriteSpec, i
 	if err := checkPath(path); err != nil {
 		return nil, err
 	}
+	// A mode above 0o777 asks for setuid, setgid or sticky. Those need an explicit exec chmod under a
+	// spec authorization, never a file write (doc/design/execution.md "File tasks").
+	if s.Mode > 0o777 {
+		return nil, errf(protocol.CodeInvalidSpec, "mode %04o asks for bits above 0777", uint64(s.Mode))
+	}
 	if input == nil {
 		input = strings.NewReader("")
 	}
@@ -77,22 +82,18 @@ func fileWrite(ctx context.Context, acc fileAccess, s *protocol.FileWriteSpec, i
 	case t.existing != nil:
 		mode = editMode(t.existing.mode)
 	}
-	ownerKept, groupKept := true, true
 	if t.existing != nil && uid < 0 && gid < 0 {
-		if err := tmp.Chown(t.existing.uid, t.existing.gid); err != nil {
-			if !errors.Is(err, syscall.EPERM) {
-				return nil, err
-			}
-			// Best effort: only root can usually restore another owner. The mode must not keep bits
-			// that would grant that owner's rights to this file's actual owner.
-			ownerKept, groupKept = false, false
+		// Best effort: only root can usually restore another owner, and a mode the file keeps never
+		// carries setuid or setgid anyway.
+		if err := tmp.Chown(t.existing.uid, t.existing.gid); err != nil && !errors.Is(err, syscall.EPERM) {
+			return nil, err
 		}
 	} else if uid >= 0 || gid >= 0 {
 		if err := tmp.Chown(uid, gid); err != nil {
 			return nil, err
 		}
 	}
-	if err := tmp.Chmod(modeAfterOwnerRestore(mode, ownerKept, groupKept)); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		return nil, err
 	}
 	if err := publishAt(t.dir, tmpName, tmp, t.name, path, !s.Overwrite); err != nil {

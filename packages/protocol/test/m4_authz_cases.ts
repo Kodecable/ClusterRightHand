@@ -27,7 +27,7 @@ interface Entry {
 	name: string;
 	role: "crhs" | "user" | "local";
 	kinds: ("execute" | "cosign" | "require-cosign")[];
-	require_exact: boolean;
+	require_spec: boolean;
 	require_task: boolean;
 	require_uv: boolean;
 	max_ttl_ms: number | null;
@@ -39,7 +39,8 @@ interface Entry {
 
 interface PayloadJson {
 	nodes: string[];
-	command: null | { method: Method; exact?: string; prefix?: string; spec_sha256?: string };
+	/** A `spec` command carries only the spec hash; a `prefix` command a method and target. */
+	command: null | { spec_sha256: string } | { method: Method; prefix: string };
 	issued_at_ms: number;
 	deadline_ms: number | null;
 	task_ids: string[] | null;
@@ -122,7 +123,7 @@ const entry = (name: string, role: Entry["role"], overrides: Partial<Entry> = {}
 	name,
 	role,
 	kinds: ["execute"],
-	require_exact: false,
+	require_spec: false,
 	require_task: false,
 	require_uv: false,
 	max_ttl_ms: null,
@@ -135,7 +136,7 @@ const entry = (name: string, role: Entry["role"], overrides: Partial<Entry> = {}
 
 const CRHS = entry("crhs", "crhs", {
 	kinds: ["execute", "cosign"],
-	require_exact: true,
+	require_spec: true,
 	require_task: true,
 	max_ttl_ms: 300_000,
 	allow: [
@@ -153,12 +154,12 @@ const USER = entry("alice", "user", { max_ttl_ms: 86_400_000, env_allow: ["DEBIA
 const LOCAL = entry("local-admins", "local", { kinds: [], uids: [0, 1000] });
 const WINDOW_OPEN = { opened_at_ms: NOW - 60_000, opened_by: 1000, until_ms: NOW + 1_800_000 };
 
-const exactRestart = { method: "exec" as const, exact: "systemctl restart nginx", spec_sha256: specHash(RESTART) };
+const specRestart = { spec_sha256: specHash(RESTART) };
 
 function crhsPayload(overrides: Partial<PayloadJson> = {}): PayloadJson {
 	return {
 		nodes: [NODE],
-		command: exactRestart,
+		command: specRestart,
 		issued_at_ms: NOW,
 		deadline_ms: NOW + 300_000,
 		task_ids: [TASK],
@@ -197,7 +198,7 @@ function cases(): Case[] {
 		crhsPayload({ deadline_ms: NOW + 3_600_000, ...overrides });
 	return [
 		// --- crhs execute -------------------------------------------------------------------
-		base("crhs.exact.accept", "crhs single-command authorization within its rules"),
+		base("crhs.spec.accept", "crhs spec authorization within its rules"),
 		base("crhs.no-authorization", "no authorization", {
 			authorization: null,
 			...reject("authorization_required", 3),
@@ -248,7 +249,7 @@ function cases(): Case[] {
 			authorization: signedBy(crhsPayload({ deadline_ms: null }), "crhs"),
 			...reject("authorization_expired", 4),
 		}),
-		base("crhs.require-exact", "crhs entry requires exact; payload is a prefix", {
+		base("crhs.require-spec", "crhs entry requires a spec command; payload is a prefix", {
 			authorization: signedBy(crhsPayload({ command: { method: "exec", prefix: "systemctl " } }), "crhs"),
 			...reject("authorization_rejected", 4),
 		}),
@@ -272,15 +273,7 @@ function cases(): Case[] {
 			executed_task_ids: [TASK],
 			...reject("already_accepted", 5),
 		}),
-		base("crhs.exact-target-mismatch", "exact target differs from the task", {
-			task: {
-				task_id: TASK,
-				attempt: 1,
-				spec: taskSpecToJson({ ...RESTART, command: { argv: ["systemctl", "restart", "apache2"] } } as TaskSpec),
-			},
-			...reject("authorization_rejected", 6),
-		}),
-		base("crhs.exact-spec-mismatch", "same target, but env changed so spec_sha256 differs", {
+		base("crhs.spec-mismatch", "env changed, so the spec hash differs", {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART_ENV) },
 			...reject("authorization_rejected", 6),
 		}),
@@ -288,11 +281,7 @@ function cases(): Case[] {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART_SHELL) },
 			authorization: signedBy(
 				crhsPayload({
-					command: {
-						method: "exec",
-						exact: "/bin/sh -c 'systemctl restart nginx; id'",
-						spec_sha256: specHash(RESTART_SHELL),
-					},
+					command: { spec_sha256: specHash(RESTART_SHELL) },
 				}),
 				"crhs",
 			),
@@ -307,8 +296,6 @@ function cases(): Case[] {
 			authorization: signedBy(
 				crhsPayload({
 					command: {
-						method: "exec",
-						exact: "apt-get upgrade -y",
 						spec_sha256: specHash({ ...RESTART, command: { argv: ["apt-get", "upgrade", "-y"] } } as TaskSpec),
 					},
 				}),
@@ -324,8 +311,6 @@ function cases(): Case[] {
 			authorization: signedBy(
 				crhsPayload({
 					command: {
-						method: "exec",
-						exact: "apt-get update --fix-missing",
 						spec_sha256: specHash({
 							...RESTART,
 							command: { argv: ["apt-get", "update", "--fix-missing"] },
@@ -340,7 +325,7 @@ function cases(): Case[] {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_NGINX) },
 			authorization: signedBy(
 				crhsPayload({
-					command: { method: "file.write", exact: "/etc/nginx/nginx.conf", spec_sha256: specHash(WRITE_NGINX) },
+					command: { spec_sha256: specHash(WRITE_NGINX) },
 				}),
 				"crhs",
 			),
@@ -349,7 +334,7 @@ function cases(): Case[] {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
 			authorization: signedBy(
 				crhsPayload({
-					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+					command: { spec_sha256: specHash(WRITE_CRHA) },
 				}),
 				"crhs",
 			),
@@ -357,18 +342,12 @@ function cases(): Case[] {
 		}),
 		base("crhs.deny-read-shadow", "deny file.read regex", {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(READ_SHADOW) },
-			authorization: signedBy(
-				crhsPayload({ command: { method: "file.read", exact: "/etc/shadow", spec_sha256: specHash(READ_SHADOW) } }),
-				"crhs",
-			),
+			authorization: signedBy(crhsPayload({ command: { spec_sha256: specHash(READ_SHADOW) } }), "crhs"),
 			...reject("authorization_rejected", 7),
 		}),
 		base("crhs.env-not-allowed", "the crhs entry allows no environment variables", {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART_ENV) },
-			authorization: signedBy(
-				crhsPayload({ command: { ...exactRestart, spec_sha256: specHash(RESTART_ENV) } }),
-				"crhs",
-			),
+			authorization: signedBy(crhsPayload({ command: { spec_sha256: specHash(RESTART_ENV) } }), "crhs"),
 			...reject("authorization_rejected", 7),
 		}),
 		base("crhs.cosign-only", "a crhs entry with only cosign cannot authorize alone", {
@@ -450,7 +429,7 @@ function cases(): Case[] {
 			),
 			...reject("authorization_rejected", 6),
 		}),
-		base("user.any-command", "command null covers any task (no require_exact on the user entry)", {
+		base("user.any-command", "command null covers any task (no require_spec on the user entry)", {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(READ_NGINX) },
 			authorization: signedBy(
 				{ nodes: ["*"], command: null, issued_at_ms: NOW, deadline_ms: NOW + 3_600_000, task_ids: null, attempt: null },
@@ -459,10 +438,7 @@ function cases(): Case[] {
 		}),
 		base("user.env-allowed", "the user entry allows DEBIAN_FRONTEND", {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART_ENV) },
-			authorization: signedBy(
-				userOneShot({ command: { ...exactRestart, spec_sha256: specHash(RESTART_ENV) } }),
-				"alice",
-			),
+			authorization: signedBy(userOneShot({ command: { spec_sha256: specHash(RESTART_ENV) } }), "alice"),
 		}),
 		base("user.require-task", "require_task: reusable authorizations are refused", {
 			trust: [CRHS, { ...USER, require_task: true }, LOCAL],
@@ -544,10 +520,7 @@ function cases(): Case[] {
 		base("guard.broken-regex-allow", "a regex that cannot compile alone never matches (allow fails closed)", {
 			trust: [{ ...USER, allow: [{ method: "exec", match: "regex", pattern: "a)|(b" }] }, LOCAL],
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(A_ONLY) },
-			authorization: signedBy(
-				userOneShot({ command: { method: "exec", exact: "a", spec_sha256: specHash(A_ONLY) } }),
-				"alice",
-			),
+			authorization: signedBy(userOneShot({ command: { spec_sha256: specHash(A_ONLY) } }), "alice"),
 			...reject("authorization_rejected", 7),
 		}),
 		base("guard.broken-regex-deny", "a regex that cannot compile alone denies everything (deny fails closed)", {
@@ -571,7 +544,7 @@ function cases(): Case[] {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
 			authorization: signedBy(
 				userOneShot({
-					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+					command: { spec_sha256: specHash(WRITE_CRHA) },
 				}),
 				"alice",
 				"crhs",
@@ -597,7 +570,7 @@ function cases(): Case[] {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
 			authorization: signedBy(
 				crhsPayload({
-					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+					command: { spec_sha256: specHash(WRITE_CRHA) },
 				}),
 				"crhs",
 			),
@@ -606,7 +579,7 @@ function cases(): Case[] {
 			window: WINDOW_OPEN,
 			authorization: signedBy(crhsPayload({ deadline_ms: NOW + 600_000 }), "crhs"),
 		}),
-		base("window.crhs.require-exact-ignored", "the open window ignores require_exact", {
+		base("window.crhs.require-spec-ignored", "the open window ignores require_spec", {
 			window: WINDOW_OPEN,
 			authorization: signedBy(crhsPayload({ command: { method: "exec", prefix: "systemctl restart " } }), "crhs"),
 		}),
@@ -643,7 +616,7 @@ function cases(): Case[] {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
 			authorization: signedBy(
 				crhsPayload({
-					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+					command: { spec_sha256: specHash(WRITE_CRHA) },
 				}),
 				"crhs",
 			),
@@ -654,7 +627,7 @@ function cases(): Case[] {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
 			authorization: signedBy(
 				crhsPayload({
-					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+					command: { spec_sha256: specHash(WRITE_CRHA) },
 				}),
 				"crhs",
 			),
@@ -666,7 +639,7 @@ function cases(): Case[] {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
 			authorization: signedBy(
 				userOneShot({
-					command: { method: "file.write", exact: "/etc/crha/privileged.toml", spec_sha256: specHash(WRITE_CRHA) },
+					command: { spec_sha256: specHash(WRITE_CRHA) },
 				}),
 				"alice",
 			),
