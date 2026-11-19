@@ -350,14 +350,6 @@ msgstr "以“.”结尾表示前缀匹配，例如“task.”。"
 msgid "A user group grants access to every current member."
 msgstr "用户组会为当前每个成员授予访问权限。"
 
-#: src/features/users/user-group-dialogs.tsx
-msgid "A user group is used for session shares and node access grants."
-msgstr "用户组用于会话分享和节点访问授权。"
-
-#: src/features/users/new-user-dialog.tsx
-msgid "A user without a password cannot sign in until an administrator sets one."
-msgstr "没有密码的用户无法登录，直到管理员为其设置密码。"
-
 #: src/features/users/new-user-dialog.tsx
 msgid "A username is required."
 msgstr "必须填写用户名。"
@@ -608,10 +600,6 @@ msgstr "节点访问权限由管理员授予。"
 #: src/features/sessions/extensions-dialog.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "关闭的扩展对模型不可见。更改从下一轮开始生效。"
-
-#: src/features/settings/extension-dialog.tsx
-msgid "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
-msgstr "MCP 扩展通过 Streamable HTTP 和静态请求头访问。只有管理员可以创建扩展；可用范围和授权对象决定哪些会话可以使用它。"
 
 #: src/components/decision/request-details.tsx
 msgid "Annotations"
@@ -1419,10 +1407,6 @@ msgstr "创建节点组，即可在多台节点上运行同一任务。"
 msgid "Create a token to connect an MCP client."
 msgstr "创建令牌以连接 MCP 客户端。"
 
-#: src/features/nodes/add-node-dialog.tsx
-msgid "Create an enrollment token, then run the printed command on the node as root."
-msgstr "创建注册令牌，然后在节点上以 root 身份运行打印出的命令。"
-
 #: src/features/channels/channel-dialog.tsx
 msgid "Create channel"
 msgstr "新建渠道"
@@ -1835,10 +1819,6 @@ msgstr "每条规则：action（allow、deny、require-approval），可选 meth
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "Each selected signing credential may authorize a task, and crhs must countersign it; crhs cannot authorize alone."
 msgstr "每个选中的签名凭据都可以授权任务，且必须由 crhs 联署；crhs 不能单独授权。"
-
-#: src/features/tokens/create-token-dialog.tsx
-msgid "Each token has its own rules; what they do not allow waits for your approval."
-msgstr "每个令牌有自己的规则；规则不允许的操作会等待你审批。"
 
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
@@ -2403,12 +2383,9 @@ msgid "Identity headers"
 msgstr "身份请求头"
 
 #: src/components/status-badge.tsx
+#: src/features/settings/extensions.tsx
 msgid "Idle"
 msgstr "空闲"
-
-#: src/features/settings/extensions.tsx
-msgid "Idle, connects on use"
-msgstr "空闲，使用时连接"
 
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
@@ -2670,10 +2647,6 @@ msgstr "直接将其工具列入模型的工具列表"
 #: src/features/settings/provider-dialog.tsx
 msgid "List provider models"
 msgstr "列出提供方模型"
-
-#: src/features/settings/extensions.tsx
-msgid "Listed <0/>"
-msgstr "<0/>列出"
 
 #: src/features/settings/extensions.tsx
 msgid "Listed directly"
@@ -3041,10 +3014,6 @@ msgstr "下一步"
 #: src/features/channels/channels-page.tsx
 msgid "Next attempt"
 msgstr "下次尝试"
-
-#: src/features/settings/extensions.tsx
-msgid "Next refresh: <0/>"
-msgstr "下次刷新：<0/>"
 
 #: src/features/schedules/pages.tsx
 msgid "Next run"
@@ -3559,6 +3528,10 @@ msgstr "可选，覆盖默认提供方的端点。"
 #: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
 msgstr "可选；至少 8 个字符。"
+
+#: src/features/users/new-user-dialog.tsx
+msgid "Optional; at least 8 characters. A user without a password cannot sign in until an administrator sets one."
+msgstr "可选；至少 8 个字符。没有密码的用户无法登录，直到管理员为其设置密码。"
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Optional; defaults to the target's host."

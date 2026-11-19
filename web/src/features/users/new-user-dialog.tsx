@@ -45,6 +45,7 @@ export function NewUserDialog({ onClose }: { onClose: () => void }) {
 		resolver: zodResolver(schema),
 		defaultValues: { username: "", displayName: "", kind: "member", password: "" },
 	});
+	const password = form.watch("password");
 	return (
 		<FormDialog
 			open
@@ -52,7 +53,6 @@ export function NewUserDialog({ onClose }: { onClose: () => void }) {
 				if (!open) onClose();
 			}}
 			title={t`New user`}
-			description={t`A user without a password cannot sign in until an administrator sets one.`}
 			busy={create.isPending}
 			submitLabel={t`New user`}
 			onSubmit={() =>
@@ -90,7 +90,12 @@ export function NewUserDialog({ onClose }: { onClose: () => void }) {
 				type="password"
 				label={t`Password`}
 				autoComplete="new-password"
-				description={t`Optional; at least 8 characters.`}
+				description={
+					// Shown while the field is empty: that is when the user would be created unable to sign in.
+					password === ""
+						? t`Optional; at least 8 characters. A user without a password cannot sign in until an administrator sets one.`
+						: t`Optional; at least 8 characters.`
+				}
 			/>
 		</FormDialog>
 	);

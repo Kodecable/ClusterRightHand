@@ -350,14 +350,6 @@ msgstr "A trailing \".\" matches a prefix, e.g. \"task.\"."
 msgid "A user group grants access to every current member."
 msgstr "A user group grants access to every current member."
 
-#: src/features/users/user-group-dialogs.tsx
-msgid "A user group is used for session shares and node access grants."
-msgstr "A user group is used for session shares and node access grants."
-
-#: src/features/users/new-user-dialog.tsx
-msgid "A user without a password cannot sign in until an administrator sets one."
-msgstr "A user without a password cannot sign in until an administrator sets one."
-
 #: src/features/users/new-user-dialog.tsx
 msgid "A username is required."
 msgstr "A username is required."
@@ -608,10 +600,6 @@ msgstr "An administrator grants access to nodes."
 #: src/features/sessions/extensions-dialog.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "An extension that is off is hidden from the model. The change applies to the next turn."
-
-#: src/features/settings/extension-dialog.tsx
-msgid "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
-msgstr "An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions; the availability and grants decide which sessions may use it."
 
 #: src/components/decision/request-details.tsx
 msgid "Annotations"
@@ -1419,10 +1407,6 @@ msgstr "Create a node group to run the same task on several nodes."
 msgid "Create a token to connect an MCP client."
 msgstr "Create a token to connect an MCP client."
 
-#: src/features/nodes/add-node-dialog.tsx
-msgid "Create an enrollment token, then run the printed command on the node as root."
-msgstr "Create an enrollment token, then run the printed command on the node as root."
-
 #: src/features/channels/channel-dialog.tsx
 msgid "Create channel"
 msgstr "Create channel"
@@ -1835,10 +1819,6 @@ msgstr "Each rule: action (allow, deny, require-approval), optional method (exec
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "Each selected signing credential may authorize a task, and crhs must countersign it; crhs cannot authorize alone."
 msgstr "Each selected signing credential may authorize a task, and crhs must countersign it; crhs cannot authorize alone."
-
-#: src/features/tokens/create-token-dialog.tsx
-msgid "Each token has its own rules; what they do not allow waits for your approval."
-msgstr "Each token has its own rules; what they do not allow waits for your approval."
 
 #: src/features/channels/channels-page.tsx
 #: src/features/settings/extensions.tsx
@@ -2403,12 +2383,9 @@ msgid "Identity headers"
 msgstr "Identity headers"
 
 #: src/components/status-badge.tsx
+#: src/features/settings/extensions.tsx
 msgid "Idle"
 msgstr "Idle"
-
-#: src/features/settings/extensions.tsx
-msgid "Idle, connects on use"
-msgstr "Idle, connects on use"
 
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
@@ -2670,10 +2647,6 @@ msgstr "List its tools directly in the model's tool list"
 #: src/features/settings/provider-dialog.tsx
 msgid "List provider models"
 msgstr "List provider models"
-
-#: src/features/settings/extensions.tsx
-msgid "Listed <0/>"
-msgstr "Listed <0/>"
 
 #: src/features/settings/extensions.tsx
 msgid "Listed directly"
@@ -3041,10 +3014,6 @@ msgstr "Next"
 #: src/features/channels/channels-page.tsx
 msgid "Next attempt"
 msgstr "Next attempt"
-
-#: src/features/settings/extensions.tsx
-msgid "Next refresh: <0/>"
-msgstr "Next refresh: <0/>"
 
 #: src/features/schedules/pages.tsx
 msgid "Next run"
@@ -3559,6 +3528,10 @@ msgstr "Optional, overrides the provider's default endpoint."
 #: src/features/users/new-user-dialog.tsx
 msgid "Optional; at least 8 characters."
 msgstr "Optional; at least 8 characters."
+
+#: src/features/users/new-user-dialog.tsx
+msgid "Optional; at least 8 characters. A user without a password cannot sign in until an administrator sets one."
+msgstr "Optional; at least 8 characters. A user without a password cannot sign in until an administrator sets one."
 
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Optional; defaults to the target's host."

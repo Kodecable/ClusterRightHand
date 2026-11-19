@@ -125,7 +125,6 @@ export function CreateTokenDialog({ onClose, onCreated }: { onClose: () => void;
 				if (!open) onClose();
 			}}
 			title={<Trans>New token</Trans>}
-			description={<Trans>Each token has its own rules; what they do not allow waits for your approval.</Trans>}
 			submitLabel={<Trans>New token</Trans>}
 			busy={create.isPending}
 			error={create.error !== null ? create.error.message : undefined}

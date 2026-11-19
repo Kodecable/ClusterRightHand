@@ -147,12 +147,7 @@ export function ExtensionDialog({
 						A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are
 						listed directly, its availability and its grants.
 					</Trans>
-				) : (
-					<Trans>
-						An MCP extension is reached over Streamable HTTP with static headers. Only administrators create extensions;
-						the availability and grants decide which sessions may use it.
-					</Trans>
-				)
+				) : undefined
 			}
 			onSubmit={submit}
 			busy={save.isPending}

@@ -1,13 +1,5 @@
 import { Trans, useLingui } from "@lingui/react/macro";
-import {
-	ChevronsUpDownIcon,
-	KeyRoundIcon,
-	LogOutIcon,
-	MonitorIcon,
-	MoonIcon,
-	SettingsIcon,
-	SunIcon,
-} from "lucide-react";
+import { KeyRoundIcon, LogOutIcon, MonitorIcon, MoonIcon, SettingsIcon, SunIcon } from "lucide-react";
 import { lazy, Suspense, useState } from "react";
 import {
 	DropdownMenu,
@@ -85,18 +77,18 @@ export function UserMenu() {
 							data-testid="user-menu-trigger"
 							aria-label={t`Account menu`}
 							title={t`Account menu`}
-							className="flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2!"
+							className="flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-hidden transition-[width,height,padding] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-0!"
 						/>
 					}
 				>
-					<span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-xs font-semibold">
+					{/* Collapsed, the button is exactly the avatar's 32px square, so the avatar is never cropped. */}
+					<span className="flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-accent text-xs leading-none font-semibold">
 						{initials(name)}
 					</span>
 					<div className="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
 						<span className="truncate text-sm font-medium">{name}</span>
 						<span className="truncate text-xs text-muted-foreground">{user?.email ?? user?.username ?? ""}</span>
 					</div>
-					<ChevronsUpDownIcon className="ml-auto size-4 group-data-[collapsible=icon]:hidden" />
 				</DropdownMenuTrigger>
 
 				<DropdownMenuContent

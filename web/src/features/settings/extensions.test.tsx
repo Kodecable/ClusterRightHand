@@ -277,7 +277,7 @@ describe("extensions settings page", () => {
 		fireEvent.click(screen.getByRole("button", { name: "View tools of github" }));
 		expect(await screen.findByTestId("extension-tool-list")).toHaveTextContent("create_issue");
 		// Listing connected to the extension; the table now shows the fresh status without a reload.
-		await waitFor(() => expect(screen.getByText("Ready")).toBeInTheDocument());
+		await waitFor(() => expect(screen.getByText("Idle")).toBeInTheDocument());
 	});
 
 	test("refreshes the list after Reconnect", async () => {
@@ -301,7 +301,7 @@ describe("extensions settings page", () => {
 		await renderWithRouter(<ExtensionsPage />);
 		expect(await screen.findByText("Unavailable")).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button", { name: "Reconnect github" }));
-		await waitFor(() => expect(screen.getByText("Ready")).toBeInTheDocument());
+		await waitFor(() => expect(screen.getByText("Idle")).toBeInTheDocument());
 	});
 });
 

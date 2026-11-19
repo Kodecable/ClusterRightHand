@@ -54,7 +54,6 @@ export function UserGroupNameDialog({
 				if (!open) onClose();
 			}}
 			title={group ? <Trans>Rename user group</Trans> : <Trans>New user group</Trans>}
-			description={group ? undefined : <Trans>A user group is used for session shares and node access grants.</Trans>}
 			submitLabel={group ? <Trans>Rename</Trans> : <Trans>New user group</Trans>}
 			busy={mutation.isPending}
 			submitDisabled={name.trim() === ""}

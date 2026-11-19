@@ -10,7 +10,6 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
-import { RelativeTime } from "@/components/relative-time";
 import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -32,30 +31,22 @@ function KindCell({ extension }: { extension: ExtensionView }) {
 
 function StateCell({ extension }: { extension: ExtensionView }) {
 	const { status } = extension;
+	// A listed MCP extension is ready whether or not it is connected: it connects on use, and idle otherwise.
+	const label =
+		extension.kind === "mcp" && status.state === "ready" ? (
+			status.connected ? (
+				<Trans>Connected</Trans>
+			) : (
+				<Trans>Idle</Trans>
+			)
+		) : (
+			STATE_LABEL[status.state]
+		);
 	return (
 		<span className="grid gap-0.5 text-xs" title={status.lastError ?? undefined}>
 			<StatusText tone={status.state === "ready" ? "ok" : status.state === "unavailable" ? "danger" : "muted"}>
-				{STATE_LABEL[status.state]}
+				{label}
 			</StatusText>
-			{extension.kind === "mcp" && (
-				<span className="text-muted-foreground">
-					{status.connected ? <Trans>Connected</Trans> : <Trans>Idle, connects on use</Trans>}
-				</span>
-			)}
-			{status.refreshedAt !== null && (
-				<span className="text-muted-foreground">
-					<Trans>
-						Listed <RelativeTime value={status.refreshedAt} />
-					</Trans>
-				</span>
-			)}
-			{status.nextAttemptAt !== null && (
-				<span className="text-muted-foreground">
-					<Trans>
-						Next refresh: <RelativeTime value={status.nextAttemptAt} />
-					</Trans>
-				</span>
-			)}
 			{status.lastError !== null && status.state === "unavailable" && (
 				<span className="max-w-64 truncate text-muted-foreground">{status.lastError}</span>
 			)}

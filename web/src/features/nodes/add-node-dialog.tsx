@@ -6,14 +6,7 @@ import { FieldShell } from "@/components/form";
 import { DateTime } from "@/components/relative-time";
 import { Spinner } from "@/components/spinner";
 import { Button } from "@/components/ui/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useEnrollmentToken } from "@/features/nodes/api";
 import { EnrollmentCode } from "@/features/nodes/enrollment-code";
@@ -42,9 +35,6 @@ export function AddNodeDialog({ onClose }: { onClose: () => void }) {
 					<DialogTitle>
 						<Trans>New node</Trans>
 					</DialogTitle>
-					<DialogDescription>
-						<Trans>Create an enrollment token, then run the printed command on the node as root.</Trans>
-					</DialogDescription>
 				</DialogHeader>
 				<div className="grid gap-3">
 					{created ? (

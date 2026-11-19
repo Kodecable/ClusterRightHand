@@ -109,15 +109,6 @@ export function ChannelDialog({ existing, onClose }: { existing: ChannelView | u
 				if (!open) onClose();
 			}}
 			title={editing ? t`Edit channel ${existing.name}` : t`New channel`}
-			description={
-				satori ? (
-					<Trans>
-						A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id.
-					</Trans>
-				) : (
-					<Trans>A Telegram bot. Private chats only; a topic is its own session.</Trans>
-				)
-			}
 			onSubmit={submit}
 			submitLabel={editing ? <Trans>Save</Trans> : <Trans>Create channel</Trans>}
 			busy={save.isPending}
@@ -137,6 +128,15 @@ export function ChannelDialog({ existing, onClose }: { existing: ChannelView | u
 				name="kind"
 				label={t`Kind`}
 				disabled={editing}
+				description={
+					satori ? (
+						<Trans>
+							A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id.
+						</Trans>
+					) : (
+						<Trans>A Telegram bot. Private chats only; a topic is its own session.</Trans>
+					)
+				}
 				options={[
 					{ value: "telegram", label: "Telegram" },
 					{ value: "satori", label: "Satori" },
