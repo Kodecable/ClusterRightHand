@@ -180,16 +180,25 @@ const tasksRoute = createRoute({
 	component: lazyRouteComponent(() => import("@/features/tasks/pages"), "TasksPage"),
 });
 
+/**
+ * A detail page remounts when its id changes. The router otherwise keeps the component for /tasks/A →
+ * /tasks/B, so the decision panel's local state ("Authorization submitted.", pasted text, the chosen tab)
+ * and the page's decide mutation error would follow onto the next item.
+ */
+const remountPerItem = ({ params }: { params: Record<string, string> }) => params;
+
 const taskRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/tasks/$taskId",
 	component: lazyRouteComponent(() => import("@/features/tasks/task-page"), "TaskPage"),
+	remountDeps: remountPerItem,
 });
 
 const taskGroupRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/task-groups/$taskGroupId",
 	component: lazyRouteComponent(() => import("@/features/tasks/task-group-page"), "TaskGroupPage"),
+	remountDeps: remountPerItem,
 });
 
 // --- batch ----------------------------------------------------------------
@@ -215,18 +224,21 @@ const approvalTaskRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/approvals/tasks/$taskId",
 	component: lazyRouteComponent(() => import("@/features/approvals/pages"), "ApprovalTaskPage"),
+	remountDeps: remountPerItem,
 });
 
 const approvalTaskGroupRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/approvals/task-groups/$taskGroupId",
 	component: lazyRouteComponent(() => import("@/features/approvals/pages"), "ApprovalTaskGroupPage"),
+	remountDeps: remountPerItem,
 });
 
 const approvalExternalCallRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/approvals/external-calls/$externalCallId",
 	component: lazyRouteComponent(() => import("@/features/approvals/pages"), "ExternalCallApprovalPage"),
+	remountDeps: remountPerItem,
 });
 
 // --- cluster --------------------------------------------------------------

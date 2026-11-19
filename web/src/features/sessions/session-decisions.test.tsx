@@ -1,4 +1,11 @@
-import type { ApprovalList, ApprovalRequest, ExternalCallView, TaskGroupView, TaskView } from "@crh/api";
+import type {
+	ApprovalList,
+	ApprovalRequest,
+	ExternalCallView,
+	PendingAuthorization,
+	TaskGroupView,
+	TaskView,
+} from "@crh/api";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -233,6 +240,72 @@ function mockLookups(): void {
 	);
 }
 
+const signatureRequest = (id: string): ApprovalRequest => ({
+	...taskRequest(id),
+	phase: "awaiting_signature",
+	privileged: true,
+	alwaysAllow: [],
+});
+
+const pendingSignature = (id: string): PendingAuthorization => ({
+	options: [
+		{
+			kind: "sign",
+			entries: [{ name: "alice", role: "user", credential: "sshsig" }],
+			ttlMs: 86_400_000,
+			payload: {
+				id: "a".repeat(64),
+				payload: `payload-${id}`,
+				spec: `spec-${id}`,
+				challenge: "challenge",
+				deadline: "2026-10-31T12:00:00.000Z",
+				taskIds: [id],
+				attempt: 1,
+				passkeys: [],
+				decoded: {
+					nodes: ["node-1"],
+					command: { match: "spec", specSha256: "b".repeat(64) },
+					issuedAt: "2026-10-30T12:00:00.000Z",
+					deadline: "2026-10-31T12:00:00.000Z",
+					taskIds: [id],
+					attempt: 1,
+					note: "",
+				},
+			},
+		},
+	],
+	lastRejection: null,
+});
+
+/** The lookups plus each task's pending signature options and the authorization submit. */
+function mockSignatureApi(): void {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async (input: RequestInfo | URL) => {
+			const path = new URL(String(input), "http://localhost").pathname;
+			const waiting = /^\/api\/tasks\/([^/]+)\/authorization$/.exec(path);
+			const body =
+				waiting !== null
+					? { authorization: pendingSignature(waiting[1] ?? "") }
+					: path === "/api/authorizations"
+						? { authorization: { id: "auth-1" } }
+						: path === "/api/nodes"
+							? { nodes: [{ id: "node-1", name: "worker-01" }] }
+							: path === "/api/node-groups"
+								? { groups: [] }
+								: path === "/api/api-tokens"
+									? { tokens: [] }
+									: path === "/api/directory"
+										? { users: [], userGroups: [] }
+										: {};
+			return new Response(JSON.stringify(body), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}),
+	);
+}
+
 function Harness({ decisions, next }: { decisions: SessionDecision[]; next: SessionDecision[] }) {
 	const [current, setCurrent] = useState(decisions);
 	return (
@@ -286,6 +359,61 @@ describe("SessionDecisionDock", () => {
 		fireEvent.click(screen.getByRole("button", { name: "resolve first" }));
 		await waitFor(() => expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("echo second"));
 		expect(within(dock).queryByText("1 of 2")).not.toBeInTheDocument();
+	});
+
+	test("the next signature wait starts clean after the first is signed", async () => {
+		mockSignatureApi();
+		const first: SessionDecision = {
+			kind: "signature_task",
+			task: task("first", "2026-01-01T00:00:00.000Z"),
+			request: signatureRequest("first"),
+		};
+		const second: SessionDecision = {
+			kind: "signature_task",
+			task: task("second", "2026-01-02T00:00:00.000Z"),
+			request: signatureRequest("second"),
+		};
+		await renderWithRouter(<Harness decisions={[first, second]} next={[second]} />);
+		const dock = await screen.findByTestId("session-decisions");
+		fireEvent.click(await within(dock).findByRole("tab", { name: "crhu sign" }));
+		fireEvent.change(within(dock).getByLabelText("Signature"), { target: { value: "signed-first" } });
+		fireEvent.click(within(dock).getByRole("button", { name: "Submit authorization" }));
+		expect(await within(dock).findByRole("status")).toHaveTextContent("Authorization submitted.");
+		// Text typed after the submit belongs to the first wait too.
+		fireEvent.change(within(dock).getByLabelText("Signature"), { target: { value: "left over" } });
+
+		fireEvent.click(screen.getByRole("button", { name: "resolve first" }));
+		await waitFor(() => expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("echo second"));
+		expect(within(dock).queryByRole("status")).not.toBeInTheDocument();
+		expect(within(dock).queryByText("Authorization submitted.")).not.toBeInTheDocument();
+		fireEvent.click(await within(dock).findByRole("tab", { name: "crhu sign" }));
+		expect(within(dock).getByLabelText("Signature")).toHaveValue("");
+	});
+
+	test("the next approval starts with its own Always allow rule", async () => {
+		mockLookups();
+		const first: SessionDecision = {
+			kind: "approval_task",
+			task: task("first", "2026-01-01T00:00:00.000Z"),
+			request: taskRequest("first"),
+		};
+		const second: SessionDecision = {
+			kind: "approval_task",
+			task: task("second", "2026-01-02T00:00:00.000Z"),
+			request: taskRequest("second"),
+		};
+		await renderWithRouter(<Harness decisions={[first, second]} next={[second]} />);
+		const dock = await screen.findByTestId("session-decisions");
+		fireEvent.click(within(dock).getByRole("tab", { name: "Always allow" }));
+		const rule = () => within(dock).getByLabelText("Rule to add to the caller's rule set") as HTMLTextAreaElement;
+		expect(rule().value).toContain('"exact": "echo first"');
+
+		fireEvent.click(screen.getByRole("button", { name: "resolve first" }));
+		await waitFor(() => expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("echo second"));
+		// The tab and the rule text of the first approval do not carry over.
+		expect(within(dock).queryByLabelText("Rule to add to the caller's rule set")).not.toBeInTheDocument();
+		fireEvent.click(within(dock).getByRole("tab", { name: "Always allow" }));
+		expect(rule().value).toContain('"exact": "echo second"');
 	});
 });
 

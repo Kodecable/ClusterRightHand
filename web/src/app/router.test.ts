@@ -51,3 +51,21 @@ describe("administrator routes", () => {
 		expect(router.state.location.pathname).toBe("/settings/system");
 	});
 });
+
+describe("detail routes", () => {
+	// Without remountDeps the router keeps a detail page's component from one item to the next, and the
+	// decision panel's "submitted" notice, pasted text and mutation errors follow onto the next item.
+	test.each([
+		["/_authenticated/tasks/$taskId", "taskId"],
+		["/_authenticated/task-groups/$taskGroupId", "taskGroupId"],
+		["/_authenticated/approvals/tasks/$taskId", "taskId"],
+		["/_authenticated/approvals/task-groups/$taskGroupId", "taskGroupId"],
+		["/_authenticated/approvals/external-calls/$externalCallId", "externalCallId"],
+	])("%s remounts for another id", (id, param) => {
+		const route = router.routesById[id as keyof typeof router.routesById];
+		const deps = route.options.remountDeps as ((options: { params: Record<string, string> }) => unknown) | undefined;
+		expect(deps).toBeDefined();
+		expect(deps?.({ params: { [param]: "a" } })).not.toEqual(deps?.({ params: { [param]: "b" } }));
+		expect(deps?.({ params: { [param]: "a" } })).toEqual(deps?.({ params: { [param]: "a" } }));
+	});
+});
