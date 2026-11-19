@@ -77,7 +77,7 @@ function TrustRules({ entry }: { entry: TrustEntry }) {
 							value: entry.deny.map((rule) => guardRuleText(rule, t`any target`)).join("; ") || "–",
 							mono: entry.deny.length > 0,
 						},
-						{ label: t`Environment`, value: entry.envAllow.join(", ") || "–", mono: true },
+						{ label: t`Environment`, value: entry.envAllow.join(", ") || t`Any variable`, mono: true },
 						...(entry.key.kind === "sshsig" ? [{ label: t`Public key`, value: entry.key.publicKey, mono: true }] : []),
 					]}
 				/>

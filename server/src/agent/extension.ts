@@ -758,8 +758,10 @@ export function clusterExtension(
 				Type.Unsafe<Record<string, unknown>>({
 					type: "object",
 					description:
-						'Rules on top of yours, e.g. {"default":"deny","rules":[{"action":"allow","method":"file.read"}]}; ' +
-						"actions allow|deny|require-approval, methods exec|file.read|file.write, nodes, exact|prefix",
+						'Rules on top of yours, fixed for the subagent\'s life; they can only restrict, e.g. {"default":"deny",' +
+						'"rules":[{"action":"allow","method":"file.read"}]}. Without default (or without rules) it is "inherit": ' +
+						"exactly your limits. The strictest matching rule wins, in any order. Actions allow|deny|require-approval; " +
+						"methods exec|file.read|file.write|ext.read|ext.write|api.read|api.write; nodes; exact|prefix target",
 				}),
 			),
 			quota: Type.Optional(

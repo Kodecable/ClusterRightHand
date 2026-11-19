@@ -10,6 +10,7 @@ import { createApiToken } from "../src/auth/api-tokens.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import { externalCallViews, getExternalCall } from "../src/extensions/external-calls.ts";
+import { createRootRuleSet, createRuleSet, setRules } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
@@ -33,6 +34,7 @@ describe("approval request model (sqlite)", () => {
 	let audit: Audit;
 	let orgId = "";
 	let aliceId = "";
+	const ROOT = { type: "session" as const, id: newId() };
 	const nodes: string[] = [];
 
 	const addNode = async (name: string) => {
@@ -156,7 +158,7 @@ describe("approval request model (sqlite)", () => {
 				output_file: null,
 				result: null,
 				late_result: null,
-				rule_chain: JSON.stringify([{ type: "user", id: aliceId }]),
+				rule_chain: JSON.stringify([ROOT]),
 				approval: JSON.stringify(values.approval),
 				pending_input: null,
 				root_session_id: values.rootSessionId,
@@ -178,6 +180,7 @@ describe("approval request model (sqlite)", () => {
 		actorType: string;
 		actorId: string;
 		approval: unknown;
+		chain?: { type: "session"; id: string }[];
 	}) => {
 		await db
 			.insertInto("external_calls")
@@ -192,7 +195,7 @@ describe("approval request model (sqlite)", () => {
 				arguments: JSON.stringify(values.arguments),
 				operation: JSON.stringify(values.operation),
 				annotations: null,
-				rule_chain: JSON.stringify([{ type: "user", id: aliceId }]),
+				rule_chain: JSON.stringify(values.chain ?? [ROOT]),
 				approval: JSON.stringify(values.approval),
 				pending_input: null,
 				root_session_id: null,
@@ -215,6 +218,8 @@ describe("approval request model (sqlite)", () => {
 		groups = new TaskGroups(db, cluster, { audit });
 		orgId = await defaultOrgId(db);
 		aliceId = (await createUser(db, { username: "alice", kind: "member", password: "password-123" })).id;
+		// The requests' rule chain: an Ask root, which "always allow" can lift.
+		await createRootRuleSet(db, orgId, ROOT, "ask");
 		for (let i = 1; i <= 12; i++) await addNode(`node-${i}`);
 	});
 
@@ -340,6 +345,42 @@ describe("approval request model (sqlite)", () => {
 			{ option: "tool", rule: { action: "allow", method: "ext.write", exact: "github/create_issue" } },
 			{ option: "extension", rule: { action: "allow", method: "ext.write", prefix: "github/" } },
 		]);
+	});
+
+	it("offers no always-allow when a rule on the root could not end the approval", async () => {
+		const rootId = "session-lifted-root";
+		await addSession(rootId, "subagent work", null, rootId);
+		// A subagent level that asks by default: a rule appended to the root cannot lift it.
+		const child = { type: "session" as const, id: newId() };
+		await createRuleSet(db, orgId, child, { default: "require-approval", rules: [] });
+		const fromChild = await callRow({
+			id: "call-from-child",
+			extension: "github",
+			tool: "create_issue",
+			arguments: {},
+			operation: { method: "ext.write", target: "github/create_issue" },
+			actorType: "session",
+			actorId: rootId,
+			approval: { evaluation },
+			chain: [ROOT, child],
+		});
+		expect((await approvalRequestForExternalCall(db, fromChild)).alwaysAllow).toEqual([]);
+		// A stricter rule on the root itself wins over an appended allow, the same way.
+		const strict = { type: "session" as const, id: newId() };
+		await createRootRuleSet(db, orgId, strict, "yolo");
+		await setRules(db, strict, [{ action: "require-approval", method: "ext.write", prefix: "github/" }]);
+		const fromStrictRoot = await callRow({
+			id: "call-strict-root",
+			extension: "github",
+			tool: "create_issue",
+			arguments: {},
+			operation: { method: "ext.write", target: "github/create_issue" },
+			actorType: "session",
+			actorId: rootId,
+			approval: { evaluation },
+			chain: [strict],
+		});
+		expect((await approvalRequestForExternalCall(db, fromStrictRoot)).alwaysAllow).toEqual([]);
 	});
 
 	it("builds an api_request call with this-request and this-route rules", async () => {

@@ -3,7 +3,7 @@ import type { GuardRule, TaskSpec } from "@crh/protocol";
 import { taskSpecFromJson } from "@crh/protocol";
 import { describe, expect, it } from "vitest";
 import {
-	envAllowed,
+	envNotAllowed,
 	GuardRuleError,
 	guardAllows,
 	MAX_GUARD_PATTERN_BYTES,
@@ -104,11 +104,11 @@ describe("env_allow", () => {
 		stdin: null,
 	});
 
-	it("allows only listed environment variables, on exec tasks", () => {
-		expect(envAllowed(spec({ DEBIAN_FRONTEND: "noninteractive" }), ["DEBIAN_FRONTEND"])).toBe(true);
-		expect(envAllowed(spec({ PATH: "/tmp" }), ["DEBIAN_FRONTEND"])).toBe(false);
-		expect(envAllowed(spec({}), [])).toBe(true);
-		expect(envAllowed({ kind: "file.stat", path: "/etc" }, [])).toBe(true);
+	it("names the variables env_allow does not list; an empty env_allow places no limit", () => {
+		expect(envNotAllowed(spec({ DEBIAN_FRONTEND: "noninteractive" }), ["DEBIAN_FRONTEND"])).toEqual([]);
+		expect(envNotAllowed(spec({ PATH: "/tmp", LD_PRELOAD: "x" }), ["DEBIAN_FRONTEND"])).toEqual(["LD_PRELOAD", "PATH"]);
+		expect(envNotAllowed(spec({ LD_PRELOAD: "x" }), [])).toEqual([]);
+		expect(envNotAllowed({ kind: "file.stat", path: "/etc" }, ["LANG"])).toEqual([]);
 	});
 });
 

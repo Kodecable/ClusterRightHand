@@ -116,11 +116,16 @@ export function guardAllows(
 	return allows(compileRuleSet(entry.allow), method, target);
 }
 
-/** Every environment variable the task carries must be listed in env_allow. File tasks carry none. */
-export function envAllowed(spec: TaskSpec, envAllow: readonly string[]): boolean {
-	if (spec.kind !== "exec") return true;
+/**
+ * The environment variables of a task that env_allow does not list, sorted; empty when the task may run. An
+ * empty env_allow places no limit (doc/design/privilege.md "Guard rules"). File tasks carry no environment.
+ */
+export function envNotAllowed(spec: TaskSpec, envAllow: readonly string[]): string[] {
+	if (spec.kind !== "exec" || envAllow.length === 0) return [];
 	const allowed = new Set(envAllow);
-	return Object.keys(spec.env).every((name) => allowed.has(name));
+	return Object.keys(spec.env)
+		.filter((name) => !allowed.has(name))
+		.sort();
 }
 
 export class PrivilegedTargetError extends Error {

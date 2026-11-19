@@ -204,34 +204,44 @@ and the custom rules are duplicated, so an edit on either side leaves the other 
 
 A root is configured by a rule preset plus any rules the owner adds:
 
-| Preset | Behavior |
-|---|---|
-| Ask | Allows non-privileged reads; everything else needs the user's approval. |
-| Auto Review | Like Ask, but the review model decides first and passes anything risky or unclear to the user. |
-| Yolo | Allows everything by default. |
+| Preset | Default | Rules of the preset |
+|---|---|---|
+| Ask | `require-approval` | allow non-privileged `file.read`, `ext.read` and `api.read` |
+| Auto Review | `require-approval` | the same as Ask; the review model answers approvals first and passes anything risky or unclear to the user |
+| Yolo | `allow` | none |
 
-Choosing "always allow" on an approval appends an allow rule to the root. A subagent receives a full
-rule set from its parent at creation and can only be stricter than its parent. Presets give a person a
-simple choice; full rule sets let an agent restrict a subagent precisely.
+The owner can change a root's preset at any time. The rules on top of it grow only through "always
+allow" on an approval, which appends an allow rule to the root, whichever level the request came from.
+
+A subagent's level is set once, when its parent creates it: the rules the parent passes, or none. It is
+fixed for the subagent's life: neither the parent agent nor the owner can change it later, and it has no
+preset. Changes to the levels above still reach the subagent at once, because the chain is read at every
+evaluation. Presets give a person a simple choice; a subagent's own level lets an agent restrict a
+subagent precisely, and it can only restrict ([Evaluation](#evaluation)).
 
 ### Rules
 
 A rule has an action (`allow`, `require-approval`, `deny`) and optional matchers: the method (`exec`,
 `file.read`, `file.write`, `ext.read`, `ext.write`, `api.read`, `api.write`), the nodes, whether the
-task is privileged, and an
-`exact` or `prefix` target, as defined in [Methods and targets](privilege.md#methods-and-targets). Each
-level also has a default for obligations no rule matches. The schema is in `packages/api/src/policy.ts`.
+task is privileged, and an `exact` or `prefix` target, as defined in
+[Methods and targets](privilege.md#methods-and-targets). A matcher that is left out matches anything, and a
+rule matches only when all of its matchers do. The schema is in `packages/api/src/policy.ts`.
+
+Each level also has a default, its result for an operation no rule of the level matches: `allow`,
+`require-approval` or `deny`, or, below the root, `inherit`. A root's default comes from its preset and
+cannot be `inherit`, since nothing is above it. A subagent created without rules, or with rules but no
+`default`, has `inherit`.
 
 Extension calls use `ext.read` (a read-only tool on an extension whose annotations are trusted) and
 `ext.write` (every other tool). Their target is `<extension>/<tool>`, so `prefix: "github/"` covers an
 extension ([Rules and approvals](extensions.md#rules-and-approvals)). The built-in `crhs-api` extension states
 its own `api.read`/`api.write` operations on the request's route (`<METHOD> <path template>`), so a rule
 such as `prefix: "POST /api/node-groups"` covers a family of routes. A rule with `nodes` never matches an
-external call, external calls are never privileged, and `allow ext.write` or `allow api.write` also
-allows the matching read on the same target.
+external call, and external calls are never privileged.
 
-- `allow file.write` also allows reading the same target, but `deny file.write` blocks only writes:
-  "do not modify" should not mean "do not look".
+- `allow file.write` also allows reading the same target, and `allow ext.write` and `allow api.write`
+  the matching read. A `deny` or `require-approval` rule matches its own method only: `deny file.write`
+  blocks writes, not reads, because "do not modify" should not mean "do not look".
 - Rules have no regular expressions. Rules run on the crhs event loop and may be written by an agent,
   and one pathological expression could stall the whole server. crha's guard rules use RE2 and are not
   affected.
@@ -240,23 +250,41 @@ allows the matching read on the same target.
 
 Rules are a ceiling that can only get lower down the chain.
 
-1. Each level's own result is its strictest matching rule (`deny` over `require-approval` over
-   `allow`), or its default when no rule matches.
-2. The cumulative result starts at the root's own result; each later level keeps the stricter of the
-   cumulative result so far and its own result.
-3. The last level's cumulative result is the decision.
+1. **A level's own result** is the strictest of its matching rules (`deny` over `require-approval` over
+   `allow`). The order of the rules does not matter: there is no "first match wins". With no matching
+   rule, the result is the level's default.
+2. **The chain** starts at the root's own result. Each later level keeps the stricter of the result so
+   far and its own result; `inherit` adds nothing, so a level that inherits keeps the result from above.
+3. The last level's result is the decision. The evaluation of every level is stored with the task, so
+   approvals show the whole chain.
 
-A lower `allow` therefore cannot lift a restriction from above; it is useful only with a stricter
-default at that level, such as a subagent that denies by default but allows `systemctl status`. A
-scheme where any level's allow suffices was rejected because a subagent could then widen its parent's
-limits. The evaluation of every level is stored with the task, so approvals show the whole chain.
+What follows from this, and is easy to get wrong:
+
+- **An exception is not written by order.** "Allow `systemctl status`, deny the rest of `systemctl`"
+  cannot be a `deny prefix: "systemctl "` plus an `allow exact: "systemctl status"` on one level: both
+  match, and the deny wins. Write the narrow allow with a stricter default instead (default `deny`,
+  allow `systemctl status`), or keep the wide restriction on a level above.
+- **A lower `allow` never lifts a restriction from above.** It matters only against a stricter default
+  of its own level, as in the example above. A subagent therefore can never do what its parent may not:
+  a scheme where any level's allow suffices was rejected because a subagent could then widen its
+  parent's limits.
+- **A subagent without rules has exactly its parent's limits**, not "everything allowed": `inherit`
+  defers to the levels above.
+- **"Always allow" lifts only what the root imposed.** The rule goes to the root, so it ends an approval
+  only when the root's default or rules caused it. When the subagent's own level asks or denies, or a
+  stricter rule on the root matches too, the root's allow changes nothing, and since a subagent's level is
+  fixed, its restriction stays. crhs therefore offers an always-allow candidate only when appending it to
+  the root would make every waiting operation `allow` (for a task group, every node that needs the
+  approval), the WebUI shows no **Always allow** when none would, and a decision that sends a rule that
+  would not end the approval is refused.
 
 ### Environment and working directory
 
 Rules match only the command or path, not the task's environment or working directory. crhs rules are
 not a sandbox: a rule that allows `systemctl status` also allows that command with `LD_PRELOAD` set.
 Matching the environment would add many platform-specific cases and new false allows. Use a `forward`
-node when isolation matters; its trust entries restrict the environment.
+node when isolation matters, with trust entries that list their variables in `env_allow`
+([Guard rules](privilege.md#guard-rules)).
 
 ### Approvals
 

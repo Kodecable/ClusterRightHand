@@ -68,7 +68,7 @@ entry, nobody can open a window, not even root. The **Generate trust config** di
 | `require_task` | `user` | Accept only one-shot authorizations for specific tasks. (crhs authorizations are always one-shot.) |
 | `require_uv` | `user` | Require user verification (PIN or biometric). Needs a Passkey or an `sk-` key. |
 | `allow`, `deny` | `crhs`, `user` | [Guard rules](#guard-rules). |
-| `env_allow` | `crhs`, `user` | Environment variables a task may set. `PATH` is always fixed. |
+| `env_allow` | `crhs`, `user` | Environment variables a task may set, by exact name (no wildcards). Empty or absent allows any variable; `PATH` is always fixed. |
 
 A `local` entry only has `uids` and `max_window`. Setting `kinds`, `max_ttl`, `require_spec`,
 `require_task`, `require_uv`, `allow`, `deny` or `env_allow` on it is a configuration error: an open
@@ -94,6 +94,9 @@ deny = [{ method = "file.write", prefix = "/etc/crha/" }]
 - For `exec`, the target is the command line, and shell commands appear as `/bin/sh -c '…'`, so a
   prefix rule for a command does not match a shell script.
 - `deny` is checked first. If `allow` is not empty, one of its rules must match.
+- Empty lists place no limit: without `allow` and `deny` an entry accepts any target, and without
+  `env_allow` any environment variable. Set `env_allow` on an entry with guard rules: otherwise a
+  variable such as `LD_PRELOAD` or `BASH_ENV` can make an allowed command do something else.
 - Rules see only the command or path, not input or file content.
 - Use only regular expression features that both Go and RE2 support: no lookaround or backreferences.
 

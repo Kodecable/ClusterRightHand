@@ -229,15 +229,30 @@ keys, duplicate names, and a key or credential id used by two entries are errors
 ### Guard rules
 
 Guard rules are a filter, not a rule engine. Each rule names a method and optionally a target `prefix`
-or an RE2 `regex` that must match the whole target. `deny` rules are checked first and any match
-refuses; if `allow` rules exist, one must match.
+or an RE2 `regex` that must match the whole target; with neither, it matches every target of its method.
+`deny` rules are checked first and any match refuses; then, if `allow` rules exist, one must match.
+
+| `allow` | `deny` | `env_allow` | What the entry accepts |
+|---|---|---|---|
+| empty | empty | empty | any target, any environment |
+| empty | rules | | anything the deny rules do not match |
+| rules | | | only what an allow rule matches, minus what a deny rule matches |
+| | | names | only tasks whose environment variables are all listed |
+
+An empty list places no limit, the same for all three: a trust entry restricts only what it states.
 
 - A `file.write` allow rule also allows reading the same paths; a `file.write` deny rule blocks only
   writes, as in crhs rules.
 - Rules constrain the target only, not input or content: allowing `exec bash` allows any script. Use
   a `spec` authorization when content matters.
-- A task may carry only the environment variables an entry allows, and `PATH` is fixed, so variables
-  like `LD_PRELOAD` cannot bypass command rules.
+- `PATH` is always fixed. Other variables are allowed until `env_allow` lists some, and variables such
+  as `LD_PRELOAD` or `BASH_ENV` change what a command does without changing its command line. An entry
+  whose guard rules matter should therefore list the variables it needs in `env_allow`; with none
+  listed, its command rules can be bypassed through the environment. `env_allow` matches whole names:
+  there is no wildcard, and `*` is a variable name like any other.
+- A refusal names the entry and, for the environment, the variables it does not list, and says how to
+  go on: run the task without them, or have the node's administrator list them. crhs shows the same
+  text when it plans the task.
 - The node is the authority on regular expressions. crhs evaluates the same rules only to plan, and a
   pattern it cannot compile is treated conservatively (allow does not match, deny does).
 

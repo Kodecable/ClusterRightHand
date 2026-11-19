@@ -9,6 +9,7 @@ import {
 } from "@crh/api/schemas";
 import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
+import { alwaysRuleLifts, groupNodesNeedingApproval } from "../approvals/always-allow.ts";
 import {
 	approvalRequestForExternalCall,
 	approvalRequestForTask,
@@ -28,7 +29,7 @@ import {
 	reevaluateExternalCalls,
 } from "../extensions/external-calls.ts";
 import { parseRulesForWrite } from "../policy/refs.ts";
-import type { Rule } from "../policy/rules.ts";
+import type { Operation, Rule } from "../policy/rules.ts";
 import { appendRule, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
@@ -109,6 +110,14 @@ export async function reevaluateAfterRuleChange(
 }
 
 /** Approvals: only the root's owner decides (doc/design/access-control.md "Approvals"). Expects requireUser. */
+/**
+ * The answer to an "always" rule that would not end the approval: it goes to the root, and a lower level of
+ * the chain (or a stricter root rule) still holds the request (doc/design/access-control.md "Evaluation").
+ */
+const NO_LIFT =
+	'this "always allow" rule would not end the approval: the restriction comes from a lower level of the rule ' +
+	"chain or a stricter rule, which the rule on the root cannot lift";
+
 export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, audit: Audit) {
 	const app = apiRouter();
 
@@ -157,6 +166,10 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			waiting: boolean;
 			handlerType: "agent" | "user" | null;
 			phase: "reviewing" | "awaiting_user" | "awaiting_signature";
+			/** What is waiting, to check that an "always" rule would end the approval. */
+			operation: { method: Operation["method"]; target: string } | null;
+			privileged: boolean;
+			nodeIds: readonly string[];
 		},
 		body: ApprovalBody,
 	) => {
@@ -184,6 +197,9 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		if (body.decision === "approve" && body.always !== undefined) {
 			const [rule] = await parseRulesForWrite(db, await defaultOrgId(db), [body.always]);
 			if (rule?.action !== "allow") throw new UserError('an "always" rule must be an allow rule');
+			if (!(await alwaysRuleLifts(db, subject.chain, subject.operation, subject.privileged, subject.nodeIds, rule))) {
+				throw new UserError(NO_LIFT);
+			}
 			always = rule;
 		}
 		const ok =
@@ -221,6 +237,9 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 					waiting: t.state === "awaiting_approval",
 					handlerType: t.handlerType,
 					phase: t.phase,
+					operation: t.operation,
+					privileged: t.privileged,
+					nodeIds: [t.nodeId],
 				},
 				c.req.valid("json"),
 			),
@@ -243,6 +262,9 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 					waiting: g.state === "awaiting_approval",
 					handlerType: g.handlerType,
 					phase: g.phase,
+					operation: g.operation,
+					privileged: g.privileged,
+					nodeIds: groupNodesNeedingApproval(g),
 				},
 				c.req.valid("json"),
 			),
@@ -284,6 +306,8 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 			if (!root) throw new HTTPException(409, { message: "the call has no rule chain" });
 			const [rule] = await parseRulesForWrite(db, await defaultOrgId(db), [body.always]);
 			if (rule?.action !== "allow") throw new UserError('an "always" rule must be an allow rule');
+			const operation = JSON.parse(row.operation) as { method: Operation["method"]; target: string };
+			if (!(await alwaysRuleLifts(db, chain, operation, false, null, rule))) throw new UserError(NO_LIFT);
 			always = rule;
 		}
 		const ok = await decideExternalCall(

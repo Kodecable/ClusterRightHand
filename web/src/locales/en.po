@@ -634,6 +634,10 @@ msgstr "Any state"
 msgid "any target"
 msgstr "any target"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Any variable"
+msgstr "Any variable"
+
 #: src/features/tokens/pages.tsx
 msgid "Anything using this token stops working immediately. This cannot be undone."
 msgstr "Anything using this token stops working immediately. This cannot be undone."

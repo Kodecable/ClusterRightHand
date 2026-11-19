@@ -42,8 +42,9 @@ A crha node does not pass its own environment to tasks. A task starts with a sma
 This keeps a task's behavior independent of how the crha service happened to be started.
 
 - In the unprivileged mode, a task's `env` may override everything, including `PATH`. In the privileged
-  mode `PATH` is fixed, and `forward` mode accepts only variables the trust entry allows, so variables
-  like `LD_PRELOAD` cannot bypass command rules.
+  mode `PATH` is fixed, and in `forward` mode a trust entry with an `env_allow` list accepts only the
+  variables it lists, so variables like `LD_PRELOAD` cannot bypass its command rules; an entry without
+  one accepts any ([Guard rules](privilege.md#guard-rules)).
 - The node discovers `sh` and `bash` at startup and reports them to crhs. Authorizations and rules
   always render a shell command as `/bin/sh -c '…'`, meaning "the node's sh", so the rendering does not
   vary by node.

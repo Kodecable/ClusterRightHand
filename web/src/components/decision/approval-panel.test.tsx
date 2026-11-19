@@ -129,9 +129,9 @@ describe("ApprovalPanel", () => {
 		});
 	});
 
-	test("no always-allow candidates disables the Always allow tab", async () => {
+	test("no always-allow candidates hides the Always allow tab", async () => {
 		await renderWithRouter(<ApprovalPanel request={request({ alwaysAllow: [] })} onDecide={() => {}} />);
-		expect(screen.getByRole("tab", { name: "Always allow" })).toHaveAttribute("aria-disabled", "true");
+		expect(screen.queryByRole("tab", { name: "Always allow" })).not.toBeInTheDocument();
 	});
 
 	test("a reviewing request shows the notice in the same card layout and no decision controls", async () => {

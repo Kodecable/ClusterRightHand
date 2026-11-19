@@ -341,8 +341,13 @@ func checkTrust(entry *Entry, in Input, method, target string) (Decision, bool) 
 	if !guardAllows(entry, method, target) {
 		return failure(ResultRejected, StepTrust, "trust entry %q rules reject this task", entry.Name), false
 	}
-	if !envAllowed(in.Task.Spec, entry.EnvAllow) {
-		return failure(ResultRejected, StepTrust, "trust entry %q does not allow the task environment", entry.Name), false
+	if names, ok := envNotAllowed(in.Task.Spec, entry.EnvAllow); !ok {
+		if len(names) == 0 {
+			return failure(ResultRejected, StepTrust, "trust entry %q cannot check the task environment", entry.Name), false
+		}
+		return failure(ResultRejected, StepTrust,
+			"trust entry %q does not allow the environment variables %s: run the task without them, "+
+				"or the node's administrator adds them to env_allow", entry.Name, strings.Join(names, ", ")), false
 	}
 	return accepted(entry.Name), true
 }

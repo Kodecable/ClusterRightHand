@@ -10,11 +10,15 @@ import type {
 	ExternalCallView,
 	Operation,
 	Rule,
+	RuleRef,
 	TaskAction,
 	TaskGroupView,
 	TaskView,
 } from "@crh/api";
+import { getExternalCall } from "../extensions/external-calls.ts";
+import type { ChainLevel, Operation as RuleOperation } from "../policy/rules.ts";
 import type { Db } from "../storage/db.ts";
+import { groupNodesNeedingApproval, liftsWithRule, loadRequestChain, waitingOperations } from "./always-allow.ts";
 
 /** A chat card names at most this many nodes; `moreNodes` carries the rest. */
 const NODE_LIMIT = 10;
@@ -47,22 +51,47 @@ function cappedNodes(all: readonly string[]): { nodes?: string[]; moreNodes?: nu
 	return all.length > NODE_LIMIT ? { nodes, moreNodes: all.length - NODE_LIMIT } : { nodes };
 }
 
-function taskAlwaysAllow(
+/**
+ * A task's or task group's always-allow candidates: this target or this prefix, on these nodes. The rule shown
+ * names the nodes; the one tested names their ids, as a stored rule would. A candidate that would not end the
+ * approval (doc/design/access-control.md "Evaluation") is left out.
+ */
+async function taskAlwaysAllow(
+	db: Db,
+	chain: Parameters<typeof loadRequestChain>[1],
 	operation: Operation | null,
-	nodes: readonly string[],
+	nodeIds: readonly string[],
+	names: readonly string[],
 	privileged: boolean,
-): ApprovalAlwaysAllow[] {
+): Promise<ApprovalAlwaysAllow[]> {
 	if (!operation) return [];
+	const levels = await loadRequestChain(db, chain);
+	const operations = await waitingOperations(db, operation, privileged, nodeIds);
 	const base: Rule = {
 		action: "allow",
 		method: operation.method,
-		...(nodes.length > 0 ? { nodes: [...nodes] } : {}),
+		...(names.length > 0 ? { nodes: [...names] } : {}),
 		privileged,
 	};
-	return [
+	const candidates: ApprovalAlwaysAllow[] = [
 		{ option: "exact", rule: { ...base, exact: operation.target } },
 		{ option: "prefix", rule: { ...base, prefix: operation.target } },
 	];
+	return candidates.filter((candidate) =>
+		liftsWithRule(levels, operations, {
+			...candidate.rule,
+			...(nodeIds.length > 0 ? { nodes: [...nodeIds] } : {}),
+		}),
+	);
+}
+
+/** Keeps the candidates that would end the approval of these operations. */
+function lifting(
+	levels: ChainLevel[] | null,
+	operations: readonly RuleOperation[],
+	candidates: ApprovalAlwaysAllow[],
+): ApprovalAlwaysAllow[] {
+	return candidates.filter((candidate) => liftsWithRule(levels, operations, candidate.rule));
 }
 
 /** An extension call's always-allow candidates: this tool or the whole extension, or this request or route. */
@@ -111,18 +140,17 @@ export async function approvalRequestForTask(db: Db, task: TaskView): Promise<Ap
 		...nodeList,
 		privileged: task.privileged,
 		...(review ? { review } : {}),
-		alwaysAllow: taskAlwaysAllow(task.operation, names, task.privileged),
+		alwaysAllow: await taskAlwaysAllow(db, task.ruleChain, task.operation, [task.nodeId], names, task.privileged),
 	};
 }
 
 export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView): Promise<ApprovalRequest> {
 	// Only the nodes whose rule result needs approval are named; the group is approved once for all of them.
-	const needing = group.approval
-		? group.approval.nodes.filter((node) => node.evaluation.result === "require-approval").map((node) => node.nodeId)
-		: group.nodeIds;
+	const needing = groupNodesNeedingApproval(group);
 	const names = await nodeNames(db, needing);
 	const nodeList = cappedNodes(names);
 	const review = reviewSummary(group.approval);
+	const alwaysAllow = await taskAlwaysAllow(db, group.ruleChain, group.operation, needing, names, group.privileged);
 	return {
 		kind: "task_group",
 		id: group.id,
@@ -132,7 +160,7 @@ export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView):
 		...nodeList,
 		privileged: group.privileged,
 		...(review ? { review } : {}),
-		alwaysAllow: taskAlwaysAllow(group.operation, names, group.privileged),
+		alwaysAllow,
 	};
 }
 
@@ -140,6 +168,9 @@ export async function approvalRequestForExternalCall(db: Db, call: ExternalCallV
 	const apiAction = apiRequestAction(call);
 	const action: TaskAction = apiAction ?? { type: "extension_tool", extension: call.extension, tool: call.tool };
 	const review = reviewSummary(call.approval);
+	const row = await getExternalCall(db, call.id);
+	const levels = await loadRequestChain(db, row?.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null);
+	const operations = await waitingOperations(db, call.operation, false, null);
 	return {
 		kind: "external_call",
 		id: call.id,
@@ -148,6 +179,6 @@ export async function approvalRequestForExternalCall(db: Db, call: ExternalCallV
 		action,
 		privileged: false,
 		...(review ? { review } : {}),
-		alwaysAllow: externalCallAlwaysAllow(call, apiAction !== undefined),
+		alwaysAllow: lifting(levels, operations, externalCallAlwaysAllow(call, apiAction !== undefined)),
 	};
 }

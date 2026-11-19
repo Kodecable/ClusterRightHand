@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
@@ -166,23 +167,29 @@ func guardAllows(entry *Entry, method, target string) bool {
 	return guard.allows(method, target)
 }
 
-// envAllowed reports whether every environment variable the task carries is listed in the
-// trust entry's env_allow. File tasks carry no environment.
-func envAllowed(spec *protocol.TaskSpec, envAllow []string) bool {
+// envNotAllowed returns the task's environment variables that envAllow does not list, sorted, and
+// whether the environment may run. An empty envAllow places no limit, and file tasks carry no
+// environment; an exec spec without its body fails closed.
+func envNotAllowed(spec *protocol.TaskSpec, envAllow []string) ([]string, bool) {
 	if spec == nil || spec.Kind != protocol.TaskSpecExec {
-		return true
+		return nil, true
 	}
 	if spec.Exec == nil {
-		return false
+		return nil, false
+	}
+	if len(envAllow) == 0 {
+		return nil, true
 	}
 	allowed := make(map[string]struct{}, len(envAllow))
 	for _, name := range envAllow {
 		allowed[name] = struct{}{}
 	}
+	var out []string
 	for name := range spec.Exec.Env {
 		if _, ok := allowed[name]; !ok {
-			return false
+			out = append(out, name)
 		}
 	}
-	return true
+	sort.Strings(out)
+	return out, len(out) == 0
 }

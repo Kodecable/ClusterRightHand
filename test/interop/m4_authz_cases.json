@@ -3276,8 +3276,8 @@
 			}
 		},
 		{
-			"id": "crhs.env-not-allowed",
-			"description": "the crhs entry allows no environment variables",
+			"id": "crhs.env-any",
+			"description": "an empty env_allow places no limit on the environment",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -3395,8 +3395,8 @@
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
-				"result": "authorization_rejected",
-				"step": 7
+				"result": "accepted",
+				"step": null
 			}
 		},
 		{
@@ -4679,6 +4679,130 @@
 			"expect": {
 				"result": "accepted",
 				"step": null
+			}
+		},
+		{
+			"id": "user.env-not-listed",
+			"description": "env_allow lists DEBIAN_FRONTEND only, so LD_PRELOAD is refused",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {
+						"LD_PRELOAD": "/tmp/x.so"
+					},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "9c004ce42142d737b9eb09ed3afea9473245141af88f79fd62116634c65af958"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 7
 			}
 		},
 		{

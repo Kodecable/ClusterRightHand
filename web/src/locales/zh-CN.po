@@ -634,6 +634,10 @@ msgstr "任意状态"
 msgid "any target"
 msgstr "任意目标"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Any variable"
+msgstr "任意变量"
+
 #: src/features/tokens/pages.tsx
 msgid "Anything using this token stops working immediately. This cannot be undone."
 msgstr "使用该令牌的一切都会立即失效，且无法撤销。"

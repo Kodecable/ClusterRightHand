@@ -93,6 +93,7 @@ const RESTART: TaskSpec = {
 	stdin: null,
 };
 const RESTART_ENV: TaskSpec = { ...RESTART, env: { DEBIAN_FRONTEND: "noninteractive" } } as TaskSpec;
+const RESTART_PRELOAD: TaskSpec = { ...RESTART, env: { LD_PRELOAD: "/tmp/x.so" } } as TaskSpec;
 const RESTART_SHELL: TaskSpec = {
 	kind: "exec",
 	command: { shell: "systemctl restart nginx; id" },
@@ -345,10 +346,9 @@ function cases(): Case[] {
 			authorization: signedBy(crhsPayload({ command: { spec_sha256: specHash(READ_SHADOW) } }), "crhs"),
 			...reject("authorization_rejected", 7),
 		}),
-		base("crhs.env-not-allowed", "the crhs entry allows no environment variables", {
+		base("crhs.env-any", "an empty env_allow places no limit on the environment", {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART_ENV) },
 			authorization: signedBy(crhsPayload({ command: { spec_sha256: specHash(RESTART_ENV) } }), "crhs"),
-			...reject("authorization_rejected", 7),
 		}),
 		base("crhs.cosign-only", "a crhs entry with only cosign cannot authorize alone", {
 			trust: [{ ...CRHS, kinds: ["cosign"] }, USER, LOCAL],
@@ -439,6 +439,11 @@ function cases(): Case[] {
 		base("user.env-allowed", "the user entry allows DEBIAN_FRONTEND", {
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART_ENV) },
 			authorization: signedBy(userOneShot({ command: { spec_sha256: specHash(RESTART_ENV) } }), "alice"),
+		}),
+		base("user.env-not-listed", "env_allow lists DEBIAN_FRONTEND only, so LD_PRELOAD is refused", {
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART_PRELOAD) },
+			authorization: signedBy(userOneShot({ command: { spec_sha256: specHash(RESTART_PRELOAD) } }), "alice"),
+			...reject("authorization_rejected", 7),
 		}),
 		base("user.require-task", "require_task: reusable authorizations are refused", {
 			trust: [CRHS, { ...USER, require_task: true }, LOCAL],

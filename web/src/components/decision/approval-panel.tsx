@@ -172,9 +172,12 @@ export function ApprovalPanel({
 					<DecisionTab value="approve">
 						<Trans>Approve</Trans>
 					</DecisionTab>
-					<DecisionTab value="always" disabled={candidates.length === 0}>
-						<Trans>Always allow</Trans>
-					</DecisionTab>
+					{/* No candidate means a rule on the root could not end this approval: there is nothing to offer. */}
+					{candidates.length > 0 && (
+						<DecisionTab value="always">
+							<Trans>Always allow</Trans>
+						</DecisionTab>
+					)}
 					<DecisionTab value="reject">
 						<Trans>Reject</Trans>
 					</DecisionTab>
@@ -186,14 +189,16 @@ export function ApprovalPanel({
 						</Button>
 					</div>
 				</TabsContent>
-				<TabsContent value="always" className="min-w-0 pt-1">
-					<AlwaysAllowForm
-						key={itemKey}
-						candidates={candidates}
-						busy={busy}
-						onSubmit={(rule) => decide("approve", rule)}
-					/>
-				</TabsContent>
+				{candidates.length > 0 && (
+					<TabsContent value="always" className="min-w-0 pt-1">
+						<AlwaysAllowForm
+							key={itemKey}
+							candidates={candidates}
+							busy={busy}
+							onSubmit={(rule) => decide("approve", rule)}
+						/>
+					</TabsContent>
+				)}
 				<TabsContent value="reject" className="min-w-0 pt-1">
 					<RejectDecision busy={busy} onReject={(reason) => decide("reject", undefined, reason)} />
 				</TabsContent>

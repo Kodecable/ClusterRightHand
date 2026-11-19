@@ -5,6 +5,7 @@ import { Audit } from "../src/audit/audit.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { operationOf } from "../src/policy/rules.ts";
+import { createRootRuleSet, createRuleSet } from "../src/policy/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
@@ -521,6 +522,9 @@ describe("approvals api (sqlite)", () => {
 
 	it("returns the compact request on one external-call approval", async () => {
 		const orgId = await defaultOrgId(db);
+		// An Ask root, which "always allow" can lift.
+		const root = { type: "session" as const, id: newId() };
+		await createRootRuleSet(db, orgId, root, "ask");
 		await db
 			.insertInto("external_calls")
 			.values({
@@ -534,7 +538,7 @@ describe("approvals api (sqlite)", () => {
 				arguments: JSON.stringify({ method: "post", path: "/api/node-groups" }),
 				operation: JSON.stringify({ method: "api.write", target: "POST /api/node-groups" }),
 				annotations: null,
-				rule_chain: JSON.stringify([{ type: "user", id: uid.alice }]),
+				rule_chain: JSON.stringify([root]),
 				approval: JSON.stringify({ evaluation: { result: "require-approval", levels: [] } }),
 				pending_input: null,
 				root_session_id: null,
@@ -556,6 +560,52 @@ describe("approvals api (sqlite)", () => {
 		});
 		expect(res.request?.alwaysAllow.map((candidate) => candidate.option)).toEqual(["request", "route"]);
 		await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", "api-call-request").execute();
+	});
+
+	it("refuses an always rule that could not end the approval, and keeps the request waiting", async () => {
+		const orgId = await defaultOrgId(db);
+		const root = { type: "session" as const, id: newId() };
+		const child = { type: "session" as const, id: newId() };
+		await createRootRuleSet(db, orgId, root, "ask");
+		// The subagent's own level asks; an allow on the root cannot change that.
+		await createRuleSet(db, orgId, child, { default: "require-approval", rules: [] });
+		await db
+			.insertInto("external_calls")
+			.values({
+				id: "call-from-subagent",
+				org_id: orgId,
+				actor_type: "session",
+				actor_id: child.id,
+				on_behalf_of_user_id: uid.alice as string,
+				extension_name: "github",
+				tool_name: "create_issue",
+				arguments: JSON.stringify({}),
+				operation: JSON.stringify({ method: "ext.write", target: "github/create_issue" }),
+				annotations: null,
+				rule_chain: JSON.stringify([root, child]),
+				approval: JSON.stringify({ evaluation: { result: "require-approval", levels: [] } }),
+				pending_input: null,
+				root_session_id: null,
+				handler_type: "user",
+				handler_session_id: null,
+				state: "awaiting_approval",
+				created_at: new Date().toISOString(),
+				finished_at: null,
+			})
+			.execute();
+		const res = await decide("alice", "/api/external-calls/call-from-subagent/approval", {
+			decision: "approve",
+			always: { action: "allow", method: "ext.write", exact: "github/create_issue" },
+		});
+		expect(res.status).toBe(400);
+		expect(((await res.json()) as { error: string }).error).toContain("would not end the approval");
+		const row = await db
+			.selectFrom("external_calls")
+			.select("state")
+			.where("id", "=", "call-from-subagent")
+			.executeTakeFirstOrThrow();
+		expect(row.state).toBe("awaiting_approval");
+		await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", "call-from-subagent").execute();
 	});
 
 	describe("task groups", () => {

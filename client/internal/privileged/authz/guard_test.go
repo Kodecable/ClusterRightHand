@@ -156,26 +156,27 @@ func TestGuardPatternLimit(t *testing.T) {
 	}
 }
 
-func TestEnvAllowed(t *testing.T) {
+func TestEnvNotAllowed(t *testing.T) {
 	execSpec := &protocol.TaskSpec{Kind: protocol.TaskSpecExec, Exec: &protocol.ExecSpec{
 		Command: protocol.Command{Kind: protocol.CommandArgv, Argv: []string{"/bin/true"}},
-		Env:     map[string]string{"DEBIAN_FRONTEND": "noninteractive", "LANG": "C.UTF-8"},
+		Env:     map[string]string{"DEBIAN_FRONTEND": "noninteractive", "LANG": "C.UTF-8", "LD_PRELOAD": "x"},
 	}}
-	if !envAllowed(execSpec, []string{"DEBIAN_FRONTEND", "LANG"}) {
-		t.Fatal("allowed environment rejected")
+	if names, ok := envNotAllowed(execSpec, []string{"DEBIAN_FRONTEND", "LANG", "LD_PRELOAD"}); !ok || names != nil {
+		t.Fatalf("allowed environment rejected: %v", names)
 	}
-	if envAllowed(execSpec, []string{"DEBIAN_FRONTEND"}) {
-		t.Fatal("disallowed environment accepted")
+	if names, ok := envNotAllowed(execSpec, []string{"DEBIAN_FRONTEND"}); ok || strings.Join(names, ",") != "LANG,LD_PRELOAD" {
+		t.Fatalf("disallowed environment: %v %v", names, ok)
 	}
-	if envAllowed(execSpec, nil) {
-		t.Fatal("empty env_allow accepted a task environment")
+	// An empty env_allow places no limit.
+	if _, ok := envNotAllowed(execSpec, nil); !ok {
+		t.Fatal("empty env_allow refused a task environment")
 	}
 	read := &protocol.TaskSpec{Kind: protocol.TaskSpecFileRead, FileRead: &protocol.FileReadSpec{Path: "/etc/hosts"}}
-	if !envAllowed(read, nil) {
+	if _, ok := envNotAllowed(read, []string{"LANG"}); !ok {
 		t.Fatal("file task without environment rejected")
 	}
 	broken := &protocol.TaskSpec{Kind: protocol.TaskSpecExec}
-	if envAllowed(broken, []string{"LANG"}) {
+	if _, ok := envNotAllowed(broken, nil); ok {
 		t.Fatal("exec spec without a body accepted")
 	}
 }

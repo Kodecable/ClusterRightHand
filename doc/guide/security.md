@@ -143,8 +143,9 @@ crhs rules govern agents, schedules and API tokens; a person running a task in t
 access. On a `forward` node, a privileged task must pass both crhs rules and the node's trust.
 
 crhs rules are not a sandbox. They match the command or path, not the environment: a rule allowing
-`systemctl status` can be abused by setting `LD_PRELOAD`. Use a `forward` node, whose trust entries
-restrict the environment, where isolation matters. Use **Approve and always allow** sparingly, with
+`systemctl status` can be abused by setting `LD_PRELOAD`. Use a `forward` node where isolation
+matters, and give its trust entries an `env_allow` list: an entry without one accepts any environment
+variable. Use **Approve and always allow** sparingly, with
 exact rules where possible: a broad prefix rule is a standing permission.
 
 ## Audit

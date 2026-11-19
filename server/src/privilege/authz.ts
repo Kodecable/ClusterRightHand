@@ -18,8 +18,20 @@ import {
 import type { Method } from "../policy/rules.ts";
 import { errorText } from "../util/errors.ts";
 import { cosignRequired, hasCosign } from "./cosign.ts";
-import { envAllowed, guardAllows, privilegedTarget } from "./guard.ts";
+import { envNotAllowed, guardAllows, privilegedTarget } from "./guard.ts";
 import { authorizationId, specSha256 } from "./payload.ts";
+
+/**
+ * Why a trust entry refuses a task's environment, with the way forward: run without the variables, or have the
+ * node's administrator list them. The same text as crha's (client/internal/privileged/authz).
+ */
+function envRefusal(entry: string, names: readonly string[]): string {
+	const list = names.join(", ");
+	return (
+		`trust entry "${entry}" does not allow the environment variables ${list}: run the task without them, ` +
+		`or the node's administrator adds them to env_allow`
+	);
+}
 
 export type AuthzResult =
 	| "accepted"
@@ -341,8 +353,9 @@ function checkTrust(entry: AuthzEntry, input: AuthzInput, method: Method, target
 	if (!guardAllows(entry, method, target)) {
 		return no("authorization_rejected", STEP.trust, `trust entry "${entry.name}" rules reject this task`);
 	}
-	if (!envAllowed(input.task.spec, entry.envAllow)) {
-		return no("authorization_rejected", STEP.trust, `trust entry "${entry.name}" does not allow the task environment`);
+	const env = envNotAllowed(input.task.spec, entry.envAllow);
+	if (env.length > 0) {
+		return no("authorization_rejected", STEP.trust, envRefusal(entry.name, env));
 	}
 	return { ok: true, decision: accepted(entry.name) };
 }
