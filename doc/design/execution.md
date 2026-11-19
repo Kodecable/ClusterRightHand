@@ -76,6 +76,10 @@ detected line ending.
   ([Methods and targets](privilege.md#methods-and-targets)).
 - Reads and edits accept regular files only, so reading a device or FIFO has no side effect and never
   blocks.
+- File names and symbolic-link targets are text on the wire, which must be valid UTF-8. A name that is
+  not (a Latin-1 file name, for example) is shown with U+FFFD in place of each invalid byte, so a
+  listing or a stat always encodes; two such names can then look alike, while the API still treats
+  them as different files.
 
 ### Process groups and cleanup
 
@@ -178,7 +182,10 @@ A task id is accepted and executed at most once.
 - The only retry is for an authorization refused before the node accepted the task: the task returns to
   waiting for a signature and is sent again with the next attempt number.
 - If the connection breaks after the task was sent but before the node answered, crhs never resends it.
-  The task becomes `unknown`, because sending it again could run it twice.
+  The task becomes `unknown`, because sending it again could run it twice. A node that reconnects while
+  that failure is handled does not change this: its hello may have read the open tasks before the row
+  was claimed, so the dispatch reports it `unknown` itself instead of leaving it `dispatched` until the
+  grace.
 - An accepted task is never resent. After a reconnect, crhs only asks the node about it.
 - crha does not persist tasks. After crha restarts, it no longer knows its earlier tasks, and they
   become `unknown`.
@@ -295,6 +302,9 @@ did not report; those crha no longer knows become `unknown`.
   resume; the task fails.
 - After a crhs restart, running tasks on crha nodes get the same grace and are recovered when the node
   reconnects. Tasks on SSH nodes become `unknown` at once, because their connections died with crhs.
+- A re-enrolled node reconnects as pending and reports no tasks until an administrator approves it. That
+  link is not the node coming back: it does not end the reconnect grace of the tasks its previous
+  identity ran, so they become `unknown` when the grace runs out (and still accept a late result).
 
 ## SSH transport
 
@@ -317,8 +327,12 @@ root execution.
 
 - Each new connection first discovers `sh` and `bash` the same way crha does.
 - The remote command is wrapped so that it reports its process group, merges stderr into stdout, and
-  then runs the real command. Cancellation and timeouts signal that process group over a second
-  channel, as on a crha node.
+  then runs the real command. The report is the line `crh-pgid:<nonce>:<pgid>`, the nonce unique to the
+  run; crhs searches the first 64 KiB of the task's stderr for that exact line, so a login shell that
+  prints to stderr before the wrapper runs neither hides the process group nor loses its output.
+  Cancellation and timeouts signal that process group over a second channel, as on a crha node; when
+  the marker never arrives (the limit was passed, or the shell failed), they only close the channel, and
+  exit status 127 still means the working directory could not be entered.
 - A cancellation registered before the command starts prevents it from running at all.
 - Each node reuses one connection with keepalives. If a pooled connection turns out to be dead before a
   task starts, crhs retries once on a new connection.
@@ -366,7 +380,8 @@ is the last task that reached it.
 
 File operations over SFTP behave like crha's, with these differences: owners and groups cannot be set by
 name, a create-only write checks and then renames rather than being atomic, nothing is fsynced, and
-modification times have one-second precision. Reading a deep page rescans the earlier lines.
+modification times have one-second precision. Reading a deep page rescans the earlier lines. Reads and
+edits require a regular file, as crha's do; a device or a FIFO fails with `not_regular_file`.
 
 ## Reload and upgrade
 

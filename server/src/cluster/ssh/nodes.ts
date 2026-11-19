@@ -7,6 +7,7 @@ import { defaultOrgId } from "../../storage/org.ts";
 import { NotFoundError, UserError } from "../../util/errors.ts";
 import { newId } from "../../util/id.ts";
 import { assertNameAvailable, availableGeneratedName, nameKey, validateName } from "../../util/names.ts";
+import { lockNameNamespace } from "../name-lock.ts";
 import type { NodeRow } from "../nodes.ts";
 import type { SshRoute, SshRouteHop } from "./connection.ts";
 
@@ -216,6 +217,7 @@ export async function createSshNode(
 	if (input.name !== undefined && typeof input.name !== "string") throw new UserError("name must be a string");
 	const explicitName = input.name?.trim() ? validateName(input.name, "node name") : undefined;
 	return db.transaction().execute(async (trx) => {
+		await lockNameNamespace(trx, orgId);
 		if (explicitName) await assertNameAvailable(trx, orgId, explicitName);
 		const name = explicitName ?? (await availableGeneratedName(trx, orgId, target.host));
 		const node: NodeRow = {

@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { taskKeys, useCancelTask } from "./api";
+import { taskKeys, taskRefetchInterval, useCancelTask } from "./api";
 
 function mockFetch(): string[] {
 	const calls: string[] = [];
@@ -29,6 +29,20 @@ function CancelTaskHarness({ id }: { id: string }) {
 
 afterEach(() => {
 	vi.unstubAllGlobals();
+});
+
+describe("taskRefetchInterval", () => {
+	test("keeps asking about an unknown task slowly and stops once the result is recorded", () => {
+		expect(taskRefetchInterval(true, "running")).toBe(250);
+		expect(taskRefetchInterval(true, "dispatched")).toBe(250);
+		// `unknown` still accepts a late result: keep asking, slowly.
+		expect(taskRefetchInterval(true, "unknown")).toBe(15_000);
+		for (const state of ["exited", "errored", "rejected", "cancelled", "expired", "denied"]) {
+			expect(taskRefetchInterval(true, state)).toBe(false);
+		}
+		expect(taskRefetchInterval(false, "running")).toBe(false);
+		expect(taskRefetchInterval(true, undefined)).toBe(false);
+	});
 });
 
 describe("useCancelTask", () => {

@@ -1,9 +1,17 @@
+import { randomBytes } from "node:crypto";
 import type { ExecSpec } from "@crh/protocol";
 import { shellQuote } from "../../util/shell-quote.ts";
 import type { SshSession } from "./connection.ts";
 
 export const DEFAULT_KILL_GRACE_MS = 5_000;
-const PGID_MARKER = /^crh-pgid:(\d+)\n/;
+/**
+ * How much stderr is buffered while the wrapper's pgid marker is looked for. A login shell that prints
+ * noise (a broken profile, `/etc/motd` from `.profile`) does not make the marker unrecognizable, but a
+ * stream with no marker at all must still be forwarded, so the search stops here.
+ */
+const PGID_MARKER_LIMIT = 64 * 1024;
+/** The prefix of the wrapper's pgid line; the per-run nonce and the digits follow. */
+const PGID_PREFIX = "crh-pgid:";
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 export interface SshExecResult {
@@ -103,16 +111,18 @@ export function probeShells(session: SshSession, timeoutMs = 10_000): Promise<Ss
 
 /**
  * The remote command line. sshd starts every command as a session leader, so the shell's pid is also its
- * process group id; `exec` keeps that pid through env and the wrapper, which reports it on stderr's first
- * line so that cancel and timeout can signal the whole group, then merges stderr into stdout so the task
- * has one output stream. (setsid(1) would fork here, because the caller already leads its group,
- * and the exit status would be lost.)
+ * process group id; `exec` keeps that pid through env and the wrapper, which reports it on stderr as
+ * `crh-pgid:<nonce>:<pgid>` so that cancel and timeout can signal the whole group, then merges stderr
+ * into stdout so the task has one output stream. (setsid(1) would fork here, because the caller already
+ * leads its group, and the exit status would be lost.) The nonce is per run: a login shell may print to
+ * stderr before the wrapper runs, so the marker is not necessarily the first line, and the nonce keeps a
+ * task from forging it (doc/design/execution.md "SSH execution").
  *
  * sh is the shell the connection's probe found: `shell` commands run on it, while authorization and
  * display keep rendering them as /bin/sh -c (doc/design/execution.md "SSH execution"). LANG and LC_ALL are always
  * set; a task's own variables follow and win, because env(1) applies them in order.
  */
-export function buildCommand(spec: ExecSpec, sh = "/bin/sh"): string {
+export function buildCommand(spec: ExecSpec, sh = "/bin/sh", nonce = newPgidNonce()): string {
 	let argv: string[];
 	if ("argv" in spec.command) {
 		if (spec.command.argv.length === 0) throw new SshExecError("invalid_spec", "argv or shell is required");
@@ -132,7 +142,7 @@ export function buildCommand(spec: ExecSpec, sh = "/bin/sh"): string {
 		});
 	// The pid goes to stderr first; `exec 2>&1` then merges the rest into stdout, so the task has one
 	// output stream and crhs never merges two (doc/design/execution.md "SSH execution").
-	const wrapper = `printf 'crh-pgid:%s\\n' "$$" >&2; exec 2>&1; exec "$@"`;
+	const wrapper = `printf '${PGID_PREFIX}${nonce}:%s\\n' "$$" >&2; exec 2>&1; exec "$@"`;
 	return [
 		`cd ${shellQuote(cwd)} || exit 127;`,
 		"exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8",
@@ -140,6 +150,84 @@ export function buildCommand(spec: ExecSpec, sh = "/bin/sh"): string {
 		`${shellQuote(sh)} -c ${shellQuote(wrapper)} crh`,
 		...argv.map(shellQuote),
 	].join(" ");
+}
+
+/** The random part of a run's pgid marker: hexadecimal, so it needs no shell quoting. */
+function newPgidNonce(): string {
+	return randomBytes(8).toString("hex");
+}
+
+/**
+ * Finds the wrapper's `crh-pgid:<nonce>:<pgid>` line in a task's stderr. A login shell that writes to
+ * stderr before the wrapper runs (a broken profile, a greeting) puts other lines first, so the line is
+ * searched for rather than assumed first: the search buffers up to PGID_MARKER_LIMIT bytes, forwarding
+ * everything that is not the marker line, and after the limit forwards everything and gives up on the
+ * process group (cancel then only closes the channel, and 127 stays a cwd failure).
+ */
+export class PgidScanner {
+	readonly #marker: Buffer;
+	readonly #sink: (data: Uint8Array) => void;
+	readonly #limit: number;
+	#buffer: Buffer = Buffer.alloc(0);
+	#done = false;
+	pgid: number | undefined;
+
+	constructor(nonce: string, sink: (data: Uint8Array) => void, limit = PGID_MARKER_LIMIT) {
+		this.#marker = Buffer.from(`${PGID_PREFIX}${nonce}:`, "latin1");
+		this.#sink = sink;
+		this.#limit = limit;
+	}
+
+	push(data: Uint8Array): void {
+		if (this.#done) {
+			this.#sink(data);
+			return;
+		}
+		this.#buffer = Buffer.concat([this.#buffer, Buffer.from(data)]);
+		if (this.#find()) return;
+		if (this.#buffer.length >= this.#limit) this.#flush();
+	}
+
+	/** Forwards what is still buffered, e.g. when the channel closes before the marker arrived. */
+	flush(): void {
+		if (this.#done) return;
+		this.#flush();
+	}
+
+	#flush(): void {
+		this.#done = true;
+		const rest = this.#buffer;
+		this.#buffer = Buffer.alloc(0);
+		if (rest.length > 0) this.#sink(rest);
+	}
+
+	#find(): boolean {
+		let from = 0;
+		for (;;) {
+			const at = this.#buffer.indexOf(this.#marker, from);
+			if (at < 0) return false;
+			// Only the first PGID_MARKER_LIMIT bytes are searched: a marker later than that is ignored.
+			if (at >= this.#limit) return false;
+			// The marker is a whole line: nothing before it on its line.
+			if (at === 0 || this.#buffer[at - 1] === 0x0a) {
+				const nl = this.#buffer.indexOf(0x0a, at + this.#marker.length);
+				if (nl >= 0) {
+					const digits = this.#buffer.subarray(at + this.#marker.length, nl).toString("latin1");
+					if (/^\d+$/.test(digits)) {
+						const before = this.#buffer.subarray(0, at);
+						const after = this.#buffer.subarray(nl + 1);
+						this.pgid = Number(digits);
+						this.#done = true;
+						this.#buffer = Buffer.alloc(0);
+						if (before.length > 0) this.#sink(before);
+						if (after.length > 0) this.#sink(after);
+						return true;
+					}
+				}
+			}
+			from = at + 1;
+		}
+	}
 }
 
 export class SshExecError extends Error {
@@ -166,8 +254,9 @@ export async function runSshExec(
 	options: { timeoutMs?: number; killGraceMs?: number; signal?: AbortSignal; sh?: string },
 ): Promise<SshExecResult> {
 	let command: string;
+	const nonce = newPgidNonce();
 	try {
-		command = buildCommand(spec, options.sh);
+		command = buildCommand(spec, options.sh, nonce);
 	} catch (err) {
 		if (err instanceof SshExecError)
 			return { error: { code: err.code, message: err.message }, timedOut: false, cancelled: false };
@@ -181,7 +270,7 @@ export async function runSshExec(
 		return result;
 	}
 	let pgid: number | undefined;
-	let stderrHead: Buffer | undefined = Buffer.alloc(0);
+	let stderrScan: PgidScanner | undefined = new PgidScanner(nonce, (data) => sink.stderr(data));
 	let exited = false;
 	let closed = false;
 	const closeWaiters: (() => void)[] = [];
@@ -190,16 +279,10 @@ export async function runSshExec(
 	const channel = await session.exec(command, (ch) => {
 		ch.on("data", (data: Buffer) => sink.stdout(data));
 		ch.stderr.on("data", (data: Buffer) => {
-			if (stderrHead === undefined) return sink.stderr(data);
-			// Strip the wrapper's first line; everything after it is the task's stderr.
-			stderrHead = Buffer.concat([stderrHead, data]);
-			const nl = stderrHead.indexOf(0x0a);
-			if (nl < 0 && stderrHead.length < 64) return;
-			const m = PGID_MARKER.exec(stderrHead.subarray(0, nl + 1).toString("latin1"));
-			const rest = m ? stderrHead.subarray(nl + 1) : stderrHead;
-			if (m) pgid = Number(m[1]);
-			stderrHead = undefined;
-			if (rest.length > 0) sink.stderr(rest);
+			if (stderrScan === undefined) return sink.stderr(data);
+			stderrScan.push(data);
+			const found = stderrScan.pgid;
+			if (found !== undefined) pgid = found;
 		});
 		ch.on("exit", (code: number | null, signal?: string) => {
 			exited = true;
@@ -258,11 +341,15 @@ export async function runSshExec(
 		};
 		const unwatch = session.onClose(() => finish(new SshConnectionLost("connection lost")));
 		const onClosed = () => {
-			if (stderrHead && stderrHead.length > 0) sink.stderr(stderrHead);
-			stderrHead = undefined;
+			// Whatever stderr was still buffered (no marker yet) is the task's: forward it.
+			if (stderrScan) {
+				stderrScan.flush();
+				stderrScan = undefined;
+			}
 			if (!exited && session.closed) return finish(new SshConnectionLost("connection lost"));
 			if (!exited) result.error = { code: "io_error", message: "the channel closed without an exit status" };
-			// 127 before the wrapper ran: the working directory does not exist.
+			// 127 before the wrapper ran: the working directory does not exist. A marker that arrived
+			// means the wrapper ran, so 127 is the command's own exit code.
 			else if (pgid === undefined && result.exitCode === 127) {
 				result.error = { code: "not_found", message: `cannot change to ${spec.cwd || "/"}` };
 				result.exitCode = undefined;

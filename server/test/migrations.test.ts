@@ -337,6 +337,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0010_review_tool_task" },
 			{ name: "0011_delete_ssh_signing_credentials" },
 			{ name: "0012_task_output_lost" },
+			{ name: "0013_bigint_byte_columns" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});

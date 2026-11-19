@@ -46,20 +46,24 @@ export function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; on
 	});
 
 	const submit = form.handleSubmit(async (values) => {
-		await mutation.mutateAsync(
-			{
-				currentPassword: values.currentPassword,
-				newPassword: values.newPassword,
-				revokeApiTokens: values.revokeApiTokens,
-			},
-			{
-				onSuccess: () => {
-					toast.success(t`Password changed. Other sign-ins were signed out.`);
-					form.reset();
-					onOpenChange(false);
+		// The error line shows a failure from the mutation's state; the rejection is handled here so the
+		// submit handler does not rethrow it as an unhandled rejection.
+		await mutation
+			.mutateAsync(
+				{
+					currentPassword: values.currentPassword,
+					newPassword: values.newPassword,
+					revokeApiTokens: values.revokeApiTokens,
 				},
-			},
-		);
+				{
+					onSuccess: () => {
+						toast.success(t`Password changed. Other sign-ins were signed out.`);
+						form.reset();
+						onOpenChange(false);
+					},
+				},
+			)
+			.catch(() => undefined);
 	});
 
 	return (

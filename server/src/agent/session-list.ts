@@ -6,6 +6,7 @@ import type { Database } from "../storage/schema.ts";
 import { userGroupIds } from "../users/shares.ts";
 import { type CursorKey, descendingKeyset, encodeCursor } from "../util/cursor.ts";
 import { UserError } from "../util/errors.ts";
+import { likeContains } from "../util/list-query.ts";
 import type { SessionState, WaitingKind } from "./session-state.ts";
 
 export { SessionListHub, type SessionListHubOptions, type SessionListSubscriber } from "./session-list-hub.ts";
@@ -96,11 +97,6 @@ export const TREE_WAITING_KIND = sql<WaitingKind | null>`case
 	else null
 end`;
 
-/** `%`, `_` and the escape character are matched literally inside a LIKE pattern. */
-export function escapeLike(value: string): string {
-	return value.replace(/[\\%_]/g, (char) => `\\${char}`);
-}
-
 /**
  * The list query without its page size: the route adds `limit`, and the test explains the same query with
  * EXPLAIN QUERY PLAN. `all` is administrators only and is checked here again, not only in the route.
@@ -177,7 +173,7 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 		// lower() on both sides: SQLite's LIKE is case-insensitive for ASCII only, PostgreSQL's is
 		// case-sensitive for everything; ESCAPE keeps % and _ literal. A NULL title (not generated yet)
 		// cannot match; coalesce keeps the comparison a boolean instead of SQL NULL either way.
-		const pattern = `%${escapeLike(filter.q)}%`;
+		const pattern = likeContains(filter.q);
 		query = query.where(sql<SqlBool>`lower(coalesce(sessions.title, '')) like lower(${pattern}) escape '\\'`);
 	}
 	if (filter.cursor) {

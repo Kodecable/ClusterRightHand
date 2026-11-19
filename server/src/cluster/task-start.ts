@@ -16,7 +16,7 @@ import type { TasksTable } from "../storage/schema.ts";
 import type { NodeConnection } from "./connection.ts";
 import type { ClusterCore } from "./core.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES } from "./output.ts";
-import { cancelledTaskFields, finish, onAccepted } from "./task-end.ts";
+import { cancelledTaskFields, finish, markUnknown, onAccepted } from "./task-end.ts";
 import { AUTHORIZATION_CODES, TASK_CANCELLED_CODE } from "./types.ts";
 
 /** What tells one dispatch path's task.start from another's; everything else comes from the row. */
@@ -151,7 +151,18 @@ export async function sendTaskStart(
 		}
 	} catch (err) {
 		if (err instanceof ConnectionError) {
-			// The task stays dispatched; the grace timer reports dispatch_unconfirmed, never a retry.
+			// The task stays dispatched; the grace timer reports dispatch_unconfirmed, never a retry. Unless
+			// the node reconnected meanwhile: the new link's hello may have read its open tasks before this
+			// row was claimed, and a ready link disarms the grace, so nothing would ever settle the row (and
+			// it would keep a transfer slot). `unknown` still accepts a late result, so this is safe if the
+			// start did arrive (doc/design/execution.md "No duplicate execution and authorization retry").
+			const current = core.links.get(nodeId);
+			if (current && current.conn !== link.conn) {
+				await core.taskQueue.run(id, async () => {
+					const latest = await core.row(id);
+					if (latest?.state === "dispatched") await markUnknown(core, id, "dispatch_unconfirmed");
+				});
+			}
 			return;
 		}
 		if (err instanceof RequestTimeoutError) {

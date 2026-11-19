@@ -101,13 +101,13 @@ export async function waitTask(
 ): Promise<TaskView | undefined> {
 	const deadline = Date.now() + timeoutMs;
 	for (;;) {
-		const view = await getTask(core, id);
-		if (!view || TERMINAL.has(view.state) || core.waitsEnded || Date.now() >= deadline || signal?.aborted) {
-			return view;
-		}
-		await new Promise<void>((resolve) => {
-			const waiters = core.waiters.get(id) ?? new Set();
-			core.waiters.set(id, waiters);
+		// The waiter is registered before the row is read: a task that ends between the read and the
+		// registration would otherwise be noticed only at the deadline (waitExternalCall registers
+		// before reading for the same reason).
+		let wake!: () => void;
+		const waiters = core.waiters.get(id) ?? new Set<() => void>();
+		core.waiters.set(id, waiters);
+		const woken = new Promise<void>((resolve) => {
 			const done = () => {
 				clearTimeout(timer);
 				waiters.delete(done);
@@ -120,7 +120,18 @@ export async function waitTask(
 			const timer = setTimeout(done, deadline - Date.now());
 			signal?.addEventListener("abort", done);
 			waiters.add(done);
+			wake = done;
 		});
+		try {
+			const view = await getTask(core, id);
+			if (!view || TERMINAL.has(view.state) || core.waitsEnded || Date.now() >= deadline || signal?.aborted) {
+				return view;
+			}
+			await woken;
+		} finally {
+			// Idempotent: it also releases a waiter that was woken already or that leaves with the view.
+			wake();
+		}
 	}
 }
 

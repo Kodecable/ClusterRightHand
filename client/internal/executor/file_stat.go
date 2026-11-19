@@ -33,7 +33,9 @@ func fileStat(acc fileAccess, s *protocol.FileStatSpec) (*protocol.TaskResult, e
 		if err != nil {
 			return nil, err
 		}
-		out.LinkTarget = &target
+		// A link target is bytes; the wire's text must be valid UTF-8.
+		cleaned := protocol.CleanText(target)
+		out.LinkTarget = &cleaned
 	}
 	return &protocol.TaskResult{Kind: protocol.TaskResultFileStat, FileStat: out}, nil
 }

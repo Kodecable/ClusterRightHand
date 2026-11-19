@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
@@ -61,6 +62,17 @@ func (r *nativeRun) start(a *Agent, t *task) {
 	go r.forward(a, t)
 }
 
+// abortTransfer ends a task whose helper was spawned but whose data connection never opened: the
+// helper accepted the task and runs it, so the watcher and the forwarder must start for the cancel to
+// reach it and for it to be reaped. Without them the queued cancel has no sender and the root helper
+// runs until the node restarts (doc/design/privilege.md "Native mode").
+func (r *nativeRun) abortTransfer(a *Agent, t *task) {
+	r.start(a, t)
+	// Queued here rather than left to the caller's goroutine: finished closes the queue, and a cancel
+	// pushed after that is dropped without ever being sent.
+	r.conn.inputs.pushCancel()
+}
+
 // input forwards the chunk to the helper, which owns the input accounting.
 func (r *nativeRun) input(a *Agent, _ context.Context, t *task, in *protocol.TaskInput) (any, error) {
 	a.mu.Lock()
@@ -71,6 +83,23 @@ func (r *nativeRun) input(a *Agent, _ context.Context, t *task, in *protocol.Tas
 	}
 	if res.Refusal != nil {
 		return nil, res.Refusal
+	}
+	return protocol.Empty{}, nil
+}
+
+// pushInput applies one chunk of a data-connection push and waits while its queue is full, so the
+// helper's slower read applies backpressure to crhs instead of the node buffering a whole file.
+func (r *nativeRun) pushInput(a *Agent, ctx context.Context, t *task, in *protocol.TaskInput) (any, error) {
+	a.mu.Lock()
+	res := a.acceptInput(t, in)
+	a.mu.Unlock()
+	if res.Refusal != nil {
+		return nil, res.Refusal
+	}
+	if res.Data != nil {
+		if err := r.conn.inputs.pushWait(ctx, in); err != nil {
+			return nil, err
+		}
 	}
 	return protocol.Empty{}, nil
 }
@@ -396,9 +425,11 @@ func (w *nativeStderr) lastLine() string {
 // helper. The receive loop must never block on the helper, because it also processes crhs's other
 // frames, so one goroutine sends them one at a time from this queue.
 type nativeInputQueue struct {
-	mu     sync.Mutex
-	cond   *sync.Cond
-	reqs   []nativeRequest
+	mu   sync.Mutex
+	cond *sync.Cond
+	reqs []nativeRequest
+	// bytes is how much task.input data the queue holds, for the push path's bound.
+	bytes  int
 	closed bool
 }
 
@@ -418,7 +449,35 @@ func (q *nativeInputQueue) push(in *protocol.TaskInput) {
 		return
 	}
 	q.reqs = append(q.reqs, nativeRequest{input: in})
+	q.bytes += len(in.Data)
 	q.cond.Signal()
+}
+
+// pushWait queues a data-connection push's chunk, waiting while executor.MaxBufferedBytes are already
+// queued so the helper's read pace bounds what this side holds. The forwarder releases it as it sends,
+// and close or ctx ends the wait; a chunk that arrives after close is dropped.
+func (q *nativeInputQueue) pushWait(ctx context.Context, in *protocol.TaskInput) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	stop := context.AfterFunc(ctx, func() {
+		q.mu.Lock()
+		q.cond.Broadcast()
+		q.mu.Unlock()
+	})
+	defer stop()
+	for q.bytes >= executor.MaxBufferedBytes && !q.closed && ctx.Err() == nil {
+		q.cond.Wait()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if q.closed {
+		return nil
+	}
+	q.reqs = append(q.reqs, nativeRequest{input: in})
+	q.bytes += len(in.Data)
+	q.cond.Signal()
+	return nil
 }
 
 func (q *nativeInputQueue) pushCancel() {
@@ -453,5 +512,10 @@ func (q *nativeInputQueue) next() (nativeRequest, bool) {
 	}
 	req := q.reqs[0]
 	q.reqs = q.reqs[1:]
+	if req.input != nil {
+		q.bytes -= len(req.input.Data)
+	}
+	// A data-connection push may be waiting for room.
+	q.cond.Broadcast()
 	return req, true
 }

@@ -120,9 +120,13 @@ async function endInterruptedDispatches(core: ClusterCore): Promise<void> {
 	}
 }
 
-/** Arms the grace timer of a node that has no connection, unless one is armed already. */
+/**
+ * Arms the grace timer of a node that has no usable connection, unless one is armed already. A pending
+ * link (a re-enrolled node awaiting approval) does not count: it cannot report or run the node's tasks
+ * (doc/design/execution.md "Reconnect").
+ */
 function armGrace(core: ClusterCore, nodeId: string): void {
-	if (core.links.has(nodeId) || core.graceTimers.has(nodeId)) return;
+	if (core.links.get(nodeId)?.active === true || core.graceTimers.has(nodeId)) return;
 	core.graceTimers.set(
 		nodeId,
 		setTimeout(() => {
@@ -150,9 +154,15 @@ export function attach(core: ClusterCore, conn: NodeConnection, node: NodeRow): 
 	// A dispatch waiting out the offline grace re-checks the link now, then waits for hello.
 	core.notifyLink(node.id);
 	previous?.conn.close("replaced by a new connection");
-	const timer = core.graceTimers.get(node.id);
-	if (timer) clearTimeout(timer);
-	core.graceTimers.delete(node.id);
+	// The old connection's grace covers tasks it was running. A pending link cannot report them, so it
+	// keeps the grace armed (and arms one when it replaces an active link); only an active link ends it.
+	if (link.active) {
+		const timer = core.graceTimers.get(node.id);
+		if (timer) clearTimeout(timer);
+		core.graceTimers.delete(node.id);
+	} else if (previous?.active === true) {
+		armGrace(core, node.id);
+	}
 
 	const idle = setTimeout(() => conn.close("idle timeout"), core.idleMs);
 	conn.onActivity(() => idle.refresh());
@@ -214,7 +224,8 @@ function auditConnection(core: ClusterCore, link: NodeLink, action: "node.connec
 
 /** The node did not come back in time: its unfinished tasks become unknown. */
 async function expireNode(core: ClusterCore, nodeId: string): Promise<void> {
-	if (core.links.has(nodeId)) return;
+	// A pending link is not the node coming back: it cannot report the tasks of its previous identity.
+	if (core.links.get(nodeId)?.active === true) return;
 	const rows = await core.db
 		.selectFrom("tasks")
 		.select(["id", "state"])

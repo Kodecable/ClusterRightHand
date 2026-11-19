@@ -1,11 +1,15 @@
-import type { TaskView } from "@crh/api";
+import { isTerminalTaskState, type TaskView } from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 
-const TERMINAL = new Set(["exited", "errored", "rejected", "cancelled", "expired", "unknown", "denied"]);
-
+/**
+ * Whether the task no longer runs. The states come from `@crh/api`, shared with
+ * the server, so one state cannot be final here and running there. `unknown`
+ * counts: whether the command finished is not known, and the task is never shown
+ * as running (its result may still arrive; see `useTask`).
+ */
 export function isTerminal(state: string): boolean {
-	return TERMINAL.has(state);
+	return isTerminalTaskState(state);
 }
 
 const encoder = new TextEncoder();

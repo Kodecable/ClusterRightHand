@@ -232,6 +232,10 @@ creates a task, anything else (a node group, several targets, or all accessible 
 group, and the dialog then opens the new task or group. Results are always read on the task or task
 group page, never in the dialog.
 
+A task reported `unknown` is shown as not running — no Stop control — while the page keeps asking for
+a late result every 15 seconds; every recorded terminal state stops the polling. The terminal states
+come from `@crh/api`, the same set the server uses.
+
 The task page shows the outcome badge next to the state in its header, and its shared facts name the
 source. The task group page keeps its status above the member rows and shows one facts block built from
 the same rows: source, the privileged mark, the stored target nodes as links, the group's outcome, and

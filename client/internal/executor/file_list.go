@@ -59,7 +59,9 @@ func fileList(ctx context.Context, acc fileAccess, s *protocol.FileListSpec) (*p
 		}
 		mode := fileMode(st.Mode)
 		entry := protocol.FileListEntry{
-			Name:  de.Name(),
+			// A file name is bytes, not text: the wire's text must be valid UTF-8, so an invalid byte
+			// becomes U+FFFD instead of making the whole listing unencodable.
+			Name:  protocol.CleanText(de.Name()),
 			Type:  fileType(mode),
 			Size:  protocol.Int(st.Size),
 			Mode:  modeString(mode),

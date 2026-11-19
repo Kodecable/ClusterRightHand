@@ -68,6 +68,10 @@ func (r *forwardRun) registered(a *Agent, t *task) { a.attachForward(t) }
 // start ends a task whose daemon connection was already gone when the task was accepted: a forwarded
 // task executes in the privileged mode, which keeps an accepted task running, so its outcome is
 // unknowable here.
+// abortTransfer does nothing: the daemon owns an accepted task, and the cancel that finishTransferError
+// requests over the forward connection reaches it without this side starting anything.
+func (r *forwardRun) abortTransfer(*Agent, *task) {}
+
 func (r *forwardRun) start(a *Agent, t *task) {
 	if r.unknown || !a.forwardAlive(r.conn) {
 		a.finishRelayed(t, helperLostExit(t.id, forwardLostMessage))
@@ -82,6 +86,12 @@ func (r *forwardRun) input(a *Agent, ctx context.Context, t *task, in *protocol.
 }
 
 func (r *forwardRun) inputComplete(t *task) bool { return t.input.Complete() }
+
+// pushInput relays a data-connection push's chunk like a control-connection one: the daemon owns the
+// input accounting, and its flow control bounds what this side buffers.
+func (r *forwardRun) pushInput(a *Agent, ctx context.Context, t *task, in *protocol.TaskInput) (any, error) {
+	return a.forwardInput(ctx, t, in)
+}
 
 // failInput cancels the task on the daemon: it owns the process, and cancelling it also unblocks the
 // reader waiting for the rest of the input. Its task.exit ends the task here.

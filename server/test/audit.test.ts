@@ -139,6 +139,13 @@ describeBackends("audit log", (backend) => {
 			expect((await listAuditEvents(db, admin, { action: "task" })).map((e) => e.seq)).toEqual([]);
 		});
 
+		it("matches a prefix literally and case-sensitively on every database", async () => {
+			// LIKE would read `_` and `%` as wildcards, and SQLite's LIKE ignores ASCII case.
+			for (const action of ["Task.", "t_sk.", "%.", "ta%."]) {
+				expect((await listAuditEvents(db, admin, { action })).map((e) => e.seq)).toEqual([]);
+			}
+		});
+
 		it("filters by target and pages with a cursor and limit", async () => {
 			expect((await listAuditEvents(db, admin, { targetType: "task", targetId: "t1" })).map((e) => e.seq)).toEqual([
 				3, 1,

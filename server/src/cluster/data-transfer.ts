@@ -301,7 +301,19 @@ export async function settleTransferOnExit(
 	exit: TaskExit,
 ): Promise<{ code: string; message: string } | undefined> {
 	const transfer = core.dataTransfers.get(row.id);
-	if (!transfer) return undefined;
+	if (!transfer) {
+		// crhs restarted (or lost the connection entry) mid-transfer: the bytes were never committed. A
+		// staging pull leaves a temporary file that no one will use, which the success answer already said;
+		// a library pull would otherwise report success with no object published, so it fails here.
+		const succeeded = exit.outcome.kind === "code" && exit.result?.kind === "file.pull";
+		if (succeeded && row.kind === "file.pull") {
+			const record = parseTransferRecord(row.transfer);
+			if (record?.location.kind === "library") {
+				return { code: "io_error", message: "crhs lost the transfer before it finished" };
+			}
+		}
+		return undefined;
+	}
 	const result = exit.result;
 	const success = exit.outcome.kind === "code" && result !== null && result.kind === "file.pull";
 	// The node sends task.exit right after [end]; the two sockets are independent, so the exit can

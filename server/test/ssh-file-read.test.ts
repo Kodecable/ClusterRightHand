@@ -160,13 +160,32 @@ describe("file.read over SFTP", () => {
 		const dir = fakeSftp({ path: "/srv", content: Buffer.alloc(0), mode: 0o040755 });
 		const spec = { kind: "file.read", path: "/srv", startLine: 1, lineCount: 1 } as TaskSpec;
 		expect(await failure(runSftpFileTask(dir.wrapper, spec, undefined, () => {}, new AbortController().signal))).toBe(
-			"is_directory",
+			"not_regular_file",
 		);
 
 		const missing = fakeSftp({ path: "/srv/f", content: Buffer.alloc(0), missing: true });
 		expect(
 			await failure(runSftpFileTask(missing.wrapper, spec, undefined, () => {}, new AbortController().signal)),
 		).toBe("not_found");
+	});
+
+	it("requires a regular file for reads and edits", async () => {
+		// A FIFO or device is not read (it could block or have a side effect) and cannot be edited.
+		for (const mode of [0o010644, 0o020644, 0o060644]) {
+			const special = fakeSftp({ path: "/srv/fifo", content: Buffer.alloc(0), mode });
+			const read = { kind: "file.read", path: "/srv/fifo", startLine: 1, lineCount: 1 } as TaskSpec;
+			expect(
+				await failure(runSftpFileTask(special.wrapper, read, undefined, () => {}, new AbortController().signal)),
+			).toBe("not_regular_file");
+			const edit = {
+				kind: "file.edit",
+				path: "/srv/fifo",
+				edits: [{ oldText: "a", newText: "b" }],
+			} as TaskSpec;
+			expect(
+				await failure(runSftpFileTask(special.wrapper, edit, undefined, () => {}, new AbortController().signal)),
+			).toBe("not_regular_file");
+		}
 	});
 
 	it("rejects a line range outside the protocol", async () => {

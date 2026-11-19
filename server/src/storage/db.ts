@@ -6,6 +6,7 @@ import pg from "pg";
 import type { DatabaseConfig } from "../config.ts";
 import { openAgentSqliteDatabase, openSqliteDialect } from "./node-sqlite.ts";
 import { PgStorage } from "./pg-durable/index.ts";
+import { configurePgInt8AsNumber } from "./pg-int8.ts";
 import type { Database } from "./schema.ts";
 
 export type Db = Kysely<Database>;
@@ -58,6 +59,7 @@ export function openDb(config: DatabaseConfig): Db {
 		case "sqlite":
 			return new Kysely<Database>({ dialect: openSqliteDialect(config.path) });
 		case "postgres": {
+			configurePgInt8AsNumber();
 			const pool = new pg.Pool({ connectionString: config.url });
 			// An idle client error (a restart, idle_session_timeout, pg_terminate_backend, a reset) is
 			// emitted on the pool; without a listener it would be an unhandled 'error' event.
@@ -82,6 +84,7 @@ export async function openAgentStorage(config: DatabaseConfig): Promise<OpenedAg
 			}),
 		};
 	}
+	configurePgInt8AsNumber();
 	const pool = new pg.Pool({ connectionString: config.url, max: 4 });
 	// Same as the main pool: an idle client error must be logged, not thrown from EventEmitter.
 	pool.on("error", (err) => console.error("postgres pool:", err));

@@ -376,6 +376,34 @@ func TestTransferIdleTimeoutFailsTask(t *testing.T) {
 }
 
 // fakeServer starts the fake crhs with the exit collector and the task.start script.
+// TestTransferDialFailureReportsExit covers a transfer whose data connection never opens: the task
+// ends locally with io_error and crhs must still be told, or it would wait for a task.exit that never
+// comes (doc/design/library.md "Data connections").
+func TestTransferDialFailureReportsExit(t *testing.T) {
+	exitCh := make(chan protocol.TaskExit, 1)
+	srv, serverKey := fakeServer(t, exitCh, func(ctx context.Context, p *protocol.Peer) {
+		ts := transferTaskStart("push-dial-failed", &protocol.TaskSpec{
+			Kind: protocol.TaskSpecFilePush,
+			FilePush: &protocol.FilePushSpec{
+				Path: "/tmp/never", Size: 4, SHA256: hashOf([]byte("data")),
+				Endpoint: protocol.TransferEndpoint{Kind: protocol.TransferEndpointCRHS, TransferID: "tr-1"},
+			},
+		})
+		var empty protocol.Empty
+		if err := p.Request(ctx, protocol.CmdTaskStart, ts, &empty); err != nil {
+			t.Errorf("task.start: %v", err)
+		}
+	})
+	a := newTestAgent(t, Options{DataDial: func(context.Context, string, string) (DataConn, error) {
+		return nil, errors.New("no data endpoint")
+	}})
+	startSession(t, a, dialTo(t, srv, serverKey))
+	exit := waitCh(t, exitCh, "task.exit")
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != protocol.CodeIOError {
+		t.Fatalf("task.exit = %+v, want io_error", exit)
+	}
+}
+
 func fakeServer(t *testing.T, exitCh chan<- protocol.TaskExit, run func(context.Context, *protocol.Peer)) (*httptest.Server, noise.Keypair) {
 	t.Helper()
 	serverKey, err := noise.GenerateKeypair()

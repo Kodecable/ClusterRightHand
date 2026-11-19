@@ -899,6 +899,63 @@ describe("channels", () => {
 		expect(row?.state).toBe("awaiting_authorization");
 	});
 
+	it("settles a decided card once when the command path and a settle sweep overlap", async () => {
+		const userId = 8061;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const taskId = "approval-double-settle";
+		await insertApprovalTask(thread.sessionId, taskId);
+		await wakeWait(thread.sessionId);
+		await fake.waitForSent((call) => plainText(call).includes(`/reject ${taskId} reason`));
+
+		// Hold the sweep inside the read that decides whether the card's wait ended, so the command's own
+		// settle can land before the sweep has claimed the card. Only the wait-ending read is held: it
+		// selects the authorization columns.
+		const executor = db.getExecutor() as unknown as {
+			executeQuery: (query: { sql: string }, options?: unknown) => Promise<unknown>;
+		};
+		const actual = executor.executeQuery.bind(executor);
+		let reachedRead!: () => void;
+		const read = new Promise<void>((resolve) => {
+			reachedRead = resolve;
+		});
+		let releaseRead!: () => void;
+		const released = new Promise<void>((resolve) => {
+			releaseRead = resolve;
+		});
+		let armed = true;
+		executor.executeQuery = async (query, options) => {
+			// Held before the read: the row must be decided by the time the sweep sees it.
+			if (armed && query.sql.includes('from "tasks"') && query.sql.includes('"authorization"')) {
+				armed = false;
+				reachedRead();
+				await released;
+			}
+			return actual(query, options);
+		};
+		try {
+			const sweep = channels.refreshWaits(thread.sessionId);
+			await read;
+			// The command decides the task and settles the card itself while the sweep holds the wait read.
+			fake.text(userId, `/approve ${taskId}`);
+			await until(async () => {
+				const row = await db.selectFrom("tasks").select("state").where("id", "=", taskId).executeTakeFirst();
+				return row?.state !== "awaiting_approval";
+			});
+			releaseRead();
+			await sweep;
+		} finally {
+			executor.executeQuery = actual;
+		}
+
+		// The card ends once: the command's result message, and no second one from a settling sweep that
+		// read the wait as still open.
+		await waitForMessage("✅ Approved · by alice");
+		await new Promise((resolve) => setTimeout(resolve, 500));
+		const results = fake.sentCalls().filter((call) => plainText(call).includes("✅ Approved · by alice"));
+		expect(results).toHaveLength(1);
+	});
+
 	it("runs one more wait sync when a state change lands during a sync, so a new approval still reaches chat", async () => {
 		const userId = 8051;
 		await link(userId);

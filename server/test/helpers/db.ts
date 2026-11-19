@@ -5,6 +5,7 @@ import { describe } from "vitest";
 import type { Db } from "../../src/storage/db.ts";
 import { migrateToLatest } from "../../src/storage/migrate.ts";
 import { openSqliteDialect } from "../../src/storage/node-sqlite.ts";
+import { configurePgInt8AsNumber } from "../../src/storage/pg-int8.ts";
 import type { Database } from "../../src/storage/schema.ts";
 
 const pgUrl = process.env.CRH_TEST_PG_URL;
@@ -31,6 +32,8 @@ export async function openTestDb(backend: Backend, { migrate = true } = {}): Pro
 	} else {
 		const name = `t_${randomBytes(6).toString("hex")}`;
 		schema = name;
+		// Same parser as production, so a bigint column reads as a number here too.
+		configurePgInt8AsNumber();
 		const pool = new pg.Pool({ connectionString: pgUrl, options: `-c search_path=${name}` });
 		const pgDb = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
 		await withDdlLock(async () => {

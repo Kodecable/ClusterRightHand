@@ -128,6 +128,9 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 	let deleteFailure: { description: string; chatId?: string } | null = null;
 	let editFailure: { description: string; chatId?: string; sticky?: boolean } | null = null;
 	let sendHold: { reached: () => void; wait: Promise<void> } | null = null;
+	/** Message ids this bot sent, and the ones already deleted: Telegram refuses the second delete/edit. */
+	const sentMessageIds = new Set<number>();
+	const deletedMessageIds = new Set<number>();
 	const waiters = new Set<() => void>();
 	let server: Server;
 	let apiRoot = "";
@@ -340,6 +343,7 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 					...(body.reply_markup ? { reply_markup: body.reply_markup } : {}),
 					...(body.message_thread_id !== undefined ? { message_thread_id: body.message_thread_id } : {}),
 				});
+				sentMessageIds.add(Number(msg.message_id));
 				return json(res, { ok: true, result: msg });
 			}
 			case "sendMessage": {
@@ -348,9 +352,13 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 					...(body.reply_markup ? { reply_markup: body.reply_markup } : {}),
 					...(body.message_thread_id !== undefined ? { message_thread_id: body.message_thread_id } : {}),
 				});
+				sentMessageIds.add(Number(msg.message_id));
 				return json(res, { ok: true, result: msg });
 			}
 			case "editMessageText": {
+				if (deletedMessageIds.has(Number(body.message_id))) {
+					return json(res, { ok: false, error_code: 400, description: "Bad Request: message to edit not found" }, 400);
+				}
 				if (editFailure !== null && (editFailure.chatId === undefined || editFailure.chatId === String(body.chat_id))) {
 					const { description, sticky } = editFailure;
 					if (!sticky) editFailure = null;
@@ -373,6 +381,17 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 					deleteFailure = null;
 					return json(res, { ok: false, error_code: 400, description }, 400);
 				}
+				// Telegram refuses to delete a message twice; a chat that watches the same card from two
+				// paths must not read the refusal as "the card is still there".
+				const messageId = Number(body.message_id);
+				if (deletedMessageIds.has(messageId) && sentMessageIds.has(messageId)) {
+					return json(
+						res,
+						{ ok: false, error_code: 400, description: "Bad Request: message to delete not found" },
+						400,
+					);
+				}
+				deletedMessageIds.add(messageId);
 				return json(res, { ok: true, result: true });
 			}
 			case "answerCallbackQuery":

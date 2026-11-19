@@ -185,7 +185,10 @@ Satori, and are never converted from one to the other.
   Elsewhere one status message is edited at most every few seconds and removed when the turn ends. A kind
   without the `progress` capability shows none, and one without `buttons` sends none: its approval texts
   already carry `/approve <id>`/`/reject <id>`, and a notification without a thread appends the session
-  link where Telegram would show an **Open session** button.
+  link where Telegram would show an **Open session** button. A slow send never lets a session's event
+  queue grow with the run: past 100 pending batches the manager keeps only the events the chat reads —
+  run boundaries, message and tool starts and ends, retry notices — and drops the streaming updates that
+  the final message or tool result replaces.
 - **The draft's stop control is bound to that draft.** Telegram keeps stopped drafts around for hours, so
   the stop update carries the draft id it belongs to. The manager stops the turn only when that id is the
   session's current live draft, the session is running and drafting is active; a stale or unknown id is
@@ -286,6 +289,10 @@ a session — goes to the same place as a session with no chat source: nowhere w
 the WebUI, otherwise the owner's default notification account. These messages are tracked by `kind:id`
 with a nullable root and settle through the same approval-change hooks (the runtime's approval listener,
 the external-call wait listener, and a periodic fallback sweep) as session messages.
+
+Each card is settled by exactly one path. A settling sweep claims the card before it reads whether the
+wait ended, so a button or command that decides at the same moment cannot let the sweep post a second
+result line for a card the decision already removed.
 
 A button or command decides as the linked user through the same checks as the WebUI: only someone who
 may decide that approval can. "Always allow" is not offered, because it changes rules; that stays in the

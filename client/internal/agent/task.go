@@ -180,9 +180,17 @@ type taskRun interface {
 	// start begins execution, after the task.start response was sent or once the session ended
 	// without sending it. It runs without a.mu held.
 	start(a *Agent, t *task)
+	// abortTransfer releases what prepare created when a transfer never opened its data connection,
+	// so its mode's side stops too. It runs without a.mu held, before the task's own exit is
+	// recorded.
+	abortTransfer(a *Agent, t *task)
 	// input applies one task.input chunk and returns the command's response body. It runs without
-	// a.mu held.
+	// a.mu held, from the shared control read loop, so it must not wait for the executor.
 	input(a *Agent, ctx context.Context, t *task, in *protocol.TaskInput) (any, error)
+	// pushInput applies one chunk of a data-connection push. It may wait while too much input is
+	// buffered, so its socket read follows the consumer instead of buffering the whole file. It runs
+	// without a.mu held.
+	pushInput(a *Agent, ctx context.Context, t *task, in *protocol.TaskInput) (any, error)
 	// inputComplete reports whether every declared input byte arrived.
 	inputComplete(t *task) bool
 	// failInput stops the task after its input failed. It runs with a.mu held.

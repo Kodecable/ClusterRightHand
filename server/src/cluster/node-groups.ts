@@ -11,6 +11,7 @@ import {
 	textMatches,
 } from "../util/list-query.ts";
 import { assertNameAvailable, isUuid, nameKey, validateName } from "../util/names.ts";
+import { lockNameNamespace } from "./name-lock.ts";
 import { deleteGrantsForNodeGroup } from "./node-access.ts";
 
 /**
@@ -124,6 +125,7 @@ export async function getNodeGroup(db: Db, id: string): Promise<NodeGroup | unde
 export async function createNodeGroup(db: Db, orgId: string, rawName: string): Promise<NodeGroup> {
 	const name = validateName(rawName, "node group name");
 	return db.transaction().execute(async (trx) => {
+		await lockNameNamespace(trx, orgId);
 		await assertNameAvailable(trx, orgId, name);
 		const now = new Date().toISOString();
 		const row = {
@@ -148,6 +150,7 @@ export async function renameNodeGroup(db: Db, groupId: string, rawName: string):
 			.where("id", "=", groupId)
 			.executeTakeFirst();
 		if (!group) throw new NotFoundError("no such node group");
+		await lockNameNamespace(trx, group.org_id);
 		await assertNameAvailable(trx, group.org_id, name, { table: "node_groups", id: group.id });
 		await trx
 			.updateTable("node_groups")

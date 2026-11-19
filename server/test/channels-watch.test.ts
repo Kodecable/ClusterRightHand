@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ModelConfig } from "../src/agent/models.ts";
 import type { AgentRuntime, SessionEvent } from "../src/agent/runtime.ts";
 import type { Audit } from "../src/audit/audit.ts";
-import { ChannelManager } from "../src/channels/manager.ts";
+import { ChannelManager, coalesceSessionEvents } from "../src/channels/manager.ts";
 import type { Cluster } from "../src/cluster/cluster.ts";
 import type { TaskGroups } from "../src/cluster/task-groups.ts";
 import type { MasterKey } from "../src/keys/master-key.ts";
@@ -98,6 +98,43 @@ describe("channel session watch", () => {
 		await db.deleteFrom("channel_threads").where("session_id", "=", sessionId).execute();
 		// A malformed message_end makes its handler throw; the run_end that follows must still release the watch.
 		await watched()([{ type: "message_end" } as SessionEvent, { type: "run_end" } as SessionEvent]);
+		await manager.sessionEventsSettled(sessionId);
+		expect(manager.watchesSession(sessionId)).toBe(false);
+		expect(stopped).toEqual([sessionId]);
+	});
+
+	// A stalled send lets the runtime keep committing: the manager coalesces the queued batches instead of
+	// growing with the run. The chat reads the final message and progress, never a streaming update
+	// (doc/design/channels.md "Messages").
+	it("keeps only the events the chat reads when its queue is flooded", () => {
+		const batch = (n: number): SessionEvent[] => [
+			{ type: "message_update", changes: [] },
+			{ type: "tool_execution_update", toolCallId: `c${n}`, toolName: "read_file" },
+			{ type: "run_start", inputs: [] },
+			{ type: "tool_execution_start", toolCallId: `c${n}`, toolName: "read_file", args: {} },
+			{ type: "tool_execution_end", toolCallId: `c${n}`, toolName: "read_file" },
+			{ type: "inbox_update", items: [] },
+			{ type: "usage_changed", usage: { models: {}, tools: {} } },
+		];
+		expect(coalesceSessionEvents([batch(1), batch(2)]).map((event) => event.type)).toEqual([
+			"run_start",
+			"tool_execution_start",
+			"tool_execution_end",
+			"run_start",
+			"tool_execution_start",
+			"tool_execution_end",
+		]);
+	});
+
+	it("still finishes a flooded session's run", async () => {
+		// More batches than the coalescing threshold, queued before the drain starts.
+		for (let n = 0; n < 150; n++) {
+			expect(watched()([{ type: "message_update", changes: [] }])).toBeUndefined();
+		}
+		watched()([{ type: "run_start", inputs: [] }]);
+		watched()([{ type: "message_end", entry: { id: 1, kind: "message" } }]);
+		await db.deleteFrom("channel_threads").where("session_id", "=", sessionId).execute();
+		watched()([{ type: "run_end", inputs: [] }]);
 		await manager.sessionEventsSettled(sessionId);
 		expect(manager.watchesSession(sessionId)).toBe(false);
 		expect(stopped).toEqual([sessionId]);

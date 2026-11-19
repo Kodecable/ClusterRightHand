@@ -2,7 +2,14 @@
  * The types of the Cluster's public surface and the constants of the task state machine. The modules
  * of this directory build on them; cluster.ts re-exports them as the Cluster's own API.
  */
-import type { AgentRequest, ApprovalDecision, ApprovalRecord, TaskView } from "@crh/api";
+import {
+	type AgentRequest,
+	type ApprovalDecision,
+	type ApprovalRecord,
+	RECORDED_TASK_STATES,
+	type TaskView,
+	TERMINAL_TASK_STATES,
+} from "@crh/api";
 import type { TaskSpec } from "@crh/protocol";
 import type { Audit } from "../audit/audit.ts";
 import type { LibraryBackend } from "../library/backend.ts";
@@ -136,19 +143,15 @@ export interface ClusterOptions {
 	audit?: Audit;
 }
 
-export const TERMINAL: ReadonlySet<TaskRowState> = new Set([
-	"exited",
-	"errored",
-	"rejected",
-	"cancelled",
-	"expired",
-	"unknown",
-	"denied",
-]);
+/**
+ * The states in which the task no longer runs, from packages/api: the WebUI reads the same set, so a
+ * state cannot be final on one surface and running on the other (doc/design/execution.md "State machine").
+ */
+export const TERMINAL: ReadonlySet<TaskRowState> = TERMINAL_TASK_STATES as ReadonlySet<TaskRowState>;
 
 /** Whether the row already has a result. `unknown` does not: it still accepts a late result. */
 export function recorded(state: TaskRowState): boolean {
-	return TERMINAL.has(state) && state !== "unknown";
+	return RECORDED_TASK_STATES.has(state);
 }
 
 /** A task group in one of these states runs nothing more (doc/design/execution.md "State machine"). */

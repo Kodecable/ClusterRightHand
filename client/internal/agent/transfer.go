@@ -203,7 +203,9 @@ func (a *Agent) pushTransfer(t *task, conn DataConn, ctx context.Context, reset 
 		case protocol.DataFrameData:
 			chunk := &protocol.TaskInput{TaskID: t.id, Offset: protocol.Uint(offset), Data: frame.Bytes}
 			offset += uint64(len(frame.Bytes))
-			if _, err := a.input(ctx, chunk); err != nil {
+			// pushInput waits for the consumer instead of letting the whole file pile up in memory
+			// when the disk is slower than the network (doc/design/library.md "Data connections").
+			if _, err := t.run.pushInput(a, ctx, t, chunk); err != nil {
 				a.failTransfer(t, protocol.CodeInputMismatch, err.Error())
 				return
 			}
@@ -324,10 +326,11 @@ func (a *Agent) failTransfer(t *task, code, message string) {
 }
 
 // finishTransferError ends a transfer task that never got its data connection, or whose endpoint is
-// invalid, with a failed outcome. A privileged task may already exist on the peer, so its cancel is
-// requested best-effort before the local exit is recorded.
+// invalid, with a failed outcome. A privileged task may already exist on the peer, so the mode's side
+// is torn down and its cancel requested best-effort before the local exit is recorded. A native
+// helper has already accepted the task: abortTransfer is what starts its watcher and forwarder, so the
+// cancel is sent and the process is reaped instead of running on.
 func (a *Agent) finishTransferError(t *task, code, message string) {
-	go t.run.cancel(a, context.Background(), t)
 	exit := errorExit(t.id, code, message)
 	t.output.Close()
 	a.mu.Lock()
@@ -341,11 +344,17 @@ func (a *Agent) finishTransferError(t *task, code, message string) {
 	if t.transferSend == nil {
 		t.transferSend = func([]byte) error { return errors.New("the data connection could not be opened") }
 	}
+	// Nothing of the transfer can still go out, so its exit is ready as soon as the task is done;
+	// without this, crhs would wait for a task.exit that never comes.
+	t.transferDone = true
 	if !t.done {
 		t.done, t.result = true, exit
 		t.signalDone()
 	}
 	a.mu.Unlock()
+	// The task is ended first, so a helper that exits at once cannot be reported as helper_lost.
+	t.run.abortTransfer(a, t)
+	go t.run.cancel(a, context.Background(), t)
 	t.run.finished(t)
 	a.wake()
 }

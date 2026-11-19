@@ -298,7 +298,9 @@ so a large transfer never delays the control connection. The path is the control
   the last chunk, or `[abort, code]`. Chunks are in order, and the sender stops at `[end]` or `[abort]`.
 - The receiver verifies the total size and SHA-256 against the task (`file.push`'s spec, or `file.pull`'s
   result) before committing. A mismatch, an abort, or 90 seconds without a frame fails the transfer.
-- Flow control is the WebSocket's: the sender waits for its buffer to drain before writing more.
+- Flow control is the WebSocket's: the sender waits for its buffer to drain before writing more. The
+  receiving node also waits while 8 MiB of a push are buffered ahead of its disk, so the socket's
+  backpressure follows the consumer rather than the whole file being held in memory.
 - The connection closes after `[end]` or `[abort]`. It never outlives its task, and a task cancel closes
   it.
 

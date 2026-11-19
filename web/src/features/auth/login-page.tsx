@@ -53,15 +53,19 @@ export function LoginPage() {
 	}, [auth.status, navigate]);
 
 	const submit = form.handleSubmit(async (values) => {
-		await login.mutateAsync(
-			{ ...values, captcha },
-			{
-				onSuccess: () => {
-					const target = safeRedirectPath(search.redirect) ?? "/sessions";
-					void navigate({ href: target, replace: true });
+		// The error line shows a failure from the mutation's state; the rejection is handled here so the
+		// submit handler does not rethrow it as an unhandled rejection.
+		await login
+			.mutateAsync(
+				{ ...values, captcha },
+				{
+					onSuccess: () => {
+						const target = safeRedirectPath(search.redirect) ?? "/sessions";
+						void navigate({ href: target, replace: true });
+					},
 				},
-			},
-		);
+			)
+			.catch(() => undefined);
 	});
 
 	return (

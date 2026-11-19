@@ -15,6 +15,7 @@ import {
 } from "../util/list-query.ts";
 import { assertNameAvailable, nameKey, validateName } from "../util/names.ts";
 import { keyFingerprint } from "./identity.ts";
+import { lockNameNamespace } from "./name-lock.ts";
 import { accessibleNodeIds, deleteGrantsForNode, type NodeAccess } from "./node-access.ts";
 import { type NodeGroupRef, nodeGroupsForNodes } from "./node-groups.ts";
 import { type TrustWarning, trustWarningsForRows } from "./trust-warnings.ts";
@@ -163,6 +164,7 @@ export async function renameNode(db: Db, nodeId: string, rawName: string): Promi
 	return db.transaction().execute(async (trx) => {
 		const node = await trx.selectFrom("nodes").selectAll().where("id", "=", nodeId).executeTakeFirst();
 		if (!node) throw new NotFoundError("no such node");
+		await lockNameNamespace(trx, node.org_id);
 		await assertNameAvailable(trx, node.org_id, name, { table: "nodes", id: node.id });
 		await trx
 			.updateTable("nodes")

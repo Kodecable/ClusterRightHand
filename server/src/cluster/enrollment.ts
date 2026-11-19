@@ -7,6 +7,7 @@ import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
 import { availableGeneratedName, nameKey } from "../util/names.ts";
 import { keyFingerprint } from "./identity.ts";
+import { lockNameNamespace } from "./name-lock.ts";
 
 export class EnrollmentError extends UserError {}
 
@@ -179,6 +180,7 @@ export async function enrollNodeWithResult(
 			return trx.selectFrom("nodes").selectAll().where("id", "=", bound.id).executeTakeFirstOrThrow();
 		}
 
+		await lockNameNamespace(trx, token.org_id);
 		const name = await availableGeneratedName(trx, token.org_id, token.name_hint ?? input.hostname);
 		const created: Selectable<NodesTable> = {
 			id: newId(),

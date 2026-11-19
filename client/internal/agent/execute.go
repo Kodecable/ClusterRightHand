@@ -36,6 +36,10 @@ func (r *localRun) prepare(*Agent, context.Context, *task) error { return nil }
 // registered does nothing: nobody else needs to know the task exists.
 func (r *localRun) registered(*Agent, *task) {}
 
+// abortTransfer does nothing: a local task's executor starts with start(), and a transfer that
+// never opens its data connection never starts it.
+func (r *localRun) abortTransfer(*Agent, *task) {}
+
 func (r *localRun) start(a *Agent, t *task) {
 	if t.spec.Spec.Kind == protocol.TaskSpecFilePull {
 		// A pull sends its content on the data connection, not into the executor's input.
@@ -69,6 +73,27 @@ func (r *localRun) input(a *Agent, _ context.Context, t *task, in *protocol.Task
 }
 
 func (r *localRun) inputComplete(*task) bool { return r.queue == nil || r.queue.Complete() }
+
+// pushInput applies one chunk of a data-connection push, waiting for the executor to read instead of
+// buffering the file: a slow disk must not make the node hold a whole upload (doc/design/library.md
+// "Data connections").
+func (r *localRun) pushInput(a *Agent, ctx context.Context, t *task, in *protocol.TaskInput) (any, error) {
+	a.mu.Lock()
+	res := a.acceptInput(t, in)
+	a.mu.Unlock()
+	if res.Refusal != nil {
+		return nil, res.Refusal
+	}
+	if res.Data != nil && r.queue != nil {
+		if err := r.queue.PushWait(ctx, res.Data); err != nil {
+			return nil, err
+		}
+	}
+	if res.Complete && r.queue != nil {
+		r.queue.Close()
+	}
+	return protocol.Empty{}, nil
+}
 
 // failInput wakes a blocked reader so the executor notices the cancellation, then cancels the task.
 func (r *localRun) failInput(_ *Agent, t *task, message string) {

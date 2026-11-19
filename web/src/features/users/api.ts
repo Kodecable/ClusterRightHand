@@ -1,6 +1,7 @@
 import type { Directory, User, UserDetail, UserGroup, UserGroupDetail, UserKind } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { invalidateRevokedTokens } from "@/features/tokens/api";
 import { enc, http } from "@/lib/api/client";
 import { authStore } from "@/lib/session";
 
@@ -95,6 +96,7 @@ export function useUpdateUser() {
 }
 
 export function useSetUserPassword() {
+	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: ({
 			id,
@@ -106,6 +108,10 @@ export function useSetUserPassword() {
 			/** End every API token of the target user as well (the server defaults to false). */
 			revokeApiTokens?: boolean;
 		}) => http.post<{ ok: true }>(`/users/${enc(id)}/password`, { password, revokeApiTokens }),
+		// The target may be the signed-in administrator, whose token list then changed too.
+		onSuccess: (_, input) => {
+			if (input.revokeApiTokens) invalidateRevokedTokens(queryClient);
+		},
 	});
 }
 

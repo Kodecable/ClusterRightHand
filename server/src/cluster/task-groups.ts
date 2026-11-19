@@ -775,7 +775,10 @@ export class TaskGroups {
 		this.#settle(id);
 	}
 
-	/** The group's members all settled (or were skipped): the group is finished. */
+	/**
+	 * The group's members all settled (or were skipped): the group is finished. A cancel or rejection
+	 * that landed after the run last checked keeps its state, as the other terminal writes do.
+	 */
 	async #finish(id: string, skipped: string[]): Promise<void> {
 		await this.#db
 			.updateTable("task_groups")
@@ -787,7 +790,9 @@ export class TaskGroups {
 				handler_session_id: null,
 			})
 			.where("id", "=", id)
+			.where("state", "not in", [...GROUP_TERMINAL])
 			.execute();
+		// Waiters are released either way: a group that ended by another path has ended too.
 		this.#settle(id);
 	}
 

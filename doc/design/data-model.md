@@ -19,8 +19,12 @@ The conventions that let one schema work on both:
 - JSON is stored as text and parsed by crhs, because the shapes belong to the application. JSONB is not
   used: it reorders keys and rejects some escapes.
 - Timestamps are ISO 8601 UTC strings; booleans are 0 and 1.
-- 64-bit counters are `bigint` on PostgreSQL, which the driver returns as strings; crhs converts them
-  where it reads them.
+- Counters and byte counts that can pass 2^31 are `bigint` on PostgreSQL; SQLite's `integer` is already
+  64-bit. The pg driver returns an int8 as a string, and crhs installs one parser
+  (`server/src/storage/pg-int8.ts`) that reads every int8 as a number: these values stay below 2^53 and
+  the TypeScript types say `number`, while converting at each read site would turn one missed
+  `Number()` into string concatenation (as `used_bytes + delta` would). Small `integer` columns keep
+  their type: ids, exit codes, ports and flags.
 
 On SQLite, crhs and pi-durable use two connections to the same file. `node:sqlite` is synchronous, so
 the connections must never wait on each other's write lock: all statements from both pass through one
@@ -62,6 +66,10 @@ append-only.
   that Kysely does not assume. A failed upgrade leaves the schema exactly as it was.
 - SQLite cannot alter constraints or drop columns used in foreign keys, so such migrations rebuild the
   table. Foreign key checks stay on throughout.
+- A migration that widens a column is PostgreSQL-only when SQLite's type already covers the values,
+  because SQLite ignores integer width. Migration 0013 widens the byte counts that can pass 2 GiB: a
+  task's input, output and caps, a task group's per-node cap, a library's limits and usage, a library
+  file's size and the image cache's byte count.
 - pi-durable's PostgreSQL tables have their own version chain in the adapter. A database newer than the
   binary refuses to open.
 

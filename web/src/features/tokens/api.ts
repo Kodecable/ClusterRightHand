@@ -1,5 +1,5 @@
 import type { ApiTokenView, Rule, RulePreset } from "@crh/api";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { invalidatePendingDecisions } from "@/features/approvals/api";
 import { enc, http } from "@/lib/api/client";
 
@@ -7,6 +7,15 @@ export const tokenKeys = {
 	all: ["api-tokens"] as const,
 	list: () => ["api-tokens", "list"] as const,
 };
+
+/**
+ * Refreshes what a token revocation changes: the token list, and the decisions the server rejected because
+ * the token still had them waiting. Also used by the password changes that can revoke every token.
+ */
+export function invalidateRevokedTokens(queryClient: QueryClient): void {
+	void queryClient.invalidateQueries({ queryKey: tokenKeys.all });
+	invalidatePendingDecisions(queryClient);
+}
 
 export function useApiTokens() {
 	return useQuery({
@@ -33,11 +42,8 @@ export function useRevokeApiToken() {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (id: string) => http.post<{ apiToken: ApiTokenView }>(`/api-tokens/${enc(id)}/revoke`),
-		onSuccess: () => {
-			void queryClient.invalidateQueries({ queryKey: tokenKeys.all });
-			// The server rejects what the token still had waiting for approval.
-			invalidatePendingDecisions(queryClient);
-		},
+		// The server rejects what the token still had waiting for approval.
+		onSuccess: () => invalidateRevokedTokens(queryClient),
 	});
 }
 

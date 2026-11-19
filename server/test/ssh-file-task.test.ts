@@ -164,7 +164,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 			page: "",
 			result: { kind: "file.read", from: 0, to: 0, eof: true, total: 4, tooLong: false },
 		});
-		expect(await code(run("file.read", readSpec(dir)))).toBe("is_directory");
+		expect(await code(run("file.read", readSpec(dir)))).toBe("not_regular_file");
 		expect(await code(run("file.read", readSpec(p("nope"))))).toBe("not_found");
 	});
 
@@ -319,7 +319,7 @@ describe.skipIf(!target || !keyPath)("ssh file tasks over SFTP", () => {
 		expect(await code(edit(p("ee")))).toBe("invalid_spec");
 		expect(await code(edit(p("ee"), "baz", "baz"))).toBe("edit_no_change");
 		expect(await code(edit(p("missing"), "a", "b"))).toBe("not_found");
-		expect(await code(edit(dir, "a", "b"))).toBe("is_directory");
+		expect(await code(edit(dir, "a", "b"))).toBe("not_regular_file");
 		expect(await cat("ee")).toBe("foo bar foo\nbaz\n");
 		await noTemps();
 		expect(await code(edit(p("ee"), "bar", "x", "foo bar foo", "y"))).toBe("edit_overlap");

@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/helper"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
@@ -448,6 +450,133 @@ func TestPrivilegedNativeHelperLost(t *testing.T) {
 	_, exit := waitNativeExit(t, w)
 	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != "helper_lost" {
 		t.Fatalf("task.exit = %+v, want helper_lost", exit)
+	}
+}
+
+// TestNativeInputQueuePushWait covers the privileged push's queue bound: the data-connection push
+// waits while executor.MaxBufferedBytes are queued, and the forwarder's next, close or ctx releases
+// it. The control path's Push never waits.
+func TestNativeInputQueuePushWait(t *testing.T) {
+	chunk := make([]byte, 32<<10)
+	fill := func(q *nativeInputQueue) {
+		for queued := 0; queued < executor.MaxBufferedBytes; queued += len(chunk) {
+			q.push(&protocol.TaskInput{TaskID: "q", Data: chunk})
+		}
+	}
+	blocked := func(t *testing.T, done <-chan error) {
+		t.Helper()
+		select {
+		case err := <-done:
+			t.Fatalf("pushWait returned while the queue was full: %v", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+
+	t.Run("next", func(t *testing.T) {
+		q := newNativeInputQueue()
+		fill(q)
+		done := make(chan error, 1)
+		go func() { done <- q.pushWait(context.Background(), &protocol.TaskInput{TaskID: "q", Data: chunk}) }()
+		blocked(t, done)
+		if _, ok := q.next(); !ok {
+			t.Fatal("the queue is closed")
+		}
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("next did not release the blocked push")
+		}
+	})
+
+	t.Run("close", func(t *testing.T) {
+		q := newNativeInputQueue()
+		fill(q)
+		done := make(chan error, 1)
+		go func() { done <- q.pushWait(context.Background(), &protocol.TaskInput{TaskID: "q", Data: chunk}) }()
+		blocked(t, done)
+		q.close()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("a push after close returned %v, want it dropped", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("close did not release the blocked push")
+		}
+	})
+
+	t.Run("context", func(t *testing.T) {
+		q := newNativeInputQueue()
+		fill(q)
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- q.pushWait(ctx, &protocol.TaskInput{TaskID: "q", Data: chunk}) }()
+		blocked(t, done)
+		cancel()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("a cancelled push returned %v, want context.Canceled", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the context did not release the blocked push")
+		}
+	})
+}
+
+// TestPrivilegedNativeTransferDialFailure covers a native privileged transfer whose data connection
+// never opens: the dial fails (or DataDial is nil, or the endpoint is invalid) after the helper already
+// accepted the task. The helper keeps running with the accepted task unless the run is torn down, so it
+// must be cancelled and reaped (doc/design/privilege.md "Native mode").
+func TestPrivilegedNativeTransferDialFailure(t *testing.T) {
+	dir := t.TempDir()
+	sum := sha256.Sum256([]byte("data"))
+	ts := protocol.TaskStart{
+		TaskID: "native-push-failed", Attempt: 1, Privileged: true,
+		Spec: protocol.TaskSpec{Kind: protocol.TaskSpecFilePush, FilePush: &protocol.FilePushSpec{
+			Path:     filepath.Join(dir, "target"),
+			Size:     4,
+			SHA256:   sum,
+			Endpoint: protocol.TransferEndpoint{Kind: protocol.TransferEndpointCRHS, TransferID: "tr-1"},
+		}},
+		Output: protocol.OutputMode{Kind: protocol.OutputStatus},
+	}
+	w := newNativeWatch()
+	a := nativeAgent(t, Options{DataDial: func(context.Context, string, string) (DataConn, error) {
+		return nil, errors.New("no data endpoint")
+	}})
+	serveNative(t, a, w, sendStart(w, ts))
+
+	if err := waitCh(t, w.started, "task.start response"); err != nil {
+		t.Fatalf("task.start: %v", err)
+	}
+	a.mu.Lock()
+	run, _ := a.tasks[ts.TaskID].run.(*nativeRun)
+	a.mu.Unlock()
+	if run == nil || run.conn == nil || run.conn.cmd.Process == nil {
+		t.Fatal("the native helper was not spawned")
+	}
+	process := run.conn.cmd.Process
+
+	_, exit := waitNativeExit(t, w)
+	if exit.Outcome.Kind != protocol.OutcomeError || exit.Outcome.Error == nil || exit.Outcome.Error.Code != protocol.CodeIOError {
+		t.Fatalf("task.exit = %+v, want io_error", exit)
+	}
+	// A still-running helper, or a zombie nobody waited for, answers signal 0; reaping makes the
+	// process done.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		err := process.Signal(syscall.Signal(0))
+		if errors.Is(err, os.ErrProcessDone) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the native helper of the failed transfer was not reaped: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

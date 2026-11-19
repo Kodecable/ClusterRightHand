@@ -121,8 +121,10 @@ async function fileRead(ctx: Ctx, s: FileReadSpec, stdout: Out): Promise<TaskRes
 	}
 	const { sftp, signal } = ctx;
 	const st = await sftp.stat(s.path);
-	if ((st.mode & S_IFMT) === S_IFDIR) {
-		throw new FileTaskError("is_directory", `${s.path} is a directory`);
+	// A read accepts regular files only, like crha: reading a device or a FIFO would block or have a
+	// side effect (doc/design/execution.md "File tasks").
+	if ((st.mode & S_IFMT) !== S_IFREG) {
+		throw new FileTaskError("not_regular_file", `${s.path} is not a regular file`);
 	}
 	const result: FileReadResult = { from: 0, to: 0, eof: false, total: null, tooLong: false };
 	const handle = await sftp.open(s.path, "r");
@@ -454,8 +456,9 @@ async function fileEdit(ctx: Ctx, s: FileEditSpec): Promise<TaskResult> {
 		throw new FileTaskError("invalid_spec", "edits must not be empty");
 	}
 	const st = await sftp.stat(path);
-	if ((st.mode & S_IFMT) === S_IFDIR) {
-		throw new FileTaskError("is_directory", `${path} is a directory`);
+	// An edit accepts regular files only: matching text in a device or a FIFO has no meaning.
+	if ((st.mode & S_IFMT) !== S_IFREG) {
+		throw new FileTaskError("not_regular_file", `${path} is not a regular file`);
 	}
 	if (st.size > MAX_EDIT_SIZE) {
 		throw new FileTaskError("too_large", `${path} is ${st.size} bytes, limit is ${MAX_EDIT_SIZE}`);

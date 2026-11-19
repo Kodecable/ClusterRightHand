@@ -1,7 +1,8 @@
 import type { User } from "@crh/api";
 import { i18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
-import { type UseMutationResult, useMutation, useQuery } from "@tanstack/react-query";
+import { type UseMutationResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { invalidateRevokedTokens } from "@/features/tokens/api";
 import { ApiError, http } from "@/lib/api/client";
 import { authStore, type LoginCaptcha } from "@/lib/session";
 
@@ -113,9 +114,13 @@ export interface ChangePasswordInput {
 }
 
 export function useChangePassword(): UseMutationResult<void, Error, ChangePasswordInput> {
+	const queryClient = useQueryClient();
 	// The dialog shows the failure on its own error line.
 	return useMutation({
 		mutationFn: (input) => http.post<{ ok: true }>("/auth/password", input).then(() => undefined),
+		onSuccess: (_, input) => {
+			if (input.revokeApiTokens) invalidateRevokedTokens(queryClient);
+		},
 		meta: { toast: false },
 	});
 }

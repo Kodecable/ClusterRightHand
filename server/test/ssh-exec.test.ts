@@ -15,7 +15,8 @@ import {
  * these checks are unit level.
  */
 
-const WRAPPER = `'printf '\\''crh-pgid:%s\\n'\\'' "$$" >&2; exec 2>&1; exec "$@"'`;
+const NONCE = "0011223344556677";
+const WRAPPER = `'printf '\\''crh-pgid:${NONCE}:%s\\n'\\'' "$$" >&2; exec 2>&1; exec "$@"'`;
 
 /** A session whose one exec channel emits output and then closes with code. */
 function fakeSession(command: string, output: string, code: number | null): SshSession {
@@ -55,13 +56,13 @@ function execSpec(
 
 describe("SSH remote command", () => {
 	it("execs an argv task through the probed sh with LANG and LC_ALL set", () => {
-		expect(buildCommand(execSpec({ argv: ["id", "-u"] }), "/usr/bin/sh")).toBe(
+		expect(buildCommand(execSpec({ argv: ["id", "-u"] }), "/usr/bin/sh", NONCE)).toBe(
 			`cd / || exit 127; exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8 /usr/bin/sh -c ${WRAPPER} crh id -u`,
 		);
 	});
 
 	it("runs a shell command as <sh> -c <cmd>", () => {
-		expect(buildCommand(execSpec({ shell: "echo hi; whoami" }, {}, "/tmp/x"), "/usr/local/bin/sh")).toBe(
+		expect(buildCommand(execSpec({ shell: "echo hi; whoami" }, {}, "/tmp/x"), "/usr/local/bin/sh", NONCE)).toBe(
 			`cd /tmp/x || exit 127; exec env -- LANG=C.UTF-8 LC_ALL=C.UTF-8 /usr/local/bin/sh -c ${WRAPPER} crh /usr/local/bin/sh -c 'echo hi; whoami'`,
 		);
 	});
@@ -214,5 +215,130 @@ describe("SSH exec cancellation", () => {
 		expect(result).toEqual({ timedOut: false, cancelled: true });
 		expect(commands).toHaveLength(0);
 		expect(started).toHaveLength(0);
+	});
+});
+
+// A login shell may write to stderr before the wrapper's pgid line runs (a broken profile, a greeting),
+// so the marker is searched for in the first 64 KiB instead of being the first line
+// (doc/design/execution.md "SSH execution").
+describe("SSH pgid marker", () => {
+	const MARKER = (nonce: string, pid: number) => `crh-pgid:${nonce}:${pid}\n`;
+
+	/** A session whose command channel emits the given stderr chunks with $NONCE filled in, then exits. */
+	function markerSession(options: {
+		chunks: string[];
+		code: number | null;
+		onStderr?: (chunk: string, index: number) => void;
+	}): { session: SshSession; commands: string[]; closes: () => number } {
+		const commands: string[] = [];
+		let closes = 0;
+		const handlers = new Map<string, (arg?: unknown) => void>();
+		let stderrHandler: ((data: Buffer) => void) | undefined;
+		const channel = {
+			on: (event: string, fn: (arg?: unknown) => void) => handlers.set(event, fn),
+			stderr: {
+				on: (_event: string, fn: (data: Buffer) => void) => {
+					stderrHandler = fn;
+				},
+				resume: () => {},
+			},
+			end: () => {},
+			close: () => {
+				closes++;
+				handlers.get("exit")?.(null);
+				handlers.get("close")?.();
+			},
+		};
+		const session = {
+			exec: async (command: string, onChannel?: (channel: unknown) => void) => {
+				commands.push(command);
+				if (command.startsWith("kill ")) return { resume: () => ({ on: () => {} }) };
+				onChannel?.(channel);
+				const nonce = /crh-pgid:([0-9a-f]+):%s/.exec(command)?.[1] ?? "";
+				setImmediate(() => {
+					options.chunks.forEach((chunk, index) => {
+						stderrHandler?.(Buffer.from(chunk.replaceAll("$NONCE", nonce)));
+						options.onStderr?.(chunk, index);
+					});
+					handlers.get("exit")?.(options.code);
+					handlers.get("close")?.();
+				});
+				return channel;
+			},
+			onClose: () => () => {},
+			closed: false,
+		};
+		return { session: session as unknown as SshSession, commands, closes: () => closes };
+	}
+
+	it("finds the marker after login-shell noise and keeps that noise as stderr", async () => {
+		const chunks = ["bash: cannot set terminal process group (-1)\n", MARKER("$NONCE", 4242), "after the marker\n"];
+		const stderr: string[] = [];
+		const controller = new AbortController();
+		const fake = markerSession({
+			chunks,
+			code: 0,
+			onStderr: (_chunk, index) => {
+				// Cancel once the marker is in, while the command still runs.
+				if (index === 1) controller.abort();
+			},
+		});
+		const result = await runSshExec(
+			fake.session,
+			execSpec({ argv: ["sleep", "30"] }, {}, "/tmp"),
+			undefined,
+			{ stdout: () => {}, stderr: (data) => stderr.push(Buffer.from(data).toString()), started: () => {} },
+			{ signal: controller.signal, killGraceMs: 60_000 },
+		);
+		expect(result.cancelled).toBe(true);
+		expect(stderr.join("")).toBe("bash: cannot set terminal process group (-1)\nafter the marker\n");
+		// The whole process group is signalled, not just the channel closed.
+		expect(fake.commands).toContain("kill -TERM -- -4242 2>/dev/null");
+		expect(fake.closes()).toBe(0);
+	});
+
+	it("falls back to closing the channel when the marker never arrives", async () => {
+		const fake = markerSession({ chunks: ["still no marker\n"], code: null });
+		const controller = new AbortController();
+		const running = runSshExec(
+			fake.session,
+			execSpec({ argv: ["sleep", "30"] }),
+			undefined,
+			{ stdout: () => {}, stderr: () => {}, started: () => {} },
+			{ signal: controller.signal, killGraceMs: 60_000 },
+		);
+		// The channel has open listeners now; abort before the session's setImmediate closes it.
+		controller.abort();
+		await running;
+		expect(fake.closes()).toBe(1);
+		expect(fake.commands.some((command) => command.startsWith("kill "))).toBe(false);
+	});
+
+	it("reports 127 as the command's exit code when the marker arrived", async () => {
+		const fake = markerSession({ chunks: [MARKER("$NONCE", 777)], code: 127 });
+		const result = await runSshExec(
+			fake.session,
+			execSpec({ argv: ["missing-command"] }, {}, "/tmp"),
+			undefined,
+			{ stdout: () => {}, stderr: () => {}, started: () => {} },
+			{},
+		);
+		expect(result.error).toBeUndefined();
+		expect(result.exitCode).toBe(127);
+	});
+
+	it("still reports a cwd failure for 127 without a marker", async () => {
+		const stderr: string[] = [];
+		const fake = markerSession({ chunks: ["login shell broke\n"], code: 127 });
+		const result = await runSshExec(
+			fake.session,
+			execSpec({ argv: ["pwd"] }, {}, "/missing"),
+			undefined,
+			{ stdout: () => {}, stderr: (data) => stderr.push(Buffer.from(data).toString()), started: () => {} },
+			{},
+		);
+		expect(result.error).toEqual({ code: "not_found", message: "cannot change to /missing" });
+		expect(result.exitCode).toBeUndefined();
+		expect(stderr.join("")).toBe("login shell broke\n");
 	});
 });

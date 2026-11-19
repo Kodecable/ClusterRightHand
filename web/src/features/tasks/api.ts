@@ -1,11 +1,12 @@
-import type {
-	ApprovalRequest,
-	BatchOutputMode,
-	CursorPage,
-	CursorQuery,
-	TaskGroupView,
-	TaskRequest,
-	TaskView,
+import {
+	type ApprovalRequest,
+	type BatchOutputMode,
+	type CursorPage,
+	type CursorQuery,
+	isRecordedTaskState,
+	type TaskGroupView,
+	type TaskRequest,
+	type TaskView,
 } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { enc, http, queryString } from "@/lib/api/client";
@@ -20,6 +21,12 @@ import { isTerminal } from "@/lib/task-output";
 const WAIT_TIMEOUT_MS = 5_000;
 /** Pause between two waits while the task is still open. */
 const WAIT_GAP_MS = 250;
+/**
+ * How often an `unknown` task is asked about again. The server still accepts a
+ * late result for it (the node may come back), so the page keeps asking, but
+ * slowly: nothing is running any more and the answer usually stays unknown.
+ */
+const UNKNOWN_POLL_MS = 15_000;
 
 export const taskKeys = {
 	all: ["tasks"] as const,
@@ -81,6 +88,17 @@ export function useTasks(filters: TaskFilters = {}) {
 }
 
 /**
+ * How often the task page asks again: quickly while the task is open, slowly
+ * while it is `unknown` (the server still accepts a late result for it), and
+ * never once its result is recorded (or polling is off).
+ */
+export function taskRefetchInterval(pollWaiting: boolean, state: string | undefined): number | false {
+	if (!pollWaiting || state === undefined) return false;
+	if (!isTerminal(state)) return WAIT_GAP_MS;
+	return isRecordedTaskState(state) ? false : UNKNOWN_POLL_MS;
+}
+
+/**
  * One task. The first read is a plain `GET` (a wait on a task that already
  * waits for an approval would not answer until that wait ends); once the task
  * is on screen and still open, the query refetches `GET /tasks/:id/wait` so a
@@ -94,19 +112,16 @@ export function useTask(id: string | undefined, pollWaiting = false) {
 		enabled: id !== undefined && id !== "",
 		queryFn: ({ signal, client, queryKey }) => {
 			const path = `/tasks/${enc(id ?? "")}`;
-			const known = client.getQueryData(queryKey) !== undefined;
+			const known = client.getQueryData<TaskDetailView>(queryKey);
 			const read = (url: string) =>
 				http
 					.get<{ task: TaskView; request?: ApprovalRequest | null }>(url, { signal })
 					.then((r): TaskDetailView => ({ ...r.task, request: r.request ?? null }));
-			if (!pollWaiting || !known) return read(path);
+			// An unknown task is not running, so it has no wait to hang in: a plain read answers at once.
+			if (!pollWaiting || known === undefined || known.state === "unknown") return read(path);
 			return read(`${path}/wait${queryString({ timeoutMs: WAIT_TIMEOUT_MS })}`);
 		},
-		refetchInterval: (query) => {
-			if (!pollWaiting) return false;
-			const state = query.state.data?.state;
-			return state !== undefined && !isTerminal(state) ? WAIT_GAP_MS : false;
-		},
+		refetchInterval: (query) => taskRefetchInterval(pollWaiting, query.state.data?.state),
 	});
 }
 

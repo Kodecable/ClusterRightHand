@@ -63,6 +63,11 @@ acting user can access and is evaluated when used. The exact name syntax is in
 `server/src/util/names.ts`. Default names derived from hostnames are normalized to that syntax and
 made unique with a numeric suffix.
 
+Creating or renaming a node or node group locks the organization row (`FOR UPDATE` on PostgreSQL)
+before it checks the shared namespace and writes. The check reads two tables, so no single unique
+constraint covers it: two concurrent transactions would otherwise both see the name as free. SQLite's
+one-writer transactions already serialize them.
+
 ## Login, rate limiting and verification
 
 Password login is the only login method. Before a password is verified, crhs checks the proof of work

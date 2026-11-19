@@ -1,4 +1,5 @@
 import type { AuditEvent } from "@crh/api";
+import { sql } from "kysely";
 import { isAdmin, type SessionUser } from "../auth/sessions.ts";
 import { auditSourceKey, auditSourcesFor } from "../request-source.ts";
 import type { Db } from "../storage/db.ts";
@@ -123,8 +124,14 @@ export async function listAuditEvents(db: Db, user: SessionUser, q: AuditQuery):
 		.orderBy("seq", "desc")
 		.limit(Math.min(q.limit ?? 100, 500));
 	if (!isAdmin(user)) sel = sel.where("on_behalf_of_user_id", "=", user.userId);
-	if (q.action)
-		sel = q.action.endsWith(".") ? sel.where("action", "like", `${q.action}%`) : sel.where("action", "=", q.action);
+	if (q.action) {
+		// A prefix (`task.`) compares the leading characters exactly: LIKE would read `_` and `%` as wildcards,
+		// and SQLite's LIKE ignores ASCII case while PostgreSQL's does not.
+		const action = q.action;
+		sel = action.endsWith(".")
+			? sel.where(sql<boolean>`substr(action, 1, ${action.length}) = ${action}`)
+			: sel.where("action", "=", action);
+	}
 	if (q.targetType) sel = sel.where("target_type", "=", q.targetType);
 	if (q.targetId) sel = sel.where("target_id", "=", q.targetId);
 	if (q.before) sel = sel.where("seq", "<", q.before.seq);

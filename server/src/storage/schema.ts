@@ -376,8 +376,11 @@ export interface TasksTable extends ApprovalColumns {
 	dispatched_at: string | null;
 	accepted_at: string | null;
 	finished_at: string | null;
-	/** The single output stream's byte total. */
-	output_bytes: ColumnType<string | number, string | number, string | number>;
+	/**
+	 * The single output stream's byte total. It is a PostgreSQL `bigint` (0013), which the int8 type
+	 * parser (storage/pg-int8.ts) reads as a number.
+	 */
+	output_bytes: number;
 	/** The kept head and tail of the single output stream, base64. */
 	output_head: string | null;
 	output_tail: string | null;

@@ -476,6 +476,44 @@ function hasWait(
 	return false;
 }
 
+/**
+ * How many event batches one session may queue before the manager coalesces them. A slow platform send
+ * (a retry loop, a stalled API) holds the session's queue while the runtime keeps committing; left
+ * alone it would grow with the run (doc/design/channels.md "Messages").
+ */
+const MAX_PENDING_EVENT_BATCHES = 100;
+
+/**
+ * The event types the chat manager acts on. It sends the final message at message_end, shows progress
+ * from run/message/tool starts, collects delivered files at tool_execution_end and cleans up at
+ * run_end; approvals reach it through its own approval hook, not through the stream. Everything else
+ * is a streaming or WebUI-only update, which the chat never reads: message_update and
+ * tool_execution_update are superseded by the final message_end/tool_execution_end, and turn/inbox/
+ * usage/compaction events are bookkeeping. Pending batches are coalesced down to these.
+ */
+const CHAT_EVENT_TYPES: ReadonlySet<import("../agent/runtime.ts").SessionEvent["type"]> = new Set([
+	"run_start",
+	"run_end",
+	"message_start",
+	"message_end",
+	"tool_execution_start",
+	"tool_execution_end",
+	"auto_retry_start",
+]);
+
+/** The events of queued batches that still matter, in order: what a coalesced backlog keeps. */
+export function coalesceSessionEvents(
+	batches: readonly (readonly import("../agent/runtime.ts").SessionEvent[])[],
+): import("../agent/runtime.ts").SessionEvent[] {
+	const kept: import("../agent/runtime.ts").SessionEvent[] = [];
+	for (const batch of batches) {
+		for (const event of batch) {
+			if (CHAT_EVENT_TYPES.has(event.type)) kept.push(event);
+		}
+	}
+	return kept;
+}
+
 export class ChannelManager {
 	readonly #options: ChannelManagerOptions;
 	readonly #presence: WebUiPresence;
@@ -485,6 +523,8 @@ export class ChannelManager {
 	readonly #watchStarts = new SingleFlight<void>();
 	/** Each watched session's event batches, handled one after another. */
 	readonly #eventQueue = new KeyedQueue("channel event queue");
+	/** The batches waiting for their session's drain; coalesced once too many pile up. */
+	readonly #eventBacklog = new Map<string, import("../agent/runtime.ts").SessionEvent[][]>();
 	readonly #runs = new Map<string, RunState>();
 	readonly #drafts = new Map<string, DraftState>();
 	readonly #statuses = new Map<string, StatusState>();
@@ -2679,12 +2719,41 @@ export class ChannelManager {
 
 	// ---- outbound and notifications ----
 
+	/**
+	 * Queues one batch for its session. The watch callback returns at once, so a slow send must not
+	 * let the queue grow with the run: past MAX_PENDING_EVENT_BATCHES the queued batches are coalesced
+	 * into the events the chat reads. One drain per session keeps the batches in order.
+	 */
 	#queueSessionEvents(sessionId: string, events: import("../agent/runtime.ts").SessionEvent[]): void {
+		const backlog = this.#eventBacklog.get(sessionId);
+		if (backlog) {
+			backlog.push(events);
+			if (backlog.length > MAX_PENDING_EVENT_BATCHES) {
+				const kept = coalesceSessionEvents(backlog);
+				backlog.length = 0;
+				backlog.push(kept);
+			}
+			return;
+		}
+		this.#eventBacklog.set(sessionId, [events]);
 		void this.#eventQueue
-			.run(sessionId, () => this.#onSessionEvents(sessionId, events))
+			.run(sessionId, () => this.#drainSessionEvents(sessionId))
 			.catch((err: unknown) => {
 				console.error("channels: handling session events failed:", err);
 			});
+	}
+
+	/** Handles the session's queued batches one after another, including ones queued meanwhile. */
+	async #drainSessionEvents(sessionId: string): Promise<void> {
+		const backlog = this.#eventBacklog.get(sessionId);
+		if (!backlog) return;
+		try {
+			for (let batch = backlog.shift(); batch !== undefined; batch = backlog.shift()) {
+				await this.#onSessionEvents(sessionId, batch);
+			}
+		} finally {
+			this.#eventBacklog.delete(sessionId);
+		}
 	}
 
 	/** Resolves once the session's queued event batches are handled (tests). */
@@ -3249,7 +3318,7 @@ export class ChannelManager {
 			return;
 		}
 		// Do not wait behind a slow full sweep: an orphan's card must settle as soon as its row does.
-		await this.#settleAllTracked();
+		await this.#settleTrackedMessages();
 		await this.#orphanSyncs.run("orphans", () => this.#syncOrphanWaits());
 	}
 
@@ -3264,7 +3333,7 @@ export class ChannelManager {
 
 	async #syncAllWaits(): Promise<void> {
 		if (this.#stopped) return;
-		await this.#settleAllTracked();
+		await this.#settleTrackedMessages();
 		const rows = await this.#options.db
 			.selectFrom("sessions")
 			.select("root_session_id")
@@ -3282,7 +3351,7 @@ export class ChannelManager {
 	}
 
 	async #syncRootWaits(rootId: string): Promise<void> {
-		await this.#settleTracked(rootId);
+		await this.#settleTrackedMessages(rootId);
 		const owner = await sessionOwner(this.#options.db, rootId);
 		if (!owner) return;
 		const route = await this.#routeForSession(rootId);
@@ -3835,49 +3904,29 @@ export class ChannelManager {
 		// after this tick so the card is not left behind until the fallback sweep.
 		setTimeout(() => {
 			if (!this.#stopped) {
-				void this.#settleAllTracked().catch((err: unknown) => {
+				void this.#settleTrackedMessages().catch((err: unknown) => {
 					console.error("channels: settling a just-sent wait message failed:", err);
 				});
 			}
 		}, 0).unref?.();
 	}
 
-	/** Edits tracked messages whose wait is over, saying how it ended (doc/design/channels.md "Approvals"). */
-	async #settleTracked(rootId: string): Promise<void> {
-		for (const [key, tracked] of [...this.#tracked]) {
-			if (tracked.rootSessionId !== rootId || this.#settling.has(key)) continue;
-			const ending = await this.#waitEnding(tracked, messagesFor(tracked.locale));
-			if (ending === undefined) continue;
-			this.#settling.add(key);
-			try {
-				this.#tracked.delete(key);
-				await this.#replaceMessage(
-					tracked.adapterName,
-					tracked.target,
-					tracked.messageId,
-					tracked.card,
-					tracked.suffix,
-					ending,
-					tracked.locale,
-				);
-			} finally {
-				this.#settling.delete(key);
-			}
-		}
-	}
-
 	/**
-	 * Settles every tracked wait whose row says it ended. A full sweep walks all of them, so a decision made
-	 * elsewhere reaches its chat card even when the session's own state did not change (or it has no session).
+	 * Settles tracked messages whose wait is over, saying how it ended (doc/design/channels.md
+	 * "Approvals"): one root session's cards, or every card when `rootId` is undefined. A full sweep
+	 * reaches a decision made elsewhere even when the session's state did not change (or it has no
+	 * session). The key is claimed before the ending is read, so a decision made at the same moment (a
+	 * button, a command, `#editDecided`) cannot settle the same card too and post a second result.
 	 */
-	async #settleAllTracked(): Promise<void> {
-		if (this.#stopped) return;
+	async #settleTrackedMessages(rootId?: string): Promise<void> {
+		if (rootId === undefined && this.#stopped) return;
 		for (const [key, tracked] of [...this.#tracked]) {
+			if (rootId !== undefined && tracked.rootSessionId !== rootId) continue;
 			if (this.#settling.has(key)) continue;
-			const ending = await this.#waitEnding(tracked, messagesFor(tracked.locale));
-			if (ending === undefined) continue;
 			this.#settling.add(key);
 			try {
+				const ending = await this.#waitEnding(tracked, messagesFor(tracked.locale));
+				if (ending === undefined) continue;
 				this.#tracked.delete(key);
 				await this.#replaceMessage(
 					tracked.adapterName,

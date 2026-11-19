@@ -60,6 +60,11 @@ logs every task's full spec instead. Use `forward` when per-command limits are n
 escalation tool fails, the task fails with an explanation; it never falls back to unprivileged
 execution. `run0` support is experimental.
 
+The helper is cancelled through `crh-priv` in every case, too when a privileged `file.push`/`file.pull`
+never gets its data connection: the task ends with the transfer error, and the agent starts the helper's
+watcher and forwarder before reporting it, so the cancel reaches the helper and the process is reaped
+rather than running on with no one to talk to.
+
 ## The privileged mode
 
 The privileged mode listens on a local Unix socket and tells peers apart by their uid

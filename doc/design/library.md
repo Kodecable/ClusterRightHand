@@ -157,6 +157,17 @@ approvals and task output behind it.
 
 A transfer that fails for any reason, including a dropped data connection, fails the task.
 
+A push reads its data connection only as fast as its consumer: the node waits while 8 MiB of input are
+buffered (crha's executor, or the native helper's queue), so a slow disk applies backpressure through
+the socket instead of the whole file being held in memory. The control connection's input path never
+waits, because it must keep answering heartbeats.
+
+If crhs lost its side of a pull (a restart between the accept and the data connection), a successful
+node result into a library destination fails the task with `io_error` (`crhs lost the transfer before it
+finished`) instead of recording a success with no object published. A staging pull keeps the node's
+success: its destination is a temporary file, not a library object, so no published state can
+disagree.
+
 crhs schedules transfers; nodes keep no queue:
 
 | | Running | Queued |

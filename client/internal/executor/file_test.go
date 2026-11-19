@@ -1332,6 +1332,57 @@ func TestFileList(t *testing.T) {
 	wantMessage(t, err, "stat "+missing+": no such file or directory")
 }
 
+// TestNonUTF8NamesAreCleaned covers names that are not valid UTF-8 (a Latin-1 file name): the wire's
+// text must be valid UTF-8, so the executor replaces each invalid byte with U+FFFD instead of failing
+// the whole listing or stat when task.exit is encoded (doc/design/execution.md "File tasks"). Two such
+// names can then display alike; the listing still has both.
+func TestNonUTF8NamesAreCleaned(t *testing.T) {
+	dir := t.TempDir()
+	// "café" in Latin-1: 0xE9 is not valid UTF-8.
+	if err := os.WriteFile(filepath.Join(dir, "caf\xe9"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("caf\xe9", filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := run(t, &protocol.FileListSpec{Path: dir}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := listResult(t, res).Entries
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name)
+	}
+	if fmt.Sprint(names) != "[caf\uFFFD link]" {
+		t.Fatalf("names = %q, want the invalid byte replaced", names)
+	}
+	// The result travels in a task.exit frame, which refuses invalid UTF-8: encoding proves the fix.
+	if _, err := protocol.Marshal(protocol.TaskExit{
+		TaskID:  "t-list-utf8",
+		Outcome: protocol.Outcome{Kind: protocol.OutcomeCode, Code: 0},
+		Result:  res,
+	}); err != nil {
+		t.Fatalf("task.exit of the listing does not encode: %v", err)
+	}
+
+	stat, err := run(t, &protocol.FileStatSpec{Path: filepath.Join(dir, "link")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := statResult(t, stat).LinkTarget
+	if got == nil || *got != "caf\uFFFD" {
+		t.Fatalf("link target = %v, want the invalid byte replaced", got)
+	}
+	if _, err := protocol.Marshal(protocol.TaskExit{
+		TaskID:  "t-stat-utf8",
+		Outcome: protocol.Outcome{Kind: protocol.OutcomeCode, Code: 0},
+		Result:  stat,
+	}); err != nil {
+		t.Fatalf("task.exit of the stat does not encode: %v", err)
+	}
+}
+
 // TestFileListResultFitsAFrame covers the entry budget of a listing: its result travels in one
 // task.exit frame, so a huge directory is listed up to the budget and reported truncated
 // (doc/design/protocol.md "Task results").

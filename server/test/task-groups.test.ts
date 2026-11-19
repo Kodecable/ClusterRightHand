@@ -252,6 +252,33 @@ describeBackends("task groups", (backend) => {
 		expect(view?.skipped).toEqual([gone]);
 	});
 
+	it("does not overwrite a cancel that lands after the run's last check", async () => {
+		// The member waits out a short offline grace; the cancel is written straight to the row meanwhile, as a
+		// cancel() that lands between the run's cancelled() check and its finish would leave it.
+		const slow = new Cluster(db, { nodeOfflineGraceMs: 300 });
+		const groups = new TaskGroups(db, slow);
+		try {
+			const node = ids["web-1"] as string;
+			const id = await groups.create({ targets: [node], nodeIds: [node], spec: spec(), actor: actor(), parallel: 1 });
+			await db
+				.updateTable("task_groups")
+				.set({ state: "cancelled", finished_at: new Date().toISOString() })
+				.where("id", "=", id)
+				.execute();
+			const view = await groups.wait(id, 5000);
+			expect(view?.state).toBe("cancelled");
+			await waitFor("the member to end", async () => {
+				const rows = await db.selectFrom("tasks").select("state").where("task_group_id", "=", id).execute();
+				return rows.length === 1 && rows[0]?.state === "errored";
+			});
+			await slow.drain();
+			const row = await db.selectFrom("task_groups").select("state").where("id", "=", id).executeTakeFirstOrThrow();
+			expect(row.state).toBe("cancelled");
+		} finally {
+			await slow.close();
+		}
+	});
+
 	it("gives every member the group's timeout", async () => {
 		const groups = new TaskGroups(db, cluster);
 		const id = await groups.create({
