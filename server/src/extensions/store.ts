@@ -16,7 +16,12 @@ import { defaultOrgId } from "../storage/org.ts";
 import type { ExtensionsTable } from "../storage/schema.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
-import { type BuiltinExtensionProvider, builtinProvider, RESERVED_EXTENSION_NAMES } from "./builtin.ts";
+import {
+	type BuiltinExtensionProvider,
+	builtinProvider,
+	isReservedExtensionName,
+	RESERVED_EXTENSION_PREFIX,
+} from "./builtin.ts";
 import type { ExtensionTool } from "./model.ts";
 
 /**
@@ -650,8 +655,10 @@ export async function saveExtension(
 ): Promise<{ row: ExtensionRow; created: boolean }> {
 	validateExtensionName(name);
 	const existing = await getExtensionRow(db, name);
-	if (!existing && RESERVED_EXTENSION_NAMES.has(name)) {
-		throw new UserError(`the extension name ${name} is reserved for a built-in extension`);
+	if (!existing && isReservedExtensionName(name)) {
+		throw new UserError(
+			`extension names starting with ${RESERVED_EXTENSION_PREFIX} are reserved for built-in extensions`,
+		);
 	}
 	if (existing?.kind === "builtin") return saveBuiltin(db, masterKey, existing, input, adminUserId);
 	if (input.config !== undefined)

@@ -24,7 +24,7 @@ The scope of the first version:
 
 | Field | Kind | Meaning |
 |---|---|---|
-| Name | both | Lowercase letters, digits and `-`, not starting with a digit; unique across both kinds. Tools and rules use it. `crhs-docs` and `crhs-api` are reserved |
+| Name | both | Lowercase letters, digits and `-`, not starting with a digit; unique across both kinds. Tools and rules use it. Names starting with `crhs-` are reserved for built-in extensions, present and future |
 | Description | both | Shown to the model with the extension. A built-in's is a constant of crhs. An MCP extension's is the administrator's text, empty by default, which means what the server reports: its `instructions`, else its `serverInfo.description` |
 | Enabled | both | A disabled extension is invisible to sessions |
 | List directly | both | Its tools appear in the model's tool list instead of only through search; on by default for built-in extensions |

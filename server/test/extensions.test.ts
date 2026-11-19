@@ -383,6 +383,10 @@ describe("MCP extensions", () => {
 		await expect(saveExtension(db, masterKey, "Bad Name", { url: "http://mcp.test/mcp" }, user.userId)).rejects.toThrow(
 			/lowercase/,
 		);
+		// The whole crhs- prefix belongs to built-in extensions, including names no built-in has yet.
+		await expect(
+			saveExtension(db, masterKey, "crhs-future", { url: "http://mcp.test/mcp" }, user.userId),
+		).rejects.toThrow(/starting with crhs- are reserved/);
 		await saveExtension(
 			db,
 			masterKey,

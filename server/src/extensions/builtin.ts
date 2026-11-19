@@ -375,8 +375,16 @@ const api: BuiltinExtensionProvider = {
 /** The built-in extensions this crhs ships; their names are reserved. */
 export const BUILTIN_EXTENSIONS: readonly BuiltinExtensionProvider[] = [docs, api, dsSearch];
 
-/** The reserved names, for validation when an MCP extension is created. */
-export const RESERVED_EXTENSION_NAMES: ReadonlySet<string> = new Set(BUILTIN_EXTENSIONS.map((entry) => entry.name));
+/**
+ * Every name starting with this is kept for crhs's built-in extensions, present and future, so a new built-in
+ * can never collide with an MCP extension an administrator already named that way.
+ */
+export const RESERVED_EXTENSION_PREFIX = "crhs-";
+
+/** Whether an MCP extension may not take this name: it belongs, or may later belong, to a built-in. */
+export function isReservedExtensionName(name: string): boolean {
+	return name.startsWith(RESERVED_EXTENSION_PREFIX);
+}
 
 export function builtinProvider(name: string): BuiltinExtensionProvider | undefined {
 	return BUILTIN_EXTENSIONS.find((entry) => entry.name === name);

@@ -18,7 +18,10 @@ test("filter the audit log and load more", async ({ page }) => {
 
 	const rows = page.locator('[data-slot="data-table"] [role="rowgroup"] [role="row"]');
 	await expect(rows).toHaveCount(50);
-	await page.getByRole("button", { name: "Load more" }).click();
+	// The load-more row loads the next page as soon as it scrolls into view. Clicking its button would race
+	// that: where the row is already visible after the first page, it loads and disappears before the click.
+	// Scrolling to the last row brings it into view when it is not yet, and is harmless when it already loaded.
+	await rows.last().scrollIntoViewIfNeeded();
 	await expect(rows).toHaveCount(60);
 	await expect
 		.poll(() => api.state.requests.some((request) => request.url.startsWith("/api/audit?cursor=50")))
