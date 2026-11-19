@@ -203,12 +203,11 @@ describe("JSON forms", () => {
 	});
 
 	it("reads partial stored rows: no shells, or shells only for an SSH node", () => {
-		const { shells: _shells, platform: _platform, ...legacy } = factsJson;
-		expect(factsFromJson(legacy)).toEqual(legacy);
+		const { shells: _shells, platform: _platform, ...partial } = factsJson;
+		expect(factsFromJson(partial)).toEqual(partial);
 		const ssh = { shells: { sh: "/bin/sh", bash: null } };
 		expect(factsFromJson(ssh)).toEqual(ssh);
-		// A legacy row with shells: null reads as no shells, and unknown keys are ignored.
-		expect(factsFromJson({ ...legacy, shells: null })).toEqual(legacy);
+		// Unknown keys are ignored.
 		expect(factsFromJson({ ...factsJson, futureFact: "ignored" })).toEqual(factsJson);
 	});
 });

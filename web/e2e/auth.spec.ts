@@ -63,13 +63,3 @@ test("a deep link to an approval survives the sign-in form", async ({ page }) =>
 	await expect(page).toHaveURL(/\/approvals\/tasks\/task-from-mcp$/);
 	await expect(page.getByTestId("page-title")).toHaveText("Approvals");
 });
-
-test("an old hash link becomes a path", async ({ page }) => {
-	await page.goto("/#/approvals");
-	await expect(page).toHaveURL(/\/login\?redirect=/);
-	await page.getByLabel("Username").fill(ADMIN.username);
-	await page.getByLabel("Password").fill(ADMIN.password);
-	await page.getByRole("button", { name: "Sign in", exact: true }).click();
-	await expect(page).toHaveURL(/\/approvals$/);
-	await expect(page.getByTestId("page-title")).toHaveText("Approvals");
-});

@@ -386,18 +386,17 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 	}()
 
 	now := c.s.now()
+	// An accepted task always carries an authorization (authz.Decide refuses a task without one).
 	record := state.Record{
-		TaskID:       ts.TaskID,
-		Attempt:      uint64(ts.Attempt),
-		SpecSHA256:   hex.EncodeToString(decided.specHash[:]),
-		AcceptedAtMS: now.UnixMilli(),
+		TaskID:          ts.TaskID,
+		Attempt:         uint64(ts.Attempt),
+		AuthorizationID: hex.EncodeToString(decided.authorizationID[:]),
+		IssuedAtMS:      int64(decided.payload.IssuedAtMS),
+		SpecSHA256:      hex.EncodeToString(decided.specHash[:]),
+		AcceptedAtMS:    now.UnixMilli(),
 	}
-	if decided.authorization != nil {
-		record.AuthorizationID = hex.EncodeToString(decided.authorizationID[:])
-		record.IssuedAtMS = int64(decided.payload.IssuedAtMS)
-		if decided.payload.DeadlineMS != nil {
-			record.DeadlineMS = int64(*decided.payload.DeadlineMS)
-		}
+	if decided.payload.DeadlineMS != nil {
+		record.DeadlineMS = int64(*decided.payload.DeadlineMS)
 	}
 	if err := c.s.store.AddUsed(record); err != nil {
 		if errors.Is(err, state.ErrAlreadyRecorded) {
@@ -411,16 +410,12 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 	}
 
 	entry := decided.decision.Entry
-	authID := ""
-	if decided.authorization != nil {
-		authID = record.AuthorizationID
-	}
 	acceptedRecord := audit.Record{
 		Event:           "task.accepted",
 		TaskID:          ts.TaskID,
 		Attempt:         ts.Attempt,
 		Entry:           entry,
-		AuthorizationID: authID,
+		AuthorizationID: record.AuthorizationID,
 		SpecSHA256:      record.SpecSHA256,
 		Spec:            &ts.Spec,
 	}

@@ -2,6 +2,7 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
 import {
 	type FauxProviderHandle,
@@ -42,6 +43,22 @@ export const CRHS_MAIN = resolve(import.meta.dirname, "../../src/main.ts");
  * token's nameHint "e2e"): nodes and node groups share one name namespace.
  */
 export const E2E_GROUP_NAME = "e2e-group";
+
+/**
+ * Turns the login captcha off in a crhs SQLite database that `crhs keys init` (or any other command) has
+ * already migrated, so a test can sign in through the API without solving it.
+ */
+export function disableCaptcha(dbPath: string): void {
+	const db = new DatabaseSync(dbPath);
+	try {
+		db.prepare(
+			`insert into settings (org_id, key, value, updated_at, updated_by_user_id)
+			select id, 'auth.captcha', '"none"', ?, null from orgs`,
+		).run(new Date().toISOString());
+	} finally {
+		db.close();
+	}
+}
 
 export async function goAvailable(): Promise<boolean> {
 	try {

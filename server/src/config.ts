@@ -55,9 +55,8 @@ export interface ListenConfig {
 }
 
 /**
- * The settings crhs.toml still holds: what is needed before the database or HTTP is up. The
- * low-frequency settings moved to the database (doc/guide/reference/crhs-config.md) are returned
- * separately as {@link FileSettings}, so an old file can be imported once.
+ * The settings crhs.toml holds: what is needed before the database or HTTP is up. The other settings
+ * live in the database as System settings (doc/guide/reference/crhs-config.md).
  */
 export interface Config {
 	listen: ListenConfig;
@@ -69,24 +68,6 @@ export interface Config {
 	models: ModelsConfig;
 	/** Built WebUI: web/ next to a bundled crhs.mjs, web/dist next to the server source otherwise. */
 	webRoot: string;
-}
-
-/**
- * A moved setting still present in crhs.toml, in its API form. crhs imports these into the database
- * only when the database has no value for them; see settings/settings.ts importSettingsFromFile.
- */
-export interface FileSettings {
-	publicUrl?: string;
-	clockWarn?: string;
-	retention?: { tasks?: string; audit?: string; piTasks?: string };
-	webauthn?: { rpId?: string; rpName?: string; origins?: string[] };
-	auth?: { captcha?: "cap" | "none"; argon2Concurrency?: number; argon2Queue?: number };
-	realIpHeader?: string;
-}
-
-export interface ConfigFile {
-	config: Config;
-	moved: FileSettings;
 }
 
 export const DEFAULT_CONFIG_PATH = "/etc/crhs/crhs.toml";
@@ -122,20 +103,8 @@ export const DEFAULT_GROUP_LIBRARY_LIMITS: LibraryLimits = { files: 0, fileBytes
  */
 export const MIN_RETENTION_MS = 24 * 60 * 60 * 1000;
 
-/** The top-level keys crhs.toml may carry; the moved ones are extracted into {@link ConfigFile.moved}. */
-const TOP_LEVEL_KEYS = [
-	"listen",
-	"database",
-	"master_key_file",
-	"web_root",
-	"public_url",
-	"clock_warn",
-	"webauthn",
-	"retention",
-	"auth",
-	"library",
-	"models",
-] as const;
+/** The top-level keys crhs.toml may carry. */
+const TOP_LEVEL_KEYS = ["listen", "database", "master_key_file", "web_root", "library", "models"] as const;
 
 const DURATION_UNITS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
 
@@ -160,18 +129,9 @@ export function parseDurationMs(value: unknown, name: string): number {
 	return total;
 }
 
+/** Reads and validates the file. */
 export async function loadConfig(path: string): Promise<Config> {
-	return (await loadConfigFile(path)).config;
-}
-
-/** Reads and validates the file, keeping the moved settings it still holds. */
-export async function loadConfigFile(path: string): Promise<ConfigFile> {
-	return parseConfigFile(await readFile(path, "utf8"));
-}
-
-/** The configuration file's database/listen/master-key part; moved settings are dropped (see {@link parseConfigFile}). */
-export function parseConfig(text: string): Config {
-	return parseConfigFile(text).config;
+	return parseConfig(await readFile(path, "utf8"));
 }
 
 /** The built WebUI's default directory; the bundle carries it next to crhs.mjs. */
@@ -182,12 +142,12 @@ function defaultWebRoot(): string {
 	return fileURLToPath(new URL("../../web/dist", import.meta.url));
 }
 
-export function parseConfigFile(text: string): ConfigFile {
+export function parseConfig(text: string): Config {
 	const raw = parse(text);
 	rejectUnknown(raw, "", [...TOP_LEVEL_KEYS]);
 	const listen = table(raw, "listen");
 	const database = table(raw, "database");
-	rejectUnknown(listen, "listen.", ["host", "port", "real_ip_header"]);
+	rejectUnknown(listen, "listen.", ["host", "port"]);
 	rejectUnknown(database, "database.", ["driver", "path", "url"]);
 	const library = parseLibraryConfig(table(raw, "library"));
 	const models = parseModelsConfig(table(raw, "models"));
@@ -208,79 +168,16 @@ export function parseConfigFile(text: string): ConfigFile {
 	}
 
 	return {
-		config: {
-			listen: {
-				host: str(listen, "host", "listen.host", "127.0.0.1"),
-				port,
-			},
-			database: db,
-			library,
-			models,
-			masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
-			webRoot: str(raw, "web_root", "web_root", defaultWebRoot()),
+		listen: {
+			host: str(listen, "host", "listen.host", "127.0.0.1"),
+			port,
 		},
-		moved: fileSettings(raw, listen),
+		database: db,
+		library,
+		models,
+		masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
+		webRoot: str(raw, "web_root", "web_root", defaultWebRoot()),
 	};
-}
-
-/** Extracts and validates the moved settings an old crhs.toml may still carry. */
-function fileSettings(raw: Record<string, unknown>, listen: Record<string, unknown>): FileSettings {
-	const moved: FileSettings = {};
-
-	if (raw.public_url !== undefined) {
-		const url = parsePublicUrl(raw.public_url);
-		if (url !== null) moved.publicUrl = url;
-	}
-	if (raw.clock_warn !== undefined) {
-		parseDurationMs(raw.clock_warn, "clock_warn");
-		moved.clockWarn = (raw.clock_warn as string).trim();
-	}
-
-	const retention = table(raw, "retention");
-	rejectUnknown(retention, "retention.", ["tasks", "audit", "pi_tasks"]);
-	for (const [key, setting] of [
-		["tasks", "tasks"],
-		["audit", "audit"],
-		["pi_tasks", "piTasks"],
-	] as const) {
-		if (retention[key] === undefined) continue;
-		parseRetentionDuration(retention[key], `retention.${key}`);
-		moved.retention ??= {};
-		moved.retention[setting] = (retention[key] as string).trim();
-	}
-
-	const webauthn = table(raw, "webauthn");
-	rejectUnknown(webauthn, "webauthn.", ["rp_id", "rp_name", "origins"]);
-	// rp_id and origins go together; the old file semantics are kept here.
-	if ((webauthn.rp_id === undefined) !== (webauthn.origins === undefined)) {
-		throw new Error("webauthn.rp_id and webauthn.origins must be set together");
-	}
-	if (webauthn.rp_id !== undefined || webauthn.rp_name !== undefined) {
-		const parsed = validateWebauthn(webauthn.rp_id, webauthn.rp_name, webauthn.origins);
-		moved.webauthn = {};
-		if (webauthn.rp_id !== undefined) {
-			moved.webauthn.rpId = parsed.rpId as string;
-			moved.webauthn.origins = [...parsed.origins];
-		}
-		if (webauthn.rp_name !== undefined) moved.webauthn.rpName = parsed.rpName;
-	}
-
-	const auth = table(raw, "auth");
-	rejectUnknown(auth, "auth.", ["argon2_concurrency", "argon2_queue", "captcha"]);
-	if (auth.argon2_concurrency !== undefined || auth.argon2_queue !== undefined || auth.captcha !== undefined) {
-		const parsed = validateAuth(auth.captcha, auth.argon2_concurrency, auth.argon2_queue);
-		moved.auth = {};
-		if (auth.captcha !== undefined) moved.auth.captcha = parsed.captcha;
-		if (auth.argon2_concurrency !== undefined) moved.auth.argon2Concurrency = parsed.argon2Concurrency;
-		if (auth.argon2_queue !== undefined) moved.auth.argon2Queue = parsed.argon2Queue;
-	}
-
-	if (listen.real_ip_header !== undefined) {
-		const header = parseHeaderName(listen.real_ip_header, "listen.real_ip_header");
-		if (header !== null) moved.realIpHeader = header;
-	}
-
-	return moved;
 }
 
 /**

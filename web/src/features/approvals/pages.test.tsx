@@ -70,6 +70,7 @@ const emptyApprovals = (): ApprovalList => ({
 	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
+	requests: [],
 });
 
 const reviewed = (view: {

@@ -152,27 +152,6 @@ func TestNotImplemented(t *testing.T) {
 	}
 }
 
-// TestGrantRemoved covers that signing moved to crhu: crha has no grant command and no alias.
-func TestGrantRemoved(t *testing.T) {
-	root := NewRootCmd()
-	if cmd, _, _ := root.Find([]string{"grant"}); cmd != root {
-		t.Fatalf("crha still registers grant as %q", cmd.Name())
-	}
-}
-
-// TestRotateKeyRemoved covers that key rotation happens by re-enrolling (doc/guide/operations.md
-// "Rotating and revoking node keys"), not with an online command.
-func TestRotateKeyRemoved(t *testing.T) {
-	root := NewRootCmd()
-	if cmd, _, _ := root.Find([]string{"rotate-key"}); cmd != root {
-		t.Fatalf("crha rotate-key is registered as %q", cmd.Name())
-	}
-	root.SetArgs([]string{"rotate-key"})
-	if err := root.Execute(); err == nil || err == errNotImplemented {
-		t.Fatalf("crha rotate-key = %v, want an unknown-command error", err)
-	}
-}
-
 // TestNoMCPCommand covers the no-stdio-bridge limitation (doc/design/architecture.md "Known limitations"): crha does not provide an stdio MCP bridge, so the
 // command must not be registered at all.
 func TestNoMCPCommand(t *testing.T) {

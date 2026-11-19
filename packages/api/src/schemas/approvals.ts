@@ -19,10 +19,7 @@ export const ApprovalListSchema = z
 		quotas: z.array(QuotaApprovalSchema),
 		requests: z
 			.array(ApprovalRequestSchema)
-			.optional()
-			.describe(
-				"One compact request per waiting item, for the WebUI and chat channels; kept beside the kind-specific items for compatibility.",
-			),
+			.describe("One compact request per waiting item, for the WebUI and chat channels."),
 	})
 	.meta({ id: "ApprovalList" });
 

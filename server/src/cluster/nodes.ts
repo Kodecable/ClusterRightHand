@@ -57,8 +57,8 @@ export function toPublicNode(
 	let facts: JsonFacts | null = null;
 	if (row.facts !== null) {
 		try {
-			// A stored row may be partial: an SSH node keeps only the shells its connection probe found,
-			// and a row written before a fact existed lacks it (doc/design/protocol.md "Events").
+			// A stored row may be partial: an SSH node keeps only the shells its connection probe found
+			// (doc/design/protocol.md "Events").
 			facts = factsFromJson(JSON.parse(row.facts));
 		} catch {}
 	}

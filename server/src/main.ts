@@ -20,7 +20,7 @@ import { Cluster } from "./cluster/cluster.ts";
 import { loadServerIdentity } from "./cluster/identity.ts";
 import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
-import { type Config, type ConfigFile, DEFAULT_CONFIG_PATH, loadConfigFile } from "./config.ts";
+import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
 import { McpConnections } from "./extensions/connections.ts";
 import { recoverExternalCalls } from "./extensions/external-calls.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
@@ -31,7 +31,7 @@ import { cleanupStaging } from "./library/transfer-location.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
 import { startRetentionSweep } from "./retention/retention.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
-import { importSettingsFromFile, SettingsStore } from "./settings/settings.ts";
+import { SettingsStore } from "./settings/settings.ts";
 import { SetupError } from "./setup/answers.ts";
 import { runInit } from "./setup/init.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
@@ -101,27 +101,16 @@ if (command === "init") {
 }
 
 async function runCommand(command: string, args: string[]): Promise<void> {
-	let configFile: ConfigFile;
+	let config: Config;
 	try {
-		configFile = await loadConfigFile(values.config);
+		config = await loadConfig(values.config);
 	} catch (err) {
 		console.error(`crhs: ${values.config}: ${(err as Error).message}`);
 		process.exit(2);
 	}
-	const config: Config = configFile.config;
 	const db = openDb(config.database);
 	await migrateToLatest(db);
-
-	// Settings an old crhs.toml still holds are imported into the database only when it has no value for
-	// them; a key that is already stored is a startup error (two sources would silently disagree).
-	let settings: SettingsStore;
-	try {
-		await importSettingsFromFile(db, configFile.moved, (message) => console.warn(`crhs: ${message}`));
-		settings = await SettingsStore.load(db);
-	} catch (err) {
-		console.error(`crhs: ${values.config}: ${(err as Error).message}`);
-		process.exit(2);
-	}
+	const settings = await SettingsStore.load(db);
 	// Every Argon2id computation, including `user add` and `user passwd`, goes through this one gate.
 	// It reads System settings from the database, which is why this happens after the database is open.
 	configureHashGate({

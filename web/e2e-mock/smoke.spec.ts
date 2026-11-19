@@ -53,15 +53,6 @@ test("a deep link survives login", async ({ page }) => {
 	await expect(page.getByTestId("page-title")).toHaveText("Approvals");
 });
 
-test("legacy hash links become paths", async ({ page }) => {
-	await page.goto("/#/tasks/task-1");
-	await expect(page).toHaveURL(/\/login\?redirect=/);
-	await page.getByLabel("Username").fill("ops");
-	await page.getByLabel("Password").fill("secret");
-	await page.getByRole("button", { name: "Sign in", exact: true }).click();
-	await expect(page).toHaveURL(/\/tasks\/task-1$/);
-});
-
 test("collapsing the sidebar persists across a reload and shows tooltips", async ({ page }) => {
 	await login(page);
 	const sidebar = page.locator('[data-slot="sidebar"]');

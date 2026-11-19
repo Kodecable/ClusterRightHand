@@ -333,8 +333,8 @@ describeBackends("nodes", (backend) => {
 			});
 		});
 
-		it("reads a facts row stored before shells existed", async () => {
-			const u = session(await createUser(db, { username: "legacy", kind: "member" }));
+		it("reads a facts row without shells", async () => {
+			const u = session(await createUser(db, { username: "noshells", kind: "member" }));
 			const n = await enroll({ user: u });
 			await createNodeAccessGrant(db, {
 				orgId: await defaultOrgId(db),
@@ -344,11 +344,11 @@ describeBackends("nodes", (backend) => {
 				targetId: n.id,
 				createdByUserId: admin.userId,
 			});
-			const { shells: _shells, ...legacy } = FACTS;
-			await updateNodeFacts(db, n.id, { facts: legacy });
+			const { shells: _shells, ...partial } = FACTS;
+			await updateNodeFacts(db, n.id, { facts: partial });
 			const [node] = await listNodesForUser(db, u);
 			// The absent key stays absent: an optional fact the row does not have is unknown.
-			expect(node?.facts).toEqual(legacy);
+			expect(node?.facts).toEqual(partial);
 		});
 
 		it("shows an SSH node's probed shells as its only facts", async () => {

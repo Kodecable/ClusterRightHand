@@ -57,8 +57,7 @@ links `/usr/local/bin/crhs`. On a new host it runs `crhs init` on a terminal, or
 when `/etc/crhs/crhs.toml` already exists it only reminds you to restart crhs.
 
 `install.sh` installs the files owned by root and not writable by group or others. Running it again for
-a version that is already installed repairs the ownership and permissions of that directory, so
-re-running it repairs an installation made by an older release.
+a version that is already installed keeps that directory and only updates the links.
 
 ### Container image
 

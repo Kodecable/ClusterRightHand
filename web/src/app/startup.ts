@@ -14,25 +14,6 @@ import { authStore } from "@/lib/session";
  * started here, so nothing is fetched twice.
  */
 
-/**
- * Old links are `#/sessions/:id` (agent transcripts still contain them,
- * doc/design/webui.md "Routing"). Convert one to a real path before the router sees it.
- */
-function normaliseLegacyHash(): void {
-	const hash = window.location.hash;
-	if (!hash.startsWith("#/")) return;
-	const path = hash.slice(1);
-	// Keep the existing query string (if any) after the converted path.
-	const url = `${path}${window.location.search}`;
-	try {
-		window.history.replaceState(window.history.state, "", url);
-	} catch {
-		// A malformed old link is left alone; the router will show its not-found page.
-	}
-}
-
-normaliseLegacyHash();
-
 export const initialLocale: Locale = resolveInitialLocale();
 export const initialPath: string = window.location.pathname;
 

@@ -1,5 +1,5 @@
 /**
- * Byte columns above 2^31 (migration 0013, storage/pg-int8.ts): PostgreSQL's `integer` overflowed, and a
+ * Byte columns above 2^31 (storage/pg-int8.ts): they are PostgreSQL `bigint`, since `integer` overflows, and a
  * `bigint` read by the pg driver without the int8 parser arrives as a string, which would turn e.g.
  * `used_bytes + delta` into string concatenation. The values here are above 2^31 and below 2^53.
  */

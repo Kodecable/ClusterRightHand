@@ -176,12 +176,12 @@ test("a tool call: streamed arguments, running output, result, second turn", () 
 			type: "tool_execution_update",
 			toolCallId: "call-1",
 			toolName: "exec",
-			details: { state: "awaiting_approval", approval_url: "http://x/#/approvals/tasks/t1" },
+			details: { state: "awaiting_approval", approval_url: "http://x/approvals/tasks/t1" },
 		},
 	]);
 	let tool = transcript(s).at(-1) as Extract<TranscriptItem, { kind: "tool" }>;
 	expect(tool).toMatchObject({ status: "running", output: "line 1\n", result: undefined });
-	expect(approvalWait(tool.details)).toEqual({ url: "http://x/#/approvals/tasks/t1" });
+	expect(approvalWait(tool.details)).toEqual({ url: "http://x/approvals/tasks/t1" });
 
 	// A privileged task that needs the user's signature, as the cluster tools report while waiting.
 	s = reduceAll(s, [
@@ -189,11 +189,11 @@ test("a tool call: streamed arguments, running output, result, second turn", () 
 			type: "tool_execution_update",
 			toolCallId: "call-1",
 			toolName: "exec",
-			details: { state: "awaiting_authorization", authorization_url: "http://x/#/tasks/t1" },
+			details: { state: "awaiting_authorization", authorization_url: "http://x/tasks/t1" },
 		},
 	]);
 	tool = transcript(s).at(-1) as Extract<TranscriptItem, { kind: "tool" }>;
-	expect(authorizationWait(tool.details)).toEqual({ url: "http://x/#/tasks/t1" });
+	expect(authorizationWait(tool.details)).toEqual({ url: "http://x/tasks/t1" });
 	expect(approvalWait(tool.details)).toBeUndefined();
 
 	s = reduceAll(s, [
@@ -312,10 +312,10 @@ test("helpers", () => {
 	expect(prettyJson("plain")).toBeUndefined();
 	expect(prettyJson("{oops")).toBeUndefined();
 	expect(approvalWait({ state: "exited" })).toBeUndefined();
-	expect(authorizationWait({ state: "awaiting_authorization", authorization_url: "#/tasks/t1" })).toEqual({
-		url: "#/tasks/t1",
+	expect(authorizationWait({ state: "awaiting_authorization", authorization_url: "/tasks/t1" })).toEqual({
+		url: "/tasks/t1",
 	});
-	expect(authorizationWait({ state: "awaiting_approval", approval_url: "#/approvals/tasks/t1" })).toBeUndefined();
+	expect(authorizationWait({ state: "awaiting_approval", approval_url: "/approvals/tasks/t1" })).toBeUndefined();
 	expect(authorizationWait({ state: "awaiting_authorization" })).toBeUndefined();
 	expect(authorizationWait(undefined)).toBeUndefined();
 });

@@ -99,8 +99,7 @@ export type JsonTaskResult =
 
 /**
  * The JSON form of Facts: the camelCase fields that are present (doc/design/protocol.md "Events"). Every key
- * is optional because a stored row may be partial: an SSH node keeps only its shells, and a row
- * written before a fact existed lacks it.
+ * is optional because a stored row may be partial: an SSH node keeps only its shells.
  */
 export type JsonFacts = Partial<Facts>;
 
@@ -604,6 +603,6 @@ export function factsFromJson(value: unknown): JsonFacts {
 	if (Object.hasOwn(value, "hints")) out.hints = text(value.hints, "hints");
 	if (Object.hasOwn(value, "notesPath")) out.notesPath = text(value.notesPath, "notesPath");
 	if (Object.hasOwn(value, "clockOffsetMs")) out.clockOffsetMs = int(value.clockOffsetMs, "clockOffsetMs");
-	if (Object.hasOwn(value, "shells") && value.shells !== null) out.shells = shellsFromJson(value.shells);
+	if (value.shells !== undefined) out.shells = shellsFromJson(value.shells);
 	return out;
 }

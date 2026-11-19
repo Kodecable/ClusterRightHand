@@ -1,5 +1,5 @@
 import type { SystemSettings } from "@crh/api";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { createApiToken } from "../src/auth/api-tokens.ts";
 import { configureHashGate, HashBusyError, resetHashGateForTesting, withHashSlot } from "../src/auth/hash-gate.ts";
@@ -14,7 +14,6 @@ import {
 	DEFAULT_RETENTION_TASKS_MS,
 	DEFAULT_RP_NAME,
 	DEFAULT_USER_LIBRARY_LIMITS,
-	parseConfigFile,
 	parseDurationMs,
 	parseRetentionDuration,
 } from "../src/config.ts";
@@ -24,7 +23,6 @@ import {
 	DEFAULT_IMAGE_CACHE_DISK_BYTES,
 	DEFAULT_IMAGE_CACHE_TTL,
 	DEFAULT_SYSTEM_SETTINGS,
-	importSettingsFromFile,
 	SettingsStore,
 } from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -84,83 +82,6 @@ describe("system settings storage", () => {
 				ttlMs: parseDurationMs(DEFAULT_IMAGE_CACHE_TTL, "image_cache.ttl"),
 			},
 		});
-	});
-});
-
-describe("settings file import", () => {
-	let db: Db;
-
-	beforeEach(async () => {
-		db = await openTestDb("sqlite");
-	});
-	afterEach(async () => {
-		await db.destroy();
-	});
-
-	const file = (text: string) => parseConfigFile(text).moved;
-
-	it("imports moved keys into an empty database and warns to remove them", async () => {
-		const moved = file(
-			[
-				'public_url = "https://crh.example.com/"',
-				'clock_warn = "90s"',
-				"[listen]",
-				'real_ip_header = "X-Forwarded-For"',
-				"[retention]",
-				'tasks = "30d"',
-				"[webauthn]",
-				'rp_id = "crh.example.com"',
-				'origins = ["https://crh.example.com"]',
-				"[auth]",
-				'captcha = "none"',
-				"",
-			].join("\n"),
-		);
-		const warnings: string[] = [];
-		const imported = await importSettingsFromFile(db, moved, (message) => warnings.push(message));
-		expect(imported).toEqual([
-			"auth.captcha",
-			"clock_warn",
-			"listen.real_ip_header",
-			"public_url",
-			"retention.tasks",
-			"webauthn.origins",
-			"webauthn.rp_id",
-		]);
-		expect(warnings).toHaveLength(imported.length);
-		for (const [index, key] of imported.entries()) {
-			expect(warnings[index]).toContain(`imported ${key} from crhs.toml`);
-			expect(warnings[index]).toContain("remove it from crhs.toml");
-		}
-
-		const store = await SettingsStore.load(db);
-		expect(store.wire()).toMatchObject({
-			publicUrl: "https://crh.example.com",
-			clockWarn: "90s",
-			realIpHeader: "X-Forwarded-For",
-			retention: { tasks: "30d" },
-			webauthn: { rpId: "crh.example.com", origins: ["https://crh.example.com"] },
-			auth: { captcha: "none" },
-		});
-		expect(store.current().clockWarnMs).toBe(90_000);
-		expect(store.current().retention.tasksMs).toBe(30 * 86_400_000);
-	});
-
-	it("does nothing when the file has no moved keys", async () => {
-		const warnings: string[] = [];
-		expect(await importSettingsFromFile(db, file(""), (message) => warnings.push(message))).toEqual([]);
-		expect(warnings).toEqual([]);
-	});
-
-	it("refuses to start when the database already has a value", async () => {
-		await importSettingsFromFile(db, file('public_url = "https://old.example.com"\n'), () => {});
-		const before = await db.selectFrom("settings").select("key").execute();
-		await expect(
-			importSettingsFromFile(db, file('public_url = "https://new.example.com"\nclock_warn = "90s"\n'), () => {}),
-		).rejects.toThrow("public_url is now set in System settings; remove it from crhs.toml");
-		// Nothing was imported: the conflicting file is refused as a whole.
-		expect(await db.selectFrom("settings").select("key").execute()).toEqual(before);
-		expect((await SettingsStore.load(db)).wire().clockWarn).toBe("60s");
 	});
 });
 

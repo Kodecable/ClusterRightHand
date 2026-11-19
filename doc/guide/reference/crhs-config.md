@@ -48,7 +48,7 @@ path = "/var/lib/crhs/crhs.db"
 | `host` | string | `"127.0.0.1"` | Address to listen on. |
 | `port` | integer 0–65535 | `8080` | Port to listen on. `0` picks a free port. |
 
-`real_ip_header` moved to System settings (see below).
+The client address header is the System setting `listen.real_ip_header` (see below).
 
 ## [database]
 
@@ -137,19 +137,6 @@ environment variable (default 4).
 The client address is used for login rate limiting and the login captcha. If you set
 `real_ip_header`, your reverse proxy must overwrite that header, and crhs must not be reachable
 directly; otherwise clients can choose their own address. The `Forwarded` header is not supported.
-
-### Importing an old crhs.toml
-
-An existing file may still carry these keys. On startup, each one that is present is imported into
-System settings when the database has no value for it, and crhs logs a warning that it was imported
-and should be removed from the file. If the database already holds a value for that key, crhs refuses
-to start:
-
-```
-crhs: /etc/crhs/crhs.toml: public_url is now set in System settings; remove it from crhs.toml
-```
-
-Remove the moved keys from `crhs.toml` after the first start.
 
 ## Unknown keys and errors
 

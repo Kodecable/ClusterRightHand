@@ -57,8 +57,9 @@ from the start means a second one needs no schema change ([User model](access-co
 
 Migrations are numbered TypeScript files, listed explicitly rather than discovered, so a source checkout
 and a bundled build run the same set. crhs runs pending migrations at startup, before serving. The chain
-starts at one initial migration that creates the whole schema; from the first release, migrations are
-append-only.
+starts at `0001_initial`, the schema of the first release (v0.1.0-rc.1), which creates every table and
+seeds the organization and the built-in extensions. Every later change is a new migration appended after
+it; a released migration is never edited or folded into another.
 
 - Each migration runs on both dialects and is self-contained: helpers it needs are copied into it, so a
   later change in the application cannot change what an old migration does.
@@ -66,10 +67,10 @@ append-only.
   that Kysely does not assume. A failed upgrade leaves the schema exactly as it was.
 - SQLite cannot alter constraints or drop columns used in foreign keys, so such migrations rebuild the
   table. Foreign key checks stay on throughout.
-- A migration that widens a column is PostgreSQL-only when SQLite's type already covers the values,
-  because SQLite ignores integer width. Migration 0013 widens the byte counts that can pass 2 GiB: a
-  task's input, output and caps, a task group's per-node cap, a library's limits and usage, a library
-  file's size and the image cache's byte count.
+- Byte counts that can pass 2 GiB are `bigint` on PostgreSQL and `integer` on SQLite, which ignores
+  integer width: a task's input, output and caps, a task group's per-node cap, a library's limits and
+  usage, a library file's size and the image cache's byte count. A migration that widens a column is
+  likewise PostgreSQL-only.
 - pi-durable's PostgreSQL tables have their own version chain in the adapter. A database newer than the
   binary refuses to open.
 

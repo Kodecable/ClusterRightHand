@@ -87,8 +87,8 @@ interface DecisionRow {
 const requestKey = (kind: string, id: string) => `${kind}:${id}`;
 
 /** The compact request of one waiting item, keyed by its kind and id. */
-function requestsByKey(requests: readonly ApprovalRequest[] | undefined): Map<string, ApprovalRequest> {
-	return new Map((requests ?? []).map((request) => [requestKey(request.kind, request.id), request]));
+function requestsByKey(requests: readonly ApprovalRequest[]): Map<string, ApprovalRequest> {
+	return new Map(requests.map((request) => [requestKey(request.kind, request.id), request]));
 }
 
 function taskRow(
@@ -134,21 +134,7 @@ function taskGroupRow(
 }
 
 function externalCallRow(call: ExternalCallView, request: ApprovalRequest | undefined, i18n: I18n): DecisionRow {
-	// An api_request is shown by the request it makes (method and path), not by the built-in tool's name.
-	const args =
-		typeof call.arguments === "object" && call.arguments !== null && !Array.isArray(call.arguments)
-			? (call.arguments as Record<string, unknown>)
-			: {};
-	const legacy =
-		call.extension === "crhs-api" && call.tool === "api_request"
-			? [args.method, args.path].filter((value): value is string => typeof value === "string" && value !== "").join(" ")
-			: "";
-	const operation =
-		request !== undefined
-			? actionText(i18n, request.action)
-			: legacy === ""
-				? `${call.extension}/${call.tool}`
-				: legacy;
+	const operation = request !== undefined ? actionText(i18n, request.action) : `${call.extension}/${call.tool}`;
 	return {
 		key: `approval:external-call:${call.id}`,
 		type: "approval",

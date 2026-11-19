@@ -1,6 +1,6 @@
 import type { LibraryLimits, SystemSettings, SystemSettingsLibrary, SystemSettingsRetention } from "@crh/api";
 import { configureHashGate } from "../auth/hash-gate.ts";
-import type { AuthConfig, FileSettings, RetentionConfig, WebauthnConfig } from "../config.ts";
+import type { AuthConfig, RetentionConfig, WebauthnConfig } from "../config.ts";
 import {
 	DEFAULT_ARGON2_CONCURRENCY,
 	DEFAULT_ARGON2_QUEUE,
@@ -274,24 +274,6 @@ function parseLibraryLimit(value: unknown, name: string): number {
 	const limit = parseInteger(value, name, 0);
 	if (limit > 2_147_483_647) throw new Error(`${name} must be an integer <= 2147483647`);
 	return limit;
-}
-
-/** The flat stored form of the file settings an old crhs.toml still holds. */
-export function fileSettingsToValues(moved: FileSettings): SettingValues {
-	const values: SettingValues = {};
-	if (moved.publicUrl !== undefined) values.public_url = moved.publicUrl;
-	if (moved.clockWarn !== undefined) values.clock_warn = moved.clockWarn;
-	if (moved.retention?.tasks !== undefined) values["retention.tasks"] = moved.retention.tasks;
-	if (moved.retention?.audit !== undefined) values["retention.audit"] = moved.retention.audit;
-	if (moved.retention?.piTasks !== undefined) values["retention.pi_tasks"] = moved.retention.piTasks;
-	if (moved.webauthn?.rpId !== undefined) values["webauthn.rp_id"] = moved.webauthn.rpId;
-	if (moved.webauthn?.origins !== undefined) values["webauthn.origins"] = moved.webauthn.origins;
-	if (moved.webauthn?.rpName !== undefined) values["webauthn.rp_name"] = moved.webauthn.rpName;
-	if (moved.auth?.captcha !== undefined) values["auth.captcha"] = moved.auth.captcha;
-	if (moved.auth?.argon2Concurrency !== undefined) values["auth.argon2_concurrency"] = moved.auth.argon2Concurrency;
-	if (moved.auth?.argon2Queue !== undefined) values["auth.argon2_queue"] = moved.auth.argon2Queue;
-	if (moved.realIpHeader !== undefined) values["listen.real_ip_header"] = moved.realIpHeader;
-	return values;
 }
 
 /** A PATCH body that failed validation; `fields` maps an API field path to its message. */
@@ -711,52 +693,4 @@ export class SettingsStore {
 		configureHashGate({ concurrency: nextCurrent.auth.argon2Concurrency, queue: nextCurrent.auth.argon2Queue });
 		return { settings: this.wire(), changes };
 	}
-}
-
-/**
- * Imports the moved settings an old crhs.toml still holds. Each key is imported only when the
- * database has no value for it; a key that is already stored is an error, because two sources for
- * one setting would silently disagree.
- */
-export async function importSettingsFromFile(
-	db: Db,
-	moved: FileSettings,
-	warn: (message: string) => void = (message) => console.warn(message),
-): Promise<SettingKey[]> {
-	const values = fileSettingsToValues(moved);
-	const keys = (Object.keys(values) as SettingKey[]).sort();
-	if (keys.length === 0) return [];
-	for (const key of keys) values[key] = parseSettingValue(key, values[key]);
-	const orgId = await defaultOrgId(db);
-	const stored = await db
-		.selectFrom("settings")
-		.select("key")
-		.where("org_id", "=", orgId)
-		.where("key", "in", keys)
-		.execute();
-	const storedKeys = new Set(stored.map((row) => row.key));
-	const conflicts = keys.filter((key) => storedKeys.has(key));
-	if (conflicts.length > 0) throw new Error(conflictMessage(conflicts));
-	const now = new Date().toISOString();
-	await db.transaction().execute(async (trx) => {
-		for (const key of keys) {
-			await trx
-				.insertInto("settings")
-				.values({
-					org_id: orgId,
-					key,
-					value: JSON.stringify(values[key]),
-					updated_at: now,
-					updated_by_user_id: null,
-				})
-				.execute();
-		}
-	});
-	for (const key of keys) warn(`imported ${key} from crhs.toml into System settings; remove it from crhs.toml`);
-	return keys;
-}
-
-function conflictMessage(keys: SettingKey[]): string {
-	if (keys.length === 1) return `${keys[0]} is now set in System settings; remove it from crhs.toml`;
-	return `${keys.join(", ")} are now set in System settings; remove them from crhs.toml`;
 }

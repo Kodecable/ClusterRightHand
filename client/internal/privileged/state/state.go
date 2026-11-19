@@ -38,9 +38,6 @@ import (
 
 const (
 	usedFileName = "used"
-	// localRetention is how long a record without an authorization is kept. Such a record can only
-	// come from a used file written before the local approval window replaced per-task approvals.
-	localRetention = 24 * time.Hour
 	// minRetentionMargin is the least time a record with an authorization is kept past its
 	// deadline. A larger clock_skew extends it, so a one-shot authorization cannot be used
 	// again after the clock stepped back by up to the configured skew (doc/design/privilege.md "Clock").
@@ -58,18 +55,16 @@ var rebuildFloor = 1024
 // ErrAlreadyRecorded reports that a task id is already in the used list.
 var ErrAlreadyRecorded = errors.New("state: task is already recorded")
 
-// Record is one line of the used list: a task that ran, the authorization that allowed it
-// (absent only in a legacy local-approval record), the authorization's times and the spec hash.
+// Record is one line of the used list: a task that ran, the authorization that allowed it, the
+// authorization's times and the spec hash.
 type Record struct {
 	TaskID  string `json:"task_id"`
 	Attempt uint64 `json:"attempt,omitempty"`
-	// AuthorizationID is the hex authorization id; empty only in a legacy local-approval record.
-	AuthorizationID string `json:"authorization_id,omitempty"`
-	// IssuedAtMS is the authorization's issued_at in Unix milliseconds. It is zero (and
-	// omitted) in a legacy local-approval record.
+	// AuthorizationID is the hex authorization id.
+	AuthorizationID string `json:"authorization_id"`
+	// IssuedAtMS is the authorization's issued_at in Unix milliseconds.
 	IssuedAtMS int64 `json:"issued_at_ms,omitempty"`
-	// DeadlineMS is the authorization's deadline in Unix milliseconds; zero in a legacy
-	// local-approval record.
+	// DeadlineMS is the authorization's deadline in Unix milliseconds.
 	DeadlineMS int64 `json:"deadline_ms,omitempty"`
 	// SpecSHA256 is the hex hash of the executed spec, for auditing and for correlating
 	// the record with the local log.
@@ -201,12 +196,9 @@ func (s *Store) load() error {
 		if !s.keep(rec, now) {
 			return nil
 		}
-		var id [32]byte
-		if rec.AuthorizationID != "" {
-			var err error
-			if id, err = parseID(rec.AuthorizationID); err != nil {
-				return s.tolerateTorn(s.usedPath, n, torn, err)
-			}
+		id, err := parseID(rec.AuthorizationID)
+		if err != nil {
+			return s.tolerateTorn(s.usedPath, n, torn, err)
 		}
 		if _, dup := s.exec[rec.TaskID]; dup {
 			return nil
@@ -222,14 +214,9 @@ func (s *Store) load() error {
 	return nil
 }
 
-// keep applies the retention rules: a record with an authorization is kept until
-// deadline+max(1h, clock_skew); a legacy local-approval record is kept 24h after it was
-// accepted.
+// keep applies the retention rule: a record is kept until deadline+max(1h, clock_skew).
 func (s *Store) keep(rec Record, now time.Time) bool {
-	if rec.AuthorizationID != "" {
-		return !now.After(time.UnixMilli(rec.DeadlineMS).Add(s.retentionMargin()))
-	}
-	return !now.After(time.UnixMilli(rec.AcceptedAtMS).Add(localRetention))
+	return !now.After(time.UnixMilli(rec.DeadlineMS).Add(s.retentionMargin()))
 }
 
 // retentionMargin is max(1h, clock_skew).
@@ -297,12 +284,9 @@ func (s *Store) AddUsed(rec Record) error {
 	if rec.TaskID == "" {
 		return errors.New("state: used record has no task id")
 	}
-	var id [32]byte
-	if rec.AuthorizationID != "" {
-		var err error
-		if id, err = parseID(rec.AuthorizationID); err != nil {
-			return fmt.Errorf("state: used record: %w", err)
-		}
+	id, err := parseID(rec.AuthorizationID)
+	if err != nil {
+		return fmt.Errorf("state: used record: %w", err)
 	}
 	var data []byte
 	if !s.noPersist {
@@ -342,18 +326,14 @@ func (s *Store) AddUsed(rec Record) error {
 func (s *Store) add(e *entry) {
 	elem := s.order.PushBack(e)
 	s.exec[e.rec.TaskID] = elem
-	if e.rec.AuthorizationID != "" {
-		s.pairs[pair{authorizationID: e.id, taskID: e.rec.TaskID}] = elem
-	}
+	s.pairs[pair{authorizationID: e.id, taskID: e.rec.TaskID}] = elem
 }
 
 // remove drops one list element and its lookups.
 func (s *Store) remove(elem *list.Element) {
 	e := elem.Value.(*entry)
 	delete(s.exec, e.rec.TaskID)
-	if e.rec.AuthorizationID != "" {
-		delete(s.pairs, pair{authorizationID: e.id, taskID: e.rec.TaskID})
-	}
+	delete(s.pairs, pair{authorizationID: e.id, taskID: e.rec.TaskID})
 	s.order.Remove(elem)
 }
 
@@ -371,8 +351,8 @@ func (s *Store) prune(now time.Time) {
 
 // makeRoom evicts the oldest accepted records until one more fits under the cap. An evicted
 // authorization that is still acceptable raises the watermark to its issued_at, so it cannot
-// be reused after its used pair is forgotten. Local approvals never raise it, and an
-// authorization past deadline+clock_skew is not acceptable any more, so it does not either.
+// be reused after its used pair is forgotten. An authorization past deadline+clock_skew is not
+// acceptable any more, so it does not raise it.
 func (s *Store) makeRoom(now time.Time) {
 	for s.order.Len() >= maxRecords {
 		front := s.order.Front()
@@ -380,11 +360,9 @@ func (s *Store) makeRoom(now time.Time) {
 			return
 		}
 		e := front.Value.(*entry)
-		if e.rec.AuthorizationID != "" {
-			deadline := time.UnixMilli(e.rec.DeadlineMS)
-			if !now.After(deadline.Add(s.skew)) && e.rec.IssuedAtMS > s.markMS {
-				s.markMS = e.rec.IssuedAtMS
-			}
+		deadline := time.UnixMilli(e.rec.DeadlineMS)
+		if !now.After(deadline.Add(s.skew)) && e.rec.IssuedAtMS > s.markMS {
+			s.markMS = e.rec.IssuedAtMS
 		}
 		s.remove(front)
 	}

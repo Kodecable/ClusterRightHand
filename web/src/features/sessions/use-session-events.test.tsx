@@ -87,7 +87,7 @@ test("structureKey follows details changes, not streamed text or tool output", (
 			type: "tool_execution_update",
 			toolCallId: "c1",
 			toolName: "exec",
-			details: { state: "awaiting_approval", approval_url: "http://x/#/approvals/tasks/t1" },
+			details: { state: "awaiting_approval", approval_url: "http://x/approvals/tasks/t1" },
 		},
 	]);
 	const withDetails = structureKey(state);
@@ -100,7 +100,7 @@ test("structureKey follows details changes, not streamed text or tool output", (
 			type: "tool_execution_update",
 			toolCallId: "c1",
 			toolName: "exec",
-			details: { state: "awaiting_approval", approval_url: "http://x/#/approvals/tasks/t1" },
+			details: { state: "awaiting_approval", approval_url: "http://x/approvals/tasks/t1" },
 		},
 	]);
 	expect(structureKey(state)).toBe(withDetails);

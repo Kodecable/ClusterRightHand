@@ -1,38 +1,10 @@
 import type { DialectAdapter, Kysely } from "kysely";
 import { type Migration, type MigrationProvider, type MigrationResult, Migrator } from "kysely/migration";
 import * as m0001 from "./migrations/0001_initial.ts";
-import * as m0002 from "./migrations/0002_task_transfer.ts";
-import * as m0003 from "./migrations/0003_libraries.ts";
-import * as m0004 from "./migrations/0004_purpose_and_image_cache.ts";
-import * as m0005 from "./migrations/0005_task_group_transfer.ts";
-import * as m0006 from "./migrations/0006_image_state.ts";
-import * as m0007 from "./migrations/0007_extensions.ts";
-import * as m0008 from "./migrations/0008_channels.ts";
-import * as m0009 from "./migrations/0009_authorization_lookup.ts";
-import * as m0010 from "./migrations/0010_review_tool_task.ts";
-import * as m0011 from "./migrations/0011_delete_ssh_signing_credentials.ts";
-import * as m0012 from "./migrations/0012_task_output_lost.ts";
-import * as m0013 from "./migrations/0013_bigint_byte_columns.ts";
-import * as m0014 from "./migrations/0014_extension_cache.ts";
-import * as m0015 from "./migrations/0015_builtin_config.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
 	"0001_initial": m0001,
-	"0002_task_transfer": m0002,
-	"0003_libraries": m0003,
-	"0004_purpose_and_image_cache": m0004,
-	"0005_task_group_transfer": m0005,
-	"0006_image_state": m0006,
-	"0007_extensions": m0007,
-	"0008_channels": m0008,
-	"0009_authorization_lookup": m0009,
-	"0010_review_tool_task": m0010,
-	"0011_delete_ssh_signing_credentials": m0011,
-	"0012_task_output_lost": m0012,
-	"0013_bigint_byte_columns": m0013,
-	"0014_extension_cache": m0014,
-	"0015_builtin_config": m0015,
 };
 
 /** Options shared by the migration entry points. */

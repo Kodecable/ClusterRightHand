@@ -20,7 +20,7 @@ interface Options {
 	withAgent: boolean;
 	/** Tokens per second of the faux model's stream; 0 streams as fast as possible. */
 	streamRate: number;
-	/** The server's `[auth] captcha`; the login-captcha spec opts into "cap" (default "none" keeps other specs fast). */
+	/** The server's `auth.captcha` System setting; the login-captcha spec opts into "cap" (default "none" keeps other specs fast). */
 	captcha: CaptchaMode;
 	/** Lower the proof-of-work cost for the captcha spec; null keeps the server's production defaults. */
 	captchaChallenge: { challengeCount: number; challengeSize: number; challengeDifficulty: number } | null;

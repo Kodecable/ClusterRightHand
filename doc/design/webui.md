@@ -40,9 +40,6 @@ but that is a convenience: the API refuses the data anyway. Where a user may lac
 the server answers 404 as for a missing object, and the page shows one message for both, so the UI
 does not reveal whether the object exists.
 
-Old transcripts contain hash links (`#/sessions/:id`). They are rewritten to the path form before the
-router starts.
-
 ### Data layer
 
 All server state goes through one TanStack Query client.

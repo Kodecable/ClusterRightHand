@@ -41,7 +41,7 @@ export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: 
 	if (data === undefined) return [];
 	const inTree = (id: string | null | undefined) => id === rootSessionId;
 	// The badge query returns one compact request beside every waiting view; the dock renders only that model.
-	const requests = new Map((data.requests ?? []).map((request) => [`${request.kind}:${request.id}`, request] as const));
+	const requests = new Map(data.requests.map((request) => [`${request.kind}:${request.id}`, request] as const));
 	const requestFor = (kind: "task" | "task_group" | "external_call", id: string) => requests.get(`${kind}:${id}`);
 	const quotas = [...data.quotas]
 		.filter((wait) => wait.sessionId === rootSessionId)

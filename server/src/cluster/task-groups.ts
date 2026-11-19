@@ -966,7 +966,7 @@ export class TaskGroups {
 				try {
 					spec = specFromRow(current.spec, "task group");
 				} catch (err) {
-					// A row migration 0019 left behind must not stop the other waiting groups from settling.
+					// A group whose stored spec cannot be read must not stop the other waiting groups from settling.
 					console.warn(`task group ${current.id}: ${err instanceof Error ? err.message : String(err)}`);
 					return;
 				}

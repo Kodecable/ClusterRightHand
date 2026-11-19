@@ -251,7 +251,7 @@ describe("approvals api (sqlite)", () => {
 		expect((await decide("alice", `/api/tasks/${t.id}/approval`, { decision: "approve" })).status).toBe(409);
 	});
 
-	it("approving a task with an unreadable legacy spec is a client error", async () => {
+	it("approving a task with an unreadable stored spec is a client error", async () => {
 		const tok = await newToken();
 		const t = await mkTask(tok);
 		await db.updateTable("tasks").set({ spec: "{not json" }).where("id", "=", t.id).execute();
@@ -679,7 +679,7 @@ describe("approvals api (sqlite)", () => {
 			expect(g.tasks).toEqual([]);
 		});
 
-		it("keeps the list and view working when a legacy spec cannot be read", async () => {
+		it("keeps the list and view working when a stored spec cannot be read", async () => {
 			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 			try {
 				const tok = await newToken();

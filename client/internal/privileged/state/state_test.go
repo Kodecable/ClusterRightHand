@@ -74,13 +74,13 @@ func TestPersistenceAcrossRestart(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AddUsed: %v", err)
 	}
-	if err := s.AddUsed(Record{TaskID: "t2", Attempt: 2, AcceptedAtMS: now.UnixMilli()}); err != nil {
+	if err := s.AddUsed(authorizedRecord("t2", now, now.Add(-time.Minute), now.Add(time.Hour))); err != nil {
 		t.Fatalf("AddUsed: %v", err)
 	}
 	if !s.Executed("t1") || !s.Executed("t2") || s.Executed("t3") {
 		t.Fatalf("executed lookups are wrong")
 	}
-	if !s.Used(testID(0x11), "t1") || s.Used(testID(0x11), "t2") {
+	if !s.Used(testID(0x11), "t1") || s.Used(testID(0x12), "t1") {
 		t.Fatalf("pair lookups are wrong")
 	}
 	if s.Watermark() != 0 {
@@ -105,11 +105,14 @@ func TestAddUsedIsAppendOnlyAndDurable(t *testing.T) {
 	now := testNow()
 	s := openAt(t, dir, now)
 	defer s.Close()
-	if err := s.AddUsed(Record{TaskID: "t1", AcceptedAtMS: now.UnixMilli()}); err != nil {
+	if err := s.AddUsed(record("t1", now)); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddUsed(Record{TaskID: "t1", AcceptedAtMS: now.UnixMilli()}); err == nil {
+	if err := s.AddUsed(record("t1", now)); err == nil {
 		t.Fatal("duplicate task id accepted by the store")
+	}
+	if err := s.AddUsed(Record{TaskID: "no-auth", AcceptedAtMS: now.UnixMilli()}); err == nil {
+		t.Fatal("a record without an authorization was accepted")
 	}
 	// The record must already be on disk when AddUsed returns; a second store reading the
 	// same directory sees it without the first one closing.
@@ -134,9 +137,8 @@ func TestAddUsedIsAppendOnlyAndDurable(t *testing.T) {
 	}
 }
 
-// TestUsedRetention covers the cleanup rules: a record with an authorization lives until one
-// hour (at least) past its deadline, and a local approval lives for 24 hours after it was
-// accepted.
+// TestUsedRetention covers the cleanup rule: a record lives until one hour (at least) past its
+// authorization's deadline.
 func TestUsedRetention(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
 	clk := &clock{at: testNow()}
@@ -151,41 +153,23 @@ func TestUsedRetention(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddUsed(Record{TaskID: "local", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
-		t.Fatal(err)
-	}
-
 	// 30 minutes after the deadline: still inside the one-hour retention margin. A new
-	// record prunes first; all two survive.
+	// record prunes first; the record survives.
 	clk.at = testNow().Add(40 * time.Minute)
-	if err := s.AddUsed(Record{TaskID: "probe-1", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
+	if err := s.AddUsed(record("probe-1", clk.at)); err != nil {
 		t.Fatal(err)
 	}
-	for _, task := range []string{"with-deadline", "local"} {
-		if !s.Executed(task) {
-			t.Fatalf("%s was dropped inside its retention window", task)
-		}
+	if !s.Executed("with-deadline") {
+		t.Fatal("the record was dropped inside its retention window")
 	}
 
-	// Past deadline+1h the authorized record is dropped; the 24h records survive.
+	// Past deadline+1h the record is dropped.
 	clk.at = time.UnixMilli(deadline).Add(time.Hour + time.Second)
-	if err := s.AddUsed(Record{TaskID: "probe-2", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
+	if err := s.AddUsed(record("probe-2", clk.at)); err != nil {
 		t.Fatal(err)
 	}
 	if s.Executed("with-deadline") {
 		t.Fatal("an authorized record past deadline+1h was kept")
-	}
-	if !s.Executed("local") {
-		t.Fatal("a 24h record was dropped early")
-	}
-
-	// 24 hours after acceptance the records without an authorization are dropped.
-	clk.at = testNow().Add(24*time.Hour + time.Second)
-	if err := s.AddUsed(Record{TaskID: "probe-3", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
-		t.Fatal(err)
-	}
-	if s.Executed("local") {
-		t.Fatal("a record older than 24h without an authorization was kept")
 	}
 }
 
@@ -208,14 +192,14 @@ func TestUsedRetentionWithLargeClockSkew(t *testing.T) {
 	}
 	// Two hours past the deadline is inside max(1h, 3h).
 	clk.at = time.UnixMilli(deadline).Add(2 * time.Hour)
-	if err := s.AddUsed(Record{TaskID: "probe-1", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
+	if err := s.AddUsed(record("probe-1", clk.at)); err != nil {
 		t.Fatal(err)
 	}
 	if !s.Executed("skewed") {
 		t.Fatal("a record inside deadline+clock_skew was dropped")
 	}
 	clk.at = time.UnixMilli(deadline).Add(3*time.Hour + time.Second)
-	if err := s.AddUsed(Record{TaskID: "probe-2", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
+	if err := s.AddUsed(record("probe-2", clk.at)); err != nil {
 		t.Fatal(err)
 	}
 	if s.Executed("skewed") {
@@ -237,6 +221,17 @@ func withRebuildFloor(t *testing.T, floor int) {
 	old := rebuildFloor
 	rebuildFloor = floor
 	t.Cleanup(func() { rebuildFloor = old })
+}
+
+// record builds a record accepted at now whose authorization stays acceptable for an hour.
+func record(taskID string, now time.Time) Record {
+	return authorizedRecord(taskID, now, now.Add(-time.Minute), now.Add(time.Hour))
+}
+
+// recordLine is record's JSON line in the used file.
+func recordLine(taskID string, now time.Time) string {
+	return fmt.Sprintf(`{"task_id":%q,"authorization_id":%q,"issued_at_ms":%d,"deadline_ms":%d,"accepted_at_ms":%d}`,
+		taskID, testIDHex(0x11), now.Add(-time.Minute).UnixMilli(), now.Add(time.Hour).UnixMilli(), now.UnixMilli())
 }
 
 // authorizedRecord builds a record whose authorization is acceptable at now.
@@ -292,24 +287,10 @@ func TestCapEvictionOrder(t *testing.T) {
 }
 
 // TestWatermarkOnlyForAcceptableAuthorizations covers what raises the watermark: only an
-// evicted record with an authorization that the decision could still accept. Local approvals
-// and authorizations past deadline+clock_skew do not.
+// evicted record whose authorization the decision could still accept. Authorizations past
+// deadline+clock_skew do not raise it.
 func TestWatermarkOnlyForAcceptableAuthorizations(t *testing.T) {
 	now := testNow()
-
-	t.Run("local approvals never raise it", func(t *testing.T) {
-		withMaxRecords(t, 2)
-		s := openAt(t, filepath.Join(t.TempDir(), "state"), now)
-		defer s.Close()
-		for _, id := range []string{"l1", "l2", "l3"} {
-			if err := s.AddUsed(Record{TaskID: id, AcceptedAtMS: now.UnixMilli()}); err != nil {
-				t.Fatal(err)
-			}
-		}
-		if s.Watermark() != 0 {
-			t.Fatalf("watermark = %d, want none", s.Watermark())
-		}
-	})
 
 	t.Run("an expired authorization does not raise it", func(t *testing.T) {
 		withMaxRecords(t, 2)
@@ -322,10 +303,10 @@ func TestWatermarkOnlyForAcceptableAuthorizations(t *testing.T) {
 		if err := s.AddUsed(stale); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.AddUsed(Record{TaskID: "local", AcceptedAtMS: now.UnixMilli()}); err != nil {
+		if err := s.AddUsed(authorizedRecord("second", now, now.Add(-time.Minute), now.Add(-31*time.Minute))); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.AddUsed(Record{TaskID: "third", AcceptedAtMS: now.UnixMilli()}); err != nil {
+		if err := s.AddUsed(authorizedRecord("third", now, now.Add(-time.Minute), now.Add(-31*time.Minute))); err != nil {
 			t.Fatal(err)
 		}
 		if s.Executed("stale") {
@@ -348,7 +329,7 @@ func TestRebuildThreshold(t *testing.T) {
 	usedPath := filepath.Join(dir, usedFileName)
 
 	for _, id := range []string{"r1", "r2", "r3"} {
-		if err := s.AddUsed(Record{TaskID: id, AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
+		if err := s.AddUsed(record(id, clk.at)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -359,8 +340,8 @@ func TestRebuildThreshold(t *testing.T) {
 
 	// Let every record expire, then add one: the append is line 4, live is 1, and
 	// 4 >= 2*max(1, 2), so the file shrinks to the single live record.
-	clk.at = clk.at.Add(24*time.Hour + time.Minute)
-	if err := s.AddUsed(Record{TaskID: "r4", AcceptedAtMS: clk.at.UnixMilli()}); err != nil {
+	clk.at = clk.at.Add(2*time.Hour + time.Minute)
+	if err := s.AddUsed(record("r4", clk.at)); err != nil {
 		t.Fatal(err)
 	}
 	if got := lineCount(t, usedPath); got != 1 {
@@ -423,7 +404,7 @@ func TestStartupLoadCapsAndRebuilds(t *testing.T) {
 func TestTornLastLineIsIgnored(t *testing.T) {
 	dir := t.TempDir()
 	now := testNow()
-	good := fmt.Sprintf(`{"task_id":"t1","accepted_at_ms":%d}`, now.UnixMilli()) + "\n"
+	good := recordLine("t1", now) + "\n"
 	torn := `{"task_id":"torn","attempt":`
 	if err := os.WriteFile(filepath.Join(dir, usedFileName), []byte(good+torn), 0o600); err != nil {
 		t.Fatal(err)
@@ -435,7 +416,7 @@ func TestTornLastLineIsIgnored(t *testing.T) {
 	if s.Executed("torn") {
 		t.Fatal("a torn record was loaded")
 	}
-	if err := s.AddUsed(Record{TaskID: "t2", AcceptedAtMS: now.UnixMilli()}); err != nil {
+	if err := s.AddUsed(record("t2", now)); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -462,7 +443,7 @@ func TestTornLastLineIsIgnored(t *testing.T) {
 func TestTornLineThatParsesIsKept(t *testing.T) {
 	dir := t.TempDir()
 	now := testNow()
-	line := fmt.Sprintf(`{"task_id":"t1","accepted_at_ms":%d}`, now.UnixMilli())
+	line := recordLine("t1", now)
 	if err := os.WriteFile(filepath.Join(dir, usedFileName), []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -479,7 +460,7 @@ func TestTornLineThatParsesIsKept(t *testing.T) {
 func TestMalformedLineIsRefused(t *testing.T) {
 	now := testNow()
 	dir := t.TempDir()
-	good := fmt.Sprintf(`{"task_id":"t1","accepted_at_ms":%d}`, now.UnixMilli()) + "\n"
+	good := recordLine("t1", now) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, usedFileName), []byte("{not json\n"+good), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -577,19 +558,19 @@ func TestNoPersist(t *testing.T) {
 	now := testNow()
 	dir := filepath.Join(t.TempDir(), "state")
 	s := openWith(t, dir, Options{NoPersist: true, Now: func() time.Time { return now }})
-	if err := s.AddUsed(Record{TaskID: "mem-1", AcceptedAtMS: now.UnixMilli()}); err != nil {
+	if err := s.AddUsed(record("mem-1", now)); err != nil {
 		t.Fatalf("AddUsed: %v", err)
 	}
 	if !s.Executed("mem-1") {
 		t.Fatal("in-memory record is not visible")
 	}
-	if err := s.AddUsed(Record{TaskID: "mem-1", AcceptedAtMS: now.UnixMilli()}); err == nil {
+	if err := s.AddUsed(record("mem-1", now)); err == nil {
 		t.Fatal("duplicate task id accepted in memory")
 	}
 	// The in-memory cap works without a file.
 	withMaxRecords(t, 1)
 	withRebuildFloor(t, 1)
-	if err := s.AddUsed(Record{TaskID: "mem-2", AcceptedAtMS: now.UnixMilli()}); err != nil {
+	if err := s.AddUsed(record("mem-2", now)); err != nil {
 		t.Fatal(err)
 	}
 	if s.Executed("mem-1") || !s.Executed("mem-2") {
@@ -604,7 +585,7 @@ func TestNoPersist(t *testing.T) {
 
 	// An existing used file is not read either.
 	dir2 := t.TempDir()
-	line := fmt.Sprintf(`{"task_id":"on-disk","accepted_at_ms":%d}`+"\n", now.UnixMilli())
+	line := recordLine("on-disk", now) + "\n"
 	if err := os.WriteFile(filepath.Join(dir2, usedFileName), []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -613,7 +594,7 @@ func TestNoPersist(t *testing.T) {
 	if memory.Executed("on-disk") {
 		t.Fatal("NoPersist read the used file")
 	}
-	if err := memory.AddUsed(Record{TaskID: "fresh", AcceptedAtMS: now.UnixMilli()}); err != nil {
+	if err := memory.AddUsed(record("fresh", now)); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir2, usedFileName))
@@ -622,32 +603,5 @@ func TestNoPersist(t *testing.T) {
 	}
 	if strings.Contains(string(data), "fresh") {
 		t.Fatalf("NoPersist wrote the used file: %q", data)
-	}
-}
-
-// TestOldRevokedFileIsIgnored covers the removed revocation list: a leftover `revoked` file is
-// never read or deleted.
-func TestOldRevokedFileIsIgnored(t *testing.T) {
-	dir := t.TempDir()
-	now := testNow()
-	revoked := []byte(`{"authorization_id":"zz","deadline_ms":1}` + "\n")
-	if err := os.WriteFile(filepath.Join(dir, "revoked"), revoked, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	line := fmt.Sprintf(`{"task_id":"t1","accepted_at_ms":%d}`+"\n", now.UnixMilli())
-	if err := os.WriteFile(filepath.Join(dir, usedFileName), []byte(line), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	s := openAt(t, dir, now)
-	defer s.Close()
-	if !s.Executed("t1") {
-		t.Fatal("the used record was not loaded next to an old revoked file")
-	}
-	data, err := os.ReadFile(filepath.Join(dir, "revoked"))
-	if err != nil {
-		t.Fatalf("the old revoked file was deleted: %v", err)
-	}
-	if string(data) != string(revoked) {
-		t.Fatalf("the old revoked file was changed: %q", data)
 	}
 }

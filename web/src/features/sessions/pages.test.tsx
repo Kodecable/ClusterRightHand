@@ -41,6 +41,7 @@ const APPROVALS: ApprovalList = {
 	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
+	requests: [],
 };
 
 /** One task waiting for approval in the session tree. */

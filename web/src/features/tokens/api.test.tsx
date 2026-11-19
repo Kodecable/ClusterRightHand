@@ -12,6 +12,7 @@ const APPROVALS: ApprovalList = {
 	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
+	requests: [],
 };
 
 const TOKEN: ApiTokenView = {

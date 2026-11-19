@@ -398,7 +398,7 @@ export interface TasksTable extends ApprovalColumns {
 	accepted_at: string | null;
 	finished_at: string | null;
 	/**
-	 * The single output stream's byte total. It is a PostgreSQL `bigint` (0013), which the int8 type
+	 * The single output stream's byte total. It is a PostgreSQL `bigint`, which the int8 type
 	 * parser (storage/pg-int8.ts) reads as a number.
 	 */
 	output_bytes: number;

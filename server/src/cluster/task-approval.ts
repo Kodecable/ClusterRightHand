@@ -54,8 +54,8 @@ export async function decide(
 		if (row?.state !== "awaiting_approval" || !matchesHandler(row, expect)) return false;
 		const record = mergeApproval<ApprovalRecord>(row.approval, { decision });
 		if (decision.decision === "approved") {
-			// Read the spec before recording the decision: migration 0019 may have left a row it could not
-			// convert, and the caller gets a client error instead of a half-approved task.
+			// Read the spec before recording the decision: a stored spec that cannot be read gives the caller
+			// a client error instead of a half-approved task.
 			const spec = specFromRow(row.spec, "task");
 			const node = await getNode(core.db, row.node_id);
 			if (!node) {

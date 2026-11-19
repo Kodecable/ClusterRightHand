@@ -13,6 +13,7 @@ const APPROVALS: ApprovalList = {
 	externalCalls: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
+	requests: [],
 };
 
 function detail(overrides: Partial<SessionView> = {}): SessionView {

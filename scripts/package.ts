@@ -62,11 +62,7 @@ if [ -e "$target" ]; then
 		echo "install.sh: $target exists with another VERSION; remove it first" >&2
 		exit 1
 	fi
-	# An older install.sh kept the ownership of the user who unpacked the tarball, who could then
-	# write to what the crhs service and root run; running install.sh again repairs that.
-	chown -R root:root "$target"
-	chmod -R go-w "$target"
-	echo "install.sh: repaired ownership of $target"
+	echo "install.sh: crhs $version is already installed in $target"
 else
 	# Copy next to the target and fix ownership there, so the installed tree is never writable by
 	# that user; mv then publishes it in one step.
@@ -97,16 +93,6 @@ dir=$(dirname "$(readlink -f "$0")")
 install -m 0755 -o root -g root "$dir/crha" /usr/local/bin/crha
 # An upgrade keeps the existing enrollment; only a new node is enrolled.
 if [ -e /etc/crha/crha.toml ]; then
-	# The privileged state directory moved out of crha's own /var/lib/crha, which the privileged
-	# mode now refuses. Move a configuration that still names the old default.
-	conf=/etc/crha/privileged.toml
-	if [ -f "$conf" ] && grep -Eq '^[[:space:]]*state_dir[[:space:]]*=[[:space:]]*"/var/lib/crha/privileged/?"[[:space:]]*$' "$conf"; then
-		owner=root:root
-		if [ -d /var/lib/crha/privileged ]; then owner=$(stat -c %u:%g /var/lib/crha/privileged); fi
-		install -d -o "\${owner%:*}" -g "\${owner#*:}" -m 0700 /var/lib/crha-privileged
-		sed -i -E 's|^([[:space:]]*state_dir[[:space:]]*=[[:space:]]*)"/var/lib/crha/privileged/?"|\\1"/var/lib/crha-privileged"|' "$conf"
-		echo "crha: moved the privileged state_dir in $conf to /var/lib/crha-privileged"
-	fi
 	echo "installed crha; restart it: sudo systemctl restart crha-privileged crha (crha-privileged only in forward mode)"
 elif [ -t 0 ]; then
 	crha enroll

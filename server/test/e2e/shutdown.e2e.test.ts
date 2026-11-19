@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildCrha, CRHS_MAIN, CrhsProcess, goAvailable, pkill, runCrha, waitFor } from "./harness.ts";
+import { buildCrha, CRHS_MAIN, CrhsProcess, disableCaptcha, goAvailable, pkill, runCrha, waitFor } from "./harness.ts";
 
 const execFileAsync = promisify(execFile);
 const hasGo = await goAvailable();
@@ -70,12 +70,12 @@ describe.skipIf(!hasGo)("crhs SIGTERM shutdown with a connected node", () => {
 		await new Promise((r) => probe.close(r));
 
 		const config = join(tmp, "crhs.toml");
-		// The first command imports the old [auth] table into System settings; later starts use the
-		// rewritten file, as an administrator following the import warning would.
-		const minimalConfig = `master_key_file = "${join(tmp, "master.key")}"\n[listen]\nhost = "127.0.0.1"\nport = ${port}\n[database]\ndriver = "sqlite"\npath = "${join(tmp, "crhs.db")}"\n`;
-		await writeFile(config, `${minimalConfig}[auth]\ncaptcha = "none"\n`);
+		await writeFile(
+			config,
+			`master_key_file = "${join(tmp, "master.key")}"\n[listen]\nhost = "127.0.0.1"\nport = ${port}\n[database]\ndriver = "sqlite"\npath = "${join(tmp, "crhs.db")}"\n`,
+		);
 		await execFileAsync(process.execPath, [CRHS_MAIN, "-c", config, "keys", "init"]);
-		await writeFile(config, minimalConfig);
+		disableCaptcha(join(tmp, "crhs.db"));
 		const add = execFile(process.execPath, [CRHS_MAIN, "-c", config, "user", "add", "root", "--admin"]);
 		add.stdin?.end("admin-password\n");
 		await new Promise((r) => add.once("exit", r));

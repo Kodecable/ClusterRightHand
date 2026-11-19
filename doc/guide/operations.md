@@ -66,21 +66,6 @@ sudo podman run -d --name crhs -p 8080:8080 -v /srv/crhs:/crhs-data ghcr.io/kode
 **crhs, tar without Node.** Replace the directory with the new bundle, run `npm ci --omit=dev` in it,
 then `sudo systemctl restart crhs`.
 
-**crha, forward nodes.** The privileged state directory moved to `/var/lib/crha-privileged`. The deb and
-rpm packages and the tar's `install.sh` move a `state_dir` that still names the old default
-`/var/lib/crha/privileged`. Any other layout must be changed by hand before the new version starts:
-point `state_dir` in `/etc/crha/privileged.toml` at `/var/lib/crha-privileged` and create that
-directory, owned by the privileged mode's user, with mode 0700:
-
-```sh
-sudo install -d -o root -g root -m 0700 /var/lib/crha-privileged
-sudoedit /etc/crha/privileged.toml
-```
-
-The privileged mode refuses the old location and any state directory below a directory crha can
-modify, so an unchanged file leaves it stopped. The used list starts empty, the same accepted
-trade-off as the watermark ([Privilege and authorization](../design/privilege.md#used-list)).
-
 **crha, deb and rpm.** Install the new package; the package restarts `crha-privileged` and then `crha`.
 The rpm signing key must already be imported ([deb and rpm](install.md#deb-and-rpm)):
 
