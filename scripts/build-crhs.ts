@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { copyFile, cp, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
+import { build, type Plugin } from "esbuild";
 import { copyDocFiles } from "../server/src/extensions/docs-source.ts";
 import { resolveVersion } from "./version.ts";
 
@@ -109,6 +109,20 @@ async function thirdPartyLicenses(inputs: string[], re2: PackageInfo): Promise<s
 	return `${blocks.join("\n\n").trimEnd()}\n`;
 }
 
+/**
+ * Old dependencies (tr46 under grammy's node-fetch) require Node's built-in punycode, which prints a
+ * DEP0040 warning on every start, in the middle of the first `crhs init` question. The userland
+ * package of the same API takes its place in the bundle.
+ */
+const userlandPunycode: Plugin = {
+	name: "userland-punycode",
+	setup(pluginBuild) {
+		pluginBuild.onResolve({ filter: /^(node:)?punycode$/ }, (args) =>
+			pluginBuild.resolve("punycode/", { kind: args.kind, resolveDir: join(root, "server") }),
+		);
+	},
+};
+
 const version = await resolveVersion();
 
 if (!skipWeb) {
@@ -128,6 +142,7 @@ const result = await build({
 	format: "esm",
 	target: "node24",
 	external: ["re2", "cpu-features", "esbuild"],
+	plugins: [userlandPunycode],
 	banner: { js: BANNER },
 	minify: false,
 	legalComments: "none",

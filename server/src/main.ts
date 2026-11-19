@@ -14,7 +14,7 @@ import { configureHashGate } from "./auth/hash-gate.ts";
 import { deleteExpiredWebSessions } from "./auth/sessions.ts";
 import { ChannelManager } from "./channels/manager.ts";
 import { addUser, changePassword, exportKeys, importKeys, initKeys } from "./cli/commands.ts";
-import { readSecret } from "./cli/prompt.ts";
+import { INTERRUPTED_EXIT_CODE, PromptInterrupted, readSecret } from "./cli/prompt.ts";
 import { AgentServer } from "./cluster/agent-server.ts";
 import { Cluster } from "./cluster/cluster.ts";
 import { loadServerIdentity } from "./cluster/identity.ts";
@@ -94,7 +94,7 @@ if (command === "init") {
 	} catch (err) {
 		if (!(err instanceof SetupError || err instanceof UserError || err instanceof KeyError)) throw err;
 		console.error(`crhs: ${err.message}`);
-		process.exitCode = 1;
+		process.exitCode = err instanceof PromptInterrupted ? INTERRUPTED_EXIT_CODE : 1;
 	}
 } else {
 	await runCommand(command, args);
@@ -158,7 +158,7 @@ async function runCommand(command: string, args: string[]): Promise<void> {
 	} catch (err) {
 		if (!(err instanceof UserError || err instanceof KeyError)) throw err;
 		console.error(`crhs: ${err.message}`);
-		process.exitCode = 1;
+		process.exitCode = err instanceof PromptInterrupted ? INTERRUPTED_EXIT_CODE : 1;
 		// serve keeps its database open on purpose; a command closed it in the finally above.
 		if (!dbDestroyed) await db.destroy();
 	}
