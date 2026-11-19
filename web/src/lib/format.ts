@@ -73,6 +73,26 @@ export function formatDateTimeSeconds(value: DateInput, locale: string): string 
 	}).format(date);
 }
 
+/**
+ * The short absolute form for a stream of messages, where the day is usually known from context: the time
+ * alone today ("09:05"), the month and day before it this year ("11/19, 23:59" in en, "11/19 23:59" in
+ * zh-CN), and the full date in an earlier year. Minutes only, 24-hour, the browser's time zone; the
+ * seconds form (`formatDateTimeSeconds`) goes in its tooltip.
+ */
+export function formatShortDateTime(value: DateInput, locale: string, now: Date = new Date()): string {
+	const date = toDate(value);
+	if (!date) return "–";
+	const time: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+	const sameYear = date.getFullYear() === now.getFullYear();
+	if (sameYear && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) {
+		return dateTimeFormat(locale, time).format(date);
+	}
+	const day: Intl.DateTimeFormatOptions = sameYear
+		? { month: "2-digit", day: "2-digit" }
+		: { year: "numeric", month: "2-digit", day: "2-digit" };
+	return dateTimeFormat(locale, { ...day, ...time }).format(date);
+}
+
 /** A sortable local timestamp, e.g. "2026-11-03 09:00:00". */
 export function formatDateTimeNumeric(value: DateInput): string {
 	const date = toDate(value);

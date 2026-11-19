@@ -34,8 +34,6 @@ type TranscriptDisplayRow =
 			item: TranscriptItem;
 			finalReply: boolean;
 			forkable: boolean;
-			/** The turn whose reply actions this row keeps visible while hovered, if any. */
-			hoverGroup?: string;
 	  }
 	| {
 			kind: "summary";
@@ -45,13 +43,12 @@ type TranscriptDisplayRow =
 			open: boolean;
 	  }
 	| { kind: "retrying"; key: string; attempt: number }
-	| { kind: "deliveries"; key: string; hoverGroup: string; deliveries: DeliveryDetails[] }
+	| { kind: "deliveries"; key: string; deliveries: DeliveryDetails[] }
 	| {
 			kind: "reply-actions";
 			key: string;
 			item: Extract<TranscriptItem, { kind: "text" }>;
 			forkable: boolean;
-			hoverGroup: string;
 	  };
 
 /**
@@ -102,12 +99,6 @@ export function Transcript({
 	const virtualizer = useRef<VirtualizerHandle | null>(null);
 	const [atBottom, setAtBottom] = useState(true);
 	const [highlighted, setHighlighted] = useState<string | null>(null);
-	/**
-	 * The turn whose answer tail the pointer is over. Its copy/fork row is a separate row after the
-	 * delivered files, so the pointer cannot use the answer's `group-hover`; the rows between the
-	 * answer and its actions keep the row visible instead.
-	 */
-	const [hoveredTurn, setHoveredTurn] = useState<string | null>(null);
 	const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const handledFocus = useRef<string | null>(null);
 	const atBottomRef = useRef(true);
@@ -376,7 +367,6 @@ export function Transcript({
 						item: turn.final,
 						finalReply: true,
 						forkable: turn.ended,
-						hoverGroup: turn.key,
 					});
 				}
 				// Compaction notes committed after the final answer always follow it, whether
@@ -388,7 +378,6 @@ export function Transcript({
 						item,
 						finalReply: false,
 						forkable: false,
-						hoverGroup: turn.key,
 					});
 				}
 			} else {
@@ -400,7 +389,6 @@ export function Transcript({
 						item,
 						finalReply,
 						forkable: finalReply && turn.ended,
-						...(finalReply || turn.after.includes(item) ? { hoverGroup: turn.key } : {}),
 					});
 				}
 			}
@@ -413,7 +401,6 @@ export function Transcript({
 				display.push({
 					kind: "deliveries",
 					key: `deliveries:${turn.key}`,
-					hoverGroup: turn.key,
 					deliveries: turn.deliveries,
 				});
 			}
@@ -425,7 +412,6 @@ export function Transcript({
 					key: `reply-actions:${turn.key}`,
 					item: turn.final,
 					forkable: turn.ended,
-					hoverGroup: turn.key,
 				});
 			}
 		}
@@ -442,14 +428,6 @@ export function Transcript({
 			else next.add(key);
 			return next;
 		});
-	}, []);
-	const enterTurnTail = useCallback((turnKey: string) => {
-		setHoveredTurn(turnKey);
-	}, []);
-	const leaveTurnTail = useCallback((turnKey: string, related: EventTarget | null) => {
-		const owner = related instanceof Element ? related.closest("[data-turn-hover]") : null;
-		if (owner?.getAttribute("data-turn-hover") === turnKey) return;
-		setHoveredTurn((current) => (current === turnKey ? null : current));
 	}, []);
 
 	const previousFirst = prevFirstId.current;
@@ -505,61 +483,42 @@ export function Transcript({
 		};
 	}, []);
 
-	/**
-	 * A row's content, wrapped in the hover group that keeps a turn's reply actions visible while the
-	 * pointer is over the answer, its notes or its delivered files.
-	 */
-	const renderRow = (row: TranscriptDisplayRow) => {
-		const content =
-			row.kind === "summary" ? (
-				<TurnSummaryRow
-					key={row.key}
-					durationMs={row.durationMs}
-					open={row.open}
-					onToggle={() => toggleTurn(row.turnKey)}
-				/>
-			) : row.kind === "retrying" ? (
-				<RetryingRow key={row.key} attempt={row.attempt} />
-			) : row.kind === "deliveries" ? (
-				<TurnDeliveries key={row.key} deliveries={row.deliveries} />
-			) : row.kind === "reply-actions" ? (
-				<ReplyActionsRow
-					key={row.key}
-					item={row.item}
-					canFork={canFork && row.forkable}
-					forkPending={forkPending}
-					onFork={onFork}
-					revealed={row.hoverGroup === hoveredTurn}
-				/>
-			) : (
-				<TranscriptRow
-					key={row.key}
-					item={row.item}
-					streams={streams}
-					sessionActive={sessionActive}
-					highlighted={highlighted !== null && row.item.entryId === highlighted}
-					finalReply={row.finalReply}
-					// The final answer's actions are their own row, after the delivered files.
-					showReplyActions={!row.finalReply}
-					canFork={canFork && row.forkable}
-					forkPending={forkPending}
-					onFork={onFork}
-				/>
-			);
-		const hoverGroup = "hoverGroup" in row ? row.hoverGroup : undefined;
-		if (hoverGroup === undefined) return content;
-		return (
-			// biome-ignore lint/a11y/noStaticElementInteractions: hover only keeps the answer's actions visible while the pointer moves down to them.
-			<div
+	/** One display row. */
+	const renderRow = (row: TranscriptDisplayRow) =>
+		row.kind === "summary" ? (
+			<TurnSummaryRow
 				key={row.key}
-				data-turn-hover={hoverGroup}
-				onMouseEnter={() => enterTurnTail(hoverGroup)}
-				onMouseLeave={(event) => leaveTurnTail(hoverGroup, event.relatedTarget)}
-			>
-				{content}
-			</div>
+				durationMs={row.durationMs}
+				open={row.open}
+				onToggle={() => toggleTurn(row.turnKey)}
+			/>
+		) : row.kind === "retrying" ? (
+			<RetryingRow key={row.key} attempt={row.attempt} />
+		) : row.kind === "deliveries" ? (
+			<TurnDeliveries key={row.key} deliveries={row.deliveries} />
+		) : row.kind === "reply-actions" ? (
+			<ReplyActionsRow
+				key={row.key}
+				item={row.item}
+				canFork={canFork && row.forkable}
+				forkPending={forkPending}
+				onFork={onFork}
+			/>
+		) : (
+			<TranscriptRow
+				key={row.key}
+				item={row.item}
+				streams={streams}
+				sessionActive={sessionActive}
+				highlighted={highlighted !== null && row.item.entryId === highlighted}
+				finalReply={row.finalReply}
+				// The final answer's actions are their own row, after the delivered files.
+				showReplyActions={!row.finalReply}
+				canFork={canFork && row.forkable}
+				forkPending={forkPending}
+				onFork={onFork}
+			/>
 		);
-	};
 
 	return (
 		<div className="relative min-h-0 flex-1" data-slot="transcript">

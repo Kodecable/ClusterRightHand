@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { formatDateTimeNumeric, formatDateTimeSeconds, formatDuration, formatTokens } from "./format";
+import {
+	formatDateTimeNumeric,
+	formatDateTimeSeconds,
+	formatDuration,
+	formatShortDateTime,
+	formatTokens,
+} from "./format";
 
 describe("formatTokens", () => {
 	test("keeps small counts exact and adds an auto unit above a thousand", () => {
@@ -52,6 +58,29 @@ describe("formatDateTimeSeconds", () => {
 
 	test("an invalid date reads as a dash", () => {
 		expect(formatDateTimeSeconds("not a date", "en")).toBe("–");
+	});
+});
+
+describe("formatShortDateTime", () => {
+	const now = new Date(2026, 10, 20, 15, 0, 0);
+
+	test("today shows the time alone, 24-hour", () => {
+		expect(formatShortDateTime(new Date(2026, 10, 20, 9, 5), "en", now)).toBe("09:05");
+		expect(formatShortDateTime(new Date(2026, 10, 20, 21, 30), "zh-CN", now)).toBe("21:30");
+	});
+
+	test("an earlier day this year adds the month and day in the locale's order", () => {
+		expect(formatShortDateTime(new Date(2026, 10, 19, 23, 59), "en", now)).toBe("11/19, 23:59");
+		expect(formatShortDateTime(new Date(2026, 0, 2, 8, 0), "zh-CN", now)).toBe("01/02 08:00");
+	});
+
+	test("an earlier year adds the year", () => {
+		expect(formatShortDateTime(new Date(2025, 11, 31, 23, 0), "en", now)).toBe("12/31/2025, 23:00");
+		expect(formatShortDateTime(new Date(2025, 11, 31, 23, 0), "zh-CN", now)).toBe("2025/12/31 23:00");
+	});
+
+	test("an invalid value reads as a dash", () => {
+		expect(formatShortDateTime("not a date", "en", now)).toBe("–");
 	});
 });
 

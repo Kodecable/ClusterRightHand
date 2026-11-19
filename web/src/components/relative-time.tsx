@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { type DateInput, formatDateTimeSeconds, formatRelativeTime } from "@/lib/format";
+import { type DateInput, formatDateTimeSeconds, formatRelativeTime, formatShortDateTime } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
@@ -57,6 +57,31 @@ export function DateTime({ value, className }: { value: DateInput; className?: s
 	return (
 		<time dateTime={iso} className={cn(DATE_TIME_CLASS, className)}>
 			{formatDateTimeSeconds(value, locale)}
+		</time>
+	);
+}
+
+/**
+ * The short absolute time of a message stream (`formatShortDateTime`): the time alone today, the month and
+ * day before it this year, the full date in an earlier year. The exact time with seconds sits in `title`,
+ * as with `RelativeTime`. A missing time renders nothing, since a message row has no column to keep.
+ */
+export function ShortDateTime({
+	value,
+	className,
+	...rest
+}: { value: DateInput; className?: string } & Omit<React.HTMLAttributes<HTMLElement>, "title">) {
+	const { locale } = useLocale();
+	const iso = toIso(value);
+	if (iso === undefined) return null;
+	return (
+		<time
+			{...rest}
+			dateTime={iso}
+			title={formatDateTimeSeconds(iso, locale)}
+			className={cn(DATE_TIME_CLASS, className)}
+		>
+			{formatShortDateTime(iso, locale)}
 		</time>
 	);
 }

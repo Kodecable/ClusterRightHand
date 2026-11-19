@@ -114,8 +114,12 @@ outcome is the one exception that also carries a dot, so its green, red or muted
 its text.
 
 Lists show relative times, with the absolute time in the tooltip. Detail pages and security-relevant
-lists (audit, authorizations, approvals, tokens, signing credentials) show absolute times with seconds. All
-times use the browser's time zone. Durations share one formatter (`formatDuration`): **1h 02m**,
+lists (audit, authorizations, approvals, tokens, signing credentials) show absolute times with seconds. A
+stream of messages, where the day is usually clear from what is around it, shows the short absolute form
+(`ShortDateTime`): the time alone today, the month and day before it this year, and the full date in an
+earlier year, in minutes, with the absolute time with seconds in the tooltip. All three come from
+`lib/format.ts` in the interface language's order with a 24-hour clock, and all times use the browser's
+time zone. Durations share one formatter (`formatDuration`): **1h 02m**,
 **2m 00s**, **13s**; a task's max TTL, a measured clock offset, an ETA and a turn's duration all read the
 same way.
 
@@ -445,12 +449,14 @@ their own rows.
 
 Under the user's message and below a final answer's delivered files, a small action row holds icon-only
 buttons. Copy copies the Markdown source, not the rendered text: the user's typed text for a message, the
-raw Markdown for a reply. On a pointer device the row appears while the message is hovered or one of its
-controls has keyboard focus; on a final answer the answer and the rows after it carry the hover, so the
-row stays visible while the pointer moves down to it. A touch screen has no hover, so the row is always
-shown there. Viewers of a shared session get the same copy button. Beside Copy on a final answer, the
-owner gets Fork, which forks the session at that reply and opens the new session; it is absent while the
-turn is still running and for every viewer but the owner.
+raw Markdown for a reply. The row is always shown, in muted colours, so the actions are found without
+hovering. It also carries the message's time: when a user message was sent, before its Copy, and when a
+final answer finished (its assistant message's start plus its duration), after the buttons, in the short
+absolute form ([Status, time and task results](#status-time-and-task-results)); a message without a time
+shows none. Viewers of a shared
+session get the same copy button. Beside Copy on a final answer, the owner gets Fork, which forks the
+session at that reply and opens the new session; it is absent while the turn is still running and for
+every viewer but the owner.
 
 ### Jumping to a message
 

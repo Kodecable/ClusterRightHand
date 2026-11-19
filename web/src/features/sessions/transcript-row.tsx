@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
 import { useStreamingText } from "@/markdown/stream-store";
 import { AttachmentChip } from "./attachment-chip";
-import { MessageActions } from "./message-actions";
+import { MessageActions, MessageTime, replyFinishedAt } from "./message-actions";
 import { ToolCard } from "./tool-card";
 import type { TranscriptItem } from "./transcript-items";
 import type { TranscriptStreams } from "./transcript-streams";
@@ -178,15 +178,13 @@ function forkEntryIdOf(item: Extract<TranscriptItem, { kind: "text" }>): number 
 /**
  * The copy and fork row of a turn's final answer (doc/design/webui.md "Message rendering"): the
  * transcript renders it as its own row after the delivered files, so the files sit between the answer
- * and its actions. `revealed` lets the transcript keep it visible while the pointer is over the
- * answer and the rows after it; the row itself shows it on hover and keyboard focus as before.
+ * and its actions. The row ends with the time the answer finished.
  */
 export function ReplyActionsRow({
 	item,
 	canFork = false,
 	forkPending = false,
 	onFork,
-	revealed = false,
 }: {
 	item: Extract<TranscriptItem, { kind: "text" }>;
 	/** Whether the caller may fork this reply: the owner, and only when the turn has ended. */
@@ -194,15 +192,13 @@ export function ReplyActionsRow({
 	/** A fork request is in flight; the action is disabled until it settles. */
 	forkPending?: boolean;
 	onFork?: (entryId: number) => void;
-	/** The pointer is over the answer or the rows it shows after it. */
-	revealed?: boolean;
 }) {
 	const { t } = useLingui();
 	const forkEntryId = forkEntryIdOf(item);
 	const showsFork = canFork && forkEntryId !== undefined && onFork !== undefined;
 	return (
 		<div className="px-3 pb-2.5" data-testid="reply-actions-row">
-			<MessageActions className={revealed ? "pointer-events-auto opacity-100" : undefined}>
+			<MessageActions>
 				<CopyButton text={item.text} label={t`Copy reply`} size="icon-xs" />
 				{showsFork && (
 					<Button
@@ -220,6 +216,7 @@ export function ReplyActionsRow({
 						{forkPending ? <LoaderCircleIcon className="animate-spin" /> : <GitBranchIcon />}
 					</Button>
 				)}
+				<MessageTime at={replyFinishedAt(item)} />
 			</MessageActions>
 		</div>
 	);
@@ -300,6 +297,7 @@ export function TranscriptRow({
 						</div>
 					)}
 					<MessageActions>
+						<MessageTime at={item.at} />
 						<CopyButton text={item.text} label={t`Copy message`} size="icon-xs" />
 					</MessageActions>
 				</div>
@@ -334,6 +332,7 @@ export function TranscriptRow({
 									{forkPending ? <LoaderCircleIcon className="animate-spin" /> : <GitBranchIcon />}
 								</Button>
 							)}
+							<MessageTime at={replyFinishedAt(item)} />
 						</MessageActions>
 					)}
 				</div>

@@ -324,12 +324,46 @@ describe("message actions", () => {
 		expect(screen.queryByTestId("message-actions")).not.toBeInTheDocument();
 	});
 
-	test("the action row is hidden until hover or focus and always shown on touch", () => {
+	test("the action row is always shown, with no hover gating", () => {
 		renderRow({ kind: "user", key: "u1", text: "hello" });
 		const actions = screen.getByTestId("message-actions");
-		expect(actions).toHaveClass("opacity-0", "group-hover/message:opacity-100");
-		expect(actions).toHaveClass("group-focus-within/message:opacity-100");
-		expect(actions).toHaveClass("[@media(hover:none)]:opacity-100");
+		expect(actions).not.toHaveClass("opacity-0");
+		expect(actions.className).not.toMatch(/group-hover|pointer-events-none/);
+	});
+
+	test("a user message shows when it was sent, with the exact time in the tooltip", () => {
+		const sent = new Date(2020, 2, 4, 9, 5, 7).getTime();
+		renderRow({ kind: "user", key: "u1", text: "hello", at: sent });
+		const time = screen.getByTestId("message-time");
+		expect(time).toHaveAttribute("datetime", new Date(sent).toISOString());
+		expect(time).toHaveTextContent("03/04/2020, 09:05");
+		expect(time.getAttribute("title")).toContain("09:05:07");
+	});
+
+	test("a final reply shows when it finished: its start plus its duration", () => {
+		const started = new Date(2020, 2, 4, 9, 5, 0).getTime();
+		renderWithI18n(
+			<TranscriptRow
+				item={{
+					kind: "text",
+					key: "a1",
+					text: "done",
+					streaming: false,
+					final: true,
+					at: started,
+					durationMs: 90_000,
+				}}
+				streams={new TranscriptStreams()}
+				sessionActive={false}
+				finalReply
+			/>,
+		);
+		expect(screen.getByTestId("message-time")).toHaveTextContent("03/04/2020, 09:06");
+	});
+
+	test("a message without a time shows none", () => {
+		renderRow({ kind: "user", key: "u1", text: "hello" });
+		expect(screen.queryByTestId("message-time")).not.toBeInTheDocument();
 	});
 
 	test("the labels are translated", () => {

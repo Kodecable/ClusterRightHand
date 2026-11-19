@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 import { renderWithI18n } from "@/test/render";
-import { DateTime, RelativeTime } from "./relative-time";
+import { DateTime, RelativeTime, ShortDateTime } from "./relative-time";
 
 const TIMESTAMP = "2026-01-01T00:00:05.000Z";
 
@@ -27,5 +27,23 @@ describe("DateTime", () => {
 	test("an empty value is an en dash", () => {
 		renderWithI18n(<DateTime value={null} />);
 		expect(screen.getByText("–")).toBeInTheDocument();
+	});
+});
+
+describe("ShortDateTime", () => {
+	test("shows minutes only, with the exact time with seconds in title", () => {
+		const { container } = renderWithI18n(<ShortDateTime value={TIMESTAMP} data-testid="short" />);
+		const time = container.querySelector("time");
+		expect(time).toHaveAttribute("datetime", TIMESTAMP);
+		expect(time).toHaveAttribute("data-testid", "short");
+		expect(time?.textContent).toMatch(/\d{2}:\d{2}$/);
+		expect(time?.textContent).not.toMatch(/\d{2}:\d{2}:\d{2}/);
+		expect(time?.getAttribute("title")).toMatch(/\d{2}:\d{2}:\d{2}/);
+		expect(time).toHaveClass("tabular-nums");
+	});
+
+	test("an empty value renders nothing", () => {
+		const { container } = renderWithI18n(<ShortDateTime value={undefined} />);
+		expect(container.querySelector("time")).toBeNull();
 	});
 });
