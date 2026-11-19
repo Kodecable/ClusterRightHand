@@ -3556,6 +3556,10 @@ msgstr "Or sign the challenge by hand with ssh-keygen:"
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
 msgstr "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
 
+#: src/features/nodes/node-trust.tsx
+msgid "Origins"
+msgstr "Origins"
+
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
 msgstr "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
@@ -4223,6 +4227,10 @@ msgstr "Role"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Route"
 msgstr "Route"
+
+#: src/features/nodes/node-trust.tsx
+msgid "RP ID"
+msgstr "RP ID"
 
 #: src/components/decision/evaluation.tsx
 #: src/components/decision/request-details.tsx

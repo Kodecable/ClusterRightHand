@@ -3556,6 +3556,10 @@ msgstr "或者手动使用 ssh-keygen 签名挑战："
 msgid "Organization-owned SSH keys that crhs uses to reach nodes. Only administrators can manage them."
 msgstr "归组织所有的 SSH 密钥，crhs 用它们连接节点。只有管理员可以管理。"
 
+#: src/features/nodes/node-trust.tsx
+msgid "Origins"
+msgstr "源"
+
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Origins allowed to use Passkeys, such as https://crh.example.com. Empty derives them from each request."
 msgstr "允许使用 Passkey 的源，例如 https://crh.example.com。留空则从每个请求中推导。"
@@ -4223,6 +4227,10 @@ msgstr "角色"
 #: src/features/nodes/ssh-wizard.tsx
 msgid "Route"
 msgstr "路由"
+
+#: src/features/nodes/node-trust.tsx
+msgid "RP ID"
+msgstr "RP ID"
 
 #: src/components/decision/evaluation.tsx
 #: src/components/decision/request-details.tsx

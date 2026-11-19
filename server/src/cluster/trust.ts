@@ -4,7 +4,15 @@
  * audits an actual change, and treats the kept report as stale until the next report.
  */
 import { createHash } from "node:crypto";
-import type { NodeTrust, SigningKeyKind, SigningKeyTrust, TrustStatus } from "@crh/api";
+import type {
+	NodeTrust,
+	SigningKeyKind,
+	SigningKeyTrust,
+	TrustEntry as TrustEntryJson,
+	TrustEntryKey as TrustKeyJson,
+	TrustStatus,
+	TrustSummary as TrustSummaryJson,
+} from "@crh/api";
 import {
 	encode as encodeCbor,
 	type GuardRule,
@@ -106,7 +114,7 @@ function asBytes(value: unknown, what: string): Uint8Array {
 	return Uint8Array.from(Buffer.from(value, "base64"));
 }
 
-function identityToJson(identity: Identity): Record<string, unknown> {
+function identityToJson(identity: Identity): Identity {
 	return { uid: identity.uid, gid: identity.gid, user: identity.user };
 }
 
@@ -119,7 +127,7 @@ function identityFromJson(value: unknown): Identity {
 	};
 }
 
-function trustKeyToJson(key: TrustKey): Record<string, unknown> {
+function trustKeyToJson(key: TrustKey): TrustKeyJson {
 	switch (key.kind) {
 		case "sshsig":
 			return { kind: "sshsig", publicKey: key.publicKey, fingerprint: key.fingerprint };
@@ -171,7 +179,7 @@ function ruleFromJson(value: unknown): GuardRule {
 	};
 }
 
-function windowToJson(window: WindowState): Record<string, unknown> {
+function windowToJson(window: WindowState): WindowState {
 	return window.kind === "open"
 		? {
 				kind: "open",
@@ -200,7 +208,7 @@ function windowFromJson(value: unknown): WindowState {
 	}
 }
 
-function entryToJson(entry: TrustEntry): Record<string, unknown> {
+function entryToJson(entry: TrustEntry): TrustEntryJson {
 	return {
 		name: entry.name,
 		source: entry.source,
@@ -235,7 +243,7 @@ function entryFromJson(value: unknown): TrustEntry {
 	};
 }
 
-export function trustSummaryToJson(summary: TrustSummary): Record<string, unknown> {
+export function trustSummaryToJson(summary: TrustSummary): TrustSummaryJson {
 	return {
 		nodeId: summary.nodeId,
 		aliases: summary.aliases,
@@ -374,6 +382,7 @@ export function trustView(row: NodeRow, fresh: boolean): NodeTrustView {
 		digest: row.trust_digest,
 		updatedAt: row.trust_updated_at,
 		stale: report !== null && !fresh,
-		summary: report?.kind === "ok" ? report.summary : null,
+		// The JSON form: bytes (a Passkey's credential id and COSE key) as base64 text, not a Uint8Array.
+		summary: report?.kind === "ok" ? trustSummaryToJson(report.summary) : null,
 	};
 }

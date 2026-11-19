@@ -13,13 +13,21 @@ import { formatDuration } from "@/lib/format";
 import { useLocale } from "@/lib/i18n";
 import { MONO_CELL } from "@/lib/utils";
 
-/** How a trust entry's key is identified on the node. */
+/** Standard base64 (the API's bytes) as unpadded base64url, the form privileged.toml uses. */
+function base64ToBase64url(value: string): string {
+	return value.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+/**
+ * How a trust entry's key is identified on the node: an SSHSIG key by its fingerprint, a Passkey by its
+ * credential id as privileged.toml writes it. A Passkey's RP id and origins are constraints, not identity.
+ */
 export function trustKeyText(key: TrustEntryKey): string {
 	switch (key.kind) {
 		case "sshsig":
 			return key.fingerprint;
 		case "webauthn":
-			return key.rpId;
+			return base64ToBase64url(key.credentialId);
 		case "local":
 			return key.uids.join(", ");
 	}
@@ -79,6 +87,12 @@ function TrustRules({ entry }: { entry: TrustEntry }) {
 						},
 						{ label: t`Environment`, value: entry.envAllow.join(", ") || t`Any variable`, mono: true },
 						...(entry.key.kind === "sshsig" ? [{ label: t`Public key`, value: entry.key.publicKey, mono: true }] : []),
+						...(entry.key.kind === "webauthn"
+							? [
+									{ label: t`RP ID`, value: entry.key.rpId, mono: true },
+									{ label: t`Origins`, value: entry.key.origins.join(", ") || "–", mono: true },
+								]
+							: []),
 					]}
 				/>
 			</div>

@@ -8,16 +8,17 @@ describe("trustKeyText", () => {
 		);
 	});
 
-	test("a WebAuthn key is named by its RP id", () => {
+	test("a WebAuthn key is named by its credential id in base64url, as privileged.toml writes it", () => {
 		expect(
 			trustKeyText({
 				kind: "webauthn",
-				credentialId: new Uint8Array([1, 2, 3]),
-				coseKey: new Uint8Array([4, 5, 6]),
+				// The API's standard base64 of bytes fb ff 0e 72 → base64url "-_8Ocg".
+				credentialId: "+/8Ocg==",
+				coseKey: "BAUG",
 				rpId: "cluster.local",
 				origins: ["https://cluster.local"],
 			}),
-		).toBe("cluster.local");
+		).toBe("-_8Ocg");
 	});
 
 	test("a local key lists its uids", () => {

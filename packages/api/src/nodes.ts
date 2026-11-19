@@ -75,9 +75,15 @@ export type TrustWarningSeverity = z.infer<typeof TrustWarningSeveritySchema>;
 export type TrustWarning = z.infer<typeof TrustWarningSchema>;
 
 export type TrustStatus = TrustReport["kind"];
-export type TrustEntryKey = TrustKey;
-export type TrustEntry = ProtocolTrustEntry;
-export type TrustSummary = ProtocolTrustSummary;
+/**
+ * A trust key as the API returns it: the protocol's key in crhs's JSON form, where bytes are standard
+ * base64 text (doc/design/protocol.md "JSON storage forms").
+ */
+export type TrustEntryKey =
+	| Exclude<TrustKey, { kind: "webauthn" }>
+	| { kind: "webauthn"; credentialId: string; coseKey: string; rpId: string; origins: string[] };
+export type TrustEntry = Omit<ProtocolTrustEntry, "key"> & { key: TrustEntryKey };
+export type TrustSummary = Omit<ProtocolTrustSummary, "trust"> & { trust: TrustEntry[] };
 export type GuardRule = ProtocolGuardRule;
 
 /** The trust panel of a node (doc/design/privilege.md "Trust cache"). */

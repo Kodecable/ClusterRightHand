@@ -133,6 +133,23 @@ describe("trust report storage", () => {
 		expect(trustView(row, false)).toMatchObject({ status: "ok", stale: true });
 		expect(trustView({ ...row, trust_report: null }, false)).toMatchObject({ status: null, stale: false });
 	});
+
+	it("returns the summary in its JSON form, with a Passkey's bytes as base64 text", () => {
+		const row = {
+			trust_report: JSON.stringify(trustReportToJson({ kind: "ok", summary: SUMMARY })),
+			trust_digest: trustDigest(SUMMARY),
+			trust_updated_at: "2026-01-01T00:00:00.000Z",
+		} as NodeRow;
+		// The view goes through c.json: a Uint8Array would serialize as {"0":1,"1":2,...}.
+		const sent = JSON.parse(JSON.stringify(trustView(row, true))) as { summary: { trust: { key: unknown }[] } };
+		expect(sent.summary.trust[1]?.key).toEqual({
+			kind: "webauthn",
+			credentialId: "AQID",
+			coseKey: "BAUG",
+			rpId: "crh.example.com",
+			origins: ["https://crh.example.com"],
+		});
+	});
 });
 
 describe("task authorization record", () => {

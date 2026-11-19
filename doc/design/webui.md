@@ -285,7 +285,10 @@ offline for a crha node, and active for an SSH node, which has no standing conne
 The node page's overview has what is used day to day, the platform line included, with trust warnings
 at the top: each has its own border and icon, so the list has no heading. A **Technical details** tab
 shows the facts, fully, and the last trust report the node sent ([Privilege](privilege.md#trust-cache))
-with the `aliases` line for `privileged.toml`: they are for diagnosis. The report is the node's own view;
+with the `aliases` line for `privileged.toml`: they are for diagnosis. Each trust entry is named by
+what identifies its key: an SSHSIG key by its fingerprint, a Passkey by its credential id in base64url
+as `privileged.toml` writes it. A Passkey's RP ID and origins are verification constraints shared by
+every Passkey of the site, so they appear with the entry's rules. The report is the node's own view;
 crhs only displays it. A **Generate trust config** dialog on the signing
 credentials page builds basic `[[trust]]` entries for a node's `privileged.toml`, which an administrator
 copies to the node: crhs cannot change what a node trusts. The measured clock offset is shown only as a

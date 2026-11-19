@@ -451,7 +451,9 @@ token whose node was deleted is invalid.
 The database and the Web API use JSON, not CBOR. `TaskSpec`, `Facts` and `TaskResult` have JSON forms
 with camelCase fields and the wire tag as `kind`; optional facts are omitted, and nullable fields are
 `null`. The conversions are in `packages/protocol/src/json.ts`; a task spec is stored in `tasks.spec`
-and `task_groups.spec`, facts in `nodes.facts`, and the result in `tasks.result`.
+and `task_groups.spec`, facts in `nodes.facts`, and the result in `tasks.result`. A trust report is
+stored in `nodes.trust_report` and returned by the node trust API in the same JSON form, with bytes
+(a Passkey's credential id and COSE key) as standard base64 text (`server/src/cluster/trust.ts`).
 
 ## Interop fixtures
 

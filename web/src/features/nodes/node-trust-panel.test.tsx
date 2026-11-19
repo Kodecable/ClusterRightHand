@@ -105,6 +105,46 @@ describe("NodeTrustPanel report status", () => {
 		expect(screen.getByText(/opened by uid 1000/)).toBeInTheDocument();
 	});
 
+	test("names a Passkey entry by its credential id and shows its RP ID and origins in its rules", async () => {
+		const summary: TrustSummary = {
+			nodeId: "node-1",
+			aliases: [],
+			clockSkewMs: 60_000,
+			identities: {
+				unprivileged: { uid: 998, gid: 998, user: "crha" },
+				privileged: { uid: 0, gid: 0, user: "root" },
+			},
+			trust: [
+				{
+					name: "vw",
+					source: "local",
+					role: "user",
+					// The API's standard base64; privileged.toml writes the same bytes as base64url.
+					key: {
+						kind: "webauthn",
+						credentialId: "Stzd0YkaT8KGi3LHc+uDog==",
+						coseKey: "pQECAyY=",
+						rpId: "crh.example.com",
+						origins: ["https://crh.example.com"],
+					},
+					kinds: ["execute", "require-cosign"],
+					requireSpec: false,
+					requireTask: false,
+					requireUv: true,
+					maxTtlMs: null,
+					allow: [],
+					deny: [],
+					envAllow: [],
+				},
+			],
+			localWindow: { kind: "closed" },
+		};
+		renderPanel(trust({ status: "ok", summary }));
+		expect(await screen.findByText("Stzd0YkaT8KGi3LHc-uDog")).toBeInTheDocument();
+		expect(screen.getByText("crh.example.com")).toBeInTheDocument();
+		expect(screen.getByText("https://crh.example.com")).toBeInTheDocument();
+	});
+
 	test("the clock row names the authorization tolerance, not a measured offset", async () => {
 		const summary: TrustSummary = {
 			nodeId: "node-1",
