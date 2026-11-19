@@ -223,6 +223,25 @@ async function expectNoHorizontalOverflow(page: Page) {
 	expect(overflow.footer).toBeLessThanOrEqual(0);
 }
 
+test("while a message is sending the composer box keeps one background", async ({ page }) => {
+	await openFooterPage(page);
+	// The send never answers, so the textarea stays disabled.
+	await page.route("**/api/sessions/s1/**", (route) =>
+		route.request().method() === "POST" ? undefined : route.fallback(),
+	);
+	const input = page.getByTestId("composer-input");
+	await input.fill("hello there");
+	await input.press("Enter");
+	await expect(input).toBeDisabled();
+	// The textarea is only the top of the bordered box: its own disabled fill would grey just that part. The
+	// fill fades in (transition-colors), so read it once the transitions have finished.
+	const background = await input.evaluate(async (element) => {
+		await Promise.all(element.getAnimations().map((animation) => animation.finished));
+		return getComputedStyle(element).backgroundColor;
+	});
+	expect(background).toMatch(/^rgba\(0, 0, 0, 0\)$|\/ 0\)$/);
+});
+
 test("at 390 px the merged stop/send button switches with the draft and nothing overflows", async ({ page }) => {
 	await page.setViewportSize({ width: 390, height: 844 });
 	await openFooterPage(page, { state: "running" });

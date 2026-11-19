@@ -274,7 +274,7 @@ export function NewSessionPage() {
 						setText(event.target.value);
 						setSendError(undefined);
 					}}
-					className="min-h-9 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
+					className="min-h-9 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0 dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent"
 				/>
 				{compactUnavailable && (
 					<p className="px-3 pb-1 text-xs text-warn" data-testid="slash-hint">

@@ -275,7 +275,7 @@ function ComposerForm({ session, stoppable }: ComposerProps) {
 					// A new draft is a new message: a retry must not be deduped against the old one.
 					setRequestId(undefined);
 				}}
-				className="min-h-9 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2 pr-2 shadow-none focus-visible:ring-0 dark:bg-transparent"
+				className="min-h-9 resize-none overflow-y-auto rounded-none border-0 bg-transparent px-3 py-2 pr-2 shadow-none focus-visible:ring-0 dark:bg-transparent disabled:bg-transparent dark:disabled:bg-transparent"
 			/>
 			{completionOpen && (
 				<div
