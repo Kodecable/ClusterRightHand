@@ -2629,10 +2629,6 @@ msgstr "关联此聊天"
 msgid "Linked accounts"
 msgstr "已关联的账号"
 
-#: src/features/settings/providers.ts
-msgid "List at least one model."
-msgstr "至少列出一个模型。"
-
 #: src/lib/action-text.ts
 msgid "List directory {path}"
 msgstr "列出目录 {path}"
@@ -4377,8 +4373,8 @@ msgid "Save schedule"
 msgstr "保存计划任务"
 
 #: src/features/settings/provider-dialog.tsx
-msgid "Save the provider first: listing its models needs its stored base URL and API key."
-msgstr "请先保存提供方：列出其模型需要已保存的基础 URL 和 API 密钥。"
+msgid "Save the provider first, with or without models: listing its models needs its stored base URL and API key."
+msgstr "请先保存提供方（可以暂不添加模型）：列出其模型需要已保存的基础 URL 和 API 密钥。"
 
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 msgid "Saving closes the connection; tasks running on this node become unknown."

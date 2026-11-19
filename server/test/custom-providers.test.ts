@@ -263,6 +263,20 @@ describeBackends("custom model providers", (backend) => {
 		});
 	});
 
+	it("saves a custom provider without models, so its models can be listed next", async () => {
+		const provider = await saveModelProvider(db, masterKey, {
+			kind: "custom",
+			providerId: "no-models-yet",
+			baseUrl: stub.url,
+			apiKey: "sk-test",
+			models: [],
+		});
+		expect(provider.models).toEqual([]);
+		expect(provider.hasApiKey).toBe(true);
+		await models.reload();
+		expect(models.available().some((m) => m.provider === "no-models-yet")).toBe(false);
+	});
+
 	it("rejects invalid display names and a hidden off level", async () => {
 		for (const [labels, pattern] of [
 			[{ off: "" }, /labels\.off: off cannot be hidden/],

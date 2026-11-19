@@ -148,7 +148,6 @@ describeBackends("model providers api", (backend) => {
 		const bad = [
 			proxy({ baseUrl: undefined }),
 			proxy({ baseUrl: "ftp://x" }),
-			proxy({ models: [] }),
 			proxy({ models: undefined }),
 			proxy({ models: [{ id: "a", api: "openai-completions", input: ["text"], contextWindow: 10, maxTokens: 5 }] }),
 			proxy({ models: [{ id: "a", api: "openai-completions", input: ["text"], contextWindow: 4096.5, maxTokens: 5 }] }),

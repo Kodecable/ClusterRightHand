@@ -370,7 +370,9 @@ ids the provider offers that are not configured on it yet, with a search box and
 add, and an upstream failure shows the server's message with **Try again**. Saving adds the selected models
 through the provider API, filled from the catalogue ([Model discovery](agent-runtime.md#model-discovery)),
 and they stay editable in the model dialog. Discovery reads the saved provider, so the button is disabled
-with a hint until a new provider is saved and while its base URL or key has unsaved changes.
+with a hint until a new provider is saved and while its base URL or key has unsaved changes. A new custom
+provider can be saved without models; the dialog then stays open as the saved provider's edit dialog, with
+the button enabled.
 
 ### System settings page
 

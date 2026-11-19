@@ -83,10 +83,17 @@ function mockFetch(response?: { body: unknown; status: number }): {
 function renderProvider(existing?: ModelProviderView) {
 	const onSaved = vi.fn();
 	const onClose = vi.fn();
+	const onContinue = vi.fn();
 	const result = renderWithI18n(
-		<ProviderDialog existing={existing} builtin={["faux", "deepseek"]} onClose={onClose} onSaved={onSaved} />,
+		<ProviderDialog
+			existing={existing}
+			builtin={["faux", "deepseek"]}
+			onClose={onClose}
+			onSaved={onSaved}
+			onContinue={onContinue}
+		/>,
 	);
-	return { ...result, onClose, onSaved };
+	return { ...result, onClose, onSaved, onContinue };
 }
 
 /** A fake server for the discovery routes: GET lists ids, POST echoes a provider with the ids appended. */
@@ -278,6 +285,26 @@ describe("ProviderDialog", () => {
 		const save = calls.find((call) => call.method === "PUT");
 		expect(save?.url).toBe("/api/model-providers/faux");
 		expect(save?.body).toEqual({ kind: "builtin", baseUrl: "https://pi.example", enabled: true, apiKey: "sk-pi" });
+	});
+
+	test("saves a new custom provider without models and stays open to list them", async () => {
+		const saved: ModelProviderView = { ...CUSTOM, models: [] };
+		const { calls } = mockFetch({ body: { provider: saved }, status: 200 });
+		const { onClose, onSaved, onContinue } = renderProvider();
+		const user = userEvent.setup();
+
+		await choose(user, "Kind", "Custom");
+		await fill(user, screen.getByLabelText("Provider id"), "myllm");
+		await fill(user, screen.getByLabelText("Base URL"), "https://llm.example/v1");
+		await fill(user, screen.getByLabelText("API key"), "sk-secret");
+		expect(screen.getByRole("button", { name: "List provider models" })).toBeDisabled();
+		await user.click(screen.getByRole("button", { name: "Save provider" }));
+
+		await waitFor(() => expect(onContinue).toHaveBeenCalledWith(saved));
+		const save = calls.find((call) => call.method === "PUT");
+		expect(save?.body).toMatchObject({ kind: "custom", baseUrl: "https://llm.example/v1", models: [] });
+		expect(onSaved).toHaveBeenCalled();
+		expect(onClose).not.toHaveBeenCalled();
 	});
 
 	test("creates a custom provider with custom and standard thinking models", async () => {

@@ -102,7 +102,6 @@ export type ProviderFormErrorCode =
 	| "base-url-required"
 	| "base-url-invalid"
 	| "api-key-required"
-	| "models-required"
 	| "model-id-required"
 	| "model-id-duplicate"
 	| "context-window-invalid"
@@ -119,7 +118,6 @@ const MESSAGES: Record<ProviderFormErrorCode, MessageDescriptor> = {
 	"base-url-required": msg`A base URL is required.`,
 	"base-url-invalid": msg`The base URL must start with http:// or https://.`,
 	"api-key-required": msg`Changing the base URL requires re-entering the API key.`,
-	"models-required": msg`List at least one model.`,
 	"model-id-required": msg`Every model needs an id.`,
 	"model-id-duplicate": msg`Model ids must be unique.`,
 	"context-window-invalid": msg`Every model needs a context window of at least 1024 tokens.`,
@@ -401,7 +399,6 @@ export function rowToModel(row: ModelRow): { model: CustomModel } | { errors: Mo
 
 /** The form's model rows as the API shape (the provider dialog's last check). */
 export function rowsToModels(rows: ModelRow[]): { models: CustomModel[] } | { error: ProviderFormErrorCode } {
-	if (rows.length === 0) return { error: "models-required" };
 	const models: CustomModel[] = [];
 	const ids = new Set<string>();
 	for (const row of rows) {

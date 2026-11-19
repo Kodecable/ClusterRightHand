@@ -163,10 +163,12 @@ export function ModelSettingsPage() {
 			</section>
 			{editing !== undefined && providers.data && (
 				<ProviderDialog
+					key={editing === "new" ? "new" : editing.id}
 					existing={editing === "new" ? undefined : editing}
 					builtin={providers.data.builtin}
 					onClose={() => setEditing(undefined)}
 					onSaved={() => void providers.refetch()}
+					onContinue={setEditing}
 				/>
 			)}
 			<ConfirmDialog

@@ -317,8 +317,8 @@ describe("modelToRow", () => {
 });
 
 describe("rowsToModels", () => {
-	test("requires at least one model and unique ids", () => {
-		expect(rowsToModels([])).toEqual({ error: "models-required" });
+	test("accepts no models and requires unique ids", () => {
+		expect(rowsToModels([])).toEqual({ models: [] });
 		const row = { ...emptyModelRow(), id: "same" };
 		expect(rowsToModels([row, row])).toEqual({ error: "model-id-duplicate" });
 	});

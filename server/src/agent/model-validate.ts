@@ -331,7 +331,6 @@ export function validate(input: ModelProviderFields): ValidProvider {
 		throw new UserError("an http(s) base URL is required");
 	}
 	if (!Array.isArray(input.models)) throw new UserError("models: expected an array");
-	if (input.models.length === 0) throw new UserError("list at least one model");
 	const models = input.models.map((model, index) => validateModel(model, index));
 	const ids = new Set(models.map((model) => model.id));
 	if (ids.size !== models.length) throw new UserError("model ids must be unique");

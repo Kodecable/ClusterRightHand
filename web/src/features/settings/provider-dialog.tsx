@@ -443,11 +443,14 @@ export function ProviderDialog({
 	builtin,
 	onClose,
 	onSaved,
+	onContinue,
 }: {
 	existing: ModelProviderView | undefined;
 	builtin: string[];
 	onClose: () => void;
 	onSaved: () => void;
+	/** Reopens the dialog on a new custom provider saved without models, whose models can be listed now. */
+	onContinue: (provider: ModelProviderView) => void;
 }) {
 	const { t, i18n } = useLingui();
 	const save = useSaveModelProvider();
@@ -469,10 +472,11 @@ export function ProviderDialog({
 	const removeKey = form.watch("removeKey");
 	// The server refuses a new endpoint without a new key; the same check here shows why before submitting.
 	const baseUrlChanged = editing && hasStoredKey && normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(originalBaseUrl);
-	// Listing models reads the saved provider, so an unsaved base URL or key must be saved first.
+	// Listing models reads the saved provider, so an unsaved base URL or key must be saved first; a new
+	// provider may be saved without models for that.
 	const discoveryHint =
 		!editing || normalizeBaseUrl(baseUrl) !== normalizeBaseUrl(originalBaseUrl) || apiKey.trim() !== "" || removeKey
-			? t`Save the provider first: listing its models needs its stored base URL and API key.`
+			? t`Save the provider first, with or without models: listing its models needs its stored base URL and API key.`
 			: undefined;
 
 	// A new provider starts on the first Pi built-in id; switching back from
@@ -501,9 +505,10 @@ export function ProviderDialog({
 		save.mutate(
 			{ providerId: values.providerId, body },
 			{
-				onSuccess: () => {
+				onSuccess: (provider) => {
 					onSaved();
-					onClose();
+					if (!editing && provider.kind === "custom" && (provider.models ?? []).length === 0) onContinue(provider);
+					else onClose();
 				},
 			},
 		);

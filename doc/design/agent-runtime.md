@@ -93,7 +93,8 @@ provider's `GET {baseUrl}/models` request itself, with the stored API key as `Au
 the provider's extra request headers, and returns only the `data[].id` values; the key never reaches the
 browser. The request times out after 15 s, and an HTTP error, a timeout, a non-JSON body or a body without a
 usable `data` list is answered as a 502 whose message the dialog shows. Discovery reads the saved provider,
-so an unsaved base URL or key must be saved first.
+so an unsaved base URL or key must be saved first. A custom provider may be saved without models for
+this; the WebUI then keeps the dialog open on the saved provider, ready to list its models.
 
 The catalogue behind the fill is models.dev's `api.json`. Before each list request crhs may refresh it into
 `models-dev/api.json` under its data directory — the directory of the SQLite database, or of the master key
