@@ -105,6 +105,18 @@ export function titleThinking(model: Model<Api>): { level: ModelThinkingLevel; m
 	return { level, maxTokens: level === "off" ? 256 : 2048 };
 }
 
+/** The first text block of a user message: its typed text. */
+function firstTextOf(message: { readonly content?: unknown } | undefined): string {
+	if (!message) return "";
+	if (typeof message.content === "string") return message.content;
+	if (!Array.isArray(message.content)) return "";
+	for (const part of message.content) {
+		const block = part as { type?: unknown; text?: unknown };
+		if (block.type === "text" && typeof block.text === "string") return block.text;
+	}
+	return "";
+}
+
 /** The text parts of a durable message, joined; user content may also be a bare string. */
 function textOf(message: { readonly content?: unknown } | undefined): string {
 	if (!message) return "";
@@ -172,7 +184,8 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 			)
 			.then((page) => page.items[0]),
 	]);
-	const userText = truncate(textOf(userEntry?.model?.[0] as { content?: unknown } | undefined));
+	// Only the typed text: attachment notes and the sent time come after it (doc/design/agent-runtime.md "Message time").
+	const userText = truncate(firstTextOf(userEntry?.model?.[0] as { content?: unknown } | undefined));
 	const answerText = truncate(textOf(answerEntry?.model?.[0] as { content?: unknown } | undefined));
 	if (userText === "" || answerText === "") {
 		console.error(`title generation: session ${sessionId} has no text to title`);

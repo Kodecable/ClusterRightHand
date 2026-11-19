@@ -337,7 +337,8 @@ Every attachment goes to a library; a message never carries image bytes.
   the final path. The composer uses this option, so concurrent uploads of one name cannot race.
   Upload happens before sending, with progress, and can be cancelled; sending waits for it.
 - The input is placed as a `crh.user_input` entry. Its model content is a list of separate text blocks:
-  the typed text first, then one block per attachment. Each attachment block starts with "The user
+  the typed text first, then one block per attachment, and last the sent time
+  ([Message time](agent-runtime.md#message-time)). Each attachment block starts with "The user
   uploaded the file <name> (<size>), saved to <library> at <path>." The entry's `data` lists the
   attachments (library reference and id, path, name, size, media type, SHA-256, whether inlined) for the
   WebUI, which reads the typed text from the first block and the attachments from `data`. Nothing parses

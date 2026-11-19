@@ -197,7 +197,7 @@ export function createMigrations(schema: PgSchema): readonly Migration[] {
 					FROM root
 					CROSS JOIN LATERAL jsonb_array_elements(
 						CASE
-							WHEN root.document ->> 'kind' IN ('pi.user', 'pi.assistant')
+							WHEN root.document ->> 'kind' IN ('pi.user', 'crh.user_input', 'pi.assistant')
 								AND jsonb_typeof(root.document -> 'model') = 'array'
 								THEN root.document -> 'model'
 							ELSE '[]'::jsonb
@@ -225,20 +225,29 @@ export function createMigrations(schema: PgSchema): readonly Migration[] {
 					SELECT
 						message_ord,
 						coalesce(content_ord, 0) AS content_ord,
+						kind <> 'pi.assistant' AS is_user,
 						CASE
-							WHEN kind = 'pi.user' AND message_role = 'user' AND jsonb_typeof(content_value) = 'string'
+							WHEN kind IN ('pi.user', 'crh.user_input') AND message_role = 'user' AND jsonb_typeof(content_value) = 'string'
 								THEN content_value #>> '{}'
-							WHEN ((kind = 'pi.user' AND message_role = 'user') OR (kind = 'pi.assistant' AND message_role = 'assistant'))
+							WHEN ((kind IN ('pi.user', 'crh.user_input') AND message_role = 'user') OR (kind = 'pi.assistant' AND message_role = 'assistant'))
 								AND jsonb_typeof(content_item) = 'object'
 								AND content_item ->> 'type' = 'text'
 								AND jsonb_typeof(content_item -> 'text') = 'string'
 								THEN content_item ->> 'text'
 						END AS part_text
 					FROM parts
+				),
+				-- A user message's typed text is its first text block; attachment notes and the sent time follow it.
+				ranked AS (
+					SELECT
+						texts.*,
+						row_number() OVER (PARTITION BY message_ord ORDER BY content_ord) AS text_rank
+					FROM texts
+					WHERE part_text IS NOT NULL
 				)
 				SELECT left(string_agg(part_text, chr(10) ORDER BY message_ord, content_ord), 32768)
-				FROM texts
-				WHERE part_text IS NOT NULL AND part_text <> ''
+				FROM ranked
+				WHERE part_text <> '' AND (NOT is_user OR text_rank = 1)
 			$search$`,
 		`ALTER TABLE ${tables.entries} ADD COLUMN search_text TEXT
 			GENERATED ALWAYS AS (${functions.entrySearchText}(record)) STORED`,

@@ -564,6 +564,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			// defensive only, because only a scheduled run has no source.
 			lastUsedFrom: c.get("user").actor === undefined ? "web" : null,
 			...(body.title === undefined ? {} : { title: body.title }),
+			...(body.timeZone === undefined ? {} : { timeZone: body.timeZone }),
 			...(budgetRemaining === undefined ? {} : { budgetRemaining }),
 			// Omitted means all available extensions are on, as for sessions created by channels or tokens.
 			...(body.disabledExtensions === undefined
@@ -791,6 +792,7 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			// is agent: "deny", so an in-process api_request never reaches it: the owner's null branch is
 			// defensive only, because only a scheduled run has no source.
 			lastUsedFrom: c.get("user").actor === undefined || v.session.ownerUserId !== c.get("user").userId ? "web" : null,
+			...(body.timeZone === undefined ? {} : { timeZone: body.timeZone }),
 			...(resolved ? { content: attachmentContent(text, resolved.blocks), attachments: resolved.attachments } : {}),
 		});
 		return c.json({ submissionId }, 202);

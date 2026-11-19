@@ -77,8 +77,9 @@ it; a released migration is never edited or folded into another.
 ## Conversation content search
 
 Only PostgreSQL searches message content; SQLite searches titles only. On PostgreSQL the durable adapter
-adds a generated column holding the searchable text of each entry: user messages and assistant text,
-not thinking, tool calls, tool output or compactions. The function that extracts it tolerates any record
+adds a generated column holding the searchable text of each entry: a user message's typed text (its first
+text block, not attachment notes or the sent time) and assistant text, not thinking, tool calls, tool output
+or compactions. The function that extracts it tolerates any record
 shape, returning nothing instead of failing, and caps the text length. The record itself is unchanged.
 
 Every keyword must match the title or some entry in the session tree. Matching is a substring scan

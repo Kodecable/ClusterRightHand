@@ -274,8 +274,9 @@ const listNodes = define({
 const nodeInfo = define({
 	name: "node_info",
 	description:
-		"Facts about one or more nodes (targets): OS, kernel, architecture, init system, package managers and node " +
-		"groups, plus each node's notes, a Markdown file on the node that people and agents keep up to date. Exactly " +
+		"Facts about one or more nodes (targets): status, node groups, the platform (OS and architecture), the shells, " +
+		"short hints the node reports for people and agents, and each node's notes, a Markdown file on the node that " +
+		"people and agents keep up to date. Exactly " +
 		"one node returns one object; a node group, _all or several entries return one entry per node. Edit the " +
 		"notes with edit_file/write_file.",
 	input: z.object({ targets: targetsField }),

@@ -135,7 +135,9 @@ and also `zh-Hant`/`zh-TW`/`zh-HK` resolve to zh-CN (there is no Traditional Chi
 registry for its first-paint language. The Telegram command menu is registered twice, in English and
 with `language_code: "zh"`.
 
-**Inbound.** A text message is the user's message to the session. Files and photos become chat
+**Inbound.** A text message is the user's message to the session. A chat carries no time zone, so the
+sent time appended for the model is in the server's time zone and says so
+([Message time](agent-runtime.md#message-time)). Files and photos become chat
 attachments in the user's library, as in the WebUI ([Chat attachments](library.md#chat-attachments)).
 An inbound file is limited to at least the user's library single-file limit (`libraries.max_file_bytes`):
 a larger one is refused before or while it is downloaded. Other kinds (voice, stickers) are answered with

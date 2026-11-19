@@ -260,6 +260,12 @@ export const SessionCreateBodySchema = z.object({
 		.describe("The root's remaining budget in tokens; null or absent is unlimited."),
 	title: SessionTitleSchema.optional(),
 	attachments: z.array(ChatAttachmentInputSchema).optional(),
+	timeZone: z
+		.string()
+		.optional()
+		.describe(
+			"The sender's IANA time zone, such as `Asia/Shanghai`; the model reads the message's sent time in it. Absent or unknown: the server's time zone.",
+		),
 	disabledExtensions: z
 		.array(z.string())
 		.optional()
@@ -284,6 +290,12 @@ export const SessionMessageBodySchema = z.object({
 	text: z.string(),
 	requestId: z.string(),
 	attachments: z.array(ChatAttachmentInputSchema).optional(),
+	timeZone: z
+		.string()
+		.optional()
+		.describe(
+			"The sender's IANA time zone, such as `Asia/Shanghai`; the model reads the message's sent time in it. Absent or unknown: the server's time zone.",
+		),
 });
 
 /**

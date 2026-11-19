@@ -2,6 +2,7 @@ import type { TaskSpec } from "@crh/protocol";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { SUBAGENT_NOTE } from "../src/agent/extension.ts";
 import { GenerationTimings } from "../src/agent/latency.ts";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
@@ -174,10 +175,19 @@ it("runs a subagent in the background and waits for its answer", async () => {
 	// Idempotent: the same tool call finds the same session.
 	expect((await subagent(parent.id, "bg-1", { default: "inherit", rules: [] })).created).toBe(false);
 
-	faux.setResponses([fauxAssistantMessage([fauxText("background answer")])]);
+	const seen: string[] = [];
+	faux.setResponses([
+		(context) => {
+			seen.push(JSON.stringify(context.messages));
+			return fauxAssistantMessage([fauxText("background answer")]);
+		},
+	]);
 	const submission = await runtime.startSubagent(child.id, "do the thing", "subagent:bg-1");
 	expect(submission).toBeTruthy();
 	expect(await runtime.waitSubagent(child.id)).toEqual({ status: "done", answer: "background answer" });
+	// The subagent is told its user is the parent agent, and the task carries its sent time in the server's zone.
+	expect(seen[0]).toContain(SUBAGENT_NOTE);
+	expect(seen[0]).toMatch(/\[Sent [^\]]*, the server's time zone\]/);
 
 	const children = await runtime.subagentSessions(parent.id);
 	expect(children.map((c) => c.id)).toEqual([child.id]);

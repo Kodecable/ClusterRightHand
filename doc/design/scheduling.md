@@ -36,7 +36,8 @@ Triggering and submitting are separate steps, so a crash between them neither lo
    In one transaction it records a `pending` run, unique per schedule and fire time, and advances the
    schedule's next time. A duplicate trigger is rejected by the unique constraint.
 2. **Submit.** A submitter claims the pending run, stops the previous instance, and creates the session
-   with its first message. The session id and request id are derived from the run, so repeating the
+   with its first message, the schedule's prompt. Its sent time is in the schedule's time zone
+   ([Message time](agent-runtime.md#message-time)). The session id and request id are derived from the run, so repeating the
    submission is idempotent.
 3. **Recovery.** At startup crhs finishes interrupted preemptions, submits leftover pending runs, and
    reconciles runs that ended while it was down. Running sessions continue through durable's recovery.

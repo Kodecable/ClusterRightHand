@@ -573,6 +573,7 @@ export class AgentRuntime {
 			content?: { type: "text"; text: string }[];
 			attachments?: ChatAttachment[];
 			lastUsedFrom?: string | null;
+			timeZone?: string;
 		} = {},
 	): Promise<string> {
 		return submit(this.#host, sessionId, by, text, requestId, options);
@@ -589,7 +590,7 @@ export class AgentRuntime {
 		scheduleId: string,
 		text: string,
 		requestId: string,
-		options: { checkQuota?: boolean } = {},
+		options: { checkQuota?: boolean; timeZone?: string } = {},
 	): Promise<string> {
 		return submitAsSchedule(this.#host, sessionId, scheduleId, text, requestId, options);
 	}

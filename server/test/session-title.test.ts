@@ -123,10 +123,20 @@ it("generates after the first run and not again after", async () => {
 	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo" });
 	expect(await sessionRow(session.id)).toEqual({ title: null, title_pending: 1 });
 
-	faux.setResponses([answer("Hello there"), answer("Deploy the cluster.")]);
+	const titleInputs: string[] = [];
+	faux.setResponses([
+		answer("Hello there"),
+		(context) => {
+			titleInputs.push(JSON.stringify(context.messages));
+			return answer("Deploy the cluster.");
+		},
+	]);
 	const first = await runtime.submit(session.id, owner, "Please deploy the cluster", "title-1");
 	expect((await waitSubmission(runtime, session.id, first)).status).toBe("done");
 	await waitTitle(session.id, "Deploy the cluster");
+	// The title model reads the typed text only, not the sent time crhs appends to it.
+	expect(titleInputs[0]).toContain("User message:\\nPlease deploy the cluster\\n\\nAssistant answer:");
+	expect(titleInputs[0]).not.toContain("[Sent ");
 	expect(await sessionRow(session.id)).toEqual({ title: "Deploy the cluster", title_pending: 0 });
 
 	// The next run sees a settled title: no second generation call is made.

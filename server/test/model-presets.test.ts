@@ -94,7 +94,7 @@ it("lists all three presets with their fixed default prompt and protocol", async
 		expect(p.protocol.length).toBeGreaterThan(0);
 	}
 	const session = await preset("session");
-	expect(session.defaultPrompt).toContain("You are ClusterRightHand");
+	expect(session.defaultPrompt).toContain("ClusterRightHand Server (crhs)");
 	expect(session.protocol).toContain("list_nodes");
 	const review = await preset("review");
 	expect(review.defaultPrompt).not.toContain("JSON");
@@ -174,7 +174,7 @@ it("stores a session prompt without a model and title models at their level", as
 		}
 	).preset;
 	expect(session).toMatchObject({ kind: "session", model: null, systemPrompt: "Speak plainly." });
-	expect(session.defaultPrompt).toContain("You are ClusterRightHand");
+	expect(session.defaultPrompt).toContain("ClusterRightHand Server (crhs)");
 
 	// An explicit level is stored; an absent one resolves to off and is omitted.
 	const title = ((await (await put("title", { model: ref() })).json()) as { preset: ModelPresetView }).preset;

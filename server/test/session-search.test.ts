@@ -388,12 +388,13 @@ describeBackends("session search", (backend) => {
 			return rows[0]?.text ?? null;
 		}
 
-		it("generates search_text from user strings, user text blocks and assistant text blocks only", async () => {
+		it("generates search_text from user strings, a user message's typed first block and assistant text blocks only", async () => {
 			const conversationId = durableId();
 			const userString = durableId();
 			const userArray = durableId();
 			const assistant = durableId();
 			const toolResult = durableId();
+			const crhInput = durableId();
 			const system = durableId();
 			const compaction = durableId();
 			const capped = durableId();
@@ -405,6 +406,14 @@ describeBackends("session search", (backend) => {
 						{ type: "image", data: "AAAA", mimeType: "image/png" },
 						{ type: "text", text: "user array second" },
 					]),
+				},
+				{
+					...userRecord(crhInput, conversationId, [
+						{ type: "text", text: "typed with a file" },
+						{ type: "text", text: "[attachment note]" },
+						{ type: "text", text: "[Sent 2026-11-19 19:30, Thursday, UTC (UTC+00:00), the server's time zone]" },
+					]),
+					kind: "crh.user_input",
 				},
 				assistantRecord(assistant, conversationId, [
 					{ type: "thinking", thinking: "thinking only" },
@@ -432,7 +441,9 @@ describeBackends("session search", (backend) => {
 			]);
 
 			expect(await searchTextOf(userString)).toBe("user string content");
-			expect(await searchTextOf(userArray)).toBe("user array first\nuser array second");
+			// The first text block is the typed text; attachment notes and the sent time follow it.
+			expect(await searchTextOf(userArray)).toBe("user array first");
+			expect(await searchTextOf(crhInput)).toBe("typed with a file");
 			expect(await searchTextOf(assistant)).toBe("assistant visible one\nassistant visible two");
 			expect(await searchTextOf(toolResult)).toBeNull();
 			expect(await searchTextOf(system)).toBeNull();

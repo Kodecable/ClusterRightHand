@@ -295,6 +295,45 @@ three administrator settings:
 Each preset's prompt is the custom prompt or a built-in default, followed by fixed protocol text that the
 model needs to use the tools or answer in a parseable form. Changes apply to the next model request.
 
+### Session system prompt
+
+A session's system prompt is built for every model request, in this order:
+
+1. **The prompt**: the Session preset's custom prompt, or the default. The default says that the model is
+   a helpful assistant running inside ClusterRightHand Server (crhs), operating the user's nodes for them,
+   that it replies in the language of the user's latest message, and that it is concise. A custom prompt
+   replaces all of it.
+2. **The protocol**: the tool guide, fixed in code. It explains targets, the output notes, task ids,
+   libraries, approvals, extensions, subagents and the sent-time note on user messages.
+3. **The user**: the session owner's username, display name and user groups (at most 20 named, the rest
+   counted), quoted as data, and which libraries they reach.
+4. **For a subagent**: that its user messages come from the parent agent, not from a person.
+5. **The extension list**: each extension the session can use, with its description and tool count.
+
+Nothing in the system prompt changes from one request to the next unless a setting, the owner's groups
+or the extensions change, so the provider's prompt cache keeps the prefix. The current time is never in
+it; it travels with the user messages.
+
+### Message time
+
+Each user message ends with one text block that crhs adds when the message is submitted, such as
+`[Sent 2026-11-19 19:30, Thursday, Asia/Shanghai (UTC+08:00), the user's time zone]`: the local date and
+time, weekday, IANA time zone and UTC offset, and whose time zone it is. The text is stored with the
+message, so later requests send the same bytes and the prompt cache holds.
+
+| Sender | Time zone |
+|---|---|
+| WebUI (new session and message) | The browser's, sent as `timeZone`; an unknown or missing zone uses the server's |
+| API token that sends `timeZone` | That zone, under the same rule |
+| Chat channels, API tokens without `timeZone`, MCP | The server's |
+| Schedule run | The schedule's own time zone |
+| A subagent's task from its parent | The server's |
+
+The typed text stays the message's first text block. The WebUI transcript, a chat's history, title
+generation, Auto Review's user instructions and session search read only that block, so nobody sees the
+note and it never counts as something the user wrote. A subagent request's wake message to its handler
+is not a user message and carries no time.
+
 Auto Review answers through a `submit_review` tool call with a decision and a risk level: `approve` or
 `escalate`, and `low`, `medium` or `high`. Only a consistent, schema-valid answer can approve — low+approve,
 medium+approve, medium+escalate or high+escalate; a high-risk approval, a missing or invalid risk and any

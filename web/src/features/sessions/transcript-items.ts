@@ -90,7 +90,7 @@ function attachmentsOf(data: Json | undefined): ChatAttachment[] {
 	});
 }
 
-/** The first text block of a user message: the typed text of a `crh.user_input`. */
+/** The first text block of a user message: the typed text, before attachment notes and the sent time. */
 function firstText(content: string | { type: string; text?: string }[]): string {
 	if (typeof content === "string") return content;
 	return content.find((block) => block.type === "text")?.text ?? "";
@@ -220,9 +220,9 @@ export function transcript(state: SessionState): TranscriptItem[] {
 				kind: "user",
 				key: id,
 				entryId: id,
-				// A crh input's content is the typed text first, then one block per attachment; a plain
-				// pi.user entry keeps the whole content, so older transcripts render exactly as before.
-				text: kind === "crh.user_input" ? firstText(message.content) : userText(message.content),
+				// A user input's content is the typed text first, then one block per attachment and the sent
+				// time the model reads (doc/design/agent-runtime.md "Message time"); only the typed text shows.
+				text: firstText(message.content),
 				...(attachments.length > 0 ? { attachments } : {}),
 				...(message.timestamp === undefined ? {} : { at: message.timestamp }),
 			});

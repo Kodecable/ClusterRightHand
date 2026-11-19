@@ -16,6 +16,7 @@ import { exhaustedLevel } from "./quota.ts";
 import type { RuntimeHost } from "./runtime-core.ts";
 import { loadConversation } from "./runtime-core.ts";
 import { settleInput } from "./runtime-state.ts";
+import { type SentTimeZone, senderTimeZone, withSentTime } from "./sent-time.ts";
 import { recordTreeReply } from "./session-replies.ts";
 
 /**
@@ -39,12 +40,15 @@ export async function submit(
 		attachments?: ChatAttachment[];
 		/** Where the message came from: `web`, a chat thread id, or null for any other submitter. */
 		lastUsedFrom?: string | null;
+		/** The sender's IANA time zone (the WebUI's browser); absent or invalid uses the server's. */
+		timeZone?: string;
 	} = {},
 ): Promise<string> {
 	// A user driving a session shared with them still acts on behalf of its owner (doc/design/access-control.md);
 	// an internal api_request carries the agent session as its actor.
 	const actor = by.actor ?? { type: "user", id: by.userId };
-	return submitInput(host, sessionId, text, requestId, actor, true, options);
+	const { timeZone, ...rest } = options;
+	return submitInput(host, sessionId, text, requestId, actor, senderTimeZone(timeZone), true, rest);
 }
 
 /** How long a manual compaction waits for durable to say whether it has an old history to summarize. */
@@ -191,15 +195,18 @@ export async function submitAsSchedule(
 	scheduleId: string,
 	text: string,
 	requestId: string,
-	options: { checkQuota?: boolean } = {},
+	options: { checkQuota?: boolean; timeZone?: string } = {},
 ): Promise<string> {
-	// A schedule is not the WebUI and not a chat thread: the message came from nowhere.
+	// The message carries the time in the schedule's own time zone (doc/design/scheduling.md "Triggering and
+	// submission"); a schedule is not the WebUI and not a chat thread: the message came from nowhere.
+	const sent = senderTimeZone(options.timeZone);
 	return submitInput(
 		host,
 		sessionId,
 		text,
 		requestId,
 		{ type: "schedule", id: scheduleId },
+		sent.source === "user" ? { zone: sent.zone, source: "schedule" } : sent,
 		options.checkQuota !== false,
 		{ lastUsedFrom: null },
 	);
@@ -211,6 +218,7 @@ async function submitInput(
 	text: string,
 	requestId: string,
 	actor: { type: string; id: string },
+	timeZone: SentTimeZone,
 	checkQuota = true,
 	options: {
 		content?: { type: "text"; text: string }[];
@@ -232,17 +240,19 @@ async function submitInput(
 			);
 		}
 	}
-	// With attachments the input is a crh entry whose data the transcript reads; without them it stays a
-	// plain pi.user entry, so existing sessions render as before (doc/design/library.md "Chat attachments").
+	// With attachments the input is a crh entry whose data the transcript reads; without them it is a plain
+	// pi.user entry (doc/design/library.md "Chat attachments"). Either way the typed text is the first text
+	// block and the sent time the last (doc/design/agent-runtime.md "Message time").
+	const content = withSentTime(options.content ?? text, new Date(), timeZone);
 	const draft =
 		options.attachments !== undefined && options.attachments.length > 0
 			? {
 					type: "input" as const,
-					content: options.content ?? text,
+					content,
 					entry: { kind: "crh.user_input", data: { attachments: options.attachments } },
 					requestId,
 				}
-			: { type: "input" as const, content: text, requestId };
+			: { type: "input" as const, content, requestId };
 	// Record where the message came from before durable can start the run: a fast first answer must not be
 	// mistaken for a scheduled run's text, which is not pushed (doc/design/channels.md "Notifications").
 	if (options.lastUsedFrom !== undefined) {

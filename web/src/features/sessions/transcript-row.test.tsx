@@ -1069,13 +1069,27 @@ describe("attachment chips and crh.user_input", () => {
 		expect(items[0]).toMatchObject({ kind: "user", text: "look at this", attachments: [attachment] });
 	});
 
-	test("a plain pi.user entry still shows its whole content", () => {
+	test("a plain pi.user entry shows its typed text, not the sent time the model reads", () => {
 		const state = {
 			...initialState,
-			entries: [{ id: "1", kind: "pi.user", message: { role: "user" as const, content: "old message" } }],
+			entries: [
+				{
+					id: "1",
+					kind: "pi.user",
+					message: {
+						role: "user" as const,
+						content: [
+							{ type: "text", text: "hello" },
+							{ type: "text", text: "[Sent 2026-11-19 19:30, Thursday, UTC (UTC+00:00), the server's time zone]" },
+						],
+					},
+				},
+				{ id: "2", kind: "pi.user", message: { role: "user" as const, content: "a wake message" } },
+			],
 		};
-		expect(transcript(state)[0]).toMatchObject({ kind: "user", text: "old message" });
+		expect(transcript(state)[0]).toMatchObject({ kind: "user", text: "hello" });
 		expect(transcript(state)[0]).not.toHaveProperty("attachments");
+		expect(transcript(state)[1]).toMatchObject({ kind: "user", text: "a wake message" });
 	});
 
 	test("a reachable attachment links to its library file", async () => {

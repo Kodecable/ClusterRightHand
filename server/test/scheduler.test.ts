@@ -318,6 +318,24 @@ it("fires a due schedule once, creates the run's session and advances next_run_a
 	expect(JSON.parse(finished[0]?.detail ?? "{}")).toMatchObject({ run_id: run.id, status: "succeeded" });
 });
 
+it("sends the prompt with its sent time in the schedule's time zone", async () => {
+	const owner = await newOwner("owner-zone");
+	const schedule = await makeSchedule(owner, { timezone: "Asia/Tokyo" });
+	await setNextRun(schedule.id, new Date("2026-01-05T09:00:00.000Z"));
+	const sent: unknown[] = [];
+	faux.setResponses([
+		(context) => {
+			sent.push(context.messages.filter((message) => message.role === "user").at(-1)?.content);
+			return fauxAssistantMessage([fauxText("checked")]);
+		},
+	]);
+	await startAt("2026-01-05T09:01:00.000Z");
+	await waitFor("the run", async () => ((await runsOf(schedule.id))[0]?.status === "succeeded" ? true : undefined));
+	const content = sent[0] as { type: string; text: string }[];
+	expect(content[0]).toEqual({ type: "text", text: "Check the nodes" });
+	expect(content.at(-1)?.text).toMatch(/, Asia\/Tokyo \(UTC\+09:00\), the schedule's time zone\]$/);
+});
+
 it("wakes at the next trigger and fires without a manual tick", async () => {
 	const owner = await newOwner("owner-wake");
 	const schedule = await makeSchedule(owner);

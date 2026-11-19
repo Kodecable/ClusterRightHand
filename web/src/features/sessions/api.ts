@@ -412,7 +412,9 @@ export interface CreateSessionInput {
 export function useCreateSession() {
 	return useMutation({
 		mutationFn: (input: CreateSessionInput) =>
-			http.post<{ session: SessionView }>("/sessions", input).then((r) => r.session),
+			http
+				.post<{ session: SessionView }>("/sessions", { ...input, timeZone: browserTimeZone() })
+				.then((r) => r.session),
 		meta: { toast: false },
 	});
 }
@@ -494,6 +496,18 @@ export function usePatchSession(id: string) {
 	});
 }
 
+/**
+ * The browser's IANA time zone, sent with each message so the model reads its sent time in the user's zone
+ * (doc/design/agent-runtime.md "Message time"); undefined when the browser does not report one.
+ */
+function browserTimeZone(): string | undefined {
+	try {
+		return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function useSendMessage(id: string) {
 	const queryClient = useQueryClient();
 	return useMutation({
@@ -508,7 +522,9 @@ export function useSendMessage(id: string) {
 		}) =>
 			http.post<{ submissionId: string }>(
 				`/sessions/${enc(id)}/messages`,
-				attachments === undefined || attachments.length === 0 ? { text, requestId } : { text, requestId, attachments },
+				attachments === undefined || attachments.length === 0
+					? { text, requestId, timeZone: browserTimeZone() }
+					: { text, requestId, attachments, timeZone: browserTimeZone() },
 			),
 		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: sessionKeys.detail(id) });

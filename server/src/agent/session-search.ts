@@ -152,7 +152,7 @@ async function searchDetails(
 			search_text,
 			match_count,
 			hit_count,
-			case when ranked.record::jsonb ->> 'kind' = 'pi.user' then 'user' else 'assistant' end as entry_role,
+			case when ranked.record::jsonb ->> 'kind' in ('pi.user', 'crh.user_input') then 'user' else 'assistant' end as entry_role,
 			case
 				when jsonb_typeof(ranked.record::jsonb -> 'model') = 'array' then
 					case

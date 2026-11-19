@@ -21,6 +21,7 @@ import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts
 import { nextRequests, pendingAgentRequests } from "./runtime-requests.ts";
 import { refreshStates } from "./runtime-state.ts";
 import { recordInput } from "./runtime-submissions.ts";
+import { serverTimeZone, withSentTime } from "./sent-time.ts";
 import type { SessionState } from "./session-state.ts";
 
 /**
@@ -171,7 +172,9 @@ export async function startSubagent(
 	});
 	// The subagent's next request selects its extensions from the rows read now.
 	await syncSessionExtensions(host, row);
-	const submission = await conversation.submit({ type: "input", content: text, requestId }, host.context);
+	// The parent's task carries the sent time in the server's time zone (doc/design/agent-runtime.md "Message time").
+	const content = withSentTime(text, new Date(), { zone: serverTimeZone(), source: "server" });
+	const submission = await conversation.submit({ type: "input", content, requestId }, host.context);
 	await recordInput(host, childId, submission);
 	void host.audit?.record({
 		actor: { type: "subagent", id: row.parent_session_id ?? childId, onBehalfOfUserId: row.owner_user_id },

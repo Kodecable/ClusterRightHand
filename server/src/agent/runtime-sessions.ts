@@ -199,6 +199,8 @@ export interface CreateSessionWithMessageInput {
 	disabledExtensions?: string[];
 	/** Where the first message came from: `web`, a chat thread id, or null. */
 	lastUsedFrom?: string | null;
+	/** The sender's IANA time zone for the first message's sent time; absent uses the server's. */
+	timeZone?: string;
 }
 
 /**
@@ -240,6 +242,7 @@ export async function createSessionWithMessage(
 			...(input.content ? { content: input.content } : {}),
 			...(input.attachments ? { attachments: input.attachments } : {}),
 			...(input.lastUsedFrom === undefined ? {} : { lastUsedFrom: input.lastUsedFrom }),
+			...(input.timeZone === undefined ? {} : { timeZone: input.timeZone }),
 		});
 	} catch (err) {
 		await removeCreatedSession(host, session.id).catch((cleanupError: unknown) => {

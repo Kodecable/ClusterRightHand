@@ -664,6 +664,7 @@ export class Scheduler {
 					schedule.id,
 					schedule.prompt,
 					this.#requestId(schedule.id, current.fireTime),
+					{ timeZone: schedule.timezone },
 				);
 			} catch (err) {
 				await this.#fail(schedule, current.id, errorText(err), sessionId);
@@ -944,7 +945,7 @@ export class Scheduler {
 					schedule.id,
 					schedule.prompt,
 					this.#requestId(schedule.id, run.fire_time),
-					{ checkQuota: false },
+					{ checkQuota: false, timeZone: schedule.timezone },
 				);
 				this.#watchRun(run.id, run.session_id, submissionId);
 			} catch (err) {

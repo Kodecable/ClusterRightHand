@@ -138,7 +138,16 @@ describe("reviewHistoryEntries", () => {
 				id: 1,
 				conversationId: 1,
 				kind: "pi.user",
-				model: [{ role: "user", content: [{ type: "text", text: "deploy it" }] }],
+				// The sent time crhs appends is not part of the user's instruction.
+				model: [
+					{
+						role: "user",
+						content: [
+							{ type: "text", text: "deploy it" },
+							{ type: "text", text: "[Sent 2026-11-19 19:30, Thursday, UTC (UTC+00:00), the server's time zone]" },
+						],
+					},
+				],
 			},
 			{
 				id: 2,
