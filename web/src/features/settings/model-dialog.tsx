@@ -1,7 +1,7 @@
 import type { CustomApi, ThinkingLevel } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { ChevronRightIcon } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useId, useMemo, useRef, useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { FieldShell } from "@/components/form";
 import { Button } from "@/components/ui/button";
@@ -97,73 +97,85 @@ function FormatLevelTable({
 	patchLabel: (level: ThinkingLevel, label: string) => void;
 }) {
 	const { t, i18n } = useLingui();
-	const kindLabel = (kind: FormatLevelKind) => (kind === "default" ? t`Default (omitted)` : t`Mapped value`);
-	const rows = THINKING_LEVELS.map((level) => ({ level }));
-	const columns: DataTableColumn<(typeof rows)[number]>[] = [
-		{
-			id: "label",
-			header: t`Display name`,
-			size: 200,
-			cell: ({ row: levelRow }) => {
-				const level = levelRow.original.level;
-				const labelError = errors.labels?.[level];
-				return (
-					<div className="grid gap-1">
-						<Input
-							aria-label={t`${level} display name`}
-							placeholder={level}
-							aria-invalid={labelError !== undefined || undefined}
-							value={row.labels[level]}
-							onChange={(event) => patchLabel(level, event.target.value)}
-						/>
-						{labelError !== undefined && <ErrorText>{providerErrorText(i18n, labelError)}</ErrorText>}
-					</div>
-				);
+	// DataTable renders a cell function as a component, so a column rebuilt on every render remounts its
+	// inputs and a keystroke loses focus. The columns depend only on the language: each level's values ride
+	// in the row data and the patch callbacks are read through a ref, as in the SSH route editor.
+	const patchRef = useRef({ patchLevel, patchLabel });
+	patchRef.current = { patchLevel, patchLabel };
+	const rows = THINKING_LEVELS.map((level) => ({
+		level,
+		label: row.labels[level],
+		labelError: errors.labels?.[level],
+		entry: row.formatLevels[level],
+		error: errors.formatLevels?.[level],
+	}));
+	const columns = useMemo<DataTableColumn<(typeof rows)[number]>[]>(() => {
+		const kindLabel = (kind: FormatLevelKind) => (kind === "default" ? t`Default (omitted)` : t`Mapped value`);
+		return [
+			{
+				id: "label",
+				header: t`Display name`,
+				size: 200,
+				cell: ({ row: levelRow }) => {
+					const { level, label, labelError } = levelRow.original;
+					return (
+						<div className="grid gap-1">
+							<Input
+								aria-label={t`${level} display name`}
+								placeholder={level}
+								aria-invalid={labelError !== undefined || undefined}
+								value={label}
+								onChange={(event) => patchRef.current.patchLabel(level, event.target.value)}
+							/>
+							{labelError !== undefined && <ErrorText>{providerErrorText(i18n, labelError)}</ErrorText>}
+						</div>
+					);
+				},
 			},
-		},
-		{
-			id: "mapping",
-			header: t`Mapping`,
-			size: 160,
-			cell: ({ row: levelRow }) => {
-				const level = levelRow.original.level;
-				const entry = row.formatLevels[level];
-				return (
-					<Select value={entry.kind} onValueChange={(next) => patchLevel(level, { kind: next as FormatLevelKind })}>
-						<SelectTrigger size="sm" className="w-full" aria-label={t`${level} mapping`}>
-							<SelectValue>{(selected: FormatLevelKind) => kindLabel(selected)}</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="default">{t`Default (omitted)`}</SelectItem>
-							<SelectItem value="value">{t`Mapped value`}</SelectItem>
-						</SelectContent>
-					</Select>
-				);
+			{
+				id: "mapping",
+				header: t`Mapping`,
+				size: 160,
+				cell: ({ row: levelRow }) => {
+					const { level, entry } = levelRow.original;
+					return (
+						<Select
+							value={entry.kind}
+							onValueChange={(next) => patchRef.current.patchLevel(level, { kind: next as FormatLevelKind })}
+						>
+							<SelectTrigger size="sm" className="w-full" aria-label={t`${level} mapping`}>
+								<SelectValue>{(selected: FormatLevelKind) => kindLabel(selected)}</SelectValue>
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="default">{t`Default (omitted)`}</SelectItem>
+								<SelectItem value="value">{t`Mapped value`}</SelectItem>
+							</SelectContent>
+						</Select>
+					);
+				},
 			},
-		},
-		{
-			id: "value",
-			header: t`Value`,
-			minSize: 180,
-			cell: ({ row: levelRow }) => {
-				const level = levelRow.original.level;
-				const entry = row.formatLevels[level];
-				const error = errors.formatLevels?.[level];
-				return (
-					<div className="grid gap-1">
-						<Input
-							aria-label={t`${level} value`}
-							aria-invalid={error !== undefined || undefined}
-							disabled={entry.kind !== "value"}
-							value={entry.value}
-							onChange={(event) => patchLevel(level, { value: event.target.value })}
-						/>
-						{error !== undefined && <ErrorText>{providerErrorText(i18n, error)}</ErrorText>}
-					</div>
-				);
+			{
+				id: "value",
+				header: t`Value`,
+				minSize: 180,
+				cell: ({ row: levelRow }) => {
+					const { level, entry, error } = levelRow.original;
+					return (
+						<div className="grid gap-1">
+							<Input
+								aria-label={t`${level} value`}
+								aria-invalid={error !== undefined || undefined}
+								disabled={entry.kind !== "value"}
+								value={entry.value}
+								onChange={(event) => patchRef.current.patchLevel(level, { value: event.target.value })}
+							/>
+							{error !== undefined && <ErrorText>{providerErrorText(i18n, error)}</ErrorText>}
+						</div>
+					);
+				},
 			},
-		},
-	];
+		];
+	}, [t, i18n]);
 	return (
 		<>
 			<Label>{t`Level mapping`}</Label>
