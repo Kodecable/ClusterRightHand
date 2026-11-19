@@ -117,7 +117,7 @@ export async function waitTask(
 				signal?.removeEventListener("abort", done);
 				resolve();
 			};
-			const timer = setTimeout(done, deadline - Date.now());
+			const timer = setTimeout(done, Math.max(0, deadline - Date.now()));
 			signal?.addEventListener("abort", done);
 			waiters.add(done);
 			wake = done;

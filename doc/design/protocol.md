@@ -162,7 +162,7 @@ crhs or the WebUI may parse them or branch on them.
 
 - `platform` is one line, `<os>, <arch>, <distribution>`: crha's own Go `GOOS` and `GOARCH`, then the
   `PRETTY_NAME` of `os-release` (else `NAME VERSION_ID`, else `ID`), such as `linux, amd64, Ubuntu
-  24.04.4 LTS`.
+  24.04.4 LTS`. crhs keeps at most 256 bytes of it.
 - `hints` are short sentences a model needs before it runs anything, one per line: the init system and
   PID 1, the package managers and privilege tools on `PATH` (and their absence), the kernel. At most 16
   lines and 1 KiB, in whole lines; crha truncates and crhs truncates again, since the report is the

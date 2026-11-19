@@ -545,6 +545,21 @@ function shellsFromJson(value: unknown): Shells {
 /** The bounds of Facts.hints, in lines and UTF-8 bytes (doc/design/protocol.md "Events"). */
 export const MAX_HINT_LINES = 16;
 export const MAX_HINT_BYTES = 1024;
+/** The bound of Facts.platform in UTF-8 bytes: one short line. */
+export const MAX_PLATFORM_BYTES = 256;
+
+/** The first `maxBytes` UTF-8 bytes of a text, cut between code points. */
+function cutBytes(text: string, maxBytes: number): string {
+	let kept = "";
+	let bytes = 0;
+	for (const char of text) {
+		const size = Buffer.byteLength(char, "utf8");
+		if (bytes + size > maxBytes) break;
+		kept += char;
+		bytes += size;
+	}
+	return kept;
+}
 
 /**
  * Keeps whole lines of a node's hints within MAX_HINT_LINES and MAX_HINT_BYTES. crha truncates too; crhs does
@@ -568,7 +583,7 @@ export function factsToJson(value: Facts): JsonFacts {
 	const out: JsonFacts = {
 		hostname: text(value.hostname, "hostname"),
 	};
-	if (value.platform !== undefined) out.platform = text(value.platform, "platform");
+	if (value.platform !== undefined) out.platform = cutBytes(text(value.platform, "platform"), MAX_PLATFORM_BYTES);
 	if (value.hints !== undefined) out.hints = truncateHints(text(value.hints, "hints"));
 	if (value.notesPath !== undefined) out.notesPath = text(value.notesPath, "notesPath");
 	if (value.clockOffsetMs !== undefined) out.clockOffsetMs = int(value.clockOffsetMs, "clockOffsetMs");

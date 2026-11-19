@@ -42,7 +42,7 @@ const CONFIG: readonly ExtensionConfigField[] = [
 	{
 		key: "baseUrl",
 		label: "Base URL",
-		kind: "string",
+		kind: "url",
 		required: false,
 		description: "The DeepSeek API base URL.",
 		default: DEFAULT_BASE_URL,

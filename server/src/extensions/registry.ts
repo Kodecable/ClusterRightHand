@@ -134,7 +134,7 @@ class BuiltinExtension implements Extension {
 	async call(tool: string, args: Record<string, unknown>, context: ExtensionCallContext): Promise<unknown> {
 		if (!this.#provider.config || this.#provider.config.length === 0) return this.#provider.call(tool, args, context);
 		if (!this.#connections) throw new ExtensionUnavailableError(`${this.#row.name} has no settings in this process`);
-		const config = await this.#connections.builtinConfig(this.#row, this.#provider);
+		const config = await this.#connections.builtinConfig(this.#row.name, this.#provider);
 		return this.#provider.call(tool, args, { ...context, config });
 	}
 	operation(tool: string, args: Record<string, unknown>): Operation {

@@ -60,7 +60,8 @@ The scope of the first version:
 ### MCP connections
 
 crhs connects to an MCP server only when it needs it, and keeps what the server reported on the extension
-row: the tool list, its `instructions` and `serverInfo.description`, and when it was listed. Search, the
+row: the tool list, its `instructions` (at most 8 KiB) and `serverInfo.description` (at most 1 KiB; an
+empty text counts as none), and when it was listed. Search, the
 tool guide, the direct tools and the Extensions page work on that cache, without a connection and across
 restarts. A built-in extension has no connection and is always ready.
 
@@ -217,7 +218,11 @@ They are split so that an administrator can turn off API requests and keep the d
 A built-in extension can declare settings, which the administrator sets on the Extensions page: plain
 values, and secrets such as an API key that are encrypted with the master key like an MCP extension's
 headers and never returned. A required setting must be set before the extension can be enabled, and a
-built-in missing one is unavailable. `crhs-ds-search` has an API key and the API's base URL. It ships
+built-in missing one is unavailable. A `url` setting carries the secrets to its endpoint, like an MCP
+extension's URL its headers: it must be an http(s) URL without credentials, and changing it needs the
+secrets entered again (or removed), so a typo or a tampered update cannot redirect a key. Stored secrets
+that cannot be decrypted are never dropped silently: a save that would keep them is refused and names
+the secrets to enter again. `crhs-ds-search` has an API key and the API's base URL. It ships
 disabled: both of its endpoints are billed to the key's DeepSeek account per successful request. It adds
 no limits of its own: the API's limits (50 results, a 128-character query, an 8192-character URL, the QPS
 limits) and the output limit of one tool result are the only bounds. A page longer than one result ends

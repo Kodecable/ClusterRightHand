@@ -30,7 +30,9 @@ export const ExtensionConfigFieldSchema = z
 	.object({
 		key: z.string(),
 		label: z.string(),
-		kind: z.enum(["string", "secret", "number", "boolean"]),
+		kind: z
+			.enum(["string", "url", "secret", "number", "boolean"])
+			.describe("A `url` setting carries the secrets to its endpoint: changing it needs them entered again."),
 		required: z.boolean(),
 		description: z.string(),
 		default: z.union([z.string(), z.number(), z.boolean()]).nullable(),

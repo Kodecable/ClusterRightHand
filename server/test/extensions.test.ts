@@ -848,7 +848,8 @@ describe("MCP extensions", () => {
 		expect(mcp.status("fake")).toMatchObject({ state: "ready", connected: false });
 		expect(state.requests).toBe(requests);
 
-		// Without instructions the server's own description is used; the administrator's text wins over both.
+		// Without instructions (none, or an empty text) the server's own description is used; the administrator's
+		// text wins over both.
 		await db.updateTable("extensions").set({ server_instructions: null }).where("name", "=", "fake").execute();
 		await mcp.close();
 		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)) });
@@ -880,6 +881,33 @@ describe("MCP extensions", () => {
 		await waitFor(async () => (mcp.status("fake").refreshedAt !== refreshed ? true : undefined));
 		expect(state.requests).toBeGreaterThan(requests);
 		await waitFor(async () => (mcp.status("fake").connected ? undefined : true));
+	});
+
+	it("takes an empty instructions text as none and closes the connection a scheduled refresh opened", async () => {
+		await mcp.close();
+		mcp = new McpConnections({
+			db,
+			masterKey,
+			fetch: fakeFetch(state, fakeMcp(state)),
+			// Long enough that only the refresh itself could close the connection within the test.
+			idleDisconnectMs: 60_000,
+			refreshIntervalMs: 200,
+			random: () => 0,
+		});
+		state.instructions = "   ";
+		state.serverDescription = "A fake server for tests";
+		await addServer();
+		await mcp.start();
+		await waitFor(async () => (mcp.status("fake").refreshedAt !== null ? true : undefined));
+		await waitFor(async () => (mcp.status("fake").connected ? undefined : true));
+		expect(mcp.instructions("fake")).toBeNull();
+		const ctx = await context({ name: "fake", description: null, enabled: true, available: true });
+		await saveExtension(db, masterKey, "fake", { description: null }, user.userId);
+		const fresh = await context({ name: "fake", description: null, enabled: true, available: true });
+		expect(fresh.extensions?.find((entry) => entry.extension.name === "fake")?.extension.description).toBe(
+			"A fake server for tests",
+		);
+		expect(ctx).toBeDefined();
 	});
 
 	it("refuses a call built for an input schema the server no longer has, with the new schema", async () => {

@@ -385,6 +385,22 @@ async function assertGranteesExist(db: Db, orgId: string, grants: ExtensionGrant
 
 type ConfigValue = string | number | boolean;
 
+/** A URL setting: an absolute http(s) URL with a host and no credentials, like an MCP extension's URL. */
+function parseSettingUrl(key: string, value: string): void {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new UserError(`the setting ${key} must be an absolute http(s) URL`);
+	}
+	if ((url.protocol !== "http:" && url.protocol !== "https:") || url.hostname === "") {
+		throw new UserError(`the setting ${key} must be an http(s) URL with a host`);
+	}
+	if (url.username !== "" || url.password !== "") {
+		throw new UserError(`the setting ${key} must not contain a username or password`);
+	}
+}
+
 /** A built-in row's stored settings: the plain values and the names of the secret ones that are set. */
 function storedConfig(row: Pick<ExtensionRow, "config">): { values: Record<string, ConfigValue>; secrets: string[] } {
 	if (!row.config) return { values: {}, secrets: [] };
@@ -488,17 +504,35 @@ async function applyBuiltinConfig(
 	if (fields.size === 0) throw new UserError(`the extension ${row.name} has no settings`);
 	const stored = storedConfig(row);
 	const values = { ...stored.values };
+	// Every stored secret the request replaces or removes; the rest would have to be kept.
+	const rewritten = new Set(
+		Object.keys(input).filter((key) => fields.get(key)?.kind === "secret" && stored.secrets.includes(key)),
+	);
+	const kept = stored.secrets.filter((key) => !rewritten.has(key));
 	let secrets: Record<string, string> | undefined;
+	const storedSecrets = async (): Promise<Record<string, string>> => {
+		try {
+			return await readConfigSecrets(trx, masterKey, row.config_secret_id);
+		} catch {
+			// Rare (a changed master key, a damaged row), but a secret must never be dropped silently.
+			if (kept.length === 0) return {};
+			throw new UserError(
+				`the stored secret settings of ${row.name} cannot be decrypted, so they cannot be kept; ` +
+					`enter ${kept.join(", ")} again`,
+			);
+		}
+	};
 	for (const [key, value] of Object.entries(input)) {
 		const field = fields.get(key);
 		if (!field) throw new UserError(`the extension ${row.name} has no setting ${key}`);
 		if (value !== null) {
-			const expected = field.kind === "secret" ? "string" : field.kind;
+			const expected = field.kind === "secret" || field.kind === "url" ? "string" : field.kind;
 			if (typeof value !== expected) throw new UserError(`the setting ${key} must be a ${expected}`);
 			if (typeof value === "string" && value.length > 4000) throw new UserError(`the setting ${key} is too long`);
 		}
+		if (field.kind === "url" && typeof value === "string" && value !== "") parseSettingUrl(key, value);
 		if (field.kind === "secret") {
-			secrets ??= await readConfigSecrets(trx, masterKey, row.config_secret_id).catch(() => ({}));
+			secrets ??= await storedSecrets();
 			if (value === null || value === "") delete secrets[key];
 			else secrets[key] = value as string;
 		} else if (value === null || value === "") {
@@ -506,6 +540,14 @@ async function applyBuiltinConfig(
 		} else {
 			values[key] = value;
 		}
+	}
+	// A URL setting carries the secrets to its endpoint, like an MCP extension's URL its headers: moving it
+	// needs the secrets entered again (or removed), so a typo or a tampered update cannot redirect them.
+	for (const field of fields.values()) {
+		if (field.kind !== "url" || !(field.key in input)) continue;
+		const effective = (from: Record<string, ConfigValue>) => from[field.key] ?? field.default ?? null;
+		if (effective(values) === effective(stored.values) || kept.length === 0) continue;
+		throw new UserError(`changing ${field.key} requires entering ${kept.join(", ")} again, or removing it`);
 	}
 	let secretId = row.config_secret_id;
 	let secretNames = stored.secrets;

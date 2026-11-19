@@ -11,6 +11,7 @@ import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { errorText } from "../util/errors.ts";
 import { redactUrlsInText } from "../util/url.ts";
+import { cutUtf8 } from "../util/utf8.ts";
 import { CRH_VERSION } from "../version.ts";
 import type { BuiltinExtensionProvider } from "./builtin.ts";
 import { ExtensionCallLostError, type ExtensionTool, ExtensionToolError, ExtensionUnavailableError } from "./model.ts";
@@ -107,6 +108,17 @@ interface ServerState {
 	inFlight: number;
 	/** When the last connection attempt failed; a call in the next window tries no further. */
 	lastFailureAt: number | null;
+}
+
+/** The longest server `instructions` crhs keeps and shows the model; the rest is cut. */
+const MAX_SERVER_INSTRUCTIONS_BYTES = 8 * 1024;
+/** The longest `serverInfo.description` crhs keeps: it is a one-line summary. */
+const MAX_SERVER_DESCRIPTION_BYTES = 1024;
+
+/** A text the server reports about itself: trimmed, empty as none, cut at a UTF-8 boundary. */
+function serverText(text: string | undefined, maxBytes: number): string | null {
+	const trimmed = text?.trim() ?? "";
+	return trimmed === "" ? null : cutUtf8(trimmed, maxBytes);
 }
 
 function toTool(tool: Tool): ExtensionTool {
@@ -294,8 +306,8 @@ export class McpConnections {
 				await this.#listTools(state, state.client);
 			} else {
 				await this.#connect(state);
-				// Nobody is using the connection the refresh opened: close it again at once.
-				if (state.inFlight === 0 && state.idleTimer === undefined) await this.#disconnect(state);
+				// The refresh opened this connection, so close it again unless a call is using it now.
+				if (state.inFlight === 0) await this.#disconnect(state);
 			}
 		} catch {
 			// The state carries the error; the cache stays for search and the tool guide.
@@ -431,8 +443,9 @@ export class McpConnections {
 					options.timeoutMs ?? this.#options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
 				);
 				state.listChanged = client.getServerCapabilities()?.tools?.listChanged === true;
-				state.instructions = client.getInstructions() ?? null;
-				state.serverDescription = client.getServerVersion()?.description ?? null;
+				// The server's own text reaches the tool guide: an empty one counts as none, and both are bounded.
+				state.instructions = serverText(client.getInstructions(), MAX_SERVER_INSTRUCTIONS_BYTES);
+				state.serverDescription = serverText(client.getServerVersion()?.description, MAX_SERVER_DESCRIPTION_BYTES);
 				await this.#listTools(state, client);
 				state.lastFailureAt = null;
 				// A connection that drops is closed here; the next use connects again. The cache stays valid.
@@ -677,10 +690,14 @@ export class McpConnections {
 	 * A built-in extension's settings for a call, secrets decrypted. It lives here because this object holds
 	 * the database and the master key for every extension.
 	 */
-	builtinConfig(
-		row: ExtensionRow,
+	async builtinConfig(
+		name: string,
 		provider: BuiltinExtensionProvider,
 	): Promise<Record<string, string | number | boolean>> {
+		// Read the row now, not the one the session saw: an approval may have waited while the settings changed.
+		const row = await getExtensionRow(this.#options.db, name);
+		if (row?.kind !== "builtin") throw new ExtensionUnavailableError(`no built-in extension named ${name}`);
+		if (row.enabled !== 1) throw new ExtensionUnavailableError(`the extension ${name} is disabled`);
 		return readBuiltinConfig(this.#options.db, this.#options.masterKey, row, provider);
 	}
 

@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
+import { builtinProvider } from "../src/extensions/builtin.ts";
 import { McpConnections } from "../src/extensions/connections.ts";
 import { sessionExtensionsForUser } from "../src/extensions/registry.ts";
 import { extensionView, getExtensionRow, saveExtension } from "../src/extensions/store.ts";
@@ -162,6 +163,51 @@ describe("crhs-ds-search", () => {
 		await expect(saveExtension(db, masterKey, "crhs-docs", { config: { apiKey: "x" } }, user.userId)).rejects.toThrow(
 			/no settings/,
 		);
+	});
+
+	it("binds the key to the base URL: moving it needs the key again, and it must be an http(s) URL", async () => {
+		await configure();
+		await expect(
+			saveExtension(db, masterKey, "crhs-ds-search", { config: { baseUrl: "https://elsewhere.example" } }, user.userId),
+		).rejects.toThrow(/changing baseUrl requires entering apiKey again/);
+		await expect(
+			saveExtension(db, masterKey, "crhs-ds-search", { config: { baseUrl: "file:///etc/passwd" } }, user.userId),
+		).rejects.toThrow(/http\(s\) URL/);
+		// With the key entered again, the move is allowed.
+		await saveExtension(
+			db,
+			masterKey,
+			"crhs-ds-search",
+			{ config: { baseUrl: `${api.baseUrl}/`, apiKey: "sk-secret-key" } },
+			user.userId,
+		);
+	});
+
+	it("replaces stored secrets that cannot be decrypted once every one is entered again", async () => {
+		await configure();
+		// Another master key cannot read what this one wrote, as after a lost or replaced key file. With the
+		// only secret entered again nothing is dropped, so the save goes through and the new key is readable.
+		const other = MasterKey.generate();
+		await saveExtension(db, other, "crhs-ds-search", { config: { apiKey: "sk-replaced" } }, user.userId);
+		const row = await getExtensionRow(db, "crhs-ds-search");
+		if (!row) throw new Error("no row");
+		const reader = new McpConnections({ db, masterKey: other });
+		try {
+			const provider = builtinProvider("crhs-ds-search");
+			if (!provider) throw new Error("no provider");
+			expect((await reader.builtinConfig("crhs-ds-search", provider)).apiKey).toBe("sk-replaced");
+		} finally {
+			await reader.close();
+		}
+	});
+
+	it("reads the settings when the call runs, not when the session listed the extension", async () => {
+		await configure();
+		const ctx = await context();
+		await saveExtension(db, masterKey, "crhs-ds-search", { config: { apiKey: "sk-new-key" } }, user.userId);
+		const result = await runExtensionTool(ctx, "crhs-ds-search", "search", { query: "fresh" });
+		expect(result.isError).toBe(false);
+		expect(api.requests.at(-1)?.auth).toBe("Bearer sk-new-key");
 	});
 
 	it("searches with the key and returns the model's summaries without an approval", async () => {

@@ -1,4 +1,5 @@
 import type { EntryRecord } from "@earendil-works/pi-durable";
+import { cutUtf8 } from "../util/utf8.ts";
 
 /**
  * The history Auto Review shows the model (doc/design/access-control.md "Auto Review"): user instructions,
@@ -37,19 +38,6 @@ export type ReviewTimelineItem =
 /** The bytes a tool call costs the budget: its name and its serialized arguments, as they are kept. */
 function toolCallBytes(tool: string, argumentsJson: string): number {
 	return Buffer.byteLength(tool, "utf8") + Buffer.byteLength(argumentsJson, "utf8");
-}
-
-/** The first `maxBytes` bytes of `text` without splitting a code point. */
-export function cutUtf8(text: string, maxBytes: number): string {
-	let kept = "";
-	let bytes = 0;
-	for (const char of text) {
-		const size = Buffer.byteLength(char, "utf8");
-		if (bytes + size > maxBytes) break;
-		kept += char;
-		bytes += size;
-	}
-	return kept;
 }
 
 interface PreparedToolCall {
