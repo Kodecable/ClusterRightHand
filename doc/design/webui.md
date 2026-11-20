@@ -418,8 +418,10 @@ administrator sees the same, not every session; administrative views of other us
 through the user pages. Rows are grouped by last activity. Changes arrive over the session list stream
 ([Session list API](#session-list-api)).
 
-A session is unread only for its owner, when the agent replied after the owner last opened it. A shared
-viewer never sees unread markers, because read state is stored once per session.
+A session is unread only for its owner, when the agent replied after the owner last opened it. A final
+answer or scheduled-run report delivered to the owner's chat counts as read too
+([Messages](channels.md#messages)). A shared viewer never sees unread markers, because read state is
+stored once per session.
 
 ### Session search
 

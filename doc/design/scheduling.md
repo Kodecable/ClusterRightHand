@@ -85,6 +85,9 @@ It goes to the private chat's main conversation, not a new topic, and is formatt
 session, like the default-account notice. When the run has no final reply (failed or preempted mid-turn) the
 report is the status line, the link and, when one is recorded, the error.
 
+A sent report marks the run's session read for its owner, so it shows no unread dot in the WebUI
+([Messages](channels.md#messages)).
+
 A report is not a text push: it is the schedule's own message to the account its owner chose. Delivery is
 in-process and best effort like every other channel message: a failure is logged, and there is no outbox, no
 retry and no stored report state. A run that finished while crhs was down and is reconciled at startup sends

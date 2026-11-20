@@ -6,6 +6,7 @@ import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
 import { AgentRuntime } from "../src/agent/runtime.ts";
+import { setSessionState } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { ChannelManager } from "../src/channels/manager.ts";
 import { markdownEscapesToText } from "../src/channels/plain-text.ts";
@@ -1503,6 +1504,102 @@ describe("channels", () => {
 		fake.callback(userId, old?.callback_data ?? "", {});
 		await fake.waitForSent((call) => plainText(call).includes("**You**\n\nthe first message"));
 		expect(await lastUsed(first.session_id)).toBe(first.id);
+	});
+
+	it("marks a session read for its owner once its final answer reached their chat", async () => {
+		const userId = 8702;
+		await link(userId);
+		faux.setResponses([fauxAssistantMessage("an answer read in chat")]);
+		fake.text(userId, "a question from chat");
+		await fake.waitForSent((call) => plainText(call).includes("an answer read in chat"));
+		await runtime.waitForIdle();
+		const thread = await threadFor(userId);
+		if (!thread?.session_id) throw new Error("no thread");
+		const sessionId = thread.session_id;
+		const readState = () =>
+			db
+				.selectFrom("sessions")
+				.select(["reply_at", "owner_read_at"])
+				.where("id", "=", sessionId)
+				.executeTakeFirstOrThrow();
+		// The run's end records the reply; the read mark lands after it whichever comes first.
+		await until(async () => {
+			const row = await readState();
+			return row.reply_at !== null && row.owner_read_at !== null && row.owner_read_at >= row.reply_at;
+		});
+
+		// A reply to a WebUI message is not sent to the chat while the WebUI is online, and stays unread.
+		faux.setResponses([fauxAssistantMessage("an answer for the WebUI")]);
+		const before = (await readState()).reply_at;
+		const sent = await call(app, `/api/sessions/${sessionId}/messages`, {
+			method: "POST",
+			cookie: aliceCookie,
+			body: { text: "from the WebUI", requestId: "web-message-unread" },
+		});
+		expect(sent.status).toBe(202);
+		await settle();
+		await until(async () => (await readState()).reply_at !== before);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const row = await readState();
+		expect(fake.sentCalls().some((sentCall) => plainText(sentCall).includes("an answer for the WebUI"))).toBe(false);
+		expect(row.owner_read_at !== null && row.reply_at !== null && row.owner_read_at < row.reply_at).toBe(true);
+
+		// Offline, the next answer goes to the default notification account, and that counts as read too.
+		const account = await db
+			.selectFrom("channel_accounts")
+			.select("id")
+			.where("platform_user_id", "=", String(userId))
+			.executeTakeFirstOrThrow();
+		await patchUserSettings(db, aliceId, { defaultChannelAccountId: account.id, showProgress: false });
+		try {
+			// Submitted as the WebUI would, without a request that would mark the owner online again.
+			channels.presence.forget(aliceId);
+			faux.setResponses([fauxAssistantMessage("an answer as a notification")]);
+			const alice = { sessionId: "test", userId: aliceId, username: "alice", kind: "member" as const };
+			await runtime.submit(sessionId, alice, "from the WebUI, then away", "web-message-notified", {
+				lastUsedFrom: "web",
+			});
+			await fake.waitForSent((sentCall) => plainText(sentCall).includes("an answer as a notification"));
+			await until(async () => {
+				const next = await readState();
+				return (
+					next.reply_at !== null &&
+					next.reply_at !== row.reply_at &&
+					next.owner_read_at !== null &&
+					next.owner_read_at >= next.reply_at
+				);
+			});
+		} finally {
+			await patchUserSettings(db, aliceId, { defaultChannelAccountId: null, showProgress: true });
+			channels.presence.touch(aliceId);
+		}
+	});
+
+	it("leaves a session unread when an approval card reaches the chat", async () => {
+		const userId = 8703;
+		await link(userId);
+		const thread = await chatSession(userId);
+		const readState = () =>
+			db
+				.selectFrom("sessions")
+				.select(["reply_at", "owner_read_at"])
+				.where("id", "=", thread.sessionId)
+				.executeTakeFirstOrThrow();
+		await until(async () => (await readState()).owner_read_at !== null);
+		const before = await readState();
+
+		const callId = await insertExternalCall(thread.sessionId, "call-stays-unread");
+		await wakeWait(thread.sessionId);
+		await fake.waitForSent((call) => plainText(call).includes(`/reject ${callId} reason`));
+		// The run stops to wait: the runtime's state write records the reply and reports the change.
+		await setSessionState(db, thread.sessionId, "awaiting", { kind: "approval", levelId: null });
+		await channels.refreshWaits(thread.sessionId);
+		await until(async () => (await readState()).reply_at !== before.reply_at);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const row = await readState();
+		expect(row.owner_read_at).toBe(before.owner_read_at);
+		expect(row.reply_at !== null && row.owner_read_at !== null && row.reply_at > row.owner_read_at).toBe(true);
+		await db.updateTable("external_calls").set({ state: "rejected" }).where("id", "=", callId).execute();
 	});
 
 	it("records no source for a scheduled message", async () => {
@@ -3158,6 +3255,15 @@ describe("channels", () => {
 				inline_keyboard: [[{ text: "Open session", callback_data: `switch:${run.sessionId}` }]],
 			});
 			expect(await runtime.getSession(run.sessionId ?? "")).toBeDefined();
+			// The report was the owner's notification of the run, so the session is read in the WebUI.
+			await until(async () => {
+				const row = await db
+					.selectFrom("sessions")
+					.select(["reply_at", "owner_read_at"])
+					.where("id", "=", run.sessionId ?? "")
+					.executeTakeFirstOrThrow();
+				return row.reply_at !== null && row.owner_read_at !== null && row.owner_read_at >= row.reply_at;
+			});
 		} finally {
 			await scheduler.stop();
 			await runtime.waitForIdle();

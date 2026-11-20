@@ -112,6 +112,8 @@ discards the draft.
   normal sign-in and access checks, then the download starts. The links need the public URL set in
   System settings; without it the file's path is sent instead.
 - A failed turn sends the error.
+- Once an answer or a scheduled run's report arrives in your chat, including as a notification to
+  your default notification account, the session is marked read in the WebUI.
 - When a session needs an approval that can be decided without a signature, Telegram shows Approve and
   Reject buttons plus the `/approve` and `/reject` commands; Satori shows the commands. The card names
   what waits, the nodes, any Auto Review risk and the command hints, and `/approve` or `/reject` without

@@ -176,6 +176,14 @@ Satori, and are never converted from one to the other.
   the way Telegram parses it is fragile); otherwise a prompt-injected answer could forge buttons
   carrying our approval or session-switch callbacks. Our own buttons travel in `reply_markup`, not in
   the text.
+- **Read in the chat.** When a turn's final answer or its error reaches the owner's chat, through the
+  session's own thread or as a notification to the default account, or a scheduled run's report is
+  sent ([Reports](scheduling.md#reports)), the owner has read it there. The tree is marked read for them
+  (`owner_read_at`) and the WebUI drops its unread dot ([Sidebar list](webui.md#sidebar-list)). The
+  run's end records the reply when the tree stops running, which can come before or after the send, so
+  the mark waits while the tree runs and is written after the reply, and only once the tree is idle: a
+  tree that waits for an approval, a signature or a quota stays unread. Approval, signature and quota
+  cards never mark a session read, and a send that failed leaves it unread.
 - **Progress** (optional, per user, on by default where the kind has it). Tool calls and thinking are never
   sent as messages; they can only appear as a status. On Telegram the current step shows as a draft
   (`sendMessageDraft`), and each real message starts a new draft. A shown draft is re-sent every 20 seconds

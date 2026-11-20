@@ -16,6 +16,7 @@ import { quotaStatus } from "@crh/api";
 import type { ModelConfig } from "../agent/models.ts";
 import { decideQuota, type QuotaScheduler } from "../agent/quota-decision.ts";
 import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/runtime.ts";
+import { TREE_STATE } from "../agent/session-list.ts";
 import {
 	approvalRequestForExternalCall,
 	approvalRequestForTask,
@@ -526,6 +527,8 @@ export class ChannelManager {
 	/** The batches waiting for their session's drain; coalesced once too many pile up. */
 	readonly #eventBacklog = new Map<string, import("../agent/runtime.ts").SessionEvent[][]>();
 	readonly #runs = new Map<string, RunState>();
+	/** Sessions whose final answer or report reached the owner's chat, until the read mark lands after the run's reply. */
+	readonly #chatReplies = new Set<string>();
 	readonly #drafts = new Map<string, DraftState>();
 	readonly #statuses = new Map<string, StatusState>();
 	readonly #tracked = new Map<string, TrackedMessage>();
@@ -2928,10 +2931,10 @@ export class ChannelManager {
 		sessionId: string,
 		text: string | ((m: BotMessages) => string),
 		options: { buttons?: readonly (readonly import("./model.ts").ChannelButton[])[] } = {},
-	): Promise<void> {
-		if (!(await this.#textPushAllowed(sessionId))) return;
+	): Promise<Route | undefined> {
+		if (!(await this.#textPushAllowed(sessionId))) return undefined;
 		const route = await this.#routeForSession(sessionId);
-		if (!route) return;
+		if (!route) return undefined;
 		const locale = botLocale(await this.#userLocale(route.account.user_id), route.account.language_code);
 		const m = messagesFor(locale);
 		const content = typeof text === "function" ? text(m) : text;
@@ -2939,8 +2942,10 @@ export class ChannelManager {
 			route.thread === undefined ? m.sessionBody(await this.#sessionTitle(sessionId, locale), content) : content;
 		try {
 			await route.adapter.sendText(route.target, body, options);
+			return route;
 		} catch (err) {
 			console.error(`channels: sending from session ${sessionId} failed:`, err);
+			return undefined;
 		}
 	}
 
@@ -2954,7 +2959,38 @@ export class ChannelManager {
 			draft.suppressed = true;
 			this.#clearDraftKeepalive(draft);
 		}
-		await this.#send(sessionId, text);
+		// The owner read the answer in their chat, the session's own thread or a notification alike.
+		if (await this.#send(sessionId, text)) await this.#markChatReplyRead(sessionId, true);
+	}
+
+	/**
+	 * Marks a tree read for its owner once its final answer or scheduled-run report reached the owner's chat
+	 * (doc/design/channels.md "Messages"). The run's end records `reply_at` when the tree stops running,
+	 * which may come before or after the send, so the mark waits while the tree still runs and is retried
+	 * on each state change; written after `reply_at`, it clears the unread dot in the WebUI. Only an idle
+	 * tree is marked: a tree that waits (an approval, a signature, a quota) needs the owner, so that reply
+	 * stays unread and the pending mark is dropped. Approval and signature cards never mark a tree read.
+	 * `delivered` records a new send; without it only a pending mark is retried.
+	 */
+	async #markChatReplyRead(sessionId: string, delivered = false): Promise<void> {
+		if (delivered) this.#chatReplies.add(sessionId);
+		else if (!this.#chatReplies.has(sessionId)) return;
+		const db = this.#options.db;
+		const rootId = (await rootSessionIdOf(db, sessionId)) ?? sessionId;
+		const tree = await db
+			.selectFrom("sessions")
+			.select(TREE_STATE.as("state"))
+			.where("id", "=", rootId)
+			.executeTakeFirst();
+		if (tree?.state === "running") return;
+		this.#chatReplies.delete(sessionId);
+		if (tree?.state !== "idle") return;
+		await db
+			.updateTable("sessions")
+			.set({ owner_read_at: new Date().toISOString() })
+			.where("id", "=", rootId)
+			.execute();
+		this.#options.runtime.sessionList.publishSession(rootId);
 	}
 
 	async #showProgress(sessionId: string, status: (m: BotMessages) => string): Promise<void> {
@@ -3306,6 +3342,11 @@ export class ChannelManager {
 	// ---- approvals and quota waits in chat ----
 
 	async #stateChanged(sessionId: string): Promise<void> {
+		try {
+			await this.#markChatReplyRead(sessionId);
+		} catch (err) {
+			console.error(`channels: marking session ${sessionId} read failed:`, err);
+		}
 		const rootId = (await rootSessionIdOf(this.#options.db, sessionId)) ?? sessionId;
 		try {
 			// A state change during a sync is a hint that the waits changed again: the reconciler runs the sync
@@ -4204,6 +4245,13 @@ export class ChannelManager {
 			);
 		} catch (err) {
 			console.error(`channels: sending the report of schedule ${input.scheduleId} failed:`, err);
+			return;
+		}
+		if (input.sessionId === null) return;
+		try {
+			await this.#markChatReplyRead(input.sessionId, true);
+		} catch (err) {
+			console.error(`channels: marking session ${input.sessionId} read failed:`, err);
 		}
 	}
 
