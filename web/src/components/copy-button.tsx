@@ -54,7 +54,8 @@ export function CopyButton({
 		<Button
 			type="button"
 			variant={variant}
-			size={showLabel ? "sm" : size}
+			// With a label an icon size becomes "sm"; a text size is kept, so a row of xs buttons stays even.
+			size={showLabel && (size == null || size.startsWith("icon")) ? "sm" : size}
 			className={cn(className)}
 			aria-label={label ?? t`Copy`}
 			title={label ?? t`Copy`}

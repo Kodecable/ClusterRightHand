@@ -38,6 +38,19 @@ export function useRegisterSshSigningCredential() {
 	});
 }
 
+/** Renames one of the user's own credentials; only the display name changes. The dialog shows failures. */
+export function useRenameSigningCredential() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, name }: { id: string; name: string }) =>
+			http
+				.patch<{ signingCredential: SigningCredentialView }>(`/me/signing-credentials/${enc(id)}`, { name })
+				.then((r) => r.signingCredential),
+		onSuccess: () => void queryClient.invalidateQueries({ queryKey: signingCredentialKeys.all }),
+		meta: { toast: false },
+	});
+}
+
 export function useDeleteSigningCredential() {
 	const queryClient = useQueryClient();
 	return useMutation({

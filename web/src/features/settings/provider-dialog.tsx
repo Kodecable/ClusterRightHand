@@ -2,7 +2,7 @@ import type { ModelProviderInput, ModelProviderView } from "@crh/api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { I18n } from "@lingui/core";
 import { Trans, useLingui } from "@lingui/react/macro";
-import { ListIcon, PlusIcon, XIcon } from "lucide-react";
+import { ListIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
 import { type ComponentProps, useEffect, useMemo, useState } from "react";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { z } from "zod";
@@ -347,7 +347,7 @@ function ModelRows({
 		{
 			id: "actions",
 			header: actionsHeader,
-			size: 130,
+			size: 150,
 			cell: ({ row }) => (
 				<span className="flex flex-nowrap items-center gap-1">
 					<Button
@@ -361,12 +361,13 @@ function ModelRows({
 					</Button>
 					<Button
 						type="button"
-						size="icon-xs"
-						variant="ghost"
-						aria-label={t`Remove model ${row.original.index + 1}`}
+						size="xs"
+						variant="destructive"
+						aria-label={t`Delete model ${row.original.index + 1}`}
 						onClick={() => remove(row.original.index)}
 					>
-						<XIcon />
+						<Trash2Icon />
+						<Trans>Delete</Trans>
 					</Button>
 				</span>
 			),

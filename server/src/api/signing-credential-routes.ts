@@ -6,6 +6,7 @@
 import {
 	IdParamSchema,
 	OkResponseSchema,
+	SigningCredentialRenameBodySchema,
 	SigningCredentialResponseSchema,
 	SigningCredentialsResponseSchema,
 	SshSigningChallengeResponseSchema,
@@ -22,6 +23,7 @@ import {
 	addWebauthnSigningCredential,
 	deleteSigningCredential,
 	listSigningCredentials,
+	renameSigningCredential,
 	SshRegistrationChallenges,
 	verifySshRegistration,
 	webauthnSigningCredentials,
@@ -89,6 +91,16 @@ const deleteRoute = defineRoute({
 	agent: "deny",
 	request: { params: IdParamSchema },
 	responses: { 200: { description: "Deleted", ...json(OkResponseSchema) } },
+});
+
+const renameRoute = defineRoute({
+	method: "patch",
+	path: "/me/signing-credentials/{id}",
+	tags: TAGS,
+	summary: "Rename one of the caller's signing credentials",
+	agent: "deny",
+	request: { params: IdParamSchema, body: { required: true, ...json(SigningCredentialRenameBodySchema) } },
+	responses: { 200: { description: "The renamed credential", ...json(SigningCredentialResponseSchema) } },
 });
 
 export interface SigningCredentialRoutesOptions {
@@ -206,6 +218,20 @@ export function signingCredentialRoutes(db: Db, options: SigningCredentialRoutes
 			},
 		});
 		return c.json({ signingCredential: credential }, 201);
+	});
+
+	app.openapi(renameRoute, async (c) => {
+		const user = c.get("user");
+		const { id } = c.req.valid("param");
+		const { name } = c.req.valid("json");
+		const { before, after } = await renameSigningCredential(db, user.userId, id, name);
+		void c.get("audit").record({
+			actor: userActor(user),
+			action: "signing_credential.renamed",
+			target: { type: "signing_credential", id },
+			detail: { kind: after.kind, old_name: before.name, new_name: after.name },
+		});
+		return c.json({ signingCredential: after }, 200);
 	});
 
 	app.openapi(deleteRoute, async (c) => {

@@ -8,7 +8,7 @@ import { ErrorText } from "@/components/error-state";
 import { TextField } from "@/components/form";
 import { Spinner } from "@/components/spinner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { loginErrorMessage, useLogin, useLoginOptions } from "@/features/auth/api";
 import { safeRedirectPath } from "@/features/auth/redirect";
 import { APP_NAME } from "@/lib/meta";
@@ -69,13 +69,10 @@ export function LoginPage() {
 	});
 
 	return (
-		<main className="grid min-h-svh place-items-center bg-background p-4">
+		<main className="grid min-h-svh place-items-center bg-sidebar p-4">
 			<Card className="w-full max-w-sm">
 				<CardHeader>
-					<CardTitle className="text-lg">{APP_NAME}</CardTitle>
-					<CardDescription>
-						<Trans>Sign in to the operations console.</Trans>
-					</CardDescription>
+					<CardTitle className="text-center text-lg">{APP_NAME}</CardTitle>
 				</CardHeader>
 				<CardContent>
 					<form className="grid gap-3" onSubmit={(event) => void submit(event)} noValidate>

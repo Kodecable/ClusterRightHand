@@ -6,10 +6,8 @@ import {
 	DropdownMenuContent,
 	DropdownMenuGroup,
 	DropdownMenuItem,
-	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
-	DropdownMenuSeparator,
 	DropdownMenuSub,
 	DropdownMenuSubContent,
 	DropdownMenuSubTrigger,
@@ -99,13 +97,6 @@ export function UserMenu() {
 					className={cn(isMobile ? "w-[min(15rem,var(--anchor-width))]" : "w-60")}
 					data-testid="user-menu"
 				>
-					<DropdownMenuGroup>
-						<DropdownMenuLabel>
-							<Trans>Signed in as {name}</Trans>
-						</DropdownMenuLabel>
-					</DropdownMenuGroup>
-					<DropdownMenuSeparator />
-
 					<DropdownMenuSub>
 						<DropdownMenuSubTrigger data-testid="menu-theme">
 							<SunIcon />
@@ -131,8 +122,6 @@ export function UserMenu() {
 							</DropdownMenuRadioGroup>
 						</DropdownMenuSubContent>
 					</DropdownMenuSub>
-
-					<DropdownMenuSeparator />
 					<DropdownMenuGroup>
 						<DropdownMenuItem data-testid="menu-settings" onClick={() => setSettingsOpen(true)}>
 							<SettingsIcon />

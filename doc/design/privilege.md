@@ -190,6 +190,12 @@ verifies as an authorization, and an authorization never verifies as a registrat
 consumed on the first verification attempt, valid or not, and expires after ten minutes. Passkey
 registration already proves possession through the authenticator's attestation.
 
+Only the owner can rename or delete a credential (`PATCH` and `DELETE /api/me/signing-credentials/{id}`;
+another user's id is a 404). A rename changes only the display name, audited as
+`signing_credential.renamed` with the old and new name: nodes trust the key, so their trust entries and
+the authorizations the credential signed are unaffected, though a generated trust entry keeps the name
+it was generated with.
+
 A `sign` option may carry the fingerprints of the owner's SSH credentials that match its user entries.
 They are a selection aid for `crhu sign --hint`, not a trust decision: the planner decides exactly as
 before, and the node verifies the signature against its own trust configuration.

@@ -1624,6 +1624,7 @@ msgstr "Defaults: {0} total."
 #: src/features/schedules/pages.tsx
 #: src/features/settings/extensions.tsx
 #: src/features/settings/pages.tsx
+#: src/features/settings/provider-dialog.tsx
 #: src/features/signing-credentials/pages.tsx
 #: src/features/ssh-credentials/pages.tsx
 #: src/features/system-settings/signing-keys-section.tsx
@@ -1685,6 +1686,11 @@ msgstr "Delete extension"
 #: src/features/settings/extensions.tsx
 msgid "Delete MCP extension {0}?"
 msgstr "Delete MCP extension {0}?"
+
+#. placeholder {0}: row.original.index + 1
+#: src/features/settings/provider-dialog.tsx
+msgid "Delete model {0}"
+msgstr "Delete model {0}"
 
 #: src/features/nodes/delete-node-dialog.tsx
 #: src/features/nodes/pages.tsx
@@ -2982,6 +2988,7 @@ msgid "New model"
 msgstr "New model"
 
 #: src/features/nodes/rename-node-button.tsx
+#: src/features/signing-credentials/pages.tsx
 msgid "New name"
 msgstr "New name"
 
@@ -4106,11 +4113,6 @@ msgstr "Remove from {0}"
 msgid "Remove header {0}"
 msgstr "Remove header {0}"
 
-#. placeholder {0}: row.original.index + 1
-#: src/features/settings/provider-dialog.tsx
-msgid "Remove model {0}"
-msgstr "Remove model {0}"
-
 #. placeholder {0}: index + 1
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Remove origin {0}"
@@ -4145,10 +4147,16 @@ msgstr "Remove the stored value"
 #: src/features/node-groups/dialogs.tsx
 #: src/features/node-groups/pages.tsx
 #: src/features/nodes/rename-node-button.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "Rename"
 msgstr "Rename"
+
+#. placeholder {0}: row.original.name
+#: src/features/signing-credentials/pages.tsx
+msgid "Rename {0}"
+msgstr "Rename {0}"
 
 #: src/features/nodes/rename-node-button.tsx
 msgid "Rename node"
@@ -4157,6 +4165,10 @@ msgstr "Rename node"
 #: src/features/node-groups/dialogs.tsx
 msgid "Rename node group"
 msgstr "Rename node group"
+
+#: src/features/signing-credentials/pages.tsx
+msgid "Rename signing credential"
+msgstr "Rename signing credential"
 
 #: src/features/users/user-group-dialogs.tsx
 msgid "Rename user group"
@@ -4418,6 +4430,7 @@ msgstr "Runtime settings for this crhs. A save applies without a restart and is 
 #: src/features/nodes/rename-node-button.tsx
 #: src/features/sessions/budget-dialog.tsx
 #: src/features/settings/model-presets.tsx
+#: src/features/signing-credentials/pages.tsx
 #: src/features/system-settings/section-form.tsx
 msgid "Save"
 msgstr "Save"
@@ -4742,10 +4755,6 @@ msgstr "Sign a challenge with the SSH key. The signature proves you hold the pri
 msgid "Sign in"
 msgstr "Sign in"
 
-#: src/features/auth/login-page.tsx
-msgid "Sign in to the operations console."
-msgstr "Sign in to the operations console."
-
 #: src/components/decision/signature-panel.tsx
 msgid "Sign with a Passkey this node trusts for this command."
 msgstr "Sign with a Passkey this node trusts for this command."
@@ -4778,10 +4787,6 @@ msgstr "Signal"
 #: src/features/signing-credentials/pages.tsx
 msgid "Signature"
 msgstr "Signature"
-
-#: src/app/shell/user-menu.tsx
-msgid "Signed in as {name}"
-msgstr "Signed in as {name}"
 
 #. placeholder {0}: passkey.name
 #: src/components/decision/signature-panel.tsx

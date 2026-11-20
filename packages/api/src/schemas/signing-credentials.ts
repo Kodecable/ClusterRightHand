@@ -44,6 +44,11 @@ export const SshSigningCredentialBodySchema = z.object({
 	name: z.string().optional().describe("A display name; the key is also its own identity."),
 });
 
+/** `PATCH /api/me/signing-credentials/{id}`: a new display name; the key and its identity are unchanged. */
+export const SigningCredentialRenameBodySchema = z.object({
+	name: z.string().trim().min(1).max(100).describe("The new display name, 1 to 100 characters after trimming."),
+});
+
 /** The registration options a browser passes to `navigator.credentials.create`. */
 export const WebauthnCreationOptionsSchema = z
 	.object({

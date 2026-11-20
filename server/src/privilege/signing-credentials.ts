@@ -322,6 +322,34 @@ export async function deleteSigningCredential(db: Db, userId: string, id: string
 	return signingCredentialView(row);
 }
 
+/**
+ * Renames one of the user's own credentials; another user's credential is a 404. Only the display name
+ * changes: nodes trust the key, never the name. Returns the credential before and after.
+ */
+export async function renameSigningCredential(
+	db: Db,
+	userId: string,
+	id: string,
+	name: string,
+): Promise<{ before: SigningCredentialView; after: SigningCredentialView }> {
+	const row = await db
+		.selectFrom("signing_credentials")
+		.selectAll()
+		.where("id", "=", id)
+		.where("user_id", "=", userId)
+		.executeTakeFirst();
+	if (!row) throw new NotFoundError("no such credential");
+	const trimmed = name.trim();
+	if (trimmed === "") throw new UserError("name is required");
+	await db
+		.updateTable("signing_credentials")
+		.set({ name: trimmed })
+		.where("id", "=", id)
+		.where("user_id", "=", userId)
+		.execute();
+	return { before: signingCredentialView(row), after: signingCredentialView({ ...row, name: trimmed }) };
+}
+
 /** The user's WebAuthn credentials, with the key material needed to verify an assertion. */
 export async function webauthnSigningCredentials(
 	db: Db,

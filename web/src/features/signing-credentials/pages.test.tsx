@@ -53,6 +53,13 @@ function mockApi(credentials: SigningCredentialView[] = [], options: { registerS
 				state.credentials.push(credential);
 				return json({ signingCredential: credential }, 201);
 			}
+			const renamed = /^\/api\/me\/signing-credentials\/([^/]+)$/.exec(url);
+			if (renamed && method === "PATCH") {
+				const credential = state.credentials.find((item) => item.id === renamed[1]);
+				if (!credential) return json({ error: "no such credential" }, 404);
+				credential.name = (body as { name: string }).name;
+				return json({ signingCredential: credential });
+			}
 			return json({});
 		}),
 	);
@@ -124,5 +131,39 @@ describe("SigningCredentialsPage SSH registration", () => {
 		// The server consumes the challenge on every attempt, so the form returns to requesting one.
 		await waitFor(() => expect(screen.queryByLabelText("Signature")).not.toBeInTheDocument());
 		expect(screen.getByRole("button", { name: "Request challenge" })).toBeInTheDocument();
+	});
+});
+
+describe("SigningCredentialsPage rename", () => {
+	test("renames a credential from its row, starting from the current name", async () => {
+		const api = mockApi([
+			{
+				id: "signing-credential-1",
+				kind: "ssh",
+				name: "ssh-AbCdEfGh",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				publicKey: "ssh-ed25519 AAAAlaptop laptop",
+				fingerprint: "SHA256:user",
+				credentialId: null,
+				rpId: null,
+				origins: [],
+			},
+		]);
+		const user = userEvent.setup();
+		renderWithI18n(<SigningCredentialsPage />);
+		await user.click(await screen.findByRole("button", { name: "Rename ssh-AbCdEfGh" }));
+		const input = screen.getByLabelText("New name");
+		expect(input).toHaveValue("ssh-AbCdEfGh");
+		await user.clear(input);
+		expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+		await user.type(input, "  work laptop ");
+		await user.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(screen.queryByLabelText("New name")).not.toBeInTheDocument());
+		expect(api.calls.find((call) => call.method === "PATCH")).toEqual({
+			method: "PATCH",
+			url: "/api/me/signing-credentials/signing-credential-1",
+			body: { name: "work laptop" },
+		});
+		expect(await screen.findByText("work laptop")).toBeInTheDocument();
 	});
 });

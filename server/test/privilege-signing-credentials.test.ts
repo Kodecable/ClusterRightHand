@@ -136,6 +136,40 @@ describe("signing credentials API", () => {
 		};
 		expect(theirs.signingCredentials).toEqual([]);
 		const id = listed.signingCredentials[0]?.id as string;
+
+		// Renaming changes only the display name, and only for the owner.
+		const original = listed.signingCredentials[0] as { id: string; name: string; fingerprint?: string };
+		expect(
+			(
+				await call(app, `/api/me/signing-credentials/${id}`, {
+					method: "PATCH",
+					cookie: otherCookie,
+					body: { name: "x" },
+				})
+			).status,
+		).toBe(404);
+		expect(
+			(await call(app, `/api/me/signing-credentials/${id}`, { method: "PATCH", cookie, body: { name: "   " } })).status,
+		).toBe(400);
+		const renamed = await call(app, `/api/me/signing-credentials/${id}`, {
+			method: "PATCH",
+			cookie,
+			body: { name: "  laptop key  " },
+		});
+		expect(renamed.status).toBe(200);
+		const renamedBody = (await renamed.json()) as {
+			signingCredential: { id: string; name: string; fingerprint?: string };
+		};
+		expect(renamedBody.signingCredential).toMatchObject({ id, name: "laptop key", fingerprint: original.fingerprint });
+		const relisted = (await (await call(app, "/api/me/signing-credentials", { cookie })).json()) as {
+			signingCredentials: { name: string }[];
+		};
+		expect(relisted.signingCredentials.map((credential) => credential.name)).toEqual(["laptop key"]);
+		await audit.flush();
+		const renames = await auditRows("signing_credential.renamed");
+		expect(renames).toHaveLength(1);
+		expect(JSON.stringify(renames[0])).toContain(original.name);
+		expect(JSON.stringify(renames[0])).toContain("laptop key");
 		expect(
 			(await call(app, `/api/me/signing-credentials/${id}`, { method: "DELETE", cookie: otherCookie, body: {} }))
 				.status,

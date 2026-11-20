@@ -1,13 +1,14 @@
 import type { SigningCredentialView } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startRegistration } from "@simplewebauthn/browser";
-import { FingerprintIcon, KeyRoundIcon, Trash2Icon } from "lucide-react";
-import { useMemo, useState } from "react";
+import { FingerprintIcon, KeyRoundIcon, PencilIcon, Trash2Icon } from "lucide-react";
+import { useId, useMemo, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { actionsHeader, DataTable, type DataTableColumn } from "@/components/data-table";
-import { ConfirmDialog } from "@/components/dialogs";
+import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
+import { FieldShell } from "@/components/form";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { DateTime } from "@/components/relative-time";
@@ -25,6 +26,7 @@ import {
 	usePasskeyOptions,
 	useRegisterPasskey,
 	useRegisterSshSigningCredential,
+	useRenameSigningCredential,
 	useSigningCredentials,
 	useSshSigningChallenge,
 } from "./api";
@@ -218,6 +220,7 @@ export function SigningCredentialsPage() {
 	const remove = useDeleteSigningCredential();
 	const [generating, setGenerating] = useState(false);
 	const [deleting, setDeleting] = useState<SigningCredentialView>();
+	const [renaming, setRenaming] = useState<SigningCredentialView>();
 
 	const columns = useMemo<DataTableColumn<SigningCredentialView>[]>(
 		() => [
@@ -256,15 +259,26 @@ export function SigningCredentialsPage() {
 			{
 				id: "actions",
 				header: actionsHeader,
-				size: 200,
+				size: 300,
 				cell: ({ row }) => (
 					<span className="flex flex-nowrap items-center gap-1">
 						<CopyButton
 							text={signingCredentialKeyId(row.original)}
 							label={t`Copy key ID ${row.original.name}`}
 							showLabel
+							size="xs"
 							variant="outline"
 						/>
+						<Button
+							type="button"
+							size="xs"
+							variant="outline"
+							aria-label={t`Rename ${row.original.name}`}
+							onClick={() => setRenaming(row.original)}
+						>
+							<PencilIcon />
+							<Trans>Rename</Trans>
+						</Button>
 						<Button
 							type="button"
 							size="xs"
@@ -316,6 +330,7 @@ export function SigningCredentialsPage() {
 				}
 			/>
 			<TrustConfigDialog open={generating} onOpenChange={setGenerating} />
+			<RenameSigningCredentialDialog credential={renaming} onClose={() => setRenaming(undefined)} />
 			<ConfirmDialog
 				open={deleting !== undefined}
 				onOpenChange={(open) => {
@@ -340,5 +355,58 @@ export function SigningCredentialsPage() {
 				}}
 			/>
 		</Page>
+	);
+}
+
+/** Renames a signing credential: only its display name changes, since nodes trust the key itself. */
+function RenameSigningCredentialDialog({
+	credential,
+	onClose,
+}: {
+	credential: SigningCredentialView | undefined;
+	onClose: () => void;
+}) {
+	const { t } = useLingui();
+	const id = useId();
+	const rename = useRenameSigningCredential();
+	const [name, setName] = useState("");
+	const [shown, setShown] = useState<string>();
+	// A newly chosen credential starts from its current name.
+	if (credential !== undefined && shown !== credential.id) {
+		setShown(credential.id);
+		setName(credential.name);
+		rename.reset();
+	}
+	return (
+		<FormDialog
+			open={credential !== undefined}
+			onOpenChange={(open) => {
+				if (!open) {
+					setShown(undefined);
+					onClose();
+				}
+			}}
+			title={<Trans>Rename signing credential</Trans>}
+			submitLabel={<Trans>Save</Trans>}
+			busy={rename.isPending}
+			submitDisabled={name.trim() === ""}
+			error={rename.error !== null ? rename.error.message : undefined}
+			onSubmit={() => {
+				if (!credential) return;
+				rename.mutate(
+					{ id: credential.id, name: name.trim() },
+					{
+						onSuccess: () => {
+							setShown(undefined);
+							onClose();
+						},
+					},
+				);
+			}}
+		>
+			<FieldShell id={`${id}-name`} label={t`New name`}>
+				<Input id={`${id}-name`} value={name} maxLength={100} onChange={(event) => setName(event.target.value)} />
+			</FieldShell>
+		</FormDialog>
 	);
 }

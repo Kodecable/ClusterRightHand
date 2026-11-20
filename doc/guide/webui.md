@@ -394,8 +394,10 @@ A task whose plan is still being written shows "Preparing…" and keeps Reject a
 Register your SSH keys and Passkeys on **Signing credentials**. An SSH key is registered by signing a
 short-lived server challenge: request it, run `crhu register <challenge>` (or the shown `ssh-keygen`
 command) on your workstation, and paste the signature. crhs takes the public key from the signature,
-so only a key you can sign with is registered. **Generate trust config** builds the `[[trust]]` entries
-for a node's `privileged.toml`. Passkeys need the WebUI to be served over HTTPS with a hostname.
+so only a key you can sign with is registered. **Rename** changes a credential's display name; nodes
+trust the key, not the name, so nothing on the nodes needs to change. **Generate trust config** builds
+the `[[trust]]` entries for a node's `privileged.toml`. Passkeys need the WebUI to be served over HTTPS
+with a hostname.
 
 ## Schedules
 
