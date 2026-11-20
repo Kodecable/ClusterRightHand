@@ -1,7 +1,7 @@
 import { useLingui } from "@lingui/react/macro";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { TerminalSquareIcon } from "lucide-react";
 import type { KeyboardEvent } from "react";
+import logoUrl from "@/assets/crh-logo.svg";
 import {
 	Sidebar,
 	SidebarContent,
@@ -24,10 +24,14 @@ import { cn } from "@/lib/utils";
 import { NAV_GROUPS, type NavItem, navItemForPath } from "./nav";
 import { UserMenu } from "./user-menu";
 
+/**
+ * The CRH mark. It is black, so on a dark sidebar it sits on a light tile instead of melting into the
+ * background (the logo's usage notes).
+ */
 function Logo() {
 	return (
-		<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-			<TerminalSquareIcon className="size-4" />
+		<div className="flex size-8 shrink-0 items-center justify-center rounded-lg dark:bg-white">
+			<img src={logoUrl} alt="" className="h-7 w-auto dark:h-6" draggable={false} />
 		</div>
 	);
 }

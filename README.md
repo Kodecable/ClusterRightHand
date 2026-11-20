@@ -5,7 +5,7 @@
 ClusterRightHand (CRH) is a self-hosted multi-node agent platform with strict agent rules, node-trusted
 privilege authorization and auditing.
 
-![A session waiting for a signature before a privileged command runs on db-1](doc/images/signature.en.png)
+![An agent session on the desktop, and a privileged command on db-1 signed with a Passkey on a phone](doc/images/hero.en.png)
 
 ## Highlights
 
@@ -26,9 +26,9 @@ privilege authorization and auditing.
 - **Simple to run.** One Node.js process serves the WebUI, MCP, the agents and the scheduler,
   on SQLite or PostgreSQL. The WebUI is in English and Chinese.
 
-| Sessions                                                                            | Node trust                                                                             |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| ![An agent session that collected facts from every node](doc/images/session.en.png) | ![db-1 trusts only the admin's signature and local root](doc/images/node-trust.en.png) |
+| Signing                                                                                                    | Node trust                                                                                        |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| ![A session waiting for a signature before a privileged command runs on db-1](doc/images/signature.en.png) | ![db-1 trusts only the admin's SSH key and Passkey, and local root](doc/images/node-trust.en.png) |
 
 ## How it works
 

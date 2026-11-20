@@ -4,7 +4,7 @@
 
 ClusterRightHand（CRH）是一个自托管的多节点 agent 平台，带有严格 agent 规则，特权信任授权和审计功能。
 
-![db-1 上的特权命令执行前，会话正在等待签名](doc/images/signature.zh-CN.png)
+![桌面上的 agent 会话，以及在手机上用 Passkey 为 db-1 的特权命令签名](doc/images/hero.zh-CN.png)
 
 ## 特性
 
@@ -17,9 +17,9 @@ ClusterRightHand（CRH）是一个自托管的多节点 agent 平台，带有严
 - **同时是 MCP 服务器。** 直接接入现有工作流，Claude Code、Codex 等 MCP 客户端可以接入 MCP 使用同一套工具，受同样的规则和审批约束。
 - **部署简单。** 一个 Node.js 进程提供 WebUI、MCP、agent 和调度器，数据存 SQLite 或 PostgreSQL。WebUI 支持中文和英文。
 
-| 会话                                                            | 节点信任                                                                |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| ![agent 会话汇总了每个节点的信息](doc/images/session.zh-CN.png) | ![db-1 只信任 admin 的签名和本机 root](doc/images/node-trust.zh-CN.png) |
+| 签名                                                                         | 节点信任                                                                              |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| ![db-1 上的特权命令执行前，会话正在等待签名](doc/images/signature.zh-CN.png) | ![db-1 只信任 admin 的 SSH key、Passkey 和本机 root](doc/images/node-trust.zh-CN.png) |
 
 ## 工作方式
 
