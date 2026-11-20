@@ -218,7 +218,7 @@ export class TelegramChannel extends ChannelConnection implements ChannelAdapter
 			return;
 		}
 		const message = update.message;
-		if (!message || message.chat.type !== "private" || !message.from || message.from.is_bot) return;
+		if (message?.chat.type !== "private" || !message.from || message.from.is_bot) return;
 		const files: InboundFile[] = [];
 		if (message.photo && message.photo.length > 0) {
 			const largest = message.photo[message.photo.length - 1];

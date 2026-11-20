@@ -14,7 +14,6 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import { claimCrhs } from "../src/cluster/authorization/authorized-start.ts";
-import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { ClusterCore } from "../src/cluster/core.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";

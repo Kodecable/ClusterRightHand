@@ -4,7 +4,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ClusterCore } from "../src/cluster/core.ts";
-import type { NodeLink } from "../src/cluster/links.ts";
 import type { Db } from "../src/storage/db.ts";
 import { currentTurns, KeyedQueue } from "../src/util/keyed-queue.ts";
 import { openTestDb } from "./helpers/db.ts";

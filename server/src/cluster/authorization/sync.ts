@@ -47,7 +47,7 @@ import {
 } from "../authorization.ts";
 import type { ClusterCore } from "../core.ts";
 import { nodeGroupsForNodes } from "../node-groups.ts";
-import { getNode, type NodeRow } from "../nodes.ts";
+import { getNode } from "../nodes.ts";
 import { specFromRow } from "../spec.ts";
 import { groupEnded, NODE_OFFLINE, NODE_OFFLINE_MESSAGE, syncGroupState, updateTask } from "../task-end.ts";
 import { pendingInputColumn } from "../task-start.ts";
@@ -376,7 +376,7 @@ async function plannerTask(core: ClusterCore, row: Selectable<TasksTable>): Prom
 /** Whether the node has a ready connection now (links.ts imports this module, so not its isConnected). */
 function online(core: ClusterCore, nodeId: string): boolean {
 	const link = core.links.get(nodeId);
-	return link !== undefined && link.ready && !link.conn.closed;
+	return link?.ready === true && !link.conn.closed;
 }
 
 /** The sign payload the unit's tasks hold now: a group's tasks share one. */

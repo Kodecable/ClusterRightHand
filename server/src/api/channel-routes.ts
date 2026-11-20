@@ -127,7 +127,7 @@ export function channelRoutes(options: ChannelRoutesOptions) {
 		let channel: ChannelPublicView | undefined;
 		if (channelId !== undefined) {
 			const row = await getChannelById(db, channelId);
-			if (!row || row.enabled !== 1) throw new UserError("no such enabled channel");
+			if (row?.enabled !== 1) throw new UserError("no such enabled channel");
 			channel = channelPublicView(row, channels.status(row.name).account);
 		}
 		const code = await channels.createLinkCode(user.userId);
