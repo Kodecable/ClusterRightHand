@@ -1,6 +1,7 @@
 import type { ApprovalRequest, PendingAuthorization, PendingPasskey, PendingSignOption } from "@crh/api";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { grantCommand, reusableGrantCommand, sshKeygenRecipe } from "@/lib/authorization";
 import { copyText } from "@/lib/clipboard";
@@ -81,6 +82,19 @@ const passkey = (overrides: Partial<PendingPasskey> = {}): PendingPasskey => ({
 	entry: "yubikey",
 	...overrides,
 });
+
+/** A panel whose pending authorization changes on a click, as a sync pass would change it. */
+function Synced({ first, second }: { first: PendingAuthorization; second: PendingAuthorization }) {
+	const [current, setCurrent] = useState(first);
+	return (
+		<>
+			<button type="button" onClick={() => setCurrent(second)}>
+				sync
+			</button>
+			<SignaturePanel request={request()} pending={current} onSubmit={async () => {}} onReject={() => {}} />
+		</>
+	);
+}
 
 function renderPanel(overrides: {
 	pending?: PendingAuthorization;
@@ -265,6 +279,18 @@ describe("SignaturePanel", () => {
 		expect(screen.queryByText(/node-2/)).not.toBeInTheDocument();
 	});
 
+	test("when the selected tab disappears in a sync it falls back to the tab after Reject", async () => {
+		const withWindow = pending({
+			options: [signOption(), { kind: "local_window", nodeId: "node-1", nodeName: "worker-01" }],
+		});
+		await renderWithRouter(<Synced first={withWindow} second={pending({ options: [signOption()] })} />);
+		fireEvent.click(screen.getByRole("tab", { name: "Local" }));
+		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("Local");
+		fireEvent.click(screen.getByRole("button", { name: "sync" }));
+		expect(screen.queryByRole("tab", { name: "Local" })).not.toBeInTheDocument();
+		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("crhu");
+	});
+
 	test("without a reusable scope no 5-minute tab is offered", async () => {
 		await renderPanel({
 			pending: pending({ options: [signOption({ payload: signPayload({ passkeys: [passkey()] }) })] }),
@@ -287,15 +313,17 @@ describe("SignaturePanel", () => {
 				],
 			}),
 		});
+		// Reject always comes first; the panel opens on the tab after it.
 		expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+			"Reject",
 			"Passkey",
 			"Passkey 5min",
 			"crhu",
 			"crhu 5min",
 			"OpenSSH",
 			"Local",
-			"Reject",
 		]);
+		expect(screen.getByRole("tab", { name: "Passkey" })).toHaveAttribute("aria-selected", "true");
 		fireEvent.click(screen.getByRole("tab", { name: "crhu 5min" }));
 		const command = reusableGrantCommand({
 			nodes: scope.nodes,

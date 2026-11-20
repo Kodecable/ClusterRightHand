@@ -38,6 +38,9 @@ describe("ApprovalPanel", () => {
 		expect(within(card).getByTestId("decision-detail")).toHaveTextContent(COMMAND);
 		expect(within(card).queryByText(/Source:/)).not.toBeInTheDocument();
 		expect(within(card).queryByText(/Issued|Deadline|Attempt/)).not.toBeInTheDocument();
+		// Reject always comes first; the panel opens on Approve, the tab after it.
+		expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Reject", "Approve", "Always allow"]);
+		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("Approve");
 	});
 
 	test("a page card adds the source and the privileged mark; a live card shares the same layout", async () => {

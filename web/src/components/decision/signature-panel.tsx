@@ -227,17 +227,19 @@ export function SignaturePanel({
 	const content = requestCardContent(request, { variant, i18n });
 	const ready = pending !== undefined && pending.options.length > 0;
 	const scope = sign?.reusableScope ?? null;
+	// Reject is always the first tab; the panel opens on the one after it.
 	const tabs = [
+		"reject",
 		...(sign !== undefined && passkeys.length > 0 ? ["passkey"] : []),
 		...(sign !== undefined && passkeys.length > 0 && scope !== null ? ["passkey5"] : []),
 		...(sign !== undefined ? ["grant"] : []),
 		...(sign !== undefined && scope !== null ? ["grant5"] : []),
 		...(sign !== undefined ? ["keygen"] : []),
 		...(windows.length > 0 ? ["window"] : []),
-		"reject",
 	];
-	// A sync pass can remove the tab the owner had selected; fall back to the first one still offered.
-	const activeTab = tabs.includes(tab) ? tab : (tabs[0] ?? "reject");
+	// A sync pass can remove the tab the owner had selected; fall back to the first way to decide after
+	// Reject, so a vanished option never leaves the panel on Reject.
+	const activeTab = tabs.includes(tab) ? tab : (tabs[1] ?? "reject");
 
 	const submitPaste = async () => {
 		if (pasted.trim() === "" || sign === undefined) return;
@@ -333,6 +335,9 @@ export function SignaturePanel({
 								</p>
 							)}
 							<DecisionTabList label={t`How to sign`}>
+								<DecisionTab value="reject">
+									<Trans>Reject</Trans>
+								</DecisionTab>
 								{sign !== undefined && passkeys.length > 0 && (
 									<DecisionTab value="passkey">
 										<Trans>Passkey</Trans>
@@ -355,9 +360,6 @@ export function SignaturePanel({
 										<Trans>Local</Trans>
 									</DecisionTab>
 								)}
-								<DecisionTab value="reject">
-									<Trans>Reject</Trans>
-								</DecisionTab>
 							</DecisionTabList>
 							{sign !== undefined && passkeys.length > 0 && (
 								<TabsContent value="passkey" className="grid min-w-0 gap-2 pt-1">

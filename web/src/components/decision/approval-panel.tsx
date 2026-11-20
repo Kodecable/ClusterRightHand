@@ -168,7 +168,11 @@ export function ApprovalPanel({
 	return (
 		<DecisionCard {...content} kind="approval" variant={variant} count={count} details={details} className={className}>
 			<DecisionTabs defaultValue="approve">
+				{/* Reject is always the first tab; the panel opens on the one after it. */}
 				<DecisionTabList label={t`How to decide`}>
+					<DecisionTab value="reject">
+						<Trans>Reject</Trans>
+					</DecisionTab>
 					<DecisionTab value="approve">
 						<Trans>Approve</Trans>
 					</DecisionTab>
@@ -178,9 +182,6 @@ export function ApprovalPanel({
 							<Trans>Always allow</Trans>
 						</DecisionTab>
 					)}
-					<DecisionTab value="reject">
-						<Trans>Reject</Trans>
-					</DecisionTab>
 				</DecisionTabList>
 				<TabsContent value="approve" className="grid min-w-0 gap-2 pt-1">
 					<div className="flex justify-end">

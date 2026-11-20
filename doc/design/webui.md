@@ -159,11 +159,14 @@ behaves the same on every page:
   title with its privileged mark, a grey meta line, Auto Review's risk badge and reason, the one-line
   monospace detail, a divider with room on both sides, then the panel's own tabs. Every slot except the
   title and the tabs is optional, and the truncated meta and reason lines show their full text on hover.
-  Three panels share it: **ApprovalPanel** (**Approve / Always allow / Reject**), **SignaturePanel**
-  (**Passkey / Passkey 5min / crhu / crhu 5min / OpenSSH / Local / Reject**, rendered from the options
+  Three panels share it: **ApprovalPanel** (**Reject / Approve / Always allow**), **SignaturePanel**
+  (**Reject / Passkey / Passkey 5min / crhu / crhu 5min / OpenSSH / Local**, rendered from the options
   the server planned: the Passkey tab only when a `sign` option exists with a trusted Passkey, the crhu
   and OpenSSH tabs for every `sign` option, the Local tab only for a `local_window` option, and
-  "Preparing…" plus Reject while no plan is written) and **QuotaPanel** (**Add tokens / Stop**). The
+  "Preparing…" plus Reject while no plan is written) and **QuotaPanel** (**Stop / Add tokens**). The
+  refusal is always the first tab, so it never moves with the options offered, and a panel opens on
+  the tab after it; when the selected tab disappears in a sync, the signature panel falls back to that
+  second tab, never to Reject. The
   two 5min tabs appear beside their signing method when the `sign` option carries a `reusableScope`:
   the request's nodes and the one method its waiting tasks use (file.write when they read and write),
   offered only when every node has a planned user entry that requires neither a bound spec nor task

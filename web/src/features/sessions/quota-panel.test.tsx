@@ -22,6 +22,8 @@ describe("QuotaPanel", () => {
 		// The level id and the request time are technical fields, not part of the decision.
 		expect(screen.queryByText("lvl-root")).not.toBeInTheDocument();
 		expect(screen.queryByText("Since")).not.toBeInTheDocument();
+		// Stop, the refusal, comes first; the panel opens on the tab after it.
+		expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Stop", "Add tokens"]);
 		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("Add tokens");
 	});
 

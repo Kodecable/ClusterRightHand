@@ -66,12 +66,13 @@ export function QuotaPanel({
 	return (
 		<DecisionCard {...content} kind="quota" count={count} details={details} className={className}>
 			<DecisionTabs defaultValue="add">
+				{/* Stop, the refusal, is always the first tab; the panel opens on the one after it. */}
 				<DecisionTabList label={t`How to decide`}>
-					<DecisionTab value="add">
-						<Trans>Add tokens</Trans>
-					</DecisionTab>
 					<DecisionTab value="stop">
 						<Trans>Stop</Trans>
+					</DecisionTab>
+					<DecisionTab value="add">
+						<Trans>Add tokens</Trans>
 					</DecisionTab>
 				</DecisionTabList>
 				<TabsContent value="add" className="grid min-w-0 gap-2 pt-1">
