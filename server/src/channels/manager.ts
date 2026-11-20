@@ -431,6 +431,23 @@ type WaitRow = {
 };
 
 /**
+ * Ids of task groups with a member still waiting for a signature, for a session root or, with null, for
+ * tasks of no session. `= value` and `is null` are separate: PostgreSQL accepts `is` only before null,
+ * true, false or `distinct from`, never before a parameter.
+ */
+export async function waitingAuthorizationGroupIds(db: Db, rootId: string | null): Promise<string[]> {
+	const rows = await db
+		.selectFrom("tasks")
+		.select("task_group_id")
+		.where((eb) => (rootId === null ? eb("root_session_id", "is", null) : eb("root_session_id", "=", rootId)))
+		.where("task_group_id", "is not", null)
+		.where("state", "=", "awaiting_authorization")
+		.groupBy("task_group_id")
+		.execute();
+	return rows.flatMap((row) => (row.task_group_id === null ? [] : [row.task_group_id]));
+}
+
+/**
  * Whether a session's chat messages wait for the user: an approval or signature that is shown in the chat.
  * An approval routed to an agent is not shown there.
  */
@@ -3422,7 +3439,7 @@ export class ChannelManager {
 			.execute();
 		for (const task of tasks) await this.#syncTaskWait(rootId, task, owner, route, locale, m);
 		// A partly dispatched group is `running`, so its signature wait is found through its waiting members.
-		const waitingGroupIds = await this.#waitingAuthorizationGroupIds("root_session_id", rootId);
+		const waitingGroupIds = await waitingAuthorizationGroupIds(this.#options.db, rootId);
 		const groups = await this.#options.db
 			.selectFrom("task_groups")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])
@@ -3447,19 +3464,6 @@ export class ChannelManager {
 		await this.#syncQuotaWait(rootId, owner, route, locale, m);
 		// A run waiting for the user shows no draft: drop any draft that a progress update created before the wait.
 		if (hasWait(tasks, groups, calls, owner, new Set(waitingGroupIds))) this.#dropDraft(rootId);
-	}
-
-	/** Ids of task groups with a member still waiting for a signature, for a session root or for orphans. */
-	async #waitingAuthorizationGroupIds(column: "root_session_id", value: string | null): Promise<string[]> {
-		const rows = await this.#options.db
-			.selectFrom("tasks")
-			.select("task_group_id")
-			.where(column, "is", value)
-			.where("task_group_id", "is not", null)
-			.where("state", "=", "awaiting_authorization")
-			.groupBy("task_group_id")
-			.execute();
-		return rows.flatMap((row) => (row.task_group_id === null ? [] : [row.task_group_id]));
 	}
 
 	async #syncTaskWait(
@@ -3728,7 +3732,7 @@ export class ChannelManager {
 				signature ? [task.id] : [],
 			);
 		}
-		const waitingGroupIds = await this.#waitingAuthorizationGroupIds("root_session_id", null);
+		const waitingGroupIds = await waitingAuthorizationGroupIds(this.#options.db, null);
 		const groups = await this.#options.db
 			.selectFrom("task_groups")
 			.select(["id", "state", "handler_type", "on_behalf_of_user_id", "approval"])

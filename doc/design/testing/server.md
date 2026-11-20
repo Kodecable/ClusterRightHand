@@ -3,7 +3,11 @@
 ## Unit and integration tests
 
 `server/test/*.test.ts` covers the server in-process. Suites written with `describeBackends` run once
-on SQLite and, when `CRH_TEST_PG_URL` is set, once on PostgreSQL. SSH code is tested against fakes of
+on SQLite and, when `CRH_TEST_PG_URL` is set, once on PostgreSQL. Most suites still run on SQLite only, so
+`pnpm check` also rejects the one dialect difference that once reached a PostgreSQL deployment
+unnoticed: `scripts/check-sql-is.ts` refuses an `is` or `is not` comparison with anything but a
+literal null, true or false (SQLite reads `col is $1` as null-safe equality; PostgreSQL refuses it as
+a syntax error). SSH code is tested against fakes of
 the `ssh2` interfaces, plus a live sshd when `CRH_TEST_SSH` is set.
 
 Tests lower Argon2id's cost to keep them fast; the password tests restore the production parameters
