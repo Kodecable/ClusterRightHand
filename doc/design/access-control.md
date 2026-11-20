@@ -384,7 +384,20 @@ The reviewer assigns one of three risk levels:
 | medium | Deleting or overwriting pre-existing data, production changes or deployments, service stops or restarts, package installs or removals, security, credential, user, firewall, network or permission changes, and external writes | Approve only when a user instruction explicitly authorizes this action, this target and this scope, with no unresolved conflict |
 | high | Sending credentials, secrets or private data to an external or untrusted destination, and equivalents | Always escalate |
 
-Node names and node groups can tell production from test. The reviewer answers through the
+Node names and node groups can tell production from test. Two rules widen what counts as the
+operation's effect:
+
+- **Plausible bugs.** The operation is read the way the shell or tool will run it, and the risk is that
+  of what a plausible bug would do: an empty or unset variable or substitution in a path
+  (`rm -rf "$DIR/"` with an empty `DIR`), an unquoted path with spaces or globs, an over-broad glob,
+  `find` or recursive flag, a path that depends on the working directory, a missing `--`, or a
+  truncating redirection.
+- **Departure from the instruction.** A user instruction authorizes only what it asks for. A different
+  target, node, path or action, a wider scope, or side effects the request does not need are not
+  authorized by it, and such a departure that changes data or state beyond ordinary non-destructive
+  work is at least medium risk, so it reaches the user.
+
+Both rules are in the fixed protocol; the default prompt adds the concrete bug patterns. The reviewer answers through the
 `submit_review` tool with a decision and a risk; only low+approve, medium+approve, medium+escalate and
 high+escalate are valid. A high-risk approval, a missing or invalid risk and any other inconsistent
 answer escalate with an invalid-answer reason. No instruction can lower a risk level, and a high-risk
