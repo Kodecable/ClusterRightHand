@@ -17,6 +17,9 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/sshkey"
 )
 
+// keyDirsEnv names extra directories of public keys, separated like PATH (":" on Unix).
+const keyDirsEnv = "CRHU_KEY_DIRS"
+
 // keyChoice selects the SSH key a command signs with. The key itself is never read: ssh-keygen
 // signs with the file or, for an agent key, through the agent.
 type keyChoice struct {
@@ -30,7 +33,7 @@ type keyChoice struct {
 func (o *keyChoice) addFlags(f *pflag.FlagSet, withYes bool) {
 	f.StringVar(&o.key, "key", "", "path to the signing SSH key")
 	f.StringArrayVar(&o.hints, "hint", nil, "SHA256 fingerprint of the signing key (repeatable)")
-	f.StringArrayVar(&o.keyDirs, "key-dir", nil, "directory of public keys to consider (repeatable)")
+	f.StringArrayVar(&o.keyDirs, "key-dir", nil, "directory of public keys to consider (repeatable; also "+keyDirsEnv+")")
 	if withYes {
 		f.BoolVar(&o.yes, "yes", false, "do not ask for confirmation")
 	}
@@ -84,7 +87,8 @@ func (c keyCandidate) describe() string {
 }
 
 // discoverCandidates lists the keys that could sign, in order: the agent's identities, then
-// ~/.ssh/*.pub, then each --key-dir. Duplicates by fingerprint keep their first position; an
+// ~/.ssh/*.pub, ~/.crhu/keys/*.pub, each directory of $CRHU_KEY_DIRS, then each --key-dir. The two
+// home directories may be missing; a directory the user named, in the variable or a flag, may not. Duplicates by fingerprint keep their first position; an
 // agent identity that also has a .pub file uses that file. A key of a type CRH does not verify
 // (RSA, DSA, ECDSA P-384/P-521) is never a candidate; it is returned in unsupported so an error
 // can name it.
@@ -122,8 +126,17 @@ func discoverCandidates(opts *keyChoice) (candidates, unsupported []keyCandidate
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		// A missing ~/.ssh is normal: there are simply no keys there.
+		// A missing ~/.ssh or ~/.crhu/keys is normal: there are simply no keys there.
 		_ = addPubKeys(filepath.Join(home, ".ssh"), add)
+		_ = addPubKeys(filepath.Join(home, ".crhu", "keys"), add)
+	}
+	for _, dir := range filepath.SplitList(os.Getenv(keyDirsEnv)) {
+		if dir == "" {
+			continue
+		}
+		if err := addPubKeys(dir, add); err != nil {
+			return nil, nil, fmt.Errorf("%s: %s: %w", keyDirsEnv, dir, err)
+		}
 	}
 	for _, dir := range opts.keyDirs {
 		if err := addPubKeys(dir, add); err != nil {

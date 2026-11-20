@@ -261,8 +261,9 @@ It uses the workstation's `ssh-keygen` and ssh-agent, so no key material is stor
 - `crhu register '<challenge from Signing credentials>'` signs the proof that registers an SSH signing
   credential; the WebUI takes the printed signature.
 
-`--key` names the key file exactly; without it `crhu` considers ssh-agent, `~/.ssh/*.pub` and each
-`--key-dir`, and `--hint` picks one by fingerprint. See the
+`--key` names the key file exactly; without it `crhu` considers ssh-agent, `~/.ssh/*.pub`,
+`~/.crhu/keys/*.pub`, the directories in `CRHU_KEY_DIRS` and each `--key-dir`, and `--hint` picks
+one by fingerprint. See the
 [command-line reference](reference/cli.md#crhu) for every flag.
 
 ## Enroll a node

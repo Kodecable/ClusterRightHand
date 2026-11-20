@@ -162,7 +162,11 @@ crhu register '<challenge from the WebUI>'
 ```
 
 Without `--key`, `crhu` looks for signing keys in this order: ssh-agent identities through
-`SSH_AUTH_SOCK`, `~/.ssh/*.pub`, then each `--key-dir`. One candidate is used automatically; with
+`SSH_AUTH_SOCK`, `~/.ssh/*.pub`, `~/.crhu/keys/*.pub`, each directory in `CRHU_KEY_DIRS` (separated
+by `:`, like `PATH`), then each `--key-dir`. A missing `~/.ssh` or `~/.crhu/keys` is skipped; a
+directory named in `CRHU_KEY_DIRS` or `--key-dir` must exist. Only `*.pub` files are read, never
+subdirectories. `ssh-keygen` signs with the agent when it holds the key, else with the private key
+at the same path without `.pub`. One candidate is used automatically; with
 several, the fingerprints and comments are listed and you choose on the terminal. `--hint` selects
 the first candidate whose fingerprint matches (the WebUI puts the credentials matching the plan's
 entries in the copied command), and `--key` uses exactly that file. `--yes` skips the payload

@@ -41,6 +41,7 @@ func isolatedHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("SSH_AUTH_SOCK", "")
+	t.Setenv(keyDirsEnv, "")
 	return home
 }
 
@@ -86,6 +87,45 @@ func TestDiscoverCandidates(t *testing.T) {
 	}
 	if _, _, err := discoverCandidates(&keyChoice{}); err != nil {
 		t.Fatalf("a home without .ssh: %v", err)
+	}
+}
+
+// TestDiscoverCandidatesExtraDirs covers ~/.crhu/keys and $CRHU_KEY_DIRS: they come after ~/.ssh and
+// before --key-dir, in their own order; an empty entry is ignored, and a missing directory the user
+// named in the variable is an error while a missing ~/.crhu/keys is not.
+func TestDiscoverCandidatesExtraDirs(t *testing.T) {
+	home := isolatedHome(t)
+	sshKey := writePubKey(t, filepath.Join(home, ".ssh", "id_ed25519.pub"), "ssh")
+	crhu := writePubKey(t, filepath.Join(home, ".crhu", "keys", "miko0.pub"), "crhu")
+	envA, envB := t.TempDir(), t.TempDir()
+	a := writePubKey(t, filepath.Join(envA, "a.pub"), "a")
+	b := writePubKey(t, filepath.Join(envB, "b.pub"), "b")
+	flagDir := t.TempDir()
+	flag := writePubKey(t, filepath.Join(flagDir, "flag.pub"), "flag")
+	t.Setenv(keyDirsEnv, envB+string(os.PathListSeparator)+string(os.PathListSeparator)+envA)
+
+	candidates, _, err := discoverCandidates(&keyChoice{keyDirs: []string{flagDir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, candidate := range candidates {
+		got = append(got, candidate.fingerprint)
+	}
+	want := []string{sshKey, crhu, b, a, flag}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("candidates = %v, want %v", got, want)
+	}
+
+	t.Setenv(keyDirsEnv, filepath.Join(t.TempDir(), "missing"))
+	if _, _, err := discoverCandidates(&keyChoice{}); err == nil || !strings.Contains(err.Error(), keyDirsEnv) {
+		t.Fatalf("a missing %s directory: err = %v", keyDirsEnv, err)
+	}
+
+	// Without ~/.crhu/keys nothing fails.
+	isolatedHome(t)
+	if _, _, err := discoverCandidates(&keyChoice{}); err != nil {
+		t.Fatalf("a home without .crhu/keys: %v", err)
 	}
 }
 
