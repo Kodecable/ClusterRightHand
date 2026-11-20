@@ -17,7 +17,7 @@ import { TOOLS } from "../tools/catalog.ts";
 import { clusterExtension, directToolsExtension, sessionExtensionViews, syncSessionExtensions } from "./extension.ts";
 import { GenerationTimings } from "./latency.ts";
 import { ModelPresets } from "./model-presets.ts";
-import type { ModelRef } from "./models.ts";
+import { CLIENT_IDENTITY, type ModelRef } from "./models.ts";
 import { Reviewer } from "./review.ts";
 import type { AgentRuntimeOptions, RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { HandlerWakes } from "./runtime-host/handler-wakes.ts";
@@ -179,7 +179,7 @@ export class AgentRuntime {
 						ref.current?.compactionStreamId(providerSessionId) ?? streamSessionId(providerSessionId, "compaction"),
 				),
 				registry,
-				identity: { attribution: { name: "ClusterRightHand", url: "https://github.com/Kodecable/ClusterRightHand" } },
+				identity: CLIENT_IDENTITY,
 				settings: {
 					// pi's coding-agent defaults (doc/design/agent-runtime.md "Defaults").
 					compaction: { reserveTokens: 16384, keepRecentTokens: 20000, ...options.compaction },

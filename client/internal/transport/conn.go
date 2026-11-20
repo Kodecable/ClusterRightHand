@@ -14,6 +14,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/tlsclient"
+	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 	"github.com/coder/websocket"
 )
 
@@ -77,7 +78,7 @@ func Dial(ctx context.Context, opts DialOptions) (*Conn, error) {
 	if opts.InsecureSkipVerify {
 		client = tlsclient.Insecure()
 	}
-	ws, _, err := websocket.Dial(ctx, opts.URL, &websocket.DialOptions{HTTPClient: client})
+	ws, _, err := websocket.Dial(ctx, opts.URL, dialOptions(client))
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", opts.URL, err)
 	}
@@ -234,7 +235,7 @@ func DialData(ctx context.Context, opts DataDialOptions) (*Conn, error) {
 	if opts.InsecureSkipVerify {
 		client = tlsclient.Insecure()
 	}
-	ws, _, err := websocket.Dial(ctx, opts.URL, &websocket.DialOptions{HTTPClient: client})
+	ws, _, err := websocket.Dial(ctx, opts.URL, dialOptions(client))
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", opts.URL, err)
 	}
@@ -298,4 +299,12 @@ func dataHandshake(ctx context.Context, ws wsConn, opts DataDialOptions) (*Conn,
 		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
 	}
 	return &Conn{ws: ws, session: session}, nil
+}
+
+// dialOptions are the WebSocket options of both connections: the HTTP client and crha's User-Agent.
+func dialOptions(client *http.Client) *websocket.DialOptions {
+	return &websocket.DialOptions{
+		HTTPClient: client,
+		HTTPHeader: http.Header{"User-Agent": []string{version.UserAgent()}},
+	}
 }

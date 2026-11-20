@@ -224,6 +224,7 @@ func fetchServerKey(ctx context.Context, cfg *config.Config, fingerprint string)
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", version.UserAgent())
 	client := serverKeyClient(cfg)
 	resp, err := client.Do(req)
 	if err != nil {

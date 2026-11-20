@@ -113,6 +113,21 @@ pnpm workspace (`packages/*`, `server`, `web`); `@crh/api` holds the wire types 
 locale registry, so crhs and the WebUI share
 one definition of the HTTP API. The Go client is a separate module under `client/`.
 
+## Outbound requests
+
+Every HTTP request crhs or crha sends identifies itself with one User-Agent form:
+`ClusterRightHand/<version> (crhs)` or `ClusterRightHand/<version> (crha)`. crhu sends no requests.
+
+- **crhs, model requests.** The client identity pi-ai sends with every model request carries crhs's
+  User-Agent and its provider attribution, for the Harness's requests (generation and compaction) and
+  for Auto Review and title generation alike. pi-ai places these headers beneath the model's, the
+  provider's and the request's own, so a User-Agent in a custom provider's extra headers, or one a
+  built-in provider requires, is the one sent.
+- **crhs, everything else.** The global fetch is wrapped at startup, before any module captures it, so
+  every other request (the model catalogue and model listing, MCP extensions, channels, WebDAV, search)
+  carries crhs's User-Agent when it sets none. A User-Agent in an extension's configured headers wins.
+- **crha.** The agent and data connections and the enrollment key fetch set crha's User-Agent.
+
 ## End-to-end flow: a privileged command
 
 1. A session's model calls `exec` on `web-1` with `systemctl restart nginx`, marked privileged.

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// First: the global fetch must carry crhs's User-Agent before any module captures it.
+import "./util/install-user-agent.ts";
 import type { Server } from "node:http";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";

@@ -21,10 +21,12 @@ import {
 	type Provider,
 } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import { type ClientIdentity, mergeClientIdentity } from "@earendil-works/pi-ai/utils/identity";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
 import { UserError } from "../util/errors.ts";
 import { parseJson } from "../util/json.ts";
+import { USER_AGENT } from "../util/user-agent.ts";
 import { customProvider, type ProviderSessionResolver, withKey } from "./custom-provider.ts";
 import type { TimingSink } from "./latency.ts";
 import { DEFAULT_LLM_TIMEOUTS, type LlmTimeoutLimits } from "./llm-timeout.ts";
@@ -59,6 +61,21 @@ export {
 	thinkingLevelOf,
 } from "./model-types.ts";
 export { builtinProviderIds, type ModelProviderFields } from "./model-validate.ts";
+
+/**
+ * How crhs identifies itself to model providers (doc/design/architecture.md "Outbound requests"): its
+ * User-Agent and provider attribution. pi-ai applies these headers below the model's, the provider's and
+ * the request's own, so a User-Agent in a provider's configured headers wins.
+ */
+export const CLIENT_IDENTITY: ClientIdentity = {
+	userAgent: { custom: USER_AGENT },
+	attribution: { name: "ClusterRightHand", url: "https://github.com/Kodecable/ClusterRightHand" },
+};
+
+/** A request's options with crhs's identity beneath any identity the caller set. */
+function withClientIdentity(options: ModelsSimpleStreamOptions | undefined): ModelsSimpleStreamOptions {
+	return { ...options, identity: mergeClientIdentity(CLIENT_IDENTITY, options?.identity) };
+}
 
 /**
  * The model registry for the agent runtime, from the configured providers. Rebuilt when an administrator
@@ -122,7 +139,7 @@ export class ModelConfig {
 
 	/** The one-shot completion Auto Review and title generation use, on the configured registry. */
 	completeSimple(model: Model<Api>, context: Context, options?: ModelsSimpleStreamOptions): Promise<AssistantMessage> {
-		return this.#models.completeSimple(model, context, options);
+		return this.#models.completeSimple(model, context, withClientIdentity(options));
 	}
 
 	/**
@@ -131,7 +148,7 @@ export class ModelConfig {
 	 * through `completeSimple` (doc/design/agent-runtime.md "Custom providers").
 	 */
 	streamSimple(model: Model<Api>, context: Context, options?: ModelsSimpleStreamOptions): AssistantMessageEventStream {
-		return this.#models.streamSimple(model, context, options);
+		return this.#models.streamSimple(model, context, withClientIdentity(options));
 	}
 
 	/**

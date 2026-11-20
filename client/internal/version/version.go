@@ -11,6 +11,12 @@ var (
 	Commit  = "unknown"
 )
 
+// UserAgent is the User-Agent of crha's requests to crhs, the same form crhs uses for its own
+// outbound requests: "ClusterRightHand/<version> (crha)".
+func UserAgent() string {
+	return "ClusterRightHand/" + Version + " (crha)"
+}
+
 func String() string {
 	return StringFor("crha")
 }

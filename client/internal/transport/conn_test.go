@@ -12,6 +12,7 @@ import (
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 	"github.com/coder/websocket"
 	"github.com/fxamacker/cbor/v2"
 )
@@ -409,5 +410,24 @@ func TestDialData(t *testing.T) {
 	}
 	if frame.Kind != protocol.DataFrameData || string(frame.Bytes) != "ok" {
 		t.Fatalf("frame = %+v", frame)
+	}
+}
+
+func TestDialSendsUserAgent(t *testing.T) {
+	seen := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- r.Header.Get("User-Agent")
+		http.Error(w, "no", http.StatusForbidden)
+	}))
+	defer srv.Close()
+	url := "ws" + strings.TrimPrefix(srv.URL, "http")
+	if _, err := Dial(context.Background(), DialOptions{URL: url}); err == nil {
+		t.Fatal("dial succeeded against a refusing server")
+	}
+	if got, want := <-seen, version.UserAgent(); got != want {
+		t.Fatalf("User-Agent = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(version.UserAgent(), "ClusterRightHand/") || !strings.HasSuffix(version.UserAgent(), " (crha)") {
+		t.Fatalf("unexpected User-Agent %q", version.UserAgent())
 	}
 }
