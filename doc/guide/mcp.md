@@ -98,7 +98,9 @@ source is `{ node, path }` or `{ library, path }`. The destination is a node
 missing parent directories only with `create_parent_dirs: true`; a library has no directories, so any
 library path works. A library destination is limited by that library's limits. With
 `{ user_interface: true }` nothing is copied: the tool stats the file and reports that it was offered to
-the people in the session for download, so you learn whether it exists.
+the people in the session for download, so you learn whether it exists. The download reads the file
+only when someone clicks it, possibly much later, so do not offer a temporary file; copy it to a library
+first and offer that copy.
 
 `view_image` accepts PNG, JPEG, GIF and WebP within the model's image limits (by default 2000×2000
 pixels and 4.5 MB as base64) and stores the image in crhs's image cache. Over MCP there is no model

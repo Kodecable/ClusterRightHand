@@ -259,6 +259,9 @@ applies; `overwrite` is accepted and has no effect.
   size, a download on click and an image preview. A library source is resolved by its id, so a renamed
   group keeps the link. It downloads the path as it is when clicked: no size, SHA-256 or version is
   pinned.
+- Because the download reads the source at click time, possibly long after the call returned, the tool
+  description tells the model not to offer a temporary file or change the source afterwards, and to copy
+  a temporary result to a library and offer that copy instead.
 - Permission is decided at click time by the ordinary rules for the clicking user: a library source uses
   the library file endpoint and needs library access, and a node source uses
   `GET /api/nodes/:id/file?path=`, which runs a `file.pull` for that user (see [WebUI and API](#webui-and-api)).

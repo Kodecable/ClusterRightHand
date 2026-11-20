@@ -696,7 +696,11 @@ const libraryDestination = z
 /** The no-copy destination: offer the source to the people in the session and download it at click time. */
 const userInterfaceDestination = z
 	.object({
-		user_interface: z.literal(true).describe("Offer the file to the people in the session; nothing is copied"),
+		user_interface: z
+			.literal(true)
+			.describe(
+				"Offer the file to the people in the session; nothing is copied, and the source is read only when someone downloads it, so it must stay in place",
+			),
 	})
 	.strict();
 
@@ -727,7 +731,10 @@ const copyFile = define({
 		"library { library, path }, or { user_interface: true }. Node destinations create missing parent " +
 		"directories only with create_parent_dirs: true; a library has no directories, so any library path " +
 		"works. With user_interface nothing is copied: the file is offered to the people in the session and " +
-		"downloaded at click time; at most 5 files can be offered in one turn, and the sixth is refused. An " +
+		"read from its source only when someone clicks to download it, which may be long after this call " +
+		"returns, and each click reads the file as it is then. So do not offer a temporary file, or delete, " +
+		"move or change the source afterwards; to offer a temporary result, first copy it to a library and " +
+		"offer the library copy. At most 5 files can be offered in one turn, and the sixth is refused. An " +
 		"existing destination is refused unless overwrite is true; overwrite " +
 		"applies to node and library destinations and has no effect with user_interface. A library path reaches " +
 		"the libraries of the user you act for. The call blocks until every destination task ends, approval included.",
