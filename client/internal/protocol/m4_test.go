@@ -36,6 +36,18 @@ type m4Fixture struct {
 		Description string `json:"description"`
 		Hex         string `json:"hex"`
 	} `json:"authorizations"`
+	CosignTickets []struct {
+		ID                 string `json:"id"`
+		Description        string `json:"description"`
+		Hex                string `json:"hex"`
+		PayloadHex         string `json:"payloadHex"`
+		AuthorizationIDHex string `json:"authorizationIdHex"`
+	} `json:"cosignTickets"`
+	CosignNegative []struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+		Hex         string `json:"hex"`
+	} `json:"cosignNegative"`
 	Bodies []struct {
 		ID          string `json:"id"`
 		Description string `json:"description"`
@@ -152,6 +164,53 @@ func TestM4AuthorizationVectors(t *testing.T) {
 			// The payload bytes are carried verbatim and are themselves a valid payload.
 			if _, err := DecodeAuthorizationPayload(authorization.Payload); err != nil {
 				t.Fatalf("embedded payload: %v", err)
+			}
+		})
+	}
+}
+
+func TestM4CosignTicketVectors(t *testing.T) {
+	fixture := readM4Fixture(t)
+	if len(fixture.CosignTickets) == 0 {
+		t.Fatal("fixture has no cosign tickets")
+	}
+	for _, vector := range fixture.CosignTickets {
+		t.Run(vector.ID, func(t *testing.T) {
+			raw := mustHex(t, vector.Hex)
+			var ticket CosignTicket
+			if err := Unmarshal(raw, &ticket); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			encoded, err := Marshal(&ticket)
+			if err != nil {
+				t.Fatalf("re-encode: %v", err)
+			}
+			if !bytes.Equal(encoded, raw) {
+				t.Fatalf("re-encoded as %x, want %x", encoded, raw)
+			}
+			if got := hex.EncodeToString(ticket.Payload); got != vector.PayloadHex {
+				t.Fatalf("payload = %s, want %s", got, vector.PayloadHex)
+			}
+			payload, err := DecodeCosignPayload(ticket.Payload)
+			if err != nil {
+				t.Fatalf("payload: %v", err)
+			}
+			if got := hex.EncodeToString(payload.AuthorizationID[:]); got != vector.AuthorizationIDHex {
+				t.Fatalf("authorization id = %s, want %s", got, vector.AuthorizationIDHex)
+			}
+		})
+	}
+}
+
+func TestM4CosignNegativeVectors(t *testing.T) {
+	fixture := readM4Fixture(t)
+	if len(fixture.CosignNegative) == 0 {
+		t.Fatal("fixture has no negative cosign payloads")
+	}
+	for _, vector := range fixture.CosignNegative {
+		t.Run(vector.ID, func(t *testing.T) {
+			if _, err := DecodeCosignPayload(mustHex(t, vector.Hex)); err == nil {
+				t.Fatalf("accepted: %s", vector.Description)
 			}
 		})
 	}

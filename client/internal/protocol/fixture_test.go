@@ -434,6 +434,7 @@ func expectedFixtureValue(id string) (any, bool) {
 				}},
 				Privileged:     false,
 				Authorizations: [][]byte{{0x00, 0xff}},
+				Cosign:         &[]byte{0x82, 0x40, 0x80},
 				TimeoutMS:      30000,
 				KillGraceMS:    5000,
 				Output: OutputMode{

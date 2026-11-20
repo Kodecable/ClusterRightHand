@@ -60,6 +60,20 @@ interface Case {
 		/** In signature order. `entry` names the signer; a name with no trust entry here is a key this node does not trust. `valid` is the crypto result. */
 		signatures: { entry: string; valid: boolean; uv: boolean }[];
 	};
+	/**
+	 * The cosign ticket task.start carries (doc/design/protocol.md "Cosign ticket"), or null. A null
+	 * `authorization_id_hex` names the case's own authorization (SHA-256 of its encoded payload); the
+	 * signatures are abstract like the authorization's.
+	 */
+	cosign: null | {
+		payload: {
+			authorization_id_hex: string | null;
+			uses: { node: string; task_id: string; attempt: number }[];
+			issued_at_ms: number;
+			deadline_ms: number;
+		};
+		signatures: { entry: string; valid: boolean }[];
+	};
 	/** The local approval window state when the decision runs; null means closed. */
 	window: null | { opened_at_ms: number; opened_by: number; until_ms: number };
 	/** Task ids already executed on this node, and (authorization, task id) pairs already used. */
@@ -153,6 +167,8 @@ const CRHS = entry("crhs", "crhs", {
 });
 const USER = entry("alice", "user", { max_ttl_ms: 86_400_000, env_allow: ["DEBIAN_FRONTEND"] });
 const LOCAL = entry("local-admins", "local", { kinds: [], uids: [0, 1000] });
+const COSIGN_USER = { ...USER, kinds: ["execute", "require-cosign"] } as Entry;
+const COSIGN_TRUST: Entry[] = [{ ...CRHS, kinds: ["cosign"] }, COSIGN_USER, LOCAL];
 const WINDOW_OPEN = { opened_at_ms: NOW - 60_000, opened_by: 1000, until_ms: NOW + 1_800_000 };
 
 const specRestart = { spec_sha256: specHash(RESTART) };
@@ -179,6 +195,7 @@ function base(id: string, description: string, overrides: Partial<Case> = {}): C
 		trust: [CRHS, USER, LOCAL],
 		task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(RESTART) },
 		authorization: { payload: crhsPayload(), signatures: [{ entry: "crhs", valid: true, uv: false }] },
+		cosign: null,
 		window: null,
 		executed_task_ids: [],
 		used_pairs: [],
@@ -194,9 +211,32 @@ const signedBy = (payload: PayloadJson, ...entries: string[]): NonNullable<Case[
 
 const reject = (result: string, step: number) => ({ expect: { result, step } });
 
+/** A cosign ticket for this task on this node at attempt 1, signed by `entries` (all valid). */
+const ticket = (
+	overrides: Partial<NonNullable<Case["cosign"]>["payload"]> = {},
+	...entries: string[]
+): NonNullable<Case["cosign"]> => ({
+	payload: {
+		authorization_id_hex: null,
+		uses: [{ node: NODE, task_id: TASK, attempt: 1 }],
+		issued_at_ms: NOW,
+		deadline_ms: NOW + 300_000,
+		...overrides,
+	},
+	signatures: (entries.length > 0 ? entries : ["crhs"]).map((name) => ({ entry: name, valid: true })),
+});
+
 function cases(): Case[] {
 	const userOneShot = (overrides: Partial<PayloadJson> = {}): PayloadJson =>
 		crhsPayload({ deadline_ms: NOW + 3_600_000, ...overrides });
+	const userReusable = (): PayloadJson => ({
+		nodes: [NODE],
+		command: { method: "exec", prefix: "systemctl restart " },
+		issued_at_ms: NOW,
+		deadline_ms: NOW + 300_000,
+		task_ids: null,
+		attempt: null,
+	});
 	return [
 		// --- crhs execute -------------------------------------------------------------------
 		base("crhs.spec.accept", "crhs spec authorization within its rules"),
@@ -534,35 +574,132 @@ function cases(): Case[] {
 			...reject("authorization_rejected", 7),
 		}),
 
-		// --- cosign --------------------------------------------------------------------------
-		base("cosign.missing", "user entry requires cosign; only the user signed", {
-			trust: [CRHS, { ...USER, kinds: ["execute", "require-cosign"] }, LOCAL],
+		// --- cosign ----------------------------------------------------------------------------
+		base("cosign.missing", "user entry requires cosign; no cosign ticket", {
+			trust: COSIGN_TRUST,
 			authorization: signedBy(userOneShot(), "alice"),
 			...reject("authorization_rejected", 8),
 		}),
-		base("cosign.present", "user signature plus crhs cosign on the same payload", {
-			trust: [{ ...CRHS, kinds: ["cosign"] }, { ...USER, kinds: ["execute", "require-cosign"] }, LOCAL],
+		base("cosign.present", "a one-shot user authorization with a crhs cosign ticket for this use", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: ticket(),
+		}),
+		base("cosign.reusable", "a reusable prefix authorization: the ticket confirms this one use", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userReusable(), "alice"),
+			cosign: ticket(),
+		}),
+		base("cosign.reusable-missing", "a reusable authorization needs a ticket for every use", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userReusable(), "alice"),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.group", "one ticket confirms uses on several nodes; this node finds its own", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: ticket({
+				uses: [
+					{ node: OTHER_NODE, task_id: OTHER_TASK, attempt: 2 },
+					{ node: NODE, task_id: TASK, attempt: 1 },
+				],
+			}),
+		}),
+		base("cosign.in-payload", "a crhs signature on the user's payload is no cosignature", {
+			trust: COSIGN_TRUST,
 			authorization: signedBy(userOneShot(), "alice", "crhs"),
+			...reject("authorization_rejected", 8),
 		}),
 		base("cosign.crhs-rules-not-applied", "cosign ignores the crhs entry's own rules (deny /etc/crha/)", {
-			trust: [{ ...CRHS, kinds: ["cosign"] }, { ...USER, kinds: ["execute", "require-cosign"] }, LOCAL],
+			trust: COSIGN_TRUST,
 			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(WRITE_CRHA) },
 			authorization: signedBy(
 				userOneShot({
 					command: { spec_sha256: specHash(WRITE_CRHA) },
 				}),
 				"alice",
-				"crhs",
 			),
+			cosign: ticket(),
 		}),
 		base("cosign.not-cosign-kind", "the crhs entry has execute but not cosign", {
-			trust: [{ ...CRHS, kinds: ["execute"] }, { ...USER, kinds: ["execute", "require-cosign"] }, LOCAL],
-			authorization: signedBy(userOneShot(), "alice", "crhs"),
+			trust: [{ ...CRHS, kinds: ["execute"] }, COSIGN_USER, LOCAL],
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: ticket(),
 			...reject("authorization_rejected", 8),
 		}),
+		base("cosign.user-signed", "a ticket signed by the user, not crhs", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: ticket({}, "alice"),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.unknown-signer", "a ticket signed by a key this node does not trust", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: ticket({}, "unknown"),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.bad-signature", "the ticket's crhs signature does not verify", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: { ...ticket(), signatures: [{ entry: "crhs", valid: false }] },
+			...reject("authorization_invalid", 8),
+		}),
+		base("cosign.other-authorization", "the ticket confirms another authorization", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: ticket({ authorization_id_hex: "00".repeat(32) }),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.other-task", "the ticket confirms another task only", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: ticket({ uses: [{ node: NODE, task_id: OTHER_TASK, attempt: 1 }] }),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.other-node", "the ticket confirms this task on another node", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userReusable(), "alice"),
+			cosign: ticket({ uses: [{ node: OTHER_NODE, task_id: TASK, attempt: 1 }] }),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.alias", "a ticket names node ids: a trust alias is not this node", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userReusable(), "alice"),
+			cosign: ticket({ uses: [{ node: ALIAS, task_id: TASK, attempt: 1 }] }),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.other-attempt", "the ticket confirms another attempt", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userReusable(), "alice"),
+			cosign: ticket({ uses: [{ node: NODE, task_id: TASK, attempt: 2 }] }),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.expired", "the ticket's deadline is more than clock_skew in the past", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userReusable(), "alice"),
+			cosign: ticket({ issued_at_ms: NOW - 600_000, deadline_ms: NOW - 60_001 }),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.expired-within-skew", "the ticket's deadline is past but within clock_skew", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userReusable(), "alice"),
+			cosign: ticket({ issued_at_ms: NOW - 600_000, deadline_ms: NOW - 60_000 }),
+		}),
+		base("cosign.future", "the ticket was issued more than clock_skew in the future", {
+			trust: COSIGN_TRUST,
+			authorization: signedBy(userReusable(), "alice"),
+			cosign: ticket({ issued_at_ms: NOW + 60_001, deadline_ms: NOW + 360_000 }),
+			...reject("authorization_rejected", 8),
+		}),
+		base("cosign.not-required", "an entry without require-cosign ignores the ticket, even a broken one", {
+			authorization: signedBy(userOneShot(), "alice"),
+			cosign: { ...ticket(), signatures: [{ entry: "crhs", valid: false }] },
+		}),
 		base("cosign.first-candidate-error", "two candidates both fail; the first candidate's failure is reported", {
-			trust: [{ ...CRHS, kinds: ["cosign"] }, { ...USER, kinds: ["execute", "require-cosign"] }, LOCAL],
+			trust: COSIGN_TRUST,
 			authorization: signedBy(userOneShot({ deadline_ms: NOW + 86_400_001 }), "alice", "crhs"),
+			cosign: ticket(),
 			...reject("authorization_expired", 4),
 		}),
 

@@ -146,8 +146,10 @@ export function reusableScopeOf(tasks: readonly { nodeId: string; spec: string |
 
 /**
  * Whether every node has a planned user entry that accepts a reusable prefix authorization: one that requires
- * neither a bound spec nor task ids. crha refuses a `max_ttl` under five minutes, so lifetime never rules a
- * short one out. A node without a trust summary is not known to accept it.
+ * neither a bound spec nor task ids. An entry that requires crhs's cosignature takes one with a cosign ticket
+ * for each use (doc/design/privilege.md "Cosigning"), so it counts when its cosignature is available. crha
+ * refuses a `max_ttl` under five minutes, so lifetime never rules a short one out. A node without a trust
+ * summary is not known to accept it.
  */
 async function reusableAcceptedOn(
 	db: Db,
@@ -179,7 +181,10 @@ async function signOptionScope(
 ): Promise<ReusableScope | null> {
 	const scope = reusableScopeOf(tasks);
 	if (!scope) return null;
-	const names = new Set(option.entries.filter((entry) => entry.role === "user").map((entry) => entry.name));
+	// An entry whose cosignature is missing cannot use the authorization; the planned ones can.
+	const names = new Set(
+		option.entries.filter((entry) => entry.role === "user" && entry.cosign !== "missing").map((entry) => entry.name),
+	);
 	return (await reusableAcceptedOn(db, scope.nodes, names)) ? scope : null;
 }
 

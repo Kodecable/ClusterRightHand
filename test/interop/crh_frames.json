@@ -2,23 +2,23 @@
 	"positive": [
 		{
 			"id": "handshake.init.no-enroll",
-			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
-			"hex": "8601008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d6172796a302e312e302d746573741b0000018bcfe56800f6"
+			"description": "HandshakeInit protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
+			"hex": "8602008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d6172796a302e312e302d746573741b0000018bcfe56800f6"
 		},
 		{
 			"id": "handshake.init.enroll",
-			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=[token_secret=\"enroll-secret\", hostname=\"node-1\", facts={hostname=\"node-1\", platform=\"linux, amd64, Ubuntu 24.04.4 LTS\", hints=\"Found systemd.\\nPID 1 is systemd.\\nFound apt.\\nFound sudo.\", notes_path=\"/etc/crh/notes\", clock_offset_ms=-1234, shells={sh=\"/bin/sh\", bash=\"/usr/bin/bash\"}}]",
-			"hex": "860100826568656c6c6f6470696e676a302e312e302d746573741b0000018bcfe56800836d656e726f6c6c2d736563726574666e6f64652d31a66568696e74737837466f756e642073797374656d642e0a50494420312069732073797374656d642e0a466f756e64206170742e0a466f756e64207375646f2e667368656c6c73a2627368672f62696e2f736864626173686d2f7573722f62696e2f6261736868686f73746e616d65666e6f64652d3168706c6174666f726d78206c696e75782c20616d6436342c205562756e74752032342e30342e34204c54536a6e6f7465735f706174686e2f6574632f6372682f6e6f7465736f636c6f636b5f6f66667365745f6d733904d1"
+			"description": "HandshakeInit protocol_major=2 protocol_minor=0 commands=[hello,ping] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=[token_secret=\"enroll-secret\", hostname=\"node-1\", facts={hostname=\"node-1\", platform=\"linux, amd64, Ubuntu 24.04.4 LTS\", hints=\"Found systemd.\\nPID 1 is systemd.\\nFound apt.\\nFound sudo.\", notes_path=\"/etc/crh/notes\", clock_offset_ms=-1234, shells={sh=\"/bin/sh\", bash=\"/usr/bin/bash\"}}]",
+			"hex": "860200826568656c6c6f6470696e676a302e312e302d746573741b0000018bcfe56800836d656e726f6c6c2d736563726574666e6f64652d31a66568696e74737837466f756e642073797374656d642e0a50494420312069732073797374656d642e0a466f756e64206170742e0a466f756e64207375646f2e667368656c6c73a2627368672f62696e2f736864626173686d2f7573722f62696e2f6261736868686f73746e616d65666e6f64652d3168706c6174666f726d78206c696e75782c20616d6436342c205562756e74752032342e30342e34204c54536a6e6f7465735f706174686e2f6574632f6372682f6e6f7465736f636c6f636b5f6f66667365745f6d733904d1"
 		},
 		{
 			"id": "handshake.response.active",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
-			"hex": "8701008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
+			"hex": "8702008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
 		},
 		{
 			"id": "handshake.response.pending",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
-			"hex": "8701008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=2 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
+			"hex": "8702008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
 		},
 		{
 			"id": "request.hello",
@@ -43,37 +43,37 @@
 		{
 			"id": "request.task.start.exec.argv",
 			"description": "request id=3 cmd=task.start body=[task_id=\"t-exec-argv\", attempt=1, spec=[\"exec\", [command=[\"argv\", [\"/bin/echo\", \"hi\"]], env={A:\"1\",B:\"2\"}, cwd=\"/tmp/数据\", stdin=null]], privileged=false, authorizations=[h'00ff'], timeout_ms=30000, kill_grace_ms=5000, output=[\"full\", [spill_bytes=1048576, spill_lines=1000]]]",
-			"hex": "8400036a7461736b2e7374617274886b742d657865632d61726776018264657865638482646172677682692f62696e2f6563686f626869a261416131614261326b2f746d702fe695b0e68daef6f4814200ff197530191388826466756c6c821a001000001903e8"
+			"hex": "8400036a7461736b2e7374617274896b742d657865632d61726776018264657865638482646172677682692f62696e2f6563686f626869a261416131614261326b2f746d702fe695b0e68daef6f4814200ff43824080197530191388826466756c6c821a001000001903e8"
 		},
 		{
 			"id": "request.task.start.exec.shell",
 			"description": "request id=4 cmd=task.start body=[task_id=\"t-exec-shell\", attempt=2, spec=[\"exec\", [command=[\"shell\", \"echo 你好 | wc -c\"], env={}, cwd=\"/tmp\", stdin=[size=3, sha256=32 bytes of 0x11]]], privileged=false, authorizations=[], timeout_ms=5000, kill_grace_ms=1000, output=[\"text\", []]]",
-			"hex": "8400046a7461736b2e7374617274886c742d657865632d7368656c6c028264657865638482657368656c6c736563686f20e4bda0e5a5bd207c207763202d63a0642f746d70820358201111111111111111111111111111111111111111111111111111111111111111f4801913881903e882647465787480"
+			"hex": "8400046a7461736b2e7374617274896c742d657865632d7368656c6c028264657865638482657368656c6c736563686f20e4bda0e5a5bd207c207763202d63a0642f746d70820358201111111111111111111111111111111111111111111111111111111111111111f480f61913881903e882647465787480"
 		},
 		{
 			"id": "request.task.start.file.read",
 			"description": "request id=5 cmd=task.start body=[task_id=\"t-read\", attempt=1, spec=[\"file.read\", [path=\"/etc/hosts\", startLine=1, lineCount=100]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
-			"hex": "8400056a7461736b2e73746172748866742d7265616401826966696c652e72656164836a2f6574632f686f737473011864f4800000826673746174757380"
+			"hex": "8400056a7461736b2e73746172748966742d7265616401826966696c652e72656164836a2f6574632f686f737473011864f480f60000826673746174757380"
 		},
 		{
 			"id": "request.task.start.file.write",
 			"description": "request id=6 cmd=task.start body=[task_id=\"t-write\", attempt=1, spec=[\"file.write\", [path=\"/tmp/x\", content=[size=3, sha256=32 bytes of 0x22], overwrite=false, mode=0, owner=\"\", group=\"\", create_parent_dirs=false]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
-			"hex": "8400066a7461736b2e73746172748867742d777269746501826a66696c652e777269746587662f746d702f78820358202222222222222222222222222222222222222222222222222222222222222222f4006060f4f4800000826673746174757380"
+			"hex": "8400066a7461736b2e73746172748967742d777269746501826a66696c652e777269746587662f746d702f78820358202222222222222222222222222222222222222222222222222222222222222222f4006060f4f480f60000826673746174757380"
 		},
 		{
 			"id": "request.task.start.file.edit",
 			"description": "request id=7 cmd=task.start body=[task_id=\"t-edit\", attempt=1, spec=[\"file.edit\", [path=\"/tmp/x\", edits=[[old_text=\"a\", new_text=\"b\"], [old_text=\"你好\", new_text=\"世界\"]]]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
-			"hex": "8400076a7461736b2e73746172748866742d6564697401826966696c652e6564697482662f746d702f788282616161628266e4bda0e5a5bd66e4b896e7958cf4800000826673746174757380"
+			"hex": "8400076a7461736b2e73746172748966742d6564697401826966696c652e6564697482662f746d702f788282616161628266e4bda0e5a5bd66e4b896e7958cf480f60000826673746174757380"
 		},
 		{
 			"id": "request.task.start.file.stat",
 			"description": "request id=8 cmd=task.start body=[task_id=\"t-stat\", attempt=1, spec=[\"file.stat\", [path=\"/tmp/x\"]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
-			"hex": "8400086a7461736b2e73746172748866742d7374617401826966696c652e7374617481662f746d702f78f4800000826673746174757380"
+			"hex": "8400086a7461736b2e73746172748966742d7374617401826966696c652e7374617481662f746d702f78f480f60000826673746174757380"
 		},
 		{
 			"id": "request.task.start.file.list",
 			"description": "request id=9 cmd=task.start body=[task_id=\"t-list\", attempt=1, spec=[\"file.list\", [path=\"/tmp\", limit=0]], privileged=false, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=[\"status\", []]]",
-			"hex": "8400096a7461736b2e73746172748866742d6c69737401826966696c652e6c69737482642f746d7000f4800000826673746174757380"
+			"hex": "8400096a7461736b2e73746172748966742d6c69737401826966696c652e6c69737482642f746d7000f480f60000826673746174757380"
 		},
 		{
 			"id": "response.task.start",
@@ -290,7 +290,7 @@
 		{
 			"id": "negative.duplicate_env_key",
 			"description": "exec env map has two entries with key \"A\"",
-			"hex": "840018186a7461736b2e7374617274886b742d657865632d61726776018264657865638482646172677682692f62696e2f6563686f626869a261416131614161326b2f746d702fe695b0e68daef6f4814200ff197530191388826466756c6c821a001000001903e8"
+			"hex": "840018186a7461736b2e7374617274896b742d657865632d61726776018264657865638482646172677682692f62696e2f6563686f626869a261416131614161326b2f746d702fe695b0e68daef6f4814200ff43824080197530191388826466756c6c821a001000001903e8"
 		},
 		{
 			"id": "negative.unknown_frame_type",
@@ -345,12 +345,12 @@
 		{
 			"id": "negative.env_key_order",
 			"description": "exec env map has keys \"B\" then \"A\" (non-canonical key order)",
-			"hex": "8400181b6a7461736b2e73746172748865742d626164018264657865638482646172677680a2614261326141613160f6f4800000826673746174757380"
+			"hex": "8400181b6a7461736b2e73746172748965742d626164018264657865638482646172677680a2614261326141613160f6f480f60000826673746174757380"
 		},
 		{
 			"id": "negative.env_key_int",
 			"description": "exec env map has the integer key 1, but env permits only text keys",
-			"hex": "8400181c6a7461736b2e73746172748865742d626164018264657865638482646172677680a101617860f6f4800000826673746174757380"
+			"hex": "8400181c6a7461736b2e73746172748965742d626164018264657865638482646172677680a101617860f6f480f60000826673746174757380"
 		},
 		{
 			"id": "negative.facts_missing_hostname",

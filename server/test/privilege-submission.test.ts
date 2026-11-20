@@ -3,13 +3,18 @@ import { generateKeyPair } from "@crh/noise";
 import {
 	type Authorization,
 	authorizationCodec,
+	COSIGN_NAMESPACE,
+	type CosignPayload,
+	cosignTicketCodec,
 	decodeAuthorizationPayload,
 	decode as decodeCbor,
+	decodeCosignPayload,
 	encode as encodeCbor,
 	type Facts,
 	RemoteError,
 	type Signature,
 	type TaskSpec,
+	type TaskStart,
 	type TrustEntry,
 	type TrustSummary,
 } from "@crh/protocol";
@@ -59,6 +64,17 @@ const IDENTITIES = {
 
 const START = { tasks: [], taskKinds: [] };
 const HOUR = 3_600_000;
+
+/** The cosign ticket a task.start carries: its decoded payload, the payload bytes and the SSHSIG blobs. */
+function ticketOf(start: TaskStart): { payload: CosignPayload; payloadBytes: Uint8Array; blobs: Uint8Array[] } {
+	if (!start.cosign) throw new Error(`task.start of ${start.taskId} carries no cosign ticket`);
+	const ticket = cosignTicketCodec.decode(decodeCbor(start.cosign));
+	return {
+		payload: decodeCosignPayload(ticket.payload),
+		payloadBytes: ticket.payload,
+		blobs: ticket.signatures.flatMap((signature) => (signature.kind === "sshsig" ? [signature.blob] : [])),
+	};
+}
 
 describe("user authorizations", () => {
 	let db: Db;
@@ -533,13 +549,12 @@ describe("user authorizations", () => {
 		const core = new ClusterCore(db);
 		// The claim runs in the task's turn, like the sync pass that makes it.
 		const claim = await core.taskQueue.run(task.id, () =>
-			claimOwnerAuthorization(
-				core,
-				row,
-				node,
-				{ payload: built.payload, payloadBytes: built.bytes, signatures: [signature], id: built.id },
-				false,
-			),
+			claimOwnerAuthorization(core, row, node, {
+				payload: built.payload,
+				payloadBytes: built.bytes,
+				signatures: [signature],
+				id: built.id,
+			}),
 		);
 		expect(claim).toBeNull();
 		// Never `dispatched` with nothing to send: the task ends, since its spec can never be read.
@@ -705,13 +720,12 @@ describe("user authorizations", () => {
 		expect((await taskView(task.id)).state).toBe("awaiting_authorization");
 	});
 
-	it("appends crhs's cosignature when the accepting entry requires one", async () => {
-		const { node, crha } = await connect("cosign-1", (id) =>
-			summaryOf(id, [
-				ownerEntry({ kinds: ["execute", "require-cosign"] }),
-				crhsTrustEntry({ kinds: ["cosign"], allow: [] }),
-			]),
-		);
+	it("sends crhs's cosign ticket beside the owner's authorization when the accepting entry requires one", async () => {
+		const trust = () => [
+			ownerEntry({ kinds: ["execute", "require-cosign"] }),
+			crhsTrustEntry({ kinds: ["cosign"], allow: [] }),
+		];
+		const { node, crha } = await connect("cosign-1", (id) => summaryOf(id, trust()));
 		const task = await createPrivileged(node.id);
 		const waiting = await waitState(task.id, "awaiting_authorization");
 		expect(waiting.authorization?.options[0]).toMatchObject({
@@ -723,15 +737,22 @@ describe("user authorizations", () => {
 		const res = await submit(signedAuthorization(new Uint8Array(Buffer.from(pending.payload, "base64"))));
 		expect(res.status).toBe(200);
 		await waitFor("task.start", () => crha.starts.length === 1);
-		const wire = authorizationCodec.decode(decodeCbor(crha.starts[0]?.authorizations[0] as Uint8Array));
-		expect(wire.signatures).toHaveLength(2);
-		const cosign = wire.signatures[1];
-		if (cosign?.kind !== "sshsig") throw new Error("expected a crhs SSH signature");
-		expect(verifySshsig(signing.authorizedKey, wire.payload, cosign.blob)).toMatchObject({ valid: true });
-		const summary = summaryOf(node.id, [
-			ownerEntry({ kinds: ["execute", "require-cosign"] }),
-			crhsTrustEntry({ kinds: ["cosign"], allow: [] }),
-		]);
+		const start = crha.starts[0] as TaskStart;
+		// The authorization carries the owner's signature only; the confirmation is the ticket.
+		const wire = authorizationCodec.decode(decodeCbor(start.authorizations[0] as Uint8Array));
+		expect(wire.signatures).toHaveLength(1);
+		const ticket = ticketOf(start);
+		expect(ticket.payload.uses).toEqual([{ node: node.id, taskId: task.id, attempt: 1 }]);
+		expect(Buffer.from(ticket.payload.authorizationId).toString("hex")).toBe(pending.id);
+		expect(ticket.blobs).toHaveLength(1);
+		expect(
+			verifySshsig(signing.authorizedKey, ticket.payloadBytes, ticket.blobs[0] as Uint8Array, {
+				namespace: COSIGN_NAMESPACE,
+			}),
+		).toMatchObject({ valid: true });
+		// A ticket signature never passes as an authorization signature.
+		expect(verifySshsig(signing.authorizedKey, ticket.payloadBytes, ticket.blobs[0] as Uint8Array).valid).toBe(false);
+		const summary = summaryOf(node.id, trust());
 		const decision = decide({
 			now: Date.now(),
 			clockSkewMs: summary.clockSkewMs,
@@ -742,23 +763,31 @@ describe("user authorizations", () => {
 			authorization: {
 				payload: wire.payload,
 				decoded: decodeAuthorizationPayload(wire.payload),
-				signatures: [
-					{ entry: authzEntryFromTrust(summary.trust[0] as TrustEntry), valid: true, userVerified: false },
-					{ entry: authzEntryFromTrust(summary.trust[1] as TrustEntry), valid: true, userVerified: false },
-				],
+				signatures: [{ entry: authzEntryFromTrust(summary.trust[0] as TrustEntry), valid: true, userVerified: false }],
+			},
+			cosign: {
+				payload: ticket.payloadBytes,
+				decoded: ticket.payload,
+				signatures: [{ entry: authzEntryFromTrust(summary.trust[1] as TrustEntry), valid: true, userVerified: false }],
 			},
 			window: null,
 		});
 		expect(decision.result).toBe("accepted");
 		await waitState(task.id, "running");
 		await audit.flush();
-		expect(await auditRows("authorization.cosigned")).toHaveLength(1);
+		const cosigned = await auditRows("authorization.cosigned");
+		expect(cosigned).toHaveLength(1);
+		expect(JSON.parse(cosigned[0]?.detail as string)).toMatchObject({
+			uses: [{ node_id: node.id, task_id: task.id, attempt: 1 }],
+			keys: [signing.fingerprint],
+		});
+		// The stored authorization is the owner's alone.
 		const stored = await db
 			.selectFrom("authorizations")
 			.select("signatures")
 			.where("id", "=", pending.id)
 			.executeTakeFirstOrThrow();
-		expect(JSON.parse(stored.signatures)).toHaveLength(2);
+		expect(JSON.parse(stored.signatures)).toHaveLength(1);
 	});
 
 	it("stores a submitted authorization in the issuer's organization", async () => {
@@ -953,16 +982,25 @@ describe("user authorizations", () => {
 		expect((await pendingFor(task.id)).authorization).not.toBeNull();
 	});
 
-	it("does not reuse a reusable authorization for a require-cosign entry", async () => {
-		const { node } = await connect("reuse-2", (id) =>
+	it("reuses a reusable authorization for a require-cosign entry, with a ticket for each use", async () => {
+		const { node, crha } = await connect("reuse-2", (id) =>
 			summaryOf(id, [
 				ownerEntry({ kinds: ["execute", "require-cosign"] }),
 				crhsTrustEntry({ kinds: ["cosign"], allow: [] }),
 			]),
 		);
-		await seedReusable({ nodes: [node.id] });
+		const id = await seedReusable({ nodes: [node.id] });
 		const first = await createPrivileged(node.id);
-		await waitState(first.id, "awaiting_authorization");
+		await waitFor("first task.start", () => crha.starts.length === 1);
+		const second = await createPrivileged(node.id);
+		await waitFor("second task.start", () => crha.starts.length === 2);
+		const tickets = crha.starts.map(ticketOf);
+		expect(tickets.map((ticket) => ticket.payload.uses)).toEqual([
+			[{ node: node.id, taskId: first.id, attempt: 1 }],
+			[{ node: node.id, taskId: second.id, attempt: 1 }],
+		]);
+		for (const ticket of tickets) expect(Buffer.from(ticket.payload.authorizationId).toString("hex")).toBe(id);
+		await waitState(second.id, "running");
 	});
 
 	/** Every task.input chunk a fake crha received for a task, in order. */
@@ -1120,7 +1158,7 @@ describe("user authorizations", () => {
 		});
 	});
 
-	it("carries the same authorization, cosignature included, to every node of a group", async () => {
+	it("carries the same authorization and one ticket for the uses that need it to every node of a group", async () => {
 		const groups = new TaskGroups(db, cluster, { audit });
 		const a = await connect("group-cosign-a", (id) =>
 			summaryOf(id, [
@@ -1152,16 +1190,20 @@ describe("user authorizations", () => {
 		const first = a.crha.starts[0]?.authorizations[0] as Uint8Array;
 		const second = b.crha.starts[0]?.authorizations[0] as Uint8Array;
 		expect(Buffer.from(first)).toEqual(Buffer.from(second));
-		const wire = authorizationCodec.decode(decodeCbor(first));
-		expect(wire.signatures).toHaveLength(2);
-		expect(wire.signatures[1]?.kind).toBe("sshsig");
+		expect(authorizationCodec.decode(decodeCbor(first)).signatures).toHaveLength(1);
+		// Only node a requires a cosignature: its use alone is on the ticket, and node b gets none.
+		const taskA = (await view()).tasks.find((task) => task.nodeId === a.node.id);
+		expect(ticketOf(a.crha.starts[0] as TaskStart).payload.uses).toEqual([
+			{ node: a.node.id, taskId: taskA?.id, attempt: 1 },
+		]);
+		expect(b.crha.starts[0]?.cosign).toBeNull();
 		await waitFor("both running", async () => {
 			const group = await view();
 			return group.tasks.every((task) => task.state === "running");
 		});
 	});
 
-	it("adds one cosignature per key a group's nodes trust to the same shared payload", async () => {
+	it("signs one ticket for a group's uses, once per key its nodes trust to cosign", async () => {
 		const newer = await signingKeys.add();
 		const groups = new TaskGroups(db, cluster, { audit });
 		const a = await connect("group-keys-a", (id) =>
@@ -1199,18 +1241,21 @@ describe("user authorizations", () => {
 		).toBe(200);
 		await waitFor("both starts", () => a.crha.starts.length === 1 && b.crha.starts.length === 1);
 
-		// Both nodes get the same payload with both cosignatures; each node ignores the key it does not trust.
+		// Both nodes get the same authorization and the same ticket: both uses, both keys' signatures. Each node
+		// ignores the key it does not trust and finds its own use.
 		const first = a.crha.starts[0]?.authorizations[0] as Uint8Array;
 		const second = b.crha.starts[0]?.authorizations[0] as Uint8Array;
 		expect(Buffer.from(first)).toEqual(Buffer.from(second));
-		const wire = authorizationCodec.decode(decodeCbor(first));
-		expect(wire.signatures).toHaveLength(3);
-		const cosignatures = wire.signatures
-			.slice(1)
-			.flatMap((signature) => (signature.kind === "sshsig" ? [new Uint8Array(signature.blob)] : []));
-		expect(cosignatures).toHaveLength(2);
-		expect(cosignatures.some((blob) => verifySshsig(signing.authorizedKey, wire.payload, blob).valid)).toBe(true);
-		expect(cosignatures.some((blob) => verifySshsig(newer.authorizedKey, wire.payload, blob).valid)).toBe(true);
+		expect(Buffer.from(a.crha.starts[0]?.cosign as Uint8Array)).toEqual(
+			Buffer.from(b.crha.starts[0]?.cosign as Uint8Array),
+		);
+		const ticket = ticketOf(a.crha.starts[0] as TaskStart);
+		expect(ticket.payload.uses.map((use) => use.node).sort()).toEqual([a.node.id, b.node.id].sort());
+		expect(ticket.blobs).toHaveLength(2);
+		const verifies = (key: string) =>
+			ticket.blobs.some((blob) => verifySshsig(key, ticket.payloadBytes, blob, { namespace: COSIGN_NAMESPACE }).valid);
+		expect(verifies(signing.authorizedKey)).toBe(true);
+		expect(verifies(newer.authorizedKey)).toBe(true);
 		await waitFor("both running", async () => {
 			const group = await view();
 			return group.tasks.every((task) => task.state === "running");
@@ -1242,12 +1287,12 @@ describe("user authorizations", () => {
 			200,
 		);
 		await waitFor("task.start", () => crha.starts.length === 1);
-		const wire = authorizationCodec.decode(decodeCbor(crha.starts[0]?.authorizations[0] as Uint8Array));
-		expect(wire.signatures).toHaveLength(2);
-		const cosign = wire.signatures[1];
-		if (cosign?.kind !== "sshsig") throw new Error("expected a crhs SSH signature");
-		expect(verifySshsig(signing.authorizedKey, wire.payload, cosign.blob).valid).toBe(true);
-		expect(verifySshsig(newer.authorizedKey, wire.payload, cosign.blob).valid).toBe(false);
+		const ticket = ticketOf(crha.starts[0] as TaskStart);
+		expect(ticket.blobs).toHaveLength(1);
+		const blob = ticket.blobs[0] as Uint8Array;
+		const options = { namespace: COSIGN_NAMESPACE };
+		expect(verifySshsig(signing.authorizedKey, ticket.payloadBytes, blob, options).valid).toBe(true);
+		expect(verifySshsig(newer.authorizedKey, ticket.payloadBytes, blob, options).valid).toBe(false);
 		await waitState(task.id, "running");
 	});
 
@@ -1529,6 +1574,190 @@ describe("user authorizations", () => {
 			};
 			expect(view.options.find((option) => option.kind === "sign")?.reusableScope).toBeNull();
 		}
+	});
+
+	it("offers and honours the 5-minute scope on a require-cosign entry, a ticket for each use", async () => {
+		const { node, crha } = await connect("scope-cosign", (id) =>
+			summaryOf(id, [
+				ownerEntry({ kinds: ["execute", "require-cosign"] }),
+				crhsTrustEntry({ kinds: ["cosign"], allow: [] }),
+			]),
+		);
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		const view = (await pendingFor(task.id)).authorization as {
+			options: { kind: string; reusableScope?: unknown }[];
+		};
+		expect(view.options.find((option) => option.kind === "sign")?.reusableScope).toEqual({
+			nodes: [node.id],
+			method: "exec",
+		});
+		const res = await call(app, "/api/authorizations/draft", {
+			cookie: owner.cookie,
+			body: { nodes: [node.id], command: { method: "exec", prefix: "" }, ttlSeconds: 300 },
+		});
+		const { draft } = (await res.json()) as { draft: { payload: string } };
+		expect((await submit(signedAuthorization(new Uint8Array(Buffer.from(draft.payload, "base64"))))).status).toBe(200);
+		await waitFor("task.start", () => crha.starts.length === 1);
+		expect(ticketOf(crha.starts[0] as TaskStart).payload.uses).toEqual([
+			{ node: node.id, taskId: task.id, attempt: 1 },
+		]);
+		// The next task within the five minutes runs without asking, on a ticket of its own.
+		const next = await createPrivileged(node.id);
+		await waitFor("second task.start", () => crha.starts.length === 2);
+		expect(ticketOf(crha.starts[1] as TaskStart).payload.uses).toEqual([
+			{ node: node.id, taskId: next.id, attempt: 1 },
+		]);
+	});
+
+	/**
+	 * The 5-minute tabs' contract, across trust configurations (doc/design/webui.md "Shared components"): where
+	 * the waiting page offers a reusable scope, a 5-minute empty-prefix authorization signed for it runs every
+	 * waiting task; where it does not, such an authorization leaves at least one of them waiting (a group's
+	 * other members may still run on it, which is right: it is valid there). The offer is decided apart from the
+	 * node's decision, so this ties the two together for every constraint a trust entry can set, instead of
+	 * the constraints the offer happens to check. `offered` pins the expectation, so the property never holds
+	 * vacuously; a configuration under which nothing waits for a signature is `waits: false`.
+	 */
+	describe("5-minute scope: offered exactly where it works", () => {
+		const cosignOnly = () => crhsTrustEntry({ kinds: ["cosign"], allow: [] });
+		const any = [{ method: "exec" as const, match: "any" as const, pattern: "" }];
+		const cases: { name: string; nodes: (() => TrustEntry[])[]; offered: boolean; waits?: false }[] = [
+			{ name: "plain user entry", nodes: [() => [ownerEntry()]], offered: true },
+			{ name: "allow any", nodes: [() => [ownerEntry({ allow: any })]], offered: true },
+			{ name: "max_ttl of five minutes", nodes: [() => [ownerEntry({ maxTtlMs: 5 * 60_000 })]], offered: true },
+			{ name: "require_task", nodes: [() => [ownerEntry({ requireTask: true })]], offered: false },
+			{ name: "require_spec", nodes: [() => [ownerEntry({ requireSpec: true })]], offered: false },
+			{
+				name: "require-cosign, crhs may cosign",
+				nodes: [() => [ownerEntry({ kinds: ["execute", "require-cosign"] }), cosignOnly()]],
+				offered: true,
+			},
+			{
+				name: "require-cosign, no crhs cosign entry",
+				nodes: [() => [ownerEntry({ kinds: ["execute", "require-cosign"] })]],
+				offered: false,
+				waits: false,
+			},
+			{
+				name: "require-cosign beside a plain entry for another key",
+				nodes: [() => [ownerEntry({ kinds: ["execute", "require-cosign"] }), cosignOnly(), otherEntry({ allow: any })]],
+				offered: true,
+			},
+			{
+				name: "require_uv with an SSH key",
+				nodes: [() => [ownerEntry({ requireUv: true })]],
+				offered: false,
+				waits: false,
+			},
+			{
+				name: "guard rules refuse the command",
+				nodes: [() => [ownerEntry({ allow: [{ method: "exec", match: "prefix", pattern: "systemctl stop " }] })]],
+				offered: false,
+				waits: false,
+			},
+			{ name: "group, both plain", nodes: [() => [ownerEntry()], () => [ownerEntry()]], offered: true },
+			{
+				name: "group, one require-cosign",
+				nodes: [() => [ownerEntry({ kinds: ["execute", "require-cosign"] }), cosignOnly()], () => [ownerEntry()]],
+				offered: true,
+			},
+			{
+				name: "group, one require_task",
+				nodes: [() => [ownerEntry()], () => [ownerEntry({ requireTask: true })]],
+				offered: false,
+			},
+		];
+
+		it.each(cases.map((c) => [c.name, c] as const))(
+			"%s",
+			async (name, testCase) => {
+				const connected: Awaited<ReturnType<typeof connect>>[] = [];
+				for (const [index, trust] of testCase.nodes.entries()) {
+					connected.push(
+						await connect(`scope-matrix-${name.replaceAll(/[^a-z]+/g, "-")}-${index}`, (id) => summaryOf(id, trust())),
+					);
+				}
+				const nodeIds = connected.map((entry) => entry.node.id);
+				let taskIds: string[];
+				let readScope: () => Promise<unknown>;
+				if (connected.length === 1) {
+					const task = await createPrivileged(nodeIds[0] as string);
+					taskIds = [task.id];
+					readScope = async () => {
+						const view = (await pendingFor(task.id)).authorization as {
+							options: { kind: string; reusableScope?: unknown }[];
+						} | null;
+						return view?.options.find((option) => option.kind === "sign")?.reusableScope ?? null;
+					};
+				} else {
+					const groups = new TaskGroups(db, cluster, { audit });
+					const groupId = await groups.create({
+						targets: connected.map((entry) => entry.node.name),
+						nodeIds,
+						spec: EXEC,
+						privileged: true,
+						actor: actor(),
+						parallel: nodeIds.length,
+						outputMode: "status",
+					});
+					await waitFor(
+						"group members",
+						async () => ((await groups.get(groupId))?.tasks.length ?? 0) === nodeIds.length,
+					);
+					taskIds = ((await groups.get(groupId)) as TaskGroupView).tasks.map((task) => task.id);
+					readScope = async () => {
+						const res = await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie });
+						const body = (await res.json()) as {
+							taskGroup: { authorization: { options: { kind: string; reusableScope?: unknown }[] } | null };
+						};
+						return (
+							body.taskGroup.authorization?.options.find((option) => option.kind === "sign")?.reusableScope ?? null
+						);
+					};
+				}
+				// Wait until every task is planned: waiting with options, or ended because nothing could authorize it.
+				await waitFor("planned", async () => {
+					const views = await Promise.all(taskIds.map(taskView));
+					return views.every(
+						(view) =>
+							(view.state === "awaiting_authorization" && (view.authorization?.options.length ?? 0) > 0) ||
+							!["pending", "awaiting_approval", "awaiting_authorization", "dispatched"].includes(view.state),
+					);
+				});
+				const waiting = (await Promise.all(taskIds.map(taskView))).every(
+					(view) => view.state === "awaiting_authorization",
+				);
+				expect(waiting).toBe(testCase.waits ?? true);
+				if (!waiting) return;
+
+				const scope = await readScope();
+				expect(scope !== null).toBe(testCase.offered);
+
+				// Sign what the 5-minute tab signs, whether or not it is offered, and see what it does.
+				const draftRes = await call(app, "/api/authorizations/draft", {
+					cookie: owner.cookie,
+					body: { nodes: nodeIds, command: { method: "exec", prefix: "" }, ttlSeconds: 300 },
+				});
+				expect(draftRes.status).toBe(200);
+				const { draft } = (await draftRes.json()) as { draft: { payload: string } };
+				expect((await submit(signedAuthorization(new Uint8Array(Buffer.from(draft.payload, "base64"))))).status).toBe(
+					200,
+				);
+				if (testCase.offered) {
+					await waitFor("every node received task.start", () =>
+						connected.every((entry) => entry.crha.starts.length === 1),
+					);
+					for (const id of taskIds) await waitState(id, "running");
+				} else {
+					await cluster.drain();
+					const states = (await Promise.all(taskIds.map(taskView))).map((view) => view.state);
+					expect(states).toContain("awaiting_authorization");
+					expect(connected.some((entry) => entry.crha.starts.length === 0)).toBe(true);
+				}
+			},
+			20_000,
+		);
 	});
 
 	it("drafts a reusable empty-prefix authorization that, signed, runs the waiting task", async () => {

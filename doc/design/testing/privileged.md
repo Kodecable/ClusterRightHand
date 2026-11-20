@@ -18,7 +18,7 @@ restart and reload the processes inside the container through a control script.
 - `ignore` and `reject`;
 - the task environment: identity, fixed `PATH`, discovered shell;
 - `forward` with crhs-signed authorizations, with user-only trust and `crhu sign`, and with required
-  cosignatures;
+  cosignatures: a cosign ticket for each use of a one-shot and of a reusable authorization;
 - the local approval window: opening it releases a crhs-signed task the crhs entry denies, it closes
   with `crha lock` and does not survive a privileged-mode restart, and `max_window` caps it;
 - one-shot replay protection and the persistent used list;

@@ -147,6 +147,7 @@ describe("frames", () => {
 				spec: { kind: "exec", command: { argv: [] }, env: { "\ud800": "x" }, cwd: "", stdin: null },
 				privileged: false,
 				authorizations: [],
+				cosign: null,
 				timeoutMs: 0,
 				killGraceMs: 0,
 				output: { kind: "status" },

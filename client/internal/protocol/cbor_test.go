@@ -495,8 +495,9 @@ func TestPeekMajorArrayHeaders(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PeekMajor: %v", err)
 			}
-			if major != ProtocolMajor {
-				t.Fatalf("major = %d, want %d", major, ProtocolMajor)
+			// Every payload's first element is 1.
+			if major != 1 {
+				t.Fatalf("major = %d, want 1", major)
 			}
 		})
 	}

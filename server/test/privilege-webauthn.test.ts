@@ -307,6 +307,38 @@ describe("Passkey authorization submission", () => {
 		expect(Buffer.from(wire.payload)).toEqual(Buffer.from(payload));
 	});
 
+	it("runs the waiting task on a 5-minute reusable authorization signed with a Passkey", async () => {
+		const { node, crha } = await connect("passkey-5min");
+		const task = await cluster.createTask({
+			nodeId: node.id,
+			spec: EXEC,
+			privileged: true,
+			actor: { type: "user", id: userId, onBehalfOfUserId: userId },
+		});
+		await waitFor(
+			"awaiting_authorization",
+			async () => (await cluster.getTask(task.id))?.state === "awaiting_authorization",
+		);
+		const view = (await (await call(app, `/api/tasks/${task.id}/authorization`, { cookie })).json()) as {
+			authorization: { options: { kind: string; reusableScope?: { nodes: string[]; method: string } | null }[] };
+		};
+		const scope = view.authorization.options.find((o) => o.kind === "sign")?.reusableScope;
+		expect(scope).toEqual({ nodes: [node.id], method: "exec" });
+		const draftRes = await call(app, "/api/authorizations/draft", {
+			cookie,
+			body: { nodes: scope?.nodes, command: { method: "exec", prefix: "" }, ttlSeconds: 300 },
+		});
+		expect(draftRes.status).toBe(200);
+		const { draft } = (await draftRes.json()) as { draft: { payload: string } };
+		const payload = new Uint8Array(Buffer.from(draft.payload, "base64"));
+		const res = await call(app, "/api/authorizations", {
+			cookie,
+			body: { payload: draft.payload, webauthn: authenticator.assertionResponse(payload) },
+		});
+		expect(res.status).toBe(200);
+		await waitFor("task.start", () => crha.starts.length === 1);
+	});
+
 	it("signs with an Ed25519 Passkey as well", async () => {
 		const eddsa = new SoftwareAuthenticator({ alg: "EdDSA" });
 		const optionsRes = await call(app, "/api/me/signing-credentials/webauthn/options", {

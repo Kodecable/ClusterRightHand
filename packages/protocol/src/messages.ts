@@ -23,12 +23,13 @@ import {
 	union,
 } from "./schema.ts";
 
-export const PROTOCOL_MAJOR = 1;
+export const PROTOCOL_MAJOR = 2;
 /**
  * An incompatible change bumps the major version and the Noise prologue, so a peer with another
  * major is refused at the handshake (doc/design/protocol.md "Handshake payloads"). The minor version is additive:
  * new commands and events are negotiated through the handshake's `commands` field. Major 1 removed the
- * per-task local approval commands and added the local window state to TrustSummary.
+ * per-task local approval commands and added the local window state to TrustSummary; major 2 moved crhs's
+ * cosignature out of the authorization into the cosign ticket that `task.start` carries.
  */
 export const PROTOCOL_MINOR = 0;
 
@@ -297,6 +298,8 @@ export const taskStartCodec = tuple([
 	["spec", taskSpecCodec],
 	["privileged", bool],
 	["authorizations", list(bytes)],
+	/** CBOR(CosignTicket) confirming this use of the authorization, or null (doc/design/protocol.md "Cosign ticket"). */
+	["cosign", nullable(bytes)],
 	["timeoutMs", uint],
 	["killGraceMs", uint],
 	["output", outputModeCodec],

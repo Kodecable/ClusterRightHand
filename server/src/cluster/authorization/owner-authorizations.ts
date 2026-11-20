@@ -3,13 +3,7 @@
  * planner, claiming the tasks one covers, and keeping the signatures crhs itself adds. The planner
  * decides whether a stored authorization covers a task; this module only acts on that decision.
  */
-import {
-	type AuthorizationPayload,
-	decodeAuthorizationPayload,
-	MAX_FRAME_BYTES,
-	type Signature,
-	type TaskSpec,
-} from "@crh/protocol";
+import { type AuthorizationPayload, decodeAuthorizationPayload, MAX_FRAME_BYTES, type TaskSpec } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import { authorizationDeadline } from "../../privilege/payload.ts";
 import { newUniqueSignatures, type StoredOwnerAuthorization } from "../../privilege/planner.ts";
@@ -143,36 +137,6 @@ export async function insertOwnerAuthorization(
 }
 
 /**
- * Appends crhs's cosignatures to the row of the submitting owner. A row stored by someone else is left
- * alone: its id names the same payload, so the lookup by id alone would otherwise let a second submitter
- * add signatures to an authorization it does not own.
- */
-export async function storeCosignatures(
-	core: ClusterCore,
-	authorizationId: string,
-	cosignatures: readonly Signature[],
-	ownerId: string,
-): Promise<void> {
-	if (cosignatures.length === 0) return;
-	const row = await core.db
-		.selectFrom("authorizations")
-		.select("signatures")
-		.where("id", "=", authorizationId)
-		.where("issuer_user_id", "=", ownerId)
-		.executeTakeFirst();
-	if (!row) return;
-	const stored = signaturesFromJson(row.signatures);
-	const combined = newUniqueSignatures(stored, cosignatures);
-	if (combined.length === stored.length) return;
-	await core.db
-		.updateTable("authorizations")
-		.set({ signatures: signaturesToJson(combined) })
-		.where("id", "=", authorizationId)
-		.where("issuer_user_id", "=", ownerId)
-		.execute();
-}
-
-/**
  * Claims a waiting task for an owner authorization: the attempt is fixed, the options are cleared and
  * the task moves to `dispatched`. Sending is separate, so a whole task group can be claimed before the
  * first task.start is sent and a rejection cannot change a sibling's attempt. Runs in the task's turn
@@ -184,7 +148,6 @@ export async function claimOwnerAuthorization(
 	row: Selectable<TasksTable>,
 	node: NodeRow,
 	submitted: SubmittedAuthorization,
-	cosigned: boolean,
 ): Promise<ClaimedAuthorization | null> {
 	if (row.state !== "awaiting_authorization") return null;
 	// A member of a group that already ended (interrupted by a restart) never dispatches again.
@@ -271,14 +234,6 @@ export async function claimOwnerAuthorization(
 	core.background("task group state update failed", syncGroupState(core, row.task_group_id));
 	// The task no longer waits for a signature; the session it belongs to runs again (doc/design/agent-runtime.md "Session state").
 	core.onChange?.(row.actor_id);
-	if (cosigned) {
-		core.auditLater({
-			actor: { type: "system", id: "cluster", onBehalfOfUserId: row.on_behalf_of_user_id },
-			action: "authorization.cosigned",
-			target: { type: "authorization", id: submitted.id },
-			detail: { node_id: node.id, task_id: row.id, attempt },
-		});
-	}
 	const start = taskStartOf(row.id, row, spec, { privileged: true, attempt, authorizations: [encoded] });
 	return { nodeId: node.id, start, record: updated, input };
 }

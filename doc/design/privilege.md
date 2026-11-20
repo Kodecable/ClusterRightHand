@@ -113,9 +113,11 @@ Every task has one method and one normalized target, which authorizations and gu
 ## Authorizations
 
 An authorization is a signed payload that names the nodes it addresses, an optional command limit,
-an issue time, a deadline, and optionally the tasks it is for. All signatures, including a crhs
-cosignature, cover the same payload, so signers can never disagree about what they approved. The
-encoding is in [Authorization object](protocol.md#authorization-object).
+an issue time, a deadline, and optionally the tasks it is for. All its signatures cover the same
+payload, so signers can never disagree about what they approved. crhs's cosignature is not one of
+them: it is a separate cosign ticket that names the payload by its hash ([Cosigning](#cosigning)). The
+encodings are in [Authorization object](protocol.md#authorization-object) and
+[Cosign ticket](protocol.md#cosign-ticket).
 
 While a task waits, its stored authorization record holds the planner's options: each `sign` option
 carries the exact payload bytes to sign and the complete task spec they bind, so the same bytes survive
@@ -139,8 +141,8 @@ options without them.
   input, content, mode or owner. No limit means any command.
 - **One-shot or reusable.** A one-shot authorization lists task ids and an attempt number and is valid
   only for those tasks; a reusable one is valid for any matching task until its deadline. Scheduled
-  tasks and authorizations pre-signed with `crhu grant` rely on reuse. crhs authorizations, all
-  cosignatures, and every approval of a specific task are one-shot.
+  tasks and authorizations pre-signed with `crhu grant` rely on reuse. crhs authorizations and every
+  approval of a specific task are one-shot, and a cosign ticket confirms specific uses.
 - **Task groups.** One one-shot authorization covers the whole group, listing node and task id pairs
   position by position, so the user signs once. A node accepts only the task id paired with itself, so
   crhs cannot replay one node's task on another. Groups are expanded to node UUIDs when signing, so
@@ -264,10 +266,27 @@ An empty list places no limit, the same for all three: a trust entry restricts o
 
 ### Cosigning
 
-With `require-cosign`, a user's authorization runs only when crhs has also signed the same payload.
-crhs cannot run the task alone, and the user cannot bypass crhs rules. A cosignature confirms the
-object the user signed rather than authorizing on its own, so the crhs entry's other limits (guard
-rules, `require_spec`, `max_ttl`) do not apply to it.
+With `require-cosign`, every use of a user's authorization also needs crhs's confirmation of that use:
+a cosign ticket that `task.start` carries beside the authorization. crhs cannot run the task alone, and
+the user cannot bypass crhs rules.
+
+- **What a ticket confirms.** A ticket names the authorization by its id (the payload's SHA-256) and
+  lists the uses it confirms, each a node UUID, a task id and an attempt. The node accepts it only for
+  its own node, this task and this attempt, within the ticket's short deadline (five minutes). A ticket
+  is signed in its own SSHSIG namespace, `crh-cosign-v1`, so it can never pass as an authorization
+  signature, nor the reverse.
+- **One-shot and reusable alike.** Because the ticket binds the use, the authorization it confirms may be
+  reusable: a 5-minute grant or a `crhu grant` authorization still runs only the tasks crhs confirms,
+  each one separately. A crhs signature on the user's payload is never a cosignature.
+- **One ticket per dispatch.** crhs signs a ticket when it sends tasks: the uses a task group sends
+  together share one ticket, with one signature per crhs key the nodes trust to cosign; each node finds
+  its own use and ignores keys it does not trust. When that ticket would not fit beside the
+  authorization in half a frame, each node gets a ticket with its own uses. A retried task gets a new
+  ticket for its new attempt.
+- **No extra limits.** A ticket confirms one use of what the user signed rather than authorizing on its
+  own, so the crhs entry's other limits (guard rules, `require_spec`, `max_ttl`) do not apply to it.
+- **Nothing stored.** The authorization is stored as the user signed it; each ticket is recorded only in
+  the audit log (`authorization.cosigned`, with the ticket's uses and keys).
 
 ### Trust aliases
 
@@ -299,12 +318,15 @@ them.
    has not passed, and respects `max_ttl` and `require_spec`, all within the clock tolerance.
 5. **One-shot.** The task has not run before and the authorization is newer than the watermark. A
    one-shot authorization lists this task with the same attempt and has not been used for it. crhs
-   authorizations, cosignatures and `require_task` entries must be one-shot.
+   authorizations and `require_task` entries must be one-shot.
 6. **Command limit.** `spec` matches the task's complete-spec hash; `prefix` matches method and
    target prefix.
 7. **Entry.** The entry can `execute`, its guard rules and environment allowlist pass, and user
    verification is present if required.
-8. **Cosignature.** If the user entry requires it, a valid crhs cosignature is present.
+8. **Cosignature.** If the user entry requires it, the cosign ticket confirms this task at this attempt
+   on this node for this authorization, has not expired, and carries a valid signature of a `crhs`
+   entry with `cosign`. A ticket signature by a trusted key that does not verify invalidates the
+   ticket.
 
 When the local approval window is open at validation time, step 4 skips `max_ttl` and `require_spec`
 for a crhs signature, and step 7 is skipped entirely: the entry does not need the `execute` kind, its
@@ -454,7 +476,7 @@ signature submitted while the node was away is used when it reconnects.
 
 Authorizations submitted by users are stored for reuse after crhs checks their deadline, and are
 removed by retention after they expire. A submission only verifies and stores the authorization
-synchronously; the sync it requests does the claiming, cosigning and sending. Submitting a payload the
+synchronously; the sync it requests does the claiming, the cosign tickets and the sending. Submitting a payload the
 owner already stored adds its new signatures (another key, a Passkey with user verification) to that
 row, so signing again is not lost and still counts as one signature. A Passkey submission carries the
 payload bytes the browser signed, so a payload a pass replaced while the owner was signing still
@@ -478,7 +500,7 @@ authorizations. Its output is exactly one of:
 
 - **usable**: authorizations that may be claimed and sent now — crhs's own signature (an open local
   window counts, as the node's own decision does), or a stored owner authorization the node would
-  accept, with crhs's cosignature when the entry requires one. Only a task whose node is connected is
+  accept, with crhs's cosign ticket when the entry requires one. Only a task whose node is connected is
   ever usable: a task.start to an absent node would only wait out its grace;
 - **options**: the ways the owner could authorize, plus the tasks that have no option at all;
 - **failure**: no usable path and no known option.
@@ -542,8 +564,9 @@ the one result:
 
 - **usable**: claim every usable task first, then send each `task.start` without waiting for the
   answers. A crhs signature is a one-shot `spec` authorization with a short deadline (five minutes
-  by default); a stored owner authorization is reused with a cosignature added if required, and that
-  cosignature is stored with it. Tasks the result does not cover are planned by the next pass.
+  by default); a stored owner authorization is reused as stored, and the uses whose nodes require a
+  cosignature get crhs's cosign ticket, signed once the claims fix their attempts. Tasks the result does
+  not cover are planned by the next pass.
 - **options**: write the options on each waiting task's record. A `sign` option arms a timer that
   syncs the unit again when the payload is due for a refresh.
 - **failure**: end the tasks `rejected` with the last crha code and message, or `errored` with
@@ -589,9 +612,9 @@ crhs keeps a list of Ed25519 signing keys, each identified by its SSH fingerprin
 with the master key. It creates one on first start; administrators can add and delete them while crhs
 runs. A node trusts the keys it lists as `crhs` entries, with `execute`, `cosign` or both. For each
 node crhs uses the newest key that node's cached trust report trusts with the needed capability, so
-during a rotation a node that has not reloaded yet keeps working with the key it knows. A task group's
-shared payload carries one cosignature per key its nodes need; each node ignores signatures that match
-no trust entry.
+during a rotation a node that has not reloaded yet keeps working with the key it knows. A cosign ticket
+for a task group's uses carries one signature per key its nodes need; each node ignores signatures that
+match no trust entry.
 
 To rotate, add a key, add its public key to the nodes' trust configuration and reload them at their own
 pace, then delete the old key once no node trusts it. A node switches as soon as it trusts the new key,

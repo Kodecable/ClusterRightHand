@@ -295,7 +295,7 @@ func TestEmptyCollectionsEncodeAsEmpty(t *testing.T) {
 		{"hello", "83808060", Hello{}},
 		{"exec", "8482646172677680a060f6", ExecSpec{Command: Command{Kind: CommandArgv}}},
 		{"task input", "8361740040", TaskInput{TaskID: "t"}},
-		{"task start authorizations", "886000826966696c652e7374617481622f78f480000082647465787480", TaskStart{
+		{"task start authorizations", "896000826966696c652e7374617481622f78f480f6000082647465787480", TaskStart{
 			Spec:   TaskSpec{Kind: TaskSpecFileStat, FileStat: &FileStatSpec{Path: "/x"}},
 			Output: OutputMode{Kind: OutputText},
 		}},

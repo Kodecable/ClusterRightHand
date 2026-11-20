@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
 type sshsigVector struct {
@@ -46,9 +48,18 @@ type webauthnVector struct {
 	Valid       bool                    `json:"valid"`
 }
 
+type cosignTicketVector struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+	Hex         string `json:"hex"`
+	PublicKey   string `json:"publicKey"`
+	Valid       bool   `json:"valid"`
+}
+
 type m4CryptoFixture struct {
-	SSHSIG   []sshsigVector   `json:"sshsig"`
-	WebAuthn []webauthnVector `json:"webauthn"`
+	SSHSIG        []sshsigVector       `json:"sshsig"`
+	WebAuthn      []webauthnVector     `json:"webauthn"`
+	CosignTickets []cosignTicketVector `json:"cosignTickets"`
 }
 
 func readM4CryptoFixture(t *testing.T) *m4CryptoFixture {
@@ -114,6 +125,45 @@ func TestSSHSIGVectors(t *testing.T) {
 			}
 			if vector.UserVerified != nil && result.UserVerified != *vector.UserVerified {
 				t.Errorf("user verified = %v, want %v", result.UserVerified, *vector.UserVerified)
+			}
+		})
+	}
+}
+
+// TestCosignTicketSignatures checks a ticket's SSHSIG in the cosign namespace: one signed in the
+// authorization namespace never verifies as a ticket, and a ticket signature never verifies as an
+// authorization signature.
+func TestCosignTicketSignatures(t *testing.T) {
+	fixture := readM4CryptoFixture(t)
+	if len(fixture.CosignTickets) == 0 {
+		t.Fatal("fixture has no cosign tickets")
+	}
+	for _, vector := range fixture.CosignTickets {
+		t.Run(vector.ID, func(t *testing.T) {
+			var ticket protocol.CosignTicket
+			if err := protocol.Unmarshal(decodeHex(t, vector.Hex), &ticket); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if len(ticket.Signatures) != 1 || ticket.Signatures[0].SSHSig == nil {
+				t.Fatalf("want one SSHSIG signature, got %d", len(ticket.Signatures))
+			}
+			blob := ticket.Signatures[0].SSHSig.Blob
+			result, err := VerifySSHSIGNamespace(blob, ticket.Payload, protocol.CosignNamespace)
+			if !vector.Valid {
+				if err == nil {
+					t.Fatalf("accepted: %s", vector.Description)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("rejected: %s: %v", vector.Description, err)
+			}
+			expected := expectedSSHKey(t, vector.PublicKey)
+			if got, want := ssh.FingerprintSHA256(result.PublicKey), ssh.FingerprintSHA256(expected); got != want {
+				t.Fatalf("signer fingerprint = %s, want %s", got, want)
+			}
+			if _, err := VerifySSHSIG(blob, ticket.Payload); err == nil {
+				t.Fatal("a cosign ticket signature verified as an authorization signature")
 			}
 		})
 	}

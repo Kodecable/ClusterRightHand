@@ -21,7 +21,13 @@ import {
 	type AuthorizationPayload,
 	authorizationCodec,
 	authorizationPayloadCodec,
+	COSIGN_NAMESPACE,
+	type CosignPayload,
+	type CosignTicket,
+	cosignPayloadCodec,
+	cosignTicketCodec,
 	encodeAuthorizationPayload,
+	encodeCosignPayload,
 	lengthPrefixed,
 	PRIV_MAJOR,
 	PRIV_MINOR,
@@ -732,12 +738,89 @@ function authorizationVectors(
 	};
 	return [
 		make("authorization.sshsig", "one SSHSIG signature (payload = sshsig vectors' payload)", first, [sshsigSig]),
-		make("authorization.cosigned", "user WebAuthn signature plus crhs SSHSIG cosign on the same payload", first, [
+		make("authorization.two-signatures", "a user WebAuthn signature and an SSHSIG signature on one payload", first, [
 			webauthnSig,
 			sshsigSig,
 		]),
 		make("authorization.unsigned", "no signatures (verifier answers authorization_invalid)", first, []),
 	];
+}
+
+export interface CosignVector extends HexVector {
+	/** The ticket's payload bytes and the authorization id they name. */
+	payloadHex: string;
+	authorizationIdHex: string;
+	/** The signer's authorized_keys line. */
+	publicKey: string;
+	/** Whether a crha verifier following protocol.md must accept the ticket's signature in the cosign namespace. */
+	valid: boolean;
+}
+
+/**
+ * Cosign tickets (doc/design/protocol.md "Cosign ticket"): one signed in the cosign namespace, one signed in the
+ * authorization namespace (never valid as a ticket), and payloads the strict decoder must refuse.
+ */
+function cosignVectors(authorizationPayload: Uint8Array): { tickets: CosignVector[]; negative: HexVector[] } {
+	const key = ed25519Key();
+	const base: CosignPayload = {
+		v: 1,
+		authorizationId: sha256Of(authorizationPayload),
+		uses: [
+			{ node: "0192f000-0000-7000-8000-000000000001", taskId: "0192f000-0000-7000-8000-000000000001", attempt: 1 },
+			{ node: "0192f000-0000-7000-8000-000000000002", taskId: "0192f000-0000-7000-8000-000000000002", attempt: 3 },
+		],
+		issuedAtMs: NOW,
+		deadlineMs: NOW + 300_000,
+	};
+	const payload = encodeCosignPayload(base);
+	const ticket = (id: string, description: string, namespace: string, valid: boolean): CosignVector => {
+		const value: CosignTicket = {
+			payload,
+			signatures: [{ kind: "sshsig", blob: sshsig(key, payload, { namespace }) }],
+		};
+		return {
+			id,
+			description,
+			hex: hex(encodeCbor(cosignTicketCodec.encode(value))),
+			payloadHex: hex(payload),
+			authorizationIdHex: hex(base.authorizationId),
+			publicKey: authorizedKey(key),
+			valid,
+		};
+	};
+	const raw = (value: unknown): string => hex(encodeCbor(value as never));
+	const encoded = cosignPayloadCodec.encode(base) as unknown[];
+	const withField = (index: number, value: unknown): string => {
+		const copy = [...encoded];
+		copy[index] = value;
+		return raw(copy);
+	};
+	const use = (node: string, taskId: string, attempt: number) => [node, taskId, attempt];
+	return {
+		tickets: [
+			ticket("cosign.ticket", "a ticket for two uses, crhs SSHSIG in crh-cosign-v1", COSIGN_NAMESPACE, true),
+			ticket(
+				"cosign.auth-namespace",
+				"the same ticket signed in crh-auth-v1: not a cosign signature",
+				AUTH_NAMESPACE,
+				false,
+			),
+		],
+		negative: [
+			{ id: "cosign.version", description: "v is 2", hex: withField(0, 2) },
+			{ id: "cosign.uses-empty", description: "no uses", hex: withField(2, []) },
+			{ id: "cosign.star", description: 'a use names "*"', hex: withField(2, [use("*", "t-1", 1)]) },
+			{ id: "cosign.attempt-zero", description: "attempt 0", hex: withField(2, [use("n-1", "t-1", 0)]) },
+			{
+				id: "cosign.duplicate-task",
+				description: "one task id twice",
+				hex: withField(2, [use("n-1", "t-1", 1), use("n-2", "t-1", 1)]),
+			},
+			{ id: "cosign.deadline-before-issue", description: "deadline before issued_at", hex: withField(4, NOW - 1) },
+			{ id: "cosign.deadline-null", description: "deadline is null", hex: withField(4, null) },
+			{ id: "cosign.id-short", description: "authorization id of 31 bytes", hex: withField(1, new Uint8Array(31)) },
+		],
+	};
 }
 
 const TRUST: TrustSummary = {
@@ -881,6 +964,7 @@ function privVectors(authorization: HexVector): HexVector[] {
 			spec: execArgv,
 			privileged: true,
 			authorizations: [Uint8Array.from(Buffer.from(authorization.hex, "hex"))],
+			cosign: null,
 			timeoutMs: 60_000,
 			killGraceMs: 5_000,
 			output: { kind: "full", spillBytes: 51_200, spillLines: 2_000 },
@@ -903,6 +987,8 @@ export interface M4Vectors {
 	payloads: PayloadVector[];
 	payloadNegative: HexVector[];
 	authorizations: HexVector[];
+	cosignTickets: CosignVector[];
+	cosignNegative: HexVector[];
 	bodies: (HexVector & { codec: string; digestHex?: string })[];
 	priv: HexVector[];
 	sshsig: SshsigVector[];
@@ -925,6 +1011,7 @@ export function buildVectors(): M4Vectors {
 	const es256 = webauthnVectors.find((v) => v.id === "webauthn.es256");
 	if (!crhsSig || !es256) throw new Error("missing base signatures");
 	const authorizations = authorizationVectors(payloads, Uint8Array.from(Buffer.from(crhsSig.blobHex, "hex")), es256);
+	const cosign = cosignVectors(payload);
 	return {
 		comment:
 			'Generated by packages/protocol/test/generate-m4-vectors.ts with fresh keys; checked by m4_vectors.test.ts. Format: doc/design/protocol.md "Privilege messages".',
@@ -932,6 +1019,8 @@ export function buildVectors(): M4Vectors {
 		payloads,
 		payloadNegative: negative,
 		authorizations,
+		cosignTickets: cosign.tickets,
+		cosignNegative: cosign.negative,
 		bodies: bodyVectors(),
 		priv: privVectors(authorizations[0] as HexVector),
 		sshsig: sshsigVectors,

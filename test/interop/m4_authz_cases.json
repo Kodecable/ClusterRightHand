@@ -222,6 +222,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -326,6 +327,7 @@
 				}
 			},
 			"authorization": null,
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -448,6 +450,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -570,6 +573,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -697,6 +701,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -819,6 +824,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -941,6 +947,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -1063,6 +1070,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -1185,6 +1193,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -1307,6 +1316,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -1429,6 +1439,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -1551,6 +1562,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -1673,6 +1685,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -1796,6 +1809,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -1918,6 +1932,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -2040,6 +2055,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -2162,6 +2178,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -2284,6 +2301,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": ["0192f000-0000-7000-8000-000000000001"],
@@ -2406,6 +2424,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": ["0192f000-0000-7000-8000-000000000001"],
 			"used_pairs": [],
@@ -2530,6 +2549,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -2652,6 +2672,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -2774,6 +2795,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -2896,6 +2918,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3022,6 +3045,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3148,6 +3172,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3267,6 +3292,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3391,6 +3417,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3513,6 +3540,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3590,6 +3618,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3707,6 +3736,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3824,6 +3854,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -3946,6 +3977,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -4066,6 +4098,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -4186,6 +4219,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -4305,6 +4339,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -4432,6 +4467,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -4549,6 +4585,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -4673,6 +4710,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -4797,6 +4835,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -4919,6 +4958,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -5041,6 +5081,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -5163,6 +5204,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -5285,6 +5327,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -5407,6 +5450,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -5537,6 +5581,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -5659,6 +5704,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": ["0192f000-0000-7000-8000-000000000002"],
@@ -5781,6 +5827,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -5903,6 +5950,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -6025,6 +6073,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -6147,6 +6196,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -6269,6 +6319,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -6352,6 +6403,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -6435,6 +6487,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -6445,7 +6498,7 @@
 		},
 		{
 			"id": "cosign.missing",
-			"description": "user entry requires cosign; only the user signed",
+			"description": "user entry requires cosign; no cosign ticket",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -6456,7 +6509,7 @@
 				{
 					"name": "crhs",
 					"role": "crhs",
-					"kinds": ["execute", "cosign"],
+					"kinds": ["cosign"],
 					"require_spec": true,
 					"require_task": true,
 					"require_uv": false,
@@ -6557,6 +6610,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -6567,7 +6621,563 @@
 		},
 		{
 			"id": "cosign.present",
-			"description": "user signature plus crhs cosign on the same payload",
+			"description": "a one-shot user authorization with a crhs cosign ticket for this use",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "cosign.reusable",
+			"description": "a reusable prefix authorization: the ticket confirms this one use",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "cosign.reusable-missing",
+			"description": "a reusable authorization needs a ticket for every use",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": null,
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.group",
+			"description": "one ticket confirms uses on several nodes; this node finds its own",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000002",
+							"task_id": "0192f000-0000-7000-8000-000000000002",
+							"attempt": 2
+						},
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "cosign.in-payload",
+			"description": "a crhs signature on the user's payload is no cosignature",
 			"now_ms": 1793016000000,
 			"clock_skew_ms": 60000,
 			"node": {
@@ -6684,12 +7294,13 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
 			"expect": {
-				"result": "accepted",
-				"step": null
+				"result": "authorization_rejected",
+				"step": 8
 			}
 		},
 		{
@@ -6807,11 +7418,26 @@
 						"entry": "alice",
 						"valid": true,
 						"uv": false
-					},
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
 					{
 						"entry": "crhs",
-						"valid": true,
-						"uv": false
+						"valid": true
 					}
 				]
 			},
@@ -6934,11 +7560,26 @@
 						"entry": "alice",
 						"valid": true,
 						"uv": false
-					},
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
 					{
 						"entry": "crhs",
-						"valid": true,
-						"uv": false
+						"valid": true
 					}
 				]
 			},
@@ -6948,6 +7589,1716 @@
 			"expect": {
 				"result": "authorization_rejected",
 				"step": 8
+			}
+		},
+		{
+			"id": "cosign.user-signed",
+			"description": "a ticket signed by the user, not crhs",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.unknown-signer",
+			"description": "a ticket signed by a key this node does not trust",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "unknown",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.bad-signature",
+			"description": "the ticket's crhs signature does not verify",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": false
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_invalid",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.other-authorization",
+			"description": "the ticket confirms another authorization",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.other-task",
+			"description": "the ticket confirms another task only",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000002",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.other-node",
+			"description": "the ticket confirms this task on another node",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000002",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.alias",
+			"description": "a ticket names node ids: a trust alias is not this node",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-0000000000a1",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.other-attempt",
+			"description": "the ticket confirms another attempt",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 2
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.expired",
+			"description": "the ticket's deadline is more than clock_skew in the past",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793015400000,
+					"deadline_ms": 1793015939999
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.expired-within-skew",
+			"description": "the ticket's deadline is past but within clock_skew",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793015400000,
+					"deadline_ms": 1793015940000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "cosign.future",
+			"description": "the ticket was issued more than clock_skew in the future",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute", "require-cosign"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "exec",
+						"prefix": "systemctl restart "
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016060001,
+					"deadline_ms": 1793016360000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 8
+			}
+		},
+		{
+			"id": "cosign.not-required",
+			"description": "an entry without require-cosign ignores the ticket, even a broken one",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "exec",
+					"command": {
+						"argv": ["systemctl", "restart", "nginx"]
+					},
+					"env": {},
+					"cwd": "",
+					"stdin": null
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "45376475fbabf1944a468dd1dd2f54129f0f4cff37a3fb727438a2ee9291db40"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": false
+					}
+				]
+			},
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
 			}
 		},
 		{
@@ -7066,6 +9417,26 @@
 						"entry": "crhs",
 						"valid": true,
 						"uv": false
+					}
+				]
+			},
+			"cosign": {
+				"payload": {
+					"authorization_id_hex": null,
+					"uses": [
+						{
+							"node": "0192f000-0000-7000-8000-000000000001",
+							"task_id": "0192f000-0000-7000-8000-000000000001",
+							"attempt": 1
+						}
+					],
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true
 					}
 				]
 			},
@@ -7191,6 +9562,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -7321,6 +9693,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -7447,6 +9820,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -7574,6 +9948,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -7700,6 +10075,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -7826,6 +10202,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -7952,6 +10329,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -8078,6 +10456,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -8206,6 +10585,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -8332,6 +10712,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,
@@ -8462,6 +10843,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": null,
 			"executed_task_ids": [],
 			"used_pairs": [],
@@ -8588,6 +10970,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793014200000,
 				"opened_by": 1000,
@@ -8724,6 +11107,7 @@
 					}
 				]
 			},
+			"cosign": null,
 			"window": {
 				"opened_at_ms": 1793015940000,
 				"opened_by": 1000,

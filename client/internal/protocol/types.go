@@ -76,9 +76,12 @@ type TaskStart struct {
 	Spec           TaskSpec
 	Privileged     bool
 	Authorizations [][]byte
-	TimeoutMS      Uint
-	KillGraceMS    Uint
-	Output         OutputMode
+	// Cosign is CBOR(CosignTicket) confirming this use of the authorization, or nil
+	// (doc/design/protocol.md "Cosign ticket").
+	Cosign      *[]byte
+	TimeoutMS   Uint
+	KillGraceMS Uint
+	Output      OutputMode
 }
 
 // TaskExit is the task.exit event body. Result carries the task's structured result; it is nil for

@@ -20,6 +20,7 @@ const TASK_START: TaskStart = {
 	spec: { kind: "exec", command: { argv: ["echo", "hi"] }, env: {}, cwd: "/tmp", stdin: null },
 	privileged: false,
 	authorizations: [],
+	cosign: null,
 	timeoutMs: 0,
 	killGraceMs: 0,
 	output: { kind: "text" },

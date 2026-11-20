@@ -75,7 +75,9 @@ A `local` entry only has `uids` and `max_window`. Setting `kinds`, `max_ttl`, `r
 window waives all of those limits (doc/design/privilege.md "Local approval window").
 
 `max_ttl`, `require_spec`, `allow` and `deny` limit what an entry may authorize; they do not apply
-when crhs only cosigns a user's authorization.
+when crhs only cosigns a user's authorization. A cosignature confirms one use (one task at one attempt
+on this node), so a `require-cosign` entry works with reusable authorizations too: crhs confirms each
+use separately.
 
 ## Guard rules
 

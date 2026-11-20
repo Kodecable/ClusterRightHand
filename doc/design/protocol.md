@@ -65,11 +65,12 @@ the transfer itself uses `too_large` and `input_mismatch` (a size or SHA-256 mis
 
 ## Version negotiation
 
-The version is major 1, minor 0. The Noise prologue is `"crh/1"` followed by the server's challenge,
+The version is major 2, minor 0. The Noise prologue is `"crh/2"` followed by the server's challenge,
 so peers of different majors fail the Noise handshake before a payload is read; the payload's major is
 checked too. Major 1 removed the per-task local approval commands (`local.request`, `local.withdraw`
-and `local.decision`) and added the local approval window to `TrustSummary`; it is an incompatible
-change, so crhs and crha are upgraded together.
+and `local.decision`) and added the local approval window to `TrustSummary`. Major 2 moved crhs's
+cosignature out of the authorization into a [cosign ticket](#cosign-ticket) that `task.start` carries.
+Both are incompatible changes, so crhs and crha are upgraded together.
 
 - An incompatible change bumps the major and the prologue. There is no compatibility layer across
   majors: crhs, crha and its privileged mode are upgraded together.
@@ -128,7 +129,8 @@ timeouts and its output mode; the fields are in `messages.ts`. Acceptance is the
   size and SHA-256; a mismatch or an incomplete input kills the task.
 - A non-privileged task, and every task in `native` or `ignore` mode, carries no authorization; a
   privileged task in `forward` mode carries at most one, as a CBOR
-  [authorization object](#authorization-object).
+  [authorization object](#authorization-object), and a [cosign ticket](#cosign-ticket) when the node
+  requires crhs's cosignature for it (`cosign`, otherwise null).
 
 ## Events
 
@@ -221,8 +223,8 @@ shapes are in `messages.ts`; what an entry means is in
 
 An authorization is a CBOR payload plus signatures over the exact payload bytes. The payload has a
 version, the nodes it addresses, an optional command restriction, issue time and deadline, an
-optional task list and attempt, and a note. A user signature and a crhs cosignature sign the same
-payload.
+optional task list and attempt, and a note. Every signature of an authorization signs that payload;
+crhs's cosignature is a separate [cosign ticket](#cosign-ticket).
 
 - **The id** is `SHA-256(payload)` over the original bytes; a verifier re-encodes the payload and
   compares it with the original, so a signature over non-canonical bytes is rejected.
@@ -244,6 +246,23 @@ payload.
   `ssh-keygen -Y verify` can check it. **WebAuthn** uses the challenge
   `SHA-256("crh-auth-v1\0" || payload)` in `client_data_json`, with ES256, EdDSA/Ed25519 or RS256.
 - An encoded authorization is at most half of `MAX_FRAME_BYTES`, so the rest of `task.start` fits.
+
+### Cosign ticket
+
+A cosign ticket is crhs's confirmation of specific uses of one authorization
+([Cosigning](privilege.md#cosigning)): a CBOR payload plus signatures over the exact payload bytes, in
+the same `[payload, signatures]` shape as an authorization.
+
+- **The payload** has a version (1), the confirmed authorization's id (its payload's SHA-256), the uses,
+  the issue time and a deadline. Each use is a node UUID, a task id and an attempt `≥ 1`. The uses
+  cannot be empty, a task id appears once, a node is never `"*"`, and the deadline is not before the
+  issue time; a node finds its use by task id and checks the node and the attempt.
+- **SSHSIG** signs the original payload bytes in the namespace `crh-cosign-v1`, never `crh-auth-v1`, so a
+  ticket signature and an authorization signature can never stand in for each other. Only crhs's keys
+  sign tickets; a node counts a signature whose key a `crhs` entry with `cosign` lists, ignores keys it
+  does not trust, and refuses a ticket with a trusted signature that does not verify.
+- **Size.** The authorization and the ticket together take at most half of `MAX_FRAME_BYTES`. crhs shares
+  one ticket across the uses it sends together and splits it per node when it would not fit.
 
 ### crh-priv
 
@@ -384,7 +403,7 @@ arrives with the 101 response because the client always initiates.
 | Holder | Key | Algorithm | Use | Consequence of compromise |
 |---|---|---|---|---|
 | crhs | Server identity key | X25519 | Noise channel | Impersonate crhs and send ordinary commands, without privilege elevation |
-| crhs | Authorization signing key | ssh-ed25519 | Sign authorizations and cosignatures | Elevate on nodes that trust crhs, within their trust entries |
+| crhs | Authorization signing key | ssh-ed25519 | Sign authorizations and cosign tickets | Elevate on nodes that trust crhs, within their trust entries |
 | crhs | Master key | 32-byte symmetric key | Encrypt the `secrets` table | Leak SSH private keys, model API keys and other secrets |
 | crha | Node identity key | X25519 | Noise channel | Impersonate this node |
 

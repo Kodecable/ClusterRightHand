@@ -5,7 +5,7 @@
  * first; a node's cached trust report decides which of them crhs may use for that node.
  */
 import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from "node:crypto";
-import type { TrustEntry } from "@crh/protocol";
+import { COSIGN_NAMESPACE, type TrustEntry } from "@crh/protocol";
 import { secretAad } from "../keys/export.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { Db } from "../storage/db.ts";
@@ -40,6 +40,8 @@ export interface AuthorizationSigningKey {
 	readonly fingerprint: string;
 	/** SSHSIG (binary, unarmored) over the payload bytes, namespace crh-auth-v1, sha512. */
 	sign(payload: Uint8Array): Uint8Array;
+	/** SSHSIG over a cosign ticket's payload bytes, namespace crh-cosign-v1, sha512 (doc/design/protocol.md "Cosign ticket"). */
+	signCosign(payload: Uint8Array): Uint8Array;
 }
 
 function publicParts(publicKey: KeyObject): { publicKeyBlob: Uint8Array; authorizedKey: string; fingerprint: string } {
@@ -65,6 +67,7 @@ function signingKey(parts: { id: string; createdAt: string }, privateKey: KeyObj
 		publicKey,
 		...publicPart,
 		sign: (payload) => signSshsig(privateKey, publicPart.publicKeyBlob, payload),
+		signCosign: (payload) => signSshsig(privateKey, publicPart.publicKeyBlob, payload, { namespace: COSIGN_NAMESPACE }),
 	};
 }
 

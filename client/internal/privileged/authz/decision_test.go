@@ -238,9 +238,10 @@ func TestDecideIgnoresUntrustedSignature(t *testing.T) {
 	}
 }
 
-// A cosignature is a single confirmation: an authorization that requires one must be
-// one-shot, even when every signature verifies.
-func TestDecideCosignRequiresTaskIDs(t *testing.T) {
+// The cosign ticket's payload is re-decoded like the authorization's: a ticket whose bytes do not
+// decode, or whose decoded form is not what the bytes say, is invalid at step 8. The shared fixture
+// cannot express either, since it builds the bytes from the decoded form.
+func TestDecideCosignTicketPayload(t *testing.T) {
 	now := testNow()
 	user := Entry{
 		Name:  "alice",
@@ -254,29 +255,53 @@ func TestDecideCosignRequiresTaskIDs(t *testing.T) {
 		Nodes:      []string{"n"},
 		IssuedAtMS: protocol.Int(now.UnixMilli()),
 		DeadlineMS: &deadline,
-		Note:       "",
 	}
 	payloadBytes, err := protocol.Marshal(payload)
 	if err != nil {
 		t.Fatalf("encode payload: %v", err)
 	}
-	auth := &Authorization{
-		Payload: payloadBytes,
-		Decoded: payload,
-		Signatures: []Signature{
-			{Entry: &user, Valid: true},
-			{Entry: &cosign, Valid: true},
-		},
+	ticketPayload := &protocol.CosignPayload{
+		V:               protocol.CosignPayloadVersion,
+		AuthorizationID: protocol.Hash(protocol.AuthorizationID(payloadBytes)),
+		Uses:            []protocol.CosignUse{{Node: "n", TaskID: "t", Attempt: 1}},
+		IssuedAtMS:      protocol.Int(now.UnixMilli()),
+		DeadlineMS:      protocol.Int(now.Add(5 * time.Minute).UnixMilli()),
 	}
-	decision := Decide(Input{
-		Now:           now,
-		NodeID:        "n",
-		Trust:         []Entry{user, cosign},
-		Task:          Task{ID: "t", Attempt: 1, Spec: execSpec()},
-		Authorization: auth,
-	})
-	if decision.Result != ResultRejected || decision.Step != StepOneShot {
-		t.Fatalf("got %s, want %s at step %d", decision, ResultRejected, StepOneShot)
+	ticketBytes, err := protocol.Marshal(ticketPayload)
+	if err != nil {
+		t.Fatalf("encode ticket payload: %v", err)
+	}
+	other := *ticketPayload
+	other.Uses = []protocol.CosignUse{{Node: "n", TaskID: "t", Attempt: 2}}
+	decide := func(ticket *Cosign) Decision {
+		return Decide(Input{
+			Now:    now,
+			NodeID: "n",
+			Trust:  []Entry{user, cosign},
+			Task:   Task{ID: "t", Attempt: 1, Spec: execSpec()},
+			Authorization: &Authorization{
+				Payload:    payloadBytes,
+				Decoded:    payload,
+				Signatures: []Signature{{Entry: &user, Valid: true}},
+			},
+			Cosign: ticket,
+		})
+	}
+	signed := []Signature{{Entry: &cosign, Valid: true}}
+	if decision := decide(&Cosign{Payload: ticketBytes, Decoded: ticketPayload, Signatures: signed}); decision.Result != ResultAccepted {
+		t.Fatalf("a matching ticket: got %s, want accepted", decision)
+	}
+	for name, ticket := range map[string]*Cosign{
+		"garbage":    {Payload: []byte{0x01}, Decoded: ticketPayload, Signatures: signed},
+		"no decode":  {Payload: ticketBytes, Signatures: signed},
+		"other form": {Payload: ticketBytes, Decoded: &other, Signatures: signed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			decision := decide(ticket)
+			if decision.Result != ResultInvalid || decision.Step != StepCosign {
+				t.Fatalf("got %s, want %s at step %d", decision, ResultInvalid, StepCosign)
+			}
+		})
 	}
 }
 

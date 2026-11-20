@@ -37,8 +37,8 @@ func TestRequiredNames(t *testing.T) {
 	if RequiredSet().Has("trust.query") {
 		t.Fatal("crh-priv name trust.query is declared in the crhs <-> crha handshake")
 	}
-	if Major := ProtocolMajor; Major != 1 {
-		t.Fatalf("ProtocolMajor = %d, want 1", Major)
+	if Major := ProtocolMajor; Major != 2 {
+		t.Fatalf("ProtocolMajor = %d, want 2", Major)
 	}
 	if Minor := ProtocolMinor; Minor != 0 {
 		t.Fatalf("ProtocolMinor = %d, want 0", Minor)

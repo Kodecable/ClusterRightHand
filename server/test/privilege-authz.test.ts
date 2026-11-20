@@ -1,7 +1,21 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { type AuthorizationPayload, encodeAuthorizationPayload, type TaskSpec, taskSpecFromJson } from "@crh/protocol";
+import {
+	type AuthorizationPayload,
+	type CosignPayload,
+	encodeAuthorizationPayload,
+	encodeCosignPayload,
+	type TaskSpec,
+	taskSpecFromJson,
+} from "@crh/protocol";
 import { describe, expect, it } from "vitest";
-import { type AuthzAuthorization, type AuthzEntry, type AuthzSignature, decide } from "../src/privilege/authz.ts";
+import {
+	type AuthzAuthorization,
+	type AuthzCosign,
+	type AuthzEntry,
+	type AuthzSignature,
+	decide,
+} from "../src/privilege/authz.ts";
 
 type Method = "exec" | "file.read" | "file.write";
 
@@ -45,6 +59,15 @@ interface CaseJson {
 	authorization: null | {
 		payload: PayloadJson;
 		signatures: { entry: string; valid: boolean; uv: boolean }[];
+	};
+	cosign: null | {
+		payload: {
+			authorization_id_hex: string | null;
+			uses: { node: string; task_id: string; attempt: number }[];
+			issued_at_ms: number;
+			deadline_ms: number;
+		};
+		signatures: { entry: string; valid: boolean }[];
 	};
 	window: null | { opened_at_ms: number; opened_by: number; until_ms: number };
 	executed_task_ids: string[];
@@ -105,6 +128,34 @@ function authorizationOf(json: NonNullable<CaseJson["authorization"]>, trust: Au
 	return { payload: encodeAuthorizationPayload(payload), decoded: payload, signatures };
 }
 
+/** A null authorization id names the case's own authorization: SHA-256 of its payload bytes. */
+function cosignOf(
+	json: NonNullable<CaseJson["cosign"]>,
+	authorization: AuthzAuthorization | null,
+	trust: AuthzEntry[],
+): AuthzCosign {
+	const idHex = json.payload.authorization_id_hex;
+	let authorizationId: Uint8Array;
+	if (idHex !== null) authorizationId = bytesOf(idHex);
+	else if (authorization) {
+		authorizationId = Uint8Array.from(createHash("sha256").update(authorization.payload).digest());
+	} else throw new Error("a cosign ticket without an authorization needs authorization_id_hex");
+	const payload: CosignPayload = {
+		v: 1,
+		authorizationId,
+		uses: json.payload.uses.map((use) => ({ node: use.node, taskId: use.task_id, attempt: use.attempt })),
+		issuedAtMs: json.payload.issued_at_ms,
+		deadlineMs: json.payload.deadline_ms,
+	};
+	const byName = new Map(trust.map((entry) => [entry.name, entry]));
+	const signatures: AuthzSignature[] = json.signatures.map((signature) => ({
+		entry: byName.get(signature.entry) ?? null,
+		valid: signature.valid,
+		userVerified: false,
+	}));
+	return { payload: encodeCosignPayload(payload), decoded: payload, signatures };
+}
+
 function specOf(json: CaseJson["task"]["spec"]): TaskSpec {
 	return taskSpecFromJson(json);
 }
@@ -117,6 +168,7 @@ describe("test/interop/m4_authz_cases.json", () => {
 
 	it.each(fixture.cases.map((c) => [c.id, c] as const))("%s", (_id, testCase) => {
 		const trust = testCase.trust.map(entryOf);
+		const authorization = testCase.authorization ? authorizationOf(testCase.authorization, trust) : null;
 		const decision = decide({
 			now: testCase.now_ms,
 			clockSkewMs: testCase.clock_skew_ms,
@@ -124,7 +176,8 @@ describe("test/interop/m4_authz_cases.json", () => {
 			aliases: testCase.node.aliases,
 			trust,
 			task: { id: testCase.task.task_id, attempt: testCase.task.attempt, spec: specOf(testCase.task.spec) },
-			authorization: testCase.authorization ? authorizationOf(testCase.authorization, trust) : null,
+			authorization,
+			cosign: testCase.cosign ? cosignOf(testCase.cosign, authorization, trust) : null,
 			window: testCase.window
 				? {
 						openedBy: testCase.window.opened_by,

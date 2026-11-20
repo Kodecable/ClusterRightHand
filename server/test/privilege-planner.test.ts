@@ -45,6 +45,7 @@ function crhsKey(name: string): AuthorizationSigningKey {
 		authorizedKey: key.line,
 		fingerprint: key.fingerprint,
 		sign: (payload) => signSshsig(key.privateKey, key.blob, payload),
+		signCosign: (payload) => signSshsig(key.privateKey, key.blob, payload, { namespace: "crh-cosign-v1" }),
 	} as AuthorizationSigningKey;
 }
 
@@ -245,10 +246,10 @@ describe("authorization planner", () => {
 		const use = result.uses[0];
 		if (use?.kind !== "stored") throw new Error("missing stored use");
 		expect(use.taskIds).toEqual([TASK]);
-		expect(use.cosignatures).toEqual([]);
+		expect(use.cosign).toEqual([]);
 	});
 
-	it("adds one crhs cosignature when the accepting entry requires it", async () => {
+	it("asks for crhs's cosign ticket when the accepting entry requires it, the authorization unchanged", async () => {
 		const built = buildTaskGroupAuthorization({
 			nodeIds: [NODE],
 			taskIds: [TASK],
@@ -286,7 +287,8 @@ describe("authorization planner", () => {
 			],
 		});
 		if (result.kind !== "usable" || result.uses[0]?.kind !== "stored") throw new Error("missing stored use");
-		expect(result.uses[0].cosignatures).toHaveLength(1);
+		expect(result.uses[0].signatures).toEqual([signature]);
+		expect(result.uses[0].cosign).toEqual([{ taskId: TASK, nodeId: NODE, keyFingerprint: CRHS_KEY.fingerprint }]);
 	});
 
 	it("offers a local_window only for a single task whose node has a local entry and trusts an own key", async () => {

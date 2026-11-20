@@ -1090,6 +1090,7 @@ describe("agent wire protocol", () => {
 					spec: EXEC,
 					privileged: false,
 					authorizations: [],
+					cosign: null,
 					timeoutMs: 0,
 					killGraceMs: 0,
 					output: { kind: "full", spillBytes: 0, spillLines: 0 },

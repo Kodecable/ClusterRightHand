@@ -69,6 +69,7 @@ function startFrame(taskId: string, spec: TaskSpec): Frame {
 			spec,
 			privileged: false,
 			authorizations: [],
+			cosign: null,
 			timeoutMs: 0,
 			killGraceMs: 0,
 			output: { kind: "status" },

@@ -23,6 +23,8 @@ import { AUTHORIZATION_CODES, TASK_CANCELLED_CODE } from "./types.ts";
 interface TaskStartOptions {
 	/** The encoded authorizations to attach, in wire order; none for a plain start. */
 	authorizations?: readonly Uint8Array[];
+	/** The encoded cosign ticket confirming this use of the authorization; none unless the node requires one. */
+	cosign?: Uint8Array | null;
 	privileged: boolean;
 	/** Defaults to the row's attempt (1 when there is no row). */
 	attempt?: number;
@@ -47,6 +49,7 @@ export function taskStartOf(
 		spec,
 		privileged: options.privileged,
 		authorizations: [...(options.authorizations ?? [])],
+		cosign: options.cosign ?? null,
 		timeoutMs: options.timeoutMs ?? row?.timeout_ms ?? 0,
 		killGraceMs: 0,
 		output: outputModeOf(row),

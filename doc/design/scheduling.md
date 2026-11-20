@@ -126,7 +126,7 @@ To run a fixed privileged command unattended, the owner signs a reusable `spec` 
 command with a deadline, and the message asks the agent to run exactly that command; any other spelling
 does not match and waits for a signature. The node does not know the timetable, so such an authorization
 works at any time before its deadline. If every execution should also pass crhs's rules, the owner's
-trust entry can require a crhs cosignature.
+trust entry can require a crhs cosignature: each run then carries crhs's cosign ticket for that run.
 
 ## Lifecycle
 

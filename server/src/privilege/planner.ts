@@ -15,8 +15,17 @@
  * fails according to the result, and stores the options on the task records. A plan is only a
  * prediction: crha re-verifies everything before executing.
  */
-import type { AuthorizationPayload, Signature, TaskSpec, TrustEntry, TrustSummary } from "@crh/protocol";
-import { type AuthzSignature, type AuthzWindow, authzEntryFromTrust, decide, STEP } from "./authz.ts";
+import { createHash } from "node:crypto";
+import {
+	type AuthorizationPayload,
+	type CosignPayload,
+	encodeCosignPayload,
+	type Signature,
+	type TaskSpec,
+	type TrustEntry,
+	type TrustSummary,
+} from "@crh/protocol";
+import { type AuthzCosign, type AuthzSignature, type AuthzWindow, authzEntryFromTrust, decide, STEP } from "./authz.ts";
 import { cosignRequired } from "./cosign.ts";
 import { privilegedTarget } from "./guard.ts";
 import { type AuthorizationSigningKey, trustedSigningKey } from "./key.ts";
@@ -172,12 +181,23 @@ export interface PlannedStoredUse {
 	id: string;
 	payload: AuthorizationPayload;
 	payloadBytes: Uint8Array;
-	/** The owner's signatures plus every cosignature the covered nodes need. */
+	/** The owner's signatures, as stored. */
 	signatures: Signature[];
-	/** The cosignatures this plan added, for storage with the authorization. */
-	cosignatures: Signature[];
 	/** The tasks of this plan the authorization covers and every node accepts. */
 	taskIds: string[];
+	/**
+	 * The covered tasks whose node also needs crhs's cosign ticket, with the key that node trusts to cosign: the
+	 * dispatch signs one ticket for the uses it sends (doc/design/privilege.md "Cosigning").
+	 */
+	cosign: PlannedCosign[];
+}
+
+/** One use of a stored authorization that crhs confirms with a cosign ticket. */
+export interface PlannedCosign {
+	taskId: string;
+	nodeId: string;
+	/** The newest crhs key the node trusts with `cosign`. */
+	keyFingerprint: string;
 }
 
 export type PlannedUse = PlannedCrhsUse | PlannedStoredUse;
@@ -321,6 +341,7 @@ function entryAccepts(
 	attempt: number,
 	window: AuthzWindow | null,
 	now: number,
+	cosign: AuthzCosign | null = null,
 ): boolean {
 	const decision = decide({
 		now,
@@ -330,9 +351,49 @@ function entryAccepts(
 		trust: trust.map(authzEntryFromTrust),
 		task: { id: task.id, attempt, spec: task.spec },
 		authorization: { payload: authorization.bytes, decoded: authorization.payload, signatures },
+		cosign,
 		window,
 	});
 	return decision.result === "accepted" && decision.entry === entryName;
+}
+
+/** How long a cosign ticket lives: it confirms uses being sent now, so a few minutes cover the clock skew and the send. */
+export const COSIGN_TICKET_TTL_MS = 5 * 60_000;
+
+/**
+ * The cosign ticket crhs would sign for this task's use of an authorization, as the decision sees it: the
+ * node's own cosign entry as a valid signer. Null when the node trusts none of crhs's keys to cosign.
+ */
+function hypotheticalCosign(
+	task: PlannerTask,
+	payloadBytes: Uint8Array,
+	attempt: number,
+	keys: readonly AuthorizationSigningKey[],
+	now: number,
+): AuthzCosign | null {
+	const cosign = firstCosignEntry(task.node.summary, keys);
+	if (!cosign) return null;
+	const decoded: CosignPayload = cosignPayloadFor(
+		payloadBytes,
+		[{ node: task.node.id, taskId: task.id, attempt }],
+		now,
+	);
+	return {
+		payload: encodeCosignPayload(decoded),
+		decoded,
+		signatures: [{ entry: authzEntryFromTrust(cosign.entry), valid: true, userVerified: false }],
+	};
+}
+
+/** The cosign payload confirming `uses` of the authorization whose payload bytes are given. */
+export function cosignPayloadFor(payloadBytes: Uint8Array, uses: CosignPayload["uses"], now: number): CosignPayload {
+	return {
+		v: 1,
+		authorizationId: Uint8Array.from(createHash("sha256").update(payloadBytes).digest()),
+		uses,
+		issuedAtMs: now,
+		deadlineMs: now + COSIGN_TICKET_TTL_MS,
+	};
 }
 
 /** Builds the one-shot spec payload for one task on one node. */
@@ -394,11 +455,11 @@ function ownerEntry(entryName: string | null, trust: readonly TrustEntry[], owne
 interface StoredJudgment {
 	accepted: boolean;
 	entry: string | null;
-	/** The cosignature added to make the node accept it. */
-	cosignature: Signature | null;
+	/** The crhs key whose cosign ticket the node needs for this use; null when it needs none. */
+	cosignKey: string | null;
 }
 
-/** Judged one stored authorization for one task, with a crhs cosignature when the node needs one. */
+/** Judges one stored authorization for one task, with a crhs cosign ticket when the node needs one. */
 async function judgeStored(
 	task: PlannerTask,
 	stored: StoredOwnerAuthorization,
@@ -409,8 +470,9 @@ async function judgeStored(
 	verified: VerifiedSignatures,
 ): Promise<StoredJudgment> {
 	const trust = firstEntryPerKey(summary.trust);
-	let signatures = await verified(stored, task.node.id, trust);
-	const judge = (candidates: readonly AuthzSignature[]) =>
+	const signatures = await verified(stored, task.node.id, trust);
+	const nodeView = { ...task, node: { ...task.node, summary } };
+	const judge = (cosign: AuthzCosign | null) =>
 		decide({
 			now,
 			clockSkewMs: summary.clockSkewMs,
@@ -418,26 +480,26 @@ async function judgeStored(
 			aliases: summary.aliases,
 			trust: trust.map(authzEntryFromTrust),
 			task: { id: task.id, attempt: task.attempt, spec: task.spec },
-			authorization: { payload: stored.payloadBytes, decoded: stored.payload, signatures: candidates },
+			authorization: { payload: stored.payloadBytes, decoded: stored.payload, signatures },
+			cosign,
 			window: null,
 		});
-	let decision = judge(signatures);
-	let cosignature: Signature | null = null;
-	if (decision.result !== "accepted" && decision.step === STEP.cosign && stored.payload.taskIds !== null) {
-		const cosign = firstCosignEntry(summary, keys);
-		if (cosign) {
-			const signature: Signature = { kind: "sshsig", blob: cosign.key.sign(stored.payloadBytes) };
-			signatures = [...signatures, { entry: authzEntryFromTrust(cosign.entry), valid: true, userVerified: false }];
-			const again = judge(signatures);
+	let decision = judge(null);
+	let cosignKey: string | null = null;
+	if (decision.result !== "accepted" && decision.step === STEP.cosign) {
+		const cosign = hypotheticalCosign(nodeView, stored.payloadBytes, task.attempt, keys, now);
+		const key = firstCosignEntry(summary, keys)?.key;
+		if (cosign && key) {
+			const again = judge(cosign);
 			if (again.result === "accepted") {
 				decision = again;
-				cosignature = signature;
+				cosignKey = key.fingerprint;
 			}
 		}
 	}
-	if (decision.result !== "accepted") return { accepted: false, entry: null, cosignature: null };
-	if (!ownerEntry(decision.entry, summary.trust, owner)) return { accepted: false, entry: decision.entry, cosignature };
-	return { accepted: true, entry: decision.entry, cosignature };
+	if (decision.result !== "accepted") return { accepted: false, entry: null, cosignKey: null };
+	if (!ownerEntry(decision.entry, summary.trust, owner)) return { accepted: false, entry: decision.entry, cosignKey };
+	return { accepted: true, entry: decision.entry, cosignKey };
 }
 
 /**
@@ -509,7 +571,7 @@ async function planStored(
 		if (remaining.size === 0) break;
 		if (candidate.payload.deadlineMs !== null && candidate.payload.deadlineMs <= now) continue;
 		const covered: PlannerTask[] = [];
-		const cosignatures: Signature[] = [];
+		const cosign: PlannedCosign[] = [];
 		for (const task of [...remaining.values()]) {
 			if (task.rejectedBefore != null && candidate.createdAtMs <= task.rejectedBefore) continue;
 			if (candidate.payload.taskIds !== null) {
@@ -527,7 +589,7 @@ async function planStored(
 				continue;
 			}
 			covered.push(task);
-			if (judged.cosignature) cosignatures.push(judged.cosignature);
+			if (judged.cosignKey) cosign.push({ taskId: task.id, nodeId: task.node.id, keyFingerprint: judged.cosignKey });
 		}
 		if (covered.length === 0) continue;
 		for (const task of covered) remaining.delete(task.id);
@@ -536,9 +598,9 @@ async function planStored(
 			id: candidate.id,
 			payload: candidate.payload,
 			payloadBytes: candidate.payloadBytes,
-			signatures: newUniqueSignatures(candidate.signatures, cosignatures),
-			cosignatures,
+			signatures: [...candidate.signatures],
 			taskIds: covered.map((task) => task.id),
+			cosign,
 		});
 	}
 	return { uses, blocked };
@@ -643,12 +705,10 @@ function acceptableUserEntries(
 		const signatures: AuthzSignature[] = [
 			{ entry: authzEntryFromTrust(entryKey), valid: true, userVerified: entry.requireUv ? canUv : false },
 		];
-		if (cosignAvailable) {
-			const cosign = firstCosignEntry(summary, keys);
-			if (cosign) signatures.push({ entry: authzEntryFromTrust(cosign.entry), valid: true, userVerified: false });
-		}
 		const ttlMs = payloadTtl(entry, USER_AUTHORIZATION_TTL_MS);
-		if (!entryAccepts(task, trust, provisional(ttlMs), entry.name, signatures, attempt, null, now)) continue;
+		const authorization = provisional(ttlMs);
+		const cosign = cosignAvailable ? hypotheticalCosign(task, authorization.bytes, attempt, keys, now) : null;
+		if (!entryAccepts(task, trust, authorization, entry.name, signatures, attempt, null, now, cosign)) continue;
 		out.push({
 			planned: {
 				entry,
@@ -755,10 +815,13 @@ function planSign(input: PlannerInput, tasks: readonly PlannerTask[], now: numbe
 					trust,
 					authorization,
 					candidate.planned.entry.name,
-					hypotheticalSignatures(candidate, input.keys, task),
+					hypotheticalSignatures(candidate),
 					attempt,
 					null,
 					now,
+					candidate.planned.cosignAvailable
+						? hypotheticalCosign(task, authorization.bytes, attempt, input.keys, now)
+						: null,
 				),
 			);
 			if (accepting.length === 0) continue;
@@ -825,10 +888,11 @@ function keptPayload(
 				trust,
 				current,
 				candidate.planned.entry.name,
-				hypotheticalSignatures(candidate, input.keys, task),
+				hypotheticalSignatures(candidate),
 				attempt,
 				null,
 				now,
+				candidate.planned.cosignAvailable ? hypotheticalCosign(task, current.bytes, attempt, input.keys, now) : null,
 			),
 		);
 		if (!accepted) return null;
@@ -836,24 +900,15 @@ function keptPayload(
 	return current;
 }
 
-/** The hypothetical signatures a user option is judged with: the owner's entry, and a cosignature when needed. */
-function hypotheticalSignatures(
-	candidate: { planned: PlannedSignEntry },
-	keys: readonly AuthorizationSigningKey[],
-	task: PlannerTask,
-): AuthzSignature[] {
-	const signatures: AuthzSignature[] = [
+/** The hypothetical signature a user option is judged with: the owner's entry. A cosignature is a separate ticket. */
+function hypotheticalSignatures(candidate: { planned: PlannedSignEntry }): AuthzSignature[] {
+	return [
 		{
 			entry: authzEntryFromTrust(candidate.planned.entry),
 			valid: true,
 			userVerified: candidate.planned.requireUv ? candidate.planned.canAssertUv : false,
 		},
 	];
-	if (candidate.planned.cosignAvailable) {
-		const cosign = firstCosignEntry(task.node.summary, keys);
-		if (cosign) signatures.push({ entry: authzEntryFromTrust(cosign.entry), valid: true, userVerified: false });
-	}
-	return signatures;
 }
 
 /** The targets of a planner call, with an invalid spec turned into a failure instead of throwing. */

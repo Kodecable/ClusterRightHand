@@ -54,11 +54,11 @@ import { pendingInputColumn } from "../task-start.ts";
 import { parseTrustReport, trustUnavailableMessage } from "../trust.ts";
 import { type AuthorizedStart, claimCrhs, sendAuthorizedStart } from "./authorized-start.ts";
 import { ALIAS_MISSING, aliasMissingMessage, emptyAuthorizationRecord, finishAuthorization } from "./common.ts";
+import { signCosignTickets, type TicketUse } from "./cosign-tickets.ts";
 import {
 	claimOwnerAuthorization,
 	insertOwnerAuthorization,
 	loadStoredOwnerAuthorizations,
-	storeCosignatures,
 } from "./owner-authorizations.ts";
 import { rejectAuthorizationWait } from "./reject.ts";
 
@@ -427,10 +427,12 @@ async function applyUses(
 ): Promise<boolean> {
 	const byId = new Map(input.tasks.map((entry) => [entry.row.id, entry] as const));
 	const claims: AuthorizedStart[] = [];
-	const cosigned: { use: Extract<PlannedUse, { kind: "stored" }>; ownerId: string }[] = [];
 	let stale = false;
 	const covered = new Set<string>();
 	for (const use of uses) {
+		// The claimed uses of a stored authorization whose nodes need crhs's cosign ticket.
+		const ticketUses: { use: TicketUse; claim: AuthorizedStart }[] = [];
+		let ownerId: string | null = null;
 		for (const taskId of use.kind === "crhs" ? [use.taskId] : use.taskIds) {
 			const entry = byId.get(taskId);
 			if (!entry) continue;
@@ -444,21 +446,41 @@ async function applyUses(
 				const node = await getNode(core.db, fresh.node_id);
 				if (!node) return null;
 				if (use.kind === "crhs") return claimCrhs(core, fresh, node, use.authorization, use.keyFingerprint);
-				const claimed = await claimOwnerAuthorization(
-					core,
-					fresh,
-					node,
-					{ id: use.id, payload: use.payload, payloadBytes: use.payloadBytes, signatures: use.signatures },
-					use.cosignatures.length > 0,
-				);
-				if (claimed && use.cosignatures.length > 0) cosigned.push({ use, ownerId: fresh.on_behalf_of_user_id });
-				return claimed;
+				ownerId = fresh.on_behalf_of_user_id;
+				return claimOwnerAuthorization(core, fresh, node, {
+					id: use.id,
+					payload: use.payload,
+					payloadBytes: use.payloadBytes,
+					signatures: use.signatures,
+				});
 			});
-			if (claim) claims.push(claim);
+			if (!claim) continue;
+			claims.push(claim);
+			const cosign = use.kind === "stored" ? use.cosign.find((entry) => entry.taskId === taskId) : undefined;
+			if (cosign) {
+				ticketUses.push({
+					use: { node: cosign.nodeId, taskId, attempt: claim.start.attempt, keyFingerprint: cosign.keyFingerprint },
+					claim,
+				});
+			}
+		}
+		// One ticket confirms the uses sent together; it is signed after the claims fix their attempts.
+		if (use.kind === "stored" && ticketUses.length > 0 && ownerId !== null) {
+			const tickets = signCosignTickets(
+				core,
+				{
+					id: use.id,
+					payloadBytes: use.payloadBytes,
+					encodedBytes: ticketUses[0]?.claim.start.authorizations[0]?.length ?? 0,
+				},
+				ticketUses.map((entry) => entry.use),
+				ownerId,
+			);
+			for (const { use: ticketUse, claim } of ticketUses) {
+				claim.start = { ...claim.start, cosign: tickets.get(ticketUse.taskId) ?? null };
+			}
 		}
 	}
-	// crhs's cosignatures are stored with the owner's authorization before the frames leave.
-	for (const { use, ownerId } of cosigned) await storeCosignatures(core, use.id, use.cosignatures, ownerId);
 	for (const claim of claims) {
 		core.background(
 			"authorized task.start failed",

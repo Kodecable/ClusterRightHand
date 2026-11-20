@@ -18,6 +18,11 @@ import (
 const (
 	// AuthNamespace is the SSHSIG namespace and the WebAuthn challenge prefix.
 	AuthNamespace = "crh-auth-v1"
+	// CosignNamespace is the SSHSIG namespace of a cosign ticket. It differs from AuthNamespace,
+	// so a ticket signature never passes as an authorization signature, nor the reverse.
+	CosignNamespace = "crh-cosign-v1"
+	// CosignPayloadVersion is the only supported CosignPayload.v value.
+	CosignPayloadVersion = 1
 	// RegisterNamespace is the SSHSIG namespace of a signing-credential registration challenge;
 	// it is never accepted as an authorization.
 	RegisterNamespace = "crh-register-v1"
@@ -505,6 +510,68 @@ func checkAuthorizationPayload(payload *AuthorizationPayload) error {
 		return fail("attempt must be at least 1")
 	}
 	return nil
+}
+
+// CosignUse is one use a cosign ticket confirms: a task at one attempt on one node.
+type CosignUse struct {
+	_       struct{} `cbor:",toarray"`
+	Node    string
+	TaskID  string
+	Attempt Uint
+}
+
+// CosignPayload is CBOR(CosignPayload), the bytes crhs signs to confirm uses of one
+// authorization. AuthorizationID is SHA-256 of that authorization's payload bytes.
+type CosignPayload struct {
+	_               struct{} `cbor:",toarray"`
+	V               Uint
+	AuthorizationID Hash
+	Uses            []CosignUse
+	IssuedAtMS      Int
+	DeadlineMS      Int
+}
+
+// CosignTicket is one CBOR(CosignTicket): the signed payload bytes and crhs's signatures in
+// CosignNamespace.
+type CosignTicket struct {
+	_          struct{} `cbor:",toarray"`
+	Payload    []byte
+	Signatures []Signature
+}
+
+// DecodeCosignPayload strictly decodes cosign payload bytes and enforces the structural rules
+// of doc/design/protocol.md "Cosign ticket".
+func DecodeCosignPayload(payloadBytes []byte) (*CosignPayload, error) {
+	var payload CosignPayload
+	if err := Unmarshal(payloadBytes, &payload); err != nil {
+		return nil, err
+	}
+	fail := func(reason string) error {
+		return protocolErrorf("cosign payload: %s", reason)
+	}
+	if payload.V != CosignPayloadVersion {
+		return nil, fail(fmt.Sprintf("unsupported version %d", payload.V))
+	}
+	if len(payload.Uses) == 0 {
+		return nil, fail("uses is empty")
+	}
+	seen := make(map[string]struct{}, len(payload.Uses))
+	for _, use := range payload.Uses {
+		if use.Node == "*" {
+			return nil, fail(`a use names a node id, not "*"`)
+		}
+		if use.Attempt < 1 {
+			return nil, fail("attempt must be at least 1")
+		}
+		if _, dup := seen[use.TaskID]; dup {
+			return nil, fail("duplicate task ids")
+		}
+		seen[use.TaskID] = struct{}{}
+	}
+	if payload.DeadlineMS < payload.IssuedAtMS {
+		return nil, fail("deadline is before the issue time")
+	}
+	return &payload, nil
 }
 
 // AuthorizationID is SHA-256 of the raw payload bytes.

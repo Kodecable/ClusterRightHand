@@ -170,7 +170,7 @@ behaves the same on every page:
   two 5min tabs appear beside their signing method when the `sign` option carries a `reusableScope`:
   the request's nodes and the one method its waiting tasks use (file.write when they read and write),
   offered only when every node has a planned user entry that requires neither a bound spec nor task
-  ids. They sign a reusable authorization with an empty prefix of that method on those nodes for five
+  ids (an entry that requires crhs's cosignature counts: each use gets its own cosign ticket). They sign a reusable authorization with an empty prefix of that method on those nodes for five
   minutes instead of this payload, so any task of that method the owner starts there in that time runs
   without a signature, from any session or schedule; the tab says so. Passkey 5min drafts the payload
   with `POST /api/authorizations/draft` and signs its challenge; crhu 5min shows the matching

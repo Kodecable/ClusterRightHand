@@ -22,8 +22,9 @@ const (
 	// major fails the handshake itself (doc/design/protocol.md "Handshake payloads"). The minor version is
 	// additive: new commands and events are negotiated through the handshake's commands field.
 	// Major 1 removed the per-task local approval commands and added the local window state to
-	// TrustSummary.
-	ProtocolMajor = 1
+	// TrustSummary; major 2 moved crhs's cosignature out of the authorization into the cosign
+	// ticket that task.start carries.
+	ProtocolMajor = 2
 	ProtocolMinor = 0
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440

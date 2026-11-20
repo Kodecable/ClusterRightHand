@@ -229,15 +229,27 @@ func TestRequireCosign(t *testing.T) {
 	})
 	client := dialForward(t, env.paths.Socket)
 	ctx := requestContext(t)
+	node := "0192f000-0000-7000-8000-000000000001"
+	use := func(taskID string) []protocol.CosignUse {
+		return []protocol.CosignUse{{Node: node, TaskID: taskID, Attempt: 1}}
+	}
 
+	// The user's signature alone, or with crhs's signature on the same payload, is not enough.
 	ts := execTask("cosign-1", 1, "/bin/echo", "no-cosign")
 	payload := payloadFor("cosign-1", 1, specCommand(t, &ts.Spec), nil)
 	ts.Authorizations = [][]byte{authorize(t, payload, keys.user)}
 	expectRemoteCode(t, client.start(ctx, ts), "authorization_rejected")
+	ts.Authorizations = [][]byte{authorize(t, payload, keys.user, keys.crhs)}
+	expectRemoteCode(t, client.start(ctx, ts), "authorization_rejected")
+	// A ticket signed in the authorization namespace is no cosign ticket.
+	ts.Authorizations = [][]byte{authorize(t, payload, keys.user)}
+	ts.Cosign = cosignTicket(t, payload, use("cosign-1"), protocol.AuthNamespace, keys.crhs)
+	expectRemoteCode(t, client.start(ctx, ts), "authorization_invalid")
 
 	ts = execTask("cosign-2", 1, "/bin/echo", "cosigned")
 	payload = payloadFor("cosign-2", 1, specCommand(t, &ts.Spec), nil)
-	ts.Authorizations = [][]byte{authorize(t, payload, keys.user, keys.crhs)}
+	ts.Authorizations = [][]byte{authorize(t, payload, keys.user)}
+	ts.Cosign = cosignTicket(t, payload, use("cosign-2"), protocol.CosignNamespace, keys.crhs)
 	if err := client.start(ctx, ts); err != nil {
 		t.Fatalf("cosigned task.start: %v", err)
 	}
@@ -247,6 +259,25 @@ func TestRequireCosign(t *testing.T) {
 	}
 	if got := client.output(); got != "cosigned\n" {
 		t.Fatalf("stdout = %q", got)
+	}
+
+	// A reusable prefix authorization runs with a ticket for each use; a ticket confirms only its own task.
+	reusable := payloadFor("", 1, &protocol.AuthCommand{
+		Kind:   protocol.AuthCommandPrefix,
+		Prefix: &protocol.AuthPrefix{Method: protocol.MethodExec, Target: "/bin/echo "},
+	}, nil)
+	reusable.TaskIDs, reusable.Attempt = nil, nil
+	ts = execTask("cosign-3", 1, "/bin/echo", "reused")
+	ts.Authorizations = [][]byte{authorize(t, reusable, keys.user)}
+	ts.Cosign = cosignTicket(t, reusable, use("cosign-4"), protocol.CosignNamespace, keys.crhs)
+	expectRemoteCode(t, client.start(ctx, ts), "authorization_rejected")
+	ts.Cosign = cosignTicket(t, reusable, use("cosign-3"), protocol.CosignNamespace, keys.crhs)
+	if err := client.start(ctx, ts); err != nil {
+		t.Fatalf("reusable cosigned task.start: %v", err)
+	}
+	exit = client.waitExit(15 * time.Second)
+	if exit.Outcome.Kind != protocol.OutcomeCode || exit.Outcome.Code != 0 {
+		t.Fatalf("task.exit = %+v", exit)
 	}
 }
 

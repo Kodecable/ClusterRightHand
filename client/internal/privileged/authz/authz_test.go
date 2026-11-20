@@ -102,6 +102,23 @@ type jsonWindow struct {
 	UntilMS    int64  `json:"until_ms"`
 }
 
+type jsonCosign struct {
+	Payload struct {
+		AuthorizationIDHex *string `json:"authorization_id_hex"`
+		Uses               []struct {
+			Node    string `json:"node"`
+			TaskID  string `json:"task_id"`
+			Attempt uint64 `json:"attempt"`
+		} `json:"uses"`
+		IssuedAtMS int64 `json:"issued_at_ms"`
+		DeadlineMS int64 `json:"deadline_ms"`
+	} `json:"payload"`
+	Signatures []struct {
+		Entry string `json:"entry"`
+		Valid bool   `json:"valid"`
+	} `json:"signatures"`
+}
+
 type jsonCase struct {
 	ID          string `json:"id"`
 	Description string `json:"description"`
@@ -118,6 +135,7 @@ type jsonCase struct {
 		Spec    jsonSpec `json:"spec"`
 	} `json:"task"`
 	Authorization   *jsonAuthorization `json:"authorization"`
+	Cosign          *jsonCosign        `json:"cosign"`
 	Window          *jsonWindow        `json:"window"`
 	ExecutedTaskIDs []string           `json:"executed_task_ids"`
 	UsedPairs       []string           `json:"used_pairs"`
@@ -348,6 +366,36 @@ func buildInput(t *testing.T, testCase *jsonCase) Input {
 			})
 		}
 		input.Authorization = authorization
+	}
+	if testCase.Cosign != nil {
+		raw := testCase.Cosign.Payload
+		payload := &protocol.CosignPayload{
+			V:          protocol.CosignPayloadVersion,
+			IssuedAtMS: protocol.Int(raw.IssuedAtMS),
+			DeadlineMS: protocol.Int(raw.DeadlineMS),
+		}
+		switch {
+		case raw.AuthorizationIDHex != nil:
+			payload.AuthorizationID = protocol.Hash(mustHex32(t, *raw.AuthorizationIDHex))
+		case input.Authorization != nil:
+			payload.AuthorizationID = protocol.Hash(protocol.AuthorizationID(input.Authorization.Payload))
+		default:
+			t.Fatal("a cosign ticket without an authorization needs authorization_id_hex")
+		}
+		for _, use := range raw.Uses {
+			payload.Uses = append(payload.Uses, protocol.CosignUse{
+				Node: use.Node, TaskID: use.TaskID, Attempt: protocol.Uint(use.Attempt),
+			})
+		}
+		payloadBytes, err := protocol.Marshal(payload)
+		if err != nil {
+			t.Fatalf("encode cosign payload: %v", err)
+		}
+		cosign := &Cosign{Payload: payloadBytes, Decoded: payload}
+		for _, signature := range testCase.Cosign.Signatures {
+			cosign.Signatures = append(cosign.Signatures, Signature{Entry: byName[signature.Entry], Valid: signature.Valid})
+		}
+		input.Cosign = cosign
 	}
 	if testCase.Window != nil {
 		input.Window = &Window{

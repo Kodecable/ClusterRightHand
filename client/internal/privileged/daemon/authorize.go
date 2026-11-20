@@ -85,6 +85,11 @@ func (s *Server) decide(ts *protocol.TaskStart) (*decidedTask, *refusal) {
 		}
 	}
 
+	var cosign *authz.Cosign
+	if ts.Cosign != nil {
+		cosign = s.verifyCosign(cfg, *ts.Cosign)
+	}
+
 	window := s.windowSnapshot()
 	var authzWindow *authz.Window
 	if window != nil {
@@ -98,6 +103,7 @@ func (s *Server) decide(ts *protocol.TaskStart) (*decidedTask, *refusal) {
 		Trust:         cfg.Entries(),
 		Task:          authz.Task{ID: ts.TaskID, Attempt: uint64(ts.Attempt), Spec: &ts.Spec},
 		Authorization: authorization,
+		Cosign:        cosign,
 		Window:        authzWindow,
 		Executed:      s.store.Executed,
 		Used:          s.store.Used,
@@ -141,6 +147,44 @@ func (s *Server) verifyAuthorization(cfg *config.Config, raw []byte) *authz.Auth
 			s.verifySignature(cfg, decoded.Payload, &decoded.Signatures[i]))
 	}
 	return authorization
+}
+
+// verifyCosign decodes a cosign ticket and maps each signature to its trust entry, verifying it
+// in the cosign namespace, as verifyAuthorization does for an authorization. Only SSHSIG
+// signatures count: a ticket is signed by crhs's keys, and a WebAuthn credential belongs to a
+// user. Decide consults the ticket only when the accepting entry requires a cosignature.
+func (s *Server) verifyCosign(cfg *config.Config, raw []byte) *authz.Cosign {
+	cosign := &authz.Cosign{}
+	var decoded protocol.CosignTicket
+	if err := protocol.Unmarshal(raw, &decoded); err != nil {
+		return cosign
+	}
+	cosign.Payload = decoded.Payload
+	if payload, err := protocol.DecodeCosignPayload(decoded.Payload); err == nil {
+		cosign.Decoded = payload
+	}
+	cosign.Signatures = make([]authz.Signature, 0, len(decoded.Signatures))
+	for i := range decoded.Signatures {
+		signature := &decoded.Signatures[i]
+		if signature.Kind != protocol.SignatureSSHSig || signature.SSHSig == nil {
+			cosign.Signatures = append(cosign.Signatures, authz.Signature{})
+			continue
+		}
+		key, err := authz.SignerKey(signature.SSHSig.Blob)
+		if err != nil {
+			cosign.Signatures = append(cosign.Signatures, authz.Signature{})
+			continue
+		}
+		trust := cfg.SSHEntry(key)
+		if trust == nil {
+			cosign.Signatures = append(cosign.Signatures, authz.Signature{})
+			continue
+		}
+		entry := trust.Entry()
+		_, err = authz.VerifySSHSIGNamespace(signature.SSHSig.Blob, decoded.Payload, protocol.CosignNamespace)
+		cosign.Signatures = append(cosign.Signatures, authz.Signature{Entry: &entry, Valid: err == nil})
+	}
+	return cosign
 }
 
 // verifySignature checks one signature and returns it with the trust entry that owns its key.

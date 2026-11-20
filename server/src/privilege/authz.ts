@@ -9,8 +9,11 @@
  */
 import {
 	type AuthorizationPayload,
+	type CosignPayload,
 	decodeAuthorizationPayload,
+	decodeCosignPayload,
 	encodeAuthorizationPayload,
+	encodeCosignPayload,
 	type GuardRule,
 	type TaskSpec,
 	type TrustEntry as TrustSummaryEntry,
@@ -115,6 +118,18 @@ export interface AuthzAuthorization {
 	signatures: readonly AuthzSignature[];
 }
 
+/**
+ * A cosign ticket after the caller's crypto check, in the form of AuthzAuthorization: each signature mapped to
+ * the trust entry whose key verified it in the cosign namespace (doc/design/protocol.md "Cosign ticket").
+ */
+export interface AuthzCosign {
+	/** The ticket payload bytes exactly as signed. */
+	payload: Uint8Array;
+	/** The caller's strict decode of `payload`; the decision re-decodes and compares. */
+	decoded: CosignPayload;
+	signatures: readonly AuthzSignature[];
+}
+
 /** The node's local approval window while it is open (doc/design/privilege.md "Local approval window"). */
 export interface AuthzWindow {
 	openedBy: number;
@@ -131,6 +146,8 @@ export interface AuthzInput {
 	trust: readonly AuthzEntry[];
 	task: AuthzTask;
 	authorization: AuthzAuthorization | null;
+	/** The cosign ticket task.start carries; consulted only when the accepting user entry requires a cosignature. */
+	cosign?: AuthzCosign | null;
 	/** The local approval window when it is open at `now`; null means closed. */
 	window: AuthzWindow | null;
 	/** Whether the task id already ran on this node. */
@@ -235,7 +252,7 @@ function decideAuthorization(input: AuthzInput, method: Method, target: string, 
 	const id = authorizationId(authorization.payload);
 	let first: AuthzDecision | undefined;
 	for (const signature of candidates) {
-		const candidate = checkCandidate(input, authorization, decoded, signature, id, method, target, specHash);
+		const candidate = checkCandidate(input, decoded, signature, id, method, target, specHash);
 		if (!candidate.ok) {
 			first ??= candidate.decision;
 			continue;
@@ -250,7 +267,6 @@ type Checked = { ok: true; decision: AuthzDecision } | { ok: false; decision: Au
 /** Steps 4–8 for one signature and its trust entry. */
 function checkCandidate(
 	input: AuthzInput,
-	authorization: AuthzAuthorization,
 	payload: AuthorizationPayload,
 	signature: AuthzSignature,
 	id: Uint8Array,
@@ -317,10 +333,6 @@ function checkCandidate(
 		if (entry.requireTask) {
 			return no("authorization_rejected", STEP.oneShot, "trust entry requires task_ids");
 		}
-		// A cosignature is a single confirmation, so an authorization that needs one must be one-shot.
-		if (cosignRequired(entry)) {
-			return no("authorization_rejected", STEP.oneShot, "an authorization that requires cosign must carry task_ids");
-		}
 	}
 
 	// Step 6: the command restriction.
@@ -338,9 +350,10 @@ function checkCandidate(
 		}
 	}
 
-	// Step 8: cosignature.
-	if (!viaWindow && cosignRequired(entry) && !hasCosign(verifiedEntries(authorization))) {
-		return no("authorization_rejected", STEP.cosign, "authorization requires a crhs cosignature");
+	// Step 8: cosignature, a cosign ticket confirming this use of this authorization.
+	if (!viaWindow && cosignRequired(entry)) {
+		const cosign = checkCosign(input, id);
+		if (cosign !== null) return cosign;
 	}
 	return { ok: true, decision: accepted(entry.name, viaWindow) };
 }
@@ -361,15 +374,69 @@ function checkTrust(entry: AuthzEntry, input: AuthzInput, method: Method, target
 }
 
 /**
- * The trust entries whose signature verifies: the candidates a cosignature may come from. A signature
- * of a key the node does not trust is ignored, and an invalid one has already failed step 3.
+ * Step 8 for a user entry that requires a cosignature: the cosign ticket confirms this task at this attempt on
+ * this node for this authorization, has not expired, and carries a valid signature of a crhs entry with the
+ * cosign kind (doc/design/privilege.md "Cosigning"). The cosign entry's own require_spec, max_ttl and allow/deny
+ * rules do not apply: the ticket confirms one use of what the user signed and authorizes nothing on its own.
+ * Returns the refusal, or null when the ticket confirms the use.
  */
-function verifiedEntries(authorization: AuthzAuthorization): AuthzEntry[] {
-	const entries: AuthzEntry[] = [];
-	for (const signature of authorization.signatures) {
-		if (signature.valid && signature.entry !== null) entries.push(signature.entry);
+function checkCosign(input: AuthzInput, id: Uint8Array): Checked | null {
+	const ticket = input.cosign ?? null;
+	if (ticket === null) return no("authorization_rejected", STEP.cosign, "authorization requires a crhs cosign ticket");
+	let decoded: CosignPayload;
+	try {
+		decoded = decodeCosignPayload(ticket.payload);
+	} catch (err) {
+		return no("authorization_invalid", STEP.cosign, `cosign ticket: ${errorText(err)}`);
 	}
-	return entries;
+	let sameDecoded: boolean;
+	try {
+		sameDecoded =
+			bytesEqual(encodeCosignPayload(decoded), encodeCosignPayload(ticket.decoded)) &&
+			bytesEqual(encodeCosignPayload(decoded), ticket.payload);
+	} catch {
+		sameDecoded = false;
+	}
+	if (!sameDecoded) {
+		return no("authorization_invalid", STEP.cosign, "cosign ticket payload does not match its decoded form");
+	}
+	let cosigned = false;
+	for (const signature of ticket.signatures) {
+		if (signature.entry === null) continue; // signed by a key this node does not trust
+		if (!signature.valid) {
+			return no(
+				"authorization_invalid",
+				STEP.cosign,
+				`cosign ticket signature by "${signature.entry.name}" does not verify`,
+			);
+		}
+		if (hasCosign([signature.entry])) cosigned = true;
+	}
+	if (!cosigned) {
+		return no("authorization_rejected", STEP.cosign, "the cosign ticket has no signature of a crhs entry with cosign");
+	}
+	if (!bytesEqual(decoded.authorizationId, id)) {
+		return no("authorization_rejected", STEP.cosign, "the cosign ticket confirms another authorization");
+	}
+	const use = decoded.uses.find((candidate) => candidate.taskId === input.task.id);
+	if (!use) return no("authorization_rejected", STEP.cosign, "the cosign ticket does not confirm this task");
+	if (use.node !== input.nodeId) {
+		return no(
+			"authorization_rejected",
+			STEP.cosign,
+			`the cosign ticket confirms this task on node "${use.node}", not this node`,
+		);
+	}
+	if (use.attempt !== input.task.attempt) {
+		return no("authorization_rejected", STEP.cosign, "the cosign ticket confirms another attempt");
+	}
+	if (decoded.issuedAtMs > input.now + input.clockSkewMs) {
+		return no("authorization_rejected", STEP.cosign, "the cosign ticket was issued in the future");
+	}
+	if (decoded.deadlineMs < input.now - input.clockSkewMs) {
+		return no("authorization_rejected", STEP.cosign, "the cosign ticket has expired");
+	}
+	return null;
 }
 
 /**

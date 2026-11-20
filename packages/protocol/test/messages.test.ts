@@ -98,6 +98,7 @@ const taskStart: TaskStart = {
 	spec: specExec,
 	privileged: false,
 	authorizations: [Uint8Array.of(0x00, 0xff)],
+	cosign: Uint8Array.of(0x01),
 	timeoutMs: 1000,
 	killGraceMs: 500,
 	output: outputFull,
@@ -340,8 +341,8 @@ describe("message codecs", () => {
 		expect(() => taskExitCodec.decode(["t-1", ["code", 0], false, false, 0, 0, ""])).toThrow(SchemaError);
 	});
 
-	it("uses protocol 1.0 and requires every name", () => {
-		expect(PROTOCOL_MAJOR).toBe(1);
+	it("uses protocol 2.0 and requires every name", () => {
+		expect(PROTOCOL_MAJOR).toBe(2);
 		expect(PROTOCOL_MINOR).toBe(0);
 		expect(REQUIRED_NAMES).toEqual([
 			"hello",

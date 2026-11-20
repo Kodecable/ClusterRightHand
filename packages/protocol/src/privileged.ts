@@ -25,6 +25,12 @@ import {
 /** SSHSIG namespace and WebAuthn challenge prefix. */
 export const AUTH_NAMESPACE = "crh-auth-v1";
 export const AUTH_PAYLOAD_VERSION = 1;
+/**
+ * SSHSIG namespace of a cosign ticket. It differs from AUTH_NAMESPACE, so a ticket signature can never
+ * pass as an authorization signature, nor the reverse.
+ */
+export const COSIGN_NAMESPACE = "crh-cosign-v1";
+export const COSIGN_PAYLOAD_VERSION = 1;
 
 export const PRIV_MAJOR = 1;
 /**
@@ -190,6 +196,65 @@ export function decodeAuthorizationPayload(payloadBytes: Uint8Array): Authorizat
 
 export function encodeAuthorizationPayload(payload: AuthorizationPayload): Uint8Array {
 	return encodeCbor(authorizationPayloadCodec.encode(checkAuthorizationPayload(payload)));
+}
+
+// ---------------------------------------------------------------------------
+// Cosign ticket
+// ---------------------------------------------------------------------------
+
+/** One use a cosign ticket confirms: a task at one attempt on one node (a node UUID, never a group or "*"). */
+export const cosignUseCodec = tuple([
+	["node", text],
+	["taskId", text],
+	["attempt", uint],
+]);
+export type CosignUse = Infer<typeof cosignUseCodec>;
+
+/**
+ * crhs's confirmation of specific uses of one authorization (doc/design/protocol.md "Cosign ticket"):
+ * `authorizationId` is SHA-256 of the confirmed authorization's payload bytes.
+ */
+export const cosignPayloadCodec = tuple([
+	["v", uint],
+	["authorizationId", sha256],
+	["uses", list(cosignUseCodec)],
+	["issuedAtMs", int],
+	["deadlineMs", int],
+]);
+export type CosignPayload = Infer<typeof cosignPayloadCodec>;
+
+/** `payload` is the original CBOR bytes of a CosignPayload; the signatures are crhs's, in COSIGN_NAMESPACE. */
+export const cosignTicketCodec = tuple([
+	["payload", bytes],
+	["signatures", list(signatureCodec)],
+]);
+export type CosignTicket = Infer<typeof cosignTicketCodec>;
+
+/** The structural rules of a cosign payload beyond the shape; throws SchemaError. */
+export function checkCosignPayload(payload: CosignPayload): CosignPayload {
+	const fail = (reason: string): never => {
+		throw new SchemaError(`cosign payload: ${reason}`);
+	};
+	if (payload.v !== COSIGN_PAYLOAD_VERSION) fail(`unsupported version ${payload.v}`);
+	if (payload.uses.length === 0) fail("uses is empty");
+	const taskIds = new Set<string>();
+	for (const use of payload.uses) {
+		if (use.node === "*") fail('a use names a node id, not "*"');
+		if (use.attempt < 1) fail("attempt must be at least 1");
+		if (taskIds.has(use.taskId)) fail("duplicate task ids");
+		taskIds.add(use.taskId);
+	}
+	if (payload.deadlineMs < payload.issuedAtMs) fail("deadline is before the issue time");
+	return payload;
+}
+
+/** Strictly decode cosign payload bytes: profile, schema and the structural rules. */
+export function decodeCosignPayload(payloadBytes: Uint8Array): CosignPayload {
+	return checkCosignPayload(cosignPayloadCodec.decode(decodeCbor(payloadBytes)));
+}
+
+export function encodeCosignPayload(payload: CosignPayload): Uint8Array {
+	return encodeCbor(cosignPayloadCodec.encode(checkCosignPayload(payload)));
 }
 
 // ---------------------------------------------------------------------------

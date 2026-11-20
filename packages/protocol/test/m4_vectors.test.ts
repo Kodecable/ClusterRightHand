@@ -12,7 +12,11 @@ import {
 	AUTH_NAMESPACE,
 	authorizationCodec,
 	authorizationPayloadCodec,
+	COSIGN_NAMESPACE,
+	cosignPayloadCodec,
+	cosignTicketCodec,
 	decodeAuthorizationPayload,
+	decodeCosignPayload,
 	privHelloCodec,
 	privWelcomeCodec,
 	trustReportCodec,
@@ -107,7 +111,12 @@ function mpintsToP1363(blob: Uint8Array): Uint8Array {
 }
 
 /** Returns null when valid, otherwise the reason. Follows doc/design/protocol.md "Authorization object" */
-function verifySshsig(publicKey: string, payload: Uint8Array, blob: Uint8Array): string | null {
+function verifySshsig(
+	publicKey: string,
+	payload: Uint8Array,
+	blob: Uint8Array,
+	wantNamespace: string = AUTH_NAMESPACE,
+): string | null {
 	try {
 		const sig = new Reader(blob);
 		if (Buffer.from(sig.raw(6)).toString() !== "SSHSIG") return "magic";
@@ -118,7 +127,7 @@ function verifySshsig(publicKey: string, payload: Uint8Array, blob: Uint8Array):
 		const hashAlg = sig.text();
 		const inner = sig.string();
 		sig.end();
-		if (namespace !== AUTH_NAMESPACE) return "namespace";
+		if (namespace !== wantNamespace) return "namespace";
 		if (reserved.length !== 0) return "reserved";
 		if (hashAlg !== "sha512" && hashAlg !== "sha256") return "hash";
 		const [, expectedB64] = publicKey.split(" ");
@@ -256,6 +265,8 @@ describe("test/interop/m4_vectors.json", () => {
 			...vectors.payloads,
 			...vectors.payloadNegative,
 			...vectors.authorizations,
+			...vectors.cosignTickets,
+			...vectors.cosignNegative,
 			...vectors.bodies,
 			...vectors.priv,
 			...vectors.sshsig,
@@ -289,6 +300,25 @@ describe("test/interop/m4_vectors.json", () => {
 			const authorization = roundTrip(authorizationCodec, vector.hex);
 			expect(hexOf(authorization.payload)).toBe(vectors.payloads[0]?.hex);
 		}
+	});
+
+	it.each(vectors.cosignTickets.map((v) => [v.id, v] as const))(
+		"cosign ticket %s decodes strictly and verifies only in the cosign namespace",
+		(_id, vector) => {
+			const ticket = roundTrip(cosignTicketCodec, vector.hex);
+			expect(hexOf(ticket.payload)).toBe(vector.payloadHex);
+			const payload = decodeCosignPayload(ticket.payload);
+			expect(hexOf(encodeCbor(cosignPayloadCodec.encode(payload)))).toBe(vector.payloadHex);
+			expect(hexOf(payload.authorizationId)).toBe(vector.authorizationIdHex);
+			const signature = ticket.signatures[0];
+			if (signature?.kind !== "sshsig") throw new Error("expected an SSHSIG signature");
+			const result = verifySshsig(vector.publicKey, ticket.payload, signature.blob, COSIGN_NAMESPACE);
+			expect(result === null).toBe(vector.valid);
+		},
+	);
+
+	it.each(vectors.cosignNegative.map((v) => [v.id, v] as const))("rejects cosign payload %s", (_id, vector) => {
+		expect(() => decodeCosignPayload(bytesOf(vector.hex))).toThrow();
 	});
 
 	it("M4 bodies round-trip and the TrustSummary digest matches", () => {

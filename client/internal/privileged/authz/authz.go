@@ -86,6 +86,17 @@ type Authorization struct {
 	Signatures []Signature
 }
 
+// Cosign is a decoded cosign ticket and its signatures after the caller's crypto check, in the
+// form of Authorization: each signature mapped to the trust entry whose key verified it (in the
+// cosign namespace), or to nil when no trust entry knows the key.
+type Cosign struct {
+	// Payload is the original ticket payload bytes.
+	Payload []byte
+	// Decoded is the strict decode of Payload; nil when it does not decode.
+	Decoded    *protocol.CosignPayload
+	Signatures []Signature
+}
+
 // Window is an open local approval window of the node (doc/design/privilege.md "Local approval window").
 // It is the daemon's in-memory state, so a zero value or a nil pointer means closed.
 type Window struct {
@@ -105,6 +116,9 @@ type Input struct {
 	Task      Task
 
 	Authorization *Authorization
+	// Cosign is the cosign ticket task.start carries; nil when it carries none. It is consulted only
+	// when the accepting user entry requires a cosignature (step 8).
+	Cosign *Cosign
 	// Window is the local approval window when it is open at Now; nil means closed.
 	Window *Window
 
@@ -298,11 +312,6 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 		if entry.RequireTask {
 			return failure(ResultRejected, StepOneShot, "trust entry requires task_ids"), false
 		}
-		// A cosignature is a single confirmation, so an authorization that needs one
-		// must be one-shot (doc/design/privilege.md: all cosignatures require task_ids).
-		if cosignRequired(entry) {
-			return failure(ResultRejected, StepOneShot, "an authorization that requires cosign must carry task_ids"), false
-		}
 	}
 
 	// Step 6: the command restriction.
@@ -321,10 +330,10 @@ func checkCandidate(in Input, auth *Authorization, signature *Signature, authori
 		}
 	}
 
-	// Step 8: cosignature.
+	// Step 8: cosignature, a cosign ticket confirming this use of this authorization.
 	if !viaWindow && cosignRequired(entry) {
-		if !hasCosign(auth) {
-			return failure(ResultRejected, StepCosign, "authorization requires a crhs cosignature"), false
+		if decision, ok := checkCosign(in, authorizationID); !ok {
+			return decision, false
 		}
 	}
 	if viaWindow {
@@ -352,25 +361,73 @@ func checkTrust(entry *Entry, in Input, method, target string) (Decision, bool) 
 	return accepted(entry.Name), true
 }
 
-// cosignRequired reports whether the entry is a user entry whose authorizations must carry
-// a crhs cosignature.
+// cosignRequired reports whether the entry is a user entry whose authorizations need a crhs
+// cosign ticket for every use.
 func cosignRequired(entry *Entry) bool {
 	return entry.Role == protocol.TrustRoleUser && entry.HasKind(protocol.TrustKindRequireCosign)
 }
 
-// hasCosign reports whether the payload carries a valid crhs signature with the cosign
-// kind. The cosign entry's own require_spec, max_ttl and allow/deny rules do not apply.
-func hasCosign(auth *Authorization) bool {
-	for i := range auth.Signatures {
-		signature := &auth.Signatures[i]
-		if signature.Entry == nil || !signature.Valid {
-			continue
+// checkCosign is step 8 for a user entry that requires a cosignature: the cosign ticket confirms
+// this task at this attempt on this node for this authorization, has not expired, and carries a
+// valid signature of a crhs entry with the cosign kind (doc/design/privilege.md "Cosigning"). The cosign
+// entry's own require_spec, max_ttl and allow/deny rules do not apply: the ticket confirms one use
+// of what the user signed and authorizes nothing on its own.
+func checkCosign(in Input, authorizationID [32]byte) (Decision, bool) {
+	ticket := in.Cosign
+	if ticket == nil {
+		return failure(ResultRejected, StepCosign, "authorization requires a crhs cosign ticket"), false
+	}
+	decoded, err := protocol.DecodeCosignPayload(ticket.Payload)
+	if err != nil {
+		return failure(ResultInvalid, StepCosign, "cosign ticket: %v", err), false
+	}
+	if ticket.Decoded == nil || !reflect.DeepEqual(decoded, ticket.Decoded) {
+		return failure(ResultInvalid, StepCosign, "cosign ticket payload does not match its decoded form"), false
+	}
+	cosigned := false
+	for i := range ticket.Signatures {
+		signature := &ticket.Signatures[i]
+		if signature.Entry == nil {
+			continue // signed by a key this node does not trust
+		}
+		if !signature.Valid {
+			return failure(ResultInvalid, StepCosign, "cosign ticket signature by %q does not verify", signature.Entry.Name), false
 		}
 		if signature.Entry.Role == protocol.TrustRoleCRHS && signature.Entry.HasKind(protocol.TrustKindCosign) {
-			return true
+			cosigned = true
 		}
 	}
-	return false
+	if !cosigned {
+		return failure(ResultRejected, StepCosign, "the cosign ticket has no signature of a crhs entry with cosign"), false
+	}
+	if [32]byte(decoded.AuthorizationID) != authorizationID {
+		return failure(ResultRejected, StepCosign, "the cosign ticket confirms another authorization"), false
+	}
+	var use *protocol.CosignUse
+	for i := range decoded.Uses {
+		if decoded.Uses[i].TaskID == in.Task.ID {
+			use = &decoded.Uses[i]
+			break
+		}
+	}
+	if use == nil {
+		return failure(ResultRejected, StepCosign, "the cosign ticket does not confirm this task"), false
+	}
+	if use.Node != in.NodeID {
+		return failure(ResultRejected, StepCosign, "the cosign ticket confirms this task on node %q, not this node", use.Node), false
+	}
+	if uint64(use.Attempt) != in.Task.Attempt {
+		return failure(ResultRejected, StepCosign, "the cosign ticket confirms another attempt"), false
+	}
+	nowMS := in.Now.UnixMilli()
+	skewMS := in.ClockSkew.Milliseconds()
+	if int64(decoded.IssuedAtMS) > nowMS+skewMS {
+		return failure(ResultRejected, StepCosign, "the cosign ticket was issued in the future"), false
+	}
+	if int64(decoded.DeadlineMS) < nowMS-skewMS {
+		return failure(ResultRejected, StepCosign, "the cosign ticket has expired"), false
+	}
+	return Decision{}, true
 }
 
 // oneShotNodeCheck verifies that a one-shot authorization binds every task id to one node id

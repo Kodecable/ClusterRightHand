@@ -3,7 +3,8 @@
  *
  * - crhs-signed authorizations for exec and file tasks.
  * - a node that only trusts the user: crhs alone cannot escalate, the owner's signature makes it run.
- * - require-cosign: the user signature and crhs's cosignature are both needed.
+ * - require-cosign: the user's signature and crhs's cosign ticket for the use are both needed, for a one-shot
+ *   and a reusable authorization alike.
  * - a local approval window: `crha approve --for` releases a crhs-signed task on a node whose
  *   crhs entry denies it, the window closes with `crha lock` and does not survive a restart.
  * - one-shot replay, the persisted used list and a privileged mode restart.
@@ -280,7 +281,7 @@ describePodman("privileged system: forward", () => {
 			await node.setTrust(withCosign());
 		}, 60_000);
 
-		it("runs when the user's signature carries crhs's cosignature", async () => {
+		it("runs on the user's signature with crhs's cosign ticket for the use", async () => {
 			const t = await task({ kind: "exec", argv: ["id", "-u"] });
 			await waitAwaiting(t.id);
 			// A cosign-only crhs entry cannot execute by itself; only the owner's entry is a path.
@@ -291,21 +292,20 @@ describePodman("privileged system: forward", () => {
 			expect(done).toMatchObject({ state: "exited", exitCode: 0 });
 			expect(done.outputHead).toBe("0\n");
 			expect(done.authorization?.dispatchedPath).toBe("user");
-			// Both signatures are stored on the same payload (doc/design/privilege.md "Cosigning").
+			// The stored authorization keeps the user's signature alone; crhs's confirmation went out as a
+			// ticket beside it (doc/design/privilege.md "Cosigning").
 			const row = await crhs.db
 				.selectFrom("authorizations")
 				.select("signatures")
 				.where("id", "=", submitted.id)
 				.executeTakeFirst();
 			expect(row).toBeDefined();
-			expect(JSON.parse(row?.signatures ?? "[]")).toHaveLength(2);
+			expect(JSON.parse(row?.signatures ?? "[]")).toHaveLength(1);
 		}, 60_000);
 
-		it("does not run on a user signature that cannot carry crhs's cosignature", async () => {
+		it("runs a reusable authorization's uses, each with a cosign ticket of its own", async () => {
 			const t = await task({ kind: "exec", argv: ["id", "-u"] });
 			await waitAwaiting(t.id);
-			// A reusable authorization has no task ids, and crhs only cosigns one-shot payloads
-			// (doc/design/privilege.md "Cosigning"), so this signature can never satisfy require-cosign.
 			const spec = taskSpecFromJson({ kind: "exec", command: { argv: ["id", "-u"] }, env: {}, cwd: "", stdin: null });
 			const specB64 = Buffer.from(specBytes(spec)).toString("base64");
 			const signed = await runFile(node.crhuBin, [
@@ -322,14 +322,11 @@ describePodman("privileged system: forward", () => {
 			]);
 			const submitted = await submitAuthorization(crhs, signed.stdout.trim());
 			expect(submitted.status).toBe(200);
-			// The dispatch runs in the background; drain before reading the task it left alone.
-			await crhs.cluster.drain();
-			// Still waiting, nothing ran. The one-shot payload crhs offers is cosigned and works.
-			expect((await crhs.getTask(t.id)).state).toBe("awaiting_authorization");
-			await authorizeWithCli(node, t.id);
 			expect((await waitTerminal(t.id)).state).toBe("exited");
-			// The reusable authorization can never authorize a cosign command; remove it so later
-			// cases do not see it as a stored candidate.
+			// A second task of the same spec runs on the same authorization, confirmed by a new ticket.
+			const again = await task({ kind: "exec", argv: ["id", "-u"] });
+			expect(await waitTerminal(again.id)).toMatchObject({ state: "exited", exitCode: 0 });
+			// Remove it so later cases do not see it as a stored candidate.
 			const id = submitted.json.authorization?.id as string;
 			await crhs.db.deleteFrom("authorizations").where("id", "=", id).execute();
 		}, 60_000);

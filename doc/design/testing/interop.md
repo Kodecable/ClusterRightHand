@@ -7,7 +7,8 @@ without running both processes together. The end-to-end and privileged system te
 bytes through a real `crha`.
 
 The fixtures cover the CBOR profile, every frame with malformed variants, a Noise handshake as CRH uses
-it, authorization material (payloads, spec hashes, trust digests, SSHSIG and WebAuthn signatures), and
+it, authorization material (payloads, spec hashes, trust digests, SSHSIG and WebAuthn signatures, cosign
+tickets in their own namespace), and
 shared authorization decision cases that crhs's planner and crha's validator must both pass.
 
 ## Regenerating

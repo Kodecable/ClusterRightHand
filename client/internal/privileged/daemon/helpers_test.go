@@ -330,14 +330,53 @@ func authorize(t *testing.T, payload *protocol.AuthorizationPayload, signers ...
 	return authorization
 }
 
+// cosignTicket encodes a cosign ticket for the authorization payload, confirming the uses, signed
+// by signers in namespace (the cosign namespace unless a test wants another).
+func cosignTicket(t *testing.T, payload *protocol.AuthorizationPayload, uses []protocol.CosignUse, namespace string,
+	signers ...ssh.Signer) *[]byte {
+	t.Helper()
+	raw, err := protocol.Marshal(payload)
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
+	ticketPayload, err := protocol.Marshal(&protocol.CosignPayload{
+		V:               protocol.CosignPayloadVersion,
+		AuthorizationID: protocol.Hash(protocol.AuthorizationID(raw)),
+		Uses:            uses,
+		IssuedAtMS:      protocol.Int(time.Now().Add(-time.Minute).UnixMilli()),
+		DeadlineMS:      protocol.Int(time.Now().Add(5 * time.Minute).UnixMilli()),
+	})
+	if err != nil {
+		t.Fatalf("encode cosign payload: %v", err)
+	}
+	signatures := make([]protocol.Signature, 0, len(signers))
+	for _, signer := range signers {
+		signatures = append(signatures, protocol.Signature{
+			Kind:   protocol.SignatureSSHSig,
+			SSHSig: &protocol.SSHSigSignature{Blob: signSSHSIGNamespace(t, signer, ticketPayload, namespace)},
+		})
+	}
+	ticket, err := protocol.Marshal(&protocol.CosignTicket{Payload: ticketPayload, Signatures: signatures})
+	if err != nil {
+		t.Fatalf("encode cosign ticket: %v", err)
+	}
+	return &ticket
+}
+
 // signSSHSIG produces an OpenSSH SSHSIG blob over message, as `ssh-keygen -Y sign -n
 // crh-auth-v1` would (SHA-512, non-FIDO key).
 func signSSHSIG(t *testing.T, signer ssh.Signer, message []byte) []byte {
 	t.Helper()
+	return signSSHSIGNamespace(t, signer, message, protocol.AuthNamespace)
+}
+
+// signSSHSIGNamespace is signSSHSIG in another namespace, such as the cosign ticket's.
+func signSSHSIGNamespace(t *testing.T, signer ssh.Signer, message []byte, namespace string) []byte {
+	t.Helper()
 	hash := sha512.Sum512(message)
 	var signed bytes.Buffer
 	signed.WriteString("SSHSIG")
-	writeSSHString(&signed, []byte(protocol.AuthNamespace))
+	writeSSHString(&signed, []byte(namespace))
 	writeSSHString(&signed, nil)
 	writeSSHString(&signed, []byte("sha512"))
 	writeSSHString(&signed, hash[:])
@@ -352,7 +391,7 @@ func signSSHSIG(t *testing.T, signer ssh.Signer, message []byte) []byte {
 	blob.WriteString("SSHSIG")
 	_ = binary.Write(&blob, binary.BigEndian, uint32(1))
 	writeSSHString(&blob, signer.PublicKey().Marshal())
-	writeSSHString(&blob, []byte(protocol.AuthNamespace))
+	writeSSHString(&blob, []byte(namespace))
 	writeSSHString(&blob, nil)
 	writeSSHString(&blob, []byte("sha512"))
 	writeSSHString(&blob, inner)
