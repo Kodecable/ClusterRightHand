@@ -6,6 +6,9 @@
 
 import type { z } from "zod";
 import type {
+	AuthorizationDraftBodySchema,
+	AuthorizationDraftSchema,
+	AuthorizationMethodSchema,
 	AuthorizationOptionSchema,
 	AuthorizationPathSchema,
 	AuthorizationSummarySchema,
@@ -20,6 +23,7 @@ import type {
 	PendingSignPayloadSchema,
 	PlannedPathEntrySchema,
 	RejectAuthorizationBodySchema,
+	ReusableScopeSchema,
 	SignAuthorizationOptionSchema,
 	SubmitAuthorizationBodySchema,
 	TaskAuthorizationRejectionSchema,
@@ -84,3 +88,15 @@ export type SubmitAuthorizationBody = z.infer<typeof SubmitAuthorizationBodySche
 
 /** One stored authorization (doc/design/privilege.md "Authorizations"). */
 export type AuthorizationSummary = z.infer<typeof AuthorizationSummarySchema>;
+
+/** The methods an authorization's prefix limit can name. */
+export type AuthorizationMethod = z.infer<typeof AuthorizationMethodSchema>;
+
+/** What a short reusable authorization for a waiting request covers. */
+export type ReusableScope = z.infer<typeof ReusableScopeSchema>;
+
+/** Body of `POST /api/authorizations/draft`. */
+export type AuthorizationDraftBody = z.infer<typeof AuthorizationDraftBodySchema>;
+
+/** A drafted reusable payload, ready to sign. */
+export type AuthorizationDraft = z.infer<typeof AuthorizationDraftSchema>;

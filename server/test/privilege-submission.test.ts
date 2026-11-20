@@ -1469,17 +1469,22 @@ describe("user authorizations", () => {
 		expect(JSON.parse(events[0]?.detail as string)).toEqual({ reason: "the owner rejected the authorization" });
 	});
 
-	it("lists the organization's authorizations to administrators only", async () => {
+	it("lists the organization's authorizations to administrators and one's own to other users", async () => {
 		const mine = await seedReusable({ nodes: ["0192f000-0000-7000-8000-000000000001"] });
 		const theirs = await seedReusable({
 			nodes: ["0192f000-0000-7000-8000-000000000002"],
 			issuer: other.userId,
 		});
 
-		// The list is an administrative view now; owners keep the signing and waiting endpoints.
-		const forbidden = await call(app, "/api/authorizations", { cookie: owner.cookie });
-		expect(forbidden.status).toBe(403);
-		expect(((await forbidden.json()) as { error: string }).error).toBe("administrators only");
+		// A member sees only the authorizations they issued.
+		const own = (await (await call(app, "/api/authorizations", { cookie: owner.cookie })).json()) as {
+			items: { id: string }[];
+		};
+		expect(own.items.map((entry) => entry.id)).toEqual([mine]);
+		const others = (await (await call(app, "/api/authorizations", { cookie: other.cookie })).json()) as {
+			items: { id: string }[];
+		};
+		expect(others.items.map((entry) => entry.id)).toEqual([theirs]);
 
 		const list = (await (await call(app, "/api/authorizations", { cookie: adminCookie })).json()) as {
 			items: {
@@ -1498,6 +1503,92 @@ describe("user authorizations", () => {
 		expect(stored?.command).toEqual({ match: "spec", specSha256: Buffer.from(specSha256(EXEC)).toString("hex") });
 		expect(stored?.nodes).toEqual(["0192f000-0000-7000-8000-000000000002"]);
 		expect(stored?.taskIds).toBeNull();
+	});
+
+	it("offers the reusable scope of a waiting task only where an entry accepts a reusable prefix", async () => {
+		const { node } = await connect("scope-1", (id) => summaryOf(id, [ownerEntry()]));
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+		const options = (
+			(await pendingFor(task.id)).authorization as { options: { kind: string; reusableScope?: unknown }[] }
+		).options;
+		expect(options.find((option) => option.kind === "sign")?.reusableScope).toEqual({
+			nodes: [node.id],
+			method: "exec",
+		});
+
+		// An entry that takes only task-bound or spec-bound authorizations cannot use a reusable prefix.
+		for (const overrides of [{ requireTask: true }, { requireSpec: true }]) {
+			const { node: strict } = await connect(`scope-${Object.keys(overrides)[0]}`, (id) =>
+				summaryOf(id, [ownerEntry(overrides)]),
+			);
+			const waiting = await createPrivileged(strict.id);
+			await waitState(waiting.id, "awaiting_authorization");
+			const view = (await pendingFor(waiting.id)).authorization as {
+				options: { kind: string; reusableScope?: unknown }[];
+			};
+			expect(view.options.find((option) => option.kind === "sign")?.reusableScope).toBeNull();
+		}
+	});
+
+	it("drafts a reusable empty-prefix authorization that, signed, runs the waiting task", async () => {
+		const { node, crha } = await connect("draft-1", (id) => summaryOf(id, [ownerEntry()]));
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization");
+
+		const before = Date.now();
+		const res = await call(app, "/api/authorizations/draft", {
+			cookie: owner.cookie,
+			body: { nodes: [node.id], command: { method: "exec", prefix: "" }, ttlSeconds: 300, note: "five minutes" },
+		});
+		expect(res.status).toBe(200);
+		const { draft } = (await res.json()) as {
+			draft: { payload: string; id: string; challenge: string; decoded: Record<string, unknown> };
+		};
+		const bytes = new Uint8Array(Buffer.from(draft.payload, "base64"));
+		expect(draft.id).toBe(createHash("sha256").update(bytes).digest("hex"));
+		expect(draft.challenge).toBe(
+			Buffer.from(createHash("sha256").update("crh-auth-v1\0").update(bytes).digest()).toString("base64url"),
+		);
+		expect(draft.decoded).toMatchObject({
+			nodes: [node.id],
+			command: { method: "exec", match: "prefix", target: "" },
+			taskIds: null,
+			attempt: null,
+			note: "five minutes",
+		});
+		const deadline = Date.parse(draft.decoded.deadline as string) - before;
+		expect(deadline).toBeGreaterThanOrEqual(300_000);
+		expect(deadline).toBeLessThan(310_000);
+
+		// Nothing is stored until the signed bytes come back; then the waiting task runs on the reusable grant.
+		expect(await db.selectFrom("authorizations").select("id").execute()).toEqual([]);
+		expect((await submit(signedAuthorization(bytes))).status).toBe(200);
+		await waitFor("task.start", () => crha.starts.length === 1);
+		await waitState(task.id, "running");
+		const stored = await db.selectFrom("authorizations").select(["id", "task_ids"]).execute();
+		expect(stored).toEqual([{ id: draft.id, task_ids: null }]);
+	});
+
+	it("refuses a draft for a node out of reach or an id that names nothing", async () => {
+		const { node } = await connect("draft-reach", (id) => summaryOf(id, [ownerEntry()]));
+		const draft = (cookie: string, nodes: string[]) =>
+			call(app, "/api/authorizations/draft", {
+				cookie,
+				body: { nodes, command: null, ttlSeconds: 3600 },
+			});
+		// The node is granted to the owner only.
+		expect((await draft(owner.cookie, [node.id])).status).toBe(200);
+		const outOfReach = await draft(other.cookie, [node.id]);
+		expect(outOfReach.status).toBe(400);
+		expect(((await outOfReach.json()) as { error: string }).error).toContain("in your reach");
+		expect((await draft(owner.cookie, [crypto.randomUUID()])).status).toBe(400);
+		expect((await draft(owner.cookie, ["web-1"])).status).toBe(400);
+		const tooLong = await call(app, "/api/authorizations/draft", {
+			cookie: owner.cookie,
+			body: { nodes: [node.id], command: null, ttlSeconds: 400 * 24 * 3600 },
+		});
+		expect(tooLong.status).toBe(400);
 	});
 
 	it("warns about a node whose clock differs from crhs", async () => {

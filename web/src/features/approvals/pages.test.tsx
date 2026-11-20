@@ -214,6 +214,7 @@ const pending = (): PendingAuthorization => ({
 			kind: "sign",
 			entries: [{ name: "alice", role: "user", credential: "sshsig" }],
 			ttlMs: 86_400_000,
+			reusableScope: null,
 			payload: {
 				id: "a".repeat(64),
 				payload: "o2dub2RlcwFhZ3JvdXA6d2Vi",
@@ -410,7 +411,7 @@ describe("ApprovalTaskPage", () => {
 		});
 		await renderPage(<ApprovalTaskPage />, "/approvals/tasks/$taskId", "/approvals/tasks/task-1");
 		const region = await screen.findByRole("region", { name: "Your signature is needed" });
-		expect(await within(region).findByRole("tab", { name: "crhu sign" })).toHaveAttribute("aria-selected", "true");
+		expect(await within(region).findByRole("tab", { name: "crhu" })).toHaveAttribute("aria-selected", "true");
 		fireEvent.click(within(region).getByRole("tab", { name: "Reject" }));
 		fireEvent.change(within(region).getByLabelText("Reason (optional)"), {
 			target: { value: "  not signing  " },

@@ -16,8 +16,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { UserLink } from "@/components/user-link";
 import { useNodeNames } from "@/features/nodes/api";
+import { useAuth } from "@/lib/session";
 import { cn, MONO_CELL } from "@/lib/utils";
 import { useAuthorizations } from "./api";
+import { IssueAuthorizationDialog } from "./issue-dialog";
 
 /** The command a payload authorizes, as one line. */
 
@@ -30,6 +32,20 @@ export function authorizationCommandText(i18n: I18n, command: DecodedAuthorizati
 	if (command === null) return i18n._(msg`any method and target`);
 	if (command.match === "spec") return i18n._(msg`spec ${command.specSha256}`);
 	return i18n._(msg`${command.method} prefix ${command.target}`);
+}
+
+/** The issuer column, shown only on the administrators' list. */
+function issuerColumn(header: string): DataTableColumn<AuthorizationSummary> {
+	return {
+		id: "issuer",
+		header,
+		size: 120,
+		cell: ({ row }) => <AuthorizationIssuer entry={row.original} />,
+		meta: {
+			title: (entry: AuthorizationSummary) =>
+				entry.issuerUsername ?? (entry.issuerUserId !== null ? entry.issuerUserId.slice(0, 8) : "crhs"),
+		},
+	};
 }
 
 /** The task ids an authorization covers, each linking to its task page. */
@@ -91,12 +107,15 @@ function PayloadDialog({
 }
 
 /**
- * Authorizations (doc/design/privilege.md "Authorizations"): every authorization of the organization, for administrators.
+ * Authorizations (doc/design/webui.md "Authorizations"): every authorization of the organization for
+ * administrators, the ones a user issued for everyone else, and Issue authorization for a reusable one.
  * An authorization is valid until its deadline or until it is used up; it is withdrawn by deleting
  * the node's trust entry or rotating its key, not from here.
  */
 export function AuthorizationsPage() {
 	const { t, i18n } = useLingui();
+	const admin = useAuth().user?.kind === "admin";
+	const [issuing, setIssuing] = useState(false);
 	const timeWidth = useTimeColumnWidth();
 	const authorizations = useAuthorizations();
 	const names = useNodeNames();
@@ -111,16 +130,8 @@ export function AuthorizationsPage() {
 				size: timeWidth,
 				cell: ({ row }) => <DateTime value={row.original.createdAt} />,
 			},
-			{
-				id: "issuer",
-				header: t`Issuer`,
-				size: 120,
-				cell: ({ row }) => <AuthorizationIssuer entry={row.original} />,
-				meta: {
-					title: (entry: AuthorizationSummary) =>
-						entry.issuerUsername ?? (entry.issuerUserId !== null ? entry.issuerUserId.slice(0, 8) : "crhs"),
-				},
-			},
+			// A user's own list has one issuer: themselves.
+			...(admin ? [issuerColumn(t`Issuer`)] : []),
 			{
 				id: "nodes",
 				header: t`Nodes`,
@@ -174,7 +185,7 @@ export function AuthorizationsPage() {
 				),
 			},
 		],
-		[t, i18n, names, timeWidth],
+		[t, i18n, names, timeWidth, admin],
 	);
 
 	return (
@@ -182,10 +193,22 @@ export function AuthorizationsPage() {
 			<PageHeader
 				title={<Trans>Authorizations</Trans>}
 				description={
-					<Trans>
-						Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or
-						until it is used up (one-shot authorizations).
-					</Trans>
+					admin ? (
+						<Trans>
+							Every authorization carries a deadline. It is valid on the nodes its payload names until that deadline or
+							until it is used up (one-shot authorizations).
+						</Trans>
+					) : (
+						<Trans>
+							The authorizations you signed. Each is valid on the nodes its payload names until its deadline or until it
+							is used up (one-shot authorizations).
+						</Trans>
+					)
+				}
+				actions={
+					<Button type="button" onClick={() => setIssuing(true)}>
+						<Trans>Issue authorization</Trans>
+					</Button>
 				}
 			/>
 			<DataTable
@@ -203,11 +226,18 @@ export function AuthorizationsPage() {
 					<EmptyState
 						bare
 						title={<Trans>No authorizations yet</Trans>}
-						description={<Trans>No one has signed an authorization yet.</Trans>}
+						description={
+							admin ? (
+								<Trans>No one has signed an authorization yet.</Trans>
+							) : (
+								<Trans>You have not signed an authorization yet.</Trans>
+							)
+						}
 					/>
 				}
 			/>
 			{payload && <PayloadDialog entry={payload} names={names} onClose={() => setPayload(undefined)} />}
+			<IssueAuthorizationDialog open={issuing} onOpenChange={setIssuing} />
 		</Page>
 	);
 }

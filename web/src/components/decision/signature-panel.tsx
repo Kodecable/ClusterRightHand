@@ -5,6 +5,7 @@ import type {
 	PendingAuthorization,
 	PendingPasskey,
 	PendingSignOption,
+	ReusableScope,
 } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { startAuthentication } from "@simplewebauthn/browser";
@@ -12,12 +13,19 @@ import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { CopyButton } from "@/components/copy-button";
 import { ErrorText } from "@/components/error-state";
+import { nodeTargetsText } from "@/components/node-targets";
 import { DateTime } from "@/components/relative-time";
 import { Button } from "@/components/ui/button";
 import { TabsContent } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { enc, errorMessage, http } from "@/lib/api/client";
-import { grantCommand, sshKeygenRecipe } from "@/lib/authorization";
+import {
+	grantCommand,
+	reusableGrantCommand,
+	SHORT_GRANT_SECONDS,
+	signDraftWithPasskey,
+	sshKeygenRecipe,
+} from "@/lib/authorization";
 import { type DecisionVariant, requestCardContent } from "./content";
 import { DecisionCard, DecisionTab, DecisionTabList, DecisionTabs } from "./decision";
 import { RejectDecision } from "./reject";
@@ -29,7 +37,7 @@ export type SubmitSignature = { authorization: string } | { payload: string; web
 const LOCAL_WINDOW_COMMAND = "sudo crha approve --for 30m";
 
 /** A one-line command with the copy button that puts the whole command on the clipboard. */
-function CommandLine({ text, label }: { text: string; label: string }) {
+export function CommandLine({ text, label }: { text: string; label: string }) {
 	return (
 		<div className="flex min-w-0 items-center gap-2">
 			<code
@@ -45,7 +53,7 @@ function CommandLine({ text, label }: { text: string; label: string }) {
 }
 
 /** The paste box both signing recipes submit through. */
-function PasteBox({
+export function PasteBox({
 	value,
 	disabled,
 	onChange,
@@ -121,6 +129,24 @@ function LocalWindowOptions({ options }: { options: readonly LocalWindowAuthoriz
 	);
 }
 
+/**
+ * What a 5-minute tab signs, in words: every task of the method on the request's nodes, the owner's other
+ * sessions and scheduled runs included, so nobody takes it for a signature of this one task.
+ */
+function ShortGrantNote({ scope, request }: { scope: ReusableScope; request: ApprovalRequest }) {
+	const { i18n } = useLingui();
+	const nodes = nodeTargetsText(i18n, request.nodes ?? scope.nodes, request.moreNodes ?? 0);
+	const method = scope.method;
+	return (
+		<p className="text-xs text-muted-foreground">
+			<Trans>
+				For 5 minutes, every {method} task of yours on {nodes} runs without asking for a signature, including tasks from
+				your other sessions and scheduled runs.
+			</Trans>
+		</p>
+	);
+}
+
 /** The sign option of a pending view; a group has one shared payload. */
 function signOptionOf(pending: PendingAuthorization | undefined): PendingSignOption | undefined {
 	return pending?.options.find((option): option is PendingSignOption => option.kind === "sign");
@@ -135,7 +161,9 @@ function windowOptionsOf(pending: PendingAuthorization | undefined): LocalWindow
 /**
  * A pending signature wait (doc/design/webui.md "Shared components"): the same compact ApprovalRequest and
  * card layout as an approval, then the options the server planned — a trusted Passkey, `crhu sign`, the
- * `ssh-keygen` recipe, a local approval window — and always Reject. A task whose plan is still being
+ * `ssh-keygen` recipe, a local approval window — and always Reject. When the request's nodes accept a
+ * reusable prefix, the Passkey and crhu tabs each have a 5-minute twin that signs an empty prefix of the
+ * request's method on its nodes instead of this one payload. A task whose plan is still being
  * written shows "Preparing…". The full command and recipe stay on one truncated line; the copy buttons
  * copy every character.
  */
@@ -198,9 +226,13 @@ export function SignaturePanel({
 	const passkeys = sign?.payload.passkeys ?? [];
 	const content = requestCardContent(request, { variant, i18n });
 	const ready = pending !== undefined && pending.options.length > 0;
+	const scope = sign?.reusableScope ?? null;
 	const tabs = [
 		...(sign !== undefined && passkeys.length > 0 ? ["passkey"] : []),
-		...(sign !== undefined ? ["grant", "keygen"] : []),
+		...(sign !== undefined && passkeys.length > 0 && scope !== null ? ["passkey5"] : []),
+		...(sign !== undefined ? ["grant"] : []),
+		...(sign !== undefined && scope !== null ? ["grant5"] : []),
+		...(sign !== undefined ? ["keygen"] : []),
 		...(windows.length > 0 ? ["window"] : []),
 		"reject",
 	];
@@ -251,6 +283,27 @@ export function SignaturePanel({
 		}
 	};
 
+	/** Signs the 5-minute reusable authorization of this request's scope with one Passkey. */
+	const signShortGrant = async (passkey: PendingPasskey) => {
+		if (scope === null) return;
+		setWorking(true);
+		setLocalError(undefined);
+		try {
+			const signed = await signDraftWithPasskey(
+				{ nodes: scope.nodes, command: { method: scope.method, prefix: "" }, ttlSeconds: SHORT_GRANT_SECONDS },
+				passkey,
+			);
+			await onSubmit(signed);
+			setDone(t`Signed with Passkey "${passkey.name}" for 5 minutes.`);
+			onChanged?.();
+		} catch (caught) {
+			const cancelled = caught instanceof DOMException && caught.name === "NotAllowedError";
+			setLocalError(cancelled ? t`Passkey signing was cancelled.` : errorMessage(caught));
+		} finally {
+			setWorking(false);
+		}
+	};
+
 	const submitButton = (
 		<div className="flex justify-end">
 			<Button type="button" disabled={disabled || pasted.trim() === ""} onClick={() => void submitPaste()}>
@@ -285,11 +338,21 @@ export function SignaturePanel({
 										<Trans>Passkey</Trans>
 									</DecisionTab>
 								)}
-								{sign !== undefined && <DecisionTab value="grant">crhu sign</DecisionTab>}
-								{sign !== undefined && <DecisionTab value="keygen">ssh-keygen</DecisionTab>}
+								{sign !== undefined && passkeys.length > 0 && scope !== null && (
+									<DecisionTab value="passkey5">
+										<Trans>Passkey 5min</Trans>
+									</DecisionTab>
+								)}
+								{sign !== undefined && <DecisionTab value="grant">crhu</DecisionTab>}
+								{sign !== undefined && scope !== null && (
+									<DecisionTab value="grant5">
+										<Trans>crhu 5min</Trans>
+									</DecisionTab>
+								)}
+								{sign !== undefined && <DecisionTab value="keygen">OpenSSH</DecisionTab>}
 								{windows.length > 0 && (
 									<DecisionTab value="window">
-										<Trans>Local window</Trans>
+										<Trans>Local</Trans>
 									</DecisionTab>
 								)}
 								<DecisionTab value="reject">
@@ -315,6 +378,23 @@ export function SignaturePanel({
 									</div>
 								</TabsContent>
 							)}
+							{sign !== undefined && passkeys.length > 0 && scope !== null && (
+								<TabsContent value="passkey5" className="grid min-w-0 gap-2 pt-1">
+									<ShortGrantNote scope={scope} request={request} />
+									<div className="flex flex-wrap justify-end gap-2">
+										{passkeys.map((passkey) => (
+											<Button
+												key={`${passkey.credentialId}@${passkey.rpId}`}
+												type="button"
+												disabled={disabled}
+												onClick={() => void signShortGrant(passkey)}
+											>
+												<Trans>Sign with Passkey “{passkey.name}” for 5 minutes</Trans>
+											</Button>
+										))}
+									</div>
+								</TabsContent>
+							)}
 							{sign !== undefined && (
 								<TabsContent value="grant" className="grid min-w-0 gap-2 pt-1">
 									<CommandLine
@@ -325,10 +405,22 @@ export function SignaturePanel({
 										)}
 										label={t`Copy command`}
 									/>
-									<p className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
-										<Trans>Or copy the spec to bind it with</Trans> <code className="font-mono">crhu grant --spec</code>
-										<CopyButton text={sign.payload.spec} label={t`Copy spec`} showLabel />
-									</p>
+									<PasteBox value={pasted} disabled={disabled} onChange={setPasted} />
+									{submitButton}
+								</TabsContent>
+							)}
+							{sign !== undefined && scope !== null && (
+								<TabsContent value="grant5" className="grid min-w-0 gap-2 pt-1">
+									<ShortGrantNote scope={scope} request={request} />
+									<CommandLine
+										text={reusableGrantCommand({
+											nodes: scope.nodes,
+											command: { method: scope.method, prefix: "" },
+											deadline: "5m",
+											fingerprints: sign.fingerprints ?? [],
+										})}
+										label={t`Copy command`}
+									/>
 									<PasteBox value={pasted} disabled={disabled} onChange={setPasted} />
 									{submitButton}
 								</TabsContent>

@@ -158,10 +158,18 @@ behaves the same on every page:
   monospace detail, a divider with room on both sides, then the panel's own tabs. Every slot except the
   title and the tabs is optional, and the truncated meta and reason lines show their full text on hover.
   Three panels share it: **ApprovalPanel** (**Approve / Always allow / Reject**), **SignaturePanel**
-  (**Passkey / `crhu sign` / `ssh-keygen` / Local window / Reject**, rendered from the options the
-  server planned: the Passkey and `sign` tabs only when a `sign` option exists with a trusted
-  Passkey, the Local window tab only for a `local_window` option, and "Preparing…" plus Reject while
-  no plan is written) and **QuotaPanel** (**Add tokens / Stop**). The approval and signature
+  (**Passkey / Passkey 5min / crhu / crhu 5min / OpenSSH / Local / Reject**, rendered from the options
+  the server planned: the Passkey tab only when a `sign` option exists with a trusted Passkey, the crhu
+  and OpenSSH tabs for every `sign` option, the Local tab only for a `local_window` option, and
+  "Preparing…" plus Reject while no plan is written) and **QuotaPanel** (**Add tokens / Stop**). The
+  two 5min tabs appear beside their signing method when the `sign` option carries a `reusableScope`:
+  the request's nodes and the one method its waiting tasks use (file.write when they read and write),
+  offered only when every node has a planned user entry that requires neither a bound spec nor task
+  ids. They sign a reusable authorization with an empty prefix of that method on those nodes for five
+  minutes instead of this payload, so any task of that method the owner starts there in that time runs
+  without a signature, from any session or schedule; the tab says so. Passkey 5min drafts the payload
+  with `POST /api/authorizations/draft` and signs its challenge; crhu 5min shows the matching
+  `crhu grant --method … --prefix '' --deadline 5m` command and a paste box. The approval and signature
   panels render only the server-built compact `ApprovalRequest` through one mapper: the target node
   names with "and N more", Auto Review's settled risk and reason, and the action on one line (the
   command, the file operation with its path and line range, the API method and path, or the extension
@@ -337,6 +345,20 @@ task group counts once. A request Auto Review is still judging is not listed and
 direct page shows the reviewing notice in the decision card until the review escalates it. The deep
 links that extension and agent tools return open one approval and show the same status badge, a link
 to the object and "Already settled" once it has been decided.
+
+### Authorizations page
+
+**Authorizations** is open to every user. Administrators see every stored authorization of the
+organization, with its issuer; other users see the ones they issued, without the issuer column.
+Each row opens its decoded payload. It is a record: nothing is revoked here.
+
+**Issue authorization** opens a dialog for a reusable authorization: nodes or node groups, a limit
+(a method and a target prefix, where an empty prefix allows every target of the method, or any
+command), a lifetime from five minutes to a year, and an optional note. It is signed with one of the
+user's Passkeys over a payload `POST /api/authorizations/draft` builds, or with the shown
+`crhu grant` command, whose printed line is pasted back. Either way the result goes to
+`POST /api/authorizations`, which stores it and syncs the user's waiting tasks, so a task it covers
+runs at once. The schedule page points here for unattended privileged commands.
 
 ### Extensions page
 

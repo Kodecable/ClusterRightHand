@@ -122,7 +122,9 @@ ssh-agent and FIDO keys work, and it verifies the result before printing it.
 authorization needs `--deadline`, either a duration (`24h`) or an RFC 3339 time. Exactly one command
 limit restricts it: `--spec` binds the complete task spec by its hash (the method is derived from the
 spec), `--method` with `--prefix` binds a method and a target prefix, and `--any-command` leaves it
-unrestricted. `--task` makes it one-shot. Submit a signed authorization through
+unrestricted. `--prefix ''` (given, but empty) allows every target of the method and is warned about;
+leaving `--prefix` out is not the same. `--task` makes it one-shot. Paste the printed line into
+**Issue authorization** on the WebUI's Authorizations page, or submit it through
 `POST /api/authorizations`.
 
 `--spec` is standard base64 of the canonical CBOR task spec, the encoding `spec_sha256` hashes; `--spec
@@ -146,6 +148,10 @@ EOF
 # A reusable authorization for a scheduled task
 crhu grant --nodes 0192f000-0000-7000-8000-000000000001 \
   --method exec --prefix "systemctl restart " --deadline 720h --key ~/.ssh/id_ed25519
+
+# Every exec task on one node for five minutes (the WebUI's "crhu 5min" tab)
+crhu grant --nodes 0192f000-0000-7000-8000-000000000001 \
+  --method exec --prefix '' --deadline 5m
 
 # The same for one task, bound by its spec
 crhu grant --nodes 0192f000-0000-7000-8000-000000000001 \

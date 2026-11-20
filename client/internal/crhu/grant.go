@@ -24,11 +24,13 @@ type grantOptions struct {
 	anyCommand bool
 	spec       string
 	prefix     string
-	deadline   string
-	tasks      []string
-	attempt    uint64
-	note       string
-	keys       keyChoice
+	// prefixSet is true when --prefix was given, so --prefix "" (every target of the method) is a limit.
+	prefixSet bool
+	deadline  string
+	tasks     []string
+	attempt   uint64
+	note      string
+	keys      keyChoice
 }
 
 func newGrantCmd() *cobra.Command {
@@ -40,8 +42,8 @@ func newGrantCmd() *cobra.Command {
 
 --nodes gives the node or node group UUIDs the authorization is for. Exactly one command limit
 restricts what it allows: --spec binds one complete task spec by its hash (the method is derived
-from the spec), and --method with --prefix binds a method and a target prefix; --any-command leaves
-it unrestricted. --deadline (required) bounds how long it can be used, and --task makes it
+from the spec), and --method with --prefix binds a method and a target prefix (--prefix "" allows
+every target of that method); --any-command leaves it unrestricted. --deadline (required) bounds how long it can be used, and --task makes it
 one-shot. Every authorization carries a deadline.
 
 --spec is standard base64 of the canonical CBOR TaskSpec that the payload's spec_sha256 hashes
@@ -75,6 +77,7 @@ the WebUI accepts (POST /api/authorizations).`,
 // runGrant builds the payload from the flags, shows it, asks for confirmation and prints the
 // signed authorization.
 func runGrant(cmd *cobra.Command, opts *grantOptions) error {
+	opts.prefixSet = cmd.Flags().Changed("prefix")
 	if err := opts.validate(); err != nil {
 		return err
 	}
@@ -87,6 +90,11 @@ func runGrant(cmd *cobra.Command, opts *grantOptions) error {
 		return fmt.Errorf("grant: encode the payload: %w", err)
 	}
 	return signAuthorization(cmd, &opts.keys, "grant", payload, spec, raw)
+}
+
+// hasPrefix reports whether --prefix was given, an empty one included.
+func (o *grantOptions) hasPrefix() bool {
+	return o.prefixSet || o.prefix != ""
 }
 
 // validate checks the flags before anything is shown or signed.
@@ -104,16 +112,16 @@ func (o *grantOptions) validate() error {
 		if o.method != "" {
 			return errors.New("grant: --any-command and --method cannot be combined")
 		}
-		if o.spec != "" || o.prefix != "" {
+		if o.spec != "" || o.hasPrefix() {
 			return errors.New("grant: --any-command cannot be combined with --spec or --prefix")
 		}
-	case o.spec != "" && o.prefix != "":
+	case o.spec != "" && o.hasPrefix():
 		return errors.New("grant: --spec and --prefix cannot be combined")
 	case o.spec != "":
 		if o.method != "" {
 			return errors.New("grant: --spec derives the method from the spec; --method is only for --prefix")
 		}
-	case o.prefix != "":
+	case o.hasPrefix():
 		if o.method == "" {
 			return errors.New("grant: --prefix needs --method")
 		}
@@ -176,7 +184,7 @@ func buildPayload(opts *grantOptions, now time.Time, stdin io.Reader) (*protocol
 		}
 		payload.Command = protocol.SpecCommand(hash)
 		boundSpec = spec
-	case opts.prefix != "":
+	case opts.hasPrefix():
 		method, err := grantMethod(opts.method)
 		if err != nil {
 			return nil, nil, err
@@ -272,6 +280,10 @@ func prefixWarning(command *protocol.AuthCommand) string {
 		return ""
 	}
 	prefix := command.Prefix.Target
+	if prefix == "" {
+		return fmt.Sprintf("warning: an empty --prefix matches every %s target on these nodes until the deadline",
+			command.Prefix.Method)
+	}
 	switch command.Prefix.Method {
 	case protocol.MethodExec:
 		if strings.HasSuffix(prefix, " ") {

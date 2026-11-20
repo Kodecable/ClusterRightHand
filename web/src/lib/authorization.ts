@@ -1,9 +1,13 @@
 /**
- * Signing recipes of a waiting authorization and of an SSH signing-credential registration
- * (doc/design/privilege.md "Signing methods"): the `crhu` commands and the equivalent manual
- * `ssh-keygen -Y sign` steps. Kept out of the React components so they can be tested directly, and
- * in the shared `lib/` layer so the shared decision components may use them.
+ * Signing recipes of a waiting authorization, of a reusable authorization and of an SSH signing-credential
+ * registration (doc/design/privilege.md "Signing methods"): the `crhu` commands, the equivalent manual
+ * `ssh-keygen -Y sign` steps, and signing a drafted payload with a Passkey. Kept out of the React components
+ * so they can be tested directly, and in the shared `lib/` layer so the shared decision components may use
+ * them.
  */
+import type { AuthorizationDraft, AuthorizationDraftBody, AuthorizationMethod } from "@crh/api";
+import { startAuthentication } from "@simplewebauthn/browser";
+import { http } from "@/lib/api/client";
 
 /**
  * The largest base64 spec that still fits on one command line. A larger one exceeds the argument
@@ -62,3 +66,70 @@ export function base64urlToBase64(value: string): string {
 	const padding = standard.length % 4;
 	return padding === 2 ? `${standard}==` : padding === 3 ? `${standard}=` : standard;
 }
+
+/** Quotes one argument for a POSIX shell: single quotes, with each embedded quote closed and escaped. */
+export function shellArgument(value: string): string {
+	if (/^[A-Za-z0-9_./:=,@%+-]+$/.test(value)) return value;
+	return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** A reusable authorization's limit: a method and a target prefix (empty for every target), or any command. */
+export type ReusableCommand = { method: AuthorizationMethod; prefix: string } | null;
+
+/**
+ * The `crhu grant` command for a reusable authorization (doc/design/webui.md "Authorizations"): crhu builds and
+ * signs the payload itself, so the command carries everything the payload says. An empty prefix is passed as
+ * `--prefix ''`, which crhu takes as every target of the method.
+ */
+export function reusableGrantCommand(input: {
+	nodes: readonly string[];
+	command: ReusableCommand;
+	/** A crhu `--deadline` duration such as `5m` or `720h`. */
+	deadline: string;
+	note?: string;
+	fingerprints?: readonly string[];
+}): string {
+	const parts = ["crhu grant", `--nodes ${shellArgument(input.nodes.join(","))}`];
+	if (input.command === null) parts.push("--any-command");
+	else parts.push(`--method ${input.command.method}`, `--prefix ${shellArgument(input.command.prefix)}`);
+	parts.push(`--deadline ${input.deadline}`);
+	if (input.note !== undefined && input.note !== "") parts.push(`--note ${shellArgument(input.note)}`);
+	for (const fingerprint of input.fingerprints ?? []) parts.push(`--hint ${fingerprint}`);
+	return parts.join(" ");
+}
+
+/** Asks crhs to build a reusable payload to sign; nothing is stored until it comes back signed. */
+export function draftAuthorization(body: AuthorizationDraftBody): Promise<AuthorizationDraft> {
+	return http.post<{ draft: AuthorizationDraft }>("/authorizations/draft", body).then((r) => r.draft);
+}
+
+/** A Passkey that can sign: the credential, its relying party and whether user verification is required. */
+export interface SigningPasskey {
+	credentialId: string;
+	rpId: string;
+	requireUv?: boolean;
+}
+
+/**
+ * Drafts a reusable payload and signs it with one Passkey: the body `POST /authorizations` takes. The payload
+ * is the one the assertion signed, so a submission always matches its signature.
+ */
+export async function signDraftWithPasskey(
+	body: AuthorizationDraftBody,
+	passkey: SigningPasskey,
+): Promise<{ payload: string; webauthn: unknown }> {
+	const draft = await draftAuthorization(body);
+	const webauthn = await startAuthentication({
+		optionsJSON: {
+			rpId: passkey.rpId,
+			challenge: draft.challenge,
+			allowCredentials: [{ id: passkey.credentialId, type: "public-key" }],
+			userVerification: passkey.requireUv ? "required" : "preferred",
+			timeout: 60_000,
+		},
+	});
+	return { payload: draft.payload, webauthn };
+}
+
+/** The duration a waiting page's short reusable authorization lasts: five minutes. */
+export const SHORT_GRANT_SECONDS = 5 * 60;

@@ -253,6 +253,7 @@ const pendingSignature = (id: string): PendingAuthorization => ({
 			kind: "sign",
 			entries: [{ name: "alice", role: "user", credential: "sshsig" }],
 			ttlMs: 86_400_000,
+			reusableScope: null,
 			payload: {
 				id: "a".repeat(64),
 				payload: `payload-${id}`,
@@ -375,7 +376,7 @@ describe("SessionDecisionDock", () => {
 		};
 		await renderWithRouter(<Harness decisions={[first, second]} next={[second]} />);
 		const dock = await screen.findByTestId("session-decisions");
-		fireEvent.click(await within(dock).findByRole("tab", { name: "crhu sign" }));
+		fireEvent.click(await within(dock).findByRole("tab", { name: "crhu" }));
 		fireEvent.change(within(dock).getByLabelText("Signature"), { target: { value: "signed-first" } });
 		fireEvent.click(within(dock).getByRole("button", { name: "Submit authorization" }));
 		expect(await within(dock).findByRole("status")).toHaveTextContent("Authorization submitted.");
@@ -386,7 +387,7 @@ describe("SessionDecisionDock", () => {
 		await waitFor(() => expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("echo second"));
 		expect(within(dock).queryByRole("status")).not.toBeInTheDocument();
 		expect(within(dock).queryByText("Authorization submitted.")).not.toBeInTheDocument();
-		fireEvent.click(await within(dock).findByRole("tab", { name: "crhu sign" }));
+		fireEvent.click(await within(dock).findByRole("tab", { name: "crhu" }));
 		expect(within(dock).getByLabelText("Signature")).toHaveValue("");
 	});
 

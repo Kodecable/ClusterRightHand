@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import {
 	base64urlToBase64,
 	grantCommand,
+	reusableGrantCommand,
 	SPEC_ARGUMENT_LIMIT,
+	shellArgument,
 	sshKeygenRecipe,
 	sshRegistrationCommand,
 	sshRegistrationRecipe,
@@ -43,5 +45,42 @@ describe("signing recipes", () => {
 		expect(base64urlToBase64("YQ")).toBe("YQ==");
 		expect(base64urlToBase64("YWI")).toBe("YWI=");
 		expect(base64urlToBase64("YWJj")).toBe("YWJj");
+	});
+});
+
+describe("reusableGrantCommand", () => {
+	test("an empty prefix is passed as an empty quoted argument", () => {
+		expect(
+			reusableGrantCommand({ nodes: ["n-1", "n-2"], command: { method: "exec", prefix: "" }, deadline: "5m" }),
+		).toBe("crhu grant --nodes n-1,n-2 --method exec --prefix '' --deadline 5m");
+	});
+
+	test("a prefix, note and hints are quoted for the shell", () => {
+		expect(
+			reusableGrantCommand({
+				nodes: ["n-1"],
+				command: { method: "exec", prefix: "systemctl restart it's " },
+				deadline: "720h",
+				note: "weekly job",
+				fingerprints: ["SHA256:abc"],
+			}),
+		).toBe(
+			"crhu grant --nodes n-1 --method exec --prefix 'systemctl restart it'\\''s ' --deadline 720h --note 'weekly job' --hint SHA256:abc",
+		);
+	});
+
+	test("no limit is --any-command", () => {
+		expect(reusableGrantCommand({ nodes: ["*"], command: null, deadline: "1h" })).toBe(
+			"crhu grant --nodes '*' --any-command --deadline 1h",
+		);
+	});
+});
+
+describe("shellArgument", () => {
+	test("leaves plain words alone and single-quotes the rest", () => {
+		expect(shellArgument("/etc/nginx/")).toBe("/etc/nginx/");
+		expect(shellArgument("")).toBe("''");
+		expect(shellArgument("a b")).toBe("'a b'");
+		expect(shellArgument("it's")).toBe("'it'\\''s'");
 	});
 });

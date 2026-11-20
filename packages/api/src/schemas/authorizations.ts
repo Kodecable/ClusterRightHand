@@ -151,6 +151,21 @@ export const TaskAuthorizationViewSchema = z
 	})
 	.meta({ id: "TaskAuthorizationView" });
 
+/** The methods an authorization's prefix limit can name: the task methods, never an API or extension one. */
+export const AuthorizationMethodSchema = z
+	.enum(["exec", "file.read", "file.write"])
+	.meta({ id: "AuthorizationMethod" });
+
+/** The nodes and method a short reusable authorization for one waiting request covers. */
+export const ReusableScopeSchema = z
+	.object({
+		nodes: z.array(z.string()).describe("The node UUIDs of the request's waiting tasks."),
+		method: AuthorizationMethodSchema.describe(
+			"The method every waiting task uses (file.write also covers file.read).",
+		),
+	})
+	.meta({ id: "ReusableScope" });
+
 /** A `sign` option as the owner's waiting page renders it: the stored payload plus how to sign it. */
 export const PendingSignOptionSchema = z
 	.object({
@@ -162,6 +177,9 @@ export const PendingSignOptionSchema = z
 			.describe("SHA256 fingerprints of the owner's SSH credentials that match the entries; a signing hint."),
 		ttlMs: z.number(),
 		payload: PendingSignPayloadSchema,
+		reusableScope: ReusableScopeSchema.nullable().describe(
+			"What a short reusable authorization (an empty prefix for a few minutes) would cover; null when the waiting tasks use methods no single prefix limit covers.",
+		),
 	})
 	.meta({ id: "PendingSignOption" });
 
@@ -212,6 +230,38 @@ export const SubmitAuthorizationBodySchema = z.object({
 	payload: z.string().optional().describe("Base64 of the exact payload bytes the Passkey signed, with `webauthn`."),
 	webauthn: z.unknown().optional().describe("The AuthenticationResponseJSON of the waiting page's Passkey button."),
 });
+
+/** Longest lifetime a drafted authorization may ask for: one year. */
+export const MAX_DRAFT_TTL_SECONDS = 366 * 24 * 60 * 60;
+
+/** `POST /api/authorizations/draft`: the reusable authorization to build for the user to sign. */
+export const AuthorizationDraftBodySchema = z.object({
+	nodes: z
+		.array(z.string())
+		.min(1)
+		.max(100)
+		.describe("Node or node group UUIDs the authorization is for; the user must reach each node."),
+	command: z
+		.object({ method: AuthorizationMethodSchema, prefix: z.string().max(4096) })
+		.nullable()
+		.describe(
+			"A method and target prefix (an empty prefix allows every target of the method); null allows any command.",
+		),
+	ttlSeconds: z.number().int().min(60).max(MAX_DRAFT_TTL_SECONDS).describe("How long it stays valid, from now."),
+	note: z.string().max(500).optional().describe("A note signed into the payload."),
+});
+
+/** A drafted reusable payload: the exact bytes to sign and the WebAuthn challenge derived from them. */
+export const AuthorizationDraftSchema = z
+	.object({
+		payload: z.string().describe("Base64 of the exact CBOR payload bytes."),
+		id: z.string().describe("Hex SHA-256 of the payload bytes."),
+		challenge: z.string().describe("Base64url of the WebAuthn challenge derived from the payload."),
+		decoded: DecodedAuthorizationPayloadSchema,
+	})
+	.meta({ id: "AuthorizationDraft" });
+
+export const AuthorizationDraftResponseSchema = z.object({ draft: AuthorizationDraftSchema });
 
 /** One stored authorization (doc/design/privilege.md "Authorizations"). */
 export const AuthorizationSummarySchema = z

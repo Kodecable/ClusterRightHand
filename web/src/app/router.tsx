@@ -293,10 +293,10 @@ const signingCredentialsRoute = createRoute({
 
 // --- admin ----------------------------------------------------------------
 
+// Everyone's list for administrators, one's own for other users (doc/design/webui.md "Authorizations").
 const authorizationsRoute = createRoute({
 	getParentRoute: () => authenticatedRoute,
 	path: "/authorizations",
-	beforeLoad: ({ context }) => requireAdmin(context),
 	component: lazyRouteComponent(() => import("@/features/authorizations/pages"), "AuthorizationsPage"),
 });
 

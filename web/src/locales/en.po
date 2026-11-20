@@ -199,23 +199,42 @@ msgstr "{turns, plural, one {# turn} other {# turns}}"
 msgid "/{name}: {description} (not sent as a message)"
 msgstr "/{name}: {description} (not sent as a message)"
 
+#: src/features/authorizations/issue-dialog.tsx
+msgid "1 day"
+msgstr "1 day"
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "1 hour"
+msgstr "1 hour"
+
 #. placeholder {0}: decisions.length
 #: src/features/sessions/session-decisions.tsx
 msgid "1 of {0}"
 msgstr "1 of {0}"
 
+#: src/features/authorizations/issue-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "30 days"
 msgstr "30 days"
 
+#: src/features/authorizations/issue-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "365 days"
 msgstr "365 days"
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "5 minutes"
+msgstr "5 minutes"
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "7 days"
+msgstr "7 days"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "7d"
 msgstr "7d"
 
+#: src/features/authorizations/issue-dialog.tsx
 #: src/features/tokens/create-token-dialog.tsx
 msgid "90 days"
 msgstr "90 days"
@@ -277,6 +296,10 @@ msgstr "A local approval window is open on {0} until <0/>; crhs can run this tas
 msgid "A mapped level value is required."
 msgstr "A mapped level value is required."
 
+#: src/features/authorizations/issue-dialog.tsx
+msgid "A method and target prefix"
+msgstr "A method and target prefix"
+
 #: src/features/schedules/scheduleForm.ts
 #: src/features/tokens/create-token-dialog.tsx
 msgid "A name is required."
@@ -310,6 +333,10 @@ msgstr "A prompt is required."
 msgid "A provider id is lowercase letters, digits and dashes."
 msgstr "A provider id is lowercase letters, digits and dashes."
 
+#: src/features/authorizations/issue-dialog.tsx
+msgid "A reusable authorization lets matching privileged tasks of yours run on these nodes without asking for a signature until its deadline. It cannot be revoked here; keep the limit narrow and the deadline short."
+msgstr "A reusable authorization lets matching privileged tasks of yours run on these nodes without asking for a signature until its deadline. It cannot be revoked here; keep the limit narrow and the deadline short."
+
 #: src/features/channels/channel-dialog.tsx
 msgid "A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id."
 msgstr "A Satori gateway bot. Private chats only; one bot per channel, with a gateway URL, platform and bot id."
@@ -319,8 +346,8 @@ msgid "A schedule creates a new session at each trigger and submits a fixed prom
 msgstr "A schedule creates a new session at each trigger and submits a fixed prompt. Every run acts for its owner through the same rules, approvals and limits as any other session."
 
 #: src/features/schedules/pages.tsx
-msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the <0>Authorizations</0> page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
-msgstr "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, issue a reusable authorization for it (no task ids) on the <0>Authorizations</0> page, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
+msgid "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, use Issue authorization on the <0>Authorizations</0> page for a reusable authorization limited to that command's prefix, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
+msgstr "A scheduled run uses the normal authorization path: privileged tasks wait for the owner's signature. To let a fixed command run unattended, use Issue authorization on the <0>Authorizations</0> page for a reusable authorization limited to that command's prefix, and have the prompt run exactly that command. Anything else still waits in Approvals, and the next trigger ends the run."
 
 #: src/features/sessions/session-header.tsx
 msgid "A session title is at most {SESSION_TITLE_MAX_CHARS} characters."
@@ -560,6 +587,10 @@ msgstr "Allowed origin {0}"
 msgid "Allowed origins"
 msgstr "Allowed origins"
 
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Allows"
+msgstr "Allows"
+
 #: src/features/approvals/pages.tsx
 msgid "Already settled"
 msgstr "Already settled"
@@ -612,6 +643,14 @@ msgstr "Annotations untrusted"
 #: src/features/auth/api.ts
 msgid "Another sign-in from this address is already in progress. Try again."
 msgstr "Another sign-in from this address is already in progress. Try again."
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Any command"
+msgstr "Any command"
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Any command allows every privileged task of yours on these nodes until the deadline."
+msgstr "Any command allows every privileged task of yours on these nodes until the deadline."
 
 #: src/features/authorizations/pages.tsx
 #: src/features/nodes/node-trust.tsx
@@ -1077,6 +1116,10 @@ msgstr "Choose a user or user group"
 msgid "Choose an SSH credential"
 msgstr "Choose an SSH credential"
 
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Choose at least one node or node group to sign."
+msgstr "Choose at least one node or node group to sign."
+
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Choose at least one target."
 msgstr "Choose at least one target."
@@ -1167,6 +1210,7 @@ msgid "Clock warning threshold"
 msgstr "Clock warning threshold"
 
 #: src/components/upload/upload-progress-dialog.tsx
+#: src/features/authorizations/issue-dialog.tsx
 msgid "Close"
 msgstr "Close"
 
@@ -1321,6 +1365,7 @@ msgid "Copy code"
 msgstr "Copy code"
 
 #: src/components/decision/signature-panel.tsx
+#: src/features/authorizations/issue-dialog.tsx
 #: src/features/signing-credentials/pages.tsx
 msgid "Copy command"
 msgstr "Copy command"
@@ -1362,10 +1407,6 @@ msgstr "Copy public key"
 #: src/features/sessions/transcript-row.tsx
 msgid "Copy reply"
 msgstr "Copy reply"
-
-#: src/components/decision/signature-panel.tsx
-msgid "Copy spec"
-msgstr "Copy spec"
 
 #: src/components/task-facts.tsx
 msgid "Copy task group id"
@@ -1490,6 +1531,10 @@ msgstr "crhs may authorize privileged tasks on this node on its own."
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "crhs signing key"
 msgstr "crhs signing key"
+
+#: src/components/decision/signature-panel.tsx
+msgid "crhu 5min"
+msgstr "crhu 5min"
 
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
@@ -2239,6 +2284,10 @@ msgstr "Flags"
 msgid "Footnotes"
 msgstr "Footnotes"
 
+#: src/components/decision/signature-panel.tsx
+msgid "For 5 minutes, every {method} task of yours on {nodes} runs without asking for a signature, including tasks from your other sessions and scheduled runs."
+msgstr "For 5 minutes, every {method} task of yours on {nodes} runs without asking for a signature, including tasks from your other sessions and scheduled runs."
+
 #: src/features/signing-credentials/trust-config-dialog.tsx
 msgid "For command limits, lifetimes, a local approval window and other advanced options, see the documentation and edit privileged.toml by hand."
 msgstr "For command limits, lifetimes, a local approval window and other advanced options, see the documentation and edit privileged.toml by hand."
@@ -2373,6 +2422,7 @@ msgid "How to decide"
 msgstr "How to decide"
 
 #: src/components/decision/signature-panel.tsx
+#: src/features/authorizations/issue-dialog.tsx
 msgid "How to sign"
 msgstr "How to sign"
 
@@ -2423,6 +2473,11 @@ msgstr "Interrupted"
 #: src/features/auth/api.ts
 msgid "Invalid username or password."
 msgstr "Invalid username or password."
+
+#: src/features/authorizations/issue-dialog.tsx
+#: src/features/authorizations/pages.tsx
+msgid "Issue authorization"
+msgstr "Issue authorization"
 
 #: src/features/authorizations/pages.tsx
 msgid "Issued"
@@ -2693,11 +2748,14 @@ msgstr "Loading the tool list…"
 msgid "Loading…"
 msgstr "Loading…"
 
+#: src/components/decision/signature-panel.tsx
+msgid "Local"
+msgstr "Local"
+
 #: src/features/nodes/node-trust.tsx
 msgid "Local approval window"
 msgstr "Local approval window"
 
-#: src/components/decision/signature-panel.tsx
 #: src/features/approvals/pages.tsx
 msgid "Local window"
 msgstr "Local window"
@@ -2738,6 +2796,10 @@ msgstr "Mapped value"
 #: src/features/settings/model-dialog.tsx
 msgid "Mapping"
 msgstr "Mapping"
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Matched character by character. Empty allows every target of the method; end a command prefix with a space and a directory with /."
+msgstr "Matched character by character. Empty allows every target of the method; end a command prefix with a space and a directory with /."
 
 #: src/components/decision/evaluation.tsx
 msgid "Matched rule"
@@ -2801,6 +2863,10 @@ msgstr "Message"
 #: src/features/sessions/composer-input.tsx
 msgid "Message composer"
 msgstr "Message composer"
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Method"
+msgstr "Method"
 
 #: src/components/task-result.tsx
 msgid "Mode"
@@ -3294,6 +3360,7 @@ msgstr "Node views"
 msgid "Nodes"
 msgstr "Nodes"
 
+#: src/features/authorizations/issue-dialog.tsx
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Nodes or node groups"
 msgstr "Nodes or node groups"
@@ -3359,6 +3426,10 @@ msgstr "Not valid JSON: {0}"
 #: src/features/schedules/run-history.tsx
 msgid "Note"
 msgstr "Note"
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Note (optional)"
+msgstr "Note (optional)"
 
 #: src/components/empty-state.tsx
 msgid "Nothing here yet."
@@ -3545,10 +3616,6 @@ msgstr "Optional; it defaults to the node's hostname."
 msgid "Optional. It is encrypted with the master key and never shown again."
 msgstr "Optional. It is encrypted with the master key and never shown again."
 
-#: src/components/decision/signature-panel.tsx
-msgid "Or copy the spec to bind it with"
-msgstr "Or copy the spec to bind it with"
-
 #: src/features/signing-credentials/pages.tsx
 msgid "Or sign the challenge by hand with ssh-keygen:"
 msgstr "Or sign the challenge by hand with ssh-keygen:"
@@ -3622,15 +3689,21 @@ msgstr "Partly failed"
 
 #: src/components/decision/signature-panel.tsx
 #: src/components/entity-picker/api.ts
+#: src/features/authorizations/issue-dialog.tsx
 #: src/features/signing-credentials/pages.tsx
 msgid "Passkey"
 msgstr "Passkey"
+
+#: src/components/decision/signature-panel.tsx
+msgid "Passkey 5min"
+msgstr "Passkey 5min"
 
 #: src/features/signing-credentials/pages.tsx
 msgid "Passkey registration was cancelled."
 msgstr "Passkey registration was cancelled."
 
 #: src/components/decision/signature-panel.tsx
+#: src/features/authorizations/issue-dialog.tsx
 msgid "Passkey signing was cancelled."
 msgstr "Passkey signing was cancelled."
 
@@ -4679,8 +4752,14 @@ msgstr "Sign with a Passkey this node trusts for this command."
 
 #. placeholder {0}: passkey.name
 #: src/components/decision/signature-panel.tsx
+#: src/features/authorizations/issue-dialog.tsx
 msgid "Sign with Passkey “{0}”"
 msgstr "Sign with Passkey “{0}”"
+
+#. placeholder {0}: passkey.name
+#: src/components/decision/signature-panel.tsx
+msgid "Sign with Passkey “{0}” for 5 minutes"
+msgstr "Sign with Passkey “{0}” for 5 minutes"
 
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Sign-in"
@@ -4703,6 +4782,11 @@ msgstr "Signature"
 #: src/app/shell/user-menu.tsx
 msgid "Signed in as {name}"
 msgstr "Signed in as {name}"
+
+#. placeholder {0}: passkey.name
+#: src/components/decision/signature-panel.tsx
+msgid "Signed with Passkey \"{0}\" for 5 minutes."
+msgstr "Signed with Passkey \"{0}\" for 5 minutes."
 
 #. placeholder {0}: passkey.name
 #: src/components/decision/signature-panel.tsx
@@ -4916,6 +5000,7 @@ msgid "Subagents"
 msgstr "Subagents"
 
 #: src/components/decision/signature-panel.tsx
+#: src/features/authorizations/issue-dialog.tsx
 msgid "Submit authorization"
 msgstr "Submit authorization"
 
@@ -4963,6 +5048,10 @@ msgstr "Target"
 #: src/features/audit/pages.tsx
 msgid "Target id"
 msgstr "Target id"
+
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Target prefix"
+msgstr "Target prefix"
 
 #: src/features/audit/pages.tsx
 msgid "Target type"
@@ -5027,6 +5116,10 @@ msgstr "That number is too large."
 #: src/features/schedules/scheduleForm.ts
 msgid "The Ask rule preset can often pause the schedule while it waits for your confirmation."
 msgstr "The Ask rule preset can often pause the schedule while it waits for your confirmation."
+
+#: src/features/authorizations/pages.tsx
+msgid "The authorizations you signed. Each is valid on the nodes its payload names until its deadline or until it is used up (one-shot authorizations)."
+msgstr "The authorizations you signed. Each is valid on the nodes its payload names until its deadline or until it is used up (one-shot authorizations)."
 
 #: src/features/settings/providers.ts
 msgid "The base URL must start with http:// or https://."
@@ -5764,6 +5857,10 @@ msgstr "Username header"
 msgid "Users"
 msgstr "Users"
 
+#: src/features/authorizations/issue-dialog.tsx
+msgid "Valid for"
+msgstr "Valid for"
+
 #: src/features/settings/extension-dialog.tsx
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -5901,6 +5998,10 @@ msgstr "You cannot disable your own account."
 #: src/features/sessions/attachment-chip.tsx
 msgid "You don't have access to this library."
 msgstr "You don't have access to this library."
+
+#: src/features/authorizations/pages.tsx
+msgid "You have not signed an authorization yet."
+msgstr "You have not signed an authorization yet."
 
 #: src/features/sessions/composer.tsx
 msgid "You have view access: the owner can let you send messages by sharing it for chat."

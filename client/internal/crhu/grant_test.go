@@ -638,6 +638,45 @@ func TestGrantPrefixWarning(t *testing.T) {
 	}
 }
 
+// TestGrantEmptyPrefix covers --prefix "": given explicitly it is a limit on the method alone (every
+// target), signed as an empty prefix with a warning; leaving --prefix out is still no limit at all.
+func TestGrantEmptyPrefix(t *testing.T) {
+	keyPath, _ := generateSSHKey(t)
+	useSSHKeygen(t, "ssh-keygen")
+
+	stdout, stderr, err := runCLI(t, "grant",
+		"--nodes", testNodeA,
+		"--method", "exec", "--prefix", "",
+		"--deadline", "5m",
+		"--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("grant: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(stderr, "an empty --prefix matches every exec target") {
+		t.Fatalf("stderr has no empty-prefix warning:\n%s", stderr)
+	}
+	payload, err := protocol.DecodeAuthorizationPayload(decodeAuthorization(t, stdout).Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload.Command == nil || payload.Command.Kind != protocol.AuthCommandPrefix || payload.Command.Prefix == nil {
+		t.Fatalf("command = %+v, want an exec prefix", payload.Command)
+	}
+	if payload.Command.Prefix.Method != protocol.MethodExec || payload.Command.Prefix.Target != "" {
+		t.Fatalf("prefix = %+v, want exec with an empty target", payload.Command.Prefix)
+	}
+
+	// An empty prefix still needs its method, and still conflicts with --any-command.
+	_, _, err = runCLI(t, "grant", "--nodes", testNodeA, "--prefix", "", "--deadline", "5m", "--key", keyPath, "--yes")
+	if err == nil || !strings.Contains(err.Error(), "--prefix needs --method") {
+		t.Fatalf("empty prefix without method: err = %v", err)
+	}
+	_, _, err = runCLI(t, "grant", "--nodes", testNodeA, "--any-command", "--prefix", "", "--deadline", "5m", "--key", keyPath, "--yes")
+	if err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("empty prefix with --any-command: err = %v", err)
+	}
+}
+
 // webuiPayload builds the base64 payload the WebUI hands to `crhu sign`.
 func webuiPayload(t *testing.T, command *protocol.AuthCommand, nodes ...string) string {
 	t.Helper()

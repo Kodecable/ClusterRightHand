@@ -2,7 +2,7 @@ import type { ApprovalRequest, PendingAuthorization, PendingPasskey, PendingSign
 import { startAuthentication } from "@simplewebauthn/browser";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { grantCommand, sshKeygenRecipe } from "@/lib/authorization";
+import { grantCommand, reusableGrantCommand, sshKeygenRecipe } from "@/lib/authorization";
 import { copyText } from "@/lib/clipboard";
 import { renderWithRouter } from "@/test/render";
 import { SignaturePanel, type SubmitSignature } from "./signature-panel";
@@ -49,6 +49,7 @@ const signOption = (overrides: Partial<PendingSignOption> = {}): PendingSignOpti
 	kind: "sign",
 	entries: [{ name: "alice", role: "user", credential: "sshsig" }],
 	ttlMs: 86_400_000,
+	reusableScope: null,
 	payload: signPayload(),
 	...overrides,
 });
@@ -118,13 +119,13 @@ afterEach(() => {
 });
 
 describe("SignaturePanel", () => {
-	test("renders the compact ApprovalRequest as its summary and defaults to crhu sign", async () => {
+	test("renders the compact ApprovalRequest as its summary and defaults to crhu", async () => {
 		await renderPanel({});
 		const card = screen.getByRole("region", { name: "Your signature is needed" });
 		expect(within(card).getByTestId("decision-detail")).toHaveTextContent(OPERATION);
 		expect(within(card).getByTestId("decision-meta")).toHaveTextContent("Nodes: worker-01");
 		expect(within(card).getByText("Privileged")).toBeInTheDocument();
-		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent("crhu sign");
+		expect(screen.getByRole("tab", { selected: true })).toHaveTextContent(/^crhu$/);
 		expect(screen.queryByRole("tab", { name: "Passkey" })).not.toBeInTheDocument();
 		// An inline signature wait never shows the source.
 		expect(screen.queryByText(/Source:/)).not.toBeInTheDocument();
@@ -152,15 +153,15 @@ describe("SignaturePanel", () => {
 		expect(screen.getByTestId("decision-command")).toHaveAttribute("title", command);
 	});
 
-	test("the Copy spec button copies the base64 spec for crhu grant --spec", async () => {
+	test("the crhu tab offers no spec to bind with crhu grant", async () => {
 		await renderPanel({});
-		fireEvent.click(screen.getByRole("button", { name: "Copy spec" }));
-		await waitFor(() => expect(vi.mocked(copyText)).toHaveBeenCalledWith(SPEC));
+		expect(screen.queryByRole("button", { name: "Copy spec" })).not.toBeInTheDocument();
+		expect(screen.queryByText(/crhu grant/)).not.toBeInTheDocument();
 	});
 
-	test("the ssh-keygen tab copies the full manual recipe", async () => {
+	test("the OpenSSH tab copies the full manual recipe", async () => {
 		await renderPanel({});
-		fireEvent.click(screen.getByRole("tab", { name: "ssh-keygen" }));
+		fireEvent.click(screen.getByRole("tab", { name: "OpenSSH" }));
 		// The old panel stays mounted for its exit transition; wait until only the new one is visible.
 		await waitFor(() => expect(screen.getAllByRole("button", { name: "Copy command" })).toHaveLength(1));
 		fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
@@ -218,25 +219,25 @@ describe("SignaturePanel", () => {
 		expect(await screen.findByRole("status")).toHaveTextContent("Authorization submitted.");
 	});
 
-	test("no Local window tab is offered when the plan has only a sign option", async () => {
+	test("no Local tab is offered when the plan has only a sign option", async () => {
 		await renderPanel({});
-		expect(screen.queryByRole("tab", { name: "Local window" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("tab", { name: "Local" })).not.toBeInTheDocument();
 	});
 
-	test("the Local window tab shows the command and the node", async () => {
+	test("the Local tab shows the command and the node", async () => {
 		await renderPanel({
 			pending: pending({
 				options: [signOption(), { kind: "local_window", nodeId: "node-1", nodeName: "worker-01" }],
 			}),
 		});
 		trust.window = { kind: "closed" };
-		fireEvent.click(screen.getByRole("tab", { name: "Local window" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Local" }));
 		await waitFor(() => expect(screen.getAllByRole("button", { name: "Copy command" })).toHaveLength(1));
 		expect(screen.getByText("sudo crha approve --for 30m")).toBeInTheDocument();
 		expect(screen.getByText(/Run this on worker-01/)).toBeInTheDocument();
 	});
 
-	test("the Local window tab reports a window that is already open", async () => {
+	test("the Local tab reports a window that is already open", async () => {
 		trust.window = {
 			kind: "open",
 			openedAtMs: Date.now() - 60_000,
@@ -246,7 +247,7 @@ describe("SignaturePanel", () => {
 		await renderPanel({
 			pending: pending({ options: [{ kind: "local_window", nodeId: "node-1", nodeName: "worker-01" }] }),
 		});
-		fireEvent.click(screen.getByRole("tab", { name: "Local window" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Local" }));
 		expect(await screen.findByText(/A local approval window is open on worker-01/)).toBeInTheDocument();
 		// The command stays visible, so the owner can still open a fresh window.
 		expect(screen.getByText("sudo crha approve --for 30m")).toBeInTheDocument();
@@ -262,6 +263,96 @@ describe("SignaturePanel", () => {
 		});
 		expect(screen.getByTestId("decision-meta")).toHaveTextContent("Nodes: worker-01, worker-02");
 		expect(screen.queryByText(/node-2/)).not.toBeInTheDocument();
+	});
+
+	test("without a reusable scope no 5-minute tab is offered", async () => {
+		await renderPanel({
+			pending: pending({ options: [signOption({ payload: signPayload({ passkeys: [passkey()] }) })] }),
+		});
+		expect(screen.queryByRole("tab", { name: "Passkey 5min" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("tab", { name: "crhu 5min" })).not.toBeInTheDocument();
+	});
+
+	test("a reusable scope adds a 5-minute twin beside the Passkey and crhu tabs", async () => {
+		const scope = { nodes: ["0192f000-0000-7000-8000-000000000001"], method: "exec" as const };
+		await renderPanel({
+			pending: pending({
+				options: [
+					signOption({
+						reusableScope: scope,
+						fingerprints: ["SHA256:one"],
+						payload: signPayload({ passkeys: [passkey()] }),
+					}),
+					{ kind: "local_window", nodeId: "node-1", nodeName: "worker-01" },
+				],
+			}),
+		});
+		expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+			"Passkey",
+			"Passkey 5min",
+			"crhu",
+			"crhu 5min",
+			"OpenSSH",
+			"Local",
+			"Reject",
+		]);
+		fireEvent.click(screen.getByRole("tab", { name: "crhu 5min" }));
+		const command = reusableGrantCommand({
+			nodes: scope.nodes,
+			command: { method: "exec", prefix: "" },
+			deadline: "5m",
+			fingerprints: ["SHA256:one"],
+		});
+		await waitFor(() => expect(screen.getByTestId("decision-command")).toHaveAttribute("title", command));
+		expect(command).toBe(
+			"crhu grant --nodes 0192f000-0000-7000-8000-000000000001 --method exec --prefix '' --deadline 5m --hint SHA256:one",
+		);
+		expect(
+			screen.getByText(/every exec task of yours on worker-01 runs without asking for a signature/),
+		).toBeInTheDocument();
+	});
+
+	test("Passkey 5min drafts the reusable payload, signs its challenge and submits those bytes", async () => {
+		const scope = { nodes: ["0192f000-0000-7000-8000-000000000001"], method: "exec" as const };
+		const draftBodies: unknown[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+				if (String(input).endsWith("/api/authorizations/draft")) {
+					draftBodies.push(JSON.parse(String(init?.body)));
+					return new Response(
+						JSON.stringify({
+							draft: { payload: "short-payload", id: "c".repeat(64), challenge: "short-challenge", decoded: {} },
+						}),
+						{ status: 200, headers: { "content-type": "application/json" } },
+					);
+				}
+				return new Response(JSON.stringify({ trust: { summary: { localWindow: { kind: "closed" } } } }), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}),
+		);
+		const onSubmit = vi.fn(async (_input: SubmitSignature) => {});
+		await renderPanel({
+			pending: pending({
+				options: [signOption({ reusableScope: scope, payload: signPayload({ passkeys: [passkey()] }) })],
+			}),
+			onSubmit,
+		});
+		fireEvent.click(screen.getByRole("tab", { name: "Passkey 5min" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Sign with Passkey “YubiKey” for 5 minutes" }));
+		await waitFor(() =>
+			expect(onSubmit).toHaveBeenCalledWith({
+				payload: "short-payload",
+				webauthn: { id: "credential-1", response: { clientDataJSON: "x" } },
+			}),
+		);
+		expect(draftBodies).toEqual([{ nodes: scope.nodes, command: { method: "exec", prefix: "" }, ttlSeconds: 300 }]);
+		expect(startAuthentication).toHaveBeenLastCalledWith({
+			optionsJSON: expect.objectContaining({ rpId: "crh.example.com", challenge: "short-challenge" }),
+		});
+		expect(await screen.findByRole("status")).toHaveTextContent('Signed with Passkey "YubiKey" for 5 minutes.');
 	});
 
 	test("Reject sends the trimmed reason to the shared reject tab", async () => {

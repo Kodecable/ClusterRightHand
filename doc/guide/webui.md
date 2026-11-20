@@ -29,7 +29,7 @@ your other browsers. Your API tokens keep working unless you tick **Also revoke 
 |---|---|
 | **Work** | Sessions, Library, Schedules, Tasks, Approvals |
 | **Cluster** | Nodes, Node groups, SSH credentials (administrators), Signing credentials |
-| **Admin** | Authorizations (administrators), API tokens, Audit, Extensions (administrators), Channels (administrators), Models (administrators), System settings (administrators), Users (administrators) |
+| **Admin** | Authorizations, API tokens, Audit, Extensions (administrators), Channels (administrators), Models (administrators), System settings (administrators), Users (administrators) |
 
 The **Approvals** badge counts everything waiting for you. **Settings…** in the user menu sets your
 language (English or Chinese) and your defaults for new sessions; the language follows your account, so
@@ -341,7 +341,7 @@ when it was requested. Click a row to open it:
 | Type | Your options |
 |---|---|
 | **Approval** | Approve, Always allow, or Reject |
-| **Signature** / **Local window** | The options the server planned: sign with a Passkey or `crhu sign`, sign by hand with `ssh-keygen`, open a local approval window on the node, or Reject ([Signing](#signing-with-an-ssh-key-or-a-passkey)) |
+| **Signature** / **Local window** | The options the server planned: sign with a Passkey or `crhu`, sign by hand with OpenSSH, sign a 5-minute reusable authorization, open a local approval window on the node, or Reject ([Signing](#signing-with-an-ssh-key-or-a-passkey)) |
 | **Quota** | Add tokens or stop the run; the row opens the session, where the decision panel shows it |
 
 **Always allow** adds an allow rule, prefilled from the operation, to the session, schedule or token
@@ -358,21 +358,33 @@ backoff as an MCP extension, and the next attempt is shown. See [Chat channels](
 
 ## Authorizations
 
-**Authorizations** (administrators only) lists the signed authorizations crhs has stored: who signed,
-for which nodes and command, and until when. It is a record, not a control: an authorization cannot be
-revoked here. To withdraw a signer, change the node's trust configuration.
+**Authorizations** lists the signed authorizations crhs has stored: for which nodes and command, and
+until when. Administrators see everyone's, with who signed; everyone else sees their own. It is a
+record, not a control: an authorization cannot be revoked here. To withdraw a signer, change the
+node's trust configuration.
+
+**Issue authorization** signs a reusable authorization, so matching privileged tasks of yours run
+without asking you each time. Choose the nodes or node groups, what it allows (a method and a target
+prefix, or any command), how long it lasts and an optional note, then sign with one of your Passkeys
+or copy the `crhu grant` command, run it on your workstation and paste its output. A prefix is matched
+character by character: an empty prefix allows every target of the method, a command prefix should end
+with a space and a directory with `/`. Tasks already waiting that it covers run at once. Keep the limit
+narrow and the lifetime short: it cannot be revoked before its deadline.
 
 ### Signing with an SSH key or a Passkey
 
 When a privileged task waits for an authorization, its decision shows the options crhs planned:
 
 - **Passkey**, if the node trusts one of your Passkeys for this command;
-- **crhu sign**: copy the command, run it on your workstation, and paste its output back with
+- **crhu**: copy the `crhu sign` command, run it on your workstation, and paste its output back with
   **Submit authorization**. The copied command carries `--hint` fingerprints of the SSH credentials
   that match the plan's entries, so `crhu` picks the right key;
-- **ssh-keygen**: the same signature by hand. The authorizations endpoint takes the base64
+- **Passkey 5min** and **crhu 5min**, when the nodes accept a reusable authorization: instead of this
+  one task, sign every task of the same method on these nodes for the next five minutes, so a run of
+  similar tasks asks only once. It covers your other sessions and scheduled runs on those nodes too;
+- **OpenSSH**: the same signature by hand with `ssh-keygen`. The authorizations endpoint takes the base64
   Authorization that `crhu sign` prints, not the armored `.sig` alone;
-- **Local window**, if the plan offers it: run the copied `sudo crha approve --for 30m` command on
+- **Local**, if the plan offers it: run the copied `sudo crha approve --for 30m` command on
   the named node instead. While that window is open crhs can run any privileged task there, so prefer
   a signature when only this task matters. A task group is never offered a local window;
 - **Reject**, with an optional reason; the task ends rejected and the reason is shown on it.
@@ -403,7 +415,8 @@ trigger, stops a run that is still going.
 The schedule page shows the run history, with a link to each run's session.
 
 A privileged task in a scheduled run waits for your signature, unless you have signed a reusable
-authorization for exactly that command ([Privilege](../design/scheduling.md#privilege)).
+authorization that covers it, with **Issue authorization** on [Authorizations](#authorizations)
+([Privilege](../design/scheduling.md#privilege)).
 
 ## Models
 

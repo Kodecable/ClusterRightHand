@@ -1,9 +1,12 @@
 /**
- * User authorizations (doc/design/privilege.md "Authorization path"): submitting a signed authorization
- * (pasted `crhu sign` output or a Passkey assertion), the administrators' list, the options
- * the waiting page shows its owner, and the owner rejecting the wait instead of signing it.
+ * User authorizations (doc/design/privilege.md "Authorization path"): drafting a reusable payload to sign,
+ * submitting a signed authorization (pasted `crhu sign` or `crhu grant` output, or a Passkey assertion), the
+ * list (everyone's for administrators, one's own for other users), the options the waiting page shows its
+ * owner, and the owner rejecting the wait instead of signing it.
  */
 import {
+	AuthorizationDraftBodySchema,
+	AuthorizationDraftResponseSchema,
 	AuthorizationListResponseSchema,
 	AuthorizationSubmittedResponseSchema,
 	CursorQuerySchema,
@@ -17,15 +20,19 @@ import {
 } from "@crh/api/schemas";
 import { type AuthorizationPayload, decodeAuthorizationPayload } from "@crh/protocol";
 import { HTTPException } from "hono/http-exception";
+import { isAdmin } from "../auth/sessions.ts";
 import type { Actor, Cluster } from "../cluster/cluster.ts";
+import { userCanAccessNode } from "../cluster/node-access.ts";
 import { decodedPayloadOf, pendingForTask, pendingForTaskGroup } from "../cluster/pending.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { taskRelation } from "../cluster/task-visibility.ts";
+import { buildAuthorization } from "../privilege/payload.ts";
 import {
 	parseSubmittedAuthorization,
 	parseWebauthnSubmission,
 	type SubmittedAuthorization,
 } from "../privilege/submission.ts";
+import { webauthnChallenge } from "../privilege/webauthn.ts";
 import type { Db } from "../storage/db.ts";
 import { usernamesById } from "../users/service.ts";
 import {
@@ -37,8 +44,8 @@ import {
 	parseLimit,
 } from "../util/cursor.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
+import { isUuid } from "../util/names.ts";
 import type { AppEnv } from "./context.ts";
-import { requireAdmin } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 
 const TAGS = ["Authorizations"];
@@ -62,17 +69,29 @@ const submitRoute = defineRoute({
 	},
 });
 
+const draftRoute = defineRoute({
+	method: "post",
+	path: "/authorizations/draft",
+	tags: TAGS,
+	summary: "Build a reusable authorization payload for the user to sign with a Passkey or `crhu sign`",
+	agent: "deny", // signing material
+	request: { body: { required: true, ...json(AuthorizationDraftBodySchema) } },
+	responses: {
+		200: { description: "The payload to sign and its WebAuthn challenge", ...json(AuthorizationDraftResponseSchema) },
+		400: { description: "A node or node group is unknown or out of reach", ...json(ErrorResponseSchema) },
+	},
+});
+
 const listRoute = defineRoute({
 	method: "get",
 	path: "/authorizations",
 	tags: TAGS,
-	summary: "Page through the organization's stored authorizations, newest first (administrators)",
+	summary:
+		"Page through stored authorizations, newest first: the organization's for administrators, one's own for other users",
 	agent: "deny", // the signing record is the user's security surface, not an agent's
-	middleware: [requireAdmin],
 	request: { query: CursorQuerySchema },
 	responses: {
 		200: { description: "One page of authorizations", ...json(AuthorizationListResponseSchema) },
-		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
 	},
 });
 
@@ -170,18 +189,61 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 	});
 
 	/**
-	 * The organization's authorizations; administrators only (doc/design/access-control.md "Audit").
-	 * Keyset paginated: the old hard cap of 200 rows is gone (doc/design/webui.md "API conventions").
+	 * Builds a reusable payload for the user to sign (doc/design/privilege.md "Authorizations"): the Issue
+	 * authorization dialog and the waiting page's 5-minute tabs. Nothing is stored; the bytes come back to
+	 * `POST /authorizations` signed, through a Passkey assertion over the challenge or pasted `crhu sign`
+	 * output. Each node must be one the user reaches and each node group must exist, so a typo fails here
+	 * instead of producing an authorization no node accepts.
+	 */
+	app.openapi(draftRoute, async (c) => {
+		const user = c.get("user");
+		const body = c.req.valid("json");
+		const nodes = [...new Set(body.nodes)];
+		for (const id of nodes) {
+			if (!isUuid(id)) throw new UserError(`"${id}" is not a node or node group id`);
+			const group = await db.selectFrom("node_groups").select("id").where("id", "=", id).executeTakeFirst();
+			if (group) continue;
+			const node = await db.selectFrom("nodes").select("id").where("id", "=", id).executeTakeFirst();
+			if (!node || !(await userCanAccessNode(db, user.userId, id))) {
+				throw new UserError(`no node or node group ${id} is in your reach`);
+			}
+		}
+		const issuedAtMs = Date.now();
+		const built = buildAuthorization({
+			nodes,
+			command: body.command === null ? null : { method: body.command.method, prefix: body.command.prefix },
+			issuedAtMs,
+			deadlineMs: issuedAtMs + body.ttlSeconds * 1000,
+			note: body.note ?? "",
+		});
+		return c.json(
+			{
+				draft: {
+					payload: Buffer.from(built.bytes).toString("base64"),
+					id: built.id,
+					challenge: Buffer.from(webauthnChallenge(built.bytes)).toString("base64url"),
+					decoded: decodedPayloadOf(built.payload),
+				},
+			},
+			200,
+		);
+	});
+
+	/**
+	 * Stored authorizations (doc/design/webui.md "Authorizations"): administrators page through the whole
+	 * organization's, other users through the ones they issued. Keyset paginated
+	 * (doc/design/webui.md "API conventions").
 	 */
 	app.openapi(listRoute, async (c) => {
 		const user = c.get("user");
 		const orgId = await orgOf(db, user.userId);
-		if (orgId === undefined) throw new HTTPException(403, { message: "only administrators can list authorizations" });
+		if (orgId === undefined) throw new NotFoundError("no such user");
 		const query = c.req.valid("query");
 		const limit = parseLimit(query.limit);
 		const rawCursor = query.cursor;
 		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, AUTHORIZATIONS_CURSOR);
 		let select = db.selectFrom("authorizations").selectAll().where("org_id", "=", orgId);
+		if (!isAdmin(user)) select = select.where("issuer_user_id", "=", user.userId);
 		if (cursor) select = select.where(descendingKeyset(["created_at"], cursor));
 		const page = await cursorRows(
 			limit,
@@ -289,6 +351,7 @@ type AuthorizationTaskRow = {
 	actor_type: string;
 	actor_id: string;
 	authorization: string | null;
+	spec: string;
 };
 
 type AuthorizationTaskGroupRow = {
@@ -310,7 +373,7 @@ async function authorizationTask(
 ): Promise<{ row: AuthorizationTaskRow; owner: boolean }> {
 	const row = await db
 		.selectFrom("tasks")
-		.select(["id", "state", "node_id", "on_behalf_of_user_id", "actor_type", "actor_id", "authorization"])
+		.select(["id", "state", "node_id", "on_behalf_of_user_id", "actor_type", "actor_id", "authorization", "spec"])
 		.where("id", "=", id)
 		.executeTakeFirst();
 	if (!row) throw new NotFoundError("no such task");

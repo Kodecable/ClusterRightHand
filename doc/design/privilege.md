@@ -401,7 +401,8 @@ task; if no window opens, the wait expires like any other authorization wait. A 
 offered a `local_window`: its members can only be released by a signature.
 
 The owner sees every option on the approvals page, the task page or the session's tool card: a
-`sign` option is the signature panel (a Passkey, `crhu sign` or the `ssh-keygen` recipe), a
+`sign` option is the signature panel (a Passkey, `crhu sign` or the `ssh-keygen` recipe, and the
+5-minute reusable twins of the first two when the nodes accept one), a
 `local_window` option is the command block, and Reject is always available. A task whose options are
 not written yet shows "Preparing…" in the WebUI and gets no chat card until they are; a planned task
 always has at least one option.
@@ -454,6 +455,13 @@ payload bytes the browser signed, so a payload a pass replaced while the owner w
 verifies. The authorization id is
 the payload's hash, so a payload another user already stored (or crhs signed) is refused, and that
 row is left alone.
+
+A user who wants a reusable authorization without `crhu grant` asks crhs to draft one:
+`POST /api/authorizations/draft` takes nodes or node groups (each node must be in the user's reach),
+a method and prefix or no limit, a lifetime of at most a year and a note, and returns the payload
+bytes and their WebAuthn challenge without storing anything. The user signs those bytes with a
+Passkey and submits them like any other authorization. `GET /api/authorizations` lists the whole
+organization's authorizations to administrators and only their own to other users.
 
 ### The planner
 

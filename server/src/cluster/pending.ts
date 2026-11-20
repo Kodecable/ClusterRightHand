@@ -13,16 +13,19 @@ import type {
 	PendingPasskey,
 	PendingSignOption,
 	PendingSignPayload,
+	ReusableScope,
 	TaskGroupPending,
 	TaskGroupPendingTask,
 } from "@crh/api";
 import type { AuthorizationPayload } from "@crh/protocol";
 import { decodeAuthorizationPayload } from "@crh/protocol";
+import { privilegedTarget } from "../privilege/guard.ts";
 import { webauthnSigningCredentials } from "../privilege/signing-credentials.ts";
 import { webauthnChallenge } from "../privilege/webauthn.ts";
 import type { Db } from "../storage/db.ts";
 import { parseTaskAuthorization, type TaskAuthorizationRecord } from "./authorization.ts";
 import { getNode } from "./nodes.ts";
+import { specFromRow } from "./spec.ts";
 import { parseTrustReport } from "./trust.ts";
 
 /** A decoded payload, in the JSON form the waiting page renders. */
@@ -113,6 +116,73 @@ async function passkeysFor(
 	return out;
 }
 
+/**
+ * What a short reusable authorization for these waiting tasks covers (doc/design/webui.md "Shared components"):
+ * their nodes and the one method they use, so an empty prefix of that method covers every one of them.
+ * file.write covers file.read, so reads and writes together take file.write. Tasks that also run commands,
+ * or a spec that cannot be read, leave no scope: one prefix limit carries one method.
+ */
+export function reusableScopeOf(tasks: readonly { nodeId: string; spec: string | null }[]): ReusableScope | null {
+	const nodes: string[] = [];
+	const methods = new Set<string>();
+	for (const task of tasks) {
+		try {
+			methods.add(privilegedTarget(specFromRow(task.spec, "task")).method);
+		} catch {
+			return null;
+		}
+		if (!nodes.includes(task.nodeId)) nodes.push(task.nodeId);
+	}
+	if (nodes.length === 0) return null;
+	if (methods.size === 1) {
+		const [method] = methods;
+		if (method === "exec" || method === "file.read" || method === "file.write") return { nodes, method };
+		return null;
+	}
+	if (methods.size === 2 && methods.has("file.read") && methods.has("file.write"))
+		return { nodes, method: "file.write" };
+	return null;
+}
+
+/**
+ * Whether every node has a planned user entry that accepts a reusable prefix authorization: one that requires
+ * neither a bound spec nor task ids. crha refuses a `max_ttl` under five minutes, so lifetime never rules a
+ * short one out. A node without a trust summary is not known to accept it.
+ */
+async function reusableAcceptedOn(
+	db: Db,
+	nodeIds: readonly string[],
+	entryNames: ReadonlySet<string>,
+): Promise<boolean> {
+	for (const nodeId of nodeIds) {
+		const node = await getNode(db, nodeId);
+		const report = node ? parseTrustReport(node.trust_report) : null;
+		if (report?.kind !== "ok") return false;
+		const accepts = report.summary.trust.some(
+			(entry) =>
+				entry.role === "user" &&
+				entryNames.has(entry.name) &&
+				entry.kinds.includes("execute") &&
+				!entry.requireSpec &&
+				!entry.requireTask,
+		);
+		if (!accepts) return false;
+	}
+	return true;
+}
+
+/** The reusable scope of a sign option: the tasks' scope, when the nodes' planned entries would accept it. */
+async function signOptionScope(
+	db: Db,
+	option: PendingSignOption,
+	tasks: readonly { nodeId: string; spec: string | null }[],
+): Promise<ReusableScope | null> {
+	const scope = reusableScopeOf(tasks);
+	if (!scope) return null;
+	const names = new Set(option.entries.filter((entry) => entry.role === "user").map((entry) => entry.name));
+	return (await reusableAcceptedOn(db, scope.nodes, names)) ? scope : null;
+}
+
 /** One stored option as the owner's waiting page renders it; a sign option with no payload is still preparing. */
 async function pendingOption(
 	db: Db,
@@ -132,6 +202,7 @@ async function pendingOption(
 		...(option.fingerprints && option.fingerprints.length > 0 ? { fingerprints: option.fingerprints } : {}),
 		ttlMs: option.ttlMs,
 		payload,
+		reusableScope: null,
 	} satisfies PendingSignOption;
 }
 
@@ -153,12 +224,17 @@ async function pendingOptions(
 /** The waiting page of one task; null when no plan is written yet. */
 export async function pendingForTask(
 	db: Db,
-	row: { node_id: string; on_behalf_of_user_id: string; authorization: string | null },
+	row: { node_id: string; on_behalf_of_user_id: string; authorization: string | null; spec: string | null },
 ): Promise<PendingAuthorization | null> {
 	const record = parseTaskAuthorization(row.authorization);
 	if (!record) return null;
 	const options = await pendingOptions(db, row.on_behalf_of_user_id, row.node_id, record);
 	if (options.length === 0) return null;
+	for (const option of options) {
+		if (option.kind === "sign") {
+			option.reusableScope = await signOptionScope(db, option, [{ nodeId: row.node_id, spec: row.spec }]);
+		}
+	}
 	return { options, lastRejection: record.lastRejection };
 }
 
@@ -186,9 +262,13 @@ export async function pendingForTaskGroup(
 	if (!holder?.record) return null;
 	const options = await pendingOptions(db, userId, holder.row.node_id, holder.record);
 	if (options.length === 0) return null;
+	const waiting = records
+		.filter((entry) => entry.row.state === "awaiting_authorization")
+		.map((entry) => ({ nodeId: entry.row.node_id, spec: entry.row.spec }));
 	// A group's sign option is one payload; offer every Passkey any waiting node trusts for it.
 	for (const option of options) {
 		if (option.kind !== "sign") continue;
+		option.reusableScope = await signOptionScope(db, option, waiting);
 		const merged: PendingPasskey[] = [];
 		const seen = new Set<string>();
 		for (const entry of records) {
