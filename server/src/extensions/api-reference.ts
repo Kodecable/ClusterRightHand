@@ -5,6 +5,8 @@
  * model is not shown what it cannot use. The route index built here is also what `api_request` matches on.
  */
 
+import { escapeRegExp } from "../util/regex.ts";
+
 /** The same OpenAPI extension `api/openapi.ts` writes; kept local so `extensions/` has no runtime edge to `api/`. */
 const AGENT_ACCESS_EXTENSION = "x-crh-agent";
 
@@ -69,10 +71,6 @@ export interface ApiReference {
 }
 
 const METHODS = ["get", "post", "put", "patch", "delete", "head", "options"] as const;
-
-function escapeRegExp(text: string): string {
-	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 /** A route template (`/api/nodes/{id}`) as the pattern a concrete path matches. */
 export function routePattern(template: string): RegExp {

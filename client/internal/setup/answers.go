@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/fsutil"
 	"github.com/Kodecable/ClusterRightHand/client/internal/yesno"
 )
 
@@ -277,13 +278,15 @@ func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, in
 		if a.Server, err = take(file.Server, "crhs address", a.Server, true); err != nil {
 			return resolved{}, err
 		}
+		keepServerSpelling(&a)
 		if file.Token != nil {
-			a.Token = *file.Token
+			a.Token = strings.TrimSpace(*file.Token)
 		} else {
 			asked = true
 			if a.Token, err = p.askSecret("Enrollment token: "); err != nil {
 				return resolved{}, err
 			}
+			a.Token = strings.TrimSpace(a.Token)
 			if a.Token == "" {
 				return resolved{}, errors.New("Enrollment token must not be empty")
 			}
@@ -351,10 +354,26 @@ func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, in
 // checkKeptServer refuses a crhs address other than crha.toml's when the enrollment is kept: the
 // address belongs to the enrollment, and the kept key is registered with that crhs only.
 func checkKeptServer(a resolved) error {
+	if a.Keep && a.Previous != nil && sameServer(a.Server, a.Previous.Server) {
+		return nil
+	}
 	if a.Keep && a.Previous != nil && a.Server != a.Previous.Server {
 		return fmt.Errorf("the crhs address is %q in crha.toml: changing it to %q is a new enrollment; enroll again with a token from that crhs", a.Previous.Server, a.Server)
 	}
 	return nil
+}
+
+// sameServer compares crhs addresses as crha uses them: a trailing slash names the same crhs.
+func sameServer(a, b string) bool {
+	return strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
+}
+
+// keepServerSpelling keeps crha.toml's spelling of the crhs address when an answer names the same crhs,
+// so the file does not change for a trailing slash.
+func keepServerSpelling(a *resolved) {
+	if a.Previous != nil && sameServer(a.Server, a.Previous.Server) {
+		a.Server = a.Previous.Server
+	}
 }
 
 // startAnswers takes what the answers file and an existing crha.toml say before any question: the
@@ -376,6 +395,7 @@ func startAnswers(file *fileAnswers, state existingSetup) (resolved, error) {
 	}
 	if file.Server != nil {
 		a.Server = strings.TrimSpace(*file.Server)
+		keepServerSpelling(&a)
 		if err := checkKeptServer(a); err != nil {
 			return resolved{}, err
 		}
@@ -424,7 +444,7 @@ func confirm(p *prompter, a resolved, enrolled bool, say func(string)) error {
 		switch {
 		case a.Keep:
 			enrollment = "keep existing"
-		case a.Previous != nil && a.Previous.Server != a.Server:
+		case a.Previous != nil && !sameServer(a.Previous.Server, a.Server):
 			enrollment = "enroll again with a new key, as a new node of " + a.Server
 		}
 		say("  enrollment: " + enrollment)
@@ -595,8 +615,6 @@ func saveAnswers(path string, a resolved) error {
 		return err
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+	// The file may hold trust entries: written whole, 0600, never through a link at path.
+	return fsutil.WriteFile(path, data, 0o600, fsutil.WriteOptions{})
 }

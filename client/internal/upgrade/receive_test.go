@@ -25,6 +25,7 @@ func receiveSetup(t *testing.T) (string, *[]recordedRun, ReceiveOptions) {
 	return dir, runs, ReceiveOptions{
 		Dir:           dir,
 		SkipRootCheck: true,
+		From:          "1.2.0",
 		Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			*runs = append(*runs, recordedRun{name, args})
 			return nil, nil
@@ -79,13 +80,15 @@ func TestReceiveRefusesWhatWasNotAuthorized(t *testing.T) {
 		input []byte
 		want  string
 	}{
-		"short":       {"t", specFor(binary), binary[:4], "received 4 bytes"},
-		"long":        {"t", specFor(binary), append(append([]byte{}, binary...), 'x'), "received 14 bytes"},
-		"other bytes": {"t", specFor(binary), []byte("\x7fELF old crha"), "received sha256"},
-		"bad version": {"t", &protocol.NodeUpgradeSpec{Version: "../etc"}, nil, "not a version"},
-		"bad task id": {"../x", specFor(binary), binary, "cannot name a unit"},
-		"other arch":  {"t", func() *protocol.NodeUpgradeSpec { s := specFor(binary); s.Arch = "riscv64"; return s }(), binary, "this node runs"},
-		"too large":   {"t", func() *protocol.NodeUpgradeSpec { s := specFor(binary); s.Size = MaxBinarySize + 1; return s }(), binary, "at most"},
+		"short":         {"t", specFor(binary), binary[:4], "received 4 bytes"},
+		"long":          {"t", specFor(binary), append(append([]byte{}, binary...), 'x'), "received 14 bytes"},
+		"other bytes":   {"t", specFor(binary), []byte("\x7fELF old crha"), "received sha256"},
+		"bad version":   {"t", &protocol.NodeUpgradeSpec{Version: "../etc"}, nil, "newer release"},
+		"not a release": {"t", func() *protocol.NodeUpgradeSpec { s := specFor(binary); s.Version = "1.3"; return s }(), binary, "newer release"},
+		"downgrade":     {"t", func() *protocol.NodeUpgradeSpec { s := specFor(binary); s.Version = "1.1.0"; return s }(), binary, "newer release"},
+		"bad task id":   {"../x", specFor(binary), binary, "cannot name a unit"},
+		"other arch":    {"t", func() *protocol.NodeUpgradeSpec { s := specFor(binary); s.Arch = "riscv64"; return s }(), binary, "this node runs"},
+		"too large":     {"t", func() *protocol.NodeUpgradeSpec { s := specFor(binary); s.Size = MaxBinarySize + 1; return s }(), binary, "at most"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

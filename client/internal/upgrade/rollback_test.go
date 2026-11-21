@@ -107,7 +107,7 @@ func TestRollbackNeedsTheBackup(t *testing.T) {
 
 func TestRollbackWaitsForTheLock(t *testing.T) {
 	n := upgraded(t)
-	unlock, err := lock(n.dir)
+	unlock, err := backup.Lock(n.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,6 +180,8 @@ func TestRollbackUndoesAnInterruptedUpgrade(t *testing.T) {
 			break
 		}
 	}
+	// Later attempts that stopped before their backup do not hide it.
+	kept = append(kept, `{"upgrade_id":"task-2","from":"1.2.0","to":"1.3.0","level":"error","step":"failed","msg":"hand-over"}`)
 	if err := os.WriteFile(logPath, []byte(strings.Join(kept, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

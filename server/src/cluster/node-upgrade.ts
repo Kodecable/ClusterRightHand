@@ -8,11 +8,10 @@ import type { NodeUpgradeSkipReason } from "@crh/api";
 import { factsFromJson, type JsonFacts, type TaskSpec } from "@crh/protocol";
 import type { Db } from "../storage/db.ts";
 import type { CrhaReleases } from "./crha-release.ts";
-import { isReleaseVersion } from "./crha-release.ts";
+import { isReleaseArch, isReleaseVersion } from "./crha-release.ts";
 import type { NodeRow } from "./nodes.ts";
 import { TERMINAL } from "./types.ts";
 
-/** Why a requested node is not upgraded. */
 /** Why a node is skipped: the API's list, so the two cannot drift apart. */
 export type UpgradeSkipReason = NodeUpgradeSkipReason;
 
@@ -120,6 +119,10 @@ export async function planUpgrade(
 		}
 		if (self.arch === undefined) {
 			skip("no_arch");
+			continue;
+		}
+		if (!isReleaseArch(self.arch)) {
+			skip("unsupported_arch");
 			continue;
 		}
 		if (nodeVersion === null || !isReleaseVersion(nodeVersion)) {

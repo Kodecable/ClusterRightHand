@@ -402,6 +402,8 @@ export const NodeUpgradeSkipReasonSchema = z.enum([
 	"not_connected",
 	"self_upgrade_unavailable",
 	"no_arch",
+	"unsupported_arch",
+	"release_unavailable",
 	"up_to_date",
 	"newer_than_crhs",
 	"not_a_release_version",

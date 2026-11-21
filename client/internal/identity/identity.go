@@ -88,54 +88,23 @@ func decodeKey(r io.Reader, path string) ([]byte, error) {
 	return key, nil
 }
 
-// writeKey publishes a new key file without ever replacing an existing one. The key is written to a
-// temporary file in the same directory, fsynced, then linked to the final name: link(2) fails if the
-// name exists, so a concurrent or earlier write is never clobbered, and a crash before the link
-// leaves only a temporary file. The directory is fsynced once the name is published. The temporary
-// file's owner is set through its fd, before the name exists, so no chown ever runs on a path that
-// the unprivileged account could have replaced with a symlink.
+// writeKey publishes a new key file without ever replacing an existing one: an earlier or concurrent
+// write is never clobbered, and a crash leaves at most a temporary file. The owner is set through the
+// temporary file before the name exists, so no chown ever runs on a path the unprivileged account could
+// have replaced with a symlink.
 func writeKey(path string, key []byte, mode os.FileMode, owner *Owner) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".crh-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
+	opts := fsutil.WriteOptions{Exclusive: true}
 	if owner != nil {
-		if err := tmp.Chown(int(owner.UID), int(owner.GID)); err != nil {
-			tmp.Close()
-			return fmt.Errorf("set owner of %s: %w", path, err)
-		}
+		opts.Owner = &fsutil.Owner{UID: int(owner.UID), GID: int(owner.GID)}
 	}
-	if _, err := tmp.WriteString(base64.StdEncoding.EncodeToString(key) + "\n"); err != nil {
-		tmp.Close()
-		return err
+	err := fsutil.WriteFile(path, []byte(base64.StdEncoding.EncodeToString(key)+"\n"), mode, opts)
+	if errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("%s already exists", path)
 	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Link(tmpName, path); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return fmt.Errorf("%s already exists", path)
-		}
-		return err
-	}
-	if err := os.Remove(tmpName); err != nil {
-		return err
-	}
-	return fsutil.SyncDir(dir)
+	return err
 }
 
 // Keypair is a Noise static key pair.

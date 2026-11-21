@@ -1,13 +1,14 @@
 package upgrade
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
-// releaseVersion is a release's version: x.y.z with an optional prerelease. `dev` and git describe
-// output (which keep the tag's "v") are not releases.
+// releaseVersion is a release's version: x.y.z with an optional prerelease. `dev` and builds between
+// tags, which carry + build metadata (scripts/version.ts), are not releases.
 var releaseVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$`)
 
 // IsReleaseVersion reports whether v names a release.
@@ -58,4 +59,14 @@ func compareVersions(a, b string) int {
 		}
 	}
 	return len(xa) - len(xb)
+}
+
+// checkUpgrade is the one rule for the versions of an upgrade, which the old binary checks before it
+// hands over and the new one before it changes anything: from a release to a newer release. There is
+// no downgrade, since migrations only go forward.
+func checkUpgrade(from, to string) error {
+	if !IsReleaseVersion(from) || !IsReleaseVersion(to) || compareVersions(from, to) >= 0 {
+		return fmt.Errorf("an upgrade goes from a release to a newer release, not from %s to %s", from, to)
+	}
+	return nil
 }

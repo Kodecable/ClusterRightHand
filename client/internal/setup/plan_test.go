@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/tomledit"
 	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 )
 
@@ -76,7 +77,7 @@ func TestPlanAmendTryLeavesThePlanAsItWas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tls := editing(change{edit: setEdit("tls_verify", "none"), line: "tls_verify"})
+	tls := editing(change{edit: tomledit.Edit{Op: tomledit.Set, Path: []string{"tls_verify"}, Value: "none"}, line: "tls_verify"})
 	if err := plan.Amend(DefaultConfigPath, tls, true); err != nil {
 		t.Fatal(err)
 	}

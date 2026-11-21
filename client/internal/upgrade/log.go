@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +13,8 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/fsutil"
 )
 
-// MaxLogLines bounds the upgrade log; each write drops the oldest lines past it.
+// MaxLogLines bounds the upgrade log; each write drops the oldest lines past it, but not the lines of a
+// backup that still exists.
 const MaxLogLines = 128
 
 // Outcomes end an upgrade in the log.
@@ -67,47 +69,55 @@ func (l *Log) write(e Entry) error {
 	if err != nil {
 		return err
 	}
-	lines, _ := readLines(l.Path)
-	lines = trimLog(append(lines, line))
+	// A log that cannot be read is not replaced: losing this line is better than the lines a rollback
+	// needs.
+	lines, err := readLines(l.Path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read the upgrade log: %w", err)
+	}
+	lines = trimLog(append(lines, line), manifestExists)
 	if err := fsutil.WriteFile(l.Path, append(bytes.Join(lines, []byte("\n")), '\n'), 0o644, fsutil.WriteOptions{}); err != nil {
 		return fmt.Errorf("write the upgrade log: %w", err)
 	}
 	return nil
 }
 
-// trimLog drops the oldest lines past MaxLogLines, but the lines of the upgrades a rollback by hand
-// may need go last: the latest activated upgrade and the latest upgrade, which may have been
-// interrupted. Many failed attempts in a row then cannot push them out.
-func trimLog(lines [][]byte) [][]byte {
+func manifestExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// trimLog drops the oldest lines past MaxLogLines, but never the lines of an upgrade whose backup still
+// exists, nor the line just written: those alone may take the log past MaxLogLines. Which backups
+// exist is the installer's prune decision (it keeps the backup a rollback by hand needs), so the log
+// keeps what a rollback can still use, however many attempts failed since, and no more than the backups
+// kept.
+func trimLog(lines [][]byte, backedUp func(manifest string) bool) [][]byte {
 	if len(lines) <= MaxLogLines {
 		return lines
 	}
 	ids := make([]string, len(lines))
 	needed := map[string]bool{}
-	activated := ""
 	for i, line := range lines {
 		var e Entry
 		if json.Unmarshal(line, &e) == nil {
 			ids[i] = e.UpgradeID
-			if e.Step == OutcomeActivated {
-				activated = e.UpgradeID
+			if e.Manifest != "" && backedUp(e.Manifest) {
+				needed[e.UpgradeID] = true
 			}
 		}
 	}
-	needed[activated] = activated != ""
-	needed[ids[len(ids)-1]] = true
+	last := len(lines) - 1
 	drop := len(lines) - MaxLogLines
 	out := make([][]byte, 0, MaxLogLines)
 	for i, line := range lines {
-		if drop > 0 && !needed[ids[i]] {
+		if drop > 0 && i != last && !needed[ids[i]] {
 			drop--
 			continue
 		}
 		out = append(out, line)
 	}
-	if len(out) > MaxLogLines {
-		out = out[len(out)-MaxLogLines:]
-	}
+	// The lines a rollback can still use are bounded by the backups kept, so the log stays small.
 	return out
 }
 

@@ -295,7 +295,7 @@ export const fileModeCodec: Codec<number> = {
 	decode: checkFileMode,
 };
 
-export const taskSpecCodec = union({
+const taskSpecBranches = {
 	exec: execSpecCodec,
 	"file.read": tuple([
 		["path", text],
@@ -348,7 +348,12 @@ export const taskSpecCodec = union({
 		["sha256", sha256],
 		["endpoint", transferEndpointCodec],
 	]),
-});
+} as const;
+
+export const taskSpecCodec = union(taskSpecBranches);
+
+/** Every task kind this version decodes, in the union's order; Go's protocol.TaskSpecKinds is the same list. */
+export const TASK_SPEC_KINDS: readonly string[] = Object.freeze(Object.keys(taskSpecBranches));
 export type TaskSpec = Infer<typeof taskSpecCodec>;
 
 export const outputModeCodec = union({

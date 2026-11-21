@@ -15,6 +15,7 @@ import { CrhaReleases, isReleaseVersion, MAX_REDOWNLOADS, parseChecksums } from 
 import {
 	exactIdentity,
 	GITHUB_ACTIONS_ISSUER,
+	identityPattern,
 	type ReleaseSignatureVerifier,
 	releaseIdentity,
 	type SignatureCheck,
@@ -103,7 +104,7 @@ describe("the crha release cache", () => {
 		expect(binary.bytes).toEqual(BINARY);
 		expect(binary.sha256.toString("hex")).toBe(hex(BINARY));
 		expect(verifier.calls[0]).toMatchObject({
-			identity: "https://github.com/o/r/.github/workflows/release.yml@refs/tags/v1.3.0",
+			identityPattern: identityPattern({ owner: "o", repo: "r", tag: "v1.3.0" }),
 			issuer: GITHUB_ACTIONS_ISSUER,
 		});
 		expect(requests).toHaveLength(3);
@@ -172,9 +173,31 @@ describe("the crha release cache", () => {
 		await mkdir(store.directory, { recursive: true });
 		await writeFile(join(store.directory, ARCHIVE), archive);
 		await writeFile(join(store.directory, "SHA256SUMS"), Buffer.from(`${"1".repeat(64)}  ${ARCHIVE}\n`));
-		// The listed hash does not match: the archive is downloaded again and still does not match.
+		// The listed hash does not match. An unsigned list may be the wrong file as much as the archive: both
+		// are downloaded again, and the release's own list matches.
+		expect((await store.binary(ARCH)).bytes).toEqual(BINARY);
+		expect(requests.filter((url) => url.endsWith("/SHA256SUMS"))).toHaveLength(1);
+		// A release whose list never matches is refused.
+		served.set(assetUrl("SHA256SUMS"), Buffer.from(`${"1".repeat(64)}  ${ARCHIVE}\n`));
+		await rm(join(store.directory, "SHA256SUMS"));
 		await expect(store.binary(ARCH)).rejects.toMatchObject({ code: "release_invalid" });
 		expect(verifier.calls).toEqual([]);
+	});
+
+	it("lets architectures take turns, since they share SHA256SUMS", async () => {
+		const arm = await makeArchive(dir, { [`crha-${VERSION}-linux-arm64/crha`]: BINARY });
+		const armSums = Buffer.from(
+			`${hex(archive)}  ${ARCHIVE}\n${hex(arm)}  crha-${VERSION}-linux-arm64.tar.gz\n${hex(BINARY)}  crha-${VERSION}-linux-${ARCH}/crha\n${hex(BINARY)}  crha-${VERSION}-linux-arm64/crha\n`,
+		);
+		served.set(assetUrl("SHA256SUMS"), armSums);
+		served.set(assetUrl(`crha-${VERSION}-linux-arm64.tar.gz`), arm);
+		// The first verification fails: SHA256SUMS is condemned and downloaded again while the other
+		// architecture would read it.
+		verifier.results = [{ kind: "invalid", reason: "bad signature" }];
+		const store = releases();
+		const [a, b] = await Promise.all([store.binary(ARCH), store.binary("arm64")]);
+		expect(a.bytes).toEqual(BINARY);
+		expect(b.bytes).toEqual(BINARY);
 	});
 
 	it("without verification and without SHA256SUMS uses the archive as is", async () => {
@@ -204,8 +227,11 @@ describe("the crha release cache", () => {
 		});
 	});
 
-	it("reports a missing release asset", async () => {
+	it("reports a missing release asset; a missing archive is an architecture the release lacks", async () => {
 		served.delete(assetUrl(ARCHIVE));
+		await expect(releases().binary(ARCH)).rejects.toMatchObject({ code: "release_no_arch" });
+		served.set(assetUrl(ARCHIVE), archive);
+		served.delete(assetUrl("SHA256SUMS"));
 		await expect(releases().binary(ARCH)).rejects.toMatchObject({ code: "release_unavailable" });
 	});
 
@@ -287,14 +313,19 @@ describe("the tar reader", () => {
 });
 
 describe("the Sigstore verifier", () => {
-	it("matches the release identity exactly", () => {
-		const identity = releaseIdentity("o", "r", "v1.2.3");
-		const pattern = exactIdentity(identity);
+	it("matches the release identity exactly, owner and repository in any case", () => {
+		const release = { owner: "Kodecable", repo: "ClusterRightHand", tag: "v1.2.3" };
+		const identity = releaseIdentity(release);
+		const pattern = identityPattern({ ...release, owner: "kodecable", repo: "clusterrighthand" });
 		expect(identity.match(pattern)).not.toBeNull();
+		expect(identity.match(identityPattern(release))).not.toBeNull();
 		for (const other of [
-			releaseIdentity("o", "r", "v1.2.30"),
-			releaseIdentity("o", "r", "v1.2.3-rc.1"),
+			releaseIdentity({ ...release, tag: "v1.2.30" }),
+			releaseIdentity({ ...release, tag: "v1.2.3-rc.1" }),
+			releaseIdentity({ ...release, tag: "V1.2.3" }),
+			releaseIdentity({ ...release, repo: "ClusterRightHand2" }),
 			identity.replace("release.yml", "release-yml"),
+			identity.replace("release.yml", "Release.yml"),
 			`x${identity}`,
 		]) {
 			expect(other.match(pattern)).toBeNull();
@@ -318,7 +349,7 @@ describe("the Sigstore verifier", () => {
 			const result = await verifier.verify({
 				artifact: Buffer.from("x"),
 				bundle: Buffer.from("{}"),
-				identity,
+				identityPattern: exactIdentity(identity),
 				issuer,
 			});
 			expect(result).toMatchObject({ kind: "unverifiable" });
@@ -335,17 +366,25 @@ describe("the Sigstore verifier", () => {
 				const verifier = new SigstoreVerifier({ tufDir: dir });
 				const artifact = await readFile(new URL("cosign_checksums.txt", fixtures));
 				const bundle = await readFile(new URL("cosign_checksums.txt.sigstore.json", fixtures));
-				expect(await verifier.verify({ artifact, bundle, identity, issuer })).toEqual({ kind: "ok" });
+				expect(await verifier.verify({ artifact, bundle, identityPattern: exactIdentity(identity), issuer })).toEqual({
+					kind: "ok",
+				});
 				const tampered = Buffer.from(artifact);
 				tampered[0] = (tampered[0] ?? 0) ^ 1;
-				expect(await verifier.verify({ artifact: tampered, bundle, identity, issuer })).toMatchObject({
+				expect(
+					await verifier.verify({ artifact: tampered, bundle, identityPattern: exactIdentity(identity), issuer }),
+				).toMatchObject({
 					kind: "invalid",
 				});
-				expect(await verifier.verify({ artifact, bundle, identity: `${identity}x`, issuer })).toMatchObject({
+				expect(
+					await verifier.verify({ artifact, bundle, identityPattern: exactIdentity(`${identity}x`), issuer }),
+				).toMatchObject({
 					kind: "invalid",
 				});
 				// A part of the identity is not the identity.
-				expect(await verifier.verify({ artifact, bundle, identity: identity.slice(0, -4), issuer })).toMatchObject({
+				expect(
+					await verifier.verify({ artifact, bundle, identityPattern: exactIdentity(identity.slice(0, -4)), issuer }),
+				).toMatchObject({
 					kind: "invalid",
 				});
 			} finally {

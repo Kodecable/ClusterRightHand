@@ -12,6 +12,7 @@ import {
 	factsFromJson,
 	NOISE_PROLOGUE_PREFIX,
 	PROTOCOL_MAJOR,
+	subprotocolFor,
 	type TaskSpec,
 } from "@crh/protocol";
 import { UserError } from "../util/errors.ts";
@@ -86,7 +87,7 @@ export function refusalResponse(
 			: `crhs serves protocol majors ${list}; this crha speaks major ${clientMajor}. Upgrade crha by hand, as the release documentation describes.\n`;
 	return [
 		"HTTP/1.1 426 Upgrade Required",
-		`Upgrade: ${served.map((entry) => `crh.${entry.major}`).join(", ")}`,
+		`Upgrade: ${served.map((entry) => subprotocolFor(entry.major)).join(", ")}`,
 		`${SERVED_MAJORS_HEADER}: ${served.map((entry) => entry.major).join(",")}`,
 		"Connection: close",
 		"Content-Type: text/plain; charset=utf-8",

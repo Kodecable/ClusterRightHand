@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/backup"
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/enroll"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
@@ -36,11 +38,19 @@ func newFakeHost(t *testing.T) *fakeHost {
 	// The fake tree lives in t.TempDir(), so the directories ensureDirectory creates already
 	// belong to this process. Reporting the same uid/gid lets the skip path be exercised without
 	// actually changing owners, which a non-root test cannot do.
-	return &fakeHost{
+	h := &fakeHost{
 		root: t.TempDir(), rootUser: true,
 		uid: uint32(os.Geteuid()), gid: uint32(os.Getegid()),
 		executable: "/usr/local/bin/crha",
 	}
+	bin := filepath.Join(h.root, h.executable)
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("crha"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return h
 }
 
 func (h *fakeHost) Root() string                { return h.root }
@@ -326,6 +336,57 @@ func TestInvalidTrustRejectedBeforeWriting(t *testing.T) {
 	}
 }
 
+// Pasted trust entries are [[trust]] tables only, in a new privileged.toml as in a replaced one: text
+// from the WebUI cannot set a top-level key.
+func TestPastedTrustCannotSetTopLevelKeys(t *testing.T) {
+	for _, localRoot := range []bool{true, false} {
+		host := newFakeHost(t)
+		answers := forwardAnswers(t)
+		privileged := answers["privileged"].(map[string]any)
+		privileged["local_root"] = localRoot
+		privileged["trust"] = "clock_skew = \"24h\"\n\n" + trustEntry(t)
+		register, calls := fakeRegister(host)
+		err := runEnroll(t, host, answers, register, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "privileged.trust") {
+			t.Fatalf("local_root %v: err %v", localRoot, err)
+		}
+		if *calls != 0 {
+			t.Fatal("registered")
+		}
+	}
+}
+
+// Root runs the binary enroll names in the units: one a user can replace, or a path systemd would split
+// or expand, is refused before anything changes.
+func TestRunRefusesABinaryAUserCanChange(t *testing.T) {
+	for name, prepare := range map[string]func(h *fakeHost){
+		"writable dir": func(h *fakeHost) {
+			dir := filepath.Join(h.root, "home/user")
+			_ = os.MkdirAll(dir, 0o777)
+			_ = os.Chmod(dir, 0o777)
+			_ = os.WriteFile(filepath.Join(dir, "crha"), []byte("crha"), 0o755)
+			h.executable = "/home/user/crha"
+		},
+		"writable binary": func(h *fakeHost) {
+			_ = os.Chmod(filepath.Join(h.root, h.executable), 0o757)
+		},
+		"space": func(h *fakeHost) {
+			h.executable = "/usr/local/bin/my crha"
+			_ = os.WriteFile(filepath.Join(h.root, h.executable), []byte("crha"), 0o755)
+		},
+	} {
+		host := newFakeHost(t)
+		prepare(host)
+		register, calls := fakeRegister(host)
+		if err := runEnroll(t, host, ignoreAnswers(), register, io.Discard); err == nil || !strings.Contains(err.Error(), "crha binary") {
+			t.Fatalf("%s: err %v", name, err)
+		}
+		if *calls != 0 || len(host.commands) != 0 {
+			t.Fatalf("%s: enroll ran: %v", name, host.commands)
+		}
+	}
+}
+
 func TestRunNotRoot(t *testing.T) {
 	host := newFakeHost(t)
 	host.rootUser = false
@@ -335,6 +396,23 @@ func TestRunNotRoot(t *testing.T) {
 	}
 	if len(host.commands) != 0 {
 		t.Fatalf("commands ran as non-root: %v", host.commands)
+	}
+}
+
+// An upgrade or a rollback by hand holds the install lock: enroll changes nothing while it runs.
+func TestRunRefusesWhileAnUpgradeRuns(t *testing.T) {
+	host := newFakeHost(t)
+	unlock, err := backup.Lock(at(host, filepath.Dir(backup.Dir)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	register, calls := fakeRegister(host)
+	if err := runEnroll(t, host, ignoreAnswers(), register, io.Discard); !errors.Is(err, backup.ErrLocked) {
+		t.Fatalf("err %v", err)
+	}
+	if *calls != 0 || len(host.commands) != 0 {
+		t.Fatalf("enroll ran: %d registrations, %v", *calls, host.commands)
 	}
 }
 

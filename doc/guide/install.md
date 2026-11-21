@@ -298,6 +298,9 @@ one by fingerprint. See the
    with a line `.`; an empty answer leaves them for later. Local root approval lets uid 0 open the
    local approval window with `crha approve --for`; add other uids to the `local` entry later.
 
+   Run the installed `crha` (`/usr/local/bin/crha`): the units start that file as root, so enroll
+   refuses a binary in a directory another user can write, such as a home directory.
+
    It creates the `crha` user and group, `/etc/crha`, `/var/lib/crha`, `crha.toml`, the enrolled keys
    and, for `forward`, `privileged.toml` and `/var/lib/crha-privileged`; writes and starts
    `crha.service`, plus `crha-privileged.service` for `forward`; and prints the node id and key
@@ -316,7 +319,8 @@ current trust entries, naming them; answering no replaces them with pasted ones 
 the file as it is. The crhs address changes only by enrolling again with a token from the new crhs.
 When anything changes, it stops the services first, backs the files up to
 `/var/lib/crha-upgrade/backups/enroll-<time>/` (printing the directory) and starts the services again
-afterwards; a failed run starts them again too.
+afterwards; a failed run starts them again too. It does not run while a self-upgrade or
+`crha upgrade rollback` is changing the node.
 
 `--answers` and `--save-answers` work as in `crhs init`; a file holding the token must be readable only by
 its owner. On an enrolled node the `replace` answer is also required, and `forward` adds

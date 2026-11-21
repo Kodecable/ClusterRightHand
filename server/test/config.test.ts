@@ -34,6 +34,11 @@ describe("parseConfig", () => {
 			verify: true,
 			github: { owner: "me", repo: "fork" },
 		});
+		// A clone URL names the same repository.
+		expect(parseConfig('[crha_release]\nurl = "https://github.com/me/fork.git"\n').crhaRelease).toMatchObject({
+			url: "https://github.com/me/fork",
+			github: { owner: "me", repo: "fork" },
+		});
 		// Verification derives the Sigstore identity from a github.com repository, so it needs one.
 		expect(() => parseConfig('[crha_release]\nurl = "https://mirror.example/crh"\n')).toThrow(
 			/github\.com\/<owner>\/<repo>.*verify/,

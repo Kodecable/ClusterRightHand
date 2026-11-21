@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/statedir"
+	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
@@ -92,6 +94,25 @@ func Run(ctx context.Context, opts Options) (err error) {
 
 	if !host.IsRoot() {
 		return errors.New("crha enroll must run as root")
+	}
+	// The install lock keeps an upgrade or a rollback by hand from changing the fixed set, or starting
+	// and stopping its units, while enroll does.
+	unlock, err := backup.Lock(at(host, filepath.Dir(backup.Dir)))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	// The units name this binary and run it as root: one in a place a user can change is refused before
+	// any question.
+	executable, err := host.Executable()
+	if err != nil {
+		return fmt.Errorf("locate the crha binary: %w", err)
+	}
+	if err := checkExecutable(host, executable); err != nil {
+		return err
+	}
+	if err := checkUnitPath("the configuration", configPath); err != nil {
+		return err
 	}
 
 	file := &fileAnswers{Version: 1}
@@ -168,10 +189,6 @@ func Run(ctx context.Context, opts Options) (err error) {
 	// an upgrade (doc/design/distribution.md "Switching a node set up before"): the answers become edits
 	// of the existing files, or the content of new ones.
 	mode := answers.Mode
-	executable, err := host.Executable()
-	if err != nil {
-		return fmt.Errorf("locate the crha binary: %w", err)
-	}
 	v := opts.Version
 	if v == "" {
 		v = version.Version
@@ -196,7 +213,9 @@ func Run(ctx context.Context, opts Options) (err error) {
 		if err != nil {
 			return fmt.Errorf("look up uid of %s: %w", SystemUser, err)
 		}
-		want.Privileged.New = []byte(renderPrivilegedConfig(standInNodeID, uid, answers.LocalRoot, answers.Trust))
+		if want.Privileged.New, err = renderPrivilegedConfig(standInNodeID, uid, answers.LocalRoot, answers.Trust); err != nil {
+			return fmt.Errorf("privileged.trust: %w", err)
+		}
 	}
 	plan, err := BuildPlan(want)
 	if err != nil {
@@ -312,12 +331,29 @@ func Run(ctx context.Context, opts Options) (err error) {
 		}
 	}
 	if err := plan.Apply(ctx, run, host.Chown); err != nil {
-		return err
+		if keep {
+			return err
+		}
+		// crhs holds the new key now: putting the previous files back would not bring the previous
+		// enrollment back. What is left is said, and running enroll again finishes it.
+		where := ""
+		if manifestPath != "" {
+			where = "; the previous files are in " + filepath.Dir(manifestPath)
+		}
+		return fmt.Errorf("registered as node %s, but writing the files failed: %w%s; fix it and run crha enroll again", result.NodeID, err, where)
 	}
 	reportPlan(plan, executable, say)
 	if answers.Start {
-		// Started in order, privileged mode first, as an upgrade does; a unit that runs already stays.
-		if err := units.Start(ctx, run, plan.Units); err != nil {
+		// Started in order, privileged mode first, as an upgrade does; a unit that runs already stays. A
+		// privileged unit written by hand that enroll stopped is started again, though the mode does not
+		// run it.
+		start := slices.Clone(plan.Units)
+		for _, name := range stopped {
+			if !slices.Contains(start, name) && slices.Contains(units.Present(host.Root()), name) {
+				start = append([]string{name}, start...)
+			}
+		}
+		if err := units.Start(ctx, run, start); err != nil {
 			return err
 		}
 		stopped = nil
@@ -362,15 +398,31 @@ const standInNodeID = "00000000-0000-7000-8000-000000000000"
 // state directory, else the one privileged.toml names (a node enrolled before crha kept it); empty
 // when neither says.
 func previousNodeID(host Host, stateDir string) string {
-	if data, err := os.ReadFile(at(host, filepath.Join(stateDir, "node_id"))); err == nil {
-		if id := strings.TrimSpace(string(data)); id != "" {
-			return id
-		}
+	if id := readNodeID(at(host, filepath.Join(stateDir, "node_id"))); id != "" {
+		return id
 	}
 	if data, err := os.ReadFile(at(host, PrivilegedConfigPath)); err == nil {
 		if cfg, err := privconfig.Parse(data); err == nil {
 			return cfg.NodeID
 		}
+	}
+	return ""
+}
+
+// readNodeID reads the node id crha recorded. The state directory is crha's, and enroll runs as root:
+// the file is not followed through a link, only its start is read, and anything but a node id is none.
+func readNodeID(path string) string {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	data, _ := io.ReadAll(io.LimitReader(f, 128))
+	if id := strings.TrimSpace(string(data)); protocol.IsUUID(id) {
+		return id
 	}
 	return ""
 }
@@ -517,8 +569,11 @@ func validateTrust(answers resolved) error {
 	if !answers.PrivilegedAnswers {
 		return nil
 	}
-	content := renderPrivilegedConfig("00000000-0000-0000-0000-000000000000", 0, answers.LocalRoot, answers.Trust)
-	if _, err := privconfig.Parse([]byte(content)); err != nil {
+	content, err := renderPrivilegedConfig("00000000-0000-0000-0000-000000000000", 0, answers.LocalRoot, answers.Trust)
+	if err == nil {
+		_, err = privconfig.Parse(content)
+	}
+	if err != nil {
 		return fmt.Errorf("privileged.trust: %w", err)
 	}
 	return nil
@@ -536,10 +591,6 @@ func hostRunner(host Host) units.Runner {
 		}
 		return []byte(result.Stdout), nil
 	}
-}
-
-func systemctl(ctx context.Context, host Host, args ...string) error {
-	return units.Systemctl(ctx, hostRunner(host), args...)
 }
 
 func runChecked(ctx context.Context, host Host, description string, name string, args ...string) error {
@@ -587,8 +638,10 @@ func renderConfig(answers resolved) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// renderPrivilegedConfig is the privileged.toml of a forward node, including the pasted trust entries.
-func renderPrivilegedConfig(nodeID string, uid uint32, localRoot bool, trust string) string {
+// renderPrivilegedConfig is the privileged.toml of a forward node. The trust entries go in by the same
+// edit that replaces them in an existing file, which takes [[trust]] tables only: pasted text cannot set
+// a top-level key such as clock_skew.
+func renderPrivilegedConfig(nodeID string, uid uint32, localRoot bool, trust string) ([]byte, error) {
 	lines := []string{
 		"node_id = " + tomlString(nodeID),
 		"unprivileged_uid = " + strconv.FormatUint(uint64(uid), 10),
@@ -597,10 +650,8 @@ func renderPrivilegedConfig(nodeID string, uid uint32, localRoot bool, trust str
 		"state_dir = " + tomlString(PrivilegedStateDir),
 		"log = " + tomlString(PrivilegedLogPath),
 	}
-	if entries := trustEntries(localRoot, trust); entries != "" {
-		lines = append(lines, "", entries)
-	}
-	return strings.Join(lines, "\n") + "\n"
+	out, _, err := editing(trustChange(localRoot, trust))([]byte(strings.Join(lines, "\n") + "\n"))
+	return out, err
 }
 
 // tomlString renders a TOML basic string. JSON's escaping is valid TOML for the paths and URLs stored.

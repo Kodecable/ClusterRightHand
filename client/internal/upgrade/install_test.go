@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/backup"
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/setup"
 	"github.com/Kodecable/ClusterRightHand/client/internal/tomledit"
@@ -282,7 +283,7 @@ func TestInstallRefusesADowngrade(t *testing.T) {
 
 func TestASecondInstallDoesNotWriteTheLog(t *testing.T) {
 	n := newNode(t, config.ModeNative)
-	unlock, err := lock(n.dir)
+	unlock, err := backup.Lock(n.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,22 +399,30 @@ func TestLogKeepsTheLastLines(t *testing.T) {
 
 func TestOnlyOneInstallRuns(t *testing.T) {
 	dir := t.TempDir()
-	unlock, err := lock(dir)
+	unlock, err := backup.Lock(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	if _, err := lock(dir); err == nil {
+	if _, err := backup.Lock(dir); err == nil {
 		t.Fatal("a second lock was granted")
 	}
 }
 
-// Failed attempts fill the log, but the lines of the activated upgrade a rollback needs stay.
-func TestLogKeepsTheActivatedUpgradeThroughFailures(t *testing.T) {
+// Failed attempts fill the log, but the lines of an upgrade whose backup still exists stay; those of one
+// whose backup was pruned go.
+func TestLogKeepsTheLinesOfKeptBackupsThroughFailures(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, LogName)
+	manifest := filepath.Join(dir, "manifest.json")
+	if err := os.WriteFile(manifest, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pruned := &Log{Path: path, UpgradeID: "pruned", From: "1.1.0", To: "1.2.0"}
+	_ = pruned.WriteManifest(filepath.Join(dir, "gone.json"))
+	_ = pruned.Write("info", OutcomeActivated, "up")
 	good := &Log{Path: path, UpgradeID: "good", From: "1.2.0", To: "1.3.0"}
-	_ = good.WriteManifest("/m")
+	_ = good.WriteManifest(manifest)
 	_ = good.Write("info", OutcomeActivated, "up")
 	for i := 0; i < MaxLogLines; i++ {
 		failed := &Log{Path: path, UpgradeID: fmt.Sprint("failed-", i), From: "1.3.0", To: "1.4.0"}
@@ -424,6 +433,98 @@ func TestLogKeepsTheActivatedUpgradeThroughFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(entries) != MaxLogLines || entries[0].UpgradeID != "good" || entries[1].Step != OutcomeActivated {
+		t.Fatalf("%d entries, first %+v", len(entries), entries[0])
+	}
+}
+
+// A log that cannot be read is left as it is: the line is lost, not the lines before it.
+func TestLogIsNotReplacedWhenUnreadable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, LogName)
+	data := append(bytes.Repeat([]byte("x"), 2<<20), '\n')
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	log := &Log{Path: path, UpgradeID: "u"}
+	if err := log.Write("info", "step", "m"); err == nil {
+		t.Fatal("no error")
+	}
+	if got, _ := os.ReadFile(path); !bytes.Equal(got, data) {
+		t.Fatal("the log was replaced")
+	}
+}
+
+// A rollback that cannot restore the backup leaves the upgrade interrupted: no outcome, and the next
+// upgrade refuses to build on its files.
+func TestAFailedRollbackLeavesTheUpgradeInterrupted(t *testing.T) {
+	n := newNode(t, config.ModeForward)
+	n.sys.ready = false
+	n.sys.onRun = func(call string) {
+		if call != "systemctl start crha.service" {
+			return
+		}
+		m, err := backup.Read(filepath.Join(n.dir, "backups", backup.UpgradeID("task-1"), backup.ManifestName))
+		if err != nil {
+			return
+		}
+		for _, e := range m.Entries {
+			if e.Path == target {
+				_ = os.Remove(e.Backup)
+			}
+		}
+	}
+	if err := n.installTask(t, context.Background(), "task-1", "1.2.0", "1.3.0"); err == nil {
+		t.Fatal("no error")
+	}
+	entries, err := ReadLog(n.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e, ok := interruptedUpgrade(entries); !ok || e.UpgradeID != "task-1" {
+		t.Fatalf("not interrupted: %+v", entries[len(entries)-1])
+	}
+	n.sys.onRun = nil
+	n.sys.calls = nil
+	n.sys.ready = true
+	err = n.installTask(t, context.Background(), "task-2", "1.2.0", "1.3.0")
+	if err == nil || !strings.Contains(err.Error(), "interrupted") {
+		t.Fatalf("err %v", err)
+	}
+	if len(n.sys.calls) != 0 {
+		t.Fatalf("touched the node: %q", n.sys.calls)
+	}
+	if e, ok := interruptedUpgrade(mustReadLog(t, n.dir)); !ok || e.UpgradeID != "task-1" {
+		t.Fatal("the refused upgrade hid the interrupted one")
+	}
+}
+
+func mustReadLog(t *testing.T, dir string) []Entry {
+	t.Helper()
+	entries, err := ReadLog(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return entries
+}
+
+// The lines of a kept backup stay even when they alone pass MaxLogLines.
+func TestLogNeverDropsTheLinesOfAKeptBackup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, LogName)
+	manifest := filepath.Join(dir, "manifest.json")
+	if err := os.WriteFile(manifest, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	kept := &Log{Path: path, UpgradeID: "kept", From: "1.2.0", To: "1.3.0"}
+	_ = kept.WriteManifest(manifest)
+	for i := 0; i < MaxLogLines+10; i++ {
+		_ = kept.Write("info", "migrate", fmt.Sprint(i))
+	}
+	next := &Log{Path: path, UpgradeID: "next", From: "1.3.0", To: "1.4.0"}
+	_ = next.Write("info", "start", "s")
+	entries := mustReadLog(t, dir)
+	// Only the kept backup's lines and the one just written remain.
+	if len(entries) != MaxLogLines+12 || entries[0].Manifest != manifest || entries[len(entries)-1].UpgradeID != "next" {
 		t.Fatalf("%d entries, first %+v", len(entries), entries[0])
 	}
 }

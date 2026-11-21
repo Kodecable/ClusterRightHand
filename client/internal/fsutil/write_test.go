@@ -1,6 +1,7 @@
 package fsutil
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -47,5 +48,22 @@ func TestWriteFileNeverFollowsAPlantedLink(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(victim); string(data) != "keep" {
 		t.Fatalf("the link was followed: %q", data)
+	}
+}
+
+func TestWriteFileExclusiveNeverReplaces(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "key")
+	if err := WriteFile(path, []byte("first"), 0o600, WriteOptions{Exclusive: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteFile(path, []byte("second"), 0o600, WriteOptions{Exclusive: true}); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("err %v", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "first" {
+		t.Fatalf("replaced: %q", data)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("left a temporary file: %v", entries)
 	}
 }

@@ -350,7 +350,10 @@ export function parseCrhaReleaseConfig(raw: Record<string, unknown>): CrhaReleas
 			throw new Error(`crha_release.${key} must be true or false`);
 		}
 	}
-	const url = str(raw, "url", "crha_release.url", DEFAULT_CRHA_RELEASE_URL).replace(/\/+$/, "");
+	// A repository URL as copied from GitHub's clone button ends in .git; the release URLs do not.
+	const url = str(raw, "url", "crha_release.url", DEFAULT_CRHA_RELEASE_URL)
+		.replace(/\/+$/, "")
+		.replace(/\.git$/, "");
 	let parsed: URL;
 	try {
 		parsed = new URL(url);

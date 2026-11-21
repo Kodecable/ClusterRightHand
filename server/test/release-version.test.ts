@@ -43,4 +43,18 @@ describe("the build's version", () => {
 		expect(await resolveVersion({ GITHUB_REF_TYPE: "tag", GITHUB_REF_NAME: "v1.0.0-rc.2" })).toBe("1.0.0-rc.2");
 		await expect(resolveVersion({ GITHUB_REF_TYPE: "tag", GITHUB_REF_NAME: "nightly" })).rejects.toThrow();
 	});
+
+	it("takes only a version from CRH_VERSION, and in a tag run only the tag's", async () => {
+		expect(await resolveVersion({ CRH_VERSION: "1.2.3+local" })).toBe("1.2.3+local");
+		expect(await resolveVersion({ CRH_VERSION: "dev" })).toBe("dev");
+		for (const bad of ["v1.2.3", "1.2", "1.2.3 ", "../x"]) {
+			await expect(resolveVersion({ CRH_VERSION: bad }), bad).rejects.toThrow(/not a version/);
+		}
+		expect(await resolveVersion({ CRH_VERSION: "1.0.0", GITHUB_REF_TYPE: "tag", GITHUB_REF_NAME: "v1.0.0" })).toBe(
+			"1.0.0",
+		);
+		await expect(
+			resolveVersion({ CRH_VERSION: "1.0.1", GITHUB_REF_TYPE: "tag", GITHUB_REF_NAME: "v1.0.0" }),
+		).rejects.toThrow(/disagrees/);
+	});
 });

@@ -24,6 +24,7 @@ describe("upgrade texts", () => {
 });
 
 const calls: { targets: string[]; dryRun: boolean }[] = [];
+let started: Partial<NodeUpgradeResponse> = {};
 const plan: NodeUpgradeResponse = {
 	version: "1.3.0",
 	upgrades: [
@@ -47,6 +48,7 @@ vi.mock("./api", async (importOriginal) => ({
 								{ arch: "amd64", taskGroupId: "g-amd64" },
 								{ arch: "arm64", taskGroupId: "g-arm64" },
 							],
+							...started,
 						};
 			},
 		}),
@@ -64,5 +66,23 @@ describe("the upgrade dialog", () => {
 			{ targets: ["group-1"], dryRun: true },
 			{ targets: ["n-x86", "n-pi"], dryRun: false },
 		]);
+	});
+
+	test("shows the nodes skipped only when the upgrade started", async () => {
+		calls.length = 0;
+		started = {
+			upgrades: [plan.upgrades[0] as NodeUpgradeResponse["upgrades"][number]],
+			skipped: [{ nodeId: "n-pi", name: "pi", reason: "release_unavailable", nodeReasons: [], version: "1.2.0" }],
+			taskGroups: [{ arch: "amd64", taskGroupId: "g-amd64" }],
+		};
+		try {
+			await renderWithRouter(<UpgradeCrhaDialog targets={["group-1"]} onClose={() => {}} />);
+			await screen.findByText("x86: 1.2.0 → 1.3.0 (amd64)");
+			fireEvent.click(screen.getByRole("button", { name: "Upgrade" }));
+			await screen.findByText("pi: the release has no crha for its architecture");
+			expect(screen.getByRole("link", { name: "Task group for amd64" })).toBeTruthy();
+		} finally {
+			started = {};
+		}
 	});
 });

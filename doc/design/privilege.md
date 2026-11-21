@@ -201,7 +201,8 @@ crhu never reads the private key.
 A `spec` command limit carries only the hash, so `crhu sign` takes the spec as `--spec` (base64 of the
 canonical CBOR spec, or `--spec -` for a large one): it recomputes the hash, refuses a mismatch, and
 shows every field, the method and target the node would match included. `--content` hashes a local file
-and matches it against the spec's input, so the signer checks the bytes as well as the spec.
+and matches it against the spec's input, so the signer checks the bytes as well as the spec; for a
+`node.upgrade` spec that is the crha binary unpacked from the release archive.
 
 Registering an SSH credential proves possession: crhs issues a short-lived, single-use challenge in
 the separate `crh-register-v1` namespace, and the user signs it with the key. crhs takes the public key

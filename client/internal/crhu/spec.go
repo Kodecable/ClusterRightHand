@@ -92,7 +92,11 @@ type specView struct {
 	Group            *string       `json:"group,omitempty"`
 	CreateParentDirs *bool         `json:"create_parent_dirs,omitempty"`
 
-	// file.push, file.pull
+	// node.upgrade
+	Version string `json:"version,omitempty"`
+	Arch    string `json:"arch,omitempty"`
+
+	// file.push, file.pull, node.upgrade
 	Size     *uint64       `json:"size,omitempty"`
 	SHA256   string        `json:"sha256,omitempty"`
 	MaxBytes *uint64       `json:"max_bytes,omitempty"`
@@ -184,6 +188,14 @@ func specViewFor(spec *protocol.TaskSpec) (*specView, error) {
 		for _, edit := range spec.FileEdit.Edits {
 			view.Edits = append(view.Edits, editView{OldText: edit.OldText, NewText: edit.NewText})
 		}
+	case protocol.TaskSpecNodeUpgrade:
+		if spec.NodeUpgrade == nil {
+			return nil, errors.New("node.upgrade spec has no body")
+		}
+		u := spec.NodeUpgrade
+		size := uint64(u.Size)
+		view.Version, view.Arch, view.Size, view.SHA256 = u.Version, u.Arch, &size, hexHash(u.SHA256)
+		view.Endpoint = &endpointView{Kind: string(u.Endpoint.Kind), TransferID: u.Endpoint.TransferID}
 	default:
 		return nil, fmt.Errorf("unknown task spec kind %q", string(spec.Kind))
 	}
@@ -224,6 +236,11 @@ func inputRefOf(spec *protocol.TaskSpec) (*protocol.InputRef, string) {
 	case protocol.TaskSpecFilePush:
 		if spec.FilePush != nil {
 			return &protocol.InputRef{Size: spec.FilePush.Size, SHA256: spec.FilePush.SHA256}, "transfer"
+		}
+	case protocol.TaskSpecNodeUpgrade:
+		// The crha binary of the release: --content checks it against crha-<v>-linux-<arch>/crha.
+		if spec.NodeUpgrade != nil {
+			return &protocol.InputRef{Size: spec.NodeUpgrade.Size, SHA256: spec.NodeUpgrade.SHA256}, "transfer"
 		}
 	}
 	return nil, ""

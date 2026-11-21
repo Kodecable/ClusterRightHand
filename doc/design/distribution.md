@@ -96,12 +96,14 @@ packaging and the release workflow all use it:
 
 | Source | Example | Version |
 |---|---|---|
-| `CRH_VERSION`, when set | | as given (a manual override) |
+| `CRH_VERSION`, when set | `1.2.3+local` | as given (a manual override): `x.y.z[-pre][+build]` or `dev`, and in a release run the tag's version, else the build fails |
 | A release run's tag (`GITHUB_REF_TYPE=tag`) | `v0.2.0-rc.1` | `0.2.0-rc.1`; a tag that is not `v` and a release version fails the run |
 | `git describe` on a tag | `v0.2.0-rc.1` | `0.2.0-rc.1` |
 | `git describe` after a tag | `v0.2.0-rc.1-4-gabc1234-dirty` | `0.2.0-rc.1+4.gabc1234.dirty` |
-| `git describe` without a tag | `abc1234` | `0.0.0+gabc1234` |
+| `git describe` without a version tag | `abc1234` | `0.0.0+gabc1234` |
 | No git | | `dev` |
+
+`git describe` looks only at version tags (`v[0-9]*`), so another tag never becomes a version.
 
 A **release version** is `x.y.z` with an optional SemVer prerelease (`-rc.1`) and no build metadata; its
 release is tagged `v<version>`. A build between tags carries build metadata, so it is never a release,
@@ -116,13 +118,17 @@ CI (`.github/workflows/ci.yml`) runs the checks, the unit, e2e, bundle and syste
 `main` and every pull request. Pushing a `v*` tag runs `.github/workflows/release.yml`, which:
 
 - `packages` builds the archives, deb and rpm for amd64 and arm64 in the `release` environment, signs
-  the rpms, verifies them with `rpm -K`, signs `SHA256SUMS` with cosign and attests the build provenance
-  of the files.
+  the rpms and verifies them with `rpm -K`. It restores no cache, and it has no OIDC token: it runs
+  dependency install scripts and build tools, none of which may mint the identity crhs trusts.
+- `sign` downloads what `packages` built, checks `SHA256SUMS` against the assets and the binaries in
+  the archives, signs `SHA256SUMS` with cosign and attests the build provenance of the files. It checks
+  out nothing and runs nothing from the tree, so the OIDC token reaches only cosign and the attestation.
 - `image` builds `linux/amd64` on `ubuntu-latest` and `linux/arm64` on `ubuntu-24.04-arm`, one image per
   runner, and pushes each to GHCR by digest.
 - `manifest` assembles the images into one manifest tagged `<version>` (and `latest` for a stable
   release), signs it with cosign and attests its provenance.
-- `release` opens a draft GitHub release with the artifacts; the maintainer reviews and publishes it.
+- `release` opens a draft GitHub release with the artifacts and the signature; the maintainer reviews
+  and publishes it.
 
 The `packages` job resolves the version once ([Versions](#versions)) and hands it, with whether it is a
 prerelease, to the other jobs as its outputs. A prerelease is not tagged `latest`, and the draft is
@@ -208,6 +214,14 @@ Run as root. It asks:
 `native` and `reject` are left to a manual `crha.toml`; enroll keeps them as the default of the mode
 question.
 
+Before any question, enroll takes the install lock ([On the node](#on-the-node)), so it never runs
+while an upgrade or a rollback by hand changes the same files, and checks the binary it runs: the units
+start that path as root, and an upgrade replaces the file there, so the binary and every directory above
+it must belong to root and be writable by no one else, and the path must be one `ExecStart` takes
+unquoted. A binary in a user's directory is refused, with the advice to copy it to `/usr/local/bin`.
+Pasted trust entries must be `[[trust]]` tables and nothing else, in a new `privileged.toml` as in a
+replaced one: the text comes from crhs's WebUI and cannot set a top-level key such as `clock_skew`.
+
 On a new node it then creates the `crha` user and group when missing, `/etc/crha` (root:crha, 0750)
 and `/var/lib/crha` (crha, 0700); writes `crha.toml` (root:crha, 0640); enrolls, writing the keys and
 `node_id` (owned by crha) only after crhs accepted the token; for `forward`, creates
@@ -282,7 +296,10 @@ registering nothing can fail but writing the files:
 4. **Register**, when enrolling again, against `crha.toml` as the run will leave it. A refused token
    changes no file.
 5. **Write** the files, then **start** the units, privileged mode first, when they are to be started;
-   otherwise stopped units stay stopped.
+   otherwise stopped units stay stopped. A privileged unit written by hand that enroll stopped is
+   started again. If writing fails after registering, the backup is not put back: crhs holds the new
+   key, so the old files would not bring the old enrollment back. Enroll says the node is registered,
+   what failed and where the backup is; running it again finishes the switch.
 
 A rerun that changes nothing stops, backs up and writes nothing; each file is reported as written,
 changed (with what changed), removed or skipped.
@@ -304,7 +321,8 @@ two apart after registering, by the node id crhs returns:
   kept outside `forward` still works on the way back); otherwise the privileged mode would refuse every
   task of the new node.
 - A different crhs address is named in the confirmation summary as a new node of that crhs before
-  anything runs.
+  anything runs. A trailing `/` does not make an address different, and `crha.toml` keeps its own
+  spelling.
 
 ### crha register
 
@@ -387,21 +405,25 @@ verify = true
   sends it, so the cache holds no derived files. Other versions' directories are removed at startup.
 - Downloads go through the wrapped global fetch, so they carry crhs's User-Agent
   ([Outbound requests](architecture.md#outbound-requests)); the Sigstore client is given the same fetch.
-  A download is streamed to a temporary file of its own and stops at the asset's size limit.
+  A download is streamed to a temporary file of its own and stops at the asset's size limit, or when no
+  data arrives for 30 seconds; a slow download that keeps moving goes on.
 - `SHA256SUMS` lists every archive and also each crha binary, under its path in the unpacked archive
   (`crha-<version>-linux-<arch>/crha`): the hash an upgrade's authorization binds.
 
 Downloading and verifying are separate steps, run once per version and architecture however many tasks
 wait for them (single flight), and verification runs every time a release is about to be sent; no
-"verified" marker is stored.
+"verified" marker is stored. Architectures take turns, since they share `SHA256SUMS`, which one may
+condemn while another reads it.
 
 1. **Download** each missing asset, when `download` is true; otherwise a missing archive fails and names
    the path to copy it to.
 2. **Verify.** With `verify = true`, both checks are mandatory:
    - the Sigstore bundle must verify `SHA256SUMS`, with exactly the certificate identity
      `https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/v<version>` (derived
-     from `url`; matched whole, so `v1.2.30` or another workflow never stands in for it) and the issuer
-     `https://token.actions.githubusercontent.com`;
+     from `url`; matched whole, so `v1.2.30` or another workflow never stands in for it; the owner and
+     repository in any case, as GitHub names them, the workflow and the tag exactly) and the issuer
+     `https://token.actions.githubusercontent.com`. A `url` copied with a `.git` suffix names the same
+     repository;
    - the archive's SHA-256 must match its line in `SHA256SUMS`, and the binary read out of it its own
      line. A signed list that disagrees with its own binary is a broken release: it fails without a
      new download.
@@ -410,7 +432,9 @@ wait for them (single flight), and verification runs every time a release is abo
    there is no fallback to a bundled or cached root. A host that cannot reach GitHub and the Sigstore TUF
    repository must turn verification off. With `verify = false` the signature is not checked, but when
    `SHA256SUMS` is present the archive is still checked against it; without it the archive is used as
-   is; the binary's line is checked when it is there. A `url` that is not a `github.com` repository is a configuration error unless `verify` is false.
+   is; the binary's line is checked when it is there. An unsigned `SHA256SUMS` that does not match the
+   archive is condemned with it, as either may be the wrong file. A `url` that is not a `github.com`
+   repository is a configuration error unless `verify` is false.
 3. **On failure**, crhs tells the two kinds apart. A definite failure (a bad signature, a wrong
    identity, a hash mismatch, a malformed file) deletes the files it condemns and downloads them again,
    at most twice per run; with `download = false` nothing is deleted and the run fails. A failure to
@@ -431,12 +455,14 @@ group per architecture.
 `POST /api/nodes/upgrade` (administrators; an agent's call needs approval) takes nodes and node groups
 like a task group, and answers the plan: the nodes it upgrades, with their running tasks, and the nodes
 it skips with a reason: not a crha node, not connected, `self_upgrade` not available (with the node's
-reasons), no `arch` reported, already at crhs's version, newer than crhs (there is no downgrade:
+reasons), no `arch` reported, an `arch` that cannot name a release asset, already at crhs's version, newer than crhs (there is no downgrade:
 configuration migrations only go forward), a version that is not a release, or an upgrade of the node
 that has not ended. A crhs that is not a release refuses. With `dryRun` it stops there and fetches
 nothing; the WebUI shows that plan, and starts exactly the nodes it showed. Otherwise it fetches and
 verifies the release of every architecture first, so a release that fails, possibly a tampered one,
-starts nothing and is audited as `node.upgrade_failed`; then it stages the binaries, starts one group per
+starts nothing and is audited as `node.upgrade_failed`. A release that has no archive for an
+architecture is not a failed release: only that architecture's nodes are skipped, and the answer and
+the WebUI list them with the others; then it stages the binaries, starts one group per
 architecture, and records `node.upgrade_requested` with the groups that started (and the error, when a
 later one failed to).
 
@@ -463,7 +489,9 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
    arrives (`/var/lib/crha-upgrade` is root's, 0755; `backups` and each backup are 0700), and a wrong
    size or hash fails the task. The spec must name this node's architecture and at most 128 MiB. It never
    passes through a directory the unprivileged mode can write: the version must look like a version
-   (checked before the authorization target is rendered from it, so it cannot add words to the target),
+   (checked before the authorization target is rendered from it, so it cannot add words to the target)
+   and, by the installer's own rule, be a release newer than the running one, so a task the installer
+   would refuse fails here, where crhs sees why;
    the directories must be root's and real directories, and the file is created without following links.
 2. **Hand over (old binary).** Start the new binary in a transient unit, outside crha's cgroups, so that
    stopping crha's services does not kill it: `systemd-run --unit crha-upgrade-<task id> --collect
@@ -474,9 +502,11 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
 
    When the old crha receives the `task.exit.ack` for that task, it logs the hand-over line
    `crha upgrade handed over: crhs confirmed task <id>`. It does not exit or stop anything itself.
-3. **Plan (new binary, transient unit).** Take the install lock (`/var/lib/crha-upgrade/install.lock`)
-   and refuse anything but an upgrade from a release to a newer release: there is no downgrade, so every
-   upgrade's `from` is lower than its `to`, which a rollback by hand relies on. Then work
+3. **Plan (new binary, transient unit).** Take the install lock (`/var/lib/crha-upgrade/install.lock`,
+   also held by a rollback by hand and by `crha enroll`) and refuse anything but an upgrade from a
+   release to a newer release: there is no downgrade, so every upgrade's `from` is lower than its `to`,
+   which a rollback by hand relies on. Refuse, too, while an earlier upgrade is interrupted ([Upgrade
+   log](#upgrade-log)): its files may be half written, and only a rollback by hand ends it. Then work
    out the node as this version sets it up, changing nothing yet:
    - Read `crha.service`: its `X-CRH-Meta` gives the mode and the configuration, its `ExecStart` the
      binary to replace. A unit crha did not write stops the install here.
@@ -501,7 +531,8 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
    - Set the host up as `crha enroll` does: the system user and the directories crha needs, with their
      owners and modes. Nothing that is already right changes, and none of it is undone by a rollback.
    - Back up the fixed set to `task-<task id>` ([Backups](#backups)); the upgrade log names the
-     manifest.
+     manifest. Without that line a rollback by hand could not find the backup, so a log that cannot
+     take it stops the upgrade before anything is written.
    - Apply the plan: the files whose content changes are written, the binary last (it copies itself). A
      configuration file no migration changed is not written: it stays byte for byte. Renaming over the
      binary is safe while processes run from it (they keep the old inode); the old file is freed when
@@ -519,7 +550,9 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
    restore the fixed set from the manifest, `systemctl daemon-reload`, and start the units. The rollback
    runs to its end even when systemd stops the installer, and a file that cannot be restored does not
    keep the units stopped. It does not check the old version's health. A step that fails before the
-   backup has replaced nothing: the stopped services are only started again.
+   backup has replaced nothing: the stopped services are only started again. A rollback that cannot
+   restore every file, or start the units, records no outcome: the upgrade stays interrupted, for a
+   rollback by hand.
 
 The hand-over line is written by the old version and matched by the new one, so unlike the readiness
 line it is a contract between versions: it is part of each major's frozen upgrade path
@@ -550,10 +583,19 @@ while they hold the install lock: a process that does not get the lock says so o
 and writes nothing. One JSON object per line, `{"ts", "upgrade_id", "from", "to", "level", "step",
 "msg"}`, and `manifest` on the line that records the backup; each upgrade ends with a line whose step
 is its outcome, `activated`, `rolled_back` or `failed`, with the reason. The file holds at most 128
-lines; each write drops the oldest lines past that, the lines of the latest activated upgrade and of
-the latest upgrade last, so failed attempts cannot push out what a rollback by hand needs. The file is
-replaced by a rename, which is safe in a directory only root can write. An upgrade writes a few dozen
-lines, so the log keeps the last several upgrades.
+lines; each write drops the oldest lines past that, but never the lines of an upgrade whose backup
+still exists, nor the line just written: those alone may take the file past 128 lines. Which backups
+exist is the prune's decision, which keeps the one a rollback by hand needs ([Backups](#backups)), so
+the log keeps every line a rollback can still use, however many attempts failed since, and its size
+stays bounded by the backups kept. The file is replaced by a
+rename, which is safe in a directory only root can write; a log that cannot be read is not replaced,
+and the line that could not go into it goes to the installer's journal instead. An upgrade writes a few
+dozen lines, so the log keeps the last several upgrades.
+
+An upgrade is **interrupted** when it is the latest upgrade that backed the set up and it has no
+outcome: the installer was killed or the host lost power while it replaced the files, or its rollback
+failed. Later attempts that stopped before their own backup changed nothing and do not hide it. While
+one is interrupted, no upgrade starts.
 
 crha reports the log's path in its facts as `upgrade_log_path`, as it reports its notes' path
 ([Node notes](agent-runtime.md#node-notes)), and crhs reads it on demand with an ordinary `file.read`.
@@ -564,14 +606,13 @@ On the node:
 
 - `crha upgrade status` prints the last upgrade's outcome and what a rollback would do, then the log.
 - `crha upgrade rollback` (as root) undoes the upgrade that produced the running version, for when the
-  new version cannot reach crhs. An upgrade that stopped after its backup without an outcome (the
-  installer was killed, the host lost power) comes first, as its files may be half written; a file it
-  had not reached yet does not count as changed. Otherwise the running version is `crha.service`'s
+  new version cannot reach crhs. An interrupted upgrade comes first, as its files may be half written;
+  a file it had not reached yet does not count as changed. Otherwise the running version is `crha.service`'s
   `X-CRH-Meta` version; the upgrade is the latest `activated` one whose target is that version, and it
   must come from a lower release. The rollback takes the install lock, checks every file of the set against the hash the
   upgrade left, and refuses when one changed since (`--force` restores anyway), then restores the set,
   reloads systemd, starts the units and logs `rolled_back`; a rollback that fails is logged without an
-  outcome, so it can be repeated. Matching the running version means an
+  outcome, so it can be repeated, and a stop that fails starts the units again before it gives up. Matching the running version means an
   upgrade already rolled back, by the installer or by hand, is never undone twice; running it again steps
   back through an older upgrade while its backup is kept.
 
@@ -596,8 +637,8 @@ enrollment that changed something at its end. Whatever the outcome, so a failed 
 its binary behind for long. A directory without a manifest restores nothing: an upgrade that failed
 before its backup, or one still running. It does not count, and goes once it is a day old.
 
-Every file crha writes in these steps (the backups, the manifest, the log, the configuration, the units)
-is written to a temporary file of its own, created exclusively, synced and renamed into place, and the
+Every file crha writes in these steps (the backups, the manifest, the log, the configuration, the units,
+the keys and `node_id`, a saved answers file) is written to a temporary file of its own, created exclusively, synced and renamed into place, and the
 directory is synced, so a crash leaves the old content or the new, and a link planted in a directory
 another user owns is never followed.
 
@@ -647,3 +688,14 @@ files) must review every one of them again**, and add the new questions it raise
   node](#same-node-or-new-node))
 - Can a step after registering leave a node with a new key and an old configuration? ([Switching a node
   set up before](#switching-a-node-set-up-before))
+- Can enroll and an upgrade change the node at the same time? ([crha enroll](#crha-enroll); [On the
+  node](#on-the-node), step 3)
+- Can a later upgrade build on an interrupted one, or hide it from a rollback by hand? ([Upgrade
+  log](#upgrade-log); [On the node](#on-the-node), step 3)
+- What if the automatic rollback itself fails? ([On the node](#on-the-node), step 8; [Upgrade
+  log](#upgrade-log))
+- Can the binary root runs from the units be replaced by another user? ([crha enroll](#crha-enroll))
+- Can pasted trust text change anything but the trust entries? ([crha enroll](#crha-enroll))
+- Can a node whose architecture the release lacks stop the others' upgrade? ([The upgrade
+  task](#the-upgrade-task))
+- Who can mint the identity that signs a release? ([Releases](#releases))

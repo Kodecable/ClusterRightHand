@@ -73,10 +73,13 @@ version; `POST /api/nodes/upgrade` does the same. It first shows which nodes are
 running tasks the restart will end, and which nodes are skipped and why. crhs then fetches the crha
 release of its version, verifies it, and starts one privileged task group per architecture, which waits
 for an authorization like any privileged task; when signing, compare the binary's hash with the line
-`crha-<version>-linux-<arch>/crha` of the release's `SHA256SUMS`. A crhs built from a commit rather than
+`crha-<version>-linux-<arch>/crha` of the release's `SHA256SUMS`, for example with `crhu sign --spec …
+--content crha-<version>-linux-<arch>/crha`. A crhs built from a commit rather than
 a release cannot upgrade nodes. On each node the new binary checks the configuration,
 backs up and regenerates the units, restarts crha, and rolls back by itself when the new version does
-not come up within two minutes ([crha self-upgrade](../design/distribution.md#crha-self-upgrade)).
+not come up within two minutes ([crha self-upgrade](../design/distribution.md#crha-self-upgrade)). If
+that rollback fails too, or the installer was killed halfway, the node accepts no further upgrade until
+`sudo crha upgrade rollback` has undone it; `crha upgrade status` says so.
 
 - Only nodes set up with `crha enroll`, running under systemd, not installed from a deb or rpm, and
   with a privileged side that runs as root can be upgraded this way. An `ignore` node qualifies when

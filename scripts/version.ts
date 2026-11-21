@@ -5,7 +5,7 @@
 //   tag v0.2.0-rc.1                       -> 0.2.0-rc.1                (a release)
 //   git describe v0.2.0-rc.1-4-gabc1234   -> 0.2.0-rc.1+4.gabc1234     (not a release: build metadata)
 //   ... -dirty                             -> ...+...dirty
-//   no tag: abc1234                        -> 0.0.0+gabc1234
+//   no version tag: abc1234                -> 0.0.0+gabc1234
 //   no git                                 -> dev
 import { spawn } from "node:child_process";
 import { appendFile } from "node:fs/promises";
@@ -32,16 +32,30 @@ export function versionFromDescribe(describe: string): string {
 	return meta.length === 0 ? release : `${release}+${meta.join(".")}`;
 }
 
+/** A version CRH_VERSION may set: a release, a release with build metadata, or `dev`. */
+const OVERRIDE = /^(dev|(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?)$/;
+
 /**
  * The version: CRH_VERSION when set (a manual override), the tag a GitHub Actions run was started for,
- * then git describe, then `dev`.
+ * then git describe over the version tags, then `dev`. In a tag run the override must agree with the tag,
+ * so a release never carries another version than its tag.
  */
 export async function resolveVersion(env: NodeJS.ProcessEnv = process.env): Promise<string> {
-	if (env.CRH_VERSION) return env.CRH_VERSION;
-	if (env.GITHUB_REF_TYPE === "tag" && env.GITHUB_REF_NAME) return versionFromTag(env.GITHUB_REF_NAME);
+	const tagged = env.GITHUB_REF_TYPE === "tag" && env.GITHUB_REF_NAME ? versionFromTag(env.GITHUB_REF_NAME) : undefined;
+	if (env.CRH_VERSION) {
+		if (!OVERRIDE.test(env.CRH_VERSION)) {
+			throw new Error(`CRH_VERSION ${env.CRH_VERSION} is not a version (x.y.z[-pre][+build] or dev)`);
+		}
+		if (tagged !== undefined && env.CRH_VERSION !== tagged) {
+			throw new Error(`CRH_VERSION ${env.CRH_VERSION} disagrees with the tag ${env.GITHUB_REF_NAME}`);
+		}
+		return env.CRH_VERSION;
+	}
+	if (tagged !== undefined) return tagged;
 	let describe: string;
 	try {
-		describe = (await run("git", ["describe", "--tags", "--always", "--dirty"])).stdout.trim();
+		// Only version tags: another tag (a marker, a test) would not read as a version.
+		describe = (await run("git", ["describe", "--tags", "--match", "v[0-9]*", "--always", "--dirty"])).stdout.trim();
 	} catch {
 		return "dev";
 	}

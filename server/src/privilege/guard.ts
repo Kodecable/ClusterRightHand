@@ -16,6 +16,7 @@ import { posix } from "node:path";
 import { type GuardRule, isKnownMatch, isKnownMethod, type TaskSpec } from "@crh/protocol";
 import RE2 from "re2";
 import { type Method, operationOf } from "../policy/rules.ts";
+import { escapeRegExp } from "../util/regex.ts";
 
 /** A guard rule's regex may be at most this many UTF-8 bytes (doc/design/privilege.md "Guard rules"). */
 export const MAX_GUARD_PATTERN_BYTES = 1000;
@@ -36,11 +37,6 @@ interface CompiledRule {
 interface CompiledRuleSet {
 	rules: CompiledRule[];
 	error: Error | null;
-}
-
-/** Escapes the characters of Go's regexp.QuoteMeta; other characters, including non-ASCII, stay literal. */
-function quoteMeta(value: string): string {
-	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
 /**
@@ -74,7 +70,7 @@ function compileRule(rule: GuardRule, strict: boolean): CompiledRule {
 	}
 	try {
 		// (?s) keeps "." matching a target that contains a newline, as in crha's Go regexp.
-		const source = rule.match === "prefix" ? `(?s)^${quoteMeta(rule.pattern)}.*$` : `(?s)^(?:${rule.pattern})$`;
+		const source = rule.match === "prefix" ? `(?s)^${escapeRegExp(rule.pattern)}.*$` : `(?s)^(?:${rule.pattern})$`;
 		return { method: rule.method, any: false, re: new RE2(source), unknownMatch: false };
 	} catch (err) {
 		throw new GuardRuleError(`cannot compile guard rule (${err instanceof Error ? err.message : String(err)})`);

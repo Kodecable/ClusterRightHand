@@ -17,8 +17,8 @@ import { isReleaseVersion } from "../util/release-version.ts";
 import { extractTarFile, TarError } from "../util/tar.ts";
 import {
 	GITHUB_ACTIONS_ISSUER,
+	identityPattern,
 	type ReleaseSignatureVerifier,
-	releaseIdentity,
 	SigstoreVerifier,
 } from "./release-signature.ts";
 
@@ -33,11 +33,17 @@ const LIMITS = {
 	unpacked: 256 * 1024 * 1024,
 	binary: 128 * 1024 * 1024,
 };
-const DOWNLOAD_TIMEOUT_MS = 120_000;
+/** A download gives up when no byte arrives for this long; a slow but moving one goes on. */
+const DOWNLOAD_IDLE_MS = 30_000;
 /** A definite verification failure downloads the condemned files again at most this many times. */
 export const MAX_REDOWNLOADS = 2;
 
 export { isReleaseVersion } from "../util/release-version.ts";
+
+/** An architecture name as release assets carry it; another cannot name an asset. */
+export function isReleaseArch(arch: string): boolean {
+	return /^[a-z0-9_]+$/.test(arch);
+}
 
 /** The release assets of crha `version` for `arch`. */
 export function releaseAssets(version: string, arch: string): { archive: string; checksums: string; bundle: string } {
@@ -111,6 +117,8 @@ export class CrhaReleases {
 	readonly #verifier: ReleaseSignatureVerifier;
 	readonly #log: (message: string) => void;
 	readonly #flights = new Map<string, Promise<CrhaBinary>>();
+	/** Every architecture's work runs in turn: they share SHA256SUMS, which one may condemn while another reads it. */
+	#queue: Promise<unknown> = Promise.resolve();
 
 	constructor(options: CrhaReleasesOptions) {
 		this.#dataDir = options.dataDir;
@@ -149,19 +157,19 @@ export class CrhaReleases {
 
 	/**
 	 * The verified crha binary for `arch`. Callers waiting on the same architecture share one download and
-	 * one verification; the next call verifies again.
+	 * one verification; the next call verifies again. Different architectures take turns.
 	 */
 	binary(arch: string): Promise<CrhaBinary> {
-		const key = arch;
-		const running = this.#flights.get(key);
+		const running = this.#flights.get(arch);
 		if (running) return running;
-		const flight = this.#resolve(arch).finally(() => this.#flights.delete(key));
-		this.#flights.set(key, flight);
+		const flight = this.#queue.then(() => this.#resolve(arch)).finally(() => this.#flights.delete(arch));
+		this.#queue = flight.catch(() => undefined);
+		this.#flights.set(arch, flight);
 		return flight;
 	}
 
 	async #resolve(arch: string): Promise<CrhaBinary> {
-		if (!/^[a-z0-9_]+$/.test(arch)) throw new ReleaseError("release_no_arch", `unknown architecture ${arch}`);
+		if (!isReleaseArch(arch)) throw new ReleaseError("release_no_arch", `unknown architecture ${arch}`);
 		if (!isReleaseVersion(this.#version)) {
 			throw new ReleaseError(
 				"release_not_a_release",
@@ -228,6 +236,13 @@ export class CrhaReleases {
 				await this.#download(url, join(this.directory, name), LIMITS[asset]);
 			} catch (err) {
 				if (!required && err instanceof HttpStatusError && err.status === 404) continue;
+				// A release without this architecture's archive is no failure of the release itself.
+				if (asset === "archive" && err instanceof HttpStatusError && err.status === 404) {
+					throw new ReleaseError(
+						"release_no_arch",
+						`the release v${this.#version} at ${this.#config.url} has no ${name}`,
+					);
+				}
 				throw new ReleaseError(
 					"release_unavailable",
 					err instanceof HttpStatusError && err.status === 404
@@ -239,7 +254,21 @@ export class CrhaReleases {
 	}
 
 	async #download(url: string, path: string, limit: number): Promise<void> {
-		const response = await this.#fetch(url, { redirect: "follow", signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+		const idle = new AbortController();
+		let timer = setTimeout(() => idle.abort(new Error(`no data for ${DOWNLOAD_IDLE_MS / 1000}s`)), DOWNLOAD_IDLE_MS);
+		const moved = () => {
+			clearTimeout(timer);
+			timer = setTimeout(() => idle.abort(new Error(`no data for ${DOWNLOAD_IDLE_MS / 1000}s`)), DOWNLOAD_IDLE_MS);
+		};
+		try {
+			await this.#downloadTo(url, path, limit, idle.signal, moved);
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	async #downloadTo(url: string, path: string, limit: number, signal: AbortSignal, moved: () => void): Promise<void> {
+		const response = await this.#fetch(url, { redirect: "follow", signal });
 		if (!response.ok) throw new HttpStatusError(url, response.status);
 		const declared = Number(response.headers.get("content-length") ?? "0");
 		if (declared > limit) throw new Error(`${declared} bytes is more than ${limit}`);
@@ -251,6 +280,7 @@ export class CrhaReleases {
 		try {
 			let received = 0;
 			for await (const chunk of (response.body ?? []) as AsyncIterable<Uint8Array>) {
+				moved();
 				received += chunk.byteLength;
 				if (received > limit) throw new Error(`more than ${limit} bytes`);
 				await file.write(chunk);
@@ -309,7 +339,7 @@ export class CrhaReleases {
 			const result = await this.#verifier.verify({
 				artifact: checksums,
 				bundle,
-				identity: releaseIdentity(github.owner, github.repo, `v${this.#version}`),
+				identityPattern: identityPattern({ owner: github.owner, repo: github.repo, tag: `v${this.#version}` }),
 				issuer: GITHUB_ACTIONS_ISSUER,
 			});
 			if (result.kind === "unverifiable") {
@@ -333,9 +363,10 @@ export class CrhaReleases {
 			}
 			const actual = createHash("sha256").update(archive).digest("hex");
 			if (actual !== listed) {
+				// An unsigned SHA256SUMS may be the wrong one as much as the archive.
 				return {
 					kind: "condemn",
-					assets: ["archive"],
+					assets: this.#config.verify ? ["archive"] : ["archive", "checksums"],
 					reason: `${assets.archive} has sha256 ${actual}, SHA256SUMS lists ${listed}`,
 				};
 			}

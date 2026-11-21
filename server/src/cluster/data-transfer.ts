@@ -23,7 +23,7 @@ import { openTransferLocation } from "../library/transfer-location.ts";
 import { closeReason, toBytes } from "./connection.ts";
 import type { ClusterCore } from "./core.ts";
 import { specFromRow } from "./spec.ts";
-import { isSendingKind } from "./task-dispatch.ts";
+import { isSendingKind, isTransferKind } from "./task-dispatch.ts";
 import { endTask, requestTaskCancel } from "./task-end.ts";
 import { TERMINAL } from "./types.ts";
 
@@ -111,7 +111,7 @@ export async function acceptDataConnection(
 	const row = await core.row(init.taskId);
 	if (!row || row.node_id !== nodeId) return refuse(ws, "unknown task");
 	if (row.state !== "dispatched" && row.state !== "running") return refuse(ws, "the task does not run");
-	if (row.kind !== "file.push" && row.kind !== "file.pull" && row.kind !== "node.upgrade") {
+	if (!isTransferKind(row.kind)) {
 		return refuse(ws, "the task is not a transfer");
 	}
 	const record = parseTransferRecord(row.transfer);

@@ -120,4 +120,35 @@ describe("POST /api/nodes/upgrade", () => {
 		expect(JSON.parse(String(failed[0]?.detail))).toMatchObject({ arch: "arm64", code: "release_invalid" });
 		expect(await audits("node.upgrade_requested")).toHaveLength(0);
 	});
+
+	it("skips only the nodes of an architecture the release has no crha for", async () => {
+		const { app, created } = appWith("1.3.0", async (arch) => {
+			if (arch === "arm64")
+				throw new ReleaseError("release_no_arch", "the release has no crha-1.3.0-linux-arm64.tar.gz");
+			return { arch, version: "1.3.0", bytes: Buffer.from("crha"), sha256: Buffer.alloc(32) } as unknown as CrhaBinary;
+		});
+		const res = await upgrade(app, false);
+		expect(res.status).toBe(201);
+		const body = (await res.json()) as {
+			upgrades: { name: string }[];
+			skipped: { name: string; reason: string }[];
+			taskGroups: { arch: string }[];
+		};
+		expect(body.upgrades.map((node) => node.name)).toEqual(["x86"]);
+		expect(body.skipped).toMatchObject([{ name: "pi", reason: "release_unavailable" }]);
+		expect(body.taskGroups.map((group) => group.arch)).toEqual(["amd64"]);
+		expect(created).toHaveLength(1);
+	});
+
+	it("skips a node whose architecture cannot name a release asset", async () => {
+		await addNode("odd", "x86-64");
+		try {
+			const { app } = appWith("1.3.0", async () => Promise.reject(new Error("unused")));
+			const res = await upgrade(app, true);
+			const body = (await res.json()) as { skipped: { name: string; reason: string }[] };
+			expect(body.skipped).toContainEqual(expect.objectContaining({ name: "odd", reason: "unsupported_arch" }));
+		} finally {
+			nodes.pop();
+		}
+	});
 });

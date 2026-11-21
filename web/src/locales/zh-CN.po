@@ -76,6 +76,11 @@ msgstr "{0, plural, one {替换了 # 处} other {替换了 # 处}}"
 msgid "{0, plural, one {Select # file} other {Select # files}}"
 msgstr "{0, plural, one {选择 # 个文件} other {选择 # 个文件}}"
 
+#. placeholder {0}: started.length
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "{0, plural, one {Started a task group; it waits for its authorization:} other {Started one task group per architecture; each waits for its authorization:}}"
+msgstr "{0, plural, one {已启动一个任务组，它在等待授权：} other {已为每种架构各启动一个任务组，每个都在等待各自的授权：}}"
+
 #. placeholder {0}: result.bytes
 #: src/components/task-result.tsx
 msgid "{0, plural, one {Wrote # byte (a new file)} other {Wrote # bytes (a new file)}}"
@@ -2548,6 +2553,10 @@ msgstr "它可能已被删除。"
 msgid "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
 msgstr "批准前，它必须与 <0>crha enroll</0> 打印的内容或节点上的 <1>crha status</1> 一致。"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "its architecture has no crha release"
+msgstr "它的架构没有 crha 发布"
+
 #: src/features/tokens/pages.tsx
 msgid "Its audit trail stays; the token itself is removed."
 msgstr "审计记录会保留；令牌本身会被删除。"
@@ -5011,10 +5020,6 @@ msgid "Start one, or wait for a scheduled run."
 msgstr "新建一个，或等待计划任务运行。"
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
-msgid "Started one task group per architecture; each waits for its authorization:"
-msgstr "已为每种架构各启动一个任务组，每个任务组分别等待授权："
-
-#: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "Started task groups"
 msgstr "已启动的任务组"
 
@@ -5405,6 +5410,10 @@ msgstr "无法连接特权模式，信任配置未知"
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "The provider lists no model that this provider does not configure yet."
 msgstr "该提供方没有列出尚未在此提供方配置的模型。"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "the release has no crha for its architecture"
+msgstr "该发布中没有适用于它的架构的 crha"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "The run failed"

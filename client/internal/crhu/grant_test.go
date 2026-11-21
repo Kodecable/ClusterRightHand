@@ -857,6 +857,42 @@ func TestSignSpec(t *testing.T) {
 	}
 }
 
+// TestSignUpgradeSpec covers signing a crha self-upgrade, the path privilege.md recommends when the
+// crhs entry denies the method: the spec is shown and --content checks the release's binary.
+func TestSignUpgradeSpec(t *testing.T) {
+	keyPath, _ := generateSSHKey(t)
+	useSSHKeygen(t, "ssh-keygen")
+	binary := []byte("\x7fELF crha 1.3.0")
+	spec := &protocol.TaskSpec{Kind: protocol.TaskSpecNodeUpgrade, NodeUpgrade: &protocol.NodeUpgradeSpec{
+		Version: "1.3.0", Arch: "amd64", Size: protocol.Uint(len(binary)), SHA256: protocol.Hash(sha256.Sum256(binary)),
+		Endpoint: protocol.TransferEndpoint{Kind: protocol.TransferEndpointCRHS, TransferID: "x-upgrade"},
+	}}
+	payload := webuiPayload(t, protocol.SpecCommand(mustSpecHash(t, spec)))
+	path := filepath.Join(t.TempDir(), "crha")
+	if err := os.WriteFile(path, binary, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr, err := runCLI(t, "sign", "--payload", payload, "--spec", encodeSpec(t, spec),
+		"--content", path, "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("sign: %v\nstderr: %s", err, stderr)
+	}
+	for _, want := range []string{`"kind": "node.upgrade"`, `"method": "upgrade"`, `"version": "1.3.0"`, `"arch": "amd64"`, "matches the spec's transfer"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("the confirmation has no %q:\n%s", want, stderr)
+		}
+	}
+	other := filepath.Join(t.TempDir(), "other")
+	if err := os.WriteFile(other, []byte("\x7fELF crha 1.3.1"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = runCLI(t, "sign", "--payload", payload, "--spec", encodeSpec(t, spec),
+		"--content", other, "--key", keyPath, "--yes")
+	if err == nil || !strings.Contains(err.Error(), "does not match the spec's transfer") {
+		t.Fatalf("mismatching --content = %v", err)
+	}
+}
+
 // TestSignPrefixWarning covers the trailing-slash warning of a file prefix: a prefix that does not
 // end in "/" also matches sibling paths, and the signed prefix is unchanged.
 func TestSignPrefixWarning(t *testing.T) {

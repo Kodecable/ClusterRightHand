@@ -299,7 +299,8 @@ Administrators upgrade crha with **Upgrade crha**, here or on a node group's pag
 shows the plan: the nodes upgraded to crhs's version, a warning with the number of running tasks the
 restart ends, and the nodes skipped with the reason. **Upgrade** upgrades exactly the nodes shown and
 starts one privileged task group per architecture: with one, it opens its page; with several, the dialog
-links each. A group waits for a signature or an approval like any privileged task
+links each. Nodes of an architecture the release has no crha for are skipped only then, and the dialog
+stays open to list them. A group waits for a signature or an approval like any privileged task
 ([crha self-upgrade](../design/distribution.md#crha-self-upgrade)). The node reconnects with the new
 version within a few minutes, or rolls back and says why in its upgrade log.
 

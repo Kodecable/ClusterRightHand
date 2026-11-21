@@ -96,8 +96,8 @@ Where crhs fetches the crha it upgrades nodes to: the release of its own version
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `url` | URL | `https://github.com/Kodecable/ClusterRightHand` | The repository. The assets are read from `<url>/releases/download/v<version>/`. |
-| `download` | boolean | `true` | Whether crhs may download missing assets into `crha-releases/<version>/` under its data directory. With `false`, copy `crha-<version>-linux-<arch>.tar.gz` (and, to keep a check, `SHA256SUMS`) there yourself; crhs never deletes files it did not download. |
+| `url` | URL | `https://github.com/Kodecable/ClusterRightHand` | The repository. The assets are read from `<url>/releases/download/v<version>/`. A trailing `/` or `.git` is dropped. |
+| `download` | boolean | `true` | Whether crhs may download missing assets into `crha-releases/<version>/` under its data directory. With `false`, copy `crha-<version>-linux-<arch>.tar.gz` (and, to keep a check, `SHA256SUMS`) there yourself, and crhs never deletes a file there. With `true`, a file that fails a check is deleted and downloaded again, whoever put it there. Either way, the directories of other versions are removed when crhs starts. |
 | `verify` | boolean | `true` | Whether the Sigstore signature of `SHA256SUMS` is checked, with the release workflow of `url` at the tag as the identity. It needs a `github.com` repository and access to GitHub and `tuf-repo-cdn.sigstore.dev` at every upgrade; there is no offline fallback. With `false`, `SHA256SUMS` is still checked when present. A crhs whose version is not a release (`dev`, or a build between tags, `+…`) cannot upgrade nodes. |
 
 ## System settings

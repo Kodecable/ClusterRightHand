@@ -418,12 +418,9 @@ func (a *Agent) hello() protocol.Hello {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	h := protocol.Hello{
-		TaskKinds: []string{
-			"exec", "file.read", "file.write", "file.push", "file.pull", "file.edit", "file.stat", "file.list",
-			// Beyond the base set, so crhs sends it only because it is listed here
-			// (doc/design/protocol.md "Version negotiation").
-			"node.upgrade",
-		},
+		// Every kind the task spec union decodes; node.upgrade, beyond the base set, reaches the node only
+		// because it is listed (doc/design/protocol.md "Version negotiation").
+		TaskKinds:      protocol.TaskSpecKinds(),
 		PrivilegedMode: a.opts.PrivilegedMode,
 	}
 	for _, t := range a.tasks {

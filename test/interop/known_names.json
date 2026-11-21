@@ -1,0 +1,18 @@
+{
+	"description": "The names this version knows for each open name and union, which crhs (TypeScript) and crha (Go) must agree on. Both test suites compare their own lists with this file.",
+	"methods": ["exec", "file.read", "file.write", "upgrade"],
+	"matches": ["any", "prefix", "regex"],
+	"roles": ["crhs", "user", "local"],
+	"capabilities": ["execute", "cosign", "require-cosign"],
+	"task_kinds": [
+		"exec",
+		"file.read",
+		"file.write",
+		"file.push",
+		"file.pull",
+		"file.edit",
+		"file.stat",
+		"file.list",
+		"node.upgrade"
+	]
+}

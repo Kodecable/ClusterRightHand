@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/backup"
@@ -107,7 +106,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 		dir = Dir
 	}
 	// Only the holder of the lock writes the log: a second installer only says why it stopped.
-	unlock, err := lock(dir)
+	unlock, err := backup.Lock(dir)
 	if err != nil {
 		fmt.Fprintf(opts.Stderr, "crha upgrade to %s (task %s): %v\n", opts.To, opts.TaskID, err)
 		return err
@@ -136,18 +135,37 @@ func (in *installer) prune() {
 }
 
 func (in *installer) fail(step string, err error) {
-	_ = in.log.Write("error", OutcomeFailed, fmt.Sprintf("%s: %v", step, err))
+	in.logLine("error", OutcomeFailed, fmt.Sprintf("%s: %v", step, err))
 }
 
 func (in *installer) info(step, format string, args ...any) {
-	_ = in.log.Write("info", step, fmt.Sprintf(format, args...))
+	in.logLine("info", step, fmt.Sprintf(format, args...))
+}
+
+// logLine writes one line to the upgrade log; a line the log cannot take goes to the unit's journal.
+func (in *installer) logLine(level, step, msg string) {
+	if err := in.log.Write(level, step, msg); err != nil {
+		fmt.Fprintf(in.opts.Stderr, "crha upgrade to %s (task %s): %s: %s (%v)\n", in.opts.To, in.opts.TaskID, step, msg, err)
+	}
 }
 
 func (in *installer) run(ctx context.Context) error {
 	// There is no downgrade: migrations only go forward.
-	if !IsReleaseVersion(in.opts.From) || !IsReleaseVersion(in.opts.To) || compareVersions(in.opts.From, in.opts.To) >= 0 {
-		err := fmt.Errorf("an upgrade goes from a release to a newer release, not from %s to %s; nothing was changed", in.opts.From, in.opts.To)
+	if err := checkUpgrade(in.opts.From, in.opts.To); err != nil {
+		err = fmt.Errorf("%w; nothing was changed", err)
 		in.fail("version", err)
+		return err
+	}
+	// An interrupted upgrade left files a new one must not build on: a rollback by hand ends it first.
+	entries, err := ReadLog(in.dir)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		err = fmt.Errorf("read the upgrade log: %w; nothing was changed", err)
+		in.fail("log", err)
+		return err
+	}
+	if e, ok := interruptedUpgrade(entries); ok {
+		err := fmt.Errorf("the upgrade from crha %s to %s (task %s) was interrupted or its rollback failed; run crha upgrade rollback first; nothing was changed", e.From, e.To, e.UpgradeID)
+		in.fail("interrupted", err)
 		return err
 	}
 	in.prune()
@@ -160,7 +178,7 @@ func (in *installer) run(ctx context.Context) error {
 
 	// 2. Wait for the hand-over: the old crha logs it once crhs has the task's result.
 	waitCtx, cancel := context.WithTimeout(ctx, in.opts.HandOverTimeout)
-	err := in.opts.Sys.Follow(waitCtx, journalArgs("-b"), func(line []byte) bool {
+	err = in.opts.Sys.Follow(waitCtx, journalArgs("-b"), func(line []byte) bool {
 		return marker.IsHandOver(journalMessage(line), in.opts.TaskID)
 	})
 	cancel()
@@ -254,8 +272,12 @@ func (in *installer) backup() error {
 	if err != nil {
 		return err
 	}
+	// Without its line in the log the backup is lost to a rollback by hand and to the detection of an
+	// interrupted upgrade: the upgrade stops before it writes anything.
+	if err := in.log.WriteManifest(manifestPath); err != nil {
+		return err
+	}
 	in.manifest = m
-	_ = in.log.WriteManifest(manifestPath)
 	return nil
 }
 
@@ -280,7 +302,7 @@ func (in *installer) rollback(ctx context.Context, step string, cause error) err
 	// The rollback is what brings the node back, so it runs to its end even when the installer is
 	// being stopped.
 	ctx = context.WithoutCancel(ctx)
-	_ = in.log.Write("error", step, cause.Error())
+	in.logLine("error", step, cause.Error())
 	if in.manifest == nil {
 		// The failure came before the backup: nothing was replaced.
 		_ = in.startUnits(ctx)
@@ -293,10 +315,12 @@ func (in *installer) rollback(ctx context.Context, step string, cause error) err
 	_ = in.systemctl(ctx, "daemon-reload")
 	startErr := in.startUnits(ctx)
 	if restoreErr != nil || startErr != nil {
-		in.fail("rollback", fmt.Errorf("%v; restoring the backup: %v; starting the units: %v", cause, restoreErr, startErr))
+		// Not an outcome: the upgrade stays interrupted, the one a rollback by hand undoes, and no
+		// upgrade builds on it until then.
+		in.logLine("error", "rollback", fmt.Sprintf("%v; restoring the backup: %v; starting the units: %v", cause, restoreErr, startErr))
 		return errors.Join(cause, restoreErr, startErr)
 	}
-	_ = in.log.Write("error", OutcomeRolledBack, fmt.Sprintf("rolled back to crha %s: %v", in.opts.From, cause))
+	in.logLine("error", OutcomeRolledBack, fmt.Sprintf("rolled back to crha %s: %v", in.opts.From, cause))
 	return cause
 }
 
@@ -315,7 +339,7 @@ func readManagedUnit(root, name string) (units.Parsed, error) {
 		return units.Parsed{}, fmt.Errorf("read %s: %w", name, err)
 	}
 	parsed := units.Parse(string(data))
-	if !parsed.Managed || parsed.Meta == nil || parsed.Executable == "" {
+	if !parsed.Regenerable() {
 		return units.Parsed{}, fmt.Errorf("%s is not a unit crha manages", name)
 	}
 	return parsed, nil
@@ -325,21 +349,4 @@ func journalArgs(extra ...string) []string {
 	args := []string{"-o", "json", "--no-pager", "-f", "-n", "all"}
 	args = append(args, extra...)
 	return append(args, "_SYSTEMD_UNIT="+units.Server)
-}
-
-// lock takes the install lock in dir, so two upgrades, or an upgrade and a rollback, never run at once.
-// Only the holder of the lock writes the upgrade log.
-func lock(dir string) (func(), error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(filepath.Join(dir, "install.lock"), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
-		return nil, errors.New("another upgrade or rollback is running")
-	}
-	return func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
 }

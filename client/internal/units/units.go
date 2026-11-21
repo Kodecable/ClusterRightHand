@@ -107,6 +107,12 @@ type Parsed struct {
 	Executable string
 }
 
+// Regenerable reports whether crha wrote the unit and it says enough to write it again: an upgrade
+// rewrites only such units, and a node whose units are not is not upgraded from crhs.
+func (p Parsed) Regenerable() bool {
+	return p.Managed && p.Meta != nil && p.Executable != ""
+}
+
 // Parse reads the keys crha cares about. It is deliberately small: only units crha wrote are
 // regenerated, and those have one ExecStart without systemd's prefixes or quoting.
 func Parse(content string) Parsed {

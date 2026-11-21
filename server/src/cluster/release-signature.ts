@@ -7,7 +7,8 @@
  * A result tells a signature that is wrong (`invalid`: the files are condemned) from one that could not be
  * checked at all (`unverifiable`: the network or TUF failed, which proves nothing about the files).
  */
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { link, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { bundleFromJSON } from "@sigstore/bundle";
 import { TrustedRoot } from "@sigstore/protobuf-specs";
@@ -18,6 +19,7 @@ import { BaseFetcher, Updater } from "tuf-js";
 // index does not export.
 import { DownloadHTTPError } from "tuf-js/dist/error.js";
 import { errorText } from "../util/errors.ts";
+import { escapeRegExp } from "../util/regex.ts";
 
 /** Sigstore's public-good TUF repository, whose seed root ships with @sigstore/tuf. */
 export const SIGSTORE_TUF_URL = "https://tuf-repo-cdn.sigstore.dev";
@@ -36,8 +38,11 @@ export interface SignatureInput {
 	artifact: Uint8Array;
 	/** The Sigstore bundle (`SHA256SUMS.sigstore.json`). */
 	bundle: Uint8Array;
-	/** The certificate's expected subject alternative name: the release workflow at the tag. */
-	identity: string;
+	/**
+	 * The pattern the certificate's subject alternative name must match, anchored: identityPattern for a
+	 * release, exactIdentity for one fixed name.
+	 */
+	identityPattern: string;
 	issuer: string;
 }
 
@@ -45,18 +50,34 @@ export interface ReleaseSignatureVerifier {
 	verify(input: SignatureInput): Promise<SignatureCheck>;
 }
 
-/** The workflow identity a release of `owner/repo` at `tag` is signed with (doc/design/distribution.md). */
-export function releaseIdentity(owner: string, repo: string, tag: string): string {
-	return `https://github.com/${owner}/${repo}/.github/workflows/release.yml@refs/tags/${tag}`;
+/** The repository and tag of a release. */
+export interface ReleaseIdentity {
+	owner: string;
+	repo: string;
+	tag: string;
+}
+
+/** The workflow identity a release is signed with (doc/design/distribution.md), as GitHub spells it. */
+export function releaseIdentity(id: ReleaseIdentity): string {
+	return `https://github.com/${id.owner}/${id.repo}/.github/workflows/release.yml@refs/tags/${id.tag}`;
+}
+
+/** The pattern that matches exactly `identity`. */
+export function exactIdentity(identity: string): string {
+	return `^${escapeRegExp(identity)}$`;
 }
 
 /**
- * The pattern that matches exactly `identity`. @sigstore/verify tests the certificate's identity against
- * the policy identity as a regular expression, unanchored, so the identity itself would also accept
- * `…@refs/tags/v1.2.30` for `v1.2.3` or a workflow named `release-yml`.
+ * The pattern a release's certificate identity must match. @sigstore/verify tests the identity against
+ * the policy as a regular expression, unanchored, so the pattern is anchored and escaped: otherwise
+ * `v1.2.3` would also accept `…@refs/tags/v1.2.30` or a workflow named `release-yml`. GitHub names
+ * owners and repositories without regard to case and the certificate carries their canonical spelling,
+ * so those two match in any case; the workflow and the tag match exactly.
  */
-export function exactIdentity(identity: string): string {
-	return `^${identity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
+export function identityPattern(id: ReleaseIdentity): string {
+	const anyCase = (text: string) =>
+		[...escapeRegExp(text)].map((c) => (/[a-z]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c)).join("");
+	return `^${escapeRegExp("https://github.com/")}${anyCase(id.owner)}/${anyCase(id.repo)}${escapeRegExp(`/.github/workflows/release.yml@refs/tags/${id.tag}`)}$`;
 }
 
 class CrhsFetcher extends BaseFetcher {
@@ -110,9 +131,16 @@ export class SigstoreVerifier implements ReleaseSignatureVerifier {
 			this.#seedRoot ??
 			Buffer.from((seeds as Record<string, { "root.json": string }>)[this.#mirror]?.["root.json"] ?? "", "base64");
 		if (seed.length === 0) throw new Error(`no seed root for ${this.#mirror}`);
-		await writeFile(join(this.#tufDir, "root.json"), seed, { flag: "wx", mode: 0o600 }).catch((err: unknown) => {
-			if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-		});
+		// Placed whole or not at all: a root cut short by a crash would fail every refresh after it.
+		const temp = join(this.#tufDir, `.root.json.${randomUUID()}.tmp`);
+		await writeFile(temp, seed, { flag: "wx", mode: 0o600 });
+		try {
+			await link(temp, join(this.#tufDir, "root.json")).catch((err: unknown) => {
+				if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+			});
+		} finally {
+			await rm(temp, { force: true });
+		}
 		const updater = new Updater({
 			metadataBaseUrl: this.#mirror,
 			targetBaseUrl: `${this.#mirror}/targets`,
@@ -138,7 +166,7 @@ export class SigstoreVerifier implements ReleaseSignatureVerifier {
 			const bundle = bundleFromJSON(JSON.parse(Buffer.from(input.bundle).toString("utf8")));
 			const verifier = new Verifier(toTrustMaterial(root), { tlogThreshold: 1, ctlogThreshold: 1 });
 			verifier.verify(toSignedEntity(bundle, Buffer.from(input.artifact)), {
-				subjectAlternativeName: exactIdentity(input.identity),
+				subjectAlternativeName: input.identityPattern,
 				extensions: { issuer: input.issuer },
 			});
 			return { kind: "ok" };

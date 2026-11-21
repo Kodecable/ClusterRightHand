@@ -27,7 +27,7 @@ import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
 import { isAdmin } from "../auth/sessions.ts";
 import { type TaskView, TERMINAL } from "../cluster/cluster.ts";
-import { type CrhaBinary, isReleaseVersion } from "../cluster/crha-release.ts";
+import { type CrhaBinary, isReleaseVersion, ReleaseError } from "../cluster/crha-release.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import { nodeGroupsForNodes, resolveNodeGroupIds, setNodeGroupsForNode } from "../cluster/node-groups.ts";
 import { planUpgrade, upgradeSpec } from "../cluster/node-upgrade.ts";
@@ -675,19 +675,32 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const resolved = await resolveTargets(db, user, body.targets);
 		const rows = (await Promise.all(resolved.nodeIds.map((id) => getNode(db, id)))).filter((row) => row !== undefined);
 		const plan = await planUpgrade(db, rows, crhaReleases.version, (id) => cluster.isConnected(id));
-		const upgrades = [...plan.byArch.values()].flat();
-		const answer = { version: plan.version, upgrades, skipped: plan.skipped };
-		if (body.dryRun === true || upgrades.length === 0) {
-			return c.json({ ...answer, taskGroups: [] }, 200);
+		const planned = [...plan.byArch.values()].flat();
+		if (body.dryRun === true || planned.length === 0) {
+			return c.json({ version: plan.version, upgrades: planned, skipped: plan.skipped, taskGroups: [] }, 200);
 		}
 		const audit = c.get("audit");
 		// Every architecture's release is fetched and verified before any group starts, so a release that
-		// fails, possibly a tampered one, starts nothing; the failure is audited.
+		// fails, possibly a tampered one, starts nothing; the failure is audited. A release that has no
+		// archive for an architecture skips only its nodes.
 		const binaries = new Map<string, CrhaBinary>();
-		for (const arch of plan.byArch.keys()) {
+		const skipped = [...plan.skipped];
+		for (const [arch, candidates] of plan.byArch) {
 			try {
 				binaries.set(arch, await crhaReleases.binary(arch));
 			} catch (err) {
+				if (err instanceof ReleaseError && err.code === "release_no_arch") {
+					for (const node of candidates) {
+						skipped.push({
+							nodeId: node.nodeId,
+							name: node.name,
+							reason: "release_unavailable",
+							nodeReasons: [],
+							version: node.version,
+						});
+					}
+					continue;
+				}
 				void audit.record({
 					actor: userActor(user),
 					action: "node.upgrade_failed",
@@ -702,6 +715,9 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 				throw err;
 			}
 		}
+		const upgrades = planned.filter((node) => binaries.has(node.arch));
+		const answer = { version: plan.version, upgrades, skipped };
+		if (upgrades.length === 0) return c.json({ ...answer, taskGroups: [] }, 200);
 		const startUpgradeGroup = async (arch: string, candidates: readonly { nodeId: string }[]): Promise<string> => {
 			const binary = binaries.get(arch) as CrhaBinary;
 			const location = await cluster.stageBytesForPush(binary.bytes);
@@ -726,6 +742,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		let failure: unknown;
 		try {
 			for (const [arch, candidates] of plan.byArch) {
+				if (!binaries.has(arch)) continue;
 				started.push({ arch, taskGroupId: await startUpgradeGroup(arch, candidates) });
 			}
 		} catch (err) {
@@ -740,7 +757,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 				version: plan.version,
 				nodes: upgrades.map((upgrade) => ({ id: upgrade.nodeId, from: upgrade.version, arch: upgrade.arch })),
 				task_groups: started.map((group) => group.taskGroupId),
-				skipped: plan.skipped.map((skip) => ({ id: skip.nodeId, reason: skip.reason })),
+				skipped: skipped.map((skip) => ({ id: skip.nodeId, reason: skip.reason })),
 				...(failure === undefined ? {} : { error: errorText(failure) }),
 			},
 		});

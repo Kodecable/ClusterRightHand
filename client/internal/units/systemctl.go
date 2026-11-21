@@ -2,6 +2,7 @@ package units
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,12 +44,15 @@ func Stop(ctx context.Context, run Runner, names []string) error {
 	return Systemctl(ctx, run, append([]string{"stop"}, names...)...)
 }
 
-// Start starts names one at a time in order, the privileged mode before crha, as the packages do.
+// Start starts names one at a time in order, the privileged mode before crha, as the packages do. A unit
+// that fails to start does not keep the next one stopped: crha in forward mode retries its privileged
+// side, and a unit that is gone must not leave crha down.
 func Start(ctx context.Context, run Runner, names []string) error {
+	var errs []error
 	for _, name := range names {
 		if err := Systemctl(ctx, run, "start", name); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }

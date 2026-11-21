@@ -122,7 +122,7 @@ func StaticReasons(host Host, mode string, packageManaged bool) []string {
 			continue
 		}
 		parsed := units.Parse(string(content))
-		if !parsed.Managed || parsed.Meta == nil || parsed.Executable == "" {
+		if !parsed.Regenerable() {
 			add(ReasonUnmanagedUnit)
 			continue
 		}

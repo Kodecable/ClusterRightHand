@@ -28,6 +28,10 @@ export function upgradeSkipText(i18n: I18n, reason: NodeUpgradeSkipReason): stri
 			return i18n._(msg`cannot be upgraded from crhs`);
 		case "no_arch":
 			return i18n._(msg`its crha is too old to report its architecture`);
+		case "unsupported_arch":
+			return i18n._(msg`its architecture has no crha release`);
+		case "release_unavailable":
+			return i18n._(msg`the release has no crha for its architecture`);
 		case "up_to_date":
 			return i18n._(msg`already at this version`);
 		case "newer_than_crhs":
@@ -157,10 +161,14 @@ export function UpgradeCrhaDialog({ targets, onClose }: { targets: string[]; onC
 						)}
 					</div>
 				)}
-				{started.length > 1 && (
+				{started.length > 0 && (
 					<section aria-label={i18n._(msg`Started task groups`)} className="grid gap-1 text-sm">
 						<p className="font-medium">
-							<Trans>Started one task group per architecture; each waits for its authorization:</Trans>
+							<Plural
+								value={started.length}
+								one="Started a task group; it waits for its authorization:"
+								other="Started one task group per architecture; each waits for its authorization:"
+							/>
 						</p>
 						<ul className="grid gap-1">
 							{started.map((group) => (
@@ -193,13 +201,15 @@ export function UpgradeCrhaDialog({ targets, onClose }: { targets: string[]; onC
 								{
 									onSuccess: (result) => {
 										const [only, ...more] = result.taskGroups;
-										if (only && more.length === 0) {
+										// Nodes skipped only now (the release has no crha for their architecture)
+										// stay on screen with the groups that did start.
+										const skippedNow = result.skipped.length > (planned?.skipped.length ?? 0);
+										if (only && more.length === 0 && !skippedNow) {
 											onClose();
 											void navigate({ to: "/task-groups/$taskGroupId", params: { taskGroupId: only.taskGroupId } });
-										} else if (only) {
-											setStarted(result.taskGroups);
 										} else {
-											onClose();
+											setPlanned(result);
+											setStarted(result.taskGroups);
 										}
 									},
 								},

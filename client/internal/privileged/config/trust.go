@@ -28,9 +28,7 @@ func buildTrust(raw *rawTrust) (*Trust, error) {
 		return nil, errors.New("name: required")
 	}
 	role := protocol.TrustRole(raw.Role)
-	switch role {
-	case protocol.TrustRoleCRHS, protocol.TrustRoleUser, protocol.TrustRoleLocal:
-	default:
+	if !role.Known() {
 		return nil, fmt.Errorf("role: %q is not crhs, user or local", raw.Role)
 	}
 	t := &Trust{Name: raw.Name, Role: role, Format: raw.Format, MaxWindow: DefaultMaxWindow}

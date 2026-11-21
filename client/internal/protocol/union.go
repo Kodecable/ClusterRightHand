@@ -148,6 +148,15 @@ func newBareUnion[T any](name string, branches ...unionBranch[T]) unionDef[T] {
 	return unionDef[T]{name: name, bodyName: name, branches: branches}
 }
 
+// tags lists the union's tags in their order.
+func (d unionDef[T]) tags() []string {
+	out := make([]string, 0, len(d.branches))
+	for _, b := range d.branches {
+		out = append(out, b.tag)
+	}
+	return out
+}
+
 // withMissing gives a branch a non-default error for a missing body.
 func withMissing[T any](b unionBranch[T], message string) unionBranch[T] {
 	b.missing = message

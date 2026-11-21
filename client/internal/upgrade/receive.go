@@ -39,6 +39,8 @@ type ReceiveOptions struct {
 	Run units.Runner
 	// SkipRootCheck lets tests run without root.
 	SkipRootCheck bool
+	// From replaces the running version (tests).
+	From string
 }
 
 // Receive is the old binary's whole part of an upgrade (doc/design/distribution.md "On the node"): it
@@ -50,8 +52,13 @@ func Receive(ctx context.Context, taskID string, spec *protocol.NodeUpgradeSpec,
 	if spec == nil {
 		return errors.New("node.upgrade task has no spec")
 	}
-	if !protocol.ValidUpgradeVersion(spec.Version) {
-		return fmt.Errorf("version %q is not a version", spec.Version)
+	from := opts.From
+	if from == "" {
+		from = version.Version
+	}
+	// The installer would refuse these versions after the hand-over, where crhs no longer sees why.
+	if err := checkUpgrade(from, spec.Version); err != nil {
+		return err
 	}
 	// The binary must run here, and the size bounds what the node writes before it can check the hash.
 	if spec.Arch != runtime.GOARCH {
@@ -97,7 +104,7 @@ func Receive(ctx context.Context, taskID string, spec *protocol.NodeUpgradeSpec,
 	args := []string{
 		"--unit", unit, "--collect", "--quiet",
 		"--description", "ClusterRightHand crha upgrade to " + spec.Version,
-		binary, InstallCommand, "--from", version.Version, "--to", spec.Version, "--task", taskID,
+		binary, InstallCommand, "--from", from, "--to", spec.Version, "--task", taskID,
 	}
 	if output, err := run(ctx, "systemd-run", args...); err != nil {
 		return fmt.Errorf("systemd-run: %w: %s", err, bytesTrim(output))

@@ -921,6 +921,10 @@ var taskSpecUnion = newUnion("task spec",
 	unionPtr[TaskSpec]("node.upgrade", func(s *TaskSpec) **NodeUpgradeSpec { return &s.NodeUpgrade }),
 )
 
+// TaskSpecKinds lists every task kind this version decodes and runs, for hello's TaskKinds: crhs sends a
+// node only the kinds it lists (doc/design/protocol.md "Version negotiation").
+func TaskSpecKinds() []string { return taskSpecUnion.tags() }
+
 // MarshalCBOR encodes a TaskSpec as [tag, body].
 func (s TaskSpec) MarshalCBOR() ([]byte, error) { return taskSpecUnion.marshal(s, string(s.Kind)) }
 

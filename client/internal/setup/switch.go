@@ -60,11 +60,6 @@ func configChanges(current *config.Config, a resolved) []change {
 	return out
 }
 
-// setEdit sets one top-level key.
-func setEdit(key string, value any) tomledit.Edit {
-	return tomledit.Edit{Op: tomledit.Set, Path: []string{key}, Value: value}
-}
-
 // trustChange replaces every trust entry by the local root entry (when localRoot) and the pasted ones.
 func trustChange(localRoot bool, trust string) change {
 	return change{
