@@ -6,7 +6,14 @@
  * they explain why a group-addressed reusable authorization may not reach the node.
  */
 import type { TrustWarning, TrustWarningKind, TrustWarningSeverity } from "@crh/api";
-import type { TrustEntry, TrustSummary } from "@crh/protocol";
+import {
+	isKnownCapability,
+	isKnownMatch,
+	isKnownMethod,
+	isKnownRole,
+	type TrustEntry,
+	type TrustSummary,
+} from "@crh/protocol";
 import { isOwnCrhsEntry, type OwnerSigningCredentials, ownerSigningCredentialOf } from "../privilege/planner.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodeGroupRef } from "./node-groups.ts";
@@ -46,6 +53,20 @@ export async function trustWarningContext(
 			credentials.flatMap((row) => (row.kind === "webauthn" && row.credential_id ? [row.credential_id] : [])),
 		),
 	};
+}
+
+/**
+ * The values of a trust entry this crhs does not know: a role, capabilities, and guard rule methods
+ * and match types, all open names a newer node may report (doc/design/protocol.md "Encoding rules").
+ */
+export function newerTrustValues(entry: TrustEntry): string[] {
+	const rules = [...entry.allow, ...entry.deny];
+	return [
+		...(isKnownRole(entry.role) ? [] : [`role ${entry.role}`]),
+		...entry.kinds.filter((kind) => !isKnownCapability(kind)).map((kind) => `capability ${kind}`),
+		...new Set(rules.filter((rule) => !isKnownMethod(rule.method)).map((rule) => `method ${rule.method}`)),
+		...new Set(rules.filter((rule) => !isKnownMatch(rule.match)).map((rule) => `match ${rule.match}`)),
+	];
 }
 
 /** A trust entry whose key crhs knows: its own signing key or a registered user credential. Local entries are never unknown. */
@@ -116,6 +137,17 @@ export function trustWarningsForNode(input: NodeTrustWarningInput): TrustWarning
 		}
 	}
 	for (const entry of summary.trust) {
+		const newer = newerTrustValues(entry);
+		if (newer.length > 0) {
+			warnings.push({
+				kind: "trust_newer_values",
+				severity: "info",
+				uuid: null,
+				nodeGroupName: null,
+				trustName: entry.name,
+				message: `trust entry "${entry.name}" uses ${newer.join(", ")}, which this crhs does not know; it plans around them conservatively, and the node decides`,
+			});
+		}
 		if (trustEntryKnown(entry, input.context)) continue;
 		warnings.push({
 			kind: "trust_unknown",

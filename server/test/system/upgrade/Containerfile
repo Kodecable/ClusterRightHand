@@ -1,0 +1,37 @@
+# Test image of the crha self-upgrade system suite (doc/design/testing/privileged.md).
+#
+# systemd runs as PID 1 (podman run --systemd=always), because the upgrade drives crha's services with
+# systemd-run, systemctl and journalctl. crha is not built here: each test copies a static binary to
+# /usr/local/bin/crha (writable, since the upgrade replaces it) and sets the node up with `crha enroll`,
+# which creates the crha user and writes the units.
+FROM docker.io/library/ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      dbus \
+      opendoas \
+      sudo \
+      systemd \
+      systemd-sysv \
+ && rm -rf /var/lib/apt/lists/*
+
+# Units a container does not need, and that would only fail or wait.
+RUN systemctl mask \
+      console-getty.service \
+      getty.target \
+      systemd-logind.service \
+      systemd-networkd.service \
+      systemd-resolved.service \
+      systemd-udevd.service \
+      systemd-timesyncd.service
+
+# native mode: allow exactly the helper, as an administrator would (doc/design/privilege.md "Native mode").
+RUN printf '%s\n' 'crha ALL=(root) NOPASSWD: /usr/local/bin/crha privileged stdio' > /etc/sudoers.d/crha \
+ && chmod 0440 /etc/sudoers.d/crha \
+ && visudo -cf /etc/sudoers
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

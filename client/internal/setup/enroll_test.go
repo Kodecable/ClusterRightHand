@@ -160,7 +160,14 @@ func runEnroll(t *testing.T, host *fakeHost, answers map[string]any, register Re
 	})
 }
 
+const testNodeID = "0192f000-0000-7000-8000-000000000001"
+
 func fakeRegister(host *fakeHost) (RegisterFunc, *int) {
+	return fakeRegisterAs(host, testNodeID)
+}
+
+// fakeRegisterAs registers as crhs would answer with nodeID, and records it as enroll.Run does.
+func fakeRegisterAs(host *fakeHost, nodeID string) (RegisterFunc, *int) {
 	calls := 0
 	return func(_ context.Context, cfg *config.Config, _ string, _ bool) (enroll.Result, error) {
 		calls++
@@ -173,7 +180,10 @@ func fakeRegister(host *fakeHost) (RegisterFunc, *int) {
 				return enroll.Result{}, err
 			}
 		}
-		return enroll.Result{NodeID: "0192f000-0000-7000-8000-000000000001", Fingerprint: "fp-test"}, nil
+		if err := os.WriteFile(filepath.Join(stateDir, "node_id"), []byte(nodeID+"\n"), 0o644); err != nil {
+			return enroll.Result{}, err
+		}
+		return enroll.Result{NodeID: nodeID, Fingerprint: "fp-test"}, nil
 	}, &calls
 }
 
@@ -359,7 +369,8 @@ func TestRunFullForward(t *testing.T) {
 	}
 	for _, want := range []string{
 		"systemctl daemon-reload",
-		"systemctl enable --now crha crha-privileged",
+		"systemctl enable crha crha-privileged",
+		"systemctl start crha-privileged.service",
 	} {
 		if !host.hasCommand(want) {
 			t.Fatalf("commands %v have no %q", host.commands, want)
@@ -477,10 +488,15 @@ func TestRunRerunSkipsAndRewritesUnits(t *testing.T) {
 	host := newFakeHost(t)
 	register, calls := fakeRegister(host)
 	var first strings.Builder
-	if err := runEnroll(t, host, forwardAnswers(t), register, &first); err != nil {
+	answers := forwardAnswers(t)
+	if err := runEnroll(t, host, answers, register, &first); err != nil {
 		t.Fatal(err)
 	}
-	second := forwardAnswers(t)
+	// The same answers again (the same trust entries): nothing but the units is written.
+	second := map[string]any{}
+	for key, value := range answers {
+		second[key] = value
+	}
 	second["replace"] = true
 	var out strings.Builder
 	if err := runEnroll(t, host, second, register, &out); err != nil {
@@ -548,7 +564,8 @@ func TestRunKeepSkipsEnrollment(t *testing.T) {
 	}
 	for _, want := range []string{
 		"systemctl daemon-reload",
-		"systemctl enable --now crha crha-privileged",
+		"systemctl enable crha crha-privileged",
+		"systemctl start crha-privileged.service",
 	} {
 		if !host.hasCommand(want) {
 			t.Fatalf("commands %v have no %q", host.commands, want)
@@ -617,9 +634,8 @@ func TestRunKeepWithoutConfigFails(t *testing.T) {
 	}
 }
 
-// TestInteractiveReplaceIsAskedFirst covers that on an enrolled node the re-enroll question comes
-// first, that the existing crha.toml answers the server, TLS and privileged mode questions instead of
-// asking them, and that the summary names the choice and where the values came from.
+// TestInteractiveReplaceIsAskedFirst covers that the re-enroll question comes first, and that on a
+// re-enrollment the address, TLS and mode questions offer crha.toml's values as their defaults.
 func TestInteractiveReplaceIsAskedFirst(t *testing.T) {
 	existing := &config.Config{
 		Server: "https://old.example.com", TLSVerify: "none", StateDir: StateDir,
@@ -631,29 +647,33 @@ func TestInteractiveReplaceIsAskedFirst(t *testing.T) {
 		Service: &fileService{Start: ptr(true)},
 	}
 	var prompts, out strings.Builder
-	answers, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true, strings.NewReader("y\ny\n"), &prompts,
-		func(line string) { out.WriteString(line + "\n") })
+	// replace, then Enter at the address, TLS and mode questions, then confirm.
+	answers, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true, strings.NewReader("y\n\n\n\ny\n"),
+		&prompts, func(line string) { out.WriteString(line + "\n") })
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !answers.Replace || answers.Keep || !answers.FromConfig {
-		t.Fatalf("answers = %+v, want a re-enrollment answered by crha.toml", answers)
+		t.Fatalf("answers = %+v, want a re-enrollment with crha.toml's defaults", answers)
 	}
 	if answers.Server != existing.Server || answers.TLSVerify != "none" || answers.Mode != config.ModeIgnore {
 		t.Fatalf("re-enroll answers = %+v, want the crha.toml values", answers)
 	}
-	if !strings.HasPrefix(prompts.String(), "Re-enroll, keeping") {
+	if !strings.HasPrefix(prompts.String(), "Enroll again with a new key") {
 		t.Fatalf("first prompt is not the re-enroll question: %q", prompts.String())
 	}
-	for _, unwanted := range []string{"crhs address", "Enrollment token", "TLS certificate", "Privileged mode", "local root", "trust entries"} {
-		if strings.Contains(prompts.String(), unwanted) {
-			t.Fatalf("re-enroll asked %q: %q", unwanted, prompts.String())
+	for _, want := range []string{"crhs address [https://old.example.com]", "TLS certificate against the system CAs? [y/N]", "Privileged mode (ignore or forward) [ignore]"} {
+		if !strings.Contains(prompts.String(), want) {
+			t.Fatalf("prompts have no %q: %q", want, prompts.String())
 		}
 	}
+	if strings.Contains(prompts.String(), "Enrollment token") {
+		t.Fatalf("asked the token the file gives: %q", prompts.String())
+	}
 	for _, want := range []string{
-		"enrollment: re-enroll",
-		"crhs address: https://old.example.com (from crha.toml)",
-		"privileged mode: ignore (from crha.toml)",
+		"enrollment: enroll again with a new key\n",
+		"crhs address: https://old.example.com (unchanged)",
+		"privileged mode: ignore (unchanged)",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary has no %q:\n%s", want, out.String())
@@ -662,7 +682,8 @@ func TestInteractiveReplaceIsAskedFirst(t *testing.T) {
 }
 
 // TestInteractiveReplaceForwardWithoutPrivilegedConfig covers that re-enrolling a forward node whose
-// privileged.toml is missing still asks the local root and trust questions, which that file needs.
+// privileged.toml is missing asks the local root and trust questions, and that with privileged.toml
+// present the trust question names the current entries, never prints them, and keeps them by default.
 func TestInteractiveReplaceForwardWithoutPrivilegedConfig(t *testing.T) {
 	existing := &config.Config{
 		Server: "https://crh.example.com", TLSVerify: "system", StateDir: StateDir,
@@ -670,33 +691,44 @@ func TestInteractiveReplaceForwardWithoutPrivilegedConfig(t *testing.T) {
 	}
 	file := &fileAnswers{Version: 1, Token: ptr("crh1.fp.secret"), Service: &fileService{Start: ptr(true)}}
 	var prompts strings.Builder
+	// replace, address, TLS, mode, local root, an empty trust paste, confirm.
 	answers, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true,
-		strings.NewReader("y\n\n.\ny\n"), &prompts, func(string) {})
+		strings.NewReader("y\n\n\n\n\n.\ny\n"), &prompts, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !answers.PrivilegedAnswers || !answers.LocalRoot || answers.Mode != config.ModeForward {
-		t.Fatalf("answers = %+v, want the privileged questions answered", answers)
-	}
-	if strings.Contains(prompts.String(), "Privileged mode") {
-		t.Fatalf("re-enroll asked the privileged mode: %q", prompts.String())
+	if !answers.PrivilegedAnswers || answers.ReplaceTrust || !answers.LocalRoot || answers.Mode != config.ModeForward {
+		t.Fatalf("answers = %+v, want the privileged questions answered for a new privileged.toml", answers)
 	}
 
-	// With privileged.toml present, nothing privileged is asked.
 	prompts.Reset()
-	answers, err = collectAnswers(file, existingSetup{config: existing, enrolled: true, privilegedConfig: true}, true,
-		strings.NewReader("y\ny\n"), &prompts, func(string) {})
+	state := existingSetup{config: existing, enrolled: true, privilegedConfig: true, trustNames: []string{"crhs", "alice"}}
+	// replace, address, TLS, mode, Enter keeps the trust entries, confirm.
+	answers, err = collectAnswers(file, state, true, strings.NewReader("y\n\n\n\n\ny\n"), &prompts, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if answers.PrivilegedAnswers || strings.Contains(prompts.String(), "local root") {
-		t.Fatalf("answers = %+v, prompts %q: privileged questions asked although privileged.toml exists", answers, prompts.String())
+	if answers.PrivilegedAnswers || answers.ReplaceTrust || strings.Contains(prompts.String(), "local root") {
+		t.Fatalf("answers = %+v, prompts %q: the trust entries were not kept", answers, prompts.String())
+	}
+	if !strings.Contains(prompts.String(), "Keep the current trust entries (2: crhs, alice)? [Y/n]") {
+		t.Fatalf("trust question %q", prompts.String())
+	}
+
+	// Answering no replaces them with the pasted entries.
+	answers, err = collectAnswers(file, state, true, strings.NewReader("y\n\n\n\nn\n\n"+trustEntry(t)+"\n.\ny\n"), io.Discard, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !answers.ReplaceTrust || !answers.PrivilegedAnswers || !strings.Contains(answers.Trust, "[[trust]]") {
+		t.Fatalf("answers = %+v, want the trust entries replaced", answers)
 	}
 }
 
-// TestAnswersContradictingConfigAreRefused covers that a server, TLS or mode answer that differs from
-// the existing crha.toml is an error rather than silently dropped; an equal value is accepted.
-func TestAnswersContradictingConfigAreRefused(t *testing.T) {
+// TestAnswersSwitchTheConfig covers that answers that differ from crha.toml switch it, that a mode
+// switch to forward without privileged.toml needs its trust answers, and that a new crhs address is
+// refused on the keep path, where it would be a new enrollment.
+func TestAnswersSwitchTheConfig(t *testing.T) {
 	existing := &config.Config{
 		Server: "https://crh.example.com", TLSVerify: "system", StateDir: StateDir,
 		Privilege: config.Privileged{Mode: config.ModeIgnore},
@@ -705,23 +737,34 @@ func TestAnswersContradictingConfigAreRefused(t *testing.T) {
 	file := &fileAnswers{
 		Version:    1,
 		Replace:    ptr(true),
-		Server:     ptr("https://crh.example.com"),
 		Token:      ptr("crh1.fp.secret"),
-		TLSVerify:  ptr("system"),
+		TLSVerify:  ptr("none"),
 		Privileged: &filePrivileged{Mode: ptr("forward")},
 		Service:    &fileService{Start: ptr(true)},
 	}
 	_, err := collectAnswers(file, state, false, strings.NewReader(""), io.Discard, func(string) {})
-	if err == nil || !strings.Contains(err.Error(), `privileged.mode is "forward" in the answers file but "ignore" in crha.toml`) {
-		t.Fatalf("contradicting mode = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "privileged.local_root, privileged.trust") {
+		t.Fatalf("a switch to forward without trust answers = %v", err)
 	}
-	file.Privileged.Mode = ptr("ignore")
+	file.Privileged = &filePrivileged{Mode: ptr("forward"), LocalRoot: ptr(true), Trust: ptr(trustEntry(t))}
 	answers, err := collectAnswers(file, state, false, strings.NewReader(""), io.Discard, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !answers.FromConfig || answers.Mode != config.ModeIgnore {
+	if answers.Mode != config.ModeForward || answers.TLSVerify != "none" || !answers.PrivilegedAnswers || answers.ReplaceTrust {
 		t.Fatalf("answers = %+v", answers)
+	}
+
+	keep := &fileAnswers{Version: 1, Replace: ptr(false), Server: ptr("https://other.example.com"), Service: &fileService{Start: ptr(true)}}
+	if _, err := collectAnswers(keep, state, false, strings.NewReader(""), io.Discard, func(string) {}); err == nil ||
+		!strings.Contains(err.Error(), "new enrollment") {
+		t.Fatalf("a new address on the keep path = %v", err)
+	}
+	keep.Server = ptr(existing.Server)
+	keep.TLSVerify = ptr("none")
+	answers, err = collectAnswers(keep, state, false, strings.NewReader(""), io.Discard, func(string) {})
+	if err != nil || !answers.Keep || answers.TLSVerify != "none" {
+		t.Fatalf("keep with a TLS switch = %+v, %v", answers, err)
 	}
 }
 
@@ -762,16 +805,17 @@ func TestRunReplaceWritesMissingPrivilegedConfig(t *testing.T) {
 	}
 }
 
-// TestInteractiveKeepAsksOnlyTheService covers that answering no keeps the existing enrollment: the
-// server, token, TLS and privileged mode are not asked, only the service question and the confirmation.
-func TestInteractiveKeepAsksOnlyTheService(t *testing.T) {
+// TestInteractiveKeepAsksNoAddressOrToken covers that answering no keeps the existing enrollment: the
+// address and token are not asked, while TLS, the mode and the service offer their current values.
+func TestInteractiveKeepAsksNoAddressOrToken(t *testing.T) {
 	existing := &config.Config{
 		Server: "https://old.example.com", TLSVerify: "none", StateDir: StateDir,
 		Privilege: config.Privileged{Mode: config.ModeIgnore},
 	}
 	file := &fileAnswers{Version: 1, Replace: ptr(false)}
 	var prompts, out strings.Builder
-	answers, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true, strings.NewReader("\ny\n"), &prompts,
+	// Enter at TLS, mode and service, then confirm.
+	answers, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true, strings.NewReader("\n\n\ny\n"), &prompts,
 		func(line string) { out.WriteString(line + "\n") })
 	if err != nil {
 		t.Fatal(err)
@@ -783,7 +827,7 @@ func TestInteractiveKeepAsksOnlyTheService(t *testing.T) {
 		answers.Mode != config.ModeIgnore || !answers.Start {
 		t.Fatalf("keep answers = %+v", answers)
 	}
-	for _, unwanted := range []string{"crhs address", "Enrollment token", "Privileged mode", "TLS certificate"} {
+	for _, unwanted := range []string{"crhs address", "Enrollment token"} {
 		if strings.Contains(prompts.String(), unwanted) {
 			t.Fatalf("keep path asked %q: %q", unwanted, prompts.String())
 		}
@@ -939,5 +983,28 @@ func TestEnsureDirectoryRepairsAndRefuses(t *testing.T) {
 	}
 	if len(host.chowns) != 0 {
 		t.Fatalf("a refused path was chowned: %v", host.chowns)
+	}
+}
+
+// A re-enrollment with another crhs address registers a node there; the summary says so before it runs.
+func TestInteractiveReplaceWithAnotherServerSaysNewNode(t *testing.T) {
+	existing := &config.Config{
+		Server: "https://old.example.com", TLSVerify: "none", StateDir: StateDir,
+		Privilege: config.Privileged{Mode: config.ModeIgnore},
+	}
+	file := &fileAnswers{Version: 1, Token: ptr("crh1.fp.secret"), Service: &fileService{Start: ptr(true)}}
+	var prompts, out strings.Builder
+	_, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true,
+		strings.NewReader("y\nhttps://new.example.com\n\n\ny\n"), &prompts, func(line string) { out.WriteString(line + "\n") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"enrollment: enroll again with a new key, as a new node of https://new.example.com",
+		"crhs address: https://old.example.com -> https://new.example.com",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("summary has no %q:\n%s", want, out.String())
+		}
 	}
 }

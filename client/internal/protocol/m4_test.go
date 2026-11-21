@@ -352,3 +352,25 @@ func TestM4AuthorizationIDAndHashes(t *testing.T) {
 		t.Fatalf("AuthorizationID = %x, want %x", got, want)
 	}
 }
+
+// An upgrade's transfer id is routing: SpecSHA256 leaves it out, so every member of a group hashes like
+// the group's spec and one authorization covers them all (doc/design/distribution.md "The upgrade task").
+func TestSpecSHA256IgnoresTheUpgradeTransferID(t *testing.T) {
+	spec := func(transferID string) *TaskSpec {
+		return &TaskSpec{Kind: TaskSpecNodeUpgrade, NodeUpgrade: &NodeUpgradeSpec{
+			Version: "1.3.0", Arch: "amd64", Size: 1,
+			Endpoint: TransferEndpoint{Kind: TransferEndpointCRHS, TransferID: transferID},
+		}}
+	}
+	a, err := SpecSHA256(spec("x-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := SpecSHA256(spec("x-2"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != b {
+		t.Fatal("the transfer id changed the spec hash")
+	}
+}

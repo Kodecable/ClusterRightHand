@@ -202,6 +202,25 @@ export function enumOf<const V extends readonly string[]>(...values: V): Codec<V
 	return make(name, check, check);
 }
 
+/** The form of an open name: lowercase ASCII letters, digits, ".", "_" and "-", starting with a letter, at most 64 bytes. */
+const OPEN_NAME = /^[a-z][a-z0-9._-]{0,63}$/;
+
+/**
+ * An open name (doc/design/protocol.md "Encoding rules"): text in a fixed form whose set of values
+ * grows within a major. Unlike `enumOf`, any well-formed value decodes and re-encodes unchanged, so
+ * a peer that predates a value can still carry, hash and verify it; what an unknown value means is
+ * left to the receiver. A value outside the form is a decode error.
+ */
+export function openName(name: string): Codec<string> {
+	const check = (value: unknown): string => {
+		if (typeof value !== "string" || !OPEN_NAME.test(value)) {
+			fail(name, `not a valid name: ${String(value)}`);
+		}
+		return value;
+	};
+	return make(name, check, check);
+}
+
 /** One known key of a map codec: the wire key, the object field, and how to codec the value. */
 export interface MapField<T> {
 	readonly wire: string;

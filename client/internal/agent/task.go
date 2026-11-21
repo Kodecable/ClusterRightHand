@@ -11,6 +11,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/taskinput"
+	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade/marker"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -330,6 +331,12 @@ func (a *Agent) start(ctx context.Context, ts *protocol.TaskStart) (any, error) 
 		releaseClaim()
 		return nil, err
 	}
+	// Replacing crha's binary is root on the node: an upgrade runs only on the privileged side, under
+	// its authorization (doc/design/distribution.md "On the node").
+	if ts.Spec.Kind == protocol.TaskSpecNodeUpgrade && !ts.Privileged {
+		releaseClaim()
+		return nil, &protocol.RemoteError{Code: protocol.CodeInvalidSpec, Message: "node.upgrade must be privileged"}
+	}
 
 	kind := ts.Spec.Kind
 	t := &task{
@@ -440,6 +447,10 @@ func checkTaskKind(spec protocol.TaskSpec) *protocol.RemoteError {
 		if spec.FileList == nil {
 			return invalid
 		}
+	case protocol.TaskSpecNodeUpgrade:
+		if spec.NodeUpgrade == nil {
+			return invalid
+		}
 	default:
 		// Cannot happen after decoding; keep the guard for a future kind this build does not know.
 		return &protocol.RemoteError{Code: protocol.CodeUnsupportedKind, Message: fmt.Sprintf("unsupported task kind %q", spec.Kind)}
@@ -525,9 +536,9 @@ func (a *Agent) abortIncompleteInputLocked(t *task) {
 	if t.done || t.inputComplete() {
 		return
 	}
-	// A file.push receives its bytes on the data connection, which is independent of the control
-	// connection that just ended: its pushTransfer ends the task on success, failure or idle timeout.
-	if t.spec.Spec.Kind == protocol.TaskSpecFilePush {
+	// A file.push (and an upgrade's binary) arrives on the data connection, which is independent of the
+	// control connection that just ended: its pushTransfer ends the task on success, failure or idle timeout.
+	if t.spec.Spec.Kind == protocol.TaskSpecFilePush || t.spec.Spec.Kind == protocol.TaskSpecNodeUpgrade {
 		return
 	}
 	a.failInputLocked(t, protocol.CodeInputIncomplete, "connection closed before the task input was complete")
@@ -626,13 +637,21 @@ func (a *Agent) handleTaskExitAck(body cbor.RawMessage) error {
 		return err
 	}
 	a.mu.Lock()
+	upgrade := false
 	if t := a.tasks[ack.TaskID]; t != nil && t.done {
+		upgrade = t.spec.Spec.Kind == protocol.TaskSpecNodeUpgrade
 		t.output.Release()
 		delete(a.tasks, t.id)
 	}
 	// The id stays in the accepted set: a duplicate task.start is still refused.
 	a.mu.Unlock()
 	a.relay.discard(ack.TaskID)
+	if upgrade {
+		// crhs has the upgrade's result: the new version's installer waits for this line in the journal
+		// before it stops this process (doc/design/distribution.md "On the node"). This process never
+		// stops itself, so an installer that gave up leaves it running.
+		a.log.Info(marker.HandOver(ack.TaskID))
+	}
 	return nil
 }
 

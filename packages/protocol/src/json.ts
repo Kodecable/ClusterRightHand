@@ -8,6 +8,7 @@ import type {
 	Facts,
 	FileListEntry,
 	InputRef,
+	SelfUpgrade,
 	Shells,
 	TaskResult,
 	TaskSpec,
@@ -62,7 +63,15 @@ export type JsonTaskSpec =
 	| { kind: "file.pull"; path: string; maxBytes: number; endpoint: JsonTransferEndpoint }
 	| { kind: "file.edit"; path: string; edits: { oldText: string; newText: string }[] }
 	| { kind: "file.stat"; path: string }
-	| { kind: "file.list"; path: string; limit: number };
+	| { kind: "file.list"; path: string; limit: number }
+	| {
+			kind: "node.upgrade";
+			version: string;
+			arch: string;
+			size: number;
+			sha256: string;
+			endpoint: JsonTransferEndpoint;
+	  };
 
 /** The JSON form of one `file.list` entry (doc/design/protocol.md "Task results"). */
 export interface JsonFileListEntry {
@@ -270,6 +279,15 @@ export function taskSpecToJson(value: TaskSpec): JsonTaskSpec {
 				createParentDirs: bool(value.createParentDirs, "createParentDirs"),
 				endpoint: transferEndpointToJson(value.endpoint),
 			};
+		case "node.upgrade":
+			return {
+				kind: "node.upgrade",
+				version: text(value.version, "version"),
+				arch: text(value.arch, "arch"),
+				size: uint(value.size, "size"),
+				sha256: bytesToHex(value.sha256, "sha256"),
+				endpoint: transferEndpointToJson(value.endpoint),
+			};
 		case "file.pull":
 			return {
 				kind: "file.pull",
@@ -336,6 +354,17 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 				owner: text(object.owner, "owner"),
 				group: text(object.group, "group"),
 				createParentDirs: bool(object.createParentDirs, "createParentDirs"),
+			};
+		}
+		case "node.upgrade": {
+			const object = record(value, "node.upgrade", ["kind", "version", "arch", "size", "sha256", "endpoint"]);
+			return {
+				kind: "node.upgrade",
+				version: text(object.version, "version"),
+				arch: text(object.arch, "arch"),
+				size: uint(object.size, "size"),
+				sha256: hexToBytes(object.sha256, "sha256"),
+				endpoint: transferEndpointFromJson(object.endpoint, "endpoint"),
 			};
 		}
 		case "file.push": {
@@ -534,6 +563,29 @@ function shellsToJson(value: Shells): Shells {
 	return out;
 }
 
+function selfUpgradeToJson(value: SelfUpgrade): SelfUpgrade {
+	const out: SelfUpgrade = {
+		available: bool(value.available, "selfUpgrade.available"),
+		reasons: value.reasons.map((reason) => text(reason, "selfUpgrade.reasons")),
+	};
+	if (value.arch !== undefined) out.arch = text(value.arch, "selfUpgrade.arch");
+	return out;
+}
+
+function selfUpgradeFromJson(value: unknown): SelfUpgrade {
+	if (!isRecord(value)) bad("selfUpgrade", "not an object");
+	const object = Object.hasOwn(value, "arch")
+		? record(value, "selfUpgrade", ["available", "reasons", "arch"])
+		: record(value, "selfUpgrade", ["available", "reasons"]);
+	if (!Array.isArray(object.reasons)) bad("selfUpgrade.reasons", "not an array");
+	const out: SelfUpgrade = {
+		available: bool(object.available, "selfUpgrade.available"),
+		reasons: object.reasons.map((reason) => text(reason, "selfUpgrade.reasons")),
+	};
+	if (Object.hasOwn(object, "arch")) out.arch = text(object.arch, "selfUpgrade.arch");
+	return out;
+}
+
 function shellsFromJson(value: unknown): Shells {
 	if (!isRecord(value)) bad("shells", "not an object");
 	const out: Shells = { sh: text(value.sh, "shells.sh") };
@@ -587,6 +639,8 @@ export function factsToJson(value: Facts): JsonFacts {
 	if (value.notesPath !== undefined) out.notesPath = text(value.notesPath, "notesPath");
 	if (value.clockOffsetMs !== undefined) out.clockOffsetMs = int(value.clockOffsetMs, "clockOffsetMs");
 	if (value.shells !== undefined) out.shells = shellsToJson(value.shells);
+	if (value.selfUpgrade !== undefined) out.selfUpgrade = selfUpgradeToJson(value.selfUpgrade);
+	if (value.upgradeLogPath !== undefined) out.upgradeLogPath = text(value.upgradeLogPath, "upgradeLogPath");
 	return out;
 }
 
@@ -604,5 +658,7 @@ export function factsFromJson(value: unknown): JsonFacts {
 	if (Object.hasOwn(value, "notesPath")) out.notesPath = text(value.notesPath, "notesPath");
 	if (Object.hasOwn(value, "clockOffsetMs")) out.clockOffsetMs = int(value.clockOffsetMs, "clockOffsetMs");
 	if (value.shells !== undefined) out.shells = shellsFromJson(value.shells);
+	if (value.selfUpgrade !== undefined) out.selfUpgrade = selfUpgradeFromJson(value.selfUpgrade);
+	if (Object.hasOwn(value, "upgradeLogPath")) out.upgradeLogPath = text(value.upgradeLogPath, "upgradeLogPath");
 	return out;
 }

@@ -39,8 +39,10 @@ needs an authorization from a signer the node already trusts.
 
 ## Upgrades
 
-Upgrade crhs and crha together. Nodes with a different protocol major version are refused when they
-connect; a different minor version is compatible.
+Upgrade crhs first, then its crha nodes. A node with a different protocol minor version is
+compatible. A node of a protocol major crhs does not serve is refused when it connects (crha logs
+`crhs does not serve protocol major` with the majors crhs serves) and is upgraded by hand; each
+release's notes say which majors it serves.
 
 Back up the database and take a key export first ([Backups and restore](#backups-and-restore)). Migrations
 run automatically when crhs starts and cannot be reversed, so the database backup is the rollback.
@@ -66,6 +68,31 @@ sudo podman run -d --name crhs -p 8080:8080 -v /srv/crhs:/crhs-data ghcr.io/kode
 **crhs, tar without Node.** Replace the directory with the new bundle, run `npm ci --omit=dev` in it,
 then `sudo systemctl restart crhs`.
 
+**crha, from crhs.** On a node's page or a node group's page, **Upgrade crha** brings crha to crhs's own
+version; `POST /api/nodes/upgrade` does the same. It first shows which nodes are upgraded, how many
+running tasks the restart will end, and which nodes are skipped and why. crhs then fetches the crha
+release of its version, verifies it, and starts one privileged task group per architecture, which waits
+for an authorization like any privileged task. On each node the new binary checks the configuration,
+backs up and regenerates the units, restarts crha, and rolls back by itself when the new version does
+not come up within two minutes ([crha self-upgrade](../design/distribution.md#crha-self-upgrade)).
+
+- Only nodes set up with `crha enroll`, running under systemd, not installed from a deb or rpm, and
+  with a privileged side that runs as root can be upgraded this way. An `ignore` node qualifies when
+  crha itself runs as root: enroll runs it as the crha user, so add a drop-in with
+  `sudo systemctl edit crha` (`[Service]`, `User=root`, `Group=root`); upgrades rewrite the unit but
+  keep drop-ins. The node page says why a node cannot be upgraded.
+- crhs needs to reach GitHub and the Sigstore TUF repository. Without them, set
+  `[crha_release] verify = false` and copy the release archive to `crha-releases/<version>/` under the
+  data directory ([crha_release](reference/crhs-config.md#crha_release)).
+- An upgrade may change how the node behaves: a release can turn a default off for safety, or rename
+  or drop a configuration key, and migrates the files itself. Read the release notes before upgrading;
+  the upgrade log lists every change made to `crha.toml` and `privileged.toml`, and the backup keeps
+  the previous files.
+- `crha upgrade status` on the node prints the last upgrade's outcome and the upgrade log, which crhs
+  can also read with the node's file view. If the new version starts but cannot reach crhs,
+  `sudo crha upgrade rollback` goes back to the version before it; it refuses when a file changed since
+  the upgrade, unless `--force`.
+
 **crha, deb and rpm.** Install the new package; the package restarts `crha-privileged` and then `crha`.
 The rpm signing key must already be imported ([deb and rpm](install.md#deb-and-rpm)):
 
@@ -81,9 +108,9 @@ sudo systemctl restart crha-privileged
 sudo systemctl restart crha
 ```
 
-If you upgrade through a CRH task, schedule the restart after the task reports (for example
+If you upgrade by hand through a CRH task, schedule the restart after the task reports (for example
 `systemd-run --on-active=2s systemctl restart crha`), because a restart ends every running task,
-including the one doing the upgrade.
+including the one doing the upgrade. **Upgrade crha** handles this itself.
 
 **Effect on running work.** After a crhs restart, crha nodes reconnect and their running tasks continue;
 tasks on SSH nodes become `unknown`. After a crha restart, the tasks that were running on that node
@@ -183,24 +210,19 @@ issued for it.
 task history; there is no online rotation.
 
 1. On the node's page, choose **Re-enroll** and copy the crhs address and token.
-2. Stop `crha` (and `crha-privileged`).
-3. Run `sudo crha enroll` and answer the questions, including yes to re-enroll:
-
-   ```sh
-   sudo crha enroll
-   printf '%s\n' "$TOKEN" | crha register --replace --config /etc/crha/crha.toml   # manual layout
-   ```
-
-   Re-enrollment moves the old `identity.key` and `server.pub` aside as `.old` files, overwriting
-   older backups, and restores them if enrollment fails. The rest of the state directory and the
-   configuration are untouched.
-
-4. Start the services and approve the new key fingerprint in the WebUI after comparing it with
-   `crha status`.
+2. Run `sudo crha enroll` and answer yes to enrolling again with a new key. It stops the services,
+   registers the new key, keeps the old one as `.old` files ([crha enroll](reference/cli.md#crha)) and
+   starts the services again. With a manual layout, stop the services yourself and run
+   `printf '%s\n' "$TOKEN" | crha register --replace --config /etc/crha/crha.toml`.
+3. Approve the new key fingerprint in the WebUI after comparing it with `crha status`.
 
 The old key stops authenticating as soon as the node enrolls, and its existing connection is closed.
 `node_id` and `aliases` in `privileged.toml` still refer to the same node. If the host itself is no
 longer trustworthy, revoke it by deleting the node instead.
+
+Enrolling with a **New node** token instead registers another node: it starts without the old one's
+name, groups and grants. `crha enroll` says so, points `node_id` in `privileged.toml` to the new id, and
+leaves the previous node on crhs; delete it on its page once it is no longer needed.
 
 **crhs's identity key** cannot be rotated online: every node pins it at enrollment, so replacing it
 means re-enrolling every node with a Re-enroll token, which keeps their records. Back the key up with a

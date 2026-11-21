@@ -3,7 +3,6 @@ import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { HandshakeState } from "@crh/noise";
 import {
-	DATA_NOISE_PROLOGUE_PREFIX,
 	type DataConnectionInit,
 	dataConnectionInitCodec,
 	dataConnectionResponseCodec,
@@ -14,11 +13,12 @@ import {
 	type HandshakeResponse,
 	handshakeInitCodec,
 	handshakeResponseCodec,
-	NOISE_PROLOGUE_PREFIX,
+	majorFromSubprotocols,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	peekProtocolMajor,
 	REQUIRED_NAMES,
+	SUBPROTOCOL_PREFIX,
 } from "@crh/protocol";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Audit } from "../audit/audit.ts";
@@ -28,6 +28,7 @@ import type { Cluster } from "./cluster.ts";
 import { closeReason, NodeConnection, toBytes } from "./connection.ts";
 import { EnrollmentError, type EnrollmentResult, enrollNodeWithResult } from "./enrollment.ts";
 import type { ServerIdentity } from "./identity.ts";
+import { refusalResponse, SERVED_MAJORS, type ServedMajor, servedMajor } from "./majors.ts";
 import { findNodeByPublicKey, type NodeRow } from "./nodes.ts";
 
 export const AGENT_PATH = "/agent";
@@ -60,14 +61,28 @@ export class AgentServer {
 	readonly #identity: ServerIdentity;
 	readonly #cluster: Cluster;
 	readonly #audit: Audit | undefined;
-	readonly #wss = new WebSocketServer({ noServer: true, maxPayload: MAX_NOISE_MESSAGE });
+	readonly #majors: readonly ServedMajor[];
+	// crha names its major as the subprotocol `crh.<major>`; echoing it tells crha that crhs read it
+	// (doc/design/protocol.md "The major in the clear").
+	readonly #wss = new WebSocketServer({
+		noServer: true,
+		maxPayload: MAX_NOISE_MESSAGE,
+		handleProtocols: (protocols) => [...protocols].find((entry) => entry.startsWith(SUBPROTOCOL_PREFIX)) ?? false,
+	});
 	/** Cleared at shutdown: no new node connection may be accepted. */
 	#accepting = true;
 	/** Handshakes in flight; close() waits for them so none attaches after the cluster closed. */
 	readonly #handshakes = new Set<Promise<void>>();
 
-	constructor(db: Db, identity: ServerIdentity, cluster: Cluster, audit?: Audit) {
+	constructor(
+		db: Db,
+		identity: ServerIdentity,
+		cluster: Cluster,
+		audit?: Audit,
+		majors: readonly ServedMajor[] = SERVED_MAJORS,
+	) {
 		this.#audit = audit;
+		this.#majors = majors;
 		this.#db = db;
 		this.#identity = identity;
 		this.#cluster = cluster;
@@ -86,11 +101,27 @@ export class AgentServer {
 		}
 		if (path !== AGENT_PATH && path !== AGENT_DATA_PATH) return false;
 		const data = path === AGENT_DATA_PATH;
+		// The major comes before the handshake, so a node crhs does not serve is told why in plain HTTP
+		// instead of failing the Noise handshake (doc/design/protocol.md "The major in the clear").
+		const header = req.headers["sec-websocket-protocol"];
+		const clientMajor = majorFromSubprotocols(Array.isArray(header) ? header.join(",") : header);
+		const served = servedMajor(clientMajor, this.#majors);
+		if (served === undefined || !served.current) {
+			// Only the current major is served until an older codec exists; the window is in majors.ts.
+			console.warn(
+				`agent connection refused: protocol major ${clientMajor ?? "unreadable"} from ${req.socket.remoteAddress ?? "unknown address"}; crhs serves ${this.#majors.map((entry) => entry.major).join(", ")}`,
+			);
+			// The peer may reset the connection before the response is written; an unhandled socket
+			// error here would end the process.
+			socket.on("error", () => {});
+			socket.end(refusalResponse(clientMajor, this.#majors));
+			return true;
+		}
 		this.#wss.handleUpgrade(req, socket, head, (ws) => {
 			// Until the handshake attaches a message listener nothing owns this socket's protocol errors
 			// (an oversized frame, a bad frame, a reset), and an unhandled ws `error` event ends the process.
 			ws.on("error", () => {});
-			const accepted: Promise<void> = (data ? this.#acceptData(ws) : this.#accept(ws))
+			const accepted: Promise<void> = (data ? this.#acceptData(ws, served) : this.#accept(ws, served))
 				.catch((err: unknown) => {
 					console.error("agent connection failed:", err);
 					ws.terminate();
@@ -118,7 +149,7 @@ export class AgentServer {
 		await new Promise<void>((resolve) => this.#wss.close(() => resolve()));
 	}
 
-	async #accept(ws: WebSocket): Promise<void> {
+	async #accept(ws: WebSocket, served: ServedMajor): Promise<void> {
 		const challenge = randomBytes(CHALLENGE_LEN);
 		const first = new Promise<Uint8Array>((resolve, reject) => {
 			const timer = setTimeout(() => reject(new Error("handshake timeout")), HANDSHAKE_TIMEOUT_MS);
@@ -138,7 +169,7 @@ export class AgentServer {
 			return ws.terminate();
 		}
 		const hs = HandshakeState.responder({
-			prologue: Buffer.concat([Buffer.from(NOISE_PROLOGUE_PREFIX), challenge]),
+			prologue: Buffer.concat([Buffer.from(served.prologue), challenge]),
 			staticKey: this.#identity.keyPair,
 		});
 		let payload: Uint8Array;
@@ -154,8 +185,8 @@ export class AgentServer {
 		} catch {
 			return reject(ws, "handshake failed");
 		}
-		if (clientMajor !== PROTOCOL_MAJOR) {
-			return reject(ws, `protocol_major mismatch: server ${PROTOCOL_MAJOR}, client ${clientMajor}`);
+		if (clientMajor !== served.major) {
+			return reject(ws, `protocol_major mismatch: request named ${served.major}, payload ${clientMajor}`);
 		}
 		let init: HandshakeInit;
 		try {
@@ -189,6 +220,12 @@ export class AgentServer {
 			}
 		}
 		if (!node) return reject(ws, "unknown node");
+		// The version a node runs changes when it is upgraded, so it is recorded on every handshake, not
+		// only at enrollment (doc/design/distribution.md "crha self-upgrade").
+		if (node.client_version !== init.crhaVersion) {
+			await this.#db.updateTable("nodes").set({ client_version: init.crhaVersion }).where("id", "=", node.id).execute();
+			node = { ...node, client_version: init.crhaVersion };
+		}
 
 		// A re-enrolled node's old key no longer authenticates. Close the connection that authenticated
 		// with it now, even if this new handshake dies before attaching; attach() would otherwise wait.
@@ -209,7 +246,7 @@ export class AgentServer {
 			nodeId: node.id,
 		};
 		ws.send(hs.writeMessage(encodeCbor(handshakeResponseCodec.encode(response))));
-		const conn = new NodeConnection(connectionId, node.id, ws, hs.split(), negotiated);
+		const conn = new NodeConnection(connectionId, node.id, ws, hs.split(), negotiated, !served.current);
 		this.#cluster.attach(conn, node as NodeRow);
 	}
 
@@ -219,7 +256,7 @@ export class AgentServer {
 	 * whose control connection is up gets past the handshake; the task and transfer are checked by the
 	 * cluster once the channel exists.
 	 */
-	async #acceptData(ws: WebSocket): Promise<void> {
+	async #acceptData(ws: WebSocket, served: ServedMajor): Promise<void> {
 		const challenge = randomBytes(CHALLENGE_LEN);
 		const first = new Promise<Uint8Array>((resolve, reject) => {
 			const timer = setTimeout(() => reject(new Error("handshake timeout")), HANDSHAKE_TIMEOUT_MS);
@@ -239,7 +276,7 @@ export class AgentServer {
 			return ws.terminate();
 		}
 		const hs = HandshakeState.responder({
-			prologue: Buffer.concat([Buffer.from(DATA_NOISE_PROLOGUE_PREFIX), challenge]),
+			prologue: Buffer.concat([Buffer.from(served.dataPrologue), challenge]),
 			staticKey: this.#identity.keyPair,
 		});
 		let payload: Uint8Array;
@@ -254,8 +291,8 @@ export class AgentServer {
 		} catch {
 			return reject(ws, "handshake failed");
 		}
-		if (clientMajor !== PROTOCOL_MAJOR) {
-			return reject(ws, `protocol_major mismatch: server ${PROTOCOL_MAJOR}, client ${clientMajor}`);
+		if (clientMajor !== served.major) {
+			return reject(ws, `protocol_major mismatch: request named ${served.major}, payload ${clientMajor}`);
 		}
 		let init: DataConnectionInit;
 		try {

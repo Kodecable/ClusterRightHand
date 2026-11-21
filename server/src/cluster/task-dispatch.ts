@@ -16,6 +16,7 @@ import { checkedOutputLimits } from "./batch-output.ts";
 import type { NodeConnection } from "./connection.ts";
 import { type ClusterCore, now } from "./core.ts";
 import { newLive } from "./live-output.ts";
+import { upgradeOnlyAllows, upgradeRequired } from "./majors.ts";
 import { userCanAccessNode } from "./node-access.ts";
 import { nodeGroupIdsForNodes } from "./node-groups.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
@@ -103,6 +104,10 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 	const limits = checkedOutputLimits(input.maxLines, input.maxBytes);
 	const node = await getNode(core.db, input.nodeId);
 	if (!node) throw new NodeGoneError(input.nodeId);
+	// A node of an older served major runs only its frozen upgrade path (doc/design/protocol.md "Upgrade-only connections").
+	if (core.links.get(node.id)?.conn.upgradeOnly === true && !upgradeOnlyAllows(input.spec, node.facts)) {
+		throw upgradeRequired(node.name);
+	}
 	const kind = input.spec.kind;
 	if (input.id) {
 		const existing = await getTask(core, input.id);
@@ -374,9 +379,12 @@ export async function dispatch(
 	}
 }
 
-/** Whether a task kind moves its bytes on a data connection (doc/design/library.md "File plane"). */
-export function isTransferKind(kind: string): kind is "file.push" | "file.pull" {
-	return kind === "file.push" || kind === "file.pull";
+/**
+ * Whether a task kind moves its bytes on a data connection (doc/design/library.md "File plane"); an
+ * upgrade receives its binary the way a push does (doc/design/distribution.md "The upgrade task").
+ */
+export function isTransferKind(kind: string): kind is "file.push" | "file.pull" | "node.upgrade" {
+	return kind === "file.push" || kind === "file.pull" || kind === "node.upgrade";
 }
 
 /**

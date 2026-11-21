@@ -30,22 +30,28 @@ const (
 	AuthPayloadVersion = 1
 )
 
-// Method is the method of a task, guard rule or authorization command.
+// Method is the method of a task, guard rule or authorization command. It is an open name
+// (doc/design/protocol.md "Encoding rules"): a method this version does not know decodes, and
+// an authorization naming one covers nothing (doc/design/privilege.md "Methods and targets").
 type Method string
 
 const (
 	MethodExec      Method = "exec"
 	MethodFileRead  Method = "file.read"
 	MethodFileWrite Method = "file.write"
+	MethodUpgrade   Method = "upgrade"
 )
 
-// methods is the method enum.
-var methods = newEnum("method", MethodExec, MethodFileRead, MethodFileWrite)
+// methods is the method open name.
+var methods = newOpenName("method", MethodExec, MethodFileRead, MethodFileWrite, MethodUpgrade)
 
-// MarshalCBOR encodes the method, rejecting values outside the schema.
+// Known reports whether this version understands the method.
+func (m Method) Known() bool { return methods.isKnown(m) }
+
+// MarshalCBOR encodes the method, rejecting a malformed name.
 func (m Method) MarshalCBOR() ([]byte, error) { return methods.marshal(m) }
 
-// UnmarshalCBOR decodes and validates the method.
+// UnmarshalCBOR decodes the method, accepting any well-formed name.
 func (m *Method) UnmarshalCBOR(data []byte) error { return methods.unmarshal(data, m) }
 
 // GuardMatch selects how a guard rule matches its target.
@@ -57,13 +63,16 @@ const (
 	GuardMatchRegex  GuardMatch = "regex"
 )
 
-// guardMatches is the guard match enum.
-var guardMatches = newEnum("guard match", GuardMatchAny, GuardMatchPrefix, GuardMatchRegex)
+// guardMatches is the guard match open name.
+var guardMatches = newOpenName("guard match", GuardMatchAny, GuardMatchPrefix, GuardMatchRegex)
 
-// MarshalCBOR encodes the match kind, rejecting values outside the schema.
+// Known reports whether this version understands the match kind.
+func (m GuardMatch) Known() bool { return guardMatches.isKnown(m) }
+
+// MarshalCBOR encodes the match kind, rejecting a malformed name.
 func (m GuardMatch) MarshalCBOR() ([]byte, error) { return guardMatches.marshal(m) }
 
-// UnmarshalCBOR decodes and validates the match kind.
+// UnmarshalCBOR decodes the match kind, accepting any well-formed name.
 func (m *GuardMatch) UnmarshalCBOR(data []byte) error { return guardMatches.unmarshal(data, m) }
 
 // GuardRule is one allow or deny rule of a trust entry.
@@ -169,13 +178,16 @@ const (
 	TrustRoleLocal TrustRole = "local"
 )
 
-// trustRoles is the trust role enum.
-var trustRoles = newEnum("trust role", TrustRoleCRHS, TrustRoleUser, TrustRoleLocal)
+// trustRoles is the trust role open name.
+var trustRoles = newOpenName("trust role", TrustRoleCRHS, TrustRoleUser, TrustRoleLocal)
 
-// MarshalCBOR encodes the role, rejecting values outside the schema.
+// Known reports whether this version understands the role.
+func (r TrustRole) Known() bool { return trustRoles.isKnown(r) }
+
+// MarshalCBOR encodes the role, rejecting a malformed name.
 func (r TrustRole) MarshalCBOR() ([]byte, error) { return trustRoles.marshal(r) }
 
-// UnmarshalCBOR decodes and validates the role.
+// UnmarshalCBOR decodes the role, accepting any well-formed name.
 func (r *TrustRole) UnmarshalCBOR(data []byte) error { return trustRoles.unmarshal(data, r) }
 
 // TrustKind is one capability of a trust entry.
@@ -187,13 +199,16 @@ const (
 	TrustKindRequireCosign TrustKind = "require-cosign"
 )
 
-// trustKinds is the trust kind enum.
-var trustKinds = newEnum("trust kind", TrustKindExecute, TrustKindCosign, TrustKindRequireCosign)
+// trustKinds is the trust capability open name.
+var trustKinds = newOpenName("trust kind", TrustKindExecute, TrustKindCosign, TrustKindRequireCosign)
 
-// MarshalCBOR encodes the kind, rejecting values outside the schema.
+// Known reports whether this version understands the capability.
+func (k TrustKind) Known() bool { return trustKinds.isKnown(k) }
+
+// MarshalCBOR encodes the kind, rejecting a malformed name.
 func (k TrustKind) MarshalCBOR() ([]byte, error) { return trustKinds.marshal(k) }
 
-// UnmarshalCBOR decodes and validates the kind.
+// UnmarshalCBOR decodes the kind, accepting any well-formed name.
 func (k *TrustKind) UnmarshalCBOR(data []byte) error { return trustKinds.unmarshal(data, k) }
 
 // TrustEntry is one item of TrustSummary.trust.
@@ -599,6 +614,12 @@ func SpecSHA256(spec *TaskSpec) ([32]byte, error) {
 		pull := *spec.FilePull
 		pull.Endpoint.TransferID = ""
 		canonical.FilePull = &pull
+	}
+	if spec.NodeUpgrade != nil {
+		// Like a push, an upgrade's transfer id is routing: every member of a group hashes alike.
+		upgrade := *spec.NodeUpgrade
+		upgrade.Endpoint.TransferID = ""
+		canonical.NodeUpgrade = &upgrade
 	}
 	encoded, err := Marshal(&canonical)
 	if err != nil {

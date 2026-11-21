@@ -43,16 +43,21 @@ type resolved struct {
 	Replace   bool
 	// Keep is replace=no on an enrolled node: the enrollment is left alone and needs no token.
 	Keep bool
-	// FromConfig means an existing crha.toml answered the server, TLS and privileged mode questions.
-	// crha enroll never rewrites crha.toml, so they are not asked.
+	// FromConfig means an existing crha.toml gave the defaults of the server, TLS and privileged mode
+	// questions; an answer that differs switches crha.toml to it, edited in place.
 	FromConfig bool
 	Mode       string
-	// PrivilegedAnswers means LocalRoot and Trust were answered for a privileged.toml to write: a new
-	// forward configuration, or a forward crha.toml whose privileged.toml is missing.
+	// PrivilegedAnswers means LocalRoot and Trust were answered for trust entries to write: a new
+	// privileged.toml, or the replacement of an existing one's entries (ReplaceTrust).
 	PrivilegedAnswers bool
-	LocalRoot         bool
-	Trust             string
-	Start             bool
+	// ReplaceTrust means the trust entries of the existing privileged.toml are replaced; everything else
+	// in the file stays as it was.
+	ReplaceTrust bool
+	LocalRoot    bool
+	Trust        string
+	Start        bool
+	// Previous is the existing crha.toml's server, TLS and mode, for the summary of what changes.
+	Previous *config.Config
 }
 
 // existingSetup is what a previous run left on the host, which decides the questions.
@@ -63,6 +68,8 @@ type existingSetup struct {
 	enrolled bool
 	// privilegedConfig means privileged.toml exists.
 	privilegedConfig bool
+	// trustNames are the names of the existing privileged.toml's trust entries.
+	trustNames []string
 }
 
 // needsPrivilegedAnswers reports whether an existing forward crha.toml lacks its privileged.toml, so the
@@ -162,7 +169,11 @@ func (a *fileAnswers) missingFields(state existingSetup) []string {
 	}
 	if state.config != nil {
 		add("token", a.Token != nil)
-		if state.needsPrivilegedAnswers() {
+		mode := state.config.Privilege.Mode
+		if m := privilegedMode(a); m != nil {
+			mode = strings.TrimSpace(*m)
+		}
+		if mode == config.ModeForward && !state.privilegedConfig {
 			add("privileged.local_root", a.Privileged != nil && a.Privileged.LocalRoot != nil)
 			add("privileged.trust", a.Privileged != nil && a.Privileged.Trust != nil)
 		}
@@ -187,11 +198,6 @@ func (a *fileAnswers) missingFields(state existingSetup) []string {
 // asks to proceed; a run answered entirely by the file does not.
 func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, input io.Reader, promptOut io.Writer, say func(string)) (resolved, error) {
 	existing, enrolled := state.config, state.enrolled
-	if existing != nil {
-		if err := checkConfigConflicts(file, existing); err != nil {
-			return resolved{}, err
-		}
-	}
 	if !interactive {
 		if missing := file.missingFields(state); len(missing) > 0 {
 			return resolved{}, fmt.Errorf("missing answers for %s; put them in the --answers file or run on a terminal", strings.Join(missing, ", "))
@@ -202,7 +208,7 @@ func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, in
 	asked := false
 	take := func(value *string, prompt, fallback string, required bool) (string, error) {
 		if value != nil {
-			return *value, nil
+			return strings.TrimSpace(*value), nil
 		}
 		asked = true
 		suffix := ""
@@ -244,62 +250,43 @@ func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, in
 		return answer, nil
 	}
 
-	a := resolved{}
-	var err error
+	a, err := startAnswers(file, state)
+	if err != nil {
+		return resolved{}, err
+	}
 	// Re-enrollment is the first question on an enrolled node: answering no keeps the existing
-	// enrollment, so the questions it would otherwise ask are not asked at all.
-	if enrolled {
-		replace, err := yesNo(file.Replace, "Re-enroll, keeping the node's id, name, groups and grants", false)
+	// enrollment, which needs no token and keeps the crhs address.
+	if enrolled && file.Replace == nil {
+		// What a new enrollment does depends on the token, which only crhs knows: the summary after
+		// registering says which it was.
+		say("This node is enrolled. Enrolling again gives it a new key: a Re-enroll token keeps the node's id, name, groups and grants; a New node token registers another node.")
+		replace, err := yesNo(nil, "Enroll again with a new key", false)
 		if err != nil {
 			return resolved{}, err
 		}
-		a.Replace = replace
-		a.Keep = !replace
+		a.Replace, a.Keep = replace, !replace
+		if a.Keep && existing == nil {
+			return resolved{}, errors.New("crha.toml is missing; re-enroll (replace) or restore it")
+		}
 	}
-	if a.Keep && existing == nil {
-		return resolved{}, errors.New("crha.toml is missing; re-enroll (replace) or restore it")
-	}
-	if existing != nil {
-		a.FromConfig = true
-		a.Server = existing.Server
-		a.TLSVerify = existing.TLSVerify
-		a.Mode = existing.Privilege.Mode
-	}
-	if a.Keep {
-		if a.Start, err = yesNo(serviceStart(file), "Start the services", true); err != nil {
+	if !a.Keep {
+		if a.Server, err = take(file.Server, "crhs address", a.Server, true); err != nil {
 			return resolved{}, err
 		}
-		if asked {
-			if err := confirm(p, a, enrolled, say); err != nil {
+		if file.Token != nil {
+			a.Token = *file.Token
+		} else {
+			asked = true
+			if a.Token, err = p.askSecret("Enrollment token: "); err != nil {
 				return resolved{}, err
 			}
-		}
-		return a, nil
-	}
-
-	if !a.FromConfig {
-		if a.Server, err = take(file.Server, "crhs address", "", true); err != nil {
-			return resolved{}, err
+			if a.Token == "" {
+				return resolved{}, errors.New("Enrollment token must not be empty")
+			}
 		}
 	}
-	if file.Token != nil {
-		a.Token = *file.Token
-	} else {
-		asked = true
-		if a.Token, err = p.askSecret("Enrollment token: "); err != nil {
-			return resolved{}, err
-		}
-		if a.Token == "" {
-			return resolved{}, errors.New("Enrollment token must not be empty")
-		}
-	}
-
-	if a.FromConfig {
-		// Answered by crha.toml above.
-	} else if file.TLSVerify != nil {
-		a.TLSVerify = *file.TLSVerify
-	} else {
-		verify, err := yesNo(nil, "Check the TLS certificate against the system CAs", true)
+	if file.TLSVerify == nil {
+		verify, err := yesNo(nil, "Check the TLS certificate against the system CAs", a.TLSVerify != "none")
 		if err != nil {
 			return resolved{}, err
 		}
@@ -308,35 +295,47 @@ func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, in
 			a.TLSVerify = "none"
 		}
 	}
-
-	if !a.FromConfig {
-		if a.Mode, err = take(privilegedMode(file), "Privileged mode (ignore or forward)", "ignore", true); err != nil {
-			return resolved{}, err
-		}
-		if a.Mode != "ignore" && a.Mode != "forward" {
-			return resolved{}, fmt.Errorf("privileged.mode must be \"ignore\" or \"forward\", got %q", a.Mode)
-		}
+	if a.Mode, err = take(privilegedMode(file), "Privileged mode (ignore or forward)", defaultMode(a.Mode), true); err != nil {
+		return resolved{}, err
 	}
-	if a.Mode == "forward" && (!a.FromConfig || state.needsPrivilegedAnswers()) {
-		a.PrivilegedAnswers = true
-		if a.LocalRoot, err = yesNo(privilegedLocalRoot(file), "Let local root open the local approval window", true); err != nil {
-			return resolved{}, err
-		}
-		if file != nil && file.Privileged != nil && file.Privileged.Trust != nil {
-			a.Trust = *file.Privileged.Trust
-		} else {
-			asked = true
-			a.Trust, err = askTrust(p)
+	if err := checkMode(a.Mode, existing); err != nil {
+		return resolved{}, err
+	}
+	if a.Mode == config.ModeForward {
+		replaceTrust := false
+		switch {
+		case !state.privilegedConfig && a.Keep:
+			// No node id to write privileged.toml with: checkKeep refuses before anything changes.
+		case !state.privilegedConfig:
+			a.PrivilegedAnswers = true
+		case file.Privileged != nil && file.Privileged.Trust != nil:
+			a.PrivilegedAnswers, replaceTrust = true, true
+		default:
+			// The entries are long keys: they are named, never printed back as a default.
+			keep, err := yesNo(nil, "Keep the current trust entries ("+trustSummary(state.trustNames)+")", true)
 			if err != nil {
 				return resolved{}, err
 			}
+			a.PrivilegedAnswers, replaceTrust = !keep, !keep
+		}
+		a.ReplaceTrust = replaceTrust
+		if a.PrivilegedAnswers {
+			if a.LocalRoot, err = yesNo(privilegedLocalRoot(file), "Let local root open the local approval window", true); err != nil {
+				return resolved{}, err
+			}
+			if file.Privileged != nil && file.Privileged.Trust != nil {
+				a.Trust = strings.TrimRight(*file.Privileged.Trust, " \t\r\n")
+			} else {
+				asked = true
+				if a.Trust, err = askTrust(p); err != nil {
+					return resolved{}, err
+				}
+			}
 		}
 	}
-
 	if a.Start, err = yesNo(serviceStart(file), "Start the services", true); err != nil {
 		return resolved{}, err
 	}
-
 	if asked {
 		if err := confirm(p, a, enrolled, say); err != nil {
 			return resolved{}, err
@@ -345,23 +344,96 @@ func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, in
 	return a, nil
 }
 
+// startAnswers takes what the answers file and an existing crha.toml say before any question: the
+// file's values, over the existing configuration's as defaults. The crhs address belongs to the
+// enrollment, so on the keep path a different one is refused.
+func startAnswers(file *fileAnswers, state existingSetup) (resolved, error) {
+	existing := state.config
+	a := resolved{}
+	if file.Replace != nil && state.enrolled {
+		a.Replace, a.Keep = *file.Replace, !*file.Replace
+	}
+	if a.Keep && existing == nil {
+		return resolved{}, errors.New("crha.toml is missing; re-enroll (replace) or restore it")
+	}
+	if existing != nil {
+		a.FromConfig = true
+		a.Previous = existing
+		a.Server, a.TLSVerify, a.Mode = existing.Server, existing.TLSVerify, existing.Privilege.Mode
+	}
+	if file.Server != nil {
+		server := strings.TrimSpace(*file.Server)
+		if a.Keep && server != a.Server {
+			return resolved{}, fmt.Errorf("the crhs address is %q in crha.toml: changing it to %q is a new enrollment; re-enroll (replace) with a token from that crhs", a.Server, server)
+		}
+		a.Server = server
+	}
+	if file.TLSVerify != nil {
+		a.TLSVerify = strings.TrimSpace(*file.TLSVerify)
+	}
+	if m := privilegedMode(file); m != nil {
+		a.Mode = strings.TrimSpace(*m)
+	}
+	return a, nil
+}
+
+// defaultMode is the privileged mode question's default: the existing one, ignore for a new node.
+func defaultMode(current string) string {
+	if current == "" {
+		return config.ModeIgnore
+	}
+	return current
+}
+
+// checkMode allows ignore and forward, and keeps an existing native or reject set up by hand.
+func checkMode(mode string, existing *config.Config) error {
+	if mode == config.ModeIgnore || mode == config.ModeForward {
+		return nil
+	}
+	if existing != nil && mode == existing.Privilege.Mode {
+		return nil
+	}
+	return fmt.Errorf("privileged.mode must be \"ignore\" or \"forward\", got %q", mode)
+}
+
+// trustSummary names the trust entries without their keys.
+func trustSummary(names []string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	return fmt.Sprintf("%d: %s", len(names), strings.Join(names, ", "))
+}
+
 // confirm shows the settings of an interactive run and asks to proceed.
 func confirm(p *prompter, a resolved, enrolled bool, say func(string)) error {
 	say("crha enroll: settings")
 	if enrolled {
-		enrollment := "re-enroll"
-		if a.Keep {
+		enrollment := "enroll again with a new key"
+		switch {
+		case a.Keep:
 			enrollment = "keep existing"
+		case a.Previous != nil && a.Previous.Server != a.Server:
+			enrollment = "enroll again with a new key, as a new node of " + a.Server
 		}
 		say("  enrollment: " + enrollment)
 	}
-	from := ""
-	if a.FromConfig {
-		from = " (from crha.toml)"
+	setting := func(name, value, previous string) {
+		switch {
+		case !a.FromConfig:
+			say("  " + name + ": " + value)
+		case value == previous:
+			say("  " + name + ": " + value + " (unchanged)")
+		default:
+			say("  " + name + ": " + previous + " -> " + value)
+		}
 	}
-	say("  crhs address: " + a.Server + from)
-	say("  TLS verify: " + a.TLSVerify + from)
-	say("  privileged mode: " + a.Mode + from)
+	var previous config.Config
+	if a.Previous != nil {
+		previous = *a.Previous
+	}
+	setting("crhs address", a.Server, previous.Server)
+	setting("TLS verify", a.TLSVerify, previous.TLSVerify)
+	setting("privileged mode", a.Mode, previous.Privilege.Mode)
 	if a.PrivilegedAnswers {
 		localRoot := "no"
 		if a.LocalRoot {
@@ -370,6 +442,9 @@ func confirm(p *prompter, a resolved, enrolled bool, say func(string)) error {
 		trust := "pasted"
 		if strings.TrimSpace(a.Trust) == "" {
 			trust = "configure later"
+		}
+		if a.ReplaceTrust {
+			trust = "replace the current entries with the pasted ones"
 		}
 		say("  local root approval: " + localRoot + ", trust: " + trust)
 	}
@@ -394,64 +469,31 @@ func confirm(p *prompter, a resolved, enrolled bool, say func(string)) error {
 
 // resolveFileAnswers is the all-from-file path: every missing field already failed, so this never asks.
 func resolveFileAnswers(file *fileAnswers, state existingSetup) (resolved, error) {
-	existing, enrolled := state.config, state.enrolled
-	a := resolved{
-		Server:    trimValue(file.Server),
-		Token:     trimValue(file.Token),
-		TLSVerify: trimValue(file.TLSVerify),
-		Mode:      trimValue(privilegedMode(file)),
-		Start:     *serviceStart(file),
+	if state.enrolled && file.Replace == nil {
+		return resolved{}, errors.New("missing answers for replace; put it in the --answers file")
 	}
-	if enrolled {
-		if file.Replace == nil {
-			return resolved{}, errors.New("missing answers for replace; put it in the --answers file")
-		}
-		if !*file.Replace {
-			if existing == nil {
-				return resolved{}, errors.New("crha.toml is missing; re-enroll (replace) or restore it")
-			}
-			// The existing crha.toml answers the enrollment and privileged mode questions.
-			return resolved{
-				Keep:       true,
-				FromConfig: true,
-				Server:     existing.Server,
-				TLSVerify:  existing.TLSVerify,
-				Mode:       existing.Privilege.Mode,
-				Start:      *serviceStart(file),
-			}, nil
-		}
-		a.Replace = true
+	a, err := startAnswers(file, state)
+	if err != nil {
+		return resolved{}, err
 	}
-	if existing != nil {
-		a.FromConfig = true
-		a.Server = existing.Server
-		a.TLSVerify = existing.TLSVerify
-		a.Mode = existing.Privilege.Mode
+	a.Start = *serviceStart(file)
+	if !a.Keep {
+		a.Token = trimValue(file.Token)
 	}
-	if a.Mode == "forward" && (!a.FromConfig || state.needsPrivilegedAnswers()) {
+	if err := checkMode(a.Mode, state.config); err != nil {
+		return resolved{}, err
+	}
+	// Without privileged.toml on the keep path there is no node id to write one with: checkKeep says so.
+	if a.Mode == config.ModeForward && file.Privileged != nil && file.Privileged.Trust != nil {
 		a.PrivilegedAnswers = true
-		a.LocalRoot = *privilegedLocalRoot(file)
+		a.ReplaceTrust = state.privilegedConfig
+		a.LocalRoot = true
+		if v := privilegedLocalRoot(file); v != nil {
+			a.LocalRoot = *v
+		}
 		a.Trust = strings.TrimRight(*file.Privileged.Trust, " \t\r\n")
 	}
 	return a, nil
-}
-
-// checkConfigConflicts refuses answers-file values that an existing crha.toml contradicts: crha enroll
-// never rewrites crha.toml, so such a value would otherwise be silently dropped.
-func checkConfigConflicts(file *fileAnswers, existing *config.Config) error {
-	var conflicts []string
-	check := func(field string, value *string, current string) {
-		if value != nil && strings.TrimSpace(*value) != current {
-			conflicts = append(conflicts, fmt.Sprintf("%s is %q in the answers file but %q in crha.toml", field, strings.TrimSpace(*value), current))
-		}
-	}
-	check("server", file.Server, existing.Server)
-	check("tls_verify", file.TLSVerify, existing.TLSVerify)
-	check("privileged.mode", privilegedMode(file), existing.Privilege.Mode)
-	if len(conflicts) > 0 {
-		return fmt.Errorf("%s; crha enroll does not rewrite an existing crha.toml: edit it, or remove these fields from the answers file", strings.Join(conflicts, "; "))
-	}
-	return nil
 }
 
 func trimValue(value *string) string {

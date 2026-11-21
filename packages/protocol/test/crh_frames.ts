@@ -427,6 +427,30 @@ export function buildFixture(): CrhFramesFixture {
 			body: taskStartWithSpec("t-list", { kind: "file.list", path: "/tmp", limit: 0 }, { kind: "status" }),
 		},
 	);
+	addFrame(
+		"request.task.start.node.upgrade",
+		'request id=13 cmd=task.start body=[task_id="t-upgrade", attempt=1, spec=["node.upgrade", [version="1.3.0", arch="amd64", size=12582912, sha256=32 bytes of 0x5a, endpoint=["crhs", "x-upgrade"]]], privileged=true, authorizations=[], timeout_ms=0, kill_grace_ms=0, output=["status", []]]',
+		{
+			kind: "request",
+			id: 13,
+			cmd: "task.start",
+			body: {
+				...taskStartWithSpec(
+					"t-upgrade",
+					{
+						kind: "node.upgrade",
+						version: "1.3.0",
+						arch: "amd64",
+						size: 12_582_912,
+						sha256: new Uint8Array(32).fill(0x5a),
+						endpoint: { kind: "crhs", transferId: "x-upgrade" },
+					},
+					{ kind: "status" },
+				),
+				privileged: true,
+			},
+		},
+	);
 	addFrame("response.task.start", "response id=3 cmd=task.start ok=true body=[]", {
 		kind: "response",
 		id: 3,
@@ -633,6 +657,23 @@ export function buildFixture(): CrhFramesFixture {
 	// Facts is the protocol's one map (doc/design/protocol.md "Events"): unknown keys are ignored, absent
 	// optionals are accepted, and shells is itself a map with an optional bash.
 	addPositive(
+		"event.facts.self_upgrade",
+		"event facts map with self_upgrade (a reason this version does not know is kept) and upgrade_log_path",
+		factsEvent(
+			factsMap([
+				[
+					"self_upgrade",
+					new Map<string, unknown>([
+						["available", false],
+						["reasons", ["unmanaged_unit", "some-future-reason"]],
+						["arch", "arm64"],
+					]),
+				],
+				["upgrade_log_path", "/var/lib/crha-upgrade/upgrade.jsonl"],
+			]),
+		),
+	);
+	addPositive(
 		"event.facts.unknown_key",
 		"event facts map with an unknown fact key (ignored)",
 		factsEvent(factsMap([["future_fact", "ignored"]])),
@@ -697,7 +738,52 @@ export function buildFixture(): CrhFramesFixture {
 		'event trust.summary body=["ok", [node_id="node-1", aliases=["0192f000-0000-7000-8000-0000000000a1"], clock_skew_ms=60000, identities=[[uid=998, gid=998, user="crha"], [uid=0, gid=0, user="root"]], trust=[[name="crhs", source="local", role="crhs", key=["sshsig", [public_key="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEjcrhssigningkeyexample crhs-signing", fingerprint="SHA256:47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU"]], kinds=["execute","cosign"], require_spec=true, require_task=true, require_uv=false, max_ttl_ms=300000, allow=[["exec", "prefix", "systemctl restart "]], deny=[], env_allow=[]], [name="alice-passkey", source="local", role="user", key=["webauthn", [credential_id=32 bytes of 0x11, cose_key=h\'a5010203262001215820\', rp_id="crh.example.com", origins=["https://crh.example.com"]]], kinds=["execute"], require_spec=false, require_task=true, require_uv=true, max_ttl_ms=null, allow=[], deny=[], env_allow=["DEBIAN_FRONTEND"]], [name="local-admins", source="local", role="local", key=["local", [uids=[0, 1000]]], kinds=[], require_spec=false, require_task=false, require_uv=false, max_ttl_ms=null, allow=[], deny=[], env_allow=[]]]], local_window=["open", [opened_at_ms=1700000001000, opened_by_uid=1000, until_ms=1700001800000]]]',
 		{ kind: "event", name: "trust.summary", body: { kind: "ok", summary: TRUST_SUMMARY } },
 	);
+	// Methods, match types, roles and capabilities are open names: a newer node's values decode and
+	// re-encode unchanged (doc/design/protocol.md "Encoding rules").
+	addFrame(
+		"event.trust.summary.future_values",
+		'event trust.summary whose entry has role "bundle", kinds ["execute", "attest"] and allow [["file.chown", "glob", "/srv/*"]]',
+		{
+			kind: "event",
+			name: "trust.summary",
+			body: {
+				kind: "ok",
+				summary: {
+					...TRUST_SUMMARY,
+					trust: [
+						{
+							...(TRUST_SUMMARY.trust[0] as TrustSummary["trust"][number]),
+							name: "bundle-key",
+							role: "bundle",
+							kinds: ["execute", "attest"],
+							allow: [{ method: "file.chown", match: "glob", pattern: "/srv/*" }],
+						},
+					],
+				},
+			},
+		},
+	);
 	// Negative cases.
+	addNegative(
+		"negative.facts.self_upgrade_bad_reason",
+		'facts self_upgrade reason "Not A Name" is not an open name',
+		factsEvent(
+			factsMap([
+				[
+					"self_upgrade",
+					new Map<string, unknown>([
+						["available", false],
+						["reasons", ["Not A Name"]],
+					]),
+				],
+			]),
+		),
+	);
+	addNegative(
+		"negative.facts.self_upgrade_missing_available",
+		"facts self_upgrade map without its required key available",
+		factsEvent(factsMap([["self_upgrade", new Map<string, unknown>([["reasons", []]])]])),
+	);
 	addNegative(
 		"negative.tuple_length",
 		"request has five elements instead of four",

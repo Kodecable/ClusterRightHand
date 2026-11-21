@@ -1164,8 +1164,8 @@ function memberTransfer(
 	spec: TaskSpec,
 	location: TransferLocationJson,
 ): { spec: TaskSpec; record: { transferId: string; location: TransferLocationJson } } {
-	if (spec.kind !== "file.push" && spec.kind !== "file.pull") {
-		throw new Error("a transfer task group must push or pull a file");
+	if (spec.kind !== "file.push" && spec.kind !== "file.pull" && spec.kind !== "node.upgrade") {
+		throw new Error("a transfer task group must push or pull a file, or upgrade crha");
 	}
 	const transferId = randomUUID();
 	return { spec: { ...spec, endpoint: { kind: "crhs", transferId } }, record: { transferId, location } };

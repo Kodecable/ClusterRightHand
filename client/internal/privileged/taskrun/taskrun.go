@@ -200,7 +200,8 @@ func New(ts protocol.TaskStart, emit Emit, transfer TransferEmit, env *execenv.E
 	if ref := taskinput.Ref(&ts.Spec); ref != nil {
 		t.input = taskinput.New(ref)
 		switch {
-		case ts.Spec.Kind == protocol.TaskSpecFileWrite, ts.Spec.Kind == protocol.TaskSpecFilePush:
+		case ts.Spec.Kind == protocol.TaskSpecFileWrite, ts.Spec.Kind == protocol.TaskSpecFilePush,
+			ts.Spec.Kind == protocol.TaskSpecNodeUpgrade:
 			t.in = executor.NewInput()
 			if ref.Size == 0 {
 				t.in.Close()
@@ -340,6 +341,7 @@ func (t *Task) run() executor.Result {
 		KillGrace:  time.Duration(t.start.KillGraceMS) * time.Millisecond,
 		Privileged: true,
 		Env:        t.env,
+		TaskID:     t.id,
 	})
 }
 

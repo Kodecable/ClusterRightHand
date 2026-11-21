@@ -127,6 +127,9 @@ Every HTTP request crhs or crha sends identifies itself with one User-Agent form
   every other request (the model catalogue and model listing, MCP extensions, channels, WebDAV, search)
   carries crhs's User-Agent when it sets none. A User-Agent in an extension's configured headers wins.
 - **crha.** The agent and data connections and the enrollment key fetch set crha's User-Agent.
+- **crhs, crha releases.** For [crha self-upgrade](distribution.md#crha-self-upgrade) crhs downloads
+  release assets from GitHub and refreshes the Sigstore trusted root from its TUF repository
+  (`tuf-repo-cdn.sigstore.dev`), through the same wrapped fetch.
 
 ## End-to-end flow: a privileged command
 
@@ -181,7 +184,8 @@ These are not implemented, but the design leaves room for them:
 - **Linux only.**
 - **No interactive terminal.** Tasks run commands and file operations; there are no PTY tasks.
 - **SSH nodes must be reachable from crhs**, and crha nodes must be able to reach crhs.
-- **No packages, service units or self-upgrade.** `crha upgrade --apply` is not implemented
+- **No crhs self-upgrade.** crhs upgrades its crha nodes ([crha self-upgrade](distribution.md#crha-self-upgrade)),
+  but not itself, and not package-managed nodes or nodes set up by hand
   ([Upgrades](../guide/operations.md#upgrades)).
 - **No MCP stdio bridge.** MCP clients connect to crhs over HTTP.
 - **No redaction** of command output or file contents sent to model providers

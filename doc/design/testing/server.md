@@ -25,6 +25,18 @@ remain. The server must be WebDAV Class 1 with PUT, GET, DELETE, MKCOL and PROPF
 CRH_TEST_WEBDAV_URL=http://user:password@127.0.0.1:8080/ pnpm exec vitest run test/library-webdav-live.test.ts
 ```
 
+## Live Sigstore test
+
+`test/crha-release.test.ts` checks the crha release cache with a fake fetch and a fake signature
+verifier, and the Sigstore verifier offline only on its "cannot verify" path. With `CRH_TEST_NETWORK`
+set it also verifies a real signed release (cosign's own `cosign_checksums.txt`, in
+`test/fixtures/sigstore/`) against the live Sigstore TUF repository, and checks that a changed byte and a
+wrong identity are refused. From `server/`:
+
+```sh
+CRH_TEST_NETWORK=1 pnpm exec vitest run test/crha-release.test.ts
+```
+
 ## Server end-to-end tests
 
 `server/test/e2e` runs the real server, the real Go client and the real agent runtime, with no HTTP or

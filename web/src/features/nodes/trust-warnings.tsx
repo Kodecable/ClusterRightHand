@@ -72,6 +72,15 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 					</Trans>
 				</span>
 			);
+		case "trust_newer_values":
+			return (
+				<span>
+					<Trans>
+						This trust entry uses a role, capability, method or match type from a newer version. crhs plans around it
+						conservatively and the node decides; upgrade crhs to use it: {value}
+					</Trans>
+				</span>
+			);
 	}
 }
 

@@ -14,6 +14,7 @@ import {
 	int,
 	list,
 	nullable,
+	openName,
 	SchemaError,
 	sha256,
 	text,
@@ -32,14 +33,44 @@ export const AUTH_PAYLOAD_VERSION = 1;
 export const COSIGN_NAMESPACE = "crh-cosign-v1";
 export const COSIGN_PAYLOAD_VERSION = 1;
 
-export const PRIV_MAJOR = 1;
+export const PRIV_MAJOR = 2;
 /**
  * Incompatible changes bump the major version, so a peer with another major is refused; the minor
  * stays additive and never refuses a handshake.
  */
 export const PRIV_MINOR = 0;
 
-const method = enumOf("exec", "file.read", "file.write");
+/**
+ * The methods this version knows. On the wire a method is an open name (doc/design/protocol.md
+ * "Encoding rules"), so a newer peer's method decodes: crhs plans conservatively around it and a
+ * node refuses an authorization that names it (doc/design/privilege.md "Methods and targets").
+ */
+export const KNOWN_METHODS = ["exec", "file.read", "file.write", "upgrade"] as const;
+export type KnownMethod = (typeof KNOWN_METHODS)[number];
+/** The guard rule match types this version knows; see KNOWN_METHODS for open names. */
+export const KNOWN_MATCHES = ["any", "prefix", "regex"] as const;
+export type KnownMatch = (typeof KNOWN_MATCHES)[number];
+/** The trust entry roles this version knows. */
+export const KNOWN_ROLES = ["crhs", "user", "local"] as const;
+export type KnownRole = (typeof KNOWN_ROLES)[number];
+/** The trust entry capabilities this version knows. */
+export const KNOWN_CAPABILITIES = ["execute", "cosign", "require-cosign"] as const;
+export type KnownCapability = (typeof KNOWN_CAPABILITIES)[number];
+
+export function isKnownMethod(value: string): value is KnownMethod {
+	return (KNOWN_METHODS as readonly string[]).includes(value);
+}
+export function isKnownMatch(value: string): value is KnownMatch {
+	return (KNOWN_MATCHES as readonly string[]).includes(value);
+}
+export function isKnownRole(value: string): value is KnownRole {
+	return (KNOWN_ROLES as readonly string[]).includes(value);
+}
+export function isKnownCapability(value: string): value is KnownCapability {
+	return (KNOWN_CAPABILITIES as readonly string[]).includes(value);
+}
+
+const method = openName("method");
 
 // ---------------------------------------------------------------------------
 // TrustSummary
@@ -47,7 +78,7 @@ const method = enumOf("exec", "file.read", "file.write");
 
 export const guardRuleCodec = tuple([
 	["method", method],
-	["match", enumOf("any", "prefix", "regex")],
+	["match", openName("match")],
 	["pattern", text],
 ]);
 export type GuardRule = Infer<typeof guardRuleCodec>;
@@ -77,9 +108,9 @@ export type TrustKey = Infer<typeof trustKeyCodec>;
 export const trustEntryCodec = tuple([
 	["name", text],
 	["source", enumOf("local")],
-	["role", enumOf("crhs", "user", "local")],
+	["role", openName("role")],
 	["key", trustKeyCodec],
-	["kinds", list(enumOf("execute", "cosign", "require-cosign"))],
+	["kinds", list(openName("capability"))],
 	["requireSpec", bool],
 	["requireTask", bool],
 	["requireUv", bool],

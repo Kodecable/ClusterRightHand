@@ -60,12 +60,13 @@ func Run(ctx context.Context, cfg *config.Config, token string, opts Options) (r
 	}
 	identityPath := under(opts.Root, cfg.IdentityKeyPath())
 	serverKeyPath := under(opts.Root, cfg.ServerKeyPath())
+	nodeIDPath := under(opts.Root, cfg.NodeIDPath())
 	if _, err := os.Stat(identityPath); err == nil && !opts.Replace {
 		return Result{}, fmt.Errorf("%s exists: this node is already enrolled (pass --replace to re-enroll it with a new key)", cfg.IdentityKeyPath())
 	}
 	// Everything that does not touch the state directory has been checked. A failed enrollment puts the
 	// previous keys back, so the node is unchanged.
-	restore, err := backupEnrollmentKeys(identityPath, serverKeyPath, opts.Replace)
+	restore, err := backupEnrollmentKeys([]string{identityPath, serverKeyPath, nodeIDPath}, opts.Replace)
 	if err != nil {
 		return Result{}, err
 	}
@@ -113,8 +114,32 @@ func Run(ctx context.Context, cfg *config.Config, token string, opts Options) (r
 	if err := identity.SaveKeypair(identityPath, key, opts.Owner); err != nil {
 		return Result{}, err
 	}
+	// The node id is kept so a later enrollment can tell a new key for this node from a new node.
+	if err := saveNodeID(nodeIDPath, conn.Response.NodeID, opts.Owner); err != nil {
+		return Result{}, err
+	}
 	result = Result{NodeID: conn.Response.NodeID, Fingerprint: identity.Fingerprint(key.Public)}
 	return result, nil
+}
+
+// saveNodeID writes the enrolled node id, published by a rename so a reader never sees half of it.
+func saveNodeID(path, nodeID string, owner *identity.Owner) error {
+	tmp := path + ".tmp"
+	_ = os.Remove(tmp)
+	if err := os.WriteFile(tmp, []byte(nodeID+"\n"), 0o644); err != nil {
+		return err
+	}
+	if owner != nil {
+		if err := os.Chown(tmp, int(owner.UID), int(owner.GID)); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // under prefixes a state file path with the test filesystem root.
@@ -150,7 +175,7 @@ type movedKey struct {
 // backupEnrollmentKeys moves identity.key and server.pub aside as *.old so enrollment can write new keys,
 // replacing older backups. With replace false it changes nothing. The returned restore removes any key
 // enrollment wrote and puts the moved files back, so a failed enrollment leaves the node unchanged.
-func backupEnrollmentKeys(identityPath, serverKeyPath string, replace bool) (func() error, error) {
+func backupEnrollmentKeys(paths []string, replace bool) (func() error, error) {
 	if !replace {
 		return func() error { return nil }, nil
 	}
@@ -174,7 +199,7 @@ func backupEnrollmentKeys(identityPath, serverKeyPath string, replace bool) (fun
 		}
 		return firstErr
 	}
-	for _, path := range []string{identityPath, serverKeyPath} {
+	for _, path := range paths {
 		if _, err := os.Stat(path); err != nil {
 			if !errors.Is(err, fs.ErrNotExist) {
 				_ = restore()

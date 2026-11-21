@@ -89,6 +89,7 @@ Every task has one method and one normalized target, which authorizations and gu
 | `exec` | `exec` | The argv rendered canonically with POSIX shell quoting |
 | `file.read` | `file.read`, `file.stat`, `file.list` | The absolute path |
 | `file.write` | `file.write`, `file.edit`, and everything `file.read` allows | The absolute path |
+| `upgrade` | `node.upgrade` | `<version> sha256:<hex>`, the target version and the binary's hash |
 
 - Canonical rendering means a later argument cannot pose as part of an earlier one. A shell-mode task
   renders as `/bin/sh -c <script>`, so a rule like `prefix = "systemctl restart "` never matches a
@@ -105,6 +106,20 @@ Every task has one method and one normalized target, which authorizations and gu
   overwriting or editing such a file clears them; changing them needs an `exec chmod` under a `spec`
   authorization. A `prefix` grant lets crhs choose the content, the mode bits and the owner of a new
   file under the prefix, so keep prefixes narrow and end a file prefix with `/`.
+- Replacing crha's binary is root on the node, so `upgrade` is a method of its own rather than a
+  `file.write`, and a trust entry decides who may upgrade the node like any other method
+  ([crha self-upgrade](distribution.md#crha-self-upgrade)). What that means for a crhs entry depends on
+  its guard rules:
+  - With only `deny` rules, everything they do not name is allowed, `upgrade` included, and an upgrade
+    can replace the binary that enforces those rules. Such an entry must deny `upgrade` too, so that an
+    upgrade needs a user's signature.
+  - With `allow` rules, `upgrade` is refused unless an allow rule names it. Denying it as well keeps it
+    refused if the allow list is later emptied.
+  - Without guard rules, crhs may already run anything as root; denying `upgrade` alone takes no power
+    away from crhs and only removes the verified, logged and self-reverting way to upgrade the node.
+    The entries the WebUI generates are of this kind, or only cosign.
+  - An entry with only `cosign` never authorizes alone, and guard rules do not apply to a cosignature
+    ([Cosigning](#cosigning)): an upgrade already needs a user's signature.
 - A Passkey or FIDO key signs in the WebUI, which crhs serves: that path cannot let the signer check
   the spec independently, and a compromised crhs could show one spec and ask for another. `crhu` with
   an SSH key can: it decodes the spec the payload binds, recomputes its hash and shows every field
@@ -483,6 +498,20 @@ payload bytes the browser signed, so a payload a pass replaced while the owner w
 verifies. The authorization id is
 the payload's hash, so a payload another user already stored (or crhs signed) is refused, and that
 row is left alone.
+
+Methods, guard match types, trust roles and capabilities are open names
+([Encoding rules](protocol.md#encoding-rules)): a node of a newer minor may report values this crhs does
+not know, and the report still decodes. crhs plans around them conservatively and the node decides:
+
+- A guard rule with an unknown method applies only to that method, so it matches no task crhs plans.
+- A guard rule with an unknown match type is treated like an uncompilable pattern: an allow rule never
+  matches, a deny rule matches every target of its method.
+- A trust entry with an unknown role or capability is not used to plan, because an unknown capability
+  might restrict what the entry allows.
+- Such an entry gets the `trust_newer_values` warning, which names the unknown values.
+
+On the node, an authorization whose `prefix` names a method the node does not know covers nothing, and
+`privileged.toml` itself still refuses an unknown method: it is local and matches the binary reading it.
 
 A user who wants a reusable authorization without `crhu grant` asks crhs to draft one:
 `POST /api/authorizations/draft` takes nodes or node groups (each node must be in the user's reach),

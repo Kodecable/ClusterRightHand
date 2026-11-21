@@ -19,12 +19,14 @@ var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 const (
 	// ProtocolMajor and ProtocolMinor are the versions advertised in the handshake. An
 	// incompatible change bumps the major version and the Noise prologue, so a peer with another
-	// major fails the handshake itself (doc/design/protocol.md "Handshake payloads"). The minor version is
-	// additive: new commands and events are negotiated through the handshake's commands field.
-	// Major 1 removed the per-task local approval commands and added the local window state to
-	// TrustSummary; major 2 moved crhs's cosignature out of the authorization into the cosign
-	// ticket that task.start carries.
-	ProtocolMajor = 2
+	// major fails the handshake itself (doc/design/protocol.md "Version negotiation"). The minor
+	// version is additive: new commands and events are negotiated through the handshake's commands
+	// field, new task kinds through hello's task kinds, and methods, match kinds, roles and
+	// capabilities are open names. Major 1 removed the per-task local approval commands and added
+	// the local window state to TrustSummary; major 2 moved crhs's cosignature out of the
+	// authorization into the cosign ticket that task.start carries; major 3 added node.upgrade and
+	// made those trust values open names.
+	ProtocolMajor = 3
 	ProtocolMinor = 0
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440
@@ -39,6 +41,9 @@ const (
 	// DataNoiseProloguePrefix starts the data connection's Noise prologue; it keeps a data handshake
 	// from being taken for a control one, or the reverse (doc/design/protocol.md "Data connections").
 	DataNoiseProloguePrefix = "crh-data/1"
+	// SubprotocolPrefix starts the WebSocket subprotocol in which crha names its major
+	// (doc/design/protocol.md "The major in the clear").
+	SubprotocolPrefix = "crh."
 	// DataChunkBytes is the largest chunk of a data connection frame (doc/design/protocol.md
 	// "Data connections").
 	DataChunkBytes = 32 << 10

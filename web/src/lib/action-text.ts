@@ -19,6 +19,8 @@ export function actionText(i18n: I18n, action: TaskAction): string {
 			return oneLine(action.command);
 		case "file":
 			return fileActionText(i18n, action);
+		case "upgrade":
+			return i18n._(msg`Upgrade crha to ${action.version} (${action.arch})`);
 		case "api_request":
 			return `${action.method} ${action.path}`;
 		case "extension_tool":

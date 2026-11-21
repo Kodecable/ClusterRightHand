@@ -164,7 +164,14 @@ const KIND_METHOD: Record<string, Method> = {
 	// The file plane keeps file.write/file.read semantics (doc/design/library.md "File plane").
 	"file.push": "file.write",
 	"file.pull": "file.read",
+	// Replacing crha's binary is root on the node: a method of its own (doc/design/privilege.md "Methods and targets").
+	"node.upgrade": "upgrade",
 };
+
+/** The target of an upgrade: `<version> sha256:<hex>`, as crha renders it. */
+export function upgradeTarget(version: string, sha256: Uint8Array): string {
+	return `${version} sha256:${Buffer.from(sha256).toString("hex")}`;
+}
 
 /** The method and target of a task spec (doc/design/privilege.md "Methods and targets"). */
 export function operationOf(spec: TaskSpec): { method: Method; target: string } {
@@ -174,6 +181,7 @@ export function operationOf(spec: TaskSpec): { method: Method; target: string } 
 		const argv = "argv" in spec.command ? spec.command.argv : ["/bin/sh", "-c", spec.command.shell];
 		return { method, target: argv.map(shellQuote).join(" ") };
 	}
+	if (spec.kind === "node.upgrade") return { method, target: upgradeTarget(spec.version, spec.sha256) };
 	// Normalized, so that "/etc/nginx/../shadow" is matched as "/etc/shadow". Symbolic links are not
 	// resolved here; for privileged tasks crha refuses them (doc/design/privilege.md).
 	return { method, target: posix.normalize(spec.path) };

@@ -15,7 +15,7 @@ var transferIdleTimeout = protocol.DataIdleTimeout
 
 // isTransferKind reports whether kind moves its bytes on a data connection.
 func isTransferKind(kind protocol.TaskSpecKind) bool {
-	return kind == protocol.TaskSpecFilePush || kind == protocol.TaskSpecFilePull
+	return kind == protocol.TaskSpecFilePush || kind == protocol.TaskSpecFilePull || kind == protocol.TaskSpecNodeUpgrade
 }
 
 // claimTransfer takes the node's single transfer slot. It reports false when a transfer already runs;
@@ -52,6 +52,12 @@ func transferEndpoint(spec *protocol.TaskSpec) (protocol.TransferEndpoint, error
 			return endpoint, errors.New("file.pull task has no spec")
 		}
 		endpoint = spec.FilePull.Endpoint
+	case protocol.TaskSpecNodeUpgrade:
+		// The new binary arrives like a push's content (doc/design/distribution.md "On the node").
+		if spec.NodeUpgrade == nil {
+			return endpoint, errors.New("node.upgrade task has no spec")
+		}
+		endpoint = spec.NodeUpgrade.Endpoint
 	default:
 		return endpoint, fmt.Errorf("not a transfer task: %q", spec.Kind)
 	}

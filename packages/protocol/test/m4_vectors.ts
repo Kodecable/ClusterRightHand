@@ -100,6 +100,15 @@ const ZERO32 = new Uint8Array(32);
 const EMPTY_SHA = sha256Of(new Uint8Array(0));
 
 export const SPECS: Record<string, TaskSpec> = {
+	// An upgrade's spec as an authorization binds it: the transfer id is routing and left empty.
+	"node.upgrade": {
+		kind: "node.upgrade",
+		version: "1.3.0",
+		arch: "amd64",
+		size: 12_582_912,
+		sha256: new Uint8Array(32).fill(0x5a),
+		endpoint: { kind: "crhs", transferId: "" },
+	},
 	"exec.argv": {
 		kind: "exec",
 		command: { argv: ["systemctl", "restart", "nginx"] },
@@ -658,6 +667,20 @@ function payloadVectors(): { payloads: PayloadVector[]; negative: HexVector[] } 
 			},
 		],
 		[
+			"payload.future-method",
+			"a prefix limit naming a method this version does not know: it decodes and re-encodes unchanged",
+			{
+				v: 1,
+				nodes: ["0192f000-0000-7000-8000-000000000001"],
+				command: { kind: "prefix", method: "file.chown", target: "/srv/" },
+				issuedAtMs: NOW,
+				deadlineMs: NOW + 600_000,
+				taskIds: null,
+				attempt: null,
+				note: "",
+			},
+		],
+		[
 			"payload.any",
 			'any command on every node that trusts the signer ("*"), no deadline',
 			{ v: 1, nodes: ["*"], command: null, issuedAtMs: NOW, deadlineMs: null, taskIds: null, attempt: null, note: "" },
@@ -696,9 +719,14 @@ function payloadVectors(): { payloads: PayloadVector[]; negative: HexVector[] } 
 			hex: withField(2, ["spec", new Uint8Array(31)]),
 		},
 		{
-			id: "payload.unknown-method",
-			description: "method file.edit (not a method)",
-			hex: withField(2, ["prefix", ["file.edit", "/"]]),
+			id: "payload.malformed-method",
+			description: 'method File.Edit: an open name is lowercase (protocol.md "Encoding rules")',
+			hex: withField(2, ["prefix", ["File.Edit", "/"]]),
+		},
+		{
+			id: "payload.empty-method",
+			description: "empty method",
+			hex: withField(2, ["prefix", ["", "/"]]),
 		},
 		{
 			id: "payload.unknown-command",

@@ -18,6 +18,8 @@ import {
 	NodeResponseSchema,
 	NodeStatQuerySchema,
 	NodeTrustResponseSchema,
+	NodeUpgradeBodySchema,
+	NodeUpgradeResponseSchema,
 	OkResponseSchema,
 } from "@crh/api/schemas";
 import type { Context, MiddlewareHandler } from "hono";
@@ -27,6 +29,7 @@ import { isAdmin } from "../auth/sessions.ts";
 import { type TaskView, TERMINAL } from "../cluster/cluster.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import { nodeGroupsForNodes, resolveNodeGroupIds, setNodeGroupsForNode } from "../cluster/node-groups.ts";
+import { planUpgrade, upgradeSpec } from "../cluster/node-upgrade.ts";
 import {
 	approveNode,
 	deleteNode,
@@ -39,6 +42,7 @@ import {
 	toPublicNode,
 } from "../cluster/nodes.ts";
 import { sshNodeDetails } from "../cluster/ssh/nodes.ts";
+import { resolveTargets } from "../cluster/task-groups.ts";
 import { trustView } from "../cluster/trust.ts";
 import { trustWarningsForRows } from "../cluster/trust-warnings.ts";
 import { findUserLibrary } from "../library/library.ts";
@@ -179,6 +183,22 @@ const approveRoute = defineRoute({
 		200: { description: "The approved node", ...json(NodeResponseSchema) },
 		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
 		409: { description: "The node is not pending", ...json(ErrorResponseSchema) },
+	},
+});
+
+const upgradeRoute = defineRoute({
+	method: "post",
+	path: "/nodes/upgrade",
+	tags: TAGS,
+	summary: "Upgrade crha on nodes to crhs's own version, or plan it (administrators)",
+	agent: "ask", // the upgrade itself is privileged and is authorized like any privileged task
+	description:
+		'Each architecture becomes one privileged node.upgrade task group, authorized like any privileged task. A node is skipped with a reason when it cannot be upgraded (doc/design/distribution.md "crha self-upgrade").',
+	request: { body: { content: { "application/json": { schema: NodeUpgradeBodySchema } }, required: true } },
+	responses: {
+		200: { description: "The plan of a dry run", ...json(NodeUpgradeResponseSchema) },
+		201: { description: "The plan and the task groups started", ...json(NodeUpgradeResponseSchema) },
+		403: { description: "Administrators only", ...json(ErrorResponseSchema) },
 	},
 });
 
@@ -631,6 +651,61 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		// node.status{rejected} first, which tells crha to stop and not reconnect.
 		options.cluster?.notifyNodeStatus(id, "rejected", "node deleted");
 		return c.json({ ok: true as const }, 200);
+	});
+
+	/**
+	 * crha self-upgrade (doc/design/distribution.md "The upgrade task"): plan the requested nodes, then
+	 * fetch and verify the release once per architecture and start one privileged task group for each.
+	 */
+	app.openapi(upgradeRoute, async (c) => {
+		const user = c.get("user");
+		if (!isAdmin(user)) throw new HTTPException(403, { message: "administrators only" });
+		const { cluster, taskGroups, crhaReleases } = options;
+		if (!cluster || !taskGroups || !crhaReleases) throw clusterUnavailable();
+		const body = c.req.valid("json");
+		const resolved = await resolveTargets(db, user, body.targets);
+		const rows = (await Promise.all(resolved.nodeIds.map((id) => getNode(db, id)))).filter((row) => row !== undefined);
+		const plan = await planUpgrade(db, rows, crhaReleases.version, (id) => cluster.isConnected(id));
+		const upgrades = [...plan.byArch.values()].flat();
+		const answer = { version: plan.version, upgrades, skipped: plan.skipped };
+		if (body.dryRun === true || upgrades.length === 0) {
+			return c.json({ ...answer, taskGroups: [] }, 200);
+		}
+		const started: { arch: string; taskGroupId: string }[] = [];
+		for (const [arch, candidates] of plan.byArch) {
+			const binary = await crhaReleases.binary(arch);
+			const location = await cluster.stageBytesForPush(binary.bytes);
+			let taskGroupId: string;
+			try {
+				taskGroupId = await taskGroups.create({
+					spec: upgradeSpec(binary),
+					targets: candidates.map((candidate) => candidate.nodeId),
+					nodeIds: candidates.map((candidate) => candidate.nodeId),
+					transferLocation: location,
+					privileged: true,
+					actor: { type: "user", id: user.userId, onBehalfOfUserId: user.userId },
+				});
+			} catch (err) {
+				// The group takes over the staged binary once it exists; a failed create leaves it to discard.
+				await openTransferLocation(cluster.transferContext(), location)
+					.discard()
+					.catch(() => {});
+				throw err;
+			}
+			started.push({ arch, taskGroupId });
+		}
+		void c.get("audit").record({
+			actor: userActor(user),
+			action: "node.upgrade_requested",
+			target: { type: "node_upgrade", id: plan.version },
+			detail: {
+				version: plan.version,
+				nodes: upgrades.map((upgrade) => ({ id: upgrade.nodeId, from: upgrade.version, arch: upgrade.arch })),
+				task_groups: started.map((group) => group.taskGroupId),
+				skipped: plan.skipped.map((skip) => ({ id: skip.nodeId, reason: skip.reason })),
+			},
+		});
+		return c.json({ ...answer, taskGroups: started }, 201);
 	});
 
 	return app;

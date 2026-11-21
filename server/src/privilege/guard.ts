@@ -5,9 +5,15 @@
  * RE2 cannot compile is treated conservatively (U6): an `allow` rule never matches and a `deny`
  * rule always matches, so a broken configuration cannot widen access. crha's Go regexp is the final
  * arbiter; crhs uses the same matching only to plan the authorization.
+ *
+ * Methods and match types are open names (doc/design/protocol.md "Encoding rules"): a newer node may
+ * report a rule this crhs does not understand. A rule with an unknown method only ever applies to
+ * that method, so it matches no task this crhs plans; a rule with an unknown match type is
+ * conservative like an uncompilable pattern: as an allow rule it never matches, as a deny rule it
+ * matches every target of its method.
  */
 import { posix } from "node:path";
-import type { GuardRule, TaskSpec } from "@crh/protocol";
+import { type GuardRule, isKnownMatch, isKnownMethod, type TaskSpec } from "@crh/protocol";
 import RE2 from "re2";
 import { type Method, operationOf } from "../policy/rules.ts";
 
@@ -18,13 +24,13 @@ export class GuardRuleError extends Error {
 	override name = "GuardRuleError";
 }
 
-const METHODS: readonly Method[] = ["exec", "file.read", "file.write"];
-const MATCHES: readonly string[] = ["any", "prefix", "regex"];
-
 interface CompiledRule {
-	method: Method;
+	/** The rule's method, possibly one this crhs does not know. */
+	method: string;
 	any: boolean;
 	re: RE2 | null;
+	/** The match type is unknown: allow never matches, deny matches every target of the method. */
+	unknownMatch: boolean;
 }
 
 interface CompiledRuleSet {
@@ -37,9 +43,16 @@ function quoteMeta(value: string): string {
 	return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
-function compileRule(rule: GuardRule): CompiledRule {
-	if (!METHODS.includes(rule.method)) throw new GuardRuleError(`guard rule has unknown method ${rule.method}`);
-	if (!MATCHES.includes(rule.match)) throw new GuardRuleError(`guard rule has unknown match ${rule.match}`);
+/**
+ * Compiles one rule. `strict` refuses unknown methods and match types, for rules a person is about to
+ * write into a node's configuration; a node's reported rules are compiled leniently, as above.
+ */
+function compileRule(rule: GuardRule, strict: boolean): CompiledRule {
+	if (strict && !isKnownMethod(rule.method)) throw new GuardRuleError(`guard rule has unknown method ${rule.method}`);
+	if (!isKnownMatch(rule.match)) {
+		if (strict) throw new GuardRuleError(`guard rule has unknown match ${rule.match}`);
+		return { method: rule.method, any: false, re: null, unknownMatch: true };
+	}
 	if (Buffer.byteLength(rule.pattern, "utf8") > MAX_GUARD_PATTERN_BYTES) {
 		throw new GuardRuleError(
 			`guard rule pattern is ${Buffer.byteLength(rule.pattern, "utf8")} bytes, at most ${MAX_GUARD_PATTERN_BYTES} allowed`,
@@ -47,7 +60,7 @@ function compileRule(rule: GuardRule): CompiledRule {
 	}
 	if (rule.match === "any") {
 		if (rule.pattern !== "") throw new GuardRuleError('guard rule with match "any" has a non-empty pattern');
-		return { method: rule.method, any: true, re: null };
+		return { method: rule.method, any: true, re: null, unknownMatch: false };
 	}
 	if (rule.match === "regex") {
 		// Compile the pattern on its own first: an unbalanced pattern like "a)|(b" breaks out of
@@ -62,18 +75,18 @@ function compileRule(rule: GuardRule): CompiledRule {
 	try {
 		// (?s) keeps "." matching a target that contains a newline, as in crha's Go regexp.
 		const source = rule.match === "prefix" ? `(?s)^${quoteMeta(rule.pattern)}.*$` : `(?s)^(?:${rule.pattern})$`;
-		return { method: rule.method, any: false, re: new RE2(source) };
+		return { method: rule.method, any: false, re: new RE2(source), unknownMatch: false };
 	} catch (err) {
 		throw new GuardRuleError(`cannot compile guard rule (${err instanceof Error ? err.message : String(err)})`);
 	}
 }
 
 /** Rules never partly apply: one invalid rule invalidates the whole list. */
-function compileRuleSet(rules: readonly GuardRule[]): CompiledRuleSet {
+function compileRuleSet(rules: readonly GuardRule[], strict = false): CompiledRuleSet {
 	const out: CompiledRule[] = [];
 	for (const rule of rules) {
 		try {
-			out.push(compileRule(rule));
+			out.push(compileRule(rule, strict));
 		} catch (err) {
 			return { rules: [], error: err instanceof Error ? err : new Error(String(err)) };
 		}
@@ -83,15 +96,16 @@ function compileRuleSet(rules: readonly GuardRule[]): CompiledRuleSet {
 
 /** Compiles a trust entry's allow or deny list; throws the first rule's error. */
 export function validateGuardRules(rules: readonly GuardRule[]): void {
-	const compiled = compileRuleSet(rules);
+	const compiled = compileRuleSet(rules, true);
 	if (compiled.error) throw compiled.error;
 }
 
-function matches(rule: CompiledRule, method: Method, target: string, allowFileWriteCoversRead: boolean): boolean {
+function matches(rule: CompiledRule, method: Method, target: string, allow: boolean): boolean {
 	if (rule.method !== method) {
 		// A file.write allow rule also grants reading; deny rules stay method-exact.
-		if (!(allowFileWriteCoversRead && rule.method === "file.write" && method === "file.read")) return false;
+		if (!(allow && rule.method === "file.write" && method === "file.read")) return false;
 	}
+	if (rule.unknownMatch) return !allow;
 	return rule.any || (rule.re?.test(target) ?? false);
 }
 
@@ -156,7 +170,8 @@ export function privilegedTarget(spec: TaskSpec): { method: Method; target: stri
 		throw new PrivilegedTargetError("exec task has an empty argv");
 	}
 	const operation = operationOf(spec);
-	if (operation.method !== "exec") {
+	// An upgrade's target is a version and a hash, not a path (doc/design/privilege.md "Methods and targets").
+	if (operation.method !== "exec" && operation.method !== "upgrade") {
 		const path = "path" in spec ? spec.path : "";
 		checkPrivilegedPath(path);
 	}

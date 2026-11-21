@@ -132,7 +132,14 @@ describe("a task.start that loses its connection after the node reconnected", ()
 				},
 			},
 		} as unknown as NodeConnection;
-		const link: NodeLink = { conn, active: true, ready: true, queried: new Set(), trustFresh: true };
+		const link: NodeLink = {
+			conn,
+			active: true,
+			ready: true,
+			queried: new Set(),
+			trustFresh: true,
+			taskKinds: new Set(),
+		};
 		return { link, requests };
 	};
 

@@ -23,7 +23,7 @@ Durations use Go syntax (`"60s"`, `"5m"`, `"24h"`); there is no day unit.
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `node_id` | UUID | required | The node's id, as printed by `crha enroll`. |
+| `node_id` | UUID | required | The node's id, as printed by `crha enroll`; enrolling as a new node updates it. |
 | `aliases` | array of UUIDs | empty | Other ids the node answers to, usually the UUIDs of its node groups, so that authorizations for those groups apply here. Keep it to the groups the node actually belongs to. |
 | `unprivileged_uid` | integer | required | The uid of `crha run`. Only this uid may submit tasks. |
 | `socket` | path | required | The socket to listen on; must match `[privileged].socket` in `crha.toml`. |
@@ -79,6 +79,10 @@ when crhs only cosigns a user's authorization. A cosignature confirms one use (o
 on this node), so a `require-cosign` entry works with reusable authorizations too: crhs confirms each
 use separately.
 
+An upgrade from crhs may edit this file when a release changes its format: it keeps comments, order and
+everything else it does not change, lists each edit in the upgrade log, and keeps the previous file in
+the upgrade's backup ([Configuration migrations](../../design/distribution.md#configuration-migrations)).
+
 ## Guard rules
 
 ```toml
@@ -90,7 +94,14 @@ allow = [
 deny = [{ method = "file.write", prefix = "/etc/crha/" }]
 ```
 
-- `method` is `exec`, `file.read` or `file.write`. An allowed `file.write` also allows reading.
+- `method` is `exec`, `file.read`, `file.write` or `upgrade`. An allowed `file.write` also allows
+  reading. `upgrade` is a crha self-upgrade, whose target is `<version> sha256:<hex>`
+  ([crha self-upgrade](../../design/distribution.md#crha-self-upgrade)). It replaces crha's binary,
+  which is root on the node, including the binary that enforces these rules. A crhs entry with only
+  `deny` rules must deny `upgrade` as well, or crhs can upgrade the node on its own; an entry with
+  `allow` rules refuses it unless one names it. An entry without rules already lets crhs do anything,
+  and one with only `cosign` never authorizes alone, so for those denying `upgrade` changes nothing
+  (doc/design/privilege.md "Methods and targets").
 - `prefix` matches targets starting with the string; `regex` (RE2, at most 1000 bytes) must match the
   whole target; with neither, the rule matches every target of its method.
 - For `exec`, the target is the command line, and shell commands appear as `/bin/sh -c '…'`, so a
@@ -125,7 +136,11 @@ allow = [
   { method = "exec",       prefix = "systemctl restart " },
   { method = "file.write", prefix = "/etc/nginx/" },
 ]
-deny = [{ method = "file.write", prefix = "/etc/crha/" }]
+deny = [
+  { method = "file.write", prefix = "/etc/crha/" },
+  # The allow list already refuses an upgrade; this keeps it refused if the list is emptied.
+  { method = "upgrade" },
+]
 ```
 
 **Only a user may authorize**, for `apt-get` commands, for at most a day:

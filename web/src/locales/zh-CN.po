@@ -122,6 +122,14 @@ msgstr "{0} 前缀匹配 {1}"
 msgid "{0} tok/s"
 msgstr "{0} tok/s"
 
+#. placeholder {0}: upgrade.name
+#. placeholder {1}: upgrade.version
+#. placeholder {2}: planned.version
+#. placeholder {3}: upgrade.arch
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "{0}: {1} → {2} ({3})"
+msgstr "{0}：{1} → {2}（{3}）"
+
 #: src/features/sessions/children-bar.tsx
 msgid "{awaiting} awaiting"
 msgstr "{awaiting} 个等待中"
@@ -178,6 +186,10 @@ msgstr "{list} 等 {more} 个"
 #: src/features/sessions/session-banner.tsx
 msgid "{queued, plural, one {# message queued} other {# messages queued}}"
 msgstr "{queued, plural, one {已排队 # 条消息} other {已排队 # 条消息}}"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "{running, plural, one {Restarting crha ends # running task; it will end as unknown.} other {Restarting crha ends # running tasks; they will end as unknown.}}"
+msgstr "{running, plural, other {重启 crha 会中断 # 个运行中的任务，它们将以“未知”状态结束。}}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
@@ -591,6 +603,10 @@ msgstr "允许的源"
 msgid "Allows"
 msgstr "允许"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "already at this version"
+msgstr "已是此版本"
+
 #: src/features/approvals/pages.tsx
 msgid "Already settled"
 msgstr "已处理"
@@ -878,6 +894,15 @@ msgstr "Auto Review 审查中…"
 msgid "Availability"
 msgstr "可用范围"
 
+#: src/features/nodes/pages.tsx
+msgid "available"
+msgstr "可用"
+
+#. placeholder {0}: selfUpgrade.arch
+#: src/features/nodes/pages.tsx
+msgid "available ({0})"
+msgstr "可用（{0}）"
+
 #. placeholder {0}: formatLatency(averageTtft, locale)
 #: src/features/sessions/composer-meta.tsx
 msgid "Average time to first token: {0}"
@@ -934,6 +959,11 @@ msgstr "机器人 id"
 msgid "Bot token"
 msgstr "机器人令牌"
 
+#. placeholder {0}: planned.version
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Bring crha to crhs's version {0}. crhs verifies the release first. The upgrade is a privileged task group: nodes that trust only users wait for a signature on its page."
+msgstr "将 crha 升级到与 crhs 相同的版本 {0}。crhs 会先验证发行包。升级是一个特权任务组：只信任用户的节点会在任务组页面等待签名。"
+
 #: src/features/settings/extensions.tsx
 msgid "Built-in"
 msgstr "内置"
@@ -955,6 +985,7 @@ msgstr "磁盘缓存大小"
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/upgrade-crha-dialog.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/model-discovery-dialog.tsx
@@ -978,6 +1009,10 @@ msgstr "已请求取消任务"
 #: src/components/task-outcome.tsx
 msgid "Cancelled"
 msgstr "已取消"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "cannot be upgraded from crhs"
+msgstr "无法由 crhs 升级"
 
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Cap proof of work"
@@ -1063,6 +1098,10 @@ msgstr "请检查标出的字段。"
 #: src/features/sessions/attachment-chip.tsx
 msgid "Checking the file…"
 msgstr "正在检查文件…"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Checking which nodes can be upgraded…"
+msgstr "正在检查哪些节点可以升级…"
 
 #: src/components/file-manager/file-picker-dialog.tsx
 msgid "Choose a file"
@@ -2471,6 +2510,10 @@ msgstr "包含文件浏览"
 msgid "Inherit"
 msgstr "继承"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "installed by the package manager (upgrade it with apt or dnf)"
+msgstr "由包管理器安装（请用 apt 或 dnf 升级）"
+
 #: src/components/status-badge.tsx
 #: src/lib/task-output.ts
 msgid "Interrupted"
@@ -2505,6 +2548,10 @@ msgstr "批准前，它必须与 <0>crha enroll</0> 打印的内容或节点上�
 msgid "Its audit trail stays; the token itself is removed."
 msgstr "审计记录会保留；令牌本身会被删除。"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "its crha is too old to report its architecture"
+msgstr "其 crha 版本过旧，不上报架构"
+
 #: src/features/channels/channels-page.tsx
 msgid "Its linked accounts and threads are removed, so people stop reaching crhs from that bot. Its stored token is deleted."
 msgstr "它的关联账号和会话线程会被移除，人们将无法再通过该机器人访问 crhs。存储的令牌会被删除。"
@@ -2517,9 +2564,17 @@ msgstr "成员将失去这个节点组。引用它的规则和任务组会保留
 msgid "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 msgstr "它的模型会从模型列表中消失，保存的密钥也会删除。正在使用这些模型的现有会话会停止工作，直到你更换模型。"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "its systemd units were not written by crha enroll"
+msgstr "其 systemd 单元不是由 crha enroll 生成的"
+
 #: src/features/settings/extensions.tsx
 msgid "Its tools disappear from sessions and its stored headers are deleted. Waiting calls of this extension are not retried."
 msgstr "它的工具会从会话中消失，已存储的请求头会被删除。此扩展等待中的调用不会被重试。"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "its units do not start the running binary"
+msgstr "其单元启动的不是正在运行的二进制"
 
 #. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
@@ -3076,6 +3131,10 @@ msgstr "新用户组资料库"
 msgid "New user libraries"
 msgstr "新用户资料库"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "newer than crhs; there is no downgrade"
+msgstr "版本比 crhs 新；不支持降级"
+
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Newest"
 msgstr "最新"
@@ -3376,6 +3435,10 @@ msgstr "节点或节点组"
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 msgstr "信任该凭据的节点会停止接受其签名。它已签发的授权在截止时间前仍然有效。"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Nodes to upgrade"
+msgstr "将升级的节点"
+
 #: src/components/decision/content.tsx
 msgid "Nodes: {list}"
 msgstr "节点：{list}"
@@ -3396,6 +3459,14 @@ msgstr "无"
 msgid "None (WebUI only)"
 msgstr "无（仅 WebUI）"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "None of these nodes can be upgraded now."
+msgstr "这些节点目前都无法升级。"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "not a crha node"
+msgstr "不是 crha 节点"
+
 #: src/components/decision/approval-panel.tsx
 msgid "Not a valid rule: {error}"
 msgstr "规则无效：{error}"
@@ -3408,6 +3479,10 @@ msgstr "不适用"
 msgid "Not confirmed"
 msgstr "未确认"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "not connected"
+msgstr "未连接"
+
 #: src/features/settings/extensions.tsx
 msgid "Not listed yet"
 msgstr "尚未列出"
@@ -3416,6 +3491,10 @@ msgstr "尚未列出"
 msgid "not reported"
 msgstr "未报告"
 
+#: src/features/nodes/pages.tsx
+msgid "not reported (crha predates self-upgrade)"
+msgstr "未上报（crha 版本早于自升级功能）"
+
 #: src/features/settings/pages.tsx
 msgid "Not set"
 msgstr "未设置"
@@ -3423,6 +3502,10 @@ msgstr "未设置"
 #: src/features/sessions/share-dialog.tsx
 msgid "Not shared."
 msgstr "未共享。"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "not started by systemd"
+msgstr "不是由 systemd 启动的"
 
 #. placeholder {0}: failure instanceof Error ? failure.message : String(failure)
 #: src/features/tokens/rules-dialog.tsx
@@ -3453,6 +3536,10 @@ msgstr "没有等待你处理的事项"
 #: src/features/audit/pages.tsx
 msgid "Nothing matches these filters."
 msgstr "没有符合这些过滤条件的内容。"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "nothing on the node can replace the binary as root"
+msgstr "节点上没有能以 root 身份替换二进制的途径"
 
 #: src/features/sessions/composer.tsx
 msgid "Nothing to compact yet: the most recent ~20k tokens of the conversation are always kept as they are."
@@ -4419,6 +4506,10 @@ msgstr "运行中"
 msgid "Running a security check…"
 msgstr "正在进行安全验证…"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "runs a build that is not a release"
+msgstr "运行的不是发行版本"
+
 #: src/features/system-settings/pages.tsx
 msgid "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
 msgstr "此 crhs 的运行时设置。保存后无需重启即可生效，并会记入审计日志。"
@@ -4588,6 +4679,10 @@ msgstr "选择 {0}"
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "Select all visible"
 msgstr "全选可见项"
+
+#: src/features/nodes/pages.tsx
+msgid "Self-upgrade"
+msgstr "自升级"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
@@ -4815,6 +4910,14 @@ msgstr "签名凭据"
 #: src/components/task-result.tsx
 msgid "Size"
 msgstr "大小"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Skipped"
+msgstr "跳过"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Skipped nodes"
+msgstr "跳过的节点"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Skipped: {skipped}"
@@ -5266,9 +5369,17 @@ msgstr "必须填写平台。"
 msgid "The platform the bot runs on at the gateway."
 msgstr "机器人在网关中所运行的平台。"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "the privileged mode does not run as root"
+msgstr "特权模式不是以 root 身份运行"
+
 #: src/features/nodes/node-trust.tsx
 msgid "The privileged mode is not forward, so this node uses no trust configuration"
 msgstr "特权模式不是 forward，此节点不使用信任配置"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "the privileged mode is not reachable"
+msgstr "无法连接特权模式"
 
 #: src/features/nodes/node-trust.tsx
 msgid "The privileged mode is unreachable, so the trust configuration is unknown"
@@ -5481,6 +5592,10 @@ msgstr "该目标已授权给这个用户或用户组。"
 msgid "This tool only"
 msgstr "仅此工具"
 
+#: src/features/nodes/trust-warnings.tsx
+msgid "This trust entry uses a role, capability, method or match type from a newer version. crhs plans around it conservatively and the node decides; upgrade crhs to use it: {value}"
+msgstr "此信任条目使用了更新版本才有的角色、能力、方法或匹配方式。crhs 会保守地规划授权，最终由节点判定；升级 crhs 后才能使用：{value}"
+
 #: src/features/users/pages.tsx
 msgid "This user doesn't exist or you don't have access."
 msgstr "用户不存在或无权访问"
@@ -5680,6 +5795,30 @@ msgstr "未读"
 #: src/features/users/pages.tsx
 msgid "Updated"
 msgstr "更新时间"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Upgrade"
+msgstr "升级"
+
+#: src/features/node-groups/pages.tsx
+#: src/features/nodes/pages.tsx
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Upgrade crha"
+msgstr "升级 crha"
+
+#. placeholder {0}: action.version
+#. placeholder {1}: action.arch
+#: src/lib/action-text.ts
+msgid "Upgrade crha to {0} ({1})"
+msgstr "将 crha 升级到 {0}（{1}）"
+
+#: src/features/nodes/pages.tsx
+msgid "Upgrade log"
+msgstr "升级日志"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Upgraded"
+msgstr "将升级"
 
 #: src/components/file-manager/file-manager.tsx
 msgid "Upload"

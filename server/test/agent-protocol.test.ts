@@ -11,6 +11,7 @@ import {
 	PROTOCOL_MINOR,
 	REQUIRED_NAMES,
 	RemoteError,
+	subprotocolFor,
 	type TaskStart,
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -182,7 +183,7 @@ describe("agent wire protocol", () => {
 			);
 			await expect(closed).resolves.toEqual({
 				code: 1008,
-				reason: `protocol_major mismatch: server ${PROTOCOL_MAJOR}, client ${PROTOCOL_MAJOR + 1}`,
+				reason: `protocol_major mismatch: request named ${PROTOCOL_MAJOR}, payload ${PROTOCOL_MAJOR + 1}`,
 			});
 		});
 
@@ -191,6 +192,21 @@ describe("agent wire protocol", () => {
 			const { ws, hs, closed } = await agents.prepare(generateKeyPair(), "crh/0");
 			ws.send(hs.writeMessage(encodeCbor(handshakeInitCodec.encode(handshakeInit()))));
 			await expect(closed).resolves.toEqual({ code: 1008, reason: "handshake failed" });
+		});
+
+		it("records the crha version of every handshake, not only the enrollment's", async () => {
+			// An upgraded node reconnects with its new version (doc/design/distribution.md "crha self-upgrade").
+			const key = generateKeyPair();
+			const node = await addNode("versioned", "active", key.publicKey);
+			const first = await agents.connect(key, handshakeInit({ crhaVersion: "1.2.0" }));
+			const versionOf = async () =>
+				(await db.selectFrom("nodes").select("client_version").where("id", "=", node.id).executeTakeFirstOrThrow())
+					.client_version;
+			expect(await versionOf()).toBe("1.2.0");
+			first.ws.close();
+			const second = await agents.connect(key, handshakeInit({ crhaVersion: "1.3.0" }));
+			expect(await versionOf()).toBe("1.3.0");
+			second.ws.close();
 		});
 
 		it("accepts a different protocol minor", async () => {
@@ -274,13 +290,52 @@ describe("agent wire protocol", () => {
 	});
 
 	describe("unauthenticated crash paths", () => {
-		const upgradeRequest = (target: string): string =>
+		const upgradeRequest = (target: string, subprotocol: string | null = subprotocolFor(PROTOCOL_MAJOR)): string =>
 			`GET ${target} HTTP/1.1\r\n` +
 			"Host: x\r\n" +
 			"Upgrade: websocket\r\n" +
 			"Connection: Upgrade\r\n" +
 			`Sec-WebSocket-Key: ${randomBytes(16).toString("base64")}\r\n` +
+			(subprotocol === null ? "" : `Sec-WebSocket-Protocol: ${subprotocol}\r\n`) +
 			"Sec-WebSocket-Version: 13\r\n\r\n";
+
+		/** The raw HTTP answer to an upgrade request, read until the server closes. */
+		const rawAnswer = async (request: string): Promise<string> => {
+			const socket = net.connect(agents.port, "127.0.0.1");
+			socket.on("error", () => {});
+			const chunks: Buffer[] = [];
+			socket.on("data", (chunk: Buffer) => chunks.push(chunk));
+			const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+			socket.write(request);
+			await closed;
+			return Buffer.concat(chunks).toString("utf8");
+		};
+
+		it("refuses a request without the subprotocol with 426, naming the served majors", async () => {
+			// No crh.<n> means major 2, the last major that lacked it (doc/design/protocol.md "The major in the clear").
+			const answer = await rawAnswer(upgradeRequest("/agent", null));
+			expect(answer.startsWith("HTTP/1.1 426 ")).toBe(true);
+			expect(answer).toContain(`CRH-Served-Majors: ${PROTOCOL_MAJOR}\r\n`);
+			expect(answer).toContain("this crha speaks major 2");
+			await assertServing("after-426");
+		});
+
+		it("refuses an unreadable or unserved major on the data path too", async () => {
+			expect(await rawAnswer(upgradeRequest("/agent/data", "crh.x"))).toMatch(/^HTTP\/1\.1 426 [\s\S]*could not read/);
+			expect(await rawAnswer(upgradeRequest("/agent", `crh.${PROTOCOL_MAJOR + 1}`))).toMatch(
+				new RegExp(`^HTTP/1\\.1 426 [\\s\\S]*speaks major ${PROTOCOL_MAJOR + 1}`),
+			);
+		});
+
+		it("survives a TCP reset while it refuses a major", async () => {
+			const socket = net.connect(agents.port, "127.0.0.1");
+			socket.on("error", () => {});
+			await new Promise<void>((resolve) => socket.once("connect", () => resolve()));
+			socket.write(upgradeRequest("/agent", null));
+			socket.resetAndDestroy();
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			await assertServing("after-refusal-reset");
+		});
 
 		/** A normal node connection proves the server survived the malformed one. */
 		const assertServing = async (name: string): Promise<void> => {
@@ -293,7 +348,7 @@ describe("agent wire protocol", () => {
 		};
 
 		it("survives an oversized frame on an unauthenticated handshake socket", async () => {
-			const ws = new WebSocket(agents.url);
+			const ws = new WebSocket(agents.url, [subprotocolFor(PROTOCOL_MAJOR)]);
 			ws.on("error", () => {});
 			await new Promise<void>((resolve, reject) => {
 				ws.once("open", () => resolve());
@@ -328,6 +383,12 @@ describe("agent wire protocol", () => {
 			await closed;
 			await assertServing("after-bad-url");
 		});
+	});
+
+	it("echoes the crh.<major> subprotocol", async () => {
+		const { ws } = await agents.prepare(generateKeyPair());
+		expect(ws.protocol).toBe(subprotocolFor(PROTOCOL_MAJOR));
+		ws.close();
 	});
 
 	it("answers ping and performs the active handshake", async () => {

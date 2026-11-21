@@ -9,6 +9,7 @@ export const RuleMethodSchema = z.enum([
 	"exec",
 	"file.read",
 	"file.write",
+	"upgrade",
 	"ext.read",
 	"ext.write",
 	"api.read",

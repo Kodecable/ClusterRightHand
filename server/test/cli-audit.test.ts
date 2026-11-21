@@ -27,6 +27,7 @@ function configFor(masterKeyFile: string): Config {
 		masterKeyFile,
 		library: { backend: "local" },
 		models: { catalogDownload: true },
+		crhaRelease: { url: "https://github.com/o/r", download: false, verify: true, github: { owner: "o", repo: "r" } },
 		webRoot: "",
 	};
 }

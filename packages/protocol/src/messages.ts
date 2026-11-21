@@ -14,6 +14,7 @@ import {
 	keyedMap,
 	list,
 	nullable,
+	openName,
 	SchemaError,
 	sha256,
 	text,
@@ -23,13 +24,15 @@ import {
 	union,
 } from "./schema.ts";
 
-export const PROTOCOL_MAJOR = 2;
+export const PROTOCOL_MAJOR = 3;
 /**
  * An incompatible change bumps the major version and the Noise prologue, so a peer with another
- * major is refused at the handshake (doc/design/protocol.md "Handshake payloads"). The minor version is additive:
- * new commands and events are negotiated through the handshake's `commands` field. Major 1 removed the
- * per-task local approval commands and added the local window state to TrustSummary; major 2 moved crhs's
- * cosignature out of the authorization into the cosign ticket that `task.start` carries.
+ * major is refused at the handshake (doc/design/protocol.md "Version negotiation"). The minor version is
+ * additive: new commands and events are negotiated through the handshake's `commands` field, new task
+ * kinds through `hello.taskKinds`, and new methods, match types, roles and capabilities are open names.
+ * Major 1 removed the per-task local approval commands and added the local window state to TrustSummary;
+ * major 2 moved crhs's cosignature out of the authorization into the cosign ticket that `task.start`
+ * carries; major 3 added `node.upgrade` and made those trust values open names.
  */
 export const PROTOCOL_MINOR = 0;
 
@@ -39,6 +42,37 @@ export const PROTOCOL_MINOR = 0;
  * challenge, so a peer with another major fails the Noise handshake itself.
  */
 export const NOISE_PROLOGUE_PREFIX = `crh/${PROTOCOL_MAJOR}`;
+
+/**
+ * crha names its major in the WebSocket request as the subprotocol `crh.<major>`, so crhs picks the
+ * prologue and codec before the Noise handshake and refuses a major it does not serve with HTTP 426
+ * (doc/design/protocol.md "The major in the clear").
+ */
+export const SUBPROTOCOL_PREFIX = "crh.";
+
+/** A request without a `crh.<major>` subprotocol is this major, the last one that lacked it. */
+export const MAJOR_WITHOUT_SUBPROTOCOL = 2;
+
+/** The subprotocol that names `major`. */
+export function subprotocolFor(major: number): string {
+	return `${SUBPROTOCOL_PREFIX}${major}`;
+}
+
+/**
+ * The major a `Sec-WebSocket-Protocol` header names: `MAJOR_WITHOUT_SUBPROTOCOL` without a `crh.`
+ * entry, the major of the first `crh.<n>` entry otherwise, or `undefined` when that entry is malformed.
+ */
+export function majorFromSubprotocols(header: string | undefined): number | undefined {
+	const entries = (header ?? "")
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.startsWith(SUBPROTOCOL_PREFIX));
+	const first = entries[0];
+	if (first === undefined) return MAJOR_WITHOUT_SUBPROTOCOL;
+	const digits = first.slice(SUBPROTOCOL_PREFIX.length);
+	if (!/^[1-9][0-9]{0,5}$/.test(digits)) return undefined;
+	return Number(digits);
+}
 
 /**
  * The data connection's Noise prologue prefix, `"crh-data/1"` (doc/design/protocol.md "Data connections").
@@ -98,7 +132,28 @@ export interface Facts {
 	notesPath?: string;
 	clockOffsetMs?: number;
 	shells?: Shells;
+	/** Whether crhs may upgrade this node, and why not (doc/design/distribution.md "Who can self-upgrade"). */
+	selfUpgrade?: SelfUpgrade;
+	/** The upgrade log, read with an ordinary file.read (doc/design/distribution.md "Upgrade log"). */
+	upgradeLogPath?: string;
 }
+
+/**
+ * The `self_upgrade` fact. `reasons` are open names: a node may report a reason this crhs does not
+ * know, which it shows as is.
+ */
+export interface SelfUpgrade {
+	available: boolean;
+	reasons: string[];
+	/** The architecture of the crha binary the node needs (Go's GOARCH: amd64, arm64). */
+	arch?: string;
+}
+
+export const selfUpgradeCodec = keyedMap<SelfUpgrade>("self_upgrade", [
+	{ wire: "available", field: "available", codec: bool, required: true },
+	{ wire: "reasons", field: "reasons", codec: list(openName("reason")), required: true },
+	{ wire: "arch", field: "arch", codec: openName("arch") },
+]);
 
 export const factsCodec = keyedMap<Facts>("facts", [
 	{ wire: "hostname", field: "hostname", codec: text, required: true },
@@ -107,6 +162,8 @@ export const factsCodec = keyedMap<Facts>("facts", [
 	{ wire: "notes_path", field: "notesPath", codec: text },
 	{ wire: "clock_offset_ms", field: "clockOffsetMs", codec: int },
 	{ wire: "shells", field: "shells", codec: shellsCodec },
+	{ wire: "self_upgrade", field: "selfUpgrade", codec: selfUpgradeCodec },
+	{ wire: "upgrade_log_path", field: "upgradeLogPath", codec: text },
 ]);
 
 export const enrollmentCodec = tuple([
@@ -279,6 +336,18 @@ export const taskSpecCodec = union({
 		["path", text],
 		["limit", uint],
 	]),
+	/**
+	 * Installs crha `version` for `arch`, whose binary (`size`, `sha256`) arrives on a data connection
+	 * (doc/design/distribution.md "The upgrade task"). Always privileged; sent only to a node whose
+	 * `hello.taskKinds` lists it.
+	 */
+	"node.upgrade": tuple([
+		["version", text],
+		["arch", text],
+		["size", uint],
+		["sha256", sha256],
+		["endpoint", transferEndpointCodec],
+	]),
 });
 export type TaskSpec = Infer<typeof taskSpecCodec>;
 
@@ -416,6 +485,27 @@ export type TaskExit = Infer<typeof taskExitCodec>;
 // ---------------------------------------------------------------------------
 // Command bodies
 // ---------------------------------------------------------------------------
+
+/**
+ * The task kinds every node of this major runs, whether or not its hello lists them. Any other kind
+ * is sent only to a node whose `hello.taskKinds` lists it, so a kind can be added in a minor version
+ * (doc/design/protocol.md "Version negotiation").
+ */
+export const BASE_TASK_KINDS: readonly string[] = Object.freeze([
+	"exec",
+	"file.read",
+	"file.write",
+	"file.push",
+	"file.pull",
+	"file.edit",
+	"file.stat",
+	"file.list",
+]);
+
+/** Whether a node whose hello listed `advertised` runs tasks of `kind`. */
+export function nodeRunsKind(kind: string, advertised: ReadonlySet<string>): boolean {
+	return BASE_TASK_KINDS.includes(kind) || advertised.has(kind);
+}
 
 export const helloCodec = tuple([
 	["tasks", list(taskStatusCodec)],

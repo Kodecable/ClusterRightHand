@@ -159,7 +159,7 @@ func Decide(in Input) Decision {
 	if err != nil {
 		return failure(ResultRejected, StepTaskCheck, "task: %v", err)
 	}
-	if method != string(protocol.MethodExec) {
+	if method != string(protocol.MethodExec) && method != string(protocol.MethodUpgrade) {
 		if err := CheckPath(target); err != nil {
 			return failure(ResultRejected, StepTaskCheck, "%v", err)
 		}

@@ -24,7 +24,8 @@ import (
 func TestCommandPaths(t *testing.T) {
 	paths := [][]string{
 		{"run"}, {"privileged"}, {"privileged", "run"}, {"privileged", "stdio"},
-		{"enroll"}, {"register"}, {"status"}, {"upgrade"},
+		{"enroll"}, {"register"}, {"status"}, {"upgrade"}, {"upgrade", "status"}, {"upgrade", "rollback"},
+		{"__upgrade-install"},
 		{"approve"}, {"lock"}, {"version"},
 	}
 	root := NewRootCmd()
@@ -137,18 +138,26 @@ func TestApprovalSocketHelp(t *testing.T) {
 	}
 }
 
-func TestNotImplemented(t *testing.T) {
+func TestUpgradeRollbackRefusals(t *testing.T) {
 	root := NewRootCmd()
-	root.SetArgs([]string{"upgrade", "--apply", "/tmp/crha"})
+	root.SetArgs([]string{"upgrade", "rollback"})
 	err := root.Execute()
-	if version.PackageManaged {
+	switch {
+	case version.PackageManaged:
 		if err == nil || err.Error() != "crha is managed by the system package manager; upgrade it with apt or dnf" {
 			t.Fatalf("got %v, want the package-manager refusal", err)
 		}
-		return
+	case os.Geteuid() != 0:
+		if err == nil || err.Error() != "crha upgrade rollback must run as root" {
+			t.Fatalf("got %v, want the root refusal", err)
+		}
 	}
-	if err != errNotImplemented {
-		t.Fatalf("got %v, want errNotImplemented", err)
+}
+
+func TestUpgradeInstallIsHidden(t *testing.T) {
+	cmd, _, err := NewRootCmd().Find([]string{"__upgrade-install"})
+	if err != nil || !cmd.Hidden {
+		t.Fatalf("__upgrade-install: %v, hidden %v", err, cmd.Hidden)
 	}
 }
 

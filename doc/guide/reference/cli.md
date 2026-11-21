@@ -59,7 +59,8 @@ configuration take `--config` and have no default path.
 | `run` | Run the unprivileged mode, which connects to crhs and runs tasks. |
 | `status` | Show the server URL, the node's key fingerprint and the privilege mode. |
 | `version` | Show the version. |
-| `upgrade` | Not implemented; a package-managed `crha` refuses and points at apt or dnf. |
+| `upgrade status` | Print the last upgrade's outcome, what `upgrade rollback` would do now, and the upgrade log (`/var/lib/crha-upgrade/upgrade.jsonl`). |
+| `upgrade rollback [--force]` | As root: undo the upgrade that produced the running version, back to the lower release it came from, and restart crha; for when the new version cannot reach crhs. It refuses when a file changed since the upgrade wrote it, unless `--force`; run it again to step back through an older upgrade while its backup is kept. A package-managed `crha` refuses and points at apt or dnf. |
 
 ```sh
 sudo crha enroll
@@ -79,12 +80,14 @@ an interactive run's answers without the token. Without a terminal every questio
 the file. Each step that is already done is skipped, so an interrupted run can be repeated.
 
 `crha enroll` checks crhs's identity against the fingerprint in the token and prints the node id and
-key fingerprint. When the node already has a key it asks first whether to re-enroll, keeping the node's
-id, name, node groups and grants. Answering no keeps the existing enrollment: the server, TLS setting
-and privileged mode come from the existing `crha.toml`, no token is needed and the enrollment step is
-skipped (for `forward`, `privileged.toml` must already exist). Re-enrollment moves `identity.key` and
-`server.pub` aside as `.old` files (overwriting older backups) and restores them if enrollment fails.
-There is no online rotation.
+key fingerprint. When the node already has a key it asks first whether to enroll again with a new key, and afterwards
+says whether crhs kept the node (a Re-enroll token) or registered a new one (a New node token), for
+which it updates `node_id` in `privileged.toml`. Answering no keeps the existing enrollment: the
+server, TLS setting and privileged mode come from the existing `crha.toml`, no token is needed and the
+enrollment step is skipped (for `forward`, `privileged.toml` must already exist). Enrolling again moves
+`identity.key`, `server.pub` and `node_id` aside as `.old` files (overwriting older ones) and restores
+them if enrollment fails. When anything changes it stops `crha-privileged` and `crha` first and starts
+them again at the end, or after a failure.
 
 `crha register` is the enrollment step alone, for a manual layout: it reads the token from standard
 input (or prompts without echo on a terminal), uses the server and paths of an existing `crha.toml`,

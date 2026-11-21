@@ -1,4 +1,6 @@
 import type { PublicNode } from "@crh/api";
+import type { I18n } from "@lingui/core";
+import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeftIcon, PlusIcon, Trash2Icon } from "lucide-react";
@@ -36,6 +38,7 @@ import { ReenrollNodeDialog } from "./reenroll-node-dialog";
 import { RenameNodeButton } from "./rename-node-button";
 import { SshNodeSection } from "./ssh-node-section";
 import { TrustWarningIndicator, TrustWarningList } from "./trust-warnings";
+import { selfUpgradeReasonText, UpgradeCrhaDialog } from "./upgrade-crha-dialog";
 
 /**
  * Every node the user can see (doc/design/webui.md "Node pages"): status, connection,
@@ -216,6 +219,7 @@ export function NodeDetailPage() {
 	const [editingGroups, setEditingGroups] = useState(false);
 	const [editingRoute, setEditingRoute] = useState(false);
 	const [reenrolling, setReenrolling] = useState(false);
+	const [upgrading, setUpgrading] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 	const [tab, setTab] = useState<"overview" | "technical" | "files">("overview");
 	const details = node.data?.node;
@@ -292,6 +296,17 @@ export function NodeDetailPage() {
 									<Trans>Re-enroll</Trans>
 								</Button>
 							)}
+							{details.transport === "client" && (
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => setUpgrading(true)}
+									data-testid="upgrade-crha"
+								>
+									<Trans>Upgrade crha</Trans>
+								</Button>
+							)}
 							<Button type="button" variant="destructive" size="sm" onClick={() => setDeleting(true)}>
 								<Trash2Icon />
 								<Trans>Delete node</Trans>
@@ -333,6 +348,13 @@ export function NodeDetailPage() {
 								? [
 										{ label: t`Client`, value: details.clientVersion ?? "–" },
 										{
+											label: t`Self-upgrade`,
+											value: selfUpgradeText(i18n, details.facts?.selfUpgrade),
+										},
+										...(details.facts?.upgradeLogPath
+											? [{ label: t`Upgrade log`, value: details.facts.upgradeLogPath, mono: true }]
+											: []),
+										{
 											label: t`Last seen`,
 											value: <NodeLastSeen lastSeenAt={details.lastSeenAt} connected={details.connected} />,
 										},
@@ -351,6 +373,7 @@ export function NodeDetailPage() {
 						<EditSshRouteDialog node={details} details={node.data.ssh} onClose={() => setEditingRoute(false)} />
 					)}
 					{reenrolling && <ReenrollNodeDialog node={details} onClose={() => setReenrolling(false)} />}
+					{upgrading && <UpgradeCrhaDialog targets={[details.id]} onClose={() => setUpgrading(false)} />}
 					{deleting && <DeleteNodeDialog node={details} onClose={() => setDeleting(false)} />}
 					{/* The SSH route and its per-hop credentials are administrator data; the server omits `ssh` otherwise. */}
 					{details.transport === "ssh" && node.data?.ssh && (
@@ -405,4 +428,13 @@ export function NodeDetailPage() {
 			</Tabs>
 		</Page>
 	);
+}
+
+/** Whether crhs can upgrade the node's crha, and why not (doc/design/distribution.md "Who can self-upgrade"). */
+function selfUpgradeText(i18n: I18n, selfUpgrade: NonNullable<PublicNode["facts"]>["selfUpgrade"]): string {
+	if (selfUpgrade === undefined) return i18n._(msg`not reported (crha predates self-upgrade)`);
+	if (selfUpgrade.available) {
+		return selfUpgrade.arch ? i18n._(msg`available (${selfUpgrade.arch})`) : i18n._(msg`available`);
+	}
+	return selfUpgrade.reasons.map((reason) => selfUpgradeReasonText(i18n, reason)).join("; ");
 }

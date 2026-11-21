@@ -4,7 +4,6 @@
  * payload a `sign` option carries, pending views, the administrator's list and the owner's rejection.
  */
 import { z } from "zod";
-import { RuleMethodSchema } from "./policy.ts";
 import { TaskStateSchema } from "./task-state.ts";
 
 /** The paths a crha rejection can rule out (doc/design/privilege.md "Authorization path"). */
@@ -43,7 +42,15 @@ export const DecodedAuthorizationPayloadSchema = z
 		command: z
 			.union([
 				z.object({ match: z.literal("spec"), specSha256: z.string() }),
-				z.object({ method: RuleMethodSchema, match: z.literal("prefix"), target: z.string() }),
+				z.object({
+					method: z
+						.string()
+						.describe(
+							"The method as signed: an open name, which may be one this crhs does not know (doc/design/protocol.md).",
+						),
+					match: z.literal("prefix"),
+					target: z.string(),
+				}),
 			])
 			.nullable(),
 		issuedAt: z.string(),
@@ -153,7 +160,7 @@ export const TaskAuthorizationViewSchema = z
 
 /** The methods an authorization's prefix limit can name: the task methods, never an API or extension one. */
 export const AuthorizationMethodSchema = z
-	.enum(["exec", "file.read", "file.write"])
+	.enum(["exec", "file.read", "file.write", "upgrade"])
 	.meta({ id: "AuthorizationMethod" });
 
 /** The nodes and method a short reusable authorization for one waiting request covers. */

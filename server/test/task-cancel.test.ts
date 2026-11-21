@@ -180,6 +180,7 @@ describe("cancelling a task before its task.start", () => {
 			ready: true,
 			queried: new Set(),
 			trustFresh: true,
+			taskKinds: new Set(),
 		};
 		return { link, requests };
 	};

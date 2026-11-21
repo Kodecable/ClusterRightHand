@@ -125,7 +125,11 @@ func (a *Agent) execute(ctx context.Context, t *task, in io.Reader) {
 	res := executor.RunTask(ctx, &t.spec.Spec, in, t.output, executor.TaskOptions{
 		Timeout:   time.Duration(t.spec.TimeoutMS) * time.Millisecond,
 		KillGrace: time.Duration(t.spec.KillGraceMS) * time.Millisecond,
-		Env:       a.opts.Env,
+		// In ignore mode the privileged flag changes nothing, except that an upgrade runs only as a
+		// privileged task (it then needs this process to be root).
+		Privileged: t.spec.Spec.Kind == protocol.TaskSpecNodeUpgrade && t.spec.Privileged,
+		Env:        a.opts.Env,
+		TaskID:     t.id,
 	})
 	if q, ok := in.(*executor.Input); ok {
 		q.Discard() // unblocks a reader the executor left behind

@@ -42,6 +42,7 @@ All paths must be absolute. Files that crha keeps in `state_dir`:
 |---|---|
 | `identity.key` | The node's private key, created by `crha enroll` (mode 0600) |
 | `server.pub` | crhs's public key, pinned by `crha enroll` |
+| `node_id` | The node id the last enrollment returned, which tells the next one whether it kept the node or registered a new one |
 | `NOTES.md` | Node notes, unless `notes` is set |
 | `output/` | Complete task output, unless `[output].dir` is set |
 

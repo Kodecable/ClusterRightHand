@@ -118,6 +118,91 @@ type Facts struct {
 	NotesPath     *string
 	ClockOffsetMS *Int
 	Shells        *Shells
+	// SelfUpgrade says whether crhs may upgrade the node, and why not
+	// (doc/design/distribution.md "Who can self-upgrade").
+	SelfUpgrade *SelfUpgrade
+	// UpgradeLogPath is the upgrade log crhs reads with file.read (doc/design/distribution.md "Upgrade log").
+	UpgradeLogPath *string
+}
+
+// SelfUpgrade is the self_upgrade fact. Reasons are open names, so a reason a newer node reports
+// decodes here too.
+type SelfUpgrade struct {
+	Available bool
+	Reasons   []string
+	// Arch is the architecture of the binary the node needs (GOARCH); empty when not reported.
+	Arch string
+}
+
+// MarshalCBOR encodes SelfUpgrade as a text-keyed map with both keys.
+func (u SelfUpgrade) MarshalCBOR() ([]byte, error) {
+	reasons := make([]any, 0, len(u.Reasons))
+	for _, reason := range u.Reasons {
+		if !openNamePattern.MatchString(reason) {
+			return nil, fmt.Errorf("facts: invalid self_upgrade reason %q", reason)
+		}
+		reasons = append(reasons, reason)
+	}
+	m := profileMap{
+		{key: "available", value: u.Available},
+		{key: "reasons", value: reasons},
+	}
+	if u.Arch != "" {
+		if !openNamePattern.MatchString(u.Arch) {
+			return nil, fmt.Errorf("facts: invalid self_upgrade arch %q", u.Arch)
+		}
+		m = append(m, profileMapEntry{key: "arch", value: u.Arch})
+	}
+	return m.MarshalCBOR()
+}
+
+// selfUpgradeFromProfile reads a SelfUpgrade value from its decoded CBOR map: both keys are
+// required, every reason must be an open name, and unknown inner text keys are ignored.
+func selfUpgradeFromProfile(value any) (SelfUpgrade, error) {
+	m, ok := value.(profileMap)
+	if !ok {
+		return SelfUpgrade{}, errors.New("facts: self_upgrade is not a map")
+	}
+	var out SelfUpgrade
+	var available, reasons bool
+	for _, entry := range m {
+		key, ok := entry.key.(string)
+		if !ok {
+			return SelfUpgrade{}, fmt.Errorf("facts: self_upgrade map key %v is not text", entry.key)
+		}
+		switch key {
+		case "available":
+			b, ok := entry.value.(bool)
+			if !ok {
+				return SelfUpgrade{}, errors.New("facts: self_upgrade.available is not a boolean")
+			}
+			out.Available, available = b, true
+		case "reasons":
+			list, ok := entry.value.([]any)
+			if !ok {
+				return SelfUpgrade{}, errors.New("facts: self_upgrade.reasons is not an array")
+			}
+			out.Reasons = make([]string, 0, len(list))
+			for _, item := range list {
+				reason, ok := item.(string)
+				if !ok || !openNamePattern.MatchString(reason) {
+					return SelfUpgrade{}, fmt.Errorf("facts: invalid self_upgrade reason %v", item)
+				}
+				out.Reasons = append(out.Reasons, reason)
+			}
+			reasons = true
+		case "arch":
+			arch, ok := entry.value.(string)
+			if !ok || !openNamePattern.MatchString(arch) {
+				return SelfUpgrade{}, fmt.Errorf("facts: invalid self_upgrade arch %v", entry.value)
+			}
+			out.Arch = arch
+		}
+	}
+	if !available || !reasons {
+		return SelfUpgrade{}, errors.New("facts: self_upgrade needs available and reasons")
+	}
+	return out, nil
 }
 
 // The bounds of Facts.Hints: the node truncates to them, and crhs truncates again.
@@ -155,6 +240,10 @@ func (f Facts) MarshalCBOR() ([]byte, error) {
 	if f.Shells != nil {
 		m = append(m, profileMapEntry{key: "shells", value: *f.Shells})
 	}
+	if f.SelfUpgrade != nil {
+		m = append(m, profileMapEntry{key: "self_upgrade", value: *f.SelfUpgrade})
+	}
+	text("upgrade_log_path", f.UpgradeLogPath)
 	return m.MarshalCBOR()
 }
 
@@ -194,6 +283,13 @@ func (f *Facts) UnmarshalCBOR(data []byte) error {
 			if shells, err = shellsFromProfile(entry.value); err == nil {
 				out.Shells = &shells
 			}
+		case "self_upgrade":
+			var upgrade SelfUpgrade
+			if upgrade, err = selfUpgradeFromProfile(entry.value); err == nil {
+				out.SelfUpgrade = &upgrade
+			}
+		case "upgrade_log_path":
+			out.UpgradeLogPath, err = factTextPtr(entry.value, key)
 		}
 		if err != nil {
 			return err
@@ -525,6 +621,18 @@ type FilePushSpec struct {
 	Endpoint         TransferEndpoint
 }
 
+// NodeUpgradeSpec is the TaskSpec body for the "node.upgrade" kind: crha Version for Arch, whose
+// binary (Size, SHA256) arrives on a data connection (doc/design/distribution.md "The upgrade task").
+// It is always privileged; crhs sends it only to a node whose hello lists the kind.
+type NodeUpgradeSpec struct {
+	_        struct{} `cbor:",toarray"`
+	Version  string
+	Arch     string
+	Size     Uint
+	SHA256   Hash
+	Endpoint TransferEndpoint
+}
+
 // FilePullSpec is the TaskSpec body for the "file.pull" kind: a whole regular file is sent to crhs
 // on a data connection. MaxBytes is the most the destination accepts.
 type FilePullSpec struct {
@@ -662,6 +770,8 @@ type TaskSpec struct {
 	FileEdit  *FileEditSpec
 	FileStat  *FileStatSpec
 	FileList  *FileListSpec
+
+	NodeUpgrade *NodeUpgradeSpec
 }
 
 // Command is the union of argv and shell command forms.
@@ -747,6 +857,8 @@ const (
 	TaskSpecFileEdit  TaskSpecKind = "file.edit"
 	TaskSpecFileStat  TaskSpecKind = "file.stat"
 	TaskSpecFileList  TaskSpecKind = "file.list"
+	// TaskSpecNodeUpgrade installs a new crha binary (doc/design/distribution.md "crha self-upgrade").
+	TaskSpecNodeUpgrade TaskSpecKind = "node.upgrade"
 )
 
 // CommandKind is a Command union tag.
@@ -797,6 +909,7 @@ var taskSpecUnion = newUnion("task spec",
 	unionPtr[TaskSpec]("file.edit", func(s *TaskSpec) **FileEditSpec { return &s.FileEdit }),
 	unionPtr[TaskSpec]("file.stat", func(s *TaskSpec) **FileStatSpec { return &s.FileStat }),
 	unionPtr[TaskSpec]("file.list", func(s *TaskSpec) **FileListSpec { return &s.FileList }),
+	unionPtr[TaskSpec]("node.upgrade", func(s *TaskSpec) **NodeUpgradeSpec { return &s.NodeUpgrade }),
 )
 
 // MarshalCBOR encodes a TaskSpec as [tag, body].

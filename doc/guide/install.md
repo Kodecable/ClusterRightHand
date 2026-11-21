@@ -280,13 +280,14 @@ one by fingerprint. See the
 
    | Question | Default |
    |---|---|
-   | crhs address | — |
-   | Enrollment token | — |
-   | Check the TLS certificate against the system CAs | yes (the token authenticates crhs either way) |
-   | Re-enroll, keeping the node's id, name, groups and grants (only when already enrolled) | no |
-   | Privileged mode (`ignore` or `forward`) | `ignore` |
-   | Let local root open the local approval window (forward) | yes |
-   | Trust entries (forward) | empty, configured later |
+   | Enroll again with a new key (only when already enrolled) | no |
+   | crhs address (not when keeping the enrollment) | the current one, if any |
+   | Enrollment token (not when keeping the enrollment) | — |
+   | Check the TLS certificate against the system CAs | the current setting, else yes (the token authenticates crhs either way) |
+   | Privileged mode (`ignore` or `forward`) | the current mode, else `ignore` |
+   | Keep the current trust entries (forward, `privileged.toml` exists) | yes |
+   | Let local root open the local approval window (forward, new trust entries) | yes |
+   | Trust entries (forward, new trust entries) | empty, configured later |
    | Start the services | yes |
 
    For `forward`, paste the entries from **Signing credentials** → **Generate trust config**, ending
@@ -299,16 +300,24 @@ one by fingerprint. See the
    fingerprint.
 3. Approve the node (below), comparing the fingerprint.
 
-If the node was enrolled before, use **Re-enroll** on its page instead of **New node**. `crha enroll`
-asks first whether to re-enroll: answering no keeps the enrollment and needs no token; answering yes
-replaces the key and keeps the node's id, name, node groups and grants
-([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)). Either way, an
-existing `/etc/crha/crha.toml` is kept as it is and supplies the crhs address, TLS setting and
-privileged mode, so those questions are not asked; to change one, edit `crha.toml` first.
+If the node was enrolled before, `crha enroll` asks first whether to enroll again with a new key:
+answering no keeps the enrollment and needs no token. To give it a new key, use **Re-enroll** on the
+node's page, not **New node** ([Rotating and revoking node
+keys](operations.md#rotating-and-revoking-node-keys)).
+
+Run again on a node set up before, `crha enroll` offers the current settings as defaults, and a
+different answer switches the node: it edits `/etc/crha/crha.toml` in place, keeping your comments, and
+writes or removes `crha-privileged.service`. With `privileged.toml` present, it asks whether to keep the
+current trust entries, naming them; answering no replaces them with pasted ones and leaves the rest of
+the file as it is. The crhs address changes only by enrolling again with a token from the new crhs.
+When anything changes, it stops the services first, backs the files up to
+`/var/lib/crha-upgrade/backups/enroll-<time>/` (printing the directory) and starts the services again
+afterwards; a failed run starts them again too.
 
 `--answers` and `--save-answers` work as in `crhs init`; a file holding the token must be readable only by
 its owner. On an enrolled node the `replace` answer is also required, and `forward` adds
-`privileged.local_root` and `privileged.trust`.
+`privileged.local_root` and `privileged.trust` when `privileged.toml` does not exist yet. The file's
+values switch the node as the answers to the questions do.
 
 ```json
 {
@@ -342,10 +351,10 @@ crha ALL=(root) NOPASSWD: /usr/bin/crha privileged stdio
 ```
 
 For `forward`, `crha enroll` writes `/etc/crha/privileged.toml` with the trust entries you pasted. To
-switch an enrolled `ignore` node to `forward`, set `mode = "forward"` and
-`socket = "/run/crha/privileged.sock"` under `[privileged]` in `/etc/crha/crha.toml`, then re-enroll it
-with a **Re-enroll** token: `crha enroll` asks the local root and trust questions and writes
+switch an enrolled `ignore` node to `forward`, re-enroll it with a **Re-enroll** token and answer
+`forward`: `crha enroll` edits `crha.toml`, asks the local root and trust questions and writes
 `privileged.toml` (it needs the node id, which only enrollment returns) and `crha-privileged.service`.
+A node whose `privileged.toml` already exists switches without re-enrolling.
 To change the trust entries later, edit the file and reload the privileged mode:
 
 ```sh
@@ -429,6 +438,7 @@ crhs applies the proxy to the HTTP clients it creates:
 |---|---|
 | pi-ai model providers, and model discovery on `GET <base>/models` | Yes; the Bedrock adapter reads the variables itself |
 | models.dev catalogue download | Yes |
+| crha release download and the Sigstore TUF repository | Yes |
 | MCP extensions (streamable HTTP and SSE) | Yes |
 | Telegram Bot API | Yes |
 | Satori API and its WebSocket | Yes |
@@ -478,5 +488,5 @@ cd client && CGO_ENABLED=0 go build -o crha ./cmd/crha
 | `npm ci` fails on `re2` | Install a C++ toolchain or set `RE2_DOWNLOAD_MIRROR`. |
 | `does not verify: no signature` from `dnf` | The rpm signing key is not imported; import it as in [deb and rpm](#deb-and-rpm). |
 | crha reports a missing `identity.key` | The node is not enrolled, or `state_dir` is wrong. |
-| `protocol_major mismatch` | crhs and crha come from incompatible versions; upgrade both. |
+| `protocol_major mismatch`, or crha logs `crhs does not serve protocol major` | crhs and crha come from incompatible versions. Upgrade crhs first; it upgrades nodes of a major it still serves. A node outside that window is upgraded by hand. |
 | PostgreSQL authentication or permission errors | The role must own the database and be allowed to create tables. |

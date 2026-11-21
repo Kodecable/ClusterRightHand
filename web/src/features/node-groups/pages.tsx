@@ -19,6 +19,7 @@ import { NodeStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { NodeAccessSection } from "@/features/nodes/access-grants";
 import { useNodeNames, useNodes } from "@/features/nodes/api";
+import { UpgradeCrhaDialog } from "@/features/nodes/upgrade-crha-dialog";
 import { useAuth } from "@/lib/session";
 import { cn, MONO_CELL } from "@/lib/utils";
 import { useDeleteNodeGroup, useNodeGroups } from "./api";
@@ -30,9 +31,20 @@ interface MemberRow {
 }
 
 /** The header actions an administrator gets for one node group; members are edited in their section. */
-function AdminActions({ onRename, onDelete }: { onRename: () => void; onDelete: () => void }) {
+function AdminActions({
+	onRename,
+	onDelete,
+	onUpgrade,
+}: {
+	onRename: () => void;
+	onDelete: () => void;
+	onUpgrade: () => void;
+}) {
 	return (
 		<>
+			<Button type="button" variant="outline" size="sm" onClick={onUpgrade} data-testid="upgrade-crha">
+				<Trans>Upgrade crha</Trans>
+			</Button>
 			<Button type="button" variant="outline" size="sm" onClick={onRename}>
 				<PencilIcon />
 				<Trans>Rename</Trans>
@@ -154,6 +166,7 @@ export function NodeGroupDetailPage() {
 	const remove = useDeleteNodeGroup();
 	const navigate = useNavigate();
 	const [renaming, setRenaming] = useState(false);
+	const [upgrading, setUpgrading] = useState(false);
 	const [deleting, setDeleting] = useState(false);
 	const [editingMembers, setEditingMembers] = useState(false);
 	const group = groups.data?.find((candidate) => candidate.id === id);
@@ -252,7 +265,13 @@ export function NodeGroupDetailPage() {
 					</span>
 				}
 				actions={
-					admin ? <AdminActions onRename={() => setRenaming(true)} onDelete={() => setDeleting(true)} /> : undefined
+					admin ? (
+						<AdminActions
+							onRename={() => setRenaming(true)}
+							onDelete={() => setDeleting(true)}
+							onUpgrade={() => setUpgrading(true)}
+						/>
+					) : undefined
 				}
 			/>
 
@@ -297,6 +316,7 @@ export function NodeGroupDetailPage() {
 			<NodeAccessSection targetType="node_group" targetId={group.id} targetName={group.name} />
 
 			{renaming && <NodeGroupNameDialog group={group} onClose={() => setRenaming(false)} />}
+			{upgrading && <UpgradeCrhaDialog targets={[group.id]} onClose={() => setUpgrading(false)} />}
 			{editingMembers && <NodeGroupMembersDialog group={group} onClose={() => setEditingMembers(false)} />}
 			<ConfirmDialog
 				open={deleting}

@@ -15,6 +15,10 @@ import {
 	encodeAuthorizationPayload,
 	encodeCosignPayload,
 	type GuardRule,
+	isKnownCapability,
+	isKnownRole,
+	type KnownCapability,
+	type KnownRole,
 	type TaskSpec,
 	type TrustEntry as TrustSummaryEntry,
 } from "@crh/protocol";
@@ -55,13 +59,14 @@ export const STEP = {
 	cosign: 8,
 } as const;
 
-export type TrustRole = "crhs" | "user" | "local";
-export type TrustKind = "execute" | "cosign" | "require-cosign";
+export type TrustRole = KnownRole;
+export type TrustKind = KnownCapability;
 
 /** One trust entry in the form the decision needs; the key itself lives with the signature verifier. */
 export interface AuthzEntry {
 	name: string;
-	role: TrustRole;
+	/** "unknown" for a role this crhs does not know: such an entry never matches a signer. */
+	role: TrustRole | "unknown";
 	kinds: readonly TrustKind[];
 	requireSpec: boolean;
 	requireTask: boolean;
@@ -73,14 +78,24 @@ export interface AuthzEntry {
 	envAllow: readonly string[];
 	/** `role = local`: the uids that may approve. */
 	uids: readonly number[];
+	/**
+	 * The role or capabilities of the reported entry this crhs does not know, empty when it knows them
+	 * all. Such an entry is not used to plan: it has no capabilities here, because an unknown capability
+	 * might restrict what the entry allows (doc/design/privilege.md "Server-side authorization").
+	 */
+	unknown: readonly string[];
 }
 
 /** A decoded TrustSummary entry in the decision's form. */
 export function authzEntryFromTrust(entry: TrustSummaryEntry): AuthzEntry {
+	const unknown = [
+		...(isKnownRole(entry.role) ? [] : [`role ${entry.role}`]),
+		...entry.kinds.filter((kind) => !isKnownCapability(kind)).map((kind) => `capability ${kind}`),
+	];
 	return {
 		name: entry.name,
-		role: entry.role,
-		kinds: entry.kinds,
+		role: isKnownRole(entry.role) ? entry.role : "unknown",
+		kinds: unknown.length === 0 ? entry.kinds.filter(isKnownCapability) : [],
 		requireSpec: entry.requireSpec,
 		requireTask: entry.requireTask,
 		requireUv: entry.requireUv,
@@ -89,6 +104,7 @@ export function authzEntryFromTrust(entry: TrustSummaryEntry): AuthzEntry {
 		deny: entry.deny,
 		envAllow: entry.envAllow,
 		uids: entry.key.kind === "local" ? entry.key.uids : [],
+		unknown,
 	};
 }
 
@@ -483,8 +499,11 @@ function commandCovers(
 	return methodCovers(command.method, method) && target.startsWith(command.target);
 }
 
-/** file.write includes file.read; the reverse never holds. */
-function methodCovers(authorized: Method, actual: Method): boolean {
+/**
+ * file.write includes file.read; the reverse never holds. A method this crhs does not know never
+ * equals a task's method, so it covers nothing.
+ */
+function methodCovers(authorized: string, actual: Method): boolean {
 	return authorized === actual || (authorized === "file.write" && actual === "file.read");
 }
 

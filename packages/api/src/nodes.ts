@@ -26,6 +26,8 @@ import type {
 	NodeGroupRefSchema,
 	NodeGroupSchema,
 	NodeListResponseSchema,
+	NodeUpgradeResponseSchema,
+	NodeUpgradeSkipReasonSchema,
 	PublicNodeSchema,
 	SshCredentialSchema,
 	SshHopInputSchema,
@@ -43,6 +45,10 @@ export type NodeAccess = "admin" | "granted";
 export type GranteeType = "user" | "user_group";
 /** What an access grant points at (doc/design/access-control.md "Ownership, access grants and sharing"). */
 export type AccessTargetType = "node" | "node_group";
+
+/** `POST /api/nodes/upgrade`: the plan, and the task groups started (doc/design/distribution.md "crha self-upgrade"). */
+export type NodeUpgradeResponse = z.infer<typeof NodeUpgradeResponseSchema>;
+export type NodeUpgradeSkipReason = z.infer<typeof NodeUpgradeSkipReasonSchema>;
 
 /** A node group as a node response names it. */
 export type NodeGroupRef = z.infer<typeof NodeGroupRefSchema>;

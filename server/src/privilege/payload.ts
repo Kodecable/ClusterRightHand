@@ -24,6 +24,8 @@ export function authorizedSpec(spec: TaskSpec): TaskSpec {
 			return { ...spec, endpoint: { ...spec.endpoint, transferId: "" } };
 		case "file.pull":
 			return { ...spec, endpoint: { ...spec.endpoint, transferId: "" } };
+		case "node.upgrade":
+			return { ...spec, endpoint: { ...spec.endpoint, transferId: "" } };
 		default:
 			return spec;
 	}

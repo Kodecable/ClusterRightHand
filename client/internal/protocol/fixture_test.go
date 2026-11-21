@@ -315,6 +315,7 @@ var fixtureExpectedIDs = []string{
 	"request.task.start.file.edit",
 	"request.task.start.file.stat",
 	"request.task.start.file.list",
+	"request.task.start.node.upgrade",
 	"response.task.start",
 	"response.task.start.error",
 	"request.task.input",
@@ -337,6 +338,7 @@ var fixtureExpectedIDs = []string{
 	"event.task.exit.result.file.edit",
 	"event.facts",
 	"event.facts.unknown_key",
+	"event.facts.self_upgrade",
 	"event.facts.minimal",
 	"event.facts.shells_unknown_key",
 	"event.facts.shells_without_bash",
@@ -346,6 +348,7 @@ var fixtureExpectedIDs = []string{
 	"event.task.output.ack",
 	"event.task.exit.ack",
 	"event.trust.summary",
+	"event.trust.summary.future_values",
 }
 
 func expectedFixtureValue(id string) (any, bool) {
@@ -532,6 +535,50 @@ func expectedFixtureValue(id string) (any, bool) {
 				Output:         OutputMode{Kind: OutputStatus},
 			},
 		}, true
+	case "request.task.start.node.upgrade":
+		var sum Hash
+		for i := range sum {
+			sum[i] = 0x5a
+		}
+		return fixtureFrame{
+			Kind: FrameRequest, ID: 13, Name: CmdTaskStart,
+			Body: TaskStart{
+				TaskID:  "t-upgrade",
+				Attempt: 1,
+				Spec: TaskSpec{Kind: TaskSpecNodeUpgrade, NodeUpgrade: &NodeUpgradeSpec{
+					Version:  "1.3.0",
+					Arch:     "amd64",
+					Size:     12582912,
+					SHA256:   sum,
+					Endpoint: TransferEndpoint{Kind: TransferEndpointCRHS, TransferID: "x-upgrade"},
+				}},
+				Privileged:     true,
+				Authorizations: [][]byte{},
+				Output:         OutputMode{Kind: OutputStatus},
+			},
+		}, true
+	case "event.facts.self_upgrade":
+		facts := fixtureFacts()
+		facts.SelfUpgrade = &SelfUpgrade{Available: false, Reasons: []string{"unmanaged_unit", "some-future-reason"}, Arch: "arm64"}
+		facts.UpgradeLogPath = ptr("/var/lib/crha-upgrade/upgrade.jsonl")
+		return fixtureFrame{Kind: FrameEvent, Name: EventFacts, Body: facts}, true
+	case "event.trust.summary.future_values":
+		base, _ := expectedFixtureValue("event.trust.summary")
+		frame := base.(fixtureFrame)
+		report := frame.Body.(TrustReport)
+		summary := *report.Summary
+		entry := summary.Trust[0]
+		entry.Name = "bundle-key"
+		entry.Role = TrustRole("bundle")
+		entry.Kinds = []TrustKind{TrustKindExecute, TrustKind("attest")}
+		entry.Allow = []GuardRule{{Method: Method("file.chown"), Match: GuardMatch("glob"), Pattern: "/srv/*"}}
+		if entry.Role.Known() || entry.Kinds[1].Known() || entry.Allow[0].Method.Known() || entry.Allow[0].Match.Known() {
+			panic("fixture values must be unknown to this version")
+		}
+		summary.Trust = []TrustEntry{entry}
+		report.Summary = &summary
+		frame.Body = report
+		return frame, true
 	case "response.task.start":
 		return fixtureFrame{
 			Kind: FrameResponse, ID: 3, Name: CmdTaskStart, OK: true,

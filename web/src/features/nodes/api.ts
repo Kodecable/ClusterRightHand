@@ -5,6 +5,7 @@ import type {
 	NodeFilesResponse,
 	NodeGroupRef,
 	NodeTrust,
+	NodeUpgradeResponse,
 	PublicNode,
 	SshNodeDetails,
 	SshTargetInput,
@@ -262,4 +263,21 @@ export function useNodeFileSource(nodeId: string): FileSource {
 			},
 		};
 	}, [nodeId]);
+}
+
+/**
+ * Plans or starts a crha upgrade of nodes or node groups to crhs's version (doc/design/distribution.md
+ * "crha self-upgrade"). A dry run fetches nothing; the real request starts one privileged task group per
+ * architecture.
+ */
+export function useUpgradeNodes() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: (body: { targets: string[]; dryRun: boolean }) =>
+			http.post<NodeUpgradeResponse>("/nodes/upgrade", body),
+		onSuccess: (_data, body) => {
+			if (!body.dryRun) void queryClient.invalidateQueries({ queryKey: nodeKeys.all });
+		},
+		meta: { toast: false },
+	});
 }

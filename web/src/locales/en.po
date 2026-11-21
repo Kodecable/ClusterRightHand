@@ -122,6 +122,14 @@ msgstr "{0} prefix {1}"
 msgid "{0} tok/s"
 msgstr "{0} tok/s"
 
+#. placeholder {0}: upgrade.name
+#. placeholder {1}: upgrade.version
+#. placeholder {2}: planned.version
+#. placeholder {3}: upgrade.arch
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "{0}: {1} → {2} ({3})"
+msgstr "{0}: {1} → {2} ({3})"
+
 #: src/features/sessions/children-bar.tsx
 msgid "{awaiting} awaiting"
 msgstr "{awaiting} awaiting"
@@ -178,6 +186,10 @@ msgstr "{list} and {more} more"
 #: src/features/sessions/session-banner.tsx
 msgid "{queued, plural, one {# message queued} other {# messages queued}}"
 msgstr "{queued, plural, one {# message queued} other {# messages queued}}"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "{running, plural, one {Restarting crha ends # running task; it will end as unknown.} other {Restarting crha ends # running tasks; they will end as unknown.}}"
+msgstr "{running, plural, one {Restarting crha ends # running task; it will end as unknown.} other {Restarting crha ends # running tasks; they will end as unknown.}}"
 
 #: src/features/sessions/children-bar.tsx
 msgid "{running} running"
@@ -591,6 +603,10 @@ msgstr "Allowed origins"
 msgid "Allows"
 msgstr "Allows"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "already at this version"
+msgstr "already at this version"
+
 #: src/features/approvals/pages.tsx
 msgid "Already settled"
 msgstr "Already settled"
@@ -878,6 +894,15 @@ msgstr "Auto Review is reviewing…"
 msgid "Availability"
 msgstr "Availability"
 
+#: src/features/nodes/pages.tsx
+msgid "available"
+msgstr "available"
+
+#. placeholder {0}: selfUpgrade.arch
+#: src/features/nodes/pages.tsx
+msgid "available ({0})"
+msgstr "available ({0})"
+
 #. placeholder {0}: formatLatency(averageTtft, locale)
 #: src/features/sessions/composer-meta.tsx
 msgid "Average time to first token: {0}"
@@ -934,6 +959,11 @@ msgstr "Bot id"
 msgid "Bot token"
 msgstr "Bot token"
 
+#. placeholder {0}: planned.version
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Bring crha to crhs's version {0}. crhs verifies the release first. The upgrade is a privileged task group: nodes that trust only users wait for a signature on its page."
+msgstr "Bring crha to crhs's version {0}. crhs verifies the release first. The upgrade is a privileged task group: nodes that trust only users wait for a signature on its page."
+
 #: src/features/settings/extensions.tsx
 msgid "Built-in"
 msgstr "Built-in"
@@ -955,6 +985,7 @@ msgstr "Cache size on disk"
 #: src/features/nodes/edit-ssh-route-dialog.tsx
 #: src/features/nodes/reenroll-node-dialog.tsx
 #: src/features/nodes/ssh-wizard.tsx
+#: src/features/nodes/upgrade-crha-dialog.tsx
 #: src/features/schedules/create-schedule-dialog.tsx
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/model-discovery-dialog.tsx
@@ -978,6 +1009,10 @@ msgstr "Cancellation requested."
 #: src/components/task-outcome.tsx
 msgid "Cancelled"
 msgstr "Cancelled"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "cannot be upgraded from crhs"
+msgstr "cannot be upgraded from crhs"
 
 #: src/features/system-settings/sign-in-section.tsx
 msgid "Cap proof of work"
@@ -1063,6 +1098,10 @@ msgstr "Check the highlighted fields."
 #: src/features/sessions/attachment-chip.tsx
 msgid "Checking the file…"
 msgstr "Checking the file…"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Checking which nodes can be upgraded…"
+msgstr "Checking which nodes can be upgraded…"
 
 #: src/components/file-manager/file-picker-dialog.tsx
 msgid "Choose a file"
@@ -2471,6 +2510,10 @@ msgstr "Include file browsing"
 msgid "Inherit"
 msgstr "Inherit"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "installed by the package manager (upgrade it with apt or dnf)"
+msgstr "installed by the package manager (upgrade it with apt or dnf)"
+
 #: src/components/status-badge.tsx
 #: src/lib/task-output.ts
 msgid "Interrupted"
@@ -2505,6 +2548,10 @@ msgstr "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on 
 msgid "Its audit trail stays; the token itself is removed."
 msgstr "Its audit trail stays; the token itself is removed."
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "its crha is too old to report its architecture"
+msgstr "its crha is too old to report its architecture"
+
 #: src/features/channels/channels-page.tsx
 msgid "Its linked accounts and threads are removed, so people stop reaching crhs from that bot. Its stored token is deleted."
 msgstr "Its linked accounts and threads are removed, so people stop reaching crhs from that bot. Its stored token is deleted."
@@ -2517,9 +2564,17 @@ msgstr "Its members lose this node group. Rules and task groups that reference i
 msgid "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 msgstr "Its models disappear from the model lists, and its stored key is deleted. Existing sessions that use them stop working until you change their model."
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "its systemd units were not written by crha enroll"
+msgstr "its systemd units were not written by crha enroll"
+
 #: src/features/settings/extensions.tsx
 msgid "Its tools disappear from sessions and its stored headers are deleted. Waiting calls of this extension are not retried."
 msgstr "Its tools disappear from sessions and its stored headers are deleted. Waiting calls of this extension are not retried."
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "its units do not start the running binary"
+msgstr "its units do not start the running binary"
 
 #. placeholder {0}: row.index + 1
 #: src/features/nodes/ssh-node-section.tsx
@@ -3076,6 +3131,10 @@ msgstr "New user group libraries"
 msgid "New user libraries"
 msgstr "New user libraries"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "newer than crhs; there is no downgrade"
+msgstr "newer than crhs; there is no downgrade"
+
 #: src/features/system-settings/signing-keys-section.tsx
 msgid "Newest"
 msgstr "Newest"
@@ -3376,6 +3435,10 @@ msgstr "Nodes or node groups"
 msgid "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 msgstr "Nodes that trust it stop accepting its signatures. Authorizations it already signed stay valid until their deadline."
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Nodes to upgrade"
+msgstr "Nodes to upgrade"
+
 #: src/components/decision/content.tsx
 msgid "Nodes: {list}"
 msgstr "Nodes: {list}"
@@ -3396,6 +3459,14 @@ msgstr "None"
 msgid "None (WebUI only)"
 msgstr "None (WebUI only)"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "None of these nodes can be upgraded now."
+msgstr "None of these nodes can be upgraded now."
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "not a crha node"
+msgstr "not a crha node"
+
 #: src/components/decision/approval-panel.tsx
 msgid "Not a valid rule: {error}"
 msgstr "Not a valid rule: {error}"
@@ -3408,6 +3479,10 @@ msgstr "Not applicable"
 msgid "Not confirmed"
 msgstr "Not confirmed"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "not connected"
+msgstr "not connected"
+
 #: src/features/settings/extensions.tsx
 msgid "Not listed yet"
 msgstr "Not listed yet"
@@ -3416,6 +3491,10 @@ msgstr "Not listed yet"
 msgid "not reported"
 msgstr "not reported"
 
+#: src/features/nodes/pages.tsx
+msgid "not reported (crha predates self-upgrade)"
+msgstr "not reported (crha predates self-upgrade)"
+
 #: src/features/settings/pages.tsx
 msgid "Not set"
 msgstr "Not set"
@@ -3423,6 +3502,10 @@ msgstr "Not set"
 #: src/features/sessions/share-dialog.tsx
 msgid "Not shared."
 msgstr "Not shared."
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "not started by systemd"
+msgstr "not started by systemd"
 
 #. placeholder {0}: failure instanceof Error ? failure.message : String(failure)
 #: src/features/tokens/rules-dialog.tsx
@@ -3453,6 +3536,10 @@ msgstr "Nothing is waiting for you"
 #: src/features/audit/pages.tsx
 msgid "Nothing matches these filters."
 msgstr "Nothing matches these filters."
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "nothing on the node can replace the binary as root"
+msgstr "nothing on the node can replace the binary as root"
 
 #: src/features/sessions/composer.tsx
 msgid "Nothing to compact yet: the most recent ~20k tokens of the conversation are always kept as they are."
@@ -4419,6 +4506,10 @@ msgstr "Running"
 msgid "Running a security check…"
 msgstr "Running a security check…"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "runs a build that is not a release"
+msgstr "runs a build that is not a release"
+
 #: src/features/system-settings/pages.tsx
 msgid "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
 msgstr "Runtime settings for this crhs. A save applies without a restart and is recorded in the audit log."
@@ -4588,6 +4679,10 @@ msgstr "Select {0}"
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "Select all visible"
 msgstr "Select all visible"
+
+#: src/features/nodes/pages.tsx
+msgid "Self-upgrade"
+msgstr "Self-upgrade"
 
 #: src/features/sessions/composer-footer.tsx
 msgid "Send"
@@ -4815,6 +4910,14 @@ msgstr "Signing credentials"
 #: src/components/task-result.tsx
 msgid "Size"
 msgstr "Size"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Skipped"
+msgstr "Skipped"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Skipped nodes"
+msgstr "Skipped nodes"
 
 #: src/features/tasks/task-group-result.tsx
 msgid "Skipped: {skipped}"
@@ -5266,9 +5369,17 @@ msgstr "The platform is required."
 msgid "The platform the bot runs on at the gateway."
 msgstr "The platform the bot runs on at the gateway."
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "the privileged mode does not run as root"
+msgstr "the privileged mode does not run as root"
+
 #: src/features/nodes/node-trust.tsx
 msgid "The privileged mode is not forward, so this node uses no trust configuration"
 msgstr "The privileged mode is not forward, so this node uses no trust configuration"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "the privileged mode is not reachable"
+msgstr "the privileged mode is not reachable"
 
 #: src/features/nodes/node-trust.tsx
 msgid "The privileged mode is unreachable, so the trust configuration is unknown"
@@ -5481,6 +5592,10 @@ msgstr "This target is already granted to this user or user group."
 msgid "This tool only"
 msgstr "This tool only"
 
+#: src/features/nodes/trust-warnings.tsx
+msgid "This trust entry uses a role, capability, method or match type from a newer version. crhs plans around it conservatively and the node decides; upgrade crhs to use it: {value}"
+msgstr "This trust entry uses a role, capability, method or match type from a newer version. crhs plans around it conservatively and the node decides; upgrade crhs to use it: {value}"
+
 #: src/features/users/pages.tsx
 msgid "This user doesn't exist or you don't have access."
 msgstr "This user doesn't exist or you don't have access."
@@ -5680,6 +5795,30 @@ msgstr "Unread"
 #: src/features/users/pages.tsx
 msgid "Updated"
 msgstr "Updated"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Upgrade"
+msgstr "Upgrade"
+
+#: src/features/node-groups/pages.tsx
+#: src/features/nodes/pages.tsx
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Upgrade crha"
+msgstr "Upgrade crha"
+
+#. placeholder {0}: action.version
+#. placeholder {1}: action.arch
+#: src/lib/action-text.ts
+msgid "Upgrade crha to {0} ({1})"
+msgstr "Upgrade crha to {0} ({1})"
+
+#: src/features/nodes/pages.tsx
+msgid "Upgrade log"
+msgstr "Upgrade log"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Upgraded"
+msgstr "Upgraded"
 
 #: src/components/file-manager/file-manager.tsx
 msgid "Upload"

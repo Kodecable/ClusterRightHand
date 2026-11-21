@@ -45,6 +45,8 @@ export function taskActionOfSpec(spec: TaskSpec): TaskAction {
 			return { type: "file", operation: "stat", path: spec.path };
 		case "file.list":
 			return { type: "file", operation: "list", path: spec.path };
+		case "node.upgrade":
+			return { type: "upgrade", version: spec.version, arch: spec.arch };
 	}
 }
 
@@ -151,6 +153,12 @@ export function summarizeAction(action: TaskAction, spec?: TaskSpec): string {
 			}
 			return action.path;
 		}
+		case "upgrade":
+			// The approver binds the binary by its hash, the same one the release's SHA256SUMS lists.
+			if (spec?.kind === "node.upgrade") {
+				return `upgrade crha to ${action.version} (${action.arch}, ${spec.size} bytes, sha256 ${Buffer.from(spec.sha256).toString("hex")})`;
+			}
+			return `upgrade crha to ${action.version} (${action.arch})`;
 		case "api_request":
 			return `${action.method} ${action.path}`;
 		case "extension_tool":

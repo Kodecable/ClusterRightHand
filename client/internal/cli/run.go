@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/helper"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
+	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 	"github.com/spf13/cobra"
 )
@@ -100,14 +102,18 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 		DataDial: func(ctx context.Context, taskID, transferID string) (agent.DataConn, error) {
 			return transport.DialData(ctx, dataDialOptions(cfg.Load(), key, serverKey, taskID, transferID))
 		},
-		Facts:            func() protocol.Facts { return nodeFacts(cfg.Load(), env) },
-		OutputDir:        first.Output.Dir,
-		PrivilegedMode:   first.Privilege.Mode,
-		PrivilegedSocket: first.Privilege.Socket,
-		NativePrefix:     nativeEscalation(first.Privilege.Native),
-		ClockWarn:        first.ClockWarn,
-		Env:              env,
-		Logger:           log,
+		Facts: func() protocol.Facts { return nodeFacts(cfg.Load(), env) },
+		// How crha is installed and started does not change while it runs (doc/design/distribution.md
+		// "Who can self-upgrade"); the privileged mode is a restart-only setting.
+		SelfUpgradeStatic: upgrade.StaticReasons(upgrade.ProductionHost(), first.Privilege.Mode, version.PackageManaged),
+		Arch:              runtime.GOARCH,
+		OutputDir:         first.Output.Dir,
+		PrivilegedMode:    first.Privilege.Mode,
+		PrivilegedSocket:  first.Privilege.Socket,
+		NativePrefix:      nativeEscalation(first.Privilege.Native),
+		ClockWarn:         first.ClockWarn,
+		Env:               env,
+		Logger:            log,
 	})
 	outputDir, err := filepath.Abs(first.Output.Dir)
 	if err != nil {

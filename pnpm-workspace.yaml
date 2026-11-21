@@ -13,3 +13,14 @@ allowBuilds:
   protobufjs: false
   ssh2: false
 verifyDepsBeforeRun: false
+overrides:
+  # crhs verifies crha releases with Sigstore (doc/design/distribution.md "Fetching the release"), so it
+  # depends on tuf-js, pinned to 6.0.2 in server/package.json. tuf-js 6.0.2 pulls minimatch 10.x through
+  # @tufjs/models, which GHSA-g3hv-75wg-m249 (a DoS through glob patterns) affects; minimatch 11.0.1 is
+  # the fix. tuf-js 6.0.3 already depends on a fixed minimatch, but it was published on 2026-11-19, less
+  # than two weeks before it would have been adopted, so this keeps 6.0.2 and overrides only this one edge.
+  # It crosses a minimatch major (10 -> 11): the Sigstore verification tests passed with it, including
+  # the live one (CRH_TEST_NETWORK=1). The patterns minimatch sees come from Sigstore-signed TUF metadata,
+  # so the DoS was hard to reach anyway. Drop this override, and move tuf-js to the newer release, once a
+  # tuf-js release older than two weeks depends on a fixed minimatch.
+  "@tufjs/models>minimatch": 11.0.1

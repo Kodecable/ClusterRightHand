@@ -22,6 +22,12 @@ a valid signature fail on the other side.
 - A structure is a fixed-length array in the declared order, and the decoder requires the exact
   length. A tuple has no optional field, only nullable ones (`null`). A union is `[tag, body]`; an
   enum is text, and an unknown tag or value is a decode error.
+- An open name is text whose set of values grows within a major: lowercase ASCII letters, digits,
+  `.`, `_` and `-`, starting with a letter, at most 64 bytes. Any well-formed value decodes and
+  re-encodes unchanged, so a peer that predates a value can still carry, hash and verify it; the
+  receiver decides what an unknown value means. A value outside the form is a decode error. The
+  methods, guard rule match types, trust roles and capabilities of the
+  [privilege messages](#privilege-messages), and the `self_upgrade` reasons, are open names.
 - Text is valid UTF-8 and is not normalized, because a Linux path is bytes and signatures cover
   bytes. Data that must survive byte for byte uses `bytes`. A sender cleans text from outside the
   protocol and refuses invalid UTF-8.
@@ -65,18 +71,28 @@ the transfer itself uses `too_large` and `input_mismatch` (a size or SHA-256 mis
 
 ## Version negotiation
 
-The version is major 2, minor 0. The Noise prologue is `"crh/2"` followed by the server's challenge,
+The version is major 3, minor 0. The Noise prologue is `"crh/3"` followed by the server's challenge,
 so peers of different majors fail the Noise handshake before a payload is read; the payload's major is
 checked too. Major 1 removed the per-task local approval commands (`local.request`, `local.withdraw`
 and `local.decision`) and added the local approval window to `TrustSummary`. Major 2 moved crhs's
 cosignature out of the authorization into a [cosign ticket](#cosign-ticket) that `task.start` carries.
-Both are incompatible changes, so crhs and crha are upgraded together.
+Major 3 added the `node.upgrade` task kind and the `upgrade` method, named the major in the clear, and
+made methods and trust values open names, so that what major 3 needed a major for fits in a minor from
+now on. Each is an incompatible change, so crhs and crha were upgraded together.
 
-- An incompatible change bumps the major and the prologue. There is no compatibility layer across
-  majors: crhs, crha and its privileged mode are upgraded together.
+- An incompatible change bumps the major and the prologue. crha and its privileged mode are always
+  upgraded together, and crhs is upgraded before its nodes. Across majors crhs keeps only the upgrade
+  path ([Compatibility across majors](#compatibility-across-majors)); there is no other compatibility
+  layer.
 - Within a major only new names are added. A structure is never changed in place; a replacement gets
   a new name such as `task.start.v2`.
-- The minor is additive: a future minor may add names that are negotiated by intersection.
+- The minor is additive. It may add commands and events, negotiated by intersection; task kinds,
+  negotiated through `hello`; and methods, guard match types, trust roles and capabilities, which are
+  open names. Nothing else changes within a major.
+- The task kinds of the major's base set (`exec`, `file.read`, `file.write`, `file.push`, `file.pull`,
+  `file.edit`, `file.stat`, `file.list`) run on every node of the major. Any other kind is sent only to a
+  node whose `hello.taskKinds` lists it; otherwise crhs ends the task `unsupported_kind` without
+  sending it, since an older node could not even decode its spec.
 - The names in the command and event sets are all required, and a missing one refuses the handshake
   with its name.
 - A sender uses a name only when both sides advertised it; otherwise it falls back to an older name
@@ -84,6 +100,41 @@ Both are incompatible changes, so crhs and crha are upgraded together.
 
 `crh-priv` has its own major and minor. Its major must match, and `forward` and `native` also require
 an equal `crha_version`, because crha and its privileged mode always upgrade together.
+
+### The major in the clear
+
+crha names its major in the WebSocket request of the control and data connections, as the subprotocol
+`crh.<major>` (`Sec-WebSocket-Protocol: crh.3`), and crhs echoes it when it accepts. crhs uses it to
+pick the prologue and the codec before the Noise handshake, and refuses a major it does not serve with
+HTTP 426, a `CRH-Served-Majors` header and a body naming the majors it serves, so the node logs a clear
+reason and crhs logs the attempt (its address and major) although it cannot tell which node it was: the
+node's key is encrypted in the handshake. A request without the subprotocol is major 2, the last major
+that lacked it. The header reveals the major to whoever terminates TLS, which costs nothing worth
+hiding.
+
+### Compatibility across majors
+
+Before the first stable release there is no obligation: every major replaces the last. From the first
+stable release on, crhs keeps an upgrade path to the nodes of older majors, and each release's
+documentation states which majors it serves; crhs reports the same list in `crhs version` and the WebUI.
+A node of a major outside the window must be upgraded by hand, or through an intermediate release the
+documentation names.
+
+The obligation covers the upgrade path only, frozen for each major as it was released:
+
+- the handshake, with that major's prologue and payloads;
+- `hello`/`welcome`, `ping`, `facts` (with `self_upgrade` and `upgrade_log_path`) and `node.status`;
+- `task.start`, `task.cancel` and the task events for the kind `node.upgrade`, with its data connection,
+  and for a `file.read` of the upgrade log, so that a node that rolled back can still say why;
+- the hand-over line crha logs when crhs acknowledges a `node.upgrade` result, which the next version's
+  installer waits for ([On the node](distribution.md#on-the-node)), and `hello.taskKinds` listing
+  `node.upgrade`;
+- that major's privilege messages: the [trust summary](#trust-summary), the
+  [authorization object](#authorization-object) and the [cosign ticket](#cosign-ticket), which crhs
+  plans, signs and verifies, and which the WebUI and `crhu` present to a signer, in that major's format.
+
+A node that predates `node.upgrade` has no upgrade path. crhs keeps one codec per served major, and the
+interop fixtures and an end-to-end test against a released crha binary of each served major prove it.
 
 ## Commands
 
@@ -313,10 +364,20 @@ registration state: crhs pushes every change.
 - **Rejection.** crhs deletes the public key, pushes `node.status{rejected}` and closes. crha stops
   reconnecting, and `crha run` exits non-zero with the reason.
 
+## Upgrade-only connections
+
+An active node of an older major in crhs's window gets an upgrade-only connection: the
+[upgrade path](#compatibility-across-majors) in that major's codec, and nothing else. crhs creates no
+other task for it (a `file.read` only of the upgrade log) and answers every other API request about it
+with `upgrade_required`; the WebUI shows the node as needing an upgrade. A pending node of an older
+major stays pending until it is upgraded by hand. When the upgraded node reconnects with the current
+major, it gets a normal connection.
+
 ## Data connections
 
 A data connection carries the bytes of one `file.push` or `file.pull` transfer
-([File plane](library.md#file-plane)). It is a separate WebSocket to its own path on the same listener,
+([File plane](library.md#file-plane)), or the binary of a `node.upgrade`
+([crha self-upgrade](distribution.md#crha-self-upgrade)). It is a separate WebSocket to its own path on the same listener,
 so a large transfer never delays the control connection. The path is the control path plus `/data`
 (`/agent/data`), and the `crh-data/1` prologue keeps the two handshakes apart.
 

@@ -17,6 +17,11 @@ export const TaskActionSchema = z
 			path: z.string(),
 			lines: z.object({ start: z.number(), end: z.number() }).optional(),
 		}),
+		z.object({
+			type: z.literal("upgrade"),
+			version: z.string().describe("The crha version the node is upgraded to."),
+			arch: z.string(),
+		}),
 		z.object({ type: z.literal("api_request"), method: z.string(), path: z.string() }),
 		z.object({ type: z.literal("extension_tool"), extension: z.string(), tool: z.string() }),
 	])

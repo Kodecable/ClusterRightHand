@@ -20,7 +20,7 @@ const (
 	// version the crh-priv protocol itself, not the crhs <-> crha protocol. A peer with a different
 	// major is refused, because crha and its privileged mode always upgrade together
 	// (doc/design/protocol.md "crh-priv"). The minor stays additive and never refuses a handshake.
-	PrivMajor = 1
+	PrivMajor = 2
 	PrivMinor = 0
 	// MaxFrameBytes bounds one frame. Length 0 and lengths above it are protocol errors.
 	MaxFrameBytes = protocol.MaxFrameBytes

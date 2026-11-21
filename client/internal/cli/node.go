@@ -18,7 +18,6 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/setup"
 	"github.com/Kodecable/ClusterRightHand/client/internal/term"
-	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
 func newEnrollCmd() *cobra.Command {
@@ -145,26 +144,5 @@ func newStatusCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&configPath, "config", "", "path to the config file (required)")
 	_ = cmd.MarkFlagRequired("config")
-	return cmd
-}
-
-// errPackageManaged refuses a self-upgrade when the system package manager owns the binary.
-var errPackageManaged = errors.New("crha is managed by the system package manager; upgrade it with apt or dnf")
-
-func newUpgradeCmd() *cobra.Command {
-	var apply string
-	cmd := &cobra.Command{
-		Use:   "upgrade",
-		Short: "Apply a crha binary upgrade",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			if version.PackageManaged {
-				return errPackageManaged
-			}
-			return notImplemented(cmd, nil)
-		},
-	}
-	cmd.Flags().StringVar(&apply, "apply", "", "path to the new crha binary")
-	_ = cmd.MarkFlagRequired("apply")
 	return cmd
 }

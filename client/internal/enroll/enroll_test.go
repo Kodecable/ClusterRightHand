@@ -49,7 +49,7 @@ func TestBackupEnrollmentKeys(t *testing.T) {
 		}
 	}
 
-	restore, err := backupEnrollmentKeys(identityPath, serverPath, true)
+	restore, err := backupEnrollmentKeys([]string{identityPath, serverPath}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestBackupEnrollmentKeys(t *testing.T) {
 		}
 	}
 	// Without --replace the helper is a no-op.
-	noop, err := backupEnrollmentKeys(identityPath, serverPath, false)
+	noop, err := backupEnrollmentKeys([]string{identityPath, serverPath}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +109,9 @@ func TestRunRestoresKeysOnFailure(t *testing.T) {
 	if err := os.WriteFile(identityPath, []byte("old identity\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(cfg.NodeIDPath(), []byte("old-node\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	_, err = Run(context.Background(), cfg, "crh1.abc.secret", Options{
 		Replace: true,
 		Env:     &execenv.Environment{Shell: "/bin/sh", Path: "/usr/bin"},
@@ -119,6 +122,9 @@ func TestRunRestoresKeysOnFailure(t *testing.T) {
 	data, readErr := os.ReadFile(identityPath)
 	if readErr != nil || string(data) != "old identity\n" {
 		t.Fatalf("identity = %q, %v; want it restored", data, readErr)
+	}
+	if data, err := os.ReadFile(cfg.NodeIDPath()); err != nil || string(data) != "old-node\n" {
+		t.Fatalf("node_id = %q, %v; want it restored", data, err)
 	}
 }
 

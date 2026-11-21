@@ -10,6 +10,7 @@ import { ModelCatalogue, type ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
 import type { ChannelManager } from "../channels/manager.ts";
+import type { CrhaReleases } from "../cluster/crha-release.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
 import { configureBuiltinExtensions } from "../extensions/builtin.ts";
@@ -128,6 +129,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	agent?: { runtime: AgentRuntime; models: ModelConfig };
 	/** The models.dev catalogue cache behind custom-provider discovery; without one an offline-only catalogue is used. */
 	modelCatalogue?: ModelCatalogue;
+	/** The crha release cache behind node upgrades (doc/design/distribution.md); without it upgrades answer 503. */
+	crhaReleases?: CrhaReleases;
 	/** The scheduler that fires and submits scheduled runs (doc/design/scheduling.md); with it come the schedule routes. */
 	scheduler?: Scheduler;
 	/** Request tracking for shutdown; `main.ts` begins it when a signal arrives (a private one is made when omitted). */
@@ -217,7 +220,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 	app.route("/api", userSettingsRoutes(db, options.agent ? { models: options.agent.models } : {}));
 	app.route("/api", settingsRoutes(db, options.settings ? { settings: options.settings } : {}));
 	app.route("/api", libraryRoutes(db, options.libraryBackend ? { backend: options.libraryBackend } : {}));
-	app.route("/api", nodeRoutes(db, { ...options, signingKeys }));
+	app.route("/api", nodeRoutes(db, { ...options, signingKeys, ...(taskGroups ? { taskGroups } : {}) }));
 	app.route("/api", nodeGroupRoutes(db));
 	app.route("/api", nodeAccessRoutes(db));
 	app.route("/api", privilegeRoutes({ db, ...(signingKeys ? { signingKeys } : {}) }));

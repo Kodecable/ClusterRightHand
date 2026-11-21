@@ -6,6 +6,7 @@
 package authz
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -83,9 +84,21 @@ func Target(spec *protocol.TaskSpec) (method, target string, err error) {
 			return "", "", errors.New("authz: file.edit task spec has no body")
 		}
 		return string(protocol.MethodFileWrite), spec.FileEdit.Path, nil
+	case protocol.TaskSpecNodeUpgrade:
+		// Replacing crha's binary is root on the node, so an upgrade has a method of its own; its
+		// target names the version and the binary's hash (doc/design/privilege.md "Methods and targets").
+		if spec.NodeUpgrade == nil {
+			return "", "", errors.New("authz: node.upgrade task spec has no body")
+		}
+		return string(protocol.MethodUpgrade), UpgradeTarget(spec.NodeUpgrade.Version, spec.NodeUpgrade.SHA256), nil
 	default:
 		return "", "", fmt.Errorf("authz: unknown task spec kind %q", string(spec.Kind))
 	}
+}
+
+// UpgradeTarget renders the target of an upgrade: `<version> sha256:<hex>`.
+func UpgradeTarget(version string, sum protocol.Hash) string {
+	return version + " sha256:" + hex.EncodeToString(sum[:])
 }
 
 // quoteArg POSIX single-quotes one argv element. Characters in [A-Za-z0-9_@%+=:,./-] are

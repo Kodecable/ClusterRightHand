@@ -5,6 +5,7 @@
  */
 import {
 	ConnectionError,
+	nodeRunsKind,
 	ProtocolError,
 	RemoteError,
 	RequestTimeoutError,
@@ -108,7 +109,7 @@ const TRANSFER_BUSY_RETRY_MS = 250;
 const TRANSFER_BUSY_RETRIES = 20;
 
 function isTransferStart(start: TaskStart): boolean {
-	return start.spec.kind === "file.push" || start.spec.kind === "file.pull";
+	return start.spec.kind === "file.push" || start.spec.kind === "file.pull" || start.spec.kind === "node.upgrade";
 }
 
 /**
@@ -118,7 +119,7 @@ function isTransferStart(start: TaskStart): boolean {
  */
 export async function sendTaskStart(
 	core: ClusterCore,
-	link: { conn: NodeConnection },
+	link: { conn: NodeConnection; taskKinds?: ReadonlySet<string> },
 	nodeId: string,
 	start: TaskStart,
 	inputBytes: Uint8Array,
@@ -131,6 +132,18 @@ export async function sendTaskStart(
 	if (row?.state !== "dispatched") return;
 	// task.start waits for the node's answer: it must not be sent from a task queue turn.
 	core.assertOutsideTaskTurn("task.start");
+	// A kind beyond the base set goes only to a node that listed it in its hello; an older node could
+	// not even decode it (doc/design/protocol.md "Version negotiation").
+	if (!nodeRunsKind(start.spec.kind, link.taskKinds ?? new Set())) {
+		await followUp.settle(() =>
+			finish(core, nodeId, id, {
+				state: "errored",
+				error_code: "unsupported_kind",
+				error_message: `the node does not run ${start.spec.kind} tasks; upgrade crha`,
+			}),
+		);
+		return;
+	}
 	try {
 		for (let attempt = 0; ; attempt++) {
 			try {

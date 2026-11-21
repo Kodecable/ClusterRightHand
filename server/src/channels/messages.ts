@@ -139,6 +139,7 @@ interface CardText extends CardLabels {
 	};
 	actions: {
 		file: (operation: ApprovalFileOperation, path: string, lines: { start: number; end: number } | undefined) => string;
+		upgrade: (version: string, arch: string) => string;
 	};
 	/** `moreNodes` is the number the server left out; every name is raw and escaped by the renderer. */
 	nodes: (names: readonly string[], moreNodes: number | undefined) => string;
@@ -180,6 +181,7 @@ const EN_CARD: CardText = {
 	actions: {
 		file: (operation, path, lines) =>
 			`${{ read: "Read file", write: "Write file", push: "Push file", pull: "Pull file", edit: "Edit file", stat: "Stat file", list: "List directory" }[operation]} ${path}${lines ? ` (lines ${lines.start}-${lines.end})` : ""}`,
+		upgrade: (version, arch) => `Upgrade crha to ${version} (${arch})`,
 	},
 	nodes: (names, moreNodes) => {
 		const list = formatList("en", names);
@@ -220,6 +222,7 @@ const ZH_CARD: CardText = {
 	actions: {
 		file: (operation, path, lines) =>
 			`${{ read: "读取文件", write: "写入文件", push: "推送文件", pull: "拉取文件", edit: "编辑文件", stat: "查看文件", list: "列出目录" }[operation]} ${path}${lines ? `（第 ${lines.start}-${lines.end} 行）` : ""}`,
+		upgrade: (version, arch) => `将 crha 升级到 ${version}（${arch}）`,
 	},
 	nodes: (names, moreNodes) => {
 		const list = formatList("zh-CN", names);
@@ -256,6 +259,8 @@ function actionDetail(action: TaskAction, labels: CardText): string {
 			return oneLine(action.command);
 		case "file":
 			return oneLine(labels.actions.file(action.operation, action.path, action.lines));
+		case "upgrade":
+			return oneLine(labels.actions.upgrade(action.version, action.arch));
 		case "api_request":
 			return oneLine(`${action.method} ${action.path}`);
 		case "extension_tool":

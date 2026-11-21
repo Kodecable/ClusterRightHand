@@ -1,0 +1,140 @@
+/**
+ * Verifies the Sigstore signature of a crha release's SHA256SUMS (doc/design/distribution.md "Fetching the
+ * release"). The trusted root comes from Sigstore's TUF repository, refreshed on every verification through
+ * crhs's own fetch (so it carries crhs's User-Agent); a refresh that fails is never replaced by a bundled
+ * or cached root, so a host that cannot reach the repository must turn verification off.
+ *
+ * A result tells a signature that is wrong (`invalid`: the files are condemned) from one that could not be
+ * checked at all (`unverifiable`: the network or TUF failed, which proves nothing about the files).
+ */
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { bundleFromJSON } from "@sigstore/bundle";
+import { TrustedRoot } from "@sigstore/protobuf-specs";
+import seeds from "@sigstore/tuf/seeds.json" with { type: "json" };
+import { toSignedEntity, toTrustMaterial, Verifier } from "@sigstore/verify";
+import { BaseFetcher, Updater } from "tuf-js";
+// tuf-js tells "no newer root" (403/404) apart from a failure only through this error type, which its
+// index does not export.
+import { DownloadHTTPError } from "tuf-js/dist/error.js";
+import { errorText } from "../util/errors.ts";
+
+/** Sigstore's public-good TUF repository, whose seed root ships with @sigstore/tuf. */
+export const SIGSTORE_TUF_URL = "https://tuf-repo-cdn.sigstore.dev";
+/** The OIDC issuer of GitHub Actions, which signs a release workflow's keyless certificate. */
+export const GITHUB_ACTIONS_ISSUER = "https://token.actions.githubusercontent.com";
+/** One TUF request gives up after this long. */
+const TUF_TIMEOUT_MS = 20_000;
+
+export type SignatureCheck =
+	| { kind: "ok" }
+	| { kind: "invalid"; reason: string }
+	| { kind: "unverifiable"; reason: string };
+
+export interface SignatureInput {
+	/** The signed bytes: the release's SHA256SUMS. */
+	artifact: Uint8Array;
+	/** The Sigstore bundle (`SHA256SUMS.sigstore.json`). */
+	bundle: Uint8Array;
+	/** The certificate's expected subject alternative name: the release workflow at the tag. */
+	identity: string;
+	issuer: string;
+}
+
+export interface ReleaseSignatureVerifier {
+	verify(input: SignatureInput): Promise<SignatureCheck>;
+}
+
+/** The workflow identity a release of `owner/repo` at `tag` is signed with (doc/design/distribution.md). */
+export function releaseIdentity(owner: string, repo: string, tag: string): string {
+	return `https://github.com/${owner}/${repo}/.github/workflows/release.yml@refs/tags/${tag}`;
+}
+
+class CrhsFetcher extends BaseFetcher {
+	readonly #fetch: typeof fetch;
+
+	constructor(fetchFn: typeof fetch) {
+		super();
+		this.#fetch = fetchFn;
+	}
+
+	override async fetch(url: string): Promise<ReadableStream<Uint8Array<ArrayBuffer>>> {
+		const response = await this.#fetch(url, { signal: AbortSignal.timeout(TUF_TIMEOUT_MS) });
+		if (!response.ok || response.body === null) {
+			throw new DownloadHTTPError(`GET ${url}: HTTP ${response.status}`, response.status);
+		}
+		return response.body as ReadableStream<Uint8Array<ArrayBuffer>>;
+	}
+}
+
+export interface SigstoreVerifierOptions {
+	/** Where the TUF metadata lives between verifications (crhs's data directory). */
+	tufDir: string;
+	/** The fetch for TUF requests; the wrapped global fetch by default. */
+	fetch?: typeof fetch;
+	/** Tests: the TUF repository. */
+	mirror?: string;
+	/** Tests: the root to start from instead of the bundled seed. */
+	seedRoot?: Uint8Array;
+}
+
+export class SigstoreVerifier implements ReleaseSignatureVerifier {
+	readonly #tufDir: string;
+	readonly #fetch: typeof fetch;
+	readonly #mirror: string;
+	readonly #seedRoot: Uint8Array | undefined;
+
+	constructor(options: SigstoreVerifierOptions) {
+		this.#tufDir = options.tufDir;
+		this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+		this.#mirror = options.mirror ?? SIGSTORE_TUF_URL;
+		this.#seedRoot = options.seedRoot;
+	}
+
+	/** Refreshes TUF and returns the current trusted root; throws on any failure. */
+	async #trustedRoot(): Promise<TrustedRoot> {
+		const targets = join(this.#tufDir, "targets");
+		await mkdir(targets, { recursive: true, mode: 0o700 });
+		// TUF starts from the root it has: the seed the first time, then the newest it verified. A newer
+		// root always chains from the previous one, so a stored root is a starting point, not a fallback.
+		const seed =
+			this.#seedRoot ??
+			Buffer.from((seeds as Record<string, { "root.json": string }>)[this.#mirror]?.["root.json"] ?? "", "base64");
+		if (seed.length === 0) throw new Error(`no seed root for ${this.#mirror}`);
+		await writeFile(join(this.#tufDir, "root.json"), seed, { flag: "wx", mode: 0o600 }).catch((err: unknown) => {
+			if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+		});
+		const updater = new Updater({
+			metadataBaseUrl: this.#mirror,
+			targetBaseUrl: `${this.#mirror}/targets`,
+			metadataDir: this.#tufDir,
+			targetDir: targets,
+			fetcher: new CrhsFetcher(this.#fetch),
+		});
+		await updater.refresh();
+		const info = await updater.getTargetInfo("trusted_root.json");
+		if (info === undefined) throw new Error("the TUF repository has no trusted_root.json");
+		const path = (await updater.findCachedTarget(info)) ?? (await updater.downloadTarget(info));
+		return TrustedRoot.fromJSON(JSON.parse(await readFile(path, "utf8")));
+	}
+
+	async verify(input: SignatureInput): Promise<SignatureCheck> {
+		let root: TrustedRoot;
+		try {
+			root = await this.#trustedRoot();
+		} catch (err) {
+			return { kind: "unverifiable", reason: `cannot refresh the Sigstore trusted root: ${errorText(err)}` };
+		}
+		try {
+			const bundle = bundleFromJSON(JSON.parse(Buffer.from(input.bundle).toString("utf8")));
+			const verifier = new Verifier(toTrustMaterial(root), { tlogThreshold: 1, ctlogThreshold: 1 });
+			verifier.verify(toSignedEntity(bundle, Buffer.from(input.artifact)), {
+				subjectAlternativeName: input.identity,
+				extensions: { issuer: input.issuer },
+			});
+			return { kind: "ok" };
+		} catch (err) {
+			return { kind: "invalid", reason: `the Sigstore signature of SHA256SUMS does not verify: ${errorText(err)}` };
+		}
+	}
+}

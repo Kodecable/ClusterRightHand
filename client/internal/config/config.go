@@ -304,6 +304,10 @@ func parseSize(s string) (int64, error) {
 // IdentityKeyPath returns the path of the node identity key.
 func (c *Config) IdentityKeyPath() string { return filepath.Join(c.StateDir, "identity.key") }
 
+// NodeIDPath returns the path of the node id the last enrollment returned
+// (doc/design/distribution.md "crha enroll").
+func (c *Config) NodeIDPath() string { return filepath.Join(c.StateDir, "node_id") }
+
 // ServerKeyPath returns the path of the pinned server public key.
 func (c *Config) ServerKeyPath() string { return filepath.Join(c.StateDir, "server.pub") }
 

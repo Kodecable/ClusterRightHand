@@ -18,6 +18,11 @@ export function closeReason(reason: string): string {
 export class NodeConnection {
 	readonly id: string;
 	readonly nodeId: string;
+	/**
+	 * Whether the node speaks an older served major: such a connection carries only the upgrade path
+	 * (doc/design/protocol.md "Upgrade-only connections").
+	 */
+	readonly upgradeOnly: boolean;
 	/** The wire protocol peer; commands and events are registered on it. */
 	readonly peer: Peer;
 	readonly #ws: WebSocket;
@@ -26,9 +31,17 @@ export class NodeConnection {
 	#onClose: (reason: string) => void = () => {};
 	#closed = false;
 
-	constructor(id: string, nodeId: string, ws: WebSocket, ciphers: TransportCiphers, negotiated: Iterable<string>) {
+	constructor(
+		id: string,
+		nodeId: string,
+		ws: WebSocket,
+		ciphers: TransportCiphers,
+		negotiated: Iterable<string>,
+		upgradeOnly = false,
+	) {
 		this.id = id;
 		this.nodeId = nodeId;
+		this.upgradeOnly = upgradeOnly;
 		this.#ws = ws;
 		this.#ciphers = ciphers;
 		this.peer = new Peer({

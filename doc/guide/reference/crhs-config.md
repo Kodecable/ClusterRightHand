@@ -32,6 +32,11 @@ path = "/var/lib/crhs/crhs.db"
 
 # [models]
 # catalog_download = true
+
+# [crha_release]
+# url = "https://github.com/Kodecable/ClusterRightHand"
+# download = true
+# verify = true
 ```
 
 ## Top-level keys
@@ -83,6 +88,17 @@ The model catalogue used to fill a custom provider's discovered models
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `catalog_download` | boolean | `true` | Whether crhs may download `https://models.dev/api.json` (at most once a day) into `models-dev/api.json` under its data directory. With `false`, a file stored earlier is still used; when there is none, pi-ai's bundled catalogue is used. |
+
+## [crha_release]
+
+Where crhs fetches the crha it upgrades nodes to: the release of its own version, tagged `v<version>`
+([crha self-upgrade](../../design/distribution.md#crha-self-upgrade)). The whole table is optional.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `url` | URL | `https://github.com/Kodecable/ClusterRightHand` | The repository. The assets are read from `<url>/releases/download/v<version>/`. |
+| `download` | boolean | `true` | Whether crhs may download missing assets into `crha-releases/<version>/` under its data directory. With `false`, copy `crha-<version>-linux-<arch>.tar.gz` (and, to keep a check, `SHA256SUMS`) there yourself; crhs never deletes files it did not download. |
+| `verify` | boolean | `true` | Whether the Sigstore signature of `SHA256SUMS` is checked, with the release workflow of `url` at the tag as the identity. It needs a `github.com` repository and access to GitHub and `tuf-repo-cdn.sigstore.dev` at every upgrade; there is no offline fallback. With `false`, `SHA256SUMS` is still checked when present. A build whose version is not a release (`dev`, a `git describe` version) has no release: turn this off and copy the archive. |
 
 ## System settings
 

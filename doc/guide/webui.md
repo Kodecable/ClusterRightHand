@@ -288,6 +288,20 @@ returns to **Pending approval** and must be approved with its new fingerprint
 ([Rotating and revoking node keys](operations.md#rotating-and-revoking-node-keys)). SSH nodes have no
 key, so they have no **Re-enroll** action.
 
+#### Upgrading crha
+
+**Self-upgrade** (crha nodes) says whether crhs can upgrade the node's crha, and why not: installed by
+the package manager, not started by systemd, units not written by `crha enroll`, no privileged side
+that runs as root, and so on. **Upgrade log** names the node's upgrade log, which the **Files** tab
+opens.
+
+Administrators upgrade crha with **Upgrade crha**, here or on a node group's page. The dialog first
+shows the plan: the nodes upgraded to crhs's version, a warning with the number of running tasks the
+restart ends, and the nodes skipped with the reason. **Upgrade** starts one privileged task group per
+architecture and opens its page, where it waits for a signature or an approval like any privileged task
+([crha self-upgrade](../design/distribution.md#crha-self-upgrade)). The node reconnects with the new
+version within a few minutes, or rolls back and says why in its upgrade log.
+
 #### Deleting a node
 
 Administrators can delete a node with **Delete node**. A crha node is disconnected and stops; tasks
@@ -298,9 +312,9 @@ memberships are removed. The host itself is not changed; to use it again, enroll
 ## Node groups
 
 **Node groups** lists the groups and their member counts; a group's page lists its members.
-Administrators create groups, edit members, rename and delete them, and grant access to a group on its
-page. Rules and grants that referred to a deleted group show it as deleted; they never match another
-group with the same name.
+Administrators create groups, edit members, rename and delete them, grant access to a group on its page,
+and upgrade the crha of its members with **Upgrade crha**. Rules and grants that referred to a deleted
+group show it as deleted; they never match another group with the same name.
 
 ## Users and user groups
 

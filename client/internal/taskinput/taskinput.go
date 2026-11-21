@@ -32,6 +32,10 @@ func Ref(spec *protocol.TaskSpec) *protocol.InputRef {
 		if spec.FilePush != nil {
 			return &protocol.InputRef{Size: spec.FilePush.Size, SHA256: spec.FilePush.SHA256}
 		}
+	case protocol.TaskSpecNodeUpgrade:
+		if spec.NodeUpgrade != nil {
+			return &protocol.InputRef{Size: spec.NodeUpgrade.Size, SHA256: spec.NodeUpgrade.SHA256}
+		}
 	}
 	return nil
 }

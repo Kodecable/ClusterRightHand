@@ -19,6 +19,7 @@ import { addUser, changePassword, exportKeys, importKeys, initKeys } from "./cli
 import { INTERRUPTED_EXIT_CODE, PromptInterrupted, readSecret } from "./cli/prompt.ts";
 import { AgentServer } from "./cluster/agent-server.ts";
 import { Cluster } from "./cluster/cluster.ts";
+import { CrhaReleases } from "./cluster/crha-release.ts";
 import { loadServerIdentity } from "./cluster/identity.ts";
 import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
@@ -205,6 +206,10 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		stateDir: dataDir,
 		download: config.models.catalogDownload,
 	});
+	// The crha release crhs upgrades nodes to: its own version only, fetched when an upgrade needs it and
+	// verified each time (doc/design/distribution.md "Fetching the release"). Other versions are stale.
+	const crhaReleases = new CrhaReleases({ dataDir, config: config.crhaRelease, version: CRH_VERSION });
+	await crhaReleases.removeOtherVersions();
 	// The one library object store (doc/design/library.md "Backends"); objects live under the data directory
 	// with the staging area.
 	const libraryBackend = createLibraryBackend(config.library, join(dataDir, "library"));
@@ -287,6 +292,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		audit,
 		agent: { runtime, models },
 		modelCatalogue,
+		crhaReleases,
 		scheduler,
 		channels,
 		drain,

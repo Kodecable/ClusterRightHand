@@ -8,6 +8,7 @@ import (
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade"
 )
 
 // Sink receives a task's output: one stream, stdout and stderr together. *Output implements it;
@@ -26,12 +27,25 @@ type TaskOptions struct {
 	KillGrace  time.Duration // SIGTERM-to-SIGKILL grace of exec; 0 = DefaultKillGrace
 	Privileged bool
 	Env        *execenv.Environment
+	// TaskID names the upgrade's transient unit (doc/design/distribution.md "On the node").
+	TaskID string
 }
 
 // RunTask executes spec to completion and writes its output to out. The Result carries the outcome
 // fields of task.exit; the caller closes out and adds the final stream ends and the output file
 // once every writer has stopped.
 func RunTask(ctx context.Context, spec *protocol.TaskSpec, in io.Reader, out Sink, opts TaskOptions) Result {
+	if spec.Kind == protocol.TaskSpecNodeUpgrade {
+		// Only the privileged side may replace crha's binary; the agent refuses an unprivileged one.
+		if !opts.Privileged {
+			return Result{Err: errf(protocol.CodeInvalidSpec, "node.upgrade must be privileged")}
+		}
+		err := upgrade.Receive(ctx, opts.TaskID, spec.NodeUpgrade, in, out.Writer(), upgrade.ReceiveOptions{})
+		if err != nil {
+			return Result{Err: &Error{Code: protocol.CodeIOError, Message: err.Error()}}
+		}
+		return FileResult(nil, nil)
+	}
 	if spec.Kind == protocol.TaskSpecExec {
 		if spec.Exec == nil {
 			return Result{Err: errf(protocol.CodeInvalidSpec, "exec task has no spec")}

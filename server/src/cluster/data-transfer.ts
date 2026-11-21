@@ -110,7 +110,9 @@ export async function acceptDataConnection(
 	const row = await core.row(init.taskId);
 	if (!row || row.node_id !== nodeId) return refuse(ws, "unknown task");
 	if (row.state !== "dispatched" && row.state !== "running") return refuse(ws, "the task does not run");
-	if (row.kind !== "file.push" && row.kind !== "file.pull") return refuse(ws, "the task is not a transfer");
+	if (row.kind !== "file.push" && row.kind !== "file.pull" && row.kind !== "node.upgrade") {
+		return refuse(ws, "the task is not a transfer");
+	}
 	const record = parseTransferRecord(row.transfer);
 	if (!record || record.transferId !== init.transferId) return refuse(ws, "unknown transfer");
 	if (core.usedTransfers.has(init.transferId) || core.dataTransfers.has(row.id))
@@ -190,7 +192,8 @@ async function runTransfer(
 		transfer.frames.close();
 	});
 	try {
-		if (spec.kind === "file.push") {
+		// An upgrade's binary goes to the node the way a push's content does.
+		if (spec.kind === "file.push" || spec.kind === "node.upgrade") {
 			for await (const chunk of storage.openRead()) {
 				// A read stream may hand over more than one data frame holds.
 				const bytes = new Uint8Array(chunk);

@@ -40,7 +40,13 @@ export const NodeGroupMembersBodySchema = z.object({
 export const NodeGroupResponseSchema = z.object({ group: NodeGroupSchema });
 
 /** Out-of-sync trust alias or trust entry (doc/design/privilege.md "Trust cache"). */
-export const TrustWarningKindSchema = z.enum(["alias_superfluous", "alias_unknown", "alias_missing", "trust_unknown"]);
+export const TrustWarningKindSchema = z.enum([
+	"alias_superfluous",
+	"alias_unknown",
+	"alias_missing",
+	"trust_unknown",
+	"trust_newer_values",
+]);
 
 export const TrustWarningSeveritySchema = z.enum(["danger", "warning", "info"]);
 
@@ -50,7 +56,7 @@ export const TrustWarningSchema = z
 		severity: TrustWarningSeveritySchema,
 		uuid: z.string().nullable().describe("The alias or node group id the warning is about; null for a trust entry."),
 		nodeGroupName: z.string().nullable().describe("The node group the id names, when it is one."),
-		trustName: z.string().nullable().describe("The trust entry name, for `trust_unknown`."),
+		trustName: z.string().nullable().describe("The trust entry name, for `trust_unknown` and `trust_newer_values`."),
 		message: z.string(),
 	})
 	.meta({ id: "TrustWarning" });
@@ -77,6 +83,19 @@ export const NodeFactsSchema = z
 				bash: z.string().nullable().optional(),
 			})
 			.optional(),
+		selfUpgrade: z
+			.object({
+				available: z.boolean(),
+				reasons: z
+					.array(z.string())
+					.describe(
+						"Why crhs cannot upgrade the node: package_managed, not_systemd, unmanaged_unit, unit_mismatch, no_privilege, privileged_not_root, privileged_unavailable, or a reason from a newer crha.",
+					),
+				arch: z.string().optional().describe("The architecture of the crha binary the node needs."),
+			})
+			.optional()
+			.describe("Whether crhs may upgrade this node's crha (doc/design/distribution.md)."),
+		upgradeLogPath: z.string().optional().describe("The node's upgrade log, JSON lines, read with a file read."),
 	})
 	.meta({ id: "NodeFacts" });
 
@@ -361,3 +380,52 @@ export const EnrollmentTokenResponseSchema = z
 
 /** `PUT /api/nodes/{id}/node-groups`: the node with its new node groups. */
 export const NodeGroupsResponseSchema = z.object({ nodeGroups: z.array(NodeGroupRefSchema) });
+
+/** An upgrade request: the nodes or node groups to bring to crhs's own crha version (doc/design/distribution.md). */
+export const NodeUpgradeBodySchema = z
+	.object({
+		targets: z.array(z.string()).min(1).describe("Node or node-group names or ids, or _all, as for a task group."),
+		dryRun: z
+			.boolean()
+			.optional()
+			.describe("Only plan: which nodes would be upgraded and why the others would not. Nothing is fetched."),
+	})
+	.strict()
+	.meta({ id: "NodeUpgradeBody" });
+
+export const NodeUpgradeSkipReasonSchema = z.enum([
+	"not_crha",
+	"not_connected",
+	"self_upgrade_unavailable",
+	"no_arch",
+	"up_to_date",
+	"newer_than_crhs",
+	"not_a_release_version",
+]);
+
+export const NodeUpgradeResponseSchema = z
+	.object({
+		version: z.string().describe("crhs's version: the crha version the nodes are upgraded to."),
+		upgrades: z.array(
+			z.object({
+				nodeId: z.string(),
+				name: z.string(),
+				version: z.string(),
+				arch: z.string(),
+				runningTasks: z.number().describe("Tasks running on the node now; restarting crha ends them as unknown."),
+			}),
+		),
+		skipped: z.array(
+			z.object({
+				nodeId: z.string(),
+				name: z.string(),
+				reason: NodeUpgradeSkipReasonSchema,
+				nodeReasons: z.array(z.string()).describe("The node's own self_upgrade reasons."),
+				version: z.string().nullable(),
+			}),
+		),
+		taskGroups: z
+			.array(z.object({ arch: z.string(), taskGroupId: z.string() }))
+			.describe("One privileged node.upgrade task group per architecture; empty for a dry run."),
+	})
+	.meta({ id: "NodeUpgradeResponse" });

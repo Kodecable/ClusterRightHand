@@ -17,6 +17,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
+	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade"
 	"github.com/fxamacker/cbor/v2"
 )
 
@@ -109,8 +110,13 @@ type Options struct {
 	Dial func(ctx context.Context) (*transport.Conn, error)
 	// DataDial opens a data connection to crhs for one file.push or file.pull transfer
 	// (doc/design/protocol.md "Data connections"). nil refuses transfer tasks.
-	DataDial  func(ctx context.Context, taskID, transferID string) (DataConn, error)
-	Facts     func() protocol.Facts
+	DataDial func(ctx context.Context, taskID, transferID string) (DataConn, error)
+	Facts    func() protocol.Facts
+	// SelfUpgradeStatic are the reasons this process can never be upgraded by crhs; the forward
+	// daemon's state is added each time facts are sent (doc/design/distribution.md "Who can self-upgrade").
+	SelfUpgradeStatic []string
+	// Arch is the architecture of the crha binary this node needs (GOARCH).
+	Arch      string
 	OutputDir string
 	Logger    *slog.Logger
 	// PrivilegedMode is the [privileged] mode from the configuration and is reported in Hello:
@@ -164,6 +170,9 @@ type Agent struct {
 
 	// forwardStarted guards startForward so the daemon connection is dialed once per process.
 	forwardStarted atomic.Bool
+	// readyMu guards ready, the conditions of the readiness line an upgrade waits for.
+	readyMu sync.Mutex
+	ready   readiness
 	// fwd is the crh-priv connection to the privileged mode (forward mode), nil while it is
 	// down; fwdErr is the reason.
 	fwdMu  sync.Mutex
@@ -204,6 +213,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.opts.PrivilegedMode == config.ModeForward {
 		a.startForward(ctx)
 	}
+	a.startPrivilegedCheck(ctx)
 	backoff := minBackoff
 	for ctx.Err() == nil {
 		conn, err := a.opts.Dial(ctx)
@@ -278,6 +288,7 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 	a.mu.Lock()
 	a.conn, a.peer = conn, peer
 	a.mu.Unlock()
+	a.markHelloDone()
 	// The trust report follows the hello response, once per connection (doc/design/protocol.md "Trust summary").
 	a.announceTrust()
 	defer func() {
@@ -387,6 +398,13 @@ func (a *Agent) facts(conn *transport.Conn) protocol.Facts {
 	}
 	offset := protocol.Int(conn.ClockOffset.Milliseconds())
 	f.ClockOffsetMS = &offset
+	reasons := upgrade.Reasons(a.opts.SelfUpgradeStatic, a.opts.PrivilegedMode, a.forwardState())
+	if reasons == nil {
+		reasons = []string{}
+	}
+	f.SelfUpgrade = &protocol.SelfUpgrade{Available: len(reasons) == 0, Reasons: reasons, Arch: a.opts.Arch}
+	logPath := upgrade.LogPath
+	f.UpgradeLogPath = &logPath
 	return f
 }
 
@@ -396,6 +414,9 @@ func (a *Agent) hello() protocol.Hello {
 	h := protocol.Hello{
 		TaskKinds: []string{
 			"exec", "file.read", "file.write", "file.push", "file.pull", "file.edit", "file.stat", "file.list",
+			// Beyond the base set, so crhs sends it only because it is listed here
+			// (doc/design/protocol.md "Version negotiation").
+			"node.upgrade",
 		},
 		PrivilegedMode: a.opts.PrivilegedMode,
 	}

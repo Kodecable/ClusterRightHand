@@ -3,6 +3,7 @@ package protocol
 import (
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -56,6 +57,53 @@ func (e enum[T]) unmarshal(data []byte, dst *T) error {
 		return fmt.Errorf("protocol: unknown %s %q", e.kind, s)
 	}
 	*dst = v
+	return nil
+}
+
+// openNamePattern is the form of an open name (doc/design/protocol.md "Encoding rules"):
+// lowercase ASCII letters, digits, ".", "_" and "-", starting with a letter, at most 64 bytes.
+var openNamePattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
+
+// openName is a text value whose set grows within a major. Unlike an enum, any well-formed value
+// decodes and re-encodes unchanged; known lists the values this version understands, so a
+// receiver can tell an unknown one apart and decide what it means.
+type openName[T ~string] struct {
+	kind  string
+	known []T
+}
+
+func newOpenName[T ~string](kind string, known ...T) openName[T] {
+	return openName[T]{kind: kind, known: known}
+}
+
+// isKnown reports whether v is a value this version understands.
+func (o openName[T]) isKnown(v T) bool {
+	for _, want := range o.known {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// marshal encodes v, rejecting a value outside the open-name form.
+func (o openName[T]) marshal(v T) ([]byte, error) {
+	if !openNamePattern.MatchString(string(v)) {
+		return nil, fmt.Errorf("protocol: invalid %s %q", o.kind, string(v))
+	}
+	return encMode.Marshal(string(v))
+}
+
+// unmarshal decodes one value, accepting any well-formed name.
+func (o openName[T]) unmarshal(data []byte, dst *T) error {
+	var s string
+	if err := decMode.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if !openNamePattern.MatchString(s) {
+		return fmt.Errorf("protocol: invalid %s %q", o.kind, s)
+	}
+	*dst = T(s)
 	return nil
 }
 

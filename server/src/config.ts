@@ -48,6 +48,18 @@ export interface ModelsConfig {
 	catalogDownload: boolean;
 }
 
+/** Where crhs fetches the crha it upgrades nodes to (doc/design/distribution.md "Fetching the release"). */
+export interface CrhaReleaseConfig {
+	/** The repository: crhs takes the release tagged with its own version from it. */
+	url: string;
+	/** Whether crhs may download missing release assets into its cache. */
+	download: boolean;
+	/** Whether the Sigstore signature over SHA256SUMS is checked (SHA256SUMS itself is checked when present). */
+	verify: boolean;
+	/** The repository's owner and name, when `url` is a github.com repository. */
+	github: { owner: string; repo: string } | null;
+}
+
 /** The listen address, which must be known before the database is open. */
 export interface ListenConfig {
 	host: string;
@@ -66,6 +78,8 @@ export interface Config {
 	library: LibraryConfig;
 	/** Model catalogue settings (doc/design/agent-runtime.md "Custom providers"). */
 	models: ModelsConfig;
+	/** The crha release source (doc/design/distribution.md "Fetching the release"). */
+	crhaRelease: CrhaReleaseConfig;
 	/** Built WebUI: web/ next to a bundled crhs.mjs, web/dist next to the server source otherwise. */
 	webRoot: string;
 }
@@ -80,6 +94,8 @@ export const DEFAULT_ARGON2_QUEUE = 32;
 export const DEFAULT_CAPTCHA = "cap";
 /** crhs downloads the models.dev catalogue once a day unless crhs.toml turns it off. */
 export const DEFAULT_CATALOG_DOWNLOAD = true;
+/** The repository crhs fetches crha releases from unless crhs.toml names another. */
+export const DEFAULT_CRHA_RELEASE_URL = "https://github.com/Kodecable/ClusterRightHand";
 /** Tasks, task groups and authorizations are kept for 90 days by default. */
 export const DEFAULT_RETENTION_TASKS_MS = 90 * 24 * 60 * 60 * 1000;
 /** Audit events are kept for 180 days by default. */
@@ -104,7 +120,15 @@ export const DEFAULT_GROUP_LIBRARY_LIMITS: LibraryLimits = { files: 0, fileBytes
 export const MIN_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /** The top-level keys crhs.toml may carry. */
-const TOP_LEVEL_KEYS = ["listen", "database", "master_key_file", "web_root", "library", "models"] as const;
+const TOP_LEVEL_KEYS = [
+	"listen",
+	"database",
+	"master_key_file",
+	"web_root",
+	"library",
+	"models",
+	"crha_release",
+] as const;
 
 const DURATION_UNITS: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
 
@@ -151,6 +175,7 @@ export function parseConfig(text: string): Config {
 	rejectUnknown(database, "database.", ["driver", "path", "url"]);
 	const library = parseLibraryConfig(table(raw, "library"));
 	const models = parseModelsConfig(table(raw, "models"));
+	const crhaRelease = parseCrhaReleaseConfig(table(raw, "crha_release"));
 
 	const driver = database.driver ?? "sqlite";
 	let db: DatabaseConfig;
@@ -175,6 +200,7 @@ export function parseConfig(text: string): Config {
 		database: db,
 		library,
 		models,
+		crhaRelease,
 		masterKeyFile: str(raw, "master_key_file", "master_key_file", "/etc/crhs/master.key"),
 		webRoot: str(raw, "web_root", "web_root", defaultWebRoot()),
 	};
@@ -311,6 +337,45 @@ function parseModelsConfig(raw: Record<string, unknown>): ModelsConfig {
 		throw new Error("models.catalog_download must be true or false");
 	}
 	return { catalogDownload: raw.catalog_download ?? DEFAULT_CATALOG_DOWNLOAD };
+}
+
+/**
+ * `[crha_release]`: the repository and whether its assets may be downloaded and must be verified. The
+ * Sigstore identity derives from a github.com repository, so verification needs one.
+ */
+export function parseCrhaReleaseConfig(raw: Record<string, unknown>): CrhaReleaseConfig {
+	rejectUnknown(raw, "crha_release.", ["url", "download", "verify"]);
+	for (const key of ["download", "verify"] as const) {
+		if (raw[key] !== undefined && typeof raw[key] !== "boolean") {
+			throw new Error(`crha_release.${key} must be true or false`);
+		}
+	}
+	const url = str(raw, "url", "crha_release.url", DEFAULT_CRHA_RELEASE_URL).replace(/\/+$/, "");
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		throw new Error(`crha_release.url is not a URL: ${JSON.stringify(url)}`);
+	}
+	if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+		throw new Error("crha_release.url must be an http or https URL");
+	}
+	const verify = (raw.verify as boolean | undefined) ?? true;
+	const parts = parsed.pathname.split("/").filter((part) => part !== "");
+	const github =
+		parsed.protocol === "https:" &&
+		parsed.hostname === "github.com" &&
+		parsed.search === "" &&
+		parts.length === 2 &&
+		parts.every((part) => /^[A-Za-z0-9._-]+$/.test(part))
+			? { owner: parts[0] as string, repo: parts[1] as string }
+			: null;
+	if (verify && github === null) {
+		throw new Error(
+			"crha_release.url must be an https://github.com/<owner>/<repo> repository while crha_release.verify is true",
+		);
+	}
+	return { url, download: (raw.download as boolean | undefined) ?? true, verify, github };
 }
 
 /** `[library]`: the object backend; local is the default and needs no other key. */

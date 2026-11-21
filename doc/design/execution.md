@@ -26,10 +26,12 @@ crash, creation returns the existing task instead of running the command twice.
 | `file.list` | Lists a directory, up to a limit. |
 | `file.push` | Receives a whole file from crhs and writes it atomically, like `file.write`. |
 | `file.pull` | Sends a whole regular file to crhs. |
+| `node.upgrade` | Receives a new crha binary from crhs and hands the install over to it; always privileged, and sent only to a node that lists it in `hello` ([crha self-upgrade](distribution.md#crha-self-upgrade)). |
 
 The spec and result shapes are in `packages/protocol/src/messages.ts`. File results travel in the task's
 structured result, never in the output stream. `file.push` and `file.pull` move their bytes on a data
-connection ([File plane](library.md#file-plane)). These eight kinds are the whole vocabulary: there are no
+connection ([File plane](library.md#file-plane)), and so does `node.upgrade`'s binary. These nine kinds
+are the whole vocabulary: there are no
 interactive (PTY) tasks ([Known limitations](architecture.md#known-limitations)).
 
 An `exec` task can have a timeout. File tasks have none and end only through cancellation. A task's
@@ -389,8 +391,10 @@ edits require a regular file, as crha's do; a device or a FIFO fails with `not_r
 - **Reload.** Each crha process re-reads its own configuration on SIGHUP, usually sent by the service
   manager. An invalid file is not applied. Some settings, such as the state directory and the privilege
   mode, take effect only after a restart, and crha logs which ones.
-- **Configuration changes and upgrades are ordinary privileged tasks**: write the file or the binary,
-  then reload or restart the service. A restart ends every running task on the node, including the one
-  performing the upgrade, so schedule the restart to happen after the task reports, for example with
-  `systemd-run --on-active=2s`. There is no self-upgrade command.
+- **Configuration changes are ordinary privileged tasks**: write the file, then reload or restart the
+  service. A restart ends every running task on the node, including the one performing it, so schedule
+  the restart to happen after the task reports, for example with `systemd-run --on-active=2s`.
+- **Upgrades** are `node.upgrade` tasks: crhs sends its own version's crha, and the new binary migrates,
+  regenerates the units and restarts the services itself ([crha self-upgrade](distribution.md#crha-self-upgrade)).
+  A node that cannot self-upgrade is upgraded by hand, or with privileged tasks as above.
 - After a crha restart, its earlier tasks become `unknown`.

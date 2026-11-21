@@ -4,7 +4,6 @@ package setup
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,13 +12,16 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/backup"
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/enroll"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/statedir"
+	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
@@ -40,7 +42,7 @@ const (
 	// PrivilegedLogPath is the privileged mode's audit log.
 	PrivilegedLogPath = "/var/log/crha/privileged.jsonl"
 	// UnitDir is where crha writes its units.
-	UnitDir = "/etc/systemd/system"
+	UnitDir = units.Dir
 )
 
 // RegisterFunc is the shared enrollment core. Tests inject a fake; production calls enroll.Run.
@@ -121,6 +123,17 @@ func Run(ctx context.Context, opts Options) (err error) {
 		return err
 	}
 	state := existingSetup{config: existing, enrolled: enrolled, privilegedConfig: privilegedConfig}
+	if privilegedConfig {
+		if data, err := os.ReadFile(at(host, PrivilegedConfigPath)); err == nil {
+			state.trustNames = trustNamesOf(data)
+		}
+	}
+	// The node id of the current enrollment, to tell after registering whether this run gave the node a
+	// new key or registered a new node.
+	previousID := ""
+	if enrolled {
+		previousID = previousNodeID(host, stateDir)
+	}
 	answers, err := collectAnswers(file, state, interactive, input, promptOut, say)
 	if err != nil {
 		return err
@@ -151,22 +164,101 @@ func Run(ctx context.Context, opts Options) (err error) {
 		}
 	}
 
-	if err := ensureSystemUser(ctx, host, say); err != nil {
-		return err
-	}
-	if err := ensureDirectory(host, "/etc/crha", 0o750, "root", SystemUser, say); err != nil {
-		return err
-	}
-	if err := ensureDirectory(host, StateDir, 0o700, SystemUser, SystemUser, say); err != nil {
-		return err
-	}
-	cfg, err := ensureConfig(host, configPath, answers, say)
-	if err != nil {
-		return err
-	}
+	// Plan everything that changes on a node set up before, and check it, before anything is written.
 	mode := answers.Mode
+	executable, err := host.Executable()
+	if err != nil {
+		return fmt.Errorf("locate the crha binary: %w", err)
+	}
+	v := opts.Version
+	if v == "" {
+		v = version.Version
+	}
+	unitFiles := UnitFiles(executable, configPath, mode, v)
+	var newConfig, newPrivileged []byte
+	trustChanged := false
+	var switches []string
 	if existing != nil {
-		mode = cfg.Privilege.Mode
+		data, err := os.ReadFile(at(host, configPath))
+		if err != nil {
+			return err
+		}
+		if newConfig, switches, err = editConfig(data, answers); err != nil {
+			return err
+		}
+	}
+	if answers.ReplaceTrust {
+		data, err := os.ReadFile(at(host, PrivilegedConfigPath))
+		if err != nil {
+			return err
+		}
+		if newPrivileged, err = replaceTrust(data, answers.LocalRoot, answers.Trust); err != nil {
+			return err
+		}
+		if _, err := privconfig.Parse(newPrivileged); err != nil {
+			return fmt.Errorf("privileged.toml with the new trust entries: %w", err)
+		}
+		// The same entries again, as from a rerun with the same answers file, change nothing.
+		if string(newPrivileged) == string(data) {
+			newPrivileged = nil
+		}
+		trustChanged = newPrivileged != nil
+	}
+	dropPrivilegedUnit := false
+	if mode != config.ModeForward {
+		if data, err := os.ReadFile(at(host, filepath.Join(UnitDir, units.Privileged))); err == nil {
+			dropPrivilegedUnit = units.Parse(string(data)).Managed
+		}
+	}
+	if err := EnsureLayout(ctx, host, mode, say); err != nil {
+		return err
+	}
+	// On a node set up before, registration uses crha.toml as this run will leave it and runs before
+	// any file changes, so a refused token changes nothing; the node id it returns is the last input
+	// of the plan.
+	var cfg *config.Config
+	if existing == nil {
+		if cfg, err = ensureConfig(host, configPath, answers, say); err != nil {
+			return err
+		}
+	} else if newConfig != nil {
+		if cfg, err = config.Parse(newConfig); err != nil {
+			return err
+		}
+	} else {
+		cfg = existing
+	}
+
+	// Everything that changes is known now but the node id. Before anything changes, the units the node
+	// runs stop, as for an upgrade: crha must not run on a key or a configuration being replaced, and
+	// the privileged mode keeps writing its state while it runs. A failure from here on starts them again.
+	changed := newConfig != nil || newPrivileged != nil || dropPrivilegedUnit
+	for _, unit := range unitFiles {
+		current, err := os.ReadFile(at(host, filepath.Join(UnitDir, unit.Name)))
+		if err != nil || string(current) != unit.Content {
+			changed = true
+		}
+	}
+	run := hostRunner(host)
+	var stopped []string
+	if existing != nil && (changed || !keep) {
+		stopped = units.Present(host.Root())
+		if err := units.Stop(ctx, run, stopped); err != nil {
+			return err
+		}
+		if len(stopped) > 0 {
+			say("stopped: " + strings.Join(stopped, ", "))
+		}
+		defer func() {
+			if err == nil || len(stopped) == 0 {
+				return
+			}
+			if serr := units.Start(context.WithoutCancel(ctx), run, stopped); serr != nil {
+				say("warning: starting " + strings.Join(stopped, ", ") + " again failed: " + serr.Error())
+			} else {
+				say("started again: " + strings.Join(stopped, ", "))
+			}
+		}()
 	}
 
 	var result enroll.Result
@@ -202,63 +294,192 @@ func Run(ctx context.Context, opts Options) (err error) {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "enrolled as node %s, waiting for approval\nnode key fingerprint: %s\n", result.NodeID, result.Fingerprint)
+		switch {
+		case previousID == "":
+			fmt.Fprintf(out, "enrolled as node %s, waiting for approval\n", result.NodeID)
+		case previousID == result.NodeID:
+			fmt.Fprintf(out, "enrolled node %s again with a new key, waiting for approval\n", result.NodeID)
+		default:
+			fmt.Fprintf(out, "enrolled as a new node %s, waiting for approval\n", result.NodeID)
+			say("the previous node " + previousID + " stays on crhs; delete it in the WebUI if it is no longer needed")
+		}
+		fmt.Fprintf(out, "node key fingerprint: %s\n", result.Fingerprint)
 	}
 
-	if mode == config.ModeForward {
-		if err := ensureDirectory(host, PrivilegedStateDir, 0o700, "root", "root", say); err != nil {
-			return err
-		}
-		if err := ensureDirectory(host, "/var/log/crha", 0o750, "root", "root", say); err != nil {
-			return err
-		}
-		if keep {
-			say("skipped: " + PrivilegedConfigPath)
-		} else {
-			uid, err := host.UID(SystemUser)
-			if err != nil {
-				return fmt.Errorf("look up uid of %s: %w", SystemUser, err)
-			}
-			if err := ensurePrivilegedConfig(host, result.NodeID, uid, answers, say); err != nil {
+	// A new node keeps the privileged mode's configuration, under its new id: privileged.toml
+	// answers only to the node it names. A privileged.toml kept outside forward mode follows too, so
+	// the way back to forward still works.
+	nodeIDChange := ""
+	if !keep && privilegedConfig {
+		base := newPrivileged
+		if base == nil {
+			if base, err = os.ReadFile(at(host, PrivilegedConfigPath)); err != nil {
 				return err
 			}
 		}
-	}
-
-	executable, err := host.Executable()
-	if err != nil {
-		return fmt.Errorf("locate the crha binary: %w", err)
-	}
-	v := opts.Version
-	if v == "" {
-		v = version.Version
-	}
-	if err := writeUnit(host, "crha.service", renderServerUnit(executable, configPath, mode, v), say); err != nil {
-		return err
-	}
-	units := []string{"crha"}
-	if mode == config.ModeForward {
-		if err := writeUnit(host, "crha-privileged.service", renderPrivilegedUnit(executable, v), say); err != nil {
+		edited, from, err := setNodeID(base, result.NodeID)
+		if err != nil {
 			return err
 		}
-		units = append(units, "crha-privileged")
+		if edited != nil {
+			newPrivileged = edited
+			nodeIDChange = from + " -> " + result.NodeID
+			changed = true
+		}
+	}
+
+	if existing != nil && changed {
+		dir, err := backupExisting(host, configPath, executable, v, newConfig, newPrivileged, unitFiles, dropPrivilegedUnit)
+		if err != nil {
+			return fmt.Errorf("back up: %w", err)
+		}
+		say("backed up: the previous files to " + dir)
+	}
+	if existing != nil {
+		if newConfig != nil {
+			if err := backup.ReplaceFile(at(host, configPath), newConfig, 0o640); err != nil {
+				return err
+			}
+			for _, line := range switches {
+				say("changed: " + configPath + ": " + line)
+			}
+		} else {
+			say("skipped: " + configPath)
+		}
+	}
+
+	switch {
+	case newPrivileged != nil:
+		if err := backup.ReplaceFile(at(host, PrivilegedConfigPath), newPrivileged, 0o600); err != nil {
+			return err
+		}
+		if trustChanged {
+			say("changed: the trust entries of " + PrivilegedConfigPath)
+		}
+		if nodeIDChange != "" {
+			say("changed: " + PrivilegedConfigPath + ": node_id: " + nodeIDChange)
+		}
+	case mode != config.ModeForward:
+	case keep || privilegedConfig:
+		say("skipped: " + PrivilegedConfigPath)
+	default:
+		uid, err := host.UID(SystemUser)
+		if err != nil {
+			return fmt.Errorf("look up uid of %s: %w", SystemUser, err)
+		}
+		if err := ensurePrivilegedConfig(host, result.NodeID, uid, answers, say); err != nil {
+			return err
+		}
+	}
+
+	if dropPrivilegedUnit {
+		// Leaving forward mode: the privileged mode's unit goes; privileged.toml stays for a way back.
+		if err := systemctl(ctx, host, "disable", "--now", strings.TrimSuffix(units.Privileged, ".service")); err != nil {
+			return err
+		}
+		if err := os.Remove(at(host, filepath.Join(UnitDir, units.Privileged))); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		say("removed: " + filepath.Join(UnitDir, units.Privileged))
+	}
+	var unitNames []string
+	for _, unit := range unitFiles {
+		if err := writeUnit(host, unit.Name, unit.Content, say); err != nil {
+			return err
+		}
+		// Enabled crha first, as enroll always has; systemd does not care about the order.
+		unitNames = append([]string{strings.TrimSuffix(unit.Name, ".service")}, unitNames...)
 	}
 	if err := systemctl(ctx, host, "daemon-reload"); err != nil {
 		return err
 	}
-	enable := []string{"enable"}
-	if answers.Start {
-		enable = append(enable, "--now")
-	}
-	enable = append(enable, units...)
-	if err := systemctl(ctx, host, enable...); err != nil {
+	if err := systemctl(ctx, host, append([]string{"enable"}, unitNames...)...); err != nil {
 		return err
+	}
+	if answers.Start {
+		// Started in order, privileged mode first, as an upgrade does; a unit that runs already stays.
+		var start []string
+		for _, unit := range unitFiles {
+			start = append(start, unit.Name)
+		}
+		if err := units.Start(ctx, run, start); err != nil {
+			return err
+		}
+		stopped = nil
+	}
+	if existing != nil {
+		if err := backup.Prune(at(host, backup.Dir)); err != nil {
+			say("warning: removing old backups failed: " + err.Error())
+		}
 	}
 
 	if !keep {
 		say("approve the node in the WebUI")
 	}
 	return nil
+}
+
+// backupExisting backs up the fixed set of a node set up before enroll changes it
+// (doc/design/distribution.md "Backups"), with each file's content after this run where it is known.
+func backupExisting(host Host, configPath, executable, v string, newConfig, newPrivileged []byte, unitFiles []UnitFile, dropPrivilegedUnit bool) (string, error) {
+	current := func(path string) []byte {
+		data, err := os.ReadFile(at(host, path))
+		if err != nil {
+			return nil
+		}
+		return data
+	}
+	after := func(path string, changed []byte) []byte {
+		if changed != nil {
+			return changed
+		}
+		return current(path)
+	}
+	rendered := map[string][]byte{}
+	for _, unit := range unitFiles {
+		rendered[unit.Name] = []byte(unit.Content)
+	}
+	files := []backup.File{
+		{Path: configPath, After: after(configPath, newConfig)},
+		{Path: PrivilegedConfigPath, After: after(PrivilegedConfigPath, newPrivileged)},
+	}
+	for _, name := range []string{units.Privileged, units.Server} {
+		path := filepath.Join(UnitDir, name)
+		content := rendered[name]
+		if content == nil && !(name == units.Privileged && dropPrivilegedUnit) {
+			content = current(path)
+		}
+		files = append(files, backup.File{Path: path, After: content})
+	}
+	files = append(files, backup.File{Path: executable, After: current(executable)})
+	units := []string{}
+	for _, unit := range unitFiles {
+		units = append(units, unit.Name)
+	}
+	id := backup.EnrollID(time.Now())
+	if _, _, err := backup.Take(backup.Options{
+		Root: host.Root(), Dir: at(host, backup.Dir), ID: id, From: v, To: v, Units: units,
+	}, files); err != nil {
+		return "", err
+	}
+	return filepath.Join(backup.Dir, id), nil
+}
+
+// previousNodeID is the node id of the current enrollment: the one the last enrollment recorded in the
+// state directory, else the one privileged.toml names (a node enrolled before crha kept it); empty
+// when neither says.
+func previousNodeID(host Host, stateDir string) string {
+	if data, err := os.ReadFile(at(host, filepath.Join(stateDir, "node_id"))); err == nil {
+		if id := strings.TrimSpace(string(data)); id != "" {
+			return id
+		}
+	}
+	if data, err := os.ReadFile(at(host, PrivilegedConfigPath)); err == nil {
+		if cfg, err := privconfig.Parse(data); err == nil {
+			return cfg.NodeID
+		}
+	}
+	return ""
 }
 
 // loadConfig loads an existing configuration; nil means it does not exist yet.
@@ -474,6 +695,20 @@ func writeFile(host Host, actual string, mode os.FileMode, content, owner, group
 	return host.Chown(actual, owner, group)
 }
 
+// hostRunner runs programs through host for the units package.
+func hostRunner(host Host) units.Runner {
+	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		result, err := host.Exec(ctx, name, args...)
+		if err != nil {
+			return nil, err
+		}
+		if result.Code != 0 {
+			return []byte(result.Stderr), fmt.Errorf("exit status %d", result.Code)
+		}
+		return []byte(result.Stdout), nil
+	}
+}
+
 func systemctl(ctx context.Context, host Host, args ...string) error {
 	return runChecked(ctx, host, "systemctl "+strings.Join(args, " "), "systemctl", args...)
 }
@@ -533,83 +768,10 @@ func renderPrivilegedConfig(nodeID string, uid uint32, localRoot bool, trust str
 		"state_dir = " + tomlString(PrivilegedStateDir),
 		"log = " + tomlString(PrivilegedLogPath),
 	}
-	if localRoot {
-		lines = append(lines,
-			"",
-			"[[trust]]",
-			`name = "local-root"`,
-			`role = "local"`,
-			"uids = [0]",
-		)
-	}
-	if trust = strings.TrimSpace(trust); trust != "" {
-		lines = append(lines, "", trust)
+	if entries := trustEntries(localRoot, trust); entries != "" {
+		lines = append(lines, "", entries)
 	}
 	return strings.Join(lines, "\n") + "\n"
-}
-
-const managedHeader = "# This file is managed by crha. DO NOT EDIT; customize with systemctl edit.\n"
-
-type unitMeta struct {
-	V       int    `json:"v"`
-	Version string `json:"version"`
-	Mode    string `json:"mode"`
-	Config  string `json:"config"`
-}
-
-func metaLine(mode, configPath, v string) string {
-	meta, err := json.Marshal(unitMeta{V: 1, Version: v, Mode: mode, Config: configPath})
-	if err != nil {
-		return ""
-	}
-	return "X-CRH-Meta=" + string(meta)
-}
-
-func renderServerUnit(executable, configPath, mode, v string) string {
-	after := "network-online.target"
-	wants := "network-online.target"
-	if mode == config.ModeForward {
-		after += " crha-privileged.service"
-		wants += " crha-privileged.service"
-	}
-	return managedHeader + `[Unit]
-Description=ClusterRightHand node agent
-After=` + after + `
-Wants=` + wants + `
-X-CRH-Managed=1
-` + metaLine(mode, configPath, v) + `
-
-[Service]
-User=` + SystemUser + `
-Group=` + SystemUser + `
-ExecStart=` + executable + ` run --config ` + configPath + `
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-`
-}
-
-func renderPrivilegedUnit(executable, v string) string {
-	return managedHeader + `[Unit]
-Description=ClusterRightHand node agent (privileged)
-Before=crha.service
-X-CRH-Managed=1
-` + metaLine(config.ModeForward, PrivilegedConfigPath, v) + `
-
-[Service]
-User=root
-RuntimeDirectory=crha
-RuntimeDirectoryMode=0755
-ExecStart=` + executable + ` privileged run --config ` + PrivilegedConfigPath + `
-ExecReload=/bin/kill -HUP $MAINPID
-Restart=on-failure
-UMask=0077
-
-[Install]
-WantedBy=multi-user.target
-`
 }
 
 // tomlString renders a TOML basic string. JSON's escaping is valid TOML for the paths and URLs stored.

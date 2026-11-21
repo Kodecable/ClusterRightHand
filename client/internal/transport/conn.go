@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,9 +80,9 @@ func Dial(ctx context.Context, opts DialOptions) (*Conn, error) {
 	if opts.InsecureSkipVerify {
 		client = tlsclient.Insecure()
 	}
-	ws, _, err := websocket.Dial(ctx, opts.URL, dialOptions(client))
+	ws, err := dialWebSocket(ctx, opts.URL, client)
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", opts.URL, err)
+		return nil, err
 	}
 	ws.SetReadLimit(noise.MaxMessageLen)
 	c, err := handshake(ctx, ws, opts)
@@ -235,9 +237,9 @@ func DialData(ctx context.Context, opts DataDialOptions) (*Conn, error) {
 	if opts.InsecureSkipVerify {
 		client = tlsclient.Insecure()
 	}
-	ws, _, err := websocket.Dial(ctx, opts.URL, dialOptions(client))
+	ws, err := dialWebSocket(ctx, opts.URL, client)
 	if err != nil {
-		return nil, fmt.Errorf("dial %s: %w", opts.URL, err)
+		return nil, err
 	}
 	ws.SetReadLimit(noise.MaxMessageLen)
 	c, err := dataHandshake(ctx, ws, opts)
@@ -301,10 +303,46 @@ func dataHandshake(ctx context.Context, ws wsConn, opts DataDialOptions) (*Conn,
 	return &Conn{ws: ws, session: session}, nil
 }
 
-// dialOptions are the WebSocket options of both connections: the HTTP client and crha's User-Agent.
+// Subprotocol is the WebSocket subprotocol in which crha names its major, so crhs can choose the
+// prologue and codec before the handshake (doc/design/protocol.md "The major in the clear").
+func Subprotocol() string {
+	return fmt.Sprintf("%s%d", protocol.SubprotocolPrefix, protocol.ProtocolMajor)
+}
+
+// ServedMajorsHeader lists the majors crhs serves on a 426 refusal.
+const ServedMajorsHeader = "CRH-Served-Majors"
+
+// dialOptions are the WebSocket options of both connections: the HTTP client, crha's User-Agent and
+// the subprotocol that names crha's major.
 func dialOptions(client *http.Client) *websocket.DialOptions {
 	return &websocket.DialOptions{
-		HTTPClient: client,
-		HTTPHeader: http.Header{"User-Agent": []string{version.UserAgent()}},
+		HTTPClient:   client,
+		HTTPHeader:   http.Header{"User-Agent": []string{version.UserAgent()}},
+		Subprotocols: []string{Subprotocol()},
 	}
+}
+
+// dialWebSocket opens the WebSocket of either connection. crhs answers a major it does not serve with
+// HTTP 426 before any handshake; that refusal becomes a HandshakeError naming the majors crhs serves,
+// so the node's log says why it cannot connect.
+func dialWebSocket(ctx context.Context, url string, client *http.Client) (*websocket.Conn, error) {
+	ws, resp, err := websocket.Dial(ctx, url, dialOptions(client))
+	if err == nil {
+		return ws, nil
+	}
+	if resp != nil && resp.StatusCode == http.StatusUpgradeRequired {
+		var body []byte
+		if resp.Body != nil {
+			// The library keeps at most the first 1024 bytes of a failed upgrade's body.
+			body, _ = io.ReadAll(io.LimitReader(resp.Body, 1024))
+		}
+		served := strings.TrimSpace(resp.Header.Get(ServedMajorsHeader))
+		if served == "" {
+			served = "unknown"
+		}
+		detail := strings.Join(strings.Fields(string(body)), " ")
+		return nil, &HandshakeError{fmt.Errorf("crhs does not serve protocol major %d (it serves %s): %s",
+			protocol.ProtocolMajor, served, detail)}
+	}
+	return nil, fmt.Errorf("dial %s: %w", url, err)
 }

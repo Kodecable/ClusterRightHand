@@ -20,6 +20,7 @@ import {
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	REQUIRED_NAMES,
+	subprotocolFor,
 	type TaskExit,
 	type TaskStart,
 	type TrustReport,
@@ -134,7 +135,7 @@ export class TestAgentServer {
 		hs: HandshakeState;
 		closed: Promise<CloseInfo>;
 	}> {
-		const ws = new WebSocket(this.url);
+		const ws = new WebSocket(this.url, [subprotocolFor(PROTOCOL_MAJOR)]);
 		// The challenge may arrive before the open event is handled; listen first.
 		const messages = new MessageQueue(ws);
 		const closed = new Promise<CloseInfo>((resolve) => {
@@ -155,7 +156,7 @@ export class TestAgentServer {
 
 	/** Opens the data connection of one transfer (doc/design/protocol.md "Data connections"). */
 	async connectData(staticKey: KeyPair, taskId: string, transferId: string): Promise<FakeDataConnection> {
-		const ws = new WebSocket(`${this.url}/data`);
+		const ws = new WebSocket(`${this.url}/data`, [subprotocolFor(PROTOCOL_MAJOR)]);
 		const messages = new MessageQueue(ws);
 		const closed = new Promise<CloseInfo>((resolve) => {
 			ws.once("close", (code, reason) => resolve({ code, reason: reason.toString() }));

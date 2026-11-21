@@ -94,6 +94,7 @@ function entryOf(json: EntryJson): AuthzEntry {
 		deny: json.deny,
 		envAllow: json.env_allow,
 		uids: json.uids,
+		unknown: [],
 	};
 }
 

@@ -49,7 +49,7 @@ func compileRules(rules []protocol.GuardRule) ruleSet {
 
 func compileRule(rule protocol.GuardRule) (compiledRule, error) {
 	switch rule.Method {
-	case protocol.MethodExec, protocol.MethodFileRead, protocol.MethodFileWrite:
+	case protocol.MethodExec, protocol.MethodFileRead, protocol.MethodFileWrite, protocol.MethodUpgrade:
 	default:
 		return compiledRule{}, fmt.Errorf("authz: guard rule has unknown method %q", string(rule.Method))
 	}

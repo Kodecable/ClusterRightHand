@@ -46,6 +46,11 @@ export interface NodeLink {
 	 * a connection syncs the node's waiting authorizations (doc/design/privilege.md "Trust cache").
 	 */
 	trustFresh: boolean;
+	/**
+	 * The task kinds the node's hello listed. A kind outside the base set is sent only when listed here
+	 * (doc/design/protocol.md "Version negotiation").
+	 */
+	taskKinds: ReadonlySet<string>;
 }
 
 export function isConnected(core: ClusterCore, nodeId: string): boolean {
@@ -149,6 +154,7 @@ export function attach(core: ClusterCore, conn: NodeConnection, node: NodeRow): 
 		ready: false,
 		queried: new Set(),
 		trustFresh: false,
+		taskKinds: new Set(),
 	};
 	core.links.set(node.id, link);
 	// A dispatch waiting out the offline grace re-checks the link now, then waits for hello.
@@ -293,6 +299,7 @@ async function onFacts(core: ClusterCore, nodeId: string, facts: Facts): Promise
 /** Reconciles the client's task list with ours, answers with Welcome, then queries the rest. */
 async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise<AfterResponse<Welcome>> {
 	const nodeId = link.conn.nodeId;
+	link.taskKinds = new Set(hello.taskKinds);
 	// How the node handles privileged tasks is reported here and nowhere else (doc/design/protocol.md "Commands").
 	if (hello.privilegedMode) {
 		await core.db

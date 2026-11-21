@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
+	"golang.org/x/sys/unix"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
@@ -127,9 +129,11 @@ type forwardConn struct {
 	// negotiated is what both sides implement; the daemon's crh-priv forward subset has no
 	// window commands (doc/design/protocol.md "crh-priv").
 	negotiated protocol.Set
-	done       chan struct{}
-	runErr     error
-	once       sync.Once
+	// peerUID is the daemon's uid from SO_PEERCRED, -1 when it could not be read.
+	peerUID int
+	done    chan struct{}
+	runErr  error
+	once    sync.Once
 }
 
 // start begins reading frames. The read loop routes the daemon's events through the agent and
@@ -184,6 +188,7 @@ func (a *Agent) dialForward(ctx context.Context) (*forwardConn, error) {
 	_ = conn.SetDeadline(time.Time{})
 
 	fc := &forwardConn{
+		peerUID:    socketPeerUID(conn),
 		conn:       conn,
 		stream:     wire.NewStreamFor(conn, conn, negotiated, wire.RoleForward),
 		negotiated: negotiated,
@@ -222,9 +227,13 @@ func (a *Agent) runForward(ctx context.Context) {
 				fc.close()
 			} else {
 				backoff = forwardRetryMin
+				a.markPrivilegedOK()
+				// Whether crhs can upgrade this node depends on the daemon: report it again.
+				_ = a.RefreshFacts(ctx)
 				err = fc.wait(ctx)
 			}
 			a.setForward(nil, err)
+			_ = a.RefreshFacts(ctx)
 			if ctx.Err() != nil {
 				return
 			}
@@ -253,6 +262,35 @@ func (a *Agent) setForward(fc *forwardConn, err error) {
 	} else if fc != nil {
 		a.fwdErr = nil
 	}
+}
+
+// forwardState is the daemon as self_upgrade reports it: connected, and as which uid.
+func (a *Agent) forwardState() upgrade.Forward {
+	a.fwdMu.Lock()
+	defer a.fwdMu.Unlock()
+	if a.fwd == nil {
+		return upgrade.Forward{PeerUID: -1}
+	}
+	return upgrade.Forward{Connected: true, PeerUID: a.fwd.peerUID}
+}
+
+// socketPeerUID reads the uid of the process at the other end of a unix socket, -1 when it cannot.
+func socketPeerUID(conn net.Conn) int {
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		return -1
+	}
+	raw, err := unixConn.SyscallConn()
+	if err != nil {
+		return -1
+	}
+	uid := -1
+	_ = raw.Control(func(fd uintptr) {
+		if cred, err := unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED); err == nil {
+			uid = int(cred.Uid)
+		}
+	})
+	return uid
 }
 
 // forwardConnection returns the current daemon connection, or nil with the reason it is down.
