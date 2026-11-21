@@ -105,8 +105,6 @@ type Parsed struct {
 	Meta *Meta
 	// Executable is the first word of [Service] ExecStart, empty when there is none.
 	Executable string
-	// User is [Service] User, empty when there is none.
-	User string
 }
 
 // Parse reads the keys crha cares about. It is deliberately small: only units crha wrote are
@@ -138,8 +136,6 @@ func Parse(content string) Parsed {
 			if json.Unmarshal([]byte(value), &meta) == nil {
 				out.Meta = &meta
 			}
-		case section == "[Service]" && key == "User":
-			out.User = value
 		case section == "[Service]" && key == "ExecStart":
 			if fields := strings.Fields(value); len(fields) > 0 {
 				out.Executable = fields[0]

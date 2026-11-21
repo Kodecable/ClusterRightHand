@@ -97,7 +97,7 @@ func TestSwitchFromForwardToIgnoreRemovesThePrivilegedUnit(t *testing.T) {
 	if _, err := os.Stat(at(host, filepath.Join(UnitDir, units.Privileged))); !os.IsNotExist(err) {
 		t.Fatal("crha-privileged.service is still there")
 	}
-	if !host.hasCommand("systemctl disable --now crha-privileged") {
+	if !host.hasCommand("systemctl disable --now crha-privileged.service") {
 		t.Fatalf("the privileged mode was not stopped: %q", host.commands)
 	}
 	if _, err := os.Stat(at(host, PrivilegedConfigPath)); err != nil {
@@ -165,7 +165,7 @@ func TestReplaceTrustKeepsTheRestOfPrivilegedConfig(t *testing.T) {
 	if names := trustNamesOf([]byte(got)); len(names) != 1 || names[0] != "crhs-2026" {
 		t.Fatalf("trust names %q", names)
 	}
-	if !strings.Contains(out.String(), "changed: the trust entries of "+PrivilegedConfigPath) {
+	if !strings.Contains(out.String(), "changed: "+PrivilegedConfigPath+": the trust entries") {
 		t.Fatalf("output:\n%s", out.String())
 	}
 }
@@ -315,10 +315,35 @@ func TestFailedRegistrationLeavesTheSwitchUnwritten(t *testing.T) {
 	if readFile(t, at(host, DefaultConfigPath)) != before {
 		t.Fatal("crha.toml changed although registration failed")
 	}
-	if saved := backups(t, host); len(saved) != 0 {
-		t.Fatalf("backups %q", saved)
-	}
 	wantCommandsInOrder(t, host, "systemctl stop crha.service", "systemctl start crha.service")
+}
+
+// Nothing after registering may fail but writing the files: a privileged.toml the node id cannot be
+// written into stops the run before the units stop and before crhs takes the token.
+func TestUneditablePrivilegedConfigFailsBeforeRegistering(t *testing.T) {
+	host := newFakeHost(t)
+	register, _ := fakeRegister(host)
+	if err := runEnroll(t, host, forwardAnswers(t), register, &strings.Builder{}); err != nil {
+		t.Fatal(err)
+	}
+	path := at(host, PrivilegedConfigPath)
+	if err := os.WriteFile(path, []byte("unknown_key = 1\n"+readFile(t, path)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	host.commands = nil
+	registerAgain, calls := fakeRegister(host)
+	err := runEnroll(t, host, reenrollWith(map[string]any{"privileged": map[string]any{"local_root": true, "trust": trustEntry(t)}}), registerAgain, &strings.Builder{})
+	if err == nil {
+		t.Fatal("enroll accepted a privileged.toml it cannot edit")
+	}
+	if *calls != 0 {
+		t.Fatal("registered before finding the problem")
+	}
+	for _, command := range host.commands {
+		if strings.HasPrefix(command, "systemctl stop") {
+			t.Fatalf("stopped the node before finding the problem: %q", host.commands)
+		}
+	}
 }
 
 // wantCommandsInOrder checks that the commands ran in this order, others in between.
@@ -355,5 +380,32 @@ func TestNewNodeInIgnoreModeUpdatesTheKeptPrivilegedConfig(t *testing.T) {
 	}
 	if _, err := os.Stat(at(host, filepath.Join(UnitDir, units.Privileged))); !os.IsNotExist(err) {
 		t.Fatal("crha-privileged.service came back in ignore mode")
+	}
+}
+
+// An upgrade is this version setting the node up again from its files: on a node enroll just set up,
+// the plan an upgrade to the same version makes (no migrations, the same binary) changes nothing.
+func TestAnUpgradesPlanOfAnEnrolledNodeChangesNothing(t *testing.T) {
+	for name, answers := range map[string]map[string]any{"forward": forwardAnswers(t), "ignore": ignoreAnswers()} {
+		t.Run(name, func(t *testing.T) {
+			host := newFakeHost(t)
+			register, _ := fakeRegister(host)
+			if err := runEnroll(t, host, answers, register, &strings.Builder{}); err != nil {
+				t.Fatal(err)
+			}
+			server := units.Parse(readFile(t, at(host, filepath.Join(UnitDir, units.Server))))
+			plan, err := BuildPlan(PlanInput{
+				Root: host.root, ConfigPath: server.Meta.Config, Executable: server.Executable,
+				Mode: server.Meta.Mode, Version: server.Meta.Version,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range plan.Files {
+				if f.Changed() {
+					t.Fatalf("%s would change:\n%s\n->\n%s", f.Path, f.Before, f.After)
+				}
+			}
+		})
 	}
 }

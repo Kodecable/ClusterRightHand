@@ -648,6 +648,10 @@ msgstr "节点访问权限由管理员授予。"
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "关闭的扩展对模型不可见。更改从下一轮开始生效。"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "an upgrade of this node has not ended yet"
+msgstr "该节点的上一次升级尚未结束"
+
 #: src/components/decision/request-details.tsx
 msgid "Annotations"
 msgstr "注解"
@@ -5006,6 +5010,14 @@ msgstr "起始行"
 msgid "Start one, or wait for a scheduled run."
 msgstr "新建一个，或等待计划任务运行。"
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Started one task group per architecture; each waits for its authorization:"
+msgstr "已为每种架构各启动一个任务组，每个任务组分别等待授权："
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Started task groups"
+msgstr "已启动的任务组"
+
 #: src/lib/action-text.ts
 msgid "Stat file {path}"
 msgstr "查看文件 {path}"
@@ -5186,6 +5198,11 @@ msgstr "任务组"
 #: src/features/tasks/task-group-page.tsx
 msgid "Task group details"
 msgstr "任务组详情"
+
+#. placeholder {0}: group.arch
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Task group for {0}"
+msgstr "{0} 的任务组"
 
 #: src/app/shell/nav.ts
 #: src/features/authorizations/pages.tsx
@@ -5523,6 +5540,10 @@ msgstr "此操作无法撤销。"
 #: src/features/ssh-credentials/pages.tsx
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "此凭据正被节点使用，无法删除。"
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "This crhs entry denies some operations but not upgrade, so crhs alone can replace the binary that enforces them. Add a deny rule for method \"upgrade\" in privileged.toml so an upgrade needs a user's signature: {value}"
+msgstr "这个 crhs 条目拒绝了部分操作，却没有拒绝 upgrade，因此 crhs 单独就能替换执行这些规则的二进制。请在 privileged.toml 中为 method \"upgrade\" 添加一条 deny 规则，使升级需要用户签名：{value}"
 
 #: src/features/downloads/pages.tsx
 msgid "This download link is incomplete."

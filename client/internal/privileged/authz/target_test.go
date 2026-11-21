@@ -39,6 +39,10 @@ func TestTargetErrors(t *testing.T) {
 		}}},
 		{"file.read without body", &protocol.TaskSpec{Kind: protocol.TaskSpecFileRead}},
 		{"unknown kind", &protocol.TaskSpec{Kind: "file.chmod"}},
+		// A space would let the version speak for the hash in a prefix authorization.
+		{"upgrade version with a space", &protocol.TaskSpec{Kind: protocol.TaskSpecNodeUpgrade, NodeUpgrade: &protocol.NodeUpgradeSpec{
+			Version: "1.3.0 sha256:00",
+		}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

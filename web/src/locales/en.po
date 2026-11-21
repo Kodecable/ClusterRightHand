@@ -648,6 +648,10 @@ msgstr "An administrator grants access to nodes."
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "An extension that is off is hidden from the model. The change applies to the next turn."
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "an upgrade of this node has not ended yet"
+msgstr "an upgrade of this node has not ended yet"
+
 #: src/components/decision/request-details.tsx
 msgid "Annotations"
 msgstr "Annotations"
@@ -5006,6 +5010,14 @@ msgstr "Start line"
 msgid "Start one, or wait for a scheduled run."
 msgstr "Start one, or wait for a scheduled run."
 
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Started one task group per architecture; each waits for its authorization:"
+msgstr "Started one task group per architecture; each waits for its authorization:"
+
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Started task groups"
+msgstr "Started task groups"
+
 #: src/lib/action-text.ts
 msgid "Stat file {path}"
 msgstr "Stat file {path}"
@@ -5186,6 +5198,11 @@ msgstr "Task group"
 #: src/features/tasks/task-group-page.tsx
 msgid "Task group details"
 msgstr "Task group details"
+
+#. placeholder {0}: group.arch
+#: src/features/nodes/upgrade-crha-dialog.tsx
+msgid "Task group for {0}"
+msgstr "Task group for {0}"
 
 #: src/app/shell/nav.ts
 #: src/features/authorizations/pages.tsx
@@ -5523,6 +5540,10 @@ msgstr "This cannot be undone."
 #: src/features/ssh-credentials/pages.tsx
 msgid "This credential is used by a node and cannot be deleted."
 msgstr "This credential is used by a node and cannot be deleted."
+
+#: src/features/nodes/trust-warnings.tsx
+msgid "This crhs entry denies some operations but not upgrade, so crhs alone can replace the binary that enforces them. Add a deny rule for method \"upgrade\" in privileged.toml so an upgrade needs a user's signature: {value}"
+msgstr "This crhs entry denies some operations but not upgrade, so crhs alone can replace the binary that enforces them. Add a deny rule for method \"upgrade\" in privileged.toml so an upgrade needs a user's signature: {value}"
 
 #: src/features/downloads/pages.tsx
 msgid "This download link is incomplete."

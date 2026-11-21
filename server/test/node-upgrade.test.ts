@@ -116,6 +116,37 @@ describe("planUpgrade", () => {
 		expect(plan.skipped.find((skip) => skip.name === "pkg")?.nodeReasons).toEqual(["package_managed"]);
 	});
 
+	it("skips a node whose upgrade has not ended", async () => {
+		const node = await addNode("busy-upgrading", { facts: able("amd64") });
+		for (const [kind, state] of [
+			["node.upgrade", "awaiting_authorization"],
+			["exec", "running"],
+		] as const) {
+			await db
+				.insertInto("tasks")
+				.values({
+					id: newId(),
+					org_id: node.org_id,
+					node_id: node.id,
+					kind,
+					spec: "{}",
+					attempt: 1,
+					privileged: 1,
+					output_mode: "full",
+					state,
+					timed_out: 0,
+					actor_type: "user",
+					actor_id: "u",
+					on_behalf_of_user_id: "u",
+					created_at: new Date().toISOString(),
+					output_bytes: 0,
+				} as never)
+				.execute();
+		}
+		const plan = await planUpgrade(db, [node], "1.3.0", () => true);
+		expect(plan.skipped).toMatchObject([{ name: "busy-upgrading", reason: "upgrade_in_progress" }]);
+	});
+
 	it("counts the tasks a restart would end", async () => {
 		const node = await addNode("busy", { facts: able("amd64") });
 		for (const state of ["running", "dispatched", "exited"] as const) {

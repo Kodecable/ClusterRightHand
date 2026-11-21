@@ -64,6 +64,9 @@ func (e enum[T]) unmarshal(data []byte, dst *T) error {
 // lowercase ASCII letters, digits, ".", "_" and "-", starting with a letter, at most 64 bytes.
 var openNamePattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{0,63}$`)
 
+// IsOpenName reports whether s has the form of an open name.
+func IsOpenName(s string) bool { return openNamePattern.MatchString(s) }
+
 // openName is a text value whose set grows within a major. Unlike an enum, any well-formed value
 // decodes and re-encodes unchanged; known lists the values this version understands, so a
 // receiver can tell an unknown one apart and decide what it means.

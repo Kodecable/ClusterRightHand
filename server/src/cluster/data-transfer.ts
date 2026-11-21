@@ -23,6 +23,7 @@ import { openTransferLocation } from "../library/transfer-location.ts";
 import { closeReason, toBytes } from "./connection.ts";
 import type { ClusterCore } from "./core.ts";
 import { specFromRow } from "./spec.ts";
+import { isSendingKind } from "./task-dispatch.ts";
 import { endTask, requestTaskCancel } from "./task-end.ts";
 import { TERMINAL } from "./types.ts";
 
@@ -193,7 +194,7 @@ async function runTransfer(
 	});
 	try {
 		// An upgrade's binary goes to the node the way a push's content does.
-		if (spec.kind === "file.push" || spec.kind === "node.upgrade") {
+		if (isSendingKind(spec.kind)) {
 			for await (const chunk of storage.openRead()) {
 				// A read stream may hand over more than one data frame holds.
 				const bytes = new Uint8Array(chunk);

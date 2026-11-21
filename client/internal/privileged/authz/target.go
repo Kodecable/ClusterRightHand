@@ -90,6 +90,9 @@ func Target(spec *protocol.TaskSpec) (method, target string, err error) {
 		if spec.NodeUpgrade == nil {
 			return "", "", errors.New("authz: node.upgrade task spec has no body")
 		}
+		if !protocol.ValidUpgradeVersion(spec.NodeUpgrade.Version) {
+			return "", "", fmt.Errorf("authz: node.upgrade version %q is not a version", spec.NodeUpgrade.Version)
+		}
 		return string(protocol.MethodUpgrade), UpgradeTarget(spec.NodeUpgrade.Version, spec.NodeUpgrade.SHA256), nil
 	default:
 		return "", "", fmt.Errorf("authz: unknown task spec kind %q", string(spec.Kind))

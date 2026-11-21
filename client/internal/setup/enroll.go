@@ -164,7 +164,9 @@ func Run(ctx context.Context, opts Options) (err error) {
 		}
 	}
 
-	// Plan everything that changes on a node set up before, and check it, before anything is written.
+	// The node as this version sets it up, worked out from the files already there with the same plan as
+	// an upgrade (doc/design/distribution.md "Switching a node set up before"): the answers become edits
+	// of the existing files, or the content of new ones.
 	mode := answers.Mode
 	executable, err := host.Executable()
 	if err != nil {
@@ -174,74 +176,65 @@ func Run(ctx context.Context, opts Options) (err error) {
 	if v == "" {
 		v = version.Version
 	}
-	unitFiles := UnitFiles(executable, configPath, mode, v)
-	var newConfig, newPrivileged []byte
-	trustChanged := false
-	var switches []string
-	if existing != nil {
-		data, err := os.ReadFile(at(host, configPath))
-		if err != nil {
-			return err
-		}
-		if newConfig, switches, err = editConfig(data, answers); err != nil {
-			return err
-		}
-	}
-	if answers.ReplaceTrust {
-		data, err := os.ReadFile(at(host, PrivilegedConfigPath))
-		if err != nil {
-			return err
-		}
-		if newPrivileged, err = replaceTrust(data, answers.LocalRoot, answers.Trust); err != nil {
-			return err
-		}
-		if _, err := privconfig.Parse(newPrivileged); err != nil {
-			return fmt.Errorf("privileged.toml with the new trust entries: %w", err)
-		}
-		// The same entries again, as from a rerun with the same answers file, change nothing.
-		if string(newPrivileged) == string(data) {
-			newPrivileged = nil
-		}
-		trustChanged = newPrivileged != nil
-	}
-	dropPrivilegedUnit := false
-	if mode != config.ModeForward {
-		if data, err := os.ReadFile(at(host, filepath.Join(UnitDir, units.Privileged))); err == nil {
-			dropPrivilegedUnit = units.Parse(string(data)).Managed
-		}
-	}
 	if err := EnsureLayout(ctx, host, mode, say); err != nil {
 		return err
 	}
-	// On a node set up before, registration uses crha.toml as this run will leave it and runs before
-	// any file changes, so a refused token changes nothing; the node id it returns is the last input
-	// of the plan.
-	var cfg *config.Config
-	if existing == nil {
-		if cfg, err = ensureConfig(host, configPath, answers, say); err != nil {
+	want := PlanInput{
+		Root: host.Root(), ConfigPath: configPath, Executable: executable, Mode: mode, Version: v,
+		Config:     Content{New: []byte(renderConfig(answers)), Mode: 0o640, Owner: "root", Group: SystemUser},
+		Privileged: Content{Mode: 0o600, Owner: "root", Group: "root"},
+	}
+	if existing != nil {
+		want.Config.Edit = editing(configChanges(existing, answers)...)
+	}
+	if answers.ReplaceTrust {
+		want.Privileged.Edit = editing(trustChange(answers.LocalRoot, answers.Trust))
+	}
+	if mode == config.ModeForward && !privilegedConfig && !keep {
+		// A new privileged.toml names the node; the id is known after registering, a stand-in until then.
+		uid, err := host.UID(SystemUser)
+		if err != nil {
+			return fmt.Errorf("look up uid of %s: %w", SystemUser, err)
+		}
+		want.Privileged.New = []byte(renderPrivilegedConfig(standInNodeID, uid, answers.LocalRoot, answers.Trust))
+	}
+	plan, err := BuildPlan(want)
+	if err != nil {
+		return err
+	}
+	// Enrolling again may register a new node, whose id privileged.toml must then name. The edit is tried
+	// now on the stand-in, so that nothing after registering can fail but writing the files.
+	nameNode := !keep && plan.File(PrivilegedConfigPath).After != nil
+	if nameNode {
+		if err := plan.Amend(PrivilegedConfigPath, nodeIDEdit(standInNodeID), true); err != nil {
 			return err
 		}
-	} else if newConfig != nil {
-		if cfg, err = config.Parse(newConfig); err != nil {
-			return err
-		}
-	} else {
-		cfg = existing
+	}
+	// Registration uses crha.toml as this run will leave it, before any file changes, so a refused token
+	// changes nothing.
+	cfg, err := config.Parse(plan.File(configPath).After)
+	if err != nil {
+		return err
 	}
 
-	// Everything that changes is known now but the node id. Before anything changes, the units the node
-	// runs stop, as for an upgrade: crha must not run on a key or a configuration being replaced, and
-	// the privileged mode keeps writing its state while it runs. A failure from here on starts them again.
-	changed := newConfig != nil || newPrivileged != nil || dropPrivilegedUnit
-	for _, unit := range unitFiles {
-		current, err := os.ReadFile(at(host, filepath.Join(UnitDir, unit.Name)))
-		if err != nil || string(current) != unit.Content {
-			changed = true
+	// The set is backed up while the node still runs. privileged.toml may still change with the node id,
+	// so a node with one is backed up on every new enrollment; the manifest records it once it is known.
+	manifestPath := ""
+	if existing != nil && (plan.Changed() || (nameNode && privilegedConfig)) {
+		id := backup.EnrollID(time.Now())
+		if _, manifestPath, err = backup.Take(backup.Options{
+			Root: host.Root(), Dir: at(host, backup.Dir), ID: id, From: v, To: v, Units: plan.Units,
+		}, plan.BackupFiles()); err != nil {
+			return fmt.Errorf("back up: %w", err)
 		}
+		say("backed up: the previous files to " + filepath.Join(backup.Dir, id))
 	}
+	// Before anything changes, the units the node runs stop, as for an upgrade: crha must not run on a
+	// key or a configuration being replaced, and the privileged mode keeps writing its state while it
+	// runs. A failure from here on starts them again.
 	run := hostRunner(host)
 	var stopped []string
-	if existing != nil && (changed || !keep) {
+	if existing != nil && (plan.Changed() || !keep) {
 		stopped = units.Present(host.Root())
 		if err := units.Stop(ctx, run, stopped); err != nil {
 			return err
@@ -306,109 +299,31 @@ func Run(ctx context.Context, opts Options) (err error) {
 		fmt.Fprintf(out, "node key fingerprint: %s\n", result.Fingerprint)
 	}
 
-	// A new node keeps the privileged mode's configuration, under its new id: privileged.toml
-	// answers only to the node it names. A privileged.toml kept outside forward mode follows too, so
-	// the way back to forward still works.
-	nodeIDChange := ""
-	if !keep && privilegedConfig {
-		base := newPrivileged
-		if base == nil {
-			if base, err = os.ReadFile(at(host, PrivilegedConfigPath)); err != nil {
-				return err
+	// privileged.toml answers only to the node it names: a new node keeps the privileged mode's
+	// configuration under its new id, also when kept outside forward mode, for the way back.
+	if nameNode {
+		if err := plan.Amend(PrivilegedConfigPath, nodeIDEdit(result.NodeID), false); err != nil {
+			return err
+		}
+		if manifestPath != "" {
+			if err := backup.SetAfter(manifestPath, PrivilegedConfigPath, plan.File(PrivilegedConfigPath).After); err != nil {
+				say("warning: the backup does not record the new privileged.toml: " + err.Error())
 			}
 		}
-		edited, from, err := setNodeID(base, result.NodeID)
-		if err != nil {
-			return err
-		}
-		if edited != nil {
-			newPrivileged = edited
-			nodeIDChange = from + " -> " + result.NodeID
-			changed = true
-		}
 	}
-
-	if existing != nil && changed {
-		dir, err := backupExisting(host, configPath, executable, v, newConfig, newPrivileged, unitFiles, dropPrivilegedUnit)
-		if err != nil {
-			return fmt.Errorf("back up: %w", err)
-		}
-		say("backed up: the previous files to " + dir)
-	}
-	if existing != nil {
-		if newConfig != nil {
-			if err := backup.ReplaceFile(at(host, configPath), newConfig, 0o640); err != nil {
-				return err
-			}
-			for _, line := range switches {
-				say("changed: " + configPath + ": " + line)
-			}
-		} else {
-			say("skipped: " + configPath)
-		}
-	}
-
-	switch {
-	case newPrivileged != nil:
-		if err := backup.ReplaceFile(at(host, PrivilegedConfigPath), newPrivileged, 0o600); err != nil {
-			return err
-		}
-		if trustChanged {
-			say("changed: the trust entries of " + PrivilegedConfigPath)
-		}
-		if nodeIDChange != "" {
-			say("changed: " + PrivilegedConfigPath + ": node_id: " + nodeIDChange)
-		}
-	case mode != config.ModeForward:
-	case keep || privilegedConfig:
-		say("skipped: " + PrivilegedConfigPath)
-	default:
-		uid, err := host.UID(SystemUser)
-		if err != nil {
-			return fmt.Errorf("look up uid of %s: %w", SystemUser, err)
-		}
-		if err := ensurePrivilegedConfig(host, result.NodeID, uid, answers, say); err != nil {
-			return err
-		}
-	}
-
-	if dropPrivilegedUnit {
-		// Leaving forward mode: the privileged mode's unit goes; privileged.toml stays for a way back.
-		if err := systemctl(ctx, host, "disable", "--now", strings.TrimSuffix(units.Privileged, ".service")); err != nil {
-			return err
-		}
-		if err := os.Remove(at(host, filepath.Join(UnitDir, units.Privileged))); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		say("removed: " + filepath.Join(UnitDir, units.Privileged))
-	}
-	var unitNames []string
-	for _, unit := range unitFiles {
-		if err := writeUnit(host, unit.Name, unit.Content, say); err != nil {
-			return err
-		}
-		// Enabled crha first, as enroll always has; systemd does not care about the order.
-		unitNames = append([]string{strings.TrimSuffix(unit.Name, ".service")}, unitNames...)
-	}
-	if err := systemctl(ctx, host, "daemon-reload"); err != nil {
+	if err := plan.Apply(ctx, run, host.Chown); err != nil {
 		return err
 	}
-	if err := systemctl(ctx, host, append([]string{"enable"}, unitNames...)...); err != nil {
-		return err
-	}
+	reportPlan(plan, executable, say)
 	if answers.Start {
 		// Started in order, privileged mode first, as an upgrade does; a unit that runs already stays.
-		var start []string
-		for _, unit := range unitFiles {
-			start = append(start, unit.Name)
-		}
-		if err := units.Start(ctx, run, start); err != nil {
+		if err := units.Start(ctx, run, plan.Units); err != nil {
 			return err
 		}
 		stopped = nil
 	}
 	if existing != nil {
-		if err := backup.Prune(at(host, backup.Dir)); err != nil {
+		if err := backup.Prune(at(host, backup.Dir), backup.KindEnroll, time.Now()); err != nil {
 			say("warning: removing old backups failed: " + err.Error())
 		}
 	}
@@ -419,51 +334,29 @@ func Run(ctx context.Context, opts Options) (err error) {
 	return nil
 }
 
-// backupExisting backs up the fixed set of a node set up before enroll changes it
-// (doc/design/distribution.md "Backups"), with each file's content after this run where it is known.
-func backupExisting(host Host, configPath, executable, v string, newConfig, newPrivileged []byte, unitFiles []UnitFile, dropPrivilegedUnit bool) (string, error) {
-	current := func(path string) []byte {
-		data, err := os.ReadFile(at(host, path))
-		if err != nil {
-			return nil
+// reportPlan says what happened to each file of the set but the binary, which enroll never replaces.
+func reportPlan(plan *Plan, executable string, say func(string)) {
+	for _, f := range plan.Files {
+		switch {
+		case f.Path == executable:
+		case !f.Changed():
+			if f.After != nil {
+				say("skipped: " + f.Path)
+			}
+		case f.After == nil:
+			say("removed: " + f.Path)
+		case f.Before == nil || len(f.Changes) == 0:
+			say("wrote: " + f.Path)
+		default:
+			for _, line := range f.Changes {
+				say("changed: " + f.Path + ": " + line)
+			}
 		}
-		return data
 	}
-	after := func(path string, changed []byte) []byte {
-		if changed != nil {
-			return changed
-		}
-		return current(path)
-	}
-	rendered := map[string][]byte{}
-	for _, unit := range unitFiles {
-		rendered[unit.Name] = []byte(unit.Content)
-	}
-	files := []backup.File{
-		{Path: configPath, After: after(configPath, newConfig)},
-		{Path: PrivilegedConfigPath, After: after(PrivilegedConfigPath, newPrivileged)},
-	}
-	for _, name := range []string{units.Privileged, units.Server} {
-		path := filepath.Join(UnitDir, name)
-		content := rendered[name]
-		if content == nil && !(name == units.Privileged && dropPrivilegedUnit) {
-			content = current(path)
-		}
-		files = append(files, backup.File{Path: path, After: content})
-	}
-	files = append(files, backup.File{Path: executable, After: current(executable)})
-	units := []string{}
-	for _, unit := range unitFiles {
-		units = append(units, unit.Name)
-	}
-	id := backup.EnrollID(time.Now())
-	if _, _, err := backup.Take(backup.Options{
-		Root: host.Root(), Dir: at(host, backup.Dir), ID: id, From: v, To: v, Units: units,
-	}, files); err != nil {
-		return "", err
-	}
-	return filepath.Join(backup.Dir, id), nil
 }
+
+// standInNodeID stands for the node id a registration will return, to try privileged.toml's edit.
+const standInNodeID = "00000000-0000-7000-8000-000000000000"
 
 // previousNodeID is the node id of the current enrollment: the one the last enrollment recorded in the
 // state directory, else the one privileged.toml names (a node enrolled before crha kept it); empty
@@ -602,49 +495,6 @@ func chmodDirectory(path string, mode os.FileMode) error {
 	return nil
 }
 
-func ensureConfig(host Host, path string, answers resolved, say func(string)) (*config.Config, error) {
-	actual := at(host, path)
-	if ok, err := exists(actual); err != nil {
-		return nil, err
-	} else if ok {
-		cfg, err := config.Load(actual)
-		if err != nil {
-			return nil, err
-		}
-		say("skipped: " + path)
-		return cfg, nil
-	}
-	content := renderConfig(answers)
-	cfg, err := config.Parse([]byte(content))
-	if err != nil {
-		return nil, err
-	}
-	if err := writeFile(host, actual, 0o640, content, "root", SystemUser); err != nil {
-		return nil, err
-	}
-	say("wrote: " + path)
-	return cfg, nil
-}
-
-func ensurePrivilegedConfig(host Host, nodeID string, uid uint32, answers resolved, say func(string)) error {
-	actual := at(host, PrivilegedConfigPath)
-	if ok, err := exists(actual); err != nil {
-		return err
-	} else if ok {
-		say("skipped: " + PrivilegedConfigPath)
-		return nil
-	}
-	content := renderPrivilegedConfig(nodeID, uid, answers.LocalRoot, answers.Trust)
-	if _, err := privconfig.Parse([]byte(content)); err != nil {
-		return fmt.Errorf("privileged config: %w", err)
-	}
-	if err := writeFile(host, actual, 0o600, content, "root", "root"); err != nil {
-		return err
-	}
-	say("wrote: " + PrivilegedConfigPath)
-	return nil
-}
-
 // checkKeep validates the keep path before any step runs. The enrollment step is skipped, so for
 // forward mode the node id it would return can only come from an existing privileged.toml.
 func checkKeep(host Host, answers resolved) error {
@@ -674,27 +524,6 @@ func validateTrust(answers resolved) error {
 	return nil
 }
 
-func writeUnit(host Host, name, content string, say func(string)) error {
-	if err := writeFile(host, at(host, filepath.Join(UnitDir, name)), 0o644, content, "root", "root"); err != nil {
-		return err
-	}
-	say("wrote: " + filepath.Join(UnitDir, name))
-	return nil
-}
-
-func writeFile(host Host, actual string, mode os.FileMode, content, owner, group string) error {
-	if err := os.MkdirAll(filepath.Dir(actual), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(actual, []byte(content), mode); err != nil {
-		return err
-	}
-	if err := os.Chmod(actual, mode); err != nil {
-		return err
-	}
-	return host.Chown(actual, owner, group)
-}
-
 // hostRunner runs programs through host for the units package.
 func hostRunner(host Host) units.Runner {
 	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -710,7 +539,7 @@ func hostRunner(host Host) units.Runner {
 }
 
 func systemctl(ctx context.Context, host Host, args ...string) error {
-	return runChecked(ctx, host, "systemctl "+strings.Join(args, " "), "systemctl", args...)
+	return units.Systemctl(ctx, hostRunner(host), args...)
 }
 
 func runChecked(ctx context.Context, host Host, description string, name string, args ...string) error {

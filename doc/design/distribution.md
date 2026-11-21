@@ -6,8 +6,8 @@ its crha nodes ([crha self-upgrade](#crha-self-upgrade)). crhs's own self-upgrad
 ## Artifacts
 
 `pnpm package` builds every archive into `dist/release/` and writes `SHA256SUMS`; downloads are cached in
-`dist/cache/`. The version is `CRH_VERSION` or `git describe --tags --always --dirty`, the same as
-`pnpm build:crhs`, which it runs first unless `--skip-build`; `--arch amd64,arm64` picks the
+`dist/cache/`. The version is the one [Versions](#versions) describes, the same as `pnpm build:crhs`,
+which it runs first unless `--skip-build`; `--arch amd64,arm64` picks the
 architectures (default both). `pnpm package:oci` stages one build context per architecture in
 `dist/oci-context-<arch>/` (default the host's architecture) and prints the `podman build` commands.
 Each context holds the contents of `dist/crhs` with that architecture's prebuilt `re2` binary in place
@@ -41,8 +41,8 @@ licenses.
 `pnpm package` builds `crha_<debversion>_<arch>.deb` and `crha-<rpmversion>-1.<rpmarch>.rpm` with nfpm,
 which must be on `PATH`; the `amd64`/`arm64` architectures become `x86_64`/`aarch64` in the rpm name. A
 prerelease `1.2.0-rc.1` is packaged as `1.2.0~rc.1`, because dpkg and rpm sort `~` before the release
-and a `-` after it. A version that does not start with a digit, such as a `git describe` result, is
-packaged as `0.0.0~git<version>`, with `-` replaced by `.`. The `~` stays in the package metadata but
+and a `-` after it; build metadata (`+4.gabc1234`) stays, as both allow `+`, and `dev` becomes
+`0.0.0~dev`, since both need a leading digit. The `~` stays in the package metadata but
 becomes `-` in the file names, since GitHub release assets cannot carry it. The packages contain only `/usr/bin/crha` (with the
 `pkgmanaged` build tag) and `/usr/share/doc/crha/{LICENSE,THIRD_PARTY_LICENSES.txt}`; they create no
 user, directory or unit, because `crha enroll` does that. `crha version` then prints `package-managed`,
@@ -89,6 +89,27 @@ start. Without arguments, on the first start it runs `crhs init` with `--answers
 /crhs-data/init.json` when that file exists, or interactively when the container has a stdin terminal,
 else fails with an explanation; it then runs `serve --config /crhs-data/crhs.toml`.
 
+## Versions
+
+`scripts/version.ts` is the one place that turns a tag or a checkout into a version; the build, the
+packaging and the release workflow all use it:
+
+| Source | Example | Version |
+|---|---|---|
+| `CRH_VERSION`, when set | | as given (a manual override) |
+| A release run's tag (`GITHUB_REF_TYPE=tag`) | `v0.2.0-rc.1` | `0.2.0-rc.1`; a tag that is not `v` and a release version fails the run |
+| `git describe` on a tag | `v0.2.0-rc.1` | `0.2.0-rc.1` |
+| `git describe` after a tag | `v0.2.0-rc.1-4-gabc1234-dirty` | `0.2.0-rc.1+4.gabc1234.dirty` |
+| `git describe` without a tag | `abc1234` | `0.0.0+gabc1234` |
+| No git | | `dev` |
+
+A **release version** is `x.y.z` with an optional SemVer prerelease (`-rc.1`) and no build metadata; its
+release is tagged `v<version>`. A build between tags carries build metadata, so it is never a release,
+and a node or crhs that runs one takes no part in self-upgrade. A prerelease is a release with a
+prerelease part. crhs (`server/src/util/release-version.ts`) and crha's installer
+(`client/internal/upgrade/version.go`) apply the same rule, tested against the same cases
+(`test/interop/release_versions.json`).
+
 ## Releases
 
 CI (`.github/workflows/ci.yml`) runs the checks, the unit, e2e, bundle and system tests on every push to
@@ -103,8 +124,9 @@ CI (`.github/workflows/ci.yml`) runs the checks, the unit, e2e, bundle and syste
   release), signs it with cosign and attests its provenance.
 - `release` opens a draft GitHub release with the artifacts; the maintainer reviews and publishes it.
 
-The version is the tag without its leading `v`. A version containing `-` is a prerelease: it is not
-tagged `latest`, and the draft is marked as a prerelease.
+The `packages` job resolves the version once ([Versions](#versions)) and hands it, with whether it is a
+prerelease, to the other jobs as its outputs. A prerelease is not tagged `latest`, and the draft is
+marked as a prerelease.
 
 Signing is keyless: cosign uses the workflow's OIDC identity for `SHA256SUMS` and the image, and
 `actions/attest-build-provenance` attaches build provenance to the files and the image. The rpm
@@ -194,13 +216,49 @@ id, crha's uid, the local root entry and the pasted entries, which are parsed fi
 the units, starting them if asked; and prints the node id and key fingerprint to compare when
 approving the node in the WebUI.
 
+### The plan of the fixed set
+
+crha enroll and the self-upgrade set the node up with one plan (`setup.BuildPlan`), so an upgrade is the
+new version setting the node up again from the files already there. The plan reads every file of the
+[fixed set](#backups) as it is and works each out as this version sets it up, changing nothing:
+
+- the units, rendered from their templates; outside `forward`, a privileged unit crha wrote goes and
+  one written by hand stays;
+- `crha.toml` and `privileged.toml`: an existing file through the caller's edits, a missing one from
+  the caller's new content, both through [TOML edits](#toml-edits);
+- the binary: the caller's new one, or the one in place.
+
+It then runs the self-test: this version's strict parsers must read the configuration it leaves. The
+caller backs up the whole set from the plan, and the plan writes what changed in order, the binary last,
+removes a dropped unit (disabling it first), reloads systemd and enables the units. A caller may amend a
+file after registering (the node id), and may first try an amendment without keeping it. What the two
+callers bring is all that differs:
+
+| | crha enroll | Self-upgrade |
+|---|---|---|
+| `crha.toml` | the answers as edits, or new content | the migrations |
+| `privileged.toml` | the trust entries as an edit, or new content; `node_id` after registering | the migrations |
+| Binary | the one in place | the received one |
+| Around it | the questions, registration | the hand-over, the readiness check, the automatic rollback |
+
+### TOML edits
+
+Every change to a configuration file goes through `tomledit` over go-toml's comment-preserving editor
+(`unstable/edit`): set a key, delete a key, rename one (its value and comments move with it), or replace
+a top-level array of tables (enroll's `[[trust]]`). What no edit names stays as it was, byte for byte,
+comments and order included; comments inside an array are kept less reliably, as deleting an element
+can take a comment that stands above the next one. After each edit both versions of the document are
+decoded, and they must differ by exactly that edit, so a defect of the editor stops the caller instead
+of being written. An edit that changes nothing (a value set to what it is, a missing key deleted) is no
+change.
+
 ### Switching a node set up before
 
 On a node set up before, the existing files give the defaults, and an answer that differs switches the
 node to it, from the questions or from an answers file alike:
 
-- `crha.toml` is edited in place with go-toml's comment-preserving editor: only the changed keys are
-  rewritten, and switching to `forward` adds the privileged socket it needs.
+- `crha.toml` is edited in place ([TOML edits](#toml-edits)): only the changed keys are rewritten, and
+  switching to `forward` adds the privileged socket it needs.
 - Switching to `forward` writes `crha-privileged.service`; a new `privileged.toml` needs the node id,
   which only an enrollment returns, so when keeping the enrollment `privileged.toml` must already exist.
   Leaving `forward` disables and removes `crha-privileged.service` and keeps `privileged.toml` for a way
@@ -209,20 +267,25 @@ node to it, from the questions or from an answers file alike:
   ones; `node_id`, the other keys and their comments stay as they were. The same entries again (a rerun
   with the same answers) change nothing.
 
-Enroll plans every change first and checks it, then goes in the order of an upgrade
-([On the node](#on-the-node)), reusing its steps:
+Enroll goes in the order of an upgrade ([On the node](#on-the-node)), reusing its steps, so that after
+registering nothing can fail but writing the files:
 
-1. **Stop** the units whose files are present, `crha-privileged` and `crha`, when anything changes or
+1. **Plan** every change and check it while the node runs ([The plan of the fixed
+   set](#the-plan-of-the-fixed-set)), and, when enrolling again with a `privileged.toml`, try its
+   `node_id` edit on a stand-in id ([Same node or new node](#same-node-or-new-node)).
+2. **Back up** the node's fixed set ([Backups](#backups)) when a file changes, and on every new
+   enrollment of a node with a `privileged.toml`, whose `node_id` may change; the manifest records the
+   edit once the id is known.
+3. **Stop** the units whose files are present, `crha-privileged` and `crha`, when anything changes or
    the node enrolls again. crha must not run on a key or configuration being replaced, and the privileged
    mode keeps writing its state while it runs. A failure from here on starts them again.
-2. **Register**, when enrolling again, against `crha.toml` as the run will leave it. A refused token
-   changes no file. The node id it returns completes the plan ([Same node or new
-   node](#same-node-or-new-node)).
-3. **Back up** the node's fixed set ([Backups](#backups)) when a file changes, then write the files.
-4. **Start** the units, privileged mode first, when they are to be started; otherwise stopped units stay
-   stopped.
+4. **Register**, when enrolling again, against `crha.toml` as the run will leave it. A refused token
+   changes no file.
+5. **Write** the files, then **start** the units, privileged mode first, when they are to be started;
+   otherwise stopped units stay stopped.
 
-A rerun that changes nothing stops, backs up and writes nothing.
+A rerun that changes nothing stops, backs up and writes nothing; each file is reported as written,
+changed (with what changed), removed or skipped.
 
 ### Same node or new node
 
@@ -316,14 +379,17 @@ verify = true
 
 - The assets are read straight from `<url>/releases/download/v<version>/<asset>`, without the GitHub API
   and its rate limit: `crha-<version>-linux-<arch>.tar.gz`, `SHA256SUMS` and `SHA256SUMS.sigstore.json`.
-- A build whose version is not a release (`dev`, a `git describe` result) has nothing to fetch, and
-  fetching fails and says so.
+- A crhs whose version is not a release ([Versions](#versions)) has no crha release to send,
+  and the installer upgrades only from a release to a newer one: such a crhs refuses to upgrade nodes.
 - The cache is `<data>/crha-releases/<version>/`, holding the assets unchanged under their release
-  names. This layout is a documented interface: with `download = false`, or for a build without a
-  release, the operator copies the assets there by hand; there is no import command. crhs reads the binary out of the archive when
-  it sends it, so the cache holds no derived files. Other versions' directories are removed at startup.
+  names. This layout is a documented interface: with `download = false` the operator copies the
+  assets there by hand; there is no import command. crhs reads the binary out of the archive when it
+  sends it, so the cache holds no derived files. Other versions' directories are removed at startup.
 - Downloads go through the wrapped global fetch, so they carry crhs's User-Agent
   ([Outbound requests](architecture.md#outbound-requests)); the Sigstore client is given the same fetch.
+  A download is streamed to a temporary file of its own and stops at the asset's size limit.
+- `SHA256SUMS` lists every archive and also each crha binary, under its path in the unpacked archive
+  (`crha-<version>-linux-<arch>/crha`): the hash an upgrade's authorization binds.
 
 Downloading and verifying are separate steps, run once per version and architecture however many tasks
 wait for them (single flight), and verification runs every time a release is about to be sent; no
@@ -332,16 +398,19 @@ wait for them (single flight), and verification runs every time a release is abo
 1. **Download** each missing asset, when `download` is true; otherwise a missing archive fails and names
    the path to copy it to.
 2. **Verify.** With `verify = true`, both checks are mandatory:
-   - the Sigstore bundle must verify `SHA256SUMS`, with the certificate identity
+   - the Sigstore bundle must verify `SHA256SUMS`, with exactly the certificate identity
      `https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/v<version>` (derived
-     from `url`) and the issuer `https://token.actions.githubusercontent.com`;
-   - the archive's SHA-256 must match its line in `SHA256SUMS`.
+     from `url`; matched whole, so `v1.2.30` or another workflow never stands in for it) and the issuer
+     `https://token.actions.githubusercontent.com`;
+   - the archive's SHA-256 must match its line in `SHA256SUMS`, and the binary read out of it its own
+     line. A signed list that disagrees with its own binary is a broken release: it fails without a
+     new download.
 
    Verification needs the network: the Sigstore trusted root is refreshed through TUF every time, and
    there is no fallback to a bundled or cached root. A host that cannot reach GitHub and the Sigstore TUF
    repository must turn verification off. With `verify = false` the signature is not checked, but when
    `SHA256SUMS` is present the archive is still checked against it; without it the archive is used as
-   is. A `url` that is not a `github.com` repository is a configuration error unless `verify` is false.
+   is; the binary's line is checked when it is there. A `url` that is not a `github.com` repository is a configuration error unless `verify` is false.
 3. **On failure**, crhs tells the two kinds apart. A definite failure (a bad signature, a wrong
    identity, a hash mismatch, a malformed file) deletes the files it condemns and downloads them again,
    at most twice per run; with `download = false` nothing is deleted and the run fails. A failure to
@@ -356,17 +425,20 @@ architecture, and the binary's size and SHA-256; the bytes travel on a data conn
 `file.push`'s ([File plane](library.md#file-plane)). It goes through rules, approvals and the
 authorization planner like every privileged task, and several nodes are one task group signed once. A
 `spec` authorization binds the binary's hash, so a user signing with `crhu` can compare it with the
-release's `SHA256SUMS`. Nodes of different architectures receive different specs, so crhs makes one
+line `crha-<version>-linux-<arch>/crha` of the release's `SHA256SUMS`. Nodes of different architectures receive different specs, so crhs makes one
 group per architecture.
 
 `POST /api/nodes/upgrade` (administrators; an agent's call needs approval) takes nodes and node groups
 like a task group, and answers the plan: the nodes it upgrades, with their running tasks, and the nodes
 it skips with a reason: not a crha node, not connected, `self_upgrade` not available (with the node's
 reasons), no `arch` reported, already at crhs's version, newer than crhs (there is no downgrade:
-configuration migrations only go forward), or a version that is not a release. With `dryRun` it stops
-there and fetches nothing; the WebUI shows that plan before it starts. Otherwise it fetches and
-verifies the release once per architecture, stages the binary and starts the groups, and records
-`node.upgrade_requested` in the audit log.
+configuration migrations only go forward), a version that is not a release, or an upgrade of the node
+that has not ended. A crhs that is not a release refuses. With `dryRun` it stops there and fetches
+nothing; the WebUI shows that plan, and starts exactly the nodes it showed. Otherwise it fetches and
+verifies the release of every architecture first, so a release that fails, possibly a tampered one,
+starts nothing and is audited as `node.upgrade_failed`; then it stages the binaries, starts one group per
+architecture, and records `node.upgrade_requested` with the groups that started (and the error, when a
+later one failed to).
 
 `node.upgrade` is not in the major's base set of task kinds: crhs sends it only to a node whose `hello`
 lists it, and ends it `unsupported_kind` otherwise ([Version
@@ -389,9 +461,10 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
    receives it through its input queue and writes it; in `ignore` crha writes it. It is written to
    `/var/lib/crha-upgrade/backups/task-<task id>/crha`, this upgrade's backup directory, hashed as it
    arrives (`/var/lib/crha-upgrade` is root's, 0755; `backups` and each backup are 0700), and a wrong
-   size or hash fails the task. It never passes
-   through a directory the unprivileged mode can write: the version must look like a version, the
-   directories must be root's and real directories, and the file is created without following links.
+   size or hash fails the task. The spec must name this node's architecture and at most 128 MiB. It never
+   passes through a directory the unprivileged mode can write: the version must look like a version
+   (checked before the authorization target is rendered from it, so it cannot add words to the target),
+   the directories must be root's and real directories, and the file is created without following links.
 2. **Hand over (old binary).** Start the new binary in a transient unit, outside crha's cgroups, so that
    stopping crha's services does not kill it: `systemd-run --unit crha-upgrade-<task id> --collect
    /var/lib/crha-upgrade/backups/task-<task id>/crha __upgrade-install --from <old version> --to <version> --task
@@ -407,10 +480,10 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
    out the node as this version sets it up, changing nothing yet:
    - Read `crha.service`: its `X-CRH-Meta` gives the mode and the configuration, its `ExecStart` the
      binary to replace. A unit crha did not write stops the install here.
-   - Read the [fixed set](#backups) of files; one that is absent is recorded as such.
-   - Render the units with this version's templates, the same function `crha enroll` writes them with.
-   - Migrate `crha.toml` and `privileged.toml` ([Configuration migrations](#configuration-migrations)).
-   - Self-test: this version's strict parsers must read the migrated files.
+   - Make the plan `crha enroll` makes ([The plan of the fixed set](#the-plan-of-the-fixed-set)), with
+     the migrations as the configuration's edits ([Configuration
+     migrations](#configuration-migrations)) and this binary as the new one; it renders the units and
+     runs the self-test.
 
    A failure here leaves the node as it was, with the old crha still running.
 4. **Wait for the hand-over.** Search the journal for the hand-over line, matched on the `_SYSTEMD_UNIT`
@@ -429,10 +502,10 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
      owners and modes. Nothing that is already right changes, and none of it is undone by a rollback.
    - Back up the fixed set to `task-<task id>` ([Backups](#backups)); the upgrade log names the
      manifest.
-   - Write the files whose content changes next to their targets and rename them into place, the binary
-     last (it copies itself). A configuration file no migration changed is not written: it stays byte for
-     byte. Renaming over the binary is safe while processes run from it (they keep the old inode); the
-     old file is freed when the last one exits. Then `systemctl daemon-reload` and `enable` the units.
+   - Apply the plan: the files whose content changes are written, the binary last (it copies itself). A
+     configuration file no migration changed is not written: it stays byte for byte. Renaming over the
+     binary is safe while processes run from it (they keep the old inode); the old file is freed when
+     the last one exits. Then `systemctl daemon-reload` and `enable` the units.
 7. **Activate.** Note the time, start `crha-privileged` before `crha`, as the packages do, and follow the
    journal (`journalctl -f -o json`) for the readiness line of the new version, matched on
    `_SYSTEMD_UNIT` and logged after that time. The line names the version, which the old binary cannot
@@ -444,8 +517,9 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
    line and its matcher come from the same binary, so its format is not a contract between versions.
 8. **Roll back** when the line does not appear within 120 seconds, or when a step after the stop fails:
    restore the fixed set from the manifest, `systemctl daemon-reload`, and start the units. The rollback
-   does not check the old version's health. A step that fails before the backup has replaced nothing:
-   the stopped services are only started again.
+   runs to its end even when systemd stops the installer, and a file that cannot be restored does not
+   keep the units stopped. It does not check the old version's health. A step that fails before the
+   backup has replaced nothing: the stopped services are only started again.
 
 The hand-over line is written by the old version and matched by the new one, so unlike the readiness
 line it is a contract between versions: it is part of each major's frozen upgrade path
@@ -459,11 +533,7 @@ migration names the first version that needs it, the file, and a list of edits: 
 or rename one (its value and comments move with it). It runs on an upgrade from an older version to
 that version or a newer one.
 
-- The edits go through the comment-preserving editor of go-toml (`unstable/edit`): what no edit names
-  stays as it was, byte for byte, comments and order included. Comments inside an array are kept less
-  reliably: deleting an element can take a comment that stands above the next one.
-- After each edit both versions of the document are decoded, and they must differ by exactly that edit,
-  so a defect of the editor stops the upgrade instead of being installed.
+- The edits are [TOML edits](#toml-edits), as enroll's are, each checked to change exactly what it says.
 - Each edit is written to the upgrade log.
 - Migrations make no promise about behavior. A release may turn a default off for safety, rename or drop
   a key, and its release notes say what changed. The one requirement is that the result needs no one's
@@ -480,9 +550,10 @@ while they hold the install lock: a process that does not get the lock says so o
 and writes nothing. One JSON object per line, `{"ts", "upgrade_id", "from", "to", "level", "step",
 "msg"}`, and `manifest` on the line that records the backup; each upgrade ends with a line whose step
 is its outcome, `activated`, `rolled_back` or `failed`, with the reason. The file holds at most 128
-lines; each write drops the oldest lines past that and replaces the file by a rename, which is safe in
-a directory only root can write. An upgrade writes a few dozen lines, so the log keeps the last several
-upgrades.
+lines; each write drops the oldest lines past that, the lines of the latest activated upgrade and of
+the latest upgrade last, so failed attempts cannot push out what a rollback by hand needs. The file is
+replaced by a rename, which is safe in a directory only root can write. An upgrade writes a few dozen
+lines, so the log keeps the last several upgrades.
 
 crha reports the log's path in its facts as `upgrade_log_path`, as it reports its notes' path
 ([Node notes](agent-runtime.md#node-notes)), and crhs reads it on demand with an ordinary `file.read`.
@@ -493,11 +564,14 @@ On the node:
 
 - `crha upgrade status` prints the last upgrade's outcome and what a rollback would do, then the log.
 - `crha upgrade rollback` (as root) undoes the upgrade that produced the running version, for when the
-  new version cannot reach crhs. The running version is `crha.service`'s `X-CRH-Meta` version; the
-  upgrade is the latest `activated` one whose target is that version, and it must come from a lower
-  release. The rollback takes the install lock, checks every file of the set against the hash the
+  new version cannot reach crhs. An upgrade that stopped after its backup without an outcome (the
+  installer was killed, the host lost power) comes first, as its files may be half written; a file it
+  had not reached yet does not count as changed. Otherwise the running version is `crha.service`'s
+  `X-CRH-Meta` version; the upgrade is the latest `activated` one whose target is that version, and it
+  must come from a lower release. The rollback takes the install lock, checks every file of the set against the hash the
   upgrade left, and refuses when one changed since (`--force` restores anyway), then restores the set,
-  reloads systemd, starts the units and logs `rolled_back`. Matching the running version means an
+  reloads systemd, starts the units and logs `rolled_back`; a rollback that fails is logged without an
+  outcome, so it can be repeated. Matching the running version means an
   upgrade already rolled back, by the installer or by hand, is never undone twice; running it again steps
   back through an older upgrade while its backup is kept.
 
@@ -516,8 +590,16 @@ and owner (or that it was absent), and the SHA-256 crha left in it.
 | Upgrade | `task-<task id>`, which also holds the received binary | the last 2 | `crha upgrade rollback` |
 | Enrollment | `enroll-<UTC time>` | the last 5 | a restore by hand; enroll prints the directory |
 
-Old backups are removed at the start of every upgrade and at the end of every enrollment that changed
-something, whatever the outcome, so a failed upgrade does not leave its binary behind for long.
+Each kind is pruned by its own writer, which knows which of its backups it still needs: every upgrade
+once its version check passed, keeping its own and the one a rollback by hand would restore now; every
+enrollment that changed something at its end. Whatever the outcome, so a failed upgrade does not leave
+its binary behind for long. A directory without a manifest restores nothing: an upgrade that failed
+before its backup, or one still running. It does not count, and goes once it is a day old.
+
+Every file crha writes in these steps (the backups, the manifest, the log, the configuration, the units)
+is written to a temporary file of its own, created exclusively, synced and renamed into place, and the
+directory is synced, so a crash leaves the old content or the new, and a link planted in a directory
+another user owns is never followed.
 
 ### Design review
 
@@ -529,6 +611,8 @@ files) must review every one of them again**, and add the new questions it raise
 - What about hosts that cannot reach GitHub or Sigstore? ([Fetching the release](#fetching-the-release))
 - What happens to a bad or corrupt download? ([Fetching the release](#fetching-the-release))
 - Who drives the upgrade on the node? ([On the node](#on-the-node))
+- Do enroll and the upgrade set the node up the same way? ([The plan of the fixed
+  set](#the-plan-of-the-fixed-set); [TOML edits](#toml-edits))
 - Why plan before the stop? ([On the node](#on-the-node), step 3)
 - Should the installer be a child of the old service? ([On the node](#on-the-node), step 2)
 - The old crha should stop soon after reporting; what if the installer times out? ([On the
@@ -545,6 +629,11 @@ files) must review every one of them again**, and add the new questions it raise
 - Do migrations keep behavior? ([Configuration migrations](#configuration-migrations))
 - Why depend on an unreleased go-toml? ([Configuration migrations](#configuration-migrations))
 - What is backed up, where, and for how long? ([Backups](#backups))
+- Can failed upgrades push out what a rollback by hand needs, the backup or its log lines?
+  ([Backups](#backups); [Upgrade log](#upgrade-log))
+- Can an interrupted upgrade be undone? ([Upgrade log](#upgrade-log))
+- Can a signer check the hash an upgrade binds against the signed release? ([The upgrade
+  task](#the-upgrade-task); [Fetching the release](#fetching-the-release))
 - Where does the outcome go? ([Upgrade log](#upgrade-log))
 - Can two writers race on the log? ([Upgrade log](#upgrade-log))
 - How does a rollback by hand know what to undo? ([Upgrade log](#upgrade-log))
@@ -556,3 +645,5 @@ files) must review every one of them again**, and add the new questions it raise
   up before](#switching-a-node-set-up-before))
 - How does enroll tell a new key for this node from a new node? ([Same node or new
   node](#same-node-or-new-node))
+- Can a step after registering leave a node with a new key and an old configuration? ([Switching a node
+  set up before](#switching-a-node-set-up-before))

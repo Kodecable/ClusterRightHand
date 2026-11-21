@@ -402,7 +402,13 @@ func (a *Agent) facts(conn *transport.Conn) protocol.Facts {
 	if reasons == nil {
 		reasons = []string{}
 	}
-	f.SelfUpgrade = &protocol.SelfUpgrade{Available: len(reasons) == 0, Reasons: reasons, Arch: a.opts.Arch}
+	// An architecture that is no open name (GOARCH 386) is not reported: crhs then skips the node for
+	// self-upgrade, which is better than facts that do not encode.
+	arch := a.opts.Arch
+	if !protocol.IsOpenName(arch) {
+		arch = ""
+	}
+	f.SelfUpgrade = &protocol.SelfUpgrade{Available: len(reasons) == 0, Reasons: reasons, Arch: arch}
 	logPath := upgrade.LogPath
 	f.UpgradeLogPath = &logPath
 	return f

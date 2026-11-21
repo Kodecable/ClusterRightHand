@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func receiveSetup(t *testing.T) (string, *[]recordedRun, ReceiveOptions) {
 
 func specFor(binary []byte) *protocol.NodeUpgradeSpec {
 	return &protocol.NodeUpgradeSpec{
-		Version: "1.3.0", Arch: "amd64", Size: protocol.Uint(len(binary)), SHA256: sha256.Sum256(binary),
+		Version: "1.3.0", Arch: runtime.GOARCH, Size: protocol.Uint(len(binary)), SHA256: sha256.Sum256(binary),
 	}
 }
 
@@ -83,6 +84,8 @@ func TestReceiveRefusesWhatWasNotAuthorized(t *testing.T) {
 		"other bytes": {"t", specFor(binary), []byte("\x7fELF old crha"), "received sha256"},
 		"bad version": {"t", &protocol.NodeUpgradeSpec{Version: "../etc"}, nil, "not a version"},
 		"bad task id": {"../x", specFor(binary), binary, "cannot name a unit"},
+		"other arch":  {"t", func() *protocol.NodeUpgradeSpec { s := specFor(binary); s.Arch = "riscv64"; return s }(), binary, "this node runs"},
+		"too large":   {"t", func() *protocol.NodeUpgradeSpec { s := specFor(binary); s.Size = MaxBinarySize + 1; return s }(), binary, "at most"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

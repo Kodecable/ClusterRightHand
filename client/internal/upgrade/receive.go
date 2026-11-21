@@ -10,21 +10,21 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"syscall"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/backup"
+	"github.com/Kodecable/ClusterRightHand/client/internal/fsutil"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
+	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
 
-// versionPattern bounds the version a node.upgrade names: it becomes a directory name.
-var versionPattern = regexp.MustCompile(`^[0-9][0-9A-Za-z.+-]{0,63}$`)
+// MaxBinarySize is the largest crha binary a node accepts, as crhs's release store does.
+const MaxBinarySize = 128 << 20
 
 // unitPattern bounds a task id used in the transient unit's name.
 var unitPattern = regexp.MustCompile(`^[0-9A-Za-z_-]{1,64}$`)
-
-// Runner runs a program and returns its combined output; tests replace it.
-type Runner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
 // ExecRunner runs programs directly, never through a shell.
 func ExecRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
@@ -36,7 +36,7 @@ type ReceiveOptions struct {
 	// Dir replaces Dir (tests).
 	Dir string
 	// Run runs systemd-run; ExecRunner by default.
-	Run Runner
+	Run units.Runner
 	// SkipRootCheck lets tests run without root.
 	SkipRootCheck bool
 }
@@ -50,8 +50,15 @@ func Receive(ctx context.Context, taskID string, spec *protocol.NodeUpgradeSpec,
 	if spec == nil {
 		return errors.New("node.upgrade task has no spec")
 	}
-	if !versionPattern.MatchString(spec.Version) {
+	if !protocol.ValidUpgradeVersion(spec.Version) {
 		return fmt.Errorf("version %q is not a version", spec.Version)
+	}
+	// The binary must run here, and the size bounds what the node writes before it can check the hash.
+	if spec.Arch != runtime.GOARCH {
+		return fmt.Errorf("the binary is for %s, this node runs %s", spec.Arch, runtime.GOARCH)
+	}
+	if spec.Size == 0 || spec.Size > MaxBinarySize {
+		return fmt.Errorf("the binary has %d bytes, at most %d are accepted", spec.Size, MaxBinarySize)
 	}
 	if !unitPattern.MatchString(taskID) {
 		return fmt.Errorf("task id %q cannot name a unit", taskID)
@@ -164,7 +171,7 @@ func receiveFile(target string, spec *protocol.NodeUpgradeSpec, in io.Reader) er
 	if err := os.Rename(part, target); err != nil {
 		return fmt.Errorf("rename %s: %w", part, err)
 	}
-	return nil
+	return fsutil.SyncDir(filepath.Dir(target))
 }
 
 func bytesTrim(b []byte) string {

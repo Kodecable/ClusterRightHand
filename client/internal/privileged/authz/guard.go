@@ -48,9 +48,7 @@ func compileRules(rules []protocol.GuardRule) ruleSet {
 }
 
 func compileRule(rule protocol.GuardRule) (compiledRule, error) {
-	switch rule.Method {
-	case protocol.MethodExec, protocol.MethodFileRead, protocol.MethodFileWrite, protocol.MethodUpgrade:
-	default:
+	if !rule.Method.Known() {
 		return compiledRule{}, fmt.Errorf("authz: guard rule has unknown method %q", string(rule.Method))
 	}
 	if len(rule.Pattern) > MaxPatternBytes {

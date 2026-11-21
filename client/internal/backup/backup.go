@@ -19,6 +19,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/fsutil"
 )
 
 const (
@@ -152,11 +154,43 @@ func Take(opts Options, files []File) (*Manifest, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	// The copies are synced as they are made; the manifest is written last, so a manifest always
+	// describes copies that are on disk.
+	if err := fsutil.SyncDir(dir); err != nil {
+		return nil, "", err
+	}
 	manifestPath := filepath.Join(dir, ManifestName)
-	if err := os.WriteFile(manifestPath, data, 0o600); err != nil {
+	if err := fsutil.WriteFile(manifestPath, data, 0o600, fsutil.WriteOptions{}); err != nil {
+		return nil, "", err
+	}
+	if err := fsutil.SyncDir(filepath.Dir(dir)); err != nil {
 		return nil, "", err
 	}
 	return m, manifestPath, nil
+}
+
+// SetAfter records in the manifest at manifestPath that crha left after in path: for a file whose new
+// content became known only after the backup was taken.
+func SetAfter(manifestPath, path string, after []byte) error {
+	m, err := Read(manifestPath)
+	if err != nil {
+		return err
+	}
+	found := false
+	for i := range m.Entries {
+		if m.Entries[i].Path == path {
+			sum := sha256.Sum256(after)
+			m.Entries[i].After, found = hex.EncodeToString(sum[:]), true
+		}
+	}
+	if !found {
+		return fmt.Errorf("%s is not in the backup", path)
+	}
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return fsutil.WriteFile(manifestPath, data, 0o600, fsutil.WriteOptions{})
 }
 
 // Read reads a manifest.
@@ -185,10 +219,10 @@ func Restore(root string, m *Manifest) error {
 		}
 		data, err := os.ReadFile(e.Backup)
 		if err == nil {
-			err = ReplaceFile(path, data, os.FileMode(e.Mode))
+			err = os.MkdirAll(filepath.Dir(path), 0o755)
 		}
 		if err == nil {
-			_ = os.Lchown(path, e.UID, e.GID)
+			err = fsutil.WriteFile(path, data, os.FileMode(e.Mode), fsutil.WriteOptions{Owner: &fsutil.Owner{UID: e.UID, GID: e.GID}})
 		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("restore %s: %w", e.Path, err))
@@ -212,10 +246,38 @@ func Modified(root string, m *Manifest) ([]string, error) {
 	return out, nil
 }
 
-// Prune keeps the newest Keep[kind] backups of each kind in dir (Dir when empty) and removes the
-// others, never the ones in except. A directory without a manifest (an upgrade that failed before its
-// backup) is ordered by its modification time.
-func Prune(dir string, except ...string) error {
+// Unchanged reports whether path is still as it was before the backup: the backup's copy, or absent
+// when it did not exist.
+func Unchanged(root string, m *Manifest, path string) (bool, error) {
+	for _, e := range m.Entries {
+		if e.Path != path {
+			continue
+		}
+		now, err := FileHash(filepath.Join(root, e.Path))
+		if err != nil {
+			return false, err
+		}
+		if !e.Existed {
+			return now == "", nil
+		}
+		before, err := FileHash(e.Backup)
+		if err != nil {
+			return false, err
+		}
+		return now == before, nil
+	}
+	return false, fmt.Errorf("%s is not in the backup", path)
+}
+
+// StaleAfter is how old a backup directory without a manifest must be before Prune removes it. Such a
+// directory is an upgrade that failed before its backup, holding only its received binary, or one
+// still running, which must not lose it.
+const StaleAfter = 24 * time.Hour
+
+// Prune keeps the newest Keep[kind] backups of kind in dir (Dir when empty) and removes the older ones,
+// never those in except. Each caller prunes its own kind, so it alone decides which backups it still
+// needs. A directory without a manifest restores nothing: it does not count, and goes once it is stale.
+func Prune(dir, kind string, now time.Time, except ...string) error {
 	if dir == "" {
 		dir = Dir
 	}
@@ -230,74 +292,32 @@ func Prune(dir string, except ...string) error {
 		id   string
 		when time.Time
 	}
-	byKind := map[string][]found{}
+	var backups []found
+	var errs []error
 	for _, d := range entries {
-		kind := kindOf(d.Name())
-		if !d.IsDir() || kind == "" {
+		if !d.IsDir() || kindOf(d.Name()) != kind || slices.Contains(except, d.Name()) {
 			continue
 		}
-		when := time.Time{}
 		if m, err := Read(filepath.Join(dir, d.Name(), ManifestName)); err == nil {
-			when = m.Created
-		} else if info, err := d.Info(); err == nil {
-			when = info.ModTime()
+			backups = append(backups, found{d.Name(), m.Created})
+			continue
 		}
-		byKind[kind] = append(byKind[kind], found{d.Name(), when})
-	}
-	var errs []error
-	for kind, list := range byKind {
-		sort.Slice(list, func(i, j int) bool { return list[i].when.After(list[j].when) })
-		kept := 0
-		for _, f := range list {
-			if slices.Contains(except, f.id) {
-				continue
-			}
-			if kept < Keep[kind] {
-				kept++
-				continue
-			}
-			if err := os.RemoveAll(filepath.Join(dir, f.id)); err != nil {
+		if info, err := d.Info(); err == nil && now.Sub(info.ModTime()) > StaleAfter {
+			if err := os.RemoveAll(filepath.Join(dir, d.Name())); err != nil {
 				errs = append(errs, err)
 			}
 		}
 	}
-	return errors.Join(errs...)
-}
-
-// ReplaceFile writes data next to path and renames it into place, keeping the old file's owner.
-func ReplaceFile(path string, data []byte, mode os.FileMode) error {
-	tmp := path + ".crha-new"
-	_ = os.Remove(tmp)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, mode)
-	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	_, err = f.Write(data)
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Chmod(tmp, mode)
-	}
-	if err == nil {
-		if info, serr := os.Stat(path); serr == nil {
-			if st, ok := info.Sys().(*syscall.Stat_t); ok {
-				_ = os.Lchown(tmp, int(st.Uid), int(st.Gid))
-			}
+	sort.Slice(backups, func(i, j int) bool { return backups[i].when.After(backups[j].when) })
+	for i, b := range backups {
+		if i < Keep[kind] {
+			continue
 		}
-		err = os.Rename(tmp, path)
+		if err := os.RemoveAll(filepath.Join(dir, b.id)); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	if err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func copyFile(from, to string) error {
@@ -311,6 +331,9 @@ func copyFile(from, to string) error {
 		return err
 	}
 	_, err = io.Copy(dst, src)
+	if err == nil {
+		err = dst.Sync()
+	}
 	if cerr := dst.Close(); err == nil {
 		err = cerr
 	}

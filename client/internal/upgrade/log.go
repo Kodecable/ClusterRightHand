@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/Kodecable/ClusterRightHand/client/internal/fsutil"
 )
 
 // MaxLogLines bounds the upgrade log; each write drops the oldest lines past it.
@@ -66,19 +68,47 @@ func (l *Log) write(e Entry) error {
 		return err
 	}
 	lines, _ := readLines(l.Path)
-	lines = append(lines, line)
-	if len(lines) > MaxLogLines {
-		lines = lines[len(lines)-MaxLogLines:]
-	}
-	tmp := l.Path + ".tmp"
-	_ = os.Remove(tmp)
-	if err := os.WriteFile(tmp, append(bytes.Join(lines, []byte("\n")), '\n'), 0o644); err != nil {
-		return fmt.Errorf("write the upgrade log: %w", err)
-	}
-	if err := os.Rename(tmp, l.Path); err != nil {
+	lines = trimLog(append(lines, line))
+	if err := fsutil.WriteFile(l.Path, append(bytes.Join(lines, []byte("\n")), '\n'), 0o644, fsutil.WriteOptions{}); err != nil {
 		return fmt.Errorf("write the upgrade log: %w", err)
 	}
 	return nil
+}
+
+// trimLog drops the oldest lines past MaxLogLines, but the lines of the upgrades a rollback by hand
+// may need go last: the latest activated upgrade and the latest upgrade, which may have been
+// interrupted. Many failed attempts in a row then cannot push them out.
+func trimLog(lines [][]byte) [][]byte {
+	if len(lines) <= MaxLogLines {
+		return lines
+	}
+	ids := make([]string, len(lines))
+	needed := map[string]bool{}
+	activated := ""
+	for i, line := range lines {
+		var e Entry
+		if json.Unmarshal(line, &e) == nil {
+			ids[i] = e.UpgradeID
+			if e.Step == OutcomeActivated {
+				activated = e.UpgradeID
+			}
+		}
+	}
+	needed[activated] = activated != ""
+	needed[ids[len(ids)-1]] = true
+	drop := len(lines) - MaxLogLines
+	out := make([][]byte, 0, MaxLogLines)
+	for i, line := range lines {
+		if drop > 0 && !needed[ids[i]] {
+			drop--
+			continue
+		}
+		out = append(out, line)
+	}
+	if len(out) > MaxLogLines {
+		out = out[len(out)-MaxLogLines:]
+	}
+	return out
 }
 
 func readLines(path string) ([][]byte, error) {

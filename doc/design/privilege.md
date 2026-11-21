@@ -112,7 +112,8 @@ Every task has one method and one normalized target, which authorizations and gu
   its guard rules:
   - With only `deny` rules, everything they do not name is allowed, `upgrade` included, and an upgrade
     can replace the binary that enforces those rules. Such an entry must deny `upgrade` too, so that an
-    upgrade needs a user's signature.
+    upgrade needs a user's signature. crhs warns of one that does not (`upgrade_not_denied`), as a
+    deny-only entry written before the method existed allows it silently.
   - With `allow` rules, `upgrade` is refused unless an allow rule names it. Denying it as well keeps it
     refused if the allow list is later emptied.
   - Without guard rules, crhs may already run anything as root; denying `upgrade` alone takes no power
@@ -120,6 +121,9 @@ Every task has one method and one normalized target, which authorizations and gu
     The entries the WebUI generates are of this kind, or only cosign.
   - An entry with only `cosign` never authorizes alone, and guard rules do not apply to a cosignature
     ([Cosigning](#cosigning)): an upgrade already needs a user's signature.
+  - A `prefix` matches text, so a prefix `1.2.3` also covers `1.2.30`; end a version prefix with the
+    space before the hash (`1.2.3 `) or use `exact`. The node renders the target only from a version
+    that looks like one, so the version cannot carry a space and a hash of its own.
 - A Passkey or FIDO key signs in the WebUI, which crhs serves: that path cannot let the signer check
   the spec independently, and a compromised crhs could show one spec and ask for another. `crhu` with
   an SSH key can: it decodes the spec the payload binds, recomputes its hash and shows every field

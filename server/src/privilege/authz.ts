@@ -86,12 +86,17 @@ export interface AuthzEntry {
 	unknown: readonly string[];
 }
 
-/** A decoded TrustSummary entry in the decision's form. */
-export function authzEntryFromTrust(entry: TrustSummaryEntry): AuthzEntry {
-	const unknown = [
+/** The role and capabilities of an entry this crhs does not know, as "role x" and "capability y". */
+export function unknownRoleAndCapabilities(entry: Pick<TrustSummaryEntry, "role" | "kinds">): string[] {
+	return [
 		...(isKnownRole(entry.role) ? [] : [`role ${entry.role}`]),
 		...entry.kinds.filter((kind) => !isKnownCapability(kind)).map((kind) => `capability ${kind}`),
 	];
+}
+
+/** A decoded TrustSummary entry in the decision's form. */
+export function authzEntryFromTrust(entry: TrustSummaryEntry): AuthzEntry {
+	const unknown = unknownRoleAndCapabilities(entry);
 	return {
 		name: entry.name,
 		role: isKnownRole(entry.role) ? entry.role : "unknown",

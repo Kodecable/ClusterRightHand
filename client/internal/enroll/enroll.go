@@ -19,6 +19,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/facts"
+	"github.com/Kodecable/ClusterRightHand/client/internal/fsutil"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
@@ -122,24 +123,14 @@ func Run(ctx context.Context, cfg *config.Config, token string, opts Options) (r
 	return result, nil
 }
 
-// saveNodeID writes the enrolled node id, published by a rename so a reader never sees half of it.
+// saveNodeID writes the enrolled node id. Root writes it into crha's state directory, so it goes
+// through fsutil.WriteFile, which follows no link crha could plant there.
 func saveNodeID(path, nodeID string, owner *identity.Owner) error {
-	tmp := path + ".tmp"
-	_ = os.Remove(tmp)
-	if err := os.WriteFile(tmp, []byte(nodeID+"\n"), 0o644); err != nil {
-		return err
-	}
+	var opts fsutil.WriteOptions
 	if owner != nil {
-		if err := os.Chown(tmp, int(owner.UID), int(owner.GID)); err != nil {
-			_ = os.Remove(tmp)
-			return err
-		}
+		opts.Owner = &fsutil.Owner{UID: int(owner.UID), GID: int(owner.GID)}
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return fsutil.WriteFile(path, []byte(nodeID+"\n"), 0o644, opts)
 }
 
 // under prefixes a state file path with the test filesystem root.

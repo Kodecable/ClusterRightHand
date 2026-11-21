@@ -16,6 +16,7 @@ import (
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/setup"
+	"github.com/Kodecable/ClusterRightHand/client/internal/tomledit"
 	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade/marker"
 	"github.com/pelletier/go-toml/v2/unstable/edit"
@@ -29,10 +30,21 @@ type fakeSystem struct {
 	// failStart fails `systemctl start` of a unit.
 	failStart string
 	follows   [][]string
+	// task is the task whose hand-over the journal carries, task-1 when empty.
+	task string
+	// onRun sees every call before it runs.
+	onRun func(call string)
 }
 
-func (f *fakeSystem) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+func (f *fakeSystem) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	call := name + " " + strings.Join(args, " ")
+	if f.onRun != nil {
+		f.onRun(call)
+	}
+	// As exec.CommandContext: a cancelled context runs nothing.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f.calls = append(f.calls, call)
 	if f.failStart != "" && call == "systemctl start "+f.failStart {
 		return []byte("failed"), errors.New("exit status 1")
@@ -48,7 +60,11 @@ func (f *fakeSystem) Follow(ctx context.Context, args []string, match func([]byt
 	}
 	lines := [][]byte{line("unrelated"), line(`msg="` + marker.HandOver("other-task") + `"`)}
 	if f.handOver {
-		lines = append(lines, line(`level=INFO msg="`+marker.HandOver("task-1")+`"`))
+		task := f.task
+		if task == "" {
+			task = "task-1"
+		}
+		lines = append(lines, line(`level=INFO msg="`+marker.HandOver(task)+`"`))
 	}
 	if f.ready {
 		lines = append(lines, line(`msg="`+marker.Ready("1.2.0")+`"`), line(`msg="`+marker.Ready("1.3.0")+`"`))
@@ -128,8 +144,14 @@ func (n *node) install(t *testing.T) error {
 
 func (n *node) installFrom(t *testing.T, from, to string) error {
 	t.Helper()
-	return Install(context.Background(), InstallOptions{
-		From: from, To: to, TaskID: "task-1",
+	return n.installTask(t, context.Background(), "task-1", from, to)
+}
+
+func (n *node) installTask(t *testing.T, ctx context.Context, task, from, to string) error {
+	t.Helper()
+	n.sys.task = task
+	return Install(ctx, InstallOptions{
+		From: from, To: to, TaskID: task,
 		Self: n.self, Root: n.root, Dir: n.dir, Sys: n.sys, Host: fakeHost{n.root},
 		HandOverTimeout: 50 * time.Millisecond, ReadyTimeout: 50 * time.Millisecond,
 		Migrations: n.migrations, Stderr: io.Discard,
@@ -292,12 +314,12 @@ func TestInstallMigratesAndLogsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	n.migrations = []Migration{
-		{Version: "1.3.0", File: FileCrha, Edits: func(*edit.Document) []Edit {
-			return []Edit{{Op: EditSet, Path: []string{"clock_warn"}, Value: "0s"}}
+		{Version: "1.3.0", File: FileCrha, Edits: func(*edit.Document) []tomledit.Edit {
+			return []tomledit.Edit{{Op: tomledit.Set, Path: []string{"clock_warn"}, Value: "0s"}}
 		}},
 		// Applies only from 1.4.0 on: not to this upgrade.
-		{Version: "1.4.0", File: FileCrha, Edits: func(*edit.Document) []Edit {
-			return []Edit{{Op: EditDelete, Path: []string{"server"}}}
+		{Version: "1.4.0", File: FileCrha, Edits: func(*edit.Document) []tomledit.Edit {
+			return []tomledit.Edit{{Op: tomledit.Delete, Path: []string{"server"}}}
 		}},
 	}
 	if err := n.install(t); err != nil {
@@ -325,8 +347,8 @@ func TestInstallMigratesAndLogsIt(t *testing.T) {
 
 func TestInstallStopsWhenAMigrationLeavesAnUnreadableFile(t *testing.T) {
 	n := newNode(t, config.ModeNative)
-	n.migrations = []Migration{{Version: "1.3.0", File: FileCrha, Edits: func(*edit.Document) []Edit {
-		return []Edit{{Op: EditSet, Path: []string{"no_such_key"}, Value: 1}}
+	n.migrations = []Migration{{Version: "1.3.0", File: FileCrha, Edits: func(*edit.Document) []tomledit.Edit {
+		return []tomledit.Edit{{Op: tomledit.Set, Path: []string{"no_such_key"}, Value: 1}}
 	}}}
 	if err := n.install(t); err == nil || !strings.Contains(err.Error(), "self-test") {
 		t.Fatalf("err = %v", err)
@@ -383,5 +405,25 @@ func TestOnlyOneInstallRuns(t *testing.T) {
 	defer unlock()
 	if _, err := lock(dir); err == nil {
 		t.Fatal("a second lock was granted")
+	}
+}
+
+// Failed attempts fill the log, but the lines of the activated upgrade a rollback needs stay.
+func TestLogKeepsTheActivatedUpgradeThroughFailures(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, LogName)
+	good := &Log{Path: path, UpgradeID: "good", From: "1.2.0", To: "1.3.0"}
+	_ = good.WriteManifest("/m")
+	_ = good.Write("info", OutcomeActivated, "up")
+	for i := 0; i < MaxLogLines; i++ {
+		failed := &Log{Path: path, UpgradeID: fmt.Sprint("failed-", i), From: "1.3.0", To: "1.4.0"}
+		_ = failed.Write("error", OutcomeRolledBack, "no")
+	}
+	entries, err := ReadLog(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != MaxLogLines || entries[0].UpgradeID != "good" || entries[1].Step != OutcomeActivated {
+		t.Fatalf("%d entries, first %+v", len(entries), entries[0])
 	}
 }

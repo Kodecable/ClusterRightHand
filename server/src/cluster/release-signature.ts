@@ -50,6 +50,15 @@ export function releaseIdentity(owner: string, repo: string, tag: string): strin
 	return `https://github.com/${owner}/${repo}/.github/workflows/release.yml@refs/tags/${tag}`;
 }
 
+/**
+ * The pattern that matches exactly `identity`. @sigstore/verify tests the certificate's identity against
+ * the policy identity as a regular expression, unanchored, so the identity itself would also accept
+ * `…@refs/tags/v1.2.30` for `v1.2.3` or a workflow named `release-yml`.
+ */
+export function exactIdentity(identity: string): string {
+	return `^${identity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`;
+}
+
 class CrhsFetcher extends BaseFetcher {
 	readonly #fetch: typeof fetch;
 
@@ -129,7 +138,7 @@ export class SigstoreVerifier implements ReleaseSignatureVerifier {
 			const bundle = bundleFromJSON(JSON.parse(Buffer.from(input.bundle).toString("utf8")));
 			const verifier = new Verifier(toTrustMaterial(root), { tlogThreshold: 1, ctlogThreshold: 1 });
 			verifier.verify(toSignedEntity(bundle, Buffer.from(input.artifact)), {
-				subjectAlternativeName: input.identity,
+				subjectAlternativeName: exactIdentity(input.identity),
 				extensions: { issuer: input.issuer },
 			});
 			return { kind: "ok" };

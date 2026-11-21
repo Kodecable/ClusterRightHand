@@ -511,30 +511,7 @@ func appendLine(f *os.File, data []byte) error {
 
 // replaceFile atomically replaces path with data and fsyncs the directory.
 func replaceFile(path string, data []byte) error {
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("state: write %s: %w", tmp, err)
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return fmt.Errorf("state: write %s: %w", tmp, err)
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		os.Remove(tmp)
-		return fmt.Errorf("state: sync %s: %w", tmp, err)
-	}
-	if err := f.Close(); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("state: close %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("state: replace %s: %w", path, err)
-	}
-	if err := fsutil.SyncDir(filepath.Dir(path)); err != nil {
+	if err := fsutil.WriteFile(path, data, 0o600, fsutil.WriteOptions{}); err != nil {
 		return fmt.Errorf("state: %w", err)
 	}
 	return nil

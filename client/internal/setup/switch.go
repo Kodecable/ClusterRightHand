@@ -5,96 +5,86 @@ import (
 	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
-	"github.com/pelletier/go-toml/v2/unstable/edit"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/tomledit"
 )
 
-// Switching an existing node (doc/design/distribution.md "crha enroll"): when the answers differ from
-// crha.toml, or replace the trust entries of privileged.toml, enroll edits the files in place with
-// go-toml's comment-preserving editor, so whatever it does not change stays as it was.
+// Switching an existing node (doc/design/distribution.md "Switching a node set up before"): when the
+// answers differ from crha.toml, replace the trust entries of privileged.toml, or register a new node,
+// enroll edits the files in place through tomledit, as the self-upgrade's migrations do, so whatever it
+// does not change stays as it was. Each edit comes with the line enroll reports when it changes the file.
 
-// editConfig returns crha.toml switched to the answers' crhs address, TLS check and privileged mode,
-// and what changed; nil when nothing does.
-func editConfig(data []byte, a resolved) ([]byte, []string, error) {
-	current, err := config.Parse(data)
-	if err != nil {
-		return nil, nil, err
-	}
-	doc, err := edit.Parse(data)
-	if err != nil {
-		return nil, nil, err
-	}
-	var changes []string
-	set := func(path []string, from, to string) error {
-		if from == to {
-			return nil
+// change is one edit and the line that reports it.
+type change struct {
+	edit tomledit.Edit
+	line string
+}
+
+// editing turns changes into a Content.Edit: each applied in order, reported when it changed something.
+func editing(changes ...change) func([]byte) ([]byte, []string, error) {
+	return func(data []byte) ([]byte, []string, error) {
+		var lines []string
+		for _, c := range changes {
+			out, changed, err := tomledit.ApplyOne(data, c.edit)
+			if err != nil {
+				return nil, nil, fmt.Errorf("%s: %w", c.edit, err)
+			}
+			if changed {
+				data, lines = out, append(lines, c.line)
+			}
 		}
-		changes = append(changes, fmt.Sprintf("%s: %s -> %s", strings.Join(path, "."), from, to))
-		return doc.Set(path, to)
+		return data, lines, nil
 	}
-	if err := set([]string{"server"}, current.Server, a.Server); err != nil {
-		return nil, nil, err
+}
+
+// configChanges switch crha.toml to the answers' crhs address, TLS check and privileged mode.
+func configChanges(current *config.Config, a resolved) []change {
+	var out []change
+	set := func(path []string, from, to string) {
+		if from != to {
+			out = append(out, change{
+				edit: tomledit.Edit{Op: tomledit.Set, Path: path, Value: to},
+				line: fmt.Sprintf("%s: %s -> %s", strings.Join(path, "."), from, to),
+			})
+		}
 	}
-	if err := set([]string{"tls_verify"}, current.TLSVerify, a.TLSVerify); err != nil {
-		return nil, nil, err
-	}
-	if err := set([]string{"privileged", "mode"}, current.Privilege.Mode, a.Mode); err != nil {
-		return nil, nil, err
-	}
+	set([]string{"server"}, current.Server, a.Server)
+	set([]string{"tls_verify"}, current.TLSVerify, a.TLSVerify)
+	set([]string{"privileged", "mode"}, current.Privilege.Mode, a.Mode)
 	// forward needs the socket, which a node first set up in another mode does not name.
-	if a.Mode == config.ModeForward && !doc.Has([]string{"privileged", "socket"}) {
-		if err := doc.Set([]string{"privileged", "socket"}, PrivilegedSocket); err != nil {
+	if a.Mode == config.ModeForward && current.Privilege.Socket == "" {
+		set([]string{"privileged", "socket"}, "", PrivilegedSocket)
+	}
+	return out
+}
+
+// setEdit sets one top-level key.
+func setEdit(key string, value any) tomledit.Edit {
+	return tomledit.Edit{Op: tomledit.Set, Path: []string{key}, Value: value}
+}
+
+// trustChange replaces every trust entry by the local root entry (when localRoot) and the pasted ones.
+func trustChange(localRoot bool, trust string) change {
+	return change{
+		edit: tomledit.Edit{Op: tomledit.ReplaceTables, Path: []string{"trust"}, Tables: trustEntries(localRoot, trust)},
+		line: "the trust entries",
+	}
+}
+
+// nodeIDEdit points privileged.toml at nodeID, reporting the id it named before.
+func nodeIDEdit(nodeID string) func([]byte) ([]byte, []string, error) {
+	return func(data []byte) ([]byte, []string, error) {
+		current, err := privconfig.Parse(data)
+		if err != nil {
 			return nil, nil, err
 		}
+		return editing(change{
+			edit: tomledit.Edit{Op: tomledit.Set, Path: []string{"node_id"}, Value: nodeID},
+			line: fmt.Sprintf("node_id: %s -> %s", current.NodeID, nodeID),
+		})(data)
 	}
-	if len(changes) == 0 {
-		return nil, nil, nil
-	}
-	out := doc.Bytes()
-	if _, err := config.Parse(out); err != nil {
-		return nil, nil, fmt.Errorf("switched crha.toml: %w", err)
-	}
-	return out, changes, nil
-}
-
-// replaceTrust returns privileged.toml with every trust entry replaced by the local root entry (when
-// localRoot) and the pasted ones; the rest of the file stays as it was.
-func replaceTrust(data []byte, localRoot bool, trust string) ([]byte, error) {
-	doc, err := edit.Parse(data)
-	if err != nil {
-		return nil, err
-	}
-	doc.Delete([]string{"trust"})
-	out := strings.TrimRight(string(doc.Bytes()), "\n") + "\n"
-	if entries := trustEntries(localRoot, trust); entries != "" {
-		out += "\n" + entries + "\n"
-	}
-	return []byte(out), nil
-}
-
-// setNodeID returns privileged.toml naming nodeID, and the id it named; nil when it names it already.
-func setNodeID(data []byte, nodeID string) ([]byte, string, error) {
-	current, err := privconfig.Parse(data)
-	if err != nil {
-		return nil, "", fmt.Errorf("%s: %w", PrivilegedConfigPath, err)
-	}
-	if current.NodeID == nodeID {
-		return nil, "", nil
-	}
-	doc, err := edit.Parse(data)
-	if err != nil {
-		return nil, "", err
-	}
-	if err := doc.Set([]string{"node_id"}, nodeID); err != nil {
-		return nil, "", err
-	}
-	out := doc.Bytes()
-	if _, err := privconfig.Parse(out); err != nil {
-		return nil, "", fmt.Errorf("privileged.toml with the new node id: %w", err)
-	}
-	return out, current.NodeID, nil
 }
 
 // trustEntries renders the trust entries of a privileged.toml: the local root entry and the pasted ones.

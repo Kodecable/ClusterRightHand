@@ -17,6 +17,7 @@ import type { TasksTable } from "../storage/schema.ts";
 import type { NodeConnection } from "./connection.ts";
 import type { ClusterCore } from "./core.ts";
 import { OUTPUT_KEEP_BYTES, OUTPUT_KEEP_LINES } from "./output.ts";
+import { isTransferKind } from "./task-dispatch.ts";
 import { cancelledTaskFields, finish, markUnknown, onAccepted } from "./task-end.ts";
 import { AUTHORIZATION_CODES, TASK_CANCELLED_CODE } from "./types.ts";
 
@@ -109,7 +110,7 @@ const TRANSFER_BUSY_RETRY_MS = 250;
 const TRANSFER_BUSY_RETRIES = 20;
 
 function isTransferStart(start: TaskStart): boolean {
-	return start.spec.kind === "file.push" || start.spec.kind === "file.pull" || start.spec.kind === "node.upgrade";
+	return isTransferKind(start.spec.kind);
 }
 
 /**

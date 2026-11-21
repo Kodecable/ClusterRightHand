@@ -3,6 +3,7 @@ package protocol
 import (
 	"errors"
 	"fmt"
+	"regexp"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -624,6 +625,14 @@ type FilePushSpec struct {
 // NodeUpgradeSpec is the TaskSpec body for the "node.upgrade" kind: crha Version for Arch, whose
 // binary (Size, SHA256) arrives on a data connection (doc/design/distribution.md "The upgrade task").
 // It is always privileged; crhs sends it only to a node whose hello lists the kind.
+// upgradeVersionPattern bounds the version a node.upgrade names: it becomes a directory name and the
+// first word of the authorization target, so it has no space and no "/".
+var upgradeVersionPattern = regexp.MustCompile(`^[0-9][0-9A-Za-z.+-]{0,63}$`)
+
+// ValidUpgradeVersion reports whether v may be the Version of a NodeUpgradeSpec. The node checks it
+// before it renders the authorization target, so a version cannot make the target say something else.
+func ValidUpgradeVersion(v string) bool { return upgradeVersionPattern.MatchString(v) }
+
 type NodeUpgradeSpec struct {
 	_        struct{} `cbor:",toarray"`
 	Version  string

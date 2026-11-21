@@ -13,7 +13,6 @@ func TestParseReadsWhatRenderWrites(t *testing.T) {
 		Managed:    true,
 		Meta:       &Meta{V: MetaVersion, Version: "1.2.0", Mode: config.ModeForward, Config: "/etc/crha/crha.toml"},
 		Executable: "/usr/local/bin/crha",
-		User:       "crha",
 	}
 	if !reflect.DeepEqual(server, want) {
 		t.Fatalf("server unit: %+v, want %+v", server, want)

@@ -72,7 +72,9 @@ then `sudo systemctl restart crhs`.
 version; `POST /api/nodes/upgrade` does the same. It first shows which nodes are upgraded, how many
 running tasks the restart will end, and which nodes are skipped and why. crhs then fetches the crha
 release of its version, verifies it, and starts one privileged task group per architecture, which waits
-for an authorization like any privileged task. On each node the new binary checks the configuration,
+for an authorization like any privileged task; when signing, compare the binary's hash with the line
+`crha-<version>-linux-<arch>/crha` of the release's `SHA256SUMS`. A crhs built from a commit rather than
+a release cannot upgrade nodes. On each node the new binary checks the configuration,
 backs up and regenerates the units, restarts crha, and rolls back by itself when the new version does
 not come up within two minutes ([crha self-upgrade](../design/distribution.md#crha-self-upgrade)).
 

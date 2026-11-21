@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/backup"
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 )
@@ -139,5 +140,102 @@ func TestRollbackStepsBackThroughTwoUpgrades(t *testing.T) {
 	}
 	if n.runningVersion(t) != "1.2.0" || n.read(t, target) != "old crha" {
 		t.Fatal("not back at 1.2.0")
+	}
+}
+
+// Failed upgrades after the one that produced the running version must not prune its backup away.
+func TestFailedUpgradesKeepTheBackupARollbackNeeds(t *testing.T) {
+	n := upgraded(t)
+	n.sys.ready = false
+	for _, task := range []string{"task-2", "task-3", "task-4"} {
+		if err := n.installTask(t, context.Background(), task, "1.3.0", "1.4.0"); err == nil {
+			t.Fatalf("%s: no error without readiness", task)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(n.dir, "backups", backup.UpgradeID("task-1"), backup.ManifestName)); err != nil {
+		t.Fatalf("the backup of the running version's upgrade was pruned: %v", err)
+	}
+	n.sys.ready = true
+	if err := n.rollback(t, false); err != nil {
+		t.Fatal(err)
+	}
+	if n.read(t, target) != "old crha" {
+		t.Fatal("not rolled back")
+	}
+}
+
+// An upgrade killed after its backup, before any outcome, can be rolled back by hand; a file it had not
+// reached yet does not count as changed.
+func TestRollbackUndoesAnInterruptedUpgrade(t *testing.T) {
+	n := upgraded(t)
+	logPath := filepath.Join(n.dir, LogName)
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept []string
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		kept = append(kept, line)
+		if strings.Contains(line, `"backed_up"`) {
+			break
+		}
+	}
+	if err := os.WriteFile(logPath, []byte(strings.Join(kept, "\n")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Killed after the binary but before the unit: the unit is as it was.
+	plan, err := PlanRollback(n.root, n.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range plan.Manifest.Entries {
+		if e.Path == filepath.Join(units.Dir, units.Server) {
+			old, err := os.ReadFile(e.Backup)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(n.root, e.Path), old, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	plan, err = PlanRollback(n.root, n.dir)
+	if err != nil || !plan.Interrupted || len(plan.Modified) != 0 {
+		t.Fatalf("plan %+v, %v", plan, err)
+	}
+	if err := n.rollback(t, false); err != nil {
+		t.Fatal(err)
+	}
+	if n.read(t, target) != "old crha" {
+		t.Fatal("the binary was not restored")
+	}
+	if e := n.outcome(t); e.Step != OutcomeRolledBack {
+		t.Fatalf("outcome %+v", e)
+	}
+}
+
+// The installer stopped by systemd (SIGTERM cancels its context) still rolls back to the end.
+func TestInstallRollsBackWhenStopped(t *testing.T) {
+	n := newNode(t, config.ModeForward)
+	n.sys.ready = false
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	n.sys.onRun = func(call string) {
+		if call == "systemctl start crha.service" {
+			cancel()
+		}
+	}
+	if err := n.installTask(t, ctx, "task-1", "1.2.0", "1.3.0"); err == nil {
+		t.Fatal("no error")
+	}
+	if n.read(t, target) != "old crha" {
+		t.Fatal("not rolled back")
+	}
+	// The context was cancelled at the new version's start; the rollback still starts the old one.
+	if last := n.sys.calls[len(n.sys.calls)-1]; last != "systemctl start crha.service" {
+		t.Fatalf("the old version was not started again: %q", n.sys.calls)
+	}
+	if e := n.outcome(t); e.Step != OutcomeRolledBack {
+		t.Fatalf("outcome %+v", e)
 	}
 }

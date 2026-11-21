@@ -27,6 +27,10 @@ cosign verify-blob SHA256SUMS \
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
+`SHA256SUMS` also lists each crha binary under its path in the unpacked archive
+(`crha-<version>-linux-<arch>/crha`), the hash a crha self-upgrade asks you to sign; the same command
+checks it once the archive is unpacked next to `SHA256SUMS`.
+
 `gh attestation verify <file> --repo Kodecable/ClusterRightHand` checks a download's build provenance
 instead.
 

@@ -6,14 +6,8 @@
  * they explain why a group-addressed reusable authorization may not reach the node.
  */
 import type { TrustWarning, TrustWarningKind, TrustWarningSeverity } from "@crh/api";
-import {
-	isKnownCapability,
-	isKnownMatch,
-	isKnownMethod,
-	isKnownRole,
-	type TrustEntry,
-	type TrustSummary,
-} from "@crh/protocol";
+import { isKnownMatch, isKnownMethod, type TrustEntry, type TrustSummary } from "@crh/protocol";
+import { unknownRoleAndCapabilities } from "../privilege/authz.ts";
 import { isOwnCrhsEntry, type OwnerSigningCredentials, ownerSigningCredentialOf } from "../privilege/planner.ts";
 import type { Db } from "../storage/db.ts";
 import type { NodeGroupRef } from "./node-groups.ts";
@@ -62,11 +56,26 @@ export async function trustWarningContext(
 export function newerTrustValues(entry: TrustEntry): string[] {
 	const rules = [...entry.allow, ...entry.deny];
 	return [
-		...(isKnownRole(entry.role) ? [] : [`role ${entry.role}`]),
-		...entry.kinds.filter((kind) => !isKnownCapability(kind)).map((kind) => `capability ${kind}`),
+		...unknownRoleAndCapabilities(entry),
 		...new Set(rules.filter((rule) => !isKnownMethod(rule.method)).map((rule) => `method ${rule.method}`)),
 		...new Set(rules.filter((rule) => !isKnownMatch(rule.match)).map((rule) => `match ${rule.match}`)),
 	];
+}
+
+/**
+ * A crhs entry that executes with only deny rules, none of them for `upgrade`: everything not denied is
+ * allowed, an upgrade too, and an upgrade replaces the binary that enforces the denies
+ * (doc/design/privilege.md "Methods and targets"). A deny-only entry from before the method existed
+ * allows it silently.
+ */
+function allowsUpgradeDespiteDenies(entry: TrustEntry): boolean {
+	return (
+		entry.role === "crhs" &&
+		entry.kinds.includes("execute") &&
+		entry.allow.length === 0 &&
+		entry.deny.length > 0 &&
+		!entry.deny.some((rule) => rule.method === "upgrade")
+	);
 }
 
 /** A trust entry whose key crhs knows: its own signing key or a registered user credential. Local entries are never unknown. */
@@ -146,6 +155,16 @@ export function trustWarningsForNode(input: NodeTrustWarningInput): TrustWarning
 				nodeGroupName: null,
 				trustName: entry.name,
 				message: `trust entry "${entry.name}" uses ${newer.join(", ")}, which this crhs does not know; it plans around them conservatively, and the node decides`,
+			});
+		}
+		if (allowsUpgradeDespiteDenies(entry)) {
+			warnings.push({
+				kind: "upgrade_not_denied",
+				severity: "warning",
+				uuid: null,
+				nodeGroupName: null,
+				trustName: entry.name,
+				message: `trust entry "${entry.name}" denies some operations but not upgrade, so crhs alone can replace the binary that enforces those rules; add a deny rule for method "upgrade" so an upgrade needs a user's signature`,
 			});
 		}
 		if (trustEntryKnown(entry, input.context)) continue;

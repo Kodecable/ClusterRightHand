@@ -3,7 +3,10 @@
  * regular file by its path and returns its bytes. It reads ustar headers, GNU long names (`L`) and pax
  * path records (`x`); every other entry is skipped. Nothing is written to disk.
  */
-import { gunzipSync } from "node:zlib";
+import { promisify } from "node:util";
+import { gunzip as gunzipCallback } from "node:zlib";
+
+const gunzip = promisify(gunzipCallback);
 
 const BLOCK = 512;
 
@@ -39,17 +42,22 @@ function checksumOk(header: Uint8Array): boolean {
 	return sum === Number.parseInt(text, 8);
 }
 
-/** The `path` record of a pax extended header, if any. */
+/**
+ * The `path` record of a pax extended header, if any. A record's length counts bytes, so the records
+ * are cut from the bytes and only then decoded: a name with multi-byte characters shifts no offset.
+ */
 function paxPath(data: Uint8Array): string | undefined {
-	const text = Buffer.from(data).toString("utf8");
+	const bytes = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 	let at = 0;
 	let path: string | undefined;
-	while (at < text.length) {
-		const space = text.indexOf(" ", at);
+	while (at < bytes.length) {
+		const space = bytes.indexOf(0x20, at);
 		if (space === -1) break;
-		const length = Number.parseInt(text.slice(at, space), 10);
-		if (!Number.isSafeInteger(length) || length <= 0) throw new TarError("bad pax record");
-		const record = text.slice(space + 1, at + length - 1);
+		const length = Number.parseInt(bytes.subarray(at, space).toString("ascii"), 10);
+		if (!Number.isSafeInteger(length) || length <= space - at + 1 || at + length > bytes.length) {
+			throw new TarError("bad pax record");
+		}
+		const record = bytes.subarray(space + 1, at + length - 1).toString("utf8");
 		const equals = record.indexOf("=");
 		if (equals !== -1 && record.slice(0, equals) === "path") path = record.slice(equals + 1);
 		at += length;
@@ -67,14 +75,15 @@ function normalize(name: string): string {
  * when the file is missing or not a regular file, or when it or the uncompressed archive exceeds the
  * limits.
  */
-export function extractTarFile(
+export async function extractTarFile(
 	archive: Uint8Array,
 	wanted: string,
 	limits: { archiveBytes: number; fileBytes: number },
-): Buffer {
+): Promise<Buffer> {
 	let tar: Buffer;
 	try {
-		tar = gunzipSync(archive, { maxOutputLength: limits.archiveBytes });
+		// Off the event loop: an archive inflates to as much as archiveBytes.
+		tar = await gunzip(archive, { maxOutputLength: limits.archiveBytes });
 	} catch (err) {
 		throw new TarError(`not a gzip archive within ${limits.archiveBytes} bytes: ${(err as Error).message}`);
 	}

@@ -8,11 +8,12 @@
  * deletes the files it condemns and downloads them again, a bounded number of times; a failure to verify
  * at all deletes nothing. With `download = false` nothing is ever deleted: the operator placed the files.
  */
-import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { CrhaReleaseConfig } from "../config.ts";
 import { errorText, UserError } from "../util/errors.ts";
+import { isReleaseVersion } from "../util/release-version.ts";
 import { extractTarFile, TarError } from "../util/tar.ts";
 import {
 	GITHUB_ACTIONS_ISSUER,
@@ -36,10 +37,7 @@ const DOWNLOAD_TIMEOUT_MS = 120_000;
 /** A definite verification failure downloads the condemned files again at most this many times. */
 export const MAX_REDOWNLOADS = 2;
 
-/** A version that names a release: `x.y.z` with an optional prerelease. `dev` and `git describe` output do not. */
-export function isReleaseVersion(version: string): boolean {
-	return /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$/.test(version);
-}
+export { isReleaseVersion } from "../util/release-version.ts";
 
 /** The release assets of crha `version` for `arch`. */
 export function releaseAssets(version: string, arch: string): { archive: string; checksums: string; bundle: string } {
@@ -245,13 +243,23 @@ export class CrhaReleases {
 		if (!response.ok) throw new HttpStatusError(url, response.status);
 		const declared = Number(response.headers.get("content-length") ?? "0");
 		if (declared > limit) throw new Error(`${declared} bytes is more than ${limit}`);
-		const body = Buffer.from(await response.arrayBuffer());
-		if (body.length > limit) throw new Error(`${body.length} bytes is more than ${limit}`);
-		const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
+		// Streamed to a file of its own, so a body past the limit is never held whole, and two
+		// architectures that fetch the shared SHA256SUMS at once never write the same temporary file.
+		const temp = `${path}.${randomUUID()}.tmp`;
+		const file = await open(temp, "wx", 0o600);
+		let closed = false;
 		try {
-			await writeFile(temp, body, { mode: 0o600 });
+			let received = 0;
+			for await (const chunk of (response.body ?? []) as AsyncIterable<Uint8Array>) {
+				received += chunk.byteLength;
+				if (received > limit) throw new Error(`more than ${limit} bytes`);
+				await file.write(chunk);
+			}
+			await file.close();
+			closed = true;
 			await rename(temp, path);
 		} finally {
+			if (!closed) await file.close();
 			await rm(temp, { force: true });
 		}
 	}
@@ -333,12 +341,13 @@ export class CrhaReleases {
 			}
 		}
 		const top = assets.archive.slice(0, -".tar.gz".length);
+		const binaryName = `${top}/crha`;
+		let bytes: Buffer;
 		try {
-			const bytes = extractTarFile(archive, `${top}/crha`, {
+			bytes = await extractTarFile(archive, binaryName, {
 				archiveBytes: LIMITS.unpacked,
 				fileBytes: LIMITS.binary,
 			});
-			return { kind: "ok", bytes };
 		} catch (err) {
 			if (!(err instanceof TarError)) throw err;
 			// A listed hash proves these are the release's bytes, so downloading them again cannot help.
@@ -350,6 +359,25 @@ export class CrhaReleases {
 			}
 			return { kind: "condemn", assets: ["archive"], reason: `${assets.archive} is unusable: ${err.message}` };
 		}
+		// SHA256SUMS also lists the binary, under its path in the archive: the hash an authorization binds,
+		// which a signer compares with the release. A signed list that disagrees with its own archive is a
+		// broken release, which no download repairs.
+		if (checksums !== undefined) {
+			const listed = parseChecksums(checksums).get(binaryName);
+			const actual = createHash("sha256").update(bytes).digest("hex");
+			if (listed === undefined ? this.#config.verify : actual !== listed) {
+				return {
+					kind: "fail",
+					error: new ReleaseError(
+						"release_invalid",
+						listed === undefined
+							? `SHA256SUMS of v${this.#version} lists no ${binaryName}`
+							: `${binaryName} has sha256 ${actual}, SHA256SUMS lists ${listed}`,
+					),
+				};
+			}
+		}
+		return { kind: "ok", bytes };
 	}
 }
 

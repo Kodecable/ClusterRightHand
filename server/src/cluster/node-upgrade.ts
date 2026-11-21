@@ -4,21 +4,17 @@
  * group per architecture, its binary staged from the verified release. Several nodes of one architecture
  * share one spec, so one signature covers the group.
  */
+import type { NodeUpgradeSkipReason } from "@crh/api";
 import { factsFromJson, type JsonFacts, type TaskSpec } from "@crh/protocol";
 import type { Db } from "../storage/db.ts";
 import type { CrhaReleases } from "./crha-release.ts";
 import { isReleaseVersion } from "./crha-release.ts";
 import type { NodeRow } from "./nodes.ts";
+import { TERMINAL } from "./types.ts";
 
 /** Why a requested node is not upgraded. */
-export type UpgradeSkipReason =
-	| "not_crha"
-	| "not_connected"
-	| "self_upgrade_unavailable"
-	| "no_arch"
-	| "up_to_date"
-	| "newer_than_crhs"
-	| "not_a_release_version";
+/** Why a node is skipped: the API's list, so the two cannot drift apart. */
+export type UpgradeSkipReason = NodeUpgradeSkipReason;
 
 export interface UpgradeSkip {
 	nodeId: string;
@@ -101,10 +97,9 @@ export async function planUpgrade(
 ): Promise<UpgradePlan> {
 	const byArch = new Map<string, UpgradeCandidate[]>();
 	const skipped: UpgradeSkip[] = [];
-	const running = await runningTaskCounts(
-		db,
-		nodes.map((node) => node.id),
-	);
+	const ids = nodes.map((node) => node.id);
+	const running = await runningTaskCounts(db, ids);
+	const upgrading = await nodesUpgrading(db, ids);
 	for (const node of nodes) {
 		const facts = factsOf(node);
 		const nodeVersion = node.client_version;
@@ -141,6 +136,11 @@ export async function planUpgrade(
 			skip("newer_than_crhs");
 			continue;
 		}
+		// One upgrade at a time: a second would wait behind the first and then find nothing to do.
+		if (upgrading.has(node.id)) {
+			skip("upgrade_in_progress");
+			continue;
+		}
 		const list = byArch.get(self.arch) ?? [];
 		list.push({
 			nodeId: node.id,
@@ -152,6 +152,20 @@ export async function planUpgrade(
 		byArch.set(self.arch, list);
 	}
 	return { version, byArch, skipped };
+}
+
+/** The nodes with an upgrade task that has not ended, whatever it waits for. */
+async function nodesUpgrading(db: Db, nodeIds: readonly string[]): Promise<Set<string>> {
+	if (nodeIds.length === 0) return new Set();
+	const rows = await db
+		.selectFrom("tasks")
+		.select("node_id")
+		.distinct()
+		.where("node_id", "in", [...nodeIds])
+		.where("kind", "=", "node.upgrade")
+		.where("state", "not in", [...TERMINAL])
+		.execute();
+	return new Set(rows.map((row) => row.node_id));
 }
 
 async function runningTaskCounts(db: Db, nodeIds: readonly string[]): Promise<Map<string, number>> {

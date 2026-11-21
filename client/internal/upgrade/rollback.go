@@ -14,20 +14,25 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 )
 
-// RollbackPlan is the upgrade a rollback undoes: the one that produced the running version.
+// RollbackPlan is the upgrade a rollback undoes.
 type RollbackPlan struct {
 	UpgradeID    string
 	From, To     string
 	Manifest     *backup.Manifest
 	ManifestPath string
+	// Interrupted means the upgrade stopped after its backup and never recorded an outcome.
+	Interrupted bool
 	// Modified lists the files of the set that changed since the upgrade wrote them.
 	Modified []string
 }
 
-// PlanRollback finds the upgrade to undo (doc/design/distribution.md "Upgrade log"): the latest
+// PlanRollback finds the upgrade to undo (doc/design/distribution.md "Upgrade log"). An upgrade that
+// stopped after its backup without an outcome (the installer was killed, the host lost power) comes
+// first: its files may be half written, whatever version the units name. Otherwise it is the latest
 // activated upgrade whose target is the version the units run now, from a lower release. Matching the
 // running version means an upgrade that was already rolled back, by the installer or by hand, is never
 // undone twice, and repeating the rollback steps back through older upgrades while their backups last.
+// The caller holds the install lock, so an upgrade without an outcome is not one still running.
 func PlanRollback(root, dir string) (*RollbackPlan, error) {
 	server, err := readManagedUnit(root, units.Server)
 	if err != nil {
@@ -42,33 +47,44 @@ func PlanRollback(root, dir string) (*RollbackPlan, error) {
 		return nil, fmt.Errorf("read the upgrade log: %w", err)
 	}
 	activated := map[string]bool{}
+	ended := map[string]bool{}
 	manifests := map[string]string{}
 	for _, e := range entries {
-		if e.Step == OutcomeActivated {
-			activated[e.UpgradeID] = true
+		switch e.Step {
+		case OutcomeActivated:
+			activated[e.UpgradeID], ended[e.UpgradeID] = true, true
+		case OutcomeRolledBack, OutcomeFailed:
+			ended[e.UpgradeID] = true
 		}
 		if e.Manifest != "" {
 			manifests[e.UpgradeID] = e.Manifest
 		}
 	}
 	var plan *RollbackPlan
+	if len(entries) > 0 {
+		last := entries[len(entries)-1]
+		if manifests[last.UpgradeID] != "" && !ended[last.UpgradeID] {
+			plan = &RollbackPlan{UpgradeID: last.UpgradeID, From: last.From, To: last.To, Interrupted: true}
+		}
+	}
 	for i := len(entries) - 1; i >= 0 && plan == nil; i-- {
 		e := entries[i]
 		if e.To == current && activated[e.UpgradeID] {
-			plan = &RollbackPlan{UpgradeID: e.UpgradeID, From: e.From, To: e.To, ManifestPath: manifests[e.UpgradeID]}
+			plan = &RollbackPlan{UpgradeID: e.UpgradeID, From: e.From, To: e.To}
 		}
 	}
 	if plan == nil {
 		return nil, fmt.Errorf("no upgrade in the log produced crha %s, which runs now", current)
 	}
-	if !IsReleaseVersion(plan.From) || !IsReleaseVersion(current) || compareVersions(plan.From, current) >= 0 {
-		return nil, fmt.Errorf("a rollback goes to a lower release, not from %s to %s", current, plan.From)
+	plan.ManifestPath = manifests[plan.UpgradeID]
+	if !IsReleaseVersion(plan.From) || !IsReleaseVersion(plan.To) || compareVersions(plan.From, plan.To) >= 0 {
+		return nil, fmt.Errorf("a rollback goes to a lower release, not from %s to %s", plan.To, plan.From)
 	}
 	if plan.ManifestPath == "" {
-		return nil, fmt.Errorf("the upgrade to %s recorded no backup", current)
+		return nil, fmt.Errorf("the upgrade to %s recorded no backup", plan.To)
 	}
 	if plan.Manifest, err = backup.Read(plan.ManifestPath); err != nil {
-		return nil, fmt.Errorf("the backup of the upgrade to %s is gone: %w", current, err)
+		return nil, fmt.Errorf("the backup of the upgrade to %s is gone: %w", plan.To, err)
 	}
 	for _, e := range plan.Manifest.Entries {
 		if e.Existed {
@@ -79,6 +95,19 @@ func PlanRollback(root, dir string) (*RollbackPlan, error) {
 	}
 	if plan.Modified, err = backup.Modified(root, plan.Manifest); err != nil {
 		return nil, err
+	}
+	if plan.Interrupted {
+		// An interrupted upgrade may not have reached a file yet: one still as it was before is not
+		// a change made since.
+		var modified []string
+		for _, path := range plan.Modified {
+			if same, err := backup.Unchanged(root, plan.Manifest, path); err != nil {
+				return nil, err
+			} else if !same {
+				modified = append(modified, path)
+			}
+		}
+		plan.Modified = modified
 	}
 	return plan, nil
 }
@@ -124,18 +153,17 @@ func Rollback(ctx context.Context, opts RollbackOptions) error {
 	}
 	m := plan.Manifest
 	log := &Log{Path: filepath.Join(dir, LogName), UpgradeID: plan.UpgradeID, From: plan.From, To: plan.To, Now: opts.Now}
+	ctx = context.WithoutCancel(ctx)
 	if err := units.Stop(ctx, opts.Sys.Run, m.Units); err != nil {
 		return err
 	}
-	if err := backup.Restore(opts.Root, m); err != nil {
-		_ = log.Write("error", OutcomeFailed, "rollback by hand: "+err.Error())
-		return err
-	}
-	if err := units.Systemctl(ctx, opts.Sys.Run, "daemon-reload"); err != nil {
-		return err
-	}
-	if err := units.Start(ctx, opts.Sys.Run, m.Units); err != nil {
-		_ = log.Write("error", OutcomeFailed, "rollback by hand: the old version did not start: "+err.Error())
+	// A file that cannot be put back does not keep the others stopped: the units start either way.
+	restoreErr := backup.Restore(opts.Root, m)
+	reloadErr := units.Systemctl(ctx, opts.Sys.Run, "daemon-reload")
+	startErr := units.Start(ctx, opts.Sys.Run, m.Units)
+	if err := errors.Join(restoreErr, reloadErr, startErr); err != nil {
+		// Not an outcome: the upgrade stays the one to undo, and the rollback can be repeated.
+		_ = log.Write("error", "rollback", "rollback by hand: "+err.Error())
 		return err
 	}
 	_ = log.Write("info", OutcomeRolledBack, fmt.Sprintf("rolled back to crha %s by hand", plan.From))

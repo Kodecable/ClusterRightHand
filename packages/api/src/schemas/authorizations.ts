@@ -3,6 +3,7 @@
  * doc/design/privilege.md "Authorization path"): the options a waiting task offers its owner, the
  * payload a `sign` option carries, pending views, the administrator's list and the owner's rejection.
  */
+import { KNOWN_METHODS } from "@crh/protocol";
 import { z } from "zod";
 import { TaskStateSchema } from "./task-state.ts";
 
@@ -159,9 +160,7 @@ export const TaskAuthorizationViewSchema = z
 	.meta({ id: "TaskAuthorizationView" });
 
 /** The methods an authorization's prefix limit can name: the task methods, never an API or extension one. */
-export const AuthorizationMethodSchema = z
-	.enum(["exec", "file.read", "file.write", "upgrade"])
-	.meta({ id: "AuthorizationMethod" });
+export const AuthorizationMethodSchema = z.enum(KNOWN_METHODS).meta({ id: "AuthorizationMethod" });
 
 /** The nodes and method a short reusable authorization for one waiting request covers. */
 export const ReusableScopeSchema = z

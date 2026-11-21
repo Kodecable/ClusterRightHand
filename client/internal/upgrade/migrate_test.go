@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/tomledit"
 	toml "github.com/pelletier/go-toml/v2"
 	"github.com/pelletier/go-toml/v2/unstable/edit"
 )
@@ -21,17 +22,17 @@ allow = [
 ]
 `
 
-func edits(list ...Edit) func(*edit.Document) []Edit {
-	return func(*edit.Document) []Edit { return list }
+func edits(list ...tomledit.Edit) func(*edit.Document) []tomledit.Edit {
+	return func(*edit.Document) []tomledit.Edit { return list }
 }
 
 func TestMigrateRenameDeleteAndArrayEdits(t *testing.T) {
 	list := []Migration{{Version: "1.3.0", File: FilePrivileged, Edits: edits(
-		Edit{Op: EditRename, Path: []string{"local_uids"}, To: "approver_uids"},
-		Edit{Op: EditSet, Path: []string{"trust", "0", "allow", "0", "prefix"}, Value: "systemctl reload "},
+		tomledit.Edit{Op: tomledit.Rename, Path: []string{"local_uids"}, To: "approver_uids"},
+		tomledit.Edit{Op: tomledit.Set, Path: []string{"trust", "0", "allow", "0", "prefix"}, Value: "systemctl reload "},
 		// The comment above the deleted element goes with it.
-		Edit{Op: EditDelete, Path: []string{"trust", "0", "allow", "1"}},
-		Edit{Op: EditDelete, Path: []string{"absent"}},
+		tomledit.Edit{Op: tomledit.Delete, Path: []string{"trust", "0", "allow", "1"}},
+		tomledit.Edit{Op: tomledit.Delete, Path: []string{"absent"}},
 	)}}
 	out, done, err := migrateFile(list, FilePrivileged, "1.2.0", "1.3.0", []byte(privSample))
 	if err != nil {
@@ -58,10 +59,10 @@ func TestMigrateRenameDeleteAndArrayEdits(t *testing.T) {
 
 func TestMigrateRunsOnlyTheMigrationsOfTheRange(t *testing.T) {
 	list := []Migration{
-		{Version: "1.2.0", File: FileCrha, Edits: edits(Edit{Op: EditSet, Path: []string{"a"}, Value: 1})},
-		{Version: "1.3.0-rc.1", File: FileCrha, Edits: edits(Edit{Op: EditSet, Path: []string{"b"}, Value: 2})},
-		{Version: "1.3.0", File: FilePrivileged, Edits: edits(Edit{Op: EditSet, Path: []string{"c"}, Value: 3})},
-		{Version: "1.4.0", File: FileCrha, Edits: edits(Edit{Op: EditSet, Path: []string{"d"}, Value: 4})},
+		{Version: "1.2.0", File: FileCrha, Edits: edits(tomledit.Edit{Op: tomledit.Set, Path: []string{"a"}, Value: 1})},
+		{Version: "1.3.0-rc.1", File: FileCrha, Edits: edits(tomledit.Edit{Op: tomledit.Set, Path: []string{"b"}, Value: 2})},
+		{Version: "1.3.0", File: FilePrivileged, Edits: edits(tomledit.Edit{Op: tomledit.Set, Path: []string{"c"}, Value: 3})},
+		{Version: "1.4.0", File: FileCrha, Edits: edits(tomledit.Edit{Op: tomledit.Set, Path: []string{"d"}, Value: 4})},
 	}
 	out, done, err := migrateFile(list, FileCrha, "1.2.0", "1.3.0", []byte("x = 0\n"))
 	if err != nil {
@@ -80,21 +81,10 @@ func TestMigrateRunsOnlyTheMigrationsOfTheRange(t *testing.T) {
 
 func TestMigrateRefusesARenameOntoAnExistingKey(t *testing.T) {
 	list := []Migration{{Version: "1.3.0", File: FileCrha, Edits: edits(
-		Edit{Op: EditRename, Path: []string{"a"}, To: "b"},
+		tomledit.Edit{Op: tomledit.Rename, Path: []string{"a"}, To: "b"},
 	)}}
 	if _, _, err := migrateFile(list, FileCrha, "1.2.0", "1.3.0", []byte("a = 1\nb = 2\n")); err == nil {
 		t.Fatal("renamed onto an existing key")
-	}
-}
-
-func TestCheckEditCatchesAnEditThatDoesMore(t *testing.T) {
-	before := []byte("a = 1\nb = 2\n")
-	after := []byte("a = 5\n")
-	if err := checkEdit(before, after, Edit{Op: EditSet, Path: []string{"a"}, Value: 5}); err == nil {
-		t.Fatal("an edit that also deleted b passed the check")
-	}
-	if err := checkEdit(before, []byte("a = 5\nb = 2\n"), Edit{Op: EditSet, Path: []string{"a"}, Value: 5}); err != nil {
-		t.Fatal(err)
 	}
 }
 

@@ -384,7 +384,19 @@ export async function dispatch(
  * upgrade receives its binary the way a push does (doc/design/distribution.md "The upgrade task").
  */
 export function isTransferKind(kind: string): kind is "file.push" | "file.pull" | "node.upgrade" {
-	return kind === "file.push" || kind === "file.pull" || kind === "node.upgrade";
+	return isSendingKind(kind) || kind === "file.pull";
+}
+
+/** A spec whose bytes travel on a data connection, narrowed to the specs that carry an endpoint. */
+export function isTransferSpec(
+	spec: TaskSpec,
+): spec is Extract<TaskSpec, { kind: "file.push" | "file.pull" | "node.upgrade" }> {
+	return isTransferKind(spec.kind);
+}
+
+/** The transfer kinds whose bytes go from crhs to the node: a push's content and an upgrade's binary. */
+export function isSendingKind(kind: string): kind is "file.push" | "node.upgrade" {
+	return kind === "file.push" || kind === "node.upgrade";
 }
 
 /**

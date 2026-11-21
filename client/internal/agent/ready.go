@@ -2,11 +2,9 @@ package agent
 
 import (
 	"context"
-	"os/exec"
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
-	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade/marker"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
 )
@@ -84,41 +82,16 @@ func (a *Agent) startPrivilegedCheck(ctx context.Context) {
 
 // probeNative starts the native helper, completes its crh-priv handshake and lets it exit.
 func (a *Agent) probeNative(ctx context.Context) error {
-	argv, err := a.nativeArgv()
-	if err != nil {
-		return err
-	}
 	ctx, cancel := context.WithTimeout(ctx, a.nativeTimeout()+5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	stdin, err := cmd.StdinPipe()
+	h, err := a.launchNative(ctx)
 	if err != nil {
 		return err
 	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	stderr := &nativeStderr{log: a.log}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		return nativeFailure(argv, stderr, err)
-	}
-	if d, ok := stdout.(interface{ SetReadDeadline(time.Time) error }); ok {
-		_ = d.SetReadDeadline(time.Now().Add(a.nativeTimeout()))
-	}
-	_, _, herr := wire.ClientHandshake(stdout, stdin, wire.ClientOptions{
-		Role:        wire.RoleNative,
-		CRHAVersion: version.Version,
-	})
 	// Closing stdin ends the helper's session; it exits without running anything.
-	_ = stdin.Close()
-	werr := cmd.Wait()
-	if herr != nil {
-		return nativeFailure(argv, stderr, herr)
-	}
-	if werr != nil && ctx.Err() != nil {
-		return nativeFailure(argv, stderr, werr)
+	_ = h.stdin.Close()
+	if err := h.cmd.Wait(); err != nil && ctx.Err() != nil {
+		return nativeFailure(h.argv, h.stderr, err)
 	}
 	return nil
 }

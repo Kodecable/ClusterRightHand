@@ -2,7 +2,7 @@ import type { NodeUpgradeResponse, NodeUpgradeSkipReason } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ErrorText } from "@/components/error-state";
 import { Spinner } from "@/components/spinner";
@@ -34,6 +34,8 @@ export function upgradeSkipText(i18n: I18n, reason: NodeUpgradeSkipReason): stri
 			return i18n._(msg`newer than crhs; there is no downgrade`);
 		case "not_a_release_version":
 			return i18n._(msg`runs a build that is not a release`);
+		case "upgrade_in_progress":
+			return i18n._(msg`an upgrade of this node has not ended yet`);
 	}
 }
 
@@ -71,6 +73,8 @@ export function UpgradeCrhaDialog({ targets, onClose }: { targets: string[]; onC
 	const plan = useUpgradeNodes();
 	const start = useUpgradeNodes();
 	const [planned, setPlanned] = useState<NodeUpgradeResponse>();
+	// Several architectures start several task groups: each is listed, as each waits for its own signature.
+	const [started, setStarted] = useState<NodeUpgradeResponse["taskGroups"]>([]);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: plan once, when the dialog opens.
 	useEffect(() => {
@@ -153,6 +157,27 @@ export function UpgradeCrhaDialog({ targets, onClose }: { targets: string[]; onC
 						)}
 					</div>
 				)}
+				{started.length > 1 && (
+					<section aria-label={i18n._(msg`Started task groups`)} className="grid gap-1 text-sm">
+						<p className="font-medium">
+							<Trans>Started one task group per architecture; each waits for its authorization:</Trans>
+						</p>
+						<ul className="grid gap-1">
+							{started.map((group) => (
+								<li key={group.taskGroupId}>
+									<Link
+										to="/task-groups/$taskGroupId"
+										params={{ taskGroupId: group.taskGroupId }}
+										className="underline"
+										onClick={onClose}
+									>
+										<Trans>Task group for {group.arch}</Trans>
+									</Link>
+								</li>
+							))}
+						</ul>
+					</section>
+				)}
 				{start.error && <ErrorText error={start.error} />}
 				<DialogFooter>
 					<Button type="button" variant="outline" onClick={onClose}>
@@ -160,16 +185,21 @@ export function UpgradeCrhaDialog({ targets, onClose }: { targets: string[]; onC
 					</Button>
 					<Button
 						type="button"
-						disabled={!planned || planned.upgrades.length === 0 || start.isPending}
+						disabled={!planned || planned.upgrades.length === 0 || start.isPending || started.length > 0}
 						onClick={() =>
 							start.mutate(
-								{ targets, dryRun: false },
+								// Exactly the nodes shown: a node that joined a group since the plan was not confirmed.
+								{ targets: planned?.upgrades.map((upgrade) => upgrade.nodeId) ?? [], dryRun: false },
 								{
 									onSuccess: (result) => {
-										onClose();
-										const first = result.taskGroups[0];
-										if (first) {
-											void navigate({ to: "/task-groups/$taskGroupId", params: { taskGroupId: first.taskGroupId } });
+										const [only, ...more] = result.taskGroups;
+										if (only && more.length === 0) {
+											onClose();
+											void navigate({ to: "/task-groups/$taskGroupId", params: { taskGroupId: only.taskGroupId } });
+										} else if (only) {
+											setStarted(result.taskGroups);
+										} else {
+											onClose();
 										}
 									},
 								},

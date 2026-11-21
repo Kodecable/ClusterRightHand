@@ -268,6 +268,10 @@ func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, in
 		if a.Keep && existing == nil {
 			return resolved{}, errors.New("crha.toml is missing; re-enroll (replace) or restore it")
 		}
+		// The answers file may name a crhs address, taken before this question was answered.
+		if err := checkKeptServer(a); err != nil {
+			return resolved{}, err
+		}
 	}
 	if !a.Keep {
 		if a.Server, err = take(file.Server, "crhs address", a.Server, true); err != nil {
@@ -344,6 +348,15 @@ func collectAnswers(file *fileAnswers, state existingSetup, interactive bool, in
 	return a, nil
 }
 
+// checkKeptServer refuses a crhs address other than crha.toml's when the enrollment is kept: the
+// address belongs to the enrollment, and the kept key is registered with that crhs only.
+func checkKeptServer(a resolved) error {
+	if a.Keep && a.Previous != nil && a.Server != a.Previous.Server {
+		return fmt.Errorf("the crhs address is %q in crha.toml: changing it to %q is a new enrollment; enroll again with a token from that crhs", a.Previous.Server, a.Server)
+	}
+	return nil
+}
+
 // startAnswers takes what the answers file and an existing crha.toml say before any question: the
 // file's values, over the existing configuration's as defaults. The crhs address belongs to the
 // enrollment, so on the keep path a different one is refused.
@@ -362,11 +375,10 @@ func startAnswers(file *fileAnswers, state existingSetup) (resolved, error) {
 		a.Server, a.TLSVerify, a.Mode = existing.Server, existing.TLSVerify, existing.Privilege.Mode
 	}
 	if file.Server != nil {
-		server := strings.TrimSpace(*file.Server)
-		if a.Keep && server != a.Server {
-			return resolved{}, fmt.Errorf("the crhs address is %q in crha.toml: changing it to %q is a new enrollment; re-enroll (replace) with a token from that crhs", a.Server, server)
+		a.Server = strings.TrimSpace(*file.Server)
+		if err := checkKeptServer(a); err != nil {
+			return resolved{}, err
 		}
-		a.Server = server
 	}
 	if file.TLSVerify != nil {
 		a.TLSVerify = strings.TrimSpace(*file.TLSVerify)

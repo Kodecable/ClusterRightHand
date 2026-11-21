@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
@@ -69,9 +70,18 @@ func TestPruneKeepsTheNewestOfEachKind(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// A failed upgrade's directory has no manifest, only its received binary.
-	write(t, filepath.Join(dir, "task-current", "crha"), "binary")
-	if err := Prune(dir, "task-current"); err != nil {
+	// A failed upgrade's directory has no manifest, only its received binary: a fresh one stays, a
+	// stale one goes, and neither counts.
+	write(t, filepath.Join(dir, "task-fresh", "crha"), "binary")
+	write(t, filepath.Join(dir, "task-stale", "crha"), "binary")
+	now := time.Now()
+	if err := os.Chtimes(filepath.Join(dir, "task-stale"), now.Add(-2*StaleAfter), now.Add(-2*StaleAfter)); err != nil {
+		t.Fatal(err)
+	}
+	if err := Prune(dir, KindUpgrade, now, UpgradeID("a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Prune(dir, KindEnroll, now); err != nil {
 		t.Fatal(err)
 	}
 	entries, _ := os.ReadDir(dir)
@@ -88,11 +98,11 @@ func TestPruneKeepsTheNewestOfEachKind(t *testing.T) {
 			enrolls++
 		}
 	}
-	// task-current is excepted; of the four others the newest two stay.
-	if upgrades != 3 || enrolls != 5 {
+	// The oldest, task-a, is excepted; of the three others the newest two stay, and task-fresh.
+	if upgrades != 4 || enrolls != 5 || !slices.Contains(names, "task-a") || !slices.Contains(names, "task-fresh") || slices.Contains(names, "task-stale") || slices.Contains(names, "task-b") {
 		t.Fatalf("kept %q", names)
 	}
-	for _, want := range []string{"task-current", "task-d", "task-c"} {
+	for _, want := range []string{"task-fresh", "task-d", "task-c"} {
 		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
 			t.Fatalf("%s was pruned", want)
 		}

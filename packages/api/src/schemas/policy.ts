@@ -2,19 +2,12 @@
  * Runtime schemas for authorization rules (`../policy.ts`). The rule input schemas are strict, so a
  * misspelled field is rejected instead of being silently ignored.
  */
+import { KNOWN_METHODS } from "@crh/protocol";
 import { z } from "zod";
 
 export const RuleActionSchema = z.enum(["allow", "deny", "require-approval"]);
-export const RuleMethodSchema = z.enum([
-	"exec",
-	"file.read",
-	"file.write",
-	"upgrade",
-	"ext.read",
-	"ext.write",
-	"api.read",
-	"api.write",
-]);
+/** The privileged methods (one list, in @crh/protocol) and the methods of crhs's own operations. */
+export const RuleMethodSchema = z.enum([...KNOWN_METHODS, "ext.read", "ext.write", "api.read", "api.write"]);
 export const RulePresetSchema = z.enum(["ask", "auto_review", "yolo"]);
 /** A level's own result; only a lower level than the root may inherit. */
 export const DefaultActionSchema = z.enum(["allow", "deny", "require-approval", "inherit"]);

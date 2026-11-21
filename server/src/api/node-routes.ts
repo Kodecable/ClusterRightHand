@@ -27,6 +27,7 @@ import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
 import { isAdmin } from "../auth/sessions.ts";
 import { type TaskView, TERMINAL } from "../cluster/cluster.ts";
+import { type CrhaBinary, isReleaseVersion } from "../cluster/crha-release.ts";
 import { createEnrollmentToken } from "../cluster/enrollment.ts";
 import { nodeGroupsForNodes, resolveNodeGroupIds, setNodeGroupsForNode } from "../cluster/node-groups.ts";
 import { planUpgrade, upgradeSpec } from "../cluster/node-upgrade.ts";
@@ -49,7 +50,7 @@ import { findUserLibrary } from "../library/library.ts";
 import { INLINE_MEDIA_TYPES, INLINE_PREVIEW_MAX_BYTES, sniffMagic } from "../library/media-type.ts";
 import { openTransferLocation, type TransferContext, type TransferLocationJson } from "../library/transfer-location.ts";
 import type { Db } from "../storage/db.ts";
-import { NotFoundError, UserError } from "../util/errors.ts";
+import { errorText, NotFoundError, UserError } from "../util/errors.ts";
 import type { AppOptions } from "./app.ts";
 import { contentDisposition } from "./content-disposition.ts";
 import type { AppEnv } from "./context.ts";
@@ -663,6 +664,14 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const { cluster, taskGroups, crhaReleases } = options;
 		if (!cluster || !taskGroups || !crhaReleases) throw clusterUnavailable();
 		const body = c.req.valid("json");
+		// The installer upgrades only from a release to a newer release, and a crhs that is no release
+		// has no crha release to send.
+		if (!isReleaseVersion(crhaReleases.version)) {
+			throw new UserError(
+				`crhs ${crhaReleases.version} is not a release: crha self-upgrade needs a released crhs, whose version names the crha release`,
+				"not_a_release",
+			);
+		}
 		const resolved = await resolveTargets(db, user, body.targets);
 		const rows = (await Promise.all(resolved.nodeIds.map((id) => getNode(db, id)))).filter((row) => row !== undefined);
 		const plan = await planUpgrade(db, rows, crhaReleases.version, (id) => cluster.isConnected(id));
@@ -671,13 +680,33 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		if (body.dryRun === true || upgrades.length === 0) {
 			return c.json({ ...answer, taskGroups: [] }, 200);
 		}
-		const started: { arch: string; taskGroupId: string }[] = [];
-		for (const [arch, candidates] of plan.byArch) {
-			const binary = await crhaReleases.binary(arch);
-			const location = await cluster.stageBytesForPush(binary.bytes);
-			let taskGroupId: string;
+		const audit = c.get("audit");
+		// Every architecture's release is fetched and verified before any group starts, so a release that
+		// fails, possibly a tampered one, starts nothing; the failure is audited.
+		const binaries = new Map<string, CrhaBinary>();
+		for (const arch of plan.byArch.keys()) {
 			try {
-				taskGroupId = await taskGroups.create({
+				binaries.set(arch, await crhaReleases.binary(arch));
+			} catch (err) {
+				void audit.record({
+					actor: userActor(user),
+					action: "node.upgrade_failed",
+					target: { type: "node_upgrade", id: plan.version },
+					detail: {
+						version: plan.version,
+						arch,
+						code: err instanceof UserError ? (err.code ?? null) : null,
+						reason: errorText(err),
+					},
+				});
+				throw err;
+			}
+		}
+		const startUpgradeGroup = async (arch: string, candidates: readonly { nodeId: string }[]): Promise<string> => {
+			const binary = binaries.get(arch) as CrhaBinary;
+			const location = await cluster.stageBytesForPush(binary.bytes);
+			try {
+				return await taskGroups.create({
 					spec: upgradeSpec(binary),
 					targets: candidates.map((candidate) => candidate.nodeId),
 					nodeIds: candidates.map((candidate) => candidate.nodeId),
@@ -692,9 +721,18 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 					.catch(() => {});
 				throw err;
 			}
-			started.push({ arch, taskGroupId });
+		};
+		const started: { arch: string; taskGroupId: string }[] = [];
+		let failure: unknown;
+		try {
+			for (const [arch, candidates] of plan.byArch) {
+				started.push({ arch, taskGroupId: await startUpgradeGroup(arch, candidates) });
+			}
+		} catch (err) {
+			failure = err;
 		}
-		void c.get("audit").record({
+		// Recorded with the groups that did start, also when a later one failed.
+		void audit.record({
 			actor: userActor(user),
 			action: "node.upgrade_requested",
 			target: { type: "node_upgrade", id: plan.version },
@@ -703,8 +741,10 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 				nodes: upgrades.map((upgrade) => ({ id: upgrade.nodeId, from: upgrade.version, arch: upgrade.arch })),
 				task_groups: started.map((group) => group.taskGroupId),
 				skipped: plan.skipped.map((skip) => ({ id: skip.nodeId, reason: skip.reason })),
+				...(failure === undefined ? {} : { error: errorText(failure) }),
 			},
 		});
+		if (failure !== undefined) throw failure;
 		return c.json({ ...answer, taskGroups: started }, 201);
 	});
 

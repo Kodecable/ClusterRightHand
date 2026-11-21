@@ -46,6 +46,7 @@ export const TrustWarningKindSchema = z.enum([
 	"alias_missing",
 	"trust_unknown",
 	"trust_newer_values",
+	"upgrade_not_denied",
 ]);
 
 export const TrustWarningSeveritySchema = z.enum(["danger", "warning", "info"]);
@@ -56,7 +57,10 @@ export const TrustWarningSchema = z
 		severity: TrustWarningSeveritySchema,
 		uuid: z.string().nullable().describe("The alias or node group id the warning is about; null for a trust entry."),
 		nodeGroupName: z.string().nullable().describe("The node group the id names, when it is one."),
-		trustName: z.string().nullable().describe("The trust entry name, for `trust_unknown` and `trust_newer_values`."),
+		trustName: z
+			.string()
+			.nullable()
+			.describe("The trust entry name, for the `trust_*` kinds and `upgrade_not_denied`."),
 		message: z.string(),
 	})
 	.meta({ id: "TrustWarning" });
@@ -401,6 +405,7 @@ export const NodeUpgradeSkipReasonSchema = z.enum([
 	"up_to_date",
 	"newer_than_crhs",
 	"not_a_release_version",
+	"upgrade_in_progress",
 ]);
 
 export const NodeUpgradeResponseSchema = z

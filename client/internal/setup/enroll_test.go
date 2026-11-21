@@ -369,7 +369,7 @@ func TestRunFullForward(t *testing.T) {
 	}
 	for _, want := range []string{
 		"systemctl daemon-reload",
-		"systemctl enable crha crha-privileged",
+		"systemctl enable crha-privileged.service crha.service",
 		"systemctl start crha-privileged.service",
 	} {
 		if !host.hasCommand(want) {
@@ -475,7 +475,7 @@ func TestRunIgnoreMode(t *testing.T) {
 			t.Fatalf("ignore mode created %s: %v", path, err)
 		}
 	}
-	if !host.hasCommand("systemctl enable crha") {
+	if !host.hasCommand("systemctl enable crha.service") {
 		t.Fatalf("commands = %v, want a plain enable", host.commands)
 	}
 	unit := readFile(t, at(host, filepath.Join(UnitDir, "crha.service")))
@@ -484,7 +484,7 @@ func TestRunIgnoreMode(t *testing.T) {
 	}
 }
 
-func TestRunRerunSkipsAndRewritesUnits(t *testing.T) {
+func TestRunRerunSkipsWhatIsInPlace(t *testing.T) {
 	host := newFakeHost(t)
 	register, calls := fakeRegister(host)
 	var first strings.Builder
@@ -512,7 +512,7 @@ func TestRunRerunSkipsAndRewritesUnits(t *testing.T) {
 		"skipped: /var/lib/crha",
 		"skipped: /etc/crha/crha.toml",
 		"skipped: /etc/crha/privileged.toml",
-		"wrote: /etc/systemd/system/crha.service",
+		"skipped: /etc/systemd/system/crha.service",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("rerun output has no %q:\n%s", want, out.String())
@@ -555,8 +555,8 @@ func TestRunKeepSkipsEnrollment(t *testing.T) {
 		"skipped: /etc/crha/crha.toml",
 		"skipped: enrollment (already enrolled)",
 		"skipped: /etc/crha/privileged.toml",
-		"wrote: /etc/systemd/system/crha.service",
-		"wrote: /etc/systemd/system/crha-privileged.service",
+		"skipped: /etc/systemd/system/crha.service",
+		"skipped: /etc/systemd/system/crha-privileged.service",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("keep output has no %q:\n%s", want, out.String())
@@ -564,7 +564,7 @@ func TestRunKeepSkipsEnrollment(t *testing.T) {
 	}
 	for _, want := range []string{
 		"systemctl daemon-reload",
-		"systemctl enable crha crha-privileged",
+		"systemctl enable crha-privileged.service crha.service",
 		"systemctl start crha-privileged.service",
 	} {
 		if !host.hasCommand(want) {
@@ -1006,5 +1006,21 @@ func TestInteractiveReplaceWithAnotherServerSaysNewNode(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("summary has no %q:\n%s", want, out.String())
 		}
+	}
+}
+
+// An answers file naming another crhs, and no replace answer, must not slip the address change past an
+// interactive "keep the enrollment".
+func TestInteractiveKeepRefusesTheFilesOtherServer(t *testing.T) {
+	existing := &config.Config{
+		Server: "https://old.example.com", TLSVerify: "none", StateDir: StateDir,
+		Privilege: config.Privileged{Mode: config.ModeIgnore},
+	}
+	file := &fileAnswers{Version: 1, Server: ptr("https://new.example.com"), Service: &fileService{Start: ptr(true)}}
+	var prompts strings.Builder
+	_, err := collectAnswers(file, existingSetup{config: existing, enrolled: true}, true,
+		strings.NewReader("n\ny\n"), &prompts, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "is a new enrollment") {
+		t.Fatalf("err %v", err)
 	}
 }

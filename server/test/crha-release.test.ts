@@ -13,8 +13,10 @@ import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CrhaReleases, isReleaseVersion, MAX_REDOWNLOADS, parseChecksums } from "../src/cluster/crha-release.ts";
 import {
+	exactIdentity,
 	GITHUB_ACTIONS_ISSUER,
 	type ReleaseSignatureVerifier,
+	releaseIdentity,
 	type SignatureCheck,
 	type SignatureInput,
 	SigstoreVerifier,
@@ -79,7 +81,9 @@ describe("the crha release cache", () => {
 			[`crha-${VERSION}-linux-${ARCH}/crha`]: BINARY,
 			[`crha-${VERSION}-linux-${ARCH}/VERSION`]: Buffer.from(VERSION),
 		});
-		sums = Buffer.from(`${hex(archive)}  ${ARCHIVE}\n${"0".repeat(64)}  crha-${VERSION}-linux-arm64.tar.gz\n`);
+		sums = Buffer.from(
+			`${hex(archive)}  ${ARCHIVE}\n${"0".repeat(64)}  crha-${VERSION}-linux-arm64.tar.gz\n${hex(BINARY)}  crha-${VERSION}-linux-${ARCH}/crha\n`,
+		);
 		served = new Map([
 			[assetUrl(ARCHIVE), archive],
 			[assetUrl("SHA256SUMS"), sums],
@@ -185,6 +189,21 @@ describe("the crha release cache", () => {
 		await expect(releases().binary("riscv64")).rejects.toMatchObject({ code: "release_no_arch" });
 	});
 
+	it("checks the binary against its own line in SHA256SUMS, the hash a signer compares", async () => {
+		const withSums = (text: string) => served.set(assetUrl("SHA256SUMS"), Buffer.from(text));
+		withSums(`${hex(archive)}  ${ARCHIVE}\n${"1".repeat(64)}  crha-${VERSION}-linux-${ARCH}/crha\n`);
+		await expect(releases().binary(ARCH)).rejects.toMatchObject({
+			code: "release_invalid",
+			message: expect.stringMatching(/crha has sha256/),
+		});
+		await rm(join(dir, "crha-releases"), { recursive: true, force: true });
+		withSums(`${hex(archive)}  ${ARCHIVE}\n`);
+		await expect(releases().binary(ARCH)).rejects.toMatchObject({
+			code: "release_invalid",
+			message: expect.stringMatching(/lists no crha-1\.3\.0-linux-amd64\/crha/),
+		});
+	});
+
 	it("reports a missing release asset", async () => {
 		served.delete(assetUrl(ARCHIVE));
 		await expect(releases().binary(ARCH)).rejects.toMatchObject({ code: "release_unavailable" });
@@ -238,25 +257,50 @@ describe("the tar reader", () => {
 			const archive = await makeArchive(dir, { "top/crha": BINARY, [long]: Buffer.from("long") }, [
 				`--format=${format}`,
 			]);
-			expect(extractTarFile(archive, "top/crha", limits)).toEqual(BINARY);
-			expect(extractTarFile(archive, long, limits).toString()).toBe("long");
+			expect(await extractTarFile(archive, "top/crha", limits)).toEqual(BINARY);
+			expect((await extractTarFile(archive, long, limits)).toString()).toBe("long");
 			// `tar -C dir .` writes "./" before every name; it names the same file.
-			expect(extractTarFile(archive, "./top/crha", limits)).toEqual(BINARY);
+			expect(await extractTarFile(archive, "./top/crha", limits)).toEqual(BINARY);
 		}
+	});
+
+	it("reads a pax path with multi-byte characters, whose record length counts bytes", async () => {
+		const name = `top/${"é".repeat(60)}/${"中".repeat(30)}/crha`;
+		const archive = await makeArchive(dir, { [name]: Buffer.from("wide"), "top/after": Buffer.from("after") }, [
+			"--format=pax",
+		]);
+		expect((await extractTarFile(archive, name, limits)).toString()).toBe("wide");
+		expect((await extractTarFile(archive, "top/after", limits)).toString()).toBe("after");
 	});
 
 	it("rejects what it cannot use", async () => {
 		const archive = await makeArchive(dir, { "top/crha": BINARY });
-		expect(() => extractTarFile(archive, "top/missing", limits)).toThrow(TarError);
-		expect(() => extractTarFile(archive, "top", limits)).toThrow(/not a regular file/);
-		expect(() => extractTarFile(archive, "top/crha", { archiveBytes: 1 << 20, fileBytes: 4 })).toThrow(/larger/);
-		expect(() => extractTarFile(Buffer.from("not gzip"), "x", limits)).toThrow(/gzip/);
+		await expect(extractTarFile(archive, "top/missing", limits)).rejects.toThrow(TarError);
+		await expect(extractTarFile(archive, "top", limits)).rejects.toThrow(/not a regular file/);
+		await expect(extractTarFile(archive, "top/crha", { archiveBytes: 1 << 20, fileBytes: 4 })).rejects.toThrow(
+			/larger/,
+		);
+		await expect(extractTarFile(Buffer.from("not gzip"), "x", limits)).rejects.toThrow(/gzip/);
 		const tampered = gzipSync(Buffer.from(execFileSync("tar", ["-C", dir, "-cf", "-", "."])).fill(7, 0, 4));
-		expect(() => extractTarFile(tampered, "x", limits)).toThrow(/checksum/);
+		await expect(extractTarFile(tampered, "x", limits)).rejects.toThrow(/checksum/);
 	});
 });
 
 describe("the Sigstore verifier", () => {
+	it("matches the release identity exactly", () => {
+		const identity = releaseIdentity("o", "r", "v1.2.3");
+		const pattern = exactIdentity(identity);
+		expect(identity.match(pattern)).not.toBeNull();
+		for (const other of [
+			releaseIdentity("o", "r", "v1.2.30"),
+			releaseIdentity("o", "r", "v1.2.3-rc.1"),
+			identity.replace("release.yml", "release-yml"),
+			`x${identity}`,
+		]) {
+			expect(other.match(pattern)).toBeNull();
+		}
+	});
+
 	const fixtures = new URL("./fixtures/sigstore/", import.meta.url);
 	// cosign's own release, signed by its release service account: a real bundle of the same shape.
 	const identity = "keyless@projectsigstore.iam.gserviceaccount.com";
@@ -298,6 +342,10 @@ describe("the Sigstore verifier", () => {
 					kind: "invalid",
 				});
 				expect(await verifier.verify({ artifact, bundle, identity: `${identity}x`, issuer })).toMatchObject({
+					kind: "invalid",
+				});
+				// A part of the identity is not the identity.
+				expect(await verifier.verify({ artifact, bundle, identity: identity.slice(0, -4), issuer })).toMatchObject({
 					kind: "invalid",
 				});
 			} finally {

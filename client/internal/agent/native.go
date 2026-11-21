@@ -155,53 +155,21 @@ type nativeConn struct {
 // helper refused it: a response lost after acceptance must not make crhs retry a task that may
 // have run (doc/design/protocol.md "crh-priv").
 func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
-	argv, err := a.nativeArgv()
+	h, err := a.launchNative(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(argv[0], argv[1:]...)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("native helper stdin: %w", err)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		return nil, fmt.Errorf("native helper stdout: %w", err)
-	}
-	stderr := &nativeStderr{log: a.log}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		return nil, nativeFailure(argv, stderr, err)
-	}
+	argv, stderr := h.argv, h.stderr
 	n := &nativeConn{
-		cmd:      cmd,
-		stdin:    stdin,
+		cmd:      h.cmd,
+		stdin:    h.stdin,
 		log:      a.log,
 		inputs:   newNativeInputQueue(),
 		events:   newRelayRouter(),
 		loopDone: make(chan struct{}),
 		done:     make(chan struct{}),
 	}
-
-	// Bound the handshake with a read deadline on the helper's pipe: a tool that sits waiting for
-	// something (a password on a terminal it does not have, a network lookup) never answers.
-	if d, ok := stdout.(interface{ SetReadDeadline(time.Time) error }); ok {
-		_ = d.SetReadDeadline(time.Now().Add(a.nativeTimeout()))
-	}
-	_, negotiated, err := wire.ClientHandshake(stdout, stdin, wire.ClientOptions{
-		Role:        wire.RoleNative,
-		CRHAVersion: version.Version,
-	})
-	if err != nil {
-		n.abort()
-		return nil, nativeFailure(argv, stderr, err)
-	}
-	if d, ok := stdout.(interface{ SetReadDeadline(time.Time) error }); ok {
-		_ = d.SetReadDeadline(time.Time{})
-	}
-
-	n.stream = wire.NewStream(stdout, stdin, negotiated)
+	n.stream = wire.NewStream(h.stdout, h.stdin, h.negotiated)
 	peer := n.stream.Peer()
 	output, transfer, exit := n.events.eventHandlers(func(string) string { return ts.TaskID })
 	peer.HandleEvent(protocol.EventTaskOutput, output)
@@ -233,6 +201,60 @@ func (a *Agent) startNative(ts *protocol.TaskStart) (*nativeConn, error) {
 		return n, nil
 	}
 	return n, nil
+}
+
+// nativeHelper is a started native helper whose crh-priv handshake completed.
+type nativeHelper struct {
+	argv       []string
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     io.ReadCloser
+	stderr     *nativeStderr
+	negotiated protocol.Set
+}
+
+// launchNative starts the native helper and completes its handshake, for a task and for the readiness
+// probe alike. A helper that fails the handshake is killed and reaped. ctx ends the process early.
+func (a *Agent) launchNative(ctx context.Context) (*nativeHelper, error) {
+	argv, err := a.nativeArgv()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("native helper stdin: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		_ = stdin.Close()
+		return nil, fmt.Errorf("native helper stdout: %w", err)
+	}
+	stderr := &nativeStderr{log: a.log}
+	cmd.Stderr = stderr
+	if err := cmd.Start(); err != nil {
+		return nil, nativeFailure(argv, stderr, err)
+	}
+	// Bound the handshake with a read deadline on the helper's pipe: a tool that sits waiting for
+	// something (a password on a terminal it does not have, a network lookup) never answers.
+	deadline, ok := stdout.(interface{ SetReadDeadline(time.Time) error })
+	if ok {
+		_ = deadline.SetReadDeadline(time.Now().Add(a.nativeTimeout()))
+	}
+	_, negotiated, err := wire.ClientHandshake(stdout, stdin, wire.ClientOptions{
+		Role:        wire.RoleNative,
+		CRHAVersion: version.Version,
+	})
+	if err != nil {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return nil, nativeFailure(argv, stderr, err)
+	}
+	if ok {
+		_ = deadline.SetReadDeadline(time.Time{})
+	}
+	return &nativeHelper{argv: argv, cmd: cmd, stdin: stdin, stdout: stdout, stderr: stderr, negotiated: negotiated}, nil
 }
 
 // abort tears down a helper whose start failed. It never accepted the task, so signalling it is

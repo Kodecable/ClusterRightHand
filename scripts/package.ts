@@ -390,13 +390,16 @@ function nfpmConfig(pkgVersion: string, arch: Arch, pkg: NfpmPackage): string {
 }
 
 /**
- * The deb and rpm version. A semver prerelease (`1.2.0-rc.1`) becomes `1.2.0~rc.1`: both dpkg and rpm sort
- * `~` before the release, whereas a `-` would sort the prerelease after it (and is not allowed in an rpm
- * version). Versions must start with a digit, so a git describe version is encoded under 0.0.0~git.
+ * The deb and rpm version of a version scripts/version.ts resolved. A semver prerelease (`1.2.0-rc.1`)
+ * becomes `1.2.0~rc.1`: both dpkg and rpm sort `~` before the release, whereas a `-` would sort the
+ * prerelease after it (and is not allowed in an rpm version). Build metadata (`+4.gabc1234`) is kept, as
+ * both allow `+`. `dev` does not start with a digit, which both require, so it becomes `0.0.0~dev`.
  */
 function packageVersion(version: string): string {
-	if (/^[0-9]/.test(version)) return version.replace("-", "~").replace(/-/g, ".");
-	return `0.0.0~git${version.replace(/-/g, ".")}`;
+	if (!/^[0-9]/.test(version)) return `0.0.0~${version}`;
+	const plus = version.indexOf("+");
+	const [core, meta] = plus === -1 ? [version, ""] : [version.slice(0, plus), version.slice(plus)];
+	return core.replace("-", "~").replace(/-/g, ".") + meta.replace(/-/g, ".");
 }
 
 /** nfpm by absolute path from PATH, or a clear error before the release directory is touched. */
@@ -567,6 +570,13 @@ async function writeSums(): Promise<void> {
 	const artifacts = (await readdir(releaseDir)).filter((name) => /\.(tar\.gz|deb|rpm)$/.test(name)).sort();
 	const lines: string[] = [];
 	for (const name of artifacts) lines.push(`${sha256(await readFile(join(releaseDir, name)))}  ${name}`);
+	// Each crha binary too, under its path in the unpacked archive: crha self-upgrade binds this hash in
+	// its authorization, so a signer can compare it with the signed list (doc/design/distribution.md
+	// "The upgrade task"), and `sha256sum -c` checks it once the archive is unpacked.
+	for (const name of artifacts.filter((artifact) => /^crha-.*-linux-[a-z0-9]+\.tar\.gz$/.test(artifact))) {
+		const binary = `${name.slice(0, -".tar.gz".length)}/crha`;
+		lines.push(`${sha256(await readFile(join(stageDir, binary)))}  ${binary}`);
+	}
 	await writeFile(join(releaseDir, "SHA256SUMS"), `${lines.join("\n")}\n`);
 	console.log(`wrote dist/release/SHA256SUMS (${artifacts.length} artifacts)`);
 }

@@ -81,6 +81,16 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 					</Trans>
 				</span>
 			);
+		case "upgrade_not_denied":
+			return (
+				<span>
+					<Trans>
+						This crhs entry denies some operations but not upgrade, so crhs alone can replace the binary that enforces
+						them. Add a deny rule for method "upgrade" in privileged.toml so an upgrade needs a user's signature:{" "}
+						{value}
+					</Trans>
+				</span>
+			);
 	}
 }
 

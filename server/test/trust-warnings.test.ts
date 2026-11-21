@@ -177,6 +177,18 @@ describe("node trust warnings", () => {
 		}
 	});
 
+	it("warns of a deny-only crhs entry that does not deny upgrade", () => {
+		const denyRule = (method: string) => ({ method, match: "prefix", pattern: "/etc/" }) as TrustEntry["deny"][number];
+		const denyOnly = { ...CRHS, deny: [denyRule("file.write")] };
+		expect(warnings({ trust: [denyOnly] })).toMatchObject([
+			{ kind: "upgrade_not_denied", severity: "warning", trustName: "crhs" },
+		]);
+		// Denying upgrade, an allow list, or no rules at all: nothing to warn of.
+		expect(warnings({ trust: [{ ...denyOnly, deny: [denyRule("file.write"), denyRule("upgrade")] }] })).toEqual([]);
+		expect(warnings({ trust: [{ ...denyOnly, allow: [denyRule("exec")] }] })).toEqual([]);
+		expect(warnings({ trust: [CRHS] })).toEqual([]);
+	});
+
 	it("knows every one of crhs's signing keys, not only the newest", () => {
 		const context = { ...CONTEXT, crhsFingerprints: ["SHA256:crhs", "SHA256:old"] };
 		expect(warnings({ trust: [CRHS, CRHS_OLD], context })).toEqual([]);

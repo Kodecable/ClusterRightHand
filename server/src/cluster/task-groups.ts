@@ -38,7 +38,7 @@ import type { Cluster } from "./cluster.ts";
 import { listNodesForUser } from "./nodes.ts";
 import { taskGroupOutcome } from "./outcome.ts";
 import { operationOfJson, specFromRow } from "./spec.ts";
-import { NodeGoneError } from "./task-dispatch.ts";
+import { isTransferSpec, NodeGoneError } from "./task-dispatch.ts";
 import { pendingInputColumn, pendingInputOf } from "./task-start.ts";
 import {
 	type Actor,
@@ -1164,7 +1164,7 @@ function memberTransfer(
 	spec: TaskSpec,
 	location: TransferLocationJson,
 ): { spec: TaskSpec; record: { transferId: string; location: TransferLocationJson } } {
-	if (spec.kind !== "file.push" && spec.kind !== "file.pull" && spec.kind !== "node.upgrade") {
+	if (!isTransferSpec(spec)) {
 		throw new Error("a transfer task group must push or pull a file, or upgrade crha");
 	}
 	const transferId = randomUUID();

@@ -1,7 +1,6 @@
 package upgrade
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,8 +12,6 @@ import (
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/backup"
-	"github.com/Kodecable/ClusterRightHand/client/internal/config"
-	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/setup"
 	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade/marker"
@@ -52,14 +49,6 @@ type InstallOptions struct {
 	Migrations []Migration
 }
 
-// plannedFile is one file of the fixed set with its content after the upgrade: nil when it is absent.
-type plannedFile struct {
-	path    string
-	content []byte
-	mode    os.FileMode
-	changed bool
-}
-
 type installer struct {
 	opts InstallOptions
 	log  *Log
@@ -67,7 +56,8 @@ type installer struct {
 	// running is the set of units the node runs, in start order.
 	running []string
 	mode    string
-	files   []plannedFile
+	// fixed is the plan of the fixed set, the same crha enroll makes.
+	fixed *setup.Plan
 	// manifest is set once the backup exists; from then on a failure restores it.
 	manifest *backup.Manifest
 }
@@ -129,11 +119,20 @@ func Install(ctx context.Context, opts InstallOptions) error {
 		log:  &Log{Path: filepath.Join(dir, LogName), UpgradeID: opts.TaskID, From: opts.From, To: opts.To, Now: opts.Now},
 	}
 	in.info("start", "upgrading crha from %s to %s", opts.From, opts.To)
-	// Older backups go first, whatever the outcome of this upgrade; this one's directory holds its binary.
-	if err := backup.Prune(in.backupsDir(), backup.UpgradeID(opts.TaskID)); err != nil {
+	return in.run(ctx)
+}
+
+// prune removes older upgrade backups, whatever the outcome of this upgrade, keeping this one's
+// directory (it holds the received binary) and the backup a rollback by hand would restore now, however
+// many upgrades failed since.
+func (in *installer) prune() {
+	except := []string{backup.UpgradeID(in.opts.TaskID)}
+	if plan, err := PlanRollback(in.opts.Root, in.dir); err == nil {
+		except = append(except, backup.UpgradeID(plan.UpgradeID))
+	}
+	if err := backup.Prune(in.backupsDir(), backup.KindUpgrade, in.opts.Now(), except...); err != nil {
 		in.info("prune", "removing old backups failed: %v", err)
 	}
-	return in.run(ctx)
 }
 
 func (in *installer) fail(step string, err error) {
@@ -151,6 +150,7 @@ func (in *installer) run(ctx context.Context) error {
 		in.fail("version", err)
 		return err
 	}
+	in.prune()
 
 	// 1. Plan: read the fixed set, migrate the configuration, render the units, self-test.
 	if err := in.plan(); err != nil {
@@ -174,7 +174,7 @@ func (in *installer) run(ctx context.Context) error {
 	// 3. Stop both modes: the privileged mode keeps writing its state while it runs.
 	if err := units.Stop(ctx, in.opts.Sys.Run, in.running); err != nil {
 		in.fail("stop", err)
-		_ = in.startUnits(ctx)
+		_ = in.startUnits(context.WithoutCancel(ctx))
 		return err
 	}
 	in.info("stop", "stopped %v", in.running)
@@ -207,7 +207,9 @@ func (in *installer) run(ctx context.Context) error {
 	return nil
 }
 
-// plan reads the fixed set and works out its content after the upgrade, changing nothing.
+// plan works out the fixed set as this version sets it up, changing nothing: the same plan crha enroll
+// makes, from the files already there, with the migrations as the configuration's edits and this binary
+// as the new one.
 func (in *installer) plan() error {
 	server, err := readManagedUnit(in.opts.Root, units.Server)
 	if err != nil {
@@ -215,98 +217,40 @@ func (in *installer) plan() error {
 	}
 	in.mode = server.Meta.Mode
 	in.running = units.Names(in.mode)
-	configPath, target := server.Meta.Config, server.Executable
-
-	add := func(path string, content []byte, mode os.FileMode) error {
-		current, err := os.ReadFile(in.path(path))
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		if content == nil && err == nil {
-			// A file of the set this version does not write keeps its content.
-			content = current
-		}
-		in.files = append(in.files, plannedFile{path: path, content: content, mode: mode,
-			changed: content != nil && (err != nil || !bytes.Equal(current, content))})
-		return nil
-	}
-
-	rendered := map[string][]byte{}
-	for _, unit := range setup.UnitFiles(target, configPath, in.mode, in.opts.To) {
-		rendered[unit.Name] = []byte(unit.Content)
-	}
-	for _, name := range []string{units.Privileged, units.Server} {
-		if err := add(filepath.Join(units.Dir, name), rendered[name], 0o644); err != nil {
-			return err
-		}
-	}
-
-	migrated := func(file, path string) ([]byte, error) {
-		data, err := os.ReadFile(in.path(path))
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		out, done, err := migrateFile(in.opts.Migrations, file, in.opts.From, in.opts.To, data)
-		if err != nil {
-			return nil, err
-		}
-		for _, line := range done {
-			in.info("migrate", "%s", line)
-		}
-		return out, nil
-	}
-	crhaToml, err := migrated(FileCrha, configPath)
-	if err != nil {
-		return err
-	}
-	if crhaToml == nil {
-		return fmt.Errorf("%s is missing", configPath)
-	}
-	privToml, err := migrated(FilePrivileged, setup.PrivilegedConfigPath)
-	if err != nil {
-		return err
-	}
-	if in.mode == config.ModeForward && privToml == nil {
-		return fmt.Errorf("%s is missing in forward mode", setup.PrivilegedConfigPath)
-	}
-	// Self-test: this version's strict parsers must read what it is about to install.
-	if _, err := config.Parse(crhaToml); err != nil {
-		return fmt.Errorf("self-test of %s: %w", configPath, err)
-	}
-	if in.mode == config.ModeForward {
-		if _, err := privconfig.Parse(privToml); err != nil {
-			return fmt.Errorf("self-test of %s: %w", setup.PrivilegedConfigPath, err)
-		}
-	}
-	if err := add(configPath, crhaToml, 0o640); err != nil {
-		return err
-	}
-	if err := add(setup.PrivilegedConfigPath, privToml, 0o600); err != nil {
-		return err
-	}
-
 	binary, err := os.ReadFile(in.opts.Self)
 	if err != nil {
 		return fmt.Errorf("read this binary: %w", err)
 	}
-	// The binary is last, so that it is written last.
-	return add(target, binary, 0o755)
+	migrate := func(file string) func([]byte) ([]byte, []string, error) {
+		return func(data []byte) ([]byte, []string, error) {
+			return migrateFile(in.opts.Migrations, file, in.opts.From, in.opts.To, data)
+		}
+	}
+	in.fixed, err = setup.BuildPlan(setup.PlanInput{
+		Root: in.opts.Root, ConfigPath: server.Meta.Config, Executable: server.Executable,
+		Mode: in.mode, Version: in.opts.To,
+		Config:     setup.Content{Edit: migrate(FileCrha)},
+		Privileged: setup.Content{Edit: migrate(FilePrivileged)},
+		Binary:     binary,
+	})
+	if err != nil {
+		return err
+	}
+	for _, f := range in.fixed.Files {
+		for _, line := range f.Changes {
+			in.info("migrate", "%s", line)
+		}
+	}
+	return nil
 }
 
 // backup copies every file of the fixed set and writes the manifest, with each file's hash after the
-// upgrade, which a later rollback checks.
+// upgrade.
 func (in *installer) backup() error {
-	files := make([]backup.File, 0, len(in.files))
-	for _, f := range in.files {
-		files = append(files, backup.File{Path: f.path, After: f.content})
-	}
 	m, manifestPath, err := backup.Take(backup.Options{
 		Root: in.opts.Root, Dir: in.backupsDir(), ID: backup.UpgradeID(in.opts.TaskID),
 		From: in.opts.From, To: in.opts.To, Units: in.running, Now: in.opts.Now(),
-	}, files)
+	}, in.fixed.BackupFiles())
 	if err != nil {
 		return err
 	}
@@ -315,33 +259,27 @@ func (in *installer) backup() error {
 	return nil
 }
 
-// write replaces the files whose content changes, the binary last, and reloads systemd.
+// write writes what changed, the binary last, reloads systemd and enables the units, as enroll does.
 func (in *installer) write(ctx context.Context) error {
 	var written []string
-	for _, f := range in.files {
-		if !f.changed {
-			continue
+	for _, f := range in.fixed.Files {
+		if f.Changed() {
+			written = append(written, f.Path)
 		}
-		mode := f.mode
-		if info, err := os.Stat(in.path(f.path)); err == nil {
-			// A file that exists keeps its mode; a new one gets this version's.
-			mode = info.Mode().Perm()
-		}
-		if err := backup.ReplaceFile(in.path(f.path), f.content, mode); err != nil {
-			return err
-		}
-		written = append(written, f.path)
 	}
-	in.info("replace", "wrote %v", written)
-	if err := in.systemctl(ctx, "daemon-reload"); err != nil {
+	if err := in.fixed.Apply(ctx, in.opts.Sys.Run, in.opts.Host.Chown); err != nil {
 		return err
 	}
-	return in.systemctl(ctx, append([]string{"enable"}, in.running...)...)
+	in.info("replace", "wrote %v", written)
+	return nil
 }
 
 // rollback restores the backup, reloads systemd and starts the old version. It does not check the old
 // version's health (doc/design/distribution.md "On the node").
 func (in *installer) rollback(ctx context.Context, step string, cause error) error {
+	// The rollback is what brings the node back, so it runs to its end even when the installer is
+	// being stopped.
+	ctx = context.WithoutCancel(ctx)
 	_ = in.log.Write("error", step, cause.Error())
 	if in.manifest == nil {
 		// The failure came before the backup: nothing was replaced.
@@ -350,14 +288,13 @@ func (in *installer) rollback(ctx context.Context, step string, cause error) err
 		return cause
 	}
 	_ = units.Stop(ctx, in.opts.Sys.Run, in.running)
-	if err := backup.Restore(in.opts.Root, in.manifest); err != nil {
-		in.fail("rollback", fmt.Errorf("%v; restoring the backup failed: %v", cause, err))
-		return err
-	}
+	// A file that cannot be put back does not keep the others stopped: the units start either way.
+	restoreErr := backup.Restore(in.opts.Root, in.manifest)
 	_ = in.systemctl(ctx, "daemon-reload")
-	if err := in.startUnits(ctx); err != nil {
-		in.fail("rollback", fmt.Errorf("%v; the old version did not start: %v", cause, err))
-		return err
+	startErr := in.startUnits(ctx)
+	if restoreErr != nil || startErr != nil {
+		in.fail("rollback", fmt.Errorf("%v; restoring the backup: %v; starting the units: %v", cause, restoreErr, startErr))
+		return errors.Join(cause, restoreErr, startErr)
 	}
 	_ = in.log.Write("error", OutcomeRolledBack, fmt.Sprintf("rolled back to crha %s: %v", in.opts.From, cause))
 	return cause
