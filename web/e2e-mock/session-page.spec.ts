@@ -1,4 +1,4 @@
-import type { AvailableModel, JobView } from "@crh/api";
+import type { AvailableModel, JobView, TodoItem } from "@crh/api";
 import { expect, type Page, test } from "@playwright/test";
 import { login, mockApi, openSession, sessionListItem, sessionView, snapshotEvent, userEntry } from "./helpers";
 
@@ -515,7 +515,138 @@ test("long job actions stay inside the background popover and the mobile sheet",
 	expect(desktop?.viewport).toBe(1440);
 });
 
-test("a session without active jobs shows no background bar", async ({ page }) => {
+test("with no active jobs the bar reads 0 background jobs and shows no todo side", async ({ page }) => {
 	await openFooterPage(page);
-	await expect(page.getByTestId("background-bar")).toHaveCount(0);
+	const bar = page.getByTestId("background-bar");
+	await expect(bar).toHaveText("0 background jobs");
+	await expect(bar).toHaveAttribute("data-empty", "true");
+	await bar.click();
+	await expect(page.getByTestId("background-popover")).toHaveCount(0);
+	await expect(page.getByTestId("todo-bar")).toHaveCount(0);
+});
+
+test("the two-sided bar keeps long job actions and long todo items inside the viewport", async ({ page }) => {
+	const longAction = `systemctl restart ${"a-very-long-service-name-".repeat(10)}`;
+	const longTodo = `Roll out ${"the-new-nginx-configuration-".repeat(10)} to every node`;
+	const root = sessionListItem({ id: "s1", title: "Parent", updatedAt: new Date().toISOString() });
+	const child = sessionListItem({
+		id: "c1",
+		title: "Child one",
+		state: "running",
+		updatedAt: new Date().toISOString(),
+	});
+	const subagent = jobView({
+		id: "subagent-1",
+		kind: "subagent",
+		action: { type: "subagent", task: longAction },
+		resource: { type: "session", id: "c1" },
+	});
+	const nested = jobView({
+		id: "exec-9",
+		action: { type: "exec", command: `journalctl -u ${"another-long-service-name-".repeat(10)}` },
+		resource: { type: "task", id: "t9" },
+		sessionId: "c1",
+	});
+	const todos: TodoItem[] = [
+		{ content: "Back up /etc/nginx on web-1..3", status: "completed" },
+		{ content: longTodo, status: "in_progress" },
+		{ content: `Check ${"a-very-long-health-endpoint-name-".repeat(8)}`, status: "in_progress" },
+		{ content: "Verify that every node serves 200", status: "pending" },
+	];
+	const api = await mockApi(page, {
+		state: {
+			sessions: [root, child],
+			details: {
+				s1: sessionView(root, { todos }),
+				c1: sessionView(child, { parentSessionId: "s1" }),
+			},
+			jobs: { s1: [subagent], c1: [nested] },
+			events: {
+				s1: snapshotEvent([userEntry("u1", "delegate")], null),
+				c1: snapshotEvent([userEntry("c1-u1", "nested")], null),
+			},
+		},
+	});
+	await login(page);
+	await openSession(page, api, "s1");
+	// `1/4` because only the first item is completed; the first in-progress item is the one being shown.
+	await expect(page.getByTestId("todo-bar-summary")).toHaveText(`1/4 · ${longTodo}`);
+	await expect(page.getByTestId("todo-bar-more")).toHaveText("+1");
+
+	/** No page, bar, popover or sheet scrolls sideways at the current width. */
+	async function overflow() {
+		return await page.evaluate(() => {
+			const measure = (selector: string) => {
+				const element = document.querySelector<HTMLElement>(selector);
+				return element === null ? 0 : element.scrollWidth - element.clientWidth;
+			};
+			return {
+				page: measure("html"),
+				bar: measure('[data-testid="background-bar-shell"]'),
+				jobs: measure('[data-testid="background-popover"]'),
+				todo: measure('[data-testid="todo-popover"]'),
+				jobsSheet: measure('[data-testid="background-sheet"]'),
+				todoSheet: measure('[data-testid="todo-sheet"]'),
+			};
+		});
+	}
+
+	await page.setViewportSize({ width: 390, height: 844 });
+	await expect(page.getByTestId("todo-bar")).toBeVisible();
+	expect(await overflow()).toMatchObject({ page: 0, todoSheet: 0, jobsSheet: 0 });
+
+	// The jobs sheet still opens from the left side and its nested level truncates.
+	await page.getByTestId("background-bar").click();
+	await expect(page.getByTestId("background-sheet")).toBeVisible();
+	await page.getByTestId("background-job-expand").first().click();
+	await expect(page.getByTestId("background-tree").getByRole("link", { name: longAction })).toBeVisible();
+	expect((await overflow()).jobsSheet).toBeLessThanOrEqual(0);
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("background-sheet")).toBeHidden();
+
+	// The right side opens its own sheet with every item.
+	await page.getByTestId("todo-bar").click();
+	await expect(page.getByTestId("todo-sheet")).toBeVisible();
+	await expect(page.getByTestId("todo-sheet").getByTestId("todo-list").getByRole("listitem")).toHaveCount(4);
+	expect((await overflow()).todoSheet).toBeLessThanOrEqual(0);
+	expect((await overflow()).page).toBeLessThanOrEqual(0);
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("todo-sheet")).toBeHidden();
+
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.getByTestId("background-bar").click();
+	await expect(page.getByTestId("background-popover")).toBeVisible();
+	await page.getByTestId("background-job-expand").first().click();
+	await expect(page.getByTestId("background-tree").getByRole("link", { name: longAction })).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("background-popover")).toBeHidden();
+
+	await page.getByTestId("todo-bar").click();
+	const todoPopover = page.getByTestId("todo-popover");
+	await expect(todoPopover).toBeVisible();
+	const desktop = await page.evaluate(() => {
+		const popover = document.querySelector<HTMLElement>('[data-testid="todo-popover"]');
+		const bar = document.querySelector<HTMLElement>('[data-testid="background-bar-shell"]');
+		const summary = document.querySelector<HTMLElement>('[data-testid="todo-bar-summary"]');
+		if (!popover || !bar || !summary) return null;
+		const rect = popover.getBoundingClientRect();
+		return {
+			page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+			bar: bar.scrollWidth - bar.clientWidth,
+			popover: popover.scrollWidth - popover.clientWidth,
+			left: rect.left,
+			right: rect.right,
+			summaryOverflow: summary.scrollWidth - summary.clientWidth,
+			summaryTitle: summary.getAttribute("title"),
+		};
+	});
+	expect(desktop).not.toBeNull();
+	expect(desktop?.page).toBeLessThanOrEqual(0);
+	expect(desktop?.bar).toBeLessThanOrEqual(0);
+	expect(desktop?.popover).toBeLessThanOrEqual(0);
+	expect(desktop?.left).toBeGreaterThanOrEqual(0);
+	expect(desktop?.right).toBeLessThanOrEqual(1440);
+	// The long current item is the part that gives way; its title keeps the whole line.
+	expect(desktop?.summaryOverflow).toBeGreaterThan(0);
+	expect(desktop?.summaryTitle).toBe(`1/4 · ${longTodo}`);
 });

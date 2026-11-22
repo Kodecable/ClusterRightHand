@@ -10,7 +10,7 @@ import { isNotFound } from "@/lib/api/client";
 import { formatBytes } from "@/lib/format";
 import { isTerminal } from "@/lib/task-output";
 import { cn } from "@/lib/utils";
-import { callStillOpen, detailId, type ToolItem, toolLine } from "./tool-call";
+import { callStillOpen, detailId, type ToolItem, todoProgress, toolLine } from "./tool-call";
 import { reviewingDetails, viewImageDetails } from "./tool-details";
 import { ToolDialog } from "./tool-dialog";
 import {
@@ -183,6 +183,15 @@ export function ToolCard({
 	else statusLabel = failureLabel(outcome);
 	const line = toolLine(item.name, item.args);
 	const rest = line.slice(item.name.length);
+	// A todo_write call reads as its progress, not as its arguments (doc/design/todo.md "Background bar"); the
+	// dialog still opens them like any other tool row. Malformed arguments keep the generic line.
+	const todo = item.name === "todo_write" ? todoProgress(item.args) : undefined;
+	const todoLabel =
+		todo === undefined
+			? undefined
+			: todo.current === undefined
+				? t`${todo.done}/${todo.total} done`
+				: t`${todo.done}/${todo.total} done · ${todo.current}`;
 	const image = item.name === "view_image" ? viewImageDetails(result?.details ?? item.details) : undefined;
 
 	return (
@@ -196,37 +205,43 @@ export function ToolCard({
 					className="group flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none"
 				>
 					<ToolStatusIcon spinning={spinning} failed={failed} label={statusLabel} />
-					<span className="min-w-0 flex-1 truncate font-mono text-xs" title={line}>
-						<span className="font-medium">{item.name}</span>
-						{image === undefined ? (
-							rest
+					<span className="min-w-0 flex-1 truncate font-mono text-xs" title={todoLabel ?? line}>
+						{todoLabel !== undefined ? (
+							<span data-testid="todo-tool-summary">{todoLabel}</span>
 						) : (
-							<span className="ml-1.5 inline-flex items-center gap-1.5 font-sans" data-testid="view-image-summary">
-								{"library" in image.source ? (
-									<InternalLink
-										to="/library/$library"
-										params={{ library: image.source.library }}
-										search={{
-											path: image.source.path.includes("/")
-												? image.source.path.slice(0, image.source.path.lastIndexOf("/"))
-												: "",
-										}}
-										title={image.source.path}
-									>
-										{image.source.library}
-									</InternalLink>
+							<>
+								<span className="font-medium">{item.name}</span>
+								{image === undefined ? (
+									rest
 								) : (
-									<span title={image.source.path}>{image.source.node}</span>
+									<span className="ml-1.5 inline-flex items-center gap-1.5 font-sans" data-testid="view-image-summary">
+										{"library" in image.source ? (
+											<InternalLink
+												to="/library/$library"
+												params={{ library: image.source.library }}
+												search={{
+													path: image.source.path.includes("/")
+														? image.source.path.slice(0, image.source.path.lastIndexOf("/"))
+														: "",
+												}}
+												title={image.source.path}
+											>
+												{image.source.library}
+											</InternalLink>
+										) : (
+											<span title={image.source.path}>{image.source.node}</span>
+										)}
+										<span className="text-muted-foreground">{image.source.path}</span>
+										<span>
+											{image.width}×{image.height}
+										</span>
+										<span>{formatBytes(image.bytes, i18n.locale)}</span>
+										<span className="font-mono text-muted-foreground" title={image.sha256}>
+											{image.sha256.slice(0, 12)}
+										</span>
+									</span>
 								)}
-								<span className="text-muted-foreground">{image.source.path}</span>
-								<span>
-									{image.width}×{image.height}
-								</span>
-								<span>{formatBytes(image.bytes, i18n.locale)}</span>
-								<span className="font-mono text-muted-foreground" title={image.sha256}>
-									{image.sha256.slice(0, 12)}
-								</span>
-							</span>
+							</>
 						)}
 					</span>
 					{jobUnsettled && jobView !== undefined && (

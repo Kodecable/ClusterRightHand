@@ -5,6 +5,7 @@ import * as m0002 from "./migrations/0002_skills_session_prompt.ts";
 import * as m0003 from "./migrations/0003_drop_late_result.ts";
 import * as m0004 from "./migrations/0004_jobs.ts";
 import * as m0005 from "./migrations/0005_job_notice_wakes.ts";
+import * as m0006 from "./migrations/0006_todos.ts";
 
 /** Migrations are listed explicitly so they work the same from source and from a bundle. */
 const migrations: Record<string, Migration> = {
@@ -13,6 +14,7 @@ const migrations: Record<string, Migration> = {
 	"0003_drop_late_result": m0003,
 	"0004_jobs": m0004,
 	"0005_job_notice_wakes": m0005,
+	"0006_todos": m0006,
 };
 
 /** Options shared by the migration entry points. */

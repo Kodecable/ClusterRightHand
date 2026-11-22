@@ -45,6 +45,7 @@ function session(overrides: Partial<SessionView> = {}): SessionView {
 		state: "idle",
 		waitingKind: null,
 		waitingLevelId: null,
+		todos: null,
 		budgetRemaining: null,
 		budgetUsedTokens: 0,
 		usageTokens: 0,

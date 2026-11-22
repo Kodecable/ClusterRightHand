@@ -140,6 +140,19 @@ msgstr "{0} tok/s"
 msgid "{0}: {1} → {2} ({3})"
 msgstr "{0}: {1} → {2} ({3})"
 
+#. placeholder {0}: todo.done
+#. placeholder {1}: todo.total
+#: src/features/sessions/tool-card.tsx
+msgid "{0}/{1} done"
+msgstr "{0}/{1} done"
+
+#. placeholder {0}: todo.done
+#. placeholder {1}: todo.total
+#. placeholder {2}: todo.current
+#: src/features/sessions/tool-card.tsx
+msgid "{0}/{1} done · {2}"
+msgstr "{0}/{1} done · {2}"
+
 #: src/components/task-result.tsx
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# byte} other {# bytes}}"
@@ -148,6 +161,16 @@ msgstr "{bytes, plural, one {# byte} other {# bytes}}"
 #: src/features/users/pages.tsx
 msgid "{count, plural, one {# member} other {# members}}"
 msgstr "{count, plural, one {# member} other {# members}}"
+
+#. placeholder {0}: todos.length
+#: src/features/sessions/background-bar.tsx
+msgid "{done}/{0}"
+msgstr "{done}/{0}"
+
+#. placeholder {0}: todos.length
+#: src/features/sessions/background-bar.tsx
+msgid "{done}/{0} · {current}"
+msgstr "{done}/{0} · {current}"
 
 #: src/features/sessions/composer-meta.tsx
 msgid "{hit}%"
@@ -1342,6 +1365,10 @@ msgstr "Compat must be a JSON object."
 #: src/features/settings/providers.ts
 msgid "Compat must be valid JSON."
 msgstr "Compat must be valid JSON."
+
+#: src/features/sessions/background-bar.tsx
+msgid "Completed"
+msgstr "Completed"
 
 #: src/components/dialogs.tsx
 msgid "Confirm"
@@ -2548,6 +2575,10 @@ msgstr "Image cache"
 #: src/features/settings/model-dialog.tsx
 msgid "Image understanding"
 msgstr "Image understanding"
+
+#: src/features/sessions/background-bar.tsx
+msgid "In progress"
+msgstr "In progress"
 
 #: src/features/tasks/pages.tsx
 msgid "Include file browsing"
@@ -3905,6 +3936,10 @@ msgstr "Path"
 #: src/features/authorizations/pages.tsx
 msgid "Payload"
 msgstr "Payload"
+
+#: src/features/sessions/background-bar.tsx
+msgid "Pending"
+msgstr "Pending"
 
 #: src/components/status-badge.tsx
 msgid "Pending approval"
@@ -5739,6 +5774,10 @@ msgstr "Title generation"
 #: src/features/sessions/session-list.tsx
 msgid "Today"
 msgstr "Today"
+
+#: src/features/sessions/background-bar.tsx
+msgid "Todo list"
+msgstr "Todo list"
 
 #: src/app/shell/app-shell.tsx
 msgid "Toggle sidebar"

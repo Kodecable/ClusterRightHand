@@ -157,3 +157,46 @@ describe("a job-backed tool card", () => {
 		expect(calls()).toBe(stopped);
 	});
 });
+
+describe("a todo_write tool card", () => {
+	const item: Extract<TranscriptItem, { kind: "tool" }> = {
+		kind: "tool",
+		key: "todo-1",
+		callId: "call-todo",
+		name: "todo_write",
+		args: {
+			todos: [
+				{ content: "Back up the config", status: "completed" },
+				{ content: "Roll out the new config", status: "in_progress" },
+				{ content: "Verify every node serves 200", status: "completed" },
+				{ content: "Write the rollback note", status: "pending" },
+				{ content: "Close the change", status: "completed" },
+			],
+		},
+		status: "done",
+		output: "",
+		details: undefined,
+		result: {
+			text: "Updated todo list: 1 pending, 1 in progress, 3 completed.",
+			isError: false,
+			details: undefined,
+			blocks: ["Updated todo list: 1 pending, 1 in progress, 3 completed."],
+		},
+	};
+
+	test("renders as its progress and still opens the arguments", async () => {
+		await renderWithRouter(<ToolCard item={item} sessionActive={false} />);
+		const summary = screen.getByTestId("todo-tool-summary");
+		expect(summary).toHaveTextContent("3/5 done · Roll out the new config");
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+		const dialog = await screen.findByTestId("tool-dialog");
+		expect(dialog).toHaveTextContent("todo_write");
+		expect(dialog).toHaveTextContent("Roll out the new config");
+	});
+
+	test("falls back to the generic row when the arguments are unparsable", async () => {
+		await renderWithRouter(<ToolCard item={{ ...item, args: { todos: "not a list" } }} sessionActive={false} />);
+		expect(screen.queryByTestId("todo-tool-summary")).not.toBeInTheDocument();
+		expect(screen.getByTestId("tool-toggle")).toHaveTextContent("todo_write");
+	});
+});

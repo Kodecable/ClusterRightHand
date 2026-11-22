@@ -202,5 +202,8 @@ describe("API document", () => {
 		]) {
 			expect(doc.components?.schemas?.[schema], schema).toBeDefined();
 		}
+		// The session view carries the root's todo list (doc/design/todo.md "API").
+		const sessionView = doc.components?.schemas?.SessionView as { properties?: Record<string, unknown> } | undefined;
+		expect(sessionView?.properties?.todos).toBeDefined();
 	});
 });

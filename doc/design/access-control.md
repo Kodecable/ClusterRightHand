@@ -158,6 +158,8 @@ Sessions can be shared with users and user groups at two levels: `view` (read th
 - A share on a root session covers its subagents. Revoking a share closes event streams that it
   covered.
 - Users with a share cannot decide approvals.
+- A session's todo list is the agent's; share viewers and administrators see it read-only, and no route
+  writes it ([Todo list](todo.md)).
 - The API returns the caller's capabilities on each object (view, chat, manage shares, configure), and
   the UI relies on those rather than on the relationship.
 

@@ -44,6 +44,8 @@ import { evaluate } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
+import type { TodoLists } from "../todos/todos.ts";
+import { TODO_TOOLS } from "../todos/tools.ts";
 import { UserError } from "../util/errors.ts";
 import { derivedId, newId } from "../util/id.ts";
 import { copyDirectory } from "./directory-copy.ts";
@@ -116,6 +118,8 @@ export interface ToolContext {
 	extensions?: SessionExtension[];
 	/** The job service behind the job tools and the tools that start jobs (doc/design/jobs.md). */
 	jobs?: Jobs;
+	/** The change bus behind todo_write (doc/design/todo.md); absent on a surface without a runtime. */
+	todos?: TodoLists;
 	/** The crhs-owned in-flight extension calls (doc/design/jobs.md "Background extension calls"). */
 	callRunner: CallRunner;
 	/** The most unsettled jobs this caller may have (`jobs.max_running`); the default without System settings. */
@@ -2000,4 +2004,5 @@ export const TOOLS: readonly ClusterTool[] = [
 	searchTools,
 	callTool,
 	...JOB_TOOLS,
+	...TODO_TOOLS,
 ] as unknown as ClusterTool[];

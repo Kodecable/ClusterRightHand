@@ -1,12 +1,15 @@
 import type { TaskOutcome } from "@crh/api";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import {
+	AgentDoc,
+	type AgentState,
 	AssistantEntry,
 	type Conversation,
 	type ConversationId,
 	defineDocFamily,
 	type SettledSubmissionRecord,
 	type SubmissionId,
+	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { sql } from "kysely";
 import { extensionNamesForUser, parseDisabledExtensionNames } from "../extensions/store.ts";
@@ -49,11 +52,101 @@ const SubagentConversationLink = defineDocFamily<{ conversationId: string | null
 /** Subagent sessions nest at most this deep below a root session (doc/design/agent-runtime.md "Subagents"). */
 export const MAX_SUBAGENT_DEPTH = 2;
 
-/** Keeps a conversation at the depth limit from offering the subagent tool to its model. */
+/**
+ * Keeps a conversation at the depth limit from offering the subagent tool, and a subagent from offering the
+ * root-session-only tools (doc/design/todo.md "Scope"). The conversation's stored filter is merged, not replaced:
+ * the depth limit and the root-only rule both remove from it, and a configure of one must not undo the other.
+ */
+async function hideTools(
+	host: RuntimeHost,
+	conversation: Conversation,
+	tools: readonly ToolRegistration[],
+): Promise<void> {
+	if (tools.length === 0) return;
+	const state = await host.harness().documentState(AgentDoc, conversation.id, host.context);
+	const stored = state?.value?.tools;
+	state?.dispose();
+	// `configure` takes tool objects, not names: resolve them from the conversation's selected extensions,
+	// including tools an earlier filter already removed from the model's list, and from the tools this call hides.
+	const agent = await conversation.agent(host.context);
+	const byName = new Map<string, ToolRegistration>();
+	for (const extension of agent.extensions) {
+		for (const tool of extension.tools ?? []) byName.set(tool.name, tool as unknown as ToolRegistration);
+	}
+	for (const tool of tools) byName.set(tool.name, tool);
+	const plan = filterAfterHiding(
+		stored,
+		tools.map((tool) => tool.name),
+		(name) => byName.get(name),
+	);
+	if (plan.kind === "unchanged") return;
+	if (plan.kind === "unresolved") {
+		// Writing the filter without a name it could not resolve would offer a tool the conversation meant to hide.
+		console.warn(
+			`agent runtime: keeping the tool filter of conversation ${String(conversation.id)} unchanged: ` +
+				`${plan.names.join(", ")} ${plan.names.length === 1 ? "does" : "do"} not resolve in its selected extensions`,
+		);
+		return;
+	}
+	await conversation.configure({ tools: plan.tools }, host.context);
+}
+
+/** What `hideTools` writes to a conversation's tool filter. */
+export type ToolFilterPlan =
+	| {
+			readonly kind: "configure";
+			readonly tools: readonly ToolRegistration[] | { readonly remove: readonly ToolRegistration[] };
+	  }
+	| { readonly kind: "unchanged" }
+	| { readonly kind: "unresolved"; readonly names: readonly string[] };
+
+/**
+ * The stored `tools` filter after it hides `names`: an allowlist keeps its order minus the hidden names, and a remove
+ * list gains the names it did not have yet. A stored name `resolve` cannot turn back into a tool leaves the filter
+ * unchanged — configuring the shorter list would offer a tool the conversation meant to hide — and names it in the
+ * result, so the caller can log it. Exported for its own tests.
+ */
+export function filterAfterHiding(
+	stored: AgentState["tools"],
+	names: readonly string[],
+	resolve: (name: string) => ToolRegistration | undefined,
+): ToolFilterPlan {
+	const hidden = new Set(names);
+	if (Array.isArray(stored)) {
+		const kept = stored.filter((name) => !hidden.has(name));
+		if (kept.length === stored.length) return { kind: "unchanged" };
+		const tools: ToolRegistration[] = [];
+		const missing: string[] = [];
+		for (const name of kept) {
+			const tool = resolve(name);
+			if (tool === undefined) missing.push(name);
+			else tools.push(tool);
+		}
+		if (missing.length > 0) return { kind: "unresolved", names: missing };
+		return { kind: "configure", tools };
+	}
+	const remove = [...new Set([...(stored?.remove ?? []), ...names])];
+	if (remove.length === (stored?.remove.length ?? 0)) return { kind: "unchanged" };
+	const tools: ToolRegistration[] = [];
+	const missing: string[] = [];
+	for (const name of remove) {
+		const tool = resolve(name);
+		if (tool === undefined) missing.push(name);
+		else tools.push(tool);
+	}
+	if (missing.length > 0) return { kind: "unresolved", names: missing };
+	return { kind: "configure", tools: { remove: tools } };
+}
+
 async function hideSubagentTool(host: RuntimeHost, conversation: Conversation): Promise<void> {
 	const tool = host.options.subagentTool;
 	if (!tool) return;
-	await conversation.configure({ tools: { remove: [tool] } }, host.context);
+	await hideTools(host, conversation, [tool]);
+}
+
+/** Applied when a child is created and before every child run, so a child created before this tool existed loses it too. */
+async function hideRootSessionTools(host: RuntimeHost, conversation: Conversation): Promise<void> {
+	await hideTools(host, conversation, host.options.rootSessionTools ?? []);
 }
 
 /**
@@ -80,9 +173,10 @@ export async function createSubagent(
 		.where("id", "=", childId)
 		.executeTakeFirst();
 	if (existing) {
-		if (depth + 1 >= MAX_SUBAGENT_DEPTH) {
-			const existingConversation = await conversationOf(host, existing);
-			if (existingConversation) await hideSubagentTool(host, existingConversation);
+		const existingConversation = await conversationOf(host, existing);
+		if (existingConversation) {
+			if (depth + 1 >= MAX_SUBAGENT_DEPTH) await hideSubagentTool(host, existingConversation);
+			await hideRootSessionTools(host, existingConversation);
 		}
 		return { id: childId, created: false };
 	}
@@ -118,6 +212,7 @@ export async function createSubagent(
 		host.context,
 	);
 	if (depth + 1 >= MAX_SUBAGENT_DEPTH) await hideSubagentTool(host, conversation);
+	await hideRootSessionTools(host, conversation);
 	const now = new Date().toISOString();
 	await host.db.transaction().execute(async (trx) => {
 		await trx
@@ -172,6 +267,7 @@ export async function startSubagent(
 	const { row, conversation } = await loadConversation(host, childId, {
 		noConversation: "the subagent's conversation is missing",
 	});
+	await hideRootSessionTools(host, conversation);
 	// The subagent's next request selects its extensions from the rows read now.
 	await syncSessionExtensions(host, row);
 	// The parent's task carries the sent time in the server's time zone (doc/design/agent-runtime.md "Message time").

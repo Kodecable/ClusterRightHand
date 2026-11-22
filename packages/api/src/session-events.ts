@@ -8,6 +8,7 @@
  */
 
 import type { JobView } from "./jobs.ts";
+import type { TodoItem } from "./sessions.ts";
 
 /** A JSON value as it appears on the wire. */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -181,7 +182,12 @@ export type SessionEvent =
 	 * A job of this session changed projection (doc/design/jobs.md "API"). The session page's background bar
 	 * follows it; the transcript reducer ignores it. Jobs started by a subagent belong to the child's stream.
 	 */
-	| { type: "job.changed"; job: JobView };
+	| { type: "job.changed"; job: JobView }
+	/**
+	 * The session's todo list was replaced by `todo_write` (doc/design/todo.md "API"); `todos` null means the
+	 * list was cleared. The session page's background bar replaces its copy.
+	 */
+	| { type: "todo.changed"; todos: TodoItem[] | null };
 
 /** `GET /api/sessions/:id/entries`: one page of older entries, oldest first. */
 export interface SessionEntriesPage {

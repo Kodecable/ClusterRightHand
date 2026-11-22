@@ -185,6 +185,11 @@ token measures and statistics ([Sessions](agent-runtime.md#sessions),
 - `forked_from_session_id` and `forked_from_entry_id` record where a fork came from; both are null on
   every session that is not a fork. They carry no foreign key, so deleting a source leaves its forks
   intact and their origin reads as absent ([Forking](agent-runtime.md#forking)).
+- `todos` holds a root session's current list as JSON and is null when it never had one or the list was
+  cleared; a fork copies it. `todos_at_compaction` freezes the list when a compaction is planned, and
+  the summary message gets it on every request; a later compaction replaces it
+  ([Todo list](todo.md), [Compaction](todo.md#compaction)). Deleting a session deletes both with the
+  row.
 
 `jobs` is the model's handle on work one tool call started: one row per `exec` task or task group, external
 call or subagent run ([Jobs](jobs.md)). Its id is derived from the durable tool call key (a fresh random

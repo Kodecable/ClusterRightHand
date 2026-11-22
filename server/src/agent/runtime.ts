@@ -16,6 +16,7 @@ import { getExtensionRow, listExtensionRows } from "../extensions/store.ts";
 import { createJobs } from "../jobs/jobs.ts";
 import type { JobRow } from "../jobs/types.ts";
 import type { Rule, RulePreset } from "../policy/rules.ts";
+import { TodoLists } from "../todos/todos.ts";
 import { TOOLS } from "../tools/catalog.ts";
 import { execJobRenderers } from "../tools/job-renderers.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
@@ -236,6 +237,9 @@ export class AgentRuntime {
 				...(options.audit ? { audit: options.audit } : {}),
 			});
 		options.jobs = jobs;
+		// The todo change bus: the tool writes through it and the session event stream forwards the writes.
+		const todoLists = options.todoLists ?? new TodoLists();
+		options.todoLists = todoLists;
 		// The preset cache is loaded once, before any request: the system prompt section reads it synchronously
 		// and a write refreshes it.
 		const presets = new ModelPresets(options.db);
@@ -427,6 +431,11 @@ export class AgentRuntime {
 	/** The job service this runtime uses, so an HTTP surface built beside it shares one projection queue. */
 	get jobs() {
 		return this.#options.jobs;
+	}
+
+	/** The todo change bus, so the session event stream forwards `todo.changed` (doc/design/todo.md "API"). */
+	get todoLists(): TodoLists {
+		return this.#options.todoLists as TodoLists;
 	}
 
 	/** The session list's event hub, for `GET /api/sessions` and `GET /api/sessions/stream`. */

@@ -542,18 +542,25 @@ waits for the viewer ([Session header](#session-header)).
 
 ### Background bar
 
-A strip above the composer lists the session's active jobs, waiting or running, and is hidden when there
-are none; a settled job leaves it, and so does an idle subagent. Its line shows how many jobs are running
-and how many are waiting. Expanding it shows one row per job with its kind icon, its structured action,
-its state and its elapsed time. A subagent is a `subagent` job, and its own active jobs nest under it; a
-level is one cursor page and is loaded only when it is expanded, so a session with many jobs does not
-load them all.
+An always-shown strip above the composer has two sides in one row
+([Todo list](todo.md#background-bar)). Its left side lists the session's active jobs, waiting or
+running; a settled job leaves it, and so does an idle subagent. With no active job it reads **0
+background jobs** and opens nothing. Its line shows how many jobs are running and how many are waiting.
+Expanding it shows one row per job with its kind icon, its structured action, its state and its elapsed
+time. A subagent is a `subagent` job, and its own active jobs nest under it; a level is one cursor page
+and is loaded only when it is expanded, so a session with many jobs does not load them all.
 
 A row whose job has a page — a task, a task group or a subagent session — links to that page, and
 stopping happens there with the page's own control. An extension call has no page and gets a **Stop**
 button (`POST /api/jobs/:id/cancel`). Only the session's owner gets Stop; share viewers and administrators
-see the row without it, as they never see the extensions button. Below the mobile breakpoint the bar opens
-as a bottom sheet; the same trigger opens the desktop popover.
+see the row without it, as they never see the extensions button. Below the mobile breakpoint each side
+opens as its own bottom sheet; the desktop side opens a popover.
+
+The right side is a root session's todo progress: `2/5 · first in_progress item`, with further
+`in_progress` items counted as `+1`. It truncates, and its own popover or sheet lists every item with a
+status icon for completed, in progress or pending. With no list the right side shows nothing, and a
+subagent session shows the jobs side only. Both sides keep the width rules of the jobs tree: long text
+truncates, and nothing scrolls sideways.
 
 ### Streaming output
 
@@ -586,8 +593,9 @@ errors plus one. The line leaves as soon as a new assistant message starts or th
 the red error rows themselves stay.
 Assistant text and thinking are Markdown ([Markdown rendering](#markdown-rendering)). Tool calls are
 one-line rows that open a dialog with the arguments and the returned result, plus one row of plain links
-to the task, task group or subagent session the call names. A call that has not returned shows no result
-section. Approval, authorization and quota waits appear in the docked decision panel, not in the
+to the task, task group or subagent session the call names. A `todo_write` call is one compact row with
+its progress, `3/5 done · first in_progress item`, and still opens its arguments. A call that has not
+returned shows no result section. Approval, authorization and quota waits appear in the docked decision panel, not in the
 transcript.
 
 A tool row's icon shows whether the call is running, finished or failed. Failure is judged from the

@@ -22,6 +22,7 @@ import { createRootRuleSet, deleteRuleSet, getRuleSet, setRulePreset } from "../
 import { type SessionRow, sessionChain, sessionDescendants } from "../sessions/session-chain.ts";
 import { forkedSessionTitle } from "../sessions/titles.ts";
 import { defaultOrgId } from "../storage/org.ts";
+import { parseStoredTodos } from "../todos/todos.ts";
 import { getUserSettings } from "../users/settings.ts";
 import { encodeCursor } from "../util/cursor.ts";
 import { isUniqueViolation, UserError } from "../util/errors.ts";
@@ -373,6 +374,9 @@ export async function forkSession(
 					reply_at: null,
 					owner_read_at: null,
 					last_used_from: null,
+					// The list is session state and comes with the conversation; the summary's frozen copy comes too.
+					todos: source.todos,
+					todos_at_compaction: source.todos_at_compaction,
 					quota_tokens: null,
 					budget_used_tokens: 0,
 					usage_tokens: 0,
@@ -673,6 +677,7 @@ async function sessionView(host: RuntimeHost, row: SessionRow): Promise<SessionV
 		rules,
 		refs: rules ? await ruleRefs(host.db, row.org_id, rules.rules) : {},
 		state: row.state,
+		todos: parseStoredTodos(row.todos),
 		waitingKind: row.waiting_kind,
 		waitingLevelId: row.waiting_level_id,
 		budgetRemaining: row.quota_tokens === null ? null : Number(row.quota_tokens),

@@ -1,7 +1,7 @@
+import type { EntryRecord, SessionEvent, TodoItem } from "@crh/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type ApiError, enc } from "@/lib/api/client";
 import { subscribeSse } from "@/lib/api/sse";
-import type { EntryRecord, SessionEvent } from "./session-events";
 import { initialState, prependHistory, reduceAll, type SessionState } from "./session-reducer";
 import { TranscriptStreams } from "./transcript-streams";
 
@@ -25,6 +25,11 @@ export interface SessionEvents {
 	 * background bar refreshes its live levels on every bump.
 	 */
 	jobsRevision: number;
+	/**
+	 * The newest list a `todo.changed` event carried, or undefined when this connection has not seen one.
+	 * The page falls back to the session view's `todos` until then.
+	 */
+	todos: readonly TodoItem[] | null | undefined;
 }
 
 /** Whether an event makes the session's jobs stale. */
@@ -86,6 +91,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 	const [connection, setConnection] = useState<Connection>("connecting");
 	const [error, setError] = useState<ApiError | undefined>(undefined);
 	const [jobsRevision, setJobsRevision] = useState(0);
+	const [todos, setTodos] = useState<readonly TodoItem[] | null | undefined>(undefined);
 	const stateRef = useRef<SessionState>(initialState);
 	const publishedKey = useRef<string | null>(null);
 	const streamsRef = useRef<TranscriptStreams>(new TranscriptStreams());
@@ -96,6 +102,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 		publishedKey.current = null;
 		streams.disposeAll();
 		setState(initialState);
+		setTodos(undefined);
 		setError(undefined);
 		if (id === undefined || id === "") {
 			setConnection("connecting");
@@ -110,6 +117,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 				const events = data.filter(isSessionEvent);
 				if (events.length === 0) return;
 				if (events.some(touchesJobs)) setJobsRevision((value) => value + 1);
+				for (const event of events) if (event.type === "todo.changed") setTodos(event.todos);
 				const next = reduceAll(stateRef.current, events);
 				stateRef.current = next;
 				streams.sync(next);
@@ -147,5 +155,5 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 		[streams],
 	);
 
-	return { state, connection, error, streams, applyHistory, jobsRevision };
+	return { state, connection, error, streams, applyHistory, jobsRevision, todos };
 }

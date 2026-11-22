@@ -36,6 +36,17 @@ export const SessionRelationshipSchema = z.enum(["owner", "admin", "shared"]);
 
 export const SessionShareAccessSchema = z.enum(["view", "chat"]);
 
+/** Where one todo item stands (doc/design/todo.md "The tool"). */
+export const TodoStatusSchema = z.enum(["pending", "in_progress", "completed"]);
+
+/** One item of a root session's todo list, written by its agent's `todo_write`. */
+export const TodoItemSchema = z
+	.object({
+		content: z.string().describe("One short imperative line, trimmed and unique within the list."),
+		status: TodoStatusSchema,
+	})
+	.meta({ id: "TodoItem" });
+
 export const SessionCapabilitiesSchema = z
 	.object({
 		view: z.boolean(),
@@ -177,6 +188,10 @@ export const SessionViewSchema = z
 		forkedFrom: SessionForkedFromSchema.nullable().describe(
 			"The source of a fork; null for every other session and when the caller cannot see the source.",
 		),
+		todos: z
+			.array(TodoItemSchema)
+			.nullable()
+			.describe("The root session's current todo list (doc/design/todo.md); null when it never had one or cleared it."),
 		extensions: z.array(SessionExtensionSchema).optional(),
 		shares: z.array(SessionShareSchema).optional(),
 	})

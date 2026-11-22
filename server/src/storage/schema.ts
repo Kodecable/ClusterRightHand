@@ -658,7 +658,13 @@ export interface SessionsTable {
 	system_prompt: ColumnType<string | null, string | null | undefined, string | null>;
 	/** The session's own run state (doc/design/agent-runtime.md "Session state"); the session list aggregates it over the tree. */
 	state: SessionState;
-	/** Why the session waits; null unless `state` is `awaiting`. */
+	/**
+	 * JSON `TodoItem[]` of the root session's current list, written by `todo_write` (doc/design/todo.md
+	 * "Storage"); null when the session never had one or the list was cleared.
+	 */
+	todos: string | null;
+	/** JSON `TodoItem[]` frozen when a compaction was planned; appended to its summary on every request. */
+	todos_at_compaction: string | null /** Why the session waits; null unless `state` is `awaiting`. */;
 	waiting_kind: WaitingKind | null;
 	/** While awaiting a quota: the exhausted level to top up. */
 	waiting_level_id: string | null;

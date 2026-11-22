@@ -190,6 +190,7 @@ export function sessionView(item: SessionListItem, overrides: Partial<SessionVie
 			cacheReadTokens: 0,
 		},
 		forkedFrom: null,
+		todos: null,
 		shares: [],
 		...overrides,
 	};

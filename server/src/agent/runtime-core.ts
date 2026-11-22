@@ -20,6 +20,7 @@ import type { RuleRef } from "../policy/store.ts";
 import type { SessionRow } from "../sessions/session-chain.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
+import type { TodoLists } from "../todos/todos.ts";
 import { NotFoundError } from "../util/errors.ts";
 import type { KeyedQueue } from "../util/keyed-queue.ts";
 import type { GenerationTimings } from "./latency.ts";
@@ -103,6 +104,8 @@ export interface AgentRuntimeOptions {
 	mcp?: McpConnections;
 	/** The job service; AgentRuntime makes one when the caller did not (doc/design/jobs.md). */
 	jobs?: Jobs;
+	/** The todo change bus; AgentRuntime makes one when the caller did not (doc/design/todo.md). */
+	todoLists?: TodoLists;
 	/** The crhs-owned extension calls, shared with the job service and the MCP surface. */
 	callRunner: CallRunner;
 	/** System settings: the skill limit and the directory copy limits; the defaults without it. */
@@ -122,6 +125,11 @@ export interface AgentRuntimeOptions {
 	retentionMs?: number;
 	/** Set by clusterExtension; removed from a conversation that has reached the subagent depth limit. */
 	subagentTool?: ToolRegistration;
+	/**
+	 * Set by clusterExtension: tools a subagent conversation must not offer (doc/design/todo.md "Scope").
+	 * Removed when the child is created and before every child run, so an older child loses them too.
+	 */
+	rootSessionTools?: readonly ToolRegistration[];
 	/**
 	 * In-flight generation timings keyed by provider session id, filled in by `AgentRuntime`
 	 * (doc/design/agent-runtime.md "Session statistics"). `meteredModels` records an attempt as it streams; the extension takes

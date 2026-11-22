@@ -1,7 +1,7 @@
 import type { TaskSpec } from "@crh/protocol";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
-import { MemoryStorage } from "@earendil-works/pi-durable";
-import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { MemoryStorage, type ToolRegistration } from "@earendil-works/pi-durable";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { SUBAGENT_NOTE } from "../src/agent/extension.ts";
 import { GenerationTimings } from "../src/agent/latency.ts";
 import { ModelConfig } from "../src/agent/models.ts";
@@ -14,6 +14,7 @@ import { QuotaWaits } from "../src/agent/runtime-host/quota-waits.ts";
 import { SessionCaches } from "../src/agent/runtime-host/session-caches.ts";
 import { SessionFlags } from "../src/agent/runtime-host/session-flags.ts";
 import { forgetSessionCaches } from "../src/agent/runtime-sessions.ts";
+import { filterAfterHiding } from "../src/agent/runtime-subagents.ts";
 import { markSessionsIdle, sessionStateOf } from "../src/agent/session-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
@@ -345,8 +346,63 @@ it("removes the subagent tool at the depth limit", async () => {
 	expect(await toolNames(storage, db, first.id)).toContain("subagent");
 	const second = await subagent(first.id, "depth-tool-2", { default: "inherit", rules: [] });
 	expect(await toolNames(storage, db, second.id)).not.toContain("subagent");
+	// A subagent is not a root session either, so todo_write is hidden too; a rerun of the creation and a later
+	// run keep both removals in the stored filter.
+	expect(await toolNames(storage, db, second.id)).not.toContain("todo_write");
+	await subagent(first.id, "depth-tool-2", { default: "inherit", rules: [] });
+	expect(await toolNames(storage, db, second.id)).not.toContain("subagent");
+	expect(await toolNames(storage, db, second.id)).not.toContain("todo_write");
+	faux.setResponses([fauxAssistantMessage([fauxText("still hidden")])]);
+	const run = await runtime.startSubagent(second.id, "one more task", "depth-tool-run-1");
+	expect((await waitSubmission(runtime, second.id, run)).status).toBe("done");
+	expect(await toolNames(storage, db, second.id)).not.toContain("subagent");
+	expect(await toolNames(storage, db, second.id)).not.toContain("todo_write");
 	await expect(subagent(second.id, "depth-tool-3", { default: "inherit", rules: [] })).rejects.toThrow(/at most 2/);
 	expect(await toolNames(storage, db, second.id)).not.toContain("subagent");
+});
+
+describe("filterAfterHiding", () => {
+	const tool = (name: string) => ({ name }) as ToolRegistration;
+	const resolveFrom = (names: readonly string[]) => {
+		const byName = new Map(names.map((name) => [name, tool(name)]));
+		return (name: string) => byName.get(name);
+	};
+
+	it("adds a removal to a remove filter without losing what is stored, and is idempotent", () => {
+		const resolve = resolveFrom(["subagent", "todo_write", "job_list"]);
+		expect(filterAfterHiding(undefined, ["todo_write"], resolve)).toEqual({
+			kind: "configure",
+			tools: { remove: [tool("todo_write")] },
+		});
+		expect(filterAfterHiding({ remove: ["subagent"] }, ["todo_write"], resolve)).toEqual({
+			kind: "configure",
+			tools: { remove: [tool("subagent"), tool("todo_write")] },
+		});
+		expect(filterAfterHiding({ remove: ["subagent", "todo_write"] }, ["todo_write"], resolve)).toEqual({
+			kind: "unchanged",
+		});
+	});
+
+	it("leaves a remove filter alone when a stored removal no longer resolves", () => {
+		const resolve = resolveFrom(["subagent", "todo_write"]);
+		expect(filterAfterHiding({ remove: ["gone", "subagent"] }, ["todo_write"], resolve)).toEqual({
+			kind: "unresolved",
+			names: ["gone"],
+		});
+	});
+
+	it("narrows an allowlist in order and leaves it alone when a kept name no longer resolves", () => {
+		const resolve = resolveFrom(["todo_write", "job_list", "subagent"]);
+		expect(filterAfterHiding(["job_list", "subagent", "todo_write"], ["subagent"], resolve)).toEqual({
+			kind: "configure",
+			tools: [tool("job_list"), tool("todo_write")],
+		});
+		expect(filterAfterHiding(["job_list", "todo_write"], ["subagent"], resolve)).toEqual({ kind: "unchanged" });
+		expect(filterAfterHiding(["job_list", "subagent", "gone"], ["subagent"], resolve)).toEqual({
+			kind: "unresolved",
+			names: ["gone"],
+		});
+	});
 });
 
 it("reuses the subagent conversation after a crash before the session row", async () => {

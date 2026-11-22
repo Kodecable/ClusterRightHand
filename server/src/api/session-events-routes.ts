@@ -14,6 +14,7 @@ import type { WebUiPresence } from "../channels/presence.ts";
 import type { Jobs } from "../jobs/jobs.ts";
 import { sessionCapabilities } from "../sessions/sharing.ts";
 import type { Db } from "../storage/db.ts";
+import type { TodoLists } from "../todos/todos.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import type { RequestDrain } from "./drain.ts";
 import { jobChangedEvent } from "./job-view.ts";
@@ -107,6 +108,8 @@ export interface SessionEventRoutesOptions {
 	presence?: WebUiPresence;
 	/** The job service: its projection changes travel as `job.changed` on the session's stream. */
 	jobs?: Jobs;
+	/** The todo change bus: a replacement travels as `todo.changed` on the root session's stream. */
+	todoLists?: TodoLists;
 }
 
 /** `stream.sleep`, but wakes up when the stream ends, so shutdown need not wait out a ping interval. */
@@ -250,6 +253,7 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 			const release = drain?.hold();
 			let stop: (() => void) | undefined;
 			let unsubscribeJobs: (() => void) | undefined;
+			let unsubscribeTodos: (() => void) | undefined;
 			// One queue for agent events and job changes, so a batch and a `job.changed` keep their order.
 			let queue = Promise.resolve();
 			const write = (events: SessionEvent[]) => {
@@ -268,6 +272,11 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 					if (job.session_id !== v.session.id) return;
 					void write([jobChangedEvent(job)]);
 				});
+				// `todo_write` writes one list and publishes it; a subagent's stream has no list to receive.
+				unsubscribeTodos = options.todoLists?.onChanged((sessionId, todos) => {
+					if (sessionId !== v.session.id) return;
+					void write([{ type: "todo.changed", todos }]);
+				});
 				// Keep the stream (and proxies) alive while the session is quiet.
 				while (!abort.signal.aborted) {
 					await sleepFor(15_000, abort.signal);
@@ -282,6 +291,7 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 			} finally {
 				// A failed write must still end the watch and forget the stream, not leave both behind.
 				unsubscribeJobs?.();
+				unsubscribeTodos?.();
 				streams.delete(live);
 				if (stop) await stop();
 				release?.();

@@ -85,6 +85,35 @@ function toolSubject(name: string, args: JsonObject): string | undefined {
 	]);
 }
 
+/** One `todo_write` call's progress: the counts and the first in-progress item's content. */
+export interface TodoProgress {
+	done: number;
+	total: number;
+	/** The first `in_progress` item, or undefined when none is being worked on. */
+	current?: string;
+}
+
+/**
+ * The summary of a `todo_write` call (doc/design/todo.md "Background bar"): `N/M done · first in_progress
+ * item`. Unparsable arguments return undefined, and the row falls back to the generic tool line.
+ */
+export function todoProgress(args: JsonObject): TodoProgress | undefined {
+	const todos = args.todos;
+	if (!Array.isArray(todos)) return undefined;
+	const valid: { content: string; status: string }[] = [];
+	for (const item of todos) {
+		if (typeof item !== "object" || item === null || Array.isArray(item)) return undefined;
+		const record = item as Record<string, unknown>;
+		if (typeof record.content !== "string") return undefined;
+		if (record.status !== "pending" && record.status !== "in_progress" && record.status !== "completed")
+			return undefined;
+		valid.push({ content: record.content, status: record.status });
+	}
+	const done = valid.filter((item) => item.status === "completed").length;
+	const current = valid.find((item) => item.status === "in_progress")?.content;
+	return { done, total: valid.length, ...(current === undefined ? {} : { current }) };
+}
+
 /**
  * One line for a tool call (doc/design/webui.md "Message rendering"): `name · node · subject`.
  * The node is the raw target input; there is no node segment when the tool has

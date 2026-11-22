@@ -252,7 +252,13 @@ export function SessionPage() {
 				</div>
 			)}
 
-			<BackgroundBar sessionId={sessionId} isOwner={view.capabilities.configure} revision={events.jobsRevision} />
+			<BackgroundBar
+				sessionId={sessionId}
+				isOwner={view.capabilities.configure}
+				revision={events.jobsRevision}
+				isRoot={view.parentSessionId === null}
+				todos={events.todos === undefined ? view.todos : events.todos}
+			/>
 			<SessionFooter session={view} rootId={rootId} stoppable={events.state.running || busy || compacting} />
 		</div>
 	);

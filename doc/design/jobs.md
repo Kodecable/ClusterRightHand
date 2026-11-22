@@ -256,10 +256,11 @@ second one:
 
 ## WebUI
 
-- **Background bar.** The subagent bar becomes the background bar. It lists the session's active jobs
-  only, running or waiting, and is hidden when there are none; a settled job leaves the bar, and so does
-  an idle subagent. Its line shows the counts of running and waiting jobs; expanding it shows one row per
-  job with its kind icon, action, state and elapsed time. Subagents are `subagent` jobs; a subagent's
+- **Background bar.** The subagent bar becomes the background bar, one side of an always-shown strip
+  ([Todo list](todo.md#background-bar)). Its side lists the session's active jobs only, running or
+  waiting; a settled job leaves it, and so does an idle subagent. With no active job it reads
+  **0 background jobs** and opens nothing. Its line shows the counts of running and waiting jobs;
+  expanding it shows one row per job with its kind icon, action, state and elapsed time. Subagents are `subagent` jobs; a subagent's
   own active jobs are nested under it, and a level still loads one page at a time.
 - **No job pages.** A job has no page of its own, and neither does an external call. A row whose job
   has a resource page — a task, a task group or a subagent session — links to it, and stopping happens

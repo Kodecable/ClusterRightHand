@@ -140,6 +140,19 @@ msgstr "{0} tok/s"
 msgid "{0}: {1} → {2} ({3})"
 msgstr "{0}：{1} → {2}（{3}）"
 
+#. placeholder {0}: todo.done
+#. placeholder {1}: todo.total
+#: src/features/sessions/tool-card.tsx
+msgid "{0}/{1} done"
+msgstr "{0}/{1} 已完成"
+
+#. placeholder {0}: todo.done
+#. placeholder {1}: todo.total
+#. placeholder {2}: todo.current
+#: src/features/sessions/tool-card.tsx
+msgid "{0}/{1} done · {2}"
+msgstr "{0}/{1} 已完成 · {2}"
+
 #: src/components/task-result.tsx
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
@@ -148,6 +161,16 @@ msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
 #: src/features/users/pages.tsx
 msgid "{count, plural, one {# member} other {# members}}"
 msgstr "{count, plural, one {# 名成员} other {# 名成员}}"
+
+#. placeholder {0}: todos.length
+#: src/features/sessions/background-bar.tsx
+msgid "{done}/{0}"
+msgstr "{done}/{0}"
+
+#. placeholder {0}: todos.length
+#: src/features/sessions/background-bar.tsx
+msgid "{done}/{0} · {current}"
+msgstr "{done}/{0} · {current}"
 
 #: src/features/sessions/composer-meta.tsx
 msgid "{hit}%"
@@ -1342,6 +1365,10 @@ msgstr "compat 必须是 JSON 对象。"
 #: src/features/settings/providers.ts
 msgid "Compat must be valid JSON."
 msgstr "compat 必须是有效的 JSON。"
+
+#: src/features/sessions/background-bar.tsx
+msgid "Completed"
+msgstr "已完成"
 
 #: src/components/dialogs.tsx
 msgid "Confirm"
@@ -2548,6 +2575,10 @@ msgstr "图片缓存"
 #: src/features/settings/model-dialog.tsx
 msgid "Image understanding"
 msgstr "图像理解"
+
+#: src/features/sessions/background-bar.tsx
+msgid "In progress"
+msgstr "进行中"
 
 #: src/features/tasks/pages.tsx
 msgid "Include file browsing"
@@ -3905,6 +3936,10 @@ msgstr "路径"
 #: src/features/authorizations/pages.tsx
 msgid "Payload"
 msgstr "载荷"
+
+#: src/features/sessions/background-bar.tsx
+msgid "Pending"
+msgstr "待处理"
 
 #: src/components/status-badge.tsx
 msgid "Pending approval"
@@ -5739,6 +5774,10 @@ msgstr "标题生成"
 #: src/features/sessions/session-list.tsx
 msgid "Today"
 msgstr "今天"
+
+#: src/features/sessions/background-bar.tsx
+msgid "Todo list"
+msgstr "待办列表"
 
 #: src/app/shell/app-shell.tsx
 msgid "Toggle sidebar"

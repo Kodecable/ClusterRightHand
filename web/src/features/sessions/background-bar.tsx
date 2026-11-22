@@ -1,8 +1,17 @@
-import type { JobView } from "@crh/api";
+import type { JobView, TodoItem } from "@crh/api";
 import { Plural, Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { ChevronDownIcon, ChevronRightIcon, CircleStopIcon, ListTreeIcon } from "lucide-react";
+import {
+	ChevronDownIcon,
+	ChevronRightIcon,
+	CircleCheckIcon,
+	CircleDotIcon,
+	CircleIcon,
+	CircleStopIcon,
+	ListTodoIcon,
+	ListTreeIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { EmptyHint } from "@/components/empty-state";
 import { ErrorText } from "@/components/error-state";
@@ -18,63 +27,119 @@ import { formatDuration } from "@/lib/format";
 import { cn, linkClass } from "@/lib/utils";
 
 /**
- * The background bar above the composer (doc/design/jobs.md "WebUI"): the session's active jobs only (waiting or
- * running), hidden when there are none. Its line counts running and waiting jobs; expanding shows one row per
- * job with its kind, action, state and elapsed time. A subagent job's own active jobs nest under it, one level
- * at a time. A row whose job has a page (a task, task group or subagent session) links to it and stopping
- * happens there; an extension call, which has no page, gets a Stop button for the session's owner.
+ * The always-shown strip above the composer (doc/design/todo.md "Background bar"). A root session has two
+ * sides in one row: the active background jobs on the left and its todo list's progress on the right. A
+ * subagent session shows the jobs side only. Nothing scrolls sideways; long text truncates and the lists keep
+ * the width rules of the jobs tree.
  */
 export function BackgroundBar({
 	sessionId,
 	isOwner,
 	revision,
+	isRoot,
+	todos,
 }: {
 	sessionId: string;
 	/** Only the session's owner sees Stop, like the extensions button in the session header. */
 	isOwner: boolean;
 	/** `job.changed` events on the session stream; every bump refreshes the live levels. */
 	revision: number;
+	/** Whether this session is a root: only a root has a todo list (doc/design/todo.md "Scope"). */
+	isRoot: boolean;
+	/** The session's current list; null when it has none or cleared it. Ignored for a subagent. */
+	todos: readonly TodoItem[] | null;
+}) {
+	const isMobile = useIsMobile();
+	const content = (
+		<>
+			<BackgroundJobsSide sessionId={sessionId} isOwner={isOwner} revision={revision} isMobile={isMobile} />
+			{isRoot && todos !== null && todos.length > 0 && <TodoSide todos={todos} isMobile={isMobile} />}
+		</>
+	);
+	if (isMobile) {
+		return (
+			<div className="mx-3 mb-0 flex min-w-0 items-center gap-0.5 overflow-x-hidden rounded-xl bg-popover/80 backdrop-blur">
+				{content}
+			</div>
+		);
+	}
+	return (
+		<div
+			className="mx-3 mb-0 flex min-w-0 items-center gap-0.5 overflow-x-hidden rounded-xl bg-popover/80 backdrop-blur"
+			data-testid="background-bar-shell"
+		>
+			{content}
+		</div>
+	);
+}
+
+/** The left side: the session's active jobs, always shown, opening nothing when there is none. */
+function BackgroundJobsSide({
+	sessionId,
+	isOwner,
+	revision,
+	isMobile,
+}: {
+	sessionId: string;
+	isOwner: boolean;
+	revision: number;
+	isMobile: boolean;
 }) {
 	const { t } = useLingui();
 	const [open, setOpen] = useState(false);
-	const isMobile = useIsMobile();
 	const query = useSessionJobs(sessionId);
 	useRevisionRefresh(sessionId, revision);
 	// The query asks for active jobs; a row that settled between the read and a rerender is not shown either.
 	const items = jobItems(query.data).filter((job) => job.state !== "settled");
+	// Until the first page arrives there is no count to show; the bar appears with its real state instead of
+	// flashing "0 background jobs" and then a count.
+	if (query.isPending) return null;
 	const close = () => setOpen(false);
-	// A hidden bar keeps no control and no row; the query above still follows the session so it appears at once.
-	if (items.length === 0) return null;
 	const running = items.filter((job) => job.state === "running").length;
 	const waiting = items.filter((job) => job.state === "waiting").length;
-
+	const line = (
+		<span className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+			<span className="min-w-0 truncate">
+				<Plural value={items.length} one="# background job" other="# background jobs" />
+			</span>
+			{running > 0 && (
+				<span className="min-w-0 truncate">
+					<Trans>{running} running</Trans>
+				</span>
+			)}
+			{waiting > 0 && (
+				<span className="min-w-0 truncate">
+					<Trans>{waiting} waiting</Trans>
+				</span>
+			)}
+		</span>
+	);
+	// With no active job the left side is a label: it opens nothing and is not a control.
+	if (items.length === 0) {
+		return (
+			<span
+				className="inline-flex min-w-0 max-w-[55%] shrink-0 items-center gap-1.5 px-2.5 py-1.5 text-xs text-muted-foreground"
+				data-testid="background-bar"
+				data-empty="true"
+			>
+				<ListTreeIcon className="size-3.5 shrink-0" aria-hidden="true" />
+				{line}
+			</span>
+		);
+	}
 	const trigger = (onClick?: () => void) => (
 		<Button
 			type="button"
 			variant="ghost"
 			size="xs"
-			className="w-full justify-start gap-1.5 rounded-xl px-3 py-1.5 text-xs font-normal text-muted-foreground hover:bg-accent/50"
+			className="min-w-0 max-w-[55%] shrink-0 justify-start gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-normal text-muted-foreground hover:bg-accent/50"
 			data-testid="background-bar"
 			aria-label={t`Background jobs`}
 			aria-expanded={open}
 			onClick={onClick}
 		>
 			<ListTreeIcon className="size-3.5 shrink-0" aria-hidden="true" />
-			<span className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-				<span className="min-w-0 truncate">
-					<Plural value={items.length} one="# background job" other="# background jobs" />
-				</span>
-				{running > 0 && (
-					<span className="min-w-0 truncate">
-						<Trans>{running} running</Trans>
-					</span>
-				)}
-				{waiting > 0 && (
-					<span className="min-w-0 truncate">
-						<Trans>{waiting} waiting</Trans>
-					</span>
-				)}
-			</span>
+			{line}
 		</Button>
 	);
 
@@ -94,7 +159,7 @@ export function BackgroundBar({
 	if (isMobile) {
 		return (
 			<>
-				<div className="mx-3 mb-0 rounded-xl bg-popover/80 backdrop-blur">{trigger(() => setOpen(true))}</div>
+				{trigger(() => setOpen(true))}
 				<Sheet open={open} onOpenChange={setOpen}>
 					<SheetContent side="bottom" className="max-h-[70vh]" data-testid="background-sheet">
 						<SheetHeader>
@@ -110,9 +175,7 @@ export function BackgroundBar({
 	}
 	return (
 		<Popover open={open} onOpenChange={setOpen}>
-			<div className="mx-3 mb-0 rounded-xl bg-popover/80 backdrop-blur" data-testid="background-bar-shell">
-				<PopoverTrigger render={trigger()} />
-			</div>
+			<PopoverTrigger render={trigger()} />
 			<PopoverContent
 				side="top"
 				align="start"
@@ -125,6 +188,108 @@ export function BackgroundBar({
 				{tree}
 			</PopoverContent>
 		</Popover>
+	);
+}
+
+/** The right side: the todo progress, and every item in its own popover or bottom sheet. */
+function TodoSide({ todos, isMobile }: { todos: readonly TodoItem[]; isMobile: boolean }) {
+	const { t } = useLingui();
+	const [open, setOpen] = useState(false);
+	const done = todos.filter((todo) => todo.status === "completed").length;
+	const inProgress = todos.filter((todo) => todo.status === "in_progress");
+	const current = inProgress[0]?.content;
+	const extra = Math.max(0, inProgress.length - 1);
+	const base = current === undefined ? t`${done}/${todos.length}` : t`${done}/${todos.length} · ${current}`;
+
+	const trigger = (onClick?: () => void) => (
+		<Button
+			type="button"
+			variant="ghost"
+			size="xs"
+			className="min-w-0 flex-1 justify-start gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-normal text-muted-foreground hover:bg-accent/50"
+			data-testid="todo-bar"
+			aria-label={t`Todo list`}
+			aria-expanded={open}
+			onClick={onClick}
+		>
+			<ListTodoIcon className="size-3.5 shrink-0" aria-hidden="true" />
+			<span className="min-w-0 flex-1 truncate" data-testid="todo-bar-summary" title={base}>
+				{base}
+			</span>
+			{extra > 0 && (
+				<span className="shrink-0 tabular-nums" data-testid="todo-bar-more">
+					+{extra}
+				</span>
+			)}
+		</Button>
+	);
+
+	const list = (
+		<ul className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-0.5" data-testid="todo-list">
+			{todos.map((todo) => (
+				<li key={`${todo.status}:${todo.content}`} className="flex min-w-0 max-w-full items-start gap-1.5 px-1 py-1">
+					<TodoStatusIcon status={todo.status} />
+					<span className="min-w-0 flex-1 truncate text-xs" title={todo.content}>
+						{todo.content}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+
+	if (isMobile) {
+		return (
+			<>
+				{trigger(() => setOpen(true))}
+				<Sheet open={open} onOpenChange={setOpen}>
+					<SheetContent side="bottom" className="max-h-[70vh]" data-testid="todo-sheet">
+						<SheetHeader>
+							<SheetTitle>
+								<Trans>Todo list</Trans>
+							</SheetTitle>
+						</SheetHeader>
+						<div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-3 pb-3">{list}</div>
+					</SheetContent>
+				</Sheet>
+			</>
+		);
+	}
+	return (
+		<Popover open={open} onOpenChange={setOpen}>
+			<PopoverTrigger render={trigger()} />
+			<PopoverContent
+				side="top"
+				align="start"
+				className="max-h-80 w-96 max-w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto p-2"
+				data-testid="todo-popover"
+			>
+				<p className="px-1 pb-1 text-xs font-medium text-muted-foreground">
+					<Trans>Todo list</Trans>
+				</p>
+				{list}
+			</PopoverContent>
+		</Popover>
+	);
+}
+
+/** The status icon of one todo item; its accessible name says where the item stands. */
+function TodoStatusIcon({ status }: { status: TodoItem["status"] }) {
+	const { t } = useLingui();
+	const label = status === "completed" ? t`Completed` : status === "in_progress" ? t`In progress` : t`Pending`;
+	const Icon = status === "completed" ? CircleCheckIcon : status === "in_progress" ? CircleDotIcon : CircleIcon;
+	return (
+		<span
+			role="img"
+			aria-label={label}
+			title={label}
+			data-testid={`todo-status-${status}`}
+			className={cn(
+				"mt-px inline-flex shrink-0",
+				status === "completed" ? "text-success" : status === "in_progress" ? "text-primary" : "text-muted-foreground",
+			)}
+		>
+			<Icon className="size-3.5" aria-hidden="true" />
+		</span>
 	);
 }
 

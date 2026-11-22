@@ -277,6 +277,7 @@ describe("the tool catalog", () => {
 			"job_wait",
 			"job_cancel",
 			"job_list",
+			"todo_write",
 		]);
 		expect(Object.fromEntries(TOOLS.map((entry) => [entry.name, entry.output]))).toMatchObject({
 			list_nodes: "json",
@@ -292,6 +293,7 @@ describe("the tool catalog", () => {
 			job_wait: "text",
 			job_cancel: "json",
 			job_list: "json",
+			todo_write: "text",
 		});
 	});
 

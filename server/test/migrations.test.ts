@@ -233,6 +233,10 @@ describeBackends("initial migration", (backend) => {
 		expect(sessions).toContain("counted_submission_id");
 		expect(sessions).toContain("forked_from_session_id");
 		expect(sessions).toContain("forked_from_entry_id");
+		expect(sessions).toEqual(expect.arrayContaining(["todos", "todos_at_compaction"]));
+		// A cleared list and a session that never had one are both null.
+		expect(await isNotNull(backend, db, "sessions", "todos")).toBe(false);
+		expect(await isNotNull(backend, db, "sessions", "todos_at_compaction")).toBe(false);
 		expect(await tableColumns(backend, db, "nodes")).toContain("ssh_host_fingerprint");
 		expect(await tableColumns(backend, db, "tasks")).toEqual(
 			expect.arrayContaining([
@@ -351,6 +355,7 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0003_drop_late_result" },
 			{ name: "0004_jobs" },
 			{ name: "0005_job_notice_wakes" },
+			{ name: "0006_todos" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});

@@ -27,6 +27,7 @@ import type {
 	SessionStatsSchema,
 	SessionViewSchema,
 	SessionWaitingKindSchema,
+	TodoItemSchema,
 } from "./schemas/sessions.ts";
 
 /**
@@ -87,6 +88,9 @@ export interface SessionListQuery extends CursorQuery {
 
 /** A session's own generation counters, plus the tree's input and cache-read totals (doc/design/agent-runtime.md "Session statistics"). */
 export type SessionStats = z.infer<typeof SessionStatsSchema>;
+
+/** One item of a root session's todo list, written by its agent's `todo_write` (doc/design/todo.md). */
+export type TodoItem = z.infer<typeof TodoItemSchema>;
 
 /**
  * `GET /api/sessions/:id`: the session, how the caller relates to it and

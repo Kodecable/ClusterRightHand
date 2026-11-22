@@ -171,7 +171,7 @@ describe("MCP links", () => {
 		}
 	});
 
-	it("exposes the job tools and not the removed task and subagent follow-up tools", async () => {
+	it("exposes the job tools, keeps session-only todo_write out, and not the removed task and subagent follow-up tools", async () => {
 		const app = appWith();
 		const client = new Client({ name: "crh-test", version: "0.0.0" });
 		const transport = new StreamableHTTPClientTransport(new URL("http://crh.test/mcp"), {
@@ -182,6 +182,8 @@ describe("MCP links", () => {
 		try {
 			const names = (await client.listTools()).tools.map((tool) => tool.name);
 			expect(names).toEqual(expect.arrayContaining(["job_wait", "job_cancel", "job_list"]));
+			// todo_write is a root session's state; an MCP client keeps its own plan (doc/design/todo.md "Scope").
+			expect(names).not.toContain("todo_write");
 			for (const removed of ["task_wait", "task_cancel", "subagent_wait", "subagent_cancel"]) {
 				expect(names).not.toContain(removed);
 			}

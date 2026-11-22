@@ -319,6 +319,8 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 					...(options.channels ? { presence: options.channels.presence } : {}),
 					// A job's projection change travels on its session's stream as `job.changed` (doc/design/jobs.md "API").
 					...(jobs ? { jobs } : {}),
+					// The todo list is session state; `todo_write` publishes each replacement as `todo.changed`.
+					todoLists: runtime.todoLists,
 				}),
 			);
 			sessions.route(

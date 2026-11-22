@@ -147,6 +147,7 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
 | `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `job_wait`, `job_cancel`, `job_list` | Follow, cancel or list the jobs these tools start ([Jobs](jobs.md)) |
+| `todo_write` | A root session's todo list, replaced whole; attached to its compaction summary ([Todo list](todo.md)) |
 | `search_tools`, `call_tool` | Find and call an extension's tools, MCP or built-in ([Extensions](extensions.md)) |
 | `ext__<extension>__<tool>` | A "list directly" extension's tool, called without `call_tool` |
 | `search_docs`, `read_doc` | The built-in `crhs-docs` extension: search this version's documentation and API reference, and read a document or a section of it |
@@ -164,6 +165,10 @@ the built-in extensions, while `search_tools` and `call_tool` stay fixed ([Tools
 The job tools reach only jobs started by this session (or its subagents) or this API token, never
 another session of the same user, because a job belongs to the actor that started it
 ([Ownership](jobs.md#ownership)).
+
+`todo_write` is offered to root sessions only. A subagent works on one delegated task, whose plan is its
+parent's, so a subagent conversation does not get the tool and a call without a root session is refused.
+MCP clients do not get it either: a client keeps its own plan ([Scope](todo.md#scope)).
 
 Arguments are snake_case. Every node-scoped tool takes `targets`, a list of node and node group
 references or `_all`. File modes are octal strings such as `"0644"`, because JSON has no octal literal
@@ -281,6 +286,12 @@ chain and any token quota. Sharing does not change whose identity it acts under.
 - **Compaction** runs automatically, based on the model's context window, and can be requested with
   `/compact`. A manual compaction is charged like any model call and is refused when the budget is used
   up.
+- **Todo list.** A root session's agent keeps its list through `todo_write`; the row holds it and the
+  session stream publishes `todo.changed` ([Todo list](todo.md)). No turn boundary or run end clears it;
+  a fork copies it with the conversation. When a compaction is planned, the list at that moment is
+  recorded with the session, and every later request appends it to the summary message, so the model
+  keeps seeing the plan after the calls that wrote it were summarized
+  ([Compaction](todo.md#compaction)).
 - **Events.** The WebUI follows a session through a stream of committed events; system messages are
   not sent. Older history is paged separately.
 

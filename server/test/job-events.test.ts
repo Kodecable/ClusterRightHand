@@ -14,6 +14,7 @@ import { CallRunner } from "../src/extensions/call-runner.ts";
 import { createJobs, type Jobs } from "../src/jobs/jobs.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
+import { TodoLists } from "../src/todos/todos.ts";
 import { execJobRenderers } from "../src/tools/job-renderers.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
@@ -28,6 +29,7 @@ vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
  */
 let db: Db;
 let jobs: Jobs;
+let todoLists: TodoLists;
 let app: OpenAPIHono<AppEnv>;
 let audit: AuditType;
 let owner: SessionUser;
@@ -100,6 +102,7 @@ beforeAll(async () => {
 	}
 	sessionId = "stream-session";
 	otherSessionId = "stream-other";
+	todoLists = new TodoLists();
 	// Only the parts of the runtime the route touches: access lookup, the snapshot watch and stream bookkeeping.
 	const runtime = {
 		getSession: async (id: string) => ({ id }),
@@ -117,7 +120,7 @@ beforeAll(async () => {
 		c.set("audit", audit);
 		await next();
 	});
-	app.route("/api", sessionEventRoutes(db, { runtime, streams, jobs }));
+	app.route("/api", sessionEventRoutes(db, { runtime, streams, jobs, todoLists }));
 });
 
 afterAll(async () => {
@@ -196,6 +199,31 @@ it("does not carry another session's job", async () => {
 		});
 		expect(changed?.job.id).toBe(job.id);
 		expect(changed?.job.resource.id).toBe("this-task");
+	} finally {
+		void reader.cancel();
+	}
+});
+
+it("sends todo.changed with the new list and only to its own session", async () => {
+	const res = await app.request(`/api/sessions/${sessionId}/events`);
+	expect(res.status).toBe(200);
+	const reader = res.body?.getReader();
+	if (!reader) throw new Error("no stream body");
+	const buffer = { text: "" };
+	try {
+		await nextBatch(reader, buffer);
+		// Another session's list must not reach this stream; the own list after it proves the stream is live.
+		await todoLists.replace(db, otherSessionId, [{ content: "other", status: "pending" }]);
+		const todos = [
+			{ content: "Roll out the new config", status: "in_progress" as const },
+			{ content: "Verify that every node serves 200", status: "pending" as const },
+		];
+		await todoLists.replace(db, sessionId, todos);
+		const batch = await nextBatch(reader, buffer);
+		expect(batch).toEqual([{ type: "todo.changed", todos }]);
+
+		await todoLists.replace(db, sessionId, []);
+		expect(await nextBatch(reader, buffer)).toEqual([{ type: "todo.changed", todos: null }]);
 	} finally {
 		void reader.cancel();
 	}
