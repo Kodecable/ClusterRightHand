@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/backup"
+	"github.com/Kodecable/ClusterRightHand/client/internal/logging"
 	"github.com/Kodecable/ClusterRightHand/client/internal/setup"
 	"github.com/Kodecable/ClusterRightHand/client/internal/units"
 	"github.com/Kodecable/ClusterRightHand/client/internal/upgrade/marker"
@@ -40,8 +41,9 @@ type InstallOptions struct {
 	Sys  System
 	Host setup.Host
 	Now  func() time.Time
-	// Stderr receives what cannot go to the upgrade log because another install holds the lock.
-	Stderr io.Writer
+	// Logger receives what cannot go to the upgrade log, at error priority: another install holds
+	// the lock, or the log cannot take a line. logging.New(os.Stderr) by default.
+	Logger *slog.Logger
 	// HandOverTimeout and ReadyTimeout replace the defaults (tests).
 	HandOverTimeout, ReadyTimeout time.Duration
 	// Migrations replaces the migration registry (tests).
@@ -79,8 +81,8 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	if opts.Stderr == nil {
-		opts.Stderr = os.Stderr
+	if opts.Logger == nil {
+		opts.Logger = logging.New(os.Stderr)
 	}
 	if opts.HandOverTimeout == 0 {
 		opts.HandOverTimeout = HandOverTimeout
@@ -108,7 +110,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	// Only the holder of the lock writes the log: a second installer only says why it stopped.
 	unlock, err := backup.Lock(dir)
 	if err != nil {
-		fmt.Fprintf(opts.Stderr, "crha upgrade to %s (task %s): %v\n", opts.To, opts.TaskID, err)
+		opts.Logger.Error(fmt.Sprintf("crha upgrade to %s (task %s): %v", opts.To, opts.TaskID, err))
 		return err
 	}
 	defer unlock()
@@ -142,10 +144,12 @@ func (in *installer) info(step, format string, args ...any) {
 	in.logLine("info", step, fmt.Sprintf(format, args...))
 }
 
-// logLine writes one line to the upgrade log; a line the log cannot take goes to the unit's journal.
+// logLine writes one line to the upgrade log; a line the log cannot take goes to the unit's journal
+// through the logger, at error priority.
 func (in *installer) logLine(level, step, msg string) {
 	if err := in.log.Write(level, step, msg); err != nil {
-		fmt.Fprintf(in.opts.Stderr, "crha upgrade to %s (task %s): %s: %s (%v)\n", in.opts.To, in.opts.TaskID, step, msg, err)
+		in.opts.Logger.Error(fmt.Sprintf("crha upgrade to %s (task %s): %s: %s (%v)",
+			in.opts.To, in.opts.TaskID, step, msg, err))
 	}
 }
 

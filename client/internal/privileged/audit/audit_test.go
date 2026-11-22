@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/logging"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
@@ -18,7 +19,7 @@ func TestLogWritesFileAndMirror(t *testing.T) {
 	path := filepath.Join(dir, "logs", "privileged.jsonl")
 	var mirror bytes.Buffer
 	now := time.UnixMilli(1_793_016_000_000)
-	l, err := Open(path, Options{Mirror: &mirror, Now: func() time.Time { return now }})
+	l, err := Open(path, Options{Logger: logging.NewPlain(&mirror), Now: func() time.Time { return now }})
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -41,6 +42,7 @@ func TestLogWritesFileAndMirror(t *testing.T) {
 		},
 		{Event: "window.opened", UID: &uid, UntilMS: 1_700_000_000_000},
 		{Event: "config.reloaded", Detail: "digest changed"},
+		{Event: "config.reload_failed", Detail: "bad file"},
 	}
 	for _, rec := range records {
 		if err := l.Log(rec); err != nil {
@@ -81,11 +83,7 @@ func TestLogWritesFileAndMirror(t *testing.T) {
 			t.Fatalf("line %d time = %v", i+1, got["time"])
 		}
 	}
-	// The mirror carries the same bytes as the file.
-	if mirror.String() != string(data) {
-		t.Fatalf("mirror differs from file:\nmirror %q\nfile   %q", mirror.String(), data)
-	}
-	// The full spec is in the accepted line.
+	// The full spec is in the accepted file line.
 	var accepted map[string]any
 	if err := json.Unmarshal([]byte(lines[0]), &accepted); err != nil {
 		t.Fatal(err)
@@ -99,6 +97,52 @@ func TestLogWritesFileAndMirror(t *testing.T) {
 	}
 	if refused["code"] != "authorization_rejected" || refused["step"] != float64(7) {
 		t.Fatalf("refused record = %v", refused)
+	}
+
+	// The mirror is one human line per record, without the time and without the full spec.
+	mirrorLines := strings.Split(strings.TrimSuffix(mirror.String(), "\n"), "\n")
+	if len(mirrorLines) != len(records) {
+		t.Fatalf("%d mirrored lines, want %d:\n%s", len(mirrorLines), len(records), mirror.String())
+	}
+	for i, line := range mirrorLines {
+		if strings.Contains(line, "time=") || strings.Contains(line, " spec=") {
+			t.Fatalf("mirrored line %d carries the time or the full spec: %q", i+1, line)
+		}
+		if !strings.Contains(line, " audit "+records[i].Event) {
+			t.Fatalf("mirrored line %d = %q, want the audit event %q", i+1, line, records[i].Event)
+		}
+		wantLevel := " INFO  "
+		if records[i].Event == "task.refused" || records[i].Event == "config.reload_failed" {
+			wantLevel = " WARN  "
+		}
+		if !strings.Contains(line, wantLevel) {
+			t.Fatalf("mirrored line %d = %q, want level %q", i+1, line, strings.TrimSpace(wantLevel))
+		}
+	}
+	acceptedLine := mirrorLines[0]
+	for _, want := range []string{
+		"task_id=t1", "attempt=1", "entry=crhs", "authorization_id=ab", "spec_sha256=cd",
+	} {
+		if !strings.Contains(acceptedLine, want) {
+			t.Errorf("mirrored accepted line = %q, want it to contain %q", acceptedLine, want)
+		}
+	}
+	refusedLine := mirrorLines[1]
+	for _, want := range []string{
+		`task_id=t2`, `code=authorization_rejected`, `step=7`,
+		`message="trust entry rules reject this task"`,
+	} {
+		if !strings.Contains(refusedLine, want) {
+			t.Errorf("mirrored refused line = %q, want it to contain %q", refusedLine, want)
+		}
+	}
+	if finished := mirrorLines[2]; !strings.Contains(finished, `outcome="exit 0"`) ||
+		!strings.Contains(finished, "duration_ms=12") || !strings.Contains(finished, "output_end=3") {
+		t.Errorf("mirrored finished line = %q", finished)
+	}
+	if window := mirrorLines[3]; !strings.Contains(window, "uid=1000") ||
+		!strings.Contains(window, "until_ms=1700000000000") {
+		t.Errorf("mirrored window line = %q", window)
 	}
 }
 

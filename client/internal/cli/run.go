@@ -19,6 +19,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/facts"
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/janitor"
+	"github.com/Kodecable/ClusterRightHand/client/internal/logging"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/daemon"
@@ -59,6 +60,10 @@ func run(ctx context.Context, configPath string) error {
 // runWithDebug is run plus the optional starter of a debug build's facilities (pprof). startDebug
 // is nil in normal builds and when the debug flag was not given.
 func runWithDebug(ctx context.Context, configPath string, startDebug func(context.Context) error) error {
+	// One logger for the whole process, in whatever format this process's stderr needs. It is also
+	// the default, so the standard library's log (the debug build's pprof lines) goes through it.
+	log := logging.New(os.Stderr)
+	slog.SetDefault(log)
 	// The process context exists before anything else: a debug listener started below stops when the
 	// process is asked to shut down, including the early-exit paths.
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
@@ -94,7 +99,6 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 		return err
 	}
 
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	a := agent.New(agent.Options{
 		Dial: func(ctx context.Context) (*transport.Conn, error) {
 			return transport.Dial(ctx, dialOptions(cfg.Load(), key, serverKey, &protocol.HandshakeInit{CRHAVersion: version.Version}))
@@ -279,6 +283,10 @@ func runPrivileged(ctx context.Context, configPath string, noPersistUsed bool) e
 // runPrivilegedWithDebug is runPrivileged plus the optional starter of a debug build's facilities
 // (pprof). startDebug is nil in normal builds and when the debug flag was not given.
 func runPrivilegedWithDebug(ctx context.Context, configPath string, noPersistUsed bool, startDebug func(context.Context) error) error {
+	// One logger for the whole process, in whatever format this process's stderr needs. It is also
+	// the default, so the standard library's log (the debug build's pprof lines) goes through it.
+	logger := logging.New(os.Stderr)
+	slog.SetDefault(logger)
 	// The process context exists before anything else: a debug listener started below stops when the
 	// process is asked to shut down, including the early-exit paths.
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
@@ -298,17 +306,17 @@ func runPrivilegedWithDebug(ctx context.Context, configPath string, noPersistUse
 	if err != nil {
 		return err
 	}
-	log, err := audit.Open(cfg.LogPath, audit.Options{})
+	localLog, err := audit.Open(cfg.LogPath, audit.Options{Logger: logger})
 	if err != nil {
 		return err
 	}
-	defer log.Close()
+	defer localLog.Close()
 	server, err := daemon.New(cfg, daemon.Options{
 		ConfigPath:    configPath,
 		Version:       version.Version,
-		Log:           log,
+		Log:           localLog,
 		Env:           env,
-		Logger:        slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Logger:        logger,
 		NoPersistUsed: noPersistUsed,
 	})
 	if err != nil {

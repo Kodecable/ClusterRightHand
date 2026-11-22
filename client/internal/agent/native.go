@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/helper"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/version"
@@ -389,9 +391,9 @@ func (r *nativeRun) forward(a *Agent, t *task) {
 	}
 }
 
-// nativeStderr keeps the tail of the helper's stderr and logs its complete lines: the parent
-// relays the helper's local JSON log into its own log, and a failed start quotes the tail in its
-// error message.
+// nativeStderr keeps the tail of the helper's stderr and logs its complete lines: the helper's local
+// log arrives as JSON lines on its stderr pipe, which the parent turns into human-readable records,
+// and a failed start quotes the tail in its error message.
 type nativeStderr struct {
 	log *slog.Logger
 
@@ -425,9 +427,67 @@ func (w *nativeStderr) Write(p []byte) (int, error) {
 	w.mu.Unlock()
 
 	for _, line := range lines {
-		w.log.Info("native helper", "stderr", line)
+		if rec, ok := helper.ParseLogRecord(line); ok {
+			w.log.Log(context.Background(), nativeLevel(rec), "native helper "+rec.Event, nativeAttrs(rec)...)
+			continue
+		}
+		// Not the helper's log: the escalation tool's own message, a warning from sudo, or a line
+		// the helper could not finish. Keep it readable and keep it out of the structured format.
+		w.log.Warn("native helper stderr", "stderr", line)
 	}
 	return len(p), nil
+}
+
+// nativeLevel mirrors a helper record at Warn when the parent could not deliver the task's exit
+// (the helper's failure event) and at Info otherwise.
+func nativeLevel(rec helper.LogRecord) slog.Level {
+	if rec.Event == "task.exit.undelivered" {
+		return slog.LevelWarn
+	}
+	return slog.LevelInfo
+}
+
+// nativeAttrs are the fields of a relayed helper record: the event's data, but never the time (the
+// log line has one). The full spec is included, as raw JSON: native mode has no privileged daemon
+// and no audit file, so this relayed line is the only record of what ran privileged
+// (doc/design/privilege.md "Native mode").
+func nativeAttrs(rec helper.LogRecord) []any {
+	attrs := []any{"task_id", rec.TaskID}
+	if rec.Attempt != 0 {
+		attrs = append(attrs, "attempt", uint64(rec.Attempt))
+	}
+	if rec.Privileged {
+		attrs = append(attrs, "privileged", true)
+	}
+	if rec.Outcome != "" {
+		attrs = append(attrs, "outcome", rec.Outcome)
+	}
+	if rec.TimedOut {
+		attrs = append(attrs, "timed_out", true)
+	}
+	if rec.Cancelled {
+		attrs = append(attrs, "cancelled", true)
+	}
+	if rec.OutputEnd != 0 {
+		attrs = append(attrs, "output_end", uint64(rec.OutputEnd))
+	}
+	if rec.DurationMS != 0 {
+		attrs = append(attrs, "duration_ms", rec.DurationMS)
+	}
+	if rec.Detail != "" {
+		attrs = append(attrs, "detail", rec.Detail)
+	}
+	if rec.Spec != nil {
+		// Re-marshalling the parsed spec keeps the helper's JSON shape, and logging renders a
+		// json.RawMessage verbatim instead of as one quoted Go string.
+		if raw, err := json.Marshal(rec.Spec); err == nil {
+			attrs = append(attrs, slog.Any("spec", json.RawMessage(raw)))
+		} else {
+			// A spec that cannot be encoded must still not disappear from the only record.
+			attrs = append(attrs, "spec", rec.Spec)
+		}
+	}
+	return attrs
 }
 
 // lastLine returns the last non-empty line captured from stderr, bounded for an error message.

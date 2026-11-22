@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/logging"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
@@ -251,7 +252,7 @@ func newTestAgent(t *testing.T, opts Options) *Agent {
 		opts.OutputDir = t.TempDir()
 	}
 	if opts.Logger == nil {
-		opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+		opts.Logger = logging.NewPlain(io.Discard)
 	}
 	return New(opts)
 }

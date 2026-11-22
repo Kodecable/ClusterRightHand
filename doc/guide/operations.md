@@ -182,14 +182,23 @@ Test a restore on a spare host before you need one.
 
 ## Logs
 
-crhs and crha log to standard output; under systemd, read them with `journalctl -u crhs`,
-`journalctl -u crha` and `journalctl -u crha-privileged`.
+crhs logs to standard output and standard error, crha to standard error; under systemd, read them with
+`journalctl -u crhs`, `journalctl -u crha` and `journalctl -u crha-privileged`.
 
 - crhs logs its listen address and key fingerprints at startup, then warnings and errors. It does not
   log requests; use the audit log in the WebUI to see who did what.
+- crha writes one human-readable line per record. On a terminal it starts with the local time and a
+  level word (`2026-11-23 10:04:05.123 INFO  crha starting ...`); when stderr is the journal's stream,
+  journald supplies the time and the line carries only the priority prefix and the message
+  (`<6>crha starting ...`). Fields follow the message as `key=value`, with values quoted when they
+  contain spaces, `=` or quotes. A relayed native helper record keeps the task's full `spec=` as raw
+  JSON ([native mode](../design/privilege.md#native-mode)); there it is the only record of what ran
+  privileged.
 - crha logs its connection, reloads and errors. A node that crhs rejects exits with the reason.
 - The privileged mode also writes every accepted and refused task to the JSON-lines file named by `log`
-  in `privileged.toml`. It does not rotate the file; use `logrotate` with `copytruncate`.
+  in `privileged.toml`, the durable copy with the time and the full task specification. It does not
+  rotate the file; use `logrotate` with `copytruncate`. The same records are mirrored to the journal
+  as the human-readable lines above, without the time and without the full specification.
 
 ## Retention and cleanup
 

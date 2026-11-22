@@ -2,6 +2,7 @@ package units
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
@@ -36,5 +37,20 @@ func TestNames(t *testing.T) {
 	}
 	if got := Names(config.ModeNative); !reflect.DeepEqual(got, []string{Server}) {
 		t.Fatalf("native: %q", got)
+	}
+}
+
+// TestUnitsKeepSyslogLevelPrefix covers the assumption of client/internal/logging: the units leave
+// SyslogLevelPrefix at systemd's default (yes), so a `<N>` priority prefix reaches journald and is
+// stripped from MESSAGE rather than printed.
+func TestUnitsKeepSyslogLevelPrefix(t *testing.T) {
+	renderings := map[string]string{
+		Server:     RenderServer("/usr/local/bin/crha", "/etc/crha/crha.toml", config.ModeForward, "crha", "1.2.0"),
+		Privileged: RenderPrivileged("/usr/local/bin/crha", "/etc/crha/privileged.toml", "1.2.0"),
+	}
+	for name, unit := range renderings {
+		if strings.Contains(unit, "SyslogLevelPrefix") {
+			t.Errorf("%s sets SyslogLevelPrefix; the journal log format relies on its default", name)
+		}
 	}
 }

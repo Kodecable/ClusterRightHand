@@ -1,15 +1,18 @@
 // Package audit writes the privileged mode's local log, one JSON object per line
-// (doc/design/privilege.md "The privileged mode"). Every line is appended to the log file, which
-// systemd's journald collects from stderr as well, and mirrored to a second writer
-// (normally stderr) so the same records appear in journald.
+// (doc/design/privilege.md "The privileged mode"). Every line is appended to the log file, the
+// durable copy, with its time and, for an accepted task, the full spec. A record can also be
+// mirrored through crha's logger as one human-readable line: the event and its fields, but never
+// the time (the line has its own) and never the full spec (the file keeps it).
 package audit
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,8 +21,9 @@ import (
 
 // Options configures Open.
 type Options struct {
-	// Mirror receives every record in addition to the file. nil means os.Stderr.
-	Mirror io.Writer
+	// Logger, when non-nil, mirrors every record as one human-readable line in addition to the
+	// file. nil means no mirror: the file is the only copy.
+	Logger *slog.Logger
 	// Now returns the current time; nil means time.Now. Tests use it to make records
 	// deterministic.
 	Now func() time.Time
@@ -75,7 +79,7 @@ type logFile interface {
 // concurrent use.
 type Logger struct {
 	path   string
-	mirror io.Writer
+	mirror *slog.Logger
 	now    func() time.Time
 
 	mu   sync.Mutex
@@ -102,23 +106,19 @@ func Open(path string, opts Options) (*Logger, error) {
 		f.Close()
 		return nil, fmt.Errorf("audit: chmod %s: %w", path, err)
 	}
-	mirror := opts.Mirror
-	if mirror == nil {
-		mirror = os.Stderr
-	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
-	return &Logger{path: path, mirror: mirror, now: now, file: f}, nil
+	return &Logger{path: path, mirror: opts.Logger, now: now, file: f}, nil
 }
 
 // Path returns the log file path.
 func (l *Logger) Path() string { return l.path }
 
 // Log appends one record and syncs it before Log returns, so a task is logged
-// before it starts even if the machine loses power. A mirror write failure is
-// ignored: journald may not be there, and the file is the durable copy.
+// before it starts even if the machine loses power. The mirror is best effort: a
+// missing journal or a failing logger does not affect the durable file.
 func (l *Logger) Log(rec Record) error {
 	if rec.Event == "" {
 		return fmt.Errorf("audit: record has no event")
@@ -148,9 +148,76 @@ func (l *Logger) Log(rec Record) error {
 		return fmt.Errorf("audit: sync: %w", err)
 	}
 	if l.mirror != nil {
-		_, _ = l.mirror.Write(data)
+		level := slog.LevelInfo
+		if failureEvent(rec.Event) {
+			level = slog.LevelWarn
+		}
+		l.mirror.LogAttrs(context.Background(), level, "audit "+rec.Event, mirrorAttrs(rec)...)
 	}
 	return nil
+}
+
+// failureEvent reports whether an event is a refusal or a failure: those are mirrored at Warn, the
+// rest at Info.
+func failureEvent(event string) bool {
+	return strings.HasSuffix(event, ".refused") ||
+		strings.HasSuffix(event, ".failed") || strings.HasSuffix(event, "_failed") ||
+		strings.HasSuffix(event, ".undelivered")
+}
+
+// mirrorAttrs are the attributes of a mirrored record: the set fields, in a fixed order, and never
+// the time or the full spec.
+func mirrorAttrs(rec Record) []slog.Attr {
+	attrs := make([]slog.Attr, 0, 16)
+	if rec.TaskID != "" {
+		attrs = append(attrs, slog.String("task_id", rec.TaskID))
+	}
+	if rec.Attempt != 0 {
+		attrs = append(attrs, slog.Uint64("attempt", uint64(rec.Attempt)))
+	}
+	if rec.Entry != "" {
+		attrs = append(attrs, slog.String("entry", rec.Entry))
+	}
+	if rec.AuthorizationID != "" {
+		attrs = append(attrs, slog.String("authorization_id", rec.AuthorizationID))
+	}
+	if rec.SpecSHA256 != "" {
+		attrs = append(attrs, slog.String("spec_sha256", rec.SpecSHA256))
+	}
+	if rec.Code != "" {
+		attrs = append(attrs, slog.String("code", rec.Code))
+	}
+	if rec.Step != 0 {
+		attrs = append(attrs, slog.Int("step", rec.Step))
+	}
+	if rec.Message != "" {
+		attrs = append(attrs, slog.String("message", rec.Message))
+	}
+	if rec.Outcome != "" {
+		attrs = append(attrs, slog.String("outcome", rec.Outcome))
+	}
+	if rec.TimedOut {
+		attrs = append(attrs, slog.Bool("timed_out", true))
+	}
+	if rec.Cancelled {
+		attrs = append(attrs, slog.Bool("cancelled", true))
+	}
+	if rec.OutputEnd != 0 {
+		attrs = append(attrs, slog.Uint64("output_end", rec.OutputEnd))
+	}
+	if rec.DurationMS != 0 {
+		attrs = append(attrs, slog.Int64("duration_ms", rec.DurationMS))
+	}
+	if rec.UID != nil {
+		attrs = append(attrs, slog.Uint64("uid", uint64(*rec.UID)))
+	}
+	if rec.UntilMS != 0 {
+		attrs = append(attrs, slog.Int64("until_ms", rec.UntilMS))
+	}
+	if rec.Detail != "" {
+		attrs = append(attrs, slog.String("detail", rec.Detail))
+	}
+	return attrs
 }
 
 // Close closes the log file.

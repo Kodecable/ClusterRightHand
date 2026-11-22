@@ -56,9 +56,13 @@ because:
 - File tasks need the target identity too, which running a single command cannot provide.
 
 The cost is that sudoers sees only `crha privileged stdio` and cannot restrict the command; the helper
-logs every task's full spec instead. Use `forward` when per-command limits are needed. When the
-escalation tool fails, the task fails with an explanation; it never falls back to unprivileged
-execution. `run0` support is experimental.
+logs every task's full spec instead. Those records are JSON lines on the helper's stderr; the
+non-privileged parent parses each line and relays it into crha's log and the journal as a
+human-readable line that keeps the full spec. Native mode has no privileged daemon and no audit file,
+so that relayed line is the only record of what ran privileged: dropping the spec from it would
+remove the audit trail. Use `forward` when per-command limits are needed. When the escalation tool
+fails, the task fails with an explanation; it never falls back to unprivileged execution. `run0`
+support is experimental.
 
 The helper is cancelled through `crh-priv` in every case, too when a privileged `file.push`/`file.pull`
 never gets its data connection: the task ends with the transfer error, and the agent starts the helper's
@@ -69,7 +73,10 @@ rather than running on with no one to talk to.
 
 The privileged mode listens on a local Unix socket and tells peers apart by their uid
 (`SO_PEERCRED`): the unprivileged mode's uid submits tasks, and uids in a `local` trust entry open and
-close the local approval window. It keeps a used list and a local log of every privileged task.
+close the local approval window. It keeps a used list and a local log of every privileged task. The
+log file is the durable copy; each record is also mirrored to the process's log as one human-readable
+line, without the time and without the full task specification, so journald gets a readable record
+beside the file's JSON.
 
 Editing the trust configuration is itself a privileged task: a `file.write` to `privileged.toml`
 followed by a reload. It needs an authorization from an existing trust entry or a local edit, so crhs

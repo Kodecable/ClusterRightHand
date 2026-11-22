@@ -10,7 +10,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -129,7 +128,7 @@ func (e *testEnv) start() {
 		e.t.Fatalf("load config: %v", err)
 	}
 	e.cfg = cfg
-	log, err := audit.Open(e.paths.Log, audit.Options{Mirror: io.Discard})
+	log, err := audit.Open(e.paths.Log, audit.Options{})
 	if err != nil {
 		e.t.Fatalf("open log: %v", err)
 	}

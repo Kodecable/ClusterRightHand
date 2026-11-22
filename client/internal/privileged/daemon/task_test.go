@@ -6,8 +6,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -15,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/logging"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/localclient"
@@ -326,7 +325,7 @@ func TestNoPersistUsed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	log, err := audit.Open(paths.Log, audit.Options{Mirror: io.Discard})
+	log, err := audit.Open(paths.Log, audit.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +334,7 @@ func TestNoPersistUsed(t *testing.T) {
 	server, err := New(cfg, Options{
 		Version:       "test",
 		Log:           log,
-		Logger:        slog.New(slog.NewTextHandler(&stderr, nil)),
+		Logger:        logging.NewPlain(&stderr),
 		NoPersistUsed: true,
 	})
 	if err != nil {

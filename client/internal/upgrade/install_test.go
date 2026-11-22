@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -155,7 +155,7 @@ func (n *node) installTask(t *testing.T, ctx context.Context, task, from, to str
 		From: from, To: to, TaskID: task,
 		Self: n.self, Root: n.root, Dir: n.dir, Sys: n.sys, Host: fakeHost{n.root},
 		HandOverTimeout: 50 * time.Millisecond, ReadyTimeout: 50 * time.Millisecond,
-		Migrations: n.migrations, Stderr: io.Discard,
+		Migrations: n.migrations, Logger: slog.New(slog.DiscardHandler),
 	})
 }
 

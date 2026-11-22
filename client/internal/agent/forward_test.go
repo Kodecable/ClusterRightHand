@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"os"
@@ -123,7 +122,7 @@ func (e *privEnv) start() {
 	if err != nil {
 		e.t.Fatalf("load privileged config: %v", err)
 	}
-	log, err := audit.Open(e.logPath, audit.Options{Mirror: io.Discard})
+	log, err := audit.Open(e.logPath, audit.Options{})
 	if err != nil {
 		e.t.Fatalf("open privileged log: %v", err)
 	}

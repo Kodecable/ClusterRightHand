@@ -220,11 +220,13 @@ func (h *helper) handleStart(_ context.Context, body cbor.RawMessage) (any, erro
 	return protocol.Deferred{Body: protocol.Empty{}, After: func() { h.session.Launch(t) }}, nil
 }
 
-// logRecord is one line of the helper's local audit log on stderr. The native helper is the only
-// place that sees the full task specification: sudoers only knows "crha privileged stdio", and the
-// non-privileged mode relays the helper's stderr into its own log and journald
-// (doc/design/privilege.md "Native mode").
-type logRecord struct {
+// LogRecord is one line of the helper's local audit log on stderr. The native helper is the only
+// place that sees the full task specification: sudoers only knows "crha privileged stdio". The
+// non-privileged parent parses these lines and relays them as human-readable log lines, spec
+// included, because native mode has no privileged daemon and no audit file: the relayed line is the
+// only record of what ran privileged (doc/design/privilege.md "Native mode"). The JSON on the pipe
+// is the internal wire format; the parent's log is what a reader sees.
+type LogRecord struct {
 	Event      string             `json:"event"`
 	Time       string             `json:"time"`
 	TaskID     string             `json:"task_id"`
@@ -243,7 +245,7 @@ type logRecord struct {
 func (h *helper) TaskStarted(t *taskrun.Task) {
 	ts := t.TaskStart()
 	spec := ts.Spec
-	h.logLine(logRecord{
+	h.logLine(LogRecord{
 		Event:      "task.start",
 		Time:       time.Now().UTC().Format(time.RFC3339Nano),
 		TaskID:     ts.TaskID,
@@ -256,7 +258,7 @@ func (h *helper) TaskStarted(t *taskrun.Task) {
 // TaskFinished implements taskrun.Log.
 func (h *helper) TaskFinished(t *taskrun.Task, exit *protocol.TaskExit, took time.Duration) {
 	ts := t.TaskStart()
-	h.logLine(logRecord{
+	h.logLine(LogRecord{
 		Event:      "task.exit",
 		Time:       time.Now().UTC().Format(time.RFC3339Nano),
 		TaskID:     ts.TaskID,
@@ -273,12 +275,12 @@ func (h *helper) TaskFinished(t *taskrun.Task, exit *protocol.TaskExit, took tim
 // ExitUndelivered implements taskrun.Log: the parent is gone. The task itself has finished and is
 // recorded in the local log; there is nobody left to tell.
 func (h *helper) ExitUndelivered(t *taskrun.Task, err error) {
-	h.logLine(logRecord{Event: "task.exit.undelivered", TaskID: t.ID(), Detail: err.Error()})
+	h.logLine(LogRecord{Event: "task.exit.undelivered", TaskID: t.ID(), Detail: err.Error()})
 }
 
 // logLine writes one JSON line. A write failure is ignored: stderr may already be gone, and the task
 // must not fail because its log entry could not be written.
-func (h *helper) logLine(rec logRecord) {
+func (h *helper) logLine(rec LogRecord) {
 	data, err := json.Marshal(rec)
 	if err != nil {
 		return
@@ -287,4 +289,23 @@ func (h *helper) logLine(rec logRecord) {
 	h.logMu.Lock()
 	defer h.logMu.Unlock()
 	_, _ = h.log.Write(data)
+}
+
+// ParseLogRecord parses one line of the helper's local audit log, as the parent that relays the
+// helper's stderr reads it. It reports false for a line that is not such a record: some other
+// program's stderr, a partial line, or a JSON object with an unknown event or no task id.
+func ParseLogRecord(line string) (LogRecord, bool) {
+	var rec LogRecord
+	if err := json.Unmarshal([]byte(line), &rec); err != nil {
+		return LogRecord{}, false
+	}
+	switch rec.Event {
+	case "task.start", "task.exit", "task.exit.undelivered":
+	default:
+		return LogRecord{}, false
+	}
+	if rec.TaskID == "" {
+		return LogRecord{}, false
+	}
+	return rec, true
 }
