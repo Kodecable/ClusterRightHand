@@ -1,4 +1,5 @@
 import type {
+	AuthorizationPhase,
 	AuthorizationSummary,
 	CursorPage,
 	PendingAuthorization,
@@ -32,27 +33,38 @@ export function useAuthorizations(filters: AuthorizationFilters = {}) {
 	});
 }
 
-/** The options of a waiting task or task group, polled while the decision is open. */
+/** The phase of a signature wait and what the panel renders: `pending` is non-null exactly when `waiting`. */
+export interface PendingAuthorizationData {
+	phase: AuthorizationPhase;
+	pending: PendingAuthorization | null;
+	tasks: TaskGroupPendingTask[];
+}
+
+/** The options of a waiting task or task group and the phase of its wait, polled while the decision is open. */
 export function usePendingAuthorization(kind: "task" | "task_group", id: string | undefined) {
 	return useQuery({
 		queryKey: authorizationKeys.pending(kind, id ?? ""),
 		enabled: id !== undefined && id !== "",
 		refetchInterval: 5_000,
-		queryFn: async ({ signal }): Promise<{ pending: PendingAuthorization | null; tasks: TaskGroupPendingTask[] }> => {
+		queryFn: async ({ signal }): Promise<PendingAuthorizationData> => {
 			if (kind === "task") {
-				const result = await http.get<{ authorization: PendingAuthorization | null }>(
+				const result = await http.get<{ phase: AuthorizationPhase; authorization: PendingAuthorization | null }>(
 					`/tasks/${enc(id ?? "")}/authorization`,
 					{ signal },
 				);
-				return { pending: result.authorization, tasks: [] };
+				return { phase: result.phase, pending: result.authorization, tasks: [] };
 			}
-			const result = await http.get<{ taskGroup: TaskGroupPending | null }>(
+			const result = await http.get<{ phase: AuthorizationPhase; taskGroup: TaskGroupPending | null }>(
 				`/task-groups/${enc(id ?? "")}/authorization`,
 				{
 					signal,
 				},
 			);
-			return { pending: result.taskGroup?.authorization ?? null, tasks: result.taskGroup?.tasks ?? [] };
+			return {
+				phase: result.phase,
+				pending: result.taskGroup?.authorization ?? null,
+				tasks: result.taskGroup?.tasks ?? [],
+			};
 		},
 	});
 }

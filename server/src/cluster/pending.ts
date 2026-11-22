@@ -6,6 +6,7 @@
  */
 import type {
 	AuthorizationOption,
+	AuthorizationPhase,
 	DecodedAuthorizationPayload,
 	LocalWindowAuthorizationOption,
 	PendingAuthorization,
@@ -30,6 +31,12 @@ import { parseTrustReport } from "./trust.ts";
 
 /** A decoded payload, in the JSON form the waiting page renders. */
 export type DecodedPayloadView = DecodedAuthorizationPayload;
+
+/** A signature wait's phase and the view its owner's page renders; the view is non-null exactly when `waiting`. */
+export interface AuthorizationWait<T> {
+	phase: AuthorizationPhase;
+	view: T | null;
+}
 
 export type { PendingPasskey };
 
@@ -226,21 +233,30 @@ async function pendingOptions(
 	return out;
 }
 
-/** The waiting page of one task; null when no plan is written yet. */
+/** The waiting page of one task, with the phase of its wait; the view is non-null exactly when `waiting`. */
 export async function pendingForTask(
 	db: Db,
-	row: { node_id: string; on_behalf_of_user_id: string; authorization: string | null; spec: string | null },
-): Promise<PendingAuthorization | null> {
+	row: {
+		state: string;
+		node_id: string;
+		on_behalf_of_user_id: string;
+		authorization: string | null;
+		spec: string | null;
+	},
+): Promise<AuthorizationWait<PendingAuthorization>> {
+	// The row carries its state and its planned options together, so the phase cannot race a second read:
+	// any state but `awaiting_authorization` means the wait already ended, whatever settled it.
+	if (row.state !== "awaiting_authorization") return { phase: "ended", view: null };
 	const record = parseTaskAuthorization(row.authorization);
-	if (!record) return null;
+	if (!record) return { phase: "preparing", view: null };
 	const options = await pendingOptions(db, row.on_behalf_of_user_id, row.node_id, record);
-	if (options.length === 0) return null;
+	if (options.length === 0) return { phase: "preparing", view: null };
 	for (const option of options) {
 		if (option.kind === "sign") {
 			option.reusableScope = await signOptionScope(db, option, [{ nodeId: row.node_id, spec: row.spec }]);
 		}
 	}
-	return { options, lastRejection: record.lastRejection };
+	return { phase: "waiting", view: { options, lastRejection: record.lastRejection } };
 }
 
 export type { TaskGroupPendingTask };
@@ -248,28 +264,41 @@ export type { TaskGroupPendingTask };
 export type TaskGroupPendingView = TaskGroupPending;
 
 /**
- * The options of a group's waiting tasks (all of them hold the same one) and the state of each
- * waiting task.
+ * The options of a group's waiting tasks (all of them hold the same one), the state of each waiting
+ * task, and the phase of the wait. A group's wait ends like its members': the group is `waiting` only
+ * with a planned view, `preparing` while a member still waits for a signature without one, and `ended`
+ * once none does. The phase follows the member rows read here rather than `groupState`: `syncGroupState`
+ * re-derives the group's state from its members in a later write, so right after the last member is
+ * signed the group row can still say `awaiting_authorization`, and trusting that stale value would make
+ * the panel flash "Preparing + Reject". Only a group with no member rows at all yet, where there is no
+ * member state to trust, falls back to the group row.
  */
 export async function pendingForTaskGroup(
 	db: Db,
 	taskGroupId: string,
 	userId: string,
-): Promise<TaskGroupPendingView | null> {
+	groupState: string,
+): Promise<AuthorizationWait<TaskGroupPendingView>> {
 	const rows = await db
 		.selectFrom("tasks")
 		.selectAll()
 		.where("task_group_id", "=", taskGroupId)
 		.orderBy("created_at")
 		.execute();
+	const waitingMembers = rows.filter((row) => row.state === "awaiting_authorization");
 	const records = rows.map((row) => ({ row, record: parseTaskAuthorization(row.authorization) }));
 	const holder = records.find((entry) => entry.row.state === "awaiting_authorization" && entry.record?.options.length);
-	if (!holder?.record) return null;
+	if (!holder?.record) {
+		// The members were read together, so their states decide the phase; the group row can lag them.
+		const phase: AuthorizationPhase =
+			waitingMembers.length > 0 || (rows.length === 0 && groupState === "awaiting_authorization")
+				? "preparing"
+				: "ended";
+		return { phase, view: null };
+	}
 	const options = await pendingOptions(db, userId, holder.row.node_id, holder.record);
-	if (options.length === 0) return null;
-	const waiting = records
-		.filter((entry) => entry.row.state === "awaiting_authorization")
-		.map((entry) => ({ nodeId: entry.row.node_id, spec: entry.row.spec }));
+	if (options.length === 0) return { phase: "preparing", view: null };
+	const waiting = waitingMembers.map((row) => ({ nodeId: row.node_id, spec: row.spec }));
 	// A group's sign option is one payload; offer every Passkey any waiting node trusts for it.
 	for (const option of options) {
 		if (option.kind !== "sign") continue;
@@ -308,7 +337,10 @@ export async function pendingForTaskGroup(
 	const names = new Map(nodeRows.map((node) => [node.id, node.name] as const));
 	for (const task of perTask) task.nodeName = names.get(task.nodeId) ?? task.nodeId;
 	return {
-		authorization: { options, lastRejection: holder.record.lastRejection },
-		tasks: perTask,
+		phase: "waiting",
+		view: {
+			authorization: { options, lastRejection: holder.record.lastRejection },
+			tasks: perTask,
+		},
 	};
 }

@@ -1583,7 +1583,17 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		}
 		const authorizationMatch = /^\/api\/(tasks|task-groups)\/([^/]+)\/authorization$/.exec(path);
 		if (authorizationMatch) {
-			return authorizationMatch[1] === "tasks" ? json({ authorization: null }) : json({ taskGroup: null });
+			// The fake server never plans options: a request that still waits is `preparing`, anything else `ended`.
+			const id = decodeURIComponent(authorizationMatch[2] as string);
+			const group = state.taskGroups[id]?.taskGroup;
+			const waiting =
+				authorizationMatch[1] === "tasks"
+					? state.tasks.some((task) => task.id === id && task.state === "awaiting_authorization")
+					: group?.state === "awaiting_authorization" ||
+						group?.tasks.some((task) => task.state === "awaiting_authorization") === true;
+			return authorizationMatch[1] === "tasks"
+				? json({ phase: waiting ? "preparing" : "ended", authorization: null })
+				: json({ phase: waiting ? "preparing" : "ended", taskGroup: null });
 		}
 		const rejectionMatch = /^\/api\/(tasks|task-groups)\/([^/]+)\/authorization\/reject$/.exec(path);
 		if (rejectionMatch && method === "POST") {
@@ -1711,7 +1721,13 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ taskGroup: stored.taskGroup, request });
 		}
 		const groupAuthMatch = /^\/api\/task-groups\/([^/]+)\/authorization$/.exec(path);
-		if (groupAuthMatch) return json({ taskGroup: null });
+		if (groupAuthMatch) {
+			const group = state.taskGroups[decodeURIComponent(groupAuthMatch[1] as string)]?.taskGroup;
+			const waiting =
+				group?.state === "awaiting_authorization" ||
+				group?.tasks.some((task) => task.state === "awaiting_authorization") === true;
+			return json({ phase: waiting ? "preparing" : "ended", taskGroup: null });
+		}
 
 		if (path === "/api/channels" && method === "GET") return json({ channels: state.channels });
 		const channelMatch = /^\/api\/channels\/([^/]+)$/.exec(path);

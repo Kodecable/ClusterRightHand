@@ -285,10 +285,16 @@ describe("user authorizations", () => {
 	const pendingFor = async (
 		taskId: string,
 		cookie = owner.cookie,
-	): Promise<{ authorization: Record<string, unknown> | null }> => {
+	): Promise<{
+		phase: "preparing" | "waiting" | "ended";
+		authorization: Record<string, unknown> | null;
+	}> => {
 		const res = await call(app, `/api/tasks/${taskId}/authorization`, { cookie });
 		expect(res.status).toBe(200);
-		return (await res.json()) as { authorization: Record<string, unknown> | null };
+		return (await res.json()) as {
+			phase: "preparing" | "waiting" | "ended";
+			authorization: Record<string, unknown> | null;
+		};
 	};
 
 	interface PendingSign {
@@ -360,7 +366,8 @@ describe("user authorizations", () => {
 		await waitState(task.id, "awaiting_authorization");
 		expect(crha.starts).toHaveLength(0);
 
-		const { authorization } = await pendingFor(task.id);
+		const { phase, authorization } = await pendingFor(task.id);
+		expect(phase).toBe("waiting");
 		expect(authorization).not.toBeNull();
 		const pending = signOf(authorization);
 		const payloadBytes = new Uint8Array(Buffer.from(pending.payload, "base64"));
@@ -394,8 +401,9 @@ describe("user authorizations", () => {
 		const restartedApp = makeApp(db, undefined, { cluster: restarted, authorizationKey: signing });
 		const again = (await (
 			await call(restartedApp, `/api/tasks/${task.id}/authorization`, { cookie: owner.cookie })
-		).json()) as { authorization: Record<string, unknown> };
+		).json()) as { phase: string; authorization: Record<string, unknown> };
 		restarted.close();
+		expect(again.phase).toBe("waiting");
 		expect(signOf(again.authorization)).toMatchObject({ id: pending.id, payload: pending.payload });
 
 		const res = await submit(signedAuthorization(payloadBytes));
@@ -446,6 +454,26 @@ describe("user authorizations", () => {
 		const submitted = await auditRows("authorization.submitted");
 		expect(submitted).toHaveLength(1);
 		expect(submitted[0]).toMatchObject({ target_type: "authorization", target_id: pending.id });
+
+		// Once the task left the wait, the same endpoint says ended and carries no options, not preparing.
+		expect(await pendingFor(task.id)).toMatchObject({ phase: "ended", authorization: null });
+	});
+
+	it("states a task's wait phase: preparing without a plan, waiting with one, ended after reject", async () => {
+		const { node } = await connect("phase-1", (id) => summaryOf(id, [ownerEntry()]));
+		const task = await createPrivileged(node.id);
+		await waitState(task.id, "awaiting_authorization", (view) => (view.authorization?.options.length ?? 0) > 0);
+		expect(await pendingFor(task.id)).toMatchObject({ phase: "waiting" });
+
+		// The task still waits, but its plan is not written (the first sync has not planned it): preparing.
+		await db.updateTable("tasks").set({ authorization: null }).where("id", "=", task.id).execute();
+		expect(await pendingFor(task.id)).toMatchObject({ phase: "preparing", authorization: null });
+
+		// A rejection ends the wait; the endpoint must not mistake the missing plan for preparing again.
+		const rejected = await call(app, `/api/tasks/${task.id}/authorization/reject`, { cookie: owner.cookie, body: {} });
+		expect(rejected.status).toBe(200);
+		await waitState(task.id, "rejected");
+		expect(await pendingFor(task.id)).toMatchObject({ phase: "ended", authorization: null });
 	});
 
 	it("dispatches a signature submitted while the node was away once it reconnects within the grace", async () => {
@@ -1130,11 +1158,13 @@ describe("user authorizations", () => {
 		const res = await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie });
 		expect(res.status).toBe(200);
 		const shared = (await res.json()) as {
+			phase: string;
 			taskGroup: {
 				authorization: Record<string, unknown>;
 				tasks: unknown[];
 			};
 		};
+		expect(shared.phase).toBe("waiting");
 		const sharedPayload = signOf(shared.taskGroup.authorization);
 		const tasks = (await view()).tasks;
 		expect([...sharedPayload.taskIds].sort()).toEqual(tasks.map((task) => task.id).sort());
@@ -1156,6 +1186,11 @@ describe("user authorizations", () => {
 			const group = await view();
 			return group.tasks.every((task) => task.state === "running");
 		});
+		// Every member signed out of the wait: the group no longer waits and serves no view.
+		const ended = (await (
+			await call(app, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie })
+		).json()) as { phase: string; taskGroup: unknown };
+		expect(ended).toMatchObject({ phase: "ended", taskGroup: null });
 	});
 
 	it("carries the same authorization and one ticket for the uses that need it to every node of a group", async () => {
@@ -1399,6 +1434,11 @@ describe("user authorizations", () => {
 		await waitFor("group awaiting_authorization", async () => (await view()).state === "awaiting_authorization");
 
 		// Another user gets the same 404 as the group payload lookup; the owner's rejection ends the wait.
+		const waiting = (await (
+			await call(groupApp, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie })
+		).json()) as { phase: string; taskGroup: unknown };
+		expect(waiting).toMatchObject({ phase: "waiting" });
+		expect(waiting.taskGroup).not.toBeNull();
 		const stranger = await call(groupApp, `/api/task-groups/${groupId}/authorization/reject`, {
 			cookie: other.cookie,
 			body: { reason: "mine now" },
@@ -1446,6 +1486,84 @@ describe("user authorizations", () => {
 			body: {},
 		});
 		expect(again.status).toBe(409);
+		const ended = (await (
+			await call(groupApp, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie })
+		).json()) as { phase: string; taskGroup: unknown };
+		expect(ended).toMatchObject({ phase: "ended", taskGroup: null });
+	});
+
+	it("states a task group's wait phase: preparing while its members wait without a plan", async () => {
+		const groups = new TaskGroups(db, cluster, { audit });
+		// The route must drive the same TaskGroups that created the group, so its run ends the group.
+		const groupApp = makeApp(db, undefined, { cluster, audit, authorizationKey: signing, taskGroups: groups });
+		const a = await connect("group-phase-a", (id) => summaryOf(id, [ownerEntry()]));
+		const b = await connect("group-phase-b", (id) => summaryOf(id, [ownerEntry()]));
+		const groupId = await groups.create({
+			targets: [a.node.name, b.node.name],
+			nodeIds: [a.node.id, b.node.id],
+			spec: EXEC,
+			privileged: true,
+			actor: actor(),
+			parallel: 2,
+			outputMode: "status",
+		});
+		await waitFor("both tasks waiting", async () => {
+			const group = (await groups.get(groupId)) as TaskGroupView;
+			return group.tasks.length === 2 && group.tasks.every((task) => task.state === "awaiting_authorization");
+		});
+		const read = async () =>
+			(await (await call(groupApp, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie })).json()) as {
+				phase: string;
+				taskGroup: unknown;
+			};
+		expect(await read()).toMatchObject({ phase: "waiting" });
+
+		// The group and its members still wait for a signature, but no member has a plan written: preparing,
+		// the same condition as the reject gate (group or member awaiting_authorization).
+		await db.updateTable("tasks").set({ authorization: null }).where("task_group_id", "=", groupId).execute();
+		expect(await read()).toMatchObject({ phase: "preparing", taskGroup: null });
+
+		// A rejection ends every member that was waiting, so the group's wait is over, not preparing.
+		const rejected = await call(groupApp, `/api/task-groups/${groupId}/authorization/reject`, {
+			cookie: owner.cookie,
+			body: {},
+		});
+		expect(rejected.status).toBe(200);
+		await waitFor("group rejected", async () => ((await groups.get(groupId)) as TaskGroupView).state === "rejected");
+		expect(await read()).toMatchObject({ phase: "ended", taskGroup: null });
+	});
+
+	it("ends a task group's wait from its members when the group row still says awaiting", async () => {
+		const groups = new TaskGroups(db, cluster, { audit });
+		const groupApp = makeApp(db, undefined, { cluster, audit, authorizationKey: signing, taskGroups: groups });
+		const a = await connect("group-lag-a", (id) => summaryOf(id, [ownerEntry()]));
+		const b = await connect("group-lag-b", (id) => summaryOf(id, [ownerEntry()]));
+		const groupId = await groups.create({
+			targets: [a.node.name, b.node.name],
+			nodeIds: [a.node.id, b.node.id],
+			spec: EXEC,
+			privileged: true,
+			actor: actor(),
+			parallel: 2,
+			outputMode: "status",
+		});
+		const read = async () =>
+			(await (await call(groupApp, `/api/task-groups/${groupId}/authorization`, { cookie: owner.cookie })).json()) as {
+				phase: string;
+				taskGroup: unknown;
+			};
+		// The wait is real: every member holds its plan and the group's own row caught up to awaiting_authorization.
+		await waitFor("group waiting", async () => (await read()).phase === "waiting");
+		await waitFor("group awaiting_authorization", async () => {
+			return ((await groups.get(groupId)) as TaskGroupView).state === "awaiting_authorization";
+		});
+
+		// `syncGroupState` writes the group row after its members, so right after the last member settles the row
+		// still says awaiting_authorization. The members read with the phase decide: the wait is over, not preparing.
+		await db.updateTable("tasks").set({ state: "running" }).where("task_group_id", "=", groupId).execute();
+		const row = await db.selectFrom("task_groups").select("state").where("id", "=", groupId).executeTakeFirstOrThrow();
+		expect(row.state).toBe("awaiting_authorization");
+		expect(await read()).toMatchObject({ phase: "ended", taskGroup: null });
 	});
 
 	it("rejects a submission body that does not match the route's schema", async () => {

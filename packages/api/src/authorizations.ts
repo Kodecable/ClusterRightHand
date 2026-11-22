@@ -11,6 +11,7 @@ import type {
 	AuthorizationMethodSchema,
 	AuthorizationOptionSchema,
 	AuthorizationPathSchema,
+	AuthorizationPhaseSchema,
 	AuthorizationSummarySchema,
 	AwaitingNodeAuthorizationOptionSchema,
 	DecodedAuthorizationPayloadSchema,
@@ -34,6 +35,13 @@ import type {
 
 /** The two paths a crha rejection can rule out. */
 export type AuthorizationPath = z.infer<typeof AuthorizationPathSchema>;
+
+/**
+ * Where a task's or task group's signature wait is: `preparing` still waits with no planned options,
+ * `waiting` offers options to sign or reject, `ended` no longer waits (doc/design/privilege.md
+ * "Waiting for signatures").
+ */
+export type AuthorizationPhase = z.infer<typeof AuthorizationPhaseSchema>;
 
 /** One trust entry of a `sign` option. */
 export type PlannedPathEntry = z.infer<typeof PlannedPathEntrySchema>;

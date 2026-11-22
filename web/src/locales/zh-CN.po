@@ -3278,6 +3278,10 @@ msgstr "还没有扩展"
 msgid "No library exists for this account."
 msgstr "此账户没有资料库。"
 
+#: src/components/decision/signature-panel.tsx
+msgid "No longer waiting for a signature."
+msgstr "已不再等待签名。"
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "No matches"
 msgstr "没有匹配项"

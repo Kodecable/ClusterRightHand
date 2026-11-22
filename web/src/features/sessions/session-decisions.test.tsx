@@ -287,7 +287,7 @@ function mockSignatureApi(): void {
 			const waiting = /^\/api\/tasks\/([^/]+)\/authorization$/.exec(path);
 			const body =
 				waiting !== null
-					? { authorization: pendingSignature(waiting[1] ?? "") }
+					? { phase: "waiting", authorization: pendingSignature(waiting[1] ?? "") }
 					: path === "/api/authorizations"
 						? { authorization: { id: "auth-1" } }
 						: path === "/api/nodes"

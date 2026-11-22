@@ -18,7 +18,7 @@ export function SignatureWait({
 }: {
 	request: ApprovalRequest;
 	variant?: DecisionVariant;
-	/** Extra refresh after a successful signature or a rejection (the caller's own query). */
+	/** Extra refresh after a successful signature or a rejection, or when the server reports the wait ended. */
 	onChanged?: () => void;
 	details?: ReactNode;
 	count?: ReactNode;
@@ -29,12 +29,15 @@ export function SignatureWait({
 	const submit = useSubmitAuthorization();
 	const reject = useRejectAuthorization();
 
-	// A task whose plan is still being written has no options yet: the panel shows "Preparing…" and
-	// keeps Reject available. A parked task always has at least one option.
+	// The server states the phase with the options, so the panel never has to guess from a missing view:
+	// `preparing` still waits (Reject available), `waiting` offers the planned tabs, and `ended` means the
+	// wait is over (signed, rejected, cancelled, expired, or settled elsewhere) for the panel to report
+	// once before the caller's refresh unmounts it.
 	return (
 		<SignaturePanel
 			request={request}
 			variant={variant}
+			phase={pending.data?.phase}
 			pending={pending.data?.pending ?? undefined}
 			pendingError={pending.isError ? pending.error : undefined}
 			details={details}

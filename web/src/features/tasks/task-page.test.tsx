@@ -257,7 +257,7 @@ function mockTask(taskView: TaskView = TASK): void {
 			}
 			// The signed-in user owns the task, so its waiting decision is shown.
 			if (url.pathname === "/api/me") return json({ user: { id: "u1", username: "ada", kind: "admin" } });
-			if (url.pathname === "/api/tasks/t1/authorization") return json({ authorization: null });
+			if (url.pathname === "/api/tasks/t1/authorization") return json({ phase: "preparing", authorization: null });
 			if (url.pathname === "/api/nodes") return json({ nodes: [] });
 			if (url.pathname === "/api/node-groups") return json({ groups: [] });
 			if (url.pathname === "/api/api-tokens") return json({ tokens: [] });
@@ -479,9 +479,10 @@ describe("TaskPage and TaskGroupPage", () => {
 		await renderPage(<TaskPage />);
 
 		const decision = await screen.findByRole("region", { name: "Your signature is needed" });
-		// This row has no stored plan yet, so the panel shows "Preparing…" and keeps Reject available.
+		// This row has no stored plan yet, so the server says `preparing`: the panel shows "Preparing…" and,
+		// once that query has data, keeps Reject available.
 		expect(within(decision).getByText("Preparing the payload to sign…")).toBeInTheDocument();
-		expect(within(decision).getByRole("button", { name: "Reject" })).toBeInTheDocument();
+		expect(await within(decision).findByRole("button", { name: "Reject" })).toBeInTheDocument();
 	});
 
 	test("an exited task with an approval still shows the rule chain evaluation", async () => {

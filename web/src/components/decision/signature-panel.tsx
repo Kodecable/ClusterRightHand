@@ -1,5 +1,6 @@
 import type {
 	ApprovalRequest,
+	AuthorizationPhase,
 	LocalWindowAuthorizationOption,
 	NodeTrust,
 	PendingAuthorization,
@@ -163,13 +164,16 @@ function windowOptionsOf(pending: PendingAuthorization | undefined): LocalWindow
  * card layout as an approval, then the options the server planned — a trusted Passkey, `crhu sign`, the
  * `ssh-keygen` recipe, a local approval window — and always Reject. When the request's nodes accept a
  * reusable prefix, the Passkey and crhu tabs each have a 5-minute twin that signs an empty prefix of the
- * request's method on its nodes instead of this one payload. A task whose plan is still being
- * written shows "Preparing…". The full command and recipe stay on one truncated line; the copy buttons
- * copy every character.
+ * request's method on its nodes instead of this one payload. The phase comes from the server with the
+ * options: while the query has no data yet the panel shows "Preparing…" without Reject (nothing to reject
+ * yet), `preparing` shows it with Reject, `waiting` shows the planned tabs, and `ended` shows one neutral
+ * line and calls `onChanged` once so the page around it refreshes and unmounts the panel. The full command
+ * and recipe stay on one truncated line; the copy buttons copy every character.
  */
 export function SignaturePanel({
 	request,
 	variant = "inline",
+	phase,
 	pending,
 	pendingError,
 	onSubmit,
@@ -185,7 +189,9 @@ export function SignaturePanel({
 }: {
 	request: ApprovalRequest;
 	variant?: DecisionVariant;
-	/** Undefined while the server prepares the plan, or when the endpoint has no options yet. */
+	/** The server's wait phase; undefined while the query has no data yet. */
+	phase?: AuthorizationPhase;
+	/** Non-null exactly when `phase` is "waiting". */
 	pending?: PendingAuthorization;
 	/** The options could not be read (for example by a viewer who may not sign). */
 	pendingError?: unknown;
@@ -222,10 +228,26 @@ export function SignaturePanel({
 		}
 	}, [pending]);
 
+	// A wait that ended (signed, rejected, cancelled, expired, settled from another tab) means this panel
+	// should go away: ask the page around it to refresh once. A retryable rejection sends a task back to
+	// awaiting_authorization while the panel stays mounted, so leaving `ended` re-arms the notice for the
+	// next end. The ref keeps later polls and rerenders from firing again, and the page's refresh
+	// unmounts the panel.
+	const endedNotified = useRef(false);
+	useEffect(() => {
+		if (phase !== "ended") {
+			endedNotified.current = false;
+			return;
+		}
+		if (endedNotified.current) return;
+		endedNotified.current = true;
+		onChanged?.();
+	}, [phase, onChanged]);
+
 	const disabled = busy || working;
 	const passkeys = sign?.payload.passkeys ?? [];
 	const content = requestCardContent(request, { variant, i18n });
-	const ready = pending !== undefined && pending.options.length > 0;
+	const waiting = phase === "waiting" && pending !== undefined;
 	const scope = sign?.reusableScope ?? null;
 	// Reject is always the first tab; the panel opens on the one after it.
 	const tabs = [
@@ -320,12 +342,16 @@ export function SignaturePanel({
 				<ErrorText error={pendingError} />
 			) : (
 				<>
-					{!ready ? (
+					{phase === "ended" ? (
+						<p className="text-sm text-muted-foreground">
+							<Trans>No longer waiting for a signature.</Trans>
+						</p>
+					) : !waiting ? (
 						<div className="grid gap-3">
 							<p className="text-sm text-muted-foreground">
 								<Trans>Preparing the payload to sign…</Trans>
 							</p>
-							<RejectDecision busy={rejectBusy} onReject={onReject} />
+							{phase === "preparing" && <RejectDecision busy={rejectBusy} onReject={onReject} />}
 						</div>
 					) : (
 						<DecisionTabs value={activeTab} onValueChange={setTab}>

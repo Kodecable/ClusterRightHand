@@ -1,11 +1,17 @@
-import type { ApprovalRequest, PendingAuthorization, PendingPasskey, PendingSignOption } from "@crh/api";
+import type {
+	ApprovalRequest,
+	AuthorizationPhase,
+	PendingAuthorization,
+	PendingPasskey,
+	PendingSignOption,
+} from "@crh/api";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { grantCommand, reusableGrantCommand, sshKeygenRecipe } from "@/lib/authorization";
 import { copyText } from "@/lib/clipboard";
-import { renderWithRouter } from "@/test/render";
+import { renderWithI18n, renderWithRouter } from "@/test/render";
 import { SignaturePanel, type SubmitSignature } from "./signature-panel";
 
 vi.mock("@simplewebauthn/browser", () => ({
@@ -91,15 +97,23 @@ function Synced({ first, second }: { first: PendingAuthorization; second: Pendin
 			<button type="button" onClick={() => setCurrent(second)}>
 				sync
 			</button>
-			<SignaturePanel request={request()} pending={current} onSubmit={async () => {}} onReject={() => {}} />
+			<SignaturePanel
+				request={request()}
+				phase="waiting"
+				pending={current}
+				onSubmit={async () => {}}
+				onReject={() => {}}
+			/>
 		</>
 	);
 }
 
 function renderPanel(overrides: {
+	phase?: AuthorizationPhase;
 	pending?: PendingAuthorization;
 	request?: ApprovalRequest;
 	onSubmit?: (input: SubmitSignature) => Promise<unknown>;
+	onChanged?: () => void;
 	onReject?: (reason: string) => void;
 	variant?: "inline" | "page";
 }) {
@@ -107,8 +121,10 @@ function renderPanel(overrides: {
 		<SignaturePanel
 			request={overrides.request ?? request()}
 			variant={overrides.variant}
+			phase={overrides.phase ?? "waiting"}
 			pending={overrides.pending ?? pending()}
 			onSubmit={overrides.onSubmit ?? (async () => {})}
+			onChanged={overrides.onChanged}
 			onReject={overrides.onReject ?? (() => {})}
 		/>,
 	);
@@ -231,6 +247,87 @@ describe("SignaturePanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Submit authorization" }));
 		await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ authorization: "signed-payload" }));
 		expect(await screen.findByRole("status")).toHaveTextContent("Authorization submitted.");
+	});
+
+	test("a preparing wait shows Preparing with Reject and no tabs", async () => {
+		const onReject = vi.fn<(reason: string) => void>();
+		await renderWithRouter(
+			<SignaturePanel request={request()} phase="preparing" onSubmit={async () => {}} onReject={onReject} />,
+		);
+		expect(screen.getByText("Preparing the payload to sign…")).toBeInTheDocument();
+		expect(screen.getByTestId("decision-reject")).toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("Reason (optional)"), { target: { value: "  not signing  " } });
+		fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+		expect(onReject).toHaveBeenCalledWith("not signing");
+		expect(screen.queryAllByRole("tab")).toHaveLength(0);
+	});
+
+	test("an ended wait shows one neutral line, no controls, and refreshes the page once", async () => {
+		const onChanged = vi.fn<() => void>();
+		const ended = (phase: AuthorizationPhase) => (
+			<SignaturePanel
+				request={request()}
+				phase={phase}
+				onSubmit={async () => {}}
+				onChanged={onChanged}
+				onReject={() => {}}
+			/>
+		);
+		const view = renderWithI18n(ended("preparing"));
+		expect(screen.getByText("Preparing the payload to sign…")).toBeInTheDocument();
+		expect(onChanged).not.toHaveBeenCalled();
+
+		// The server's next poll says the wait is over (signed, rejected, cancelled, expired, another tab).
+		view.rerender(ended("ended"));
+		await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+		expect(screen.getByText("No longer waiting for a signature.")).toBeInTheDocument();
+		expect(screen.queryByText("Preparing the payload to sign…")).not.toBeInTheDocument();
+		expect(screen.queryByTestId("decision-reject")).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+		expect(screen.queryByLabelText("Reason (optional)")).not.toBeInTheDocument();
+		expect(screen.queryAllByRole("tab")).toHaveLength(0);
+
+		// Rerenders and later polls reporting the same ended phase must not ask the page to refresh again.
+		view.rerender(ended("ended"));
+		view.rerender(ended("ended"));
+		expect(onChanged).toHaveBeenCalledTimes(1);
+	});
+
+	test("a wait that ends again after a retry notifies the page again", async () => {
+		const onChanged = vi.fn<() => void>();
+		const panel = (phase: AuthorizationPhase) => (
+			<SignaturePanel
+				request={request()}
+				phase={phase}
+				pending={phase === "waiting" ? pending() : undefined}
+				onSubmit={async () => {}}
+				onChanged={onChanged}
+				onReject={() => {}}
+			/>
+		);
+		const view = renderWithI18n(panel("ended"));
+		await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+
+		// A retryable crha rejection sends the task back to awaiting_authorization with the panel still mounted.
+		view.rerender(panel("waiting"));
+		expect(screen.getByRole("tab", { name: "Reject" })).toBeInTheDocument();
+
+		// Ending a second time must refresh the page again, or the panel would sit on the neutral line.
+		view.rerender(panel("ended"));
+		await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(2));
+		expect(screen.getByText("No longer waiting for a signature.")).toBeInTheDocument();
+
+		// Later polls reporting the same ended phase still notify once.
+		view.rerender(panel("ended"));
+		expect(onChanged).toHaveBeenCalledTimes(2);
+	});
+
+	test("a waiting wait shows the planned tabs", async () => {
+		await renderPanel({});
+		expect(screen.getByRole("tab", { name: "Reject" })).toBeInTheDocument();
+		expect(screen.getByRole("tab", { name: "crhu" })).toBeInTheDocument();
+		expect(screen.queryByText("Preparing the payload to sign…")).not.toBeInTheDocument();
+		expect(screen.queryByText("No longer waiting for a signature.")).not.toBeInTheDocument();
 	});
 
 	test("no Local tab is offered when the plan has only a sign option", async () => {
@@ -392,9 +489,11 @@ describe("SignaturePanel", () => {
 		expect(onReject).toHaveBeenCalledWith("not signing");
 	});
 
-	test("without a plan yet the preparing message is shown but Reject is still available", async () => {
+	test("before the query has data it shows Preparing without Reject", async () => {
 		await renderWithRouter(<SignaturePanel request={request()} onSubmit={async () => {}} onReject={() => {}} />);
 		expect(screen.getByText("Preparing the payload to sign…")).toBeInTheDocument();
-		expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+		expect(screen.queryByTestId("decision-reject")).not.toBeInTheDocument();
+		expect(screen.queryAllByRole("tab")).toHaveLength(0);
 	});
 });

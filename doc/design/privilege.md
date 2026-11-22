@@ -451,9 +451,14 @@ offered a `local_window`: its members can only be released by a signature.
 The owner sees every option on the approvals page, the task page or the session's tool card: a
 `sign` option is the signature panel (a Passkey, `crhu sign` or the `ssh-keygen` recipe, and the
 5-minute reusable twins of the first two when the nodes accept one), a
-`local_window` option is the command block, and Reject is always available. A task whose options are
-not written yet shows "Preparing…" in the WebUI and gets no chat card until they are; a planned task
-always has at least one option.
+`local_window` option is the command block, and Reject is offered until the wait ends. The owner's endpoints
+(`GET /api/tasks/{id}/authorization` and `GET /api/task-groups/{id}/authorization`) state the wait's
+`phase` beside the options: `preparing` still waits but no options are planned yet, `waiting` has
+options (and only then is the `authorization`/`taskGroup` view non-null), and `ended` no longer waits —
+signed, rejected, cancelled, expired or settled from another tab alike. A task in `preparing` shows
+"Preparing…" plus Reject in the WebUI and gets no chat card until options are written; a task in
+`waiting` has at least one option. A wait that became `ended` shows one neutral line, and the panel
+asks the page around it to refresh once so it can go away.
 The owner signs from the approvals page, the task page or the session's tool card, and may reject the
 wait from the same places or from the chat (`/reject` or the card's Reject button). A task group's
 signature wait counts once; a partly dispatched group still shows it while any member is in

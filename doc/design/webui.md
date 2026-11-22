@@ -162,8 +162,10 @@ behaves the same on every page:
   Three panels share it: **ApprovalPanel** (**Reject / Approve / Always allow**), **SignaturePanel**
   (**Reject / Passkey / Passkey 5min / crhu / crhu 5min / OpenSSH / Local**, rendered from the options
   the server planned: the Passkey tab only when a `sign` option exists with a trusted Passkey, the crhu
-  and OpenSSH tabs for every `sign` option, the Local tab only for a `local_window` option, and
-  "Preparing…" plus Reject while no plan is written) and **QuotaPanel** (**Stop / Add tokens**). The
+  and OpenSSH tabs for every `sign` option, the Local tab only for a `local_window` option, and the
+  server's `phase` from the same authorization query: "Preparing…" without Reject until that query has
+  data, "Preparing…" plus Reject while `preparing`, the planned tabs while `waiting`, and one neutral
+  line when `ended`, which refreshes the page once) and **QuotaPanel** (**Stop / Add tokens**). The
   refusal is always the first tab, so it never moves with the options offered, and a panel opens on
   the tab after it; when the selected tab disappears in a sync, the signature panel falls back to that
   second tab, never to Reject. The

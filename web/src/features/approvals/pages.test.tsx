@@ -276,11 +276,14 @@ function mockApi(overrides: Partial<MockState> = {}): MockState {
 			if (state.task !== undefined && path === `/api/tasks/${state.task.id}`)
 				return json({ task: state.task, request: taskRequest(state.task) });
 			if (state.task !== undefined && path === `/api/tasks/${state.task.id}/authorization`)
-				return json({ authorization: state.pending ?? null });
+				return json({ phase: state.pending == null ? "preparing" : "waiting", authorization: state.pending ?? null });
 			if (state.taskGroup !== undefined && path === `/api/task-groups/${state.taskGroup.id}`)
 				return json({ taskGroup: state.taskGroup, request: groupRequest(state.taskGroup) });
 			if (state.taskGroup !== undefined && path === `/api/task-groups/${state.taskGroup.id}/authorization`)
-				return json({ taskGroup: { authorization: state.pending ?? null, tasks: [] } });
+				return json({
+					phase: state.pending == null ? "preparing" : "waiting",
+					taskGroup: state.pending == null ? null : { authorization: state.pending, tasks: [] },
+				});
 			const externalCall = path.match(/^\/api\/external-calls\/([^/]+)$/);
 			if (externalCall !== null) {
 				const id = decodeURIComponent(externalCall[1] ?? "");

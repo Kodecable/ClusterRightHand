@@ -3278,6 +3278,10 @@ msgstr "No extensions yet"
 msgid "No library exists for this account."
 msgstr "No library exists for this account."
 
+#: src/components/decision/signature-panel.tsx
+msgid "No longer waiting for a signature."
+msgstr "No longer waiting for a signature."
+
 #: src/components/entity-picker/entity-picker.tsx
 msgid "No matches"
 msgstr "No matches"

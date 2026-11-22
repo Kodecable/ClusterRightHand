@@ -104,7 +104,7 @@ const taskAuthorizationRoute = defineRoute({
 	request: { params: IdParamSchema },
 	responses: {
 		200: {
-			description: "The options, or null when no plan is written yet",
+			description: "The wait's phase; its options are non-null exactly when `waiting`",
 			...json(TaskAuthorizationResponseSchema),
 		},
 		403: { description: "Only the task's owner can authorize it", ...json(ErrorResponseSchema) },
@@ -134,7 +134,7 @@ const groupAuthorizationRoute = defineRoute({
 	request: { params: IdParamSchema },
 	responses: {
 		200: {
-			description: "The options, or null when no plan is written yet",
+			description: "The wait's phase; its options are non-null exactly when `waiting`",
 			...json(TaskGroupAuthorizationResponseSchema),
 		},
 		403: { description: "Only the task group's owner can authorize it", ...json(ErrorResponseSchema) },
@@ -282,7 +282,8 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		const { id } = c.req.valid("param");
 		const found = await authorizationTask(db, c.get("user"), id);
 		if (!found.owner) throw new HTTPException(403, { message: "only the task's owner can authorize it" });
-		return c.json({ authorization: await pendingForTask(db, found.row) }, 200);
+		const pending = await pendingForTask(db, found.row);
+		return c.json({ phase: pending.phase, authorization: pending.view }, 200);
 	});
 
 	/**
@@ -313,7 +314,8 @@ export function authorizationRoutes(db: Db, options: AuthorizationRoutesOptions 
 		const { id } = c.req.valid("param");
 		const found = await authorizationTaskGroup(db, user, id);
 		if (!found.owner) throw new HTTPException(403, { message: "only the task group's owner can authorize it" });
-		return c.json({ taskGroup: await pendingForTaskGroup(db, found.row.id, user.userId) }, 200);
+		const pending = await pendingForTaskGroup(db, found.row.id, user.userId, found.row.state);
+		return c.json({ phase: pending.phase, taskGroup: pending.view }, 200);
 	});
 
 	/**

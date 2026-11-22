@@ -297,10 +297,29 @@ export const AuthorizationSubmittedResponseSchema = z
 	.object({ authorization: z.object({ id: z.string() }) })
 	.meta({ id: "AuthorizationSubmittedResponse" });
 
+/**
+ * Where a task's or task group's signature wait is, from the same read that builds its options:
+ * `preparing` still waits for a signature but no options are planned yet, `waiting` offers options to
+ * sign or reject, and `ended` no longer waits, for any reason (signed, rejected, cancelled, expired,
+ * or settled from another tab).
+ */
+export const AuthorizationPhaseSchema = z
+	.enum(["preparing", "waiting", "ended"])
+	.describe(
+		"`preparing`: still waiting for a signature but no options are planned yet (Reject is meaningful); `waiting`: options exist, so the owner can sign or reject; `ended`: not waiting for a signature any more, for whatever reason.",
+	)
+	.meta({ id: "AuthorizationPhase" });
+
 export const TaskAuthorizationResponseSchema = z.object({
-	authorization: PendingAuthorizationSchema.nullable().describe("Null when no plan is written yet."),
+	phase: AuthorizationPhaseSchema,
+	authorization: PendingAuthorizationSchema.nullable().describe(
+		"The options when phase is `waiting`; null when `preparing` or `ended`.",
+	),
 });
 
 export const TaskGroupAuthorizationResponseSchema = z.object({
-	taskGroup: TaskGroupPendingSchema.nullable().describe("Null when no plan is written yet."),
+	phase: AuthorizationPhaseSchema,
+	taskGroup: TaskGroupPendingSchema.nullable().describe(
+		"The options and waiting members when phase is `waiting`; null when `preparing` or `ended`.",
+	),
 });

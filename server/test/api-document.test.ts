@@ -74,6 +74,8 @@ describe("API document", () => {
 		expect(doc.components?.schemas?.JobView).toBeDefined();
 		expect(doc.paths?.["/api/authorizations"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/tasks/{id}/authorization"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		// The authorization responses share one named phase enum, so the document describes it once.
+		expect(doc.components?.schemas?.AuthorizationPhase).toBeDefined();
 		// The auth flow and user management are closed to agents.
 		expect(doc.paths?.["/api/auth/login"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/auth/login-options"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
