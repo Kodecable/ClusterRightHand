@@ -231,6 +231,10 @@ random keys. The rows are the source of truth, and objects without a row are swe
 ([Metadata and objects](library.md#metadata-and-objects)). A user group with a non-empty library cannot
 be deleted ([Libraries](library.md#libraries)).
 
+`library_skills` holds one row per `skills/<name>/SKILL.md`, with its name and description or why it is
+not a skill. Every library write updates it in the same transaction as the file row, and it is deleted
+with its library ([Skills](library.md#skills)).
+
 ## Scheduled tasks
 
 A schedule holds its owner, message, model, budget, timetable, next run time and an optional report target:

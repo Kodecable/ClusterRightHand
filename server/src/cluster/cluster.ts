@@ -22,6 +22,7 @@ import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { SubmittedAuthorization } from "../privilege/submission.ts";
 import type { Db } from "../storage/db.ts";
+import type { ReadAnchors } from "../util/read-anchors.ts";
 import type { ApprovalReview } from "./approval.ts";
 import * as authorizations from "./authorization-flow.ts";
 import type { NodeConnection } from "./connection.ts";
@@ -260,6 +261,11 @@ export class Cluster {
 	 */
 	createTask(input: CreateTaskInput): Promise<TaskView> {
 		return tasks.createTask(this.#core, input);
+	}
+
+	/** Where earlier read pages ended (doc/design/agent-runtime.md "Read anchors"). */
+	get readAnchors(): ReadAnchors {
+		return this.#core.readAnchors;
 	}
 
 	/** The library object store; absent when this crhs has no library backend. */

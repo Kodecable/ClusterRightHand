@@ -41,8 +41,10 @@ import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import { UserError } from "../util/errors.ts";
 import { derivedId, newId } from "../util/id.ts";
+import { copyDirectory } from "./directory-copy.ts";
 import { convertExternalResult } from "./external-results.ts";
 import { listToolLibrary, statToolLibrary, toolLibrary } from "./library-access.ts";
+import { readLibraryFile } from "./library-read.ts";
 import { nodeInfoFields, readNotes, readNotesBatch } from "./node-info.ts";
 import { errorResult, jsonResult, type ToolOutput, type ToolResult, textResult } from "./render.ts";
 import {
@@ -130,6 +132,8 @@ export interface ToolContext {
 	closing?: () => boolean;
 	/** How many files this turn has already offered through `copy_file` (at most 5). */
 	deliveryCount?: () => Promise<number>;
+	/** The limits of one directory copy (doc/design/library.md "Directory copies"); the defaults without it. */
+	directoryCopyLimits?: { files: number; bytes: number };
 }
 
 /** How large an image `view_image` accepts. */
@@ -370,15 +374,22 @@ const exec = define({
 const readFile = define({
 	name: "read_file",
 	description:
-		"Read a file on a node, or the same file on several nodes with targets. Lines are 1-based: read " +
+		"Read a file on a node, or the same file on several nodes with targets, or a library file with `library` " +
+		"instead of targets. Lines are 1-based: read " +
 		`${READ_PAGE_LINES} lines from \`offset\` (default 1), whole lines only, at most 50 KB per call. The page is ` +
 		"returned exactly as it is in the file; its bracketed note gives the line range, and only a page that reached " +
 		"the end of the file reports the total. Use offset to continue. In a batch, limit (default 128) is each node's " +
 		"line budget and max_bytes its byte budget; each node keeps its own page and offset. The call blocks until " +
 		"the task ends, approval included, and returns no task id.",
 	input: z.object({
-		targets: targetsField,
-		path: z.string().describe("Absolute path"),
+		targets: libraryTargetsField,
+		library: z
+			.string()
+			.optional()
+			.describe("A library to read from instead of nodes: user:<username> or user_group:<user group name>"),
+		path: z
+			.string()
+			.describe("A node's absolute path, or a library path relative to the library root (a leading / is optional)"),
 		offset: z.number().int().min(1).optional().describe("Line to start at (1-based; default 1)"),
 		limit: z
 			.number()
@@ -401,6 +412,17 @@ const readFile = define({
 	output: "text",
 	handler: async (args, ctx) => {
 		const startLine = args.offset ?? 1;
+		if (args.library !== undefined) {
+			if (args.targets !== undefined) throw new UserError("give targets or library, not both", "invalid_argument");
+			return readLibraryFile(ctx, {
+				library: args.library,
+				path: args.path,
+				startLine,
+				lineCount: args.limit ?? READ_PAGE_LINES,
+				...(args.max_bytes === undefined ? {} : { maxBytes: args.max_bytes }),
+			});
+		}
+		if (args.targets === undefined) throw new UserError("give targets or library", "invalid_argument");
 		const spec: TaskSpec = { kind: "file.read", path: args.path, startLine, lineCount: args.limit ?? READ_PAGE_LINES };
 		return runTaskTool(
 			ctx,
@@ -726,7 +748,8 @@ const destinationLocation = z
 const copyFile = define({
 	name: "copy_file",
 	description:
-		"Copy one file. The source is { node, path } or { library, path }. The destination is a node " +
+		"Copy one file, or with recursive: true one directory into a library. The source is { node, path } or " +
+		"{ library, path }. The destination is a node " +
 		"{ targets, path } (one or more nodes, with create_parent_dirs, mode, owner, group and privileged), a " +
 		"library { library, path }, or { user_interface: true }. Node destinations create missing parent " +
 		"directories only with create_parent_dirs: true; a library has no directories, so any library path " +
@@ -737,11 +760,21 @@ const copyFile = define({
 		"offer the library copy. At most 5 files can be offered in one turn, and the sixth is refused. An " +
 		"existing destination is refused unless overwrite is true; overwrite " +
 		"applies to node and library destinations and has no effect with user_interface. A library path reaches " +
-		"the libraries of the user you act for. The call blocks until every destination task ends, approval included.",
+		"the libraries of the user you act for. The call blocks until every destination task ends, approval included. " +
+		"recursive: true copies a whole directory, only into a library (from a node or a library), for example to " +
+		"install a skill under skills/<name>. It copies file by file and is not atomic: a failure stops it, leaves the " +
+		"files already copied and lists them, and copying again with overwrite replaces the directory. Symbolic links " +
+		"and other non-regular files are skipped, and overwrite replaces the whole destination directory; a refused " +
+		"copy changes nothing. A directory to nodes or to the user, or " +
+		"one past the size limits, is refused; pack it into one archive (tar on a node) and copy that file instead.",
 	input: z.object({
 		source: sourceLocation,
 		destination: destinationLocation,
 		overwrite: z.boolean().optional(),
+		recursive: z
+			.boolean()
+			.optional()
+			.describe("Copy the directory at source.path into a library destination (default false)"),
 		parallel: z.number().int().min(1).max(100).optional().describe("Nodes copied at once (default 10)"),
 	}),
 	readOnly: false,
@@ -752,6 +785,7 @@ const copyFile = define({
 		const actor = ctx.actor;
 		const chain = ctx.chain;
 
+		if (args.recursive === true) return copyDirectory(ctx, source, destination, overwrite);
 		if ("user_interface" in destination) return offerToUser(source, ctx);
 
 		// The node destination is the only one with node-only options and several targets.

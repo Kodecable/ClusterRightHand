@@ -10,11 +10,13 @@ import type { z } from "zod";
 import type {
 	SystemSettingsAttachmentsSchema,
 	SystemSettingsAuthSchema,
+	SystemSettingsDirectoryCopySchema,
 	SystemSettingsImageCacheSchema,
 	SystemSettingsPatchSchema,
 	SystemSettingsResponseSchema,
 	SystemSettingsRetentionSchema,
 	SystemSettingsSchema,
+	SystemSettingsSkillsSchema,
 	SystemSettingsWebauthnSchema,
 } from "./schemas/settings.ts";
 
@@ -32,6 +34,12 @@ export type SystemSettingsAttachments = z.infer<typeof SystemSettingsAttachments
 
 /** The image cache and its time to live (doc/design/library.md "Image cache"). */
 export type SystemSettingsImageCache = z.infer<typeof SystemSettingsImageCacheSchema>;
+
+/** The limits of one directory copy into a library (doc/design/library.md "Directory copies"). */
+export type SystemSettingsDirectoryCopy = z.infer<typeof SystemSettingsDirectoryCopySchema>;
+
+/** How many skills a session's system prompt lists (doc/design/library.md "Skills"). */
+export type SystemSettingsSkills = z.infer<typeof SystemSettingsSkillsSchema>;
 
 /** The settings administrators edit in System settings. */
 export type SystemSettings = z.infer<typeof SystemSettingsSchema>;

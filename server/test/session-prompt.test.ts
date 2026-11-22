@@ -106,7 +106,7 @@ const BUILTIN_GUIDE =
 	"\n- crhs-api: The crhs API as the session owner, through the same routes and rules as the WebUI (1 tool)" +
 	"\n- crhs-docs: The documentation and the API reference of this crhs version (2 tools)";
 
-it("appends the tool guide to the default prompt and to a custom prompt, exactly once", async () => {
+it("appends the tool guide to the default prompt and to a custom prompt once, and keeps a session's prompt", async () => {
 	const session = await runtime.createSession(alice, { title: "prompt", model: model(), rulePreset: "ask" });
 	const captured: TranscriptContext[] = [];
 
@@ -119,22 +119,19 @@ it("appends the tool guide to the default prompt and to a custom prompt, exactly
 	expect(first.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
 	expect(first.split("Start with list_nodes").length - 1).toBe(1);
 
-	// A custom prompt replaces the default prompt but keeps the guide; it applies from the next request.
+	// The prompt is the session's: a preset change keeps it, so the provider's cache keeps the prefix.
 	await runtime.modelPresets.update("session", { systemPrompt: "CUSTOM SESSION PROMPT" });
 	await submitAndCapture(session.id, "again", captured);
-	const second = systemPromptOf(captured[1] as TranscriptContext);
+	expect(systemPromptOf(captured[1] as TranscriptContext)).toBe(first);
+
+	// A custom prompt replaces the default prompt in a new session but keeps the guide.
+	const custom = await runtime.createSession(alice, { title: "custom", model: model(), rulePreset: "ask" });
+	await submitAndCapture(custom.id, "hello", captured);
+	const second = systemPromptOf(captured[2] as TranscriptContext);
 	expect(second).toBe(`${sessionSystemPrompt("CUSTOM SESSION PROMPT")}\n\n${ALICE_NOTE}${BUILTIN_GUIDE}`);
-	expect(second).toContain("CUSTOM SESSION PROMPT");
 	expect(second).not.toContain(DEFAULT_SESSION_PROMPT);
 	expect(second.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
-
-	// Clearing it restores the default prompt on the request after that.
 	await runtime.modelPresets.update("session", { systemPrompt: null });
-	await submitAndCapture(session.id, "once more", captured);
-	const third = systemPromptOf(captured[2] as TranscriptContext);
-	expect(third).toBe(`${sessionSystemPrompt(null)}\n\n${ALICE_NOTE}${BUILTIN_GUIDE}`);
-	expect(third).not.toContain("CUSTOM SESSION PROMPT");
-	expect(third.split(SESSION_TOOL_GUIDE)).toHaveLength(2);
 });
 
 it("names the user's display name and user groups as quoted data", async () => {

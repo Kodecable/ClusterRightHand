@@ -90,6 +90,7 @@ const TABLES = [
 	"image_cache",
 	"libraries",
 	"library_files",
+	"library_skills",
 	"model_presets",
 	"model_providers",
 	"node_access_grants",
@@ -315,7 +316,7 @@ describeBackends("initial migration", (backend) => {
 		// The migrator introspects every schema, so a parallel test dropping its schema must not run now.
 		await withDdlLockOn(backend, () => migrateToLatest(db, schema ? { schema } : {}));
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
-		expect(rows.rows).toEqual([{ name: "0001_initial" }]);
+		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_skills_session_prompt" }]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
 });

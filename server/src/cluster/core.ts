@@ -17,6 +17,7 @@ import type { Db } from "../storage/db.ts";
 import type { TasksTable } from "../storage/schema.ts";
 import { KeyedQueue } from "../util/keyed-queue.ts";
 import { KeyedReconciler } from "../util/keyed-reconciler.ts";
+import { ReadAnchors } from "../util/read-anchors.ts";
 import type { GroupBudget } from "./batch-output.ts";
 import type { DataTransfer } from "./data-transfer.ts";
 import type { NodeLink } from "./links.ts";
@@ -89,6 +90,8 @@ export class ClusterCore {
 	readonly sshRouteGenerations = new Map<string, number>();
 	/** The abort of each running SSH task, so a cancel can stop it. */
 	readonly sshCancels = new Map<string, AbortController>();
+	/** Where earlier read pages ended, for SSH nodes and libraries (doc/design/agent-runtime.md "Read anchors"). */
+	readonly readAnchors = new ReadAnchors();
 	/** A task between dispatch and its recorded end: output accumulates here, not in the database. */
 	readonly live = new Map<string, Live>();
 	/** One output budget per running `text` group, created lazily (doc/design/execution.md "Output"). */

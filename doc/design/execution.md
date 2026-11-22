@@ -383,7 +383,8 @@ is the last task that reached it.
 
 File operations over SFTP behave like crha's, with these differences: owners and groups cannot be set by
 name, a create-only write checks and then renames rather than being atomic, nothing is fsynced, and
-modification times have one-second precision. Reading a deep page rescans the earlier lines. Reads and
+modification times have one-second precision. Reading a deep page starts at an earlier page's anchor
+when one is still valid, and rescans the earlier lines otherwise ([Read anchors](agent-runtime.md#read-anchors)). Reads and
 edits require a regular file, as crha's do; a device or a FIFO fails with `not_regular_file`.
 
 ## Reload and upgrade

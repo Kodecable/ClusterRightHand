@@ -183,3 +183,107 @@ export function ImageCacheSection({ settings }: { settings: SystemSettings }) {
 		</SettingsSection>
 	);
 }
+
+/**
+ * The limits of one directory copy into a library and the most skills a system prompt lists
+ * (doc/design/library.md "Directory copies" and "Skills").
+ */
+export function DirectoryCopySkillsSection({ settings }: { settings: SystemSettings }) {
+	const { t } = useLingui();
+	const save = useSaveSystemSettings();
+	const [error, setError] = useState<unknown>();
+	const schema = useMemo(() => {
+		const sizeMessage = t`Enter a size such as 32M or 1048576.`;
+		const countMessage = t`Enter a whole number, 0 or more.`;
+		const count = z.number(countMessage).int(countMessage).min(0, countMessage);
+		return z.object({
+			files: count,
+			bytes: z.number(sizeMessage).int(sizeMessage).min(0, sizeMessage),
+			maxPerUser: count,
+		});
+	}, [t]);
+	type Values = z.infer<typeof schema>;
+	const form = useForm<Values>({
+		resolver: zodResolver(schema),
+		defaultValues: {
+			files: settings.directoryCopy.files,
+			bytes: settings.directoryCopy.bytes,
+			maxPerUser: settings.skills.maxPerUser,
+		},
+	});
+
+	const submit = form.handleSubmit(async (values) => {
+		setError(undefined);
+		try {
+			const next = await save.mutateAsync({
+				directoryCopy: { files: values.files, bytes: values.bytes },
+				skills: { maxPerUser: values.maxPerUser },
+			});
+			form.reset({ ...next.directoryCopy, maxPerUser: next.skills.maxPerUser });
+		} catch (failure) {
+			setError(
+				applyServerFieldErrors<Values>(failure, form.setError, {
+					"directoryCopy.files": "files",
+					"directoryCopy.bytes": "bytes",
+					"skills.maxPerUser": "maxPerUser",
+				}),
+			);
+		}
+	});
+
+	return (
+		<SettingsSection
+			title={<Trans>Directory copies and skills</Trans>}
+			description={
+				<Trans>
+					An agent can copy a directory into a library, for example to install a skill; a larger directory must be
+					packed into one archive first. A session's system prompt lists the skills under skills/ in the owner's
+					library; past the limit it lists none and the model browses them itself.
+				</Trans>
+			}
+			onSubmit={submit}
+			busy={save.isPending}
+			dirty={form.formState.isDirty}
+			error={error}
+			testId="directory-copy-section"
+		>
+			<FieldShell
+				id="directory-copy-files"
+				label={t`Most files in one directory copy`}
+				error={form.formState.errors.files?.message}
+			>
+				<Input id="directory-copy-files" type="number" min={0} {...form.register("files", { valueAsNumber: true })} />
+			</FieldShell>
+			<FieldShell
+				id="directory-copy-bytes"
+				label={t`Most bytes in one directory copy`}
+				error={form.formState.errors.bytes?.message}
+			>
+				<Controller
+					control={form.control}
+					name="bytes"
+					render={({ field }) => (
+						<ByteSizeInput
+							id="directory-copy-bytes"
+							value={field.value}
+							onChange={field.onChange}
+							onBlur={field.onBlur}
+						/>
+					)}
+				/>
+			</FieldShell>
+			<FieldShell
+				id="skills-max-per-user"
+				label={t`Most skills listed per user`}
+				error={form.formState.errors.maxPerUser?.message}
+			>
+				<Input
+					id="skills-max-per-user"
+					type="number"
+					min={0}
+					{...form.register("maxPerUser", { valueAsNumber: true })}
+				/>
+			</FieldShell>
+		</SettingsSection>
+	);
+}

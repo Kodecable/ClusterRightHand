@@ -6,6 +6,7 @@ import { type TaskSpec, taskResultToJson } from "@crh/protocol";
 import type { Updateable } from "kysely";
 import { openTransferLocation } from "../library/transfer-location.ts";
 import type { TasksTable } from "../storage/schema.ts";
+import type { ReadAnchors } from "../util/read-anchors.ts";
 import type { ClusterCore } from "./core.ts";
 import { parseTransferRecord } from "./data-transfer.ts";
 import { dropLive, type Live } from "./live-output.ts";
@@ -249,7 +250,7 @@ export async function runSsh(
 				break;
 			}
 			try {
-				fields = await sshTask(link, spec, input, timeoutMs, ac.signal, sink, sftpTransfer);
+				fields = await sshTask(link, spec, input, timeoutMs, ac.signal, sink, sftpTransfer, core.readAnchors, node.id);
 				break;
 			} catch (err) {
 				if (isStarted || attempt > 0 || !(err instanceof SshError) || ac.signal.aborted) throw err;
@@ -286,6 +287,8 @@ async function sshTask(
 	signal: AbortSignal,
 	sink: SshExecSink,
 	transfer: SftpTransfer | undefined,
+	anchors: ReadAnchors,
+	nodeId: string,
 ): Promise<Updateable<TasksTable>> {
 	const session = link.session;
 	if (spec.kind === "exec") {
@@ -302,7 +305,7 @@ async function sshTask(
 	const sftp = await session.sftp();
 	sink.started();
 	try {
-		const result = await runSftpFileTask(sftp, spec, input, sink.stdout, signal, transfer);
+		const result = await runSftpFileTask(sftp, spec, input, sink.stdout, signal, transfer, anchors, nodeId);
 		return { state: "exited", exit_code: 0, result: result === null ? null : JSON.stringify(taskResultToJson(result)) };
 	} catch (err) {
 		if (!(err instanceof FileTaskError) || session.closed) throw new SshConnectionLost("connection lost");

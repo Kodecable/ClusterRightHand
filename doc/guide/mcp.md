@@ -66,12 +66,12 @@ Clients that support only stdio need a third-party bridge.
 | `list_nodes` | The nodes you can access, with their status and privilege mode |
 | `node_info` | Facts and notes of one or more nodes |
 | `exec` | Run a command |
-| `read_file` | Read a page of lines from a file |
+| `read_file` | Read a page of lines from a file on a node, or of a library |
 | `write_file` | Create or overwrite a file |
 | `edit_file` | Replace text in a file |
 | `list_dir` | List a directory on a node, or of a library |
 | `stat` | File attributes on a node, or of a library |
-| `copy_file` | Copy one file between nodes and libraries, or offer it to the people in the session |
+| `copy_file` | Copy one file between nodes and libraries, or a directory into a library, or offer a file to the people in the session |
 | `view_image` | Look at one image, from a node or a library |
 | `task_wait` | Keep waiting for an `exec` task or task group |
 | `task_cancel` | Cancel an `exec` task or task group |
@@ -88,7 +88,7 @@ once; `parallel` and `fail_fast` control the batch. A batch is limited to 512 no
 
 ### Libraries and images
 
-`list_dir` and `stat` accept `library` (`user:<username>` or `user_group:<user group name>`) instead of
+`read_file`, `list_dir` and `stat` accept `library` (`user:<username>` or `user_group:<user group name>`) instead of
 `targets`; omit `targets` then. Library paths are relative to the library root; a leading `/` is optional
 and normalized away, including `/` for the root in `list_dir`. `copy_file` copies one file: the
 source is `{ node, path }` or `{ library, path }`. The destination is a node
@@ -101,6 +101,15 @@ library path works. A library destination is limited by that library's limits. W
 the people in the session for download, so you learn whether it exists. The download reads the file
 only when someone clicks it, possibly much later, so do not offer a temporary file; copy it to a library
 first and offer that copy.
+
+With `recursive: true`, `copy_file` copies a whole directory into a library, from a node or another
+library, for example to install a skill under `skills/<name>`. It copies file by file and is not
+atomic: a failure stops it, keeps the files already copied and lists them, and copying again with
+`overwrite` replaces the directory. A copy that is refused (limits, an existing directory without
+`overwrite`) changes nothing. Symbolic links and other non-regular files on a node are skipped and
+listed in the result; `overwrite` replaces the whole destination directory. Each node file is read with its own task, under the usual rules. A
+directory bound for nodes or for the user, or one past the limits in System settings (by default 256
+files and 256 MiB), is refused: pack it into one archive on a node and copy that file.
 
 `view_image` accepts PNG, JPEG, GIF and WebP within the model's image limits (by default 2000×2000
 pixels and 4.5 MB as base64) and stores the image in crhs's image cache. Over MCP there is no model

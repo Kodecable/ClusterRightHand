@@ -15,6 +15,8 @@ function startWebdav() {
 	const methods: string[] = [];
 	const depths: string[] = [];
 	let failMkcolOnce = false;
+	let honourRange = true;
+	const ranges: string[] = [];
 	const entry = (name: string, lastModified?: number): string =>
 		`<D:response><D:href>${BASE_PATH}${name}</D:href><D:propstat><D:prop>` +
 		(lastModified === undefined
@@ -57,8 +59,12 @@ function startWebdav() {
 		}
 		if (req.method === "GET") {
 			const object = objects.get(relative);
+			const range = /^bytes=(\d+)-$/.exec(String(req.headers.range ?? ""));
+			if (req.headers.range !== undefined) ranges.push(String(req.headers.range));
 			if (!object) res.writeHead(404).end();
-			else res.writeHead(200, { "content-type": "application/octet-stream" }).end(object.data);
+			else if (range && honourRange) {
+				res.writeHead(206, { "content-type": "application/octet-stream" }).end(object.data.subarray(Number(range[1])));
+			} else res.writeHead(200, { "content-type": "application/octet-stream" }).end(object.data);
 			return;
 		}
 		if (req.method === "DELETE") {
@@ -97,6 +103,10 @@ function startWebdav() {
 		objects,
 		methods,
 		depths,
+		ranges,
+		ignoreRanges(): void {
+			honourRange = false;
+		},
 		failNextMkcol(): void {
 			failMkcolOnce = true;
 		},
@@ -144,6 +154,22 @@ describe("WebDAV library backend", () => {
 
 		await backend.delete(KEY);
 		expect(fake.objects.has(`${shard}/${KEY}`)).toBe(false);
+	});
+
+	it("reads from an offset with a range, and skips the leading bytes when the server ignores it", async () => {
+		const data = Buffer.from("0123456789".repeat(1000));
+		await putBytes(backend, KEY, data);
+		const from = async (start: number): Promise<Buffer> => {
+			const parts: Buffer[] = [];
+			for await (const chunk of backend.get(KEY, start)) parts.push(Buffer.from(chunk as Uint8Array));
+			return Buffer.concat(parts);
+		};
+		expect(await from(4321)).toEqual(data.subarray(4321));
+		expect(fake.ranges).toEqual(["bytes=4321-"]);
+		fake.ignoreRanges();
+		expect(await from(4321)).toEqual(data.subarray(4321));
+		expect(await from(0)).toEqual(data);
+		expect(fake.ranges).toEqual(["bytes=4321-", "bytes=4321-"]);
 	});
 
 	it("retries the collection after a failed MKCOL instead of caching the failure", async () => {

@@ -44,6 +44,19 @@ export const SystemSettingsImageCacheSchema = z
 	})
 	.meta({ id: "SystemSettingsImageCache" });
 
+export const SystemSettingsDirectoryCopySchema = z
+	.object({
+		files: z.number().describe("The most files one directory copy into a library takes."),
+		bytes: z.number().describe("The most bytes one directory copy into a library takes."),
+	})
+	.meta({ id: "SystemSettingsDirectoryCopy" });
+
+export const SystemSettingsSkillsSchema = z
+	.object({
+		maxPerUser: z.number().describe("The most skills a session's system prompt lists; past it the prompt lists none."),
+	})
+	.meta({ id: "SystemSettingsSkills" });
+
 /** The settings administrators edit in System settings. */
 export const SystemSettingsSchema = z
 	.object({
@@ -62,6 +75,8 @@ export const SystemSettingsSchema = z
 		library: SystemSettingsLibrarySchema,
 		attachments: SystemSettingsAttachmentsSchema,
 		imageCache: SystemSettingsImageCacheSchema,
+		directoryCopy: SystemSettingsDirectoryCopySchema,
+		skills: SystemSettingsSkillsSchema,
 	})
 	.meta({ id: "SystemSettings" });
 
@@ -107,6 +122,8 @@ export const SystemSettingsPatchSchema = z.object({
 		.optional(),
 	attachments: SystemSettingsAttachmentsSchema.partial().optional(),
 	imageCache: SystemSettingsImageCacheSchema.partial().optional(),
+	directoryCopy: SystemSettingsDirectoryCopySchema.partial().optional(),
+	skills: SystemSettingsSkillsSchema.partial().optional(),
 });
 
 /** `PATCH /api/settings` success: the settings as they now are. */

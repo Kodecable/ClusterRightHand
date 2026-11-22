@@ -41,6 +41,10 @@ export interface RuntimeSettings {
 	attachments: { inlineTextBytes: number; inlineTotalBytes: number };
 	/** Resolved image cache size and TTL. */
 	imageCache: { diskBytes: number; ttlMs: number };
+	/** The limits of one directory copy into a library (doc/design/library.md "Directory copies"). */
+	directoryCopy: { files: number; bytes: number };
+	/** The most skills a system prompt lists (doc/design/library.md "Skills"). */
+	skills: { maxPerUser: number };
 }
 
 /** The keys stored in the `settings` table; each row holds one validated value as JSON. */
@@ -67,6 +71,9 @@ export const SETTING_KEYS = [
 	"attachments.inline_total_bytes",
 	"image_cache.disk_bytes",
 	"image_cache.ttl",
+	"directory_copy.files",
+	"directory_copy.bytes",
+	"skills.max_per_user",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -85,6 +92,11 @@ export const DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES = 64 * 1024;
 export const DEFAULT_IMAGE_CACHE_DISK_BYTES = 1024 * 1024 * 1024;
 /** An image cache entry unused for this long is swept. */
 export const DEFAULT_IMAGE_CACHE_TTL = "7d";
+/** The most files and bytes one directory copy into a library takes. */
+export const DEFAULT_DIRECTORY_COPY_FILES = 256;
+export const DEFAULT_DIRECTORY_COPY_BYTES = 256 * 1024 * 1024;
+/** The most skills a system prompt lists. */
+export const DEFAULT_SKILLS_PER_USER = 64;
 
 /** The defaults from config.ts, in the API form the WebUI shows. */
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
@@ -106,6 +118,8 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
 		diskBytes: DEFAULT_IMAGE_CACHE_DISK_BYTES,
 		ttl: DEFAULT_IMAGE_CACHE_TTL,
 	},
+	directoryCopy: { files: DEFAULT_DIRECTORY_COPY_FILES, bytes: DEFAULT_DIRECTORY_COPY_BYTES },
+	skills: { maxPerUser: DEFAULT_SKILLS_PER_USER },
 };
 
 /** A copy of the defaults, safe for a caller to modify. */
@@ -140,6 +154,9 @@ function defaultsByKey(): Record<SettingKey, unknown> {
 		"attachments.inline_total_bytes": DEFAULT_SYSTEM_SETTINGS.attachments.inlineTotalBytes,
 		"image_cache.disk_bytes": DEFAULT_SYSTEM_SETTINGS.imageCache.diskBytes,
 		"image_cache.ttl": DEFAULT_SYSTEM_SETTINGS.imageCache.ttl,
+		"directory_copy.files": DEFAULT_SYSTEM_SETTINGS.directoryCopy.files,
+		"directory_copy.bytes": DEFAULT_SYSTEM_SETTINGS.directoryCopy.bytes,
+		"skills.max_per_user": DEFAULT_SYSTEM_SETTINGS.skills.maxPerUser,
 	};
 }
 
@@ -168,6 +185,9 @@ function flatten(settings: SystemSettings): Record<SettingKey, unknown> {
 		"attachments.inline_total_bytes": settings.attachments.inlineTotalBytes,
 		"image_cache.disk_bytes": settings.imageCache.diskBytes,
 		"image_cache.ttl": settings.imageCache.ttl,
+		"directory_copy.files": settings.directoryCopy.files,
+		"directory_copy.bytes": settings.directoryCopy.bytes,
+		"skills.max_per_user": settings.skills.maxPerUser,
 	};
 }
 
@@ -212,6 +232,11 @@ function unflatten(values: Record<SettingKey, unknown>): SystemSettings {
 			diskBytes: values["image_cache.disk_bytes"] as number,
 			ttl: values["image_cache.ttl"] as string,
 		},
+		directoryCopy: {
+			files: values["directory_copy.files"] as number,
+			bytes: values["directory_copy.bytes"] as number,
+		},
+		skills: { maxPerUser: values["skills.max_per_user"] as number },
 	};
 }
 
@@ -260,6 +285,9 @@ export function parseSettingValue(key: SettingKey, value: unknown): unknown {
 		case "attachments.inline_text_bytes":
 		case "attachments.inline_total_bytes":
 		case "image_cache.disk_bytes":
+		case "directory_copy.files":
+		case "directory_copy.bytes":
+		case "skills.max_per_user":
 			return parseInteger(value, key, 0);
 		case "image_cache.ttl": {
 			const ms = parseDurationMs(value, "image_cache.ttl");
@@ -313,6 +341,8 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 				"library",
 				"attachments",
 				"imageCache",
+				"directoryCopy",
+				"skills",
 			].includes(key)
 		) {
 			fields[key] = `unknown setting ${key}`;
@@ -503,6 +533,35 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 		}
 	}
 
+	const groups = [
+		[
+			"directoryCopy",
+			[
+				["files", "directory_copy.files"],
+				["bytes", "directory_copy.bytes"],
+			],
+		],
+		["skills", [["maxPerUser", "skills.max_per_user"]]],
+	] as const;
+	for (const [name, entries] of groups) {
+		if (input[name] === undefined) continue;
+		const group = plainObject(input[name]);
+		if (!group) {
+			fields[name] = `${name} must be an object`;
+			continue;
+		}
+		const known: readonly string[] = entries.map(([field]) => field);
+		for (const key of Object.keys(group)) {
+			if (!known.includes(key)) fields[`${name}.${key}`] = `unknown setting ${key}`;
+		}
+		for (const [field, setting] of entries) {
+			if (group[field] === undefined) continue;
+			check(`${name}.${field}`, () => {
+				values[setting] = parseSettingValue(setting, group[field]);
+			});
+		}
+	}
+
 	if (Object.keys(fields).length > 0) throw new SettingsValidationError(fields);
 	return values;
 }
@@ -538,6 +597,11 @@ function resolveSettings(wire: SystemSettings): RuntimeSettings {
 			diskBytes: parseInteger(wire.imageCache.diskBytes, "imageCache.diskBytes", 0),
 			ttlMs: parseDurationMs(wire.imageCache.ttl, "image_cache.ttl"),
 		},
+		directoryCopy: {
+			files: parseInteger(wire.directoryCopy.files, "directoryCopy.files", 0),
+			bytes: parseInteger(wire.directoryCopy.bytes, "directoryCopy.bytes", 0),
+		},
+		skills: { maxPerUser: parseInteger(wire.skills.maxPerUser, "skills.maxPerUser", 0) },
 	};
 }
 

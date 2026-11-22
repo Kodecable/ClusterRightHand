@@ -129,6 +129,9 @@ The low-frequency settings below are **not** in `crhs.toml`. Administrators edit
 | `attachments.inline_total_bytes` | integer ≥ 0 | `65536` | Most attachment text included over one message (64 KiB). |
 | `image_cache.disk_bytes` | integer ≥ 0 | `1073741824` | Image cache size on crhs's local disk (1 GiB). |
 | `image_cache.ttl` | duration | `"7d"` | Drop an image cache entry unused for this long. Must be greater than zero. |
+| `directory_copy.files` | integer ≥ 0 | `256` | Most files one `copy_file` with `recursive: true` copies into a library. |
+| `directory_copy.bytes` | integer ≥ 0 | `268435456` | Most bytes one directory copy takes (256 MiB). |
+| `skills.max_per_user` | integer ≥ 0 | `64` | Most skills a session's system prompt lists. A library with more `skills/<name>/SKILL.md` files lists none, and the prompt tells the model to browse `skills/` itself. |
 
 The library defaults are copied when a user or user group is created; changing them does not touch an
 existing library. Administrators change an existing library's limits on its user or user group page.
@@ -138,6 +141,11 @@ its library path, and the agent can copy it to a node to read. The image cache h
 `view_image` results in a disposable local directory, independent of the library backend and not backed
 up; it counts toward no library's limits, evicts least recently used entries and drops entries unused for
 the time to live.
+
+A directory copy goes only into a library, from a node or another library; a larger directory, or one
+bound for nodes, is packed into one archive on a node and copied as a file. Skills are directories under
+`skills/` in a user's own library, each with a `SKILL.md` whose YAML frontmatter has `name` (the
+directory's name, in kebab-case) and `description`.
 
 Set `webauthn.rp_id` and `webauthn.origins` together, or leave both unset to take them from each
 request's origin.

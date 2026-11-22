@@ -649,6 +649,10 @@ msgstr "节点组由管理员创建。"
 msgid "An administrator grants access to nodes."
 msgstr "节点访问权限由管理员授予。"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "An agent can copy a directory into a library, for example to install a skill; a larger directory must be packed into one archive first. A session's system prompt lists the skills under skills/ in the owner's library; past the limit it lists none and the model browses them itself."
+msgstr "智能体可以把目录复制到资料库，例如安装 skill；更大的目录须先打包成一个归档文件。会话的系统提示会列出所有者资料库 skills/ 下的 skill；超过上限时一个也不列，由模型自行浏览。"
+
 #: src/features/sessions/extensions-dialog.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "关闭的扩展对模型不可见。更改从下一轮开始生效。"
@@ -1851,6 +1855,10 @@ msgstr "事件 {0} 的详情"
 msgid "Digest"
 msgstr "摘要"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Directory copies and skills"
+msgstr "目录复制与 skill"
+
 #: src/components/task-result.tsx
 msgid "Directory listing"
 msgstr "目录列表"
@@ -2096,6 +2104,10 @@ msgstr "请输入大于等于 1 的整数。"
 #: src/features/sessions/quota-panel.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "请输入整数 token 数，留空表示不限。"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Enter a whole number, 0 or more."
+msgstr "请输入不小于 0 的整数。"
 
 #: src/features/system-settings/general-section.tsx
 msgid "Enter an absolute http or https URL."
@@ -2988,8 +3000,20 @@ msgid "More results — keep typing to narrow down"
 msgstr "更多结果——请继续输入以缩小范围"
 
 #: src/features/system-settings/attachments-section.tsx
+msgid "Most bytes in one directory copy"
+msgstr "单次目录复制的最大字节数"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Most files in one directory copy"
+msgstr "单次目录复制的最多文件数"
+
+#: src/features/system-settings/attachments-section.tsx
 msgid "Most inlined per message"
 msgstr "每条消息最多内联"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Most skills listed per user"
+msgstr "每个用户最多列出的 skill 数"
 
 #: src/components/file-manager/file-list.tsx
 msgid "Move"

@@ -2,6 +2,7 @@ import { FILE_READ_MAX_BYTES, type FileReadResult, type TaskResult, type TaskSpe
 import type { SFTPWrapper } from "ssh2";
 import { describe, expect, it } from "vitest";
 import { FileTaskError, runSftpFileTask } from "../src/cluster/ssh/file-task.ts";
+import { ReadAnchors } from "../src/util/read-anchors.ts";
 
 /**
  * file.read over SFTP without a server: a fake wrapper over one in-memory file, which also records
@@ -191,5 +192,41 @@ describe("file.read over SFTP", () => {
 	it("rejects a line range outside the protocol", async () => {
 		await expect(readPage("x\n", { startLine: 0 })).rejects.toMatchObject({ code: "invalid_spec" });
 		await expect(readPage("x\n", { lineCount: 0 })).rejects.toMatchObject({ code: "invalid_spec" });
+	});
+
+	it("starts a deeper page at an anchor while the file and the bytes before it are unchanged", async () => {
+		const path = "/srv/log";
+		const lines = Array.from({ length: 2000 }, (_, i) => `entry ${i + 1}\n`).join("");
+		const file = { path, content: Buffer.from(lines) };
+		const anchors = new ReadAnchors();
+		const run = async (startLine: number) => {
+			const fake = fakeSftp(file);
+			const out: Uint8Array[] = [];
+			const spec = { kind: "file.read", path, startLine, lineCount: 100 } as TaskSpec;
+			const result = (await runSftpFileTask(
+				fake.wrapper,
+				spec,
+				undefined,
+				(d) => out.push(Buffer.from(d)),
+				new AbortController().signal,
+				undefined,
+				anchors,
+				"node-1",
+			)) as TaskResult;
+			return { page: Buffer.concat(out).toString(), result, bytesRead: fake.bytesRead };
+		};
+		const first = await run(1801);
+		expect(first.bytesRead).toBeGreaterThan(18000);
+		const next = await run(1901);
+		expect(next.result).toMatchObject({ from: 1901, to: 2000, eof: true, total: 2000 });
+		expect(next.page.startsWith("entry 1901\n")).toBe(true);
+		// The page and the 4 KiB window before its anchor, not the 1900 lines before it.
+		expect(next.bytesRead).toBeLessThan(first.bytesRead / 2);
+
+		// Same size and time, different bytes before the anchor: the window no longer matches, so it scans.
+		file.content = Buffer.from(lines.replace("entry 1850\n", "entry 1805\n"));
+		const changed = await run(1901);
+		expect(changed.page.startsWith("entry 1901\n")).toBe(true);
+		expect(changed.bytesRead).toBeGreaterThan(18000);
 	});
 });

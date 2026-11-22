@@ -18,6 +18,7 @@ import type { LibraryRecord } from "./library.ts";
 import { findLibraryById } from "./library.ts";
 import { MediaProbe } from "./media-type.ts";
 import { numberedLibraryPath, validateLibraryPath, validateLibraryPrefix } from "./paths.ts";
+import { dropSkillRow, isSkillPath, readSkillHead, SKILL_HEAD_BYTES, writeSkillRow } from "./skills.ts";
 
 export type LibraryFileRow = Selectable<LibraryFilesTable>;
 export type LibraryRow = Selectable<LibrariesTable>;
@@ -98,7 +99,10 @@ export interface LibraryUpload {
 	write(chunk: Uint8Array): Promise<void>;
 	/** Ends the object; reports the bytes that were written and their SHA-256. */
 	finish(): Promise<{ size: number; sha256: string }>;
-	/** Commits the object into the library: one transaction for usage and the row. */
+	/**
+	 * Commits the object into the library: one transaction for usage, the row and, for a `SKILL.md`, its skill
+	 * row (doc/design/library.md "Skills").
+	 */
 	commit(): Promise<{ file: LibraryFile; oldObjectKey?: string }>;
 	/** Removes the new object; call it when the upload or its commit fails. */
 	discard(): Promise<void>;
@@ -132,6 +136,8 @@ export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: Lib
 	const put = backend.put(key, stream);
 	void put.catch(fail);
 	let size = 0;
+	// A skill's frontmatter is read from the bytes as they pass, so its row commits with the file.
+	let head: Buffer | undefined = isSkillPath(path) ? Buffer.alloc(0) : undefined;
 	let finished: Promise<{ size: number; sha256: string }> | undefined;
 	let committed = false;
 	let discarded = false;
@@ -144,6 +150,9 @@ export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: Lib
 			}
 			size += chunk.length;
 			probe.push(chunk);
+			if (head !== undefined && head.length < SKILL_HEAD_BYTES) {
+				head = Buffer.concat([head, Buffer.from(chunk).subarray(0, SKILL_HEAD_BYTES - head.length)]);
+			}
 			if (!stream.write(chunk)) await Promise.race([once(stream, "drain"), failed]);
 			if (failure) throw failure;
 		},
@@ -242,6 +251,7 @@ export function beginLibraryUpload(db: Db, backend: LibraryBackend, options: Lib
 							.where("library_id", "=", library.id)
 							.where("path", "=", target)
 							.executeTakeFirstOrThrow();
+						await writeSkillRow(trx, library.id, target, actual.sha256, head);
 						return {
 							file: toLibraryFile(row),
 							oldObjectKey: existing?.backend === backend.kind ? existing.object_key : undefined,
@@ -343,6 +353,7 @@ export async function deleteLibraryFile(
 			.executeTakeFirst();
 		if (!existing) throw new NotFoundError("no such library file");
 		await trx.deleteFrom("library_files").where("library_id", "=", libraryId).where("path", "=", path).execute();
+		await dropSkillRow(trx, libraryId, path);
 		await trx
 			.updateTable("libraries")
 			.set({
@@ -375,6 +386,17 @@ export async function moveLibraryFile(
 ): Promise<LibraryFile> {
 	const sourcePath = validateLibraryPath(from);
 	const targetPath = validateLibraryPath(to);
+	// A move onto a `SKILL.md` path needs the file's frontmatter for the skill row; it is read before the
+	// transaction, and the move goes ahead only if the file is still those bytes.
+	let skillSource: { sha256: string; head: Buffer | undefined } | undefined;
+	if (isSkillPath(targetPath) && targetPath !== sourcePath) {
+		const row = await findLibraryFile(db, libraryId, sourcePath);
+		if (row) {
+			let head: Buffer | undefined;
+			if (row.backend === backend.kind) head = await readSkillHead(backend, row.object_key).catch(() => undefined);
+			skillSource = { sha256: row.sha256, head };
+		}
+	}
 	const result = await db.transaction().execute(async (trx) => {
 		// A move changes no usage, but it takes the library row lock so the conflict checks and the row write
 		// serialize against uploads and other moves to the same library (doc/design/library.md "Paths").
@@ -423,6 +445,13 @@ export async function moveLibraryFile(
 			.where("library_id", "=", libraryId)
 			.where("path", "=", sourcePath)
 			.execute();
+		await dropSkillRow(trx, libraryId, sourcePath);
+		if (isSkillPath(targetPath)) {
+			if (skillSource?.sha256 !== source.sha256) {
+				throw new UserError(`${sourcePath} appeared or changed during the move; try again`);
+			}
+			await writeSkillRow(trx, libraryId, targetPath, source.sha256, skillSource.head);
+		}
 		const row = await trx
 			.selectFrom("library_files")
 			.selectAll()
@@ -519,4 +548,16 @@ export async function copyLibraryFile(
 		await upload.discard();
 		throw err;
 	}
+}
+
+/** The files under directory `path` of a library, sorted by path. */
+export async function listLibraryDirectory(db: Db, libraryId: string, path: string): Promise<LibraryFileRow[]> {
+	const head = `${validateLibraryPath(path)}/`;
+	return db
+		.selectFrom("library_files")
+		.selectAll()
+		.where("library_id", "=", libraryId)
+		.where(sql<boolean>`substr(path, 1, length(${head})) = ${head}`)
+		.orderBy("path")
+		.execute();
 }

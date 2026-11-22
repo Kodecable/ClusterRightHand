@@ -200,6 +200,38 @@ node.
 - While a task waits for approval or a signature, an agent keeps waiting and shows the link in the UI;
   an extension call returns the waiting state and link after its `wait`.
 
+### Read anchors
+
+`read_file` takes a line offset, and the model keeps thinking in lines: they are what `grep -n`, stack
+traces and editors give it, and a byte offset could cut a UTF-8 character. A page deeper in a file would
+then read every earlier line again, which costs nothing much on a crha node but costs the network on an
+SFTP node and a backend read on a library. So each page records where it ended, and a later page starts
+there instead.
+
+- crhs keeps one bounded in-memory store of anchors (`util/read-anchors.ts`): per file, the line where a
+  page started and the line after it ended, each with the byte where that line starts, tagged with the
+  file's version. At most 64 anchors per file and 1024 files are kept; a restart forgets them all.
+- A read takes the anchor with the greatest line not past its offset, if the file's version is the
+  same, and starts reading at its byte, counting lines from there. Any mismatch reads from the start. For a
+  library file a stale anchor costs a full scan, never a wrong page; for an SFTP file the version check
+  has the one gap described below, where a page's line numbers can be off.
+- The store is shared by every session and MCP caller. An anchor holds only line and byte numbers, never
+  content, so sharing it reveals nothing a caller could not read; and the reader checks it against the
+  file, so it does not matter who left it. Keeping anchors in each conversation's transcript was
+  rejected: it needs a transcript scan per read, and MCP calls have none.
+- The version is:
+  - **Library file**: its SHA-256. An object never changes, so the same SHA-256 is the same bytes.
+  - **SFTP file**: size and modification time, since SFTP reports no device or inode, plus the SHA-256
+    of up to 4 KiB before the anchor, which must end with a newline and is read again before the anchor
+    is used. The time has one-second precision and comes from the host's clock, so comparing it with
+    crhs's clock cannot tell a change in the same second; such a change that keeps the size is caught
+    only if it touches that window. The page's line numbers would then be off, which edits do not
+    depend on: `edit_file` matches text.
+  - **crha file**: none; crha scans from the start. A local scan is cheap, and an anchor there would
+    change the `file.read` spec, which takes a new task kind.
+- The anchor is a hint to the executor, not part of the task spec, so the spec hash, approvals and
+  authorizations do not see it.
+
 ### Tool output
 
 Raw content (`exec` output, `read_file` pages) is returned as plain text, not escaped into JSON, because
@@ -294,11 +326,15 @@ three administrator settings:
 | Title generation | Optional; defaults to the session's model | Model and prompt for session titles |
 
 Each preset's prompt is the custom prompt or a built-in default, followed by fixed protocol text that the
-model needs to use the tools or answer in a parseable form. Changes apply to the next model request.
+model needs to use the tools or answer in a parseable form. A change to the Auto Review or Title
+generation preset applies to the next model request; a change to the Session preset applies to sessions
+whose prompt is not yet assembled ([Session system prompt](#session-system-prompt)).
 
 ### Session system prompt
 
-A session's system prompt is built for every model request, in this order:
+A session's system prompt is assembled once, at the session's first model request, and stored with the
+session (`sessions.system_prompt`); every later request, after a restart too, uses the stored text. It is
+assembled in this order:
 
 1. **The prompt**: the Session preset's custom prompt, or the default. The default says that the model is
    a helpful assistant running inside ClusterRightHand Server (crhs), operating the user's nodes for them,
@@ -310,10 +346,15 @@ A session's system prompt is built for every model request, in this order:
    counted), quoted as data, and which libraries they reach.
 4. **For a subagent**: that its user messages come from the parent agent, not from a person.
 5. **The extension list**: each extension the session can use, with its description and tool count.
+6. **The skills**: the owner's [skills](library.md#skills), each with its name and description, sorted by
+   name; or, past the limit, one line saying there are too many to list. Nothing when there are none.
 
-Nothing in the system prompt changes from one request to the next unless a setting, the owner's groups
-or the extensions change, so the provider's prompt cache keeps the prefix. The current time is never in
-it; it travels with the user messages.
+Nothing rewrites a session's prompt afterwards, as in a coding agent: the provider's prompt cache keeps
+the prefix, and the model's instructions do not shift under a running conversation. A later change takes
+effect the way it does anyway: settings and extension grants through the tool definitions and the tools'
+own checks, rules and access through the decisions on each call, a new or changed skill or Session preset
+in sessions started afterwards. A fork and a subagent are sessions of their own and assemble their own
+prompt. The current time is never in it; it travels with the user messages.
 
 ### Message time
 
@@ -516,6 +557,9 @@ is not a security boundary:
   text, tool results or node output, and each part is data in a fenced JSON block, so one injected text
   cannot steer both the agent and its reviewer.
 - Subagent requests reach the parent as data in a tagged block that a summary cannot close.
+- Skill descriptions come from files in the owner's library, which the agent itself can write, so a
+  skill written in one session steers later ones, like a node note. The prompt quotes them as the
+  owner's data, and library writes are audited ([Skills](library.md#skills)).
 
 ## Dependency versioning
 

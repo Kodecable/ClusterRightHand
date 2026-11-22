@@ -16,6 +16,7 @@ import type { McpConnections } from "../extensions/connections.ts";
 import type { ImageCache } from "../library/image-cache.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { SessionRow } from "../sessions/session-chain.ts";
+import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../util/errors.ts";
 import type { GenerationTimings } from "./latency.ts";
@@ -96,6 +97,8 @@ export interface AgentRuntimeOptions {
 	imageCache?: ImageCache;
 	/** The MCP client connections behind `search_tools` and `call_tool` (doc/design/extensions.md). */
 	mcp?: McpConnections;
+	/** System settings: the skill limit and the directory copy limits; the defaults without it. */
+	settings?: SettingsStore;
 	/** Auto Review for one waiting external call; set by AgentRuntime. */
 	reviewExternalCall?: (id: string, signal?: AbortSignal) => Promise<void>;
 	/** Whether Auto Review will judge a request on this chain; set by AgentRuntime for the marker at creation. */

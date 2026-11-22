@@ -444,7 +444,8 @@ authorization that covers it, with **Issue authorization** on [Authorizations](#
   key and a list of models with their protocol, context window and thinking support. Stored keys are
   never shown again. Changing a custom provider's base URL requires entering its key again. Extra
   headers are stored in plain text; never put secrets in them.
-- **Model presets.** **Session** sets the system prompt for every session. **Auto review** and **Title
+- **Model presets.** **Session** sets the system prompt of sessions started afterwards; a session keeps
+  the prompt it started with. **Auto review** and **Title
   generation** set the model and prompt used for reviews and session titles. An empty prompt uses the
   built-in default, which the card shows.
 
@@ -469,6 +470,9 @@ lists every value and its default. Each settings section has its own **Save**.
 - **Library defaults.** The files, one-file size and total size limits that a new user or user group
   library copies when it is created. Changing them applies only to libraries created later, not to
   existing ones.
+- **Directory copies and skills.** The most files and bytes one directory copy into a library takes, and
+  the most skills a session's system prompt lists from `skills/` in the owner's library; past that limit
+  it lists none and the model browses the directory itself.
 - **Authorization signing keys.** The keys crhs signs authorizations with; the newest is marked and
   used by default. **Add authorization signing key** creates one and shows the public key line to paste
   into a node's `privileged.toml`. The table counts the nodes that trust each key; the delete dialog

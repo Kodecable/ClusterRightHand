@@ -98,16 +98,31 @@ class WebdavLibraryBackend implements LibraryBackend {
 		return { size, sha256: hash.digest("hex") };
 	}
 
-	get(key: string): Readable {
-		return Readable.from(this.#get(key));
+	get(key: string, start = 0): Readable {
+		return Readable.from(this.#get(key, start));
 	}
 
-	async *#get(key: string): AsyncGenerator<Uint8Array> {
-		const response = await this.#fetch(this.#objectUrl(key));
+	/**
+	 * A read from `start` asks for a range; a server that ignores it answers 200 with the whole object,
+	 * whose leading bytes are then skipped (doc/design/library.md "Backends").
+	 */
+	async *#get(key: string, start: number): AsyncGenerator<Uint8Array> {
+		const response = await this.#fetch(
+			this.#objectUrl(key),
+			start > 0 ? { headers: { range: `bytes=${start}-` } } : {},
+		);
 		if (!response.ok || response.body === null) {
 			throw new Error(`library WebDAV: GET ${key} failed with ${response.status}`);
 		}
-		for await (const chunk of response.body) yield chunk;
+		let skip = start > 0 && response.status !== 206 ? start : 0;
+		for await (const chunk of response.body) {
+			if (skip >= chunk.length) {
+				skip -= chunk.length;
+				continue;
+			}
+			yield skip > 0 ? chunk.subarray(skip) : chunk;
+			skip = 0;
+		}
 	}
 
 	async delete(key: string): Promise<void> {

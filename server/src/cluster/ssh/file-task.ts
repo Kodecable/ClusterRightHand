@@ -3,15 +3,15 @@ import { posix } from "node:path";
 import type { Readable } from "node:stream";
 import {
 	FILE_LIST_MAX_BYTES,
-	FILE_READ_MAX_BYTES,
 	type FileListEntry,
-	type FileReadResult,
 	type FileStatResult,
 	type TaskResult,
 	type TaskSpec,
 } from "@crh/protocol";
 import type { SFTPWrapper } from "ssh2";
 import type { TransferWrite } from "../../library/transfer-location.ts";
+import { type LineAnchor, readLinePage } from "../../util/line-page.ts";
+import type { ReadAnchors, StoredAnchor } from "../../util/read-anchors.ts";
 import { applyEdits, detectLineEnding, MAX_EDIT_SIZE, toBytesString, UTF8_BOM } from "./file-edit.ts";
 import {
 	checkPath,
@@ -66,6 +66,13 @@ export interface SftpTransfer {
 interface Ctx {
 	sftp: Sftp;
 	signal: AbortSignal;
+	anchors?: SftpReadAnchors;
+}
+
+/** Where an SSH node's read anchors live: the store and this file's key in it. */
+export interface SftpReadAnchors {
+	store: ReadAnchors;
+	key: string;
 }
 
 function checkAborted(signal: AbortSignal): void {
@@ -87,8 +94,16 @@ export async function runSftpFileTask(
 	stdout: Out,
 	signal: AbortSignal,
 	transfer?: SftpTransfer,
+	anchors?: ReadAnchors,
+	nodeId?: string,
 ): Promise<TaskResult | null> {
-	const ctx: Ctx = { sftp: new Sftp(sftp), signal };
+	const ctx: Ctx = {
+		sftp: new Sftp(sftp),
+		signal,
+		...(anchors && nodeId && spec.kind === "file.read"
+			? { anchors: { store: anchors, key: `ssh:${nodeId}:${spec.path}` } }
+			: {}),
+	};
 	try {
 		checkAborted(signal);
 		switch (spec.kind) {
@@ -126,77 +141,66 @@ async function fileRead(ctx: Ctx, s: FileReadSpec, stdout: Out): Promise<TaskRes
 	if ((st.mode & S_IFMT) !== S_IFREG) {
 		throw new FileTaskError("not_regular_file", `${s.path} is not a regular file`);
 	}
-	const result: FileReadResult = { from: 0, to: 0, eof: false, total: null, tooLong: false };
 	const handle = await sftp.open(s.path, "r");
 	try {
-		let pos = 0;
-		let line = 1;
-		let pageLines = 0;
-		let written = 0;
-		let part: Buffer = Buffer.alloc(0);
-		let done = false;
-		// TODO: detect changes by mtime and cache a line index per open handle, so a deep page does not re-read the file from the start.
-		// Stream from the first byte and stop as soon as the page is complete: only a page that reaches
-		// the end reads the whole file (doc/design/execution.md "SFTP file operations").
-		while (!done) {
-			checkAborted(signal);
-			const chunk = Buffer.allocUnsafe(CHUNK);
-			const n = await sftp.readAt(handle, chunk, CHUNK, pos);
-			if (n === 0) {
-				// The file ends here: at a line boundary, or inside a last line without a newline.
-				result.eof = true;
-				if (part.length > 0) {
-					stdout(part);
-					if (pageLines === 0) result.from = line;
-					result.to = line;
-					result.total = line;
-				} else {
-					result.total = line - 1;
-				}
-				break;
-			}
-			pos += n;
-			const data = chunk.subarray(0, n);
-			let start = 0;
-			while (start < n) {
-				const nl = data.indexOf(0x0a, start);
-				const end = nl < 0 ? n : nl + 1;
-				if (line >= s.startLine) {
-					// The page keeps whole lines only: a line that would pass the byte cap ends it.
-					if (written + part.length + (end - start) > FILE_READ_MAX_BYTES) {
-						if (pageLines === 0) result.tooLong = true;
-						done = true;
-						break;
-					}
-					part = Buffer.concat([part, data.subarray(start, end)]);
-				}
-				if (nl < 0) break; // the line goes on in the next chunk
-				if (line >= s.startLine) {
-					stdout(part);
-					written += part.length;
-					if (pageLines === 0) result.from = line;
-					result.to = line;
-					pageLines++;
-					part = Buffer.alloc(0);
-				}
-				// Where the line's newline ends, to tell whether it was the file's last byte.
-				const lineEnd = pos - n + end;
-				line++;
-				start = end;
-				if (pageLines >= s.lineCount) {
-					if (lineEnd >= st.size) {
-						result.eof = true;
-						result.total = result.to;
-					}
-					done = true;
-					break;
-				}
+		// SFTP reports no device or inode: the version is the size and the modification time, and an anchor
+		// is used only while the up to 4 KiB before it still hash the same; a change elsewhere in the same
+		// second that keeps the size goes unseen (doc/design/agent-runtime.md "Read anchors").
+		const anchors = ctx.anchors;
+		const version = `${st.size}:${st.mtime}`;
+		let from: LineAnchor | undefined;
+		const hint = anchors?.store.best(anchors.key, version, s.startLine);
+		if (hint?.window !== undefined && (await anchorWindow(sftp, handle, hint.byte)) === hint.window) from = hint;
+		async function* open(start: number): AsyncGenerator<Uint8Array> {
+			let pos = start;
+			for (;;) {
+				checkAborted(signal);
+				const chunk = Buffer.allocUnsafe(CHUNK);
+				const n = await sftp.readAt(handle, chunk, CHUNK, pos);
+				if (n === 0) return;
+				pos += n;
+				yield chunk.subarray(0, n);
 			}
 		}
+		// Stream from the anchor (or the first byte) and stop as soon as the page is complete: only a page
+		// that reaches the end reads the rest of the file (doc/design/execution.md "SFTP file operations").
+		const page = await readLinePage(open, stdout, {
+			startLine: s.startLine,
+			lineCount: s.lineCount,
+			size: st.size,
+			...(from ? { from } : {}),
+		});
+		if (anchors) {
+			const found: StoredAnchor[] = [];
+			for (const anchor of page.anchors) {
+				if (anchor.line <= 1 || anchors.store.has(anchors.key, version, anchor.line)) continue;
+				const window = await anchorWindow(sftp, handle, anchor.byte);
+				if (window !== undefined) found.push({ ...anchor, window });
+			}
+			anchors.store.add(anchors.key, version, found);
+		}
+		return { kind: "file.read", ...page.result };
 	} finally {
 		await sftp.close(handle).catch(() => {});
 	}
-	return { kind: "file.read", ...result };
+}
+
+/** The bytes an SFTP anchor checks: up to 4 KiB before it, which must end with the newline that ends the line before. */
+const ANCHOR_WINDOW = 4096;
+
+/** The SHA-256 of the window before `byte`, or undefined when it does not end a line. */
+async function anchorWindow(sftp: Sftp, handle: Buffer, byte: number): Promise<string | undefined> {
+	if (byte <= 0) return undefined;
+	const length = Math.min(ANCHOR_WINDOW, byte);
+	const buf = Buffer.alloc(length);
+	let got = 0;
+	while (got < length) {
+		const n = await sftp.readAt(handle, buf.subarray(got), length - got, byte - length + got);
+		if (n === 0) return undefined;
+		got += n;
+	}
+	if (buf[length - 1] !== 0x0a) return undefined;
+	return createHash("sha256").update(buf).digest("hex");
 }
 
 interface TempFile {

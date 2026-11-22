@@ -1,15 +1,18 @@
 # Libraries and file transfer
 
 A library is a file store on crhs. Every user has one, and so does every user group. The file plane moves
-whole files between libraries and nodes, always through crhs. Chat attachments and image input are built on
-both.
+whole files, and directories into a library, between libraries and nodes through crhs. Chat attachments,
+image input and skills are built on both.
 
 The scope is deliberately narrow:
 
-- **Whole files only.** A file is uploaded, downloaded or copied in one piece. There is no random access,
-  append, partial read or resume; an interrupted transfer starts over.
-- **crhs always relays.** A node never talks to a library backend or to another node. The protocol leaves
-  room for presigned URLs (S3) and node-to-node transfer ([Extension points](#extension-points)).
+- **Whole-file writes, random reads.** A file is written, uploaded or copied in one piece, and a write
+  never changes an object in place, so an object never changes once written. Reads may start anywhere
+  (`read_file` pages a library file). There is no append and no resume; an interrupted transfer starts
+  over.
+- **crhs relays.** Relaying through crhs is the one mode implemented: a node never talks to a library
+  backend or to another node. Presigned URLs (S3) and node-to-node transfer are possible later
+  optimizations, not implemented ([Extension points](#extension-points)).
 - **The backend is trusted.** crhs owns the backend exclusively, and nothing else reads or writes it.
   Contents are not encrypted at rest and not checked for outside tampering.
 
@@ -83,7 +86,9 @@ One backend serves all libraries, configured in `crhs.toml`:
 | `local` (default) | A directory under crhs's data directory |
 | `webdav` | A WebDAV collection; credentials in `crhs.toml` |
 
-A backend implements four streaming operations: put, get, delete and list (for the orphan sweep). Each row
+A backend implements four streaming operations: put, get, delete and list (for the orphan sweep). Get takes
+an optional start byte, so a read can begin anywhere: `local` seeks, and `webdav` sends a `Range` request
+and, when the server answers 200 instead of 206, skips the leading bytes of the whole stream. Each row
 records its backend, so a later migration can move objects without guessing.
 
 Placement is each backend's own strategy: an object lives under one level of two hex characters taken from
@@ -222,6 +227,54 @@ A copy has one source file and one or more destinations:
   `write_file`; by default a missing parent fails the task. A library has no directory objects, so any
   library path works.
 
+### Directory copies
+
+A directory can be copied **into a library** only, from a node or from a library; installing a skill is
+the main use. Every other directory copy (to a node, or to the people in the session) is refused with an
+error that says so and suggests packing the directory into one archive (`tar` on a node) and copying
+that file.
+
+A directory copy is a sequence of ordinary single-file copies, one file at a time, each committed on its
+own as `copy_file` commits one file. It is **not atomic**: a copy that fails halfway leaves the files it
+already copied. Making it atomic was rejected: it needs objects that wait uncommitted for as long as the
+copy takes, possibly hours of approvals, which the orphan sweep would then have to tell from real
+orphans. Copying is also not the place for skill rules: like `cp`, it treats every file the same.
+
+- `copy_file` copies a directory only with `recursive: true`; without it a directory source fails as it
+  does today. The destination path is the directory the files land under: `src/a/b` copied to
+  `skills/x` becomes `skills/x/a/b`. Files are copied in path order.
+- One copy takes at most 256 files and 256 MiB. Both limits are system settings.
+- **Everything that can be checked is checked before the first change**, so a refused copy leaves the
+  destination as it was: the size limits (the whole walk of a node directory comes first), each node
+  file's name as a library path, a file at the destination or above it, an existing directory without
+  `overwrite`, within one library a destination that is the source, lies inside it or holds it (an
+  overwrite would remove the source), each file against the one-file limit, and the library's file and
+  total limits after the copy, counting the files `overwrite` removes.
+- **`overwrite` replaces the directory**: the files under the destination are deleted one by one, then
+  the copy runs. A file at the destination path is never replaced by a directory.
+- **A failure stops the copy**, whether it happens while removing the old files or while copying. The
+  result is an error that names the failing file and its reason, lists the files removed and copied, and
+  says the directory is incomplete and that the old directory was removed when it was; copying again with
+  `overwrite` replaces it. The tool's description says the copy is not atomic.
+- **Library to library** copies each file through the backend (get and put); no task runs.
+- **Node to library** uses only the existing task kinds, so it needs no protocol change and works on crha
+  and SSH nodes alike:
+  1. crhs walks the directory with `file.list` tasks, one per directory, and keeps regular files only:
+     symbolic links, devices, FIFOs and sockets are skipped and named in the result. A walk that passes
+     either limit stops and refuses the copy.
+  2. crhs pulls each file with an ordinary `file.pull` into its library path, streamed into a new object
+     and committed like a single-file copy; nothing is staged. One at a time, the copy holds one of the
+     node's transfer slots, never its queue.
+  - Every path is its own task, so rules, approvals and audit see each one, and a rule on a path inside
+    the directory applies as it would to a single read. Every rule preset allows an unprivileged read,
+    so by default nothing waits for approval; a rule that asks for some paths asks once per such path.
+  - The tasks get fresh ids, not ids derived from the tool call: after a crhs restart the call runs again
+    from the start, and reading again has no side effect.
+- A directory copy from a node is always unprivileged: a privileged one would need an authorization per
+  file. Copy a directory only root can read by packing it with a privileged `exec` first.
+- One audit event records the copy (source, destination, files copied of how many, files to replace and
+  removed, and whether it completed), beside the task records of a node source.
+
 ## Agent tools
 
 The tools follow the existing naming and argument style ([Cluster tools](agent-runtime.md#cluster-tools)).
@@ -232,12 +285,14 @@ agent session's tool descriptions are registered once per server, so its prompt 
 
 | Tool | Behavior |
 |---|---|
-| `copy_file` | Copies one file. The source is `{ node, path }` or `{ library, path }`. The destination is a node `{ targets, path }` (taking `create_parent_dirs`, `mode`, `owner`, `group` and `privileged`), a library `{ library, path }`, or `{ user_interface: true }`, which copies nothing and offers the file to the people in the session ([Deliveries](#deliveries)). `overwrite` applies to node and library destinations and has no effect with `user_interface`. Blocks like the other file tools. |
+| `copy_file` | Copies one file, or with `recursive: true` one directory into a library ([Directory copies](#directory-copies)). The source is `{ node, path }` or `{ library, path }`. The destination is a node `{ targets, path }` (taking `create_parent_dirs`, `mode`, `owner`, `group` and `privileged`), a library `{ library, path }`, or `{ user_interface: true }`, which copies nothing and offers the file to the people in the session ([Deliveries](#deliveries)). `overwrite` applies to node and library destinations and has no effect with `user_interface`. Blocks like the other file tools. |
 | `view_image` | Gives the model one image from `{ node, path }` or `{ library, path }`. |
-| `list_dir`, `stat` | Also accept `library` instead of `node`. |
+| `read_file`, `list_dir`, `stat` | Also accept `library` instead of `node`. |
 
-- `read_file`, `write_file` and `edit_file` stay node-only, since a library has no partial reads. To read a
-  library file, copy it to a node.
+- `read_file` pages a library file as it pages a node file, by path, with the same lines and limits; it
+  runs no task. `write_file` and `edit_file` stay node-only, because a library writes whole files.
+- Paging a deep page does not read the file from its start again when an earlier page left an anchor
+  ([Read anchors](agent-runtime.md#read-anchors)).
 - The tools are shared with MCP. Over MCP, `library` reaches the libraries of the token's user.
 
 ### Deliveries
@@ -358,6 +413,40 @@ Every attachment goes to a library; a message never carries image bytes.
   renamed group keeps the link; an entry written before ids were recorded falls back to its reference. A
   box is inactive with a reason when the file is gone or the viewer cannot reach the library. Deleting a
   session leaves its attachments in the library.
+
+## Skills
+
+A skill is a directory of instructions, and optionally scripts and other files, that a user keeps in
+their own library. The model learns which skills exist from the session's system prompt and reads them
+with the ordinary file tools; there is no skill tool.
+
+- **Where.** `skills/<name>/SKILL.md` in the session owner's personal library. Deeper `SKILL.md` files
+  and group libraries are not searched. A skill is installed by uploading it or by a
+  [directory copy](#directory-copies) into `skills/<name>`.
+- **Format.** `SKILL.md` starts with YAML frontmatter holding `name` and `description`. `name` is
+  kebab-case and equals the directory name; anything else makes the skill invalid, and an invalid skill
+  is left out of the prompt. The frontmatter is read from the file's first 16 KiB. crhs reads the subset
+  of YAML skills use, top-level plain, quoted and block (`|`, `>`) scalars, with no dependency; nested
+  values are skipped.
+- **Catalog.** `library_skills` holds one row per `skills/<name>/SKILL.md`: its SHA-256 and either its
+  name and description or why it is not a skill. The row is written in the same transaction as the file
+  row by every library write (an upload, an overwrite, a copy or pull into the library, a move, a
+  delete), so it is never stale. An upload reads the frontmatter from the bytes as they pass; a move reads
+  it before its transaction and goes ahead only if the file is still those bytes. A session reads
+  the table once, when its system prompt is assembled at its first request, so a skill added or changed
+  later appears in sessions started afterwards
+  ([Session system prompt](agent-runtime.md#session-system-prompt)).
+- The file tools know nothing of skills; a `SKILL.md` that is not valid is simply not listed.
+- **At most 64 skills per user**, a system setting. A library with more `SKILL.md` files than that lists
+  none of them: the prompt says only that `skills/` holds more than the limit and that the model can list
+  it with `list_dir` and read the ones it needs. Listing the first 64 was rejected, since which ones are
+  cut would shift with every file name.
+- **In the prompt**, each skill is its name and description, the description cut to 500 characters,
+  with one line saying where the skills are and that a skill's other files are relative to its
+  directory ([Session system prompt](agent-runtime.md#session-system-prompt)).
+- A skill is the owner's own instruction, stored where the agent can write: an agent that copies a file
+  into `skills/` changes later sessions, as a node note does. Library writes are audited
+  ([Prompt injection](agent-runtime.md#prompt-injection)).
 
 ## WebUI and API
 

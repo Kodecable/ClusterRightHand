@@ -81,6 +81,8 @@ describe("system settings storage", () => {
 				diskBytes: DEFAULT_IMAGE_CACHE_DISK_BYTES,
 				ttlMs: parseDurationMs(DEFAULT_IMAGE_CACHE_TTL, "image_cache.ttl"),
 			},
+			directoryCopy: { files: 256, bytes: 256 * 1024 * 1024 },
+			skills: { maxPerUser: 64 },
 		});
 	});
 });

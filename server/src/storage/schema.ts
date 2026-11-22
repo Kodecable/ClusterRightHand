@@ -87,6 +87,21 @@ export interface LibraryFilesTable {
 	updated_at: string;
 }
 
+/**
+ * One `skills/<name>/SKILL.md` of a library (doc/design/library.md "Skills"): its name and description, or
+ * why it is not a skill. Written in the same transaction as the file row.
+ */
+export interface LibrarySkillsTable {
+	library_id: string;
+	/** The `SKILL.md` path. */
+	path: string;
+	sha256: string;
+	name: string | null;
+	description: string | null;
+	/** Why the file is not a skill; null for a valid one. */
+	invalid: string | null;
+}
+
 /** The image cache's index (doc/design/library.md "Image cache"); the bytes live on crhs's local disk. */
 export interface ImageCacheTable {
 	/** Hex SHA-256; also the cache file's name. */
@@ -597,6 +612,11 @@ export interface SessionsTable {
 	 * (doc/design/extensions.md "Extensions"). A subagent copies its parent's list and may only add to it.
 	 */
 	disabled_extensions: string | null;
+	/**
+	 * The session's system prompt, assembled at its first model request and used unchanged afterwards
+	 * (doc/design/agent-runtime.md "Session system prompt"); null until then.
+	 */
+	system_prompt: ColumnType<string | null, string | null | undefined, string | null>;
 	/** The session's own run state (doc/design/agent-runtime.md "Session state"); the session list aggregates it over the tree. */
 	state: SessionState;
 	/** Why the session waits; null unless `state` is `awaiting`. */
@@ -796,6 +816,7 @@ export interface Database {
 	user_group_members: UserGroupMembersTable;
 	libraries: LibrariesTable;
 	library_files: LibraryFilesTable;
+	library_skills: LibrarySkillsTable;
 	image_cache: ImageCacheTable;
 	web_sessions: WebSessionsTable;
 	shares: SharesTable;

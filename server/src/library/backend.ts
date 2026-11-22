@@ -25,7 +25,11 @@ export interface LibraryBackend {
 	readonly kind: string;
 	/** Streams `source` to a new object and reports its size and SHA-256. */
 	put(key: string, source: Readable): Promise<{ size: number; sha256: string }>;
-	get(key: string): Readable;
+	/**
+	 * Streams an object, from byte `start` (default 0) to its end: objects never change, so a read may
+	 * begin anywhere (doc/design/library.md "Backends").
+	 */
+	get(key: string, start?: number): Readable;
 	/** Deletes an object; a missing object is not an error. */
 	delete(key: string): Promise<void>;
 	/** Every object of the store, for the orphan sweep. */
@@ -101,8 +105,8 @@ class LocalLibraryBackend implements LibraryBackend {
 		}
 	}
 
-	get(key: string): Readable {
-		return createReadStream(this.#path(key));
+	get(key: string, start = 0): Readable {
+		return createReadStream(this.#path(key), start > 0 ? { start } : {});
 	}
 
 	async delete(key: string): Promise<void> {

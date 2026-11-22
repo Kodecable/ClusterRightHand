@@ -28,9 +28,11 @@ import { findLibraryFile } from "../library/files.ts";
 import { REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
 import { requireOwnerLibrary } from "../library/library.ts";
+import { skillCatalog, skillsPromptSection } from "../library/skills.ts";
 import { parseRuleSetForWrite } from "../policy/refs.ts";
 import type { RuleRef } from "../policy/store.ts";
 import { type SessionRow, sessionAncestors } from "../sessions/session-chain.ts";
+import { DEFAULT_SKILLS_PER_USER } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { callTool } from "../tools/adapter.ts";
 import { DEFAULT_IMAGE_LIMITS, type ImageLimits, runExtensionTool, TOOLS, type ToolContext } from "../tools/catalog.ts";
@@ -69,7 +71,7 @@ export const SESSION_TOOL_GUIDE = `- Each user message ends with a bracketed not
 - exec may return "still running" with a task_id; follow it with task_wait, or stop it with task_cancel. A batch returns each node's output tail as text.
 - write_file mode is an octal string such as "0644"; create_parent_dirs: true creates missing parent directories. edit_file needs each old_text to be unique in each node's file; a node that does not match fails alone.
 - The file tools (read_file, write_file, edit_file, list_dir, stat, copy_file, view_image) block until the task ends or group ends, approval included, and never return a task id.
-- list_dir and stat take a library argument instead of targets: user:<username> or user_group:<user group name>. You reach the acting user's own library and the libraries of their user groups.
+- read_file, list_dir and stat take a library argument instead of targets: user:<username> or user_group:<user group name>. You reach the acting user's own library and the libraries of their user groups.
 - copy_file moves one file between nodes and libraries: source { node, path } or { library, path }; destination { targets, path } for one or more nodes (with create_parent_dirs, mode, owner, group and privileged), { library, path } for a library, or { user_interface: true } to hand the file to the people in the session without copying it. A user_interface offer reads the source only when someone clicks to download it, possibly long after the call, so never offer a temporary file; copy it to a library first and offer that. Library paths are relative to the library root; a leading / is optional. Node destinations create missing parent directories only with create_parent_dirs: true; a library has no directories. view_image shows one PNG, JPEG, GIF or WebP; a file needs file.read on its node.
 - Commands and changes may wait for the user's approval; a rejected task comes back with an error code and the user's reason. Respect it and do not try to get around it.
 - A task can end "unknown": its outcome could not be confirmed. Check the node's state before retrying.
@@ -220,6 +222,7 @@ async function toolContextFor(
 		callId: api.callId,
 		closing: () => runtimeRef.current?.closing === true,
 		...(extras.deliveries ? { deliveryCount: () => deliveryCountFor(runtimeRef.current, conversationId) } : {}),
+		...(options.settings ? { directoryCopyLimits: options.settings.current().directoryCopy } : {}),
 		...(context.abortSignal ? { signal: context.abortSignal } : {}),
 		onStatus: (status) => api.details(status as never, context),
 	};
@@ -597,6 +600,18 @@ async function deliveryCountFor(runtime: AgentRuntime | undefined, conversationI
 		}
 	}
 	return count;
+}
+
+/** The owner's skills for the system prompt (doc/design/library.md "Skills"). */
+async function sessionSkills(options: AgentRuntimeOptions, ownerUserId: string): Promise<string> {
+	const owner = await options.db
+		.selectFrom("users")
+		.select("username")
+		.where("id", "=", ownerUserId)
+		.executeTakeFirst();
+	if (!owner) return "";
+	const limit = options.settings?.current().skills.maxPerUser ?? DEFAULT_SKILLS_PER_USER;
+	return skillsPromptSection(await skillCatalog(options.db, ownerUserId, limit), `user:${owner.username}`);
 }
 
 /** The session's extensions for the tool guide (doc/design/extensions.md "Tools for the model"). */
@@ -1007,12 +1022,16 @@ export function clusterExtension(
 			section(
 				"crh",
 				async (input) => {
-					const prompt = sessionSystemPrompt(presets.get("session").systemPrompt);
 					const session = await options.db
 						.selectFrom("sessions")
-						.select(["owner_user_id", "parent_session_id", "disabled_extensions"])
+						.select(["id", "owner_user_id", "parent_session_id", "disabled_extensions", "system_prompt"])
 						.where("conversation_id", "=", String(input.conversationId))
 						.executeTakeFirst();
+					// The prompt is assembled once, at the session's first request, and kept: what changes later
+					// (settings, groups, extensions, skills) reaches the session through its tools, never by rewriting
+					// the prompt (doc/design/agent-runtime.md "Session system prompt").
+					if (session?.system_prompt != null) return session.system_prompt;
+					const prompt = sessionSystemPrompt(presets.get("session").systemPrompt);
 					if (!session) return prompt;
 					const user = await sessionUserNote(options.db, session.owner_user_id);
 					if (user === null) return prompt;
@@ -1021,9 +1040,23 @@ export function clusterExtension(
 						session.owner_user_id,
 						parseDisabledExtensionNames(session.disabled_extensions),
 					);
-					return [prompt, user, session.parent_session_id === null ? "" : SUBAGENT_NOTE, guide]
+					const skills = await sessionSkills(options, session.owner_user_id);
+					const assembled = [prompt, user, session.parent_session_id === null ? "" : SUBAGENT_NOTE, guide, skills]
 						.filter((part) => part !== "")
 						.join("\n\n");
+					await options.db
+						.updateTable("sessions")
+						.set({ system_prompt: assembled })
+						.where("id", "=", session.id)
+						.where("system_prompt", "is", null)
+						.execute();
+					// Two first requests racing keep whichever prompt was stored first.
+					const stored = await options.db
+						.selectFrom("sessions")
+						.select("system_prompt")
+						.where("id", "=", session.id)
+						.executeTakeFirst();
+					return stored?.system_prompt ?? assembled;
 				},
 				{ tag: false },
 			),

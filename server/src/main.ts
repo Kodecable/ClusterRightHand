@@ -252,6 +252,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		imageCache,
 		mcp,
 		audit,
+		settings,
 	});
 	// Signature waits that outlived their deadline while crhs was down end before requests are served.
 	await cluster.sweepAuthorizationWaits();

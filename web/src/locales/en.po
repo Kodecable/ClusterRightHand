@@ -649,6 +649,10 @@ msgstr "An administrator creates node groups."
 msgid "An administrator grants access to nodes."
 msgstr "An administrator grants access to nodes."
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "An agent can copy a directory into a library, for example to install a skill; a larger directory must be packed into one archive first. A session's system prompt lists the skills under skills/ in the owner's library; past the limit it lists none and the model browses them itself."
+msgstr "An agent can copy a directory into a library, for example to install a skill; a larger directory must be packed into one archive first. A session's system prompt lists the skills under skills/ in the owner's library; past the limit it lists none and the model browses them itself."
+
 #: src/features/sessions/extensions-dialog.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
 msgstr "An extension that is off is hidden from the model. The change applies to the next turn."
@@ -1851,6 +1855,10 @@ msgstr "Detail of event {0}"
 msgid "Digest"
 msgstr "Digest"
 
+#: src/features/system-settings/attachments-section.tsx
+msgid "Directory copies and skills"
+msgstr "Directory copies and skills"
+
 #: src/components/task-result.tsx
 msgid "Directory listing"
 msgstr "Directory listing"
@@ -2096,6 +2104,10 @@ msgstr "Enter a whole number of at least 1."
 #: src/features/sessions/quota-panel.tsx
 msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "Enter a whole number of tokens, or leave it empty for unlimited."
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Enter a whole number, 0 or more."
+msgstr "Enter a whole number, 0 or more."
 
 #: src/features/system-settings/general-section.tsx
 msgid "Enter an absolute http or https URL."
@@ -2988,8 +3000,20 @@ msgid "More results — keep typing to narrow down"
 msgstr "More results — keep typing to narrow down"
 
 #: src/features/system-settings/attachments-section.tsx
+msgid "Most bytes in one directory copy"
+msgstr "Most bytes in one directory copy"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Most files in one directory copy"
+msgstr "Most files in one directory copy"
+
+#: src/features/system-settings/attachments-section.tsx
 msgid "Most inlined per message"
 msgstr "Most inlined per message"
+
+#: src/features/system-settings/attachments-section.tsx
+msgid "Most skills listed per user"
+msgstr "Most skills listed per user"
 
 #: src/components/file-manager/file-list.tsx
 msgid "Move"

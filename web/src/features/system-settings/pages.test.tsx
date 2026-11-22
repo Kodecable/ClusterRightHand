@@ -18,6 +18,8 @@ const SETTINGS: SystemSettings = {
 	},
 	attachments: { inlineTextBytes: 32768, inlineTotalBytes: 65536 },
 	imageCache: { diskBytes: 1073741824, ttl: "7d" },
+	directoryCopy: { files: 256, bytes: 268435456 },
+	skills: { maxPerUser: 64 },
 };
 
 const DEFAULTS: SystemSettings = {
@@ -33,6 +35,8 @@ const DEFAULTS: SystemSettings = {
 	},
 	attachments: { inlineTextBytes: 32768, inlineTotalBytes: 65536 },
 	imageCache: { diskBytes: 1073741824, ttl: "7d" },
+	directoryCopy: { files: 256, bytes: 268435456 },
+	skills: { maxPerUser: 64 },
 };
 
 const NEWEST_KEY: SigningKey = {
