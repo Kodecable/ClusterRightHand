@@ -415,6 +415,106 @@ test("the background bar counts active jobs and opens the tree, expanding nested
 	await expect(page).toHaveURL(/\/tasks\/t9$/);
 });
 
+test("long job actions stay inside the background popover and the mobile sheet", async ({ page }) => {
+	const longAction = `systemctl restart ${"a-very-long-service-name-".repeat(10)}`;
+	const nestedAction = `journalctl -u ${"another-long-service-name-".repeat(10)}`;
+	const root = sessionListItem({ id: "s1", title: "Parent", updatedAt: new Date().toISOString() });
+	const child = sessionListItem({
+		id: "c1",
+		title: "Child one",
+		state: "running",
+		updatedAt: new Date().toISOString(),
+	});
+	const subagent = jobView({
+		id: "subagent-1",
+		kind: "subagent",
+		action: { type: "subagent", task: longAction },
+		resource: { type: "session", id: "c1" },
+	});
+	const nested = jobView({
+		id: "exec-9",
+		action: { type: "exec", command: nestedAction },
+		resource: { type: "task", id: "t9" },
+		sessionId: "c1",
+	});
+	const api = await mockApi(page, {
+		state: {
+			sessions: [root, child],
+			details: { s1: sessionView(root), c1: sessionView(child, { parentSessionId: "s1" } as never) },
+			jobs: { s1: [subagent], c1: [nested] },
+			events: {
+				s1: snapshotEvent([userEntry("u1", "delegate")], null),
+				c1: snapshotEvent([userEntry("c1-u1", "nested")], null),
+			},
+		},
+	});
+	await login(page);
+	await openSession(page, api, "s1");
+
+	// At 390 px the bar opens as a bottom sheet; the nested level's depth padding must fit too.
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByTestId("background-bar").click();
+	await expect(page.getByTestId("background-sheet")).toBeVisible();
+	await page.getByTestId("background-job-expand").first().click();
+	await expect(page.getByTestId("background-tree").getByRole("link", { name: nestedAction })).toBeVisible();
+	const mobile = await page.evaluate(() => {
+		const tree = document.querySelector<HTMLElement>('[data-testid="background-tree"]');
+		const trigger = document.querySelector<HTMLElement>('[data-testid="background-bar"]');
+		if (!tree || !trigger) return null;
+		return {
+			tree: tree.scrollWidth - tree.clientWidth,
+			trigger: trigger.scrollWidth - trigger.clientWidth,
+			treeRight: tree.getBoundingClientRect().right,
+			viewport: window.innerWidth,
+		};
+	});
+	expect(mobile).not.toBeNull();
+	expect(mobile?.tree).toBeLessThanOrEqual(0);
+	expect(mobile?.trigger).toBeLessThanOrEqual(0);
+	expect(mobile?.treeRight).toBeLessThanOrEqual(390);
+	expect(mobile?.viewport).toBe(390);
+	// The action truncates (its title keeps the whole text) rather than widening the tree.
+	const truncated = await page
+		.getByTestId("background-job-link")
+		.first()
+		.evaluate((element) => ({
+			overflow: element.scrollWidth - element.clientWidth,
+			title: element.getAttribute("title"),
+		}));
+	expect(truncated.overflow).toBeGreaterThan(0);
+	expect(truncated.title).toBe(longAction);
+
+	await page.keyboard.press("Escape");
+	await expect(page.getByTestId("background-sheet")).toBeHidden();
+
+	// On desktop the popover stays inside the viewport.
+	await page.setViewportSize({ width: 1440, height: 900 });
+	await page.getByTestId("background-bar").click();
+	const popover = page.getByTestId("background-popover");
+	await expect(popover).toBeVisible();
+	await page.getByTestId("background-job-expand").first().click();
+	await expect(page.getByTestId("background-tree").getByRole("link", { name: nestedAction })).toBeVisible();
+	const desktop = await page.evaluate(() => {
+		const tree = document.querySelector<HTMLElement>('[data-testid="background-tree"]');
+		const popover = document.querySelector<HTMLElement>('[data-testid="background-popover"]');
+		if (!tree || !popover) return null;
+		const rect = popover.getBoundingClientRect();
+		return {
+			tree: tree.scrollWidth - tree.clientWidth,
+			popover: popover.scrollWidth - popover.clientWidth,
+			left: rect.left,
+			right: rect.right,
+			viewport: window.innerWidth,
+		};
+	});
+	expect(desktop).not.toBeNull();
+	expect(desktop?.tree).toBeLessThanOrEqual(0);
+	expect(desktop?.popover).toBeLessThanOrEqual(0);
+	expect(desktop?.left).toBeGreaterThanOrEqual(0);
+	expect(desktop?.right).toBeLessThanOrEqual(1440);
+	expect(desktop?.viewport).toBe(1440);
+});
+
 test("a session without active jobs shows no background bar", async ({ page }) => {
 	await openFooterPage(page);
 	await expect(page.getByTestId("background-bar")).toHaveCount(0);

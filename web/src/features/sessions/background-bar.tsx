@@ -60,17 +60,27 @@ export function BackgroundBar({
 			onClick={onClick}
 		>
 			<ListTreeIcon className="size-3.5 shrink-0" aria-hidden="true" />
-			<span className="inline-flex min-w-0 items-center gap-1.5">
-				<Plural value={items.length} one="# background job" other="# background jobs" />
-				{running > 0 && <Trans>{running} running</Trans>}
-				{waiting > 0 && <Trans>{waiting} waiting</Trans>}
+			<span className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+				<span className="min-w-0 truncate">
+					<Plural value={items.length} one="# background job" other="# background jobs" />
+				</span>
+				{running > 0 && (
+					<span className="min-w-0 truncate">
+						<Trans>{running} running</Trans>
+					</span>
+				)}
+				{waiting > 0 && (
+					<span className="min-w-0 truncate">
+						<Trans>{waiting} waiting</Trans>
+					</span>
+				)}
 			</span>
 		</Button>
 	);
 
 	const tree = (
-		<div className="min-h-0 overflow-y-auto" data-testid="background-tree">
-			<ul className="grid gap-0.5">
+		<div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto" data-testid="background-tree">
+			<ul className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
 				{items.map((job) => (
 					<JobNode key={job.id} job={job} depth={0} isOwner={isOwner} revision={revision} onNavigate={close} />
 				))}
@@ -92,7 +102,7 @@ export function BackgroundBar({
 								<Trans>Background jobs</Trans>
 							</SheetTitle>
 						</SheetHeader>
-						<div className="min-h-0 overflow-y-auto px-3 pb-3">{tree}</div>
+						<div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto px-3 pb-3">{tree}</div>
 					</SheetContent>
 				</Sheet>
 			</>
@@ -106,7 +116,7 @@ export function BackgroundBar({
 			<PopoverContent
 				side="top"
 				align="start"
-				className="max-h-80 w-96 overflow-y-auto p-2"
+				className="max-h-80 w-96 max-w-[calc(100vw-2rem)] overflow-x-hidden overflow-y-auto p-2"
 				data-testid="background-popover"
 			>
 				<p className="px-1 pb-1 text-xs font-medium text-muted-foreground">
@@ -161,8 +171,8 @@ function JobNode({
 	const cancel = useCancelJob();
 	const action = actionText(i18n, job.action) || job.kind;
 	return (
-		<li>
-			<div className="relative flex min-w-0 items-center gap-1" style={{ paddingLeft: `${depth * 12}px` }}>
+		<li className="min-w-0">
+			<div className="relative flex min-w-0 max-w-full items-center gap-1" style={{ paddingLeft: `${depth * 12}px` }}>
 				{job.kind === "subagent" ? (
 					<Button
 						type="button"
@@ -205,11 +215,11 @@ function JobNode({
 				)}
 				<span
 					data-testid="background-job-state"
-					className="shrink-0 text-xs text-muted-foreground"
+					className="flex min-w-0 max-w-[50%] items-center gap-1.5 text-xs text-muted-foreground"
 					title={`${jobStateText(i18n, job)} · ${formatDuration(now - Date.parse(job.createdAt), i18n.locale)}`}
 				>
-					{jobStateText(i18n, job)}
-					<span className="ml-1.5 tabular-nums">{formatDuration(now - Date.parse(job.createdAt), i18n.locale)}</span>
+					<span className="min-w-0 truncate">{jobStateText(i18n, job)}</span>
+					<span className="shrink-0 tabular-nums">{formatDuration(now - Date.parse(job.createdAt), i18n.locale)}</span>
 				</span>
 				{link === undefined && isOwner && (
 					<Button
@@ -275,7 +285,7 @@ function NestedJobs({
 		);
 	}
 	return (
-		<ul className="grid gap-0.5">
+		<ul className="grid grid-cols-[minmax(0,1fr)] gap-0.5">
 			{items.map((job) => (
 				<JobNode key={job.id} job={job} depth={depth} isOwner={isOwner} revision={revision} onNavigate={onNavigate} />
 			))}

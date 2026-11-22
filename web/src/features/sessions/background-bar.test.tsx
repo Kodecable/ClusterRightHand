@@ -139,6 +139,31 @@ describe("BackgroundBar", () => {
 		expect(fetchMock.mock.calls.some(([url]) => String(url).includes("session=child-1"))).toBe(true);
 	});
 
+	test("a long action truncates inside the row and the tree cannot scroll sideways", async () => {
+		const action = `systemctl restart ${"a-very-long-service-name-".repeat(12)}`;
+		mockJobs({ s1: [job({ action: { type: "exec", command: action } })] });
+		await renderWithRouter(<BackgroundBar sessionId="s1" isOwner revision={0} />);
+		const tree = await openBar();
+		const popover = screen.getByTestId("background-popover");
+		// jsdom does not lay out, so the constraints that keep the row inside the popover are asserted by class.
+		expect(popover).toHaveClass("w-96", "max-w-[calc(100vw-2rem)]", "overflow-x-hidden");
+		expect(tree).toHaveClass("min-w-0", "overflow-x-hidden");
+		expect(tree.querySelector("ul")).toHaveClass("grid-cols-[minmax(0,1fr)]");
+		const link = within(tree).getByTestId("background-job-link");
+		expect(link).toHaveClass("min-w-0", "flex-1", "truncate");
+		expect(link).toHaveAttribute("title", action);
+		const state = within(tree).getByTestId("background-job-state");
+		expect(state).toHaveClass("min-w-0", "max-w-[50%]");
+		expect(state.firstElementChild).toHaveClass("truncate");
+		// The duration keeps its width while the state name is the part that gives way.
+		expect(state.lastElementChild).toHaveClass("shrink-0", "tabular-nums");
+		expect(screen.getByTestId("background-bar").querySelector("span.inline-flex")).toHaveClass(
+			"min-w-0",
+			"flex-1",
+			"overflow-hidden",
+		);
+	});
+
 	test("the trigger opens the bottom sheet on a mobile width", async () => {
 		Object.defineProperty(window, "innerWidth", { configurable: true, value: 500 });
 		mockJobs({ s1: [RUNNING_TASK] });
