@@ -10,6 +10,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { type Actor, AUTHORIZATION_WAIT_MS, Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -54,6 +55,7 @@ let nodeId = "";
 
 async function openRuntime(): Promise<AgentRuntime> {
 	return AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db: dbProbe.db,
 		storage: new MemoryStorage(),
 		models,

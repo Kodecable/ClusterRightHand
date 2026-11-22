@@ -72,10 +72,11 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 				"list_dir",
 				"list_nodes",
 				"node_info",
+				"job_cancel",
+				"job_list",
+				"job_wait",
 				"read_file",
 				"stat",
-				"task_cancel",
-				"task_wait",
 				"view_image",
 				"write_file",
 			].sort(),
@@ -175,27 +176,34 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 		expect(hostname).toContain("(end of file)");
 		const pending = await callText(client, "exec", { targets: [nodeName], argv: ["echo", "approved"], wait: 1 });
 		expect(pending).toContain("waiting for approval:");
-		const pendingId = /task_id ([^\s.]+)\./.exec(pending)?.[1];
-		expect(pendingId).toBeDefined();
-		if (!pendingId) throw new Error("the pending note carries no task id");
+		const jobId = /job ([^,:\s]+): call job_wait/.exec(pending)?.[1];
+		expect(jobId).toBeDefined();
+		if (!jobId) throw new Error("the pending note carries no job id");
+		expect(pending).not.toContain("task_id");
 
 		const approvals = (await env.crhs.api("/api/approvals")).json;
-		expect(approvals.tasks.map((x: { id: string }) => x.id)).toEqual([pendingId]);
-		const decided = await env.crhs.api(`/api/tasks/${pendingId}/approval`, {
+		const pendingTask = approvals.tasks.find(
+			(candidate: { action: { type: string; command?: string } }) => candidate.action.command === "echo approved",
+		);
+		expect(pendingTask).toBeDefined();
+		const decided = await env.crhs.api(`/api/tasks/${pendingTask.id}/approval`, {
 			body: { decision: "approve", always: { action: "allow", method: "exec", exact: "echo approved" } },
 		});
 		expect(decided.status).toBe(200);
-		expect(await callText(client, "task_wait", { task_id: pendingId })).toContain("approved\n");
+		expect(await callText(client, "job_wait", { job_id: jobId })).toContain("approved\n");
 		// "Always allow" took effect: the same command now runs at once.
 		expect(await callText(client, "exec", { targets: [nodeName], argv: ["echo", "approved"] })).toContain(
 			`[${nodeName}, exit 0]`,
 		);
 		// Rejection reaches the client as the task's outcome.
 		const second = await callText(client, "exec", { targets: [nodeName], cmd: "rm -rf /tmp/nothing", wait: 0 });
-		const secondId = /task_id ([^\s.]+)\./.exec(second)?.[1];
-		if (!secondId) throw new Error("the second note carries no task id");
-		await env.crhs.api(`/api/tasks/${secondId}/approval`, { body: { decision: "reject", reason: "no" } });
-		const rejected = await result(client, "task_wait", { task_id: secondId });
+		const secondJob = /job ([^,:\s]+): call job_wait/.exec(second)?.[1];
+		if (!secondJob) throw new Error("the second note carries no job id");
+		const secondTask = (await env.crhs.api("/api/approvals")).json.tasks.find(
+			(candidate: { action: { type: string; command?: string } }) => candidate.action.command === "rm -rf /tmp/nothing",
+		);
+		await env.crhs.api(`/api/tasks/${secondTask.id}/approval`, { body: { decision: "reject", reason: "no" } });
+		const rejected = await result(client, "job_wait", { job_id: secondJob });
 		expect(rejected.isError).toBe(true);
 		expect(resultText(rejected)).toContain("error approval_rejected: no");
 		await client.close();
@@ -212,11 +220,14 @@ describe.skipIf(!hasGo)("MCP against in-process crhs and a real crha", () => {
 			wait: 0,
 		});
 		expect(g).toContain("waiting for approval:");
-		const groupId = /task_group_id ([^\s.]+)\./.exec(g)?.[1];
-		expect(groupId).toBeDefined();
-		if (!groupId) throw new Error("the group note carries no id");
+		const jobId = /job ([^,:\s]+): call job_wait/.exec(g)?.[1];
+		expect(jobId).toBeDefined();
+		if (!jobId) throw new Error("the group note carries no job id");
+		expect(g).not.toContain("task_group_id");
+		const groupId = (await env.crhs.api("/api/approvals")).json.taskGroups[0]?.id;
+		if (!groupId) throw new Error("the approvals list has no waiting task group");
 		await env.crhs.api(`/api/task-groups/${groupId}/approval`, { body: { decision: "approve" } });
-		const done = await callText(client, "task_wait", { task_group_id: groupId });
+		const done = await callText(client, "job_wait", { job_id: jobId });
 		expect(done).toContain("batch\n");
 		await client.close();
 	});

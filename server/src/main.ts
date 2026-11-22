@@ -24,8 +24,11 @@ import { loadServerIdentity } from "./cluster/identity.ts";
 import { nodeRoute } from "./cluster/ssh/nodes.ts";
 import { TaskGroups } from "./cluster/task-groups.ts";
 import { type Config, DEFAULT_CONFIG_PATH, loadConfig } from "./config.ts";
+import { CallRunner } from "./extensions/call-runner.ts";
 import { McpConnections } from "./extensions/connections.ts";
 import { recoverExternalCalls } from "./extensions/external-calls.ts";
+import { createJobs } from "./jobs/jobs.ts";
+import { rearmWaitingCallJobs } from "./jobs/rearm.ts";
 import { bindMasterKey, KeyError, type MasterKey, readMasterKeyFile } from "./keys/master-key.ts";
 import { createLibraryBackend } from "./library/backend.ts";
 import { ImageCache, startImageCacheSweep } from "./library/image-cache.ts";
@@ -39,6 +42,8 @@ import { SetupError } from "./setup/answers.ts";
 import { runInit } from "./setup/init.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
+import { convertExternalResult } from "./tools/external-results.ts";
+import { execJobRenderers } from "./tools/job-renderers.ts";
 import { UserError } from "./util/errors.ts";
 import { installProcessErrorHandlers } from "./util/process-errors.ts";
 import { configureOutboundProxy } from "./util/proxy.ts";
@@ -243,12 +248,31 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// An external call that was in flight when the last process stopped ended unknown; it is never repeated.
 	// Recover before the runtime resumes runs, or a call a resumed run starts in that window is flipped to unknown.
 	await recoverExternalCalls(db);
+	// The crhs-owned extension calls, one per process: the job service, the runtime's tools and stop path, the
+	// startup re-arm and the MCP surface all share it (doc/design/jobs.md "Background extension calls").
+	const callRunner = new CallRunner();
+	// One job service for the runtime and the HTTP surface; the runtime reconciles it after durable resumes.
+	const jobs = createJobs({ db, cluster, taskGroups, execRenderers: execJobRenderers, callRunner, audit });
+	// A call job still waiting for its approval has no runner after a restart: re-arm it from its row before any
+	// request can decide it, so approving starts the call and rejecting settles it (doc/design/jobs.md
+	// "Background extension calls"). A call that was in flight was already recovered as `unknown` above.
+	await rearmWaitingCallJobs({
+		db,
+		mcp,
+		jobs,
+		convert: (value, options) => convertExternalResult(value as never, options),
+		callRunner,
+		imageCache,
+		audit,
+	});
 	const runtime = await AgentRuntime.open({
 		db,
 		storage: agentStorage.open,
 		models,
 		cluster,
 		taskGroups,
+		jobs,
+		callRunner,
 		imageCache,
 		mcp,
 		audit,
@@ -284,6 +308,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		serverPublicKey: identity.keyPair.publicKey,
 		cluster,
 		taskGroups,
+		jobs,
+		callRunner,
 		signingKeys,
 		masterKey,
 		libraryBackend,
@@ -361,6 +387,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		// Stop polling and watching before the runtime goes: an adapter event must not reach a closed Harness.
 		await channels.stop();
 		await runtime.close();
+		// Extension calls run in crhs's runner: stop waiting for their approvals (the next process keeps them),
+		// abort requests still in flight as unknown, and wait for their rows and job results before the database goes.
+		await callRunner.shutdown();
 		await mcp.close();
 		await agentStorage.close();
 		// 3. Only HTTP and MCP waits are left: end them, so each returns its current state at once and step 4
@@ -374,6 +403,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		await cluster.close();
 		await taskGroups.close();
 		await agents.close();
+		// A record-change projection started just before shutdown is awaited before the database goes.
+		await jobs.drain();
 		await audit.flush();
 		// 6. The database goes last.
 		await db.destroy();

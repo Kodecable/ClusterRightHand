@@ -8,6 +8,7 @@ import { ModelConfig } from "../../src/agent/models.ts";
 import { AgentRuntime } from "../../src/agent/runtime.ts";
 import type { SessionUser } from "../../src/auth/sessions.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
+import { CallRunner } from "../../src/extensions/call-runner.ts";
 import { waitSubmission } from "../helpers/runtime.ts";
 import { buildCrha, Env, goAvailable, waitFor } from "./harness.ts";
 
@@ -29,6 +30,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		await models.reload();
 		const storage = await openNodeSqliteStorage(join(tmp, "durable.sqlite"), { prefix: "pi_" });
 		return AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db: env.crhs.db,
 			storage,
 			models,
@@ -133,6 +135,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 		models.addProvider(faux.provider);
 		await models.reload();
 		const runtime = await AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db: env.crhs.db,
 			storage,
 			models,
@@ -289,7 +292,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 								: ((m.content as { text?: string }[]).map((c) => c.text ?? "").join("") ?? ""),
 						)
 						.join("\n");
-					const childId = /subagent_wait\("([0-9a-f-]{36})"\)/.exec(all)?.[1];
+					const jobId = /job_wait\("([^"]+)"\)/.exec(all)?.[1];
 					if (text.includes("waiting for your decision")) {
 						// The request is the JSON entry of the delimited <subagent-requests> block.
 						const requestId = /"kind":"quota","id":"([0-9a-f-]{36})"/.exec(text)?.[1];
@@ -305,7 +308,7 @@ describe.skipIf(!hasGo)("agent sessions against a real crha", () => {
 						);
 					}
 					if (text.includes("was granted")) {
-						return fauxAssistantMessage([fauxToolCall("subagent_wait", { id: childId ?? "" }, { id: `w${++n}` })], {
+						return fauxAssistantMessage([fauxToolCall("job_wait", { job_id: jobId ?? "" }, { id: `w${++n}` })], {
 							stopReason: "toolUse",
 						});
 					}

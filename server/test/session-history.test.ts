@@ -8,6 +8,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
@@ -116,6 +117,7 @@ beforeAll(async () => {
 	await models.reload();
 	storage = new MemoryStorage();
 	runtime = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db,
 		storage,
 		models,

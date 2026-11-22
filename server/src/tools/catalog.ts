@@ -6,28 +6,34 @@ import * as z from "zod/v4";
 import type { Audit } from "../audit/audit.ts";
 import type { SessionUser } from "../auth/sessions.ts";
 import { isPendingReview, pendingReview } from "../cluster/approval.ts";
-import { type Actor, type Cluster, EMPTY_INPUT_REF, type TaskView } from "../cluster/cluster.ts";
+import { type Actor, type Cluster, EMPTY_INPUT_REF } from "../cluster/cluster.ts";
 import { listNodesForUser, type PublicNode } from "../cluster/nodes.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
 import { resolveTargets } from "../cluster/task-groups.ts";
+import {
+	type CallRunner,
+	callRunningResult,
+	callWaitingResult,
+	type RunningCall,
+	settledCallResult,
+} from "../extensions/call-runner.ts";
 import {
 	createExternalCall,
 	type ExternalCallRow,
 	externalCallApproval,
 	externalCallId,
+	externalCallTaskAction,
 	finishExternalCall,
 	getExternalCall,
-	waitExternalCall,
 } from "../extensions/external-calls.ts";
-import {
-	ExtensionCallLostError,
-	type ExtensionTool,
-	ExtensionToolError,
-	ExtensionUnavailableError,
-	type SessionExtension,
-} from "../extensions/model.ts";
+import type { ExtensionTool, SessionExtension } from "../extensions/model.ts";
 import { buildSearchIndex, searchIndexRecord, searchQueryTerms } from "../extensions/search-index.ts";
-import { extensionsForUser, sameInputSchema } from "../extensions/store.ts";
+import { sameInputSchema } from "../extensions/store.ts";
+import { parseCallResult } from "../jobs/call.ts";
+import type { Jobs } from "../jobs/jobs.ts";
+import { jobLimitResult, withJobLimit } from "../jobs/limits.ts";
+import { JOB_TOOLS } from "../jobs/tools.ts";
+import type { JobRow } from "../jobs/types.ts";
 import { copyLibraryFile } from "../library/files.ts";
 import { type ImageCache, REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
 import { readImageHeader } from "../library/image-header.ts";
@@ -36,7 +42,6 @@ import { validateLibraryPath, validateLibraryPrefix } from "../library/paths.ts"
 import { openTransferLocation, type TransferLocationJson } from "../library/transfer-location.ts";
 import { evaluate } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
-import { sessionDescendants } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import { UserError } from "../util/errors.ts";
@@ -49,7 +54,6 @@ import { nodeInfoFields, readNotes, readNotesBatch } from "./node-info.ts";
 import { errorResult, jsonResult, type ToolOutput, type ToolResult, textResult } from "./render.ts";
 import {
 	execResult,
-	execTaskResult,
 	fileJsonGroupResult,
 	fileJsonResult,
 	readGroupResult,
@@ -60,13 +64,10 @@ import {
 	GROUP_READ_LINES,
 	MAX_OUTPUT_BYTES,
 	MAX_OUTPUT_LINES,
-	type NodeTransport,
 	READ_PAGE_LINES,
 	runTaskTool,
 	waitBlockingGroup,
 	waitBlockingTask,
-	waitExistingGroup,
-	waitExistingTask,
 } from "./task-tool.ts";
 
 /**
@@ -97,8 +98,7 @@ export interface ToolContext {
 	callId?: string;
 	/** Seconds a call waits for its result when the caller gives no `wait` (MCP: 30; agents: 600). */
 	defaultWaitS?: number;
-	/** Agents keep waiting while a task waits for approval (MCP returns and follows up with task_wait). */
-	waitThroughApproval?: boolean;
+	/** Agents keep waiting while a task waits for approval (MCP returns and follows up with job_wait). */
 	/** Progress for a UI, e.g. "waiting for approval". */
 	onStatus?: (status: Record<string, unknown>) => Promise<void>;
 	/** The image cache behind `view_image`; the tool reports that it is not configured without one. */
@@ -114,6 +114,12 @@ export interface ToolContext {
 	audit?: Audit;
 	/** The extensions this session may use, with its own on/off choice (doc/design/extensions.md). */
 	extensions?: SessionExtension[];
+	/** The job service behind the job tools and the tools that start jobs (doc/design/jobs.md). */
+	jobs?: Jobs;
+	/** The crhs-owned in-flight extension calls (doc/design/jobs.md "Background extension calls"). */
+	callRunner: CallRunner;
+	/** The most unsettled jobs this caller may have (`jobs.max_running`); the default without System settings. */
+	jobsMaxRunning?: number;
 	/** The session tree's root, for grouping external-call approvals. */
 	rootSessionId?: string;
 	/** The session's organization, for tools that write rules (`subagent`). */
@@ -192,7 +198,7 @@ const waitField = z
 	.min(0)
 	.max(600)
 	.optional()
-	.describe("Seconds to wait for the result; after that the task keeps running and task_wait follows it up");
+	.describe("Seconds to wait for the result; after that the job keeps running and job_wait follows it up");
 const privilegedField = z
 	.boolean()
 	.optional()
@@ -309,8 +315,8 @@ const exec = define({
 	name: "exec",
 	description:
 		"Run a command on one node, or on several with targets. Give cmd (run with the node's POSIX sh) or argv. " +
-		"Returns the command's output and exit status as text; long-running tasks return a task_id to follow with " +
-		"task_wait. A batch runs one task per node and returns each node's output tail as text, within one budget " +
+		"Returns the command's output and exit status as text; long-running tasks return a job id to follow with " +
+		"job_wait. A batch runs one task per node and returns each node's output tail as text, within one budget " +
 		"shared by the batch. with_output: false returns JSON with the status and the path of the full output file " +
 		"instead, for a single task too; max_lines/max_bytes cap each node's output and need with_output: true. " +
 		"The task may first need the user's approval.",
@@ -347,6 +353,7 @@ const exec = define({
 				"invalid_argument",
 			);
 		}
+		const callKey = ctx.callKey ?? newId();
 		return runTaskTool(
 			ctx,
 			args,
@@ -367,6 +374,21 @@ const exec = define({
 			},
 			"background",
 			(started) => execResult(ctx, started),
+			async (started) => {
+				if (!ctx.jobs) return undefined;
+				const job = await ctx.jobs.ensure({
+					kind: "exec",
+					callKey,
+					...(ctx.orgId === undefined ? {} : { orgId: ctx.orgId }),
+					actor: ctx.actor,
+					sessionId: jobSessionId(ctx),
+					resourceType: started.kind === "task" ? "task" : "task_group",
+					resourceId: started.kind === "task" ? started.task.id : started.taskGroup.id,
+					action: started.kind === "task" ? started.task.action : started.taskGroup.action,
+				});
+				return job.id;
+			},
+			{ ctx, kind: "exec", callKey },
 		);
 	},
 });
@@ -1234,128 +1256,11 @@ const viewImage = define({
 	},
 });
 
-// ---- following up exec ----
+// ---- jobs ----
 
-const taskWait = define({
-	name: "task_wait",
-	description:
-		"Keep waiting for an exec task or task group started earlier (still running, or waiting for approval or " +
-		"authorization); returns its current result, text like exec. File tools never return task ids, so they " +
-		"cannot be waited for.",
-	input: z.object({
-		task_id: z.string().optional(),
-		task_group_id: z.string().optional(),
-		wait: waitField,
-	}),
-	readOnly: true,
-	output: "text",
-	handler: async (args, ctx) => {
-		const waitMs = (args.wait ?? ctx.defaultWaitS ?? 30) * 1000;
-		if (args.task_group_id) {
-			const taskGroup = await ctx.taskGroups.get(args.task_group_id);
-			if (
-				!taskGroup ||
-				taskGroup.onBehalfOfUserId !== ctx.user.userId ||
-				!(await mayActFor(ctx, taskGroup.actorType, taskGroup.actorId)) ||
-				taskGroup.kind !== "exec"
-			) {
-				throw new UserError("no such task group", "no_such_task");
-			}
-			const done = await waitExistingGroup(ctx, taskGroup.id, waitMs);
-			const nodes = await ctx.db
-				.selectFrom("nodes")
-				.select(["id", "name", "transport", "privileged_mode", "ssh_user"])
-				.where("id", "in", done.nodeIds)
-				.execute();
-			const names = new Map(nodes.map((n) => [n.id, n.name] as const));
-			const transports = new Map(nodes.map((n) => [n.id, n.transport as NodeTransport] as const));
-			const privileges = new Map(
-				nodes.map(
-					(n) =>
-						[
-							n.id,
-							{
-								transport: n.transport as NodeTransport,
-								mode: n.privileged_mode,
-								sshUser: n.ssh_user,
-							},
-						] as const,
-				),
-			);
-			return execResult(ctx, { kind: "task_group", taskGroup: done, names, transports, privileges });
-		}
-		if (!args.task_id) throw new UserError("give task_id or task_group_id", "invalid_argument");
-		const t = await ownTask(ctx, args.task_id);
-		if (t.kind !== "exec") throw new UserError("no such task", "no_such_task");
-		const done = (await waitExistingTask(ctx, t.id, waitMs)) ?? t;
-		const node = await ctx.db
-			.selectFrom("nodes")
-			.select(["name", "transport", "privileged_mode", "ssh_user"])
-			.where("id", "=", t.nodeId)
-			.executeTakeFirst();
-		return execTaskResult(
-			ctx,
-			done,
-			node?.name ?? t.nodeId,
-			(node?.transport as NodeTransport | undefined) ?? "client",
-			node === undefined
-				? undefined
-				: {
-						transport: node.transport as NodeTransport,
-						mode: node.privileged_mode,
-						sshUser: node.ssh_user,
-					},
-		);
-	},
-});
-
-const taskCancel = define({
-	name: "task_cancel",
-	description:
-		"Cancel a running exec task (TERM, then KILL after a grace period) or an exec task group (stops its workers " +
-		"and every unfinished member). File tools never return task ids, so they cannot be cancelled.",
-	input: z.object({
-		task_id: z.string().optional(),
-		task_group_id: z.string().optional(),
-	}),
-	readOnly: false,
-	output: "json",
-	handler: async (args, ctx) => {
-		if (args.task_group_id) {
-			const group = await ctx.taskGroups.get(args.task_group_id);
-			if (
-				!group ||
-				group.onBehalfOfUserId !== ctx.user.userId ||
-				!(await mayActFor(ctx, group.actorType, group.actorId)) ||
-				group.kind !== "exec"
-			) {
-				throw new UserError("no such task group", "no_such_task");
-			}
-			return jsonResult({
-				task_group_id: group.id,
-				cancel_sent: await ctx.taskGroups.cancel(group.id, undefined, ctx.actor),
-			});
-		}
-		if (!args.task_id) throw new UserError("give task_id or task_group_id", "invalid_argument");
-		const t = await ownTask(ctx, args.task_id);
-		if (t.kind !== "exec") throw new UserError("no such task", "no_such_task");
-		return jsonResult({ task_id: t.id, cancel_sent: await ctx.cluster.cancelTask(t.id, undefined, ctx.actor) });
-	},
-});
-
-/**
- * Whether the caller may act on work started for `actorType` / `actorId` (doc/design/agent-runtime.md "Cluster tools",
- * doc/design/access-control.md "Actors"): its own session or token, or a session in its subtree. Anything else, even
- * another session of the same user, is out of reach; the conservative reading, because the docs scope a tool
- * to the caller's own work.
- */
-async function mayActFor(ctx: ToolContext, actorType: string, actorId: string): Promise<boolean> {
-	if (ctx.actor.type === actorType && ctx.actor.id === actorId) return true;
-	// Only a session has a subtree; an API token's own tasks are the only ones it may touch.
-	if (ctx.actor.type !== "session" && ctx.actor.type !== "subagent") return false;
-	if (actorType !== "session" && actorType !== "subagent") return false;
-	const descendants = await sessionDescendants(ctx.db, ctx.actor.id);
-	return descendants.includes(actorId);
+/** The session whose tool call started a job; null for an API token (an MCP client has no session). */
+export function jobSessionId(ctx: ToolContext): string | null {
+	return ctx.actor.type === "session" || ctx.actor.type === "subagent" ? ctx.actor.id : null;
 }
 
 // ---- extension tools ----
@@ -1603,27 +1508,6 @@ function replayedResult(row: ExternalCallRow, extension: string, tool: string): 
 	}
 }
 
-/** The result of a call settled while this tool call waited: rejected and cancelled end here, never at the extension. */
-function settledResult(row: ExternalCallRow, extension: string, tool: string): ToolResult {
-	const details = { extension, tool };
-	if (row.state === "rejected") {
-		return errorResult(
-			"text",
-			"rejected",
-			externalCallApproval(row)?.decision?.reason ?? "rejected by the user",
-			details,
-		);
-	}
-	if (row.state === "cancelled") {
-		return errorResult("text", "cancelled", "the call was cancelled before it ran", details);
-	}
-	if (row.state === "awaiting_approval") {
-		// Only a shutdown leaves the waiting call in place after the wait returns; it was never sent.
-		return errorResult("text", "unknown", "the call is still waiting for approval; it was not sent", details);
-	}
-	return replayedResult(row, extension, tool);
-}
-
 /** Finishes a call and records it; every terminal path goes through here so the audit cannot be forgotten. */
 async function finishCall(
 	ctx: ToolContext,
@@ -1651,21 +1535,6 @@ async function finishOrphanedCall(
 	await finishCall(ctx, existing.id, extension, tool, state);
 }
 
-/** Finishes a call on a failure path; a failed finish is logged instead of hiding the error being returned. */
-async function finishCallQuietly(
-	ctx: ToolContext,
-	id: string,
-	extension: string,
-	tool: string,
-	state: "succeeded" | "failed" | "rejected" | "cancelled" | "unknown",
-): Promise<void> {
-	try {
-		await finishCall(ctx, id, extension, tool, state);
-	} catch (err) {
-		console.error("tools: finishing an extension call failed:", err);
-	}
-}
-
 /** Ends an orphaned replay on a failure path; a failed finish is logged instead of hiding the original error. */
 async function finishOrphanedCallQuietly(
 	ctx: ToolContext,
@@ -1679,6 +1548,21 @@ async function finishOrphanedCallQuietly(
 	} catch (err) {
 		console.error("tools: finishing an orphaned extension call failed:", err);
 	}
+}
+
+/** Ends a waiting replay that cannot run, keeping the text the caller receives in its job (doc/design/jobs.md "Results"). */
+async function finishOrphanedWithResult(
+	ctx: ToolContext,
+	existing: ExternalCallRow | undefined,
+	extension: string,
+	tool: string,
+	callKey: string,
+	state: "failed" | "rejected",
+	result: ToolResult,
+): Promise<ToolResult> {
+	await finishOrphanedCallQuietly(ctx, existing, extension, tool, state);
+	await ctx.jobs?.callResult(callKey, result);
+	return result;
 }
 
 /** Whether a tool changed since the call was judged: its rev moved. A built-in's tools carry no rev. */
@@ -1698,26 +1582,162 @@ function toolChangedResult(extension: string, tool: ExtensionTool): ToolResult {
 }
 
 /**
+ * Creates the `call` job for an external call, idempotently: a replayed tool call finds the same job. The action
+ * is the one the call's approval shows.
+ */
+async function ensureCallJob(ctx: ToolContext, row: ExternalCallRow, callKey: string): Promise<JobRow | undefined> {
+	if (!ctx.jobs) return undefined;
+	return ctx.jobs.ensure({
+		kind: "call",
+		callKey,
+		...(ctx.orgId === undefined ? {} : { orgId: ctx.orgId }),
+		actor: ctx.actor,
+		sessionId: jobSessionId(ctx),
+		resourceType: "external_call",
+		resourceId: row.id,
+		action: externalCallTaskAction(row.extension_name, row.tool_name, row.arguments),
+	});
+}
+
+/** The kept result of a call's job, or today's replay note when none was kept (a replay after a restart). */
+async function replayCallResult(
+	ctx: ToolContext,
+	existing: ExternalCallRow,
+	extension: string,
+	tool: string,
+	callKey: string,
+): Promise<ToolResult> {
+	const job = await ensureCallJob(ctx, existing, callKey);
+	// A replayed invocation reads the settled call's result (or its terminal note): that collects the job's
+	// completion notice instead of leaving it for a wake (doc/design/jobs.md "Completion notices").
+	if (job) await ctx.jobs?.collect(job.id);
+	const stored = parseCallResult(job?.result ?? null);
+	if (stored) {
+		return {
+			content: stored.content,
+			isError: stored.isError,
+			details: { ...(stored.details ?? {}), external_call_id: existing.id },
+		};
+	}
+	return replayedResult(existing, extension, tool);
+}
+
+/** The note of a call that has not settled: its approval link while it waits, else the job id to follow. */
+function callNoteResult(row: ExternalCallRow, jobId: string | undefined, ctx: ToolContext): ToolResult {
+	if (row.state === "awaiting_approval") {
+		return callWaitingResult(row, jobId, ctx.externalCallUrl ?? ((id) => `/approvals/external-calls/${id}`));
+	}
+	if (row.state === "running") return callRunningResult(row, jobId);
+	return settledCallResult(row);
+}
+
+/**
+ * Starts the call in the crhs-owned runner and waits up to `waitMs` for it (doc/design/jobs.md "Background
+ * extension calls"). The invocation's abort signal only ends the wait: the runner holds the request, so a call
+ * that outlives the tool call still finishes and keeps its result in the job.
+ */
+async function startAndWaitCall(
+	ctx: ToolContext,
+	input: {
+		row: ExternalCallRow;
+		entry: SessionExtension;
+		tool: ExtensionTool;
+		arguments: Record<string, unknown>;
+		callKey: string;
+		waitMs: number;
+	},
+): Promise<ToolResult> {
+	const { row, entry, tool, arguments: callArguments, callKey, waitMs } = input;
+	const ensured = await ensureCallJob(ctx, row, callKey);
+	const jobs = ctx.jobs;
+	// The job may have been created under the limit lock while the call still looked like Auto Review; project
+	// it again now that routing decided whether it is a user-facing approval wait.
+	const job = ensured && jobs ? ((await jobs.project(ensured)) ?? ensured) : ensured;
+	const running = ctx.callRunner.start({
+		db: ctx.db,
+		callKey,
+		row,
+		extension: entry.extension,
+		tool: tool.name,
+		arguments: callArguments,
+		userId: ctx.user.userId,
+		...(ctx.audit ? { audit: ctx.audit } : {}),
+		...(ctx.imageCache ? { imageCache: ctx.imageCache } : {}),
+		...(jobs
+			? {
+					jobs: {
+						callResult: (key: string, result: ToolResult) => jobs.callResult(key, result),
+						callChanged: (key: string) => jobs.callChanged(key),
+					},
+				}
+			: {}),
+		identity: { username: ctx.user.username, sessionId: ctx.actor.id },
+		convert: (value, options) => convertExternalResult(value as CallToolResult, options),
+	});
+	const release = job === undefined ? undefined : jobs?.beginWait(job.id);
+	let settled = false;
+	try {
+		settled = await running.wait(waitMs, ctx.signal);
+	} finally {
+		release?.();
+	}
+	if (settled) {
+		const outcome = await running.done;
+		if (outcome.error !== undefined) throw outcome.error;
+		if (outcome.result !== undefined) {
+			if (jobs && job) await jobs.collect(job.id);
+			return outcome.result;
+		}
+	}
+	const current = (await getExternalCall(ctx.db, row.id)) ?? row;
+	if (jobs && job) {
+		const projected = await jobs.get(job.id);
+		// The call settled at the deadline: return what a settled job returns, not a stale running note.
+		if (projected?.state === "settled") {
+			await jobs.collect(job.id);
+			return jobs.render((await jobs.get(job.id)) ?? projected, ctx);
+		}
+	}
+	if (settled && jobs && job) await jobs.collect(job.id);
+	return callNoteResult(current, job?.id, ctx);
+}
+
+/**
  * Runs one extension call under the rules and approvals (doc/design/extensions.md "Rules and approvals" and
- * "External calls"): a denied call never starts, an approval waits in the WebUI (or Auto Review settles it),
- * and the call itself is never repeated after a connection loss or a restart. The extension supplies its own
- * rule operation, so an MCP tool and a built-in API request are judged the same way.
+ * "External calls"): a denied call never starts, an approval waits in the WebUI (or Auto Review settles it), and
+ * the call itself is never repeated after a connection loss or a restart. The extension supplies its own rule
+ * operation, so an MCP tool and a built-in API request are judged the same way.
  */
 export async function runExtensionTool(
 	ctx: ToolContext,
 	extensionName: string,
 	toolName: string,
 	arguments_: Record<string, unknown>,
+	waitSeconds?: number,
 ): Promise<ToolResult> {
 	if (!ctx.extensions) throw new UserError("extensions are not configured", "unavailable");
+	// An MCP request has no durable call, so it gets a fresh key and a retried request is a new call and job
+	// (doc/design/jobs.md "Ids").
+	const callKey = ctx.callKey ?? newId();
+	const limited = await jobLimitResult(ctx, "call", callKey);
+	if (limited) return limited;
+	const waitMs = Math.min(Math.max(0, waitSeconds ?? ctx.defaultWaitS ?? 30), 600) * 1000;
 	// The row id derives from durable's tool call key, which is unique; the same key is recorded
 	// (source_tool_task) for Auto Review to find exactly this call in the transcript.
-	const callKey = ctx.callKey ?? newId();
 	const id = externalCallId(callKey);
 	// A replayed tool call finds its row and returns what the first attempt produced, without connecting again.
 	const existing = await getExternalCall(ctx.db, id);
-	// A replayed tool call finds its row: a running one is never sent again, and a terminal one already ran.
-	if (existing && existing.state !== "awaiting_approval") return replayedResult(existing, extensionName, toolName);
+	// A replayed tool call finds its row: a running one is followed when this process holds it, a terminal one
+	// already ran and is never sent again.
+	if (existing && existing.state !== "awaiting_approval") {
+		const running = ctx.callRunner.get(id);
+		if (running && existing.state === "running") {
+			const job = await ensureCallJob(ctx, existing, callKey);
+			const result = await startAndWaitOnCall(ctx, running, job, waitMs);
+			return { ...result, details: { ...(result.details ?? {}), external_call_id: id } };
+		}
+		return replayCallResult(ctx, existing, extensionName, toolName, callKey);
+	}
 	let entry: SessionExtension;
 	try {
 		entry = extensionOf(ctx, extensionName);
@@ -1725,6 +1745,7 @@ export async function runExtensionTool(
 		// The extension was disabled, deleted or ungranted since the first attempt, so its waiting row has
 		// nobody left to run it.
 		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
+		await ctx.jobs?.callChanged(callKey);
 		throw err;
 	}
 	const extension = entry.extension;
@@ -1735,12 +1756,16 @@ export async function runExtensionTool(
 		// definitions (doc/design/extensions.md "MCP connections").
 		await extension.prepareCall();
 	} catch (err) {
-		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
-		return errorResult(
-			"text",
-			"unavailable",
-			`the extension ${extensionName} is unavailable: ${(err as Error).message}`,
-			{ extension: extensionName },
+		return finishOrphanedWithResult(
+			ctx,
+			existing,
+			extensionName,
+			toolName,
+			callKey,
+			"failed",
+			errorResult("text", "unavailable", `the extension ${extensionName} is unavailable: ${(err as Error).message}`, {
+				extension: extensionName,
+			}),
 		);
 	}
 	let tool = extension.tools().find((candidate) => candidate.name === toolName);
@@ -1754,16 +1779,30 @@ export async function runExtensionTool(
 		}
 	}
 	if (!tool) {
-		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
-		return errorResult("text", "unknown_tool", `the extension ${extensionName} has no tool named ${toolName}`, {
-			extension: extensionName,
-			tool: toolName,
-		});
+		return finishOrphanedWithResult(
+			ctx,
+			existing,
+			extensionName,
+			toolName,
+			callKey,
+			"failed",
+			errorResult("text", "unknown_tool", `the extension ${extensionName} has no tool named ${toolName}`, {
+				extension: extensionName,
+				tool: toolName,
+			}),
+		);
 	}
 	// A waiting call from an earlier attempt was judged on the tool as it was then; a changed tool ends it.
 	if (existing && toolChangedSince(existing, tool)) {
-		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
-		return toolChangedResult(extensionName, tool);
+		return finishOrphanedWithResult(
+			ctx,
+			existing,
+			extensionName,
+			toolName,
+			callKey,
+			"failed",
+			toolChangedResult(extensionName, tool),
+		);
 	}
 	// Arguments built for an input schema the server no longer has would be read differently: ask again.
 	if (!existing && seen !== undefined && !sameInputSchema(seen, tool)) return toolChangedResult(extensionName, tool);
@@ -1775,18 +1814,32 @@ export async function runExtensionTool(
 		// A built-in extension refuses a call in its operation before any rule or external call exists, e.g. an
 		// API route its document marks deny (doc/design/extensions.md "API requests").
 		if (!(err instanceof UserError)) throw err;
-		await finishOrphanedCallQuietly(ctx, existing, extensionName, toolName, "failed");
-		return errorResult("text", err.code ?? "invalid_argument", err.message, {
-			extension: extensionName,
-			tool: toolName,
-		});
+		return finishOrphanedWithResult(
+			ctx,
+			existing,
+			extensionName,
+			toolName,
+			callKey,
+			"failed",
+			errorResult("text", err.code ?? "invalid_argument", err.message, {
+				extension: extensionName,
+				tool: toolName,
+			}),
+		);
 	}
 	if (evaluation.result === "deny") {
-		await finishOrphanedCall(ctx, existing, extensionName, toolName, "rejected");
-		return errorResult("text", "policy_denied", "denied by the authorization rules", {
-			extension: extensionName,
-			tool: toolName,
-		});
+		return finishOrphanedWithResult(
+			ctx,
+			existing,
+			extensionName,
+			toolName,
+			callKey,
+			"rejected",
+			errorResult("text", "policy_denied", "denied by the authorization rules", {
+				extension: extensionName,
+				tool: toolName,
+			}),
+		);
 	}
 	let row: ExternalCallRow;
 	if (existing) {
@@ -1799,35 +1852,42 @@ export async function runExtensionTool(
 			evaluation.result === "require-approval" &&
 			ctx.callKey !== undefined &&
 			(await ctx.willReview?.(ctx.chain)) === true;
-		const created = await createExternalCall(ctx.db, {
-			callKey,
-			sourceToolTask: ctx.callKey ?? null,
-			orgId: await defaultOrgId(ctx.db),
-			actorType: ctx.actor.type,
-			actorId: ctx.actor.id,
-			onBehalfOfUserId: ctx.actor.onBehalfOfUserId,
-			extension: extensionName,
-			tool: toolName,
-			arguments: arguments_,
-			operation,
-			annotations: tool.annotations,
-			toolRev: tool.rev ?? null,
-			ruleChain: ctx.chain,
-			rootSessionId: ctx.rootSessionId ?? null,
-			approval: { evaluation, ...(reviewPlanned ? { review: pendingReview(new Date().toISOString()) } : {}) },
-			state: evaluation.result === "allow" ? "running" : "awaiting_approval",
-		});
-		row = created.row;
-		if (created.created) {
-			auditExternal(ctx, "external_call.started", id, {
+		// The count and the creation of the row and its job are one step under the session's job lock, so two
+		// parallel calls cannot both start when only one slot is left (doc/design/jobs.md "Limit").
+		const started = await withJobLimit(ctx, "call", callKey, async () => {
+			const created = await createExternalCall(ctx.db, {
+				callKey,
+				sourceToolTask: ctx.callKey ?? null,
+				orgId: await defaultOrgId(ctx.db),
+				actorType: ctx.actor.type,
+				actorId: ctx.actor.id,
+				onBehalfOfUserId: ctx.actor.onBehalfOfUserId,
 				extension: extensionName,
 				tool: toolName,
-				arguments: auditArguments(arguments_),
-				state: row.state,
+				arguments: arguments_,
+				operation,
+				annotations: tool.annotations,
+				toolRev: tool.rev ?? null,
+				ruleChain: ctx.chain,
+				rootSessionId: ctx.rootSessionId ?? null,
+				approval: { evaluation, ...(reviewPlanned ? { review: pendingReview(new Date().toISOString()) } : {}) },
+				state: evaluation.result === "allow" ? "running" : "awaiting_approval",
 			});
-		}
+			if (created.created) {
+				auditExternal(ctx, "external_call.started", id, {
+					extension: extensionName,
+					tool: toolName,
+					arguments: auditArguments(arguments_),
+					state: created.row.state,
+				});
+			}
+			// The job exists before the lock is released, so the slot is counted for the next start.
+			await ensureCallJob(ctx, created.row, callKey);
+			return created;
+		});
+		if ("refused" in started) return started.refused;
+		row = started.value.row;
 	}
-	const waited = row.state === "awaiting_approval";
 	if (row.state === "awaiting_approval") {
 		// Up the chain first, like a task: an ancestor's agent decides; only when none takes it does Auto
 		// Review judge it (once), then the owner in the WebUI (doc/design/access-control.md "Approvals").
@@ -1845,159 +1905,86 @@ export async function runExtensionTool(
 			await ctx.reviewExternalCall?.(id, ctx.signal);
 		}
 		if (!routed && !reviewPending) ctx.onApprovalChange?.(ctx.actor.id);
-		// The approval link is announced by `onWaiting`, only while the call still waits: a call Auto Review
-		// just approved must not flash an approval in the transcript.
-		row = await waitExternalCall(ctx.db, id, {
-			...(ctx.signal ? { signal: ctx.signal } : {}),
-			cancelOnAbort: !ctx.closing?.(),
-			onCancelled: () => {
-				// A call aborted before it ran never reached the extension; record that like any other end.
-				auditExternal(ctx, "external_call.finished", id, {
-					extension: extensionName,
-					tool: toolName,
-					state: "cancelled",
-					reason: "the tool call was aborted",
-				});
-			},
-			onWaiting: async () => {
-				await ctx.onStatus?.({
-					external_call_id: id,
-					state: "awaiting_approval",
-					approval_url: ctx.externalCallUrl?.(id) ?? `/approvals/external-calls/${id}`,
-				});
-			},
-		});
-		// The wait is over: the live details no longer carry the approval link, so a finished call's card
-		// cannot keep pointing at an approval that is already settled. A shutdown keeps the waiting state.
-		if (row.state !== "awaiting_approval") {
+		row = (await getExternalCall(ctx.db, id)) ?? row;
+		// The invocation no longer waits for the decision here: the runner waits in the background and starts
+		// the request when it is approved. The approval link is announced while the call still waits.
+		if (row.state === "awaiting_approval") {
+			await ctx.onStatus?.({
+				external_call_id: id,
+				state: "awaiting_approval",
+				approval_url: ctx.externalCallUrl?.(id) ?? `/approvals/external-calls/${id}`,
+			});
+		} else {
+			// The review settled it: the live details no longer carry the approval link.
 			await ctx.onStatus?.({ external_call_id: id, state: row.state });
 			ctx.onApprovalChange?.(ctx.actor.id);
 		}
 	}
-	if (row.state !== "running") return settledResult(row, extensionName, toolName);
-	// The approval may have waited a long time: a grant revoked, or the extension disabled, while it waited
-	// means nobody may run this call now. Read the user's availability again instead of trusting the dispatch
-	// snapshot, and end the call without contacting the extension.
-	const available = await extensionsForUser(ctx.db, ctx.user.userId);
-	if (!available.some((candidate) => candidate.name === extensionName)) {
-		await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
-		return errorResult("text", "unavailable", `the extension ${extensionName} is no longer available to you`, {
-			extension: extensionName,
-			tool: toolName,
-		});
+	if (row.state !== "running" && row.state !== "awaiting_approval") {
+		await ensureCallJob(ctx, row, callKey);
+		return settledCallResult(row);
 	}
-	if (waited) {
-		// The approval may have waited a long time: the connection was closed meanwhile, and the tool may have
-		// changed. What was approved is the call to the tool as it was then.
-		try {
-			await extension.prepareCall();
-		} catch (err) {
-			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
-			return errorResult(
-				"text",
-				"unavailable",
-				`the extension ${extensionName} is unavailable: ${(err as Error).message}`,
-				{
-					extension: extensionName,
-					tool: toolName,
-				},
-			);
-		}
-		const current = extension.tools().find((candidate) => candidate.name === toolName);
-		if (!current || toolChangedSince(row, current)) {
-			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
-			if (!current) {
-				return errorResult("text", "unknown_tool", `the extension ${extensionName} has no tool named ${toolName}`, {
-					extension: extensionName,
-					tool: toolName,
-				});
-			}
-			return toolChangedResult(extensionName, current);
-		}
+	const result = await startAndWaitCall(ctx, { row, entry, tool, arguments: arguments_, callKey, waitMs });
+	const finalRow = (await getExternalCall(ctx.db, id)) ?? row;
+	if (finalRow.state !== "awaiting_approval" && finalRow.state !== "running") {
+		// The call ended while this invocation waited: drop the approval link from the live details and let the
+		// session state follow the now settled call.
+		await ctx.onStatus?.({ external_call_id: id, state: finalRow.state });
+		ctx.onApprovalChange?.(ctx.actor.id);
 	}
-	let resultValue: unknown;
-	try {
-		resultValue = await extension.call(toolName, arguments_, {
-			...(ctx.signal ? { signal: ctx.signal } : {}),
-			identity: { username: ctx.user.username, sessionId: ctx.actor.id },
-			builtin: {
-				db: ctx.db,
-				actor: { type: ctx.actor.type, id: ctx.actor.id, onBehalfOfUserId: ctx.actor.onBehalfOfUserId },
-			},
-		});
-	} catch (err) {
-		if (err instanceof UserError) {
-			// The built-in refused the call itself (a bad argument, an unknown document); it never ran.
-			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
-			return errorResult("text", err.code ?? "invalid_argument", err.message, {
-				extension: extensionName,
-				tool: toolName,
-			});
-		}
-		if (err instanceof ExtensionUnavailableError) {
-			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
-			return errorResult("text", "unavailable", err.message, { extension: extensionName, tool: toolName });
-		}
-		if (err instanceof ExtensionToolError) {
-			await finishCallQuietly(ctx, id, extensionName, toolName, "failed");
-			return errorResult("text", "tool_error", err.message, { extension: extensionName, tool: toolName });
-		}
-		if (err instanceof ExtensionCallLostError) {
-			// A lost call is not retried. On shutdown the row stays running so the next start recovers it as unknown.
-			if (!ctx.closing?.()) await finishCallQuietly(ctx, id, extensionName, toolName, "unknown");
-			return errorResult("text", "unknown", `${err.message}; its outcome is unknown and it was not retried`, {
-				extension: extensionName,
-				tool: toolName,
-			});
-		}
-		// An unexpected exception may have reached the server, so the outcome is not known.
-		await finishCallQuietly(ctx, id, extensionName, toolName, "unknown");
-		throw err;
-	}
-	let converted: ToolResult;
-	try {
-		converted = await convertExternalResult(resultValue as CallToolResult, {
-			extension: extensionName,
-			tool: toolName,
-			...(ctx.imageCache ? { imageCache: ctx.imageCache } : {}),
-		});
-	} catch (err) {
-		// The call reached the server but its result could not be converted; it must not stay running.
-		await finishCallQuietly(ctx, id, extensionName, toolName, "unknown");
-		throw err;
-	}
-	await finishCall(ctx, id, extensionName, toolName, "succeeded");
-	return converted;
+	return result;
 }
 
+/** Waits on an in-flight call a replay found; the result is the same text the starting invocation would get. */
+async function startAndWaitOnCall(
+	ctx: ToolContext,
+	running: RunningCall,
+	job: JobRow | undefined,
+	waitMs: number,
+): Promise<ToolResult> {
+	const release = job === undefined ? undefined : ctx.jobs?.beginWait(job.id);
+	let settled = false;
+	try {
+		if (await running.wait(waitMs, ctx.signal)) {
+			const outcome = await running.done;
+			if (outcome.error !== undefined) throw outcome.error;
+			settled = true;
+			if (outcome.result !== undefined) return outcome.result;
+		}
+	} finally {
+		release?.();
+	}
+	const current = (await getExternalCall(ctx.db, running.callId)) ?? undefined;
+	if (ctx.jobs && job) {
+		const projected = await ctx.jobs.get(job.id);
+		if (projected?.state === "settled") {
+			await ctx.jobs.collect(job.id);
+			return ctx.jobs.render((await ctx.jobs.get(job.id)) ?? projected, ctx);
+		}
+	}
+	if (settled && job) await ctx.jobs?.collect(job.id);
+	return current === undefined
+		? textResult([{ note: "[the record behind this job is no longer kept]" }])
+		: callNoteResult(current, job?.id, ctx);
+}
 const callTool = define({
 	name: "call_tool",
 	description:
 		"Call a tool of an extension with arguments (a JSON object matching the tool's input schema, as search_tools " +
-		"returns it). The call may wait for the user's approval. A call that ends unknown may have run on the " +
-		"extension; it is not retried.",
+		"returns it). The call runs in the background after `wait`: a call that settles in time returns its result, " +
+		"otherwise the waiting or still-running note with its job id. The call may wait for the user's approval. A " +
+		"call that ends unknown may have run on the extension; it is not retried.",
 	input: z.object({
 		extension: z.string().describe("The extension's name, as search_tools lists it"),
 		tool: z.string().describe("The tool's name on that extension"),
 		arguments: z.record(z.string(), z.unknown()).optional().describe("The tool's arguments; omit for no arguments"),
+		wait: waitField,
 	}),
 	readOnly: false,
 	agentOnly: true,
 	output: "text",
-	handler: async (args, ctx) => runExtensionTool(ctx, args.extension, args.tool, args.arguments ?? {}),
+	handler: async (args, ctx) => runExtensionTool(ctx, args.extension, args.tool, args.arguments ?? {}, args.wait),
 });
-
-/**
- * A task the caller may act on: started for the same user **and** for its own session or token (or a session
- * below it). Another session of the same user keeps its tasks (doc/design/agent-runtime.md "Cluster tools").
- */
-async function ownTask(ctx: ToolContext, id: string): Promise<TaskView> {
-	const t = await ctx.cluster.getTask(id);
-	if (!t || t.onBehalfOfUserId !== ctx.user.userId || !(await mayActFor(ctx, t.actorType, t.actorId))) {
-		throw new UserError("no such task", "no_such_task");
-	}
-	return t;
-}
 
 export const TOOLS: readonly ClusterTool[] = [
 	listNodes,
@@ -2010,8 +1997,7 @@ export const TOOLS: readonly ClusterTool[] = [
 	stat,
 	copyFile,
 	viewImage,
-	taskWait,
-	taskCancel,
 	searchTools,
 	callTool,
+	...JOB_TOOLS,
 ] as unknown as ClusterTool[];

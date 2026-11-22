@@ -8,6 +8,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { shareSession } from "../src/sessions/sharing.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -44,6 +45,7 @@ beforeAll(async () => {
 	models.addProvider(faux.provider);
 	await models.reload();
 	runtime = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db,
 		storage: new MemoryStorage(),
 		models,
@@ -238,6 +240,7 @@ describe("with the default compaction policy", () => {
 		models.addProvider(defaultFaux.provider);
 		await models.reload();
 		localRuntime = await AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db: localDb,
 			storage: new MemoryStorage(),
 			models,

@@ -1,3 +1,4 @@
+import type { SessionEvent } from "@crh/api";
 import {
 	ErrorResponseSchema,
 	EventStreamBodySchema,
@@ -10,10 +11,12 @@ import type { AgentRuntime } from "../agent/runtime.ts";
 import type { SessionListScope, SessionListSubscriber } from "../agent/session-list.ts";
 import { isAdmin, type SessionUser, webSessionAlive } from "../auth/sessions.ts";
 import type { WebUiPresence } from "../channels/presence.ts";
+import type { Jobs } from "../jobs/jobs.ts";
 import { sessionCapabilities } from "../sessions/sharing.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import type { RequestDrain } from "./drain.ts";
+import { jobChangedEvent } from "./job-view.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
 import { SESSION_SCOPES, visibleSession } from "./session-routes.ts";
 
@@ -102,6 +105,8 @@ export interface SessionEventRoutesOptions {
 	drain?: RequestDrain;
 	/** WebUI presence: an open stream means the user is online for chat notifications. */
 	presence?: WebUiPresence;
+	/** The job service: its projection changes travel as `job.changed` on the session's stream. */
+	jobs?: Jobs;
 }
 
 /** `stream.sleep`, but wakes up when the stream ends, so shutdown need not wait out a ping interval. */
@@ -244,19 +249,25 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 			// The stream outlives its response, so it keeps shutdown waiting until this callback returns.
 			const release = drain?.hold();
 			let stop: (() => void) | undefined;
+			let unsubscribeJobs: (() => void) | undefined;
+			// One queue for agent events and job changes, so a batch and a `job.changed` keep their order.
+			let queue = Promise.resolve();
+			const write = (events: SessionEvent[]) => {
+				queue = queue.then(() => stream.writeSSE({ event: "events", data: JSON.stringify(events) }));
+				void queue.catch(() => stream.abort());
+				return queue;
+			};
 			try {
 				// Shutdown may have begun between authentication and the stream opening: end it now.
 				if (drain?.shutdown.signal.aborted) stream.abort();
 				if (abort.signal.aborted) return;
-				let queue = Promise.resolve();
-				stop = await runtime.watch(
-					v.session.id,
-					(events) => {
-						queue = queue.then(() => stream.writeSSE({ event: "events", data: JSON.stringify(events) }));
-						return queue;
-					},
-					abort.signal,
-				);
+				stop = await runtime.watch(v.session.id, write, abort.signal);
+				// The snapshot is on its way first; a job change from now on reaches this stream. A job of a
+				// subagent belongs to the child's stream, not to its parent's.
+				unsubscribeJobs = options.jobs?.onChanged((job) => {
+					if (job.session_id !== v.session.id) return;
+					void write([jobChangedEvent(job)]);
+				});
 				// Keep the stream (and proxies) alive while the session is quiet.
 				while (!abort.signal.aborted) {
 					await sleepFor(15_000, abort.signal);
@@ -270,6 +281,7 @@ export function sessionEventRoutes(db: Db, options: SessionEventRoutesOptions) {
 				}
 			} finally {
 				// A failed write must still end the watch and forget the stream, not leave both behind.
+				unsubscribeJobs?.();
 				streams.delete(live);
 				if (stop) await stop();
 				release?.();

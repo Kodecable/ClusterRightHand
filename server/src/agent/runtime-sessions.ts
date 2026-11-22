@@ -431,9 +431,13 @@ function isFinalReplyEntry(entry: PiEntryRecord): boolean {
 	return message.content.some((block) => block.type === "text" && block.text.trim() !== "");
 }
 
-/** Whether the entry starts a user turn; a compaction summary is a user message but not a turn start. */
+/**
+ * Whether the entry starts a user turn; a compaction summary is a user message but not a turn start, and
+ * neither is a `crh.notice` wake, which no display surface and no transcript reader treats as a user message
+ * (doc/design/jobs.md "Completion notices").
+ */
 function isUserTurnEntry(entry: PiEntryRecord): boolean {
-	return entry.kind !== "pi.compaction" && entry.model?.[0]?.role === "user";
+	return entry.kind !== "pi.compaction" && entry.kind !== "crh.notice" && entry.model?.[0]?.role === "user";
 }
 
 /**
@@ -501,6 +505,7 @@ export function forgetSessionCaches(host: RuntimeHost, sessionId: string, conver
 	host.sessionCaches.forgetSession(sessionId, conversationId);
 	host.inboxes.forget(sessionId);
 	host.wakes.forget(sessionId);
+	host.noticeActivity.forget(sessionId);
 	host.sessionFlags.endTitle(sessionId);
 	host.quotaWaits.forget(sessionId);
 }
@@ -514,10 +519,13 @@ export function forgetSessionCaches(host: RuntimeHost, sessionId: string, conver
 async function removeCreatedSession(host: RuntimeHost, sessionId: string): Promise<void> {
 	const row = await host.db
 		.selectFrom("sessions")
-		.select("conversation_id")
+		.select(["conversation_id", "owner_user_id"])
 		.where("id", "=", sessionId)
 		.executeTakeFirst();
 	const conversationId = row?.conversation_id;
+	// Mark the jobs silent before anything stops, so a call or child that settles during the abort cannot wake
+	// the session that is being removed; the marker is durable (doc/design/jobs.md "Lifecycle and retention").
+	await host.jobs?.silenceSessionJobs([sessionId]);
 	if (conversationId !== undefined) {
 		const conversation = await conversationOf(host, { conversation_id: conversationId });
 		if (conversation) {
@@ -529,6 +537,17 @@ async function removeCreatedSession(host: RuntimeHost, sessionId: string): Promi
 		}
 	}
 	forgetSessionCaches(host, sessionId, conversationId);
+	// The session's jobs go with the row (the foreign key cascades), but only after they are stopped: a running
+	// call or child session must not outlive the session it belonged to (doc/design/jobs.md "Lifecycle and
+	// retention").
+	if (row) {
+		await host.jobs?.cancelSessionJobs(sessionId, {
+			type: "system",
+			id: "session-deleted",
+			onBehalfOfUserId: row.owner_user_id,
+		});
+		host.noticeActivity.notify(sessionId);
+	}
 	await host.sessionList.publishSessionRemoved(sessionId);
 	await host.db.transaction().execute(async (trx) => {
 		await deleteRuleSet(trx, { type: "session", id: sessionId });
@@ -819,6 +838,10 @@ export async function abort(
 	clearTimings(host, sessions);
 	for (const id of sessions) host.sessionFlags.beginStop(id);
 	try {
+		// A stopped session must not be woken by the jobs it is stopping: mark the tree's unsettled jobs
+		// `collected` before endSessionWork aborts calls or cancels tasks, and durably, so a restart cannot
+		// deliver the notice either (doc/design/jobs.md "Lifecycle and retention").
+		await host.jobs?.silenceSessionJobs(sessions);
 		await conversation.abort(host.context);
 		// Subagents are ownerless conversations: their abort is explicit, and it must come before the work is
 		// ended. A subagent that is still running can otherwise dispatch a task after the select below, which
@@ -836,9 +859,13 @@ export async function abort(
 		// Stopping means stopping the work too. This is done here, not on the tool's abort signal, which also
 		// fires when crhs shuts down: after a restart the call reattaches to its task instead.
 		await endSessionWork(host, sessions, "the session was stopped", { includeRunning: true, ...(by ? { by } : {}) });
+		// Every job of the tree stops through its record's own path: tasks and groups above, calls through the
+		// runner, subagents through their conversation, and anything else a kind adds (doc/design/jobs.md
+		// "Lifecycle and retention").
+		for (const id of sessions) await host.jobs?.cancelSessionJobs(id);
 		// The stop stays marked until every conversation and every wait of the tree is settled: a run that
 		// ends after it is cleared would take the "run ended" path and miss its running tasks.
-		await markSessionsIdle(host.db, sessions);
+		await markSessionsIdle(host.db, sessions, (id) => host.jobs?.sessionChanged(id));
 		for (const id of sessions) host.sessionList.publishSession(id);
 		for (const id of sessions) host.quotaWaits.clearDenied(id);
 		// Clear a quota wait of an ancestor that only the aborted subtree caused.
@@ -846,7 +873,10 @@ export async function abort(
 		if (root) await refreshState(host, root);
 		host.quotaWaits.wakeAll();
 		host.inboxes.clear();
-		for (const id of sessions) host.wakes.dropAll(id);
+		for (const id of sessions) {
+			host.wakes.dropAll(id);
+			host.noticeActivity.notify(id);
+		}
 		// One event for every stop path: the WebUI, /stop, a stopped progress draft and internal stops alike.
 		void host.audit?.record({
 			actor: by ? userActor(by) : { type: "system", id: "system" },

@@ -293,9 +293,10 @@ decider, reason and each level's judgment are stored on it; a task group is appr
 external call has its own small object, `external_calls`, and waits the same way
 ([External calls](extensions.md#external-calls)). The server builds one compact,
 locale-free `ApprovalRequest` from the waiting row — kind, phase, source, structured action, node
-names, privileged flag, the settled review and the always-allow candidates — and the chat channels and
-the WebUI render that model, so no surface rebuilds a per-kind summary from prose
-([Approvals in chat](channels.md#approvals)). A task or task group waiting for the user's signature
+names, privileged flag, the settled review, the always-allow candidates and, when a tool call started
+the work, its `job` (`id`, `kind`, `action`) — and the chat channels and the WebUI render that model, so
+no surface rebuilds a per-kind summary from prose ([Approvals in chat](channels.md#approvals),
+[Approvals and jobs](jobs.md#approvals-and-jobs)). A task or task group waiting for the user's signature
 (`awaiting_authorization`) gets the same request with phase `awaiting_signature`; the task, task group
 and approvals list endpoints return it beside the kind-specific view while the item waits, and `null`
 once it is settled.

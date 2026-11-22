@@ -73,6 +73,10 @@ export class ClusterCore {
 	onReviewPlanned: ((chain: RuleRef[] | null) => Promise<boolean>) | undefined;
 	/** Called after a task starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
 	onChange: ((actorId: string) => void) | undefined;
+	/** Called on every task state change, after the waiters are woken (the job layer projects the task's job). */
+	onTaskChanged: ((taskId: string) => void) | undefined;
+	/** Called when a member's signature wait moves a group between running and awaiting_authorization. */
+	onGroupChanged: ((groupId: string) => void) | undefined;
 
 	/** The live connection of each node (one at a time). */
 	readonly links = new Map<string, NodeLink>();
@@ -233,6 +237,7 @@ export class ClusterCore {
 	notify(id: string): void {
 		for (const w of this.waiters.get(id) ?? []) w();
 		this.waiters.delete(id);
+		this.onTaskChanged?.(id);
 	}
 
 	/** Wakes the tasks waiting for this node's link (attach, detach, hello ready, trust report). */

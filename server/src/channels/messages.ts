@@ -1,4 +1,13 @@
-import type { ApprovalRequest, QuotaStatus, ScheduleRunStatus, TaskAction, UserSettingsLocale } from "@crh/api";
+import type {
+	ApprovalRequest,
+	JobKind,
+	JobNotice,
+	QuotaStatus,
+	ScheduleRunStatus,
+	TaskAction,
+	TaskOutcome,
+	UserSettingsLocale,
+} from "@crh/api";
 import { formatList, matchLocale } from "@crh/api";
 import { untitledSessionTitle } from "../sessions/titles.ts";
 import type { CardLabels, ChatCard } from "./card.ts";
@@ -143,6 +152,8 @@ interface CardText extends CardLabels {
 	};
 	/** `moreNodes` is the number the server left out; every name is raw and escaped by the renderer. */
 	nodes: (names: readonly string[], moreNodes: number | undefined) => string;
+	/** The job context line; `action` is present only when the job's action differs from the card's detail. */
+	job: (kind: JobKind, id: string, action: string | undefined) => string;
 	rejectWithButtons: (id: string) => string;
 	approveHint: (id: string) => string;
 	rejectHint: (id: string) => string;
@@ -187,6 +198,7 @@ const EN_CARD: CardText = {
 		const list = formatList("en", names);
 		return moreNodes ? `Nodes: ${list} and ${moreNodes} more` : `Nodes: ${list}`;
 	},
+	job: (kind, id, action) => `Job: ${kind} ${id}${action === undefined ? "" : ` · ${action}`}`,
 	privilegedSuffix: " · privileged",
 	riskLevel: (risk) => ({ low: "Low risk", medium: "Medium risk", high: "High risk" })[risk],
 	rejectWithButtons: (id) => `Reject with a reason: /reject ${id} reason`,
@@ -228,6 +240,7 @@ const ZH_CARD: CardText = {
 		const list = formatList("zh-CN", names);
 		return moreNodes ? `节点：${list} 等 ${moreNodes} 个` : `节点：${list}`;
 	},
+	job: (kind, id, action) => `后台任务：${kind} ${id}${action === undefined ? "" : ` · ${action}`}`,
 	privilegedSuffix: " · 特权",
 	riskLevel: (risk) => ({ low: "低风险", medium: "中风险", high: "高风险" })[risk],
 	rejectWithButtons: (id) => `拒绝并说明原因：/reject ${id} 原因`,
@@ -265,7 +278,55 @@ function actionDetail(action: TaskAction, labels: CardText): string {
 			return oneLine(`${action.method} ${action.path}`);
 		case "extension_tool":
 			return oneLine(`${action.extension}/${action.tool}`);
+		case "subagent":
+			return oneLine(action.task);
 	}
+}
+
+/** The outcome in one word, localized: the notice line's second value (doc/design/jobs.md "Display"). */
+function outcomeText(outcome: TaskOutcome, locale: "en" | "zh-CN"): string {
+	const en: Record<string, string> = {
+		succeeded: "Done",
+		exit: `Exit code ${outcome.exitCode ?? "?"}`,
+		signal: `Killed by signal ${outcome.signal ?? "?"}`,
+		timed_out: "Timed out",
+		cancelled: "Cancelled",
+		expired: "Expired",
+		rejected: "Rejected",
+		denied: "Denied by rules",
+		error: "Failed",
+		unknown: "Result unknown",
+	};
+	if (locale === "en") return en[outcome.kind] ?? outcome.kind;
+	switch (outcome.kind) {
+		case "succeeded":
+			return "已完成";
+		case "exit":
+			return `退出码 ${outcome.exitCode ?? "?"}`;
+		case "signal":
+			return `被信号 ${outcome.signal ?? "?"} 终止`;
+		case "timed_out":
+			return "已超时";
+		case "cancelled":
+			return "已取消";
+		case "expired":
+			return "已失效";
+		case "rejected":
+			return "已被拒绝";
+		case "denied":
+			return "被规则拒绝";
+		case "error":
+			return "已失败";
+		default:
+			return "结果未知";
+	}
+}
+
+/** A notice's action and outcome as the escaped, one-line value the notice line shows. */
+function actionLine(notice: JobNotice, locale: "en" | "zh-CN"): string {
+	const labels = locale === "en" ? EN_CARD : ZH_CARD;
+	const action = actionDetail(notice.action, labels) || notice.kind;
+	return `${escapeMarkdown(action)} · ${outcomeText(notice.outcome, locale)}`;
 }
 
 function sourceText(request: ApprovalRequest, labels: CardText): string {
@@ -295,12 +356,25 @@ function metaText(request: ApprovalRequest, withSource: boolean, labels: CardTex
 	return parts.length === 0 ? undefined : parts.join(" · ");
 }
 
+/**
+ * The job context line (doc/design/jobs.md "Approvals and jobs"): the job's kind and id, plus its own action when
+ * it differs from the action line this card already shows, so one page of job approvals still names the work.
+ */
+function jobText(request: ApprovalRequest, labels: CardText): string | undefined {
+	const job = request.job;
+	if (job === undefined) return undefined;
+	const action = actionDetail(request.action, labels);
+	const jobAction = actionDetail(job.action, labels);
+	return labels.job(job.kind, oneLine(job.id), jobAction === action ? undefined : jobAction);
+}
+
 function approvalCardFor(
 	request: ApprovalRequest,
 	options: { withButtons: boolean; withSource: boolean },
 	labels: CardText,
 ): ChatCard {
 	const meta = metaText(request, options.withSource, labels);
+	const job = jobText(request, labels);
 	const card: ChatCard = {
 		title: labels.approvalTitle,
 		privileged: request.privileged,
@@ -310,6 +384,7 @@ function approvalCardFor(
 			: [labels.approveHint(request.id), labels.rejectHint(request.id)],
 	};
 	if (meta !== undefined) card.meta = meta;
+	if (job !== undefined) card.job = job;
 	if (request.review !== undefined) {
 		card.risk = request.review.risk;
 		card.reason = oneLine(request.review.reason);
@@ -343,6 +418,7 @@ function signatureCardFor(
 	labels: CardText,
 ): ChatCard {
 	const meta = metaText(request, options.withSource, labels);
+	const job = jobText(request, labels);
 	const hints: string[] = [];
 	if (options.sign) hints.push(labels.signatureHint(link));
 	for (const nodeName of options.localWindows) hints.push(labels.signatureWindowHint(nodeName));
@@ -356,6 +432,7 @@ function signatureCardFor(
 		hints,
 	};
 	if (meta !== undefined) card.meta = meta;
+	if (job !== undefined) card.job = job;
 	if (request.review !== undefined) {
 		card.risk = request.review.risk;
 		card.reason = oneLine(request.review.reason);
@@ -446,6 +523,11 @@ export interface BotMessages {
 	reportStatus: (name: string, outcome: Exclude<ScheduleRunStatus, "pending" | "running">, time: string) => string;
 	/** The recorded reason a scheduled run failed, when one exists. */
 	reportError: (problem: string) => string;
+	/**
+	 * One completion-notice line, rendered from the server-built `JobNotice` model
+	 * (doc/design/jobs.md "Display"): the action, the outcome and, when it started the run, that the agent woke.
+	 */
+	jobNotice: (notice: JobNotice) => string;
 	sessionBody: (title: string, text: string) => string;
 	statusUntrackedSession: (status: string, title: string) => string;
 	working: string;
@@ -547,6 +629,8 @@ const en: BotMessages = {
 				? `Schedule "${escapeMarkdown(name)}" failed at ${time}.`
 				: `Schedule "${escapeMarkdown(name)}" was stopped by the next run at ${time}.`,
 	reportError: (problem) => `Error:\n${codeBlock(problem)}`,
+	jobNotice: (notice) =>
+		`Background job finished: ${actionLine(notice, "en")}${notice.woke ? " · the agent was woken" : ""}`,
 	sessionBody: (title, text) => `Session "${escapeMarkdown(title)}":\n\n${text}`,
 	statusUntrackedSession: (status, title) => `${status}\n\nThis is the session "${escapeMarkdown(title)}".`,
 	working: "Working…",
@@ -689,6 +773,7 @@ const zhCN: BotMessages = {
 				? `计划任务“${escapeMarkdown(name)}”已于 ${time} 运行失败。`
 				: `计划任务“${escapeMarkdown(name)}”被下一次运行停止（${time}）。`,
 	reportError: (problem) => `错误：\n${codeBlock(problem)}`,
+	jobNotice: (notice) => `后台任务已完成：${actionLine(notice, "zh-CN")}${notice.woke ? " · 已唤醒智能体" : ""}`,
 	sessionBody: (title, text) => `会话“${escapeMarkdown(title)}”：\n\n${text}`,
 	statusUntrackedSession: (status, title) => `${status}\n\n这是会话“${escapeMarkdown(title)}”。`,
 	working: "处理中…",

@@ -15,6 +15,13 @@ export const RETENTION_BATCH_SIZE = 1000;
 export const EXTERNAL_CALL_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * A settled job is kept at least this long, whatever the task retention setting says (doc/design/jobs.md
+ * "Lifecycle and retention"): a tool call that reruns after a crash finds its job by id and must see that it
+ * already ran, and a completion notice may still be waiting for its owner.
+ */
+export const JOB_RETENTION_FLOOR_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Audit events keep the newest 16384 sequence numbers (a key distance, not a row count; gaps are fine). This
  * keeps the row holding max(seq), so SQLite's rowid-based seq (no AUTOINCREMENT) does not restart numbering if
  * every older row is deleted, and a large forward clock jump cannot wipe the whole log (doc/design/data-model.md "Retention").
@@ -34,6 +41,7 @@ export interface RetentionCounts {
 	externalCalls: number;
 	channelLinkCodes: number;
 	piTasks: number;
+	jobs: number;
 }
 
 export interface RetentionOptions {
@@ -67,6 +75,7 @@ export async function runRetention(
 		externalCalls: 0,
 		channelLinkCodes: 0,
 		piTasks: 0,
+		jobs: 0,
 	};
 	const batchSize = options.batchSize ?? RETENTION_BATCH_SIZE;
 	const signal = options.signal;
@@ -78,6 +87,10 @@ export async function runRetention(
 			counts.authorizations = await deleteTable("authorizations", () =>
 				deleteExpiredAuthorizations(db, cutoff, batchSize, signal),
 			);
+			// A settled job goes with the finished work it describes, but never sooner than the floor
+			// (doc/design/jobs.md "Lifecycle and retention"); an unsettled job is never deleted.
+			const jobCutoff = cutoffIso(now, Math.max(retention.tasksMs, JOB_RETENTION_FLOOR_MS));
+			counts.jobs = await deleteTable("jobs", () => deleteOldJobs(db, jobCutoff, batchSize, signal));
 		}
 		if (retention.auditMs !== null) {
 			const cutoff = cutoffIso(now, retention.auditMs);
@@ -108,13 +121,14 @@ export async function runRetention(
 		counts.auditEvents +
 		counts.externalCalls +
 		counts.channelLinkCodes +
-		counts.piTasks;
+		counts.piTasks +
+		counts.jobs;
 	if (total > 0) {
 		console.log(
 			`retention: deleted ${counts.tasks} task(s), ${counts.taskGroups} task group(s), ` +
 				`${counts.authorizations} authorization(s), ${counts.auditEvents} audit event(s), ` +
 				`${counts.externalCalls} external call(s), ${counts.channelLinkCodes} channel link code(s), ` +
-				`${counts.piTasks} durable task(s)`,
+				`${counts.piTasks} durable task(s), ${counts.jobs} job(s)`,
 		);
 	}
 	return counts;
@@ -319,6 +333,43 @@ async function deleteOldExternalCalls(
 		async (rows) => {
 			const result = await db
 				.deleteFrom("external_calls")
+				.where(
+					"id",
+					"in",
+					rows.map((row) => row.id),
+				)
+				.executeTakeFirst();
+			return Number(result.numDeletedRows);
+		},
+	);
+}
+
+/**
+ * Deletes settled jobs older than the cutoff. A job's `settled_at` is written once when it settles, so an
+ * unsettled row can never match; the retention caller already raised the cutoff to the one-day floor.
+ */
+async function deleteOldJobs(
+	db: Db,
+	cutoff: string,
+	batchSize: number,
+	signal: AbortSignal | undefined,
+): Promise<number> {
+	return deleteInBatches<{ id: string }>(
+		batchSize,
+		signal,
+		(limit) =>
+			db
+				.selectFrom("jobs")
+				.select("id")
+				.where("state", "=", "settled")
+				.where("settled_at", "is not", null)
+				.where("settled_at", "<", cutoff)
+				.orderBy("settled_at")
+				.limit(limit)
+				.execute(),
+		async (rows) => {
+			const result = await db
+				.deleteFrom("jobs")
 				.where(
 					"id",
 					"in",

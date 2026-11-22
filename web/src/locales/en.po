@@ -24,6 +24,11 @@ msgstr "[image: {label}]"
 msgid "[instructions]"
 msgstr "[instructions]"
 
+#. placeholder {0}: items.length
+#: src/features/sessions/background-bar.tsx
+msgid "{0, plural, one {# background job} other {# background jobs}}"
+msgstr "{0, plural, one {# background job} other {# background jobs}}"
+
 #. placeholder {0}: result.size
 #: src/components/task-result.tsx
 msgid "{0, plural, one {# byte} other {# bytes}}"
@@ -135,10 +140,6 @@ msgstr "{0} tok/s"
 msgid "{0}: {1} → {2} ({3})"
 msgstr "{0}: {1} → {2} ({3})"
 
-#: src/features/sessions/children-bar.tsx
-msgid "{awaiting} awaiting"
-msgstr "{awaiting} awaiting"
-
 #: src/components/task-result.tsx
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# byte} other {# bytes}}"
@@ -196,7 +197,7 @@ msgstr "{queued, plural, one {# message queued} other {# messages queued}}"
 msgid "{running, plural, one {Restarting crha ends # running task; it will end as unknown.} other {Restarting crha ends # running tasks; they will end as unknown.}}"
 msgstr "{running, plural, one {Restarting crha ends # running task; it will end as unknown.} other {Restarting crha ends # running tasks; they will end as unknown.}}"
 
-#: src/features/sessions/children-bar.tsx
+#: src/features/sessions/background-bar.tsx
 msgid "{running} running"
 msgstr "{running} running"
 
@@ -204,13 +205,13 @@ msgstr "{running} running"
 msgid "{steps, plural, one {# step} other {# steps}}"
 msgstr "{steps, plural, one {# step} other {# steps}}"
 
-#: src/features/sessions/children-bar.tsx
-msgid "{total, plural, one {# subagent} other {# subagents}}"
-msgstr "{total, plural, one {# subagent} other {# subagents}}"
-
 #: src/features/sessions/composer-meta.tsx
 msgid "{turns, plural, one {# turn} other {# turns}}"
 msgstr "{turns, plural, one {# turn} other {# turns}}"
+
+#: src/features/sessions/background-bar.tsx
+msgid "{waiting} waiting"
+msgstr "{waiting} waiting"
 
 #: src/features/sessions/composer.tsx
 msgid "/{name}: {description} (not sent as a message)"
@@ -369,6 +370,14 @@ msgstr "A scheduled run uses the normal authorization path: privileged tasks wai
 #: src/features/sessions/session-header.tsx
 msgid "A session title is at most {SESSION_TITLE_MAX_CHARS} characters."
 msgstr "A session title is at most {SESSION_TITLE_MAX_CHARS} characters."
+
+#: src/features/sessions/transcript-row.tsx
+msgid "A subagent request woke the agent"
+msgstr "A subagent request woke the agent"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "A subagent's quota ran out"
+msgstr "A subagent's quota ran out"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "A Telegram bot. Private chats only; a topic is its own session."
@@ -942,6 +951,18 @@ msgstr "Back"
 msgid "Back to the session list"
 msgstr "Back to the session list"
 
+#: src/features/sessions/tool-card.tsx
+msgid "Background"
+msgstr "Background"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Background job finished:"
+msgstr "Background job finished:"
+
+#: src/features/sessions/background-bar.tsx
+msgid "Background jobs"
+msgstr "Background jobs"
+
 #: src/features/settings/extension-settings.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -1274,9 +1295,9 @@ msgstr "closed"
 msgid "Cluster"
 msgstr "Cluster"
 
-#: src/features/sessions/children-bar.tsx
-msgid "Collapse subagents"
-msgstr "Collapse subagents"
+#: src/features/sessions/background-bar.tsx
+msgid "Collapse the subagent's jobs"
+msgstr "Collapse the subagent's jobs"
 
 #: src/features/authorizations/pages.tsx
 msgid "Command"
@@ -2209,9 +2230,9 @@ msgstr "Exit code"
 msgid "Exit code {0}"
 msgstr "Exit code {0}"
 
-#: src/features/sessions/children-bar.tsx
-msgid "Expand subagents"
-msgstr "Expand subagents"
+#: src/features/sessions/background-bar.tsx
+msgid "Expand the subagent's jobs"
+msgstr "Expand the subagent's jobs"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Expected an object like {\"rules\": [...]}."
@@ -2249,6 +2270,10 @@ msgstr "Expires <0/>. Run this on your workstation and paste the output below:"
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Expires after"
 msgstr "Expires after"
+
+#: src/features/jobs/job.tsx
+msgid "Extension call"
+msgstr "Extension call"
 
 #: src/app/shell/nav.ts
 #: src/features/sessions/extensions-dialog.tsx
@@ -2327,6 +2352,7 @@ msgid "finished"
 msgstr "finished"
 
 #: src/components/status-badge.tsx
+#: src/features/jobs/job.tsx
 msgid "Finished"
 msgstr "Finished"
 
@@ -2794,7 +2820,7 @@ msgid "Listed directly"
 msgstr "Listed directly"
 
 #: src/components/data-table.tsx
-#: src/features/sessions/children-bar.tsx
+#: src/features/sessions/background-bar.tsx
 msgid "Load more"
 msgstr "Load more"
 
@@ -3212,6 +3238,10 @@ msgstr "No authorization signing keys yet. crhs cannot sign authorizations until
 msgid "No authorizations yet"
 msgstr "No authorizations yet"
 
+#: src/features/sessions/background-bar.tsx
+msgid "No background jobs"
+msgstr "No background jobs"
+
 #: src/features/sessions/composer-footer.tsx
 msgid "No budget limit"
 msgstr "No budget limit"
@@ -3353,10 +3383,6 @@ msgstr "No SSH credentials yet"
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "No SSH credentials yet. <0>Create one on the SSH credentials page.</0>"
 msgstr "No SSH credentials yet. <0>Create one on the SSH credentials page.</0>"
-
-#: src/features/sessions/children-bar.tsx
-msgid "No subagents"
-msgstr "No subagents"
 
 #: src/features/node-groups/pages.tsx
 msgid "No such node group"
@@ -4406,6 +4432,10 @@ msgstr "reusable"
 msgid "Review"
 msgstr "Review"
 
+#: src/features/sessions/tool-dialog.tsx
+msgid "Review and approve"
+msgstr "Review and approve"
+
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
 msgstr "Revoke"
@@ -4534,6 +4564,7 @@ msgid "running"
 msgstr "running"
 
 #: src/components/status-badge.tsx
+#: src/features/jobs/job.tsx
 #: src/features/sessions/session-list-item.tsx
 #: src/features/sessions/tool-card.tsx
 msgid "Running"
@@ -5105,10 +5136,15 @@ msgstr "Stdin (optional)"
 msgid "Steps"
 msgstr "Steps"
 
+#: src/features/sessions/background-bar.tsx
 #: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/quota-panel.tsx
 msgid "Stop"
 msgstr "Stop"
+
+#: src/features/sessions/background-bar.tsx
+msgid "Stop background job"
+msgstr "Stop background job"
 
 #: src/features/nodes/reenroll-node-dialog.tsx
 msgid "Stop crha, run this on the node as root, then start it again:"
@@ -5135,6 +5171,10 @@ msgstr "stopped by the next run"
 msgid "Stored headers: {0}"
 msgstr "Stored headers: {0}"
 
+#: src/features/jobs/job.tsx
+msgid "Subagent"
+msgstr "Subagent"
+
 #: src/features/sessions/tool-dialog.tsx
 msgid "Subagent session"
 msgstr "Subagent session"
@@ -5143,10 +5183,6 @@ msgstr "Subagent session"
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Subagent: {0}"
 msgstr "Subagent: {0}"
-
-#: src/features/sessions/children-bar.tsx
-msgid "Subagents"
-msgstr "Subagents"
 
 #: src/components/decision/signature-panel.tsx
 #: src/features/authorizations/issue-dialog.tsx
@@ -5207,6 +5243,7 @@ msgid "Target type"
 msgstr "Target type"
 
 #: src/components/task-facts.tsx
+#: src/features/jobs/job.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "Task"
 msgstr "Task"
@@ -5218,6 +5255,7 @@ msgid "Task details"
 msgstr "Task details"
 
 #: src/components/task-facts.tsx
+#: src/features/jobs/job.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task group"
@@ -5266,6 +5304,14 @@ msgstr "text"
 #: src/features/sessions/quota-panel.tsx
 msgid "That number is too large."
 msgstr "That number is too large."
+
+#: src/features/sessions/transcript-row.tsx
+msgid "the agent was woken"
+msgstr "the agent was woken"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "The agent was woken"
+msgstr "The agent was woken"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "The Ask rule preset can often pause the schedule while it waits for your confirmation."
@@ -6079,14 +6125,24 @@ msgstr "View all tasks"
 msgid "View tools of {0}"
 msgstr "View tools of {0}"
 
+#: src/features/jobs/job.tsx
+msgid "Waiting"
+msgstr "Waiting"
+
+#: src/features/jobs/job.tsx
+msgid "Waiting for a decision"
+msgstr "Waiting for a decision"
+
 #: src/features/sessions/session-item.ts
 msgid "Waiting for a quota decision"
 msgstr "Waiting for a quota decision"
 
+#: src/features/jobs/job.tsx
 #: src/features/sessions/session-item.ts
 msgid "Waiting for a signature"
 msgstr "Waiting for a signature"
 
+#: src/features/jobs/job.tsx
 #: src/features/sessions/session-item.ts
 msgid "Waiting for approval"
 msgstr "Waiting for approval"
@@ -6094,6 +6150,10 @@ msgstr "Waiting for approval"
 #: src/components/task-facts.tsx
 msgid "Waiting for approval. {approvalLink}"
 msgstr "Waiting for approval. {approvalLink}"
+
+#: src/features/jobs/job.tsx
+msgid "Waiting for quota"
+msgstr "Waiting for quota"
 
 #: src/components/task-facts.tsx
 msgid "Waiting for the owner's authorization."

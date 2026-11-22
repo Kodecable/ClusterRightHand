@@ -11,13 +11,11 @@ import {
 	useForkSession,
 	useMarkSessionRead,
 	useSession,
-	useSessionChildren,
-	useSessionChildrenSummary,
 	useSessionHistoryPage,
 	useSessionRootId,
 	useSessionTreeSync,
 } from "./api";
-import { ChildrenBar } from "./children-bar";
+import { BackgroundBar } from "./background-bar";
 import { SessionBanner } from "./session-banner";
 import { SessionFooter } from "./session-decisions";
 import { SessionHeader } from "./session-header";
@@ -53,8 +51,6 @@ export function SessionPage() {
 	const rootId = useSessionRootId(session.data);
 	const tree = useSessionTreeSync(sessionId, rootId);
 	const events = useSessionEvents(sessionId);
-	const children = useSessionChildren(sessionId, rootId, events.childrenRevision);
-	const childrenSummary = useSessionChildrenSummary(sessionId);
 	const [wantsOlder, setWantsOlder] = useState(false);
 	const history = useSessionHistoryPage(sessionId, events.state.historyCursor, wantsOlder);
 	const items = useMemo(() => transcript(events.state), [events.state]);
@@ -256,7 +252,7 @@ export function SessionPage() {
 				</div>
 			)}
 
-			<ChildrenBar query={children} summary={childrenSummary.data} />
+			<BackgroundBar sessionId={sessionId} isOwner={view.capabilities.configure} revision={events.jobsRevision} />
 			<SessionFooter session={view} rootId={rootId} stoppable={events.state.running || busy || compacting} />
 		</div>
 	);

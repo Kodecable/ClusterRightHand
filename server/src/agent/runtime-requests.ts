@@ -230,7 +230,7 @@ export async function decideAgentRequest(
 		if (decision === "deny") {
 			// A call paused right now is told by the in-memory mark, so it ends instead of waiting again.
 			if (host.quotaWaits.hasWaiters(requestId)) host.quotaWaits.markDenied(requestId);
-			await markSessionsIdle(host.db, [requestId]);
+			await markSessionsIdle(host.db, [requestId], (id) => host.jobs?.sessionChanged(id));
 		} else {
 			if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");
 			// No cap: the whole chain is charged for every response, so the parent's own remainder does

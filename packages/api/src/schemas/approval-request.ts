@@ -4,6 +4,7 @@
  * read this model instead of building their own per-kind summaries.
  */
 import { z } from "zod";
+import { JobKindSchema } from "./jobs.ts";
 import { ApprovalPhaseSchema, RuleSchema } from "./policy.ts";
 import { RequestSourceSchema } from "./request-source.ts";
 import { TaskActionSchema } from "./task-action.ts";
@@ -26,6 +27,15 @@ export const ApprovalReviewSummarySchema = z
 	.meta({ id: "ApprovalReviewSummary" });
 
 /**
+ * The job a waiting request belongs to (doc/design/jobs.md "Approvals and jobs"): its id, kind and the same
+ * structured action, so the decision panel and the approvals page can group one job's approvals and describe
+ * them in the background bar's words.
+ */
+export const ApprovalRequestJobSchema = z
+	.object({ id: z.string(), kind: JobKindSchema, action: TaskActionSchema })
+	.meta({ id: "ApprovalRequestJob" });
+
+/**
  * One waiting approval, small and locale-free: who asks, what waits, where, how risky the review judged
  * it and the rules an "always allow" would add. Details stay on the task, task group and external call pages.
  * `phase` is `reviewing` only while Auto Review is still judging; such a request is not shown as a user wait.
@@ -42,6 +52,7 @@ export const ApprovalRequestSchema = z
 		moreNodes: z.number().optional().describe("How many more nodes a capped `nodes` list leaves out."),
 		privileged: z.boolean(),
 		review: ApprovalReviewSummarySchema.optional().describe("Absent while reviewing or when no review ran."),
+		job: ApprovalRequestJobSchema.optional().describe("The job the waiting record belongs to, when it belongs to one."),
 		alwaysAllow: z
 			.array(ApprovalAlwaysAllowSchema)
 			.describe("The server-built always-allow candidates, in display order."),

@@ -132,6 +132,8 @@ The low-frequency settings below are **not** in `crhs.toml`. Administrators edit
 | `directory_copy.files` | integer ≥ 0 | `256` | Most files one `copy_file` with `recursive: true` copies into a library. |
 | `directory_copy.bytes` | integer ≥ 0 | `268435456` | Most bytes one directory copy takes (256 MiB). |
 | `skills.max_per_user` | integer ≥ 0 | `64` | Most skills a session's system prompt lists. A library with more `skills/<name>/SKILL.md` files lists none, and the prompt tells the model to browse `skills/` itself. |
+| `jobs.max_consecutive_wakes` | integer ≥ 0 | `10` | Most times completion notices may wake a session since its last user-authored message. Past it, notices wait for the next tool result or the next user turn. `0` disables notice wakes. |
+| `jobs.max_running` | integer ≥ 0 | `32` | Most unsettled jobs a session, or an API token over MCP, may have at once. A tool that would start another fails with `job_limit`. `0` allows no jobs. |
 
 The library defaults are copied when a user or user group is created; changing them does not touch an
 existing library. Administrators change an existing library's limits on its user or user group page.
@@ -151,7 +153,13 @@ Set `webauthn.rp_id` and `webauthn.origins` together, or leave both unset to tak
 request's origin.
 
 The retention sweep runs shortly after startup and then hourly. Each value is a duration of at least
-`"1d"`, or `"off"` to keep records forever. Session conversations are not affected.
+`"1d"`, or `"off"` to keep records forever. Finished jobs follow `retention.tasks`, but are kept at least
+one day after they settle. Session conversations are not affected.
+
+A completion notice may wake an idle session at most `jobs.max_consecutive_wakes` times since the last
+message a user typed; the count is stored on the session, so a restart does not reset it. A session at
+`jobs.max_running` unsettled jobs refuses a tool that would start another with `job_limit`, and an API
+token is limited the same way over MCP.
 
 Cleanup and the client address use the values read at the time they run. Logins can always use every
 hashing slot, while password changes and user creation are held back, so signed-in users cannot block

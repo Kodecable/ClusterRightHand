@@ -761,11 +761,17 @@ export class Scheduler {
 		}
 	}
 
-	/** Watches one run's submission; settles the run when it ends. Never polls. */
+	/**
+	 * Watches one run until it is final (doc/design/scheduling.md "Finish"): its submission ends, its session is
+	 * idle, and it owns no unsettled job, so background work and the turns its notices wake are part of the run
+	 * and the report follows them. Never polls.
+	 */
 	#watchRun(runId: string, sessionId: string, submissionId: string): void {
 		const watch = (async () => {
 			try {
 				const outcome = await this.#runtime.waitForSubmission(submissionId, this.#lifecycle.signal);
+				if (this.#stopping) return;
+				await this.#runtime.waitForSessionQuiet(sessionId, this.#lifecycle.signal);
 				if (this.#stopping) return;
 				await this.#finishRun(runId, sessionId, outcome);
 			} catch (err) {

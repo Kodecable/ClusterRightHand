@@ -260,6 +260,46 @@ export interface ExternalCallsTable extends ApprovalColumns {
 	finished_at: string | null;
 }
 
+/** The kind of work a job tracks (doc/design/jobs.md "Scope"). */
+export type JobKind = "exec" | "call" | "subagent";
+/** The one state vocabulary every job kind projects to (doc/design/jobs.md "States"). */
+export type JobState = "waiting" | "running" | "settled";
+/** What a waiting job waits for; `decision` is a subagent request its parent's agent must decide. */
+export type JobWait = "approval" | "signature" | "quota" | "decision";
+/** The completion-notice state of a job (doc/design/jobs.md "Completion notices"); written in a later phase. */
+export type JobNotice = "none" | "pending" | "delivered" | "collected";
+
+/**
+ * One job: the model's handle on work a tool call started (doc/design/jobs.md "Job model"). The row is a
+ * projection of the task, task group, external call or child session behind it; `state`, `outcome` and
+ * `wait` are recomputed by that kind's adapter, never written by it.
+ */
+export interface JobsTable {
+	id: string;
+	org_id: string;
+	actor_type: string;
+	actor_id: string;
+	on_behalf_of_user_id: string;
+	/** The session whose tool call started it; null for an MCP client. */
+	session_id: string | null;
+	/** The durable tool call key; a replayed tool call finds the same job. */
+	call_key: string;
+	kind: JobKind;
+	resource_type: "task" | "task_group" | "external_call" | "session";
+	resource_id: string;
+	/** JSON TaskAction, the same structured action approvals show. */
+	action: string;
+	state: JobState;
+	/** JSON TaskOutcome once the job is settled. */
+	outcome: string | null;
+	wait: JobWait | null;
+	/** A `call` job's rendered result while it is kept; exec and subagent jobs keep none. */
+	result: string | null;
+	notice: JobNotice;
+	created_at: CreatedAt;
+	settled_at: string | null;
+}
+
 export interface ServerMetaTable {
 	key: string;
 	value: string;
@@ -631,6 +671,11 @@ export interface SessionsTable {
 	owner_read_at: string | null;
 	/** Where the session was last used (doc/design/channels.md "Notifications"): `web`, a channel thread id, or null. */
 	last_used_from: ColumnType<string | null, string | null | undefined, string | null>;
+	/**
+	 * Completion-notice wakes since the last user-authored input (doc/design/jobs.md "Completion notices"):
+	 * capped by `jobs.max_consecutive_wakes` and reset by a user message.
+	 */
+	notice_wakes: ColumnType<number, number | undefined, number>;
 	/** Remaining token quota at any level (doc/design/agent-runtime.md "Quota and token accounting"); null: unlimited. Signed: one call may overspend it. */
 	quota_tokens: ColumnType<string | number | null, string | number | null | undefined, string | number | null>;
 	/** The budget measure: output tokens spent by this session and its subagents. */
@@ -846,6 +891,7 @@ export interface Database {
 	extensions: ExtensionsTable;
 	extension_grants: ExtensionGrantsTable;
 	external_calls: ExternalCallsTable;
+	jobs: JobsTable;
 	schedules: SchedulesTable;
 	schedule_runs: ScheduleRunsTable;
 }

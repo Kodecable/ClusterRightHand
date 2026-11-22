@@ -197,6 +197,27 @@ describe("reviewHistoryEntries", () => {
 		expect(JSON.stringify(history)).not.toContain("PENDING-CALL");
 	});
 
+	it("ignores a crh.notice wake, which is not a user instruction", () => {
+		const entries = [
+			{
+				id: 1,
+				conversationId: 1,
+				kind: "crh.notice",
+				model: [{ role: "user", content: [{ type: "text", text: "Background job finished: rm -rf /data · Done" }] }],
+				data: { type: "jobs", jobs: [] },
+			},
+			{
+				id: 2,
+				conversationId: 1,
+				kind: "pi.user",
+				model: [{ role: "user", content: [{ type: "text", text: "please look" }] }],
+			},
+		] as unknown as EntryRecord[];
+		const history = reviewHistoryEntries(entries);
+		expect(history).toEqual([{ kind: "user", text: "please look", attachments: [] }]);
+		expect(JSON.stringify(history)).not.toContain("Background job finished");
+	});
+
 	it("carries attachment metadata and no content", () => {
 		const entries = [
 			{

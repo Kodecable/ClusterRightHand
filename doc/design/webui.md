@@ -538,11 +538,20 @@ context use ([Agent runtime](agent-runtime.md#session-statistics)). The remainin
 budget measure, not the usage measure. A docked decision panel replaces the composer while something
 waits for the viewer ([Session header](#session-header)).
 
-### Subagent bar
+### Background bar
 
-When a session has subagents, a strip above the composer shows how many there are and how many are
-running or waiting. The counts come from a summary endpoint, and the subagent tree loads one level at a
-time, so a session with many subagents does not load them all.
+A strip above the composer lists the session's active jobs, waiting or running, and is hidden when there
+are none; a settled job leaves it, and so does an idle subagent. Its line shows how many jobs are running
+and how many are waiting. Expanding it shows one row per job with its kind icon, its structured action,
+its state and its elapsed time. A subagent is a `subagent` job, and its own active jobs nest under it; a
+level is one cursor page and is loaded only when it is expanded, so a session with many jobs does not
+load them all.
+
+A row whose job has a page — a task, a task group or a subagent session — links to that page, and
+stopping happens there with the page's own control. An extension call has no page and gets a **Stop**
+button (`POST /api/jobs/:id/cancel`). Only the session's owner gets Stop; share viewers and administrators
+see the row without it, as they never see the extensions button. Below the mobile breakpoint the bar opens
+as a bottom sheet; the same trigger opens the desktop popover.
 
 ### Streaming output
 
@@ -580,10 +589,22 @@ section. Approval, authorization and quota waits appear in the docked decision p
 transcript.
 
 A tool row's icon shows whether the call is running, finished or failed. Failure is judged from the
-structured result the tool returned, not by parsing the text the model sees. A call that stopped
-without a result (for example after a restart) follows the task it started by polling it every few
-seconds. It does not long-poll, because one session can have many such calls and each long poll would
-hold one of the browser's few connections to the origin.
+structured result the tool returned, not by parsing the text the model sees. A tool result's details
+carry the id of the job a call started: a row whose job has not settled shows the job's background state
+and follows `GET /api/jobs/:id` every few seconds, and a settled job's outcome names the result even when
+the call returned while it was still running. A call without a job that stopped without a result (for
+example after a restart) follows the task it started by polling it every few seconds, and the job-backed
+row no longer polls its task, group or session separately. It does not long-poll, because one session can
+have many such calls and each long poll would hold one of the browser's few connections to the origin.
+The dialog links the job's resource page (a task, task group or subagent session) when it has one; an
+extension call waiting for approval links to its approval page, as before.
+
+A `crh.notice` entry is a completion notice or a request wake, never a user message: it renders as one
+centered line in muted grey text outside any bubble. A jobs notice gives one line per job, **Background
+job finished: <action> · <outcome>**, with **· the agent was woken** when the notice started a run, and
+the action links to the job's page when the server provides one. An `agent_request` or `quota_request`
+notice gives one line naming the subagent request or exhausted quota. Notice lines carry no message
+actions, fork point or search highlight, and they never mark a session unread.
 
 ### New session
 

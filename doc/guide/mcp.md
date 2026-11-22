@@ -73,8 +73,9 @@ Clients that support only stdio need a third-party bridge.
 | `stat` | File attributes on a node, or of a library |
 | `copy_file` | Copy one file between nodes and libraries, or a directory into a library, or offer a file to the people in the session |
 | `view_image` | Look at one image, from a node or a library |
-| `task_wait` | Keep waiting for an `exec` task or task group |
-| `task_cancel` | Cancel an `exec` task or task group |
+| `job_wait` | Keep waiting for a job (an `exec` task or task group; in a session, a `call_tool` call or a subagent) |
+| `job_cancel` | Cancel a job through the path of the work behind it |
+| `job_list` | List the jobs this token started, newest first |
 
 Your client shows each tool's arguments and descriptions. The library tools reach the libraries of the
 user whose API token you use: their own `user:<username>` library and the libraries of their groups.
@@ -120,8 +121,12 @@ or shrink it on a node first.
 ### exec in detail
 
 `exec` takes either `cmd` (run with `sh -c`) or `argv`. It waits up to `wait` seconds (30 by default for
-MCP, at most 600) and then returns what it has with a `task_id`; continue with `task_wait`. `wait` is
-not a timeout: the command keeps running. Use `timeout` to limit the command itself.
+MCP, at most 600) and then returns what it has with a job id; continue with `job_wait`. `wait` is not a
+timeout: the command keeps running. Use `timeout` to limit the command itself.
+
+Every `exec` call creates a job over its task or task group; in a session, `call_tool` does the same
+over its external call. The job id is what the model and the client follow; the underlying task and task
+group ids stay in the WebUI ([Jobs](../design/jobs.md)).
 
 The result is the command's combined output followed by a note in square brackets:
 
@@ -130,14 +135,16 @@ hello
 [web-1, exit 0]
 ```
 
-Notes also report timeouts, signals, a still-running task or a pending approval with its link. Long
+Notes also report timeouts, signals, a still-running task or a pending approval with its link and the
+job id to follow: `[web-1, still running, job exec-3f2a…: call job_wait with this id]`. Long
 output is truncated to its tail; the note names the complete output file on the node, which you can read
 with `read_file`. A non-zero exit marks the result as an error but still includes the output.
 
 ### File tools
 
-File tools wait until the task finishes, including any approval, and return no task id. Closing the
-request cancels the task, so a client that gave up does not leave a write to happen later.
+File tools wait until the task finishes, including any approval, and return no job id: they are short,
+and closing the request cancels their task, so a client that gave up does not leave a write to happen
+later ([Scope](../design/jobs.md#scope)).
 
 - `read_file` reads up to 2000 lines or 50 KiB per page; continue with `offset`.
 - `write_file` fails if the file exists unless `overwrite` is true. `mode` is an octal string such as
@@ -156,7 +163,8 @@ Errors are returned as tool results with `isError` set and a stable code, such a
 - **Node access** is yours: the token sees the nodes you can access.
 - **Rules** are the token's own: its preset plus any rules you add.
 - **Approvals** go to you in the WebUI, on the Approvals page. There is no MCP tool to approve. `exec`
-  returns the waiting state and a link; call `task_wait` after deciding. File tools keep waiting.
+  returns the waiting state, a link and the job id; call `job_wait` after deciding. File tools keep
+  waiting.
   "Approve and always allow" adds the rule to the token.
 
 Tasks started over MCP appear in **Tasks** with the API token as their actor, and in the audit log.
@@ -168,7 +176,7 @@ results use the public address ([Reverse proxy and TLS](install.md#reverse-proxy
 
 Set `privileged: true` on `exec` or a file tool. On a `forward` node the task may also need your
 signature after the rules allow it; sign it on the task page or the Approvals page with a Passkey or
-`crhu sign`, then call `task_wait`. SSH nodes ignore the flag.
+`crhu sign`, then call `job_wait`. SSH nodes ignore the flag.
 
 ## Differences from agent sessions
 
@@ -187,7 +195,10 @@ Once a task exists, it behaves the same either way.
 - Tools only: no MCP resources or prompts, no tools to manage CRH, and no way to hand work to CRH's
   built-in agent.
 - Bearer tokens only, no OAuth.
-- No progress is pushed to the client; poll with `task_wait`.
-- `task_wait` and `task_cancel` reach only `exec` tasks started by the same token.
+- No progress is pushed to the client; poll with `job_wait`.
+- The job tools reach only jobs started by the same token
+  ([Ownership](../design/jobs.md#ownership)).
+- Extension tools are for agent sessions: this surface lists no `call_tool` and no
+  `ext__<extension>__<tool>` tool.
 - Closing an `exec` request does not stop the task; closing a file tool request cancels it. Set your
   client's timeout above the `wait` you use.

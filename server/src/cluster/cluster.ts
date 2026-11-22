@@ -117,6 +117,24 @@ export class Cluster {
 		return abandonTaskReview(this.#core, id);
 	}
 
+	/** Called on every task state change, after the waiters are woken (the job layer projects the task's job). */
+	get onTaskChanged(): ((taskId: string) => void) | undefined {
+		return this.#core.onTaskChanged;
+	}
+
+	set onTaskChanged(hook: ((taskId: string) => void) | undefined) {
+		this.#core.onTaskChanged = hook;
+	}
+
+	/** Called when a task's group changes state through its member's signature wait (the job layer projects it). */
+	get onGroupChanged(): ((groupId: string) => void) | undefined {
+		return this.#core.onGroupChanged;
+	}
+
+	set onGroupChanged(hook: ((groupId: string) => void) | undefined) {
+		this.#core.onGroupChanged = hook;
+	}
+
 	/** Called after a task starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
 	get onChange(): ((actorId: string) => void) | undefined {
 		return this.#core.onChange;

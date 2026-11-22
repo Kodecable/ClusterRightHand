@@ -88,6 +88,7 @@ const TABLES = [
 	"extensions",
 	"external_calls",
 	"image_cache",
+	"jobs",
 	"libraries",
 	"library_files",
 	"library_skills",
@@ -135,6 +136,8 @@ const INDEXES = [
 	"external_calls_actor_idx",
 	"external_calls_state_idx",
 	"tasks_handler_agent_idx",
+	"jobs_session_state_idx",
+	"jobs_resource_idx",
 	"user_group_members_user_id_idx",
 	"web_sessions_expires_at_idx",
 ];
@@ -199,6 +202,30 @@ describeBackends("initial migration", (backend) => {
 			"last_used_at",
 			"stored_at",
 		]);
+		expect(await tableColumns(backend, db, "jobs")).toEqual([
+			"id",
+			"org_id",
+			"actor_type",
+			"actor_id",
+			"on_behalf_of_user_id",
+			"session_id",
+			"call_key",
+			"kind",
+			"resource_type",
+			"resource_id",
+			"action",
+			"state",
+			"outcome",
+			"wait",
+			"result",
+			"notice",
+			"created_at",
+			"settled_at",
+		]);
+		// An MCP client has no session; every other job has one, and the row goes with it.
+		expect(await isNotNull(backend, db, "jobs", "session_id")).toBe(false);
+		expect(await isNotNull(backend, db, "jobs", "call_key")).toBe(true);
+		expect(await isNotNull(backend, db, "jobs", "notice")).toBe(true);
 
 		const sessions = await tableColumns(backend, db, "sessions");
 		expect(sessions).toContain("title_pending");
@@ -322,6 +349,8 @@ describeBackends("initial migration", (backend) => {
 			{ name: "0001_initial" },
 			{ name: "0002_skills_session_prompt" },
 			{ name: "0003_drop_late_result" },
+			{ name: "0004_jobs" },
+			{ name: "0005_job_notice_wakes" },
 		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});

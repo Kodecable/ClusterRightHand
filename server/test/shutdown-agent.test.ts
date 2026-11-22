@@ -15,6 +15,7 @@ import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-groups.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -48,7 +49,16 @@ describe("agent runtime shutdown", () => {
 	const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 	const openStorage = () => openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
 
-	const openRuntime = () => AgentRuntime.open({ db, storage: openStorage, models, cluster, taskGroups: groups, audit });
+	const openRuntime = () =>
+		AgentRuntime.open({
+			callRunner: new CallRunner(),
+			db,
+			storage: openStorage,
+			models,
+			cluster,
+			taskGroups: groups,
+			audit,
+		});
 
 	/** Reads the durable store directly: entries and task records, as a restart would find them. */
 	const inspectDurable = async (): Promise<{ entries: EntryRecord[]; tasks: { kind: string; status: string }[] }> => {

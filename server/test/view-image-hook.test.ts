@@ -14,6 +14,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend } from "../src/library/backend.ts";
 import { beginLibraryUpload } from "../src/library/files.ts";
@@ -78,6 +79,7 @@ describe("view_image beforeRequest hook", () => {
 			taskGroups: new TaskGroups(db, cluster, { audit }),
 			audit,
 			imageCache,
+			callRunner: new CallRunner(),
 		};
 		runtime = await AgentRuntime.open(options);
 		const row = await createUser(db, { username: "alice", kind: "member" });

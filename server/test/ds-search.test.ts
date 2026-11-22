@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { builtinProvider } from "../src/extensions/builtin.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { McpConnections } from "../src/extensions/connections.ts";
 import { sessionExtensionsForUser } from "../src/extensions/registry.ts";
 import { extensionView, getExtensionRow, saveExtension } from "../src/extensions/store.ts";
@@ -121,6 +122,7 @@ describe("crhs-ds-search", () => {
 			chain: [{ type: "session", id: sessionId }],
 			approvalUrl: () => "",
 			rootSessionId: sessionId,
+			callRunner: new CallRunner(),
 			extensions: await sessionExtensionsForUser(db, user.userId, [], connections),
 			audit: new Audit(db),
 		};

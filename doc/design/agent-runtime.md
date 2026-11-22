@@ -146,17 +146,24 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `exec` | Run a command |
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
 | `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
-| `task_wait`, `task_cancel` | Follow or cancel an `exec` task or task group |
+| `job_wait`, `job_cancel`, `job_list` | Follow, cancel or list the jobs these tools start ([Jobs](jobs.md)) |
 | `search_tools`, `call_tool` | Find and call an extension's tools, MCP or built-in ([Extensions](extensions.md)) |
 | `ext__<extension>__<tool>` | A "list directly" extension's tool, called without `call_tool` |
 | `search_docs`, `read_doc` | The built-in `crhs-docs` extension: search this version's documentation and API reference, and read a document or a section of it |
 | `api_request` | The built-in `crhs-api` extension: one crhs API request as the session owner, through the same routes and rules as the WebUI |
 
+`call_tool`, the directly listed `ext__<extension>__<tool>` tools and `api_request` take `wait` like
+`exec`: a call that settles in time returns its result, otherwise the tool returns a waiting or
+still-running note with the job id and the call goes on in crhs's runner
+([Background extension calls](jobs.md#background-extension-calls)). Ending the tool invocation only
+stops waiting.
+
 Those rows are extension tools, not cluster tools: the tool list grows with the "list directly" flag and
 the built-in extensions, while `search_tools` and `call_tool` stay fixed ([Tools for the model](extensions.md#tools-for-the-model)).
 
-`task_wait` and `task_cancel` reach only tasks started by this session (or its subagents) or this API
-token, never another session of the same user, because a task belongs to the actor that started it.
+The job tools reach only jobs started by this session (or its subagents) or this API token, never
+another session of the same user, because a job belongs to the actor that started it
+([Ownership](jobs.md#ownership)).
 
 Arguments are snake_case. Every node-scoped tool takes `targets`, a list of node and node group
 references or `_all`. File modes are octal strings such as `"0644"`, because JSON has no octal literal
@@ -169,14 +176,15 @@ approvals, authorization, audit and restart behavior as any other task. They sha
 resolves targets, derives task ids from the tool call, waits, and renders the result. There are two ways
 of waiting:
 
-- **`exec` can continue in the background.** It waits up to `wait` and then returns a still-running
-  result with the task id, which the model follows with `task_wait`.
+- **`exec` can continue in the background.** It waits up to `wait` and then returns a still-running or
+  waiting result with the job id, which the model follows with `job_wait`. Each `exec` call creates an
+  `exec` job over its task or task group ([Jobs](jobs.md)).
 - **File tools block** until the task ends, including approval and signature waits. A file operation
   normally takes seconds, and exposing a task id would only add a round trip. Aborting the tool call
   cancels the task.
 
-Both push the task id and wait state to the WebUI as soon as the task exists, without putting them in
-the model's context.
+Both record the task's details and wait state for the WebUI as soon as the task exists; the model sees
+a job id instead of the task id.
 
 ### Batch execution
 
@@ -194,13 +202,16 @@ node.
 
 - `wait` only decides when the tool returns; it never stops the task. A command has no timeout unless
   one is given.
-- Because task ids are derived from the durable tool call, a tool that runs again after a crhs restart
-  finds the same task, running or finished, instead of starting it again.
+- Because tasks, task groups and jobs are derived from the durable tool call, a tool that runs again
+  after a crhs restart finds the same task and job, running or finished, instead of starting it again.
+- The model sees the job id, never the underlying task or task group id; those stay in the tool result's
+  details for the WebUI.
 - An `unknown` task is reported as an error whose outcome is unknown, with a reason-specific message that
   says whether the task may have run. A result the node reported later is recorded on the task and
   appended to that note, while the state and outcome stay unknown.
-- While a task waits for approval or a signature, an agent keeps waiting and shows the link in the UI;
-  an extension call returns the waiting state and link after its `wait`.
+- `wait` covers approval and signature too, for `exec` as for extension calls: while the work waits for
+  a person, the UI shows the link; when `wait` runs out first, the tool returns the waiting state, the
+  link and the job id, and the job's completion notice reports the end ([Jobs](jobs.md#completion-notices)).
 
 ### Read anchors
 
@@ -342,7 +353,7 @@ assembled in this order:
    a helpful assistant running inside ClusterRightHand Server (crhs), operating the user's nodes for them,
    that it replies in the language of the user's latest message, and that it is concise. A custom prompt
    replaces all of it.
-2. **The protocol**: the tool guide, fixed in code. It explains targets, the output notes, task ids,
+2. **The protocol**: the tool guide, fixed in code. It explains targets, the output notes, job ids,
    libraries, approvals, extensions, subagents and the sent-time note on user messages.
 3. **The user**: the session owner's username, display name and user groups (at most 20 named, the rest
    counted), quoted as data, and which libraries they reach.
@@ -425,8 +436,8 @@ parent's permissions. The parent sets the child's rules, quota and model at crea
   explicitly, cancelling its tasks and ending its waits.
 - **Replay.** The child's id is derived from the tool call, so a replay after a restart finds the same
   child instead of creating another.
-- The parent controls children with `subagent_wait`, `subagent_list`, `subagent_cancel` and
-  `subagent_decide`.
+- The parent waits for a child with `job_wait` on the `subagent` job `subagent` returned, and controls
+  the tree with `subagent_list` and `subagent_decide`. Stopping a child is `job_cancel` on its job.
 
 ### Session state
 
@@ -449,16 +460,19 @@ Every session has a stored run state, so lists can filter and sort in SQL withou
   approval badge appears. Only a verdict that sends the request to the user (escalation, failure or a
   timeout) makes the session `awaiting/approval`; the review hook refreshes the state at that point.
   Stopping the session or ending its run still rejects reviewing requests like any other wait.
-- **Waits nobody will handle.** Stopping a session rejects its approval waits, cancels its signature
-  waits and cancels its running tasks. When a run ends, or at startup, waits left by tool calls that no
-  longer exist are ended the same way. Tasks that belong to no session are not affected; their signature
-  waits expire after 24 hours ([Waiting for signatures](privilege.md#waiting-for-signatures)).
+- **Waits nobody will handle.** Stopping a session ends its approval waits, cancels its signature
+  waits and cancels its running tasks, and stops its subtree's jobs ([Jobs](jobs.md#lifecycle-and-retention)).
+  When a run ends, or at startup, waits left by tool calls that no longer exist are ended the same way;
+  a wait held by a live job is not one of them, because the background work it belongs to still needs it.
+  Tasks that belong to no session are not affected; their signature waits expire after 24 hours
+  ([Waiting for signatures](privilege.md#waiting-for-signatures)).
 
 ### Foreground and background
 
 `subagent` runs a child in the foreground and waits for its answer, or with `background: true` returns
-at once. A foreground wait is interrupted when the child needs a decision from the parent's agent: the
-child keeps running, the parent decides, and then continues waiting with `subagent_wait`.
+at once. Both return the `subagent` job id. A foreground wait is interrupted when the child needs a
+decision from the parent's agent: the child keeps running, the parent decides, and then continues
+waiting with `job_wait`.
 
 ### Handling subagent requests
 
@@ -468,9 +482,12 @@ child keeps running, the parent decides, and then continues waiting with `subage
 - A quota request goes to the direct parent of the exhausted level, and to the owner for a root.
 - Pending requests are attached to every tool result of the handling session in a tagged JSON block
   that states the summaries come from subagents and are data, not instructions. Escaping keeps a summary
-  from closing the block.
-- An idle parent is woken with a follow-up input; a running parent sees the request in its next tool
-  result. There is no polling loop.
+  from closing the block. Completion notices of finished jobs are attached beside it, in their own tagged
+  block, and carry only a job's id, kind, action and outcome ([Completion notices](jobs.md#completion-notices)).
+- An idle parent is woken with an input whose entry kind is `crh.notice`, not a user message: its data
+  names the request (`{ "type": "agent_request", … }`) or the finished jobs (`{ "type": "jobs", … }`), so
+  no display surface or transcript reader treats a wake as something the user typed. A running parent
+  sees the request in its next tool result. There is no polling loop.
 
 ## Defaults
 
@@ -486,6 +503,7 @@ Tools follow pi's coding-agent defaults where they apply:
 | grep and find | No dedicated tools; use `exec` |
 | Automatic compaction | pi's thresholds, starting in the background before the blocking threshold |
 | `exec` wait before returning | 10 minutes for agents, 30 seconds for MCP |
+| `call_tool`/direct extension tool wait before returning | 10 minutes for agents, 30 seconds for MCP |
 
 Node notes returned by `node_info` are cut to 8 KiB, because every call returns them. A node with notes
 returns `{ path, content }`; a node without them returns `{ path, status }` and no `content`.

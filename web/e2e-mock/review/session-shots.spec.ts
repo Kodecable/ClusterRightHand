@@ -1,14 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { test } from "@playwright/test";
-import {
-	assistantEntry,
-	mockApi,
-	sessionListItem,
-	sessionView,
-	snapshotEvent,
-	toolEntries,
-	userEntry,
-} from "../helpers.ts";
+import { mockApi, sessionListItem, sessionView, snapshotEvent } from "../helpers.ts";
 
 /**
  * The session page's review screenshots (doc/design/webui.md "Session interface"): light and dark, desktop and phone.
@@ -43,105 +35,6 @@ const sessions = [
 	sessionListItem({ id: "s6", title: "Quarterly capacity review", state: "idle", updatedAt: daysAgo(45) }),
 ];
 
-const children = [
-	sessionListItem({
-		id: "c1",
-		title: "Measure disk usage",
-		parentSessionId: "s1",
-		state: "running",
-		updatedAt: ago(2),
-	}),
-	sessionListItem({
-		id: "c2",
-		title: "Rotate the logs",
-		parentSessionId: "s1",
-		state: "awaiting",
-		waitingKind: "approval",
-		updatedAt: ago(4),
-	}),
-	sessionListItem({
-		id: "c3",
-		title: "Summarize the findings",
-		parentSessionId: "s1",
-		state: "idle",
-		updatedAt: ago(6),
-	}),
-];
-
-const markdown = `Here is the plan:\n\n## Steps\n\n1. Check **disk** usage on \`db-1\`\n2. Rotate logs\n\n| Node | Free |\n|---|---|\n| db-1 | 12% |\n| web-1 | 64% |\n\n\`\`\`bash\ndf -h /var\njournalctl --vacuum-size=200M\n\`\`\`\n\n> Rotation is safe.`;
-
-const entries = [
-	userEntry("e1", "Check disk usage on db-1 and clean up if needed"),
-	assistantEntry("e2", markdown),
-	// A returned, successful call: the wrench icon.
-	...toolEntries(
-		"e3",
-		"df -h /var",
-		JSON.stringify({ task_id: "task-ok", node: "db-1", state: "exited", exit_code: 0 }),
-	),
-	// A call that has not returned yet: the spinner icon.
-	{
-		id: "e4",
-		kind: "pi.assistant",
-		model: [
-			{
-				role: "assistant",
-				content: [
-					{
-						type: "toolCall",
-						id: "call-running",
-						name: "exec",
-						arguments: { cmd: "journalctl --vacuum-size=200M", targets: ["db-1"] },
-					},
-				],
-			},
-		],
-	},
-	// A returned task failure (exit 2): the danger-coloured wrench icon.
-	{
-		id: "e5",
-		kind: "pi.assistant",
-		model: [
-			{
-				role: "assistant",
-				content: [
-					{
-						type: "toolCall",
-						id: "call-failed",
-						name: "exec",
-						arguments: { cmd: "systemctl restart nginx", targets: ["db-1"] },
-					},
-				],
-			},
-		],
-	},
-	{
-		id: "e6",
-		kind: "pi.tool-result",
-		model: [
-			{
-				role: "toolResult",
-				toolCallId: "call-failed",
-				toolName: "exec",
-				content: [
-					{
-						type: "text",
-						text: JSON.stringify({
-							task_id: "task-failed",
-							node: "db-1",
-							state: "exited",
-							exit_code: 2,
-							stderr: "Job for nginx.service failed.",
-						}),
-					},
-				],
-				isError: false,
-			},
-		],
-	},
-	assistantEntry("e7", "Disk on db-1 is at **88%**. I rotated logs; it is now at 61%."),
-];
-
 /** The snapshot plus the event that puts the middle card in the running state. */
 const events = [
 	...snapshotEvent(entries, null),
@@ -155,7 +48,7 @@ const events = [
 
 const state = {
 	sessions,
-	children: { s1: children },
+	jobs: { s1: jobs },
 	details: {
 		s1: sessionView(s1, {
 			budgetRemaining: 12_345,
@@ -202,11 +95,11 @@ for (const variant of variants) {
 		await page.waitForTimeout(1200);
 		await page.screenshot({ path: `${OUT}/${variant.name}-session.png` });
 
-		// The children tree, on the desktop sizes.
+		// The background bar's job list, on the desktop sizes.
 		if (variant.width === 1440) {
-			await page.getByTestId("children-bar").click();
+			await page.getByTestId("background-bar").click();
 			await page.waitForTimeout(500);
-			await page.screenshot({ path: `${OUT}/${variant.name}-session-children.png` });
+			await page.screenshot({ path: `${OUT}/${variant.name}-session-jobs.png` });
 		}
 	});
 }

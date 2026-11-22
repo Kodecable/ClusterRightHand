@@ -110,8 +110,11 @@ export function resultId(item: ToolItem, key: "task_id" | "task_group_id"): stri
 	return typeof id === "string" && id !== "" ? id : undefined;
 }
 
-/** A string field of the call's live status details, e.g. the `task_id` the first status published. */
-export function detailId(details: Json | undefined, key: "task_id" | "task_group_id"): string | undefined {
+/** A string field of the call's details: the task, task group or job id its status or result published. */
+export function detailId(
+	details: Json | undefined,
+	key: "task_id" | "task_group_id" | "job_id" | "external_call_id",
+): string | undefined {
 	if (details === null || details === undefined || typeof details !== "object" || Array.isArray(details))
 		return undefined;
 	const value = details[key];

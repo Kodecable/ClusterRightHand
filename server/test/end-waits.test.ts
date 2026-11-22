@@ -5,9 +5,12 @@ import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
+import { createJobs } from "../src/jobs/jobs.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { TOOLS, type ToolContext } from "../src/tools/catalog.ts";
+import { execJobRenderers } from "../src/tools/job-renderers.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
@@ -195,36 +198,75 @@ describe("ending waits at shutdown", () => {
 		expect(fake.starts).toHaveLength(1);
 	});
 
-	it("returns the current state from a task_wait tool call that waits through approval", async () => {
+	it("returns the current state from a job_wait tool call whose wait is ended", async () => {
 		const id = newId();
 		await addWaitingGroup(id);
-		const statuses: Record<string, unknown>[] = [];
 		const user: SessionUser = { sessionId: "s", userId, username: "owner", kind: "member" };
+		const now = new Date().toISOString();
+		await db
+			.insertInto("sessions")
+			.values({
+				id: "s1",
+				org_id: await defaultOrgId(db),
+				owner_user_id: userId,
+				conversation_id: "conv-s1",
+				parent_session_id: null,
+				root_session_id: "s1",
+				title: null,
+				title_pending: 0,
+				model: JSON.stringify({ provider: "p", modelId: "m" }),
+				status: "active",
+				created_at: now,
+				updated_at: now,
+				archived_at: null,
+				last_submission_id: null,
+				disabled_extensions: null,
+				state: "idle",
+				waiting_kind: null,
+				waiting_level_id: null,
+				waiting_handler_id: null,
+				state_changed_at: now,
+				quota_tokens: null,
+			})
+			.execute();
+		const jobs = createJobs({
+			callRunner: new CallRunner(),
+			db,
+			cluster,
+			taskGroups: groups,
+			execRenderers: execJobRenderers,
+		});
+		const job = await jobs.ensure({
+			kind: "exec",
+			callKey: "end-waits-group",
+			actor: { type: "session", id: "s1", onBehalfOfUserId: userId },
+			sessionId: "s1",
+			resourceType: "task_group",
+			resourceId: id,
+			action: { type: "exec", command: "sleep 60" },
+		});
 		const ctx = {
 			db,
 			cluster,
 			taskGroups: groups,
+			jobs,
 			user,
-			actor: actor(),
+			actor: { type: "session", id: "s1", onBehalfOfUserId: userId },
 			chain: [],
 			approvalUrl: (kind: string, groupId: string) => `/approvals/${kind}/${groupId}`,
 			taskGroupUrl: (groupId: string) => `/task-groups/${groupId}`,
-			waitThroughApproval: true,
-			defaultWaitS: 1,
-			onStatus: async (status: Record<string, unknown>) => {
-				statuses.push(status);
-			},
+			defaultWaitS: 5,
 		} as unknown as ToolContext;
-		const tool = TOOLS.find((t) => t.name === "task_wait");
-		if (!tool) throw new Error("task_wait tool missing");
+		const tool = TOOLS.find((t) => t.name === "job_wait");
+		if (!tool) throw new Error("job_wait tool missing");
 
-		// waitTaskGroupFor loops on groups.wait(id, HOUR); only ending the waits makes it return the waiting state.
-		const call = tool.handler({ task_group_id: id, wait: 1 }, ctx);
+		// attention: false waits on the group itself; only ending the waits makes it return the waiting state.
+		const call = tool.handler({ job_id: job.id, wait: 5, attention: false }, ctx);
 		expect(await settledWithin(call, 100)).toBe(false);
 		groups.endWaits();
-		const result = await withTimeout(call, 2_000, "the task_wait tool call");
+		const result = await withTimeout(call, 2_000, "the job_wait tool call");
 		const value = JSON.parse(result.content[0]?.text ?? "") as Record<string, unknown>;
-		expect(value).toMatchObject({ task_group_id: id, state: "awaiting_approval" });
-		expect(statuses[0]).toMatchObject({ task_group_id: id, state: "awaiting_approval" });
+		expect(value).toMatchObject({ job_id: job.id, state: "awaiting_approval" });
+		expect(value).not.toHaveProperty("task_group_id");
 	});
 });

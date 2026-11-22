@@ -4,6 +4,8 @@ import {
 	Client,
 	type FetchLike,
 	ProtocolError,
+	SdkError,
+	SdkErrorCode,
 	StreamableHTTPClientTransport,
 	type Tool,
 } from "@modelcontextprotocol/client";
@@ -656,10 +658,29 @@ export class McpConnections {
 		else options.signal?.addEventListener("abort", onAbort, { once: true });
 		const run = async (): Promise<unknown> => {
 			try {
-				return await client.callTool({ name: toolName, arguments: args }, { signal: controller.signal });
+				return await client.callTool(
+					{ name: toolName, arguments: args },
+					{
+						signal: controller.signal,
+						// The extension's own timeout, not the SDK's 60-second default: a call may legitimately take
+						// minutes. Progress notifications reset the request timer, and the total stays bound to the
+						// same limit; crhs's timer above remains the hard stop.
+						timeout: timeoutMs,
+						maxTotalTimeout: timeoutMs,
+						resetTimeoutOnProgress: true,
+						// An empty callback is what makes the SDK ask for a progress token in the request.
+						onprogress: () => {},
+					},
+				);
 			} catch (err) {
 				if (timedOut) throw new ExtensionCallLostError(`the call timed out after ${timeoutMs / 1000} s`);
 				if (options.signal?.aborted) throw new ExtensionCallLostError("the call was aborted");
+				if (err instanceof SdkError && err.code === SdkErrorCode.RequestTimeout) {
+					// The request was cut by the SDK's timer (normally crhs's own timer fires first). That is a
+					// timed-out call, not a broken connection: the extension stays available and the call ends
+					// unknown, never repeated.
+					throw new ExtensionCallLostError(`the call timed out after ${timeoutMs / 1000} s`);
+				}
 				if (err instanceof ProtocolError) throw new ExtensionToolError(errorText(err));
 				// The request did not complete normally: its outcome is unknown, and the connection is no longer
 				// trusted. The next call connects again.

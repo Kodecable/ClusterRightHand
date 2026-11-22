@@ -24,6 +24,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { shareSession } from "../src/sessions/sharing.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -106,6 +107,7 @@ async function openRuntime(
 	models.addProvider(faux.provider);
 	await models.reload();
 	const runtime = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db,
 		storage,
 		models,
@@ -397,6 +399,7 @@ describeBackends("session search", (backend) => {
 			const crhInput = durableId();
 			const system = durableId();
 			const compaction = durableId();
+			const notice = durableId();
 			const capped = durableId();
 			await storeEntries(conversationId, [
 				{ ...userRecord(userString, conversationId, "user string content") },
@@ -437,6 +440,12 @@ describeBackends("session search", (backend) => {
 				},
 				{ id: system, kind: "pi.system", model: [{ role: "system", content: "system hidden" }] },
 				{ ...userRecord(compaction, conversationId, "compaction hidden"), kind: "pi.compaction" },
+				{
+					// A completion notice is a user-role model message but not a message the user sent
+					// (doc/design/jobs.md "Completion notices"): it is not searchable.
+					...userRecord(notice, conversationId, "background job finished notice hidden"),
+					kind: "crh.notice",
+				},
 				{ ...userRecord(capped, conversationId, "z".repeat(40_000)) },
 			]);
 
@@ -448,6 +457,7 @@ describeBackends("session search", (backend) => {
 			expect(await searchTextOf(toolResult)).toBeNull();
 			expect(await searchTextOf(system)).toBeNull();
 			expect(await searchTextOf(compaction)).toBeNull();
+			expect(await searchTextOf(notice)).toBeNull();
 			const { rows } = await sql<{ length: number }>`
 				select length(search_text) as length from ${sql.ref(ENTRIES_TABLE)} where id = ${capped}
 			`.execute(db);

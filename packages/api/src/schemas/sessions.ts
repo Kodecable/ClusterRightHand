@@ -60,7 +60,7 @@ export const SessionShareSchema = z
 	})
 	.meta({ id: "SessionShare" });
 
-/** The lightweight row of `GET /api/sessions` and `GET /api/sessions/{id}/children` (doc/design/webui.md). */
+/** The lightweight row of `GET /api/sessions` (doc/design/webui.md). */
 export const SessionListItemSchema = z
 	.object({
 		id: z.string(),
@@ -72,12 +72,11 @@ export const SessionListItemSchema = z
 		state: SessionRunStateSchema.describe("The whole tree's state: any child awaiting wins, then running, else idle."),
 		waitingKind: SessionWaitingKindSchema.nullable().describe("The highest-priority wait while `state` is awaiting."),
 		unread: z.boolean().describe("The tree produced output after the owner last opened it; false for a shared viewer."),
-		parentSessionId: z.string().nullable().optional().describe("Present on the children list; absent from roots."),
 		updatedAt: z.string(),
 	})
 	.meta({ id: "SessionListItem" });
 
-/** `GET /api/sessions` and `GET /api/sessions/{id}/children`: one cursor page of list items. */
+/** `GET /api/sessions`: one cursor page of list items. */
 export const SessionListResponseSchema = cursorPageSchema(SessionListItemSchema).meta({ id: "SessionListResponse" });
 
 /** One transcript entry that matched a content search (`GET /api/sessions/search`). */
@@ -193,14 +192,6 @@ export const SessionDetailResponseSchema = z
 
 /** `POST /api/sessions` and `PATCH /api/sessions/{id}`: the session as the caller sees it. */
 export const SessionResponseSchema = z.object({ session: SessionViewSchema });
-
-/** `GET /api/sessions/{id}/children/summary`: the direct children's own states, for the compact children bar. */
-export const SessionChildrenSummarySchema = z
-	.object({
-		total: z.number(),
-		states: z.object({ idle: z.number(), running: z.number(), awaiting: z.number() }),
-	})
-	.meta({ id: "SessionChildrenSummary" });
 
 /** `GET /api/sessions/{id}/shares`: the session's shares, for the owner and administrators. */
 export const SessionSharesResponseSchema = z.object({ shares: z.array(SessionShareSchema) });
@@ -342,12 +333,6 @@ export const SessionSearchQuerySchema = z.object({
 	scope: z.string().optional().describe("Same scopes as the session list; default `mine`."),
 	cursor: z.string().optional(),
 	limit: z.string().optional().describe("Page size, 1 to 50; 20 by default."),
-});
-
-/** Query parameters of the children list. */
-export const SessionChildrenQuerySchema = z.object({
-	cursor: z.string().optional(),
-	limit: z.string().optional(),
 });
 
 /** Query parameters of `GET /api/sessions/{id}/entries`. */

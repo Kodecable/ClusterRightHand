@@ -6,6 +6,7 @@ import { apiDocument, defineRoute, json } from "../src/api/openapi.ts";
 import { Audit, userActor } from "../src/audit/audit.ts";
 import { normalizeApiRequest } from "../src/extensions/api-request.ts";
 import { configureBuiltinExtensions } from "../src/extensions/builtin.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { decideExternalCall, externalCallViews } from "../src/extensions/external-calls.ts";
 import { sessionExtensionsForUser } from "../src/extensions/registry.ts";
 import { createRootRuleSet } from "../src/policy/store.ts";
@@ -147,6 +148,7 @@ async function context(rules: Rule[] = [], preset: "ask" | "auto_review" | "yolo
 		chain: [{ type: "session", id: SESSION }],
 		approvalUrl: () => "",
 		rootSessionId: SESSION,
+		callRunner: new CallRunner(),
 		extensions: await sessionExtensionsForUser(db, owner.id, [], undefined),
 		audit,
 		externalCallUrl: (id) => `/approvals/external-calls/${id}`,

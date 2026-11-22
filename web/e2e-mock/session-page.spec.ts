@@ -1,4 +1,4 @@
-import type { AvailableModel } from "@crh/api";
+import type { AvailableModel, JobView } from "@crh/api";
 import { expect, type Page, test } from "@playwright/test";
 import { login, mockApi, openSession, sessionListItem, sessionView, snapshotEvent, userEntry } from "./helpers";
 
@@ -299,53 +299,76 @@ test("at 768 px and 1440 px the footer and the meta row keep their contents", as
 	await expectNoHorizontalOverflow(page);
 });
 
-test("the children bar counts the direct children and opens the tree, expanding nested children lazily", async ({
-	page,
-}) => {
+const jobView = (overrides: Partial<JobView> & Pick<JobView, "id" | "resource">): JobView => ({
+	kind: "exec",
+	state: "running",
+	wait: null,
+	outcome: null,
+	action: { type: "exec", command: "echo job" },
+	sessionId: "s1",
+	createdAt: new Date().toISOString(),
+	settledAt: null,
+	...overrides,
+});
+
+test("the background bar counts active jobs and opens the tree, expanding nested jobs lazily", async ({ page }) => {
 	const root = sessionListItem({ id: "s1", title: "Parent", updatedAt: new Date().toISOString() });
 	const child = sessionListItem({
 		id: "c1",
 		title: "Child one",
-		parentSessionId: "s1",
 		state: "running",
 		updatedAt: new Date().toISOString(),
 	});
-	const awaiting = sessionListItem({
-		id: "c2",
-		title: "Child two",
-		parentSessionId: "s1",
-		state: "awaiting",
-		waitingKind: "approval",
-		updatedAt: new Date().toISOString(),
+	const call = jobView({
+		id: "call-1",
+		kind: "call",
+		state: "waiting",
+		wait: "approval",
+		action: { type: "extension_tool", extension: "github", tool: "create_issue" },
+		resource: { type: "external_call", id: "call-1" },
 	});
-	const grandchild = sessionListItem({
-		id: "g1",
-		title: "Grandchild",
-		parentSessionId: "c1",
-		updatedAt: new Date().toISOString(),
+	const subagent = jobView({
+		id: "subagent-1",
+		kind: "subagent",
+		action: { type: "subagent", task: "Delegate to child" },
+		resource: { type: "session", id: "c1" },
+	});
+	const settled = jobView({
+		id: "exec-2",
+		kind: "exec",
+		state: "settled",
+		outcome: { kind: "succeeded", failed: false },
+		action: { type: "exec", command: "Settled job" },
+		resource: { type: "task", id: "t2" },
+		settledAt: new Date().toISOString(),
+	});
+	const nested = jobView({
+		id: "exec-9",
+		action: { type: "exec", command: "Nested work" },
+		resource: { type: "task", id: "t9" },
+		sessionId: "c1",
 	});
 	const api = await mockApi(page, {
 		state: {
-			sessions: [root, child, awaiting, grandchild],
+			sessions: [root, child],
 			details: {
 				s1: sessionView(root),
 				c1: sessionView(child, { parentSessionId: "s1" } as never),
-				c2: sessionView(awaiting, { parentSessionId: "s1" } as never),
-				g1: sessionView(grandchild, { parentSessionId: "c1" } as never),
 			},
-			children: { s1: [child, awaiting], c1: [grandchild] },
+			jobs: { s1: [settled, call, subagent], c1: [nested] },
 			events: {
 				s1: snapshotEvent([userEntry("u1", "delegate")], null),
-				g1: snapshotEvent([userEntry("u1", "nested")], null),
+				c1: snapshotEvent([userEntry("c1-u1", "nested")], null),
 			},
 		},
 	});
 	await login(page);
 	await openSession(page, api, "s1");
 
-	const bar = page.getByTestId("children-bar");
+	const bar = page.getByTestId("background-bar");
+	await expect(bar).toBeVisible();
 	const geometry = await page.evaluate(() => {
-		const shell = document.querySelector<HTMLElement>('[data-testid="children-bar-shell"]');
+		const shell = document.querySelector<HTMLElement>('[data-testid="background-bar-shell"]');
 		const input = document.querySelector<HTMLElement>('[data-testid="composer-input"]');
 		const box = input?.parentElement;
 		if (!shell || !box) return null;
@@ -357,7 +380,7 @@ test("the children bar counts the direct children and opens the tree, expanding 
 			border: shellStyle.borderTopWidth,
 			shadow: shellStyle.boxShadow,
 			specialColors: document.querySelectorAll(
-				'[data-testid="children-bar"] .text-info, [data-testid="children-bar"] .text-warn',
+				'[data-testid="background-bar"] .text-info, [data-testid="background-bar"] .text-warn',
 			).length,
 		};
 	});
@@ -368,30 +391,31 @@ test("the children bar counts the direct children and opens the tree, expanding 
 	expect(geometry?.border).toBe("0px");
 	expect(geometry?.shadow).toBe("none");
 	expect(geometry?.specialColors).toBe(0);
-	await expect(bar).toContainText("2 subagents");
+	// Only waiting and running jobs count; the settled one has left the bar.
+	await expect(bar).toContainText("2 background jobs");
 	await expect(bar).toContainText("1 running");
-	await expect(bar).toContainText("1 awaiting");
-	await expect(bar.locator(".lucide-chevron-up")).toHaveCount(0);
-	// The tree is lazy: the first level is only in the DOM once the bar is opened.
-	await expect(page.getByTestId("child-session")).toHaveCount(0);
+	await expect(bar).toContainText("1 waiting");
+	// The tree is lazy: the nested level is fetched only when its row is expanded.
+	await expect(page.getByTestId("background-tree")).toHaveCount(0);
+	await expect(page.getByRole("link", { name: "Nested work" })).toHaveCount(0);
 	await bar.click();
-	await expect(page.getByTestId("children-popover")).toBeVisible();
-	await expect(page.getByTestId("child-session")).toHaveCount(2);
-	await expect(page.getByTestId("child-session").first()).toContainText("Child one");
+	await expect(page.getByTestId("background-popover")).toBeVisible();
+	await expect(page.getByTestId("background-tree").getByText("Delegate to child")).toBeVisible();
+	await expect(page.getByTestId("background-tree").getByText("github/create_issue")).toBeVisible();
+	await expect(page.getByTestId("background-tree").getByText("Settled job")).toHaveCount(0);
+	// The extension call has no page: it offers Stop, the subagent row links to its session.
+	await expect(page.getByTestId("background-tree").getByTestId("background-job-stop")).toHaveCount(1);
+	await expect(page.getByRole("link", { name: "Delegate to child" })).toHaveAttribute("href", "/sessions/c1");
+	expect(api.state.requests.some((request) => request.url.startsWith("/api/jobs?session=c1"))).toBe(false);
 
-	// Expanding a node asks for its own children.
-	await page.getByTestId("children-expand").first().click();
-	await expect(page.getByTestId("child-session")).toHaveCount(3);
-	await expect(page.getByTestId("children-tree").getByText("Grandchild")).toBeVisible();
-	expect(api.state.requests.some((request) => request.url === "/api/sessions/c1/children")).toBe(true);
-
-	// A nested node links to its session.
-	await page.getByTestId("child-session").filter({ hasText: "Grandchild" }).click();
-	await expect(page).toHaveURL(/\/sessions\/g1$/);
-	await expect(page.locator('[data-testid="session-page"]')).toHaveAttribute("data-session-id", "g1");
+	await page.getByTestId("background-job-expand").first().click();
+	await expect(page.getByTestId("background-tree").getByText("Nested work")).toBeVisible();
+	expect(api.state.requests.some((request) => request.url.startsWith("/api/jobs?session=c1"))).toBe(true);
+	await page.getByRole("link", { name: "Nested work" }).click();
+	await expect(page).toHaveURL(/\/tasks\/t9$/);
 });
 
-test("a session without children shows no children bar", async ({ page }) => {
+test("a session without active jobs shows no background bar", async ({ page }) => {
 	await openFooterPage(page);
-	await expect(page.getByTestId("children-bar")).toHaveCount(0);
+	await expect(page.getByTestId("background-bar")).toHaveCount(0);
 });

@@ -57,6 +57,16 @@ export const SystemSettingsSkillsSchema = z
 	})
 	.meta({ id: "SystemSettingsSkills" });
 
+/** The job limits of a session (doc/design/jobs.md "Completion notices" and "Lifecycle and retention"). */
+export const SystemSettingsJobsSchema = z
+	.object({
+		maxConsecutiveWakes: z
+			.number()
+			.describe("The most times completion notices may wake a session since its last user-authored input."),
+		maxRunning: z.number().describe("The most unsettled jobs a session (or an API token) may have at once."),
+	})
+	.meta({ id: "SystemSettingsJobs" });
+
 /** The settings administrators edit in System settings. */
 export const SystemSettingsSchema = z
 	.object({
@@ -77,6 +87,7 @@ export const SystemSettingsSchema = z
 		imageCache: SystemSettingsImageCacheSchema,
 		directoryCopy: SystemSettingsDirectoryCopySchema,
 		skills: SystemSettingsSkillsSchema,
+		jobs: SystemSettingsJobsSchema,
 	})
 	.meta({ id: "SystemSettings" });
 
@@ -124,6 +135,7 @@ export const SystemSettingsPatchSchema = z.object({
 	imageCache: SystemSettingsImageCacheSchema.partial().optional(),
 	directoryCopy: SystemSettingsDirectoryCopySchema.partial().optional(),
 	skills: SystemSettingsSkillsSchema.partial().optional(),
+	jobs: SystemSettingsJobsSchema.partial().optional(),
 });
 
 /** `PATCH /api/settings` success: the settings as they now are. */

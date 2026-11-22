@@ -8,6 +8,7 @@
 import type { z } from "zod";
 import type {
 	ApprovalAlwaysAllowSchema,
+	ApprovalRequestJobSchema,
 	ApprovalRequestSchema,
 	ApprovalReviewSummarySchema,
 } from "./schemas/approval-request.ts";
@@ -17,4 +18,5 @@ export type { TaskAction } from "./task-action.ts";
 
 export type ApprovalAlwaysAllow = z.infer<typeof ApprovalAlwaysAllowSchema>;
 export type ApprovalReviewSummary = z.infer<typeof ApprovalReviewSummarySchema>;
+export type ApprovalRequestJob = z.infer<typeof ApprovalRequestJobSchema>;
 export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;

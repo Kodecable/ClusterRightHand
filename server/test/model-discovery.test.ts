@@ -9,6 +9,7 @@ import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { createUser } from "../src/users/service.ts";
@@ -91,6 +92,7 @@ describeBackends("model discovery api", (backend) => {
 			}) as typeof fetch,
 		});
 		runtime = await AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db,
 			storage: new MemoryStorage(),
 			models,

@@ -975,6 +975,64 @@ describe("a tool card whose call cannot return", () => {
 	});
 });
 
+describe("crh.notice lines", () => {
+	const jobsNotice: TranscriptItem = {
+		kind: "notice",
+		key: "n1",
+		notice: {
+			type: "jobs",
+			jobs: [
+				{
+					jobId: "exec-1",
+					kind: "exec",
+					action: { type: "exec", command: "echo hi" },
+					outcome: { kind: "succeeded", failed: false },
+					woke: true,
+					resource: { type: "task", id: "t1" },
+				},
+				{
+					jobId: "call-1",
+					kind: "call",
+					action: { type: "extension_tool", extension: "github", tool: "create_issue" },
+					outcome: { kind: "error", failed: true, errorCode: null, errorMessage: "boom" },
+					woke: false,
+				},
+			],
+		},
+	};
+
+	test("renders one centered muted line per job, outside any bubble", async () => {
+		const { container } = await renderWithRouter(
+			<TranscriptRow item={jobsNotice} streams={new TranscriptStreams()} sessionActive />,
+		);
+		const lines = screen.getAllByTestId("notice-line");
+		expect(lines).toHaveLength(2);
+		expect(lines[0]).toHaveTextContent("Background job finished: echo hi · Done · the agent was woken");
+		expect(lines[1]).toHaveTextContent("Background job finished: github/create_issue · boom");
+		expect(lines[0]?.className).toContain("text-center");
+		expect(lines[0]?.className).toContain("text-muted-foreground");
+		// Not a message bubble and no message actions.
+		expect(screen.queryByTestId("user-message")).not.toBeInTheDocument();
+		expect(container.querySelector("[data-testid=message]")).toHaveAttribute("data-kind", "notice");
+		expect(screen.queryByRole("button", { name: "Copy message" })).not.toBeInTheDocument();
+		// Each job links to the page its resource has; an extension call has none and stays text.
+		expect(screen.getByRole("link", { name: "echo hi" })).toHaveAttribute("href", "/tasks/t1");
+		expect(screen.queryByRole("link", { name: "github/create_issue" })).not.toBeInTheDocument();
+	});
+
+	test("renders a request wake as one centered muted line", async () => {
+		await renderWithRouter(
+			<TranscriptRow
+				item={{ kind: "notice", key: "n2", notice: { type: "agent_request" } }}
+				streams={new TranscriptStreams()}
+				sessionActive
+			/>,
+		);
+		expect(screen.getByTestId("notice-line")).toHaveTextContent("A subagent request woke the agent");
+		expect(screen.queryByTestId("user-message")).not.toBeInTheDocument();
+	});
+});
+
 describe("the expanded dialog's links", () => {
 	test("links the task from the result details", async () => {
 		const { getByTestId } = await renderWithRouter(
@@ -1118,12 +1176,41 @@ describe("attachment chips and crh.user_input", () => {
 						],
 					},
 				},
-				{ id: "2", kind: "pi.user", message: { role: "user" as const, content: "a wake message" } },
 			],
 		};
 		expect(transcript(state)[0]).toMatchObject({ kind: "user", text: "hello" });
 		expect(transcript(state)[0]).not.toHaveProperty("attachments");
-		expect(transcript(state)[1]).toMatchObject({ kind: "user", text: "a wake message" });
+	});
+
+	test("a wake message is a crh.notice line, never the user bubble it used to be", () => {
+		const state = {
+			...initialState,
+			entries: [
+				{
+					id: "2",
+					kind: "crh.notice",
+					message: { role: "user" as const, content: "a background job finished" },
+					data: {
+						type: "jobs",
+						jobs: [
+							{
+								jobId: "exec-1",
+								kind: "exec",
+								action: { type: "exec", command: "echo hi" },
+								outcome: { kind: "succeeded", failed: false },
+								woke: true,
+								resource: { type: "task", id: "t1" },
+							},
+						],
+					},
+				},
+			],
+		};
+		expect(transcript(state)[0]).toMatchObject({
+			kind: "notice",
+			notice: { type: "jobs", jobs: [{ jobId: "exec-1", woke: true }] },
+		});
+		expect(transcript(state)[0]?.kind).not.toBe("user");
 	});
 
 	test("a reachable attachment links to its library file", async () => {

@@ -12,18 +12,22 @@ import type {
 import type { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { CallRunner } from "../extensions/call-runner.ts";
 import type { McpConnections } from "../extensions/connections.ts";
+import type { Jobs } from "../jobs/jobs.ts";
 import type { ImageCache } from "../library/image-cache.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { SessionRow } from "../sessions/session-chain.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { NotFoundError } from "../util/errors.ts";
+import type { KeyedQueue } from "../util/keyed-queue.ts";
 import type { GenerationTimings } from "./latency.ts";
 import type { ModelPresets } from "./model-presets.ts";
 import type { ModelConfig } from "./models.ts";
 import type { HandlerWakes } from "./runtime-host/handler-wakes.ts";
 import type { Inboxes } from "./runtime-host/inboxes.ts";
+import type { NoticeActivity } from "./runtime-host/notice-activity.ts";
 import type { QuotaWaits } from "./runtime-host/quota-waits.ts";
 import type { SessionCaches } from "./runtime-host/session-caches.ts";
 import type { SessionFlags } from "./runtime-host/session-flags.ts";
@@ -97,6 +101,10 @@ export interface AgentRuntimeOptions {
 	imageCache?: ImageCache;
 	/** The MCP client connections behind `search_tools` and `call_tool` (doc/design/extensions.md). */
 	mcp?: McpConnections;
+	/** The job service; AgentRuntime makes one when the caller did not (doc/design/jobs.md). */
+	jobs?: Jobs;
+	/** The crhs-owned extension calls, shared with the job service and the MCP surface. */
+	callRunner: CallRunner;
 	/** System settings: the skill limit and the directory copy limits; the defaults without it. */
 	settings?: SettingsStore;
 	/** Auto Review for one waiting external call; set by AgentRuntime. */
@@ -137,6 +145,10 @@ export interface RuntimeHost {
 	readonly audit: Audit | undefined;
 	readonly cluster: Cluster;
 	readonly taskGroups: TaskGroups;
+	/** The job service, so session-state changes project the subagent jobs watching them. */
+	readonly jobs: Jobs | undefined;
+	/** The crhs-owned extension calls a stopped session must abort (doc/design/jobs.md "Lifecycle"). */
+	readonly callRunner: CallRunner;
 	readonly imageCache: ImageCache | undefined;
 	readonly context: Context;
 	readonly sessionList: SessionListHub;
@@ -158,12 +170,21 @@ export interface RuntimeHost {
 	readonly quotaWaits: QuotaWaits;
 	/** Follow-up inputs held while a handler runs, flushed once it is idle. */
 	readonly wakes: HandlerWakes;
+	/** Serializes a session's notice delivery with the afterTool read, so two settles cannot both place a wake. */
+	readonly noticeDelivery: KeyedQueue;
+	/** Completion-notice deliveries in flight, so a scheduled run waits for them (doc/design/jobs.md "Scheduled runs"). */
+	readonly noticeActivity: NoticeActivity;
 	/** Stops and title generations in flight (memory only). */
 	readonly sessionFlags: SessionFlags;
 	/** The in-flight generation attempts, by provider session id (doc/design/agent-runtime.md "Session statistics"). */
 	readonly generationTimings: GenerationTimings;
 	/** Called after a session's run state changes, for hosts that follow waits (chat channels). */
 	stateChanged?: (sessionId: string) => void;
+	/**
+	 * Called when a `crh.notice` jobs entry is placed in a session, with the compact notices it carries; chat
+	 * channels send the notice line from it (doc/design/channels.md "Notifications").
+	 */
+	jobNoticePlaced?: (sessionId: string, notices: readonly import("@crh/api").JobNotice[]) => void;
 }
 
 /** The session's row; `missing` words the NotFoundError (callers name what the user asked for). */

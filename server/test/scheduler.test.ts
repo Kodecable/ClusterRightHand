@@ -9,6 +9,8 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
+import { externalCallId, getExternalCall } from "../src/extensions/external-calls.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { evaluate, type Rule } from "../src/policy/rules.ts";
 import { appendRule, getRuleSet, loadChain, setRules } from "../src/policy/store.ts";
@@ -179,6 +181,57 @@ async function addReportAccount(owner: SessionUser): Promise<string> {
 	return accountId;
 }
 
+/** A `call` job over a running external call, as a scheduled run's tool call would have started it. */
+async function addCallJob(
+	sessionId: string,
+	owner: SessionUser,
+	callKey: string,
+	state: "running" | "awaiting_approval" = "running",
+): Promise<{ jobId: string; callId: string }> {
+	const callId = externalCallId(callKey);
+	const now = new Date().toISOString();
+	await db
+		.insertInto("external_calls")
+		.values({
+			id: callId,
+			org_id: await defaultOrgId(db),
+			actor_type: "session",
+			actor_id: sessionId,
+			on_behalf_of_user_id: owner.userId,
+			extension_name: "fake",
+			tool_name: "echo",
+			arguments: "{}",
+			operation: JSON.stringify({ method: "ext.read", target: "fake/echo" }),
+			annotations: null,
+			rule_chain: null,
+			approval:
+				state === "awaiting_approval"
+					? JSON.stringify({ evaluation: { result: "require-approval", levels: [] } })
+					: null,
+			pending_input: null,
+			root_session_id: null,
+			handler_type: state === "awaiting_approval" ? "user" : null,
+			handler_session_id: null,
+			state,
+			created_at: now,
+			finished_at: null,
+			source_tool_task: null,
+			tool_rev: null,
+		})
+		.execute();
+	const job = await runtime.jobs?.ensure({
+		kind: "call",
+		callKey,
+		actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
+		sessionId,
+		resourceType: "external_call",
+		resourceId: callId,
+		action: { type: "extension_tool", extension: "fake", tool: "echo" },
+	});
+	if (!job) throw new Error("the job service is missing");
+	return { jobId: job.id, callId };
+}
+
 const cookies = new Map<string, string>();
 async function cookieOf(user: SessionUser): Promise<string> {
 	const existing = cookies.get(user.userId);
@@ -250,6 +303,7 @@ beforeAll(async () => {
 	models.addProvider(faux.provider);
 	await models.reload();
 	runtime = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db,
 		storage: new MemoryStorage(),
 		models,
@@ -879,6 +933,8 @@ it("preempts the previous instance: stops its session, marks the run preempted a
 	);
 	const firstSession = first.sessionId as string;
 	const submission = (await sessionRow(firstSession)).last_submission_id as string;
+	// The run started a background call job; preemption stops it through the same path as an owner's stop.
+	const preemptCall = await addCallJob(firstSession, owner, `preempt-job:${first.id}`, "awaiting_approval");
 
 	// A second click happens at a different instant (fire times are unique per schedule).
 	await clock.advance(1_000);
@@ -898,10 +954,44 @@ it("preempts the previous instance: stops its session, marks the run preempted a
 		.execute();
 	expect(auditRows).toHaveLength(1);
 	expect(JSON.parse(auditRows[0]?.detail ?? "{}")).toMatchObject({ run_id: first.id, session_id: firstSession });
+	// The preempted run's job stopped with its session, and the call never reached the extension.
+	expect((await getExternalCall(db, preemptCall.callId))?.state).toBe("cancelled");
+	expect((await runtime.jobs?.get(preemptCall.jobId))?.state).toBe("settled");
 	await waitFor("the second run to succeed", async () =>
 		(await runOf(second.id))?.status === "succeeded" ? true : undefined,
 	);
 	expect((await runsOf(schedule.id)).map((run) => run.status)).toEqual(["succeeded", "preempted"]);
+});
+
+it("keeps a run open while a background job is unsettled, then reports after its woken turn", async () => {
+	const owner = await newOwner("owner-job-final");
+	const accountId = await addReportAccount(owner);
+	await startAt("2026-01-05T09:01:00.000Z");
+	faux.setResponses([
+		async () => {
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			return fauxAssistantMessage("background work started");
+		},
+		fauxAssistantMessage("after the job"),
+	]);
+	const schedule = await makeSchedule(owner, { report: { accountId, on: "always" } });
+	const run = await scheduler.runNow(schedule.id, owner);
+	const sessionId = run.sessionId as string;
+	const job = await addCallJob(sessionId, owner, `final-job:${run.id}`);
+	// The first submission ends while the job runs: the run is not final and no report is sent.
+	await new Promise((resolve) => setTimeout(resolve, 450));
+	expect((await runOf(run.id))?.status).toBe("running");
+	expect(reports).toHaveLength(0);
+	// Settling the job wakes the session for one more turn; only then is the run final.
+	await db
+		.updateTable("external_calls")
+		.set({ state: "succeeded", finished_at: clock.now().toISOString() })
+		.where("id", "=", job.callId)
+		.execute();
+	await runtime.jobs?.callChanged(`final-job:${run.id}`);
+	await waitFor("the run to finish", async () => ((await runOf(run.id))?.status === "succeeded" ? true : undefined));
+	await waitFor("the report", async () => (reports.length > 0 ? true : undefined));
+	expect(reports[0]).toMatchObject({ scheduleId: schedule.id, status: "succeeded" });
 });
 
 it("stops a previous run's leftover background subagent at the next trigger", async () => {

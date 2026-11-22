@@ -11,6 +11,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { McpConnections } from "../src/extensions/connections.ts";
 import type { ExtensionTool } from "../src/extensions/model.ts";
 import { type ExtensionRow, getExtensionRow, saveExtension } from "../src/extensions/store.ts";
@@ -89,6 +90,7 @@ beforeAll(async () => {
 	masterKey = MasterKey.generate();
 	mcp = new McpConnections({ db, masterKey, fetch: fakeFetch });
 	runtime = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db,
 		storage: new MemoryStorage(),
 		models,

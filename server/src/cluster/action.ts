@@ -21,6 +21,12 @@ export function execCommand(spec: Extract<TaskSpec, { kind: "exec" }>): string {
 	return "argv" in spec.command ? spec.command.argv.map((arg) => shellQuote(arg)).join(" ") : spec.command.shell;
 }
 
+/** The structured action of one subagent call: its task's first line, clipped to 300 characters. */
+export function subagentAction(task: string): TaskAction {
+	const line = (task.split(/\r?\n/)[0] ?? "").trim();
+	return { type: "subagent", task: line.length <= COMMAND_LIMIT ? line : `${line.slice(0, COMMAND_LIMIT - 1)}…` };
+}
+
 /** The structured action of a readable task spec. */
 export function taskActionOfSpec(spec: TaskSpec): TaskAction {
 	switch (spec.kind) {
@@ -163,5 +169,7 @@ export function summarizeAction(action: TaskAction, spec?: TaskSpec): string {
 			return `${action.method} ${action.path}`;
 		case "extension_tool":
 			return `${action.extension}/${action.tool}`;
+		case "subagent":
+			return action.task;
 	}
 }

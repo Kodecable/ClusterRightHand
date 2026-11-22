@@ -24,6 +24,7 @@ import { Cluster, type ClusterOptions } from "../../src/cluster/cluster.ts";
 import { loadServerIdentity, type ServerIdentity } from "../../src/cluster/identity.ts";
 import { nodeRoute } from "../../src/cluster/ssh/nodes.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
+import { CallRunner } from "../../src/extensions/call-runner.ts";
 import { MasterKey } from "../../src/keys/master-key.ts";
 import { type AuthorizationSigningKeyStore, loadAuthorizationSigningKeys } from "../../src/privilege/key.ts";
 import { Scheduler } from "../../src/scheduler/scheduler.ts";
@@ -174,6 +175,8 @@ export interface TaskJson {
 /** crhs assembled the way runServer does, in this process, restartable on the same port and database. */
 export class InProcessCrhs {
 	readonly db: Db;
+	/** The process's extension-call runner, shared by the runtime and the app as `main.ts` shares it. */
+	readonly callRunner = new CallRunner();
 	readonly masterKey = MasterKey.generate();
 	readonly clusterOptions: ClusterOptions;
 	readonly appOptions: Partial<AppOptions>;
@@ -257,12 +260,15 @@ export class InProcessCrhs {
 				cluster: this.cluster,
 				taskGroups,
 				audit: this.audit,
+				callRunner: this.callRunner,
 			});
 			agent = { runtime: this.runtime, models: this.models };
 			this.scheduler = new Scheduler({ db: this.db, runtime: this.runtime, audit: this.audit });
 		}
 		const app = createApp(this.db, {
 			taskGroups,
+			...(this.runtime?.jobs ? { jobs: this.runtime.jobs } : {}),
+			callRunner: this.callRunner,
 			...(agent ? { agent } : {}),
 			...(this.scheduler ? { scheduler: this.scheduler } : {}),
 			serverFingerprint: this.identity.fingerprint,
@@ -296,6 +302,7 @@ export class InProcessCrhs {
 		this.scheduler = undefined;
 		await this.runtime?.close();
 		this.runtime = undefined;
+		await this.callRunner.shutdown();
 		await this.cluster.close();
 		await this.taskGroups.close();
 		await this.#agents.close();

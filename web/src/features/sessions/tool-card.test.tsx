@@ -1,4 +1,5 @@
-import { screen } from "@testing-library/react";
+import type { JobView } from "@crh/api";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
 import { ToolCard } from "./tool-card";
@@ -77,5 +78,82 @@ describe("view_image tool card", () => {
 		expect(summary).toHaveTextContent("web-1");
 		expect(summary).not.toHaveTextContent("user:alice");
 		expect(screen.queryByRole("link", { name: "web-1" })).not.toBeInTheDocument();
+	});
+});
+
+const JOB: JobView = {
+	id: "exec-1",
+	kind: "exec",
+	state: "running",
+	wait: null,
+	outcome: null,
+	action: { type: "exec", command: "echo hi" },
+	sessionId: "s1",
+	resource: { type: "task", id: "t1" },
+	createdAt: "2026-01-01T00:00:00.000Z",
+	settledAt: null,
+};
+
+/** Answers `GET /jobs/:id`; `settled` flips the job to its finished state. */
+function mockJobPoll(): { fetchMock: ReturnType<typeof vi.fn>; settle: () => void } {
+	let settled = false;
+	const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+		const url = new URL(String(input), "http://localhost");
+		const body =
+			url.pathname === "/api/jobs/exec-1"
+				? {
+						job: settled
+							? {
+									...JOB,
+									state: "settled",
+									outcome: { kind: "succeeded", failed: false },
+									settledAt: "2026-01-01T00:01:00.000Z",
+								}
+							: JOB,
+					}
+				: {};
+		return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	return { fetchMock, settle: () => (settled = true) };
+}
+
+describe("a job-backed tool card", () => {
+	test("shows the background state and follows the job until it settles", async () => {
+		const { fetchMock, settle } = mockJobPoll();
+		const item: Extract<TranscriptItem, { kind: "tool" }> = {
+			kind: "tool",
+			key: "a1/0",
+			callId: "call-1",
+			name: "exec",
+			args: { cmd: "echo hi" },
+			status: "done",
+			output: "",
+			details: { job_id: "exec-1", task_id: "t1" },
+			result: {
+				text: "[web-1, still running, job exec-1]",
+				isError: false,
+				details: { job_id: "exec-1", task_id: "t1" },
+			},
+		};
+		await renderWithRouter(<ToolCard item={item} sessionActive jobPollMs={20} />);
+		expect(await screen.findByTestId("tool-job-state")).toHaveTextContent("Background · Running");
+		expect(screen.getByTestId("tool-card")).toHaveAttribute("data-tool-status", "running");
+		expect(fetchMock).toHaveBeenCalled();
+
+		settle();
+		await waitFor(() => expect(screen.queryByTestId("tool-job-state")).not.toBeInTheDocument(), { timeout: 3_000 });
+		expect(screen.getByTestId("tool-status-icon")).toHaveAccessibleName("Done");
+		expect(screen.getByTestId("tool-card")).toHaveAttribute("data-tool-status", "done");
+		// The dialog links the job's resource page.
+		fireEvent.click(screen.getByTestId("tool-toggle"));
+		expect(await screen.findByRole("link", { name: "Task details" })).toHaveAttribute("href", "/tasks/t1");
+
+		// A settled job is read once more and stops: no further poll lands in the next window.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const calls = () => fetchMock.mock.calls.filter(([url]) => String(url).includes("/api/jobs/exec-1")).length;
+		const stopped = calls();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(calls()).toBe(stopped);
 	});
 });

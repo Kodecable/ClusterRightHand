@@ -188,6 +188,8 @@ export class TaskGroups {
 	onAwaitingApproval: ((group: TaskGroupView, signal?: AbortSignal) => Promise<void>) | undefined;
 	/** Called after a group starts waiting or its approval state/handler changes (the runtime refreshes its inbox). */
 	onChange: ((actorId: string) => void) | undefined;
+	/** Called when a wait on the group is released (it ended or was decided); the job layer projects its job. */
+	onGroupSettled: ((groupId: string) => void) | undefined;
 	/** Resolved when a waiting group is settled. */
 	readonly #settled = new Map<string, Deferred>();
 	/** Serializes a group's approval steps, so a decision, a review and a re-evaluation cannot interleave. */
@@ -233,6 +235,7 @@ export class TaskGroups {
 	#settle(id: string): void {
 		this.#settled.get(id)?.resolve();
 		this.#settled.delete(id);
+		this.onGroupSettled?.(id);
 	}
 
 	/**

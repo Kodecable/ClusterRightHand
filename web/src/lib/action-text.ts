@@ -25,6 +25,8 @@ export function actionText(i18n: I18n, action: TaskAction): string {
 			return `${action.method} ${action.path}`;
 		case "extension_tool":
 			return `${action.extension}/${action.tool}`;
+		case "subagent":
+			return oneLine(action.task);
 	}
 }
 

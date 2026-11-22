@@ -45,6 +45,8 @@ export interface RuntimeSettings {
 	directoryCopy: { files: number; bytes: number };
 	/** The most skills a system prompt lists (doc/design/library.md "Skills"). */
 	skills: { maxPerUser: number };
+	/** The job limits of a session (doc/design/jobs.md "Completion notices" and "Lifecycle and retention"). */
+	jobs: { maxConsecutiveWakes: number; maxRunning: number };
 }
 
 /** The keys stored in the `settings` table; each row holds one validated value as JSON. */
@@ -74,6 +76,8 @@ export const SETTING_KEYS = [
 	"directory_copy.files",
 	"directory_copy.bytes",
 	"skills.max_per_user",
+	"jobs.max_consecutive_wakes",
+	"jobs.max_running",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -97,6 +101,10 @@ export const DEFAULT_DIRECTORY_COPY_FILES = 256;
 export const DEFAULT_DIRECTORY_COPY_BYTES = 256 * 1024 * 1024;
 /** The most skills a system prompt lists. */
 export const DEFAULT_SKILLS_PER_USER = 64;
+/** The most times completion notices may wake a session since its last user-authored input. */
+export const DEFAULT_MAX_CONSECUTIVE_WAKES = 10;
+/** The most unsettled jobs a session (or an API token) may have at once. */
+export const DEFAULT_JOBS_MAX_RUNNING = 32;
 
 /** The defaults from config.ts, in the API form the WebUI shows. */
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
@@ -120,6 +128,7 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
 	},
 	directoryCopy: { files: DEFAULT_DIRECTORY_COPY_FILES, bytes: DEFAULT_DIRECTORY_COPY_BYTES },
 	skills: { maxPerUser: DEFAULT_SKILLS_PER_USER },
+	jobs: { maxConsecutiveWakes: DEFAULT_MAX_CONSECUTIVE_WAKES, maxRunning: DEFAULT_JOBS_MAX_RUNNING },
 };
 
 /** A copy of the defaults, safe for a caller to modify. */
@@ -157,6 +166,8 @@ function defaultsByKey(): Record<SettingKey, unknown> {
 		"directory_copy.files": DEFAULT_SYSTEM_SETTINGS.directoryCopy.files,
 		"directory_copy.bytes": DEFAULT_SYSTEM_SETTINGS.directoryCopy.bytes,
 		"skills.max_per_user": DEFAULT_SYSTEM_SETTINGS.skills.maxPerUser,
+		"jobs.max_consecutive_wakes": DEFAULT_SYSTEM_SETTINGS.jobs.maxConsecutiveWakes,
+		"jobs.max_running": DEFAULT_SYSTEM_SETTINGS.jobs.maxRunning,
 	};
 }
 
@@ -188,6 +199,8 @@ function flatten(settings: SystemSettings): Record<SettingKey, unknown> {
 		"directory_copy.files": settings.directoryCopy.files,
 		"directory_copy.bytes": settings.directoryCopy.bytes,
 		"skills.max_per_user": settings.skills.maxPerUser,
+		"jobs.max_consecutive_wakes": settings.jobs.maxConsecutiveWakes,
+		"jobs.max_running": settings.jobs.maxRunning,
 	};
 }
 
@@ -237,6 +250,10 @@ function unflatten(values: Record<SettingKey, unknown>): SystemSettings {
 			bytes: values["directory_copy.bytes"] as number,
 		},
 		skills: { maxPerUser: values["skills.max_per_user"] as number },
+		jobs: {
+			maxConsecutiveWakes: values["jobs.max_consecutive_wakes"] as number,
+			maxRunning: values["jobs.max_running"] as number,
+		},
 	};
 }
 
@@ -288,6 +305,8 @@ export function parseSettingValue(key: SettingKey, value: unknown): unknown {
 		case "directory_copy.files":
 		case "directory_copy.bytes":
 		case "skills.max_per_user":
+		case "jobs.max_consecutive_wakes":
+		case "jobs.max_running":
 			return parseInteger(value, key, 0);
 		case "image_cache.ttl": {
 			const ms = parseDurationMs(value, "image_cache.ttl");
@@ -343,6 +362,7 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 				"imageCache",
 				"directoryCopy",
 				"skills",
+				"jobs",
 			].includes(key)
 		) {
 			fields[key] = `unknown setting ${key}`;
@@ -542,6 +562,13 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 			],
 		],
 		["skills", [["maxPerUser", "skills.max_per_user"]]],
+		[
+			"jobs",
+			[
+				["maxConsecutiveWakes", "jobs.max_consecutive_wakes"],
+				["maxRunning", "jobs.max_running"],
+			],
+		],
 	] as const;
 	for (const [name, entries] of groups) {
 		if (input[name] === undefined) continue;
@@ -602,6 +629,10 @@ function resolveSettings(wire: SystemSettings): RuntimeSettings {
 			bytes: parseInteger(wire.directoryCopy.bytes, "directoryCopy.bytes", 0),
 		},
 		skills: { maxPerUser: parseInteger(wire.skills.maxPerUser, "skills.maxPerUser", 0) },
+		jobs: {
+			maxConsecutiveWakes: parseInteger(wire.jobs.maxConsecutiveWakes, "jobs.maxConsecutiveWakes", 0),
+			maxRunning: parseInteger(wire.jobs.maxRunning, "jobs.maxRunning", 0),
+		},
 	};
 }
 

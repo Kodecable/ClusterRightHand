@@ -48,7 +48,10 @@ export async function submit(
 	// an internal api_request carries the agent session as its actor.
 	const actor = by.actor ?? { type: "user", id: by.userId };
 	const { timeZone, ...rest } = options;
-	return submitInput(host, sessionId, text, requestId, actor, senderTimeZone(timeZone), true, rest);
+	return submitInput(host, sessionId, text, requestId, actor, senderTimeZone(timeZone), true, {
+		...rest,
+		userAuthored: true,
+	});
 }
 
 /** How long a manual compaction waits for durable to say whether it has an old history to summarize. */
@@ -224,6 +227,8 @@ async function submitInput(
 		content?: { type: "text"; text: string }[];
 		attachments?: ChatAttachment[];
 		lastUsedFrom?: string | null;
+		/** A user typed this message (WebUI or chat), not a schedule or an internal wake. */
+		userAuthored?: boolean;
 	} = {},
 ): Promise<string> {
 	const { row, conversation } = await loadConversation(host, sessionId);
@@ -261,6 +266,11 @@ async function submitInput(
 			.set({ last_used_from: options.lastUsedFrom })
 			.where("id", "=", sessionId)
 			.execute();
+	}
+	// A user-authored message starts a new chain: the completion-notice wake cap counts from here
+	// (doc/design/jobs.md "Completion notices").
+	if (options.userAuthored) {
+		await host.db.updateTable("sessions").set({ notice_wakes: 0 }).where("id", "=", sessionId).execute();
 	}
 	// The entry's data is a plain JSON object; TypeScript only wants the index signature spelled out.
 	const submission = await conversation.submit(draft as unknown as SubmissionDraft, host.context);

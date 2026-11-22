@@ -22,6 +22,7 @@ import { AgentServer } from "../../src/cluster/agent-server.ts";
 import { Cluster } from "../../src/cluster/cluster.ts";
 import { loadServerIdentity } from "../../src/cluster/identity.ts";
 import { TaskGroups } from "../../src/cluster/task-groups.ts";
+import { CallRunner } from "../../src/extensions/call-runner.ts";
 import { MasterKey } from "../../src/keys/master-key.ts";
 import { loadAuthorizationSigningKey } from "../../src/privilege/key.ts";
 import { Scheduler } from "../../src/scheduler/scheduler.ts";
@@ -71,7 +72,9 @@ export async function openSoakCrhs(params: SoakParams, faux: FauxProviderHandle)
 	models.addProvider(faux.provider);
 	await models.reload();
 	const opened = await openAgentStorage({ driver: "sqlite", path: durableDbPath });
+	const callRunner = new CallRunner();
 	const runtime = await AgentRuntime.open({
+		callRunner,
 		db,
 		storage: opened.storage,
 		models,
@@ -82,6 +85,8 @@ export async function openSoakCrhs(params: SoakParams, faux: FauxProviderHandle)
 	const scheduler = new Scheduler({ db, runtime, audit });
 	const app = createApp(db, {
 		taskGroups,
+		...(runtime.jobs ? { jobs: runtime.jobs } : {}),
+		callRunner,
 		agent: { runtime, models },
 		scheduler,
 		serverFingerprint: identity.fingerprint,
@@ -129,6 +134,7 @@ export async function openSoakCrhs(params: SoakParams, faux: FauxProviderHandle)
 		closed = true;
 		await scheduler.stop();
 		await runtime.close();
+		await callRunner.shutdown();
 		await opened.close();
 		cluster.endWaits();
 		taskGroups.endWaits();

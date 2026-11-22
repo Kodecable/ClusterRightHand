@@ -12,7 +12,7 @@ import { TOOLS } from "../../src/tools/catalog.ts";
  */
 
 /** The tools the crh extension adds to the cluster tools (see clusterExtension in agent/extension.ts). */
-const EXTENSION_TOOLS = ["subagent", "subagent_wait", "subagent_list", "subagent_cancel", "subagent_decide"];
+const EXTENSION_TOOLS = ["subagent", "subagent_list", "subagent_decide"];
 
 /**
  * Waits for the submission and returns the answer's text. The run's answer is its last assistant entry: the

@@ -41,9 +41,11 @@ Triggering and submitting are separate steps, so a crash between them neither lo
    submission is idempotent.
 3. **Recovery.** At startup crhs finishes interrupted preemptions, submits leftover pending runs, and
    reconciles runs that ended while it was down. Running sessions continue through durable's recovery.
-4. **Finish.** A run is `succeeded` when its session's run ends normally and `failed` on an error,
-   abort or stop. The status describes execution only; an agent reporting a problem it found is still
-   `succeeded`.
+4. **Finish.** A run is final when its session is idle and owns no unsettled job, and is `succeeded`
+   then and `failed` on an error, abort or stop. Background work the run started and the turns its
+   completion notices wake are part of the run, so its report follows them
+   ([Jobs](jobs.md#completion-notices)). The status describes execution only; an agent reporting a
+   problem it found is still `succeeded`.
 
 **Missed triggers.** If triggers were missed while crhs was down or the clock jumped, `catch_up = false`
 skips them and `catch_up = true` runs only the most recent one. Either way, crhs computes the next time

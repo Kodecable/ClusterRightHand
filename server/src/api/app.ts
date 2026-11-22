@@ -14,7 +14,9 @@ import type { CrhaReleases } from "../cluster/crha-release.ts";
 import { TaskGroups } from "../cluster/task-groups.ts";
 import type { WebauthnConfig } from "../config.ts";
 import { configureBuiltinExtensions } from "../extensions/builtin.ts";
+import { CallRunner } from "../extensions/call-runner.ts";
 import type { McpConnections } from "../extensions/connections.ts";
+import { createJobs, type Jobs } from "../jobs/jobs.ts";
 import type { MasterKey } from "../keys/master-key.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import type { ImageCache } from "../library/image-cache.ts";
@@ -22,6 +24,7 @@ import { mcpRoutes } from "../mcp/mcp.ts";
 import { type AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
+import { execJobRenderers } from "../tools/job-renderers.ts";
 import { DEFAULT_BODY_LIMIT, jsonBodyLimit, takesLargeBody } from "../util/body-limit.ts";
 import { apiTokenRoutes } from "./api-token-routes.ts";
 import { approvalRoutes } from "./approval-routes.ts";
@@ -33,6 +36,7 @@ import type { AppEnv } from "./context.ts";
 import { RequestDrain } from "./drain.ts";
 import { apiErrorHandler } from "./errors.ts";
 import { extensionRoutes } from "./extension-routes.ts";
+import { jobRoutes } from "./job-routes.ts";
 import { libraryRoutes } from "./library-routes.ts";
 import { csrfGuard, requireUser } from "./middleware.ts";
 import { modelPresetRoutes } from "./model-preset-routes.ts";
@@ -133,6 +137,10 @@ export interface AppOptions extends AuthRoutesOptions {
 	crhaReleases?: CrhaReleases;
 	/** The scheduler that fires and submits scheduled runs (doc/design/scheduling.md); with it come the schedule routes. */
 	scheduler?: Scheduler;
+	/** The job service shared with the agent runtime; one is made when a Cluster is present. */
+	jobs?: Jobs;
+	/** The crhs-owned extension calls the job service and MCP share; one is made when omitted. */
+	callRunner?: CallRunner;
 	/** Request tracking for shutdown; `main.ts` begins it when a signal arrives (a private one is made when omitted). */
 	drain?: RequestDrain;
 }
@@ -149,6 +157,22 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 	// Built once so the password routes reject the waiting work of revoked tokens through the same task groups.
 	const cluster = options.cluster;
 	const taskGroups = cluster ? (options.taskGroups ?? new TaskGroups(db, cluster, { audit })) : undefined;
+	// The runner is one per process in production; a test app without one gets its own, shared with the job
+	// service it builds so a call started over MCP and its job follow the same in-flight request.
+	const callRunner = options.callRunner ?? options.jobs?.callRunner ?? new CallRunner();
+	// The job tools are shared by agent sessions and MCP; the app makes one when the runtime did not pass its own.
+	const jobs =
+		options.jobs ??
+		(cluster && taskGroups
+			? createJobs({
+					db,
+					cluster,
+					taskGroups,
+					execRenderers: execJobRenderers,
+					callRunner,
+					...(audit ? { audit } : {}),
+				})
+			: undefined);
 	/**
 	 * Filled in with the SSE routes below, which are built after the auth routes: logout and a password change
 	 * end the affected streams immediately, and the streams' own ping check is only the fallback.
@@ -256,6 +280,8 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 		app.route("/api", taskRoutes(db, cluster, taskGroups));
 		app.route("/api", apiTokenRoutes(db, cluster, taskGroups, audit));
 		app.route("/api", approvalRoutes(db, cluster, taskGroups, audit));
+		// The job API shares the runtime's job service, so a decision or cancel projects the same rows the tools do.
+		if (jobs) app.route("/api", jobRoutes(db, { jobs }));
 		app.route("/api", auditRoutes(db));
 		if (options.agent && options.masterKey) {
 			const { runtime, models } = options.agent;
@@ -291,6 +317,8 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 					streams,
 					drain,
 					...(options.channels ? { presence: options.channels.presence } : {}),
+					// A job's projection change travels on its session's stream as `job.changed` (doc/design/jobs.md "API").
+					...(jobs ? { jobs } : {}),
 				}),
 			);
 			sessions.route(
@@ -324,6 +352,8 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 				cluster,
 				taskGroups,
 				audit,
+				callRunner,
+				...(jobs ? { jobs } : {}),
 				...(options.imageCache ? { imageCache: options.imageCache } : {}),
 				...(options.settings ? { settings: options.settings } : {}),
 				...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),

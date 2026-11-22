@@ -4,6 +4,8 @@ import type { Audit } from "../audit/audit.ts";
 import { resolveApiToken, type TokenIdentity } from "../auth/api-tokens.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { CallRunner } from "../extensions/call-runner.ts";
+import type { Jobs } from "../jobs/jobs.ts";
 import type { ImageCache } from "../library/image-cache.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
@@ -18,6 +20,10 @@ export interface McpOptions {
 	audit?: Audit;
 	/** The image cache behind `view_image`; without one the tool reports that it is not configured. */
 	imageCache?: ImageCache;
+	/** The job service behind the job tools; without one they report that they are unavailable. */
+	jobs?: Jobs;
+	/** The crhs-owned extension calls (doc/design/jobs.md "Background extension calls"). */
+	callRunner: CallRunner;
 	/** Absolute base URL for links; unset builds them from the request URL (`public_url`). */
 	publicUrl?: string | null;
 	/** Runtime settings; when given `public_url` is read per request and takes precedence. */
@@ -82,6 +88,9 @@ function buildServer(db: Db, options: McpOptions, id: TokenIdentity & { baseUrl:
 		approvalUrl: (kind, taskId) => `${id.baseUrl}/approvals/${kind === "task" ? "tasks" : "task-groups"}/${taskId}`,
 		taskUrl: (taskId) => `${id.baseUrl}/tasks/${taskId}`,
 		...(options.imageCache ? { imageCache: options.imageCache } : {}),
+		...(options.jobs ? { jobs: options.jobs } : {}),
+		callRunner: options.callRunner,
+		...(options.settings ? { jobsMaxRunning: options.settings.current().jobs.maxRunning } : {}),
 		taskGroupUrl: (taskGroupId) => `${id.baseUrl}/task-groups/${taskGroupId}`,
 		...(options.settings ? { directoryCopyLimits: options.settings.current().directoryCopy } : {}),
 	};

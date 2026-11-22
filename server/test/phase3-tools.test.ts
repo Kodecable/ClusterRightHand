@@ -7,6 +7,7 @@ import type * as z from "zod/v4";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import type { Cluster, TaskView } from "../src/cluster/cluster.ts";
 import type { TaskGroups, TaskGroupView } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { createLibraryBackend } from "../src/library/backend.ts";
 import { beginLibraryUpload, findLibraryFile } from "../src/library/files.ts";
 import { ImageCache } from "../src/library/image-cache.ts";
@@ -371,6 +372,7 @@ describe("library tools", () => {
 			actor: { type: "user", id: alice.userId, onBehalfOfUserId: alice.userId },
 			chain: [],
 			approvalUrl: () => "http://crh.test/approval",
+			callRunner: new CallRunner(),
 			imageCache: new ImageCache(db, join(root, "image-cache"), () => ({
 				diskBytes: 1024 * 1024,
 				ttlMs: 1000,
@@ -755,6 +757,7 @@ describe("view_image", () => {
 			actor: { type: "user", id: alice.userId, onBehalfOfUserId: alice.userId },
 			chain: [],
 			approvalUrl: () => "http://crh.test/approval",
+			callRunner: new CallRunner(),
 			imageCache,
 			imageLimits: { supported: true, maxWidth: 2000, maxHeight: 2000, maxBase64Bytes: 4_500_000 },
 		};

@@ -3,6 +3,8 @@ import { LoaderCircleIcon, WrenchIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { InternalLink } from "@/components/internal-link";
 import { taskOutcomeText } from "@/components/task-outcome";
+import { useJob } from "@/features/jobs/api";
+import { jobStateText } from "@/features/jobs/job";
 import { taskGroupEnded, useTask, useTaskGroup } from "@/features/tasks/api";
 import { isNotFound } from "@/lib/api/client";
 import { formatBytes } from "@/lib/format";
@@ -48,7 +50,16 @@ function ToolStatusIcon({ spinning, failed, label }: { spinning: boolean; failed
 	);
 }
 
-export function ToolCard({ item, sessionActive }: { item: ToolItem; sessionActive: boolean }) {
+export function ToolCard({
+	item,
+	sessionActive,
+	jobPollMs,
+}: {
+	item: ToolItem;
+	sessionActive: boolean;
+	/** The job poll interval; the row uses the shared default, and a test can shorten it. */
+	jobPollMs?: number;
+}) {
 	const { t, i18n } = useLingui();
 	const [open, setOpen] = useState(false);
 
@@ -58,9 +69,18 @@ export function ToolCard({ item, sessionActive }: { item: ToolItem; sessionActiv
 	// A task result's outcome decides the colour even when the call reports `isError`: a cancelled task is
 	// muted, and `isError` only names the model-facing error of a call with no task outcome.
 	const resultOutcome = result === undefined ? undefined : toolResultOutcome(result);
-	// Only a call without a result follows a task or task group: a returned call must not fetch.
-	const taskId = returned ? undefined : detailId(item.details, "task_id");
-	const taskGroupId = returned ? undefined : detailId(item.details, "task_group_id");
+	// A job-backed call follows its job (doc/design/jobs.md "WebUI"): the background state and its settle, not
+	// the task, task group or session it names. A call without a job keeps the per-kind polling below.
+	const jobId = detailId(item.details, "job_id");
+	const job = useJob(jobId, true, jobPollMs);
+	const jobView = job.data;
+	const jobUnsettled = jobView !== undefined && jobView.state !== "settled";
+	const jobWaiting = jobUnsettled && jobView?.state === "waiting";
+	const jobRunning = jobUnsettled && jobView?.state === "running";
+	const followByKind = jobId === undefined;
+	// Only a call without a result follows a task or task group by kind: a returned call must not fetch.
+	const taskId = returned || !followByKind ? undefined : detailId(item.details, "task_id");
+	const taskGroupId = returned || !followByKind ? undefined : detailId(item.details, "task_group_id");
 	// Plain reads, not the long-polling waits: a session may have many open calls, and each wait would hold one
 	// of the browser's few connections per origin for as long as the call runs.
 	const task = useTask(taskId);
@@ -72,24 +92,28 @@ export function ToolCard({ item, sessionActive }: { item: ToolItem; sessionActiv
 	const taskGroupGone = taskGroupId !== undefined && isNotFound(taskGroup.error);
 	// Auto Review judging this call keeps the card in progress: it is not a user-facing approval yet.
 	const reviewing =
+		followByKind &&
 		!returned &&
 		(followedTask?.phase === "reviewing" ||
 			followedTaskGroup?.phase === "reviewing" ||
 			(sessionActive && reviewingDetails(item.details)));
 	const spinning =
-		reviewing ||
-		(!returned &&
-			!taskGone &&
-			!taskGroupGone &&
-			callStillOpen({ sessionActive, taskState: followedTask?.state, taskGroupState: followedTaskGroup?.state }));
-	const followed = taskId !== undefined || taskGroupId !== undefined;
+		jobRunning ||
+		(followByKind &&
+			(reviewing ||
+				(!returned &&
+					!taskGone &&
+					!taskGroupGone &&
+					callStillOpen({ sessionActive, taskState: followedTask?.state, taskGroupState: followedTaskGroup?.state }))));
+	const followed = followByKind && (taskId !== undefined || taskGroupId !== undefined);
 	const followedGone = taskGone || taskGroupGone;
 	const { refetch: refetchTask } = task;
 	const { refetch: refetchTaskGroup } = taskGroup;
 	// Re-read the followed task or group every few seconds while the card spins, and once more when it stops
-	// (the session went idle), so a stopped card shows how the task ended.
+	// (the session went idle), so a stopped card shows how the task ended. A job-backed row is followed by
+	// `useJob` instead, on the job's own interval.
 	useEffect(() => {
-		if (!followed) return;
+		if (!followed || jobId !== undefined) return;
 		const refresh = () => {
 			if (taskId !== undefined) void refetchTask();
 			if (taskGroupId !== undefined) void refetchTaskGroup();
@@ -100,35 +124,44 @@ export function ToolCard({ item, sessionActive }: { item: ToolItem; sessionActiv
 		}
 		const timer = setInterval(refresh, FOLLOW_INTERVAL_MS);
 		return () => clearInterval(timer);
-	}, [followed, spinning, followedGone, taskId, taskGroupId, refetchTask, refetchTaskGroup]);
+	}, [followed, jobId, spinning, followedGone, taskId, taskGroupId, refetchTask, refetchTaskGroup]);
 	// What a stopped call's task or group ended with: its failure, `done`, or undefined when nothing is known.
 	let outcome: ToolFailure | "done" | undefined;
-	if (!returned && !spinning) {
+	if (followByKind && !returned && !spinning) {
 		if (followedTask !== undefined && isTerminal(followedTask.state)) {
 			outcome = taskViewFailure(followedTask) ?? "done";
 		} else if (followedTaskGroup !== undefined && taskGroupEnded(followedTaskGroup.state)) {
 			outcome = taskGroupViewFailure(followedTaskGroup) ?? "done";
 		}
 	}
+	// A settled job's outcome names the result even when the call's own details stopped at "still running".
+	const jobOutcome = jobView?.state === "settled" ? (jobView.outcome ?? undefined) : undefined;
+	const effectiveOutcome = resultOutcome ?? jobOutcome;
 	// A task failure is a failed card even though the call itself returned normally.
 	const failed = returned
-		? resultOutcome === undefined
+		? effectiveOutcome === undefined
 			? result.isError || failure !== undefined
-			: resultOutcome.failed
-		: outcome !== undefined && outcome !== "done";
-	const status = returned
-		? failed
-			? "failed"
-			: "done"
-		: spinning
-			? item.status === "pending"
-				? "preparing"
-				: item.status === "running"
-					? "running"
-					: "empty"
-			: failed
+			: effectiveOutcome.failed
+		: jobWaiting
+			? false
+			: outcome !== undefined && outcome !== "done";
+	const status = jobUnsettled
+		? jobWaiting
+			? "waiting"
+			: "running"
+		: returned
+			? failed
 				? "failed"
-				: "empty";
+				: "done"
+			: spinning
+				? item.status === "pending"
+					? "preparing"
+					: item.status === "running"
+						? "running"
+						: "empty"
+				: failed
+					? "failed"
+					: "empty";
 	// The icon is the only status signal: its accessible name and tooltip say what a badge used to show.
 	// The server's outcome names the result; a group whose members disagree says so.
 	const failureLabel = (value: ToolFailure): string =>
@@ -136,9 +169,11 @@ export function ToolCard({ item, sessionActive }: { item: ToolItem; sessionActiv
 	const followedOutcome =
 		followedTask?.outcome ?? (followedTaskGroup === undefined ? undefined : followedTaskGroup.outcome);
 	let statusLabel: string;
-	if (returned) {
+	if (jobUnsettled && jobView !== undefined) {
+		statusLabel = jobStateText(i18n, jobView);
+	} else if (returned) {
 		if (failure !== undefined) statusLabel = failureLabel(failure);
-		else if (resultOutcome !== undefined) statusLabel = taskOutcomeText(i18n, resultOutcome);
+		else if (effectiveOutcome !== undefined) statusLabel = taskOutcomeText(i18n, effectiveOutcome);
 		else statusLabel = failed ? t`Failed` : t`Done`;
 	} else if (spinning) statusLabel = t`Running`;
 	else if (outcome === undefined) statusLabel = t`No result`;
@@ -194,6 +229,11 @@ export function ToolCard({ item, sessionActive }: { item: ToolItem; sessionActiv
 							</span>
 						)}
 					</span>
+					{jobUnsettled && jobView !== undefined && (
+						<span data-testid="tool-job-state" className="shrink-0 text-xs text-muted-foreground">
+							<Trans>Background</Trans> · {jobStateText(i18n, jobView)}
+						</span>
+					)}
 					{reviewing && (
 						<span data-testid="tool-reviewing" className="shrink-0 text-xs text-muted-foreground">
 							<Trans>Auto Review is reviewing…</Trans>
@@ -201,7 +241,7 @@ export function ToolCard({ item, sessionActive }: { item: ToolItem; sessionActiv
 					)}
 				</button>
 			</div>
-			<ToolDialog item={item} open={open} onOpenChange={setOpen} />
+			<ToolDialog item={item} job={jobView} open={open} onOpenChange={setOpen} />
 		</div>
 	);
 }

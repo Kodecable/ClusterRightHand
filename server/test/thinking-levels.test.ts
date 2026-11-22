@@ -7,6 +7,7 @@ import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { Scheduler } from "../src/scheduler/scheduler.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -93,6 +94,7 @@ describe("thinking levels end to end", () => {
 		cluster = new Cluster(db, { audit });
 		models = new ModelConfig(db, masterKey);
 		runtime = await AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db,
 			storage: new MemoryStorage(),
 			models,

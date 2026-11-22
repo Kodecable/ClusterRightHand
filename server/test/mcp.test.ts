@@ -122,6 +122,7 @@ describe("MCP links", () => {
 		};
 		const cluster = {
 			createTask: async () => task,
+			getTask: async () => task,
 			waitTask: async () => task,
 		} as unknown as Cluster;
 		return makeApp(db, undefined, {
@@ -164,6 +165,25 @@ describe("MCP links", () => {
 			for (const name of ["list_dir", "stat", "copy_file", "view_image"]) {
 				const tool = tools.find((candidate) => candidate.name === name);
 				expect(tool?.description, name).toContain("user:alice");
+			}
+		} finally {
+			await client.close();
+		}
+	});
+
+	it("exposes the job tools and not the removed task and subagent follow-up tools", async () => {
+		const app = appWith();
+		const client = new Client({ name: "crh-test", version: "0.0.0" });
+		const transport = new StreamableHTTPClientTransport(new URL("http://crh.test/mcp"), {
+			requestInit: { headers: { authorization: `Bearer ${token}` } },
+			fetch: async (input, init) => await app.request(new Request(input, init)),
+		});
+		await client.connect(transport);
+		try {
+			const names = (await client.listTools()).tools.map((tool) => tool.name);
+			expect(names).toEqual(expect.arrayContaining(["job_wait", "job_cancel", "job_list"]));
+			for (const removed of ["task_wait", "task_cancel", "subagent_wait", "subagent_cancel"]) {
+				expect(names).not.toContain(removed);
 			}
 		} finally {
 			await client.close();

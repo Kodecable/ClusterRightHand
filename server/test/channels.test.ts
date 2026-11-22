@@ -14,7 +14,8 @@ import { bindThread } from "../src/channels/store.ts";
 import { TelegramChannel } from "../src/channels/telegram.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
-import { decideExternalCall } from "../src/extensions/external-calls.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
+import { decideExternalCall, externalCallId } from "../src/extensions/external-calls.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend, type LibraryBackend } from "../src/library/backend.ts";
 import { beginLibraryUpload, updateLibraryLimits } from "../src/library/files.ts";
@@ -79,6 +80,8 @@ function newChannels(publicUrl: string | null): ChannelManager {
 		libraryBackend: backend,
 		...(publicUrl === null ? {} : { publicUrl }),
 		telegramApiRoot: fake.apiRoot,
+		// Counts the adapter's long polls where they are sent (FakeTelegram.maxConcurrentPolls).
+		fetch: fake.fetch,
 		pollTimeoutSeconds: 1,
 		backoffBaseMs: 20,
 		backoffMaxMs: 100,
@@ -104,7 +107,7 @@ beforeAll(async () => {
 	models.addProvider(manyFaux.provider);
 	await models.reload();
 	const storage = new MemoryStorage();
-	runtime = await AgentRuntime.open({ db, storage, models, cluster, taskGroups, audit });
+	runtime = await AgentRuntime.open({ callRunner: new CallRunner(), db, storage, models, cluster, taskGroups, audit });
 	// Titles use their own faux model, so a title request cannot consume a test's scripted answers.
 	await runtime.modelPresets.update("title", {
 		model: { provider: titleFaux.provider.id, modelId: titleFaux.getModel().id },
@@ -2204,6 +2207,7 @@ describe("channels", () => {
 			libraryBackend: backend,
 			publicUrl: "https://crh.example",
 			telegramApiRoot: fake.apiRoot,
+			fetch: fake.fetch,
 			pollTimeoutSeconds: 1,
 			backoffBaseMs: 20,
 			backoffMaxMs: 100,
@@ -2237,6 +2241,139 @@ describe("channels", () => {
 		await channels.deleteChannel(admin, "badbot");
 	});
 
+	/** A `call` job over an external call row, for the completion-notice tests. */
+	async function insertCallJob(sessionId: string, callKey: string): Promise<{ jobId: string; callId: string }> {
+		const callId = externalCallId(callKey);
+		const now = new Date().toISOString();
+		await db
+			.insertInto("external_calls")
+			.values({
+				id: callId,
+				org_id: orgId,
+				actor_type: "session",
+				actor_id: sessionId,
+				on_behalf_of_user_id: aliceId,
+				extension_name: "fake",
+				tool_name: "echo",
+				arguments: "{}",
+				operation: JSON.stringify({ method: "ext.read", target: "fake/echo" }),
+				annotations: null,
+				rule_chain: null,
+				approval: null,
+				pending_input: null,
+				root_session_id: null,
+				handler_type: null,
+				handler_session_id: null,
+				state: "running",
+				created_at: now,
+				finished_at: null,
+				source_tool_task: null,
+				tool_rev: null,
+			})
+			.execute();
+		const job = await runtime.jobs?.ensure({
+			kind: "call",
+			callKey,
+			actor: { type: "session", id: sessionId, onBehalfOfUserId: aliceId },
+			sessionId,
+			resourceType: "external_call",
+			resourceId: callId,
+			action: { type: "extension_tool", extension: "fake", tool: "echo" },
+		});
+		if (!job) throw new Error("the job service is missing");
+		return { jobId: job.id, callId };
+	}
+
+	async function settleCallJob(callKey: string, callId: string): Promise<void> {
+		await db
+			.updateTable("external_calls")
+			.set({ state: "succeeded", finished_at: new Date().toISOString() })
+			.where("id", "=", callId)
+			.execute();
+		await runtime.jobs?.callChanged(callKey);
+	}
+
+	describe("completion notices in a chat", () => {
+		beforeEach(() => {
+			fake.calls.length = 0;
+		});
+
+		it("sends one notice line per finished job where the session's text goes, without marking it read", async () => {
+			const userId = 9311;
+			await link(userId);
+			faux.setResponses([fauxAssistantMessage([fauxText("first answer")])]);
+			fake.text(userId, "hello");
+			await fake.waitForSent((call) => plainText(call).includes("first answer"));
+			const thread = await threadFor(userId);
+			if (!thread) throw new Error("the chat has no session thread");
+			const sessionId = thread.session_id;
+			// The notice must not mark the session read; a value no run touches makes an unwanted mark visible.
+			await db
+				.updateTable("sessions")
+				.set({ owner_read_at: "2020-01-01T00:00:00.000Z", reply_at: null })
+				.where("id", "=", sessionId)
+				.execute();
+
+			const callKey = `channel-notice-${newId()}`;
+			const { callId } = await insertCallJob(sessionId, callKey);
+			// The wake's answer has no text, so nothing but the notice itself is sent.
+			faux.setResponses([fauxAssistantMessage([])]);
+			const before = fake.calls.length;
+			await settleCallJob(callKey, callId);
+			const notice = await fake.waitForSent(
+				(call) => fake.calls.indexOf(call) >= before && plainText(call).includes("Background job finished:"),
+			);
+			expect(plainText(notice)).toBe("Background job finished: fake/echo · Done · the agent was woken");
+			const sent = fake.calls.slice(before).map(sentText);
+			expect(sent.filter((text) => text.includes("Background job finished:"))).toHaveLength(1);
+			const row = await db
+				.selectFrom("sessions")
+				.select("owner_read_at")
+				.where("id", "=", sessionId)
+				.executeTakeFirstOrThrow();
+			expect(row.owner_read_at).toBe("2020-01-01T00:00:00.000Z");
+		});
+
+		it("sends no notice line for a scheduled run's session", async () => {
+			const userId = 9312;
+			await link(userId);
+			faux.setResponses([fauxAssistantMessage([fauxText("scheduled-looking")])]);
+			fake.text(userId, "hello");
+			await fake.waitForSent((call) => plainText(call).includes("scheduled-looking"));
+			const thread = await threadFor(userId);
+			if (!thread) throw new Error("the chat has no session thread");
+			const sessionId = thread.session_id;
+			// A scheduled run's latest input came from nowhere, so its text goes nowhere.
+			await db.updateTable("sessions").set({ last_used_from: null }).where("id", "=", sessionId).execute();
+
+			const callKey = `channel-scheduled-${newId()}`;
+			const { callId } = await insertCallJob(sessionId, callKey);
+			faux.setResponses([fauxAssistantMessage([])]);
+			const before = fake.calls.length;
+			await settleCallJob(callKey, callId);
+			// The wake ran server-side (the entry was placed)…
+			const deadline = Date.now() + 5000;
+			for (;;) {
+				const row = await db
+					.selectFrom("sessions")
+					.select("notice_wakes")
+					.where("id", "=", sessionId)
+					.executeTakeFirst();
+				if (row?.notice_wakes === 1) break;
+				if (Date.now() > deadline) throw new Error("timed out waiting for the notice wake");
+				await new Promise((resolve) => setTimeout(resolve, 20));
+			}
+			// …but nothing was pushed to the chat.
+			await settle();
+			expect(
+				fake.calls
+					.slice(before)
+					.map(sentText)
+					.some((text) => text.includes("Background job finished:")),
+			).toBe(false);
+		});
+	});
+
 	it("stops every channel and clears drafts when one adapter's stop fails", async () => {
 		const admin = { sessionId: "test", userId: adminId, username: "admin", kind: "admin" as const };
 		const manager = new ChannelManager({
@@ -2250,6 +2387,7 @@ describe("channels", () => {
 			libraryBackend: backend,
 			publicUrl: "https://crh.example",
 			telegramApiRoot: fake.apiRoot,
+			fetch: fake.fetch,
 			pollTimeoutSeconds: 1,
 			backoffBaseMs: 20,
 			backoffMaxMs: 100,
@@ -2879,12 +3017,14 @@ describe("channels", () => {
 				channels.saveChannel(admin, "serialbot", { token: serialToken }),
 			]);
 			await fake.waitFor("getUpdates", (call) => call.token === serialToken && fake.calls.indexOf(call) >= restarted);
+			// Long enough for an orphaned adapter's poll to overlap the new one by more than maxConcurrentPolls' minimum.
+			await new Promise((resolve) => setTimeout(resolve, 300));
 			expect(fake.maxConcurrentPolls(serialToken)).toBe(1);
 
 			// Nothing is left polling after the delete.
 			await channels.deleteChannel(admin, "serialbot");
-			const polls = () =>
-				fake.calls.filter((call) => call.token === serialToken && call.method === "getUpdates").length;
+			// Counted where the polls are sent: a poll sent before the delete may reach the server only after it.
+			const polls = () => fake.pollsStarted(serialToken);
 			const afterDelete = polls();
 			await new Promise((resolve) => setTimeout(resolve, 1_300));
 			expect(polls()).toBe(afterDelete);

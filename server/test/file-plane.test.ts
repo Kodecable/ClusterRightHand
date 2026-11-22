@@ -10,6 +10,7 @@ import { Cluster, specFromRow } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { createLibraryBackend, getBytes, newObjectKey, putBytes } from "../src/library/backend.ts";
 import { createRootRuleSet } from "../src/policy/store.ts";
 import { specSha256 } from "../src/privilege/payload.ts";
@@ -533,6 +534,7 @@ describe("file plane transfers", () => {
 			actor: actor(),
 			chain: [ref],
 			approvalUrl: () => "http://crh.test/approval",
+			callRunner: new CallRunner(),
 		} as ToolContext;
 		const tool = TOOLS.find((candidate) => candidate.name === "copy_file");
 		if (!tool) throw new Error("copy_file is missing");

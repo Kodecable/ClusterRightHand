@@ -15,7 +15,7 @@ import type {
 	TaskGroupView,
 	TaskView,
 } from "@crh/api";
-import { getExternalCall } from "../extensions/external-calls.ts";
+import { externalCallTaskAction, getExternalCall } from "../extensions/external-calls.ts";
 import type { ChainLevel, Operation as RuleOperation } from "../policy/rules.ts";
 import type { Db } from "../storage/db.ts";
 import { groupNodesNeedingApproval, liftsWithRule, loadRequestChain, waitingOperations } from "./always-allow.ts";
@@ -111,26 +111,41 @@ function externalCallAlwaysAllow(call: ExternalCallView, apiRequest: boolean): A
 
 /** `api_request` arguments as the tool receives them; the model may send them as a JSON string. */
 function apiRequestAction(call: ExternalCallView): TaskAction | undefined {
-	if (call.extension !== "crhs-api" || call.tool !== "api_request") return undefined;
-	let args = call.arguments;
-	if (typeof args === "string") {
-		try {
-			args = JSON.parse(args);
-		} catch {
-			return undefined;
-		}
+	const action = externalCallTaskAction(call.extension, call.tool, call.arguments);
+	return action.type === "api_request" ? action : undefined;
+}
+
+/**
+ * The job a waiting task, task group or external call belongs to (doc/design/jobs.md "Approvals and jobs").
+ * A record only gets one when a tool call started it: a task the WebUI's Run task dialog created has no job.
+ */
+async function jobRefFor(
+	db: Db,
+	resourceType: "task" | "task_group" | "external_call",
+	resourceId: string,
+	action: TaskAction,
+): Promise<NonNullable<ApprovalRequest["job"]> | undefined> {
+	const row = await db
+		.selectFrom("jobs")
+		.select(["id", "kind", "action"])
+		.where("resource_type", "=", resourceType)
+		.where("resource_id", "=", resourceId)
+		.executeTakeFirst();
+	if (!row) return undefined;
+	let stored: TaskAction | undefined;
+	try {
+		stored = JSON.parse(row.action) as TaskAction;
+	} catch {
+		stored = undefined;
 	}
-	if (typeof args !== "object" || args === null || Array.isArray(args)) return undefined;
-	const method = (args as Record<string, unknown>).method;
-	const path = (args as Record<string, unknown>).path;
-	if (typeof method !== "string" || typeof path !== "string") return undefined;
-	return { type: "api_request", method: method.toUpperCase(), path };
+	return { id: row.id, kind: row.kind, action: stored ?? action };
 }
 
 export async function approvalRequestForTask(db: Db, task: TaskView): Promise<ApprovalRequest> {
 	const names = await nodeNames(db, [task.nodeId]);
 	const nodeList = cappedNodes(names);
 	const review = reviewSummary(task.approval);
+	const job = await jobRefFor(db, "task", task.id, task.action);
 	return {
 		kind: "task",
 		id: task.id,
@@ -140,6 +155,7 @@ export async function approvalRequestForTask(db: Db, task: TaskView): Promise<Ap
 		...nodeList,
 		privileged: task.privileged,
 		...(review ? { review } : {}),
+		...(job ? { job } : {}),
 		alwaysAllow: await taskAlwaysAllow(db, task.ruleChain, task.operation, [task.nodeId], names, task.privileged),
 	};
 }
@@ -151,6 +167,7 @@ export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView):
 	const nodeList = cappedNodes(names);
 	const review = reviewSummary(group.approval);
 	const alwaysAllow = await taskAlwaysAllow(db, group.ruleChain, group.operation, needing, names, group.privileged);
+	const job = await jobRefFor(db, "task_group", group.id, group.action);
 	return {
 		kind: "task_group",
 		id: group.id,
@@ -160,6 +177,7 @@ export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView):
 		...nodeList,
 		privileged: group.privileged,
 		...(review ? { review } : {}),
+		...(job ? { job } : {}),
 		alwaysAllow,
 	};
 }
@@ -171,6 +189,7 @@ export async function approvalRequestForExternalCall(db: Db, call: ExternalCallV
 	const row = await getExternalCall(db, call.id);
 	const levels = await loadRequestChain(db, row?.rule_chain ? (JSON.parse(row.rule_chain) as RuleRef[]) : null);
 	const operations = await waitingOperations(db, call.operation, false, null);
+	const job = await jobRefFor(db, "external_call", call.id, action);
 	return {
 		kind: "external_call",
 		id: call.id,
@@ -179,6 +198,7 @@ export async function approvalRequestForExternalCall(db: Db, call: ExternalCallV
 		action,
 		privileged: false,
 		...(review ? { review } : {}),
+		...(job ? { job } : {}),
 		alwaysAllow: lifting(levels, operations, externalCallAlwaysAllow(call, apiAction !== undefined)),
 	};
 }

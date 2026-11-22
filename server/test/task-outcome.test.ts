@@ -295,9 +295,9 @@ describe("task-render text", () => {
 				view({ id: "t2", outcome: { kind: "exit", failed: true, exitCode: 1 } }),
 			],
 		});
-		expect(groupTextNote(ctx, failed, false)).toContain("1 succeeded, 1 failed");
+		expect(groupTextNote(ctx, failed, undefined)).toContain("1 succeeded, 1 failed");
 		const cancelled = group({ state: "cancelled", outcome: { kind: "cancelled", failed: false }, tasks: [] });
-		expect(groupTextNote(ctx, cancelled, false)).toContain("cancelled");
+		expect(groupTextNote(ctx, cancelled, undefined)).toContain("cancelled");
 	});
 });
 

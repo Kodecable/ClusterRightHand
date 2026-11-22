@@ -12,6 +12,7 @@ export * from "./authorizations.ts";
 export * from "./channels.ts";
 export * from "./common.ts";
 export * from "./extensions.ts";
+export * from "./jobs.ts";
 export * from "./libraries.ts";
 export * from "./lists.ts";
 export * from "./locales.ts";

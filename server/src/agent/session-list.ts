@@ -32,7 +32,7 @@ export interface SessionListFilter {
 	cursor?: CursorKey;
 }
 
-/** The columns both lists turn into an item: the root list aggregates the tree into `state`, the children list reads it as is. */
+/** The columns the root session list turns into an item; the tree's aggregate becomes `state`. */
 export interface SessionItemRow {
 	id: string;
 	title: string | null;
@@ -52,11 +52,6 @@ export interface SessionListRow extends SessionItemRow {
 	reply_at: string | null;
 	/** When the owner last opened the tree; roots only. */
 	owner_read_at: string | null;
-}
-
-/** A row of `GET /api/sessions/:id/children`: the list's item columns, without the tree aggregate. */
-export interface SessionChildRow extends SessionItemRow {
-	parent_session_id: string | null;
 }
 
 /** A list row: the query also evaluates whether a share reaches the caller, so the item needs no extra query. */
@@ -183,38 +178,10 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 }
 
 /**
- * A page of a session's direct child sessions (subagents), `updated_at desc, id desc`: the route adds `limit`
- * (doc/design/webui.md "API conventions"). The item shows the child's own state, not the tree's, and its parent; the items are
- * never filtered per child, because a share on a session reaches its subagents (doc/design/access-control.md "Ownership, access grants and sharing").
- * `sessions_parent_updated_idx` serves both the `parent_session_id` filter and the order, so a page costs one
- * index range scan and no per-row query.
- */
-export function sessionChildrenQuery(db: Db, parentSessionId: string, cursor?: CursorKey) {
-	let query = db
-		.selectFrom("sessions")
-		.innerJoin("users", "users.id", "sessions.owner_user_id")
-		.select([
-			"sessions.id",
-			"sessions.title",
-			"sessions.owner_user_id",
-			"sessions.parent_session_id",
-			"sessions.schedule_id",
-			"sessions.state",
-			"sessions.waiting_kind",
-			"sessions.updated_at",
-			"users.display_name",
-			"users.username",
-		])
-		.where("sessions.parent_session_id", "=", parentSessionId);
-	if (cursor) query = query.where(descendingKeyset(["sessions.updated_at"], cursor, "sessions.id"));
-	return query.orderBy("sessions.updated_at", "desc").orderBy("sessions.id", "desc");
-}
-
-/**
  * The item as one viewer sees it. `shared` comes from the share reach the caller resolved: the list query's
  * `EXISTS` for the caller, or the audience the hub computed for a stream subscriber. An owner never has it set.
  * `unread` is the owner's alone: a shared viewer never sees another user's read state, so it is always false
- * there (doc/design/webui.md "Sidebar list"). A child row carries no read columns, which also leaves it false.
+ * there (doc/design/webui.md "Sidebar list").
  */
 export function sessionListItem(
 	row: SessionItemRow & Partial<Pick<SessionListRow, "reply_at" | "owner_read_at">>,
@@ -235,14 +202,6 @@ export function sessionListItem(
 		unread,
 		updatedAt: row.updated_at,
 	};
-}
-
-/**
- * A child's item: the list's item plus the parent it hangs under. `shared` is the tree's, resolved from the
- * parent's permissions, so every child of one session carries the same answer.
- */
-export function sessionChildItem(row: SessionChildRow, viewerUserId: string, shared: boolean): SessionListItem {
-	return { ...sessionListItem(row, viewerUserId, shared), parentSessionId: row.parent_session_id };
 }
 
 export interface ShareAudience {

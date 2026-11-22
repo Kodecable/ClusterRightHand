@@ -2,7 +2,11 @@ import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronDownIcon, ChevronRightIcon, GitBranchIcon, LoaderCircleIcon } from "lucide-react";
 import { useState } from "react";
 import { CopyButton } from "@/components/copy-button";
+import { InternalLink } from "@/components/internal-link";
+import { taskOutcomeText } from "@/components/task-outcome";
 import { Button } from "@/components/ui/button";
+import { jobResourceLink } from "@/features/jobs/job";
+import { actionText } from "@/lib/action-text";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SafeMarkdown, StreamingMarkdown } from "@/markdown/SafeMarkdown";
@@ -10,7 +14,7 @@ import { useStreamingText } from "@/markdown/stream-store";
 import { AttachmentChip } from "./attachment-chip";
 import { MessageActions, MessageTime, replyFinishedAt } from "./message-actions";
 import { ToolCard } from "./tool-card";
-import type { TranscriptItem } from "./transcript-items";
+import type { NoticeItem, TranscriptItem } from "./transcript-items";
 import type { TranscriptStreams } from "./transcript-streams";
 
 /** The completed turn's fold line, above its final answer (doc/design/webui.md "Message view"). */
@@ -131,6 +135,61 @@ function CompactionRow({ text }: { text: string }) {
 		<CollapsibleNoteRow testId="compaction" label={<Trans>Context compacted</Trans>} preview={notePreview(text, false)}>
 			<SafeMarkdown text={text} className="text-muted-foreground" />
 		</CollapsibleNoteRow>
+	);
+}
+
+/**
+ * A `crh.notice` entry as one centered, muted line outside any bubble (doc/design/jobs.md "Display"): a
+ * finished job per line, with its action, outcome, wake note and a link to its page, or the request wake that
+ * started the run. It carries no message actions, because it is not a message the user sent.
+ */
+function NoticeRow({ notice }: { notice: NoticeItem }) {
+	const { t, i18n } = useLingui();
+	if (notice.type === "jobs" && notice.jobs.length > 0) {
+		return (
+			<div className="flex flex-col items-center gap-0.5 px-3 pb-2.5" data-testid="notice-lines">
+				{notice.jobs.map((job) => {
+					const action = actionText(i18n, job.action) || job.kind;
+					const link = job.resource === undefined ? undefined : jobResourceLink(job.resource);
+					return (
+						<p
+							key={job.jobId}
+							data-testid="notice-line"
+							data-job-id={job.jobId}
+							className="max-w-[92%] text-center text-xs text-muted-foreground"
+						>
+							<Trans>Background job finished:</Trans>{" "}
+							{link === undefined ? (
+								<span>{action}</span>
+							) : (
+								<InternalLink to={link.to} params={link.params} className="text-xs">
+									{action}
+								</InternalLink>
+							)}
+							{" · "}
+							{taskOutcomeText(i18n, job.outcome)}
+							{job.woke && (
+								<>
+									{" · "}
+									<Trans>the agent was woken</Trans>
+								</>
+							)}
+						</p>
+					);
+				})}
+			</div>
+		);
+	}
+	return (
+		<div className="flex justify-center px-3 pb-2.5">
+			<p data-testid="notice-line" className="max-w-[92%] text-center text-xs text-muted-foreground">
+				{notice.type === "quota_request"
+					? t`A subagent's quota ran out`
+					: notice.type === "agent_request"
+						? t`A subagent request woke the agent`
+						: t`The agent was woken`}
+			</p>
+		</div>
 	);
 }
 
@@ -337,6 +396,7 @@ export function TranscriptRow({
 					)}
 				</div>
 			)}
+			{item.kind === "notice" && <NoticeRow notice={item.notice} />}
 			{item.kind === "thinking" && <ThinkingRow item={item} streams={streams} />}
 			{item.kind === "tool" && (
 				<div className="max-w-[92%]">

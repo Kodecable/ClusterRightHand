@@ -24,6 +24,11 @@ msgstr "[图片：{label}]"
 msgid "[instructions]"
 msgstr "[指令]"
 
+#. placeholder {0}: items.length
+#: src/features/sessions/background-bar.tsx
+msgid "{0, plural, one {# background job} other {# background jobs}}"
+msgstr "{0, plural, one {# 个后台任务} other {# 个后台任务}}"
+
 #. placeholder {0}: result.size
 #: src/components/task-result.tsx
 msgid "{0, plural, one {# byte} other {# bytes}}"
@@ -135,10 +140,6 @@ msgstr "{0} tok/s"
 msgid "{0}: {1} → {2} ({3})"
 msgstr "{0}：{1} → {2}（{3}）"
 
-#: src/features/sessions/children-bar.tsx
-msgid "{awaiting} awaiting"
-msgstr "{awaiting} 个等待中"
-
 #: src/components/task-result.tsx
 msgid "{bytes, plural, one {# byte} other {# bytes}}"
 msgstr "{bytes, plural, one {# 字节} other {# 字节}}"
@@ -196,7 +197,7 @@ msgstr "{queued, plural, one {已排队 # 条消息} other {已排队 # 条消�
 msgid "{running, plural, one {Restarting crha ends # running task; it will end as unknown.} other {Restarting crha ends # running tasks; they will end as unknown.}}"
 msgstr "{running, plural, other {重启 crha 会中断 # 个运行中的任务，它们将以“未知”状态结束。}}"
 
-#: src/features/sessions/children-bar.tsx
+#: src/features/sessions/background-bar.tsx
 msgid "{running} running"
 msgstr "{running} 个运行中"
 
@@ -204,13 +205,13 @@ msgstr "{running} 个运行中"
 msgid "{steps, plural, one {# step} other {# steps}}"
 msgstr "{steps, plural, one {# 步} other {# 步}}"
 
-#: src/features/sessions/children-bar.tsx
-msgid "{total, plural, one {# subagent} other {# subagents}}"
-msgstr "{total, plural, one {# 个子会话} other {# 个子会话}}"
-
 #: src/features/sessions/composer-meta.tsx
 msgid "{turns, plural, one {# turn} other {# turns}}"
 msgstr "{turns, plural, one {# 轮} other {# 轮}}"
+
+#: src/features/sessions/background-bar.tsx
+msgid "{waiting} waiting"
+msgstr "{waiting} 个等待中"
 
 #: src/features/sessions/composer.tsx
 msgid "/{name}: {description} (not sent as a message)"
@@ -369,6 +370,14 @@ msgstr "计划运行走正常的授权路径：特权任务需要所有者签名
 #: src/features/sessions/session-header.tsx
 msgid "A session title is at most {SESSION_TITLE_MAX_CHARS} characters."
 msgstr "会话标题最多 {SESSION_TITLE_MAX_CHARS} 个字符。"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "A subagent request woke the agent"
+msgstr "子代理请求唤醒了代理"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "A subagent's quota ran out"
+msgstr "子代理的配额已用完"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "A Telegram bot. Private chats only; a topic is its own session."
@@ -942,6 +951,18 @@ msgstr "上一步"
 msgid "Back to the session list"
 msgstr "返回会话列表"
 
+#: src/features/sessions/tool-card.tsx
+msgid "Background"
+msgstr "后台"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "Background job finished:"
+msgstr "后台任务已完成："
+
+#: src/features/sessions/background-bar.tsx
+msgid "Background jobs"
+msgstr "后台任务"
+
 #: src/features/settings/extension-settings.tsx
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
@@ -1274,9 +1295,9 @@ msgstr "已关闭"
 msgid "Cluster"
 msgstr "集群"
 
-#: src/features/sessions/children-bar.tsx
-msgid "Collapse subagents"
-msgstr "收起子会话"
+#: src/features/sessions/background-bar.tsx
+msgid "Collapse the subagent's jobs"
+msgstr "收起子代理的后台任务"
 
 #: src/features/authorizations/pages.tsx
 msgid "Command"
@@ -2209,9 +2230,9 @@ msgstr "退出码"
 msgid "Exit code {0}"
 msgstr "退出码 {0}"
 
-#: src/features/sessions/children-bar.tsx
-msgid "Expand subagents"
-msgstr "展开子会话"
+#: src/features/sessions/background-bar.tsx
+msgid "Expand the subagent's jobs"
+msgstr "展开子代理的后台任务"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Expected an object like {\"rules\": [...]}."
@@ -2249,6 +2270,10 @@ msgstr "有效期至 <0/>。请在你的工作站上运行以下命令，并将�
 #: src/features/tokens/create-token-dialog.tsx
 msgid "Expires after"
 msgstr "有效期"
+
+#: src/features/jobs/job.tsx
+msgid "Extension call"
+msgstr "扩展调用"
 
 #: src/app/shell/nav.ts
 #: src/features/sessions/extensions-dialog.tsx
@@ -2327,6 +2352,7 @@ msgid "finished"
 msgstr "完成"
 
 #: src/components/status-badge.tsx
+#: src/features/jobs/job.tsx
 msgid "Finished"
 msgstr "已结束"
 
@@ -2794,7 +2820,7 @@ msgid "Listed directly"
 msgstr "直接列出"
 
 #: src/components/data-table.tsx
-#: src/features/sessions/children-bar.tsx
+#: src/features/sessions/background-bar.tsx
 msgid "Load more"
 msgstr "加载更多"
 
@@ -3212,6 +3238,10 @@ msgstr "尚无授权签名密钥。添加一个之前，crhs 无法签署授权�
 msgid "No authorizations yet"
 msgstr "还没有授权"
 
+#: src/features/sessions/background-bar.tsx
+msgid "No background jobs"
+msgstr "没有后台任务"
+
 #: src/features/sessions/composer-footer.tsx
 msgid "No budget limit"
 msgstr "没有预算限制"
@@ -3353,10 +3383,6 @@ msgstr "还没有 SSH 凭据"
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "No SSH credentials yet. <0>Create one on the SSH credentials page.</0>"
 msgstr "还没有 SSH 凭据。<0>在 SSH 凭据页面创建一个。</0>"
-
-#: src/features/sessions/children-bar.tsx
-msgid "No subagents"
-msgstr "没有子代理"
 
 #: src/features/node-groups/pages.tsx
 msgid "No such node group"
@@ -4406,6 +4432,10 @@ msgstr "可复用"
 msgid "Review"
 msgstr "查看"
 
+#: src/features/sessions/tool-dialog.tsx
+msgid "Review and approve"
+msgstr "审阅并批准"
+
 #: src/features/tokens/pages.tsx
 msgid "Revoke"
 msgstr "吊销"
@@ -4534,6 +4564,7 @@ msgid "running"
 msgstr "运行中"
 
 #: src/components/status-badge.tsx
+#: src/features/jobs/job.tsx
 #: src/features/sessions/session-list-item.tsx
 #: src/features/sessions/tool-card.tsx
 msgid "Running"
@@ -5105,10 +5136,15 @@ msgstr "标准输入（可选）"
 msgid "Steps"
 msgstr "步骤"
 
+#: src/features/sessions/background-bar.tsx
 #: src/features/sessions/composer-footer.tsx
 #: src/features/sessions/quota-panel.tsx
 msgid "Stop"
 msgstr "停止"
+
+#: src/features/sessions/background-bar.tsx
+msgid "Stop background job"
+msgstr "停止后台任务"
 
 #: src/features/nodes/reenroll-node-dialog.tsx
 msgid "Stop crha, run this on the node as root, then start it again:"
@@ -5135,6 +5171,10 @@ msgstr "被下一次运行停止"
 msgid "Stored headers: {0}"
 msgstr "已存储的请求头：{0}"
 
+#: src/features/jobs/job.tsx
+msgid "Subagent"
+msgstr "子代理"
+
 #: src/features/sessions/tool-dialog.tsx
 msgid "Subagent session"
 msgstr "子会话"
@@ -5143,10 +5183,6 @@ msgstr "子会话"
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Subagent: {0}"
 msgstr "子会话：{0}"
-
-#: src/features/sessions/children-bar.tsx
-msgid "Subagents"
-msgstr "子会话"
 
 #: src/components/decision/signature-panel.tsx
 #: src/features/authorizations/issue-dialog.tsx
@@ -5207,6 +5243,7 @@ msgid "Target type"
 msgstr "目标类型"
 
 #: src/components/task-facts.tsx
+#: src/features/jobs/job.tsx
 #: src/features/tasks/task-columns.tsx
 msgid "Task"
 msgstr "任务"
@@ -5218,6 +5255,7 @@ msgid "Task details"
 msgstr "任务详情"
 
 #: src/components/task-facts.tsx
+#: src/features/jobs/job.tsx
 #: src/features/tasks/task-group-page.tsx
 #: src/features/tasks/task-page.tsx
 msgid "Task group"
@@ -5266,6 +5304,14 @@ msgstr "文本"
 #: src/features/sessions/quota-panel.tsx
 msgid "That number is too large."
 msgstr "这个数字太大了。"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "the agent was woken"
+msgstr "代理已被唤醒"
+
+#: src/features/sessions/transcript-row.tsx
+msgid "The agent was woken"
+msgstr "代理已被唤醒"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "The Ask rule preset can often pause the schedule while it waits for your confirmation."
@@ -6079,14 +6125,24 @@ msgstr "查看全部任务"
 msgid "View tools of {0}"
 msgstr "查看 {0} 的工具"
 
+#: src/features/jobs/job.tsx
+msgid "Waiting"
+msgstr "等待中"
+
+#: src/features/jobs/job.tsx
+msgid "Waiting for a decision"
+msgstr "等待决定"
+
 #: src/features/sessions/session-item.ts
 msgid "Waiting for a quota decision"
 msgstr "等待配额决定"
 
+#: src/features/jobs/job.tsx
 #: src/features/sessions/session-item.ts
 msgid "Waiting for a signature"
 msgstr "等待签名"
 
+#: src/features/jobs/job.tsx
 #: src/features/sessions/session-item.ts
 msgid "Waiting for approval"
 msgstr "等待审批"
@@ -6094,6 +6150,10 @@ msgstr "等待审批"
 #: src/components/task-facts.tsx
 msgid "Waiting for approval. {approvalLink}"
 msgstr "等待审批。{approvalLink}"
+
+#: src/features/jobs/job.tsx
+msgid "Waiting for quota"
+msgstr "等待配额"
 
 #: src/components/task-facts.tsx
 msgid "Waiting for the owner's authorization."

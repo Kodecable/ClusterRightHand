@@ -9,6 +9,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { McpConnections } from "../src/extensions/connections.ts";
 import { saveExtension } from "../src/extensions/store.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
@@ -56,6 +57,7 @@ beforeAll(async () => {
 	const masterKey = MasterKey.generate();
 	mcp = new McpConnections({ db, masterKey });
 	runtime = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db,
 		storage: new MemoryStorage(),
 		models,

@@ -19,6 +19,8 @@ export interface ChatCard {
 	privileged: boolean;
 	/** The grey info line: the nodes, the quota's session title, and the source without a thread. */
 	meta?: string;
+	/** The job context line, only for an approval that belongs to a job. */
+	job?: string;
 	risk?: ChatCardRisk;
 	/** Auto Review's reason, after the risk: "🟡 Medium risk · <reason>". */
 	reason?: string;
@@ -59,6 +61,7 @@ function cardLines(
 	const body: { text: string; kind: "title" | "value" | "detail" }[] = [];
 	body.push({ text: card.title, kind: "title" });
 	if (card.meta !== undefined && card.meta !== "") body.push({ text: card.meta, kind: "value" });
+	if (card.job !== undefined && card.job !== "") body.push({ text: card.job, kind: "value" });
 	if (card.risk !== undefined) {
 		const reason = card.reason !== undefined && card.reason !== "" ? ` · ${card.reason}` : "";
 		body.push({ text: `${RISK_EMOJI[card.risk]} ${labels.riskLevel(card.risk)}${reason}`, kind: "value" });

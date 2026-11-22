@@ -608,6 +608,15 @@ export class ChannelManager {
 				console.error("channels: syncing a session's waits failed:", err);
 			});
 		});
+		// A placed completion notice sends its line where the session's text goes: one line per finished job,
+		// without marking the session read (doc/design/jobs.md "Display", doc/design/channels.md "Notifications").
+		if (typeof this.#options.runtime.onJobNotices === "function") {
+			this.#options.runtime.onJobNotices((sessionId, notices) => {
+				void this.#sendJobNotices(sessionId, notices).catch((err: unknown) => {
+					console.error("channels: sending a completion notice failed:", err);
+				});
+			});
+		}
 		// Approvals without a session (an API token's or a user's direct task) have no session state to follow,
 		// so the runtime and the external-call rows report their changes here.
 		this.#options.runtime.onApprovalChanged((actorId) => {
@@ -634,6 +643,7 @@ export class ChannelManager {
 		if (this.#stopped) return;
 		this.#stopped = true;
 		this.#options.runtime.onSessionStateChanged(undefined);
+		if (typeof this.#options.runtime.onJobNotices === "function") this.#options.runtime.onJobNotices(undefined);
 		this.#options.runtime.onApprovalChanged(undefined);
 		this.#unsubscribeExternalCalls?.();
 		this.#unsubscribeExternalCalls = undefined;
@@ -2826,6 +2836,17 @@ export class ChannelManager {
 	/** Releases every watch whose session no thread references any more, after a channel's threads went away. */
 	async #releaseUnusedWatchers(): Promise<void> {
 		for (const sessionId of [...this.#watchers.keys()]) await this.#releaseWatcherIfUnused(sessionId);
+	}
+
+	/**
+	 * Sends one completion-notice line per finished job where the session's text goes, rendered from the
+	 * server-built `JobNotice` (doc/design/jobs.md "Display"). It uses the ordinary text route, so a scheduled
+	 * run's session sends nothing, and it never marks the session read.
+	 */
+	async #sendJobNotices(sessionId: string, notices: readonly import("@crh/api").JobNotice[]): Promise<void> {
+		for (const notice of notices) {
+			await this.#send(sessionId, (m) => m.jobNotice(notice));
+		}
 	}
 
 	/** Sends the assistant's text pieces and delivered-file links where the session's notifications go. */

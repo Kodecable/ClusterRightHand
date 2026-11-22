@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { createLibraryBackend, getBytes, type LibraryBackend } from "../src/library/backend.ts";
 import { beginLibraryUpload, deleteLibraryFile, listLibraryDirectory, moveLibraryFile } from "../src/library/files.ts";
 import { findUserLibrary } from "../src/library/library.ts";
@@ -207,6 +208,7 @@ describe("library directories, reads and skills", () => {
 			actor: { type: "api_token", id: tokenId, onBehalfOfUserId: ownerUserId },
 			chain: [ref],
 			approvalUrl: () => "http://crh.test/approval",
+			callRunner: new CallRunner(),
 		} as ToolContext;
 	});
 

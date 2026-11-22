@@ -1,7 +1,6 @@
 import type {
 	ChatAttachmentInput,
 	CursorPage,
-	SessionChildrenSummary,
 	SessionExtensionsResponse,
 	SessionListItem,
 	SessionListScope,
@@ -35,8 +34,6 @@ export const sessionKeys = {
 		["sessions", "list", { scope, ownerId, ...(limit === undefined ? {} : { limit }) }] as const,
 	search: (scope: string, q: string) => ["sessions", "search", { scope, q }] as const,
 	detail: (id: string) => ["sessions", "detail", id] as const,
-	children: (id: string) => ["sessions", "children", id] as const,
-	childrenSummary: (id: string) => ["sessions", "children-summary", id] as const,
 	entries: (id: string, before: string) => ["sessions", "entries", id, before] as const,
 	shares: (id: string) => ["sessions", "shares", id] as const,
 	/** The draft's list: the extensions a new session of the caller reaches, all on. */
@@ -178,73 +175,6 @@ export function useSessionRootId(session: SessionView | undefined): string | und
 	if (session === undefined) return undefined;
 	if (parentSessionId === null) return session.id;
 	return last !== undefined && lastParentId === null ? last.id : undefined;
-}
-
-/**
- * A session's direct child sessions (`GET /sessions/:id/children`), newest
- * first, one cursor page at a time. The list is refetched on the three events
- * the contract names: the session's `snapshot` (`revision`), a `subagent` tool
- * update or end (`revision` too, see `useSessionEvents`) and the tree root's
- * `upsert` on the session list stream (`rootId`).
- */
-export function useSessionChildren(id: string | undefined, rootId: string | undefined, revision: number) {
-	const queryClient = useQueryClient();
-	const children = useCursorInfiniteQuery<SessionListItem>({
-		queryKey: sessionKeys.children(id ?? ""),
-		enabled: id !== undefined && id !== "",
-		fetchPage: (cursor, signal) =>
-			http.get<CursorPage<SessionListItem>>(`/sessions/${enc(id ?? "")}/children${queryString({ cursor })}`, {
-				signal,
-			}),
-	});
-
-	useEffect(() => {
-		if (id === undefined || id === "" || rootId === undefined || revision === 0) return;
-		void queryClient.invalidateQueries({ queryKey: sessionKeys.children(id) });
-		void queryClient.invalidateQueries({ queryKey: sessionKeys.childrenSummary(id) });
-	}, [id, rootId, revision, queryClient]);
-
-	useEffect(() => {
-		if (id === undefined || id === "" || rootId === undefined) return;
-		return subscribeSessionListUpserts((item) => {
-			if (item.id !== rootId) return;
-			void queryClient.invalidateQueries({ queryKey: sessionKeys.children(id) });
-			void queryClient.invalidateQueries({ queryKey: sessionKeys.childrenSummary(id) });
-		});
-	}, [id, rootId, queryClient]);
-
-	return children;
-}
-
-/** The page's children query, as the children bar receives it. */
-export type SessionChildrenQuery = ReturnType<typeof useSessionChildren>;
-
-/**
- * The direct child counts of the children bar (`GET /sessions/:id/children/summary`): the
- * compact line needs the number per state without loading every page. Refetched by
- * `useSessionChildren`, whose three events are the same ones this count follows.
- */
-export function useSessionChildrenSummary(id: string | undefined) {
-	return useQuery({
-		queryKey: sessionKeys.childrenSummary(id ?? ""),
-		enabled: id !== undefined && id !== "",
-		queryFn: ({ signal }) =>
-			http.get<SessionChildrenSummary>(`/sessions/${enc(id ?? "")}/children/summary`, { signal }),
-	});
-}
-
-/**
- * One level of the subagent tree inside the children bar: the session's direct children, one
- * cursor page at a time. A nested level only queries once it is expanded, so the tree stays
- * lazy; the first level shares the page's `useSessionChildren` cache.
- */
-export function useSessionTreeChildren(id: string, enabled: boolean) {
-	return useCursorInfiniteQuery<SessionListItem>({
-		queryKey: sessionKeys.children(id),
-		enabled,
-		fetchPage: (cursor, signal) =>
-			http.get<CursorPage<SessionListItem>>(`/sessions/${enc(id)}/children${queryString({ cursor })}`, { signal }),
-	});
 }
 
 /**

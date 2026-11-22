@@ -186,6 +186,19 @@ token measures and statistics ([Sessions](agent-runtime.md#sessions),
   every session that is not a fork. They carry no foreign key, so deleting a source leaves its forks
   intact and their origin reads as absent ([Forking](agent-runtime.md#forking)).
 
+`jobs` is the model's handle on work one tool call started: one row per `exec` task or task group, external
+call or subagent run ([Jobs](jobs.md)). Its id is derived from the durable tool call key (a fresh random
+key for an MCP request), and `call_key` is unique; `org_id`, `actor_type`, `actor_id` and
+`on_behalf_of_user_id` are the actor columns a task has, and `session_id` is the session whose tool call
+started it (null for an MCP client, and the row goes with the session). `kind` and
+`resource_type`/`resource_id` name the record behind it, `action` is the same JSON `TaskAction` an
+approval carries, and `state`/`outcome`/`wait` are a projection recomputed by that kind's adapter and
+serialized per job; `settled_at` is set once. `result` keeps a `call` job's rendered result while the job
+is kept, and `notice` tracks its completion notice ([Job model](jobs.md#job-model)).
+`sessions.notice_wakes` counts the completion-notice wakes since the session's last user-authored input,
+so `jobs.max_consecutive_wakes` bounds a self-exciting chain across a restart
+([Completion notices](jobs.md#completion-notices)).
+
 Model providers store their configuration and a reference to the encrypted API key. Model presets are one
 row per kind.
 
@@ -269,6 +282,10 @@ startup and then hourly, in small batches, and each table is swept independently
   wiping the log, and keeps SQLite from reusing sequence numbers.
 - Retention cannot be shorter than one day, because a tool call that reruns after a crash finds its task
   by id; deleting the task first would run the command again.
+- A settled job is deleted by the task retention setting, but never sooner than one day after
+  `settled_at`; an unsettled job is never deleted. The job may outlive the record behind it, so a job
+  whose record is already gone renders its stored action and outcome with "the job's details are no
+  longer kept" instead of failing ([Completion notices](jobs.md#completion-notices)).
 
 Deleting finished durable tool tasks is the only operation outside pi-durable's storage contract,
 because pi-durable has no deletion API. It relies on invariants of pi-durable that must be rechecked on

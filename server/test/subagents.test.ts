@@ -9,6 +9,7 @@ import { AgentRuntime } from "../src/agent/runtime.ts";
 import type { RuntimeHost } from "../src/agent/runtime-core.ts";
 import { HandlerWakes } from "../src/agent/runtime-host/handler-wakes.ts";
 import { Inboxes } from "../src/agent/runtime-host/inboxes.ts";
+import { NoticeActivity } from "../src/agent/runtime-host/notice-activity.ts";
 import { QuotaWaits } from "../src/agent/runtime-host/quota-waits.ts";
 import { SessionCaches } from "../src/agent/runtime-host/session-caches.ts";
 import { SessionFlags } from "../src/agent/runtime-host/session-flags.ts";
@@ -18,6 +19,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { sessionDescendants } from "../src/sessions/session-chain.ts";
 import type { Db } from "../src/storage/db.ts";
@@ -58,6 +60,7 @@ beforeAll(async () => {
 	await models.reload();
 	groups = new TaskGroups(db, cluster, { audit });
 	runtime = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db: probe.db,
 		storage,
 		models,
@@ -240,6 +243,7 @@ it("caches the conversation-to-session lookup and forgets it with the other cach
 		sessionCaches: new SessionCaches(),
 		inboxes: new Inboxes(),
 		wakes: new HandlerWakes(),
+		noticeActivity: new NoticeActivity(),
 		sessionFlags: new SessionFlags(),
 		quotaWaits: new QuotaWaits(),
 		generationTimings: new GenerationTimings(),
@@ -248,7 +252,10 @@ it("caches the conversation-to-session lookup and forgets it with the other cach
 	host.sessionCaches.rememberProviderSession(row.conversation_id, "provider-session", session.id);
 	host.sessionCaches.rememberSubagentParent(session.id);
 	host.inboxes.inbox(session.id);
-	host.wakes.queue(session.id, "agent-request:task:t1", "a request is waiting");
+	host.wakes.queue(session.id, "agent-request:task:t1", {
+		content: "a request is waiting",
+		data: { type: "agent_request", kind: "task", requestId: "t1" },
+	});
 	host.wakes.watch(session.id);
 	host.sessionFlags.beginTitle(session.id);
 	let woken = 0;
@@ -369,9 +376,10 @@ it("hands a grandchild's approval to the parent agent and wakes it", async () =>
 	const parent = await subagent(root.id, "route-parent", { default: "inherit", rules: [] });
 	const child = await subagent(parent.id, "route-child", { default: "require-approval", rules: [] });
 
-	const wake: string[] = [];
+	const wake: { kind: string; data?: unknown }[] = [];
 	const stop = await runtime.watch(parent.id, (events) => {
-		for (const event of events) if (event.type === "message_end") wake.push(JSON.stringify(event.entry));
+		for (const event of events)
+			if (event.type === "message_end") wake.push(event.entry as { kind: string; data?: unknown });
 	});
 	try {
 		faux.setResponses([fauxAssistantMessage([fauxText("noted")])]);
@@ -382,10 +390,13 @@ it("hands a grandchild's approval to the parent agent and wakes it", async () =>
 		);
 		expect(request).toMatchObject({ kind: "task", sessionId: child.id });
 		expect((await approvalOf(task.id))?.agent).toEqual({ session: parent.id, state: "pending" });
-		// The idle parent was woken with a follow-up input naming the request.
-		await waitFor("the parent's wake input", async () =>
-			wake.some((entry) => entry.includes(task.id) && entry.includes("subagent request")) ? true : undefined,
+		// The idle parent was woken with a `crh.notice` input naming the request, not a user message.
+		const entry = await waitFor("the parent's wake input", async () =>
+			wake.find((candidate) => JSON.stringify(candidate).includes(task.id) && candidate.kind === "crh.notice"),
 		);
+		expect(JSON.stringify(entry)).toContain("subagent request");
+		expect(entry.kind).toBe("crh.notice");
+		expect(entry.data).toEqual({ type: "agent_request", kind: "task", requestId: task.id });
 
 		expect(await runtime.decideAgentRequest(parent.id, task.id, "approve", "looks fine")).toBe("task");
 		const approval = await approvalOf(task.id);

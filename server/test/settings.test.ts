@@ -83,6 +83,7 @@ describe("system settings storage", () => {
 			},
 			directoryCopy: { files: 256, bytes: 256 * 1024 * 1024 },
 			skills: { maxPerUser: 64 },
+			jobs: { maxConsecutiveWakes: 10, maxRunning: 32 },
 		});
 	});
 });
@@ -153,6 +154,7 @@ describe("settings API", () => {
 				user: { files: 5, fileBytes: 6, totalBytes: 7 },
 				userGroup: { files: 1, fileBytes: 2, totalBytes: 3 },
 			},
+			jobs: { maxConsecutiveWakes: 3, maxRunning: 9 },
 		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { settings: SystemSettings };
@@ -168,6 +170,7 @@ describe("settings API", () => {
 				user: { files: 5, fileBytes: 6, totalBytes: 7 },
 				userGroup: { files: 1, fileBytes: 2, totalBytes: 3 },
 			},
+			jobs: { maxConsecutiveWakes: 3, maxRunning: 9 },
 		});
 		// The live object the consumers read is replaced at once.
 		expect(store.current().publicUrl).toBe("https://crh.example.com");
@@ -178,6 +181,7 @@ describe("settings API", () => {
 		expect(store.current().realIpHeader).toBe("X-Real-IP");
 		expect(store.current().library.user).toEqual({ files: 5, fileBytes: 6, totalBytes: 7 });
 		expect(store.current().library.userGroup).toEqual({ files: 1, fileBytes: 2, totalBytes: 3 });
+		expect(store.current().jobs).toEqual({ maxConsecutiveWakes: 3, maxRunning: 9 });
 	});
 
 	it("rejects bad values with a per-field message and writes nothing", async () => {
@@ -197,6 +201,8 @@ describe("settings API", () => {
 			[{ auth: { argon2Queue: -1 } }, "auth.argon2Queue"],
 			[{ realIpHeader: "X Forwarded For" }, "realIpHeader"],
 			[{ library: { user: { files: -1 } } }, "library.user.files"],
+			[{ jobs: { maxRunning: -1 } }, "jobs.maxRunning"],
+			[{ jobs: { nope: 1 } }, "jobs.nope"],
 			[{ library: { userGroup: { nope: 1 } } }, "library.userGroup.nope"],
 			[{ nope: 1 }, "nope"],
 			[{ retention: "30d" }, "retention"],

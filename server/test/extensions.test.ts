@@ -2,14 +2,17 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RulePreset } from "@crh/api";
-import { Client } from "@modelcontextprotocol/client";
+import { Client, SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as z from "zod/v4";
 import { directToolsExtension, sessionExtensionViews } from "../src/agent/extension.ts";
 import type { AgentRuntimeOptions } from "../src/agent/runtime.ts";
+import type { RuntimeHost } from "../src/agent/runtime-core.ts";
+import { endSessionWork } from "../src/agent/runtime-state.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { McpConnections } from "../src/extensions/connections.ts";
 import {
 	cancelWaitingExternalCall,
@@ -42,6 +45,7 @@ import {
 	revisedTools,
 	saveExtension,
 } from "../src/extensions/store.ts";
+import { createJobs } from "../src/jobs/jobs.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { ImageCache } from "../src/library/image-cache.ts";
 import { createRootRuleSet } from "../src/policy/store.ts";
@@ -50,6 +54,7 @@ import { defaultOrgId } from "../src/storage/org.ts";
 import type { ToolContext } from "../src/tools/catalog.ts";
 import { runExtensionTool, TOOLS } from "../src/tools/catalog.ts";
 import { convertExternalResult } from "../src/tools/external-results.ts";
+import { execJobRenderers } from "../src/tools/job-renderers.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { openTestDb } from "./helpers/db.ts";
@@ -97,6 +102,12 @@ interface FakeState {
 	failCalls: boolean;
 	/** Fetches that reached the fake endpoint, one per connection attempt plus its requests. */
 	requests: number;
+	/** Requests whose per-request stream was aborted, i.e. MCP cancellations on a modern connection. */
+	aborted: number;
+	/** Cancellation notifications (`notifications/cancelled`) posted by the client on an older connection. */
+	cancellations: number;
+	/** How long `sleepy_thing` takes. */
+	sleepMs: number;
 	/** What the server reports about itself at initialization. */
 	instructions?: string;
 	serverDescription?: string;
@@ -177,6 +188,24 @@ function fakeMcp(state: FakeState) {
 			},
 		);
 		server.registerTool(
+			"sleepy_thing",
+			{ description: "Answer after a while", inputSchema: z.object({}), annotations: { readOnlyHint: true } },
+			async () => {
+				state.calls.push({ tool: "sleepy_thing", arguments: {} });
+				await new Promise((resolve) => setTimeout(resolve, state.sleepMs));
+				return { content: [{ type: "text", text: "slept" }] };
+			},
+		);
+		server.registerTool(
+			"delayed_thing",
+			{ description: "Answer after a short delay", inputSchema: z.object({}), annotations: { readOnlyHint: true } },
+			async () => {
+				state.calls.push({ tool: "delayed_thing", arguments: {} });
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				return { content: [{ type: "text", text: "delayed" }] };
+			},
+		);
+		server.registerTool(
 			"nodeGroupLookup",
 			{
 				description: "Find one node group by name",
@@ -197,6 +226,14 @@ function fakeFetch(state: FakeState, handler: ReturnType<typeof fakeMcp>) {
 		const url = input instanceof Request ? input.url : String(input);
 		if (!url.startsWith("http://mcp.test")) return fetch(input, init);
 		state.requests += 1;
+		// A request is cancelled either by aborting its per-request stream (a modern connection) or by
+		// posting notifications/cancelled (an older one); both are the MCP cancellation the call sends.
+		init?.signal?.addEventListener("abort", () => {
+			state.aborted += 1;
+		});
+		if (typeof init?.body === "string" && init.body.includes("notifications/cancelled")) {
+			state.cancellations += 1;
+		}
 		if (state.failConnections) throw new Error(state.failureMessage ?? "connection refused");
 		// A server that accepts the request but never answers: only the connect timeout ends the attempt.
 		if (state.hangConnections) return await new Promise<Response>(() => {});
@@ -224,6 +261,8 @@ describe("MCP extensions", () => {
 	let state: FakeState;
 	let mcp: McpConnections;
 	let imageDir: string;
+	/** Each test's own runner: no module singleton outlives the test that started a call. */
+	let runner: CallRunner;
 
 	beforeEach(async () => {
 		db = await openTestDb("sqlite");
@@ -269,12 +308,18 @@ describe("MCP extensions", () => {
 			hangConnections: false,
 			failCalls: false,
 			requests: 0,
+			aborted: 0,
+			cancellations: 0,
+			sleepMs: 70_000,
 		};
 		mcp = new McpConnections({ db, masterKey, fetch: fakeFetch(state, fakeMcp(state)) });
+		runner = new CallRunner();
 		imageDir = await mkdtemp(join(tmpdir(), "crh-ext-"));
 	});
 
 	afterEach(async () => {
+		// A test may leave a call in flight; shutdown writes its row before the database goes.
+		await runner.shutdown();
 		await mcp.close();
 		await db.destroy();
 		await rm(imageDir, { recursive: true, force: true });
@@ -318,6 +363,7 @@ describe("MCP extensions", () => {
 			rootSessionId: sessionId,
 			extensions: entries,
 			audit,
+			callRunner: runner,
 		};
 	}
 
@@ -417,6 +463,392 @@ describe("MCP extensions", () => {
 		const row = await db.selectFrom("external_calls").selectAll().executeTakeFirst();
 		expect(row?.state).toBe("succeeded");
 		expect(state.calls).toEqual([{ tool: "echo", arguments: { message: "hi" } }]);
+	});
+
+	it("creates a call job whose stored result job_wait returns", async () => {
+		await addServer();
+		const jobs = createJobs({
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			execRenderers: execJobRenderers,
+			callRunner: runner,
+		});
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			jobs,
+		};
+		const result = await runExtensionTool({ ...ctx, callKey: "job-call" }, "fake", "echo", { message: "hello" });
+		const row = await db.selectFrom("jobs").selectAll().where("call_key", "=", "job-call").executeTakeFirstOrThrow();
+		expect(row).toMatchObject({
+			kind: "call",
+			resource_type: "external_call",
+			resource_id: externalCallId("job-call"),
+			state: "settled",
+		});
+		expect(JSON.parse(row.action)).toEqual({ type: "extension_tool", extension: "fake", tool: "echo" });
+		expect(row.result).not.toBeNull();
+
+		const wait = TOOLS.find((tool) => tool.name === "job_wait");
+		if (!wait) throw new Error("job_wait tool missing");
+		const waited = (await wait.handler({ job_id: row.id, wait: 0 } as never, ctx)) as {
+			content: { type: string; text: string }[];
+			isError: boolean;
+		};
+		expect(waited.content.map((block) => block.text)).toEqual(result.content.map((block) => block.text));
+		expect(waited.isError).toBe(result.isError);
+	});
+
+	/** A job of a call, once the runner has projected it. */
+	async function callJob(callKey: string) {
+		return db.selectFrom("jobs").selectAll().where("call_key", "=", callKey).executeTakeFirst();
+	}
+
+	async function settledCallJob(callKey: string) {
+		return waitFor(async () => {
+			const row = await callJob(callKey);
+			return row?.state === "settled" ? row : undefined;
+		});
+	}
+
+	async function jobWait(ctx: ToolContext, jobId: string, wait = 0) {
+		const tool = TOOLS.find((candidate) => candidate.name === "job_wait");
+		if (!tool) throw new Error("job_wait tool missing");
+		return tool.handler({ job_id: jobId, wait } as never, ctx);
+	}
+
+	function textOf(result: { content: { text: string }[] }): string {
+		return result.content.map((block) => block.text).join("\n");
+	}
+
+	it("gives a directly listed tool crhs's wait and strips it from its arguments", async () => {
+		await addServer({ preset: "yolo" });
+		const tools: ExtensionTool[] = [
+			{
+				name: "echo",
+				title: null,
+				description: null,
+				inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+				annotations: { readOnlyHint: true },
+			},
+		];
+		const options = {
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			mcp,
+			models: { getModel: () => undefined },
+			callRunner: runner,
+		} as unknown as AgentRuntimeOptions;
+		const extension = directToolsExtension(options, {}, "fake", tools);
+		const registration = extension.tools?.find((candidate) => candidate.name === "ext__fake__echo");
+		expect(registration?.parameters).toMatchObject({
+			properties: { wait: { type: "integer", minimum: 0, maximum: 600 } },
+		});
+		const result = await registration?.execute(
+			{ message: "hi", wait: 0 } as never,
+			{
+				taskId: "direct-call",
+				callId: "call_0",
+				conversationId: { toString: () => `c-${sessionId}` },
+				details: async () => {},
+			} as never,
+			{} as never,
+		);
+		expect((result?.output ?? []).map((block) => ("text" in block ? block.text : "")).join("\n")).toContain(
+			"still running",
+		);
+		// The wait is crhs's: the extension receives only its own arguments.
+		expect(state.calls).toEqual([{ tool: "echo", arguments: { message: "hi" } }]);
+		await waitFor(async () =>
+			(await getExternalCall(db, externalCallId("direct-call")))?.state === "succeeded" ? true : undefined,
+		);
+	});
+
+	it("returns the job id with wait: 0, and job_wait returns the same text a foreground call returns", async () => {
+		await addServer({ preset: "yolo" });
+		const jobs = createJobs({
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			execRenderers: execJobRenderers,
+			callRunner: runner,
+		});
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			jobs,
+		};
+		const background = await runExtensionTool(
+			{ ...ctx, callKey: "background-call" },
+			"fake",
+			"echo",
+			{
+				message: "hello",
+			},
+			0,
+		);
+		const job = await callJob("background-call");
+		expect(job).toMatchObject({ kind: "call" });
+		expect(background.details).toMatchObject({ external_call_id: externalCallId("background-call") });
+		expect(textOf(background)).toContain(`job ${job?.id}`);
+		expect(textOf(background)).toContain("job_wait");
+
+		const settled = await settledCallJob("background-call");
+		const waited = await jobWait(ctx, settled.id);
+		const foreground = await runExtensionTool({ ...ctx, callKey: "foreground-call" }, "fake", "echo", {
+			message: "hello",
+		});
+		expect(waited.content.map((block) => block.text)).toEqual(foreground.content.map((block) => block.text));
+		expect(waited.details).toMatchObject({ job_id: settled.id, external_call_id: externalCallId("background-call") });
+	});
+
+	it("returns the approval link and job id while a call waits, and job_wait returns it after approval", async () => {
+		await addServer({ preset: "ask" });
+		const jobs = createJobs({
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			execRenderers: execJobRenderers,
+			callRunner: runner,
+		});
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			externalCallUrl: (id: string) => `/approvals/external-calls/${id}`,
+			jobs,
+		};
+		const waiting = await runExtensionTool(
+			{ ...ctx, callKey: "approval-call" },
+			"fake",
+			"write_thing",
+			{
+				value: 3,
+			},
+			0,
+		);
+		const row = await waitFor(async () => {
+			const found = await getExternalCall(db, externalCallId("approval-call"));
+			return found?.state === "awaiting_approval" ? found : undefined;
+		});
+		const job = await callJob("approval-call");
+		expect(textOf(waiting)).toContain(`waiting for approval: /approvals/external-calls/${row.id}`);
+		expect(textOf(waiting)).toContain(`job ${job?.id}`);
+
+		await decideExternalCall(db, row.id, {
+			decision: "approved",
+			by: { type: "user", id: user.userId },
+			at: new Date().toISOString(),
+		});
+		const settled = await settledCallJob("approval-call");
+		const waited = await jobWait(ctx, settled.id);
+		expect(textOf(waited)).toContain("wrote 3");
+		expect(textOf(waited)).not.toContain("waiting for approval");
+	});
+
+	it("cancels a running call through the runner: an MCP cancellation, then unknown", async () => {
+		await addServer({ preset: "yolo" });
+		state.hangTools = true;
+		const jobs = createJobs({
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			execRenderers: execJobRenderers,
+			callRunner: runner,
+		});
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			jobs,
+		};
+		await runExtensionTool({ ...ctx, callKey: "cancel-call" }, "fake", "slow_thing", {}, 0);
+		await waitFor(async () => (state.calls.some((call) => call.tool === "slow_thing") ? true : undefined));
+		const job = await callJob("cancel-call");
+		const cancel = TOOLS.find((candidate) => candidate.name === "job_cancel");
+		if (!cancel) throw new Error("job_cancel tool missing");
+		const result = await cancel.handler({ job_id: job?.id } as never, ctx);
+		expect(JSON.parse(result.content[0]?.text ?? "{}")).toMatchObject({
+			state: "settled",
+			cancel_sent: true,
+			outcome: { kind: "unknown" },
+		});
+		expect(await getExternalCall(db, externalCallId("cancel-call"))).toMatchObject({ state: "unknown" });
+		// The MCP cancellation is the abort of the request's stream on this transport.
+		expect(state.aborted + state.cancellations).toBeGreaterThan(0);
+		expect(textOf(await jobWait(ctx, job?.id ?? ""))).toContain("unknown");
+	});
+
+	it("lets a tool invocation's abort only stop waiting, not the call", async () => {
+		await addServer({ preset: "yolo" });
+		state.hangTools = true;
+		const jobs = createJobs({
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			execRenderers: execJobRenderers,
+			callRunner: runner,
+		});
+		const controller = new AbortController();
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			jobs,
+		};
+		const pending = runExtensionTool(
+			{ ...ctx, callKey: "invocation-abort", signal: controller.signal },
+			"fake",
+			"slow_thing",
+			{},
+			600,
+		);
+		await waitFor(async () => (state.calls.some((call) => call.tool === "slow_thing") ? true : undefined));
+		controller.abort();
+		const result = await pending;
+		const job = await callJob("invocation-abort");
+		expect(textOf(result)).toContain("still running");
+		expect(textOf(result)).toContain(`job ${job?.id}`);
+		expect(await getExternalCall(db, externalCallId("invocation-abort"))).toMatchObject({ state: "running" });
+		await runner.cancel(externalCallId("invocation-abort"), "test cleanup");
+	});
+
+	it("finds the in-flight call on a replay instead of starting another", async () => {
+		await addServer({ preset: "yolo" });
+		const jobs = createJobs({
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			execRenderers: execJobRenderers,
+			callRunner: runner,
+		});
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			jobs,
+		};
+		const first = runExtensionTool({ ...ctx, callKey: "replay-call" }, "fake", "delayed_thing", {}, 0);
+		await waitFor(async () => (state.calls.some((call) => call.tool === "delayed_thing") ? true : undefined));
+		const replay = await runExtensionTool({ ...ctx, callKey: "replay-call" }, "fake", "delayed_thing", {}, 5);
+		expect(textOf(replay)).toContain("delayed");
+		expect(textOf(await first)).toContain(`job ${(await callJob("replay-call"))?.id}`);
+		expect(state.calls.filter((call) => call.tool === "delayed_thing")).toHaveLength(1);
+		await settledCallJob("replay-call");
+	});
+
+	it("stops a session tree's calls when the session is stopped, but not when its run ends", async () => {
+		await addServer({ preset: "yolo" });
+		state.hangTools = true;
+		const jobs = createJobs({
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			execRenderers: execJobRenderers,
+			callRunner: runner,
+		});
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			jobs,
+		};
+		await runExtensionTool({ ...ctx, callKey: "session-call" }, "fake", "slow_thing", {}, 0);
+		await waitFor(async () => (state.calls.some((call) => call.tool === "slow_thing") ? true : undefined));
+		const host = {
+			db,
+			cluster: { cancelTask: async () => false },
+			taskGroups: { cancel: async () => false },
+			callRunner: runner,
+		} as unknown as RuntimeHost;
+		await endSessionWork(host, [sessionId], "the session's run ended", { includeRunning: false });
+		expect(await getExternalCall(db, externalCallId("session-call"))).toMatchObject({ state: "running" });
+		await endSessionWork(host, [sessionId], "the session was stopped", { includeRunning: true });
+		expect(await getExternalCall(db, externalCallId("session-call"))).toMatchObject({ state: "unknown" });
+		expect(state.aborted + state.cancellations).toBeGreaterThan(0);
+	});
+
+	it("keeps a call alive past the SDK's 60-second default when the extension allows it", async () => {
+		vi.useFakeTimers();
+		try {
+			await saveExtension(
+				db,
+				masterKey,
+				"fake",
+				{
+					url: "http://mcp.test/mcp",
+					timeoutSeconds: 120,
+					grants: [{ granteeType: "user", granteeId: user.userId }],
+				},
+				user.userId,
+			);
+			await createRootRuleSet(db, await defaultOrgId(db), { type: "session", id: sessionId }, "yolo");
+			await mcp.prepareCall("fake");
+			const pending = mcp.callTool("fake", "sleepy_thing", {}, { timeoutMs: 120_000 });
+			await vi.advanceTimersByTimeAsync(70_000);
+			const result = (await pending) as { content: { text: string }[] };
+			expect(result.content.map((block) => block.text)).toEqual(["slept"]);
+			expect(mcp.status("fake").state).toBe("ready");
+			expect(mcp.status("fake").connected).toBe(true);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("reports an SDK request timeout as a timed-out call without marking the extension unavailable", async () => {
+		await addServer();
+		await mcp.prepareCall("fake");
+		const spy = vi
+			.spyOn(Client.prototype, "callTool")
+			.mockRejectedValue(new SdkError(SdkErrorCode.RequestTimeout, "request timed out"));
+		try {
+			const lost = await mcp.callTool("fake", "echo", { message: "x" }, { timeoutMs: 300_000 }).then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+			expect(lost).toBeInstanceOf(ExtensionCallLostError);
+			expect((lost as Error).message).toBe("the call timed out after 300 s");
+			expect(mcp.status("fake").state).toBe("ready");
+			expect(mcp.status("fake").connected).toBe(true);
+		} finally {
+			spy.mockRestore();
+		}
+	});
+
+	it("projects an in-flight call recovered at startup as settled unknown", async () => {
+		await addServer();
+		const jobs = createJobs({
+			db,
+			cluster: {} as never,
+			taskGroups: {} as never,
+			execRenderers: execJobRenderers,
+			callRunner: runner,
+		});
+		const { row } = await createExternalCall(db, {
+			callKey: "restart-call",
+			orgId: await defaultOrgId(db),
+			actorType: "session",
+			actorId: sessionId,
+			onBehalfOfUserId: user.userId,
+			extension: "fake",
+			tool: "echo",
+			arguments: {},
+			operation: { method: "ext.read", target: "fake/echo" },
+			annotations: null,
+			ruleChain: [{ type: "session", id: sessionId }],
+			rootSessionId: sessionId,
+			approval: { evaluation: { result: "allow", levels: [] } },
+			state: "running",
+		});
+		const job = await jobs.ensure({
+			kind: "call",
+			callKey: "restart-call",
+			actor: { type: "session", id: sessionId, onBehalfOfUserId: user.userId },
+			sessionId,
+			resourceType: "external_call",
+			resourceId: row.id,
+			action: { type: "extension_tool", extension: "fake", tool: "echo" },
+		});
+		expect(job.state).not.toBe("settled");
+		await recoverExternalCalls(db);
+		const settled = await jobs.project(job);
+		expect(settled?.state).toBe("settled");
+		expect(JSON.parse(settled?.outcome ?? "null")).toEqual({ kind: "unknown", failed: true });
+		const ctx = {
+			...(await context({ name: "fake", description: "A fake server", enabled: true, available: true })),
+			jobs,
+		};
+		expect(textOf(await jobWait(ctx, job.id))).toContain("unknown");
 	});
 
 	it("finds a tool by a description word and by a camelCase part of its name", async () => {
@@ -680,6 +1112,9 @@ describe("MCP extensions", () => {
 		const extension = directToolsExtension(options, {}, "fake", tools);
 		expect(extension.name).toBe("ext:fake");
 		expect(extension.tools?.map((tool) => tool.name)).toEqual(["ext__fake__echo"]);
+		// The direct tool takes crhs's `wait`, as call_tool does; it is not part of the extension's own schema.
+		const parameters = extension.tools?.[0]?.parameters as { properties?: Record<string, unknown> };
+		expect(parameters.properties?.wait).toMatchObject({ type: "integer", minimum: 0, maximum: 600 });
 	});
 
 	it("records a failed connection without retrying on its own, and lets an administrator reconnect at once", async () => {
@@ -1139,7 +1574,7 @@ describe("MCP extensions", () => {
 					message: "hi",
 				}),
 			).rejects.toThrow("boom");
-			expect(spy).toHaveBeenCalledWith("tools: finishing an extension call failed:", expect.any(Error));
+			expect(spy).toHaveBeenCalledWith("extensions: finishing an extension call failed:", expect.any(Error));
 		} finally {
 			spy.mockRestore();
 		}

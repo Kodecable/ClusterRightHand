@@ -238,6 +238,15 @@ A scheduled run also has its own report, sent to the account its owner chose on 
   used from the WebUI. A shared user's message also records the WebUI as the source, so notifications
   keep following the owner.
 - Notifications follow the session owner. Users a session is shared with are not notified.
+- **Completion notices.** When a `crh.notice` entry whose data is `{ "type": "jobs", … }` is placed in a
+  session, one line per finished job is sent where the session's text goes, rendered from the compact,
+  locale-free `JobNotice` the server builds (job id, kind, action, outcome and whether the wake started a
+  run), as approval cards are rendered from `ApprovalRequest`: `Background job finished: <action> ·
+  <outcome>`, plus ` · the agent was woken` when the entry started a run. The line follows the message
+  rules below: Markdown for Telegram, plain text for Satori. It uses the ordinary text route, so a
+  scheduled run's session sends its notices nowhere, and it never marks the session read. Request wakes
+  (`agent_request`, `quota_request`) are not sent as lines: their approval and quota cards already tell
+  the owner what waits ([Jobs](jobs.md#completion-notices)).
 - A session's event watch is released when no chat thread points at it and it has no run or draft state.
 
 ## Approvals
@@ -257,8 +266,9 @@ including tasks and task groups waiting for a signature; task, task group and ex
 responses carry the item's `request`.
 
 Every card is one structured record rendered natively for its surface: Telegram takes Markdown (bold
-title, escaped values, the detail as one inline code span, hard line breaks), Satori plain text. Its
-lines are, in order:
+title, escaped values, the detail as one inline code span, hard line breaks), Satori plain text. A request
+that belongs to a job adds one `Job: <kind> <id>` line after the meta line, followed by the job's action
+when it differs from the card's detail. Its lines are, in order:
 
 - the title with ` · privileged` when the request is privileged: `Approval needed`, `Signature needed`
   or `Token quota used up`, localized;

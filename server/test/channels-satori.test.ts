@@ -11,6 +11,7 @@ import { ChannelManager } from "../src/channels/manager.ts";
 import { SatoriChannel } from "../src/channels/satori.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend, type LibraryBackend } from "../src/library/backend.ts";
 import { updateLibraryLimits } from "../src/library/files.ts";
@@ -63,7 +64,7 @@ beforeAll(async () => {
 	models.addProvider(titleFaux.provider);
 	await models.reload();
 	const storage = new MemoryStorage();
-	runtime = await AgentRuntime.open({ db, storage, models, cluster, taskGroups, audit });
+	runtime = await AgentRuntime.open({ callRunner: new CallRunner(), db, storage, models, cluster, taskGroups, audit });
 	await runtime.modelPresets.update("title", {
 		model: { provider: titleFaux.provider.id, modelId: titleFaux.getModel().id },
 	});

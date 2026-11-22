@@ -96,8 +96,22 @@ export interface FakeTelegram {
 	 */
 	holdNextSend(): { held: Promise<void>; release: () => void };
 	callsOf(method: string): FakeCall[];
-	/** The most getUpdates requests in flight at once for a token; overlapping adapters would raise it. */
-	maxConcurrentPolls(token?: string): number;
+	/**
+	 * The most getUpdates requests a token had in flight together for at least `minOverlapMs` (100 by default),
+	 * counted on the client side by `fetch`; an orphaned adapter polling beside its replacement raises it for a
+	 * whole long poll. Counted where requests are made, not where they arrive: the server learns that a cancelled
+	 * poll ended only when the socket's close reaches it. A replacement's first poll may also start a fraction of a
+	 * millisecond before the cancelled poll's end is observed; that is a stop-then-start, not two adapters, and the
+	 * minimum overlap keeps it from counting.
+	 */
+	maxConcurrentPolls(token?: string, minOverlapMs?: number): number;
+	/**
+	 * How many getUpdates requests the client started for a token, counted by `fetch` when each is sent. A server-side
+	 * count would also include a request sent before a stop but recorded by the server only after it.
+	 */
+	pollsStarted(token?: string): number;
+	/** The fetch an adapter under test uses, so `maxConcurrentPolls` and `pollsStarted` see its requests. */
+	readonly fetch: typeof fetch;
 	/** Calls that sent a message, as plain text or as a rich message. */
 	sentCalls(): FakeCall[];
 	waitFor(method: string, predicate?: (call: FakeCall) => boolean, timeoutMs?: number): Promise<FakeCall>;
@@ -120,7 +134,8 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 	const calls: FakeCall[] = [];
 	const updates: { update_id: number; [key: string]: unknown }[] = [];
 	const files = new Map<string, FakeFile>();
-	const polls = new Map<string, { active: number; max: number }>();
+	/** Each getUpdates request's client-side interval per token; `end` is unset while it is in flight. */
+	const polls = new Map<string, { start: number; end?: number }[]>();
 	let nextUpdateId = 1;
 	let nextMessageId = 1000;
 	let nextTopicId = 500;
@@ -136,13 +151,57 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 	let apiRoot = "";
 
 	const knownToken = (candidate: string): boolean => candidate === token || extraTokens.has(candidate);
-	const pollState = (botToken: string): { active: number; max: number } => {
-		let state = polls.get(botToken);
-		if (!state) {
-			state = { active: 0, max: 0 };
-			polls.set(botToken, state);
+	const pollIntervals = (botToken: string): { start: number; end?: number }[] => {
+		let intervals = polls.get(botToken);
+		if (!intervals) {
+			intervals = [];
+			polls.set(botToken, intervals);
 		}
-		return state;
+		return intervals;
+	};
+	/** The most requests that overlapped one of them by at least `minOverlapMs`, that request included. */
+	const maxConcurrent = (botToken: string, minOverlapMs: number): number => {
+		const now = performance.now();
+		const intervals = polls.get(botToken) ?? [];
+		let max = 0;
+		for (const one of intervals) {
+			const oneEnd = one.end ?? now;
+			let together = 1;
+			for (const other of intervals) {
+				if (other === one) continue;
+				const overlap = Math.min(oneEnd, other.end ?? now) - Math.max(one.start, other.start);
+				if (overlap >= minOverlapMs) together += 1;
+			}
+			max = Math.max(max, together);
+		}
+		return max;
+	};
+	/**
+	 * Counts a getUpdates request from when the client sends it until the client is done with it: its fetch settles
+	 * or its signal aborts, whichever comes first. A cancelled request is over for the client once it aborts, while
+	 * the rejection of its fetch can arrive some ticks later under load.
+	 */
+	const countingFetch: typeof fetch = async (input, init) => {
+		const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+		const poll = /\/bot([^/]+)\/getUpdates$/.exec(new URL(url).pathname);
+		if (!poll) return fetch(input, init);
+		const interval: { start: number; end?: number } = { start: performance.now() };
+		pollIntervals(decodeURIComponent(poll[1] ?? "")).push(interval);
+		const signal = init?.signal ?? undefined;
+		let ended = false;
+		const end = (): void => {
+			if (ended) return;
+			ended = true;
+			interval.end = performance.now();
+			signal?.removeEventListener("abort", end);
+		};
+		if (signal?.aborted) end();
+		else signal?.addEventListener("abort", end, { once: true });
+		try {
+			return await fetch(input, init);
+		} finally {
+			end();
+		}
 	};
 
 	const sent = (): FakeCall[] =>
@@ -294,42 +353,28 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 			case "getMe":
 				return json(res, { ok: true, result: BOT });
 			case "getUpdates": {
-				const poll = pollState(botToken);
-				poll.active += 1;
-				poll.max = Math.max(poll.max, poll.active);
-				let finished = false;
-				const finish = (): void => {
-					if (finished) return;
-					finished = true;
-					poll.active -= 1;
-				};
-				res.once("close", finish);
-				try {
-					const offset = Number(body.offset ?? 0);
-					const timeout = Number(body.timeout ?? 0);
-					const pick = () => updates.filter((update) => update.update_id >= offset);
-					let available = pick();
-					if (available.length === 0 && timeout > 0) {
-						await new Promise<void>((resolve) => {
-							const done = () => {
-								clearTimeout(timer);
-								resolve();
-							};
-							const timer = setTimeout(done, Math.min(timeout * 1000, 30_000));
-							waiters.add(done);
-						});
-						available = pick();
-					}
-					// A real client cancels a long poll when it stops; the fake server must not consume updates for it.
-					if (res.destroyed || res.socket?.destroyed) return;
-					for (const update of available) {
-						const index = updates.indexOf(update);
-						if (index >= 0) updates.splice(index, 1);
-					}
-					json(res, { ok: true, result: available });
-				} finally {
-					finish();
+				const offset = Number(body.offset ?? 0);
+				const timeout = Number(body.timeout ?? 0);
+				const pick = () => updates.filter((update) => update.update_id >= offset);
+				let available = pick();
+				if (available.length === 0 && timeout > 0) {
+					await new Promise<void>((resolve) => {
+						const done = () => {
+							clearTimeout(timer);
+							resolve();
+						};
+						const timer = setTimeout(done, Math.min(timeout * 1000, 30_000));
+						waiters.add(done);
+					});
+					available = pick();
 				}
+				// A real client cancels a long poll when it stops; the fake server must not consume updates for it.
+				if (res.destroyed || res.socket?.destroyed) return;
+				for (const update of available) {
+					const index = updates.indexOf(update);
+					if (index >= 0) updates.splice(index, 1);
+				}
+				json(res, { ok: true, result: available });
 				return;
 			}
 			case "sendRichMessage": {
@@ -510,7 +555,9 @@ export async function startFakeTelegram(options: FakeTelegramOptions = {}): Prom
 			return { held, release: () => release() };
 		},
 		callsOf: (method) => calls.filter((call) => call.method === method),
-		maxConcurrentPolls: (botToken = token) => polls.get(botToken)?.max ?? 0,
+		maxConcurrentPolls: (botToken = token, minOverlapMs = 100) => maxConcurrent(botToken, minOverlapMs),
+		pollsStarted: (botToken = token) => polls.get(botToken)?.length ?? 0,
+		fetch: countingFetch,
 		sentCalls: sent,
 		waitFor: async (method, predicate = () => true, timeoutMs = 15_000) => {
 			const deadline = Date.now() + timeoutMs;

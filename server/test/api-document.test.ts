@@ -66,6 +66,12 @@ describe("API document", () => {
 		// Approvals and authorizations are decisions and signing material: an agent never makes them.
 		expect(doc.paths?.["/api/approvals"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
 		expect(doc.paths?.["/api/tasks/{id}/approval"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
+		// Jobs: a session's jobs are readable; cancelling is a mutation.
+		expect(doc.paths?.["/api/jobs"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
+		expect(doc.paths?.["/api/jobs/{id}"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("allow");
+		expect(doc.paths?.["/api/jobs/{id}/cancel"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("ask");
+		expect(doc.paths?.["/api/jobs/{id}/decision"]).toBeUndefined();
+		expect(doc.components?.schemas?.JobView).toBeDefined();
 		expect(doc.paths?.["/api/authorizations"]?.post?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		expect(doc.paths?.["/api/tasks/{id}/authorization"]?.get?.[AGENT_ACCESS_EXTENSION]).toBe("deny");
 		// The auth flow and user management are closed to agents.

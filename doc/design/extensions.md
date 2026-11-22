@@ -105,6 +105,11 @@ therefore reached through two fixed tools:
 The session's tool guide lists each available extension with its description, its tool count and
 whether it is unavailable, so the model knows when a search is worth it.
 
+`call_tool`, a directly listed extension tool and `api_request` take `wait`, the seconds to wait for the
+result (600 by default in a session, 30 over MCP): a call that settles in time returns its result, and
+otherwise the tool returns a waiting or still-running note with the job id. `wait` never stops the call;
+the request runs in crhs's runner ([External calls](#external-calls)).
+
 An extension marked "list directly" also contributes its tools to the tool list as
 `ext__<extension>__<tool>`. This is for small extensions used in most sessions. A tool whose combined
 name does not fit the providers' name rules (64 characters of letters, digits, `_` and `-`) stays
@@ -157,10 +162,18 @@ tasks use, plus only the state that must survive while the call is in progress.
 
 - Its id is derived from the tool call, like a task id, so a tool call that runs again after a restart
   finds the call instead of making it again.
-- When it ends, the row keeps only its state and `finished_at` and clears its arguments: it is the
-  "already ran" marker. The result is in the transcript and who decided is in the audit log. A replay
-  after a restart returns "the call finished before a restart; its result could not be kept" instead of
-  calling again. A replay that finds the row still waiting but cannot run it — the extension was deleted,
+- A call runs in a crhs-owned runner, not in the tool invocation that started it
+  ([Background extension calls](jobs.md#background-extension-calls)). `call_tool`, a directly listed
+  `ext__<extension>__<tool>` tool and `api_request` take `wait` (600 seconds by default in a session, 30
+  over MCP, at most 600); a call that settles in time returns exactly what it always returned, otherwise
+  the tool returns a waiting or still-running note with the job id. The invocation ending only stops
+  waiting: the request goes on, and a call that waits for approval starts once it is approved. A
+  replayed tool call finds its in-flight call in the runner and waits on it instead of starting another.
+- When a call ends, the row keeps only its state and `finished_at` and clears its arguments: it is the
+  "already ran" marker. The result is in the transcript, and in the call's job while the job is kept
+  ([Results](#results)). A replay after a restart returns the job's kept result when it has one; without
+  one it returns "the call finished before a restart; its result could not be kept" instead of calling
+  again. A replay that finds the row still waiting but cannot run it — the extension was deleted,
   disabled or is unavailable, the tool is no longer listed, or the rules now deny it — ends it `failed` or
   `rejected`, so it does not stay on the approvals page without a waiter.
 - An approved call re-reads the acting user's available extensions before it runs. A grant revoked, or an
@@ -170,7 +183,15 @@ tasks use, plus only the state that must survive while the call is in progress.
   deleted.
 - A call is not assumed to be idempotent. A call that was in flight when crhs stopped ends `unknown` and
   is never repeated.
-- Aborting the tool call or reaching an MCP extension's timeout sends an MCP cancellation.
+- The request passes the extension's `timeout_ms` (5 minutes by default) to the MCP SDK as the request's
+  `timeout` and `maxTotalTimeout`, with progress notifications resetting the request timer. The SDK's
+  60-second default no longer cuts a call short, and a server that reports progress keeps the request
+  alive up to the extension's limit. The SDK's request timeout is reported as `the call timed out after
+  N s`: the call ends `unknown` and is never repeated, and the extension is not marked unavailable. crhs's
+  own timer is the hard limit.
+- `job_cancel` on a running call, stopping the session and the timeout send an MCP cancellation
+  ([Jobs](jobs.md#lifecycle-and-retention)); the call then ends `unknown`. Ending the tool invocation does
+  not cancel the call.
 - A waiting call goes up the chain like a task ([Approvals](access-control.md#approvals)): the nearest
   ancestor agent whose cumulative result is `allow` may approve, reject or escalate it. Auto Review, for
   an Auto Review root, and otherwise the owner answer when no agent may decide or the agent escalates.
@@ -202,6 +223,9 @@ An extension result is converted to the cluster tools' output form ([Tool output
   Embedded binary resources and audio are described by type and size, not sent.
 - `isError` sets the result's error flag. Files are not saved to a library automatically; the model can
   write what it needs.
+- A call's rendered result is also kept in its job (`jobs.result`) while the job is kept, so a call that
+  settles while nobody waits is read with `job_wait`, and a replayed tool call can return it. The
+  `external_calls` row stays only the "already ran" marker: it never keeps the result.
 
 ## Built-in extensions
 

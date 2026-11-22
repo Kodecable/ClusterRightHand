@@ -24,6 +24,7 @@ import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
 import type { RetentionConfig } from "../src/config.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { RetentionCounts, RetentionOptions } from "../src/retention/retention.ts";
 import {
@@ -224,6 +225,39 @@ describeBackends("retention sweep", (backend) => {
 
 	const groupIds = async (): Promise<string[]> =>
 		(await db.selectFrom("task_groups").select("id").orderBy("id").execute()).map((row) => row.id);
+
+	const insertJob = async (
+		id: string,
+		state: "running" | "waiting" | "settled",
+		settledAt: string | null,
+	): Promise<void> => {
+		await db
+			.insertInto("jobs")
+			.values({
+				id,
+				org_id: orgId,
+				actor_type: "session",
+				actor_id: "session-1",
+				on_behalf_of_user_id: "user-1",
+				session_id: null,
+				call_key: id,
+				kind: "exec",
+				resource_type: "task",
+				resource_id: id,
+				action: JSON.stringify({ type: "exec", command: "true" }),
+				state,
+				outcome: state === "settled" ? JSON.stringify({ kind: "succeeded", failed: false }) : null,
+				wait: null,
+				result: null,
+				notice: "none",
+				created_at: OLD,
+				settled_at: settledAt,
+			})
+			.execute();
+	};
+
+	const jobIds = async (): Promise<string[]> =>
+		(await db.selectFrom("jobs").select("id").orderBy("id").execute()).map((row) => row.id);
 
 	const insertAuthorization = async (id: string, deadline: string): Promise<void> => {
 		await db
@@ -452,6 +486,31 @@ describeBackends("retention sweep", (backend) => {
 		]);
 	});
 
+	it("deletes old settled jobs only, and never sooner than one day after settling", async () => {
+		const oldSettled = new Date(NOW_MS - 100 * DAY).toISOString();
+		const dayOldSettled = new Date(NOW_MS - 25 * 60 * 60 * 1000).toISOString();
+		const youngSettled = new Date(NOW_MS - 2 * 60 * 60 * 1000).toISOString();
+		await insertJob("old-settled", "settled", oldSettled);
+		await insertJob("day-old-settled", "settled", dayOldSettled);
+		await insertJob("young-settled", "settled", youngSettled);
+		await insertJob("old-running", "running", null);
+
+		// The task retention applies, but an unsettled job is never deleted.
+		const counts = await runRetention(db, RETENTION, NOW);
+		expect(counts.jobs).toBe(1);
+		expect(await jobIds()).toEqual(["day-old-settled", "old-running", "young-settled"]);
+
+		// However short the setting, a settled job stays at least one day.
+		const floored = await runRetention(db, { tasksMs: 60 * 60 * 1000, auditMs: null, piTasksMs: null }, NOW);
+		expect(floored.jobs).toBe(1);
+		expect(await jobIds()).toEqual(["old-running", "young-settled"]);
+
+		// Retention off keeps every job.
+		const off = await runRetention(db, { tasksMs: null, auditMs: null, piTasksMs: null }, NOW);
+		expect(off.jobs).toBe(0);
+		expect(await jobIds()).toEqual(["old-running", "young-settled"]);
+	});
+
 	it("deletes authorizations by deadline", async () => {
 		await insertAuthorization("expired-old", OLD);
 		await insertAuthorization("expired-recent", RECENT);
@@ -660,6 +719,7 @@ describeBackends("retention sweep", (backend) => {
 			externalCalls: 0,
 			channelLinkCodes: 0,
 			piTasks: 0,
+			jobs: 0,
 		});
 		expect(await taskIds()).toEqual(["old-exited"]);
 		expect(await groupIds()).toEqual([]);
@@ -726,6 +786,7 @@ describeBackends("retention sweep", (backend) => {
 			externalCalls: 0,
 			channelLinkCodes: 0,
 			piTasks: 0,
+			jobs: 0,
 		});
 	});
 
@@ -740,6 +801,7 @@ describeBackends("retention sweep", (backend) => {
 			externalCalls: 0,
 			channelLinkCodes: 0,
 			piTasks: 0,
+			jobs: 0,
 		});
 		expect(console.log).not.toHaveBeenCalled();
 	});
@@ -772,7 +834,7 @@ describeBackends("durable task retention and the agent runtime", (backend) => {
 				// A tiny recent window lets a manual compaction cut the short history; no background compaction.
 				compaction: { keepRecentTokens: 1, backgroundTokens: 0 },
 			};
-			runtime = await AgentRuntime.open({ ...options, storage: opened.storage });
+			runtime = await AgentRuntime.open({ callRunner: new CallRunner(), ...options, storage: opened.storage });
 			const user = await createUser(db, { username: "retention-owner", kind: "member", password: "password-123" });
 			const owner: SessionUser = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
 			const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "retention" });
@@ -831,7 +893,7 @@ describeBackends("durable task retention and the agent runtime", (backend) => {
 			runtime = undefined;
 			await opened.close();
 			opened = await fixture.openStorage();
-			runtime = await AgentRuntime.open({ ...options, storage: opened.storage });
+			runtime = await AgentRuntime.open({ callRunner: new CallRunner(), ...options, storage: opened.storage });
 			faux.setResponses([fauxAssistantMessage([fauxText("after reopen")])]);
 			const third = await runtime.submit(session.id, owner, "one more", "retention-3");
 			expect(await waitSubmission(runtime, session.id, third)).toEqual({ status: "done", answer: "after reopen" });
@@ -856,6 +918,7 @@ describe("retention sweep scheduler", () => {
 		externalCalls: 0,
 		channelLinkCodes: 0,
 		piTasks: 0,
+		jobs: 0,
 	};
 	const STARTUP_DELAY_MS = 5_000;
 	const INTERVAL_MS = 60_000;

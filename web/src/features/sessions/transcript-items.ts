@@ -1,11 +1,22 @@
 /** The derived transcript view of a session's state: what the rows render, in display order. */
 
-import type { ChatAttachment } from "@crh/api";
+import type { ChatAttachment, JobNotice } from "@crh/api";
 import type { Json, JsonObject, Message, TextBlock, ThinkingBlock, ToolCallBlock } from "./session-events";
 import type { SessionState } from "./session-reducer";
 
+/**
+ * The display model of one `crh.notice` entry (doc/design/jobs.md "Completion notices"): a finished job's
+ * metadata, or a request wake. The model-facing text is never rendered; every surface reads this.
+ */
+export type NoticeItem =
+	| { type: "jobs"; jobs: JobNotice[] }
+	| { type: "agent_request" }
+	| { type: "quota_request" }
+	| { type: "other" };
+
 type TranscriptItemRow =
 	| { kind: "user"; key: string; text: string; attachments?: ChatAttachment[]; at?: number }
+	| { kind: "notice"; key: string; notice: NoticeItem }
 	| {
 			kind: "text";
 			key: string;
@@ -105,6 +116,63 @@ function userText(content: string | { type: string; text?: string }[]): string {
 /** The result's text blocks in order; an old result has exactly one. */
 function textBlocks(content: { type: string; text?: string }[]): string[] {
 	return content.filter((c) => c.type === "text").map((c) => c.text ?? "");
+}
+
+/**
+ * The display model of a `crh.notice` entry. `data` is the entry's application payload, not model text, so a
+ * malformed or newer payload renders as the generic "woken" line instead of vanishing or leaking as a user
+ * message.
+ */
+function noticeItemOf(data: Json | undefined): NoticeItem {
+	if (typeof data !== "object" || data === null || Array.isArray(data)) return { type: "other" };
+	const record = data as Record<string, Json>;
+	if (record.type === "agent_request") return { type: "agent_request" };
+	if (record.type === "quota_request") return { type: "quota_request" };
+	if (record.type !== "jobs") return { type: "other" };
+	const jobs = Array.isArray(record.jobs) ? record.jobs : [];
+	return {
+		type: "jobs",
+		jobs: jobs.flatMap((job) => {
+			const parsed = noticeJobOf(job);
+			return parsed === undefined ? [] : [parsed];
+		}),
+	};
+}
+
+/** One job of a jobs notice, checked only enough that rendering cannot throw on an unexpected payload. */
+function noticeJobOf(value: Json): JobNotice | undefined {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+	const record = value as Record<string, Json>;
+	if (typeof record.jobId !== "string" || typeof record.woke !== "boolean") return undefined;
+	if (record.kind !== "exec" && record.kind !== "call" && record.kind !== "subagent") return undefined;
+	const action = record.action;
+	if (typeof action !== "object" || action === null || Array.isArray(action)) return undefined;
+	if (typeof (action as Record<string, Json>).type !== "string") return undefined;
+	const outcome = record.outcome;
+	if (typeof outcome !== "object" || outcome === null || Array.isArray(outcome)) return undefined;
+	if (typeof (outcome as Record<string, Json>).kind !== "string") return undefined;
+	const resource = record.resource;
+	let parsedResource: JobNotice["resource"];
+	if (typeof resource === "object" && resource !== null && !Array.isArray(resource)) {
+		const where = resource as Record<string, Json>;
+		if (
+			(where.type === "task" ||
+				where.type === "task_group" ||
+				where.type === "external_call" ||
+				where.type === "session") &&
+			typeof where.id === "string"
+		) {
+			parsedResource = { type: where.type, id: where.id };
+		}
+	}
+	return {
+		jobId: record.jobId,
+		kind: record.kind,
+		action: action as unknown as JobNotice["action"],
+		outcome: outcome as unknown as JobNotice["outcome"],
+		woke: record.woke,
+		...(parsedResource === undefined ? {} : { resource: parsedResource }),
+	};
 }
 
 /**
@@ -214,6 +282,10 @@ export function transcript(state: SessionState): TranscriptItem[] {
 	for (const { id, kind, message, data } of ordered) {
 		if (kind === "pi.compaction" && message.role === "user") {
 			items.push({ kind: "compaction", key: id, entryId: id, text: userText(message.content) });
+		} else if (kind === "crh.notice") {
+			// A completion notice or a request wake is one display line, never a user message
+			// (doc/design/jobs.md "Completion notices").
+			items.push({ kind: "notice", key: id, entryId: id, notice: noticeItemOf(data) });
 		} else if (message.role === "user") {
 			const attachments = kind === "crh.user_input" ? attachmentsOf(data) : [];
 			items.push({

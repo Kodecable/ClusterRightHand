@@ -40,6 +40,14 @@ export function idTimestamp(id: string): number {
 }
 
 /**
+ * A job's model-facing id (doc/design/jobs.md "Ids"): the kind, so the model knows what it waits for, and the
+ * first 16 hex digits of the id derived from the call key, so a replayed tool call finds the same job.
+ */
+export function jobId(kind: string, callKey: string): string {
+	return `${kind}-${derivedId(`job:${callKey}`).replaceAll("-", "").slice(0, 16)}`;
+}
+
+/**
  * A stable UUIDv8 (RFC 9562 custom layout) derived from a key: the same key always gives the same id. Used where a
  * retried operation must find what its first attempt created, e.g. a Cluster task for a durable tool call.
  */

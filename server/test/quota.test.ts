@@ -22,6 +22,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { openDb } from "../src/storage/db.ts";
@@ -55,6 +56,7 @@ beforeAll(async () => {
 	models.addProvider(faux.provider);
 	await models.reload();
 	runtime = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		db,
 		storage: new MemoryStorage(),
 		models,
@@ -346,7 +348,7 @@ it("flushes a quota wake when a running parent becomes idle", async () => {
 	}
 });
 
-it("subagent_wait watches the caller's inbox, not the waited session's parent", async () => {
+it("a subagent wait with attention watches the caller's inbox, not the waited session's parent", async () => {
 	const r = await root();
 	const a = await child(r.id, "grand-parent", 0);
 	const b = await child(a.id, "grand-child", 100);
@@ -633,6 +635,7 @@ it("wakes a quota handler after a restart", async () => {
 		audit,
 	};
 	const first = await AgentRuntime.open({
+		callRunner: new CallRunner(),
 		...options,
 		storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
 	});
@@ -672,6 +675,7 @@ it("wakes a quota handler after a restart", async () => {
 		// A new process opens the same storage: reconciliation keeps the wait (the run is unsettled) and the
 		// parent still holds the request it was woken with.
 		second = await AgentRuntime.open({
+			callRunner: new CallRunner(),
 			...options,
 			storage: await openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" }),
 		});

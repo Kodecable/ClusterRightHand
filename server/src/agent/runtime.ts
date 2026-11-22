@@ -1,4 +1,4 @@
-import type { ChatAttachment, SessionExtension as SessionExtensionView } from "@crh/api";
+import type { ChatAttachment, JobNotice, SessionExtension as SessionExtensionView } from "@crh/api";
 import { BACKGROUND_CONTEXT, type Context } from "@earendil-works/chord/context";
 import {
 	createRegistry,
@@ -9,11 +9,16 @@ import {
 } from "@earendil-works/pi-durable";
 import type { SessionUser } from "../auth/sessions.ts";
 import { pendingReviewIn } from "../cluster/approval.ts";
+import type { Actor } from "../cluster/types.ts";
 import { externalCallApproval, getExternalCall } from "../extensions/external-calls.ts";
 import { extensionOf } from "../extensions/registry.ts";
 import { getExtensionRow, listExtensionRows } from "../extensions/store.ts";
+import { createJobs } from "../jobs/jobs.ts";
+import type { JobRow } from "../jobs/types.ts";
 import type { Rule, RulePreset } from "../policy/rules.ts";
 import { TOOLS } from "../tools/catalog.ts";
+import { execJobRenderers } from "../tools/job-renderers.ts";
+import { KeyedQueue } from "../util/keyed-queue.ts";
 import { clusterExtension, directToolsExtension, sessionExtensionViews, syncSessionExtensions } from "./extension.ts";
 import { GenerationTimings } from "./latency.ts";
 import { ModelPresets } from "./model-presets.ts";
@@ -22,6 +27,7 @@ import { Reviewer } from "./review.ts";
 import type { AgentRuntimeOptions, RuntimeHost, SessionEvent, SessionInfo, SessionView } from "./runtime-core.ts";
 import { HandlerWakes } from "./runtime-host/handler-wakes.ts";
 import { Inboxes } from "./runtime-host/inboxes.ts";
+import { NoticeActivity } from "./runtime-host/notice-activity.ts";
 import { QuotaWaits } from "./runtime-host/quota-waits.ts";
 import { SessionCaches } from "./runtime-host/session-caches.ts";
 import { SessionFlags } from "./runtime-host/session-flags.ts";
@@ -54,7 +60,16 @@ import {
 	watch,
 } from "./runtime-sessions.ts";
 import { endOrphanWaits, reconcileSessionStates, refreshState } from "./runtime-state.ts";
-import { createSubagent, isDescendant, startSubagent, subagentSessions, waitSubagent } from "./runtime-subagents.ts";
+import {
+	createSubagent,
+	isDescendant,
+	startSubagent,
+	subagentJobAnswer,
+	subagentJobRequestsBlock,
+	subagentJobState,
+	subagentSessions,
+	waitSubagent,
+} from "./runtime-subagents.ts";
 import {
 	type CompactTask,
 	compact,
@@ -66,7 +81,15 @@ import {
 import { SessionListHub } from "./session-list-hub.ts";
 import type { SessionState } from "./session-state.ts";
 import { streamSessionId } from "./stream-session-id.ts";
-import { wakePendingAgents } from "./wakes.ts";
+import {
+	jobNoticeBusy,
+	jobNoticeSettled,
+	noticeWakeAvailable,
+	takePendingJobNotices,
+	waitForSessionQuiet,
+	wakePendingAgents,
+	wakePendingJobNotices,
+} from "./wakes.ts";
 
 /**
  * The agent runtime behind our own interface (doc/design/agent-runtime.md "The AgentRuntime interface"). In server/src, pi packages
@@ -123,6 +146,8 @@ export class AgentRuntime {
 			audit: options.audit,
 			cluster: options.cluster,
 			taskGroups: options.taskGroups,
+			jobs: options.jobs,
+			callRunner: options.callRunner,
 			imageCache: options.imageCache,
 			context: BACKGROUND_CONTEXT,
 			sessionList: this.#sessionList,
@@ -134,6 +159,8 @@ export class AgentRuntime {
 			inboxes: new Inboxes(),
 			quotaWaits: new QuotaWaits(),
 			wakes: new HandlerWakes(),
+			noticeDelivery: new KeyedQueue("job notice delivery"),
+			noticeActivity: new NoticeActivity(),
 			sessionFlags: new SessionFlags(),
 			generationTimings: new GenerationTimings(),
 			extensionsFor: (serverNames) => this.#extensionsFor(serverNames),
@@ -196,6 +223,19 @@ export class AgentRuntime {
 
 	static async open(options: AgentRuntimeOptions): Promise<AgentRuntime> {
 		const ref: { current?: AgentRuntime } = {};
+		// The job service first: the tools that start jobs read it through the options, and the startup
+		// reconciliation runs before requests are served (doc/design/jobs.md "Job model").
+		const jobs =
+			options.jobs ??
+			createJobs({
+				db: options.db,
+				cluster: options.cluster,
+				taskGroups: options.taskGroups,
+				execRenderers: execJobRenderers,
+				callRunner: options.callRunner,
+				...(options.audit ? { audit: options.audit } : {}),
+			});
+		options.jobs = jobs;
 		// The preset cache is loaded once, before any request: the system prompt section reads it synchronously
 		// and a write refreshes it.
 		const presets = new ModelPresets(options.db);
@@ -211,6 +251,33 @@ export class AgentRuntime {
 		);
 		runtime.#runtimeRef = ref;
 		ref.current = runtime;
+		// The subagent adapter needs the runtime's waits, stop and answer; everything else about a child is read
+		// from its row (doc/design/jobs.md "Adapters").
+		jobs.attachSubagent({
+			project: (childId) => subagentJobState(runtime.#host, childId),
+			wait: async (childId, waitOptions) => {
+				const result = await waitSubagent(runtime.#host, childId, {
+					attention: waitOptions.attention,
+					...(waitOptions.signal ? { signal: waitOptions.signal } : {}),
+					...(waitOptions.handler ? { handler: waitOptions.handler } : {}),
+				});
+				if (result.status === "attention") return { status: "attention" };
+				if (result.status === "done") return { status: "done" };
+				return { status: "unanswered", reason: result.reason };
+			},
+			cancel: async (childId, by) => {
+				await abort(runtime.#host, childId, sessionUserForActor(by), { source: "internal" });
+				return true;
+			},
+			noticeBusy: (childId) => jobNoticeBusy(runtime.#host, childId),
+			noticeWakeAvailable: (childId) => noticeWakeAvailable(runtime.#host, childId),
+			answer: (childId) => subagentJobAnswer(runtime.#host, childId),
+			requestsBlock: (childId) => subagentJobRequestsBlock(runtime.#host, childId),
+		});
+		// A settled job whose notice no live wait collected wakes its owner or waits for the next tool result
+		// (doc/design/jobs.md "Completion notices"). The runtime supplies the delivery; the job layer only says
+		// when a job settled.
+		jobs.attachNoticeSink((job) => jobNoticeSettled(runtime.#host, job));
 		// One extension per row, empty until its first tool listing arrives: a session selects the extensions
 		// it may use by name, and the tools appear once the MCP server is connected or the built-in supplies
 		// them (doc/design/extensions.md).
@@ -293,12 +360,16 @@ export class AgentRuntime {
 		await reconcileSessionStates(runtime.#host);
 		// Waits whose session's run is over (stopped or ended while crhs was down) can never be acted on.
 		await endOrphanWaits(runtime.#host);
+		// Every unsettled job is reconciled with its record before requests are served (doc/design/jobs.md).
+		await jobs.reconcile();
 		// Reviews cut short by the last process run again: a pending marker is durable, the review is not.
 		void resumePendingReviews(options).catch((err: unknown) => {
 			console.error("agent runtime: resuming pending reviews failed:", err);
 		});
 		// A restart may have queued nothing for requests that were already waiting: wake idle parents now.
 		await wakePendingAgents(runtime.#host);
+		// Completion notices of jobs that settled while crhs was down reach their owners the same way.
+		await wakePendingJobNotices(runtime.#host);
 		return runtime;
 	}
 
@@ -331,6 +402,7 @@ export class AgentRuntime {
 				try {
 					await reconcileSessionStates(this.#host);
 					await endOrphanWaits(this.#host);
+					await this.#options.jobs?.reconcile();
 					void resumePendingReviews(this.#options).catch((err: unknown) => {
 						console.error("agent runtime: resuming pending reviews failed:", err);
 					});
@@ -350,6 +422,11 @@ export class AgentRuntime {
 	/** How many provider sessions hold an unfinished timing (tests): it must not outlive the message. */
 	get pendingTimingCount(): number {
 		return this.#host.generationTimings.size;
+	}
+
+	/** The job service this runtime uses, so an HTTP surface built beside it shares one projection queue. */
+	get jobs() {
+		return this.#options.jobs;
 	}
 
 	/** The session list's event hub, for `GET /api/sessions` and `GET /api/sessions/stream`. */
@@ -417,6 +494,8 @@ export class AgentRuntime {
 		this.#host.generationTimings.clearAll();
 		await this.#harness.close(this.#host.context);
 		this.#sessionList.close();
+		// Projections started by record changes are awaited before the database closes (doc/design/jobs.md).
+		await this.#options.jobs?.drain();
 	}
 
 	// ---- sessions (runtime-sessions) ----
@@ -460,6 +539,27 @@ export class AgentRuntime {
 	/** Follows session run-state changes, for chat channels that send approvals and progress. */
 	onSessionStateChanged(listener: ((sessionId: string) => void) | undefined): void {
 		this.#host.stateChanged = listener;
+	}
+
+	/**
+	 * Follows placed completion notices, for chat channels that send the notice line where the session's text
+	 * goes (doc/design/channels.md "Notifications").
+	 */
+	onJobNotices(listener: ((sessionId: string, notices: readonly JobNotice[]) => void) | undefined): void {
+		this.#host.jobNoticePlaced = listener;
+	}
+
+	/** A busy session's pending completion notices, marked delivered; the next tool result carries them. */
+	async takePendingJobNotices(sessionId: string): Promise<JobRow[]> {
+		return takePendingJobNotices(this.#host, sessionId);
+	}
+
+	/**
+	 * Waits until the session is idle and owns no unsettled job, and no completion notice can still start a
+	 * turn: a scheduled run is final only then (doc/design/scheduling.md "Finish").
+	 */
+	async waitForSessionQuiet(sessionId: string, signal?: AbortSignal): Promise<void> {
+		await waitForSessionQuiet(this.#host, sessionId, signal);
 	}
 
 	/**
@@ -776,4 +876,15 @@ async function resumePendingReviews(options: AgentRuntimeOptions): Promise<void>
 			console.error(`agent runtime: resuming the review of external call ${row.id} failed:`, err);
 		});
 	}
+}
+
+/** A SessionUser for audit records written by a job's cancel, which carries only an Actor. */
+function sessionUserForActor(actor: Actor): SessionUser {
+	return {
+		sessionId: `actor:${actor.type}:${actor.id}`,
+		userId: actor.onBehalfOfUserId,
+		username: "",
+		kind: "member",
+		actor: { type: actor.type, id: actor.id },
+	};
 }

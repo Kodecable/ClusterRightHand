@@ -79,20 +79,21 @@ approvals and privilege.
 
 **Design**
 
-| Document                                                   | Covers                                        |
-| ---------------------------------------------------------- | --------------------------------------------- |
-| [Architecture](doc/design/architecture.md)                 | Components, boundaries, limitations           |
-| [Protocol](doc/design/protocol.md)                         | The crhs–crha protocol and transport security |
-| [Execution plane](doc/design/execution.md)                 | Tasks, output, connections, SSH               |
-| [Privilege and authorization](doc/design/privilege.md)     | Privilege modes, authorizations, node trust   |
-| [Users, ownership and audit](doc/design/access-control.md) | Users, access, rules, approvals, audit        |
-| [Agent runtime](doc/design/agent-runtime.md)               | Sessions, tools, subagents, quotas            |
-| [Libraries and file transfer](doc/design/library.md)       | Libraries, file plane, attachments            |
-| [Scheduled tasks](doc/design/scheduling.md)                | Schedules                                     |
-| [Data model](doc/design/data-model.md)                     | Storage and retention                         |
-| [WebUI](doc/design/webui.md)                               | Frontend design                               |
-| [Distribution and setup](doc/design/distribution.md)       | Packages, `crhs init`, `crha enroll`          |
-| [Testing](doc/design/testing/README.md)                    | Test layers and how to run them               |
+| Document                                                   | Covers                                         |
+| ---------------------------------------------------------- | ---------------------------------------------- |
+| [Architecture](doc/design/architecture.md)                 | Components, boundaries, limitations            |
+| [Protocol](doc/design/protocol.md)                         | The crhs–crha protocol and transport security  |
+| [Execution plane](doc/design/execution.md)                 | Tasks, output, connections, SSH                |
+| [Privilege and authorization](doc/design/privilege.md)     | Privilege modes, authorizations, node trust    |
+| [Users, ownership and audit](doc/design/access-control.md) | Users, access, rules, approvals, audit         |
+| [Agent runtime](doc/design/agent-runtime.md)               | Sessions, tools, subagents, quotas             |
+| [Jobs](doc/design/jobs.md)                                 | Background work, job tools, completion notices |
+| [Libraries and file transfer](doc/design/library.md)       | Libraries, file plane, attachments             |
+| [Scheduled tasks](doc/design/scheduling.md)                | Schedules                                      |
+| [Data model](doc/design/data-model.md)                     | Storage and retention                          |
+| [WebUI](doc/design/webui.md)                               | Frontend design                                |
+| [Distribution and setup](doc/design/distribution.md)       | Packages, `crhs init`, `crha enroll`           |
+| [Testing](doc/design/testing/README.md)                    | Test layers and how to run them                |
 
 ## Repository layout
 

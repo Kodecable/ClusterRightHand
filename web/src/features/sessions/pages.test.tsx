@@ -240,9 +240,6 @@ async function renderSessionPage({
 				return json(olderPage?.(before) ?? { entries: [], historyCursor: null });
 			}
 			if (path === `/api/sessions/${session.id}`) return json({ session, shares: [] });
-			if (path === `/api/sessions/${session.id}/children`) return json({ items: [], nextCursor: null });
-			if (path === `/api/sessions/${session.id}/children/summary`)
-				return json({ total: 0, states: { idle: 0, running: 0, awaiting: 0 } });
 			if (path === "/api/models") return json({ models: [] });
 			if (path === "/api/approvals") return json(approvals?.() ?? APPROVALS);
 			if (path === "/api/nodes") return json({ nodes: [] });

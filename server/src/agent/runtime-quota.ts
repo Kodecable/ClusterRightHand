@@ -30,7 +30,13 @@ export async function waitForQuota(host: RuntimeHost, sessionId: string, context
 		try {
 			const level = await exhaustedLevel(host.db, sessionId);
 			if (!level) {
-				const write = await setSessionState(host.db, sessionId, "running", null, { onlyIfLive: true });
+				const write = await setSessionState(host.db, sessionId, "running", null, {
+					onlyIfLive: true,
+					onChange: (id) => {
+						host.jobs?.sessionChanged(id);
+						host.noticeActivity.notify(id);
+					},
+				});
 				host.sessionList.publishSession(sessionId);
 				// The quota request is gone; drop it from the handler's cache before returning.
 				host.inboxes.clear();
@@ -42,7 +48,12 @@ export async function waitForQuota(host: RuntimeHost, sessionId: string, context
 			const quotaWait: SessionWait = { kind: "quota", levelId: level };
 			// A tool call pausing is a real transition of its run, not a recompute; only its resume checks the
 			// row is still live (a run that ended while it waited must not be revived).
-			const { since } = await setSessionState(host.db, sessionId, "awaiting", quotaWait);
+			const { since } = await setSessionState(host.db, sessionId, "awaiting", quotaWait, {
+				onChange: (id) => {
+					host.jobs?.sessionChanged(id);
+					host.noticeActivity.notify(id);
+				},
+			});
 			host.sessionList.publishSession(sessionId);
 			host.stateChanged?.(sessionId);
 			// A root level has no parent to handle its wait: the owner sees it in the approvals API, and the
@@ -118,6 +129,7 @@ export async function decideRootQuota(
 		await markSessionsIdle(
 			host.db,
 			paused.map((row) => row.id),
+			(id) => host.jobs?.sessionChanged(id),
 		);
 	} else {
 		if (tokens === undefined) throw new UserError("give the quota wait tokens to grant");

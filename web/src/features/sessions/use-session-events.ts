@@ -20,18 +20,16 @@ export interface SessionEvents {
 	/** Prepends a page loaded from `GET /sessions/:id/entries`, without disturbing the live stream. */
 	applyHistory: (entries: readonly EntryRecord[], historyCursor: string | null) => void;
 	/**
-	 * Bumped when the child-session list may have changed: a `snapshot` (the
-	 * stream reconnected or opened) or a `subagent` tool update/end
-	 * (doc/design/webui.md "API conventions"). The children query refetches on every bump.
+	 * Bumped when a job of this session may have changed: a `job.changed` event, or a
+	 * `snapshot` because a reconnect may have missed some (doc/design/jobs.md "API"). The
+	 * background bar refreshes its live levels on every bump.
 	 */
-	childrenRevision: number;
+	jobsRevision: number;
 }
 
-/** Whether an event makes the session's child list stale. */
-function touchesChildren(event: SessionEvent): boolean {
-	if (event.type === "snapshot") return true;
-	if (event.type !== "tool_execution_update" && event.type !== "tool_execution_end") return false;
-	return event.toolName === "subagent";
+/** Whether an event makes the session's jobs stale. */
+function touchesJobs(event: SessionEvent): boolean {
+	return event.type === "snapshot" || event.type === "job.changed";
 }
 
 /** The shape the stream promises; anything else is dropped rather than fed to the reducer. */
@@ -87,7 +85,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 	const [state, setState] = useState<SessionState>(initialState);
 	const [connection, setConnection] = useState<Connection>("connecting");
 	const [error, setError] = useState<ApiError | undefined>(undefined);
-	const [childrenRevision, setChildrenRevision] = useState(0);
+	const [jobsRevision, setJobsRevision] = useState(0);
 	const stateRef = useRef<SessionState>(initialState);
 	const publishedKey = useRef<string | null>(null);
 	const streamsRef = useRef<TranscriptStreams>(new TranscriptStreams());
@@ -111,7 +109,7 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 				if (name !== "events" || !Array.isArray(data)) return;
 				const events = data.filter(isSessionEvent);
 				if (events.length === 0) return;
-				if (events.some(touchesChildren)) setChildrenRevision((value) => value + 1);
+				if (events.some(touchesJobs)) setJobsRevision((value) => value + 1);
 				const next = reduceAll(stateRef.current, events);
 				stateRef.current = next;
 				streams.sync(next);
@@ -149,5 +147,5 @@ export function useSessionEvents(id: string | undefined): SessionEvents {
 		[streams],
 	);
 
-	return { state, connection, error, streams, applyHistory, childrenRevision };
+	return { state, connection, error, streams, applyHistory, jobsRevision };
 }

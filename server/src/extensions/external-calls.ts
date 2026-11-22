@@ -8,6 +8,7 @@ import type {
 	Operation,
 	RequestSource,
 	Review,
+	TaskAction,
 } from "@crh/api";
 import type { Selectable } from "kysely";
 import type { AuditActor, AuditInput } from "../audit/audit.ts";
@@ -213,6 +214,31 @@ export function externalCallApprovalAudit(
 
 export function externalCallAnnotations(row: ExternalCallRow): ExtensionToolAnnotations | null {
 	return parseJson<ExtensionToolAnnotations>(row.annotations);
+}
+
+/**
+ * The call's structured action, the same one its approval shows: an API request names the method and route,
+ * anything else the extension and tool (doc/design/webui.md "Shared components").
+ */
+export function externalCallTaskAction(extension: string, tool: string, arguments_: unknown): TaskAction {
+	if (extension === "crhs-api" && tool === "api_request") {
+		let args = arguments_;
+		if (typeof args === "string") {
+			try {
+				args = JSON.parse(args);
+			} catch {
+				args = undefined;
+			}
+		}
+		if (typeof args === "object" && args !== null && !Array.isArray(args)) {
+			const method = (args as Record<string, unknown>).method;
+			const path = (args as Record<string, unknown>).path;
+			if (typeof method === "string" && typeof path === "string") {
+				return { type: "api_request", method: method.toUpperCase(), path };
+			}
+		}
+	}
+	return { type: "extension_tool", extension, tool };
 }
 
 /** One line naming what an ancestor agent is asked about, for its request list and its wake note. */

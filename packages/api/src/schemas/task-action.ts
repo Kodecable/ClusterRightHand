@@ -24,5 +24,9 @@ export const TaskActionSchema = z
 		}),
 		z.object({ type: z.literal("api_request"), method: z.string(), path: z.string() }),
 		z.object({ type: z.literal("extension_tool"), extension: z.string(), tool: z.string() }),
+		z.object({
+			type: z.literal("subagent"),
+			task: z.string().describe("The task's first line, clipped to 300 characters."),
+		}),
 	])
 	.meta({ id: "TaskAction", description: "What a task or a waiting approval does, ready for display." });

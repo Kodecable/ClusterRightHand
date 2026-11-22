@@ -11,7 +11,6 @@ import type {
 	ChatAttachmentInputSchema,
 	QuotaApprovalSchema,
 	SessionCapabilitiesSchema,
-	SessionChildrenSummarySchema,
 	SessionEntrySchema,
 	SessionForkBodySchema,
 	SessionForkedFromSchema,
@@ -52,9 +51,6 @@ export type SessionWaitingKind = z.infer<typeof SessionWaitingKindSchema>;
 
 /** The lightweight row of `GET /api/sessions` (doc/design/webui.md "API conventions"). */
 export type SessionListItem = z.infer<typeof SessionListItemSchema>;
-
-/** The counts of a session's direct child sessions by their own state (`GET /sessions/:id/children/summary`). */
-export type SessionChildrenSummary = z.infer<typeof SessionChildrenSummarySchema>;
 
 /** `visible` is the web's only scope: the caller's own roots plus the roots shared with them. */
 export type SessionListScope = z.infer<typeof SessionListScopeSchema>;

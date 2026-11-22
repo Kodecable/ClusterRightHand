@@ -6,6 +6,7 @@ import type { TaskAuthorizationRecord } from "../src/cluster/authorization.ts";
 import { type Cluster, countOutputLines, type TaskView } from "../src/cluster/cluster.ts";
 import { taskGroupOutcome, taskOutcome } from "../src/cluster/outcome.ts";
 import type { TaskGroups, TaskGroupView } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { callTool } from "../src/tools/adapter.ts";
@@ -248,6 +249,7 @@ async function fixture(name = "tool-user", nodeName = "web-1"): Promise<Fixture>
 			approvalUrl: (kind, id) => `http://crh.test/approvals/${kind}/${id}`,
 			taskUrl: (id) => `http://crh.test/tasks/${id}`,
 			taskGroupUrl: (id) => `http://crh.test/task-groups/${id}`,
+			callRunner: new CallRunner(),
 		},
 	};
 }
@@ -270,10 +272,11 @@ describe("the tool catalog", () => {
 			"stat",
 			"copy_file",
 			"view_image",
-			"task_wait",
-			"task_cancel",
 			"search_tools",
 			"call_tool",
+			"job_wait",
+			"job_cancel",
+			"job_list",
 		]);
 		expect(Object.fromEntries(TOOLS.map((entry) => [entry.name, entry.output]))).toMatchObject({
 			list_nodes: "json",
@@ -284,10 +287,11 @@ describe("the tool catalog", () => {
 			edit_file: "json",
 			list_dir: "json",
 			stat: "json",
-			task_wait: "text",
-			task_cancel: "json",
 			search_tools: "json",
 			call_tool: "text",
+			job_wait: "text",
+			job_cancel: "json",
+			job_list: "json",
 		});
 	});
 
@@ -633,6 +637,7 @@ function f2base(db: Db, user: SessionUser): ToolContext {
 		approvalUrl: (kind, id) => `http://crh.test/approvals/${kind}/${id}`,
 		taskUrl: (id) => `http://crh.test/tasks/${id}`,
 		taskGroupUrl: (id) => `http://crh.test/task-groups/${id}`,
+		callRunner: new CallRunner(),
 	};
 }
 
@@ -819,23 +824,38 @@ describe("exec text results", () => {
 		expect(texts(unknown).at(-1)).toContain("error connection_lost:");
 	});
 
-	it("returns notes with the id while a task still runs or waits", () => {
-		const running = execTaskResult(ctx, task({ state: "running" }), "web-1");
+	it("returns notes with the job id while a task still runs or waits", () => {
+		const running = execTaskResult(ctx, task({ state: "running" }), "web-1", "client", undefined, "exec-abc123");
 		expect(running.isError).toBe(false);
-		expect(texts(running)).toEqual(["[web-1, still running, task_id t1. Call task_wait with this task_id.]"]);
+		expect(texts(running)).toEqual(["[web-1, still running, job exec-abc123: call job_wait with this id]"]);
+		expect(running.details).toMatchObject({ job_id: "exec-abc123", task_id: "t1" });
 
-		const approval = execTaskResult(ctx, task({ state: "awaiting_approval" }), "web-1");
+		const approval = execTaskResult(
+			ctx,
+			task({ state: "awaiting_approval" }),
+			"web-1",
+			"client",
+			undefined,
+			"exec-abc123",
+		);
 		expect(texts(approval)[0]).toBe(
-			"[web-1, waiting for approval: http://crh.test/approvals/task/t1, task_id t1. Call task_wait with this task_id.]",
+			"[web-1, waiting for approval: http://crh.test/approvals/task/t1, job exec-abc123: call job_wait with this id]",
 		);
 
 		const authorization = execTaskResult(
 			ctx,
 			task({ state: "awaiting_authorization", privileged: true, authorization: authorizationRecord() }),
 			"web-1",
+			"client",
+			undefined,
+			"exec-abc123",
 		);
 		expect(texts(authorization)[0]).toContain("waiting for authorization: http://crh.test/tasks/t1");
-		expect(texts(authorization)[0]).toContain("task_id t1");
+		expect(texts(authorization)[0]).toContain("job exec-abc123: call job_wait with this id");
+		expect(texts(authorization)[0]).not.toContain("task_id");
+		// Without a job (a file tool) the note carries no id at all.
+		const noJob = execTaskResult(ctx, task({ state: "running" }), "web-1");
+		expect(texts(noJob)).toEqual(["[web-1, still running]"]);
 	});
 
 	it("keeps the UI details shape for privileges and authorization", () => {
@@ -896,7 +916,7 @@ describe("exec task groups", () => {
 		]);
 		const result = execResultText(g, names);
 		expect(result.isError).toBe(true);
-		expect(texts(result)[0]).toBe("[task group g1, 2 nodes, 1 succeeded, 1 failed]");
+		expect(texts(result)[0]).toBe("[task group, 2 nodes, 1 succeeded, 1 failed]");
 		expect(texts(result)).toEqual(expect.arrayContaining(["ok\n", "[web-1, exit 0]", "bad\n", "[db-1, exit 1]"]));
 		expect(result.details).toMatchObject({
 			task_group_id: "g1",
@@ -945,13 +965,13 @@ describe("exec task groups", () => {
 		);
 		expect(result.isError).toBe(true);
 		expect(jsonOf(result)).toMatchObject({
-			task_group_id: "g1",
 			state: "finished",
 			nodes: [
-				{ task_id: "t1", node: "web-1", state: "exited", exit_code: 0, output_file: "/out/1" },
-				{ task_id: "t2", node: "db-1", state: "errored", exit_code: 1 },
+				{ node: "web-1", state: "exited", exit_code: 0, output_file: "/out/1" },
+				{ node: "db-1", state: "errored", exit_code: 1 },
 			],
 		});
+		expect(jsonOf(result)).not.toHaveProperty("task_group_id");
 		expect(result.details).toMatchObject({ task_group_id: "g1", nodes: expect.any(Array) });
 	});
 
@@ -959,9 +979,8 @@ describe("exec task groups", () => {
 		const g = group({ state: "running", tasks: [task({ id: "t1", nodeId: "n1", state: "running" })] });
 		const result = execResultStatus(g, new Map([["n1", "web-1"]]));
 		expect(jsonOf(result)).toMatchObject({
-			task_group_id: "g1",
 			state: "running",
-			next: "still running: call task_wait with this task_group_id",
+			next: "still running: call job_wait with this job_id",
 		});
 		expect(result.isError).toBe(false);
 	});
@@ -977,6 +996,7 @@ describe("exec budgets", () => {
 					created.push(input);
 					return task({ id: "t1", nodeId: f.nodeId });
 				},
+				getTask: async () => task({ id: "t1", nodeId: f.nodeId, outputTail: "last\n", outputTailLines: 1 }),
 				waitTask: async () => task({ id: "t1", nodeId: f.nodeId, outputTail: "last\n", outputTailLines: 1 }),
 			} as unknown as Cluster;
 			await tool("exec").handler({ targets: ["web-1"], cmd: "true", max_lines: 1, max_bytes: 10, wait: 0 } as never, {
@@ -1022,7 +1042,7 @@ describe("exec budgets", () => {
 			});
 			expect(created[0]).toMatchObject({ outputMode: "text", maxLines: 1 });
 			expect(result.isError).toBe(false);
-			expect(texts(result)[0]).toContain("task group g1");
+			expect(texts(result)[0]).toContain("task group, 1 nodes");
 		} finally {
 			await f.db.destroy();
 		}
@@ -1056,6 +1076,15 @@ describe("exec budgets", () => {
 					created.push(input);
 					return task({ id: "t1", nodeId: f.nodeId, kind: "exec", outputMode: "status" });
 				},
+				getTask: async () =>
+					task({
+						id: "t1",
+						nodeId: f.nodeId,
+						kind: "exec",
+						outputMode: "status",
+						exitCode: 0,
+						outputFile: "/var/lib/crha/output/t1.log",
+					}),
 				waitTask: async () =>
 					task({
 						id: "t1",
@@ -1076,13 +1105,14 @@ describe("exec budgets", () => {
 			expect(created[0]).toMatchObject({ outputMode: "status" });
 			expect(result.isError).toBe(false);
 			expect(jsonOf(result)).toMatchObject({
-				task_id: "t1",
 				node: "web-1",
 				state: "exited",
 				exit_code: 0,
 				output_file: "/var/lib/crha/output/t1.log",
 			});
+			expect(jsonOf(result)).not.toHaveProperty("task_id");
 			expect(result.content[0]?.text).not.toContain("task_wait");
+			expect(result.content[0]?.text).not.toContain("task_id");
 		} finally {
 			await f.db.destroy();
 		}
@@ -1165,10 +1195,10 @@ describe("exec budgets", () => {
 			expect(created[0]).toMatchObject({ outputMode: "status" });
 			expect(result.isError).toBe(false);
 			expect(jsonOf(result)).toMatchObject({
-				task_group_id: "g1",
 				state: "finished",
-				nodes: [{ task_id: "t1", output_file: "/out/1" }],
+				nodes: [{ output_file: "/out/1" }],
 			});
+			expect(result.details).toMatchObject({ task_group_id: "g1" });
 		} finally {
 			await f.db.destroy();
 		}
@@ -1731,148 +1761,6 @@ describe("blocking file tools", () => {
 	});
 });
 
-describe("following up exec", () => {
-	it("rejects a file task with no_such_task", async () => {
-		const f = await fixture("wait-file-user");
-		try {
-			const fileTask = task({
-				id: "t1",
-				nodeId: f.nodeId,
-				kind: "file.read",
-				actorType: "user",
-				actorId: f.user.userId,
-				onBehalfOfUserId: f.user.userId,
-			});
-			const cluster = { getTask: async () => fileTask } as unknown as Cluster;
-			const result = await callTool(
-				tool("task_wait") as never,
-				{ task_id: "t1", wait: 0 },
-				{ ...f.base, cluster },
-				{ via: "mcp" },
-			);
-			expect(result.isError).toBe(true);
-			expect(texts(result)).toEqual(["[error no_such_task: no such task]"]);
-		} finally {
-			await f.db.destroy();
-		}
-	});
-
-	it("rejects a file task group with no_such_task", async () => {
-		const f = await fixture("wait-file-group-user");
-		try {
-			const taskGroups = {
-				get: async () =>
-					group({
-						id: "g1",
-						kind: "file.read",
-						outputMode: "head",
-						state: "finished",
-						actorType: "user",
-						actorId: f.user.userId,
-						onBehalfOfUserId: f.user.userId,
-					}),
-			} as unknown as TaskGroups;
-			const result = await callTool(
-				tool("task_wait") as never,
-				{ task_group_id: "g1", wait: 0 },
-				{ ...f.base, taskGroups },
-				{ via: "mcp" },
-			);
-			expect(result.isError).toBe(true);
-			expect(texts(result)).toEqual(["[error no_such_task: no such task group]"]);
-		} finally {
-			await f.db.destroy();
-		}
-	});
-
-	it("renders an exec task as text with its details", async () => {
-		const f = await fixture("wait-exec-user");
-		try {
-			const cluster = {
-				getTask: async () =>
-					task({
-						id: "t1",
-						nodeId: f.nodeId,
-						actorType: "user",
-						actorId: f.user.userId,
-						onBehalfOfUserId: f.user.userId,
-						outputTail: "done\n",
-						outputTailLines: 1,
-						outputLines: 1,
-					}),
-				waitTask: async () =>
-					task({
-						id: "t1",
-						nodeId: f.nodeId,
-						actorType: "user",
-						actorId: f.user.userId,
-						onBehalfOfUserId: f.user.userId,
-						outputTail: "done\n",
-						outputTailLines: 1,
-						outputLines: 1,
-					}),
-			} as unknown as Cluster;
-			const result = await tool("task_wait").handler({ task_id: "t1", wait: 0 } as never, {
-				...f.base,
-				cluster,
-			});
-			expect(texts(result)).toEqual(["done\n", "[web-1, exit 0]"]);
-			expect(result.details).toMatchObject({ task_id: "t1", node: "web-1", state: "exited" });
-		} finally {
-			await f.db.destroy();
-		}
-	});
-
-	it("acts only on its own tasks", async () => {
-		const f = await fixture("scope-user");
-		try {
-			const cluster = {
-				getTask: async () =>
-					task({
-						id: "t1",
-						nodeId: f.nodeId,
-						actorType: "user",
-						actorId: "someone-else",
-						onBehalfOfUserId: "someone-else",
-					}),
-			} as unknown as Cluster;
-			const result = await callTool(
-				tool("task_wait") as never,
-				{ task_id: "t1", wait: 0 },
-				{ ...f.base, cluster },
-				{
-					via: "mcp",
-				},
-			);
-			expect(result.isError).toBe(true);
-			expect(texts(result)).toEqual(["[error no_such_task: no such task]"]);
-		} finally {
-			await f.db.destroy();
-		}
-	});
-
-	it("cancels an exec task and returns JSON", async () => {
-		const f = await fixture("cancel-user");
-		try {
-			const cluster = {
-				getTask: async () =>
-					task({
-						id: "t1",
-						nodeId: f.nodeId,
-						actorType: "user",
-						actorId: f.user.userId,
-						onBehalfOfUserId: f.user.userId,
-					}),
-				cancelTask: async () => true,
-			} as unknown as Cluster;
-			const result = await tool("task_cancel").handler({ task_id: "t1" } as never, { ...f.base, cluster });
-			expect(jsonOf(result)).toEqual({ task_id: "t1", cancel_sent: true });
-		} finally {
-			await f.db.destroy();
-		}
-	});
-});
-
 describe("the statuses a wait publishes", () => {
 	it("publishes the task id before waiting and the approval link while waiting", async () => {
 		const f = await fixture("status-user");
@@ -1888,7 +1776,6 @@ describe("the statuses a wait publishes", () => {
 			const context = {
 				...f.base,
 				cluster,
-				waitThroughApproval: true,
 				onStatus: async (status: Record<string, unknown>) => {
 					statuses.push(status);
 				},
@@ -1947,7 +1834,6 @@ describe("the statuses a wait publishes", () => {
 			const context = {
 				...f.base,
 				taskGroups,
-				waitThroughApproval: true,
 				onStatus: async (status: Record<string, unknown>) => {
 					statuses.push(status);
 				},

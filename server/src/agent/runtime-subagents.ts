@@ -1,3 +1,4 @@
+import type { TaskOutcome } from "@crh/api";
 import { withAbortSignal } from "@earendil-works/chord/context";
 import {
 	AssistantEntry,
@@ -9,12 +10,13 @@ import {
 } from "@earendil-works/pi-durable";
 import { sql } from "kysely";
 import { extensionNamesForUser, parseDisabledExtensionNames } from "../extensions/store.ts";
+import type { SubagentJobRun } from "../jobs/types.ts";
 import type { RuleSet } from "../policy/rules.ts";
 import { createRuleSet } from "../policy/store.ts";
 import { MAX_SESSION_TREE_DEPTH, sessionAncestors } from "../sessions/session-chain.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import { derivedId } from "../util/id.ts";
-import { syncSessionExtensions } from "./extension.ts";
+import { subagentRequestsBlock, syncSessionExtensions } from "./extension.ts";
 import { type ModelRef, thinkingLevelOf } from "./models.ts";
 import type { AgentRequestView, RuntimeHost } from "./runtime-core.ts";
 import { conversationOf, loadConversation, loadSession } from "./runtime-core.ts";
@@ -290,4 +292,106 @@ export async function isDescendant(host: RuntimeHost, sessionId: string, childId
 		select id from ancestors where id = ${sessionId} limit 1
 	`.execute(host.db);
 	return result.rows.length > 0;
+}
+
+/** What the subagent job adapter needs from a child's run, derived from its stored session and durable input. */
+export async function subagentJobState(host: RuntimeHost, childId: string): Promise<SubagentJobRun | undefined> {
+	const row = await host.db
+		.selectFrom("sessions")
+		.select(["state", "waiting_kind", "last_submission_id", "waiting_handler_id"])
+		.where("id", "=", childId)
+		.executeTakeFirst();
+	if (!row) return undefined;
+	if (row.state === "running") return { state: "running", wait: null, outcome: null };
+	if (row.state === "awaiting") {
+		return { state: "awaiting", wait: await subagentWaitOf(host, childId, row.waiting_kind), outcome: null };
+	}
+	const submissionId = row.last_submission_id;
+	if (!submissionId) return { state: "idle", wait: null, outcome: { kind: "cancelled", failed: false } };
+	const submission = await host.harness().submission(Number(submissionId) as unknown as SubmissionId, host.context);
+	if (!submission) return { state: "idle", wait: null, outcome: { kind: "cancelled", failed: false } };
+	const status = await submission.status(host.context);
+	// A row marked idle whose input is still queued is a crash between input and state write: it is running.
+	if (status.status === "queued" || status.status === "placed") return { state: "running", wait: null, outcome: null };
+	return { state: "idle", wait: null, outcome: subagentOutcome(status) };
+}
+
+/** What an awaiting child waits for: a decision outranks a user approval, and the stored kinds map directly. */
+async function subagentWaitOf(
+	host: RuntimeHost,
+	childId: string,
+	waitingKind: "quota" | "approval" | "authorization" | null,
+): Promise<"approval" | "signature" | "quota" | "decision"> {
+	if (waitingKind === "quota") return "quota";
+	if (waitingKind === "authorization") return "signature";
+	for (const table of ["tasks", "task_groups", "external_calls"] as const) {
+		const routed = await host.db
+			.selectFrom(table)
+			.select("id")
+			.where("actor_id", "=", childId)
+			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "agent")
+			.limit(1)
+			.executeTakeFirst();
+		if (routed) return "decision";
+	}
+	return "approval";
+}
+
+/** A settled run's outcome: an aborted run was cancelled, a model or reset failure is an error. */
+function subagentOutcome(settled: SettledSubmissionRecord): TaskOutcome {
+	if (settled.status === "done") return { kind: "succeeded", failed: false };
+	if (settled.reason === "aborted") return { kind: "cancelled", failed: false };
+	return { kind: "error", failed: true, errorCode: settled.reason, errorMessage: null };
+}
+
+/** The answer of a child whose run ended, for `job_wait`; undefined while it runs or when it gave none. */
+export async function subagentJobAnswer(host: RuntimeHost, childId: string): Promise<string | undefined> {
+	const row = await host.db
+		.selectFrom("sessions")
+		.select("last_submission_id")
+		.where("id", "=", childId)
+		.executeTakeFirst();
+	if (!row?.last_submission_id) return undefined;
+	const submission = await host
+		.harness()
+		.submission(Number(row.last_submission_id) as unknown as SubmissionId, host.context);
+	if (!submission) return undefined;
+	const status = await submission.status(host.context);
+	if (status.status !== "done") return undefined;
+	const answer = await answerOf(host, childId, status);
+	return answer.status === "done" ? answer.answer : undefined;
+}
+
+/**
+ * The requests this child handed to an ancestor's agent, in the block a wait with attention returned, for `job_wait`
+ * on a waiting subagent job. Requests live on their own records; the handler columns name the agent.
+ */
+export async function subagentJobRequestsBlock(host: RuntimeHost, childId: string): Promise<string | undefined> {
+	const handlers = new Set<string>();
+	for (const table of ["tasks", "task_groups", "external_calls"] as const) {
+		const rows = await host.db
+			.selectFrom(table)
+			.select("handler_session_id")
+			.where("actor_id", "=", childId)
+			.where("state", "=", "awaiting_approval")
+			.where("handler_type", "=", "agent")
+			.execute();
+		for (const row of rows) if (row.handler_session_id) handlers.add(row.handler_session_id);
+	}
+	const session = await host.db
+		.selectFrom("sessions")
+		.select(["waiting_kind", "waiting_handler_id"])
+		.where("id", "=", childId)
+		.executeTakeFirst();
+	if (session?.waiting_kind === "quota" && session.waiting_handler_id) handlers.add(session.waiting_handler_id);
+	const requests: AgentRequestView[] = [];
+	for (const handler of handlers) {
+		for (const request of await pendingAgentRequests(host, handler)) {
+			if (request.sessionId === childId) requests.push(request);
+		}
+	}
+	if (requests.length === 0) return undefined;
+	requests.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+	return subagentRequestsBlock(requests);
 }

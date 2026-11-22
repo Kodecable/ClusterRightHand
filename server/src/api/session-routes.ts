@@ -2,8 +2,6 @@ import type { SessionView as ApiSessionView, SessionEntry } from "@crh/api";
 import {
 	ErrorResponseSchema,
 	OkResponseSchema,
-	SessionChildrenQuerySchema,
-	SessionChildrenSummarySchema,
 	SessionCompactBodySchema,
 	SessionCompactResponseSchema,
 	SessionCreateBodySchema,
@@ -36,8 +34,6 @@ import { decideQuota } from "../agent/quota-decision.ts";
 import type { AgentRuntime, SessionView } from "../agent/runtime.ts";
 import {
 	type SessionListScope,
-	sessionChildItem,
-	sessionChildrenQuery,
 	sessionListCursor,
 	sessionListItem,
 	sessionListQuery,
@@ -90,8 +86,7 @@ export interface SessionRoutesOptions {
 }
 
 /**
- * The cursor of both session lists (`GET /sessions` and `GET /sessions/:id/children`):
- * `updated_at desc, id desc`.
+ * The cursor of the root session list (`GET /sessions`): `updated_at desc, id desc`.
  */
 const SESSION_CURSOR: CursorSpec = {
 	columns: [{ name: "sessions.updated_at", type: "string" }],
@@ -204,26 +199,6 @@ const readRoute = defineRoute({
 	agent: "ask", // a mutation, if a harmless one
 	request: { params: SessionIdParamSchema },
 	responses: { 204: { description: "Marked read" } },
-});
-
-const childrenRoute = defineRoute({
-	method: "get",
-	path: "/sessions/{id}/children",
-	tags: TAGS,
-	summary: "Page through a session's direct child sessions, newest activity first",
-	agent: "allow",
-	request: { params: SessionIdParamSchema, query: SessionChildrenQuerySchema },
-	responses: { 200: { description: "One page of child sessions", ...json(SessionListResponseSchema) } },
-});
-
-const childrenSummaryRoute = defineRoute({
-	method: "get",
-	path: "/sessions/{id}/children/summary",
-	tags: TAGS,
-	summary: "How many direct child sessions the session has, by their own state",
-	agent: "allow",
-	request: { params: SessionIdParamSchema },
-	responses: { 200: { description: "The child counts", ...json(SessionChildrenSummarySchema) } },
 });
 
 const sharesRoute = defineRoute({
@@ -616,61 +591,6 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 			.execute();
 		runtime.sessionList.publishSession(rootId);
 		return c.body(null, 204);
-	});
-
-	/**
-	 * The session's direct child sessions (subagents), newest activity first, one keyset page at a time
-	 * (doc/design/webui.md "API conventions"). Visibility is `GET /sessions/:id`'s: a share on a session reaches its subagents,
-	 * so every child of a visible session is visible and the items need no per-child check. Unlike the root
-	 * list, an item carries the child's own state and its `parentSessionId`. The session list stream carries
-	 * roots only; a page refetches its children on its session's `snapshot`, on a `tool_execution_update` /
-	 * `tool_execution_end` of the `subagent` tool (the update's `details.sessionId` names the new child), and on
-	 * its tree root's `upsert` on `/api/sessions/stream`, which every session in the tree republishes.
-	 */
-	app.openapi(childrenRoute, async (c) => {
-		const { id } = c.req.valid("param");
-		const query = c.req.valid("query");
-		const v = await requireSession(c, id);
-		const limit = parseLimit(query.limit);
-		const rawCursor = query.cursor;
-		const cursor = rawCursor === undefined ? undefined : decodeCursor(rawCursor, SESSION_CURSOR);
-		const page = await cursorRows(
-			limit,
-			async (limitPlusOne) => (await sessionChildrenQuery(db, v.session.id, cursor)).limit(limitPlusOne).execute(),
-			(row) => sessionListCursor(row.updated_at, row.id),
-		);
-		return c.json(
-			{
-				items: page.rows.map((row) => sessionChildItem(row, c.get("user").userId, v.shared)),
-				nextCursor: page.nextCursor,
-			},
-			200,
-		);
-	});
-
-	/**
-	 * How many direct child sessions this session has, by their own state, for the compact children bar
-	 * (doc/design/webui.md "Subagent bar"). The count must not require every page of the children list, so it is its own
-	 * endpoint; visibility is `GET /sessions/:id`'s.
-	 */
-	app.openapi(childrenSummaryRoute, async (c) => {
-		const { id } = c.req.valid("param");
-		const v = await requireSession(c, id);
-		const rows = await db
-			.selectFrom("sessions")
-			.select(["state"])
-			.select((eb) => eb.fn.countAll<string>().as("count"))
-			.where("parent_session_id", "=", v.session.id)
-			.groupBy("state")
-			.execute();
-		const states: Record<"idle" | "running" | "awaiting", number> = { idle: 0, running: 0, awaiting: 0 };
-		let total = 0;
-		for (const row of rows) {
-			const count = Number(row.count);
-			total += count;
-			if (row.state === "idle" || row.state === "running" || row.state === "awaiting") states[row.state] += count;
-		}
-		return c.json({ total, states }, 200);
 	});
 
 	app.openapi(sharesRoute, async (c) => {

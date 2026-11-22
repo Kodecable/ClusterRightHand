@@ -171,10 +171,14 @@ async function generateTitle(host: RuntimeHost, sessionId: string, submissionId:
 
 	const conversation = await conversationOf(host, row);
 	if (!conversation) return;
+	const submissionEntry = await conversation
+		.entries({ minEntryId: settled.entry, maxEntryId: settled.entry, order: "ascending" }, 1, undefined, host.context)
+		.then((page) => page.items[0]);
+	// Only a real user message titles a session: a `crh.notice` wake is not one, so the title stays pending for
+	// the next user turn (doc/design/jobs.md "Completion notices").
+	if (submissionEntry?.kind !== "pi.user" && submissionEntry?.kind !== "crh.user_input") return;
 	const [userEntry, answerEntry] = await Promise.all([
-		conversation
-			.entries({ minEntryId: settled.entry, maxEntryId: settled.entry, order: "ascending" }, 1, undefined, host.context)
-			.then((page) => page.items[0]),
+		Promise.resolve(submissionEntry),
 		conversation
 			.entries(
 				{ minEntryId: settled.answer, maxEntryId: settled.answer, order: "ascending" },

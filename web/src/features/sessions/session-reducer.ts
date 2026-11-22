@@ -85,7 +85,16 @@ export const initialState: SessionState = {
 	historyCursor: null,
 };
 
-const SHOWN_KINDS = new Set(["pi.user", "pi.assistant", "pi.tool-result", "pi.compaction", "crh.user_input"]);
+const SHOWN_KINDS = new Set([
+	"pi.user",
+	"pi.assistant",
+	"pi.tool-result",
+	"pi.compaction",
+	"crh.user_input",
+	// A completion notice or request wake is an input the agent reads, never a message the user sent
+	// (doc/design/jobs.md "Completion notices").
+	"crh.notice",
+]);
 
 type ShownEntry = SessionState["entries"][number];
 

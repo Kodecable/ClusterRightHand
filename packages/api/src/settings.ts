@@ -12,6 +12,7 @@ import type {
 	SystemSettingsAuthSchema,
 	SystemSettingsDirectoryCopySchema,
 	SystemSettingsImageCacheSchema,
+	SystemSettingsJobsSchema,
 	SystemSettingsPatchSchema,
 	SystemSettingsResponseSchema,
 	SystemSettingsRetentionSchema,
@@ -40,6 +41,9 @@ export type SystemSettingsDirectoryCopy = z.infer<typeof SystemSettingsDirectory
 
 /** How many skills a session's system prompt lists (doc/design/library.md "Skills"). */
 export type SystemSettingsSkills = z.infer<typeof SystemSettingsSkillsSchema>;
+
+/** The job limits of a session (doc/design/jobs.md); `System settings` in the WebUI. */
+export type SystemSettingsJobs = z.infer<typeof SystemSettingsJobsSchema>;
 
 /** The settings administrators edit in System settings. */
 export type SystemSettings = z.infer<typeof SystemSettingsSchema>;

@@ -565,6 +565,7 @@ export async function syncGroupState(core: ClusterCore, groupId: string | null):
 		.where("id", "=", groupId)
 		.where("state", "=", group.state)
 		.execute();
+	core.onGroupChanged?.(groupId);
 }
 
 /** Re-derives the state of the task's group after the task settled. */

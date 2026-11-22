@@ -11,6 +11,7 @@ import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -55,6 +56,7 @@ describe("startup reconciliation", () => {
 
 	const openWith = async (storage: Storage): Promise<AgentRuntime> =>
 		AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db: localDb,
 			storage,
 			models,
@@ -219,6 +221,7 @@ describe("startup reconciliation", () => {
 	it("reconciles and re-arms the watches when #supervise reopens the Harness", async () => {
 		const storage = failingStorage();
 		const first = await AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db: localDb,
 			storage: storage.factory,
 			models,
@@ -263,6 +266,7 @@ describe("startup reconciliation", () => {
 	it("ends the waits of a session the reopen reconciles to idle", async () => {
 		const storage = failingStorage();
 		const first = await AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db: localDb,
 			storage: storage.factory,
 			models,

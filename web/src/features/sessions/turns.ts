@@ -77,8 +77,10 @@ function trailingErrors(items: readonly TranscriptItem[]): number {
 export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionActive: boolean): TranscriptTurn[] {
 	const groups: { user: UserItem | undefined; body: TranscriptItem[] }[] = [];
 	for (const item of items) {
-		if (item.kind === "user") {
-			groups.push({ user: item, body: [] });
+		// A notice starts the turn it woke, so it neither lands after the previous turn's final answer nor
+		// unfolds that turn. It is not a user message: the group has no user row (doc/design/jobs.md "Display").
+		if (item.kind === "user" || item.kind === "notice") {
+			groups.push({ user: item.kind === "user" ? item : undefined, body: item.kind === "notice" ? [item] : [] });
 			continue;
 		}
 		let group = groups.at(-1);
@@ -105,7 +107,9 @@ export function buildTranscriptTurns(items: readonly TranscriptItem[], sessionAc
 			group.user?.at !== undefined && final?.at !== undefined && final.durationMs !== undefined
 				? Math.max(0, final.at + final.durationMs - group.user.at)
 				: undefined;
-		const foldable = ended && final !== undefined && process.length > 0 && durationMs !== undefined;
+		// A turn a notice woke stays open: the notice line is the turn's first row and is never folded away.
+		const hasNotice = group.body.some((item) => item.kind === "notice");
+		const foldable = ended && final !== undefined && process.length > 0 && durationMs !== undefined && !hasNotice;
 		const errors = index === groups.length - 1 ? trailingErrors(group.body) : 0;
 		const retryAttempt = sessionActive && errors > 0 ? errors + 1 : undefined;
 		return {

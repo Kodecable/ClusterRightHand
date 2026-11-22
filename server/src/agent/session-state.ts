@@ -36,13 +36,14 @@ export async function sessionStateOf(db: Db, sessionId: string): Promise<Session
  *
  * With `onlyIfLive`, a session that is `idle` is left alone and `applied` is false: a recompute must never turn
  * idle back into `running` or `awaiting`, only a new input does that (doc/design/agent-runtime.md "Session state").
+ * `onChange` runs after a write applied, so the runtime can project the subagent jobs watching this session.
  */
 export async function setSessionState(
 	db: Db,
 	sessionId: string,
 	state: SessionState,
 	wait: SessionWait | null,
-	options: { onlyIfLive?: boolean } = {},
+	options: { onlyIfLive?: boolean; onChange?: (sessionId: string) => void } = {},
 ): Promise<SessionStateWrite> {
 	const row = await db
 		.selectFrom("sessions")
@@ -85,11 +86,16 @@ export async function setSessionState(
 	const res = await update.executeTakeFirst();
 	if (res.numUpdatedRows === 0n) return { since: "", applied: false };
 	await recordTreeReply(db, sessionId, row.state, state);
+	options.onChange?.(sessionId);
 	return { since: at, applied: true };
 }
 
 /** Ends the runs of these sessions (abort, or a denied quota wait): they become idle until a new input. */
-export async function markSessionsIdle(db: Db, sessionIds: readonly string[]): Promise<void> {
+export async function markSessionsIdle(
+	db: Db,
+	sessionIds: readonly string[],
+	onChange?: (sessionId: string) => void,
+): Promise<void> {
 	if (sessionIds.length === 0) return;
 	// The running ones may leave their tree without output, which is a reply for the owner; read them before
 	// the write, because it changes them all to idle.
@@ -100,7 +106,7 @@ export async function markSessionsIdle(db: Db, sessionIds: readonly string[]): P
 		.where("state", "=", "running")
 		.execute();
 	const at = new Date().toISOString();
-	await db
+	const changed = await db
 		.updateTable("sessions")
 		.set({
 			state: "idle",
@@ -112,8 +118,10 @@ export async function markSessionsIdle(db: Db, sessionIds: readonly string[]): P
 		})
 		.where("id", "in", [...sessionIds])
 		.where("state", "!=", "idle")
+		.returning("id")
 		.execute();
 	for (const row of running) await recordTreeReply(db, row.id, "running", "idle");
+	if (onChange) for (const row of changed) onChange(row.id);
 }
 
 /**

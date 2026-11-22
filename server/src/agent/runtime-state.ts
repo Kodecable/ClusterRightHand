@@ -56,7 +56,10 @@ async function refreshStateOnce(host: RuntimeHost, sessionId: string): Promise<S
 	const desired = await desiredState(host, row, settled);
 	// The write is conditional on the row still being live: the run may have settled while the reads above
 	// ran, and a recompute must not revive it (doc/design/agent-runtime.md "Session state").
-	const write = await setSessionState(host.db, sessionId, desired.state, desired.wait, { onlyIfLive: true });
+	const write = await setSessionState(host.db, sessionId, desired.state, desired.wait, {
+		onlyIfLive: true,
+		onChange: (id) => host.jobs?.sessionChanged(id),
+	});
 	if (!write.applied) return "idle";
 	host.sessionList.publishSession(sessionId);
 	// Approval/quota changes alter the handler's inbox; write-state and cache invalidation are adjacent.
@@ -64,7 +67,11 @@ async function refreshStateOnce(host: RuntimeHost, sessionId: string): Promise<S
 		row.state !== desired.state ||
 		row.waiting_kind !== (desired.wait?.kind ?? null) ||
 		row.waiting_level_id !== (desired.wait?.levelId ?? null);
-	if (changed) host.inboxes.clear();
+	if (changed) {
+		host.inboxes.clear();
+		// A quiet waiter blocked on the row must re-read it.
+		host.noticeActivity.notify(sessionId);
+	}
 	// A refresh can change which waits exist while the session's state stays `awaiting` (one approval ends and
 	// another remains); the channel messages follow the rows, so every computation is reported.
 	host.stateChanged?.(sessionId);
@@ -324,6 +331,9 @@ export async function settleInput(
 		.where("last_submission_id", "=", submissionId)
 		.execute();
 	if (row.state === "running") await recordTreeReply(host.db, sessionId, "running", "idle");
+	// A subagent's job follows its stored run state (doc/design/jobs.md "States"); a quiet waiter re-reads it.
+	host.jobs?.sessionChanged(sessionId);
+	host.noticeActivity.notify(sessionId);
 	host.sessionList.publishSession(sessionId);
 	host.stateChanged?.(sessionId);
 	host.inboxes.forget(sessionId);
@@ -359,6 +369,13 @@ export async function endSessionWork(
 	if (sessions.length === 0) return;
 	const { includeRunning, by } = options;
 	const actor = by ? { type: "user" as const, id: by.userId, onBehalfOfUserId: by.userId } : undefined;
+	// A live job holds its record's wait: the run that started a background task may end, but the task's approval
+	// or signature is not an orphan, the job still needs it (doc/design/jobs.md "Lifecycle and retention").
+	const held = includeRunning ? undefined : await liveJobResources(host, sessions);
+	// Stopping a session stops its work: its in-flight extension calls get an MCP cancellation (and a call
+	// still waiting for approval is cancelled, since it never reached the server). A run that ends normally
+	// leaves its background calls running, like its tasks (doc/design/jobs.md "Lifecycle").
+	if (includeRunning) await host.callRunner.abortSessions(sessions, reason);
 	const waiting = ["awaiting_approval", "awaiting_authorization"] as const;
 	const live = ["dispatched", "running"] as const;
 	const tasks = await host.db
@@ -367,6 +384,7 @@ export async function endSessionWork(
 		.where("actor_id", "in", sessions)
 		.where("task_group_id", "is", null)
 		.where("state", "in", includeRunning ? [...waiting, ...live] : [...waiting])
+		.$if(held !== undefined && held.tasks.size > 0, (query) => query.where("id", "not in", [...(held?.tasks ?? [])]))
 		.execute();
 	for (const row of tasks) {
 		await host.cluster.cancelTask(row.id, reason, actor);
@@ -384,15 +402,41 @@ export async function endSessionWork(
 			await host.taskGroups.cancel(group.id, reason, actor);
 			continue;
 		}
+		// A live job of this group keeps its wait too.
+		if (held?.groups.has(group.id)) continue;
 		// The run ended normally: a background group keeps running, but its signature waits are over.
 		const members = await host.db
 			.selectFrom("tasks")
 			.select("id")
 			.where("task_group_id", "=", group.id)
 			.where("state", "=", "awaiting_authorization")
+			.$if(held !== undefined && held.tasks.size > 0, (query) => query.where("id", "not in", [...(held?.tasks ?? [])]))
 			.execute();
 		for (const t of members) await host.cluster.cancelTask(t.id, reason, actor);
 	}
+}
+
+/**
+ * The task and task-group records an unsettled job of these sessions holds: their waits must survive the run end
+ * (doc/design/jobs.md "Lifecycle and retention"). Calls are not ended at a run end at all.
+ */
+async function liveJobResources(
+	host: RuntimeHost,
+	sessions: readonly string[],
+): Promise<{ tasks: Set<string>; groups: Set<string> }> {
+	const rows = await host.db
+		.selectFrom("jobs")
+		.select(["resource_type", "resource_id"])
+		.where("session_id", "in", [...sessions])
+		.where("state", "!=", "settled")
+		.execute();
+	const tasks = new Set<string>();
+	const groups = new Set<string>();
+	for (const row of rows) {
+		if (row.resource_type === "task") tasks.add(row.resource_id);
+		else if (row.resource_type === "task_group") groups.add(row.resource_id);
+	}
+	return { tasks, groups };
 }
 
 /**

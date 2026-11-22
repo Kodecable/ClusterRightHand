@@ -7,6 +7,8 @@
  * is a compile error there instead of a silent WebUI break.
  */
 
+import type { JobView } from "./jobs.ts";
+
 /** A JSON value as it appears on the wire. */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -174,7 +176,12 @@ export type SessionEvent =
 	| { type: "auto_retry_end"; attempt: number }
 	| { type: "task_failed"; taskId: number; kind: string; message: string }
 	| { type: "compaction_start"; taskId: number; reason: CompactionReason; blocking: boolean }
-	| { type: "compaction_end"; taskId: number; reason: CompactionReason; error?: string };
+	| { type: "compaction_end"; taskId: number; reason: CompactionReason; error?: string }
+	/**
+	 * A job of this session changed projection (doc/design/jobs.md "API"). The session page's background bar
+	 * follows it; the transcript reducer ignores it. Jobs started by a subagent belong to the child's stream.
+	 */
+	| { type: "job.changed"; job: JobView };
 
 /** `GET /api/sessions/:id/entries`: one page of older entries, oldest first. */
 export interface SessionEntriesPage {

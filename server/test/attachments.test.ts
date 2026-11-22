@@ -11,6 +11,7 @@ import { AgentRuntime } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
 import { TaskGroups } from "../src/cluster/task-groups.ts";
+import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { createLibraryBackend, type LibraryBackend } from "../src/library/backend.ts";
 import { beginLibraryUpload } from "../src/library/files.ts";
@@ -57,6 +58,7 @@ describe("chat attachments", () => {
 		models.addProvider(faux.provider);
 		await models.reload();
 		runtime = await AgentRuntime.open({
+			callRunner: new CallRunner(),
 			db,
 			storage: new MemoryStorage(),
 			models,

@@ -5,6 +5,7 @@ import { renderWithI18n } from "@/test/render";
 import { Transcript } from "./transcript";
 import type { TranscriptItem } from "./transcript-items";
 import { TranscriptStreams } from "./transcript-streams";
+import { buildTranscriptTurns } from "./turns";
 
 // jsdom has no layout: render the virtualized rows directly so the anchor logic
 // can be driven with explicit rectangles.
@@ -290,4 +291,21 @@ test("the owner's fork action sits under an ended turn's final reply only", () =
 		/>,
 	);
 	expect(screen.queryByRole("button", { name: "Fork from here" })).not.toBeInTheDocument();
+});
+
+test("a notice line starts its own turn, so the previous turn still folds and the notice stays visible", () => {
+	const items: TranscriptItem[] = [
+		{ kind: "user", key: "u1", text: "hi", at: 0 },
+		{ kind: "thinking", key: "th1", text: "thinking", streaming: false },
+		{ kind: "text", key: "a1", text: "done", streaming: false, final: true, at: 1_000, durationMs: 1_000 },
+		{ kind: "notice", key: "n1", notice: { type: "agent_request" } },
+		{ kind: "text", key: "a2", text: "woken answer", streaming: false, final: true, at: 2_000, durationMs: 1_000 },
+	];
+	const turns = buildTranscriptTurns(items, false);
+	expect(turns).toHaveLength(2);
+	expect(turns[0]?.foldable).toBe(true);
+	expect(turns[0]?.body.map((item) => item.kind)).toEqual(["thinking", "text"]);
+	expect(turns[1]?.user).toBeUndefined();
+	expect(turns[1]?.body.map((item) => item.kind)).toEqual(["notice", "text"]);
+	expect(turns[1]?.foldable).toBe(false);
 });

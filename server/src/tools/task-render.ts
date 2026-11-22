@@ -16,8 +16,13 @@ import { MAX_OUTPUT_BYTES, type NodePrivilege, type NodeTransport, type Started 
 // ---- details for the UI ----
 
 /** One task's details, the shape the WebUI's tool cards read today (doc/design/agent-runtime.md "Tool output"). */
-export function taskDetails(task: TaskView, nodeName: string): Record<string, unknown> {
-	const out: Record<string, unknown> = { task_id: task.id, node: nodeName, state: task.state };
+export function taskDetails(task: TaskView, nodeName: string, jobId?: string): Record<string, unknown> {
+	const out: Record<string, unknown> = {
+		...(jobId === undefined ? {} : { job_id: jobId }),
+		task_id: task.id,
+		node: nodeName,
+		state: task.state,
+	};
 	// The card colours its result from the server's own classification, never from the raw flags.
 	if (task.outcome !== null) out.outcome = task.outcome;
 	if (task.privileged) out.privileged = true;
@@ -30,8 +35,13 @@ export function taskDetails(task: TaskView, nodeName: string): Record<string, un
 }
 
 /** A task group's details: the group state and one detail per node. */
-export function groupDetails(group: TaskGroupView, names: Map<string, string>): Record<string, unknown> {
+export function groupDetails(
+	group: TaskGroupView,
+	names: Map<string, string>,
+	jobId?: string,
+): Record<string, unknown> {
 	const out: Record<string, unknown> = {
+		...(jobId === undefined ? {} : { job_id: jobId }),
 		task_group_id: group.id,
 		state: group.state,
 		nodes: group.tasks.map((task) => taskDetails(task, names.get(task.nodeId) ?? task.nodeId)),
@@ -192,9 +202,9 @@ function isRunning(task: TaskView): boolean {
 	return task.state === "dispatched" || task.state === "running";
 }
 
-/** The note of a non-final task, with the id only for background-waitable tools (exec). */
-function waitingLine(task: TaskView, label: string, ctx: ToolContext, exposeId: boolean): string | undefined {
-	const followUp = exposeId ? `task_id ${task.id}. Call task_wait with this task_id.` : undefined;
+/** The note of a non-final task; a job-backed tool (exec) names the job to follow. */
+function waitingLine(task: TaskView, label: string, ctx: ToolContext, jobId?: string): string | undefined {
+	const followUp = jobId === undefined ? undefined : `job ${jobId}: call job_wait with this id`;
 	if (task.state === "awaiting_approval") {
 		const fields = [label, `waiting for approval: ${ctx.approvalUrl("task", task.id)}`];
 		if (followUp !== undefined) fields.push(followUp);
@@ -267,13 +277,14 @@ export function execTaskResult(
 	nodeName: string,
 	transport: NodeTransport = "client",
 	privilege?: NodePrivilege,
+	jobId?: string,
 ): ToolResult {
-	const details = taskDetails(task, nodeName);
+	const details = taskDetails(task, nodeName, jobId);
 	// with_output: false keeps only the status; the model gets JSON, like a status batch.
 	if (task.outputMode === "status") {
-		return jsonResult(statusNode(ctx, task, nodeName), { isError: taskFailed(task), details });
+		return jsonResult(statusNode(ctx, task, nodeName, jobId), { isError: taskFailed(task), details });
 	}
-	const waiting = waitingLine(task, nodeName, ctx, true);
+	const waiting = waitingLine(task, nodeName, ctx, jobId);
 	if (waiting !== undefined) {
 		// A long-running task still returns the output it has produced so far (doc/design/agent-runtime.md "exec tool semantics").
 		const { text } = taskSourceText(task);
@@ -292,11 +303,11 @@ export function execTaskResult(
 	return textResult([{ output: text, note }], { isError: taskFailed(task), details });
 }
 
-/** The leading note of a text task group: id (unless the tool hides ids), node count, success/failure counts. */
+/** The leading note of a text task group: the job id when job-backed, node count, success/failure counts. */
 export function groupTextNote(
 	ctx: ToolContext,
 	group: TaskGroupView,
-	exposeId: boolean,
+	jobId?: string,
 	counts?: { succeeded: number; failed: number },
 ): string {
 	const succeeded =
@@ -304,7 +315,7 @@ export function groupTextNote(
 	const failed = counts?.failed ?? group.tasks.filter((task) => task.outcome?.failed ?? taskFailed(task)).length;
 	const expired = group.tasks.filter((task) => (task.outcome ?? taskOutcome(task))?.kind === "expired").length;
 	// A waiting group has no tasks yet but already knows its nodes: count the nodes it targets.
-	const fields = [`task group${exposeId ? ` ${group.id}` : ""}`, `${group.nodeIds.length} nodes`];
+	const fields = ["task group", `${group.nodeIds.length} nodes`];
 	fields.push(`${succeeded} succeeded`, `${failed} failed`);
 	if (expired > 0) fields.push(`${expired} expired`);
 	if (group.skipped.length > 0) fields.push(`${group.skipped.length} skipped`);
@@ -319,8 +330,8 @@ export function groupTextNote(
 	} else if (group.state === "interrupted" || group.state === "rejected") {
 		fields.push(group.state);
 	}
-	if (exposeId && !GROUP_TERMINAL.has(group.state)) {
-		fields.push(`task_group_id ${group.id}. Call task_wait with this task_group_id.`);
+	if (jobId !== undefined && !GROUP_TERMINAL.has(group.state)) {
+		fields.push(`job ${jobId}: call job_wait with this id`);
 	}
 	return noteLine(fields);
 }
@@ -332,13 +343,14 @@ function groupTextResult(
 	names: Map<string, string>,
 	transports?: Map<string, NodeTransport>,
 	privileges?: Map<string, NodePrivilege>,
+	jobId?: string,
 ): ToolResult {
-	const blocks: TextBlock[] = [{ note: groupTextNote(ctx, group, true) }];
+	const blocks: TextBlock[] = [{ note: groupTextNote(ctx, group, jobId) }];
 	for (const task of group.tasks) {
 		const nodeName = names.get(task.nodeId) ?? task.nodeId;
 		const transport = transports?.get(task.nodeId) ?? "client";
 		const privilege = privileges?.get(task.nodeId);
-		const waiting = waitingLine(task, nodeName, ctx, false);
+		const waiting = waitingLine(task, nodeName, ctx);
 		if (waiting !== undefined) {
 			const { text } = taskSourceText(task);
 			const note = [waiting, noticeLine(task, privilege)]
@@ -358,14 +370,16 @@ function groupTextResult(
 			.join("\n");
 		blocks.push({ output: text, note });
 	}
-	return textResult(blocks, { isError: groupFailed(group), details: groupDetails(group, names) });
+	return textResult(blocks, { isError: groupFailed(group), details: groupDetails(group, names, jobId) });
 }
 
 // ---- exec status (JSON) ----
 
 /** One node of an exec status group: status, exit and the full output file. */
-function statusNode(ctx: ToolContext, task: TaskView, nodeName: string): Record<string, unknown> {
-	const out = taskDetails(task, nodeName);
+function statusNode(ctx: ToolContext, task: TaskView, nodeName: string, jobId?: string): Record<string, unknown> {
+	const out = taskDetails(task, nodeName, jobId);
+	// The status is model-facing: the job id names the handle, the task id stays in details for the WebUI.
+	delete out.task_id;
 	if (task.notice !== null) out.notice = task.notice;
 	const late = lateResultText(task);
 	if (late !== undefined) out.late_result = late;
@@ -373,7 +387,7 @@ function statusNode(ctx: ToolContext, task: TaskView, nodeName: string): Record<
 		out.output_file = task.outputFile;
 		out.note = "full output is on the node; read it with read_file";
 	} else if (isRunning(task)) {
-		out.next = "still running: call task_wait with this task_id";
+		out.next = "still running: call job_wait with this job_id";
 	} else if (task.state !== "unknown" && (task.exitCode !== null || task.signal !== null)) {
 		out.note = "no output file was reported; SSH nodes keep no output";
 	}
@@ -381,14 +395,23 @@ function statusNode(ctx: ToolContext, task: TaskView, nodeName: string): Record<
 	return out;
 }
 
-function execGroupStatusResult(ctx: ToolContext, group: TaskGroupView, names: Map<string, string>): ToolResult {
-	const value: Record<string, unknown> = { task_group_id: group.id, state: group.state };
+function execGroupStatusResult(
+	ctx: ToolContext,
+	group: TaskGroupView,
+	names: Map<string, string>,
+	jobId?: string,
+): ToolResult {
+	// The status is model-facing: the job id names the handle, the group id stays in details for the WebUI.
+	const value: Record<string, unknown> = {
+		...(jobId === undefined ? {} : { job_id: jobId }),
+		state: group.state,
+	};
 	if (group.privileged) value.privileged = true;
 	if (group.state === "awaiting_approval") {
 		value.approval = {
 			status: "waiting for the user's approval",
 			url: ctx.approvalUrl("task_group", group.id),
-			next: "call task_wait with this task_group_id to keep waiting",
+			next: "call job_wait with this job_id to keep waiting",
 		};
 	}
 	if (group.state === "awaiting_authorization") {
@@ -398,31 +421,30 @@ function execGroupStatusResult(ctx: ToolContext, group: TaskGroupView, names: Ma
 			url: ctx.taskGroupUrl?.(group.id) ?? `/task-groups/${group.id}`,
 			nodes: waiting.map((task) => names.get(task.nodeId) ?? task.nodeId),
 			tasks: waiting.map((task) => ({
-				task_id: task.id,
 				node: names.get(task.nodeId) ?? task.nodeId,
 				...(ctx.taskUrl ? { url: ctx.taskUrl(task.id) } : {}),
 			})),
-			next: "the owner signs once for the whole group in the WebUI; call task_wait with this task_group_id to keep waiting",
+			next: "the owner signs once for the whole group in the WebUI; call job_wait with this job_id to keep waiting",
 		};
 	}
-	value.nodes = group.tasks.map((task) => statusNode(ctx, task, names.get(task.nodeId) ?? task.nodeId));
+	value.nodes = group.tasks.map((task) => statusNode(ctx, task, names.get(task.nodeId) ?? task.nodeId, jobId));
 	if (group.skipped.length > 0) value.skipped = group.skipped.map((id) => names.get(id) ?? id);
-	if (group.state === "running") value.next = "still running: call task_wait with this task_group_id";
-	return jsonResult(value, { isError: groupFailed(group), details: groupDetails(group, names) });
+	if (group.state === "running") value.next = "still running: call job_wait with this job_id";
+	return jsonResult(value, { isError: groupFailed(group), details: groupDetails(group, names, jobId) });
 }
 
 /**
  * A started exec call as the model sees it: a single task is text, a group follows its `output` mode
  * (`status` JSON by default, `text` otherwise).
  */
-export function execResult(ctx: ToolContext, started: Started): ToolResult {
+export function execResult(ctx: ToolContext, started: Started, jobId: string | undefined = started.jobId): ToolResult {
 	if (started.kind === "task") {
-		return execTaskResult(ctx, started.task, started.nodeName, started.transport, started.privilege);
+		return execTaskResult(ctx, started.task, started.nodeName, started.transport, started.privilege, jobId);
 	}
 	const { taskGroup, names, transports, privileges } = started;
 	return taskGroup.outputMode === "text"
-		? groupTextResult(ctx, taskGroup, names, transports, privileges)
-		: execGroupStatusResult(ctx, taskGroup, names);
+		? groupTextResult(ctx, taskGroup, names, transports, privileges, jobId)
+		: execGroupStatusResult(ctx, taskGroup, names, jobId);
 }
 
 // ---- file results (JSON for everything but read_file) ----
@@ -587,7 +609,7 @@ function readPage(
 	const privileged = privilegeField(task, privilege);
 	const noteFor = (fields: string[]): string => noteLine(privileged === undefined ? fields : [...fields, privileged]);
 	if (isWaiting(task) || isRunning(task)) {
-		return { output: "", note: waitingLine(task, label, ctx, false) ?? taskStatusLine(task, label, privilege) };
+		return { output: "", note: waitingLine(task, label, ctx) ?? taskStatusLine(task, label, privilege) };
 	}
 	if (task.state !== "exited" || task.errorCode !== null) {
 		const status = taskStatusLine(task, label, privilege);
@@ -674,7 +696,7 @@ export function readGroupResult(
 	const failedPages = pages.filter(({ task, page }) => taskFailed(task) || page.error !== undefined).length;
 	const blocks: TextBlock[] = [
 		{
-			note: groupTextNote(ctx, group, false, {
+			note: groupTextNote(ctx, group, undefined, {
 				succeeded: pages.length - failedPages,
 				failed: failedPages,
 			}),

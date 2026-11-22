@@ -1,7 +1,8 @@
-import { type ApprovalRequest, quotaStatus } from "@crh/api";
+import { type ApprovalRequest, type JobNotice, quotaStatus } from "@crh/api";
 import { describe, expect, it } from "vitest";
 import { type ChatCard, renderCard, renderCardLine, TELEGRAM_LINE_BREAK } from "../src/channels/card.ts";
 import { displaySessionTitle, messagesFor } from "../src/channels/messages.ts";
+import { markdownEscapesToText } from "../src/channels/plain-text.ts";
 
 const request = (overrides: Partial<ApprovalRequest> = {}): ApprovalRequest => ({
 	kind: "task",
@@ -72,6 +73,68 @@ describe("chat cards", () => {
 		expect(plain(card)).not.toContain("**");
 		expect(plain(card)).not.toContain("`");
 		expect(telegram(card)).not.toContain("**Approval needed** · privileged\\\nNodes:\\");
+	});
+
+	it("adds one job line, with the job's action only when it differs from the card's", () => {
+		const sameAction = request({
+			job: { id: "exec-3f2a1b2c3d4e5f6a", kind: "exec", action: { type: "exec", command: "rm -rf /var/log/old/*.gz" } },
+		});
+		const same = messagesFor("en").approvalCard(sameAction, { withButtons: false, withSource: false });
+		expect(same.job).toBe("Job: exec exec-3f2a1b2c3d4e5f6a");
+		expect(plain(same)).toBe(
+			[
+				"Approval needed · privileged",
+				"Nodes: app-1, db-1",
+				"Job: exec exec-3f2a1b2c3d4e5f6a",
+				"🟡 Medium risk · deletion exceeds the instruction",
+				"rm -rf /var/log/old/*.gz",
+				"",
+				"/approve task-1",
+				"/reject task-1 [reason]",
+			].join("\n"),
+		);
+		expect(telegram(same)).toContain("Job: exec exec\\-3f2a1b2c3d4e5f6a");
+
+		const differentAction = request({
+			action: { type: "api_request", method: "GET", path: "/api/nodes" },
+			job: { id: "call-abc123", kind: "call", action: { type: "exec", command: "echo *hi*" } },
+		});
+		const different = messagesFor("en").approvalCard(differentAction, { withButtons: false, withSource: false });
+		expect(different.job).toBe("Job: call call-abc123 · echo *hi*");
+		expect(telegram(different)).toContain("Job: call call\\-abc123 · echo \\*hi\\*");
+		expect(plain(different)).toContain("Job: call call-abc123 · echo *hi*");
+		expect(plain(different)).toContain("GET /api/nodes");
+
+		// A card without a job is unchanged: no line, and the existing exact renderings still hold.
+		const noJob = messagesFor("en").approvalCard(request(), { withButtons: false, withSource: false });
+		expect(noJob.job).toBeUndefined();
+		expect(plain(noJob)).not.toContain("Job:");
+		expect(telegram(noJob)).not.toContain("Job:");
+	});
+
+	it("renders the job line in Chinese, on an approval and on a signature card", () => {
+		const zh = request({
+			job: {
+				id: "call-abc123",
+				kind: "call",
+				action: { type: "extension_tool", extension: "github", tool: "create_issue" },
+			},
+		});
+		const approval = messagesFor("zh-CN").approvalCard(zh, { withButtons: false, withSource: false });
+		expect(approval.job).toBe("后台任务：call call-abc123 · github/create_issue");
+		expect(plain(approval, "zh-CN")).toContain("后台任务：call call-abc123 · github/create_issue");
+		expect(telegram(approval, "zh-CN")).toContain("后台任务：call call\\-abc123 · github/create\\_issue");
+
+		const signature = messagesFor("zh-CN").signatureCard(
+			request({
+				phase: "awaiting_signature",
+				job: { id: "exec-abc123", kind: "exec", action: { type: "exec", command: "rm -rf /tmp/*" } },
+			}),
+			null,
+			{ sign: false, localWindows: [], awaitingNode: false, withButtons: false, withSource: false },
+		);
+		expect(signature.job).toBe("后台任务：exec exec-abc123 · rm -rf /tmp/*");
+		expect(plain(signature, "zh-CN")).toContain("后台任务：exec exec-abc123 · rm -rf /tmp/*");
 	});
 
 	it("adds the source only when no source thread routed the card", () => {
@@ -277,5 +340,30 @@ describe("chat cards", () => {
 		expect(renderCardLine("❌ Rejected · by a.b: not needed", "markdown")).toBe("❌ Rejected · by a\\.b: not needed");
 		expect(renderCardLine("❌ Rejected · by a.b: not needed", "plain")).toBe("❌ Rejected · by a.b: not needed");
 		expect(renderCardLine("Expired", "plain")).toBe("Expired");
+	});
+});
+
+describe("completion notice lines", () => {
+	const notice: JobNotice = {
+		jobId: "call-1",
+		kind: "call",
+		action: { type: "file", operation: "read", path: "docs/a_b*c.txt" },
+		outcome: { kind: "succeeded", failed: false },
+		woke: true,
+	};
+
+	it("renders the Telegram Markdown line with escaped values", () => {
+		expect(messagesFor("en").jobNotice(notice)).toBe(
+			"Background job finished: Read file docs/a\\_b\\*c\\.txt · Done · the agent was woken",
+		);
+	});
+
+	it("renders the same line as plain text on Satori, and localizes it", () => {
+		expect(markdownEscapesToText(messagesFor("en").jobNotice(notice))).toBe(
+			"Background job finished: Read file docs/a_b*c.txt · Done · the agent was woken",
+		);
+		expect(markdownEscapesToText(messagesFor("zh-CN").jobNotice({ ...notice, woke: false }))).toBe(
+			"后台任务已完成：读取文件 docs/a_b*c.txt · 已完成",
+		);
 	});
 });

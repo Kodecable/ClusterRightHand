@@ -9,6 +9,7 @@ import type {
 	ChannelView,
 	CustomModel,
 	Directory,
+	JobView,
 	LibraryFile,
 	LibraryView,
 	ModelPreset,
@@ -88,8 +89,8 @@ export interface FakeState {
 	events: Record<string, SessionEvent[]>;
 	/** The older history page served for `?before=<historyCursor>`. */
 	olderEntries: Record<string, { entries: SessionEntry[]; historyCursor: string | null }>;
-	/** Child sessions by parent id (`GET /api/sessions/:id/children`). */
-	children: Record<string, SessionListItem[]>;
+	/** A session's jobs (`GET /api/jobs?session=…`), newest first. */
+	jobs: Record<string, JobView[]>;
 	approvals: ApprovalList;
 	tasks: TaskView[];
 	nodes: PublicNode[];
@@ -479,7 +480,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		details: {},
 		events: {},
 		olderEntries: {},
-		children: {},
+		jobs: {},
 		approvals: QUOTA_APPROVALS,
 		tasks: [],
 		nodes: [],
@@ -1428,19 +1429,40 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			return json({ session: detail }, 201);
 		}
 
-		const childrenMatch = /^\/api\/sessions\/([^/]+)\/children$/.exec(path);
-		if (childrenMatch && method === "GET") {
-			const id = decodeURIComponent(childrenMatch[1] as string);
-			return json({ items: state.children[id] ?? [], nextCursor: null });
+		if (path === "/api/jobs" && method === "GET") {
+			const session = url.searchParams.get("session") ?? "";
+			const active = url.searchParams.get("active") === "true" || url.searchParams.get("active") === "1";
+			const items = (state.jobs[session] ?? []).filter((job) => !active || job.state !== "settled");
+			return json({ items, nextCursor: null });
 		}
 
-		const childrenSummaryMatch = /^\/api\/sessions\/([^/]+)\/children\/summary$/.exec(path);
-		if (childrenSummaryMatch && method === "GET") {
-			const id = decodeURIComponent(childrenSummaryMatch[1] as string);
-			const items = state.children[id] ?? [];
-			const states = { idle: 0, running: 0, awaiting: 0 };
-			for (const item of items) states[item.state] += 1;
-			return json({ total: items.length, states });
+		const jobMatch = /^\/api\/jobs\/([^/]+)$/.exec(path);
+		if (jobMatch && method === "GET") {
+			const id = decodeURIComponent(jobMatch[1] as string);
+			const job = Object.values(state.jobs)
+				.flat()
+				.find((candidate) => candidate.id === id);
+			return job === undefined ? json({ error: "no such job" }, 404) : json({ job });
+		}
+
+		const jobCancelMatch = /^\/api\/jobs\/([^/]+)\/cancel$/.exec(path);
+		if (jobCancelMatch && method === "POST") {
+			const id = decodeURIComponent(jobCancelMatch[1] as string);
+			for (const jobs of Object.values(state.jobs)) {
+				const index = jobs.findIndex((job) => job.id === id);
+				if (index < 0) continue;
+				const job = jobs[index] as JobView;
+				const settled: JobView = {
+					...job,
+					state: "settled",
+					wait: null,
+					outcome: { kind: "cancelled", failed: false },
+					settledAt: new Date().toISOString(),
+				};
+				jobs[index] = settled;
+				return json({ cancelled: true, job: settled });
+			}
+			return json({ error: "no such job" }, 404);
 		}
 
 		const forkMatch = /^\/api\/sessions\/([^/]+)\/fork$/.exec(path);
