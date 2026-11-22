@@ -187,7 +187,6 @@ export async function createTask(core: ClusterCore, input: CreateTaskInput): Pro
 		notice: null,
 		result: null,
 		output_file: null,
-		late_result: null,
 		rule_chain: input.chain ? JSON.stringify(input.chain) : null,
 		approval: approval ? JSON.stringify(approval) : null,
 		// An empty but present input has always been stored as "" here; the helper uses null for no bytes.

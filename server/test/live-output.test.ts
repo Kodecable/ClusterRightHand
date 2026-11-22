@@ -104,7 +104,6 @@ describe("live output budgets", () => {
 				output_tail: null,
 				notice: null,
 				output_file: null,
-				late_result: null,
 				rule_chain: null,
 				approval: null,
 				pending_input: null,
@@ -190,8 +189,12 @@ describe("live output budgets", () => {
 		await onExit(core, conn, exit);
 
 		expect(core.budgets.size).toBe(0);
-		const row = await db.selectFrom("tasks").select("late_result").where("id", "=", taskId).executeTakeFirstOrThrow();
-		expect(row.late_result).not.toBeNull();
+		const row = await db
+			.selectFrom("tasks")
+			.select(["state", "error_code", "exit_code", "signal", "output_bytes"])
+			.where("id", "=", taskId)
+			.executeTakeFirstOrThrow();
+		expect(row).toMatchObject({ state: "unknown", error_code: null, exit_code: 0, signal: null, output_bytes: 0 });
 	});
 
 	it("records an exit that reports only the delivered output prefix", async () => {

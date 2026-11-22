@@ -450,7 +450,6 @@ describe("node file browsing", () => {
 					output_lines: null,
 					output_file: null,
 					result: null,
-					late_result: null,
 					transfer: null,
 					purpose: task.purpose,
 				})

@@ -385,8 +385,43 @@ async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise
 	});
 }
 
+/**
+ * Confirms whether a node that reconnected after our task.start failed with ConnectionError knows the
+ * task (cluster/task-start.ts). Its hello either already settled the row or still will; but when hello
+ * ran before this row was claimed its open-task query missed the row, and a ready link disarms the
+ * reconnect grace, so nothing else would ever settle the row. The answer goes through the same onStatus
+ * path as hello's queries. Without a ready link the row stays `dispatched`: when that link closes,
+ * detach arms the grace and expireNode reports dispatch_unconfirmed
+ * (doc/design/execution.md "No duplicate execution and authorization retry").
+ */
+export async function confirmAfterReconnect(core: ClusterCore, nodeId: string, taskId: string): Promise<void> {
+	const ready = await core.readyNode(nodeId);
+	const link = ready?.link;
+	if (!link) return;
+	const row = await core.row(taskId);
+	if (!row || row.node_id !== nodeId || row.state !== "dispatched") return;
+	link.queried.add(taskId);
+	let status: TaskStatus;
+	try {
+		status = await link.conn.peer.request("task.query", { taskId });
+	} catch (err) {
+		if (err instanceof ConnectionError) return;
+		throw err;
+	}
+	await core.taskQueue.run(taskId, () => onStatus(core, link, status));
+}
+
 async function onStatus(core: ClusterCore, link: NodeLink, status: TaskStatus): Promise<void> {
 	if (!link.queried.delete(status.taskId)) return;
+	if (status.state === "running" || status.state === "exited") {
+		// The node has the task: a confirmation after a reconnect accepts the row even though hello's
+		// query may have run before it was claimed (confirmAfterReconnect).
+		const row = await core.row(status.taskId);
+		if (row?.node_id === link.conn.nodeId && row.state === "dispatched") {
+			await onAccepted(core, link.conn.nodeId, status.taskId);
+			return;
+		}
+	}
 	if (status.state !== "unknown") return; // it will show up in the next Hello or send TaskExit
 	const row = await core.row(status.taskId);
 	if (!row || row.node_id !== link.conn.nodeId) return;

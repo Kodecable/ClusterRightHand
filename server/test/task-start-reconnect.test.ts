@@ -4,13 +4,14 @@
  * `dispatched` forever and keep its transfer slot.
  */
 import { generateKeyPair } from "@crh/noise";
-import { ConnectionError, type TaskSpec } from "@crh/protocol";
+import { ConnectionError, type TaskSpec, type TaskStatus } from "@crh/protocol";
 import type { Insertable } from "kysely";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NodeConnection } from "../src/cluster/connection.ts";
 import { ClusterCore } from "../src/cluster/core.ts";
 import type { NodeLink } from "../src/cluster/links.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
+import { onAccepted } from "../src/cluster/task-end.ts";
 import { sendTaskStart, taskStartOf } from "../src/cluster/task-start.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -64,6 +65,8 @@ describe("a task.start that loses its connection after the node reconnected", ()
 
 	afterEach(async () => {
 		core.endWaits();
+		// The confirmation after a reconnect runs in the background; let it return before the database goes.
+		await core.drain();
 		await db.destroy();
 	});
 
@@ -103,7 +106,6 @@ describe("a task.start that loses its connection after the node reconnected", ()
 			notice: null,
 			result: null,
 			output_file: null,
-			late_result: null,
 			rule_chain: null,
 			approval: null,
 			pending_input: null,
@@ -117,8 +119,11 @@ describe("a task.start that loses its connection after the node reconnected", ()
 		return id;
 	};
 
-	/** A link whose requests fail with ConnectionError; `answer` decides which request fails. */
-	const failingLink = (fail: boolean) => {
+	/**
+	 * A link whose requests fail with ConnectionError when `fail` is set; otherwise `answer` is what a
+	 * task.query request responds with (an empty object for every request when it is not given).
+	 */
+	const failingLink = (fail: boolean, answer?: TaskStatus) => {
 		const requests: string[] = [];
 		const conn = {
 			nodeId: node.id,
@@ -128,6 +133,7 @@ describe("a task.start that loses its connection after the node reconnected", ()
 				request: async (name: string): Promise<unknown> => {
 					requests.push(name);
 					if (fail) throw new ConnectionError("the connection closed");
+					if (name === "task.query" && answer) return answer;
 					return {};
 				},
 			},
@@ -149,7 +155,7 @@ describe("a task.start that loses its connection after the node reconnected", ()
 	it("reports the task unknown when the send failed on a link the node already replaced", async () => {
 		const id = await seedTask("dispatched");
 		const stale = failingLink(true);
-		const fresh = failingLink(false);
+		const fresh = failingLink(false, { taskId: id, state: "unknown", outputEnd: 0 });
 		// The node reconnected before the failure was handled: the link that was dispatched on is gone.
 		core.links.set(node.id, fresh.link);
 
@@ -158,11 +164,16 @@ describe("a task.start that loses its connection after the node reconnected", ()
 		});
 
 		expect(stale.requests).toEqual(["task.start"]);
-		expect(await core.row(id)).toMatchObject({
-			state: "unknown",
-			error_code: "dispatch_unconfirmed",
-			error_message: "execution status unknown",
+		// The confirmation runs in the background: the ready link is asked about the task it does not know.
+		await vi.waitFor(async () => {
+			expect(await core.row(id)).toMatchObject({
+				state: "unknown",
+				error_code: "dispatch_unconfirmed",
+				error_message:
+					"the connection broke before the node confirmed it received the task; it may or may not have run",
+			});
 		});
+		expect(fresh.requests).toEqual(["task.query"]);
 	});
 
 	it("frees the transfer slot of the unknown transfer", async () => {
@@ -176,14 +187,58 @@ describe("a task.start that loses its connection after the node reconnected", ()
 		});
 		await core.transferScheduler.acquire(id, node.id);
 		expect(core.transferScheduler.holds(id)).toBe(true);
-		core.links.set(node.id, failingLink(false).link);
+		const stale = failingLink(true);
+		const fresh = failingLink(false, { taskId: id, state: "unknown", outputEnd: 0 });
+		core.links.set(node.id, fresh.link);
 
-		await sendTaskStart(core, failingLink(true).link, node.id, await startOf(id), new Uint8Array(0), {
+		await sendTaskStart(core, stale.link, node.id, await startOf(id), new Uint8Array(0), {
 			settle: (write) => write(),
 		});
 
-		expect(await core.row(id)).toMatchObject({ state: "unknown", error_code: "dispatch_unconfirmed" });
-		expect(core.transferScheduler.holds(id)).toBe(false);
+		// The confirmation runs in the background: the ending frees the slot after it wrote the row.
+		await vi.waitFor(async () => {
+			expect(await core.row(id)).toMatchObject({ state: "unknown", error_code: "dispatch_unconfirmed" });
+			expect(core.transferScheduler.holds(id)).toBe(false);
+		});
+		expect(fresh.requests).toEqual(["task.query"]);
+	});
+
+	it("keeps the task running when the ready link reports it", async () => {
+		const id = await seedTask("dispatched");
+		const stale = failingLink(true);
+		const fresh = failingLink(false, { taskId: id, state: "running", outputEnd: 0 });
+		core.links.set(node.id, fresh.link);
+
+		await sendTaskStart(core, stale.link, node.id, await startOf(id), new Uint8Array(0), {
+			settle: (write) => write(),
+		});
+
+		await vi.waitFor(async () => {
+			expect(await core.row(id)).toMatchObject({ state: "running", error_code: null });
+		});
+		expect(fresh.requests).toEqual(["task.query"]);
+	});
+
+	it("leaves the row dispatched while the reconnected link is not ready", async () => {
+		const id = await seedTask("dispatched");
+		const stale = failingLink(true);
+		const fresh = failingLink(false, { taskId: id, state: "unknown", outputEnd: 0 });
+		// The node reconnected, but its hello has not been handled yet: the new link cannot be queried.
+		fresh.link.ready = false;
+		core.links.set(node.id, fresh.link);
+
+		await sendTaskStart(core, stale.link, node.id, await startOf(id), new Uint8Array(0), {
+			settle: (write) => write(),
+		});
+
+		// The background confirmation waits for the link to become ready; nothing settles the row meanwhile.
+		expect(await core.row(id)).toMatchObject({ state: "dispatched", error_code: null });
+		expect(fresh.requests).toEqual([]);
+		// Ending the waits makes waitNodeReady return undefined at once instead of waiting out the grace.
+		core.endWaits();
+		await core.drain();
+		expect(await core.row(id)).toMatchObject({ state: "dispatched", error_code: null });
+		expect(fresh.requests).toEqual([]);
 	});
 
 	it("leaves the row to the grace when the same link is still current", async () => {
@@ -197,6 +252,23 @@ describe("a task.start that loses its connection after the node reconnected", ()
 
 		expect(stale.requests).toEqual(["task.start"]);
 		expect(await core.row(id)).toMatchObject({ state: "dispatched" });
+	});
+
+	it("keeps a task the reconnected node reports in its hello", async () => {
+		const id = await seedTask("dispatched");
+		const stale = failingLink(true);
+		const fresh = failingLink(false);
+		// The node reconnected, but its hello has not been handled yet: the new link is not ready.
+		fresh.link.ready = false;
+		core.links.set(node.id, fresh.link);
+
+		await sendTaskStart(core, stale.link, node.id, await startOf(id), new Uint8Array(0), {
+			settle: (write) => write(),
+		});
+		// The hello then lists the task: the node had accepted the start before the old connection broke.
+		await core.taskQueue.run(id, () => onAccepted(core, node.id, id));
+
+		expect(await core.row(id)).toMatchObject({ state: "running", error_code: null });
 	});
 
 	it("does not settle a row another path already ended", async () => {

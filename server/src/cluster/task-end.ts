@@ -346,13 +346,24 @@ export async function onExit(core: ClusterCore, conn: NodeConnection, exit: Task
 		output_lost: exit.outputLost ? 1 : 0,
 	};
 	if (row.state === "unknown") {
-		// Already reported as unknown: keep that answer, but record what really happened.
+		// The answer already given (state and classification) stays; what really happened is recorded on
+		// the row and shown with it.
 		await writeTask(
 			core.db,
 			row.id,
 			{ states: ["unknown"], nodeId: conn.nodeId },
-			{ late_result: JSON.stringify(fields) },
+			{
+				exit_code: fields.exit_code,
+				signal: fields.signal,
+				timed_out: fields.timed_out,
+				result: fields.result,
+				...outputColumns(output),
+				output_lines: exit.outputLines,
+				output_file: exit.outputFile || null,
+				output_lost: fields.output_lost,
+			},
 		);
+		core.notify(row.id);
 	} else if (row.state === "cancelled") {
 		// The cancel was recorded while the task was only `dispatched`; the node's answer still carries what
 		// ran, so keep its exit code, signal and output on the cancelled row without changing the state
@@ -495,6 +506,15 @@ async function keepCancelledResult(
 	);
 }
 
+/** What each `unknown` reason says the agent should know about the task (doc/design/agent-runtime.md "exec tool semantics"). */
+export const UNKNOWN_MESSAGES: Record<string, string> = {
+	dispatch_unconfirmed:
+		"the connection broke before the node confirmed it received the task; it may or may not have run",
+	connection_lost:
+		"the connection to the node was lost while the task ran; it may still be running or may have finished",
+	executor_restarted: "the node's agent restarted and no longer knows the task; its process was most likely stopped",
+};
+
 /** The node's answer is unknown (no link, no result): the task ends as `unknown(reason)`. */
 export async function markUnknown(core: ClusterCore, id: string, reason: string): Promise<void> {
 	const row = await core.row(id);
@@ -503,7 +523,7 @@ export async function markUnknown(core: ClusterCore, id: string, reason: string)
 	await finish(core, row.node_id, id, {
 		state: "unknown",
 		error_code: reason,
-		error_message: "execution status unknown",
+		error_message: UNKNOWN_MESSAGES[reason] ?? "execution status unknown",
 		...outputColumns(output),
 	});
 }

@@ -196,7 +196,9 @@ node.
   one is given.
 - Because task ids are derived from the durable tool call, a tool that runs again after a crhs restart
   finds the same task, running or finished, instead of starting it again.
-- An `unknown` task is reported as an error whose outcome is unknown, with the reason.
+- An `unknown` task is reported as an error whose outcome is unknown, with a reason-specific message that
+  says whether the task may have run. A result the node reported later is recorded on the task and
+  appended to that note, while the state and outcome stay unknown.
 - While a task waits for approval or a signature, an agent keeps waiting and shows the link in the UI;
   an extension call returns the waiting state and link after its `wait`.
 

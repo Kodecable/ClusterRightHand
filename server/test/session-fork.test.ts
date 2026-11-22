@@ -563,7 +563,6 @@ it("does not copy shares, waiting work, external calls or subagents", async () =
 			notice: null,
 			output_file: null,
 			result: null,
-			late_result: null,
 			rule_chain: null,
 			approval: null,
 			pending_input: null,

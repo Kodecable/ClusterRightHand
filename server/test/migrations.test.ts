@@ -220,6 +220,8 @@ describeBackends("initial migration", (backend) => {
 		);
 		// Output loss is a stored fact; existing rows default to "not lost".
 		expect(await isNotNull(backend, db, "tasks", "output_lost")).toBe(true);
+		// A late result is recorded in the normal result columns, not in a separate JSON column.
+		expect(await tableColumns(backend, db, "tasks")).not.toContain("late_result");
 		// The state carries a cancellation; there is no separate flag column.
 		expect(await tableColumns(backend, db, "tasks")).not.toContain("cancelled");
 		expect(await tableColumns(backend, db, "task_groups")).toEqual(
@@ -316,7 +318,11 @@ describeBackends("initial migration", (backend) => {
 		// The migrator introspects every schema, so a parallel test dropping its schema must not run now.
 		await withDdlLockOn(backend, () => migrateToLatest(db, schema ? { schema } : {}));
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
-		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_skills_session_prompt" }]);
+		expect(rows.rows).toEqual([
+			{ name: "0001_initial" },
+			{ name: "0002_skills_session_prompt" },
+			{ name: "0003_drop_late_result" },
+		]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
 });

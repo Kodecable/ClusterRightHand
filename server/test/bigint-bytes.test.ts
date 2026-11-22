@@ -59,7 +59,6 @@ async function seedTask(db: Db): Promise<string> {
 			notice: null,
 			result: null,
 			output_file: null,
-			late_result: null,
 			rule_chain: null,
 			approval: null,
 			pending_input: null,

@@ -154,7 +154,6 @@ describe("request sources (sqlite)", () => {
 				output_lines: null,
 				output_file: null,
 				result: null,
-				late_result: null,
 				rule_chain: JSON.stringify([{ type: "user", id: aliceId }]),
 				approval: JSON.stringify({ evaluation }),
 				pending_input: null,

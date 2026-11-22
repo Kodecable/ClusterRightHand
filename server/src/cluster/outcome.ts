@@ -4,10 +4,12 @@
  * whether an exit code, signal, timeout, cancellation, an expired signature wait, rejection, denial or
  * platform error means failure.
  *
- * Priority when several flags hold: cancelled/expired > timed out > signal > rejected/denied > platform
- * error > unknown > exit code. A cancellation or an expired signature wait is not a failure (it is muted);
- * a rejected or denied request is. Exit 0 succeeds, and an exec task keeps its code in the outcome ("Exit
- * code 0") while a file operation simply reads "Done". `null` means the task is not terminal yet.
+ * Priority when several flags hold: cancelled/expired > unknown > timed out > signal > rejected/denied >
+ * platform error > exit code. An unknown row keeps the recorded unknown answer over any later flags: the
+ * node may report an exit code, a signal or a timeout afterward, but the classification does not change.
+ * A cancellation or an expired signature wait is not a failure (it is muted); a rejected or denied
+ * request is. Exit 0 succeeds, and an exec task keeps its code in the outcome ("Exit code 0") while a file
+ * operation simply reads "Done". `null` means the task is not terminal yet.
  */
 import type { TaskOutcome } from "@crh/api";
 
@@ -37,6 +39,12 @@ export function taskOutcome(task: TaskOutcomeInput): TaskOutcome | null {
 			...(task.errorMessage === null ? {} : { errorMessage: task.errorMessage }),
 		};
 	}
+	// The recorded unknown answer wins over flags a late result filled in later.
+	if (task.state === "unknown") {
+		return task.errorCode === null
+			? { kind: "unknown", failed: true }
+			: { kind: "error", failed: true, errorCode: task.errorCode, errorMessage: task.errorMessage };
+	}
 	if (task.timedOut) return { kind: "timed_out", failed: true };
 	if (task.signal !== null && task.signal !== "") return { kind: "signal", signal: task.signal, failed: true };
 	if (task.state === "rejected") {
@@ -58,7 +66,6 @@ export function taskOutcome(task: TaskOutcomeInput): TaskOutcome | null {
 	if (task.errorCode !== null) {
 		return { kind: "error", failed: true, errorCode: task.errorCode, errorMessage: task.errorMessage };
 	}
-	if (task.state === "unknown") return { kind: "unknown", failed: true };
 	if (task.exitCode !== null) {
 		// A file operation has no meaningful exit code: exit 0 is simply success. An exec task keeps its
 		// code, so its line reads "Exit code 0" rather than "Done".

@@ -151,13 +151,14 @@ The transitions:
 ### Task outcome
 
 The server classifies every terminal task once, and the API view carries that `outcome`. Priority when
-several flags hold: cancelled/expired > timed out > signal > rejected/denied > platform error > unknown >
-exit code. Cancelled and expired are not failures (they are muted), while rejected, denied, timed out,
-signalled, errored and unknown are. Exit 0 succeeds; an exec task keeps its code (`Exit code 0`), a file
-operation just reads **Done**. A task group's outcome follows the same rules: cancelled and expired are
-not failed, rejected and interrupted are, and a finished group fails when any member failed. The
-model-facing task text and every WebUI surface read the same classification, so one result cannot be
-green in one place and red in another.
+several flags hold: cancelled/expired > unknown > timed out > signal > rejected/denied > platform error >
+exit code. An unknown row keeps the unknown answer recorded for it over any flag a later report fills in.
+Cancelled and expired are not failures (they are muted), while rejected, denied, timed out, signalled,
+errored and unknown are. Exit 0 succeeds; an exec task keeps its code (`Exit code 0`), a file operation
+just reads **Done**. A task group's outcome follows the same rules: cancelled and expired are not failed,
+rejected and interrupted are, and a finished group fails when any member failed. The model-facing task
+text and every WebUI surface read the same classification, so one result cannot be green in one place
+and red in another.
 
 The view also carries the one structured task action (exec command, file operation with an optional line
 range, API request, or extension tool) built from the stored spec. The tasks list, the task page, the
@@ -185,10 +186,11 @@ A task id is accepted and executed at most once.
 - The only retry is for an authorization refused before the node accepted the task: the task returns to
   waiting for a signature and is sent again with the next attempt number.
 - If the connection breaks after the task was sent but before the node answered, crhs never resends it.
-  The task becomes `unknown`, because sending it again could run it twice. A node that reconnects while
-  that failure is handled does not change this: its hello may have read the open tasks before the row
-  was claimed, so the dispatch reports it `unknown` itself instead of leaving it `dispatched` until the
-  grace.
+  The task becomes `unknown`, because sending it again could run it twice. When the node has already
+  reconnected while that failure is handled, crhs asks it: its hello either settles the task (the node
+  lists it, or a `task.query` finds it unknown), or, when the hello read the open tasks before the row
+  was claimed, crhs sends one `task.query` on the new connection once it is ready. A node that has the
+  task keeps it running; one that does not makes it `unknown(dispatch_unconfirmed)`.
 - An accepted task is never resent. After a reconnect, crhs only asks the node about it.
 - crha does not persist tasks. After crha restarts, it no longer knows its earlier tasks, and they
   become `unknown`.
@@ -298,8 +300,9 @@ answers with the output offset it has for each, and crha resends from there. crh
 did not report; those crha no longer knows become `unknown`.
 
 - If a disconnect lasts longer than the reconnect grace (two minutes by default), crhs reports the
-  affected tasks as `unknown` to the caller. A result that arrives later is recorded, but the answer
-  already given does not change.
+  affected tasks as `unknown` to the caller. A result that arrives later is recorded on the task row
+  (exit code, signal, output) and shown with it, but the answer already given — `unknown`, with its
+  reason — does not change.
 - Large inputs (stdin or file content, up to 64 MiB) are sent in chunks after the node accepts the task.
   A refused authorization therefore costs no input transfer. An interrupted input transfer cannot
   resume; the task fails.

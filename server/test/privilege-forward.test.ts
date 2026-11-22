@@ -1105,7 +1105,6 @@ describe("privileged forward dispatch", () => {
 					output_tail: null,
 					notice: null,
 					output_file: null,
-					late_result: null,
 					rule_chain: null,
 					approval: null,
 					pending_input: null,

@@ -120,12 +120,26 @@ function privilegeField(task: TaskView, info: NodePrivilege | undefined): string
 	return "privileged";
 }
 
+/**
+ * What an `unknown` task's node reported later, in the model's words (doc/design/execution.md "Reconnect"):
+ * the exit code or signal recorded on the row after the task was already reported unknown. Undefined for
+ * every other task and for an unknown one with no late result.
+ */
+export function lateResultText(task: TaskView): string | undefined {
+	if (task.state !== "unknown") return undefined;
+	const timedOut = task.timedOut ? " (timed out)" : "";
+	if (task.exitCode !== null) return `the node later reported exit ${task.exitCode}${timedOut}`;
+	if (task.signal !== null) return `the node later reported it was killed by ${task.signal}${timedOut}`;
+	return undefined;
+}
+
 /** `<node, exit 0>`, `<node, error <code>: <message>>`, and the waiting variants, in the outcome's order. */
 function taskStatusLine(task: TaskView, label: string, info?: NodePrivilege): string {
 	const privilege = privilegeField(task, info);
 	const withPrivilege = (fields: string[]): string =>
 		noteLine(privilege === undefined ? fields : [...fields, privilege]);
 	const outcome = task.outcome ?? taskOutcome(task);
+	const late = lateResultText(task);
 	if (outcome === null) return withPrivilege([label, task.state]);
 	switch (outcome.kind) {
 		case "cancelled":
@@ -148,12 +162,15 @@ function taskStatusLine(task: TaskView, label: string, info?: NodePrivilege): st
 		case "error": {
 			const code = outcome.errorCode ?? "unknown";
 			const message = outcome.errorMessage ?? "";
-			return withPrivilege([label, `error ${code}: ${message}`]);
+			return withPrivilege([label, `error ${code}: ${message}${late === undefined ? "" : `; ${late}`}`]);
 		}
 		case "unknown": {
 			const code = task.errorCode ?? "unknown";
 			const reason = task.errorMessage === null ? "" : ` (${task.errorMessage})`;
-			return withPrivilege([label, `error ${code}: execution failed; the outcome is unknown${reason}`]);
+			return withPrivilege([
+				label,
+				`error ${code}: execution failed; the outcome is unknown${reason}${late === undefined ? "" : `; ${late}`}`,
+			]);
 		}
 		case "exit":
 			return withPrivilege([label, `exit ${outcome.exitCode ?? 0}`]);
@@ -350,12 +367,14 @@ function groupTextResult(
 function statusNode(ctx: ToolContext, task: TaskView, nodeName: string): Record<string, unknown> {
 	const out = taskDetails(task, nodeName);
 	if (task.notice !== null) out.notice = task.notice;
+	const late = lateResultText(task);
+	if (late !== undefined) out.late_result = late;
 	if (task.outputFile) {
 		out.output_file = task.outputFile;
 		out.note = "full output is on the node; read it with read_file";
 	} else if (isRunning(task)) {
 		out.next = "still running: call task_wait with this task_id";
-	} else if (task.exitCode !== null || task.signal !== null) {
+	} else if (task.state !== "unknown" && (task.exitCode !== null || task.signal !== null)) {
 		out.note = "no output file was reported; SSH nodes keep no output";
 	}
 	void ctx;

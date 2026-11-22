@@ -157,7 +157,6 @@ describe("approval request model (sqlite)", () => {
 				output_lines: null,
 				output_file: null,
 				result: null,
-				late_result: null,
 				rule_chain: JSON.stringify([ROOT]),
 				approval: JSON.stringify(values.approval),
 				pending_input: null,

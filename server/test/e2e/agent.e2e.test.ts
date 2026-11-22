@@ -315,14 +315,20 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 			expect(during).toMatchObject({ state: "unknown", errorCode: "connection_lost" });
 			env.crha?.kill("SIGCONT");
 			await env.waitConnected();
-			await waitFor("late result", async () => {
-				const row = await env.crhs.db
+			const row = await waitFor("late result", async () => {
+				const late = await env.crhs.db
 					.selectFrom("tasks")
-					.select("late_result")
+					.select(["state", "error_code", "exit_code", "signal", "output_tail"])
 					.where("id", "=", t.id)
 					.executeTakeFirst();
-				return row?.late_result;
+				return late?.exit_code !== null ? late : undefined;
 			});
+			// The late result fills the normal columns; the state and the recorded reason stay unknown.
+			expect(row.state).toBe("unknown");
+			expect(row.error_code).toBe("connection_lost");
+			expect(row.exit_code).toBe(0);
+			expect(row.signal).toBeNull();
+			expect(Buffer.from(row.output_tail ?? "", "base64").toString()).toContain("late");
 			expect((await env.crhs.getTask(t.id)).state).toBe("unknown");
 		}, 60_000);
 	});

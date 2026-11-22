@@ -911,16 +911,17 @@ describe("agent wire protocol", () => {
 		const late = await waitFor("late result", async () => {
 			const row = await db
 				.selectFrom("tasks")
-				.select(["state", "late_result"])
+				.select(["state", "error_code", "exit_code", "signal", "output_bytes", "output_tail"])
 				.where("id", "=", taskId)
 				.executeTakeFirst();
-			return row?.late_result ? row : undefined;
+			return row?.exit_code !== null ? row : undefined;
 		});
 		expect(late.state).toBe("unknown");
-		expect(JSON.parse(late.late_result as string)).toMatchObject({
-			exit_code: 0,
-			output_bytes: 4,
-		});
+		expect(late.error_code).toBe("executor_restarted");
+		expect(late.exit_code).toBe(0);
+		expect(late.signal).toBeNull();
+		expect(late.output_bytes).toBe(4);
+		expect(Buffer.from(late.output_tail ?? "", "base64").toString()).toBe("late");
 		await waitFor("exit ack", () => acks.length === 1);
 		expect(acks[0]).toEqual({ taskId });
 		expect(await third.peer.request("ping", { seq: 3 })).toEqual({ seq: 3 });
@@ -951,9 +952,9 @@ describe("agent wire protocol", () => {
 				id: taskId,
 				state: "unknown",
 				error_code: "connection_lost",
-				error_message: "execution status unknown",
+				error_message:
+					"the connection to the node was lost while the task ran; it may still be running or may have finished",
 				finished_at: new Date().toISOString(),
-				late_result: null,
 			})
 			.execute();
 
@@ -972,16 +973,16 @@ describe("agent wire protocol", () => {
 		const late = await waitFor("late result without live", async () => {
 			const row = await db
 				.selectFrom("tasks")
-				.select(["state", "late_result"])
+				.select(["state", "error_code", "exit_code", "signal", "output_bytes"])
 				.where("id", "=", taskId)
 				.executeTakeFirst();
-			return row?.late_result ? row : undefined;
+			return row?.exit_code !== null ? row : undefined;
 		});
 		expect(late.state).toBe("unknown");
-		expect(JSON.parse(late.late_result as string)).toMatchObject({
-			exit_code: 0,
-			output_bytes: 0,
-		});
+		expect(late.error_code).toBe("connection_lost");
+		expect(late.exit_code).toBe(0);
+		expect(late.signal).toBeNull();
+		expect(late.output_bytes).toBe(0);
 		await waitFor("exit ack without live", () => acks.length === 1);
 		expect(acks[0]).toEqual({ taskId });
 		expect(await crha.peer.request("ping", { seq: 9 })).toEqual({ seq: 9 });

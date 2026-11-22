@@ -111,7 +111,6 @@ describe("a task wait that races the task's end", () => {
 			notice: null,
 			result: null,
 			output_file: null,
-			late_result: null,
 			rule_chain: null,
 			approval: null,
 			pending_input: null,
