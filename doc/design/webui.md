@@ -153,9 +153,9 @@ behaves the same on every page:
 - **Forms** use `react-hook-form` with a `zod` schema as the only validation; native browser
   validation is off. Destructive actions go through a confirmation dialog that names the object and
   the consequence.
-- **`EntityPicker`** is the only control for choosing users, user groups, nodes or node groups. It
-  searches on the server and resolves already selected ids separately, so no page downloads a full
-  list of users or nodes ([Entity search](#entity-search)).
+- **`EntityPicker`** is the only control for choosing users, user groups, nodes, node groups or a
+  terminal user's sessions. It searches on the server and resolves already selected ids separately,
+  so no page downloads a full list of users or nodes ([Entity search](#entity-search)).
 - **Decision component.** One card layout for every wait, mirroring the chat card's line order: the
   title with its privileged mark, a grey meta line, Auto Review's risk badge and reason, the one-line
   monospace detail, a divider with room on both sides, then the panel's own tabs. Every slot except the
@@ -391,18 +391,35 @@ it, and **Delete** also removes the channel's linked accounts and threads. The l
 
 ### Terminals page
 
-**Terminals** is its own navigation entry, hidden while the subsystem is off. It lists the terminals
-the user can see, every one for an administrator, with node, user, privileged flag, state, creating
-session, associated sessions, viewers and age; **New terminal** opens one on a chosen node, and a
-privileged one waits on the signature panel like a privileged task. `/terminals/$id` attaches with
-xterm.js, bundled with the WebUI. Several viewers share a terminal and all of them can type. The
-terminal keeps its own size: attaching or resizing the window changes nothing, **Fit to window**
-resizes it to the viewer's window, and every viewer adopts a resize. The page also shows the other
-viewers and the associations, which the terminal's user and administrators edit; an exited terminal
-shows its last screen and exit code ([Terminals](pty.md#webui)). While an agent's `pty.create` or
-`pty.io` waits for the user, the terminal page shows the shared approval card, with the request's
-screen beside it; reading a terminal never asks. The session page links the session's terminals. The
-terminal settings are fields of the System settings page ([crhs configuration](../guide/reference/crhs-config.md#system-settings)).
+**Terminals** is in the Work group of the navigation, hidden while the subsystem is off. It lists the
+terminals the user can see, every one for an administrator, with node, the program's title, user,
+privileged flag, state, creating session, associated sessions, viewers and age. The title is
+untrusted text the program set; it is a column of its own and never replaces the node name. **New
+terminal** picks an active crha node through the shared `EntityPicker`, which asks the node list for
+client-transport nodes only, plus an optional command, the privileged mode and a size; a privileged
+one waits on the signature panel like a privileged task. `/terminals/$id` attaches with xterm.js,
+bundled with the WebUI. The heading is the node name, the program's title is a secondary line under
+it, and one small grey meta line carries the state, node, size, creating user and the exit code once
+the process exited; there is no separate facts card and no exit banner. Several viewers share a
+terminal and all of them can type. The terminal keeps its own size: attaching or resizing the window
+changes nothing, and the viewer scales its font so the full rows × columns grid fits width and
+height, recomputed on window and terminal resize; below a sensible minimum font the terminal area
+scrolls instead of cropping, and the page never scrolls horizontally. **Fit to window** is the
+explicit resize: it computes the grid that fills the viewer's terminal area at the default font size
+and sends it through `POST /api/ptys/:id/resize`, so every viewer adopts the new size and each one's
+font scaling fits it. Opening or returning to the page focuses the terminal. The other viewers are
+listed once per user, with a count for several attachments and no client address or attach time (the
+audit keeps both); the associations are edited with the server-searched session `EntityPicker`,
+restricted to the terminal user's own sessions. An **extra-keys bar** below the terminal sends Esc,
+Tab, sticky Ctrl and Alt, the arrows, Home, End, PgUp, PgDn and `| ~ / -` through xterm.js's textarea,
+so xterm generates the sequence for the current modes; it scrolls horizontally when needed, is shown
+by default on touch devices and can be toggled on desktop with the choice remembered. A viewer
+forwards no data from mouse clicks, buttons or movement, only from the wheel, and a hint says that
+selecting text needs Shift while a program uses the mouse ([Terminals](pty.md#webui)). While an
+agent's `pty.create` or `pty.io` waits for the user, the terminal page shows the shared approval card,
+with the request's screen beside it; reading a terminal never asks. The session page links the
+session's terminals. The terminal settings are fields of the System settings page
+([crhs configuration](../guide/reference/crhs-config.md#system-settings)).
 
 ### Schedules page
 
@@ -818,7 +835,11 @@ progress.
 
 The user, user group, node, node group and directory lists accept a search term, a result limit and a
 list of ids. The search term and limit serve pickers; the ids let a picker resolve the names of values
-selected earlier. Results include only what the caller may see.
+selected earlier. Results include only what the caller may see. The node list also accepts
+`transport=client|ssh`, so the New terminal picker can ask for crha nodes only. The session list
+accepts `ids` for the same label resolution, always within its scope: the terminal page passes the
+terminal user's `ownerId`, and an administrator passes the admin `all` scope, so a session picker can
+never reach a session the caller could not already list.
 
 ### Links
 

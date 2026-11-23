@@ -93,6 +93,8 @@ export interface Terminal {
 	argv: string[];
 	rows: number;
 	cols: number;
+	/** The sanitized title the program set through OSC 0/2; untrusted, empty until it sets one. */
+	title: string;
 	createdBySessionId: string | null;
 	/** Associated sessions, in association order. */
 	sessionIds: string[];

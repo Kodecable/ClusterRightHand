@@ -2093,7 +2093,7 @@ const ptyWriteTool = define({
 
 const ptyResizeTool = define({
 	name: "pty_resize",
-	description: "Resize a terminal explicitly. The size changes only here or through the WebUI's Fit to window.",
+	description: "Resize a terminal explicitly. Attaching a browser never resizes it.",
 	input: z.object({
 		id: z.string().describe("The terminal id pty_open returned"),
 		rows: z.number().int().min(1).max(1000),

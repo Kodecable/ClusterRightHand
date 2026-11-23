@@ -35,7 +35,7 @@ describeBackends("entity list search", (backend) => {
 	const ids: Record<string, string> = {};
 	let orgId: string;
 
-	const addNode = async (name: string, hostname: string): Promise<string> => {
+	const addNode = async (name: string, hostname: string, transport: "client" | "ssh" = "client"): Promise<string> => {
 		const id = newId();
 		const now = new Date().toISOString();
 		await db
@@ -45,7 +45,7 @@ describeBackends("entity list search", (backend) => {
 				org_id: orgId,
 				name,
 				name_key: name.toLowerCase(),
-				transport: "client",
+				transport,
 				status: "active",
 				public_key: null,
 				hostname,
@@ -104,6 +104,7 @@ describeBackends("entity list search", (backend) => {
 		ids.nodeWorker = await addNode("worker-01", "worker-01.local");
 		ids.nodeData = await addNode("database_01", "db.local");
 		ids.nodeHidden = await addNode("web-hidden", "web-hidden.local");
+		ids.nodeSsh = await addNode("jump-host", "jump.local", "ssh");
 		ids.nodeGroupWeb = (await createNodeGroup(db, orgId, "web")).id;
 		ids.nodeGroupData = (await createNodeGroup(db, orgId, "data_group")).id;
 		ids.nodeGroupOps = (await createNodeGroup(db, orgId, "ops")).id;
@@ -262,6 +263,14 @@ describeBackends("entity list search", (backend) => {
 			expect(limited.more).toBe(true);
 			const memberLimited = await nodes({ q: "web", limit: "1" }, memberCookie);
 			expect(memberLimited.more).toBe(false);
+		});
+
+		it("filters the node list by transport for controls that never use an SSH node", async () => {
+			expect((await nodes({ q: "web", transport: "client" })).nodes.map((node) => node.name)).toEqual([
+				"web-01",
+				"web-hidden",
+			]);
+			expect((await nodes({ q: "jump", transport: "ssh" })).nodes.map((node) => node.name)).toEqual(["jump-host"]);
 		});
 
 		it("returns the unchanged visible list without search parameters", async () => {

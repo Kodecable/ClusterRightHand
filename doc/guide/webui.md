@@ -345,18 +345,35 @@ access ends without running.
 
 ## Terminals
 
-**Terminals** lists the terminals you may see: your own, or every terminal for an administrator. The
-list shows the node, user, privileged flag, state, creating session, associated sessions, viewers and
-age. **New terminal** opens one on a node you have access to; choose a command or leave it empty for
-the node identity's login shell. A privileged terminal first waits for its signature: the terminal page
-shows the same signing options as a privileged task.
+**Terminals** is in the Work group of the sidebar and lists the terminals you may see: your own, or
+every terminal for an administrator. The list shows the node, the program's title, user, privileged
+flag, state, creating session, associated sessions, viewers and age. A program can set the terminal
+title; it is untrusted text and never replaces the node name. **New terminal** picks an active crha
+node (SSH nodes have no terminals) along with an optional command, the privileged mode and a size;
+leave the command empty for the node identity's login shell. A privileged terminal first waits for its
+signature: the terminal page shows the same signing options as a privileged task.
 
 `/terminals/<id>` attaches with xterm.js. The terminal has one size: attaching or resizing the browser
-window changes nothing, and **Fit to window** resizes the terminal (every viewer and the node adopt the
-new size). Several viewers can attach and all of them can type. The page also shows the other viewers
-and the associations; its user and administrators add a session the user owns and remove one again. An
-exited terminal keeps its last screen and exit code for five minutes or until the last viewer
-detaches, then disappears. A session page lists the session's terminals.
+window changes nothing. The viewer scales its font so the whole rows × columns grid fits the page; if
+the text would be smaller than a sensible minimum, the terminal area scrolls instead of cropping and
+the page itself never scrolls sideways. **Fit to window** resizes the terminal to the viewer's area at
+the default font size, for every viewer, instead of only changing one browser's font. The page
+heading is the node name, with the program's title under it and one meta line for the state, node,
+size, creating user and exit code. Several viewers can attach and all of them can type; the viewer
+list shows each user once with a count when they have several attachments. The associations use the
+same searchable picker as the rest of the WebUI and offer only the terminal user's sessions. Opening
+the page focuses the terminal. A short hint reminds you that selecting text needs Shift while a
+program uses the mouse; mouse clicks and movement are never sent to the shared shell, but the wheel
+still scrolls and reaches programs that use it.
+
+The extra-keys bar below the terminal provides Esc, Tab, Ctrl, Alt, the arrows, Home, End, PgUp, PgDn
+and `| ~ / -`, and scrolls sideways when it does not fit. It appears by default on a touch device; the
+**Extra keys** button toggles it on a desktop and remembers your choice. Ctrl and Alt are sticky: one
+tap applies them to the next key, a double tap locks them until you tap again. Text typed on a soft
+keyboard while Ctrl is active becomes the matching control character, and Alt prefixes it with ESC.
+
+An exited terminal keeps its last screen for five minutes or until the last viewer detaches, then
+disappears. A session page lists the session's terminals.
 
 A background job started in a terminal ends with the shell: crha closes the process group with a
 hangup and then a kill, so `nohup`-style children that leave the group may survive only as long as the

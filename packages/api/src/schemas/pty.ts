@@ -70,6 +70,11 @@ export const PtyViewSchema = z
 		privileged: z.boolean(),
 		argv: z.array(z.string()).describe("The command; empty means the identity's login shell."),
 		size: PtySizeSchema,
+		title: z
+			.string()
+			.describe(
+				"The title the program set through OSC 0/2, sanitized (control characters removed, whitespace folded, at most 256 characters). Untrusted text: it never replaces the node name.",
+			),
 		state: PtyStateSchema,
 		exitCode: z.number().nullable().describe("The exit code once exited; null while it runs."),
 		creatingSessionId: z.string().nullable().describe("The session whose agent opened it; null for a person."),

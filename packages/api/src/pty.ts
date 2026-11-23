@@ -37,7 +37,7 @@ export type PtyAuthorizationResponse = z.infer<typeof PtyAuthorizationResponseSc
  */
 export type PtyAttachServerFrame =
 	| { type: "snapshot"; data: string; rows: number; cols: number }
-	| { type: "state"; rows: number; cols: number; viewers: PtyViewer[]; state: PtyState }
+	| { type: "state"; rows: number; cols: number; title: string; viewers: PtyViewer[]; state: PtyState }
 	| { type: "exited"; exitCode: number; reason: "exited" | "helper_lost" }
 	| { type: "closed"; reason: string }
 	| { type: "error"; message: string };

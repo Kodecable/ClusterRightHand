@@ -338,6 +338,10 @@ export const SessionListQuerySchema = z.object({
 	q: z.string().optional().describe("Case-insensitive title substring."),
 	scheduleId: z.string().optional(),
 	ownerId: z.string().optional().describe("Only roots owned by this user; `all` is administrators only."),
+	ids: z
+		.string()
+		.optional()
+		.describe("Comma-separated root session ids to resolve; cannot be combined with `q`, `limit` or `cursor`."),
 	cursor: z.string().optional().describe("The `nextCursor` of the previous page."),
 	limit: z.string().optional().describe("Page size, 1 to 200; 50 by default."),
 });

@@ -383,6 +383,31 @@ describe("terminals", () => {
 		expect(terminal.viewers.size).toBe(1);
 	});
 
+	it("keeps the program's title, broadcasts it and never uses it as the node label", async () => {
+		const { node, key } = await connect();
+		const terminal = await openPerson(node);
+		const connection = await agents.connectPty(key, terminal.id);
+		await waitFor("data connection", () => terminals.get(terminal.id)?.connection !== null);
+		const socket = new FakeViewerSocket();
+		await terminals.attachViewer(terminal, userOf(owner) as never, socket as never, null);
+
+		connection.send({
+			kind: "data",
+			bytes: new TextEncoder().encode("\u001b]0;  build   log ready \u0007"),
+		});
+		await waitFor("title", () => terminal.title === "build log ready");
+
+		const view = await terminals.view(terminal);
+		expect(view.title).toBe("build log ready");
+		// The trusted label stays the node name.
+		expect(view.nodeName).toBe("node-1");
+		const frames = socket.sent
+			.filter((frame): frame is string => typeof frame === "string")
+			.map((frame) => JSON.parse(frame) as { type: string; title?: string });
+		expect(frames.some((frame) => frame.type === "state" && frame.title === "build log ready")).toBe(true);
+		connection.close();
+	});
+
 	it("keeps an exited terminal for the retention or until its last viewer detaches, then closes it", async () => {
 		const { node, crha } = await connect();
 		const terminal = await openPerson(node);

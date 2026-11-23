@@ -1,6 +1,6 @@
 import { BotMessageSquareIcon, SignatureIcon } from "lucide-react";
 import { describe, expect, test } from "vitest";
-import { NAV_ITEMS, navItemForPath } from "./nav";
+import { NAV_GROUPS, NAV_ITEMS, navItemForPath } from "./nav";
 
 describe("navItemForPath", () => {
 	test("keeps Users active for user details and user groups", () => {
@@ -17,6 +17,14 @@ describe("navItemForPath", () => {
 	test("keeps Terminals active on a terminal detail", () => {
 		expect(navItemForPath("/terminals")?.to).toBe("/terminals");
 		expect(navItemForPath("/terminals/pty-1")?.to).toBe("/terminals");
+	});
+
+	test("puts Terminals in the Work group, still hidden while the subsystem is off", () => {
+		const work = NAV_GROUPS.find((group) => group.label.message === "Work");
+		const cluster = NAV_GROUPS.find((group) => group.label.message === "Cluster");
+		expect(work?.items.map((item) => item.to)).toContain("/terminals");
+		expect(cluster?.items.map((item) => item.to)).not.toContain("/terminals");
+		expect(NAV_ITEMS.find((item) => item.to === "/terminals")?.ptyOnly).toBe(true);
 	});
 
 	test("keeps System settings active on its own route, not Models", () => {

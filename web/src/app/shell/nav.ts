@@ -74,6 +74,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 			{ to: "/schedules", label: msg`Schedules`, icon: CalendarClockIcon },
 			{ to: "/tasks", label: msg`Tasks`, icon: ListChecksIcon, activeFor: ["/task-groups"] },
 			{ to: "/approvals", label: msg`Approvals`, icon: ShieldCheckIcon, badge: "approvals" },
+			{ to: "/terminals", label: msg`Terminals`, icon: TerminalIcon, ptyOnly: true, activeFor: ["/terminals"] },
 		],
 	},
 	{
@@ -81,7 +82,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		items: [
 			{ to: "/nodes", label: msg`Nodes`, icon: ServerIcon },
 			{ to: "/node-groups", label: msg`Node groups`, icon: GraphHubIcon },
-			{ to: "/terminals", label: msg`Terminals`, icon: TerminalIcon, ptyOnly: true, activeFor: ["/terminals"] },
 			{ to: "/ssh-credentials", label: msg`SSH credentials`, icon: LockKeyholeIcon, adminOnly: true },
 			{ to: "/signing-credentials", label: msg`Signing credentials`, icon: SignatureIcon },
 		],

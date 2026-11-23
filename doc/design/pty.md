@@ -34,6 +34,7 @@ existence and who touched it, at the level of the session, not what was typed or
 | `privileged` | Whether it runs in the privileged mode |
 | `argv` | The command; default the identity's login shell with `-l` |
 | `size` | Rows and columns; changed only by an explicit resize |
+| `title` | The title the program set through OSC 0/2, sanitized; untrusted text, empty until set |
 | `created_by_session_id` | The session whose agent opened it; null when a person opened it |
 | `session_ids` | The sessions it is associated with |
 | `idle_timeout` | Required when an agent opens it; none when a person does |
@@ -51,6 +52,11 @@ existence and who touched it, at the level of the session, not what was typed or
   associated with at most the per-session limit of terminals ([Settings](#settings-and-limits)).
 - Deleting the creating session closes the terminal. Deleting an associated session removes the
   association.
+- **Title.** The program owns the terminal title (OSC 0/2). crhs subscribes to the headless emulator's
+  `onTitleChange`, not to the bytes, and stores a sanitized copy: control characters removed,
+  whitespace folded and at most 256 characters. It is untrusted text set by whatever runs in the
+  terminal, so it appears only as a secondary label and never replaces the node name or any other
+  trusted label. A title change is not an audit event.
 
 ## Lifecycle
 
@@ -222,7 +228,14 @@ its node; a dropped connection between two running processes loses nothing.
   disconnected with a reason and can attach again.
 - **Size.** A terminal has one size. It changes only when a viewer or an agent resizes it explicitly;
   attaching or resizing a browser window does not. A resize is sent to crha and broadcast to every
-  viewer, whose terminal adopts the new rows and columns.
+  viewer, whose terminal adopts the new rows and columns. The viewer does not change the grid to fit
+  its window: it scales its font so the whole grid fits, and scrolls inside the terminal area when
+  the minimum font cannot show it all (see [WebUI](#webui)). **Fit to window** is the explicit resize
+  a person can send: it computes the rows and columns that fill the viewer's terminal area at the
+  default font size, then uses `POST /api/ptys/:id/resize`; every viewer adopts the new size and each
+  one scales its own font to fit it.
+- **Title.** `view.title` carries the program's sanitized title. A change is pushed to every attached
+  viewer as a `state` frame and appears in the next list poll.
 - **API.** `GET /api/ptys`, `POST /api/ptys` (node, privileged, argv, size), `GET /api/ptys/:id`,
   `POST /api/ptys/:id/resize`, `PUT`/`DELETE /api/ptys/:id/sessions/:sessionId` for associations,
   `POST /api/ptys/:id/approval` for a waiting rule approval, and `DELETE /api/ptys/:id` to close. The
@@ -246,13 +259,20 @@ do not get them: an MCP client has a terminal of its own.
 | Tool | Does |
 |---|---|
 | `pty_open(node, argv?, privileged?, size?, idle_timeout)` | Opens a terminal created by this session; `idle_timeout` is required |
-| `pty_list()` | The terminals this session created or is associated with |
-| `pty_read(id, mode?)` | Non-blocking. `screen` (default): the current screen as text with the cursor position. `output`: what was written since this session's last read, escape sequences stripped, capped. While a full-screen program holds the alternate screen, `output` is unavailable and the current screen is returned in the `screen` shape with a note |
+| `pty_list()` | The terminals this session created or is associated with; each carries `title` (untrusted program text) |
+| `pty_read(id, mode?)` | Non-blocking. `screen` (default): the current screen as text with the cursor position. `output`: what was written since this session's last read, escape sequences stripped, capped. Both carry the program's sanitized `title`, marked `title_untrusted`. While a full-screen program holds the alternate screen, `output` is unavailable and the current screen is returned in the `screen` shape with a note |
 | `pty_watch(id, timeout, keywords?, bell?)` | Blocks until one of the conditions, then returns the reason and the screen |
 | `pty_write(id, text?, keys?)` | Writes text and named keys (`Enter`, `Tab`, `Escape`, `Up`, `Ctrl-C`, …) |
 | `pty_resize(id, rows, cols)` | Resizes it |
 | `pty_close(id)` | Closes a terminal this session created |
 
+- **Named keys and modes.** The cursor keys follow the terminal's current mode, read from the
+  headless emulator's public `modes.applicationCursorKeysMode`: while a program has application
+  cursor keys enabled, `Up`/`Down`/`Left`/`Right` send `ESC O A/B/C/D` and `Home`/`End` send
+  `ESC O H` / `ESC O F`; otherwise the normal `ESC [ A` style sequences. Other keys are unchanged.
+- **Title is untrusted.** Nothing in a tool result is an instruction: a `title` is text the program
+  inside the terminal set, and the tools mark it `title_untrusted` so the model can tell it from the
+  node and the command.
 - **Full-screen programs.** While the headless buffer is the alternate screen
   (`terminal.buffer.active.type === "alternate"`), the program is drawing a picture, not writing a
   log: that output is not appended to the escape-stripped log, so `pty_read output` and the log
@@ -349,12 +369,33 @@ from the next request.
 
 ## WebUI
 
-- **Terminals** is its own entry in the navigation. The page lists the terminals the user can see (all
-  of them for an administrator): node, user, privileged, state, creating session, associated sessions,
-  viewers, age. A button opens a new terminal on a chosen node.
-- `/terminals/:id` attaches with xterm.js, bundled with the WebUI. It shows the terminal's size, a
-  **Fit to window** button that resizes the terminal to the viewer's window, the other viewers, and the
-  associations. An exited terminal shows its last screen and exit code.
+- **Terminals** is in the **Work** group of the navigation, hidden while `pty.enabled` is off. The
+  page lists the terminals the user can see (all of them for an administrator): node, the program's
+  title, user, privileged, state, creating session, associated sessions, viewers, age. **New
+  terminal** picks an active crha node with the shared `EntityPicker` (SSH nodes have no terminals),
+  a command, the privileged mode and a size.
+- `/terminals/:id` attaches with xterm.js, bundled with the WebUI. The heading is the node name; the
+  program's title is a secondary line under it, and one small grey meta line carries the state, node,
+  size, creating user and, when exited, the exit code. The terminal keeps its own rows and columns;
+  the viewer scales its font so the whole grid fits both width and height, recomputed on window and
+  terminal resize, and scrolls inside the terminal area below a sensible minimum font size. **Fit to
+  window** resizes the terminal to the viewer's area at the default font size, so every viewer adopts
+  the same grid and then scales its own font to it. Opening or returning to the page focuses the
+  terminal. The page shows the other viewers (one entry per user, with a count for several
+  attachments) and the associations, which use the server-searched session `EntityPicker` restricted
+  to the terminal user's own sessions. A short hint says that selecting text needs Shift while a
+  program uses the mouse.
+- An **extra-keys bar** below the terminal sends Esc, Tab, Ctrl, Alt, the arrows, Home, End, PgUp,
+  PgDn and `| ~ / -` by dispatching keyboard events to xterm.js's textarea, so xterm generates the
+  sequence for the terminal's current modes. It scrolls horizontally when it does not fit. Touch
+  devices (`pointer: coarse`) show it by default; a button toggles it on desktop, and the choice is
+  remembered per viewer. Ctrl and Alt are sticky: one tap applies to the next key, a double tap locks
+  them until tapped again. Soft-keyboard text typed while Ctrl is active becomes the control
+  character of the next character, and Alt prefixes it with ESC.
+- A viewer forwards no data produced by a mouse click, button or movement, because several people
+  share the terminal; wheel events are forwarded (local scrollback, xterm's alternate-scroll arrows
+  and the program's mouse wheel reports). The browser decides by event source, never by parsing
+  escape sequences.
 - The session page lists the session's terminals and links to them.
 
 ## Audit
@@ -408,11 +449,12 @@ part of the contract for the WebUI and the API.
   `crhs_restarted`, so a replayed `pty_open` that had not finished opens a new one, and a replayed
   read, watch, write, resize or close reports the terminal gone.
 - **Attach frames.** `GET /api/ptys/:id/attach` is a WebSocket authenticated by the session cookie.
-  The first server frame is a JSON `{type:"snapshot", data, rows, cols}` holding the serialized screen;
-  binary frames are output bytes. JSON state frames are `{type:"state", rows, cols, state, viewers}`,
-`{type:"exited", exitCode, reason}` and `{type:"closed", reason}`. The client sends
-  binary frames as input and may send `{type:"resize", rows, cols}`; the WebUI's **Fit to window** uses
-  the REST resize instead. A viewer past a 4 MiB socket buffer is disconnected with reason `slow`.
+  The first server frame is a JSON `{type:"snapshot", data, rows, cols}` holding the serialized screen,
+  modes included, so a viewer joining after a program enabled application cursor keys sends the same
+  key sequences; binary frames are output bytes. JSON state frames are
+  `{type:"state", rows, cols, title, state, viewers}`, `{type:"exited", exitCode, reason}` and
+  `{type:"closed", reason}`. The client sends binary frames as input and may send
+  `{type:"resize", rows, cols}`. A viewer past a 4 MiB socket buffer is disconnected with reason `slow`.
 - **Rule approvals and signatures.** A rule approval is the ordinary `ApprovalRequest`, decided through
   `POST /api/ptys/:id/approval` with the ordinary approval body; the terminal view carries it both as
   `approval` (with the server-built "always allow" candidates) and as `approvalRequest`. The signature
@@ -445,6 +487,12 @@ part of the contract for the WebUI and the API.
   (forwards nothing and logs a console error). `@xterm/xterm` is pinned at exactly 6.0.0 for this reason,
   and `user-input.test.ts` guards it: it writes `ESC[6n` and `ESC[c` to a real xterm.js terminal and
   asserts that no automatic reply is forwarded, while typing and paste still are.
+- **Mouse sharing.** `user-input.ts` also listens on the terminal element in the capture phase for
+  `mousedown`, `mouseup`, `mousemove`, `click`, `auxclick` and `wheel`, and marks the kind of mouse
+  event being dispatched (cleared in a bubble listener and a microtask). `onData` produced during a
+  non-wheel mouse event is dropped, and `onBinary` (mouse-only) is forwarded only during a wheel.
+  Keyboard, paste and IME input are unaffected. This keeps one viewer's click from typing into
+  everyone's shared shell while wheel scrolling still works.
 
 ## Documents that change with this design
 

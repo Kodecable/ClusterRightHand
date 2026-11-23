@@ -319,8 +319,45 @@ describe("terminal tools", () => {
 		expect((await ptyList(other)).content[0]?.text).not.toContain(terminal.id);
 	});
 
+	it("includes the program's title in pty_list and pty_read, marked untrusted", async () => {
+		const terminal = await openFromTool(ctx, node);
+		const connection = await connectData(terminal.id);
+		connection.send({ kind: "data", bytes: new TextEncoder().encode("\u001b]2;  build   log \u0007") });
+		await waitFor("title", () => terminal.title === "build log");
+
+		const list = await ptyList(ctx);
+		const listed = (
+			JSON.parse(list.content[0]?.text ?? "{}") as {
+				terminals: { id: string; title: string; title_untrusted: boolean }[];
+			}
+		).terminals.find((entry) => entry.id === terminal.id);
+		expect(listed).toMatchObject({ title: "build log", title_untrusted: true });
+
+		const read = await ptyRead(ctx, { id: terminal.id });
+		expect(read.details).toMatchObject({ title: "build log", title_untrusted: true });
+		expect(read.content.some((block) => block.text.includes("untrusted"))).toBe(true);
+	});
+
+	it("sends application cursor key sequences when the terminal is in that mode", async () => {
+		const terminal = await openFromTool(ctx, node);
+		const connection = await connectData(terminal.id);
+		connection.send({ kind: "data", bytes: new TextEncoder().encode("\u001b[?1h") });
+		await waitFor("application cursor keys", () => terminal.screen?.terminal.modes.applicationCursorKeysMode === true);
+
+		await ptyWrite(ctx, { id: terminal.id, keys: ["Up", "Home", "End"] });
+		const app = await connection.next();
+		expect(app.kind === "data" ? new TextDecoder().decode(app.bytes) : "").toBe("\u001bOA\u001bOH\u001bOF");
+
+		connection.send({ kind: "data", bytes: new TextEncoder().encode("\u001b[?1l") });
+		await waitFor("normal cursor keys", () => terminal.screen?.terminal.modes.applicationCursorKeysMode === false);
+		await ptyWrite(ctx, { id: terminal.id, keys: ["Up", "Home", "End"] });
+		const normal = await connection.next();
+		expect(normal.kind === "data" ? new TextDecoder().decode(normal.bytes) : "").toBe("\u001b[A\u001b[H\u001b[F");
+	});
+
 	it("translates named keys", () => {
 		expect(new TextDecoder().decode(keysToBytes(["Enter", "ctrl-c", "Up"]))).toBe("\r\u0003\u001b[A");
+		expect(new TextDecoder().decode(keysToBytes(["Up", "Home", "End"], true))).toBe("\u001bOA\u001bOH\u001bOF");
 		expect(() => keysToBytes(["nope"])).toThrowError(/unknown key/);
 	});
 

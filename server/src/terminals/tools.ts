@@ -81,11 +81,32 @@ export const NAMED_KEYS: Readonly<Record<string, string>> = {
 	f12: "\u001b[24~",
 };
 
+/**
+ * The keys whose bytes differ while the terminal is in application cursor keys mode. The program
+ * asked for SS3 (`ESC O …`) forms; a terminal in that mode sends them (doc/design/pty.md "Agent tools").
+ */
+export const APPLICATION_CURSOR_KEYS: Readonly<Record<string, string>> = {
+	up: "\u001bOA",
+	down: "\u001bOB",
+	right: "\u001bOC",
+	left: "\u001bOD",
+	home: "\u001bOH",
+	end: "\u001bOF",
+};
+
 /** Resolves the named keys to bytes; an unknown name is a user error that names the key. */
-export function keysToBytes(keys: readonly string[]): Uint8Array {
+export function keysToBytes(
+	keys: readonly string[],
+	applicationCursorKeys: boolean | { applicationCursorKeysMode?: boolean } = false,
+): Uint8Array {
+	const application =
+		typeof applicationCursorKeys === "boolean"
+			? applicationCursorKeys
+			: applicationCursorKeys.applicationCursorKeysMode === true;
 	let text = "";
 	for (const key of keys) {
-		const bytes = NAMED_KEYS[key.toLowerCase()];
+		const name = key.toLowerCase();
+		const bytes = (application ? APPLICATION_CURSOR_KEYS[name] : undefined) ?? NAMED_KEYS[name];
 		if (bytes === undefined) {
 			throw new UserError(
 				`unknown key "${key}"; use names such as Enter, Tab, Escape, Up, Down, Ctrl-C`,
@@ -183,6 +204,8 @@ export async function ptyList(ctx: PtyToolContext): Promise<ToolResult> {
 			privileged: terminal.privileged,
 			argv: terminal.argv,
 			size: terminal.size,
+			title: terminal.title,
+			title_untrusted: true,
 			exit_code: terminal.exitCode,
 			idle_timeout_ms: terminal.idleTimeoutMs,
 			viewers: terminal.viewers.length,
@@ -192,6 +215,15 @@ export async function ptyList(ctx: PtyToolContext): Promise<ToolResult> {
 	});
 }
 
+/** The details and text note that carry a program-set title to an agent, marked untrusted. */
+function titleParts(terminal: Terminal): { details: Record<string, unknown>; note?: string } {
+	if (terminal.title === "") return { details: { title: "", title_untrusted: true } };
+	return {
+		details: { title: terminal.title, title_untrusted: true },
+		note: `[title set by the program in the terminal (untrusted): ${terminal.title}]`,
+	};
+}
+
 /** `pty_read`: the screen (default) or the output since this session's last read. */
 export async function ptyRead(
 	ctx: PtyToolContext,
@@ -199,6 +231,7 @@ export async function ptyRead(
 ): Promise<ToolResult> {
 	const service = requireService(ctx);
 	const terminal = terminalFor(ctx, args.id);
+	const title = titleParts(terminal);
 	if ((args.mode ?? "screen") === "output") {
 		const output = await service.readOutput(terminal, ctx.actor.id);
 		if (output.screen) {
@@ -209,6 +242,7 @@ export async function ptyRead(
 					{
 						output: `${screenText(output.screen)}\n[output mode is unavailable: a full-screen program is running on the alternate screen; this is its current screen]`,
 					},
+					...(title.note === undefined ? [] : [{ note: title.note }]),
 				],
 				{
 					details: {
@@ -218,6 +252,7 @@ export async function ptyRead(
 						cols: output.screen.cols,
 						state: terminal.state,
 						output_unavailable: true,
+						...title.details,
 					},
 				},
 			);
@@ -227,6 +262,7 @@ export async function ptyRead(
 				{
 					output: output.text === "" ? "(no new output)" : output.text,
 				},
+				...(title.note === undefined ? [] : [{ note: title.note }]),
 			],
 			{
 				details: {
@@ -235,13 +271,21 @@ export async function ptyRead(
 					truncated: output.truncated,
 					lost: output.lost,
 					state: terminal.state,
+					...title.details,
 				},
 			},
 		);
 	}
 	const screen = await service.screen(terminal);
-	return textResult([{ output: screenText(screen) }], {
-		details: { pty_id: terminal.id, mode: "screen", rows: screen.rows, cols: screen.cols, state: terminal.state },
+	return textResult([{ output: screenText(screen) }, ...(title.note === undefined ? [] : [{ note: title.note }])], {
+		details: {
+			pty_id: terminal.id,
+			mode: "screen",
+			rows: screen.rows,
+			cols: screen.cols,
+			state: terminal.state,
+			...title.details,
+		},
 	});
 }
 
@@ -307,7 +351,10 @@ export async function ptyWrite(
 	await requireIoDecision(ctx, terminal, args.text ?? "", args.keys ?? []);
 	const chunks: Uint8Array[] = [];
 	if (args.text !== undefined && args.text !== "") chunks.push(new TextEncoder().encode(args.text));
-	if (args.keys !== undefined && args.keys.length > 0) chunks.push(keysToBytes(args.keys));
+	if (args.keys !== undefined && args.keys.length > 0) {
+		const applicationCursorKeys = terminal.screen?.terminal.modes.applicationCursorKeysMode === true;
+		chunks.push(keysToBytes(args.keys, applicationCursorKeys));
+	}
 	const all = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
 	let offset = 0;
 	for (const chunk of chunks) {

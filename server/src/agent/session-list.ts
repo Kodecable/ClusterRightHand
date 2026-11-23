@@ -29,6 +29,8 @@ export interface SessionListFilter {
 	 * narrow what the caller may already see, so a foreign owner simply yields an empty page.
 	 */
 	ownerId?: string;
+	/** Exact root ids to resolve, for a picker's already selected values. */
+	ids?: readonly string[];
 	cursor?: CursorKey;
 }
 
@@ -146,6 +148,7 @@ export async function sessionListQuery(db: Db, user: SessionUser, filter: Sessio
 	if (filter.ownerId !== undefined && filter.ownerId !== "") {
 		query = query.where("sessions.owner_user_id", "=", filter.ownerId);
 	}
+	if (filter.ids !== undefined) query = query.where("sessions.id", "in", [...filter.ids]);
 	switch (filter.scope) {
 		case "mine":
 			query = query.where("sessions.owner_user_id", "=", user.userId);

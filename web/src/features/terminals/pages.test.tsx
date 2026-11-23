@@ -3,7 +3,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { renderWithRouter, testQueryClient } from "@/test/render";
+import { renderWithRouter, type TestLocale, testQueryClient } from "@/test/render";
 import { TerminalPage, TerminalsPage } from "./pages";
 
 /** The route params `useParams` returns; each test sets the id the page reads. */
@@ -29,6 +29,7 @@ function terminal(overrides: Partial<PtyView> = {}): PtyView {
 		privileged: false,
 		argv: [],
 		size: { rows: 24, cols: 80 },
+		title: "",
 		state: "running",
 		exitCode: null,
 		creatingSessionId: null,
@@ -73,8 +74,8 @@ function mockApi(options: { terminal?: PtyView; terminalStatus?: number; enabled
 	);
 }
 
-function renderTerminalPage(page: React.ReactElement) {
-	return renderWithRouter(<QueryClientProvider client={testQueryClient()}>{page}</QueryClientProvider>, "en", {
+function renderTerminalPage(page: React.ReactElement, locale: TestLocale = "en") {
+	return renderWithRouter(<QueryClientProvider client={testQueryClient()}>{page}</QueryClientProvider>, locale, {
 		path: "/terminals/$id",
 		initialEntries: ["/terminals/term-1"],
 	});
@@ -144,6 +145,60 @@ describe("TerminalPage", () => {
 		});
 	});
 
+	test("shows the program title as a secondary line and the facts in one meta line", async () => {
+		route.params = { id: "term-1" };
+		mockApi({ terminal: terminal({ title: "build log" }) });
+		renderTerminalPage(<TerminalPage />);
+
+		expect(await screen.findByTestId("terminal-title")).toHaveTextContent("build log");
+		const meta = await screen.findByTestId("terminal-meta");
+		expect(meta).toHaveTextContent("Running");
+		expect(meta).toHaveTextContent("worker-01");
+		expect(meta).toHaveTextContent("Size: 80 × 24");
+		expect(meta).toHaveTextContent("ops");
+		expect(screen.queryByTestId("terminal-facts")).not.toBeInTheDocument();
+	});
+
+	test("an exited terminal shows its exit code in the meta line, not a banner", async () => {
+		route.params = { id: "term-1" };
+		mockApi({ terminal: terminal({ state: "exited", exitCode: 7, title: "build log" }) });
+		renderTerminalPage(<TerminalPage />);
+
+		expect(await screen.findByTestId("terminal-exit-code")).toHaveTextContent("Exit code 7");
+		expect(screen.queryByTestId("terminal-exited")).not.toBeInTheDocument();
+	});
+
+	test("merges viewers per user and shows no address or attach time", async () => {
+		route.params = { id: "term-1" };
+		mockApi({
+			terminal: terminal({
+				viewers: [
+					{
+						id: "viewer-1",
+						userId: "user-1",
+						username: "ops",
+						clientAddress: "10.0.0.5",
+						attachedAt: "2026-01-01T00:00:00.000Z",
+					},
+					{
+						id: "viewer-2",
+						userId: "user-1",
+						username: "ops",
+						clientAddress: "10.0.0.6",
+						attachedAt: "2026-01-01T00:01:00.000Z",
+					},
+				],
+			}),
+		});
+		renderTerminalPage(<TerminalPage />);
+
+		const viewers = await screen.findByTestId("terminal-viewers");
+		expect(viewers).toHaveTextContent("ops");
+		expect(viewers).toHaveTextContent("×2");
+		expect(screen.queryByText("10.0.0.5")).not.toBeInTheDocument();
+		expect(screen.queryByText("10.0.0.6")).not.toBeInTheDocument();
+	});
+
 	test("a 404 after the retention window shows a clear gone state", async () => {
 		route.params = { id: "term-1" };
 		mockApi({ terminalStatus: 404 });
@@ -180,5 +235,24 @@ describe("TerminalsPage", () => {
 
 		expect(await screen.findByText("The terminal subsystem is turned off")).toBeVisible();
 		expect(screen.queryByTestId("new-terminal")).not.toBeInTheDocument();
+	});
+});
+
+describe("the zh-CN locale", () => {
+	test("translates the terminal node placeholder, the extra-keys toggle and the mouse hint", async () => {
+		// The new terminal dialog's node picker defaults to the kind's "Choose a crha node" placeholder.
+		mockApi({ list: [] });
+		const list = await renderTerminalPage(<TerminalsPage />, "zh-CN");
+		await userEvent.setup().click(await screen.findByTestId("new-terminal"));
+		expect(await screen.findByText("选择一个 crha 节点")).toBeVisible();
+		list.unmount();
+
+		route.params = { id: "term-1" };
+		mockApi({ terminal: terminal() });
+		await renderTerminalPage(<TerminalPage />, "zh-CN");
+		expect(await screen.findByRole("button", { name: "额外按键" })).toBeVisible();
+		expect(await screen.findByTestId("terminal-mouse-hint")).toHaveTextContent(
+			"程序使用鼠标时，按住 Shift 再选择文字。",
+		);
 	});
 });

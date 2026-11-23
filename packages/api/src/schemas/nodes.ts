@@ -252,6 +252,10 @@ export const NodeListQuerySchema = z.object({
 	q: z.string().optional().describe("Case-insensitive substring of the node name or hostname."),
 	limit: z.string().optional().describe("Page size, 1 to 100; with it the response carries `more`."),
 	ids: z.string().optional().describe("Comma-separated node ids to return."),
+	transport: z
+		.enum(["client", "ssh"])
+		.optional()
+		.describe("Only nodes reached this way: `client` is a crha node, `ssh` a jump-route node."),
 });
 
 /** `GET /api/nodes`; `more` is present only with `limit`. */

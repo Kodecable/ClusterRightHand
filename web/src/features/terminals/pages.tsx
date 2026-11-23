@@ -1,16 +1,17 @@
 import type { ApprovalBody, ApprovalRequest, PtyState, PtyView, PtyViewer } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { ArrowLeftIcon, MaximizeIcon, PlusIcon, TerminalIcon, TriangleAlertIcon } from "lucide-react";
+import { ArrowLeftIcon, MaximizeIcon, PlusIcon, TerminalIcon } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ApprovalPanel } from "@/components/decision/approval-panel";
 import { SignaturePanel, type SubmitSignature } from "@/components/decision/signature-panel";
 import { ConfirmDialog } from "@/components/dialogs";
 import { EmptyHint, EmptyState } from "@/components/empty-state";
+import { EntityPicker } from "@/components/entity-picker";
 import { ErrorState, ErrorText } from "@/components/error-state";
 import { InternalLink } from "@/components/internal-link";
-import { KeyValueList } from "@/components/key-value";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
 import { PrivilegedMark } from "@/components/privileged-mark";
@@ -20,18 +21,13 @@ import { Panel, SectionHeader } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UserLink } from "@/components/user-link";
 import { useSubmitAuthorization } from "@/features/authorizations/api";
-import { useNodeNames } from "@/features/nodes/api";
-import { useSessions } from "@/features/sessions/api";
 import { isNotFound } from "@/lib/api/client";
-import { flattenCursorPages } from "@/lib/api/query";
 import { usePageTitle } from "@/lib/page-title";
 import { useAuth } from "@/lib/session";
-import { displaySessionTitle } from "@/lib/session-title";
 import {
+	terminalKeys,
 	useAssociateSession,
 	useCloseTerminal,
 	useDecideTerminalApproval,
@@ -46,7 +42,7 @@ import { NewTerminalDialog } from "./new-terminal-dialog";
 import { terminalCommand, terminalStateLabel, terminalStateTone } from "./terminal-format";
 import { type TerminalLiveState, TerminalView, type TerminalViewHandle } from "./terminal-view";
 
-/** One terminal list row: node, user, privileged flag, state, creating session, associations, viewers, age. */
+/** One terminal list row: node, program title, user, privileged flag, state, creating session, associations, viewers, age. */
 export function TerminalsPage() {
 	const { t, i18n } = useLingui();
 	const terminals = useTerminals();
@@ -60,6 +56,20 @@ export function TerminalsPage() {
 				minSize: 140,
 				cell: ({ row }) => <span className="block truncate">{row.original.nodeName ?? row.original.nodeId}</span>,
 				meta: { title: (terminal: PtyView) => terminal.nodeName ?? terminal.nodeId },
+			},
+			{
+				id: "title",
+				header: t`Title`,
+				minSize: 140,
+				cell: ({ row }) =>
+					row.original.title === "" ? (
+						<span className="text-muted-foreground">–</span>
+					) : (
+						<span className="block truncate" data-testid="terminal-title-cell">
+							{row.original.title}
+						</span>
+					),
+				meta: { title: (terminal: PtyView) => (terminal.title === "" ? undefined : terminal.title) },
 			},
 			{
 				id: "user",
@@ -228,74 +238,34 @@ function TerminalGone() {
 	);
 }
 
-/** The user/or/opened facts of one terminal. */
-function TerminalFacts({ terminal }: { terminal: PtyView }) {
-	const { t } = useLingui();
-	const nodeNames = useNodeNames();
-	return (
-		<KeyValueList
-			items={[
-				{
-					label: <Trans>Node</Trans>,
-					value: (
-						<InternalLink to="/nodes/$nodeId" params={{ nodeId: terminal.nodeId }}>
-							{nodeNames.get(terminal.nodeId) ?? terminal.nodeName ?? terminal.nodeId}
-						</InternalLink>
-					),
-				},
-				{
-					label: <Trans>User</Trans>,
-					value: <UserLink id={terminal.userId} name={terminal.username} />,
-				},
-				{
-					label: <Trans>Creating session</Trans>,
-					value:
-						terminal.creatingSessionId === null ? (
-							t`Person`
-						) : (
-							<InternalLink
-								to="/sessions/$sessionId"
-								params={{ sessionId: terminal.creatingSessionId }}
-								className="font-mono text-xs"
-							>
-								{terminal.creatingSessionId}
-							</InternalLink>
-						),
-				},
-				{
-					label: <Trans>Opened</Trans>,
-					value: <RelativeTime value={terminal.openedAt} />,
-				},
-				...(terminal.idleTimeoutMs === null
-					? []
-					: [
-							{
-								label: <Trans>Idle timeout</Trans>,
-								value: t`${Math.round(terminal.idleTimeoutMs / 60_000)} min`,
-							},
-						]),
-			]}
-		/>
-	);
-}
-
-/** The other viewers of one terminal, live from the attach state frames. */
+/** The other viewers of one terminal, merged per user: who watches, not where or since when. */
 function ViewerList({ viewers }: { viewers: readonly PtyViewer[] }) {
-	return viewers.length === 0 ? (
+	const merged = useMemo(() => {
+		const byUser = new Map<string, { userId: string; username: string | null; count: number }>();
+		for (const viewer of viewers) {
+			const existing = byUser.get(viewer.userId);
+			if (existing === undefined) {
+				byUser.set(viewer.userId, { userId: viewer.userId, username: viewer.username, count: 1 });
+			} else {
+				existing.count += 1;
+			}
+		}
+		return [...byUser.values()];
+	}, [viewers]);
+	return merged.length === 0 ? (
 		<EmptyHint>
 			<Trans>No one is watching.</Trans>
 		</EmptyHint>
 	) : (
 		<ul className="grid min-w-0 gap-1.5 text-sm" data-testid="terminal-viewers">
-			{viewers.map((viewer) => (
-				<li key={viewer.id} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+			{merged.map((viewer) => (
+				<li key={viewer.userId} className="flex min-w-0 flex-wrap items-center gap-x-1">
 					<UserLink id={viewer.userId} name={viewer.username} />
-					{viewer.clientAddress !== null && (
-						<span className="font-mono text-xs text-muted-foreground">{viewer.clientAddress}</span>
+					{viewer.count > 1 && (
+						<span className="text-xs text-muted-foreground" data-testid="terminal-viewer-count">
+							×{viewer.count}
+						</span>
 					)}
-					<span className="text-xs text-muted-foreground">
-						<RelativeTime value={viewer.attachedAt} />
-					</span>
 				</li>
 			))}
 		</ul>
@@ -304,24 +274,20 @@ function ViewerList({ viewers }: { viewers: readonly PtyViewer[] }) {
 
 /**
  * The associations of one terminal (doc/design/pty.md "The terminal object"): add one of the terminal
- * user's sessions the caller can reach, or remove an existing one.
+ * user's sessions with the one entity picker, or remove an existing one.
  */
 function TerminalAssociations({ terminal }: { terminal: PtyView }) {
-	const { t, i18n } = useLingui();
+	const { t } = useLingui();
 	const user = useAuth().user;
 	// Only an administrator may list another user's sessions; the server associates only the terminal user's.
 	const scope = user?.kind === "admin" && user.id !== terminal.userId ? "all" : "mine";
-	const sessions = useSessions({ scope, ownerId: terminal.userId, limit: 100 });
 	const associate = useAssociateSession();
 	const unassociate = useUnassociateSession();
 	const [selected, setSelected] = useState("");
-
-	const candidates = useMemo(() => {
-		const associated = new Set(terminal.sessionIds);
-		return flattenCursorPages(sessions.data).filter(
-			(session) => session.id !== terminal.creatingSessionId && !associated.has(session.id),
-		);
-	}, [sessions.data, terminal.sessionIds, terminal.creatingSessionId]);
+	const excluded = useMemo(
+		() => [...terminal.sessionIds, ...(terminal.creatingSessionId === null ? [] : [terminal.creatingSessionId])],
+		[terminal.sessionIds, terminal.creatingSessionId],
+	);
 
 	const add = () => {
 		if (selected === "") return;
@@ -357,56 +323,44 @@ function TerminalAssociations({ terminal }: { terminal: PtyView }) {
 				</ul>
 			)}
 			<ErrorText error={unassociate.error} />
-			{candidates.length > 0 && (
-				<form
-					className="flex min-w-0 flex-wrap items-end gap-2"
-					onSubmit={(event) => {
-						event.preventDefault();
-						add();
-					}}
-				>
-					<div className="grid min-w-0 flex-1 gap-1.5">
-						<Label htmlFor="terminal-associate-session">
-							<Trans>Associate a session</Trans>
-						</Label>
-						<Select
-							value={selected === "" ? null : selected}
-							onValueChange={(next) => setSelected(next ?? "")}
-							disabled={associate.isPending}
-						>
-							<SelectTrigger id="terminal-associate-session" className="w-full">
-								<SelectValue placeholder={t`Choose a session`}>
-									{(current: string | null) => {
-										const session = candidates.find((candidate) => candidate.id === current);
-										return session === undefined ? t`Choose a session` : displaySessionTitle(session.title, i18n);
-									}}
-								</SelectValue>
-							</SelectTrigger>
-							<SelectContent>
-								{candidates.map((session) => (
-									<SelectItem key={session.id} value={session.id}>
-										{displaySessionTitle(session.title, i18n)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</div>
-					<Button type="submit" variant="outline" disabled={selected === "" || associate.isPending}>
-						<Trans>Associate</Trans>
-					</Button>
-				</form>
-			)}
+			<form
+				className="flex min-w-0 flex-wrap items-end gap-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					add();
+				}}
+			>
+				<div className="grid min-w-0 flex-1 gap-1.5">
+					<span className="text-sm font-medium">
+						<Trans>Associate a session</Trans>
+					</span>
+					<EntityPicker
+						kind="session"
+						label={t`Associate a session`}
+						sessionOwnerId={terminal.userId}
+						sessionScope={scope}
+						exclude={excluded}
+						value={selected === "" ? null : selected}
+						onChange={(id) => setSelected(id ?? "")}
+						disabled={associate.isPending}
+						testId="terminal-session-picker"
+					/>
+				</div>
+				<Button type="submit" variant="outline" disabled={selected === "" || associate.isPending}>
+					<Trans>Associate</Trans>
+				</Button>
+			</form>
 			<ErrorText error={associate.error} />
 		</Panel>
 	);
 }
 
 /**
- * One terminal (doc/design/webui.md "Terminals page"): the xterm screen, the explicit Fit to window, the
- * live size and viewers, the associations and close. A privileged opening terminal shows its signature
- * wait; an agent's rule approval shows the shared approval panel. An exited terminal keeps its last
- * screen and shows its exit code; once the retention window passed, the API's 404 becomes a clear gone
- * state.
+ * One terminal (doc/design/webui.md "Terminals page"): the xterm screen that fits its own grid, the
+ * explicit Fit to window resize, the live size and viewers, the associations and close. A privileged
+ * opening terminal shows its signature wait; an agent's rule approval shows the shared approval panel.
+ * An exited terminal keeps its last screen and shows its exit code; once the retention window passed,
+ * the API's 404 becomes a clear gone state.
  */
 export function TerminalPage() {
 	const { t, i18n } = useLingui();
@@ -417,27 +371,52 @@ export function TerminalPage() {
 	// case is an unauthenticated render, which the router guard never leaves on this page).
 	const currentUser = useAuth().user;
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const view = terminal.data;
 	const signing = view?.authorizationPhase === "preparing" || view?.authorizationPhase === "waiting";
 	const authorization = useTerminalAuthorization(id, signing);
 	const submit = useSubmitAuthorization();
 	const reject = useRejectTerminalAuthorization(id);
 	const decide = useDecideTerminalApproval();
-	const resize = useResizeTerminal();
 	const close = useCloseTerminal();
-	const viewer = useRef<TerminalViewHandle>(null);
+	const resize = useResizeTerminal();
 	const [confirmingClose, setConfirmingClose] = useState(false);
 	const [live, setLive] = useState<Partial<TerminalLiveState> | undefined>();
 	const [exit, setExit] = useState<{ code: number; reason: "exited" | "helper_lost" } | undefined>();
 	const [closedReason, setClosedReason] = useState<string | undefined>();
 	const [attachError, setAttachError] = useState<string | undefined>();
+	const viewer = useRef<TerminalViewHandle>(null);
+	const announcedTitle = useRef<string | undefined>(undefined);
 
-	usePageTitle(view === undefined ? undefined : (view.nodeName ?? view.nodeId));
+	const nodeLabel = view === undefined ? "" : (view.nodeName ?? view.nodeId);
+	const title = live?.title ?? view?.title ?? "";
+	// The program's title is untrusted, so the trusted node stays in the tab title and the heading.
+	usePageTitle(view === undefined ? undefined : title === "" ? nodeLabel : `${title} · ${nodeLabel}`);
 
 	const refresh = useCallback(() => {
 		void terminal.refetch();
 		void authorization.refetch();
 	}, [terminal.refetch, authorization.refetch]);
+
+	const fitToWindow = () => {
+		if (view === undefined) return;
+		const dimensions = viewer.current?.fitToWindow();
+		if (dimensions === undefined) return;
+		resize.mutate(
+			{ id: view.id, size: dimensions },
+			{
+				onSuccess: (updated) => {
+					setLive((previous) => ({
+						...previous,
+						rows: updated.size.rows,
+						cols: updated.size.cols,
+						state: updated.state,
+					}));
+					refresh();
+				},
+			},
+		);
+	};
 
 	const loginShell = t`login shell`;
 	const signatureRequest: ApprovalRequest | undefined =
@@ -462,26 +441,6 @@ export function TerminalPage() {
 	const liveState: PtyState | undefined = live?.state ?? view?.state;
 	const exited = view?.state === "exited" || exit !== undefined;
 	const exitCode = exit?.code ?? view?.exitCode ?? -1;
-
-	const fitToWindow = () => {
-		if (view === undefined) return;
-		const dimensions = viewer.current?.fitToWindow();
-		if (dimensions === undefined) return;
-		resize.mutate(
-			{ id: view.id, size: dimensions },
-			{
-				onSuccess: (updated) => {
-					setLive((previous) => ({
-						...previous,
-						rows: updated.size.rows,
-						cols: updated.size.cols,
-						state: updated.state,
-					}));
-					refresh();
-				},
-			},
-		);
-	};
 
 	if (terminal.isPending) {
 		return (
@@ -527,13 +486,24 @@ export function TerminalPage() {
 					</span>
 				}
 				titleText={view.nodeName ?? view.nodeId}
+				description={
+					title === "" ? undefined : (
+						<span
+							data-testid="terminal-title"
+							className="block max-w-full truncate text-xs text-muted-foreground"
+							title={title}
+						>
+							{title}
+						</span>
+					)
+				}
 				actions={
 					<>
 						<Button
 							type="button"
 							size="sm"
 							variant="outline"
-							disabled={view.state !== "running" || resize.isPending}
+							disabled={(liveState ?? view.state) !== "running" || resize.isPending}
 							onClick={fitToWindow}
 							data-testid="terminal-fit"
 						>
@@ -554,23 +524,48 @@ export function TerminalPage() {
 				}
 			/>
 			<ErrorText error={resize.error} />
-			{exited && (
-				<p
-					role="status"
-					data-testid="terminal-exited"
-					className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/30 bg-warn-bg px-3 py-2 text-sm text-warn"
-				>
-					<TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden="true" />
-					<span>
-						<Trans>The process exited with code {exitCode}.</Trans>
-					</span>
-					{exit?.reason === "helper_lost" && (
-						<span>
-							<Trans>The terminal lost its privileged helper.</Trans>
+			<p
+				data-testid="terminal-meta"
+				className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+			>
+				<StatusText tone={terminalStateTone(liveState ?? view.state)}>
+					{terminalStateLabel(i18n, liveState ?? view.state)}
+				</StatusText>
+				<span aria-hidden="true">·</span>
+				<span className="inline-flex min-w-0 items-center gap-1">
+					<Trans>Node</Trans>
+					<InternalLink to="/nodes/$nodeId" params={{ nodeId: view.nodeId }} className="truncate">
+						{view.nodeName ?? view.nodeId}
+					</InternalLink>
+				</span>
+				<span aria-hidden="true">·</span>
+				<span data-testid="terminal-size">
+					<Trans>
+						Size: {size?.cols ?? view.size.cols} × {size?.rows ?? view.size.rows}
+					</Trans>
+				</span>
+				<span aria-hidden="true">·</span>
+				<span className="inline-flex min-w-0 items-center gap-1">
+					<Trans>User</Trans>
+					<UserLink id={view.userId} name={view.username} />
+				</span>
+				{exited && (
+					<>
+						<span aria-hidden="true">·</span>
+						<span data-testid="terminal-exit-code">
+							<Trans>Exit code {exitCode}</Trans>
 						</span>
-					)}
-				</p>
-			)}
+					</>
+				)}
+				{exit?.reason === "helper_lost" && (
+					<>
+						<span aria-hidden="true">·</span>
+						<span>
+							<Trans>Privileged helper lost</Trans>
+						</span>
+					</>
+				)}
+			</p>
 			{closedReason !== undefined && (
 				<p
 					role="status"
@@ -621,7 +616,14 @@ export function TerminalPage() {
 				<TerminalView
 					ref={viewer}
 					terminal={view}
-					onState={(next) => setLive(next)}
+					onState={(next) => {
+						setLive((previous) => ({ ...previous, ...next }));
+						if (next.title !== undefined && next.title !== announcedTitle.current) {
+							announcedTitle.current = next.title;
+							// The list's title column follows the program without waiting for its poll.
+							void queryClient.invalidateQueries({ queryKey: terminalKeys.list() });
+						}
+					}}
 					onExited={(code, reason) => setExit({ code, reason })}
 					onClosed={(reason) => setClosedReason(reason)}
 					onError={(message) => setAttachError(message)}
@@ -632,19 +634,6 @@ export function TerminalPage() {
 					<Trans>Waiting for the terminal to open…</Trans>
 				</Panel>
 			)}
-			<Panel className="grid min-w-0 gap-3" data-testid="terminal-facts">
-				<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-					<StatusText tone={terminalStateTone(liveState ?? view.state)}>
-						{terminalStateLabel(i18n, liveState ?? view.state)}
-					</StatusText>
-					<span className="text-sm text-muted-foreground" data-testid="terminal-size">
-						<Trans>
-							Size: {size?.cols ?? view.size.cols} × {size?.rows ?? view.size.rows}
-						</Trans>
-					</span>
-				</div>
-				<TerminalFacts terminal={view} />
-			</Panel>
 			<div className="grid min-w-0 gap-3 md:grid-cols-2">
 				<TerminalAssociations terminal={view} />
 				<Panel className="grid min-w-0 content-start gap-3" data-testid="terminal-viewers-panel">

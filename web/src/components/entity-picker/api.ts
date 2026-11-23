@@ -3,6 +3,7 @@ import type {
 	LibraryListResponse,
 	NodeGroupListResponse,
 	NodeListResponse,
+	SessionListItem,
 	SigningCredentialView,
 	SshCredential,
 	UserGroupListResponse,
@@ -14,6 +15,7 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { useQuery } from "@tanstack/react-query";
 import { nodeStatusLabel } from "@/components/status-badge";
 import { http, queryString } from "@/lib/api/client";
+import { displaySessionTitle } from "@/lib/session-title";
 import { signingCredentialKeyId } from "@/lib/signing-credential-key";
 
 /**
@@ -30,13 +32,22 @@ export type EntityKind =
 	| "nodeGroup"
 	| "directory"
 	| "nodeTarget"
+	| "terminalNode"
 	| "libraryOwner"
 	| "library"
 	| "sshCredential"
-	| "signingCredential";
+	| "signingCredential"
+	| "session";
 
 /** The concrete kind of one option; `directory` combines users and user groups. */
-export type EntityOptionKind = "user" | "userGroup" | "node" | "nodeGroup" | "sshCredential" | "signingCredential";
+export type EntityOptionKind =
+	| "user"
+	| "userGroup"
+	| "node"
+	| "nodeGroup"
+	| "sshCredential"
+	| "signingCredential"
+	| "session";
 
 export interface EntityOption {
 	id: string;
@@ -71,6 +82,10 @@ const ROOTS: Record<EntityKind, readonly string[]> = {
 	directory: ["users", "directory-picker"],
 	// Node and node-group mutations both invalidate `["nodes"]`, so one root refreshes both halves.
 	nodeTarget: ["nodes", "picker", "node-target"],
+	// Only crha nodes can host a terminal; the picker asks the node list for that transport.
+	terminalNode: ["nodes", "picker", "terminal-node"],
+	// The terminal page resolves a session the terminal's user owns; the sessions root refreshes it.
+	session: ["sessions", "picker"],
 	// A library owner is a user or a user group, chosen by its library reference as the option id.
 	libraryOwner: ["libraries", "picker"],
 	// The caller's own libraries and their user groups' libraries, with the reference as the option id.
@@ -82,9 +97,33 @@ const ROOTS: Record<EntityKind, readonly string[]> = {
 };
 
 export const entityPickerKeys = {
-	search: (kind: EntityKind, q: string) => [...ROOTS[kind], "search", q] as const,
-	ids: (kind: EntityKind, ids: readonly string[]) => [...ROOTS[kind], "ids", [...ids].sort()] as const,
+	search: (kind: EntityKind, q: string, scopeKey = "") => [...ROOTS[kind], "search", scopeKey, q] as const,
+	ids: (kind: EntityKind, ids: readonly string[], scopeKey = "") =>
+		[...ROOTS[kind], "ids", scopeKey, [...ids].sort()] as const,
 };
+
+/** The session kind's scope: whose sessions, and whether the caller reaches another owner's list. */
+export interface EntitySessionScope {
+	ownerId?: string;
+	scope?: "mine" | "all";
+}
+
+function sessionScopeKey(options: EntitySessionScope): string {
+	return `${options.ownerId ?? ""}:${options.scope ?? "mine"}`;
+}
+
+function sessionSearchParams(
+	options: EntitySessionScope,
+	params: { q?: string; limit?: number; ids?: string },
+): string {
+	return queryString({
+		...params,
+		...(options.ownerId === undefined ? {} : { ownerId: options.ownerId }),
+		...(options.scope === undefined ? {} : { scope: options.scope }),
+	});
+}
+
+type SessionPickerResponse = { items: SessionListItem[]; nextCursor: string | null };
 
 function countText(i18n: ReturnType<typeof useLingui>["i18n"], count: number): string {
 	return i18n._(
@@ -188,12 +227,27 @@ function signingCredentialOption(
 	};
 }
 
+/** A session candidate: its display title, with the owner's name when another owner is shown. */
+function sessionOption(
+	session: SessionListItem,
+	i18n: ReturnType<typeof useLingui>["i18n"],
+	showOwner: boolean,
+): EntityOption {
+	return {
+		id: session.id,
+		kind: "session",
+		primary: displaySessionTitle(session.title, i18n),
+		...(showOwner && session.ownerName !== "" ? { secondary: session.ownerName } : {}),
+	};
+}
+
 /** Fetches one search page; the response mapping is shared with the label lookup. */
 async function fetchSearch(
 	kind: EntityKind,
 	q: string,
 	i18n: ReturnType<typeof useLingui>["i18n"],
 	signal: AbortSignal,
+	session: EntitySessionScope,
 ): Promise<EntitySearchPage> {
 	const params = queryString({ q, limit: ENTITY_PICKER_LIMIT });
 	switch (kind) {
@@ -215,6 +269,14 @@ async function fetchSearch(
 		}
 		case "node": {
 			const body = await http.get<NodeListResponse>(`/nodes${params}`, { signal });
+			return {
+				options: body.nodes.map((node) => nodeOption(node, i18n)),
+				more: body.more === true,
+			};
+		}
+		case "terminalNode": {
+			const nodeParams = queryString({ q, limit: ENTITY_PICKER_LIMIT, transport: "client" });
+			const body = await http.get<NodeListResponse>(`/nodes${nodeParams}`, { signal });
 			return {
 				options: body.nodes.map((node) => nodeOption(node, i18n)),
 				more: body.more === true,
@@ -335,16 +397,28 @@ async function fetchSearch(
 				more: false,
 			};
 		}
+		case "session": {
+			const body = await http.get<SessionPickerResponse>(
+				`/sessions${sessionSearchParams(session, { q, limit: ENTITY_PICKER_LIMIT })}`,
+				{
+					signal,
+				},
+			);
+			return {
+				options: body.items.map((item) => sessionOption(item, i18n, session.ownerId !== undefined)),
+				more: body.nextCursor !== null,
+			};
+		}
 	}
 }
 
 /** The current search page for `q`; `enabled` keeps it idle until the popup opens. */
-export function useEntitySearch(kind: EntityKind, q: string, enabled: boolean) {
+export function useEntitySearch(kind: EntityKind, q: string, enabled: boolean, session: EntitySessionScope = {}) {
 	const { i18n } = useLingui();
 	return useQuery({
-		queryKey: entityPickerKeys.search(kind, q),
+		queryKey: entityPickerKeys.search(kind, q, sessionScopeKey(session)),
 		enabled,
-		queryFn: ({ signal }) => fetchSearch(kind, q, i18n, signal),
+		queryFn: ({ signal }) => fetchSearch(kind, q, i18n, signal, session),
 	});
 }
 
@@ -353,6 +427,7 @@ async function fetchLabelsChunk(
 	ids: readonly string[],
 	i18n: ReturnType<typeof useLingui>["i18n"],
 	signal: AbortSignal,
+	session: EntitySessionScope,
 ): Promise<EntityOption[]> {
 	const params = queryString({ ids: ids.join(",") });
 	switch (kind) {
@@ -371,6 +446,15 @@ async function fetchLabelsChunk(
 		}
 		case "node": {
 			const body = await http.get<NodeListResponse>(`/nodes${params}`, { signal });
+			return body.nodes.map((node) => nodeOption(node, i18n));
+		}
+		case "terminalNode": {
+			const body = await http.get<NodeListResponse>(
+				`/nodes${queryString({ ids: ids.join(","), transport: "client" })}`,
+				{
+					signal,
+				},
+			);
 			return body.nodes.map((node) => nodeOption(node, i18n));
 		}
 		case "nodeGroup": {
@@ -440,6 +524,13 @@ async function fetchLabelsChunk(
 				.filter((credential) => wanted.has(credential.id))
 				.map((credential) => signingCredentialOption(credential, i18n));
 		}
+		case "session": {
+			const body = await http.get<SessionPickerResponse>(
+				`/sessions${sessionSearchParams(session, { ids: ids.join(",") })}`,
+				{ signal },
+			);
+			return body.items.map((item) => sessionOption(item, i18n, session.ownerId !== undefined));
+		}
 	}
 }
 
@@ -449,22 +540,24 @@ async function fetchLabels(
 	ids: readonly string[],
 	i18n: ReturnType<typeof useLingui>["i18n"],
 	signal: AbortSignal,
+	session: EntitySessionScope,
 ): Promise<EntityOption[]> {
 	const chunks: string[][] = [];
 	for (let index = 0; index < ids.length; index += 100) chunks.push(ids.slice(index, index + 100));
-	const pages = await Promise.all(chunks.map((chunk) => fetchLabelsChunk(kind, chunk, i18n, signal)));
+	const pages = await Promise.all(chunks.map((chunk) => fetchLabelsChunk(kind, chunk, i18n, signal, session)));
 	return pages.flat();
 }
 
 /**
  * Resolves the labels of the values already selected, even when they are outside the current
- * search results. The query key is the sorted id list, so the same selection is one cache entry.
+ * search results. The query key is the sorted id list and the session scope, so the same selection
+ * is one cache entry.
  */
-export function useEntityLabels(kind: EntityKind, ids: readonly string[]) {
+export function useEntityLabels(kind: EntityKind, ids: readonly string[], session: EntitySessionScope = {}) {
 	const { i18n } = useLingui();
 	return useQuery({
-		queryKey: entityPickerKeys.ids(kind, ids),
+		queryKey: entityPickerKeys.ids(kind, ids, sessionScopeKey(session)),
 		enabled: ids.length > 0,
-		queryFn: ({ signal }) => fetchLabels(kind, [...ids].sort(), i18n, signal),
+		queryFn: ({ signal }) => fetchLabels(kind, [...ids].sort(), i18n, signal, session),
 	});
 }

@@ -123,8 +123,8 @@ msgstr "{0} 会获得该用户组授予的节点访问权限。"
 
 #. placeholder {0}: Math.round(terminal.idleTimeoutMs / 60_000)
 #: src/features/terminals/pages.tsx
-msgid "{0} min"
-msgstr "{0} 分钟"
+#~ msgid "{0} min"
+#~ msgstr "{0} 分钟"
 
 #. placeholder {0}: command.method
 #. placeholder {1}: command.target
@@ -1197,6 +1197,10 @@ msgstr "正在检查文件…"
 msgid "Checking which nodes can be upgraded…"
 msgstr "正在检查哪些节点可以升级…"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a crha node"
+msgstr "选择一个 crha 节点"
+
 #: src/components/file-manager/file-picker-dialog.tsx
 msgid "Choose a file"
 msgstr "选择文件"
@@ -1218,7 +1222,6 @@ msgid "Choose a new password for your account."
 msgstr "为你的账户设置新密码。"
 
 #: src/components/entity-picker/entity-picker.tsx
-#: src/features/terminals/new-terminal-dialog.tsx
 msgid "Choose a node"
 msgstr "选择节点"
 
@@ -1234,7 +1237,7 @@ msgstr "选择一个节点或节点组"
 msgid "Choose a node."
 msgstr "请选择一个节点。"
 
-#: src/features/terminals/pages.tsx
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a session"
 msgstr "选择会话"
 
@@ -1265,6 +1268,10 @@ msgstr "至少选择一个节点或节点组后才能签名。"
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Choose at least one target."
 msgstr "请至少选择一个目标。"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose crha nodes"
+msgstr "选择 crha 节点"
 
 #: src/components/file-manager/file-picker-dialog.tsx
 msgid "Choose files"
@@ -1302,6 +1309,10 @@ msgstr "选择一个文件。"
 #: src/features/sessions/attachments.tsx
 msgid "Choose one or more files."
 msgstr "选择一个或多个文件。"
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose sessions"
+msgstr "选择会话"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose signing credentials"
@@ -2355,6 +2366,10 @@ msgstr "退出码"
 msgid "Exit code {0}"
 msgstr "退出码 {0}"
 
+#: src/features/terminals/pages.tsx
+msgid "Exit code {exitCode}"
+msgstr "退出码 {exitCode}"
+
 #: src/features/terminals/terminal-format.ts
 msgid "Exited"
 msgstr "已退出"
@@ -2417,6 +2432,10 @@ msgstr "扩展：{enabled}/{total}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "额外请求头"
+
+#: src/features/terminals/extra-keys.tsx
+msgid "Extra keys"
+msgstr "额外按键"
 
 #: src/features/nodes/pages.tsx
 msgid "Facts"
@@ -2611,6 +2630,10 @@ msgstr "高"
 msgid "High risk"
 msgstr "高风险"
 
+#: src/features/terminals/terminal-view.tsx
+msgid "Hold Shift while selecting text when a program uses the mouse."
+msgstr "程序使用鼠标时，按住 Shift 再选择文字。"
+
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Hop"
@@ -2671,8 +2694,8 @@ msgid "Idle"
 msgstr "空闲"
 
 #: src/features/terminals/pages.tsx
-msgid "Idle timeout"
-msgstr "空闲超时"
+#~ msgid "Idle timeout"
+#~ msgstr "空闲超时"
 
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
@@ -3035,6 +3058,7 @@ msgid "Log out"
 msgstr "退出登录"
 
 #: src/features/terminals/pages.tsx
+#: src/lib/action-text.ts
 msgid "login shell"
 msgstr "登录 shell"
 
@@ -3397,8 +3421,8 @@ msgid "No access grants"
 msgstr "暂无访问授权"
 
 #: src/features/terminals/new-terminal-dialog.tsx
-msgid "No active crha node is available to you."
-msgstr "没有你可用的活动 crha 节点。"
+#~ msgid "No active crha node is available to you."
+#~ msgstr "没有你可用的活动 crha 节点。"
 
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
@@ -3948,8 +3972,8 @@ msgid "open until <0/> (opened by uid {0} at <1/>)"
 msgstr "开放至 <0/>（由 uid {0} 于 <1/> 开启）"
 
 #: src/features/terminals/pages.tsx
-msgid "Opened"
-msgstr "打开时间"
+#~ msgid "Opened"
+#~ msgstr "打开时间"
 
 #: src/features/terminals/terminal-format.ts
 msgid "Opening"
@@ -4205,6 +4229,10 @@ msgstr "预览 {name}"
 #: src/features/terminals/pages.tsx
 msgid "Privileged"
 msgstr "特权"
+
+#: src/features/terminals/pages.tsx
+msgid "Privileged helper lost"
+msgstr "特权辅助进程已丢失"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Privileged identity"
@@ -4919,6 +4947,10 @@ msgid "Scrollback per terminal"
 msgstr "每个终端的回滚缓冲"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Search crha nodes…"
+msgstr "搜索 crha 节点…"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Search failed"
 msgstr "搜索失败"
 
@@ -4951,6 +4983,7 @@ msgstr "搜索结果"
 msgid "Search sessions"
 msgstr "搜索会话"
 
+#: src/components/entity-picker/entity-picker.tsx
 #: src/features/sessions/session-list.tsx
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Search sessions…"
@@ -5552,13 +5585,13 @@ msgstr "{0} 的任务"
 msgid "Technical details"
 msgstr "技术信息"
 
-#: src/lib/action-text.ts
-msgid "Terminal input"
-msgstr "终端输入"
-
 #: src/features/terminals/pages.tsx
 msgid "Terminal"
 msgstr "终端"
+
+#: src/lib/action-text.ts
+msgid "Terminal input"
+msgstr "终端输入"
 
 #: src/app/shell/nav.ts
 #: src/features/system-settings/terminals-section.tsx
@@ -5788,8 +5821,8 @@ msgid "The process ends now, with every program running inside it, and the termi
 msgstr "进程及其内部运行的所有程序会立即结束，终端也将消失。"
 
 #: src/features/terminals/pages.tsx
-msgid "The process exited with code {exitCode}."
-msgstr "进程已退出，退出码为 {exitCode}。"
+#~ msgid "The process exited with code {exitCode}."
+#~ msgstr "进程已退出，退出码为 {exitCode}。"
 
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "The provider lists no model that this provider does not configure yet."
@@ -5848,8 +5881,8 @@ msgid "The terminal is gone"
 msgstr "终端已不存在"
 
 #: src/features/terminals/pages.tsx
-msgid "The terminal lost its privileged helper."
-msgstr "终端失去了它的特权辅助进程。"
+#~ msgid "The terminal lost its privileged helper."
+#~ msgstr "终端失去了它的特权辅助进程。"
 
 #: src/features/terminals/pages.tsx
 msgid "The terminal subsystem is turned off"
@@ -6061,6 +6094,10 @@ msgstr "超时（秒）"
 #: src/features/schedules/schedule-form.tsx
 msgid "Timezone"
 msgstr "时区"
+
+#: src/features/terminals/pages.tsx
+msgid "Title"
+msgstr "标题"
 
 #: src/features/settings/model-presets.tsx
 msgid "Title generation"

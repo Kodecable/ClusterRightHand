@@ -23,6 +23,28 @@ const { Terminal } = require("@xterm/headless") as { Terminal: typeof TerminalTy
 export const TEXT_LOG_CHARS = 256 * 1024;
 /** The most screen text one read returns. */
 export const SCREEN_TEXT_CHARS = 20_000;
+/** The most characters of a program-set title kept (doc/design/pty.md "The terminal object"). */
+export const TITLE_MAX_CHARS = 256;
+
+/**
+ * The title a program set through OSC 0/2 is untrusted text: control characters are removed, runs
+ * of whitespace fold into one space, and only the first {@link TITLE_MAX_CHARS} characters stay.
+ */
+export function sanitizeTerminalTitle(title: string): string {
+	let text = "";
+	for (const character of title) {
+		const code = character.codePointAt(0) ?? 0;
+		// C0 controls other than whitespace, DEL, and the C1 controls: stripped, never rendered.
+		const control =
+			(code >= 0 && code <= 8) ||
+			code === 11 ||
+			code === 12 ||
+			(code >= 14 && code <= 31) ||
+			(code >= 127 && code <= 159);
+		if (!control) text += character;
+	}
+	return text.replace(/\s+/g, " ").trim().slice(0, TITLE_MAX_CHARS).trimEnd();
+}
 
 /** What `pty_read screen` returns: the visible screen and the cursor within it. */
 export interface ScreenSnapshot {
@@ -89,9 +111,11 @@ export class TerminalScreen {
 	#log = "";
 	#stripper = new EscapeStripper();
 	#bell = 0;
+	#title = "";
 	readonly #bellListeners = new Set<() => void>();
 	readonly #dataListeners = new Set<(data: string) => void>();
 	readonly #alternateListeners = new Set<(alternate: boolean, screenText: string) => void>();
+	readonly #titleListeners = new Set<(title: string) => void>();
 	/** Whether the parser is on the alternate screen; kept from the buffer's own change event. */
 	#alternate = false;
 	/** A buffer switch happened while the current write was being parsed. */
@@ -112,6 +136,14 @@ export class TerminalScreen {
 		this.#terminal.onBell(() => {
 			this.#bell++;
 			for (const listener of this.#bellListeners) listener();
+		});
+		// A program's OSC 0/2 title is untrusted text; it is kept sanitized and never replaces a
+		// trusted label (doc/design/pty.md "The terminal object").
+		this.#terminal.onTitleChange((title) => {
+			const clean = sanitizeTerminalTitle(title);
+			if (clean === this.#title) return;
+			this.#title = clean;
+			for (const listener of this.#titleListeners) listener(clean);
 		});
 		// The parser's answers to terminal queries (cursor position reports, device attributes, …)
 		// are the terminal's input (doc/design/pty.md "crhs"). crhs is the single responder: a viewer
@@ -181,6 +213,17 @@ export class TerminalScreen {
 		return () => this.#dataListeners.delete(listener);
 	}
 
+	/** The program's current title, already sanitized; empty until it sets one. */
+	get title(): string {
+		return this.#title;
+	}
+
+	/** Calls `listener` when the program sets a different OSC 0/2 title. */
+	onTitleChange(listener: (title: string) => void): () => void {
+		this.#titleListeners.add(listener);
+		return () => this.#titleListeners.delete(listener);
+	}
+
 	/** Whether a full-screen program is using the alternate screen right now. */
 	get alternate(): boolean {
 		return this.#alternate;
@@ -236,10 +279,14 @@ export class TerminalScreen {
 		};
 	}
 
-	/** The whole scrollback and current screen serialized as ANSI, for a joining viewer. */
+	/**
+	 * The whole scrollback and current screen serialized as ANSI, for a joining viewer. The terminal
+	 * modes are included: a program that enabled application cursor keys must not be read as normal
+	 * mode by the joining viewer, whose arrows would otherwise be the wrong sequence.
+	 */
 	async snapshot(): Promise<string> {
 		await this.whenIdle();
-		return this.#serializer.serialize({ scrollback: 1000, excludeModes: true, excludeAltBuffer: false });
+		return this.#serializer.serialize({ scrollback: 1000, excludeModes: false, excludeAltBuffer: false });
 	}
 
 	/** Applies a size change; the parser keeps its content and reflows it. */
@@ -254,6 +301,7 @@ export class TerminalScreen {
 		this.#bellListeners.clear();
 		this.#dataListeners.clear();
 		this.#alternateListeners.clear();
+		this.#titleListeners.clear();
 		this.#terminal.dispose();
 	}
 

@@ -94,6 +94,11 @@ export interface NodeListPage {
 	more: boolean;
 }
 
+/** The node list's search parameters: the shared `q`/`limit`/`ids` plus the transport control. */
+export interface NodeListParams extends RawEntityListQuery {
+	transport?: "client" | "ssh";
+}
+
 /**
  * `GET /api/nodes` with the optional search parameters (doc/design/webui.md "Entity search").
  * Visibility is unchanged: the query is restricted to the ids `visibleNodeIds` returns,
@@ -102,13 +107,14 @@ export interface NodeListPage {
 export async function queryNodesForUser(
 	db: Db,
 	user: SessionUser,
-	params: RawEntityListQuery,
+	params: NodeListParams,
 	options: { crhsFingerprints?: readonly string[] } = {},
 ): Promise<NodeListPage> {
 	const query = parseListQuery(params);
 	const visible = await visibleNodeIds(db, user);
 	if (visible.length === 0 || query.ids?.length === 0) return { items: [], more: false };
 	let select = db.selectFrom("nodes").selectAll().where("id", "in", visible);
+	if (params.transport !== undefined) select = select.where("transport", "=", params.transport);
 	if (query.ids !== undefined) select = select.where("id", "in", query.ids);
 	if (query.q !== undefined) {
 		select = select

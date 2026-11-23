@@ -1,19 +1,16 @@
 import type { PtyCreateBody, PtySize } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { FormDialog } from "@/components/dialogs";
-import { EmptyHint } from "@/components/empty-state";
+import { EntityPicker } from "@/components/entity-picker";
 import { FieldShell } from "@/components/form";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useNodes } from "@/features/nodes/api";
 import { errorMessage } from "@/lib/api/client";
 import { splitArgv } from "@/lib/argv";
 import { useCreateTerminal } from "./api";
-import { selectableTerminalNodes } from "./terminal-format";
 
 /** crha's largest accepted rows or columns (doc/design/pty.md "The terminal object"). */
 const MAX_DIMENSION = 1000;
@@ -34,7 +31,6 @@ function parseDimension(value: string): number | undefined {
 export function NewTerminalDialog({ onClose }: { onClose: () => void }) {
 	const { t } = useLingui();
 	const navigate = useNavigate();
-	const nodes = useNodes();
 	const create = useCreateTerminal();
 	const [nodeId, setNodeId] = useState("");
 	const [command, setCommand] = useState("");
@@ -43,13 +39,6 @@ export function NewTerminalDialog({ onClose }: { onClose: () => void }) {
 	const [cols, setCols] = useState("");
 	const [error, setError] = useState<string>();
 	const [fieldErrors, setFieldErrors] = useState<{ command?: string; size?: string }>({});
-
-	const eligible = useMemo(() => selectableTerminalNodes(nodes.data ?? []), [nodes.data]);
-
-	useEffect(() => {
-		if (nodeId !== "" || eligible.length === 0) return;
-		setNodeId(eligible[0]?.id ?? "");
-	}, [eligible, nodeId]);
 
 	const submit = async () => {
 		setError(undefined);
@@ -103,7 +92,6 @@ export function NewTerminalDialog({ onClose }: { onClose: () => void }) {
 			description={<Trans>Open an interactive shell on a crha node. Several people can watch and type in it.</Trans>}
 			submitLabel={<Trans>Open terminal</Trans>}
 			busy={create.isPending}
-			submitDisabled={eligible.length === 0}
 			error={error}
 			onSubmit={() => void submit()}
 			testId="new-terminal-dialog"
@@ -113,30 +101,17 @@ export function NewTerminalDialog({ onClose }: { onClose: () => void }) {
 				label={<Trans>Node</Trans>}
 				description={<Trans>Only active crha nodes have terminals; SSH nodes cannot open one.</Trans>}
 			>
-				<Select
+				<EntityPicker
+					kind="terminalNode"
+					id="new-terminal-node"
+					label={t`Node`}
+					includeDisabled={false}
 					value={nodeId === "" ? null : nodeId}
-					onValueChange={(next) => setNodeId(next ?? "")}
+					onChange={(id) => setNodeId(id ?? "")}
 					disabled={create.isPending}
-				>
-					<SelectTrigger id="new-terminal-node" className="w-full">
-						<SelectValue placeholder={t`Choose a node`}>
-							{(selected: string | null) => eligible.find((node) => node.id === selected)?.name ?? t`Choose a node`}
-						</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						{eligible.map((node) => (
-							<SelectItem key={node.id} value={node.id}>
-								{node.name}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+					testId="new-terminal-node-picker"
+				/>
 			</FieldShell>
-			{!nodes.isPending && eligible.length === 0 && (
-				<EmptyHint>
-					<Trans>No active crha node is available to you.</Trans>
-				</EmptyHint>
-			)}
 			<FieldShell
 				id="new-terminal-command"
 				label={<Trans>Command</Trans>}

@@ -297,6 +297,7 @@ export class TerminalService implements TerminalSink {
 			privileged: terminal.privileged,
 			argv: [...terminal.argv],
 			size: { rows: terminal.rows, cols: terminal.cols },
+			title: terminal.title,
 			state: terminal.state,
 			exitCode: terminal.exitCode,
 			creatingSessionId: terminal.createdBySessionId,
@@ -518,6 +519,7 @@ export class TerminalService implements TerminalSink {
 			argv: [...prepared.argv],
 			rows: prepared.rows,
 			cols: prepared.cols,
+			title: "",
 			createdBySessionId: prepared.creatingSessionId,
 			sessionIds: [],
 			idleTimeoutMs: prepared.idleTimeoutMs,
@@ -588,6 +590,14 @@ export class TerminalService implements TerminalSink {
 				if (err instanceof TerminalError) return;
 				console.error("sending a terminal emulator answer failed:", err);
 			});
+		});
+		// The program's title is untrusted text. Keeping it on the terminal makes it part of every
+		// view and of the state frames a viewer receives; it never replaces the node name.
+		screen.onTitleChange((title) => {
+			if (terminal.title === title) return;
+			terminal.title = title;
+			terminal.lastActivityAt = Date.now();
+			this.#broadcastState(terminal);
 		});
 	}
 
@@ -1067,6 +1077,7 @@ export class TerminalService implements TerminalSink {
 			type: "state",
 			rows: terminal.rows,
 			cols: terminal.cols,
+			title: terminal.title,
 			state: terminal.state,
 			viewers: [...terminal.viewers.values()].map((viewer) => ({
 				id: viewer.id,

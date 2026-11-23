@@ -391,6 +391,7 @@ export function ptyView(overrides: Partial<PtyView> = {}): PtyView {
 		privileged: false,
 		argv: [],
 		size: { rows: 24, cols: 80 },
+		title: "",
 		state: "running",
 		exitCode: null,
 		creatingSessionId: null,
@@ -672,7 +673,18 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		}
 		if (path === "/api/auth/password") return json({ ok: true });
 		if (path === "/api/approvals") return json(state.approvals);
-		if (path === "/api/nodes") return json({ nodes: state.nodes });
+		if (path === "/api/nodes") {
+			const transport = url.searchParams.get("transport");
+			const ids = url.searchParams.get("ids")?.split(",");
+			const q = url.searchParams.get("q")?.toLowerCase() ?? "";
+			const nodes = state.nodes.filter((node) => {
+				if (transport !== null && node.transport !== transport) return false;
+				if (ids !== undefined && !ids.includes(node.id)) return false;
+				if (q !== "" && !`${node.name} ${node.hostname ?? ""}`.toLowerCase().includes(q)) return false;
+				return true;
+			});
+			return json({ nodes });
+		}
 		if (path === "/api/node-groups" && method === "GET") return json({ groups: state.nodeGroups });
 		if (path === "/api/node-groups" && method === "POST") {
 			const group: NodeGroup = {
@@ -1515,6 +1527,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const scope = url.searchParams.get("scope") ?? "mine";
 			const q = (url.searchParams.get("q") ?? "").toLowerCase();
 			const ownerId = url.searchParams.get("ownerId");
+			const ids = url.searchParams.get("ids")?.split(",");
 			const start = Number(url.searchParams.get("cursor") ?? "0") || 0;
 			const limit = 20;
 			const visible = state.sessions.filter((item) => {
@@ -1522,11 +1535,15 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				if (scope === "shared" && !item.shared) return false;
 				if (scope === "visible" && item.ownerUserId !== state.user.id && !item.shared) return false;
 				if (ownerId !== null && item.ownerUserId !== ownerId) return false;
+				if (ids !== undefined && !ids.includes(item.id)) return false;
 				if (q !== "" && !(item.title ?? "").toLowerCase().includes(q)) return false;
 				return true;
 			});
 			const items = visible.slice(start, start + limit);
-			return json({ items, nextCursor: start + limit < visible.length ? String(start + limit) : null });
+			return json({
+				items,
+				nextCursor: ids === undefined && start + limit < visible.length ? String(start + limit) : null,
+			});
 		}
 
 		// The draft's list before a session exists (doc/design/extensions.md "Extensions"): every entry on.

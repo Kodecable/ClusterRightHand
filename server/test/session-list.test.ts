@@ -445,6 +445,28 @@ describe("GET /api/sessions", () => {
 		expect((await call(app, `/api/sessions?scope=all&ownerId=${id.alice}`, { cookie: cookie.bob })).status).toBe(403);
 	});
 
+	it("resolves selected session ids for an entity picker, still inside the scope and owner", async () => {
+		const aliceOne = await newSession("alice", "ids alice one");
+		const aliceTwo = await newSession("alice", "ids alice two");
+		const bobOne = await newSession("bob", "ids bob");
+
+		// The owner resolves its own selection by id, in one page, whatever the order.
+		const own = await list("alice", `?ids=${aliceTwo},${aliceOne}`);
+		expect(own.items.map((item) => item.id)).toEqual(expect.arrayContaining([aliceOne, aliceTwo]));
+		expect(own.items.map((item) => item.id)).not.toContain(bobOne);
+		expect(own.nextCursor).toBeNull();
+
+		// An administrator reaches another owner's selected ids only through that owner.
+		const admin = await list("root", `?scope=all&ownerId=${id.alice}&ids=${aliceOne},${bobOne}`);
+		expect(admin.items.map((item) => item.id)).toEqual([aliceOne]);
+
+		// A member cannot name a foreign session, even by id.
+		expect((await list("alice", `?ownerId=${id.bob}&ids=${bobOne}`)).items).toEqual([]);
+		// ids cannot be combined with a search or a limit.
+		expect((await call(app, `/api/sessions?ids=${aliceOne}&q=ids`, { cookie: cookie.alice })).status).toBe(400);
+		expect((await call(app, `/api/sessions?ids=${aliceOne}&limit=10`, { cookie: cookie.alice })).status).toBe(400);
+	});
+
 	it("scope=visible is the owner-and-shared union, without an administrator override", async () => {
 		const own = await newSession("bob", "visible own");
 		const other = await newSession("alice", "visible other");

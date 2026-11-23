@@ -123,8 +123,8 @@ msgstr "{0} gains the node access this user group grants."
 
 #. placeholder {0}: Math.round(terminal.idleTimeoutMs / 60_000)
 #: src/features/terminals/pages.tsx
-msgid "{0} min"
-msgstr "{0} min"
+#~ msgid "{0} min"
+#~ msgstr "{0} min"
 
 #. placeholder {0}: command.method
 #. placeholder {1}: command.target
@@ -1197,6 +1197,10 @@ msgstr "Checking the file…"
 msgid "Checking which nodes can be upgraded…"
 msgstr "Checking which nodes can be upgraded…"
 
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose a crha node"
+msgstr "Choose a crha node"
+
 #: src/components/file-manager/file-picker-dialog.tsx
 msgid "Choose a file"
 msgstr "Choose a file"
@@ -1218,7 +1222,6 @@ msgid "Choose a new password for your account."
 msgstr "Choose a new password for your account."
 
 #: src/components/entity-picker/entity-picker.tsx
-#: src/features/terminals/new-terminal-dialog.tsx
 msgid "Choose a node"
 msgstr "Choose a node"
 
@@ -1234,7 +1237,7 @@ msgstr "Choose a node or node group"
 msgid "Choose a node."
 msgstr "Choose a node."
 
-#: src/features/terminals/pages.tsx
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a session"
 msgstr "Choose a session"
 
@@ -1265,6 +1268,10 @@ msgstr "Choose at least one node or node group to sign."
 #: src/features/tasks/run-task-dialog.tsx
 msgid "Choose at least one target."
 msgstr "Choose at least one target."
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose crha nodes"
+msgstr "Choose crha nodes"
 
 #: src/components/file-manager/file-picker-dialog.tsx
 msgid "Choose files"
@@ -1302,6 +1309,10 @@ msgstr "Choose one file."
 #: src/features/sessions/attachments.tsx
 msgid "Choose one or more files."
 msgstr "Choose one or more files."
+
+#: src/components/entity-picker/entity-picker.tsx
+msgid "Choose sessions"
+msgstr "Choose sessions"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose signing credentials"
@@ -2355,6 +2366,10 @@ msgstr "Exit code"
 msgid "Exit code {0}"
 msgstr "Exit code {0}"
 
+#: src/features/terminals/pages.tsx
+msgid "Exit code {exitCode}"
+msgstr "Exit code {exitCode}"
+
 #: src/features/terminals/terminal-format.ts
 msgid "Exited"
 msgstr "Exited"
@@ -2417,6 +2432,10 @@ msgstr "Extensions: {enabled}/{total}"
 #: src/features/settings/provider-dialog.tsx
 msgid "Extra headers"
 msgstr "Extra headers"
+
+#: src/features/terminals/extra-keys.tsx
+msgid "Extra keys"
+msgstr "Extra keys"
 
 #: src/features/nodes/pages.tsx
 msgid "Facts"
@@ -2611,6 +2630,10 @@ msgstr "High"
 msgid "High risk"
 msgstr "High risk"
 
+#: src/features/terminals/terminal-view.tsx
+msgid "Hold Shift while selecting text when a program uses the mouse."
+msgstr "Hold Shift while selecting text when a program uses the mouse."
+
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Hop"
@@ -2671,8 +2694,8 @@ msgid "Idle"
 msgstr "Idle"
 
 #: src/features/terminals/pages.tsx
-msgid "Idle timeout"
-msgstr "Idle timeout"
+#~ msgid "Idle timeout"
+#~ msgstr "Idle timeout"
 
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
@@ -3035,6 +3058,7 @@ msgid "Log out"
 msgstr "Log out"
 
 #: src/features/terminals/pages.tsx
+#: src/lib/action-text.ts
 msgid "login shell"
 msgstr "login shell"
 
@@ -3397,8 +3421,8 @@ msgid "No access grants"
 msgstr "No access grants"
 
 #: src/features/terminals/new-terminal-dialog.tsx
-msgid "No active crha node is available to you."
-msgstr "No active crha node is available to you."
+#~ msgid "No active crha node is available to you."
+#~ msgstr "No active crha node is available to you."
 
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
@@ -3948,8 +3972,8 @@ msgid "open until <0/> (opened by uid {0} at <1/>)"
 msgstr "open until <0/> (opened by uid {0} at <1/>)"
 
 #: src/features/terminals/pages.tsx
-msgid "Opened"
-msgstr "Opened"
+#~ msgid "Opened"
+#~ msgstr "Opened"
 
 #: src/features/terminals/terminal-format.ts
 msgid "Opening"
@@ -4205,6 +4229,10 @@ msgstr "Preview {name}"
 #: src/features/terminals/pages.tsx
 msgid "Privileged"
 msgstr "Privileged"
+
+#: src/features/terminals/pages.tsx
+msgid "Privileged helper lost"
+msgstr "Privileged helper lost"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Privileged identity"
@@ -4919,6 +4947,10 @@ msgid "Scrollback per terminal"
 msgstr "Scrollback per terminal"
 
 #: src/components/entity-picker/entity-picker.tsx
+msgid "Search crha nodes…"
+msgstr "Search crha nodes…"
+
+#: src/components/entity-picker/entity-picker.tsx
 msgid "Search failed"
 msgstr "Search failed"
 
@@ -4951,6 +4983,7 @@ msgstr "Search results"
 msgid "Search sessions"
 msgstr "Search sessions"
 
+#: src/components/entity-picker/entity-picker.tsx
 #: src/features/sessions/session-list.tsx
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Search sessions…"
@@ -5552,13 +5585,13 @@ msgstr "Tasks of {0}"
 msgid "Technical details"
 msgstr "Technical details"
 
-#: src/lib/action-text.ts
-msgid "Terminal input"
-msgstr "Terminal input"
-
 #: src/features/terminals/pages.tsx
 msgid "Terminal"
 msgstr "Terminal"
+
+#: src/lib/action-text.ts
+msgid "Terminal input"
+msgstr "Terminal input"
 
 #: src/app/shell/nav.ts
 #: src/features/system-settings/terminals-section.tsx
@@ -5788,8 +5821,8 @@ msgid "The process ends now, with every program running inside it, and the termi
 msgstr "The process ends now, with every program running inside it, and the terminal is gone."
 
 #: src/features/terminals/pages.tsx
-msgid "The process exited with code {exitCode}."
-msgstr "The process exited with code {exitCode}."
+#~ msgid "The process exited with code {exitCode}."
+#~ msgstr "The process exited with code {exitCode}."
 
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "The provider lists no model that this provider does not configure yet."
@@ -5848,8 +5881,8 @@ msgid "The terminal is gone"
 msgstr "The terminal is gone"
 
 #: src/features/terminals/pages.tsx
-msgid "The terminal lost its privileged helper."
-msgstr "The terminal lost its privileged helper."
+#~ msgid "The terminal lost its privileged helper."
+#~ msgstr "The terminal lost its privileged helper."
 
 #: src/features/terminals/pages.tsx
 msgid "The terminal subsystem is turned off"
@@ -6061,6 +6094,10 @@ msgstr "Timeout (seconds)"
 #: src/features/schedules/schedule-form.tsx
 msgid "Timezone"
 msgstr "Timezone"
+
+#: src/features/terminals/pages.tsx
+msgid "Title"
+msgstr "Title"
 
 #: src/features/settings/model-presets.tsx
 msgid "Title generation"

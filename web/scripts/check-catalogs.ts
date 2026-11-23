@@ -5,6 +5,11 @@
  * files are the source of truth for the compiled catalogs: lingi's Vite
  * plugin turns them into runtime catalogs, and Lingui macros compile to
  * message ids, so a missing msgstr means an untranslated id at runtime.
+ *
+ * Since the check exists to catch what the runtime would show, it also
+ * rejects unquoted PO values: Lingui's parser only reads quoted strings, so
+ * `msgstr 翻译` (without quotes) is silently dropped at compile time and the
+ * UI falls back to English even though this file "has" the translation.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -15,9 +20,25 @@ interface Entry {
 	line: number;
 }
 
-function unquote(rest: string): string {
+interface Unquoted {
+	file: "en.po" | "zh-CN.po";
+	field: "msgid" | "msgstr";
+	line: number;
+	value: string;
+}
+
+function unquote(
+	rest: string,
+	file: Unquoted["file"],
+	field: "msgid" | "msgstr",
+	line: number,
+	unquoted: Unquoted[],
+): string {
 	const trimmed = rest.trim();
-	if (!trimmed.startsWith('"')) return trimmed;
+	if (!trimmed.startsWith('"')) {
+		unquoted.push({ file, field, line, value: trimmed });
+		return trimmed;
+	}
 	try {
 		return JSON.parse(trimmed) as string;
 	} catch {
@@ -25,8 +46,9 @@ function unquote(rest: string): string {
 	}
 }
 
-function parsePo(source: string): Entry[] {
+function parsePo(source: string, file: Unquoted["file"]): { entries: Entry[]; unquoted: Unquoted[] } {
 	const entries: Entry[] = [];
+	const unquoted: Unquoted[] = [];
 	const lines = source.split("\n");
 	let current: { id: string; value: string; line: number } | null = null;
 	let field: "id" | "value" | null = null;
@@ -46,27 +68,38 @@ function parsePo(source: string): Entry[] {
 		}
 		if (line.startsWith("msgid ")) {
 			if (current && current.id !== "") entries.push(current);
-			current = { id: unquote(line.slice("msgid ".length)), value: "", line: i + 1 };
+			current = { id: unquote(line.slice("msgid ".length), file, "msgid", i + 1, unquoted), value: "", line: i + 1 };
 			field = "id";
 			continue;
 		}
 		if (line.startsWith("msgstr ") && current) {
-			current.value = unquote(line.slice("msgstr ".length));
+			current.value = unquote(line.slice("msgstr ".length), file, "msgstr", i + 1, unquoted);
 			field = "value";
 			continue;
 		}
 		if (line.startsWith('"') && current) {
-			if (field === "id") current.id += unquote(line);
-			else if (field === "value") current.value += unquote(line);
+			if (field === "id") current.id += unquote(line, file, "msgid", i + 1, unquoted);
+			else if (field === "value") current.value += unquote(line, file, "msgstr", i + 1, unquoted);
 		}
 	}
 	flush();
-	return entries;
+	return { entries, unquoted };
 }
 
 const root = resolve(import.meta.dirname, "..");
-const en = parsePo(readFileSync(resolve(root, "src/locales/en.po"), "utf8"));
-const zh = parsePo(readFileSync(resolve(root, "src/locales/zh-CN.po"), "utf8"));
+const enPo = parsePo(readFileSync(resolve(root, "src/locales/en.po"), "utf8"), "en.po");
+const zhPo = parsePo(readFileSync(resolve(root, "src/locales/zh-CN.po"), "utf8"), "zh-CN.po");
+const unquoted = [...enPo.unquoted, ...zhPo.unquoted];
+if (unquoted.length > 0) {
+	console.error(`i18n check failed: ${unquoted.length} unquoted PO value(s) that Lingui ignores:`);
+	for (const entry of unquoted) {
+		console.error(`  - ${entry.file}:${entry.line} ${entry.field}: ${JSON.stringify(entry.value)}`);
+	}
+	console.error("Quote the value, then run `pnpm run i18n:extract`.");
+	process.exit(1);
+}
+const en = enPo.entries;
+const zh = zhPo.entries;
 const zhById = new Map(zh.map((entry) => [entry.id, entry]));
 
 const missing: string[] = [];

@@ -66,6 +66,7 @@ import { usernamesById } from "../users/service.ts";
 import { getUserSettings } from "../users/settings.ts";
 import { type CursorSpec, cursorRows, decodeCursor, parseLimit } from "../util/cursor.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
+import { parseListQuery } from "../util/list-query.ts";
 import { reevaluateAfterRuleChange } from "./approval-routes.ts";
 import type { AppEnv } from "./context.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
@@ -446,6 +447,33 @@ export function sessionRoutes(db: Db, options: SessionRoutesOptions) {
 		const q = query.q;
 		const scheduleId = query.scheduleId;
 		const ownerId = query.ownerId;
+		// An entity picker resolves its selected values by id: one uncursored page, no search or limit.
+		const parsedIds =
+			query.ids === undefined
+				? undefined
+				: parseListQuery({
+						ids: query.ids,
+						...(q === undefined ? {} : { q }),
+						...(query.limit === undefined ? {} : { limit: query.limit }),
+					});
+		const ids = parsedIds?.ids;
+		if (ids !== undefined) {
+			if (rawCursor !== undefined) throw new UserError("ids cannot be combined with q, limit or cursor");
+			const rows = await (
+				await sessionListQuery(db, user, {
+					scope: scope as SessionListScope,
+					...(ownerId === undefined ? {} : { ownerId }),
+					ids,
+				})
+			).execute();
+			return c.json(
+				{
+					items: rows.map((row) => sessionListItem(row, user.userId, Boolean(row.shared))),
+					nextCursor: null,
+				},
+				200,
+			);
+		}
 		const page = await cursorRows(
 			limit,
 			async (limitPlusOne) =>

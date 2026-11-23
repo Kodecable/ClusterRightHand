@@ -17,10 +17,12 @@ const SEARCH_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Search node groups…`,
 	directory: msg`Search users and groups…`,
 	nodeTarget: msg`Search nodes and node groups…`,
+	terminalNode: msg`Search crha nodes…`,
 	libraryOwner: msg`Search users and user groups…`,
 	library: msg`Search libraries…`,
 	sshCredential: msg`Search SSH credentials…`,
 	signingCredential: msg`Search signing credentials…`,
+	session: msg`Search sessions…`,
 };
 
 /** The default empty trigger text per kind and mode. */
@@ -31,10 +33,12 @@ const SINGLE_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Choose a node group`,
 	directory: msg`Choose a user or user group`,
 	nodeTarget: msg`Choose a node or node group`,
+	terminalNode: msg`Choose a crha node`,
 	libraryOwner: msg`Choose a user or user group`,
 	library: msg`Choose a library`,
 	sshCredential: msg`Choose an SSH credential`,
 	signingCredential: msg`Choose a signing credential`,
+	session: msg`Choose a session`,
 };
 
 const MULTI_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
@@ -44,10 +48,12 @@ const MULTI_PLACEHOLDERS: Record<EntityKind, MessageDescriptor> = {
 	nodeGroup: msg`Choose node groups`,
 	directory: msg`Choose users or user groups`,
 	nodeTarget: msg`Choose nodes or node groups`,
+	terminalNode: msg`Choose crha nodes`,
 	libraryOwner: msg`Choose users or user groups`,
 	library: msg`Choose libraries`,
 	sshCredential: msg`Choose SSH credentials`,
 	signingCredential: msg`Choose signing credentials`,
+	session: msg`Choose sessions`,
 };
 
 interface BaseProps {
@@ -68,6 +74,10 @@ interface BaseProps {
 	exclude?: readonly string[];
 	/** Whether pending nodes may be picked. Defaults to true; the batch page wants active nodes only. */
 	includeDisabled?: boolean;
+	/** For the session kind: only this user's sessions (the terminal user's own). */
+	sessionOwnerId?: string;
+	/** For the session kind: `all` is the administrator scope that can list another owner's sessions. */
+	sessionScope?: "mine" | "all";
 	/** Replaces the trigger's label and chevron, e.g. a page control with its own wording. */
 	trigger?: ReactNode;
 }
@@ -93,7 +103,11 @@ const TRIGGER_CLASS =
 function fallbackOption(id: string, kind: EntityKind): EntityOption {
 	// A merged picker still needs one concrete kind for a value whose label has not arrived.
 	const optionKind: EntityOptionKind =
-		kind === "directory" ? "user" : kind === "nodeTarget" ? "node" : (kind as EntityOptionKind);
+		kind === "directory"
+			? "user"
+			: kind === "nodeTarget" || kind === "terminalNode"
+				? "node"
+				: (kind as EntityOptionKind);
 	return { id, kind: optionKind, primary: id };
 }
 
@@ -131,10 +145,11 @@ export function EntityPicker(props: EntityPickerProps) {
 	const [inputValue, setInputValue] = useState("");
 	const query = inputValue.trim();
 	const debouncedQuery = useDebouncedValue(query, 200);
-	const search = useEntitySearch(props.kind, debouncedQuery, open);
+	const sessionScope = { ownerId: props.sessionOwnerId, scope: props.sessionScope };
+	const search = useEntitySearch(props.kind, debouncedQuery, open, sessionScope);
 
 	const selectedIds = props.multiple === true ? props.value : props.value === null ? [] : [props.value];
-	const labels = useEntityLabels(props.kind, selectedIds);
+	const labels = useEntityLabels(props.kind, selectedIds, sessionScope);
 	const excluded = useMemo(() => new Set(props.exclude ?? []), [props.exclude]);
 
 	// Everything known about the selected ids: the label lookup wins over a transient search row.
