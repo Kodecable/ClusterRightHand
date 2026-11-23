@@ -71,10 +71,11 @@ the transfer itself uses `too_large` and `input_mismatch` (a size or SHA-256 mis
 
 ## Version negotiation
 
-The version is major 1, minor 0. The Noise prologue is `"crh/1"` followed by the server's challenge,
+The version is major 1, minor 1. The Noise prologue is `"crh/1"` followed by the server's challenge,
 so peers of different majors fail the Noise handshake before a payload is read; the payload's major is
 checked too. Major 1 is the protocol of `v0.4.0-rc.1`, the first release under the compatibility rules
-([Compatibility](compatibility.md)).
+([Compatibility](compatibility.md)). Minor 1 adds the [terminal](pty.md) names as optional names: crhs
+offers them, while a node offers them only once it implements terminals.
 
 - An incompatible change bumps the major and the prologue. crha and its privileged mode are always
   upgraded together, and crhs is upgraded before its nodes. Across majors crhs keeps only the upgrade
@@ -89,10 +90,13 @@ checked too. Major 1 is the protocol of `v0.4.0-rc.1`, the first release under t
   `file.edit`, `file.stat`, `file.list`) run on every node of the major. Any other kind is sent only to a
   node whose `hello.taskKinds` lists it; otherwise crhs ends the task `unsupported_kind` without
   sending it, since an older node could not even decode its spec.
-- The names in the command and event sets are all required, and a missing one refuses the handshake
-  with its name.
-- A sender uses a name only when both sides advertised it; otherwise it falls back to an older name
-  or gets `unsupported_command`. Frames carry no version field.
+- The command and event sets have required names and optional names. Every required name must be
+  offered, and a missing one refuses the handshake with its name.
+- An optional name is negotiated by intersection: a sender uses it only when both sides offered it,
+  otherwise it falls back to an older name or gets `unsupported_command`. The terminal names
+  (`pty.open`, `pty.resize`, `pty.close`, `pty.meta`, `pty.exited`, `pty.list`) are optional because a
+  node of an older minor does not implement them; crhs offers them, and a node offers them only when it
+  implements terminals. Frames carry no version field.
 
 `crh-priv` has its own major and minor. Its major must match, and `forward` and `native` also require
 an equal `crha_version`, because crha and its privileged mode always upgrade together.
@@ -141,12 +145,17 @@ interop fixtures and an end-to-end test against a released crha binary of each s
 | `task.input` | crhs → crha | One input chunk at a byte offset, after acceptance and in order. |
 | `task.cancel` | crhs → crha | Asks the node to stop a task. A cancel that arrives first is remembered, and the later start is refused. |
 | `task.query` | crhs → crha | The node's view of a task, used after a reconnect. |
-| `pty.open` | crhs → crha | Starts a [terminal](pty.md) with its id, argv, size, privileged flag, idle timeout and scrollback size. Negotiated. |
+| `pty.open` | crhs → crha | Starts a [terminal](pty.md) with its id, argv, size, privileged flag, scrollback size and opaque crhs metadata. Negotiated. |
 | `pty.resize` | crhs → crha | Changes a terminal's size. Negotiated. |
 | `pty.close` | crhs → crha | Closes a terminal with a reason. Negotiated. |
+| `pty.meta` | crhs → crha | Replaces the terminal's opaque crhs metadata. Negotiated. |
 
 `file.push` and `file.pull` tasks move their bytes on a separate
 [data connection](#data-connections), never in these commands, and so do terminals.
+
+`pty.open` and `pty.list` carry a `meta` blob that crhs owns: crha stores it and returns it unchanged,
+never interpreting it, so crhs can rebuild its memory-only terminal state after a restart
+([Reconnect](pty.md#reconnect)).
 
 A task has one merged output stream, and every offset counts bytes in it. `task.cancel` only
 acknowledges the signal; the result is `task.exit`. The privilege names are under

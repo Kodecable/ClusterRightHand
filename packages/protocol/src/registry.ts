@@ -1,7 +1,8 @@
 /**
- * The command and event registries: every name this implementation knows, with
- * its request/response or body codec. Every name must be offered in the handshake; a peer
- * missing one is refused (doc/design/protocol.md "Handshake payloads").
+ * The command and event registries: every name this implementation knows, with its
+ * request/response or body codec. Every required name must be offered in the handshake; a peer
+ * missing one is refused (doc/design/protocol.md "Version negotiation"). An optional name is used
+ * only when both sides offer it.
  */
 import {
 	emptyCodec,
@@ -10,6 +11,12 @@ import {
 	nodeStatusCodec,
 	outputAckCodec,
 	pingCodec,
+	ptyCloseCodec,
+	ptyExitedCodec,
+	ptyListCodec,
+	ptyMetaCodec,
+	ptyOpenCodec,
+	ptyResizeCodec,
 	taskCancelCodec,
 	taskExitAckCodec,
 	taskExitCodec,
@@ -36,6 +43,10 @@ export const COMMANDS = {
 	"task.input": { request: taskInputCodec, response: emptyCodec },
 	"task.cancel": { request: taskCancelCodec, response: emptyCodec },
 	"task.query": { request: taskQueryCodec, response: taskStatusCodec },
+	"pty.open": { request: ptyOpenCodec, response: emptyCodec },
+	"pty.resize": { request: ptyResizeCodec, response: emptyCodec },
+	"pty.close": { request: ptyCloseCodec, response: emptyCodec },
+	"pty.meta": { request: ptyMetaCodec, response: emptyCodec },
 } as const satisfies Record<string, CommandDefinition>;
 
 /** Every event. */
@@ -47,6 +58,8 @@ export const EVENTS = {
 	"task.output.ack": outputAckCodec,
 	"task.exit.ack": taskExitAckCodec,
 	"trust.summary": trustReportCodec,
+	"pty.exited": ptyExitedCodec,
+	"pty.list": ptyListCodec,
 } as const satisfies Record<string, Codec<unknown>>;
 
 export type CommandName = keyof typeof COMMANDS;
@@ -55,7 +68,7 @@ export type CommandRequest<C extends CommandName> = Infer<(typeof COMMANDS)[C]["
 export type CommandResponse<C extends CommandName> = Infer<(typeof COMMANDS)[C]["response"]>;
 export type EventBody<E extends EventName> = Infer<(typeof EVENTS)[E]>;
 
-/** Every command and event, and the names a handshake must offer: a peer missing one is refused. */
+/** Every command and event a handshake must offer: a peer missing one is refused. */
 export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 	"hello",
 	"ping",
@@ -71,3 +84,23 @@ export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 	"task.exit.ack",
 	"trust.summary",
 ]);
+
+/**
+ * The names an implementation may offer in addition to the required ones. They are negotiated by
+ * intersection: a sender uses one only when both sides offered it. The terminal names are optional
+ * from minor 1 on, because an older node does not implement them (doc/design/protocol.md
+ * "Version negotiation").
+ */
+export const OPTIONAL_NAMES: readonly string[] = Object.freeze([
+	"pty.open",
+	"pty.resize",
+	"pty.close",
+	"pty.meta",
+	"pty.exited",
+	"pty.list",
+]);
+
+/** The names this implementation offers in a handshake: every required name, then every optional one. */
+export function offeredNames(): string[] {
+	return [...REQUIRED_NAMES, ...OPTIONAL_NAMES];
+}

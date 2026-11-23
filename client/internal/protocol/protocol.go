@@ -23,9 +23,10 @@ const (
 	// version is additive: new commands and events are negotiated through the handshake's commands
 	// field, new task kinds through hello's task kinds, and methods, match kinds, roles and
 	// capabilities are open names. Major 1 is the protocol of v0.4.0-rc.1, the first release under
-	// the compatibility rules (doc/design/compatibility.md "Protocol").
+	// the compatibility rules (doc/design/compatibility.md "Protocol"). Minor 1 adds the terminal
+	// names as optional names (doc/design/pty.md "Protocol additions").
 	ProtocolMajor = 1
-	ProtocolMinor = 0
+	ProtocolMinor = 1
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440
 	// MaxSafeInteger is the largest integer allowed by the protocol schema: 2^53-1.
@@ -39,6 +40,9 @@ const (
 	// DataNoiseProloguePrefix starts the data connection's Noise prologue; it keeps a data handshake
 	// from being taken for a control one, or the reverse (doc/design/protocol.md "Data connections").
 	DataNoiseProloguePrefix = "crh-data/1"
+	// PTYNoiseProloguePrefix starts a terminal data connection's Noise prologue, so a terminal
+	// handshake can never be taken for a transfer's, or the reverse (doc/design/pty.md "crha").
+	PTYNoiseProloguePrefix = "crh-pty/1"
 	// SubprotocolPrefix starts the WebSocket subprotocol in which crha names its major
 	// (doc/design/protocol.md "The major in the clear").
 	SubprotocolPrefix = "crh."
@@ -63,6 +67,12 @@ const (
 	CmdTaskInput  = "task.input"
 	CmdTaskCancel = "task.cancel"
 	CmdTaskQuery  = "task.query"
+	// CmdPTYOpen, CmdPTYResize, CmdPTYClose and CmdPTYMeta are optional: crhs offers them while a
+	// node offers only those it implements (doc/design/pty.md "Protocol additions").
+	CmdPTYOpen   = "pty.open"
+	CmdPTYResize = "pty.resize"
+	CmdPTYClose  = "pty.close"
+	CmdPTYMeta   = "pty.meta"
 )
 
 // Event names.
@@ -73,6 +83,9 @@ const (
 	EventNodeStatus  = "node.status"
 	EventOutputAck   = "task.output.ack"
 	EventTaskExitAck = "task.exit.ack"
+	// EventPTYExited and EventPTYList are optional terminal events (doc/design/pty.md "Protocol additions").
+	EventPTYExited = "pty.exited"
+	EventPTYList   = "pty.list"
 )
 
 // Privilege event name (doc/design/protocol.md "Privilege messages"). crhs never queries the
@@ -81,7 +94,7 @@ const (
 	EventTrustSummary = "trust.summary"
 )
 
-// commandNames and eventNames are every command and event name: the set every peer must
+// commandNames and eventNames are every required command and event name: the set every peer must
 // implement and therefore the set a handshake requires.
 var (
 	commandNames = []string{
@@ -100,6 +113,22 @@ var (
 		EventOutputAck,
 		EventTaskExitAck,
 		EventTrustSummary,
+	}
+)
+
+// optionalCommandNames and optionalEventNames are the names a peer may offer in addition to the
+// required ones. A sender uses one only when both sides offered it; the handshake intersects the
+// sets (doc/design/protocol.md "Version negotiation").
+var (
+	optionalCommandNames = []string{
+		CmdPTYOpen,
+		CmdPTYResize,
+		CmdPTYClose,
+		CmdPTYMeta,
+	}
+	optionalEventNames = []string{
+		EventPTYExited,
+		EventPTYList,
 	}
 )
 
@@ -138,6 +167,22 @@ var commandSchemas = map[string]commandSchema{
 		request:  func() any { return new(TaskQuery) },
 		response: func() any { return new(TaskStatus) },
 	},
+	CmdPTYOpen: {
+		request:  func() any { return new(PTYOpen) },
+		response: func() any { return new(Empty) },
+	},
+	CmdPTYResize: {
+		request:  func() any { return new(PTYResize) },
+		response: func() any { return new(Empty) },
+	},
+	CmdPTYClose: {
+		request:  func() any { return new(PTYClose) },
+		response: func() any { return new(Empty) },
+	},
+	CmdPTYMeta: {
+		request:  func() any { return new(PTYMeta) },
+		response: func() any { return new(Empty) },
+	},
 }
 
 // validateRequest decodes raw as the command's request body. The body was either encoded by Marshal
@@ -162,6 +207,8 @@ var eventSchemas = map[string]func() any{
 	EventOutputAck:    func() any { return new(OutputAck) },
 	EventTaskExitAck:  func() any { return new(TaskExitAck) },
 	EventTrustSummary: func() any { return new(TrustReport) },
+	EventPTYExited:    func() any { return new(PTYExited) },
+	EventPTYList:      func() any { return new(PTYList) },
 }
 
 // validateEventBody decodes raw as the named event's body. A name outside the schema is
@@ -174,9 +221,9 @@ func validateEventBody(name string, raw cbor.RawMessage) error {
 	return UnmarshalBody(raw, newBody())
 }
 
-// RequiredNames returns every command and event name, sorted. It is the list to put in a
-// handshake's commands field; a handshake whose intersection lacks one is rejected
-// (doc/design/protocol.md "Handshake payloads").
+// RequiredNames returns every required command and event name, sorted. It is the list a handshake
+// must contain; a handshake whose intersection lacks one is rejected (doc/design/protocol.md
+// "Version negotiation").
 func RequiredNames() []string {
 	names := append(slices.Clone(commandNames), eventNames...)
 	slices.Sort(names)
@@ -185,6 +232,34 @@ func RequiredNames() []string {
 
 // RequiredSet returns RequiredNames as a Set.
 func RequiredSet() Set { return NewSet(RequiredNames()...) }
+
+// OptionalNames returns every optional command and event name this implementation knows, sorted. It
+// is the names a peer may offer in addition to the required ones, not a list of what a particular
+// node implements.
+func OptionalNames() []string {
+	names := append(slices.Clone(optionalCommandNames), optionalEventNames...)
+	slices.Sort(names)
+	return names
+}
+
+// ImplementedOptionalNames returns the optional names crha implements and therefore offers in the
+// handshake. It is empty until a later step adds terminals: crha speaks none of the pty names yet,
+// so offering them would promise behaviour it does not have.
+func ImplementedOptionalNames() []string {
+	return nil
+}
+
+// OfferedNames returns the handshake's commands field: every required name plus every optional name
+// crha implements, sorted. A peer missing a required name is refused, while an optional name is used
+// only when both sides offer it (doc/design/protocol.md "Version negotiation").
+func OfferedNames() []string {
+	names := append(RequiredNames(), ImplementedOptionalNames()...)
+	slices.Sort(names)
+	return names
+}
+
+// OfferedSet returns OfferedNames as a Set.
+func OfferedSet() Set { return NewSet(OfferedNames()...) }
 
 // Set is a set of command and event names. The handshake intersects the two peers' sets;
 // only names in the intersection may be sent.

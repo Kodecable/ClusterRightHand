@@ -464,6 +464,75 @@ type TaskExitAck struct {
 	TaskID string
 }
 
+// PTYOpen is the pty.open request body: the terminal id crhs chose, its argv (empty means the
+// identity's login shell), its initial size, its privileged flag, the size of the scrollback ring
+// buffer and the opaque Meta blob crhs owns. crha stores Meta and returns it in pty.list unchanged;
+// it never interprets it (doc/design/pty.md "Reconnect").
+type PTYOpen struct {
+	_               struct{} `cbor:",toarray"`
+	PTYID           string
+	Argv            []string
+	Rows            Uint
+	Cols            Uint
+	Privileged      bool
+	ScrollbackBytes Uint
+	Meta            []byte
+}
+
+// PTYResize is the pty.resize request body.
+type PTYResize struct {
+	_     struct{} `cbor:",toarray"`
+	PTYID string
+	Rows  Uint
+	Cols  Uint
+}
+
+// PTYClose is the pty.close request body: the reason is one of doc/design/pty.md "Lifecycle".
+type PTYClose struct {
+	_      struct{} `cbor:",toarray"`
+	PTYID  string
+	Reason string
+}
+
+// PTYMeta is the pty.meta request body. It replaces the terminal's opaque crhs metadata blob.
+type PTYMeta struct {
+	_     struct{} `cbor:",toarray"`
+	PTYID string
+	Meta  []byte
+}
+
+// PTYExited is the pty.exited event body: the exit code is signed, so a killed process can report -1.
+type PTYExited struct {
+	_        struct{} `cbor:",toarray"`
+	PTYID    string
+	ExitCode Int
+}
+
+// PTYStatus is one terminal of the pty.list event: what crha holds in memory for it. StartedAtMS is
+// the node's clock in unix milliseconds, ExitCode is 0 when the process has not exited, and Meta is
+// the opaque blob crhs sent in pty.open (or replaced with pty.meta).
+type PTYStatus struct {
+	_               struct{} `cbor:",toarray"`
+	PTYID           string
+	Argv            []string
+	Rows            Uint
+	Cols            Uint
+	Privileged      bool
+	ScrollbackBytes Uint
+	Meta            []byte
+	StartedAtMS     Uint
+	Exited          bool
+	ExitCode        Int
+}
+
+// PTYList is the pty.list event body: a one-element tuple holding every active terminal, sent after
+// hello on reconnect (doc/design/pty.md "Reconnect"). Each PTYStatus carries its own id, so there is
+// no outer terminal id.
+type PTYList struct {
+	_         struct{} `cbor:",toarray"`
+	Terminals []PTYStatus
+}
+
 // DataConnectionInit is the client payload of a data connection's Noise IK handshake: the protocol
 // major, the task id and the transfer id (doc/design/protocol.md "Data connections").
 type DataConnectionInit struct {
@@ -477,6 +546,15 @@ type DataConnectionInit struct {
 type DataConnectionResponse struct {
 	_             struct{} `cbor:",toarray"`
 	ProtocolMajor Uint
+}
+
+// PTYConnectionInit is the client payload of a terminal's data connection's Noise IK handshake: the
+// protocol major and the terminal id crhs checks against the terminal it tracks (doc/design/pty.md
+// "crha").
+type PTYConnectionInit struct {
+	_             struct{} `cbor:",toarray"`
+	ProtocolMajor Uint
+	PTYID         string
 }
 
 // DataFrame is one CBOR frame on a data connection after its handshake: a chunk of bytes, the end of

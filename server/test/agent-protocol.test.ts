@@ -7,6 +7,8 @@ import {
 	factsToJson,
 	handshakeInitCodec,
 	MAX_FRAME_BYTES,
+	OPTIONAL_NAMES,
+	offeredNames,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	REQUIRED_NAMES,
@@ -17,7 +19,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import type { SessionUser } from "../src/auth/sessions.ts";
-import { negotiateCommands } from "../src/cluster/agent-server.ts";
+import { AGENT_DATA_PATH, AGENT_PTY_PATH, negotiateCommands } from "../src/cluster/agent-server.ts";
 import { BATCH_GROUP_BYTES, BATCH_NODE_BYTES } from "../src/cluster/batch-output.ts";
 import { Cluster, type TaskView } from "../src/cluster/cluster.ts";
 import type { ServerIdentity } from "../src/cluster/identity.ts";
@@ -236,6 +238,30 @@ describe("agent wire protocol", () => {
 			});
 		});
 
+		it("adds only the optional names the peer also offered", () => {
+			// A node that implements no terminal offers the required names only, so crhs never sends it a
+			// pty command or event (doc/design/protocol.md "Version negotiation").
+			expect(negotiateCommands(REQUIRED_NAMES).negotiated).toEqual([...REQUIRED_NAMES]);
+			expect(negotiateCommands(REQUIRED_NAMES).negotiated).not.toContain("pty.open");
+			expect(negotiateCommands(offeredNames())).toEqual({
+				missing: undefined,
+				negotiated: [...REQUIRED_NAMES, ...OPTIONAL_NAMES],
+			});
+			const partial = negotiateCommands([...REQUIRED_NAMES, "pty.open", "pty.list"]);
+			expect(partial.missing).toBeUndefined();
+			expect(partial.negotiated).toEqual([...REQUIRED_NAMES, "pty.open", "pty.list"]);
+			const missingRequired = negotiateCommands([
+				...OPTIONAL_NAMES,
+				...REQUIRED_NAMES.filter((name) => name !== "ping"),
+			]);
+			expect(missingRequired.missing).toBe("ping");
+		});
+
+		it("serves the terminal data path next to the transfer one", () => {
+			expect(AGENT_DATA_PATH).toBe("/agent/data");
+			expect(AGENT_PTY_PATH).toBe("/agent/pty");
+		});
+
 		it("does not attach a connection that closed during the handshake", async () => {
 			const key = generateKeyPair();
 			const { node, crha: first } = await connectActive("closed-during-handshake", key);
@@ -399,7 +425,7 @@ describe("agent wire protocol", () => {
 			protocolMinor: PROTOCOL_MINOR,
 			nodeState: "active",
 			nodeId: node.id,
-			commands: [...REQUIRED_NAMES],
+			commands: offeredNames(),
 		});
 		expect(await crha.peer.request("ping", { seq: 7 })).toEqual({ seq: 7 });
 	});

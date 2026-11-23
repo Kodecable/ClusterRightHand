@@ -111,7 +111,7 @@ func handshake(ctx context.Context, ws wsConn, opts DialOptions) (*Conn, error) 
 	}
 	init.ProtocolMajor = protocol.ProtocolMajor
 	init.ProtocolMinor = protocol.ProtocolMinor
-	init.Commands = protocol.RequiredNames()
+	init.Commands = protocol.OfferedNames()
 	sent := time.Now()
 	init.ClientTimeMS = protocol.Int(sent.UnixMilli())
 	payload, err := protocol.Marshal(init)
@@ -152,8 +152,9 @@ func handshake(ctx context.Context, ws wsConn, opts DialOptions) (*Conn, error) 
 	if err := protocol.Unmarshal(respPayload, &resp); err != nil {
 		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
 	}
-	// The minor version is not refused: it may only add names, negotiated by intersection.
-	negotiated := protocol.RequiredSet().Intersect(protocol.NewSet(resp.Commands...))
+	// The minor version is not refused: it may only add names, negotiated by intersection. An optional
+	// name is used only when both sides offered it; every required name must be present.
+	negotiated := protocol.OfferedSet().Intersect(protocol.NewSet(resp.Commands...))
 	for _, name := range protocol.RequiredNames() {
 		if negotiated.Has(name) {
 			continue

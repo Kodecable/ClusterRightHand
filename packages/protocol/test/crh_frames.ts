@@ -12,12 +12,14 @@ import {
 	handshakeResponseCodec,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
+	type PtyStatus,
+	ptyConnectionInitCodec,
 	type TaskResult,
 	type TaskStart,
 	type TaskStatus,
 } from "../src/messages.ts";
 import type { TrustSummary } from "../src/privileged.ts";
-import { REQUIRED_NAMES } from "../src/registry.ts";
+import { offeredNames, REQUIRED_NAMES } from "../src/registry.ts";
 
 export interface FixtureCase {
 	id: string;
@@ -74,7 +76,10 @@ function factsEvent(body: ReadonlyMap<unknown, unknown>): Uint8Array {
 	return encodeCbor([2, "facts", body]);
 }
 
+/** The commands field of a crha handshake: the required names, since crha implements no optional one yet. */
 const COMMANDS_TEXT = `commands=[${REQUIRED_NAMES.join(",")}]`;
+/** The commands field of a crhs handshake: crhs offers the required names and the optional terminal names. */
+const OFFERED_COMMANDS_TEXT = `commands=[${offeredNames().join(",")}]`;
 const AUTHORIZATION = bytesOf("00ff");
 const SHA_111 = new Uint8Array(32).fill(0x11);
 const SHA_222 = new Uint8Array(32).fill(0x22);
@@ -287,7 +292,7 @@ export function buildFixture(): CrhFramesFixture {
 	const responseActive: HandshakeResponse = {
 		protocolMajor: PROTOCOL_MAJOR,
 		protocolMinor: PROTOCOL_MINOR,
-		commands: [...REQUIRED_NAMES],
+		commands: offeredNames(),
 		connectionId: "conn-1",
 		serverTimeMs: 1700000001234,
 		nodeState: "active",
@@ -295,13 +300,13 @@ export function buildFixture(): CrhFramesFixture {
 	};
 	addPositive(
 		"handshake.response.active",
-		`HandshakeResponse protocol_major=${PROTOCOL_MAJOR} protocol_minor=${PROTOCOL_MINOR} ${COMMANDS_TEXT} connection_id="conn-1" server_time_ms=1700000001234 node_state="active" node_id="node-1"`,
+		`HandshakeResponse protocol_major=${PROTOCOL_MAJOR} protocol_minor=${PROTOCOL_MINOR} ${OFFERED_COMMANDS_TEXT} connection_id="conn-1" server_time_ms=1700000001234 node_state="active" node_id="node-1"`,
 		encodeCbor(handshakeResponseCodec.encode(responseActive)),
 	);
 	const responsePending: HandshakeResponse = { ...responseActive, nodeState: "pending" };
 	addPositive(
 		"handshake.response.pending",
-		`HandshakeResponse protocol_major=${PROTOCOL_MAJOR} protocol_minor=${PROTOCOL_MINOR} ${COMMANDS_TEXT} connection_id="conn-1" server_time_ms=1700000001234 node_state="pending" node_id="node-1"`,
+		`HandshakeResponse protocol_major=${PROTOCOL_MAJOR} protocol_minor=${PROTOCOL_MINOR} ${OFFERED_COMMANDS_TEXT} connection_id="conn-1" server_time_ms=1700000001234 node_state="pending" node_id="node-1"`,
 		encodeCbor(handshakeResponseCodec.encode(responsePending)),
 	);
 
@@ -763,6 +768,115 @@ export function buildFixture(): CrhFramesFixture {
 			},
 		},
 	);
+	// Terminals (doc/design/pty.md "Protocol additions"). The names are optional, so crhs sends them
+	// only to a node whose hello offered them. Meta is an opaque blob crhs owns; crha stores it and
+	// returns it in pty.list unchanged.
+	const PTY_META = bytesOf("a1617801");
+	const PTY_RUNNING: PtyStatus = {
+		ptyId: "pty-1",
+		argv: ["/bin/bash", "-l"],
+		rows: 40,
+		cols: 120,
+		privileged: false,
+		scrollbackBytes: 1048576,
+		meta: PTY_META,
+		startedAtMs: 1700000000000,
+		exited: false,
+		exitCode: 0,
+	};
+	const PTY_EXITED: PtyStatus = {
+		ptyId: "pty-2",
+		argv: [],
+		rows: 24,
+		cols: 80,
+		privileged: true,
+		scrollbackBytes: 0,
+		meta: bytesOf(""),
+		startedAtMs: 1700000002000,
+		exited: true,
+		exitCode: 137,
+	};
+	addFrame(
+		"request.pty.open",
+		'request id=30 cmd=pty.open body=[pty_id="pty-1", argv=["/bin/bash", "-l"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h\'a1617801\']',
+		{
+			kind: "request",
+			id: 30,
+			cmd: "pty.open",
+			body: {
+				ptyId: PTY_RUNNING.ptyId,
+				argv: PTY_RUNNING.argv,
+				rows: PTY_RUNNING.rows,
+				cols: PTY_RUNNING.cols,
+				privileged: PTY_RUNNING.privileged,
+				scrollbackBytes: PTY_RUNNING.scrollbackBytes,
+				meta: PTY_RUNNING.meta,
+			},
+		},
+	);
+	addFrame("response.pty.open", "response id=30 cmd=pty.open ok=true body=[]", {
+		kind: "response",
+		id: 30,
+		cmd: "pty.open",
+		ok: true,
+		body: {},
+	});
+	addFrame("request.pty.resize", 'request id=31 cmd=pty.resize body=[pty_id="pty-1", rows=50, cols=200]', {
+		kind: "request",
+		id: 31,
+		cmd: "pty.resize",
+		body: { ptyId: "pty-1", rows: 50, cols: 200 },
+	});
+	addFrame("response.pty.resize", "response id=31 cmd=pty.resize ok=true body=[]", {
+		kind: "response",
+		id: 31,
+		cmd: "pty.resize",
+		ok: true,
+		body: {},
+	});
+	addFrame("request.pty.close", 'request id=32 cmd=pty.close body=[pty_id="pty-1", reason="manual"]', {
+		kind: "request",
+		id: 32,
+		cmd: "pty.close",
+		body: { ptyId: "pty-1", reason: "manual" },
+	});
+	addFrame("response.pty.close", "response id=32 cmd=pty.close ok=true body=[]", {
+		kind: "response",
+		id: 32,
+		cmd: "pty.close",
+		ok: true,
+		body: {},
+	});
+	addFrame("request.pty.meta", "request id=33 cmd=pty.meta body=[pty_id=\"pty-1\", meta=h'a1617801']", {
+		kind: "request",
+		id: 33,
+		cmd: "pty.meta",
+		body: { ptyId: "pty-1", meta: PTY_META },
+	});
+	addFrame("response.pty.meta", "response id=33 cmd=pty.meta ok=true body=[]", {
+		kind: "response",
+		id: 33,
+		cmd: "pty.meta",
+		ok: true,
+		body: {},
+	});
+	addFrame("event.pty.exited", 'event pty.exited body=[pty_id="pty-2", exit_code=-1]', {
+		kind: "event",
+		name: "pty.exited",
+		body: { ptyId: "pty-2", exitCode: -1 },
+	});
+	addFrame(
+		"event.pty.list",
+		'event pty.list body=[[pty_id="pty-1", argv=["/bin/bash", "-l"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h\'a1617801\', started_at_ms=1700000000000, exited=false, exit_code=0], [pty_id="pty-2", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, meta=h\'\', started_at_ms=1700000002000, exited=true, exit_code=137]]',
+		{ kind: "event", name: "pty.list", body: { terminals: [PTY_RUNNING, PTY_EXITED] } },
+	);
+	// Not a frame: the client payload of a terminal data connection's handshake.
+	addPositive(
+		"data.init.pty",
+		`PTYConnectionInit [protocol_major=${PROTOCOL_MAJOR}, pty_id="pty-1"]`,
+		encodeCbor(ptyConnectionInitCodec.encode({ protocolMajor: PROTOCOL_MAJOR, ptyId: "pty-1" })),
+	);
+
 	// Negative cases.
 	addNegative(
 		"negative.facts.self_upgrade_bad_reason",
@@ -1055,6 +1169,22 @@ export function buildFixture(): CrhFramesFixture {
 			]),
 		);
 	}
+	// The terminal bodies follow the same tuple and int rules as the rest of the protocol.
+	addNegative(
+		"negative.pty_open_short",
+		"pty.open body has 6 elements instead of 7",
+		encodeCbor([0, 40, "pty.open", ["pty-1", [], 40, 120, false, 1048576]]),
+	);
+	addNegative(
+		"negative.pty_status_short",
+		"pty.list terminal has 9 elements instead of 10",
+		encodeCbor([2, "pty.list", [[["pty-1", [], 40, 120, false, 1048576, new Uint8Array(), 1700000000000, false]]]]),
+	);
+	addNegative(
+		"negative.pty_exit_code_float",
+		"pty.exited exit_code is the float 1.5 where int is required",
+		bytesOf("83026a7074792e65786974656482657074792d31f93e00"),
+	);
 	addNegative(
 		"negative.request_cmd_too_long",
 		"request cmd is 65 ASCII bytes, over the 64-byte limit",

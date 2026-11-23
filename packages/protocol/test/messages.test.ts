@@ -31,7 +31,23 @@ import {
 	outputModeCodec,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
+	PTY_NOISE_PROLOGUE_PREFIX,
+	type PtyClose,
+	type PtyExited,
+	type PtyList,
+	type PtyMeta,
+	type PtyOpen,
+	type PtyResize,
+	type PtyStatus,
 	pingCodec,
+	ptyCloseCodec,
+	ptyConnectionInitCodec,
+	ptyExitedCodec,
+	ptyListCodec,
+	ptyMetaCodec,
+	ptyOpenCodec,
+	ptyResizeCodec,
+	ptyStatusCodec,
 	type TaskExit,
 	type TaskInput,
 	type TaskOutput,
@@ -52,7 +68,15 @@ import {
 	type Welcome,
 	welcomeCodec,
 } from "../src/messages.ts";
-import { COMMANDS, type CommandRequest, type CommandResponse, EVENTS, REQUIRED_NAMES } from "../src/registry.ts";
+import {
+	COMMANDS,
+	type CommandRequest,
+	type CommandResponse,
+	EVENTS,
+	OPTIONAL_NAMES,
+	offeredNames,
+	REQUIRED_NAMES,
+} from "../src/registry.ts";
 import { type Codec, SchemaError } from "../src/schema.ts";
 
 const digest = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
@@ -162,6 +186,37 @@ const handshakeResponse: HandshakeResponse = {
 	nodeId: "n-1",
 };
 
+const ptyMeta: Uint8Array = Uint8Array.of(0xa1, 0x61, 0x78, 0x01);
+const ptyOpen: PtyOpen = {
+	ptyId: "pty-1",
+	argv: ["/bin/bash", "-l"],
+	rows: 40,
+	cols: 120,
+	privileged: false,
+	scrollbackBytes: 1048576,
+	meta: ptyMeta,
+};
+const ptyResize: PtyResize = { ptyId: "pty-1", rows: 50, cols: 200 };
+const ptyClose: PtyClose = { ptyId: "pty-1", reason: "manual" };
+const ptyMetaBody: PtyMeta = { ptyId: "pty-1", meta: ptyMeta };
+const ptyExited: PtyExited = { ptyId: "pty-2", exitCode: -1 };
+const ptyStatus: PtyStatus = {
+	ptyId: "pty-1",
+	argv: ["/bin/bash", "-l"],
+	rows: 40,
+	cols: 120,
+	privileged: false,
+	scrollbackBytes: 1048576,
+	meta: ptyMeta,
+	startedAtMs: 1_700_000_000_000,
+	exited: false,
+	exitCode: 0,
+};
+const ptyList: PtyList = {
+	terminals: [ptyStatus, { ...ptyStatus, ptyId: "pty-2", argv: [], privileged: true, exited: true, exitCode: 137 }],
+};
+const ptyConnectionInit = { protocolMajor: PROTOCOL_MAJOR, ptyId: "pty-1" };
+
 function asCase<T>(name: string, codec: Codec<T>, value: T): [string, Codec<unknown>, unknown] {
 	return [name, codec as Codec<unknown>, value];
 }
@@ -218,6 +273,14 @@ const cases: [string, Codec<unknown>, unknown][] = [
 	asCase("TaskOutput", taskOutputCodec, taskOutput),
 	asCase("NodeStatus", nodeStatusCodec, nodeStatus),
 	asCase("TaskExitAck", taskExitAckCodec, { taskId: "t-1" }),
+	asCase("PTY open", ptyOpenCodec, ptyOpen),
+	asCase("PTY resize", ptyResizeCodec, ptyResize),
+	asCase("PTY close", ptyCloseCodec, ptyClose),
+	asCase("PTY meta", ptyMetaCodec, ptyMetaBody),
+	asCase("PTY exited", ptyExitedCodec, ptyExited),
+	asCase("PTY status", ptyStatusCodec, ptyStatus),
+	asCase("PTY list", ptyListCodec, ptyList),
+	asCase("PTY connection init", ptyConnectionInitCodec, ptyConnectionInit),
 ];
 
 describe("message codecs", () => {
@@ -341,9 +404,9 @@ describe("message codecs", () => {
 		expect(() => taskExitCodec.decode(["t-1", ["code", 0], false, false, 0, 0, ""])).toThrow(SchemaError);
 	});
 
-	it("uses protocol 1.0 and requires every name", () => {
+	it("uses protocol 1.1, requires the base names and offers the terminal names", () => {
 		expect(PROTOCOL_MAJOR).toBe(1);
-		expect(PROTOCOL_MINOR).toBe(0);
+		expect(PROTOCOL_MINOR).toBe(1);
 		expect(REQUIRED_NAMES).toEqual([
 			"hello",
 			"ping",
@@ -359,14 +422,22 @@ describe("message codecs", () => {
 			"task.exit.ack",
 			"trust.summary",
 		]);
+		expect(OPTIONAL_NAMES).toEqual(["pty.open", "pty.resize", "pty.close", "pty.meta", "pty.exited", "pty.list"]);
+		expect(offeredNames()).toEqual([...REQUIRED_NAMES, ...OPTIONAL_NAMES]);
 		expect(REQUIRED_NAMES).not.toContain("trust.query");
 		expect(REQUIRED_NAMES).not.toContain("revocations.set");
+		expect(REQUIRED_NAMES).not.toContain("pty.open");
+		expect(PTY_NOISE_PROLOGUE_PREFIX).toBe("crh-pty/1");
 	});
 
 	it("registers every command and event", () => {
 		expect(Object.keys(COMMANDS).sort()).toEqual([
 			"hello",
 			"ping",
+			"pty.close",
+			"pty.meta",
+			"pty.open",
+			"pty.resize",
 			"task.cancel",
 			"task.input",
 			"task.query",
@@ -375,6 +446,8 @@ describe("message codecs", () => {
 		expect(Object.keys(EVENTS).sort()).toEqual([
 			"facts",
 			"node.status",
+			"pty.exited",
+			"pty.list",
 			"task.exit",
 			"task.exit.ack",
 			"task.output",

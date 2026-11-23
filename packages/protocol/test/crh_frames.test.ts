@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { decode as decodeCbor, encode as encodeCbor } from "../src/cbor.ts";
 import { decodeFrame, encodeFrame, ProtocolError } from "../src/frame.ts";
-import { handshakeInitCodec, handshakeResponseCodec } from "../src/messages.ts";
+import { handshakeInitCodec, handshakeResponseCodec, ptyConnectionInitCodec } from "../src/messages.ts";
 import { buildFixture, type CrhFramesFixture, type FixtureCase } from "./crh_frames.ts";
 
 const fixtureText = readFileSync(new URL("../../../test/interop/crh_frames.json", import.meta.url), "utf8");
@@ -19,6 +19,9 @@ function checkPositive(vector: FixtureCase): void {
 	} else if (vector.id.startsWith("handshake.response")) {
 		const value = handshakeResponseCodec.decode(decodeCbor(bytes));
 		expect(hexOf(encodeCbor(handshakeResponseCodec.encode(value)))).toBe(vector.hex);
+	} else if (vector.id.startsWith("data.init.pty")) {
+		const value = ptyConnectionInitCodec.decode(decodeCbor(bytes));
+		expect(hexOf(encodeCbor(ptyConnectionInitCodec.encode(value)))).toBe(vector.hex);
 	} else {
 		const frame = decodeFrame(bytes);
 		if (frame.kind === "event" && frame.name === "facts") {

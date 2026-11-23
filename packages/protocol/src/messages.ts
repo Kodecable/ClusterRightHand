@@ -31,9 +31,10 @@ export const PROTOCOL_MAJOR = 1;
  * additive: new commands and events are negotiated through the handshake's `commands` field, new task
  * kinds through `hello.taskKinds`, and new methods, match types, roles and capabilities are open names.
  * Major 1 is the protocol of v0.4.0-rc.1, the first release under the compatibility rules
- * (doc/design/compatibility.md "Protocol").
+ * (doc/design/compatibility.md "Protocol"). Minor 1 adds the terminal names as optional names
+ * (doc/design/pty.md "Protocol additions").
  */
-export const PROTOCOL_MINOR = 0;
+export const PROTOCOL_MINOR = 1;
 
 /**
  * The Noise prologue's version prefix, `"crh/"` followed by the major version
@@ -76,6 +77,12 @@ export function majorFromSubprotocols(header: string | undefined): number | unde
  * Its own prefix means a data handshake can never be taken for a control one, or the reverse.
  */
 export const DATA_NOISE_PROLOGUE_PREFIX = "crh-data/1";
+
+/**
+ * A terminal's data connection has its own prologue prefix, `"crh-pty/1"`: a terminal handshake can
+ * never be taken for a transfer's, or the reverse (doc/design/pty.md "crha").
+ */
+export const PTY_NOISE_PROLOGUE_PREFIX = "crh-pty/1";
 
 /** One data frame is at most this many bytes, so it fits a Noise message (doc/design/protocol.md "Data connections"). */
 export const DATA_CHUNK_BYTES = 32 * 1024;
@@ -539,6 +546,86 @@ export const emptyCodec = tuple([]);
 export type Empty = Infer<typeof emptyCodec>;
 
 // ---------------------------------------------------------------------------
+// Terminal bodies (doc/design/pty.md "Protocol additions")
+// ---------------------------------------------------------------------------
+
+/**
+ * The body of `pty.open`: the terminal id crhs chose, its argv (empty means the identity's login
+ * shell), its initial size, its privileged flag, the size of crha's scrollback ring buffer and the
+ * opaque `meta` blob crhs owns. crha stores `meta` and returns it unchanged in `pty.list`; it never
+ * interprets it (doc/design/pty.md "Reconnect").
+ */
+export const ptyOpenCodec = tuple([
+	["ptyId", text],
+	["argv", list(text)],
+	["rows", uint],
+	["cols", uint],
+	["privileged", bool],
+	["scrollbackBytes", uint],
+	["meta", bytes],
+]);
+export type PtyOpen = Infer<typeof ptyOpenCodec>;
+
+/** The body of `pty.resize`: the terminal id and its new size. */
+export const ptyResizeCodec = tuple([
+	["ptyId", text],
+	["rows", uint],
+	["cols", uint],
+]);
+export type PtyResize = Infer<typeof ptyResizeCodec>;
+
+/** The body of `pty.close`: the terminal id and the reason it ended. */
+export const ptyCloseCodec = tuple([
+	["ptyId", text],
+	["reason", text],
+]);
+export type PtyClose = Infer<typeof ptyCloseCodec>;
+
+/** The body of `pty.meta`: replaces the terminal's opaque crhs metadata blob. */
+export const ptyMetaCodec = tuple([
+	["ptyId", text],
+	["meta", bytes],
+]);
+export type PtyMeta = Infer<typeof ptyMetaCodec>;
+
+/**
+ * The body of the `pty.exited` event: the terminal id and the process's exit code. The code is a
+ * signed integer, so a killed process can report -1 (doc/design/pty.md "Lifecycle").
+ */
+export const ptyExitedCodec = tuple([
+	["ptyId", text],
+	["exitCode", int],
+]);
+export type PtyExited = Infer<typeof ptyExitedCodec>;
+
+/**
+ * One terminal in `pty.list`: what crha holds in memory for it. `startedAtMs` is the node's clock in
+ * unix milliseconds, `exitCode` is 0 when the process has not exited, and `meta` is the opaque blob
+ * crhs sent in `pty.open` (or replaced with `pty.meta`).
+ */
+export const ptyStatusCodec = tuple([
+	["ptyId", text],
+	["argv", list(text)],
+	["rows", uint],
+	["cols", uint],
+	["privileged", bool],
+	["scrollbackBytes", uint],
+	["meta", bytes],
+	["startedAtMs", uint],
+	["exited", bool],
+	["exitCode", int],
+]);
+export type PtyStatus = Infer<typeof ptyStatusCodec>;
+
+/**
+ * The body of the `pty.list` event, sent after `hello` (doc/design/pty.md "Reconnect"). It is a
+ * one-element tuple: the terminals list. Each `ptyStatus` carries its own id, so there is no outer
+ * terminal id.
+ */
+export const ptyListCodec = tuple([["terminals", list(ptyStatusCodec)]]);
+export type PtyList = Infer<typeof ptyListCodec>;
+
+// ---------------------------------------------------------------------------
 // Event bodies
 // ---------------------------------------------------------------------------
 
@@ -578,6 +665,16 @@ export type DataConnectionInit = Infer<typeof dataConnectionInitCodec>;
 /** The server payload of a data connection's handshake: the protocol major only. */
 export const dataConnectionResponseCodec = tuple([["protocolMajor", uint]]);
 export type DataConnectionResponse = Infer<typeof dataConnectionResponseCodec>;
+
+/**
+ * The client payload of a terminal's data connection: the protocol major, then the terminal id crhs
+ * checks against the terminal it tracks (doc/design/pty.md "crha").
+ */
+export const ptyConnectionInitCodec = tuple([
+	["protocolMajor", uint],
+	["ptyId", text],
+]);
+export type PtyConnectionInit = Infer<typeof ptyConnectionInitCodec>;
 
 /**
  * One data frame after the handshake: a chunk of bytes, the end of the transfer, or an abort with

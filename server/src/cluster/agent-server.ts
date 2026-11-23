@@ -14,6 +14,8 @@ import {
 	handshakeInitCodec,
 	handshakeResponseCodec,
 	majorFromSubprotocols,
+	OPTIONAL_NAMES,
+	offeredNames,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	peekProtocolMajor,
@@ -34,13 +36,20 @@ import { findNodeByPublicKey, type NodeRow } from "./nodes.ts";
 export const AGENT_PATH = "/agent";
 /** The data connection's path: the control path plus `/data` (doc/design/protocol.md "Data connections"). */
 export const AGENT_DATA_PATH = `${AGENT_PATH}/data`;
+/**
+ * A terminal's data connection path: the control path plus `/pty` (doc/design/pty.md "crha"). The
+ * terminal names are optional and no handler accepts this path until the terminal subsystem lands.
+ */
+export const AGENT_PTY_PATH = `${AGENT_PATH}/pty`;
 const CHALLENGE_LEN = 32;
 const HANDSHAKE_TIMEOUT_MS = 20_000;
 const MAX_NOISE_MESSAGE = 65535;
 
 /**
- * The commands and events both sides implement (doc/design/protocol.md "Handshake payloads"). Every name is
- * required, so `negotiated` is the peer's offered names; `missing` is the first required name it does not offer.
+ * The commands and events both sides implement (doc/design/protocol.md "Version negotiation"). Every
+ * required name must be offered, or `missing` is the first one absent. `negotiated` holds the required
+ * names present plus the optional names the peer also offered; an optional name neither side offers is
+ * simply absent.
  */
 export function negotiateCommands(offered: Iterable<string>): {
 	missing: string | undefined;
@@ -48,7 +57,7 @@ export function negotiateCommands(offered: Iterable<string>): {
 } {
 	const have = new Set(offered);
 	const missing = REQUIRED_NAMES.find((name) => !have.has(name));
-	const negotiated = REQUIRED_NAMES.filter((name) => have.has(name));
+	const negotiated = [...REQUIRED_NAMES, ...OPTIONAL_NAMES].filter((name) => have.has(name));
 	return { missing, negotiated };
 }
 
@@ -197,8 +206,8 @@ export class AgentServer {
 		}
 		const clientKey = hs.remoteStaticKey as Uint8Array;
 
-		// Only names both sides implement may be sent; every required name must be present. The minor version is
-		// not refused: it may only add names, negotiated here by intersection.
+		// Only names both sides offer may be sent; every required name must be present, while an optional
+		// name is negotiated by intersection. The minor version is not refused: it may only add names.
 		const { missing, negotiated } = negotiateCommands(init.commands);
 		if (missing !== undefined) return reject(ws, `missing required command: ${missing}`);
 
@@ -240,7 +249,7 @@ export class AgentServer {
 		const response: HandshakeResponse = {
 			protocolMajor: PROTOCOL_MAJOR,
 			protocolMinor: PROTOCOL_MINOR,
-			commands: [...REQUIRED_NAMES],
+			commands: offeredNames(),
 			connectionId,
 			serverTimeMs: Date.now(),
 			nodeState: node.status === "active" ? "active" : "pending",

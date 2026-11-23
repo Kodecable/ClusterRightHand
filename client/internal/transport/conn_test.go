@@ -48,7 +48,7 @@ func fakeServer(t *testing.T, server noise.Keypair, allowed []byte, tamperChalle
 			ws.Close(websocket.StatusPolicyViolation, "bad init")
 			return
 		}
-		resp := activeHandshake(protocol.RequiredNames())
+		resp := activeHandshake(protocol.OfferedNames())
 		if response != nil {
 			resp = response()
 		}
@@ -67,7 +67,7 @@ func fakeServer(t *testing.T, server noise.Keypair, allowed []byte, tamperChalle
 				return err
 			}
 			return ws.Write(ctx, websocket.MessageBinary, ct)
-		}, protocol.RequiredSet().Intersect(protocol.NewSet(init.Commands...)))
+		}, protocol.OfferedSet().Intersect(protocol.NewSet(init.Commands...)))
 		peer.HandleRequest(protocol.CmdPing, func(_ context.Context, body cbor.RawMessage) (any, error) {
 			var p protocol.Ping
 			if err := protocol.Unmarshal(body, &p); err != nil {
@@ -147,6 +147,12 @@ func TestDialAndPing(t *testing.T) {
 			t.Fatalf("negotiated set misses %q", name)
 		}
 	}
+	// crhs offers the terminal names, but crha implements none of them yet: offering them would
+	// promise behaviour it lacks, so they stay out of the intersection (doc/design/pty.md "Protocol
+	// additions").
+	if c.Negotiated.Has(protocol.CmdPTYOpen) || c.Negotiated.Has(protocol.EventPTYList) {
+		t.Fatal("negotiated set includes a terminal name crha does not implement")
+	}
 	for seq := protocol.Uint(1); seq <= 3; seq++ {
 		frame, err := protocol.EncodeRequest(protocol.Uint(seq), protocol.CmdPing, protocol.Ping{Seq: seq})
 		if err != nil {
@@ -207,7 +213,7 @@ func TestDialWrongServerKey(t *testing.T) {
 func TestDialProtocolMajorMismatch(t *testing.T) {
 	client, server := keys(t)
 	srv := fakeServer(t, server, client.Public, false, func() *protocol.HandshakeResponse {
-		resp := activeHandshake(protocol.RequiredNames())
+		resp := activeHandshake(protocol.OfferedNames())
 		resp.ProtocolMajor = protocol.ProtocolMajor + 1
 		return resp
 	})
@@ -222,7 +228,7 @@ func TestDialProtocolMajorMismatch(t *testing.T) {
 func TestDialDifferentMinorAccepted(t *testing.T) {
 	client, server := keys(t)
 	srv := fakeServer(t, server, client.Public, false, func() *protocol.HandshakeResponse {
-		resp := activeHandshake(protocol.RequiredNames())
+		resp := activeHandshake(protocol.OfferedNames())
 		resp.ProtocolMinor = protocol.ProtocolMinor + 1
 		return resp
 	})
@@ -232,6 +238,23 @@ func TestDialDifferentMinorAccepted(t *testing.T) {
 		t.Fatalf("handshake with a different minor: %v", err)
 	}
 	defer c.Close("done")
+}
+
+func TestDialServerOffersRequiredNamesOnly(t *testing.T) {
+	client, server := keys(t)
+	srv := fakeServer(t, server, client.Public, false, func() *protocol.HandshakeResponse {
+		// An older crhs offers no optional name; the required intersection is still enough.
+		return activeHandshake(protocol.RequiredNames())
+	})
+	defer srv.Close()
+	c, err := dial(t, srv, client, server)
+	if err != nil {
+		t.Fatalf("handshake with a required-only server: %v", err)
+	}
+	defer c.Close("done")
+	if got := len(c.Negotiated); got != len(protocol.RequiredNames()) {
+		t.Fatalf("negotiated set has %d names, want %d", got, len(protocol.RequiredNames()))
+	}
 }
 
 func TestDialMissingRequiredCommand(t *testing.T) {

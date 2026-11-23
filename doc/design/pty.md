@@ -124,15 +124,16 @@ afterwards is not authorized command by command; the authorization covers the te
   control connection.
 - Output is read from the PTY continuously into the ring buffer. While the data connection is down,
   output only fills the ring buffer; the process is never blocked by crhs.
-- Control messages go on the control connection: `pty.open`, `pty.resize`, `pty.close` (commands) and
-  `pty.exited`, `pty.list` (events).
+- Control messages go on the control connection: `pty.open`, `pty.resize`, `pty.close`, `pty.meta`
+  (commands) and `pty.exited`, `pty.list` (events).
 
 ### Reconnect
 
 When crha connects, after `hello`, it sends `pty.list`: every active terminal with its fields. crhs:
 
-- adopts each listed terminal into its copy, with its creating and associated sessions, and crha opens
-  the data connections again;
+- adopts each listed terminal into its copy, rebuilding its owner, its creating and associated
+  sessions and its idle timeout from the terminal's `meta` blob, which crhs owns and crha returns
+  unchanged; crha opens the data connections again;
 - rebuilds each terminal's screen state by replaying the ring buffer into a fresh emulator. If output
   was lost beyond the ring buffer, the screen starts from the oldest kept byte;
 - closes, with reason `crha_restarted`, any terminal it knew on that node that is not listed.
@@ -267,9 +268,9 @@ An agent's `pty_write` is a tool call like any other and stays in its session's 
 
 All within major 1, negotiated by the minor ([Version negotiation](protocol.md#version-negotiation)):
 
-- Commands `pty.open`, `pty.resize`, `pty.close`; events `pty.exited`, `pty.list`. crhs uses them only
-  with a node whose `hello` advertises them; any other node answers a terminal request with
-  `unsupported_node`.
+- Commands `pty.open`, `pty.resize`, `pty.close`, `pty.meta`; events `pty.exited`, `pty.list`. crhs
+  uses them only with a node that offered them in its handshake; any other node answers a terminal request
+  with `unsupported_node`.
 - The terminal data connection: path `/agent/pty`, prologue `crh-pty/1`, client payload with
   `protocol_major` and the terminal id; frames `[data, bytes]` in both directions and `[end]`.
 - `crh-priv`: optional names for the privileged mode to run a terminal and relay its bytes: commands

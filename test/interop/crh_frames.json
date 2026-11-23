@@ -2,23 +2,23 @@
 	"positive": [
 		{
 			"id": "handshake.init.no-enroll",
-			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
-			"hex": "8601008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d6172796a302e312e302d746573741b0000018bcfe56800f6"
+			"description": "HandshakeInit protocol_major=1 protocol_minor=1 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
+			"hex": "8601018d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d6172796a302e312e302d746573741b0000018bcfe56800f6"
 		},
 		{
 			"id": "handshake.init.enroll",
-			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=[token_secret=\"enroll-secret\", hostname=\"node-1\", facts={hostname=\"node-1\", platform=\"linux, amd64, Ubuntu 24.04.4 LTS\", hints=\"Found systemd.\\nPID 1 is systemd.\\nFound apt.\\nFound sudo.\", notes_path=\"/etc/crh/notes\", clock_offset_ms=-1234, shells={sh=\"/bin/sh\", bash=\"/usr/bin/bash\"}}]",
-			"hex": "860100826568656c6c6f6470696e676a302e312e302d746573741b0000018bcfe56800836d656e726f6c6c2d736563726574666e6f64652d31a66568696e74737837466f756e642073797374656d642e0a50494420312069732073797374656d642e0a466f756e64206170742e0a466f756e64207375646f2e667368656c6c73a2627368672f62696e2f736864626173686d2f7573722f62696e2f6261736868686f73746e616d65666e6f64652d3168706c6174666f726d78206c696e75782c20616d6436342c205562756e74752032342e30342e34204c54536a6e6f7465735f706174686e2f6574632f6372682f6e6f7465736f636c6f636b5f6f66667365745f6d733904d1"
+			"description": "HandshakeInit protocol_major=1 protocol_minor=1 commands=[hello,ping] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=[token_secret=\"enroll-secret\", hostname=\"node-1\", facts={hostname=\"node-1\", platform=\"linux, amd64, Ubuntu 24.04.4 LTS\", hints=\"Found systemd.\\nPID 1 is systemd.\\nFound apt.\\nFound sudo.\", notes_path=\"/etc/crh/notes\", clock_offset_ms=-1234, shells={sh=\"/bin/sh\", bash=\"/usr/bin/bash\"}}]",
+			"hex": "860101826568656c6c6f6470696e676a302e312e302d746573741b0000018bcfe56800836d656e726f6c6c2d736563726574666e6f64652d31a66568696e74737837466f756e642073797374656d642e0a50494420312069732073797374656d642e0a466f756e64206170742e0a466f756e64207375646f2e667368656c6c73a2627368672f62696e2f736864626173686d2f7573722f62696e2f6261736868686f73746e616d65666e6f64652d3168706c6174666f726d78206c696e75782c20616d6436342c205562756e74752032342e30342e34204c54536a6e6f7465735f706174686e2f6574632f6372682f6e6f7465736f636c6f636b5f6f66667365745f6d733904d1"
 		},
 		{
 			"id": "handshake.response.active",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
-			"hex": "8701008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=1 protocol_minor=1 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary,pty.open,pty.resize,pty.close,pty.meta,pty.exited,pty.list] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
+			"hex": "870101936568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d617279687074792e6f70656e6a7074792e726573697a65697074792e636c6f7365687074792e6d6574616a7074792e657869746564687074792e6c69737466636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
 		},
 		{
 			"id": "handshake.response.pending",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
-			"hex": "8701008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=1 protocol_minor=1 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary,pty.open,pty.resize,pty.close,pty.meta,pty.exited,pty.list] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
+			"hex": "870101936568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d617279687074792e6f70656e6a7074792e726573697a65697074792e636c6f7365687074792e6d6574616a7074792e657869746564687074792e6c69737466636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
 		},
 		{
 			"id": "request.hello",
@@ -244,6 +244,61 @@
 			"id": "event.trust.summary.future_values",
 			"description": "event trust.summary whose entry has role \"bundle\", kinds [\"execute\", \"attest\"] and allow [[\"file.chown\", \"glob\", \"/srv/*\"]]",
 			"hex": "83026d74727573742e73756d6d61727982626f6b86666e6f64652d3181782430313932663030302d303030302d373030302d383030302d30303030303030303030613119ea6082831903e61903e6646372686183000064726f6f74818c6a62756e646c652d6b6579656c6f63616c6662756e646c6582667373687369678278497373682d65643235353139204141414143334e7a6143316c5a4449314e5445354141414149456a637268737369676e696e676b65796578616d706c6520637268732d7369676e696e6778325348413235363a3437444551706a38484253612b2f54496d572b354a4365755165526b6d354e4d704a575a4733685375465582676578656375746566617474657374f5f5f41a000493e081836a66696c652e63686f776e64676c6f62662f7372762f2a808082646f70656e831b0000018bcfe56be81903e81b0000018bd000df40"
+		},
+		{
+			"id": "request.pty.open",
+			"description": "request id=30 cmd=pty.open body=[pty_id=\"pty-1\", argv=[\"/bin/bash\", \"-l\"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h'a1617801']",
+			"hex": "8400181e687074792e6f70656e87657074792d3182692f62696e2f62617368622d6c18281878f41a0010000044a1617801"
+		},
+		{
+			"id": "response.pty.open",
+			"description": "response id=30 cmd=pty.open ok=true body=[]",
+			"hex": "8501181e687074792e6f70656ef580"
+		},
+		{
+			"id": "request.pty.resize",
+			"description": "request id=31 cmd=pty.resize body=[pty_id=\"pty-1\", rows=50, cols=200]",
+			"hex": "8400181f6a7074792e726573697a6583657074792d31183218c8"
+		},
+		{
+			"id": "response.pty.resize",
+			"description": "response id=31 cmd=pty.resize ok=true body=[]",
+			"hex": "8501181f6a7074792e726573697a65f580"
+		},
+		{
+			"id": "request.pty.close",
+			"description": "request id=32 cmd=pty.close body=[pty_id=\"pty-1\", reason=\"manual\"]",
+			"hex": "84001820697074792e636c6f736582657074792d31666d616e75616c"
+		},
+		{
+			"id": "response.pty.close",
+			"description": "response id=32 cmd=pty.close ok=true body=[]",
+			"hex": "85011820697074792e636c6f7365f580"
+		},
+		{
+			"id": "request.pty.meta",
+			"description": "request id=33 cmd=pty.meta body=[pty_id=\"pty-1\", meta=h'a1617801']",
+			"hex": "84001821687074792e6d65746182657074792d3144a1617801"
+		},
+		{
+			"id": "response.pty.meta",
+			"description": "response id=33 cmd=pty.meta ok=true body=[]",
+			"hex": "85011821687074792e6d657461f580"
+		},
+		{
+			"id": "event.pty.exited",
+			"description": "event pty.exited body=[pty_id=\"pty-2\", exit_code=-1]",
+			"hex": "83026a7074792e65786974656482657074792d3220"
+		},
+		{
+			"id": "event.pty.list",
+			"description": "event pty.list body=[[pty_id=\"pty-1\", argv=[\"/bin/bash\", \"-l\"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h'a1617801', started_at_ms=1700000000000, exited=false, exit_code=0], [pty_id=\"pty-2\", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, meta=h'', started_at_ms=1700000002000, exited=true, exit_code=137]]",
+			"hex": "8302687074792e6c69737481828a657074792d3182692f62696e2f62617368622d6c18281878f41a0010000044a16178011b0000018bcfe56800f4008a657074792d328018181850f500401b0000018bcfe56fd0f51889"
+		},
+		{
+			"id": "data.init.pty",
+			"description": "PTYConnectionInit [protocol_major=1, pty_id=\"pty-1\"]",
+			"hex": "8201657074792d31"
 		}
 	],
 	"negative": [
@@ -416,6 +471,21 @@
 			"id": "negative.facts_key_order",
 			"description": "event facts map has hostname before arch (non-canonical key order)",
 			"hex": "8302656661637473a268686f73746e616d65666e6f64652d316461726368667838365f3634"
+		},
+		{
+			"id": "negative.pty_open_short",
+			"description": "pty.open body has 6 elements instead of 7",
+			"hex": "84001828687074792e6f70656e86657074792d318018281878f41a00100000"
+		},
+		{
+			"id": "negative.pty_status_short",
+			"description": "pty.list terminal has 9 elements instead of 10",
+			"hex": "8302687074792e6c697374818189657074792d318018281878f41a00100000401b0000018bcfe56800f4"
+		},
+		{
+			"id": "negative.pty_exit_code_float",
+			"description": "pty.exited exit_code is the float 1.5 where int is required",
+			"hex": "83026a7074792e65786974656482657074792d31f93e00"
 		},
 		{
 			"id": "negative.request_cmd_too_long",
