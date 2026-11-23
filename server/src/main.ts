@@ -7,6 +7,7 @@ import { parseArgs } from "node:util";
 import { serve } from "@hono/node-server";
 import { ModelCatalogue, ModelConfig } from "./agent/models.ts";
 import { AgentRuntime } from "./agent/runtime.ts";
+import { sessionStateOf } from "./agent/session-state.ts";
 import { cancelExpiredTokenWaits } from "./api/api-token-waits.ts";
 import { createApp } from "./api/app.ts";
 import { createClientAddress } from "./api/client-address.ts";
@@ -42,6 +43,8 @@ import { SetupError } from "./setup/answers.ts";
 import { runInit } from "./setup/init.ts";
 import { createStorageOpener, type Db, openAgentStorage, openDb } from "./storage/db.ts";
 import { migrateToLatest } from "./storage/migrate.ts";
+import { TerminalAttachServer } from "./terminals/attach.ts";
+import { TerminalService } from "./terminals/registry.ts";
 import { convertExternalResult } from "./tools/external-results.ts";
 import { execJobRenderers } from "./tools/job-renderers.ts";
 import { UserError } from "./util/errors.ts";
@@ -235,6 +238,19 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		libraryBackend,
 	});
 	const agents = new AgentServer(db, identity, cluster, audit);
+	// The terminal subsystem (doc/design/pty.md): memory-only copies of crha's terminals, the heads'
+	// screens and the idle timers. It installs itself as the cluster's terminal sink.
+	const terminals = new TerminalService({
+		db,
+		cluster,
+		settings,
+		audit,
+		sessionState: (sessionId) => sessionStateOf(db, sessionId),
+	});
+	terminals.start();
+	const ptyAttach = new TerminalAttachServer(db, terminals, {
+		realIpHeader: () => settings.current().realIpHeader,
+	});
 	const taskGroups = new TaskGroups(db, cluster, { audit });
 	await taskGroups.recover();
 	// Tasks a previous process left dispatched or running end as the nodes' connections did not survive it
@@ -277,6 +293,18 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		mcp,
 		audit,
 		settings,
+		terminals,
+		onSessionDeleted: (sessionId) => terminals.sessionDeleted(sessionId),
+	});
+	// A terminal rule approval is the acting session's wait: its run state follows the approval (doc/design/
+	// agent-runtime.md "Session state").
+	terminals.setApprovalListener((sessionId) => {
+		void runtime.refreshState(sessionId).catch((err: unknown) => {
+			console.error(
+				`agent runtime: refreshing the state of session ${sessionId} after a terminal approval failed:`,
+				err,
+			);
+		});
 	});
 	// Signature waits that outlived their deadline while crhs was down end before requests are served.
 	await cluster.sweepAuthorizationWaits();
@@ -292,6 +320,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		cluster,
 		taskGroups,
 		audit,
+		terminals,
 		libraryBackend,
 		settings,
 	});
@@ -318,6 +347,7 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		webRoot: config.webRoot,
 		audit,
 		agent: { runtime, models },
+		terminals,
 		modelCatalogue,
 		crhaReleases,
 		scheduler,
@@ -333,10 +363,12 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	}) as Server;
 	server.on("upgrade", (req, socket, head) => {
 		try {
+			// The WebUI's terminal attachments first; the agent endpoint owns everything else.
+			if (ptyAttach.handleUpgrade(req, socket, head)) return;
 			if (!agents.handleUpgrade(req, socket, head)) socket.destroy();
 		} catch (err) {
 			// This listener runs inside the HTTP server's `upgrade` emit: a throw here is uncaught.
-			console.error("agent upgrade failed:", err);
+			console.error("upgrade failed:", err);
 			socket.destroy();
 		}
 	});
@@ -399,7 +431,10 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		// 4. Wait for the requests already being handled, then drop whatever connection is left.
 		await drain.waitForIdle();
 		server.closeAllConnections();
-		// 5. Close node links and SSH sessions, then wait for the work the close started.
+		// 5. Close the web terminal attachments, then every terminal (each process group gets its
+		// hangup), then the node links and SSH sessions, and wait for the work the closes started.
+		await ptyAttach.close();
+		await terminals.shutdown();
 		await cluster.close();
 		await taskGroups.close();
 		await agents.close();

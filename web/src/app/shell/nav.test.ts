@@ -14,6 +14,11 @@ describe("navItemForPath", () => {
 		expect(navItemForPath("/task-groups/g1")?.to).toBe("/tasks");
 	});
 
+	test("keeps Terminals active on a terminal detail", () => {
+		expect(navItemForPath("/terminals")?.to).toBe("/terminals");
+		expect(navItemForPath("/terminals/pty-1")?.to).toBe("/terminals");
+	});
+
 	test("keeps System settings active on its own route, not Models", () => {
 		expect(navItemForPath("/settings/system")?.to).toBe("/settings/system");
 		expect(navItemForPath("/settings/models")?.to).toBe("/settings/models");

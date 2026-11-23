@@ -136,7 +136,7 @@ describe("library API", () => {
 		return app.request(`${lib(ref)}/file?${query}`, {
 			method: "PUT",
 			headers: { host: "localhost:8080", cookie, "content-type": "application/octet-stream" },
-			body: data,
+			body: data as unknown as BodyInit,
 		});
 	};
 

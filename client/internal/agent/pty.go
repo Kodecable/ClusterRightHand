@@ -25,9 +25,10 @@ var (
 var (
 	// errPTYPeerEnded means crhs sent [end] or [abort]: only the data connection ends.
 	errPTYPeerEnded = errors.New("crhs ended the terminal data connection")
-	// errPTYBehind means the connection read slower than the ring buffer wrapped: its next byte is
-	// already gone, so it must be replaced by a fresh replay.
-	errPTYBehind = errors.New("terminal output fell behind the ring buffer")
+	// errPTYStreamLost means the byte streams can no longer line up: crhs's output offset is
+	// outside the ring, or the ring overwrote bytes the connection had not sent yet. The terminal
+	// ends with stream_lost (doc/design/pty.md "crha").
+	errPTYStreamLost = errors.New("the terminal byte stream was lost")
 )
 
 // ptyControl is the control connection the terminal data connections belong to. crhs accepts a
@@ -39,9 +40,9 @@ type ptyControl struct {
 	negotiated protocol.Set
 }
 
-// ptyWorker keeps one terminal's data connection: it dials after pty.open, replays the ring,
-// forwards live output and input, and redials with backoff while the terminal exists and a
-// control connection is up.
+// ptyWorker keeps one terminal's data connection: it dials after pty.open, continues the two byte
+// streams from the offsets in the handshake, and redials with backoff while the terminal exists and
+// a control connection is up.
 type ptyWorker struct {
 	term   *pty.Terminal
 	cancel context.CancelFunc
@@ -100,7 +101,6 @@ func (a *Agent) handlePTYOpen(ctx context.Context, body cbor.RawMessage) (any, e
 		Rows:            uint64(req.Rows),
 		Cols:            uint64(req.Cols),
 		ScrollbackBytes: uint64(req.ScrollbackBytes),
-		Meta:            req.Meta,
 	})
 	if err != nil {
 		return nil, err
@@ -162,8 +162,8 @@ func (a *Agent) startRelayedPTY(ctx context.Context, ch privChannel, req protoco
 	}
 	rctx, cancel := context.WithTimeout(ctx, a.forwardTimeout())
 	defer cancel()
-	// pty.open travels as crhs sent it: the terminal metadata and scrollback are the unprivileged
-	// mode's, and the privileged side ignores them (doc/design/pty.md "Protocol additions").
+	// pty.open travels as crhs sent it: the scrollback is the unprivileged mode's, and the
+	// privileged side ignores it (doc/design/pty.md "Protocol additions").
 	err := ch.Request(rctx, wire.CmdPTYOpen, req, nil)
 	if err != nil {
 		a.unregisterRelayPTY(req.PTYID)
@@ -200,7 +200,6 @@ func (a *Agent) startRelayedPTY(ctx context.Context, ch privChannel, req protoco
 		Cols:            uint64(req.Cols),
 		Privileged:      true,
 		ScrollbackBytes: uint64(req.ScrollbackBytes),
-		Meta:            req.Meta,
 	}, relay)
 	if err != nil {
 		a.unregisterRelayPTY(req.PTYID)
@@ -292,21 +291,9 @@ func (a *Agent) handlePTYClose(_ context.Context, body cbor.RawMessage) (any, er
 	return protocol.Empty{}, nil
 }
 
-// handlePTYMeta replaces crhs's opaque metadata blob; crha never interprets it.
-func (a *Agent) handlePTYMeta(_ context.Context, body cbor.RawMessage) (any, error) {
-	var req protocol.PTYMeta
-	if err := protocol.UnmarshalBody(body, &req); err != nil {
-		return nil, err
-	}
-	if err := a.pty.mgr.SetMeta(req.PTYID, req.Meta); err != nil {
-		return nil, err
-	}
-	return protocol.Empty{}, nil
-}
-
 // beginPTY reports every held terminal after hello and starts a data connection loop for each one
 // on this control connection: a running terminal reconnects, and an exited terminal crhs has not
-// closed replays once and ends with [end] (doc/design/pty.md "Reconnect").
+// closed continues from crhs's offset to the end and sends [end] (doc/design/pty.md "Reconnect").
 func (a *Agent) beginPTY(ctx context.Context, conn *transport.Conn, peer *protocol.Peer) error {
 	if !conn.Negotiated.Has(protocol.CmdPTYOpen) {
 		// A node of an older minor, or crhs did not offer terminals: nothing on this connection
@@ -412,7 +399,7 @@ func (a *Agent) wakePTYLocked() {
 
 // startPTYWorker starts the one data connection loop for t, replacing a loop left over from the
 // same id if crhs reopened it. Repeating the call for the same running terminal does nothing.
-// replace restarts the loop even when t already has one: an exited terminal replays once per
+// replace restarts the loop even when t already has one: an exited terminal is served once per
 // control connection, and its previous loop may be finishing as the new connection arrives.
 func (a *Agent) startPTYWorker(t *pty.Terminal, replace bool) {
 	if a.opts.PTYDial == nil {
@@ -575,9 +562,10 @@ const (
 	ptyServePeerEnded
 )
 
-// servePTYData runs one data connection until it ends. Every connection starts by replaying the
-// whole current ring buffer, so crhs treats each one as a fresh screen replay, then live output
-// follows (doc/design/pty.md "crha").
+// servePTYData runs one data connection until it ends. The handshake continues both byte streams:
+// crha sends how many input bytes it received and receives how many output bytes crhs received, so
+// crha then sends exactly the output crhs is missing (doc/design/pty.md "crha"). A connection whose
+// offset is outside crha's ring buffer answers [abort, stream_lost]: nothing is replayed.
 func (a *Agent) servePTYData(ctx context.Context, ctrl *ptyControl, t *pty.Terminal, connected func()) (ptyServeResult, error) {
 	// The attempt ends when its control connection ends, when the agent stops, or when the
 	// terminal is dropped.
@@ -593,7 +581,7 @@ func (a *Agent) servePTYData(ctx context.Context, ctrl *ptyControl, t *pty.Termi
 		}
 	}()
 
-	conn, err := a.opts.PTYDial(actx, t.ID())
+	conn, outOff, err := a.opts.PTYDial(actx, t.ID(), t.InputReceived())
 	if err != nil {
 		if terminalGone(t) || a.ptyAttemptLost(actx, ctrl) {
 			return ptyServeControlLost, err
@@ -603,21 +591,18 @@ func (a *Agent) servePTYData(ctx context.Context, ctrl *ptyControl, t *pty.Termi
 	defer func() { _ = conn.Close("terminal data connection closed") }()
 	connected()
 
-	snapshot, off := t.Ring().Snapshot()
-	if err := writePTYFrames(actx, conn, snapshot); err != nil {
-		return a.ptyAttemptResult(actx, ctrl, t, err)
-	}
-	if t.Ended() {
-		if err := writeDataFrame(actx, conn, protocol.DataFrame{Kind: protocol.DataFrameEnd}); err != nil {
-			return a.ptyAttemptResult(actx, ctrl, t, err)
-		}
-		return ptyServeEnded, nil
+	// crhs must name a byte the ring still holds. Anything else means output it never received was
+	// already overwritten: the stream cannot continue without a gap.
+	start, end := t.Ring().Range()
+	if outOff < start || outOff > end {
+		_ = writeDataFrame(actx, conn, protocol.DataFrame{Kind: protocol.DataFrameAbort, Code: protocol.PTYStreamLost})
+		return ptyServeDropped, errPTYStreamLost
 	}
 
 	recvErr := make(chan error, 1)
 	go func() { recvErr <- a.recvPTYInput(actx, conn, t) }()
 	sendErr := make(chan error, 1)
-	go func() { sendErr <- a.sendPTYOutput(actx, conn, t, off) }()
+	go func() { sendErr <- a.sendPTYOutput(actx, conn, t, outOff) }()
 	select {
 	case err := <-sendErr:
 		if err == nil {
@@ -661,13 +646,15 @@ func terminalGone(t *pty.Terminal) bool {
 	}
 }
 
-// sendPTYOutput forwards the ring to crhs in order. It fails when the reader fell behind the ring
-// (a reconnect replays instead of skipping bytes) and sends [end] after the terminal's last byte.
+// sendPTYOutput forwards the ring to crhs from off, in order. When the ring overwrote bytes this
+// connection had not sent yet, it answers [abort, stream_lost] and the terminal ends; [end] follows
+// the terminal's last byte.
 func (a *Agent) sendPTYOutput(ctx context.Context, conn DataConn, t *pty.Terminal, off uint64) error {
 	for {
 		data, ok := t.Ring().ReadAt(off, protocol.DataChunkBytes)
 		if !ok {
-			return errPTYBehind
+			_ = writeDataFrame(ctx, conn, protocol.DataFrame{Kind: protocol.DataFrameAbort, Code: protocol.PTYStreamLost})
+			return errPTYStreamLost
 		}
 		if len(data) > 0 {
 			if err := writeDataFrame(ctx, conn, protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: data}); err != nil {
@@ -701,7 +688,7 @@ func (a *Agent) recvPTYInput(ctx context.Context, conn DataConn, t *pty.Terminal
 			if len(frame.Bytes) == 0 {
 				continue
 			}
-			if err := t.Write(frame.Bytes); err != nil {
+			if _, err := t.Write(frame.Bytes); err != nil {
 				return err
 			}
 		case protocol.DataFrameEnd, protocol.DataFrameAbort:
@@ -710,18 +697,6 @@ func (a *Agent) recvPTYInput(ctx context.Context, conn DataConn, t *pty.Terminal
 			return fmt.Errorf("unknown terminal data frame %q", frame.Kind)
 		}
 	}
-}
-
-// writePTYFrames sends data as [data, bytes] frames chunked at the protocol's data chunk size.
-func writePTYFrames(ctx context.Context, conn DataConn, data []byte) error {
-	for len(data) > 0 {
-		n := min(len(data), protocol.DataChunkBytes)
-		if err := writeDataFrame(ctx, conn, protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: data[:n]}); err != nil {
-			return err
-		}
-		data = data[n:]
-	}
-	return nil
 }
 
 // shutdownPTY stops every data connection and closes every terminal, and with it every process

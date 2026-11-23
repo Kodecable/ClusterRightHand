@@ -94,9 +94,9 @@ offers them, while a node offers them only once it implements terminals.
   offered, and a missing one refuses the handshake with its name.
 - An optional name is negotiated by intersection: a sender uses it only when both sides offered it,
   otherwise it falls back to an older name or gets `unsupported_command`. The terminal names
-  (`pty.open`, `pty.resize`, `pty.close`, `pty.meta`, `pty.exited`, `pty.list`) are optional because a
-  node of an older minor does not implement them; crhs offers them, and a node offers them only when it
-  implements terminals. Frames carry no version field.
+  (`pty.open`, `pty.resize`, `pty.close`, `pty.exited`, `pty.list`) are optional because a node of an
+  older minor does not implement them; crhs offers them, and a node offers them only when it implements
+  terminals. Frames carry no version field.
 
 `crh-priv` has its own major and minor. Its major must match, and `forward` and `native` also require
 an equal `crha_version`, because crha and its privileged mode always upgrade together.
@@ -145,17 +145,12 @@ interop fixtures and an end-to-end test against a released crha binary of each s
 | `task.input` | crhs → crha | One input chunk at a byte offset, after acceptance and in order. |
 | `task.cancel` | crhs → crha | Asks the node to stop a task. A cancel that arrives first is remembered, and the later start is refused. |
 | `task.query` | crhs → crha | The node's view of a task, used after a reconnect. |
-| `pty.open` | crhs → crha | Starts a [terminal](pty.md) with its id, argv, size, privileged flag, scrollback size and opaque crhs metadata, and, for a privileged one, its attempt, authorizations and cosign ticket as `task.start` carries them. Negotiated. |
+| `pty.open` | crhs → crha | Starts a [terminal](pty.md) with its id, argv, size, privileged flag and scrollback size, and, for a privileged one, its attempt, authorizations and cosign ticket as `task.start` carries them. Negotiated. |
 | `pty.resize` | crhs → crha | Changes a terminal's size. Negotiated. |
 | `pty.close` | crhs → crha | Closes a terminal with a reason. Negotiated. |
-| `pty.meta` | crhs → crha | Replaces the terminal's opaque crhs metadata. Negotiated. |
 
 `file.push` and `file.pull` tasks move their bytes on a separate
 [data connection](#data-connections), never in these commands, and so do terminals.
-
-`pty.open` and `pty.list` carry a `meta` blob that crhs owns: crha stores it and returns it unchanged,
-never interpreting it, so crhs can rebuild its memory-only terminal state after a restart
-([Reconnect](pty.md#reconnect)).
 
 A task has one merged output stream, and every offset counts bytes in it. `task.cancel` only
 acknowledges the signal; the result is `task.exit`. The privilege names are under
@@ -200,7 +195,7 @@ timeouts and its output mode; the fields are in `messages.ts`. Acceptance is the
 | `node.status` | crhs → crha | A registration state change: pending, active or rejected. |
 | `task.output.ack` | crhs → crha | Releases output the node no longer has to resend. |
 | `task.exit.ack` | crhs → crha | Releases the task's retained output and state. |
-| `pty.list` | crha → crhs | Every active terminal with its fields, sent after `hello` ([Reconnect](pty.md#reconnect)). Negotiated. |
+| `pty.list` | crha → crhs | Every held terminal's id and exit state, sent after `hello` ([Reconnect](pty.md#reconnect)). Negotiated. |
 | `pty.exited` | crha → crhs | A terminal's process ended, with its exit code and the reason (`exited` or `helper_lost`). Negotiated. |
 
 An event has no response; an unnegotiated or undecodable event closes the connection.
@@ -348,10 +343,10 @@ profile, frames and strict decoding, but not the CRH protocol.
   connection that negotiated the names; a helper binary from before them lacks them, so a privileged
   `pty.open` there is refused with `privileged_unsupported` while its tasks keep working. `pty.open`,
   `pty.resize`, `pty.close` and `pty.exited` reuse the crhs <-> crha bodies exactly: the privileged
-  side ignores `pty.open`'s metadata and scrollback, and always reports `pty.exited` with reason
-  `exited`, because the unprivileged mode decides whether a terminal ended or lost its privileged
-  mode. Only `pty.input` `[pty_id, data]` and the event `pty.output` `[pty_id, data]` are `crh-priv`'s
-  own, since between crhs and crha the bytes travel on the terminal's data connection.
+  side ignores `pty.open`'s scrollback, and always reports `pty.exited` with reason `exited`, because
+  the unprivileged mode decides whether a terminal ended or lost its privileged mode. Only `pty.input`
+  `[pty_id, data]` and the event `pty.output` `[pty_id, data]` are `crh-priv`'s own, since between crhs
+  and crha the bytes travel on the terminal's data connection.
 - The role must match the peer: `forward` for the unprivileged uid, `local` for a local approver,
   `native` only on stdio.
 - The task bodies are shared with CRH; `native` skips authorization and there are no acks, because
@@ -427,16 +422,17 @@ so a large transfer never delays the control connection. The path is the control
   it.
 
 A terminal has a data connection of its own on the same transport: path `/agent/pty`, prologue prefix
-`"crh-pty/1"`, and a client payload with `protocol_major` and the terminal id. crhs accepts it only from
-an active node whose control connection is up and which runs that terminal, one connection at a time per terminal. Unlike a
-transfer it is bidirectional and has no end-to-end hash: `[data, bytes]` frames carry output from crha
-and input from crhs, and `[end]` closes it. It lives as long as the terminal; when it drops, crha keeps
-the output in the terminal's ring buffer and opens it again
-([crha](pty.md#crha)). **Every new connection begins with the terminal's whole current ring buffer**
-as `[data]` frames, then live output; crhs treats each connection as a fresh replay of the screen
-rather than a continuation. An `[end]` from crhs closes only the connection, not the terminal, and
-crha's `[end]` after the last output means the process exited. The commands, events and this path are
-negotiated together as the minor's terminal names.
+`"crh-pty/1"`. Its client payload is `[protocol_major, pty_id, input_received]` and its response payload
+`[protocol_major, output_received]`: each side names where to continue the other's stream, so a new
+connection neither repeats nor skips a byte ([crha](pty.md#crha)). crhs accepts it only from an active
+node whose control connection is up and which holds that terminal, one connection at a time per
+terminal. Unlike a transfer it is bidirectional and has no end-to-end hash: `[data, bytes]` frames
+carry output from crha and input from crhs, `[end]` follows crha's last output, and `[abort, code]` ends
+a stream that cannot continue (`stream_lost`). It lives as long as the terminal; when it drops, each
+side keeps its own offsets and buffer and crha opens it again ([crha](pty.md#crha)). An `[end]` from
+crhs closes only the connection, not the terminal, and crha's `[end]` after the last output means the
+process exited. The commands, events and this path are negotiated together as the minor's terminal
+names.
 
 A transfer endpoint in a task spec is a union. Today it has one variant, `[crhs, transfer_id]`: the node
 opens a data connection to crhs. Other endpoints, such as a presigned URL, will come with new negotiated

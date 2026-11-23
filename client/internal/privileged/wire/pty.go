@@ -6,8 +6,8 @@ import "github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 // in the privileged mode, which relays its bytes to the unprivileged mode. Only pty.input and
 // pty.output are crh-priv's own: terminal bytes travel on the crhs <-> crha data connection, so the
 // privileged side never sees them. The other four reuse the crhs <-> crha names and bodies exactly;
-// the terminal's metadata and scrollback in pty.open belong to the unprivileged mode, and the
-// privileged side ignores them. Both the forward and the native role offer the names, negotiated by
+// the terminal's scrollback in pty.open belongs to the unprivileged mode, and the
+// privileged side ignores it. Both the forward and the native role offer the names, negotiated by
 // intersection like every optional crh-priv name: a helper from before privileged terminals simply
 // lacks them.
 const (

@@ -28,5 +28,15 @@ export const TaskActionSchema = z
 			type: z.literal("subagent"),
 			task: z.string().describe("The task's first line, clipped to 300 characters."),
 		}),
+		z.object({
+			type: z.literal("pty.create"),
+			argv: z.array(z.string()).describe("The command the terminal would run; empty runs the login shell."),
+		}),
+		z.object({
+			type: z.literal("pty.io"),
+			input: z.string().nullable().describe("The text the agent would type, clipped."),
+			keys: z.array(z.string()).describe("The named keys the agent would send, such as Enter or Ctrl-C."),
+			screen: z.string().describe("The terminal's screen when the request was made, clipped."),
+		}),
 	])
 	.meta({ id: "TaskAction", description: "What a task or a waiting approval does, ready for display." });

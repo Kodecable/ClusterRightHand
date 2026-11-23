@@ -3,6 +3,7 @@ import type {
 	ApprovalRequest,
 	ExternalCallView,
 	PendingAuthorization,
+	PtyApprovalItem,
 	TaskGroupView,
 	TaskView,
 } from "@crh/api";
@@ -10,6 +11,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { renderWithRouter } from "@/test/render";
 import { ApprovalsPage, ApprovalTaskGroupPage, ApprovalTaskPage, ExternalCallApprovalPage } from "./pages";
+import { pendingCount } from "./pending";
 
 const OPERATION = "systemctl restart nginx";
 
@@ -68,6 +70,7 @@ const emptyApprovals = (): ApprovalList => ({
 	tasks: [],
 	taskGroups: [],
 	externalCalls: [],
+	ptys: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
 	requests: [],
@@ -163,6 +166,7 @@ const approvals = (): ApprovalList => {
 		tasks: [taskView],
 		taskGroups: [groupView],
 		externalCalls: [],
+		ptys: [],
 		authorizations: {
 			tasks: [signatureView],
 			taskGroups: [],
@@ -359,6 +363,55 @@ describe("ApprovalsPage", () => {
 		mockApi();
 		await renderPage(<ApprovalsPage />);
 		expect(await screen.findByText("Nothing is waiting for you")).toBeInTheDocument();
+	});
+});
+
+const ptyItem = (): PtyApprovalItem => ({
+	terminalId: "term-1",
+	nodeId: "node-1",
+	nodeName: "worker-01",
+	userId: "u1",
+	username: "ada",
+	createdAt: "2026-01-01T00:00:00.000Z",
+	request: {
+		kind: "pty",
+		id: "term-1",
+		phase: "awaiting_user",
+		source: { type: "session", sessionId: "s1", title: "Terminal work" },
+		action: { type: "pty.io", input: "rm -rf /", keys: ["Enter"], screen: "$ rm -rf /\n[yes/no]" },
+		nodes: ["worker-01"],
+		privileged: false,
+		alwaysAllow: [
+			{ option: "request", rule: { action: "allow", method: "pty.io", nodes: ["node-1"], privileged: false } },
+		],
+	},
+});
+
+describe("ApprovalsPage terminal requests", () => {
+	test("renders an agent's terminal approval with its action and links to the terminal", async () => {
+		const item = ptyItem();
+		mockApi({ approvals: { ...emptyApprovals(), ptys: [item], requests: [item.request] } });
+		await renderPage(<ApprovalsPage />);
+		const table = await screen.findByRole("table", { name: "Waiting for you" });
+		expect(within(table).getByText("Approval")).toBeInTheDocument();
+		const link = within(table).getByRole("link", { name: "rm -rf / [Enter]" });
+		expect(link).toHaveAttribute("href", "/terminals/term-1");
+		expect(table).toHaveTextContent("worker-01");
+		expect(table).toHaveTextContent("Terminal work");
+	});
+
+	test("counts a waiting terminal approval in the sidebar badge", () => {
+		const item = ptyItem();
+		expect(
+			pendingCount({
+				tasks: [],
+				taskGroups: [],
+				externalCalls: [],
+				ptys: [item.request],
+				authorizations: { tasks: [], taskGroups: [] },
+				quotas: [],
+			}),
+		).toBe(1);
 	});
 });
 

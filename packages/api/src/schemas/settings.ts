@@ -67,6 +67,22 @@ export const SystemSettingsJobsSchema = z
 	})
 	.meta({ id: "SystemSettingsJobs" });
 
+/**
+ * The terminal subsystem's settings (doc/design/pty.md "Settings and limits"). `scrollbackBytes` is
+ * crha's ring buffer per terminal; crha clamps it to 64 KiB..16 MiB.
+ */
+export const SystemSettingsPtySchema = z
+	.object({
+		enabled: z.boolean().describe("Turning it off closes every terminal and hides the page and the agent tools."),
+		maxPerNode: z.number().describe("The most terminals held on one node, opening, running or exited."),
+		maxTotal: z.number().describe("The most terminals held across all nodes."),
+		maxPerSession: z.number().describe("The most terminals one session created or is associated with."),
+		agentIdleTimeoutMax: z.string().describe('The largest idle timeout an agent may ask for, e.g. "1h".'),
+		watchTimeoutMax: z.string().describe('The longest pty_watch an agent may ask for, e.g. "10m".'),
+		scrollbackBytes: z.number().describe("crha's ring buffer per terminal, in bytes."),
+	})
+	.meta({ id: "SystemSettingsPty" });
+
 /** The settings administrators edit in System settings. */
 export const SystemSettingsSchema = z
 	.object({
@@ -88,6 +104,7 @@ export const SystemSettingsSchema = z
 		directoryCopy: SystemSettingsDirectoryCopySchema,
 		skills: SystemSettingsSkillsSchema,
 		jobs: SystemSettingsJobsSchema,
+		pty: SystemSettingsPtySchema,
 	})
 	.meta({ id: "SystemSettings" });
 
@@ -136,6 +153,7 @@ export const SystemSettingsPatchSchema = z.object({
 	directoryCopy: SystemSettingsDirectoryCopySchema.partial().optional(),
 	skills: SystemSettingsSkillsSchema.partial().optional(),
 	jobs: SystemSettingsJobsSchema.partial().optional(),
+	pty: SystemSettingsPtySchema.partial().optional(),
 });
 
 /** `PATCH /api/settings` success: the settings as they now are. */

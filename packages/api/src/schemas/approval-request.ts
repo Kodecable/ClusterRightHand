@@ -43,7 +43,7 @@ export const ApprovalRequestJobSchema = z
  */
 export const ApprovalRequestSchema = z
 	.object({
-		kind: z.enum(["task", "task_group", "external_call"]),
+		kind: z.enum(["task", "task_group", "external_call", "pty"]),
 		id: z.string(),
 		phase: ApprovalPhaseSchema,
 		source: RequestSourceSchema,

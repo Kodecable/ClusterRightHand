@@ -16,6 +16,7 @@ import { getExtensionRow, listExtensionRows } from "../extensions/store.ts";
 import { createJobs } from "../jobs/jobs.ts";
 import type { JobRow } from "../jobs/types.ts";
 import type { Rule, RulePreset } from "../policy/rules.ts";
+import type { RuleApprovalRequest } from "../terminals/approval.ts";
 import { TodoLists } from "../todos/todos.ts";
 import { TOOLS } from "../tools/catalog.ts";
 import { execJobRenderers } from "../tools/job-renderers.ts";
@@ -326,6 +327,8 @@ export class AgentRuntime {
 		options.approvalChanged = approvalChanged;
 		options.willReview = (chain) => reviewer.willReview(chain);
 		options.cluster.onReviewPlanned = options.willReview;
+		options.reviewPty = async (actor, request: RuleApprovalRequest, screen: string) =>
+			reviewer.reviewTerminalRequest(actor, request, screen);
 		options.reviewExternalCall = async (id, signal) => {
 			await reviewer.reviewExternalCall(id, signal);
 			// The call may have been approved (running), escalated or dropped its marker: the session's
@@ -488,6 +491,16 @@ export class AgentRuntime {
 			.where("conversation_id", "=", conversationId)
 			.executeTakeFirst();
 		if (row) await syncSessionExtensions(this.#host, row);
+	}
+
+	/**
+	 * Rebuilds the cluster extension with the current settings: the pty tools disappear from the next
+	 * request while the terminal subsystem is off, and come back when it is turned on.
+	 */
+	setTerminalToolsEnabled(_enabled: boolean): void {
+		const replacement = clusterExtension(this.#options, this.#runtimeRef, this.modelPresets);
+		this.#registry.install(replacement);
+		this.#extensions.set("crh", replacement);
 	}
 
 	/** Removes an extension's direct tools after an administrator deletes it or turns it off for all sessions. */

@@ -5,9 +5,9 @@ import (
 )
 
 // The ring buffer's capacity is crhs's requested scrollback size clamped to this range: small
-// enough to stay a screen's worth of history, large enough that a reconnect replays something
-// useful, and bounded so a node cannot be asked to hold unbounded output per terminal
-// (doc/design/pty.md "crha").
+// enough to stay a screen's worth of history, large enough that a short reconnect can still
+// continue from crhs's offset, and bounded so a node cannot be asked to hold unbounded output per
+// terminal (doc/design/pty.md "crha").
 const (
 	MinScrollbackBytes = 64 << 10
 	MaxScrollbackBytes = 16 << 20
@@ -89,8 +89,7 @@ func (r *Ring) Total() uint64 {
 }
 
 // Snapshot returns a copy of every retained byte, oldest first, and the offset just past the
-// last one. A data connection sends this before live output so crhs can rebuild the screen from
-// a fresh connection (doc/design/pty.md "crha").
+// last one.
 func (r *Ring) Snapshot() ([]byte, uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -102,9 +101,18 @@ func (r *Ring) Snapshot() ([]byte, uint64) {
 	return out, r.total
 }
 
+// Range returns the offsets of the retained window: the oldest byte still held and the offset just
+// past the newest one. A reader whose offset lies outside [start, end) can no longer continue the
+// stream (doc/design/pty.md "crha").
+func (r *Ring) Range() (start, end uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.total - uint64(r.n), r.total
+}
+
 // ReadFrom returns every retained byte from offset off. ok is false when off is older than the
 // oldest retained byte: those bytes are gone, so the reader would have to skip output and the
-// connection must be replaced by a fresh replay.
+// terminal's stream is lost.
 func (r *Ring) ReadFrom(off uint64) (data []byte, ok bool) {
 	return r.ReadAt(off, r.Capacity())
 }

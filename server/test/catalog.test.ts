@@ -278,6 +278,13 @@ describe("the tool catalog", () => {
 			"job_cancel",
 			"job_list",
 			"todo_write",
+			"pty_open",
+			"pty_list",
+			"pty_read",
+			"pty_watch",
+			"pty_write",
+			"pty_resize",
+			"pty_close",
 		]);
 		expect(Object.fromEntries(TOOLS.map((entry) => [entry.name, entry.output]))).toMatchObject({
 			list_nodes: "json",
@@ -294,6 +301,13 @@ describe("the tool catalog", () => {
 			job_cancel: "json",
 			job_list: "json",
 			todo_write: "text",
+			pty_open: "text",
+			pty_list: "json",
+			pty_read: "text",
+			pty_watch: "text",
+			pty_write: "text",
+			pty_resize: "text",
+			pty_close: "text",
 		});
 	});
 

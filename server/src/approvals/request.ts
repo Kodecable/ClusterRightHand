@@ -17,7 +17,9 @@ import type {
 } from "@crh/api";
 import { externalCallTaskAction, getExternalCall } from "../extensions/external-calls.ts";
 import type { ChainLevel, Operation as RuleOperation } from "../policy/rules.ts";
+import { requestSourceFor } from "../request-source.ts";
 import type { Db } from "../storage/db.ts";
+import type { Terminal, TerminalApproval } from "../terminals/types.ts";
 import { groupNodesNeedingApproval, liftsWithRule, loadRequestChain, waitingOperations } from "./always-allow.ts";
 
 /** A chat card names at most this many nodes; `moreNodes` carries the rest. */
@@ -179,6 +181,43 @@ export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView):
 		...(review ? { review } : {}),
 		...(job ? { job } : {}),
 		alwaysAllow,
+	};
+}
+
+/**
+ * A terminal rule approval as the one compact request every surface renders (doc/design/pty.md "Rules"):
+ * the acting session is the source, the node is named, and the action is the argv a `pty_open` would run
+ * or the input, keys and screen a `pty_write` would send. The terminal keeps the same approval in its
+ * view, so the terminal page and the approvals page show one model.
+ */
+export async function approvalRequestForPty(
+	db: Db,
+	terminal: Terminal,
+	approval: TerminalApproval,
+): Promise<ApprovalRequest> {
+	const names = await nodeNames(db, [terminal.nodeId]);
+	const nodeList = cappedNodes(names);
+	const source = await requestSourceFor(db, "session", approval.sessionId, terminal.userId);
+	return {
+		kind: "pty",
+		id: terminal.id,
+		phase: "awaiting_user",
+		source,
+		action:
+			approval.method === "pty.create"
+				? { type: "pty.create", argv: [...approval.argv] }
+				: {
+						type: "pty.io",
+						input: approval.input,
+						keys: [...approval.keys],
+						screen: approval.screen,
+					},
+		...nodeList,
+		privileged: approval.privileged,
+		alwaysAllow: approval.alwaysAllow.map((candidate) => ({
+			option: candidate.option,
+			rule: { ...candidate.rule, ...(candidate.rule.nodes ? { nodes: [...candidate.rule.nodes] } : {}) },
+		})),
 	};
 }
 

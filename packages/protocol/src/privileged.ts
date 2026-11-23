@@ -321,7 +321,7 @@ export type WindowOpen = Infer<typeof windowOpenCodec>;
  * Only `pty.input` and `pty.output` have bodies of their own: terminal bytes travel on the crhs <->
  * crha data connection, so the privileged side never sees them. `pty.open`, `pty.resize`,
  * `pty.close` and `pty.exited` reuse the CRH bodies in messages.ts exactly; the privileged side
- * ignores `pty.open`'s metadata and scrollback, and always reports `pty.exited` with reason
+ * ignores `pty.open`'s scrollback, and always reports `pty.exited` with reason
  * `exited`, because the unprivileged mode maps a lost privileged mode itself.
  */
 export const PRIV_PTY_COMMANDS = ["pty.open", "pty.input", "pty.resize", "pty.close"] as const;

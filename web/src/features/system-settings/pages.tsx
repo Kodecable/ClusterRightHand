@@ -11,6 +11,7 @@ import { PasskeysSection } from "./passkeys-section";
 import { RetentionSection } from "./retention-section";
 import { SignInSection } from "./sign-in-section";
 import { SigningKeysSection } from "./signing-keys-section";
+import { TerminalsSection } from "./terminals-section";
 
 /**
  * System settings (administrators only, doc/design/webui.md "System settings page"): the
@@ -51,6 +52,7 @@ export function SystemSettingsPage() {
 			<AttachmentsSection settings={settings.data.settings} />
 			<ImageCacheSection settings={settings.data.settings} />
 			<DirectoryCopySkillsSection settings={settings.data.settings} />
+			<TerminalsSection settings={settings.data.settings} defaults={settings.data.defaults} />
 			<SigningKeysSection />
 		</Page>
 	);

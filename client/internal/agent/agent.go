@@ -111,9 +111,10 @@ type Options struct {
 	// DataDial opens a data connection to crhs for one file.push or file.pull transfer
 	// (doc/design/protocol.md "Data connections"). nil refuses transfer tasks.
 	DataDial func(ctx context.Context, taskID, transferID string) (DataConn, error)
-	// PTYDial opens a terminal's data connection (doc/design/pty.md "crha"). nil leaves terminals
-	// without a data connection; only tests and programmatic callers do that.
-	PTYDial func(ctx context.Context, ptyID string) (DataConn, error)
+	// PTYDial opens a terminal's data connection (doc/design/pty.md "crha"), reporting how many
+	// input bytes crha has received and returning how many output bytes crhs has received. nil
+	// leaves terminals without a data connection; only tests and programmatic callers do that.
+	PTYDial func(ctx context.Context, ptyID string, inputReceived uint64) (DataConn, uint64, error)
 	Facts   func() protocol.Facts
 	// SelfUpgradeStatic are the reasons this process can never be upgraded by crhs; the forward
 	// daemon's state is added each time facts are sent (doc/design/distribution.md "Who can self-upgrade").
@@ -393,7 +394,6 @@ func (a *Agent) newPeer(ctx context.Context, conn *transport.Conn, ns *nodeStatu
 	peer.HandleRequest(protocol.CmdPTYOpen, a.handlePTYOpen)
 	peer.HandleRequest(protocol.CmdPTYResize, a.handlePTYResize)
 	peer.HandleRequest(protocol.CmdPTYClose, a.handlePTYClose)
-	peer.HandleRequest(protocol.CmdPTYMeta, a.handlePTYMeta)
 	return peer
 }
 

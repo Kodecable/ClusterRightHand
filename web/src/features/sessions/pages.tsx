@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ErrorState } from "@/components/error-state";
 import { PageSkeleton } from "@/components/skeletons";
 import { approvalKeys } from "@/features/approvals/api";
+import { SessionTerminals } from "@/features/terminals/session-terminals";
 import { sessionUiState } from "@/lib/status";
 import {
 	useForkSession,
@@ -221,6 +222,7 @@ export function SessionPage() {
 	return (
 		<div className="flex h-full min-h-0 flex-col" data-testid="session-page" data-session-id={view.id}>
 			<SessionHeader session={view} />
+			<SessionTerminals sessionId={view.id} />
 			<SessionBanner
 				connection={events.connection}
 				failure={events.state.failure}

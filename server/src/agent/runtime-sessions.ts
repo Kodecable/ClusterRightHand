@@ -557,6 +557,9 @@ async function removeCreatedSession(host: RuntimeHost, sessionId: string): Promi
 		await deleteRuleSet(trx, { type: "session", id: sessionId });
 		await trx.deleteFrom("sessions").where("id", "=", sessionId).execute();
 	});
+	// The terminal subsystem keeps only memory: the creating session closes its terminals, an
+	// associated one loses the association (doc/design/pty.md "The terminal object").
+	host.options.onSessionDeleted?.(sessionId);
 }
 
 /**

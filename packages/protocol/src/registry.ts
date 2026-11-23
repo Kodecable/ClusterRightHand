@@ -14,7 +14,6 @@ import {
 	ptyCloseCodec,
 	ptyExitedCodec,
 	ptyListCodec,
-	ptyMetaCodec,
 	ptyOpenCodec,
 	ptyResizeCodec,
 	taskCancelCodec,
@@ -46,7 +45,6 @@ export const COMMANDS = {
 	"pty.open": { request: ptyOpenCodec, response: emptyCodec },
 	"pty.resize": { request: ptyResizeCodec, response: emptyCodec },
 	"pty.close": { request: ptyCloseCodec, response: emptyCodec },
-	"pty.meta": { request: ptyMetaCodec, response: emptyCodec },
 } as const satisfies Record<string, CommandDefinition>;
 
 /** Every event. */
@@ -95,7 +93,6 @@ export const OPTIONAL_NAMES: readonly string[] = Object.freeze([
 	"pty.open",
 	"pty.resize",
 	"pty.close",
-	"pty.meta",
 	"pty.exited",
 	"pty.list",
 ]);

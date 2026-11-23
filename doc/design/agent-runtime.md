@@ -147,7 +147,7 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
 | `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `job_wait`, `job_cancel`, `job_list` | Follow, cancel or list the jobs these tools start ([Jobs](jobs.md)) |
-| `pty_open`, `pty_list`, `pty_read`, `pty_watch`, `pty_write`, `pty_resize`, `pty_close` | [Terminals](pty.md#agent-tools) the session created or is associated with; agent sessions only, while the subsystem is on |
+| `pty_open`, `pty_list`, `pty_read`, `pty_watch`, `pty_write`, `pty_resize`, `pty_close` | [Terminals](pty.md#agent-tools) the session created or is associated with; agent sessions only, while the subsystem is on. `pty_open` and `pty_write`/`pty_resize` follow the session's rules under `pty.create` and `pty.io`; a waiting rule approval is shown on the terminal page, and Auto Review sees the screen |
 | `todo_write` | A root session's todo list, replaced whole; attached to its compaction summary ([Todo list](todo.md)) |
 | `search_tools`, `call_tool` | Find and call an extension's tools, MCP or built-in ([Extensions](extensions.md)) |
 | `ext__<extension>__<tool>` | A "list directly" extension's tool, called without `call_tool` |
@@ -471,18 +471,22 @@ Every session has a stored run state, so lists can filter and sort in SQL withou
 | `awaiting` | The run is blocked on someone else: a quota decision, an approval or a signature. |
 
 - When several waits exist, quota outranks approval, which outranks signature.
-- Approval and signature waits follow the state of the tasks the session started.
+- Approval and signature waits follow the state of the tasks the session started, an external call's
+  own row, and a terminal rule approval waiting in memory with its terminal ([Terminals](pty.md#approvals)).
 - State recomputation is serialized and coalesced per session, so two quick changes cannot land out of
   order.
 - At startup, after durable resumes runs and before crhs accepts requests, every stored state is
-  reconciled with durable.
+  reconciled with durable. A terminal approval is memory-only and does not survive a restart, so
+  reconciliation never finds one.
 - **Reviewing is not waiting.** A task, task group or external call whose Auto Review marker is pending
   is not a wait yet: the session stays `running` while the reviewer decides, so no chat notification or
-  approval badge appears. Only a verdict that sends the request to the user (escalation, failure or a
+  approval badge appears. A terminal request is reviewed before it is written as a user-facing wait, so
+  it behaves the same way. Only a verdict that sends the request to the user (escalation, failure or a
   timeout) makes the session `awaiting/approval`; the review hook refreshes the state at that point.
   Stopping the session or ending its run still rejects reviewing requests like any other wait.
-- **Waits nobody will handle.** Stopping a session ends its approval waits, cancels its signature
-  waits and cancels its running tasks, and stops its subtree's jobs ([Jobs](jobs.md#lifecycle-and-retention)).
+- **Waits nobody will handle.** Stopping a session ends its approval waits, including a waiting
+  terminal rule approval, cancels its signature waits and cancels its running tasks, and stops its
+  subtree's jobs ([Jobs](jobs.md#lifecycle-and-retention)).
   When a run ends, or at startup, waits left by tool calls that no longer exist are ended the same way;
   a wait held by a live job is not one of them, because the background work it belongs to still needs it.
   Tasks that belong to no session are not affected; their signature waits expire after 24 hours

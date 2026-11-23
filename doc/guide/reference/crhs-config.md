@@ -134,6 +134,13 @@ The low-frequency settings below are **not** in `crhs.toml`. Administrators edit
 | `skills.max_per_user` | integer ≥ 0 | `64` | Most skills a session's system prompt lists. A library with more `skills/<name>/SKILL.md` files lists none, and the prompt tells the model to browse `skills/` itself. |
 | `jobs.max_consecutive_wakes` | integer ≥ 0 | `10` | Most times completion notices may wake a session since its last user-authored message. Past it, notices wait for the next tool result or the next user turn. `0` disables notice wakes. |
 | `jobs.max_running` | integer ≥ 0 | `32` | Most unsettled jobs a session, or an API token over MCP, may have at once. A tool that would start another fails with `job_limit`. `0` allows no jobs. |
+| `pty.enabled` | boolean | `true` | Whether terminals exist. Turning it off closes every terminal, hides the Terminals page and removes the agent tools from the next request. |
+| `pty.max_per_node` | integer ≥ 0 | `8` | Most terminals held on one node, opening, running or exited. |
+| `pty.max_total` | integer ≥ 0 | `64` | Most terminals held across all nodes. |
+| `pty.max_per_session` | integer ≥ 0 | `4` | Most terminals one session may have created or be associated with. |
+| `pty.agent_idle_timeout_max` | duration | `"1h"` | Largest idle timeout an agent's `pty_open` may ask for. |
+| `pty.watch_timeout_max` | duration | `"10m"` | Longest `pty_watch` an agent may ask for. |
+| `pty.scrollback_bytes` | integer, 64 KiB..16 MiB | `1048576` | crha's ring buffer per terminal, in bytes (1 MiB). |
 
 The library defaults are copied when a user or user group is created; changing them does not touch an
 existing library. Administrators change an existing library's limits on its user or user group page.
@@ -160,6 +167,10 @@ A completion notice may wake an idle session at most `jobs.max_consecutive_wakes
 message a user typed; the count is stored on the session, so a restart does not reset it. A session at
 `jobs.max_running` unsettled jobs refuses a tool that would start another with `job_limit`, and an API
 token is limited the same way over MCP.
+
+The terminal limits count a terminal from its open until it is closed, including the five minutes an
+exited terminal stays visible. crha clamps `pty.scrollback_bytes` to its own 64 KiB..16 MiB range; the
+setting itself is validated in that range, so what crhs asks for is what crha keeps.
 
 Cleanup and the client address use the values read at the time they run. Logins can always use every
 hashing slot, while password changes and user creation are held back, so signed-in users cannot block

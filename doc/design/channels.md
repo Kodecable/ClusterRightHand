@@ -256,10 +256,11 @@ Every display surface renders one compact, locale-free `ApprovalRequest` built b
 `awaiting_signature` while a task or task group waits for the user's signature, otherwise
 `awaiting_user`), the source (a subagent's request resolves to its root session; an API token or a user
 acting directly is named as itself, and a task or schedule resolves to the user it acted for), a
-structured action (exec command, file operation and path with an optional line range, API request, or
-extension tool), the node names that need approval (at most 10 with a `moreNodes` count), whether it is
-privileged, the settled Auto Review risk and reason when one exists, and the "always allow" rule
-candidates the server can build.
+structured action (exec command, file operation and path with an optional line range, API request,
+extension tool, or a terminal open's argv / a terminal write's input, keys and screen excerpt), the node
+names that need approval (at most 10 with a `moreNodes` count), whether it is privileged, the settled
+Auto Review risk and reason when one exists, and the "always allow" rule candidates the server can
+build.
 Telegram, Satori and the WebUI render this model; details beyond it belong on the task, task group and
 external call pages. The approvals API returns one per waiting item beside the kind-specific view,
 including tasks and task groups waiting for a signature; task, task group and external-call detail
@@ -276,8 +277,9 @@ when it differs from the card's detail. Its lines are, in order:
   title; and, only when a default notification account routed the card rather than a chat thread,
   ` · Source: Session …`, ` · Source: API token …` or ` · Source: User …`;
 - `🟡 Medium risk · …` (🟢 low, 🔴 high) only when Auto Review settled a review;
-- the action detail: the command, `Read file /etc/hosts (lines 2-4)`, `GET /api/nodes`, or
-  `github/create_issue`;
+- the action detail: the command, `Read file /etc/hosts (lines 2-4)`, `GET /api/nodes`,
+  `github/create_issue`, a terminal's argv, or its typed input with the named keys (`Type rm -rf / ·
+  keys Enter`), followed by its labelled screen excerpt when the request is a `pty.io`;
 - a blank line, then the command hints: with buttons only `Reject with a reason: /reject <id> reason`;
   without buttons `/approve <id>` and `/reject <id> [reason]`.
 
@@ -290,7 +292,9 @@ detail used first (`Used N · N left`, or `Used up, over by N` when exhausted, w
 never a negative remaining), and its hints `Continue: /quota add <tokens>` and `End this turn:
 /quota stop`; it is never wrapped in the session title again.
 
-A waiting approval is sent where the session's notifications go. A request Auto Review is still
+A waiting approval is sent where the session's notifications go. An agent's terminal approval is one
+of them: it is sent when the acting session becomes `awaiting/approval`, and `/approve` or `/reject`
+decides it through the same server function as the terminal page (doc/design/pty.md "Approvals"). A request Auto Review is still
 reviewing is not sent: the card appears only when the review escalates it to the user, and not when the
 review approves it (the operation simply runs). A signature wait gets its card once its options are
 written (doc/design/privilege.md "Waiting for signatures"); when a sync pass changes them, the card is

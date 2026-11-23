@@ -12,6 +12,7 @@ import type {
 import type { Audit } from "../audit/audit.ts";
 import type { Cluster } from "../cluster/cluster.ts";
 import type { TaskGroups } from "../cluster/task-groups.ts";
+import type { Actor } from "../cluster/types.ts";
 import type { CallRunner } from "../extensions/call-runner.ts";
 import type { McpConnections } from "../extensions/connections.ts";
 import type { Jobs } from "../jobs/jobs.ts";
@@ -20,6 +21,8 @@ import type { RuleRef } from "../policy/store.ts";
 import type { SessionRow } from "../sessions/session-chain.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
+import type { RuleApprovalRequest } from "../terminals/approval.ts";
+import type { TerminalService } from "../terminals/registry.ts";
 import type { TodoLists } from "../todos/todos.ts";
 import { NotFoundError } from "../util/errors.ts";
 import type { KeyedQueue } from "../util/keyed-queue.ts";
@@ -112,6 +115,16 @@ export interface AgentRuntimeOptions {
 	settings?: SettingsStore;
 	/** Auto Review for one waiting external call; set by AgentRuntime. */
 	reviewExternalCall?: (id: string, signal?: AbortSignal) => Promise<void>;
+	/** The terminal subsystem behind the pty tools (doc/design/pty.md); absent leaves the tools out. */
+	terminals?: TerminalService;
+	/** A session row was deleted: its terminals close, or lose the association (doc/design/pty.md). */
+	onSessionDeleted?: (sessionId: string) => void;
+	/** Auto Review for an agent's terminal request; set by AgentRuntime. */
+	reviewPty?: (
+		actor: Actor,
+		request: RuleApprovalRequest,
+		screen: string,
+	) => Promise<"approve" | "reject" | "escalate">;
 	/** Whether Auto Review will judge a request on this chain; set by AgentRuntime for the marker at creation. */
 	willReview?: (chain: RuleRef[] | null) => Promise<boolean>;
 	/** A session's wait may have changed (an external call entered or left a wait); set by AgentRuntime. */

@@ -84,6 +84,15 @@ describe("system settings storage", () => {
 			directoryCopy: { files: 256, bytes: 256 * 1024 * 1024 },
 			skills: { maxPerUser: 64 },
 			jobs: { maxConsecutiveWakes: 10, maxRunning: 32 },
+			pty: {
+				enabled: true,
+				maxPerNode: 8,
+				maxTotal: 64,
+				maxPerSession: 4,
+				agentIdleTimeoutMaxMs: 60 * 60 * 1000,
+				watchTimeoutMaxMs: 10 * 60 * 1000,
+				scrollbackBytes: 1024 * 1024,
+			},
 		});
 	});
 });
@@ -155,6 +164,15 @@ describe("settings API", () => {
 				userGroup: { files: 1, fileBytes: 2, totalBytes: 3 },
 			},
 			jobs: { maxConsecutiveWakes: 3, maxRunning: 9 },
+			pty: {
+				enabled: true,
+				maxPerNode: 2,
+				maxTotal: 3,
+				maxPerSession: 1,
+				agentIdleTimeoutMax: "2h",
+				watchTimeoutMax: "5m",
+				scrollbackBytes: 131072,
+			},
 		});
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as { settings: SystemSettings };
@@ -171,6 +189,15 @@ describe("settings API", () => {
 				userGroup: { files: 1, fileBytes: 2, totalBytes: 3 },
 			},
 			jobs: { maxConsecutiveWakes: 3, maxRunning: 9 },
+			pty: {
+				enabled: true,
+				maxPerNode: 2,
+				maxTotal: 3,
+				maxPerSession: 1,
+				agentIdleTimeoutMax: "2h",
+				watchTimeoutMax: "5m",
+				scrollbackBytes: 131072,
+			},
 		});
 		// The live object the consumers read is replaced at once.
 		expect(store.current().publicUrl).toBe("https://crh.example.com");
@@ -182,6 +209,15 @@ describe("settings API", () => {
 		expect(store.current().library.user).toEqual({ files: 5, fileBytes: 6, totalBytes: 7 });
 		expect(store.current().library.userGroup).toEqual({ files: 1, fileBytes: 2, totalBytes: 3 });
 		expect(store.current().jobs).toEqual({ maxConsecutiveWakes: 3, maxRunning: 9 });
+		expect(store.current().pty).toEqual({
+			enabled: true,
+			maxPerNode: 2,
+			maxTotal: 3,
+			maxPerSession: 1,
+			agentIdleTimeoutMaxMs: 2 * 60 * 60 * 1000,
+			watchTimeoutMaxMs: 5 * 60 * 1000,
+			scrollbackBytes: 131072,
+		});
 	});
 
 	it("rejects bad values with a per-field message and writes nothing", async () => {
@@ -199,6 +235,10 @@ describe("settings API", () => {
 			[{ auth: { captcha: "sometimes" } }, "auth.captcha"],
 			[{ auth: { argon2Concurrency: 0 } }, "auth.argon2Concurrency"],
 			[{ auth: { argon2Queue: -1 } }, "auth.argon2Queue"],
+			[{ pty: { enabled: "yes" } }, "pty.enabled"],
+			[{ pty: { scrollbackBytes: 1024 } }, "pty.scrollbackBytes"],
+			[{ pty: { scrollbackBytes: 17 * 1024 * 1024 } }, "pty.scrollbackBytes"],
+			[{ pty: { watchTimeoutMax: "0s" } }, "pty.watchTimeoutMax"],
 			[{ realIpHeader: "X Forwarded For" }, "realIpHeader"],
 			[{ library: { user: { files: -1 } } }, "library.user.files"],
 			[{ jobs: { maxRunning: -1 } }, "jobs.maxRunning"],

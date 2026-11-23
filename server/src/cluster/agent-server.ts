@@ -19,6 +19,8 @@ import {
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	peekProtocolMajor,
+	ptyConnectionInitCodec,
+	ptyConnectionResponseCodec,
 	REQUIRED_NAMES,
 	SUBPROTOCOL_PREFIX,
 } from "@crh/protocol";
@@ -37,8 +39,8 @@ export const AGENT_PATH = "/agent";
 /** The data connection's path: the control path plus `/data` (doc/design/protocol.md "Data connections"). */
 export const AGENT_DATA_PATH = `${AGENT_PATH}/data`;
 /**
- * A terminal's data connection path: the control path plus `/pty` (doc/design/pty.md "crha"). The
- * terminal names are optional and no handler accepts this path until the terminal subsystem lands.
+ * A terminal's data connection path: the control path plus `/pty` (doc/design/pty.md "crha"). It
+ * carries one terminal's bytes both ways and is negotiated with the other terminal names.
  */
 export const AGENT_PTY_PATH = `${AGENT_PATH}/pty`;
 const CHALLENGE_LEN = 32;
@@ -108,8 +110,9 @@ export class AgentServer {
 			// `upgrade` emit, where a throw is an uncaught exception: refuse the upgrade instead.
 			return false;
 		}
-		if (path !== AGENT_PATH && path !== AGENT_DATA_PATH) return false;
+		if (path !== AGENT_PATH && path !== AGENT_DATA_PATH && path !== AGENT_PTY_PATH) return false;
 		const data = path === AGENT_DATA_PATH;
+		const pty = path === AGENT_PTY_PATH;
 		// The major comes before the handshake, so a node crhs does not serve is told why in plain HTTP
 		// instead of failing the Noise handshake. A request that names no crh.<major> is refused the same
 		// way (doc/design/protocol.md "The major in the clear").
@@ -131,7 +134,9 @@ export class AgentServer {
 			// Until the handshake attaches a message listener nothing owns this socket's protocol errors
 			// (an oversized frame, a bad frame, a reset), and an unhandled ws `error` event ends the process.
 			ws.on("error", () => {});
-			const accepted: Promise<void> = (data ? this.#acceptData(ws, served) : this.#accept(ws, served))
+			const accepted: Promise<void> = (
+				data ? this.#acceptData(ws, served) : pty ? this.#acceptPty(ws, served) : this.#accept(ws, served)
+			)
 				.catch((err: unknown) => {
 					console.error("agent connection failed:", err);
 					ws.terminate();
@@ -239,7 +244,11 @@ export class AgentServer {
 
 		// A re-enrolled node's old key no longer authenticates. Close the connection that authenticated
 		// with it now, even if this new handshake dies before attaching; attach() would otherwise wait.
-		if (enrolled?.reenrolled) this.#cluster.disconnect(node.id, "node re-enrolled");
+		if (enrolled?.reenrolled) {
+			this.#cluster.disconnect(node.id, "node re-enrolled");
+			// The old key is revoked: its terminals are gone with the process that held them.
+			this.#cluster.nodeRevoked(node.id);
+		}
 
 		// The lookups above are async, so the client may have closed meanwhile. Attaching now would
 		// replace the same node's newer live connection with this already-dead one.
@@ -317,6 +326,68 @@ export class AgentServer {
 		if (ws.readyState !== WebSocket.OPEN) return;
 		ws.send(hs.writeMessage(encodeCbor(dataConnectionResponseCodec.encode({ protocolMajor: PROTOCOL_MAJOR }))));
 		this.#cluster.attachData(ws, hs.split(), node.id, init);
+	}
+
+	/**
+	 * A terminal's data connection: the same challenge and Noise IK, under the `crh-pty/1` prologue and
+	 * with the terminal data handshake payload. Only an active node whose control connection is up gets
+	 * past the handshake; the terminal itself is checked by the terminal service once the channel exists.
+	 */
+	async #acceptPty(ws: WebSocket, served: ServedMajor): Promise<void> {
+		const challenge = randomBytes(CHALLENGE_LEN);
+		const first = new Promise<Uint8Array>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("handshake timeout")), HANDSHAKE_TIMEOUT_MS);
+			ws.once("message", (data, isBinary) => {
+				clearTimeout(timer);
+				if (isBinary) resolve(toBytes(data));
+				else reject(new Error("text message"));
+			});
+			ws.once("close", () => reject(new Error("closed")));
+		});
+		ws.send(challenge);
+
+		let message1: Uint8Array;
+		try {
+			message1 = await first;
+		} catch {
+			return ws.terminate();
+		}
+		const hs = HandshakeState.responder({
+			prologue: Buffer.concat([Buffer.from(served.ptyPrologue), challenge]),
+			staticKey: this.#identity.keyPair,
+		});
+		let payload: Uint8Array;
+		try {
+			payload = hs.readMessage(message1);
+		} catch {
+			return reject(ws, "handshake failed");
+		}
+		let clientMajor: number;
+		try {
+			clientMajor = peekProtocolMajor(payload);
+		} catch {
+			return reject(ws, "handshake failed");
+		}
+		if (clientMajor !== served.major) {
+			return reject(ws, `protocol_major mismatch: request named ${served.major}, payload ${clientMajor}`);
+		}
+		let init: { protocolMajor: number; ptyId: string; inputReceived: number };
+		try {
+			init = ptyConnectionInitCodec.decode(decodeCbor(payload));
+		} catch {
+			return reject(ws, "handshake failed");
+		}
+		const clientKey = hs.remoteStaticKey as Uint8Array;
+		const node = await findNodeByPublicKey(this.#db, clientKey);
+		if (!node) return reject(ws, "unknown node");
+		if (node.status !== "active") return reject(ws, "node_pending");
+		const outputReceived = this.#cluster.ptyConnectionOffset(node.id, init.ptyId);
+		if (outputReceived === undefined) return reject(ws, "unknown terminal");
+		if (ws.readyState !== WebSocket.OPEN) return;
+		ws.send(
+			hs.writeMessage(encodeCbor(ptyConnectionResponseCodec.encode({ protocolMajor: PROTOCOL_MAJOR, outputReceived }))),
+		);
+		this.#cluster.attachPtyData(ws, hs.split(), node.id, init);
 	}
 }
 

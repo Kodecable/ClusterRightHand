@@ -7,6 +7,7 @@
 import type { TaskAction } from "@crh/api";
 import type { I18n } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
+import { shellArgument } from "@/lib/authorization";
 
 /** A value stays on one line: a path or title must not split a card line. */
 export function oneLine(value: string): string {
@@ -27,6 +28,15 @@ export function actionText(i18n: I18n, action: TaskAction): string {
 			return `${action.extension}/${action.tool}`;
 		case "subagent":
 			return oneLine(action.task);
+		case "pty.create":
+			return action.argv.length === 0
+				? i18n._(msg`login shell`)
+				: oneLine(action.argv.map((argument) => shellArgument(argument)).join(" "));
+		case "pty.io": {
+			const keys = action.keys.length > 0 ? `[${action.keys.join(" ")}]` : "";
+			const detail = [action.input ?? "", keys].filter((part) => part !== "").join(" ");
+			return detail === "" ? i18n._(msg`Terminal input`) : oneLine(detail);
+		}
 	}
 }
 

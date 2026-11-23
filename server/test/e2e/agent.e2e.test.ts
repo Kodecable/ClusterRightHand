@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { buildCrha, Env, goAvailable, pkill, runCrha, waitFor } from "./harness.ts";
 
 const hasGo = await goAvailable();
@@ -77,6 +78,42 @@ describe.skipIf(!hasGo)("crha end-to-end against in-process crhs", () => {
 			const good = await runCrha(env.bin, ["register", "--config", c.cfg], `${fresh}\n`);
 			expect(good.code).toBe(0);
 		}, 60_000);
+
+		it(
+			"terminal: opens a shell on the real crha, attaches to it and runs a command",
+			() =>
+				withLog(async () => {
+					const created = await env.crhs.api("/api/ptys", { body: { node: env.nodeId, argv: ["/bin/sh"] } });
+					expect(created.status).toBe(201);
+					const id = created.json.terminal.id as string;
+					await waitFor(
+						"terminal running",
+						async () => (await env.crhs.api(`/api/ptys/${id}`)).json.terminal.state === "running",
+						15_000,
+					);
+					const ws = new WebSocket(`ws://127.0.0.1:${env.crhs.port}/api/ptys/${id}/attach`, {
+						headers: { cookie: env.crhs.cookie },
+					});
+					let snapshot = false;
+					let output = "";
+					await new Promise<void>((resolve, reject) => {
+						ws.on("message", (data, isBinary) => {
+							if (isBinary) output += data.toString();
+							else if (JSON.parse(data.toString()).type === "snapshot") snapshot = true;
+						});
+						ws.on("open", () => resolve());
+						ws.on("error", reject);
+					});
+					ws.send(new TextEncoder().encode("echo e2e-terminal-ok\r"));
+					await waitFor("terminal output", () => output.includes("e2e-terminal-ok"), 20_000);
+					expect(snapshot).toBe(true);
+					const closed = await env.crhs.api(`/api/ptys/${id}`, { method: "DELETE", body: {} });
+					expect(closed.status).toBe(200);
+					await waitFor("terminal gone", async () => (await env.crhs.api(`/api/ptys/${id}`)).status === 404, 15_000);
+					ws.close();
+				}),
+			60_000,
+		);
 
 		it("exec: exit code, merged output, stdin, env, cwd", () =>
 			withLog(async () => {

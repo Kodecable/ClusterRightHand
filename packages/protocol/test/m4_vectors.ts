@@ -1009,7 +1009,7 @@ function privVectors(authorization: HexVector): HexVector[] {
 	});
 	// The optional terminal names (doc/design/pty.md "Protocol additions"): a privileged terminal's
 	// bodies on crh-priv. Only pty.input and pty.output are crh-priv's own; the other four reuse
-	// the CRH bodies, whose metadata and scrollback the privileged side ignores.
+	// the CRH bodies, whose scrollback the privileged side ignores.
 	const ptyId = "pty-priv-1";
 	// Their frames are built directly: [kind, id, name, body] for a request and [kind, name, body]
 	// for an event.
@@ -1024,7 +1024,6 @@ function privVectors(authorization: HexVector): HexVector[] {
 			cols: 120,
 			privileged: true,
 			scrollbackBytes: 1 << 20,
-			meta: Uint8Array.from([0xa1, 0x61, 0x78, 0x01]),
 			attempt: 1,
 			authorizations: [Uint8Array.from(Buffer.from(authorization.hex, "hex"))],
 			cosign: null,

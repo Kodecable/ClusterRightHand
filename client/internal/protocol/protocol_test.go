@@ -53,7 +53,6 @@ func TestOptionalNames(t *testing.T) {
 		"pty.close",
 		"pty.exited",
 		"pty.list",
-		"pty.meta",
 		"pty.open",
 		"pty.resize",
 	}
@@ -69,7 +68,7 @@ func TestOptionalNames(t *testing.T) {
 		}
 	}
 	// Every optional name has a schema, so a known body is validated even when it was not negotiated.
-	for _, name := range []string{CmdPTYOpen, CmdPTYResize, CmdPTYClose, CmdPTYMeta} {
+	for _, name := range []string{CmdPTYOpen, CmdPTYResize, CmdPTYClose} {
 		if _, ok := commandSchemas[name]; !ok {
 			t.Fatalf("no command schema for optional command %q", name)
 		}
@@ -91,7 +90,7 @@ func TestOfferedNames(t *testing.T) {
 	if got := OfferedNames(); !slices.Equal(got, want) {
 		t.Fatalf("OfferedNames() = %v, want %v", got, want)
 	}
-	for _, name := range []string{CmdPTYOpen, CmdPTYResize, CmdPTYClose, CmdPTYMeta, EventPTYExited, EventPTYList} {
+	for _, name := range []string{CmdPTYOpen, CmdPTYResize, CmdPTYClose, EventPTYExited, EventPTYList} {
 		if !OfferedSet().Has(name) {
 			t.Fatalf("crha does not offer %q", name)
 		}

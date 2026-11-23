@@ -213,6 +213,21 @@ const taskGroupRoute = createRoute({
 	remountDeps: remountPerItem,
 });
 
+// --- terminals ------------------------------------------------------------
+
+const terminalsRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/terminals",
+	component: lazyRouteComponent(() => import("@/features/terminals/pages"), "TerminalsPage"),
+});
+
+const terminalRoute = createRoute({
+	getParentRoute: () => authenticatedRoute,
+	path: "/terminals/$id",
+	component: lazyRouteComponent(() => import("@/features/terminals/pages"), "TerminalPage"),
+	remountDeps: remountPerItem,
+});
+
 // --- batch ----------------------------------------------------------------
 
 /** The old Batch page is gone: its run form lives in the tasks page's "Run task" dialog. */
@@ -378,6 +393,8 @@ const routeTree = rootRoute.addChildren([
 		tasksRoute,
 		taskRoute,
 		taskGroupRoute,
+		terminalsRoute,
+		terminalRoute,
 		batchRoute,
 		approvalsRoute,
 		approvalTaskRoute,

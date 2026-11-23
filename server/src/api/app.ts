@@ -24,6 +24,7 @@ import { mcpRoutes } from "../mcp/mcp.ts";
 import { type AuthorizationSigningKey, AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Scheduler } from "../scheduler/scheduler.ts";
 import type { Db } from "../storage/db.ts";
+import type { TerminalService } from "../terminals/registry.ts";
 import { execJobRenderers } from "../tools/job-renderers.ts";
 import { DEFAULT_BODY_LIMIT, jsonBodyLimit, takesLargeBody } from "../util/body-limit.ts";
 import { apiTokenRoutes } from "./api-token-routes.ts";
@@ -53,6 +54,7 @@ import { settingsRoutes } from "./settings-routes.ts";
 import { signingCredentialRoutes } from "./signing-credential-routes.ts";
 import { sshRoutes } from "./ssh-routes.ts";
 import { taskRoutes } from "./task-routes.ts";
+import { terminalRoutes } from "./terminal-routes.ts";
 import { userRoutes } from "./user-routes.ts";
 import { userSettingsRoutes } from "./user-settings-routes.ts";
 
@@ -137,6 +139,8 @@ export interface AppOptions extends AuthRoutesOptions {
 	crhaReleases?: CrhaReleases;
 	/** The scheduler that fires and submits scheduled runs (doc/design/scheduling.md); with it come the schedule routes. */
 	scheduler?: Scheduler;
+	/** The terminal subsystem behind the Terminals page and the agent tools (doc/design/pty.md). */
+	terminals?: TerminalService;
 	/** The job service shared with the agent runtime; one is made when a Cluster is present. */
 	jobs?: Jobs;
 	/** The crhs-owned extension calls the job service and MCP share; one is made when omitted. */
@@ -218,6 +222,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			...options,
 			...(taskGroups ? { taskGroups } : {}),
 			...(options.channels ? { channels: options.channels } : {}),
+			...(options.terminals ? { terminals: options.terminals } : {}),
 			revalidateWebSessions: onWebSessionsRevoked,
 		}),
 	);
@@ -238,11 +243,23 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			...(cluster ? { cluster } : {}),
 			...(taskGroups ? { taskGroups } : {}),
 			...(options.channels ? { channels: options.channels } : {}),
+			...(options.terminals ? { terminals: options.terminals } : {}),
 			revalidateWebSessions: onWebSessionsRevoked,
 		}),
 	);
 	app.route("/api", userSettingsRoutes(db, options.agent ? { models: options.agent.models } : {}));
-	app.route("/api", settingsRoutes(db, options.settings ? { settings: options.settings } : {}));
+	app.route(
+		"/api",
+		settingsRoutes(db, {
+			...(options.settings ? { settings: options.settings } : {}),
+			onChanged: (changes) => {
+				if (changes.some((change) => change.key.startsWith("pty."))) {
+					options.terminals?.applySettings();
+					options.agent?.runtime.setTerminalToolsEnabled(options.terminals?.enabled === true);
+				}
+			},
+		}),
+	);
 	app.route("/api", libraryRoutes(db, options.libraryBackend ? { backend: options.libraryBackend } : {}));
 	app.route("/api", nodeRoutes(db, { ...options, signingKeys, ...(taskGroups ? { taskGroups } : {}) }));
 	app.route("/api", nodeGroupRoutes(db));
@@ -279,7 +296,7 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 	if (cluster && taskGroups) {
 		app.route("/api", taskRoutes(db, cluster, taskGroups));
 		app.route("/api", apiTokenRoutes(db, cluster, taskGroups, audit));
-		app.route("/api", approvalRoutes(db, cluster, taskGroups, audit));
+		app.route("/api", approvalRoutes(db, cluster, taskGroups, audit, options.terminals));
 		// The job API shares the runtime's job service, so a decision or cancel projects the same rows the tools do.
 		if (jobs) app.route("/api", jobRoutes(db, { jobs }));
 		app.route("/api", auditRoutes(db));
@@ -362,6 +379,10 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 			}),
 		);
 	}
+
+	// The terminal routes serve only their user and administrators; they are mounted whether or not this
+	// process also has an agent runtime.
+	if (options.terminals) app.route("/api", terminalRoutes({ terminals: options.terminals, db }));
 
 	if (options.webRoot) {
 		const root = options.webRoot;

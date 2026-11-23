@@ -1,5 +1,5 @@
 // Package pty runs the terminals of a crha node: it reads a terminal's output into a bounded ring
-// buffer, and holds the terminal's crhs-owned metadata until crhs closes it. A terminal's process
+// buffer and counts the input bytes it has received, until crhs closes it. A terminal's process
 // side is a Backend: a crosspty process owned by this crha process, or a relay to the privileged
 // mode's daemon when the terminal is privileged (doc/design/pty.md "Privilege"). The data
 // connection that carries the bytes to crhs and back lives in the agent, which owns the transport
@@ -101,7 +101,6 @@ type OpenRequest struct {
 	Cols            uint64
 	Privileged      bool
 	ScrollbackBytes uint64
-	Meta            []byte
 }
 
 // ValidateOpen checks the parts of a pty.open that are not the process: a non-empty id and a size
@@ -229,8 +228,6 @@ func newTerminal(req OpenRequest, argv []string, backend Backend, proc crosspty.
 		cols:            uint16(req.Cols),
 		privileged:      req.Privileged,
 		scrollbackBytes: req.ScrollbackBytes,
-		meta:            append([]byte(nil), req.Meta...),
-		startedAt:       time.Now(),
 		backend:         backend,
 		proc:            proc,
 		onOutput:        onOutput,
@@ -247,20 +244,15 @@ func (m *Manager) Get(id string) *Terminal {
 	return m.terminals[id]
 }
 
-// List returns every held terminal, running and exited, in a stable order (started, then id) for
-// pty.list.
+// List returns every held terminal's id and exit state, in a stable order, for pty.list. The list
+// carries nothing else: crhs only reconciles which terminals exist (doc/design/pty.md "Reconnect").
 func (m *Manager) List() []protocol.PTYStatus {
 	terms := m.snapshot()
 	out := make([]protocol.PTYStatus, 0, len(terms))
 	for _, t := range terms {
 		out = append(out, t.Status())
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].StartedAtMS != out[j].StartedAtMS {
-			return out[i].StartedAtMS < out[j].StartedAtMS
-		}
-		return out[i].PTYID < out[j].PTYID
-	})
+	sort.Slice(out, func(i, j int) bool { return out[i].PTYID < out[j].PTYID })
 	return out
 }
 
@@ -295,16 +287,6 @@ func (m *Manager) Resize(id string, rows, cols uint64) error {
 		}
 		return remote(protocol.CodeInternalError, "resize the terminal: "+err.Error())
 	}
-	return nil
-}
-
-// SetMeta replaces a terminal's opaque crhs metadata blob.
-func (m *Manager) SetMeta(id string, meta []byte) error {
-	t := m.Get(id)
-	if t == nil {
-		return remote(protocol.CodeNotFound, "unknown terminal "+id)
-	}
-	t.setMeta(meta)
 	return nil
 }
 
@@ -449,8 +431,6 @@ type Terminal struct {
 	cols            uint16
 	privileged      bool
 	scrollbackBytes uint64
-	meta            []byte
-	startedAt       time.Time
 	backend         Backend
 	// proc is the locally started crosspty process, nil for a relayed terminal: a relayed one gets
 	// its output and exit from Feed and End instead of Read and Wait.
@@ -466,6 +446,9 @@ type Terminal struct {
 	ended    chan struct{}
 	endOnce  sync.Once
 	removed  bool
+	// inputReceived counts the input bytes written to the process, across data connections. crhs
+	// continues its input stream from it after a reconnect (doc/design/pty.md "crha").
+	inputReceived uint64
 
 	// reportMu serializes the exit report against removal, so no pty.exited is emitted for a
 	// terminal crhs closed (doc/design/pty.md "crha").
@@ -526,30 +509,29 @@ func (t *Terminal) Ended() bool {
 // opened for it.
 func (t *Terminal) Gone() <-chan struct{} { return t.gone }
 
-// Status returns the terminal's pty.list entry.
+// Status returns the terminal's pty.list entry: its id and exit state only.
 func (t *Terminal) Status() protocol.PTYStatus {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	argv := append([]string(nil), t.argv...)
-	if argv == nil {
-		argv = []string{}
+	return protocol.PTYStatus{PTYID: t.id, Exited: t.exited, ExitCode: protocol.Int(t.exitCode)}
+}
+
+// InputReceived returns how many input bytes were written to the process. A new data connection
+// reports it so crhs can resend exactly the bytes crha did not receive (doc/design/pty.md "crha").
+func (t *Terminal) InputReceived() uint64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.inputReceived
+}
+
+// addInputReceived records n input bytes written to the process.
+func (t *Terminal) addInputReceived(n int) {
+	if n <= 0 {
+		return
 	}
-	meta := append([]byte(nil), t.meta...)
-	if meta == nil {
-		meta = []byte{}
-	}
-	return protocol.PTYStatus{
-		PTYID:           t.id,
-		Argv:            argv,
-		Rows:            protocol.Uint(t.rows),
-		Cols:            protocol.Uint(t.cols),
-		Privileged:      t.privileged,
-		ScrollbackBytes: protocol.Uint(t.scrollbackBytes),
-		Meta:            meta,
-		StartedAtMS:     protocol.Uint(max(t.startedAt.UnixMilli(), 0)),
-		Exited:          t.exited,
-		ExitCode:        protocol.Int(t.exitCode),
-	}
+	t.mu.Lock()
+	t.inputReceived += uint64(n)
+	t.mu.Unlock()
 }
 
 // Resize changes the PTY size, which also tells the foreground program through SIGWINCH.
@@ -568,15 +550,17 @@ func (t *Terminal) Resize(rows, cols uint16) error {
 	return nil
 }
 
-// Write sends crhs input to the PTY in order.
-func (t *Terminal) Write(p []byte) error {
+// Write sends crhs input to the PTY in order. It reports how many bytes were written before an
+// error, so the input offset counts exactly what the process received.
+func (t *Terminal) Write(p []byte) (int, error) {
 	t.ioMu.RLock()
 	defer t.ioMu.RUnlock()
 	if t.isRemoved() {
-		return errGone
+		return 0, errGone
 	}
-	_, err := t.backend.Write(p)
-	return err
+	n, err := t.backend.Write(p)
+	t.addInputReceived(n)
+	return n, err
 }
 
 // Close ends the terminal's process group: a local one follows crosspty's graceful sequence (hang
@@ -594,12 +578,6 @@ func (t *Terminal) isRemoved() bool {
 	t.reportMu.Lock()
 	defer t.reportMu.Unlock()
 	return t.removed
-}
-
-func (t *Terminal) setMeta(meta []byte) {
-	t.mu.Lock()
-	t.meta = append([]byte(nil), meta...)
-	t.mu.Unlock()
 }
 
 // markRemoved records that crhs (or the node) dropped the terminal and stops the retention

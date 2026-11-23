@@ -7,7 +7,16 @@ import { z } from "zod";
 
 export const RuleActionSchema = z.enum(["allow", "deny", "require-approval"]);
 /** The privileged methods (one list, in @crh/protocol) and the methods of crhs's own operations. */
-export const RuleMethodSchema = z.enum([...KNOWN_METHODS, "ext.read", "ext.write", "api.read", "api.write"]);
+export const RuleMethodSchema = z.enum([
+	...KNOWN_METHODS,
+	// Terminal input is crhs's own method: no privileged method exists for it, since what is typed into
+	// an authorized terminal is not authorized again (doc/design/pty.md "Privilege").
+	"pty.io",
+	"ext.read",
+	"ext.write",
+	"api.read",
+	"api.write",
+]);
 export const RulePresetSchema = z.enum(["ask", "auto_review", "yolo"]);
 /** A level's own result; only a lower level than the root may inherit. */
 export const DefaultActionSchema = z.enum(["allow", "deny", "require-approval", "inherit"]);

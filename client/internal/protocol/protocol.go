@@ -67,12 +67,11 @@ const (
 	CmdTaskInput  = "task.input"
 	CmdTaskCancel = "task.cancel"
 	CmdTaskQuery  = "task.query"
-	// CmdPTYOpen, CmdPTYResize, CmdPTYClose and CmdPTYMeta are optional: crhs offers them while a
-	// node offers only those it implements (doc/design/pty.md "Protocol additions").
+	// CmdPTYOpen, CmdPTYResize and CmdPTYClose are optional: crhs offers them while a node offers
+	// only those it implements (doc/design/pty.md "Protocol additions").
 	CmdPTYOpen   = "pty.open"
 	CmdPTYResize = "pty.resize"
 	CmdPTYClose  = "pty.close"
-	CmdPTYMeta   = "pty.meta"
 )
 
 // Event names.
@@ -124,7 +123,6 @@ var (
 		CmdPTYOpen,
 		CmdPTYResize,
 		CmdPTYClose,
-		CmdPTYMeta,
 	}
 	optionalEventNames = []string{
 		EventPTYExited,
@@ -177,10 +175,6 @@ var commandSchemas = map[string]commandSchema{
 	},
 	CmdPTYClose: {
 		request:  func() any { return new(PTYClose) },
-		response: func() any { return new(Empty) },
-	},
-	CmdPTYMeta: {
-		request:  func() any { return new(PTYMeta) },
 		response: func() any { return new(Empty) },
 	},
 }

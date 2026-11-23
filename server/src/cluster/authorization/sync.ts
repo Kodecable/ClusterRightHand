@@ -200,6 +200,8 @@ export async function submitAuthorization(
 	});
 	// Tracked by the core, so close() waits for the syncs before the database is destroyed.
 	core.background("authorization sync failed", syncSubmitted(core, user.userId, submitted));
+	// A privileged terminal waiting on the tool's signature is planned again with the stored authorization.
+	core.terminals?.onAuthorizationSubmitted(user.userId, submitted.payload);
 	return { id: submitted.id };
 }
 

@@ -14,6 +14,7 @@ import type {
 	SystemSettingsImageCacheSchema,
 	SystemSettingsJobsSchema,
 	SystemSettingsPatchSchema,
+	SystemSettingsPtySchema,
 	SystemSettingsResponseSchema,
 	SystemSettingsRetentionSchema,
 	SystemSettingsSchema,
@@ -44,6 +45,9 @@ export type SystemSettingsSkills = z.infer<typeof SystemSettingsSkillsSchema>;
 
 /** The job limits of a session (doc/design/jobs.md); `System settings` in the WebUI. */
 export type SystemSettingsJobs = z.infer<typeof SystemSettingsJobsSchema>;
+
+/** The terminal subsystem's settings (doc/design/pty.md "Settings and limits"). */
+export type SystemSettingsPty = z.infer<typeof SystemSettingsPtySchema>;
 
 /** The settings administrators edit in System settings. */
 export type SystemSettings = z.infer<typeof SystemSettingsSchema>;

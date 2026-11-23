@@ -26,6 +26,8 @@ export interface ChatCard {
 	reason?: string;
 	/** The one-line detail: the command, the file operation and path, the request or the tool. */
 	detail?: string;
+	/** A terminal's screen excerpt, shown as its own labelled block (pty.io approvals). */
+	screen?: string;
 	/** Command hints, "label: /command args" style. */
 	hints: string[];
 }
@@ -35,6 +37,8 @@ export interface CardLabels {
 	privilegedSuffix: string;
 	/** "Low risk", "Medium risk" or "High risk", localized. */
 	riskLevel: (risk: ChatCardRisk) => string;
+	/** The label in front of a terminal screen excerpt. */
+	screen: (text: string) => string;
 }
 
 export type CardFormat = "markdown" | "plain";
@@ -67,6 +71,7 @@ function cardLines(
 		body.push({ text: `${RISK_EMOJI[card.risk]} ${labels.riskLevel(card.risk)}${reason}`, kind: "value" });
 	}
 	if (card.detail !== undefined && card.detail !== "") body.push({ text: card.detail, kind: "detail" });
+	if (card.screen !== undefined && card.screen !== "") body.push({ text: labels.screen(card.screen), kind: "value" });
 	return { body, hints: card.hints.filter((hint) => hint !== "") };
 }
 

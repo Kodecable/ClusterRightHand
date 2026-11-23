@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,14 +23,16 @@ var errFakeDataClosed = errors.New("fake data connection closed")
 // fakeTerminalConn is an in-memory DataConn: frames the agent sends arrive on out, and the test
 // injects crhs frames with push.
 type fakeTerminalConn struct {
+	ptyID  string
 	out    chan protocol.DataFrame
 	input  chan protocol.DataFrame
 	closed chan struct{}
 	once   sync.Once
 }
 
-func newFakeTerminalConn() *fakeTerminalConn {
+func newFakeTerminalConn(ptyID string) *fakeTerminalConn {
 	return &fakeTerminalConn{
+		ptyID:  ptyID,
 		out:    make(chan protocol.DataFrame, 256),
 		input:  make(chan protocol.DataFrame, 16),
 		closed: make(chan struct{}),
@@ -76,25 +81,53 @@ func (c *fakeTerminalConn) drop() { _ = c.Close("test drop") }
 
 func (c *fakeTerminalConn) push(f protocol.DataFrame) { c.input <- f }
 
-// fakePTYDialer hands out one fresh in-memory data connection per dial.
+// fakePTYDialer hands out one fresh in-memory data connection per dial. outputOffset supplies the
+// output offset crhs would report in the handshake, and received records the input offset the
+// terminal reported on each dial.
 type fakePTYDialer struct {
 	conns chan *fakeTerminalConn
+
+	mu       sync.Mutex
+	offset   func(ptyID string, inputReceived uint64) uint64
+	received []uint64
 }
 
 func newFakePTYDialer() *fakePTYDialer {
 	return &fakePTYDialer{conns: make(chan *fakeTerminalConn, 8)}
 }
 
-func (d *fakePTYDialer) dial(ctx context.Context, _ string) (DataConn, error) {
+// setOutputOffset installs the output offset the next dials report.
+func (d *fakePTYDialer) setOutputOffset(offset func(ptyID string, inputReceived uint64) uint64) {
+	d.mu.Lock()
+	d.offset = offset
+	d.mu.Unlock()
+}
+
+// inputOffsets returns the input offsets reported so far, in dial order.
+func (d *fakePTYDialer) inputOffsets() []uint64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]uint64(nil), d.received...)
+}
+
+func (d *fakePTYDialer) dial(ctx context.Context, ptyID string, inputReceived uint64) (DataConn, uint64, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	c := newFakeTerminalConn()
+	d.mu.Lock()
+	d.received = append(d.received, inputReceived)
+	offset := d.offset
+	d.mu.Unlock()
+	output := uint64(0)
+	if offset != nil {
+		output = offset(ptyID, inputReceived)
+	}
+	c := newFakeTerminalConn(ptyID)
 	select {
 	case d.conns <- c:
-		return c, nil
+		return c, output, nil
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return nil, 0, ctx.Err()
 	}
 }
 
@@ -187,45 +220,132 @@ func waitDataKind(t *testing.T, conn *fakeTerminalConn, kind protocol.DataFrameK
 	}
 }
 
-// TestPTYListAfterHello covers doc/design/pty.md "Reconnect": every held terminal, running or
-// exited, is reported in pty.list right after the handshake.
-func TestPTYListAfterHello(t *testing.T) {
+// ptyHarness is a fake crhs that offers the terminal names, an agent with an in-memory dialer and
+// the events crhs consumes.
+type ptyHarness struct {
+	agent     *Agent
+	dialer    *fakePTYDialer
+	srv       *httptest.Server
+	serverKey noise.Keypair
+	listed    chan protocol.PTYList
+	exited    chan protocol.PTYExited
+}
+
+func startPTYHarness(t *testing.T) *ptyHarness {
+	t.Helper()
 	serverKey, err := noise.GenerateKeypair()
 	if err != nil {
 		t.Fatal(err)
 	}
-	listCh := make(chan protocol.PTYList, 4)
-	exitedCh := make(chan protocol.PTYExited, 4)
+	listed := make(chan protocol.PTYList, 8)
+	exited := make(chan protocol.PTYExited, 8)
 	srv := startFake(t, serverKey, fakeConfig{
 		commands: protocol.OfferedNames(),
 		setup: func(p *protocol.Peer) {
-			ptyEvents(p, listCh, exitedCh)
+			ptyEvents(p, listed, exited)
 		},
 	})
-	a := newTestAgent(t, Options{Env: testPTYEnv(t)})
+	dialer := newFakePTYDialer()
+	a := newTestAgent(t, Options{Env: testPTYEnv(t), PTYDial: dialer.dial})
 	t.Cleanup(a.shutdownPTY)
+	return &ptyHarness{agent: a, dialer: dialer, srv: srv, serverKey: serverKey, listed: listed, exited: exited}
+}
 
-	exited, err := a.pty.mgr.Open(pty.OpenRequest{
-		ID: "exited", Argv: []string{"/bin/sh", "-c", "exit 7"}, Rows: 24, Cols: 80,
-		ScrollbackBytes: 1 << 20, Meta: []byte("m1"),
+// connect starts a control connection, waits for its pty.list and returns both.
+func (h *ptyHarness) connect(t *testing.T) (protocol.PTYList, context.CancelFunc, <-chan struct{}) {
+	t.Helper()
+	stop, finished := startSession(t, h.agent, dialTo(t, h.srv, h.serverKey))
+	return waitCh(t, h.listed, "pty.list"), stop, finished
+}
+
+// openTerminal opens a terminal in the manager, before any control connection.
+func (h *ptyHarness) openTerminal(t *testing.T, id string, scrollback uint64, argv ...string) *pty.Terminal {
+	t.Helper()
+	term, err := h.agent.pty.mgr.Open(pty.OpenRequest{
+		ID:              id,
+		Argv:            argv,
+		Rows:            24,
+		Cols:            80,
+		ScrollbackBytes: scrollback,
 	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("open %s: %v", id, err)
 	}
+	return term
+}
+
+// connFor waits for a data connection to the named terminal.
+func (h *ptyHarness) connFor(t *testing.T, id string) *fakeTerminalConn {
+	t.Helper()
+	deadline := time.After(10 * time.Second)
+	for {
+		select {
+		case conn := <-h.dialer.conns:
+			if conn.ptyID == id {
+				return conn
+			}
+		case <-deadline:
+			t.Fatalf("no data connection for terminal %s", id)
+		}
+	}
+}
+
+// waitRing waits until the terminal's ring holds at least n bytes.
+func waitRing(t *testing.T, term *pty.Terminal, n int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if int(term.Ring().Total()) >= n {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("terminal %s produced %d bytes, want %d", term.ID(), term.Ring().Total(), n)
+}
+
+// collectBytes reads exactly n data bytes from conn, beyond any [end] or [abort] frames.
+func collectBytes(t *testing.T, conn *fakeTerminalConn, n int) []byte {
+	t.Helper()
+	var out []byte
+	deadline := time.After(10 * time.Second)
+	for len(out) < n {
+		select {
+		case f := <-conn.out:
+			if f.Kind == protocol.DataFrameData {
+				out = append(out, f.Bytes...)
+			}
+		case <-deadline:
+			t.Fatalf("connection delivered %d bytes, want %d", len(out), n)
+		}
+	}
+	return out
+}
+
+// printfScript makes a shell command that writes exactly data and then stays alive, so the output
+// stream is live rather than an exited terminal's.
+func printfScript(data []byte) string {
+	var b strings.Builder
+	b.WriteString("printf '%b' '")
+	for _, c := range data {
+		fmt.Fprintf(&b, "\\%03o", c)
+	}
+	b.WriteString("'; sleep 30")
+	return b.String()
+}
+
+// TestPTYListAfterHello covers doc/design/pty.md "Reconnect": pty.list names every held terminal and
+// its exit state, and nothing else.
+func TestPTYListAfterHello(t *testing.T) {
+	h := startPTYHarness(t)
+	exited := h.openTerminal(t, "exited", 1<<20, "/bin/sh", "-c", "exit 7")
 	select {
 	case <-exited.OutputDone():
 	case <-time.After(10 * time.Second):
 		t.Fatal("terminal did not exit")
 	}
-	if _, err := a.pty.mgr.Open(pty.OpenRequest{
-		ID: "running", Argv: []string{"/bin/sh", "-c", "sleep 30"}, Rows: 30, Cols: 100,
-		ScrollbackBytes: 1 << 20,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	h.openTerminal(t, "running", 1<<20, "/bin/sh", "-c", "sleep 30")
 
-	startSession(t, a, dialTo(t, srv, serverKey))
-	list := waitCh(t, listCh, "pty.list")
+	list, _, _ := h.connect(t)
 	if len(list.Terminals) != 2 {
 		t.Fatalf("pty.list = %+v, want two terminals", list)
 	}
@@ -237,278 +357,219 @@ func TestPTYListAfterHello(t *testing.T) {
 	if !ok || !gone.Exited || gone.ExitCode != 7 {
 		t.Fatalf("exited terminal = %+v, want exited with code 7", gone)
 	}
-	if string(gone.Meta) != "m1" {
-		t.Fatalf("exited terminal meta = %q, want m1", gone.Meta)
-	}
 	live, ok := byID["running"]
 	if !ok || live.Exited {
 		t.Fatalf("running terminal = %+v, want running", live)
 	}
-	if live.Rows != 30 || live.Cols != 100 {
-		t.Fatalf("running terminal size = %dx%d", live.Rows, live.Cols)
+}
+
+// TestPTYOutputContinuesFromOffset covers doc/design/pty.md "Two continuous byte streams": a new
+// data connection continues the output exactly where crhs says it stopped, with no repeat and no
+// gap, even when the cut falls inside an escape sequence or a multi-byte UTF-8 character.
+func TestPTYOutputContinuesFromOffset(t *testing.T) {
+	cases := []struct {
+		name string
+		data []byte
+		cut  int
+	}{
+		{name: "plain", data: []byte("hello"), cut: 2},
+		{name: "escape sequence", data: []byte("\x1b[31mred\x1b[0m"), cut: 2},
+		{name: "multi-byte utf-8", data: []byte("héllo 世界"), cut: 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := startPTYHarness(t)
+			var offset atomic.Uint64
+			h.dialer.setOutputOffset(func(string, uint64) uint64 { return offset.Load() })
+			term := h.openTerminal(t, "cut", 1<<20, "/bin/sh", "-c", printfScript(tc.data))
+			_, stop, done := h.connect(t)
+			conn1 := h.connFor(t, "cut")
+			waitRing(t, term, len(tc.data))
+
+			// crhs received the first cut bytes; drop the connection and report exactly that offset.
+			offset.Store(uint64(tc.cut))
+			conn1.drop()
+			conn2 := h.connFor(t, "cut")
+			tail := collectBytes(t, conn2, len(tc.data)-tc.cut)
+			if string(tail) != string(tc.data[tc.cut:]) {
+				t.Fatalf("continuation = %q, want %q", tail, tc.data[tc.cut:])
+			}
+			stop()
+			<-done
+		})
 	}
 }
 
-// TestPTYDataReplayAndInput covers the data connection: output reaches crhs, input reaches the
-// PTY, and a replacement connection starts with the whole ring buffer again.
-func TestPTYDataReplayAndInput(t *testing.T) {
-	oldMin := ptyMinBackoff
-	ptyMinBackoff = 20 * time.Millisecond
-	t.Cleanup(func() { ptyMinBackoff = oldMin })
-
-	serverKey, err := noise.GenerateKeypair()
-	if err != nil {
-		t.Fatal(err)
+// TestPTYOutputLostAborts covers doc/design/pty.md "Two continuous byte streams": when the ring has
+// overwritten bytes crhs never received, the stream cannot continue and crha answers stream_lost
+// instead of replaying.
+func TestPTYOutputLostAborts(t *testing.T) {
+	h := startPTYHarness(t)
+	const budget = 80000 // More than the 64 KiB minimum ring, which a zero asks for.
+	h.dialer.setOutputOffset(func(string, uint64) uint64 { return 0 })
+	term := h.openTerminal(t, "overflow", 0, "/bin/sh", "-c",
+		"head -c 80000 /dev/zero | tr '\\0' a; sleep 30")
+	_, stop, done := h.connect(t)
+	conn1 := h.connFor(t, "overflow")
+	waitRing(t, term, budget)
+	start, _ := term.Ring().Range()
+	if start == 0 {
+		t.Fatalf("ring start = 0 after %d bytes; want overwritten output", budget)
 	}
-	dialer := newFakePTYDialer()
-	listed := make(chan protocol.PTYList, 4)
-	exitedCh := make(chan protocol.PTYExited, 4)
-	srv := startFake(t, serverKey, fakeConfig{
-		commands: protocol.OfferedNames(),
-		setup: func(p *protocol.Peer) {
-			ptyEvents(p, listed, exitedCh)
-		},
-		run: func(ctx context.Context, p *protocol.Peer) {
-			waitCh(t, listed, "pty.list")
-			var empty protocol.Empty
-			err := p.Request(ctx, protocol.CmdPTYOpen, protocol.PTYOpen{
-				PTYID:           "io",
-				Argv:            []string{"/bin/sh", "-c", "printf hello; cat"},
-				Rows:            24,
-				Cols:            80,
-				ScrollbackBytes: 1 << 20,
-			}, &empty)
-			if err != nil {
-				t.Errorf("pty.open: %v", err)
-			}
-		},
-	})
-	a := newTestAgent(t, Options{Env: testPTYEnv(t), PTYDial: dialer.dial})
-	t.Cleanup(a.shutdownPTY)
-	startSession(t, a, dialTo(t, srv, serverKey))
 
-	conn1 := waitCh(t, dialer.conns, "the first terminal data connection")
-	collectUntil(t, conn1, "hello")
-	conn1.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("world\n")})
-	collectUntil(t, conn1, "world")
-
-	// Drop the connection: the worker must redial, and the new connection replays the ring from
-	// its oldest byte, not from where the first one stopped.
 	conn1.drop()
-	conn2 := waitCh(t, dialer.conns, "a replacement terminal data connection")
-	replay := collectPrefix(t, conn2, len("helloworld\r\n"))
-	if !strings.HasPrefix(replay, "hello") || !strings.Contains(replay, "world") {
-		t.Fatalf("replacement connection starts with %q, want the ring replayed from hello", replay)
-	}
-	// Live input and output continue after the replay.
-	conn2.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("again\n")})
-	collectUntil(t, conn2, "again")
-}
-
-// collectMarker reads a fresh data connection's output until it starts with one of markers, and
-// returns that marker. A new connection must begin with its terminal's ring buffer replay, so the
-// marker is at the start rather than somewhere in live output.
-func collectMarker(t *testing.T, conn *fakeTerminalConn, markers ...string) string {
-	t.Helper()
-	if marker := markerWithin(conn, markers, 10*time.Second); marker != "" {
-		return marker
-	}
-	t.Fatalf("data connection delivered no replay of %v", markers)
-	return ""
-}
-
-// markerWithin is collectMarker's non-fatal form. A connection that the old control connection
-// raced with dials but carries no replay; it reports "" so the test can skip it.
-func markerWithin(conn *fakeTerminalConn, markers []string, wait time.Duration) string {
-	var b strings.Builder
-	timeout := time.NewTimer(wait)
-	defer timeout.Stop()
-	for {
-		select {
-		case f := <-conn.out:
-			if f.Kind != protocol.DataFrameData {
-				continue
-			}
-			b.Write(f.Bytes)
-			out := b.String()
-			for _, marker := range markers {
-				if strings.HasPrefix(out, marker) {
-					return marker
-				}
-			}
-		case <-timeout.C:
-			return ""
-		}
-	}
-}
-
-// TestPTYReconnectWakesEveryTerminal covers doc/design/pty.md "Reconnect": after the control
-// connection comes back, every running terminal gets its own data connection again, each beginning
-// with its ring replay. A single shared wake-up must not leave the other worker waiting forever.
-func TestPTYReconnectWakesEveryTerminal(t *testing.T) {
-	oldMin := ptyMinBackoff
-	ptyMinBackoff = 20 * time.Millisecond
-	t.Cleanup(func() { ptyMinBackoff = oldMin })
-
-	serverKey, err := noise.GenerateKeypair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	listed := make(chan protocol.PTYList, 4)
-	exitedCh := make(chan protocol.PTYExited, 4)
-	srv := startFake(t, serverKey, fakeConfig{
-		commands: protocol.OfferedNames(),
-		setup: func(p *protocol.Peer) {
-			ptyEvents(p, listed, exitedCh)
-		},
-	})
-	dialer := newFakePTYDialer()
-	a := newTestAgent(t, Options{Env: testPTYEnv(t), PTYDial: dialer.dial})
-	t.Cleanup(a.shutdownPTY)
-
-	terms := []struct{ id, marker string }{
-		{id: "first", marker: "first-prompt"},
-		{id: "second", marker: "second-prompt"},
-	}
-	for _, term := range terms {
-		if _, err := a.pty.mgr.Open(pty.OpenRequest{
-			ID:              term.id,
-			Argv:            []string{"/bin/sh", "-c", "printf " + term.marker + "; cat"},
-			Rows:            24,
-			Cols:            80,
-			ScrollbackBytes: 1 << 20,
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	markers := []string{terms[0].marker, terms[1].marker}
-
-	stop, done := startSession(t, a, dialTo(t, srv, serverKey))
-	waitCh(t, listed, "pty.list")
-	for range terms {
-		conn := waitCh(t, dialer.conns, "a terminal data connection")
-		collectMarker(t, conn, markers...)
+	conn2 := h.connFor(t, "overflow")
+	frame := waitDataKind(t, conn2, protocol.DataFrameAbort)
+	if frame.Code != protocol.PTYStreamLost {
+		t.Fatalf("abort code = %q, want %q", frame.Code, protocol.PTYStreamLost)
 	}
 	stop()
 	<-done
-
-	// Reconnect: both terminals must dial again, not just the one worker that got the wake-up.
-	// A dial that raced the old control connection's shutdown carries no replay and is skipped.
-	startSession(t, a, dialTo(t, srv, serverKey))
-	waitCh(t, listed, "pty.list")
-	replayed := map[string]bool{}
-	deadline := time.After(10 * time.Second)
-	for len(replayed) < len(terms) {
-		select {
-		case conn := <-dialer.conns:
-			if marker := markerWithin(conn, markers, 250*time.Millisecond); marker != "" {
-				replayed[marker] = true
-			}
-		case <-deadline:
-			t.Fatalf("data connections after the reconnect replayed %v, want both terminals", replayed)
-		}
-	}
 }
 
-// TestPTYReconnectReplaysExitedTerminalOnce covers doc/design/pty.md "Reconnect": an exited
-// terminal crhs has not closed is replayed once on each new control connection, ending with
-// [end], and is not dialed again while that connection lasts.
-func TestPTYReconnectReplaysExitedTerminalOnce(t *testing.T) {
-	oldMin := ptyMinBackoff
-	ptyMinBackoff = 20 * time.Millisecond
-	t.Cleanup(func() { ptyMinBackoff = oldMin })
+// TestPTYOutputBeyondEndAborts covers doc/design/pty.md "Two continuous byte streams": crhs cannot
+// have received more output than crha produced, so a handshake offset past the ring's end is as lost
+// as one before its start. crha answers stream_lost and replays nothing.
+func TestPTYOutputBeyondEndAborts(t *testing.T) {
+	h := startPTYHarness(t)
+	var offset atomic.Uint64
+	h.dialer.setOutputOffset(func(string, uint64) uint64 { return offset.Load() })
+	term := h.openTerminal(t, "ahead", 1<<20, "/bin/sh", "-c", printfScript([]byte("hello")))
+	_, stop, done := h.connect(t)
+	conn1 := h.connFor(t, "ahead")
+	waitRing(t, term, 5)
+	_, end := term.Ring().Range()
 
-	serverKey, err := noise.GenerateKeypair()
-	if err != nil {
-		t.Fatal(err)
+	// crhs claims output crha never produced: the next handshake lies beyond the ring's end.
+	offset.Store(end + 100)
+	conn1.drop()
+	conn2 := h.connFor(t, "ahead")
+	var frame protocol.DataFrame
+	timeout := time.After(10 * time.Second)
+	for frame.Kind != protocol.DataFrameAbort {
+		select {
+		case f := <-conn2.out:
+			if f.Kind == protocol.DataFrameData {
+				t.Fatalf("data frame %q arrived before the abort", f.Bytes)
+			}
+			frame = f
+		case <-timeout:
+			t.Fatal("data connection never delivered an abort frame")
+		}
 	}
-	listed := make(chan protocol.PTYList, 4)
-	exitedCh := make(chan protocol.PTYExited, 4)
-	srv := startFake(t, serverKey, fakeConfig{
-		commands: protocol.OfferedNames(),
-		setup: func(p *protocol.Peer) {
-			ptyEvents(p, listed, exitedCh)
-		},
+	if frame.Code != protocol.PTYStreamLost {
+		t.Fatalf("abort code = %q, want %q", frame.Code, protocol.PTYStreamLost)
+	}
+	stop()
+	<-done
+}
+
+// TestPTYInputReceivedReported covers doc/design/pty.md "Two continuous byte streams": every data
+// connection reports how many input bytes crha has written to the process, so crhs resends only the
+// rest.
+func TestPTYInputReceivedReported(t *testing.T) {
+	h := startPTYHarness(t)
+	term := h.openTerminal(t, "input", 1<<20, "/bin/sh", "-c", "cat")
+	_, stop, done := h.connect(t)
+	conn1 := h.connFor(t, "input")
+	conn1.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("abc")})
+	conn1.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("de")})
+	deadline := time.Now().Add(10 * time.Second)
+	for term.InputReceived() != 5 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := term.InputReceived(); got != 5 {
+		t.Fatalf("input received = %d, want 5", got)
+	}
+
+	conn1.drop()
+	conn2 := h.connFor(t, "input")
+	if conn2.ptyID != term.ID() {
+		t.Fatalf("connection for %s, want %s", conn2.ptyID, term.ID())
+	}
+	offsets := h.dialer.inputOffsets()
+	if len(offsets) < 2 || offsets[len(offsets)-1] != 5 {
+		t.Fatalf("handshake input offsets = %v, want the last one 5", offsets)
+	}
+	stop()
+	<-done
+}
+
+// TestPTYExitedTerminalContinuesToEnd covers doc/design/pty.md "Reconnect": an exited terminal crhs
+// has not closed keeps its worker and sends the output crhs is missing plus [end], once per
+// connection.
+func TestPTYExitedTerminalContinuesToEnd(t *testing.T) {
+	h := startPTYHarness(t)
+	var dials atomic.Uint64
+	h.dialer.setOutputOffset(func(string, uint64) uint64 {
+		if dials.Add(1) == 1 {
+			return 1
+		}
+		return 3
 	})
-	dialer := newFakePTYDialer()
-	a := newTestAgent(t, Options{Env: testPTYEnv(t), PTYDial: dialer.dial})
-	t.Cleanup(a.shutdownPTY)
-
-	// The terminal stays until crhs closes it, so on the next control connection it is still held
-	// but exited: its last screen must still be replayable.
-	if _, err := a.pty.mgr.Open(pty.OpenRequest{
-		ID:              "bye",
-		Argv:            []string{"/bin/sh", "-c", "printf bye; read line; exit 5"},
-		Rows:            24,
-		Cols:            80,
-		ScrollbackBytes: 1 << 20,
-	}); err != nil {
-		t.Fatal(err)
+	term := h.openTerminal(t, "bye", 1<<20, "/bin/sh", "-c", "printf bye")
+	_, stop, done := h.connect(t)
+	conn1 := h.connFor(t, "bye")
+	if got := string(collectBytes(t, conn1, 2)); got != "ye" {
+		t.Fatalf("first connection delivered %q, want ye", got)
 	}
-
-	stop, done := startSession(t, a, dialTo(t, srv, serverKey))
-	waitCh(t, listed, "pty.list")
-	conn1 := waitCh(t, dialer.conns, "the terminal data connection")
-	collectUntil(t, conn1, "bye")
-	conn1.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("leave\n")})
 	waitDataKind(t, conn1, protocol.DataFrameEnd)
 	stop()
 	<-done
+	if !term.Ended() {
+		t.Fatal("terminal did not end")
+	}
 
-	startSession(t, a, dialTo(t, srv, serverKey))
-	waitCh(t, listed, "pty.list")
-	conn2 := waitCh(t, dialer.conns, "the exited terminal's replay connection")
-	collectUntil(t, conn2, "bye")
+	// The next control connection serves the exited terminal once more, from the new offset: only
+	// [end] is left, and no data is replayed.
+	_, _, _ = h.connect(t)
+	conn2 := h.connFor(t, "bye")
 	waitDataKind(t, conn2, protocol.DataFrameEnd)
-
-	// Replaying is once per control connection. A worker that loops would dial again after the
-	// backoff, so anything before the timeout is a failure.
 	select {
-	case conn := <-dialer.conns:
+	case conn := <-h.dialer.conns:
 		t.Fatalf("exited terminal opened extra data connection %p", conn)
 	case <-time.After(250 * time.Millisecond):
 	}
 }
 
-// TestPTYExitedEventAndEnd covers doc/design/pty.md "crha": the data connection gets [end] after
-// the last output and pty.exited carries the exit code.
-func TestPTYExitedEventAndEnd(t *testing.T) {
-	serverKey, err := noise.GenerateKeypair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	dialer := newFakePTYDialer()
-	listed := make(chan protocol.PTYList, 4)
-	exitedCh := make(chan protocol.PTYExited, 4)
-	srv := startFake(t, serverKey, fakeConfig{
-		commands: protocol.OfferedNames(),
-		setup: func(p *protocol.Peer) {
-			ptyEvents(p, listed, exitedCh)
-		},
-		run: func(ctx context.Context, p *protocol.Peer) {
-			waitCh(t, listed, "pty.list")
-			var empty protocol.Empty
-			err := p.Request(ctx, protocol.CmdPTYOpen, protocol.PTYOpen{
-				PTYID:           "bye",
-				Argv:            []string{"/bin/sh", "-c", "printf bye; exit 5"},
-				Rows:            24,
-				Cols:            80,
-				ScrollbackBytes: 1 << 20,
-			}, &empty)
-			if err != nil {
-				t.Errorf("pty.open: %v", err)
-			}
-		},
-	})
-	a := newTestAgent(t, Options{Env: testPTYEnv(t), PTYDial: dialer.dial})
-	t.Cleanup(a.shutdownPTY)
-	startSession(t, a, dialTo(t, srv, serverKey))
+// TestPTYReconnectWakesEveryTerminal covers doc/design/pty.md "Reconnect": a new control connection
+// gives every held terminal a data connection again. The broadcast wake-up must not leave one worker
+// waiting forever.
+func TestPTYReconnectWakesEveryTerminal(t *testing.T) {
+	oldMin := ptyMinBackoff
+	ptyMinBackoff = 20 * time.Millisecond
+	t.Cleanup(func() { ptyMinBackoff = oldMin })
 
-	conn := waitCh(t, dialer.conns, "the terminal data connection")
-	collectUntil(t, conn, "bye")
-	waitDataKind(t, conn, protocol.DataFrameEnd)
-	event := waitCh(t, exitedCh, "pty.exited")
-	if event.PTYID != "bye" || event.ExitCode != 5 {
-		t.Fatalf("pty.exited = %+v, want bye with code 5", event)
+	h := startPTYHarness(t)
+	for _, id := range []string{"first", "second"} {
+		h.openTerminal(t, id, 1<<20, "/bin/sh", "-c", "cat")
+	}
+	_, stop, done := h.connect(t)
+	first := map[string]*fakeTerminalConn{}
+	for range 2 {
+		conn := <-h.dialer.conns
+		first[conn.ptyID] = conn
+	}
+	if len(first) != 2 {
+		t.Fatalf("first connection dialed %v, want both terminals", first)
+	}
+	stop()
+	<-done
+
+	_, _, _ = h.connect(t)
+	second := map[string]*fakeTerminalConn{}
+	for len(second) < 2 {
+		conn := <-h.dialer.conns
+		second[conn.ptyID] = conn
+	}
+	for _, id := range []string{"first", "second"} {
+		conn := second[id]
+		if conn == nil {
+			t.Fatalf("terminal %s did not reconnect", id)
+		}
+		conn.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("again-" + id + "\n")})
+		if got := collectUntil(t, conn, "again-"+id); !strings.Contains(got, "again-"+id) {
+			t.Fatalf("terminal %s output = %q", id, got)
+		}
 	}
 }

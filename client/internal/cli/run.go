@@ -106,8 +106,8 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 		DataDial: func(ctx context.Context, taskID, transferID string) (agent.DataConn, error) {
 			return transport.DialData(ctx, dataDialOptions(cfg.Load(), key, serverKey, taskID, transferID))
 		},
-		PTYDial: func(ctx context.Context, ptyID string) (agent.DataConn, error) {
-			return transport.DialPTY(ctx, ptyDialOptions(cfg.Load(), key, serverKey, ptyID))
+		PTYDial: func(ctx context.Context, ptyID string, inputReceived uint64) (agent.DataConn, uint64, error) {
+			return transport.DialPTY(ctx, ptyDialOptions(cfg.Load(), key, serverKey, ptyID, inputReceived))
 		},
 		Facts: func() protocol.Facts { return nodeFacts(cfg.Load(), env) },
 		// How crha is installed and started does not change while it runs (doc/design/distribution.md
@@ -191,13 +191,20 @@ func dataDialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte,
 
 // ptyDialOptions is the data connection of one terminal: the same transport on the terminal path
 // and prologue (doc/design/pty.md "crha").
-func ptyDialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte, ptyID string) transport.PTYDialOptions {
+func ptyDialOptions(
+	cfg *config.Config,
+	key identity.Keypair,
+	serverKey []byte,
+	ptyID string,
+	inputReceived uint64,
+) transport.PTYDialOptions {
 	return transport.PTYDialOptions{
 		URL:                cfg.PTYURL(),
 		InsecureSkipVerify: cfg.TLSVerify == config.TLSVerifyNone,
 		Identity:           key,
 		ServerPublic:       serverKey,
 		PTYID:              ptyID,
+		InputReceived:      inputReceived,
 	}
 }
 

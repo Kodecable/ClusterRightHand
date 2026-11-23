@@ -6,7 +6,12 @@ import {
 } from "@crh/api/schemas";
 import { HTTPException } from "hono/http-exception";
 import { userActor } from "../audit/audit.ts";
-import { defaultSystemSettings, SettingsStore, SettingsValidationError } from "../settings/settings.ts";
+import {
+	defaultSystemSettings,
+	type SettingsChange,
+	SettingsStore,
+	SettingsValidationError,
+} from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
 import { requireAdmin } from "./middleware.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
@@ -43,6 +48,8 @@ const patchSettingsRoute = defineRoute({
 export interface SettingsRoutesOptions {
 	/** The live settings; main.ts loads them from the database. Omitted: load on first request. */
 	settings?: SettingsStore;
+	/** Called after a successful write, so consumers of a changed group apply it without a restart. */
+	onChanged?: (changes: readonly SettingsChange[]) => void;
 }
 
 /**
@@ -77,6 +84,7 @@ export function settingsRoutes(db: Db, options: SettingsRoutesOptions = {}) {
 			throw err;
 		}
 		if (result.changes.length > 0) {
+			options.onChanged?.(result.changes);
 			const oldValues: Record<string, unknown> = {};
 			const newValues: Record<string, unknown> = {};
 			for (const change of result.changes) {

@@ -121,6 +121,11 @@ msgstr "{0} {id}"
 msgid "{0} gains the node access this user group grants."
 msgstr "{0} 会获得该用户组授予的节点访问权限。"
 
+#. placeholder {0}: Math.round(terminal.idleTimeoutMs / 60_000)
+#: src/features/terminals/pages.tsx
+msgid "{0} min"
+msgstr "{0} 分钟"
+
 #. placeholder {0}: command.method
 #. placeholder {1}: command.target
 #: src/features/authorizations/pages.tsx
@@ -288,6 +293,10 @@ msgstr "必须填写 Base URL。"
 msgid "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability and its grants."
 msgstr "内置扩展随 crhs 提供，始终可用。你可以停用它，或修改是否直接列出其工具、可用范围和授权。"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "A command has at most {MAX_ARGV} arguments."
+msgstr "命令最多包含 {MAX_ARGV} 个参数。"
+
 #: src/lib/task-form.ts
 msgid "A command is required."
 msgstr "需要填写命令。"
@@ -365,6 +374,10 @@ msgstr "节点组名称不能以“_”开头：以“_”开头的名称保留�
 #: src/lib/task-form.ts
 msgid "A path is required."
 msgstr "需要填写路径。"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "A privileged terminal waits for your signature before it opens."
+msgstr "特权终端在打开前会等待你的签名。"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "A prompt is required."
@@ -568,6 +581,10 @@ msgstr "节点连接后会显示为待批准。批准前请把新的密钥指纹
 msgid "After the node connects it appears as pending; compare its key fingerprint with <0>crha status</0> on the node before approving."
 msgstr "节点连接后会显示为待批准；批准前请把它的密钥指纹与节点上的 <0>crha status</0> 输出进行比对。"
 
+#: src/features/terminals/pages.tsx
+msgid "Age"
+msgstr "存在时间"
+
 #: src/features/settings/extensions.tsx
 msgid "Agent sessions reach extension tools through search_tools and call_tool, under the session's rules and approvals. MCP extensions connect over Streamable HTTP; built-in extensions ship with crhs."
 msgstr "Agent 会话通过 search_tools 和 call_tool 使用扩展工具，同样受会话规则和审批约束。MCP 扩展通过 Streamable HTTP 连接；内置扩展随 crhs 一起提供。"
@@ -616,6 +633,10 @@ msgstr "全部计划任务"
 #: src/features/tasks/task-page.tsx
 msgid "All tasks"
 msgstr "全部任务"
+
+#: src/features/terminals/pages.tsx
+msgid "All terminals"
+msgstr "所有终端"
 
 #: src/features/users/pages.tsx
 #: src/features/users/user-group-page.tsx
@@ -672,6 +693,10 @@ msgstr "始终允许规则"
 #: src/features/settings/model-presets.tsx
 msgid "Always appended"
 msgstr "始终附加"
+
+#: src/features/terminals/pages.tsx
+msgid "An administrator can turn it on in System settings."
+msgstr "管理员可以在“系统设置”中开启它。"
 
 #: src/features/node-groups/pages.tsx
 msgid "An administrator creates node groups."
@@ -840,6 +865,18 @@ msgstr "Ask：普通读取直接执行，其他操作（包括所有特权任务
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Assistant"
 msgstr "助手"
+
+#: src/features/terminals/pages.tsx
+msgid "Associate"
+msgstr "关联"
+
+#: src/features/terminals/pages.tsx
+msgid "Associate a session"
+msgstr "关联会话"
+
+#: src/features/terminals/pages.tsx
+msgid "Associated sessions"
+msgstr "已关联会话"
 
 #: src/features/auth/change-password-dialog.tsx
 #: src/features/users/reset-password-dialog.tsx
@@ -1181,6 +1218,7 @@ msgid "Choose a new password for your account."
 msgstr "为你的账户设置新密码。"
 
 #: src/components/entity-picker/entity-picker.tsx
+#: src/features/terminals/new-terminal-dialog.tsx
 msgid "Choose a node"
 msgstr "选择节点"
 
@@ -1191,6 +1229,14 @@ msgstr "选择一个节点组"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a node or node group"
 msgstr "选择一个节点或节点组"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Choose a node."
+msgstr "请选择一个节点。"
+
+#: src/features/terminals/pages.tsx
+msgid "Choose a session"
+msgstr "选择会话"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a signing credential"
@@ -1310,6 +1356,15 @@ msgstr "时钟警告阈值"
 msgid "Close"
 msgstr "关闭"
 
+#: src/features/terminals/pages.tsx
+msgid "Close terminal"
+msgstr "关闭终端"
+
+#. placeholder {0}: terminal.nodeName ?? terminal.nodeId
+#: src/features/terminals/pages.tsx
+msgid "Close the terminal on {0}?"
+msgstr "关闭 {0} 上的终端？"
+
 #: src/features/nodes/node-trust.tsx
 msgid "closed"
 msgstr "已关闭"
@@ -1322,7 +1377,12 @@ msgstr "集群"
 msgid "Collapse the subagent's jobs"
 msgstr "收起子代理的后台任务"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Columns"
+msgstr "列数"
+
 #: src/features/authorizations/pages.tsx
+#: src/features/terminals/new-terminal-dialog.tsx
 msgid "Command"
 msgstr "命令"
 
@@ -1582,6 +1642,10 @@ msgstr "创建令牌"
 msgid "Created"
 msgstr "创建时间"
 
+#: src/features/terminals/pages.tsx
+msgid "Creating session"
+msgstr "创建会话"
+
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Credential"
@@ -1603,6 +1667,11 @@ msgstr "crha enroll 会询问是否重新注册；回答 yes 以替换此节点�
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
 msgstr "节点上的 crha 会被告知已被移除，随后断开连接并停止运行。等待该节点的任务会结束。该节点的访问授权和节点组成员关系会被移除。若要重新添加该主机，请先删除其 identity.key 和 server.pub，再用新令牌重新注册。"
+
+#. placeholder {0}: formatBytes(defaults.pty.scrollbackBytes, i18n.locale)
+#: src/features/system-settings/terminals-section.tsx
+msgid "crha's ring buffer for a terminal's output, between 64K and 16M. Default: {0}."
+msgstr "crha 为终端输出保留的环形缓冲区，范围为 64K 到 16M。默认：{0}。"
 
 #: src/features/nodes/enrollment-code.tsx
 msgid "crhs address"
@@ -1686,6 +1755,7 @@ msgstr "解码速度：{0} tok/s"
 
 #: src/components/decision/evaluation.tsx
 #: src/features/channels/chat-accounts-section.tsx
+#: src/features/terminals/new-terminal-dialog.tsx
 msgid "Default"
 msgstr "默认"
 
@@ -1708,6 +1778,13 @@ msgstr "默认提示词"
 #: src/features/settings/model-presets.tsx
 msgid "Default prompt and protocol"
 msgstr "默认提示词与协议说明"
+
+#. placeholder {0}: defaults.pty.enabled ? t`on` : t`off`
+#. placeholder {0}: defaults.pty.maxPerNode
+#. placeholder {0}: defaults.pty.maxPerSession
+#: src/features/system-settings/terminals-section.tsx
+msgid "Default: {0}."
+msgstr "默认：{0}。"
 
 #: src/features/system-settings/retention-section.tsx
 msgid "Default: {defaultValue}."
@@ -1968,6 +2045,10 @@ msgstr "下载 {0}"
 msgid "Download {name}"
 msgstr "下载 {name}"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "e.g. top -d 5"
+msgstr "例如 top -d 5"
+
 #: src/features/settings/model-dialog.tsx
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
 msgstr "每档的 JSON 对象会合并进请求体；只有同时填写请求体和显示名，该档才会被提供。"
@@ -2064,6 +2145,10 @@ msgstr "留空：使用服务器自己的描述（首次列出工具后获取）
 msgid "Enable"
 msgstr "启用"
 
+#: src/features/system-settings/terminals-section.tsx
+msgid "Enable terminals"
+msgstr "启用终端"
+
 #: src/features/channels/channel-dialog.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
@@ -2106,6 +2191,10 @@ msgstr "请输入显示名称。"
 msgid "Enter a duration of at least 1 day, or choose Keep forever."
 msgstr "请输入至少 1 天的时长，或选择“永久保留”。"
 
+#: src/features/system-settings/terminals-section.tsx
+msgid "Enter a duration such as 1h or 10m."
+msgstr "请输入时长，例如 1h 或 10m。"
+
 #: src/features/system-settings/general-section.tsx
 msgid "Enter a duration such as 60s or 5m."
 msgstr "请输入时长，例如 60s 或 5m。"
@@ -2118,6 +2207,10 @@ msgstr "请输入时长，例如 7 天。"
 #: src/features/sessions/quota-panel.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "请输入要添加的 token 数（正整数）。"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Enter a size from 64K to 16M, such as 1M."
+msgstr "请输入 64K 到 16M 之间的大小，例如 1M。"
 
 #: src/features/library/limits-dialog.tsx
 #: src/features/system-settings/library-section.tsx
@@ -2154,6 +2247,7 @@ msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "请输入整数 token 数，留空表示不限。"
 
 #: src/features/system-settings/attachments-section.tsx
+#: src/features/system-settings/terminals-section.tsx
 msgid "Enter a whole number, 0 or more."
 msgstr "请输入不小于 0 的整数。"
 
@@ -2172,6 +2266,10 @@ msgstr "请输入源，例如 https://crh.example.com。"
 #: src/features/schedules/scheduleForm.ts
 msgid "Enter at least 1 token, or leave it empty for unlimited."
 msgstr "至少输入 1 个 token，或留空表示不限。"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Enter whole numbers from 1 to {MAX_DIMENSION}."
+msgstr "请输入 1 到 {MAX_DIMENSION} 之间的整数。"
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Enter your current password."
@@ -2256,6 +2354,10 @@ msgstr "退出码"
 #: src/components/task-outcome.tsx
 msgid "Exit code {0}"
 msgstr "退出码 {0}"
+
+#: src/features/terminals/terminal-format.ts
+msgid "Exited"
+msgstr "已退出"
 
 #: src/features/sessions/background-bar.tsx
 msgid "Expand the subagent's jobs"
@@ -2391,6 +2493,10 @@ msgstr "完成时间"
 msgid "First available model"
 msgstr "第一个可用的模型"
 
+#: src/features/terminals/pages.tsx
+msgid "Fit to window"
+msgstr "适应窗口"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Five fields: minute hour day-of-month month day-of-week, in the chosen IANA timezone."
 msgstr "五个字段：分 时 日 月 周，使用所选的 IANA 时区。"
@@ -2449,6 +2555,10 @@ msgstr "生成信任配置"
 #: src/features/sessions/transcript-row.tsx
 msgid "Generating…"
 msgstr "正在生成…"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Give both rows and columns, or neither."
+msgstr "请同时填写行数和列数，或两者都留空。"
 
 #: src/app/router.tsx
 msgid "Go to sessions"
@@ -2560,6 +2670,10 @@ msgstr "身份请求头"
 msgid "Idle"
 msgstr "空闲"
 
+#: src/features/terminals/pages.tsx
+msgid "Idle timeout"
+msgstr "空闲超时"
+
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
 msgstr "忽略（SSH）"
@@ -2621,6 +2735,10 @@ msgstr "它可能已被删除。"
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
 msgstr "批准前，它必须与 <0>crha enroll</0> 打印的内容或节点上的 <1>crha status</1> 一致。"
+
+#: src/features/terminals/pages.tsx
+msgid "It was closed, or its five-minute retention window passed after the process exited."
+msgstr "它已被关闭，或进程退出后的五分钟保留期已过。"
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "its architecture has no crha release"
@@ -2748,6 +2866,10 @@ msgstr "最后在线"
 #: src/features/tokens/pages.tsx
 msgid "Last used"
 msgstr "最后使用"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Leave empty for the login shell. Arguments are split like a shell line; quotes group words."
+msgstr "留空则运行登录 shell。参数按 shell 命令行拆分；引号用于组合词语。"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Leave empty to keep the current key"
@@ -2911,6 +3033,18 @@ msgstr "{0} 上的本地窗口"
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
 msgstr "退出登录"
+
+#: src/features/terminals/pages.tsx
+msgid "login shell"
+msgstr "登录 shell"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Longest agent idle timeout"
+msgstr "代理最长空闲超时"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Longest watch timeout"
+msgstr "最长监视超时"
 
 #: src/components/decision/evaluation.tsx
 msgid "Low"
@@ -3197,6 +3331,11 @@ msgstr "新建 SSH 凭据"
 msgid "New SSH node"
 msgstr "新建 SSH 节点"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
+msgid "New terminal"
+msgstr "新建终端"
+
 #: src/components/task-form-fields.tsx
 msgid "New text"
 msgstr "新文本"
@@ -3256,6 +3395,10 @@ msgstr "否"
 #: src/features/nodes/access-grants.tsx
 msgid "No access grants"
 msgstr "暂无访问授权"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "No active crha node is available to you."
+msgstr "没有你可用的活动 crha 节点。"
 
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
@@ -3382,6 +3525,10 @@ msgstr "还没有节点"
 msgid "No one has signed an authorization yet."
 msgstr "还没有人签发过授权。"
 
+#: src/features/terminals/pages.tsx
+msgid "No one is watching."
+msgstr "没有人在观看。"
+
 #: src/features/settings/extensions.tsx
 msgid "No one yet"
 msgstr "还没有人"
@@ -3401,6 +3548,10 @@ msgstr "还没有运行记录"
 #: src/features/schedules/pages.tsx
 msgid "No schedules yet"
 msgstr "还没有计划任务"
+
+#: src/features/terminals/pages.tsx
+msgid "No sessions are associated."
+msgstr "没有关联的会话。"
 
 #: src/features/sessions/session-list.tsx
 #: src/features/users/pages.tsx
@@ -3429,6 +3580,10 @@ msgstr "没有这个节点组"
 msgid "No tasks yet"
 msgstr "还没有任务"
 
+#: src/features/terminals/pages.tsx
+msgid "No terminals yet"
+msgstr "还没有终端"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "No upcoming runs"
 msgstr "没有即将触发的运行"
@@ -3452,6 +3607,8 @@ msgstr "还没有用户"
 #: src/features/tasks/pages.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
+#: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
 msgid "Node"
 msgstr "节点"
 
@@ -3651,6 +3808,10 @@ msgstr "没有可显示的内容。"
 msgid "Now"
 msgstr "现在"
 
+#: src/features/system-settings/terminals-section.tsx
+msgid "off"
+msgstr "关闭"
+
 #: src/features/settings/providers.ts
 msgid "Off cannot be hidden; give it a display name."
 msgstr "off 档不能隐藏；请给它一个显示名。"
@@ -3667,6 +3828,10 @@ msgstr "正常"
 #: src/components/task-form-fields.tsx
 msgid "Old text"
 msgstr "旧文本"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "on"
+msgstr "开启"
 
 #: src/features/audit/pages.tsx
 msgid "On behalf of"
@@ -3688,6 +3853,10 @@ msgstr "新用户的单个文件"
 #: src/features/channels/channels-page.tsx
 msgid "Online"
 msgstr "在线"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Only active crha nodes have terminals; SSH nodes cannot open one."
+msgstr "只有活动的 crha 节点才有终端；SSH 节点无法打开终端。"
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
@@ -3732,6 +3901,14 @@ msgstr "打开与 @{0} 的私聊。"
 msgid "Open a private chat with the bot named {0}."
 msgstr "打开与名为 {0} 的机器人的私聊。"
 
+#: src/features/terminals/pages.tsx
+msgid "Open a terminal on a crha node to run an interactive shell."
+msgstr "在 crha 节点上打开终端以运行交互式 shell。"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Open an interactive shell on a crha node. Several people can watch and type in it."
+msgstr "在 crha 节点上打开一个交互式 shell。多人可以同时观看并在其中输入。"
+
 #: src/components/task-facts.tsx
 msgid "Open approval page"
 msgstr "打开审批页"
@@ -3744,6 +3921,10 @@ msgstr "打开资料库"
 #: src/features/schedules/run-history.tsx
 msgid "Open session {0}"
 msgstr "打开会话 {0}"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Open terminal"
+msgstr "打开终端"
 
 #: src/features/users/user-group-page.tsx
 msgid "Open the library to delete its files"
@@ -3765,6 +3946,14 @@ msgstr "打开任务组"
 #: src/features/nodes/node-trust.tsx
 msgid "open until <0/> (opened by uid {0} at <1/>)"
 msgstr "开放至 <0/>（由 uid {0} 于 <1/> 开启）"
+
+#: src/features/terminals/pages.tsx
+msgid "Opened"
+msgstr "打开时间"
+
+#: src/features/terminals/terminal-format.ts
+msgid "Opening"
+msgstr "正在打开"
 
 #: src/components/decision/request-details.tsx
 #: src/features/approvals/pages.tsx
@@ -3949,6 +4138,10 @@ msgstr "待处理审批"
 msgid "People you share this session with; view access is read-only, chat access can send messages."
 msgstr "与你共享此会话的人；查看权限只读，聊天权限可以发送消息。"
 
+#: src/features/terminals/pages.tsx
+msgid "Person"
+msgstr "个人"
+
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Pi built-in"
@@ -4009,6 +4202,7 @@ msgstr "预览 {name}"
 
 #: src/components/privileged-mark.tsx
 #: src/components/task-form-fields.tsx
+#: src/features/terminals/pages.tsx
 msgid "Privileged"
 msgstr "特权"
 
@@ -4188,6 +4382,10 @@ msgstr "重新连接"
 msgid "Reconnect {0}"
 msgstr "重新连接 {0}"
 
+#: src/features/terminals/terminal-view.tsx
+msgid "Reconnecting to the terminal…"
+msgstr "正在重新连接终端…"
+
 #: src/features/sessions/session-banner.tsx
 msgid "Reconnecting…"
 msgstr "正在重新连接…"
@@ -4303,6 +4501,10 @@ msgstr "删除请求头 {0}"
 msgid "Remove origin {0}"
 msgstr "移除源 {0}"
 
+#: src/features/terminals/pages.tsx
+msgid "Remove session {sessionId}"
+msgstr "移除会话 {sessionId}"
+
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove session id body field {0}"
@@ -4320,6 +4522,10 @@ msgstr "移除共享"
 #: src/features/settings/extension-dialog.tsx
 msgid "Remove stored headers"
 msgstr "移除已存储的请求头"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Remove the empty argument."
+msgstr "请移除空参数。"
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove the stored key"
@@ -4503,6 +4709,10 @@ msgstr "角色"
 msgid "Route"
 msgstr "路由"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Rows"
+msgstr "行数"
+
 #: src/features/nodes/node-trust.tsx
 msgid "RP ID"
 msgstr "RP ID"
@@ -4568,6 +4778,10 @@ msgstr "手动运行"
 msgid "Run history"
 msgstr "运行历史"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Run in the privileged mode"
+msgstr "以特权模式运行"
+
 #: src/features/schedules/schedule-actions.tsx
 msgid "Run now"
 msgstr "立即运行"
@@ -4602,6 +4816,7 @@ msgstr "运行中"
 #: src/features/jobs/job.tsx
 #: src/features/sessions/session-list-item.tsx
 #: src/features/sessions/tool-card.tsx
+#: src/features/terminals/terminal-format.ts
 msgid "Running"
 msgstr "运行中"
 
@@ -4698,6 +4913,10 @@ msgstr "计划会话"
 #: src/features/schedules/pages.tsx
 msgid "Schedules"
 msgstr "计划任务"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Scrollback per terminal"
+msgstr "每个终端的回滚缓冲"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search failed"
@@ -5014,6 +5233,12 @@ msgstr "签名凭据"
 msgid "Size"
 msgstr "大小"
 
+#. placeholder {0}: size?.cols ?? view.size.cols
+#. placeholder {1}: size?.rows ?? view.size.rows
+#: src/features/terminals/pages.tsx
+msgid "Size: {0} × {1}"
+msgstr "尺寸：{0} × {1}"
+
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "Skipped"
 msgstr "跳过"
@@ -5125,6 +5350,7 @@ msgstr "查看文件 {path}（第 {0}-{1} 行）"
 
 #: src/features/channels/channels-page.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/terminals/pages.tsx
 msgid "State"
 msgstr "状态"
 
@@ -5326,6 +5552,33 @@ msgstr "{0} 的任务"
 msgid "Technical details"
 msgstr "技术信息"
 
+#: src/lib/action-text.ts
+msgid "Terminal input"
+msgstr "终端输入"
+
+#: src/features/terminals/pages.tsx
+msgid "Terminal"
+msgstr "终端"
+
+#: src/app/shell/nav.ts
+#: src/features/system-settings/terminals-section.tsx
+#: src/features/terminals/pages.tsx
+#: src/features/terminals/session-terminals.tsx
+msgid "Terminals"
+msgstr "终端"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Terminals in total"
+msgstr "终端总数"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Terminals per node"
+msgstr "每个节点的终端数"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Terminals per session"
+msgstr "每个会话的终端数"
+
 #: src/components/test-connection.tsx
 msgid "Test connection"
 msgstr "测试连接"
@@ -5376,6 +5629,10 @@ msgstr "浏览器会提供平台认证器（Touch ID、Windows Hello）或安全
 msgid "The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted least recently used, and dropped after the time to live."
 msgstr "view_image 结果的字节，保存在 crhs 本地磁盘上的可丢弃目录中。条目按最近最少使用淘汰，超过存活时间的条目会被清除。"
 
+#: src/features/terminals/terminal-view.tsx
+msgid "The connection to the terminal was lost."
+msgstr "与终端的连接已断开。"
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "The credential and its private key are deleted. This cannot be undone."
 msgstr "凭据及其私钥将被删除，此操作无法撤销。"
@@ -5408,6 +5665,10 @@ msgstr "被授权者可以看到该节点或节点组中的每个节点，并在
 msgid "The hostname Passkeys are registered for, such as crh.example.com. Empty derives it from each request; set it together with the allowed origins. Default: unset."
 msgstr "Passkey 注册所用的主机名，例如 crh.example.com。留空则从每个请求中推导；请与允许的源一起设置。默认：未设置。"
 
+#: src/features/system-settings/terminals-section.tsx
+msgid "The interactive terminal subsystem. Turning it off closes every terminal and hides the Terminals page and the agent tools."
+msgstr "交互式终端子系统。关闭它会关闭所有终端，并隐藏“终端”页面和代理工具。"
+
 #: src/lib/task-form.ts
 msgid "The limit must be a non-negative whole number."
 msgstr "限制必须是非负整数。"
@@ -5423,6 +5684,16 @@ msgstr "列表已截断：目录中的条目比显示的更多。"
 #: src/features/channels/channel-dialog.tsx
 msgid "The login's user id in that platform; the channels page lists the ones the gateway reported."
 msgstr "机器人在该平台上的用户 id；频道页面会列出网关上报的登录。"
+
+#. placeholder {0}: defaults.pty.watchTimeoutMax
+#: src/features/system-settings/terminals-section.tsx
+msgid "The longest an agent's terminal watch may block. Default: {0}."
+msgstr "代理的终端监视最长可以阻塞的时间。默认：{0}。"
+
+#. placeholder {0}: defaults.pty.agentIdleTimeoutMax
+#: src/features/system-settings/terminals-section.tsx
+msgid "The longest idle timeout an agent may ask for when it opens a terminal. Default: {0}."
+msgstr "代理打开终端时可以请求的最长空闲超时。默认：{0}。"
 
 #: src/features/settings/model-presets.tsx
 msgid "The model list could not be loaded."
@@ -5512,6 +5783,14 @@ msgstr "无法连接特权模式"
 msgid "The privileged mode is unreachable, so the trust configuration is unknown"
 msgstr "无法连接特权模式，信任配置未知"
 
+#: src/features/terminals/pages.tsx
+msgid "The process ends now, with every program running inside it, and the terminal is gone."
+msgstr "进程及其内部运行的所有程序会立即结束，终端也将消失。"
+
+#: src/features/terminals/pages.tsx
+msgid "The process exited with code {exitCode}."
+msgstr "进程已退出，退出码为 {exitCode}。"
+
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "The provider lists no model that this provider does not configure yet."
 msgstr "该提供方没有列出尚未在此提供方配置的模型。"
@@ -5563,6 +5842,22 @@ msgstr "任务组已被清理或不存在"
 #: src/components/task-gone.tsx
 msgid "The task was cleaned up or does not exist"
 msgstr "任务已被清理或不存在"
+
+#: src/features/terminals/pages.tsx
+msgid "The terminal is gone"
+msgstr "终端已不存在"
+
+#: src/features/terminals/pages.tsx
+msgid "The terminal lost its privileged helper."
+msgstr "终端失去了它的特权辅助进程。"
+
+#: src/features/terminals/pages.tsx
+msgid "The terminal subsystem is turned off"
+msgstr "终端子系统已关闭"
+
+#: src/features/terminals/pages.tsx
+msgid "The terminal was closed ({closedReason})."
+msgstr "终端已关闭（{closedReason}）。"
 
 #: src/lib/task-form.ts
 msgid "The text to replace is required."
@@ -6043,6 +6338,7 @@ msgstr "已用完，超出 {0}"
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/terminals/pages.tsx
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "User"
@@ -6168,6 +6464,10 @@ msgstr "查看全部任务"
 msgid "View tools of {0}"
 msgstr "查看 {0} 的工具"
 
+#: src/features/terminals/pages.tsx
+msgid "Viewers"
+msgstr "观看者"
+
 #: src/features/jobs/job.tsx
 msgid "Waiting"
 msgstr "等待中"
@@ -6201,6 +6501,10 @@ msgstr "等待配额"
 #: src/components/task-facts.tsx
 msgid "Waiting for the owner's authorization."
 msgstr "等待所有者授权。"
+
+#: src/features/terminals/pages.tsx
+msgid "Waiting for the terminal to open…"
+msgstr "正在等待终端打开…"
 
 #: src/features/approvals/pages.tsx
 msgid "Waiting for you"

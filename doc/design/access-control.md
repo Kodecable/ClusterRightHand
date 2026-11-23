@@ -246,7 +246,12 @@ external call, and external calls are never privileged.
   blocks writes, not reads, because "do not modify" should not mean "do not look".
 - `pty.create` covers an agent opening a [terminal](pty.md#rules), with the argv as its target;
   `pty.io` covers writing to and resizing one and has no target, so `exact` and `prefix` never match it.
-  Reading a terminal needs no decision. Neither method implies the other.
+  Reading a terminal needs no decision. Neither method implies the other. A waiting terminal decision
+  lives in memory with the terminal, not in a task row, but it is an ordinary approval: crhs builds the
+  same `ApprovalRequest` (kind `pty`), the approvals API and page list it, the chat channels send its
+  card, the acting session waits `awaiting/approval`, and the terminal page shows the same panel. Its
+  "Always allow" candidates are the argv as an `exact` target for `pty.create` and `allow pty.io` for
+  that node and privileged flag, and Auto Review judges the request with the screen as context.
 - Rules have no regular expressions. Rules run on the crhs event loop and may be written by an agent,
   and one pathological expression could stall the whole server. crha's guard rules use RE2 and are not
   affected.
@@ -296,8 +301,10 @@ node when isolation matters, with trust entries that list their variables in `en
 An approval is part of the object that waits. A task waits in `awaiting_approval`, and the decision,
 decider, reason and each level's judgment are stored on it; a task group is approved once. An external
 external call has its own small object, `external_calls`, and waits the same way
-([External calls](extensions.md#external-calls)). The server builds one compact,
-locale-free `ApprovalRequest` from the waiting row — kind, phase, source, structured action, node
+([External calls](extensions.md#external-calls)). An agent's terminal request waits in memory with its
+terminal and is listed, rendered and decided like the others; its record disappears with the terminal
+([Terminals](pty.md#approvals)). The server builds one compact,
+locale-free `ApprovalRequest` from the waiting object — kind, phase, source, structured action, node
 names, privileged flag, the settled review, the always-allow candidates and, when a tool call started
 the work, its `job` (`id`, `kind`, `action`) — and the chat channels and the WebUI render that model, so
 no surface rebuilds a per-kind summary from prose ([Approvals in chat](channels.md#approvals),
@@ -333,8 +340,12 @@ once it is settled.
   the user does not approve twice.
 - A waiting approval also reaches the owner in chat ([Approvals in chat](channels.md#approvals)): a
   rule approval that needs no signature has Approve and Reject there, decided through the same checks
-  and audited with the channel. "Always allow" changes rules, so it stays in the WebUI; an approval
-  that needs a signature gets a **Signature needed** card whose hint links to its page.
+  and audited with the channel. That includes an agent's terminal approval, whose card names the
+  command or the typed input, keys and screen. "Always allow" changes rules, so it stays in the WebUI;
+  an approval that needs a signature gets a **Signature needed** card whose hint links to its page.
+- Stopping a session, or ending its run, rejects the approvals still waiting for it, terminal
+  approvals included; nothing is left waiting for a run that is over. A terminal approval is
+  memory-only, so a crhs restart has none: the terminal copy is rebuilt from `pty.list`.
 
 ### Auto Review
 

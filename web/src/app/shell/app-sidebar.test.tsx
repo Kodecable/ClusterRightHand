@@ -31,7 +31,7 @@ const ACCENT_FOREGROUND = [
 	"peer-data-active/menu-button:text-sidebar-accent-foreground",
 ] as const;
 
-async function renderSidebar(pendingApprovals: number, user: User = ADMIN): Promise<void> {
+async function renderSidebar(pendingApprovals: number, user: User = ADMIN, ptyEnabled = false): Promise<void> {
 	vi.stubGlobal(
 		"fetch",
 		vi.fn(async (input: RequestInfo | URL) => {
@@ -42,6 +42,7 @@ async function renderSidebar(pendingApprovals: number, user: User = ADMIN): Prom
 					headers: { "content-type": "application/json" },
 				});
 			if (url === "/api/me") return json({ user });
+			if (url === "/api/ptys/enabled") return json({ enabled: ptyEnabled });
 			if (url === "/api/approvals") {
 				return json({
 					tasks: Array.from({ length: pendingApprovals }, () => ({})),
@@ -82,6 +83,19 @@ describe("AppSidebar approvals badge", () => {
 
 		expect(badge).toHaveClass(...PRIMARY_FOREGROUND);
 		expect(badge).not.toHaveClass(...ACCENT_FOREGROUND);
+	});
+});
+
+describe("AppSidebar terminal entry", () => {
+	test("shows Terminals only while the subsystem is on", async () => {
+		await renderSidebar(0, ADMIN, true);
+		expect(await screen.findByTestId("nav-terminals")).toHaveTextContent("Terminals");
+	});
+
+	test("hides Terminals while the subsystem is off", async () => {
+		await renderSidebar(0, ADMIN, false);
+		await screen.findByTestId("nav-sessions");
+		expect(screen.queryByTestId("nav-terminals")).not.toBeInTheDocument();
 	});
 });
 

@@ -95,6 +95,8 @@ function buildRouter(ui: React.ReactElement, options: RenderRouterOptions = {}) 
 		"/task-groups/$taskGroupId",
 		"/sessions/new",
 		"/sessions/$sessionId",
+		"/terminals",
+		"/terminals/$id",
 		"/login",
 	];
 	const children = paths.map((path) =>

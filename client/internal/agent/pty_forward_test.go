@@ -5,6 +5,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,8 +41,8 @@ func openPTY(ctx context.Context, p *protocol.Peer, req protocol.PTYOpen) error 
 }
 
 // TestForwardPrivilegedPTYRelays covers the whole forward relay: the daemon runs the process, its
-// output reaches the terminal's data connection with a fresh replay after a drop, input reaches the
-// daemon, and the daemon's pty.exited ends the terminal like a local process exit.
+// output continues the byte stream after a drop, input reaches the daemon, and the daemon's
+// pty.exited ends the terminal like a local process exit.
 func TestForwardPrivilegedPTYRelays(t *testing.T) {
 	oldMin := ptyMinBackoff
 	ptyMinBackoff = 20 * time.Millisecond
@@ -51,6 +52,8 @@ func TestForwardPrivilegedPTYRelays(t *testing.T) {
 	env := newPrivEnv(t, keys, func(e *privEnv) string { return e.crhsOnlyConfig() })
 	env.start()
 	dialer := newFakePTYDialer()
+	var offset atomic.Uint64
+	dialer.setOutputOffset(func(string, uint64) uint64 { return offset.Load() })
 	a := forwardAgent(t, Options{PrivilegedSocket: env.socket, PTYDial: dialer.dial, Env: testPTYEnv(t)})
 	waitForward(t, a)
 
@@ -67,18 +70,17 @@ func TestForwardPrivilegedPTYRelays(t *testing.T) {
 
 	conn := waitCh(t, dialer.conns, "the terminal data connection")
 	collectUntil(t, conn, "hello")
+	offset.Store(uint64(len("hello")))
 
-	// A dropped data connection is replaced by a fresh replay of the whole ring, not a resumption.
+	// A dropped data connection continues from crhs's offset: nothing is replayed.
 	conn.drop()
-	replayConn := waitCh(t, dialer.conns, "a replacement terminal data connection")
-	replay := collectPrefix(t, replayConn, len("hello"))
-	if !strings.HasPrefix(replay, "hello") {
-		t.Fatalf("replacement data connection starts with %q, want the ring replayed from hello", replay)
+	next := waitCh(t, dialer.conns, "a replacement terminal data connection")
+	next.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("world\n")})
+	out := collectUntil(t, next, "got:world")
+	if strings.Contains(out, "hello") {
+		t.Fatalf("replacement data connection replayed %q", out)
 	}
-
-	replayConn.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("world\n")})
-	collectUntil(t, replayConn, "got:world")
-	waitDataKind(t, replayConn, protocol.DataFrameEnd)
+	waitDataKind(t, next, protocol.DataFrameEnd)
 
 	exit := waitCh(t, w.ptyExits, "pty.exited")
 	if exit.PTYID != "relay-1" || exit.ExitCode != 3 || exit.Reason != protocol.PTYExitReasonExited {
@@ -89,9 +91,11 @@ func TestForwardPrivilegedPTYRelays(t *testing.T) {
 	if term == nil {
 		t.Fatal("the relayed terminal is not held")
 	}
-	if st := term.Status(); !st.Privileged || !st.Exited || st.ExitCode != 3 ||
-		len(st.Argv) != 3 || st.Argv[0] != "/bin/sh" {
+	if st := term.Status(); !st.Exited || st.ExitCode != 3 {
 		t.Fatalf("relayed terminal status = %+v", st)
+	}
+	if argv := term.Argv(); len(argv) != 3 || argv[0] != "/bin/sh" {
+		t.Fatalf("relayed terminal argv = %q", argv)
 	}
 	if term.Lost() {
 		t.Fatal("a terminal whose process exited is marked lost")
@@ -120,6 +124,8 @@ func TestForwardPrivilegedPTYHelperLost(t *testing.T) {
 	env := newPrivEnv(t, keys, func(e *privEnv) string { return e.crhsOnlyConfig() })
 	env.start()
 	dialer := newFakePTYDialer()
+	var offset atomic.Uint64
+	dialer.setOutputOffset(func(string, uint64) uint64 { return offset.Load() })
 	a := forwardAgent(t, Options{PrivilegedSocket: env.socket, PTYDial: dialer.dial, Env: testPTYEnv(t)})
 	waitForward(t, a)
 
@@ -262,6 +268,8 @@ func TestForwardPrivilegedPTYClose(t *testing.T) {
 	env := newPrivEnv(t, keys, func(e *privEnv) string { return e.crhsOnlyConfig() })
 	env.start()
 	dialer := newFakePTYDialer()
+	var offset atomic.Uint64
+	dialer.setOutputOffset(func(string, uint64) uint64 { return offset.Load() })
 	a := forwardAgent(t, Options{PrivilegedSocket: env.socket, PTYDial: dialer.dial, Env: testPTYEnv(t)})
 	waitForward(t, a)
 

@@ -16,6 +16,7 @@ import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite
 import { serve } from "@hono/node-server";
 import { ModelConfig } from "../../src/agent/models.ts";
 import { AgentRuntime } from "../../src/agent/runtime.ts";
+import { sessionStateOf } from "../../src/agent/session-state.ts";
 import { type AppOptions, createApp } from "../../src/api/app.ts";
 import { Audit } from "../../src/audit/audit.ts";
 import { LoginLimiter } from "../../src/auth/login-limiter.ts";
@@ -28,7 +29,10 @@ import { CallRunner } from "../../src/extensions/call-runner.ts";
 import { MasterKey } from "../../src/keys/master-key.ts";
 import { type AuthorizationSigningKeyStore, loadAuthorizationSigningKeys } from "../../src/privilege/key.ts";
 import { Scheduler } from "../../src/scheduler/scheduler.ts";
+import { SettingsStore } from "../../src/settings/settings.ts";
 import type { Db } from "../../src/storage/db.ts";
+import { TerminalAttachServer } from "../../src/terminals/attach.ts";
+import { TerminalService } from "../../src/terminals/registry.ts";
 import { createUser } from "../../src/users/service.ts";
 import { openTestDb } from "../helpers/db.ts";
 
@@ -186,9 +190,11 @@ export class InProcessCrhs {
 	cluster!: Cluster;
 	audit!: Audit;
 	taskGroups!: TaskGroups;
+	terminals!: TerminalService;
 	port = 0;
 	cookie = "";
 	#agents!: AgentServer;
+	#terminalAttach!: TerminalAttachServer;
 	#server?: ReturnType<typeof serve>;
 	/** With `agentDir`: the agent runtime, on durable storage in that directory, with pi-ai's faux model. */
 	readonly agentDir: string | undefined;
@@ -246,6 +252,16 @@ export class InProcessCrhs {
 			audit: this.audit,
 		});
 		this.#agents = new AgentServer(this.db, this.identity, this.cluster, this.audit);
+		const settings = this.appOptions.settings ?? (await SettingsStore.load(this.db));
+		this.terminals = new TerminalService({
+			db: this.db,
+			cluster: this.cluster,
+			settings,
+			audit: this.audit,
+			sessionState: (sessionId) => sessionStateOf(this.db, sessionId),
+		});
+		this.terminals.start();
+		this.#terminalAttach = new TerminalAttachServer(this.db, this.terminals);
 		const taskGroups = new TaskGroups(this.db, this.cluster, { audit: this.audit });
 		this.taskGroups = taskGroups;
 		let agent: AppOptions["agent"];
@@ -274,6 +290,7 @@ export class InProcessCrhs {
 			serverFingerprint: this.identity.fingerprint,
 			serverPublicKey: this.identity.keyPair.publicKey,
 			signingKeys: this.signingKeys,
+			terminals: this.terminals,
 			cluster: this.cluster,
 			masterKey: this.masterKey,
 			audit: this.audit,
@@ -283,6 +300,7 @@ export class InProcessCrhs {
 		});
 		const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" });
 		server.on("upgrade", (req, socket, head) => {
+			if (this.#terminalAttach.handleUpgrade(req, socket, head)) return;
 			if (!this.#agents.handleUpgrade(req, socket, head)) socket.destroy();
 		});
 		await new Promise<void>((resolve, reject) => {
@@ -303,6 +321,8 @@ export class InProcessCrhs {
 		await this.runtime?.close();
 		this.runtime = undefined;
 		await this.callRunner.shutdown();
+		await this.#terminalAttach.close();
+		await this.terminals.shutdown();
 		await this.cluster.close();
 		await this.taskGroups.close();
 		await this.#agents.close();

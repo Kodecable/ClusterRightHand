@@ -1,6 +1,7 @@
 import type {
 	ApprovalRequest,
 	ExternalCallView,
+	PtyApprovalItem,
 	QuotaApproval,
 	RefMap,
 	RequestSource as RequestSourceValue,
@@ -147,6 +148,21 @@ function externalCallRow(call: ExternalCallView, request: ApprovalRequest | unde
 	};
 }
 
+function ptyRow(item: PtyApprovalItem, i18n: I18n): DecisionRow {
+	const operation = actionText(i18n, item.request.action);
+	return {
+		key: `approval:pty:${item.terminalId}`,
+		type: "approval",
+		operation,
+		requestNodes: item.request.nodes ?? [],
+		moreNodes: item.request.moreNodes,
+		source: item.request.source,
+		requestedAt: item.createdAt,
+		link: { to: "/terminals/$id", params: { id: item.terminalId } },
+		label: operation,
+	};
+}
+
 function quotaRow(wait: QuotaApproval, i18n: I18n): DecisionRow {
 	const title = displaySessionTitle(wait.title, i18n);
 	return {
@@ -186,6 +202,7 @@ export function ApprovalsPage() {
 			...data.externalCalls.map((call) =>
 				externalCallRow(call, requests.get(requestKey("external_call", call.id)), i18n),
 			),
+			...data.ptys.map((item) => ptyRow(item, i18n)),
 			...data.taskGroups.map((taskGroup) =>
 				taskGroupRow("approval", taskGroup, requests.get(requestKey("task_group", taskGroup.id)), i18n),
 			),

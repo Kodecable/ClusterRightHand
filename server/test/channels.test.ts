@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { generateKeyPair } from "@crh/noise";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,11 +24,14 @@ import { findUserLibrary } from "../src/library/library.ts";
 import { Scheduler } from "../src/scheduler/scheduler.ts";
 import { createSchedule, getRun, getSchedule } from "../src/scheduler/store.ts";
 import { shareSession } from "../src/sessions/sharing.ts";
+import { DEFAULT_SYSTEM_SETTINGS, SettingsStore } from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
+import { TerminalService } from "../src/terminals/registry.ts";
 import { createUser } from "../src/users/service.ts";
 import { getUserSettings, patchUserSettings } from "../src/users/settings.ts";
 import { newId } from "../src/util/id.ts";
+import { handshakeInit, PTY_REQUIRED_NAMES, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { type FakeCall, type FakeTelegram, sentText, startFakeTelegram } from "./helpers/fake-telegram.ts";
@@ -45,6 +49,8 @@ let orgId = "";
 let app: App;
 let fake: FakeTelegram;
 let channels: ChannelManager;
+let terminals: TerminalService;
+let agents: TestAgentServer;
 let backend: LibraryBackend;
 let root: string;
 let adminCookie = "";
@@ -77,6 +83,7 @@ function newChannels(publicUrl: string | null): ChannelManager {
 		cluster,
 		taskGroups,
 		audit,
+		terminals,
 		libraryBackend: backend,
 		...(publicUrl === null ? {} : { publicUrl }),
 		telegramApiRoot: fake.apiRoot,
@@ -99,6 +106,16 @@ beforeAll(async () => {
 	orgId = await defaultOrgId(db);
 	cluster = new Cluster(db, { audit, libraryBackend: backend });
 	taskGroups = new TaskGroups(db, cluster, { audit });
+	// A terminal wait is an ordinary approval, so the channel manager must see it like the others.
+	terminals = new TerminalService({
+		db,
+		cluster,
+		settings: SettingsStore.fromSystemSettings(DEFAULT_SYSTEM_SETTINGS),
+		exitedRetentionMs: 60,
+		idleSweepMs: 10,
+	});
+	terminals.start();
+	agents = await TestAgentServer.start(db, { keyPair: generateKeyPair(), fingerprint: "channels-test" }, cluster);
 	masterKey = MasterKey.generate();
 	models = new ModelConfig(db, masterKey);
 	models.addProvider(faux.provider);
@@ -172,6 +189,8 @@ afterAll(async () => {
 	await channels.stop();
 	await runtime.waitForIdle();
 	await runtime.close();
+	await terminals.shutdown();
+	await agents.close();
 	await fake.close();
 	await db.destroy();
 	await rm(root, { recursive: true, force: true });
@@ -232,6 +251,98 @@ describe("channels", () => {
 	beforeEach(() => {
 		// Calls are per test: a wait must never match a message an earlier test received.
 		fake.calls.length = 0;
+	});
+
+	it("sends a terminal approval card and decides it with /approve", async () => {
+		const userId = 8105;
+		// Earlier tests change the owner's locale and notification routing; the card's words and its chat
+		// must be the linked thread's, so both are reset for this one.
+		await patchUserSettings(db, aliceId, { locale: "en", defaultChannelAccountId: null });
+		await linkAs(aliceCookie, userId, "Linked.");
+		const thread = await chatSession(userId);
+		const nodeId = newId();
+		const now = new Date().toISOString();
+		await db
+			.insertInto("nodes")
+			.values({
+				id: nodeId,
+				org_id: orgId,
+				name: "terminal-node",
+				name_key: "terminal-node",
+				transport: "client",
+				status: "active",
+				public_key: null,
+				hostname: "terminal-node",
+				facts: null,
+				client_version: null,
+				privileged_mode: "",
+				last_seen_at: null,
+				created_at: now,
+				approved_at: now,
+				approved_by_user_id: null,
+				ssh_host: null,
+				ssh_port: null,
+				ssh_user: null,
+				ssh_host_fingerprint: null,
+				ssh_credential_id: null,
+				ssh_jumps: null,
+			})
+			.execute();
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: orgId,
+				grantee_type: "user",
+				grantee_id: aliceId,
+				target_type: "node",
+				target_id: nodeId,
+				created_by_user_id: aliceId,
+				created_at: now,
+			})
+			.execute();
+		const key = generateKeyPair();
+		await db
+			.updateTable("nodes")
+			.set({ public_key: Buffer.from(key.publicKey).toString("base64") })
+			.where("id", "=", nodeId)
+			.execute();
+		const crha = await agents.connect(key, handshakeInit({ commands: [...PTY_REQUIRED_NAMES] }), PTY_REQUIRED_NAMES);
+		await crha.peer.request("hello", { tasks: [], taskKinds: [], privilegedMode: "" });
+		await waitFor("the terminal node link", () => cluster.isConnected(nodeId));
+		const terminal = await terminals.openForPerson({
+			user: { userId: aliceId, username: "alice", kind: "member", sessionId: "channels" },
+			node: nodeId,
+			argv: ["/bin/sh"],
+		});
+		const deciding = terminals.awaitRuleApproval(terminal, {
+			method: "pty.io",
+			privileged: false,
+			nodeId,
+			sessionId: thread.sessionId,
+			argv: [],
+			input: "rm -rf /",
+			keys: ["Enter"],
+			screen: "$ rm -rf /",
+			chain: [],
+		});
+		try {
+			await wakeWait(thread.sessionId);
+			const card = await fake.waitForSent(
+				(call) => plainText(call).includes("Approval needed") && plainText(call).includes("Type rm -rf / · keys Enter"),
+			);
+			expect(plainText(card)).toContain("Terminal screen:");
+			expect(plainText(card)).toContain("$ rm -rf /");
+			fake.text(userId, `/approve ${terminal.id}`);
+			const result = await fake.waitForSent((call) => plainText(call).includes("Approved"));
+			expect(plainText(result)).toContain("by alice");
+			await expect(deciding).resolves.toBe("approve");
+			expect(terminal.approval).toBeNull();
+		} finally {
+			crha.ws.close();
+			await crha.closed;
+			await terminals.close(terminal, "manual");
+		}
 	});
 
 	it("answers an unknown command with the strictness hint", async () => {

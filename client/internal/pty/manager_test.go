@@ -96,7 +96,7 @@ func TestOpenShellInputAndExit(t *testing.T) {
 	term := openTerm(t, m, "t1", "/bin/sh", "-c", "printf hello; read x; echo got:$x")
 	waitOutput(t, term, "hello")
 
-	if err := term.Write([]byte("world\n")); err != nil {
+	if _, err := term.Write([]byte("world\n")); err != nil {
 		t.Fatalf("write input: %v", err)
 	}
 	waitOutput(t, term, "got:world")
@@ -107,8 +107,8 @@ func TestOpenShellInputAndExit(t *testing.T) {
 	if !status.Exited || status.ExitCode != 0 {
 		t.Fatalf("status = %+v, want exited with code 0", status)
 	}
-	if status.Argv[0] != "/bin/sh" || status.Rows != 24 || status.Cols != 80 {
-		t.Fatalf("status = %+v", status)
+	if term.Argv()[0] != "/bin/sh" {
+		t.Fatalf("argv = %q", term.Argv())
 	}
 	list := m.List()
 	if len(list) != 1 || list[0].PTYID != "t1" || !list[0].Exited || list[0].ExitCode != 0 {
@@ -129,13 +129,9 @@ func TestExitCodeReported(t *testing.T) {
 
 func TestResize(t *testing.T) {
 	m := testManager(t, Options{})
-	term := openTerm(t, m, "resize", "/bin/sh", "-c", "sleep 30")
+	openTerm(t, m, "resize", "/bin/sh", "-c", "sleep 30")
 	if err := m.Resize("resize", 40, 100); err != nil {
 		t.Fatalf("resize: %v", err)
-	}
-	status := term.Status()
-	if status.Rows != 40 || status.Cols != 100 {
-		t.Fatalf("status = %+v, want 40x100", status)
 	}
 	if err := m.Resize("resize", 0, 80); err == nil {
 		t.Fatal("resize with zero rows succeeded")
@@ -186,21 +182,9 @@ func TestOpenRefusals(t *testing.T) {
 	}
 }
 
-func TestCloseUnknownAndMeta(t *testing.T) {
+func TestCloseUnknown(t *testing.T) {
 	m := testManager(t, Options{})
 	m.Close("unknown") // idempotent, no panic and no process
-	term := openTerm(t, m, "meta", "/bin/sh", "-c", "sleep 30")
-	if err := m.SetMeta("meta", []byte("blob")); err != nil {
-		t.Fatalf("set meta: %v", err)
-	}
-	if got := term.Status().Meta; string(got) != "blob" {
-		t.Fatalf("meta = %q, want blob", got)
-	}
-	if err := m.SetMeta("missing", []byte("x")); err == nil {
-		t.Fatal("meta of an unknown terminal succeeded")
-	} else {
-		wantCode(t, err, protocol.CodeNotFound)
-	}
 }
 
 func TestDefaultArgvIsLoginShell(t *testing.T) {
@@ -209,7 +193,7 @@ func TestDefaultArgvIsLoginShell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	got := term.Status().Argv
+	got := term.Argv()
 	if len(got) != 2 || got[0] != "/bin/sh" || got[1] != "-l" {
 		t.Fatalf("argv = %q, want the login shell with -l", got)
 	}

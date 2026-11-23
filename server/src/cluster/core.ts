@@ -25,6 +25,7 @@ import type { Live } from "./live-output.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
 import type { SshConnection } from "./ssh-runner.ts";
 import { TASK_QUEUE_LABEL } from "./task-rows.ts";
+import type { TerminalSink } from "./terminal-link.ts";
 import { TransferScheduler } from "./transfer-scheduler.ts";
 import {
 	type Actor,
@@ -135,6 +136,8 @@ export class ClusterCore {
 	readonly libraryBackend: LibraryBackend | undefined;
 	/** The per-node and global transfer slots (doc/design/library.md "Data connections"). */
 	readonly transferScheduler: TransferScheduler;
+	/** The terminal subsystem's event sink, installed once at startup (doc/design/pty.md). */
+	terminals: TerminalSink | undefined;
 	/** The live data connection of each transfer task. */
 	readonly dataTransfers = new Map<string, DataTransfer>();
 	/** The transfer id of every live transfer task on this process: a transfer id opens one data connection. */

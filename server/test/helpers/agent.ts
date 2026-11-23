@@ -19,6 +19,11 @@ import {
 	Peer,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
+	PTY_NOISE_PROLOGUE_PREFIX,
+	type PtyConnectionInit,
+	type PtyConnectionResponse,
+	ptyConnectionInitCodec,
+	ptyConnectionResponseCodec,
 	REQUIRED_NAMES,
 	subprotocolFor,
 	type TaskExit,
@@ -39,6 +44,16 @@ function toBytes(data: unknown): Uint8Array {
 	if (data instanceof ArrayBuffer) return new Uint8Array(data);
 	return data as Uint8Array;
 }
+
+/** Every name a terminal-capable node negotiates: the required set plus the minor's terminal names. */
+export const PTY_REQUIRED_NAMES: readonly string[] = [
+	...REQUIRED_NAMES,
+	"pty.open",
+	"pty.resize",
+	"pty.close",
+	"pty.exited",
+	"pty.list",
+];
 
 export interface CloseInfo {
 	code: number;
@@ -154,6 +169,30 @@ export class TestAgentServer {
 		return { ws, messages, hs, closed };
 	}
 
+	/** Opens a terminal's data connection (doc/design/pty.md "crha"). */
+	async connectPty(staticKey: KeyPair, ptyId: string, inputReceived = 0): Promise<FakePtyConnection> {
+		const ws = new WebSocket(`${this.url}/pty`, [subprotocolFor(PROTOCOL_MAJOR)]);
+		const messages = new MessageQueue(ws);
+		const closed = new Promise<CloseInfo>((resolve) => {
+			ws.once("close", (code, reason) => resolve({ code, reason: reason.toString() }));
+		});
+		await new Promise<void>((resolve, reject) => {
+			ws.once("open", () => resolve());
+			ws.once("error", reject);
+		});
+		const challenge = await messages.next();
+		const hs = HandshakeState.initiator({
+			prologue: Buffer.concat([Buffer.from(PTY_NOISE_PROLOGUE_PREFIX), Buffer.from(challenge)]),
+			staticKey,
+			remoteStaticKey: this.identity.keyPair.publicKey,
+		});
+		const init: PtyConnectionInit = { protocolMajor: PROTOCOL_MAJOR, ptyId, inputReceived };
+		ws.send(hs.writeMessage(encodeCbor(ptyConnectionInitCodec.encode(init))));
+		const response = ptyConnectionResponseCodec.decode(decodeCbor(hs.readMessage(await messages.next())));
+		expect(response.protocolMajor).toBe(PROTOCOL_MAJOR);
+		return new FakePtyConnection(ws, hs.split(), messages, closed, response);
+	}
+
 	/** Opens the data connection of one transfer (doc/design/protocol.md "Data connections"). */
 	async connectData(staticKey: KeyPair, taskId: string, transferId: string): Promise<FakeDataConnection> {
 		const ws = new WebSocket(`${this.url}/data`, [subprotocolFor(PROTOCOL_MAJOR)]);
@@ -214,6 +253,42 @@ export class TestAgentServer {
 	}
 }
 
+/** A terminal data connection of a fake crha: one CBOR data frame per WebSocket message. */
+export class FakePtyConnection {
+	readonly ws: WebSocket;
+	readonly #ciphers: ReturnType<HandshakeState["split"]>;
+	readonly #messages: MessageQueue;
+	readonly closed: Promise<CloseInfo>;
+	/** The server payload: how much output crhs had received when the connection was accepted. */
+	readonly response: PtyConnectionResponse;
+
+	constructor(
+		ws: WebSocket,
+		ciphers: ReturnType<HandshakeState["split"]>,
+		messages: MessageQueue,
+		closed: Promise<CloseInfo>,
+		response: PtyConnectionResponse,
+	) {
+		this.ws = ws;
+		this.#ciphers = ciphers;
+		this.#messages = messages;
+		this.closed = closed;
+		this.response = response;
+	}
+
+	send(frame: DataFrame): void {
+		this.ws.send(this.#ciphers.send.encrypt(EMPTY, encodeCbor(dataFrameCodec.encode(frame))));
+	}
+
+	async next(): Promise<DataFrame> {
+		return dataFrameCodec.decode(decodeCbor(this.#ciphers.receive.decrypt(EMPTY, await this.#messages.next())));
+	}
+
+	close(): void {
+		this.ws.close();
+	}
+}
+
 /** The data connection of a fake crha: one CBOR data frame per WebSocket message. */
 export class FakeDataConnection {
 	readonly ws: WebSocket;
@@ -268,6 +343,13 @@ export class FakeCrha {
 	readonly queries: string[] = [];
 	/** The task ids of every task.exit.ack, in order. */
 	readonly exitAcks: string[] = [];
+	/** Every pty.open the server sent, in order. */
+	readonly ptyOpens: Record<string, unknown>[] = [];
+	/** Every pty.resize and pty.close the server sent, in order. */
+	readonly ptyResizes: { ptyId: string; rows: number; cols: number }[] = [];
+	readonly ptyCloses: { ptyId: string; reason: string }[] = [];
+	/** Answers pty.open; throw RemoteError to refuse it. */
+	answerPtyOpen: (body: Record<string, unknown>) => void | Promise<void> = () => {};
 	/**
 	 * Answers task.start; throw RemoteError(code, message) to reject it before acceptance. The start is
 	 * recorded first, so a test sees it even when it is rejected.
@@ -306,6 +388,19 @@ export class FakeCrha {
 		peer.onRequest("task.query", (query) => {
 			this.queries.push(query.taskId);
 			return this.answerQuery(query.taskId);
+		});
+		peer.onRequest("pty.open", async (body) => {
+			this.ptyOpens.push(body as unknown as Record<string, unknown>);
+			await this.answerPtyOpen(body as unknown as Record<string, unknown>);
+			return {};
+		});
+		peer.onRequest("pty.resize", (body) => {
+			this.ptyResizes.push(body);
+			return {};
+		});
+		peer.onRequest("pty.close", (body) => {
+			this.ptyCloses.push(body);
+			return {};
 		});
 		peer.onEvent("task.exit.ack", (ack) => {
 			this.exitAcks.push(ack.taskId);

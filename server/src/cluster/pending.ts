@@ -218,8 +218,8 @@ async function pendingOption(
 	} satisfies PendingSignOption;
 }
 
-/** The options of a stored record, for the owner's endpoint; null when nothing is planned yet. */
-async function pendingOptions(
+/** The options of a stored record, for the owner's endpoint; empty when nothing is planned yet. */
+export async function pendingAuthorizationOptions(
 	db: Db,
 	userId: string,
 	nodeId: string,
@@ -249,7 +249,7 @@ export async function pendingForTask(
 	if (row.state !== "awaiting_authorization") return { phase: "ended", view: null };
 	const record = parseTaskAuthorization(row.authorization);
 	if (!record) return { phase: "preparing", view: null };
-	const options = await pendingOptions(db, row.on_behalf_of_user_id, row.node_id, record);
+	const options = await pendingAuthorizationOptions(db, row.on_behalf_of_user_id, row.node_id, record);
 	if (options.length === 0) return { phase: "preparing", view: null };
 	for (const option of options) {
 		if (option.kind === "sign") {
@@ -296,7 +296,7 @@ export async function pendingForTaskGroup(
 				: "ended";
 		return { phase, view: null };
 	}
-	const options = await pendingOptions(db, userId, holder.row.node_id, holder.record);
+	const options = await pendingAuthorizationOptions(db, userId, holder.row.node_id, holder.record);
 	if (options.length === 0) return { phase: "preparing", view: null };
 	const waiting = waitingMembers.map((row) => ({ nodeId: row.node_id, spec: row.spec }));
 	// A group's sign option is one payload; offer every Passkey any waiting node trusts for it.

@@ -188,8 +188,8 @@ func TestVectors(t *testing.T) {
 				if req.PTYID != "pty-priv-1" || req.Rows != 40 || req.Cols != 120 || req.Attempt != 1 {
 					t.Fatalf("pty.open = %+v", req)
 				}
-				if !req.Privileged || req.ScrollbackBytes != 1<<20 || len(req.Meta) == 0 {
-					t.Fatalf("pty.open metadata = privileged %v scrollback %d meta %x", req.Privileged, req.ScrollbackBytes, req.Meta)
+				if !req.Privileged || req.ScrollbackBytes != 1<<20 {
+					t.Fatalf("pty.open = privileged %v scrollback %d", req.Privileged, req.ScrollbackBytes)
 				}
 				if !reflect.DeepEqual(req.Argv, []string{"/bin/bash", "-l"}) {
 					t.Fatalf("pty.open argv = %q", req.Argv)

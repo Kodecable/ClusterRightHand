@@ -12,6 +12,7 @@ import { HTTPException } from "hono/http-exception";
 import { alwaysRuleLifts, groupNodesNeedingApproval } from "../approvals/always-allow.ts";
 import {
 	approvalRequestForExternalCall,
+	approvalRequestForPty,
 	approvalRequestForTask,
 	approvalRequestForTaskGroup,
 } from "../approvals/request.ts";
@@ -33,6 +34,7 @@ import type { Operation, Rule } from "../policy/rules.ts";
 import { appendRule, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
+import type { TerminalService } from "../terminals/registry.ts";
 import { NotFoundError, UserError } from "../util/errors.ts";
 import type { AppEnv } from "./context.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
@@ -118,7 +120,13 @@ const NO_LIFT =
 	'this "always allow" rule would not end the approval: the restriction comes from a lower level of the rule ' +
 	"chain or a stricter rule, which the rule on the root cannot lift";
 
-export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups, audit: Audit) {
+export function approvalRoutes(
+	db: Db,
+	cluster: Cluster,
+	taskGroups: TaskGroups,
+	audit: Audit,
+	terminals?: TerminalService,
+) {
 	const app = apiRouter();
 
 	app.openapi(listRoute, async (c) => {
@@ -131,6 +139,25 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 		const signatureTasks = await taskViews(cluster, signatureRows.tasks);
 		const signatureTaskGroups = await taskGroupViews(taskGroups, signatureRows.taskGroups);
 		const externalCalls = await externalCallViews(db, await pendingExternalCallRows(db, user.userId));
+		// Agent terminal requests are the same kind of wait (doc/design/pty.md "Rules"): the terminal's user
+		// decides, on its page or through its own approval route.
+		const ptys =
+			terminals === undefined
+				? []
+				: await Promise.all(
+						terminals
+							.pendingApprovals()
+							.filter(({ terminal }) => terminal.userId === user.userId)
+							.map(async ({ terminal, approval }) => ({
+								terminalId: terminal.id,
+								nodeId: terminal.nodeId,
+								nodeName: terminal.nodeName,
+								userId: terminal.userId,
+								username: terminal.username,
+								createdAt: approval.createdAt,
+								request: await approvalRequestForPty(db, terminal, approval),
+							})),
+					);
 		// One compact request per waiting item, beside the kind-specific views (the WebUI and chat render it).
 		const requests = [
 			...(await Promise.all([...tasks, ...signatureTasks].map((task) => approvalRequestForTask(db, task)))),
@@ -138,12 +165,14 @@ export function approvalRoutes(db: Db, cluster: Cluster, taskGroups: TaskGroups,
 				[...approvalTaskGroups, ...signatureTaskGroups].map((group) => approvalRequestForTaskGroup(db, group)),
 			)),
 			...(await Promise.all(externalCalls.map((call) => approvalRequestForExternalCall(db, call)))),
+			...ptys.map((item) => item.request),
 		];
 		return c.json(
 			{
 				tasks,
 				taskGroups: approvalTaskGroups,
 				externalCalls,
+				ptys,
 				authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
 				quotas,
 				requests,

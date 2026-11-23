@@ -7,4 +7,9 @@ describe("splitArgv", () => {
 		expect(splitArgv(`echo ""`)).toEqual(["echo", ""]);
 		expect(splitArgv("   ")).toEqual([]);
 	});
+
+	test("keeps a quoted argument together and an empty one distinct", () => {
+		expect(splitArgv('sh -c "echo \\"hi\\"" \'a b\'')).toEqual(["sh", "-c", 'echo "hi"', "a b"]);
+		expect(splitArgv("a '' b")).toEqual(["a", "", "b"]);
+	});
 });

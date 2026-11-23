@@ -27,6 +27,7 @@ import type { TaskGroups } from "../cluster/task-groups.ts";
 import { Scheduler } from "../scheduler/scheduler.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
+import type { TerminalService } from "../terminals/registry.ts";
 import {
 	createUser,
 	getUserDetail,
@@ -248,6 +249,8 @@ export interface UserRoutesOptions {
 	settings?: SettingsStore;
 	/** Chat channels: a disabled user's linked accounts stop. */
 	channels?: ChannelManager;
+	/** The terminal subsystem: a disabled user's terminals close with `user_removed` (doc/design/pty.md). */
+	terminals?: TerminalService;
 }
 
 /** Expects requireUser to have run. */
@@ -333,6 +336,8 @@ export function userRoutes(db: Db, options: UserRoutesOptions = {}) {
 			{ by: c.get("user").userId },
 		);
 		if (body.status === "disabled") {
+			// A disabled user's terminals close with `user_removed` (doc/design/pty.md "Lifecycle").
+			options.terminals?.userRemoved(id);
 			await revokeUserWebSessions(db, id);
 			// A disabled user's streams end; their next request is a 401 and the client goes to login.
 			options.sessions?.endUserStreams(id);

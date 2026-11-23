@@ -10,6 +10,7 @@ import type {
 } from "@crh/api";
 import { formatList, matchLocale } from "@crh/api";
 import { untitledSessionTitle } from "../sessions/titles.ts";
+import { shellQuote } from "../util/shell-quote.ts";
 import type { CardLabels, ChatCard } from "./card.ts";
 
 /**
@@ -149,6 +150,8 @@ interface CardText extends CardLabels {
 	actions: {
 		file: (operation: ApprovalFileOperation, path: string, lines: { start: number; end: number } | undefined) => string;
 		upgrade: (version: string, arch: string) => string;
+		/** A terminal's typed text and named keys: "Type … · keys …". */
+		ptyIo: (input: string | null, keys: readonly string[]) => string;
 	};
 	/** `moreNodes` is the number the server left out; every name is raw and escaped by the renderer. */
 	nodes: (names: readonly string[], moreNodes: number | undefined) => string;
@@ -193,6 +196,11 @@ const EN_CARD: CardText = {
 		file: (operation, path, lines) =>
 			`${{ read: "Read file", write: "Write file", push: "Push file", pull: "Pull file", edit: "Edit file", stat: "Stat file", list: "List directory" }[operation]} ${path}${lines ? ` (lines ${lines.start}-${lines.end})` : ""}`,
 		upgrade: (version, arch) => `Upgrade crha to ${version} (${arch})`,
+		ptyIo: (input, keys) => {
+			const text = input !== null && input !== "" ? `Type ${input}` : "";
+			const named = keys.length > 0 ? `keys ${keys.join(", ")}` : "";
+			return [text, named].filter((part) => part !== "").join(" · ") || "Terminal input";
+		},
 	},
 	nodes: (names, moreNodes) => {
 		const list = formatList("en", names);
@@ -201,6 +209,7 @@ const EN_CARD: CardText = {
 	job: (kind, id, action) => `Job: ${kind} ${id}${action === undefined ? "" : ` · ${action}`}`,
 	privilegedSuffix: " · privileged",
 	riskLevel: (risk) => ({ low: "Low risk", medium: "Medium risk", high: "High risk" })[risk],
+	screen: (text) => `Terminal screen:\n${text}`,
 	rejectWithButtons: (id) => `Reject with a reason: /reject ${id} reason`,
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [reason]`,
@@ -235,6 +244,11 @@ const ZH_CARD: CardText = {
 		file: (operation, path, lines) =>
 			`${{ read: "读取文件", write: "写入文件", push: "推送文件", pull: "拉取文件", edit: "编辑文件", stat: "查看文件", list: "列出目录" }[operation]} ${path}${lines ? `（第 ${lines.start}-${lines.end} 行）` : ""}`,
 		upgrade: (version, arch) => `将 crha 升级到 ${version}（${arch}）`,
+		ptyIo: (input, keys) => {
+			const text = input !== null && input !== "" ? `输入 ${input}` : "";
+			const named = keys.length > 0 ? `按键 ${keys.join("、")}` : "";
+			return [text, named].filter((part) => part !== "").join(" · ") || "终端输入";
+		},
 	},
 	nodes: (names, moreNodes) => {
 		const list = formatList("zh-CN", names);
@@ -243,6 +257,7 @@ const ZH_CARD: CardText = {
 	job: (kind, id, action) => `后台任务：${kind} ${id}${action === undefined ? "" : ` · ${action}`}`,
 	privilegedSuffix: " · 特权",
 	riskLevel: (risk) => ({ low: "低风险", medium: "中风险", high: "高风险" })[risk],
+	screen: (text) => `终端屏幕：\n${text}`,
 	rejectWithButtons: (id) => `拒绝并说明原因：/reject ${id} 原因`,
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [原因]`,
@@ -280,6 +295,10 @@ function actionDetail(action: TaskAction, labels: CardText): string {
 			return oneLine(`${action.extension}/${action.tool}`);
 		case "subagent":
 			return oneLine(action.task);
+		case "pty.create":
+			return oneLine(action.argv.map((argument) => shellQuote(argument)).join(" "));
+		case "pty.io":
+			return oneLine(labels.actions.ptyIo(action.input, action.keys));
 	}
 }
 
@@ -385,6 +404,7 @@ function approvalCardFor(
 	};
 	if (meta !== undefined) card.meta = meta;
 	if (job !== undefined) card.job = job;
+	if (request.action.type === "pty.io" && request.action.screen !== "") card.screen = request.action.screen;
 	if (request.review !== undefined) {
 		card.risk = request.review.risk;
 		card.reason = oneLine(request.review.reason);

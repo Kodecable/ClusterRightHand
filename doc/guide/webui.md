@@ -343,6 +343,29 @@ and a link to the library. Administrators edit the limits there.
 node or node group. Removing a grant takes effect immediately; a task still waiting for a user who lost
 access ends without running.
 
+## Terminals
+
+**Terminals** lists the terminals you may see: your own, or every terminal for an administrator. The
+list shows the node, user, privileged flag, state, creating session, associated sessions, viewers and
+age. **New terminal** opens one on a node you have access to; choose a command or leave it empty for
+the node identity's login shell. A privileged terminal first waits for its signature: the terminal page
+shows the same signing options as a privileged task.
+
+`/terminals/<id>` attaches with xterm.js. The terminal has one size: attaching or resizing the browser
+window changes nothing, and **Fit to window** resizes the terminal (every viewer and the node adopt the
+new size). Several viewers can attach and all of them can type. The page also shows the other viewers
+and the associations; its user and administrators add a session the user owns and remove one again. An
+exited terminal keeps its last screen and exit code for five minutes or until the last viewer
+detaches, then disappears. A session page lists the session's terminals.
+
+A background job started in a terminal ends with the shell: crha closes the process group with a
+hangup and then a kill, so `nohup`-style children that leave the group may survive only as long as the
+shell did. Keep long work in `exec` tasks, which outlive your browser and keep their output.
+
+Terminal rule approvals (`pty.create` for opening one, `pty.io` for typing and resizing) appear on the
+terminal page while they wait, with **Approve**, **Always allow** and **Reject** like other approvals.
+Reading a terminal needs no approval.
+
 ## Settings
 
 **Settings…** at the bottom of the sidebar has three tabs. **General** chooses your language, which

@@ -121,6 +121,11 @@ msgstr "{0} {id}"
 msgid "{0} gains the node access this user group grants."
 msgstr "{0} gains the node access this user group grants."
 
+#. placeholder {0}: Math.round(terminal.idleTimeoutMs / 60_000)
+#: src/features/terminals/pages.tsx
+msgid "{0} min"
+msgstr "{0} min"
+
 #. placeholder {0}: command.method
 #. placeholder {1}: command.target
 #: src/features/authorizations/pages.tsx
@@ -288,6 +293,10 @@ msgstr "A base URL is required."
 msgid "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability and its grants."
 msgstr "A built-in extension ships with crhs and is always ready. You can disable it, change whether its tools are listed directly, its availability and its grants."
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "A command has at most {MAX_ARGV} arguments."
+msgstr "A command has at most {MAX_ARGV} arguments."
+
 #: src/lib/task-form.ts
 msgid "A command is required."
 msgstr "A command is required."
@@ -365,6 +374,10 @@ msgstr "A node group name must not start with \"_\": names starting with \"_\" a
 #: src/lib/task-form.ts
 msgid "A path is required."
 msgstr "A path is required."
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "A privileged terminal waits for your signature before it opens."
+msgstr "A privileged terminal waits for your signature before it opens."
 
 #: src/features/schedules/scheduleForm.ts
 msgid "A prompt is required."
@@ -568,6 +581,10 @@ msgstr "After it connects, the node shows Pending approval. Compare its new key 
 msgid "After the node connects it appears as pending; compare its key fingerprint with <0>crha status</0> on the node before approving."
 msgstr "After the node connects it appears as pending; compare its key fingerprint with <0>crha status</0> on the node before approving."
 
+#: src/features/terminals/pages.tsx
+msgid "Age"
+msgstr "Age"
+
 #: src/features/settings/extensions.tsx
 msgid "Agent sessions reach extension tools through search_tools and call_tool, under the session's rules and approvals. MCP extensions connect over Streamable HTTP; built-in extensions ship with crhs."
 msgstr "Agent sessions reach extension tools through search_tools and call_tool, under the session's rules and approvals. MCP extensions connect over Streamable HTTP; built-in extensions ship with crhs."
@@ -616,6 +633,10 @@ msgstr "All schedules"
 #: src/features/tasks/task-page.tsx
 msgid "All tasks"
 msgstr "All tasks"
+
+#: src/features/terminals/pages.tsx
+msgid "All terminals"
+msgstr "All terminals"
 
 #: src/features/users/pages.tsx
 #: src/features/users/user-group-page.tsx
@@ -672,6 +693,10 @@ msgstr "Always allow rule"
 #: src/features/settings/model-presets.tsx
 msgid "Always appended"
 msgstr "Always appended"
+
+#: src/features/terminals/pages.tsx
+msgid "An administrator can turn it on in System settings."
+msgstr "An administrator can turn it on in System settings."
 
 #: src/features/node-groups/pages.tsx
 msgid "An administrator creates node groups."
@@ -840,6 +865,18 @@ msgstr "Ask: ordinary reads run, everything else (including every privileged tas
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Assistant"
 msgstr "Assistant"
+
+#: src/features/terminals/pages.tsx
+msgid "Associate"
+msgstr "Associate"
+
+#: src/features/terminals/pages.tsx
+msgid "Associate a session"
+msgstr "Associate a session"
+
+#: src/features/terminals/pages.tsx
+msgid "Associated sessions"
+msgstr "Associated sessions"
 
 #: src/features/auth/change-password-dialog.tsx
 #: src/features/users/reset-password-dialog.tsx
@@ -1181,6 +1218,7 @@ msgid "Choose a new password for your account."
 msgstr "Choose a new password for your account."
 
 #: src/components/entity-picker/entity-picker.tsx
+#: src/features/terminals/new-terminal-dialog.tsx
 msgid "Choose a node"
 msgstr "Choose a node"
 
@@ -1191,6 +1229,14 @@ msgstr "Choose a node group"
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a node or node group"
 msgstr "Choose a node or node group"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Choose a node."
+msgstr "Choose a node."
+
+#: src/features/terminals/pages.tsx
+msgid "Choose a session"
+msgstr "Choose a session"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Choose a signing credential"
@@ -1310,6 +1356,15 @@ msgstr "Clock warning threshold"
 msgid "Close"
 msgstr "Close"
 
+#: src/features/terminals/pages.tsx
+msgid "Close terminal"
+msgstr "Close terminal"
+
+#. placeholder {0}: terminal.nodeName ?? terminal.nodeId
+#: src/features/terminals/pages.tsx
+msgid "Close the terminal on {0}?"
+msgstr "Close the terminal on {0}?"
+
 #: src/features/nodes/node-trust.tsx
 msgid "closed"
 msgstr "closed"
@@ -1322,7 +1377,12 @@ msgstr "Cluster"
 msgid "Collapse the subagent's jobs"
 msgstr "Collapse the subagent's jobs"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Columns"
+msgstr "Columns"
+
 #: src/features/authorizations/pages.tsx
+#: src/features/terminals/new-terminal-dialog.tsx
 msgid "Command"
 msgstr "Command"
 
@@ -1582,6 +1642,10 @@ msgstr "Create token"
 msgid "Created"
 msgstr "Created"
 
+#: src/features/terminals/pages.tsx
+msgid "Creating session"
+msgstr "Creating session"
+
 #: src/features/nodes/ssh-node-section.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 msgid "Credential"
@@ -1603,6 +1667,11 @@ msgstr "crha enroll will ask to re-enroll; answer yes to replace this node's key
 #: src/features/nodes/delete-node-dialog.tsx
 msgid "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
 msgstr "crha on the node is told it was removed, disconnects and stops. Tasks waiting for this node are ended. Its access grants and node group memberships are removed. To add the host again, enroll it with a new token after deleting its identity.key and server.pub."
+
+#. placeholder {0}: formatBytes(defaults.pty.scrollbackBytes, i18n.locale)
+#: src/features/system-settings/terminals-section.tsx
+msgid "crha's ring buffer for a terminal's output, between 64K and 16M. Default: {0}."
+msgstr "crha's ring buffer for a terminal's output, between 64K and 16M. Default: {0}."
 
 #: src/features/nodes/enrollment-code.tsx
 msgid "crhs address"
@@ -1686,6 +1755,7 @@ msgstr "Decode speed: {0} tok/s"
 
 #: src/components/decision/evaluation.tsx
 #: src/features/channels/chat-accounts-section.tsx
+#: src/features/terminals/new-terminal-dialog.tsx
 msgid "Default"
 msgstr "Default"
 
@@ -1708,6 +1778,13 @@ msgstr "Default prompt"
 #: src/features/settings/model-presets.tsx
 msgid "Default prompt and protocol"
 msgstr "Default prompt and protocol"
+
+#. placeholder {0}: defaults.pty.enabled ? t`on` : t`off`
+#. placeholder {0}: defaults.pty.maxPerNode
+#. placeholder {0}: defaults.pty.maxPerSession
+#: src/features/system-settings/terminals-section.tsx
+msgid "Default: {0}."
+msgstr "Default: {0}."
 
 #: src/features/system-settings/retention-section.tsx
 msgid "Default: {defaultValue}."
@@ -1968,6 +2045,10 @@ msgstr "Download {0}"
 msgid "Download {name}"
 msgstr "Download {name}"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "e.g. top -d 5"
+msgstr "e.g. top -d 5"
+
 #: src/features/settings/model-dialog.tsx
 msgid "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
 msgstr "Each level's JSON object is merged into the request body; a level is offered only with a body and a display name."
@@ -2064,6 +2145,10 @@ msgstr "Empty: the server's own description, once it has been listed"
 msgid "Enable"
 msgstr "Enable"
 
+#: src/features/system-settings/terminals-section.tsx
+msgid "Enable terminals"
+msgstr "Enable terminals"
+
 #: src/features/channels/channel-dialog.tsx
 #: src/features/schedules/pages.tsx
 #: src/features/schedules/schedule-form.tsx
@@ -2106,6 +2191,10 @@ msgstr "Enter a display name."
 msgid "Enter a duration of at least 1 day, or choose Keep forever."
 msgstr "Enter a duration of at least 1 day, or choose Keep forever."
 
+#: src/features/system-settings/terminals-section.tsx
+msgid "Enter a duration such as 1h or 10m."
+msgstr "Enter a duration such as 1h or 10m."
+
 #: src/features/system-settings/general-section.tsx
 msgid "Enter a duration such as 60s or 5m."
 msgstr "Enter a duration such as 60s or 5m."
@@ -2118,6 +2207,10 @@ msgstr "Enter a duration such as 7d."
 #: src/features/sessions/quota-panel.tsx
 msgid "Enter a positive number of tokens to add."
 msgstr "Enter a positive number of tokens to add."
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Enter a size from 64K to 16M, such as 1M."
+msgstr "Enter a size from 64K to 16M, such as 1M."
 
 #: src/features/library/limits-dialog.tsx
 #: src/features/system-settings/library-section.tsx
@@ -2154,6 +2247,7 @@ msgid "Enter a whole number of tokens, or leave it empty for unlimited."
 msgstr "Enter a whole number of tokens, or leave it empty for unlimited."
 
 #: src/features/system-settings/attachments-section.tsx
+#: src/features/system-settings/terminals-section.tsx
 msgid "Enter a whole number, 0 or more."
 msgstr "Enter a whole number, 0 or more."
 
@@ -2172,6 +2266,10 @@ msgstr "Enter an origin such as https://crh.example.com."
 #: src/features/schedules/scheduleForm.ts
 msgid "Enter at least 1 token, or leave it empty for unlimited."
 msgstr "Enter at least 1 token, or leave it empty for unlimited."
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Enter whole numbers from 1 to {MAX_DIMENSION}."
+msgstr "Enter whole numbers from 1 to {MAX_DIMENSION}."
 
 #: src/features/auth/change-password-dialog.tsx
 msgid "Enter your current password."
@@ -2256,6 +2354,10 @@ msgstr "Exit code"
 #: src/components/task-outcome.tsx
 msgid "Exit code {0}"
 msgstr "Exit code {0}"
+
+#: src/features/terminals/terminal-format.ts
+msgid "Exited"
+msgstr "Exited"
 
 #: src/features/sessions/background-bar.tsx
 msgid "Expand the subagent's jobs"
@@ -2391,6 +2493,10 @@ msgstr "Finished at"
 msgid "First available model"
 msgstr "First available model"
 
+#: src/features/terminals/pages.tsx
+msgid "Fit to window"
+msgstr "Fit to window"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "Five fields: minute hour day-of-month month day-of-week, in the chosen IANA timezone."
 msgstr "Five fields: minute hour day-of-month month day-of-week, in the chosen IANA timezone."
@@ -2449,6 +2555,10 @@ msgstr "Generate trust config"
 #: src/features/sessions/transcript-row.tsx
 msgid "Generating…"
 msgstr "Generating…"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Give both rows and columns, or neither."
+msgstr "Give both rows and columns, or neither."
 
 #: src/app/router.tsx
 msgid "Go to sessions"
@@ -2560,6 +2670,10 @@ msgstr "Identity headers"
 msgid "Idle"
 msgstr "Idle"
 
+#: src/features/terminals/pages.tsx
+msgid "Idle timeout"
+msgstr "Idle timeout"
+
 #: src/features/nodes/pages.tsx
 msgid "ignored (SSH)"
 msgstr "ignored (SSH)"
@@ -2621,6 +2735,10 @@ msgstr "It may have been deleted."
 #: src/features/nodes/pending-node-dialog.tsx
 msgid "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
 msgstr "It must match what <0>crha enroll</0> printed, or <1>crha status</1> on the node, before you approve."
+
+#: src/features/terminals/pages.tsx
+msgid "It was closed, or its five-minute retention window passed after the process exited."
+msgstr "It was closed, or its five-minute retention window passed after the process exited."
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "its architecture has no crha release"
@@ -2748,6 +2866,10 @@ msgstr "Last seen"
 #: src/features/tokens/pages.tsx
 msgid "Last used"
 msgstr "Last used"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Leave empty for the login shell. Arguments are split like a shell line; quotes group words."
+msgstr "Leave empty for the login shell. Arguments are split like a shell line; quotes group words."
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Leave empty to keep the current key"
@@ -2911,6 +3033,18 @@ msgstr "Local window on {0}"
 #: src/app/shell/user-menu.tsx
 msgid "Log out"
 msgstr "Log out"
+
+#: src/features/terminals/pages.tsx
+msgid "login shell"
+msgstr "login shell"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Longest agent idle timeout"
+msgstr "Longest agent idle timeout"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Longest watch timeout"
+msgstr "Longest watch timeout"
 
 #: src/components/decision/evaluation.tsx
 msgid "Low"
@@ -3197,6 +3331,11 @@ msgstr "New SSH credential"
 msgid "New SSH node"
 msgstr "New SSH node"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
+msgid "New terminal"
+msgstr "New terminal"
+
 #: src/components/task-form-fields.tsx
 msgid "New text"
 msgstr "New text"
@@ -3256,6 +3395,10 @@ msgstr "No"
 #: src/features/nodes/access-grants.tsx
 msgid "No access grants"
 msgstr "No access grants"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "No active crha node is available to you."
+msgstr "No active crha node is available to you."
 
 #: src/features/tokens/pages.tsx
 msgid "No API tokens yet"
@@ -3382,6 +3525,10 @@ msgstr "No nodes yet"
 msgid "No one has signed an authorization yet."
 msgstr "No one has signed an authorization yet."
 
+#: src/features/terminals/pages.tsx
+msgid "No one is watching."
+msgstr "No one is watching."
+
 #: src/features/settings/extensions.tsx
 msgid "No one yet"
 msgstr "No one yet"
@@ -3401,6 +3548,10 @@ msgstr "No runs yet"
 #: src/features/schedules/pages.tsx
 msgid "No schedules yet"
 msgstr "No schedules yet"
+
+#: src/features/terminals/pages.tsx
+msgid "No sessions are associated."
+msgstr "No sessions are associated."
 
 #: src/features/sessions/session-list.tsx
 #: src/features/users/pages.tsx
@@ -3429,6 +3580,10 @@ msgstr "No such node group"
 msgid "No tasks yet"
 msgstr "No tasks yet"
 
+#: src/features/terminals/pages.tsx
+msgid "No terminals yet"
+msgstr "No terminals yet"
+
 #: src/features/schedules/schedule-form.tsx
 msgid "No upcoming runs"
 msgstr "No upcoming runs"
@@ -3452,6 +3607,8 @@ msgstr "No users yet"
 #: src/features/tasks/pages.tsx
 #: src/features/tasks/task-columns.tsx
 #: src/features/tasks/task-group-result.tsx
+#: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
 msgid "Node"
 msgstr "Node"
 
@@ -3651,6 +3808,10 @@ msgstr "Nothing to show."
 msgid "Now"
 msgstr "Now"
 
+#: src/features/system-settings/terminals-section.tsx
+msgid "off"
+msgstr "off"
+
 #: src/features/settings/providers.ts
 msgid "Off cannot be hidden; give it a display name."
 msgstr "Off cannot be hidden; give it a display name."
@@ -3667,6 +3828,10 @@ msgstr "OK"
 #: src/components/task-form-fields.tsx
 msgid "Old text"
 msgstr "Old text"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "on"
+msgstr "on"
 
 #: src/features/audit/pages.tsx
 msgid "On behalf of"
@@ -3688,6 +3853,10 @@ msgstr "One file for new users"
 #: src/features/channels/channels-page.tsx
 msgid "Online"
 msgstr "Online"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Only active crha nodes have terminals; SSH nodes cannot open one."
+msgstr "Only active crha nodes have terminals; SSH nodes cannot open one."
 
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
@@ -3732,6 +3901,14 @@ msgstr "Open a private chat with @{0}."
 msgid "Open a private chat with the bot named {0}."
 msgstr "Open a private chat with the bot named {0}."
 
+#: src/features/terminals/pages.tsx
+msgid "Open a terminal on a crha node to run an interactive shell."
+msgstr "Open a terminal on a crha node to run an interactive shell."
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Open an interactive shell on a crha node. Several people can watch and type in it."
+msgstr "Open an interactive shell on a crha node. Several people can watch and type in it."
+
 #: src/components/task-facts.tsx
 msgid "Open approval page"
 msgstr "Open approval page"
@@ -3744,6 +3921,10 @@ msgstr "Open library"
 #: src/features/schedules/run-history.tsx
 msgid "Open session {0}"
 msgstr "Open session {0}"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Open terminal"
+msgstr "Open terminal"
 
 #: src/features/users/user-group-page.tsx
 msgid "Open the library to delete its files"
@@ -3765,6 +3946,14 @@ msgstr "Open the task group"
 #: src/features/nodes/node-trust.tsx
 msgid "open until <0/> (opened by uid {0} at <1/>)"
 msgstr "open until <0/> (opened by uid {0} at <1/>)"
+
+#: src/features/terminals/pages.tsx
+msgid "Opened"
+msgstr "Opened"
+
+#: src/features/terminals/terminal-format.ts
+msgid "Opening"
+msgstr "Opening"
 
 #: src/components/decision/request-details.tsx
 #: src/features/approvals/pages.tsx
@@ -3949,6 +4138,10 @@ msgstr "Pending approvals"
 msgid "People you share this session with; view access is read-only, chat access can send messages."
 msgstr "People you share this session with; view access is read-only, chat access can send messages."
 
+#: src/features/terminals/pages.tsx
+msgid "Person"
+msgstr "Person"
+
 #: src/features/settings/pages.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Pi built-in"
@@ -4009,6 +4202,7 @@ msgstr "Preview {name}"
 
 #: src/components/privileged-mark.tsx
 #: src/components/task-form-fields.tsx
+#: src/features/terminals/pages.tsx
 msgid "Privileged"
 msgstr "Privileged"
 
@@ -4188,6 +4382,10 @@ msgstr "Reconnect"
 msgid "Reconnect {0}"
 msgstr "Reconnect {0}"
 
+#: src/features/terminals/terminal-view.tsx
+msgid "Reconnecting to the terminal…"
+msgstr "Reconnecting to the terminal…"
+
 #: src/features/sessions/session-banner.tsx
 msgid "Reconnecting…"
 msgstr "Reconnecting…"
@@ -4303,6 +4501,10 @@ msgstr "Remove header {0}"
 msgid "Remove origin {0}"
 msgstr "Remove origin {0}"
 
+#: src/features/terminals/pages.tsx
+msgid "Remove session {sessionId}"
+msgstr "Remove session {sessionId}"
+
 #. placeholder {0}: index + 1
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove session id body field {0}"
@@ -4320,6 +4522,10 @@ msgstr "Remove share"
 #: src/features/settings/extension-dialog.tsx
 msgid "Remove stored headers"
 msgstr "Remove stored headers"
+
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Remove the empty argument."
+msgstr "Remove the empty argument."
 
 #: src/features/settings/provider-dialog.tsx
 msgid "Remove the stored key"
@@ -4503,6 +4709,10 @@ msgstr "Role"
 msgid "Route"
 msgstr "Route"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Rows"
+msgstr "Rows"
+
 #: src/features/nodes/node-trust.tsx
 msgid "RP ID"
 msgstr "RP ID"
@@ -4568,6 +4778,10 @@ msgstr "run by hand"
 msgid "Run history"
 msgstr "Run history"
 
+#: src/features/terminals/new-terminal-dialog.tsx
+msgid "Run in the privileged mode"
+msgstr "Run in the privileged mode"
+
 #: src/features/schedules/schedule-actions.tsx
 msgid "Run now"
 msgstr "Run now"
@@ -4602,6 +4816,7 @@ msgstr "running"
 #: src/features/jobs/job.tsx
 #: src/features/sessions/session-list-item.tsx
 #: src/features/sessions/tool-card.tsx
+#: src/features/terminals/terminal-format.ts
 msgid "Running"
 msgstr "Running"
 
@@ -4698,6 +4913,10 @@ msgstr "Scheduled session"
 #: src/features/schedules/pages.tsx
 msgid "Schedules"
 msgstr "Schedules"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Scrollback per terminal"
+msgstr "Scrollback per terminal"
 
 #: src/components/entity-picker/entity-picker.tsx
 msgid "Search failed"
@@ -5014,6 +5233,12 @@ msgstr "Signing credentials"
 msgid "Size"
 msgstr "Size"
 
+#. placeholder {0}: size?.cols ?? view.size.cols
+#. placeholder {1}: size?.rows ?? view.size.rows
+#: src/features/terminals/pages.tsx
+msgid "Size: {0} × {1}"
+msgstr "Size: {0} × {1}"
+
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "Skipped"
 msgstr "Skipped"
@@ -5125,6 +5350,7 @@ msgstr "Stat file {path} (lines {0}-{1})"
 
 #: src/features/channels/channels-page.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/terminals/pages.tsx
 msgid "State"
 msgstr "State"
 
@@ -5326,6 +5552,33 @@ msgstr "Tasks of {0}"
 msgid "Technical details"
 msgstr "Technical details"
 
+#: src/lib/action-text.ts
+msgid "Terminal input"
+msgstr "Terminal input"
+
+#: src/features/terminals/pages.tsx
+msgid "Terminal"
+msgstr "Terminal"
+
+#: src/app/shell/nav.ts
+#: src/features/system-settings/terminals-section.tsx
+#: src/features/terminals/pages.tsx
+#: src/features/terminals/session-terminals.tsx
+msgid "Terminals"
+msgstr "Terminals"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Terminals in total"
+msgstr "Terminals in total"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Terminals per node"
+msgstr "Terminals per node"
+
+#: src/features/system-settings/terminals-section.tsx
+msgid "Terminals per session"
+msgstr "Terminals per session"
+
 #: src/components/test-connection.tsx
 msgid "Test connection"
 msgstr "Test connection"
@@ -5376,6 +5629,10 @@ msgstr "The browser offers a platform authenticator (Touch ID, Windows Hello) or
 msgid "The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted least recently used, and dropped after the time to live."
 msgstr "The bytes behind view_image results, kept in a disposable directory on crhs's local disk. Entries are evicted least recently used, and dropped after the time to live."
 
+#: src/features/terminals/terminal-view.tsx
+msgid "The connection to the terminal was lost."
+msgstr "The connection to the terminal was lost."
+
 #: src/features/ssh-credentials/pages.tsx
 msgid "The credential and its private key are deleted. This cannot be undone."
 msgstr "The credential and its private key are deleted. This cannot be undone."
@@ -5408,6 +5665,10 @@ msgstr "The grantee can see the node or every node in the node group and run tas
 msgid "The hostname Passkeys are registered for, such as crh.example.com. Empty derives it from each request; set it together with the allowed origins. Default: unset."
 msgstr "The hostname Passkeys are registered for, such as crh.example.com. Empty derives it from each request; set it together with the allowed origins. Default: unset."
 
+#: src/features/system-settings/terminals-section.tsx
+msgid "The interactive terminal subsystem. Turning it off closes every terminal and hides the Terminals page and the agent tools."
+msgstr "The interactive terminal subsystem. Turning it off closes every terminal and hides the Terminals page and the agent tools."
+
 #: src/lib/task-form.ts
 msgid "The limit must be a non-negative whole number."
 msgstr "The limit must be a non-negative whole number."
@@ -5423,6 +5684,16 @@ msgstr "The listing is truncated: the directory has more entries than are shown.
 #: src/features/channels/channel-dialog.tsx
 msgid "The login's user id in that platform; the channels page lists the ones the gateway reported."
 msgstr "The login's user id in that platform; the channels page lists the ones the gateway reported."
+
+#. placeholder {0}: defaults.pty.watchTimeoutMax
+#: src/features/system-settings/terminals-section.tsx
+msgid "The longest an agent's terminal watch may block. Default: {0}."
+msgstr "The longest an agent's terminal watch may block. Default: {0}."
+
+#. placeholder {0}: defaults.pty.agentIdleTimeoutMax
+#: src/features/system-settings/terminals-section.tsx
+msgid "The longest idle timeout an agent may ask for when it opens a terminal. Default: {0}."
+msgstr "The longest idle timeout an agent may ask for when it opens a terminal. Default: {0}."
 
 #: src/features/settings/model-presets.tsx
 msgid "The model list could not be loaded."
@@ -5512,6 +5783,14 @@ msgstr "the privileged mode is not reachable"
 msgid "The privileged mode is unreachable, so the trust configuration is unknown"
 msgstr "The privileged mode is unreachable, so the trust configuration is unknown"
 
+#: src/features/terminals/pages.tsx
+msgid "The process ends now, with every program running inside it, and the terminal is gone."
+msgstr "The process ends now, with every program running inside it, and the terminal is gone."
+
+#: src/features/terminals/pages.tsx
+msgid "The process exited with code {exitCode}."
+msgstr "The process exited with code {exitCode}."
+
 #: src/features/settings/model-discovery-dialog.tsx
 msgid "The provider lists no model that this provider does not configure yet."
 msgstr "The provider lists no model that this provider does not configure yet."
@@ -5563,6 +5842,22 @@ msgstr "The task group was cleaned up or does not exist"
 #: src/components/task-gone.tsx
 msgid "The task was cleaned up or does not exist"
 msgstr "The task was cleaned up or does not exist"
+
+#: src/features/terminals/pages.tsx
+msgid "The terminal is gone"
+msgstr "The terminal is gone"
+
+#: src/features/terminals/pages.tsx
+msgid "The terminal lost its privileged helper."
+msgstr "The terminal lost its privileged helper."
+
+#: src/features/terminals/pages.tsx
+msgid "The terminal subsystem is turned off"
+msgstr "The terminal subsystem is turned off"
+
+#: src/features/terminals/pages.tsx
+msgid "The terminal was closed ({closedReason})."
+msgstr "The terminal was closed ({closedReason})."
 
 #: src/lib/task-form.ts
 msgid "The text to replace is required."
@@ -6043,6 +6338,7 @@ msgstr "Used up, over by {0}"
 #: src/features/nodes/access-grants.tsx
 #: src/features/nodes/ssh-route-editor.tsx
 #: src/features/tasks/pages.tsx
+#: src/features/terminals/pages.tsx
 #: src/features/users/user-group-dialogs.tsx
 #: src/features/users/user-group-page.tsx
 msgid "User"
@@ -6168,6 +6464,10 @@ msgstr "View all tasks"
 msgid "View tools of {0}"
 msgstr "View tools of {0}"
 
+#: src/features/terminals/pages.tsx
+msgid "Viewers"
+msgstr "Viewers"
+
 #: src/features/jobs/job.tsx
 msgid "Waiting"
 msgstr "Waiting"
@@ -6201,6 +6501,10 @@ msgstr "Waiting for quota"
 #: src/components/task-facts.tsx
 msgid "Waiting for the owner's authorization."
 msgstr "Waiting for the owner's authorization."
+
+#: src/features/terminals/pages.tsx
+msgid "Waiting for the terminal to open…"
+msgstr "Waiting for the terminal to open…"
 
 #: src/features/approvals/pages.tsx
 msgid "Waiting for you"

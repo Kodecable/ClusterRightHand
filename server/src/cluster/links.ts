@@ -213,6 +213,7 @@ function detach(core: ClusterCore, link: NodeLink): void {
 	const nodeId = link.conn.nodeId;
 	if (core.links.get(nodeId) !== link) return; // already replaced
 	core.links.delete(nodeId);
+	core.terminals?.onLinkLost(nodeId);
 	core.notifyLink(nodeId);
 	if (!link.active) return;
 	auditConnection(core, link, "node.disconnected");
@@ -263,6 +264,13 @@ function registerActive(core: ClusterCore, conn: NodeConnection, link: NodeLink)
 	peer.onEvent("facts", (facts) => core.trackHandler(onFacts(core, conn.nodeId, facts)));
 	// Pushed once after hello and again on every change (doc/design/protocol.md "Privilege messages").
 	peer.onEvent("trust.summary", (report) => core.trackHandler(onTrustSummary(core, link, report)));
+	// The terminal names are optional: only a node that offered them may send them.
+	if (peer.negotiated.has("pty.list")) {
+		peer.onEvent("pty.list", (list) => core.terminals?.onPtyList(conn.nodeId, list.terminals));
+	}
+	if (peer.negotiated.has("pty.exited")) {
+		peer.onEvent("pty.exited", (exit) => core.terminals?.onPtyExited(conn.nodeId, exit));
+	}
 }
 
 /**

@@ -562,11 +562,10 @@ export type Empty = Infer<typeof emptyCodec>;
 
 /**
  * The body of `pty.open`: the terminal id crhs chose, its argv (empty means the identity's login
- * shell), its initial size, its privileged flag, the size of crha's scrollback ring buffer and the
- * opaque `meta` blob crhs owns. crha stores `meta` and returns it unchanged in `pty.list`; it never
- * interprets it (doc/design/pty.md "Reconnect"). A privileged terminal also carries its
- * authorization as `task.start` does: `attempt`, the authorizations (CBOR authorization objects) and
- * crhs's cosign ticket, or null. An unprivileged one carries 0, an empty list and null.
+ * shell), its initial size, its privileged flag and the size of crha's scrollback ring buffer. A
+ * privileged terminal also carries its authorization as `task.start` does: `attempt`, the
+ * authorizations (CBOR authorization objects) and crhs's cosign ticket, or null. An unprivileged
+ * one carries 0, an empty list and null.
  */
 export const ptyOpenCodec = tuple([
 	["ptyId", text],
@@ -575,7 +574,6 @@ export const ptyOpenCodec = tuple([
 	["cols", uint],
 	["privileged", bool],
 	["scrollbackBytes", uint],
-	["meta", bytes],
 	["attempt", uint],
 	["authorizations", list(bytes)],
 	["cosign", nullable(bytes)],
@@ -597,13 +595,6 @@ export const ptyCloseCodec = tuple([
 ]);
 export type PtyClose = Infer<typeof ptyCloseCodec>;
 
-/** The body of `pty.meta`: replaces the terminal's opaque crhs metadata blob. */
-export const ptyMetaCodec = tuple([
-	["ptyId", text],
-	["meta", bytes],
-]);
-export type PtyMeta = Infer<typeof ptyMetaCodec>;
-
 /**
  * The reasons a `pty.exited` event can name: the process ended by itself, or a privileged terminal
  * lost its privileged mode (doc/design/pty.md "Lifecycle").
@@ -623,19 +614,12 @@ export const ptyExitedCodec = tuple([
 export type PtyExited = Infer<typeof ptyExitedCodec>;
 
 /**
- * One terminal in `pty.list`: what crha holds in memory for it. `startedAtMs` is the node's clock in
- * unix milliseconds, `exitCode` is 0 when the process has not exited, and `meta` is the opaque blob
- * crhs sent in `pty.open` (or replaced with `pty.meta`).
+ * One terminal in `pty.list`: its id, whether its process has exited, and its exit code (0 while it
+ * runs). crhs only reconciles its memory-only copy against this, so the entry carries nothing else
+ * (doc/design/pty.md "Reconnect").
  */
 export const ptyStatusCodec = tuple([
 	["ptyId", text],
-	["argv", list(text)],
-	["rows", uint],
-	["cols", uint],
-	["privileged", bool],
-	["scrollbackBytes", uint],
-	["meta", bytes],
-	["startedAtMs", uint],
 	["exited", bool],
 	["exitCode", int],
 ]);
@@ -691,14 +675,29 @@ export const dataConnectionResponseCodec = tuple([["protocolMajor", uint]]);
 export type DataConnectionResponse = Infer<typeof dataConnectionResponseCodec>;
 
 /**
- * The client payload of a terminal's data connection: the protocol major, then the terminal id crhs
- * checks against the terminal it tracks (doc/design/pty.md "crha").
+ * The client payload of a terminal's data connection: the protocol major, the terminal id crhs
+ * checks against the terminal it tracks, and how many input bytes crha has received. crhs continues
+ * the input stream from that byte (doc/design/pty.md "crha").
  */
 export const ptyConnectionInitCodec = tuple([
 	["protocolMajor", uint],
 	["ptyId", text],
+	["inputReceived", uint],
 ]);
 export type PtyConnectionInit = Infer<typeof ptyConnectionInitCodec>;
+
+/**
+ * The server payload of a terminal's data connection: the protocol major and how many output bytes
+ * crhs has received. crha continues the output stream from that byte (doc/design/pty.md "crha").
+ */
+export const ptyConnectionResponseCodec = tuple([
+	["protocolMajor", uint],
+	["outputReceived", uint],
+]);
+export type PtyConnectionResponse = Infer<typeof ptyConnectionResponseCodec>;
+
+/** The abort code of a data connection whose byte stream cannot continue without a gap. */
+export const PTY_STREAM_LOST = "stream_lost";
 
 /**
  * One data frame after the handshake: a chunk of bytes, the end of the transfer, or an abort with

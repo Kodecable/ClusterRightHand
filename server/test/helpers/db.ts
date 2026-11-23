@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { Kysely, PostgresDialect, sql } from "kysely";
+import { Kysely, type KyselyPlugin, PostgresDialect, sql } from "kysely";
 import pg from "pg";
 import { describe } from "vitest";
 import type { Db } from "../../src/storage/db.ts";
@@ -69,4 +69,39 @@ export async function withDdlLock<T>(fn: () => Promise<T>): Promise<T> {
 /** Runs DDL under the lock on PostgreSQL; SQLite has no shared schemas, so it just runs the work. */
 export function withDdlLockOn<T>(backend: Backend, fn: () => Promise<T>): Promise<T> {
 	return backend === "postgres" ? withDdlLock(fn) : fn();
+}
+
+/**
+ * Wraps a database so a user's direct node grant is deleted right after the node list that included it.
+ * The terminal service reads the accessible nodes and then re-checks access; this reproduces a grant
+ * revoked in that window, so the re-check is what refuses the open (not the listing's filter).
+ */
+export function revokeNodeGrantAfterList(db: Db, userId: string, nodeId: string): Db {
+	let revoked = false;
+	const nodeSelects = new WeakSet<object>();
+	const plugin: KyselyPlugin = {
+		transformQuery(args) {
+			const node = args.node as unknown as {
+				kind?: string;
+				from?: { froms?: { table?: { identifier?: { name?: string } } }[] };
+			};
+			const table = node.from?.froms?.[0]?.table?.identifier?.name;
+			if (node.kind === "SelectQueryNode" && table === "nodes") nodeSelects.add(args.queryId);
+			return args.node;
+		},
+		async transformResult(args) {
+			if (!revoked && nodeSelects.has(args.queryId) && args.result.rows.length > 0) {
+				revoked = true;
+				await db
+					.deleteFrom("node_access_grants")
+					.where("grantee_type", "=", "user")
+					.where("grantee_id", "=", userId)
+					.where("target_type", "=", "node")
+					.where("target_id", "=", nodeId)
+					.execute();
+			}
+			return args.result;
+		},
+	};
+	return db.withPlugin(plugin);
 }

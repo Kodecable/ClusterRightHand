@@ -466,11 +466,10 @@ type TaskExitAck struct {
 }
 
 // PTYOpen is the pty.open request body: the terminal id crhs chose, its argv (empty means the
-// identity's login shell), its initial size, its privileged flag, the size of the scrollback ring
-// buffer and the opaque Meta blob crhs owns. crha stores Meta and returns it in pty.list unchanged;
-// it never interprets it (doc/design/pty.md "Reconnect"). A privileged terminal also carries its
-// authorization exactly as task.start does: Attempt, the Authorizations (CBOR authorization objects)
-// and crhs's Cosign ticket, or nil. An unprivileged one carries 0, an empty list and nil.
+// identity's login shell), its initial size, its privileged flag and the size of the scrollback ring
+// buffer. A privileged terminal also carries its authorization exactly as task.start does: Attempt,
+// the Authorizations (CBOR authorization objects) and crhs's Cosign ticket, or nil. An unprivileged
+// one carries 0, an empty list and nil.
 type PTYOpen struct {
 	_               struct{} `cbor:",toarray"`
 	PTYID           string
@@ -479,7 +478,6 @@ type PTYOpen struct {
 	Cols            Uint
 	Privileged      bool
 	ScrollbackBytes Uint
-	Meta            []byte
 	Attempt         Uint
 	Authorizations  [][]byte
 	Cosign          *[]byte
@@ -500,19 +498,16 @@ type PTYClose struct {
 	Reason string
 }
 
-// PTYMeta is the pty.meta request body. It replaces the terminal's opaque crhs metadata blob.
-type PTYMeta struct {
-	_     struct{} `cbor:",toarray"`
-	PTYID string
-	Meta  []byte
-}
-
 // The reasons a pty.exited event can name: the process ended by itself, or a privileged terminal
 // lost its privileged mode (doc/design/pty.md "Lifecycle").
 const (
 	PTYExitReasonExited     = "exited"
 	PTYExitReasonHelperLost = "helper_lost"
 )
+
+// PTYStreamLost is the abort code of a terminal data connection whose byte stream cannot continue
+// without a gap or a repeat (doc/design/pty.md "crha").
+const PTYStreamLost = "stream_lost"
 
 // PTYExited is the pty.exited event body: the exit code is signed, so a killed process can report -1,
 // and Reason is one of PTYExitReasonExited and PTYExitReasonHelperLost.
@@ -523,21 +518,14 @@ type PTYExited struct {
 	Reason   string
 }
 
-// PTYStatus is one terminal of the pty.list event: what crha holds in memory for it. StartedAtMS is
-// the node's clock in unix milliseconds, ExitCode is 0 when the process has not exited, and Meta is
-// the opaque blob crhs sent in pty.open (or replaced with pty.meta).
+// PTYStatus is one terminal of the pty.list event: its id, whether its process has exited, and its
+// exit code (0 while it runs). crhs only reconciles its memory-only copy against it, so the entry
+// carries nothing else (doc/design/pty.md "Reconnect").
 type PTYStatus struct {
-	_               struct{} `cbor:",toarray"`
-	PTYID           string
-	Argv            []string
-	Rows            Uint
-	Cols            Uint
-	Privileged      bool
-	ScrollbackBytes Uint
-	Meta            []byte
-	StartedAtMS     Uint
-	Exited          bool
-	ExitCode        Int
+	_        struct{} `cbor:",toarray"`
+	PTYID    string
+	Exited   bool
+	ExitCode Int
 }
 
 // PTYList is the pty.list event body: a one-element tuple holding every active terminal, sent after
@@ -564,12 +552,23 @@ type DataConnectionResponse struct {
 }
 
 // PTYConnectionInit is the client payload of a terminal's data connection's Noise IK handshake: the
-// protocol major and the terminal id crhs checks against the terminal it tracks (doc/design/pty.md
+// protocol major, the terminal id crhs checks against the terminal it tracks, and how many input
+// bytes crha has received. crhs continues the input stream from that byte (doc/design/pty.md
 // "crha").
 type PTYConnectionInit struct {
 	_             struct{} `cbor:",toarray"`
 	ProtocolMajor Uint
 	PTYID         string
+	InputReceived Uint
+}
+
+// PTYConnectionResponse is the server payload of a terminal's data connection's handshake: the
+// protocol major and how many output bytes crhs has received. crha continues the output stream from
+// that byte (doc/design/pty.md "crha").
+type PTYConnectionResponse struct {
+	_              struct{} `cbor:",toarray"`
+	ProtocolMajor  Uint
+	OutputReceived Uint
 }
 
 // DataFrame is one CBOR frame on a data connection after its handshake: a chunk of bytes, the end of
@@ -736,8 +735,8 @@ type NodeUpgradeSpec struct {
 }
 
 // PtyCreateSpec is the TaskSpec body for the "pty.create" kind: the argv a privileged terminal runs,
-// empty for the privileged identity's login shell. Size, scrollback and metadata are not part of the
-// spec, so resizing never invalidates an authorization (doc/design/pty.md "Privilege").
+// empty for the privileged identity's login shell. Size and scrollback are not part of the spec, so
+// resizing never invalidates an authorization (doc/design/pty.md "Privilege").
 type PtyCreateSpec struct {
 	_    struct{} `cbor:",toarray"`
 	Argv []string

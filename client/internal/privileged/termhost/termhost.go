@@ -244,7 +244,7 @@ func (h *Host) handleInput(_ context.Context, raw cbor.RawMessage) (any, error) 
 	if len(req.Data) == 0 {
 		return protocol.Empty{}, nil
 	}
-	if err := t.Write(req.Data); err != nil {
+	if _, err := t.Write(req.Data); err != nil {
 		return nil, &protocol.RemoteError{Code: protocol.CodeIOError, Message: "write to the terminal: " + err.Error()}
 	}
 	return protocol.Empty{}, nil

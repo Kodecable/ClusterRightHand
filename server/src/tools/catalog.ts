@@ -44,6 +44,9 @@ import { evaluate } from "../policy/rules.ts";
 import { loadChain, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
+import type { RuleApprovalRequest } from "../terminals/approval.ts";
+import type { TerminalService } from "../terminals/registry.ts";
+import { ptyClose, ptyList, ptyOpen, ptyRead, ptyResize, ptyWatch, ptyWrite } from "../terminals/tools.ts";
 import type { TodoLists } from "../todos/todos.ts";
 import { TODO_TOOLS } from "../todos/tools.ts";
 import { UserError } from "../util/errors.ts";
@@ -144,6 +147,14 @@ export interface ToolContext {
 	deliveryCount?: () => Promise<number>;
 	/** The limits of one directory copy (doc/design/library.md "Directory copies"); the defaults without it. */
 	directoryCopyLimits?: { files: number; bytes: number };
+	/** The terminal subsystem behind the pty tools (doc/design/pty.md); absent when it is off. */
+	terminals?: TerminalService;
+	/** Auto Review for a terminal request; the reviewer sees the screen. */
+	reviewPty?: (
+		actor: Actor,
+		request: RuleApprovalRequest,
+		screen: string,
+	) => Promise<"approve" | "reject" | "escalate">;
 }
 
 /** How large an image `view_image` accepts. */
@@ -1990,6 +2001,131 @@ const callTool = define({
 	handler: async (args, ctx) => runExtensionTool(ctx, args.extension, args.tool, args.arguments ?? {}, args.wait),
 });
 
+const ptySizeField = z
+	.object({ rows: z.number().int().min(1).max(1000), cols: z.number().int().min(1).max(1000) })
+	.describe("The initial rows and columns (default 24x80)");
+
+const ptyOpenTool = define({
+	name: "pty_open",
+	description:
+		"Open an interactive terminal on a node and return its id. `idle_timeout` (seconds) is required: the " +
+		"terminal closes when nobody is attached, no pty_watch runs and every session that created or is " +
+		"associated with it is idle for that long. A privileged terminal is authorized once at open and may " +
+		"wait for the user's approval and signature.",
+	input: z.object({
+		node: z.string().describe("A node name or id you have access to"),
+		argv: z
+			.array(z.string())
+			.max(64)
+			.optional()
+			.describe("The command to run; omitted starts the identity's login shell"),
+		privileged: z.boolean().optional().describe("Open it in the node's privileged mode, after its authorization"),
+		size: ptySizeField.optional(),
+		idle_timeout: z.number().int().min(1).describe("Seconds of idleness before the terminal closes; required"),
+	}),
+	readOnly: false,
+	agentOnly: true,
+	output: "text",
+	handler: async (args, ctx) => ptyOpen(ctx, args),
+});
+
+const ptyListTool = define({
+	name: "pty_list",
+	description: "List the terminals this session created or is associated with, with their state, size and viewers.",
+	input: z.object({}),
+	readOnly: true,
+	agentOnly: true,
+	output: "json",
+	handler: async (_args, ctx) => ptyList(ctx),
+});
+
+const ptyReadTool = define({
+	name: "pty_read",
+	description:
+		"Read a terminal without blocking. mode `screen` (default) returns the current screen and the cursor " +
+		"position; mode `output` returns what was written since this session's last read, with escape sequences " +
+		"stripped and capped. While a full-screen program holds the alternate screen, output mode is unavailable " +
+		"and returns the current screen instead.",
+	input: z.object({
+		id: z.string().describe("The terminal id pty_open returned"),
+		mode: z.enum(["screen", "output"]).optional(),
+	}),
+	readOnly: true,
+	agentOnly: true,
+	output: "text",
+	handler: async (args, ctx) => ptyRead(ctx, args),
+});
+
+const ptyWatchTool = define({
+	name: "pty_watch",
+	description:
+		"Block until a terminal's output matches a keyword (plain text, escape sequences stripped; while a " +
+		"full-screen program holds the alternate screen, the keyword is matched against that screen), rings its " +
+		"bell (when bell is true), the timeout passes, the process exits, the terminal closes or the session " +
+		"stops. Returns the reason, the matched keyword and the screen.",
+	input: z.object({
+		id: z.string().describe("The terminal id pty_open returned"),
+		timeout: z.number().int().min(1).describe("Seconds to wait at most"),
+		keywords: z.array(z.string()).optional().describe("Plain-text keywords to wait for"),
+		bell: z.boolean().optional().describe("Also end on a BEL the terminal parser sees on its own"),
+	}),
+	readOnly: true,
+	agentOnly: true,
+	output: "text",
+	handler: async (args, ctx) => ptyWatch(ctx, args),
+});
+
+const ptyWriteTool = define({
+	name: "pty_write",
+	description:
+		"Write to a terminal: text, named keys (`Enter`, `Tab`, `Escape`, `Up`, `Down`, `Ctrl-C`, …) or both. " +
+		"The session's rules judge it under pty.io; an approval may wait for the user.",
+	input: z.object({
+		id: z.string().describe("The terminal id pty_open returned"),
+		text: z.string().optional(),
+		keys: z.array(z.string()).optional().describe("Named keys such as Enter, Tab, Escape, Up, Ctrl-C"),
+	}),
+	readOnly: false,
+	agentOnly: true,
+	output: "text",
+	handler: async (args, ctx) => ptyWrite(ctx, args),
+});
+
+const ptyResizeTool = define({
+	name: "pty_resize",
+	description: "Resize a terminal explicitly. The size changes only here or through the WebUI's Fit to window.",
+	input: z.object({
+		id: z.string().describe("The terminal id pty_open returned"),
+		rows: z.number().int().min(1).max(1000),
+		cols: z.number().int().min(1).max(1000),
+	}),
+	readOnly: false,
+	agentOnly: true,
+	output: "text",
+	handler: async (args, ctx) => ptyResize(ctx, args),
+});
+
+const ptyCloseTool = define({
+	name: "pty_close",
+	description: "Close a terminal this session created. The process group gets a hangup, then is killed.",
+	input: z.object({ id: z.string().describe("The terminal id pty_open returned") }),
+	readOnly: false,
+	agentOnly: true,
+	output: "text",
+	handler: async (args, ctx) => ptyClose(ctx, args),
+});
+
+/** The pty tools' names, so a surface can leave them out while the subsystem is off. */
+export const PTY_TOOL_NAMES: ReadonlySet<string> = new Set([
+	"pty_open",
+	"pty_list",
+	"pty_read",
+	"pty_watch",
+	"pty_write",
+	"pty_resize",
+	"pty_close",
+]);
+
 export const TOOLS: readonly ClusterTool[] = [
 	listNodes,
 	nodeInfo,
@@ -2005,4 +2141,11 @@ export const TOOLS: readonly ClusterTool[] = [
 	callTool,
 	...JOB_TOOLS,
 	...TODO_TOOLS,
+	ptyOpenTool,
+	ptyListTool,
+	ptyReadTool,
+	ptyWatchTool,
+	ptyWriteTool,
+	ptyResizeTool,
+	ptyCloseTool,
 ] as unknown as ClusterTool[];

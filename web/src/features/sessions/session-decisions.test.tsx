@@ -132,6 +132,7 @@ const data = (): ApprovalList => ({
 		taskGroups: [group("sign-group", "2026-01-04T00:00:00.000Z")],
 	},
 	quotas: [quota("other", "2026-01-01T00:00:00.000Z"), quota("root", "2026-01-02T00:00:00.000Z")],
+	ptys: [],
 	externalCalls: [
 		externalCall("call-later", "2026-01-02T00:00:00.000Z"),
 		externalCall("call-older", "2026-01-01T00:00:00.000Z"),

@@ -125,6 +125,12 @@ func decodeFixtureValue(raw []byte, id string) (any, error) {
 			return nil, err
 		}
 		return init, nil
+	case strings.HasPrefix(id, "data.response.pty"):
+		var response PTYConnectionResponse
+		if err := Unmarshal(raw, &response); err != nil {
+			return nil, err
+		}
+		return response, nil
 	}
 
 	frame, err := DecodeFrame(raw)
@@ -180,9 +186,6 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 		case CmdPTYClose:
 			var v PTYClose
 			return v, Unmarshal(frame.Body, &v)
-		case CmdPTYMeta:
-			var v PTYMeta
-			return v, Unmarshal(frame.Body, &v)
 		}
 	case FrameResponse:
 		switch frame.Name {
@@ -192,7 +195,7 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 		case CmdPing:
 			var v Ping
 			return v, Unmarshal(frame.Body, &v)
-		case CmdTaskStart, CmdTaskInput, CmdTaskCancel, CmdPTYOpen, CmdPTYResize, CmdPTYClose, CmdPTYMeta:
+		case CmdTaskStart, CmdTaskInput, CmdTaskCancel, CmdPTYOpen, CmdPTYResize, CmdPTYClose:
 			var v Empty
 			return v, Unmarshal(frame.Body, &v)
 		case CmdTaskQuery:
@@ -268,6 +271,8 @@ func encodeFixtureValue(value any) ([]byte, error) {
 		return Marshal(v)
 	case PTYConnectionInit:
 		return Marshal(v)
+	case PTYConnectionResponse:
+		return Marshal(v)
 	case fixtureFrame:
 		switch {
 		case v.Kind == FrameRequest:
@@ -303,39 +308,17 @@ func fixtureCommands() []string {
 // order: the required names and then the optional terminal names. crhs offers them, while a node
 // offers an optional name only when it implements it.
 func fixtureOfferedCommands() []string {
-	return append(fixtureCommands(), CmdPTYOpen, CmdPTYResize, CmdPTYClose, CmdPTYMeta, EventPTYExited, EventPTYList)
+	return append(fixtureCommands(), CmdPTYOpen, CmdPTYResize, CmdPTYClose, EventPTYExited, EventPTYList)
 }
 
-// fixturePTYMeta is the opaque crhs metadata blob of the fixture: the CBOR map {"x": 1}.
-func fixturePTYMeta() []byte { return []byte{0xa1, 0x61, 0x78, 0x01} }
-
-// fixturePTYRunning is the running terminal the pty.open and pty.list fixtures describe.
+// fixturePTYRunning is the running terminal of the pty.list fixture.
 func fixturePTYRunning() PTYStatus {
-	return PTYStatus{
-		PTYID:           "pty-1",
-		Argv:            []string{"/bin/bash", "-l"},
-		Rows:            40,
-		Cols:            120,
-		Privileged:      false,
-		ScrollbackBytes: 1048576,
-		Meta:            fixturePTYMeta(),
-		StartedAtMS:     1700000000000,
-	}
+	return PTYStatus{PTYID: "pty-1"}
 }
 
 // fixturePTYExited is the exited terminal of the pty.list fixture.
 func fixturePTYExited() PTYStatus {
-	return PTYStatus{
-		PTYID:       "pty-2",
-		Argv:        []string{},
-		Rows:        24,
-		Cols:        80,
-		Privileged:  true,
-		Meta:        []byte{},
-		StartedAtMS: 1700000002000,
-		Exited:      true,
-		ExitCode:    137,
-	}
+	return PTYStatus{PTYID: "pty-2", Exited: true, ExitCode: 137}
 }
 
 func fixtureFacts() Facts {
@@ -422,11 +405,10 @@ var fixtureExpectedIDs = []string{
 	"response.pty.resize",
 	"request.pty.close",
 	"response.pty.close",
-	"request.pty.meta",
-	"response.pty.meta",
 	"event.pty.exited",
 	"event.pty.list",
 	"data.init.pty",
+	"data.response.pty",
 }
 
 func expectedFixtureValue(id string) (any, bool) {
@@ -884,7 +866,6 @@ func expectedFixtureValue(id string) (any, bool) {
 				Cols:            120,
 				Privileged:      false,
 				ScrollbackBytes: 1048576,
-				Meta:            fixturePTYMeta(),
 				// An unprivileged terminal carries no authorization (doc/design/pty.md "Privilege").
 				Attempt:        0,
 				Authorizations: [][]byte{},
@@ -904,7 +885,6 @@ func expectedFixtureValue(id string) (any, bool) {
 				Cols:            80,
 				Privileged:      true,
 				ScrollbackBytes: 0,
-				Meta:            []byte{},
 				Attempt:         1,
 				Authorizations:  [][]byte{{0x00, 0xff}},
 				Cosign:          &cosign,
@@ -924,13 +904,6 @@ func expectedFixtureValue(id string) (any, bool) {
 		}, true
 	case "response.pty.close":
 		return fixtureFrame{Kind: FrameResponse, ID: 32, Name: CmdPTYClose, OK: true, Body: Empty{}}, true
-	case "request.pty.meta":
-		return fixtureFrame{
-			Kind: FrameRequest, ID: 33, Name: CmdPTYMeta,
-			Body: PTYMeta{PTYID: "pty-1", Meta: fixturePTYMeta()},
-		}, true
-	case "response.pty.meta":
-		return fixtureFrame{Kind: FrameResponse, ID: 33, Name: CmdPTYMeta, OK: true, Body: Empty{}}, true
 	case "event.pty.exited":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventPTYExited,
@@ -942,7 +915,9 @@ func expectedFixtureValue(id string) (any, bool) {
 			Body: PTYList{Terminals: []PTYStatus{fixturePTYRunning(), fixturePTYExited()}},
 		}, true
 	case "data.init.pty":
-		return PTYConnectionInit{ProtocolMajor: ProtocolMajor, PTYID: "pty-1"}, true
+		return PTYConnectionInit{ProtocolMajor: ProtocolMajor, PTYID: "pty-1", InputReceived: 1024}, true
+	case "data.response.pty":
+		return PTYConnectionResponse{ProtocolMajor: ProtocolMajor, OutputReceived: 2048}, true
 
 	case "event.trust.summary":
 		return fixtureFrame{

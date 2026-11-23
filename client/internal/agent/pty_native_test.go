@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -114,15 +115,17 @@ func waitReaped(t *testing.T, p *os.Process) {
 }
 
 // TestNativePrivilegedPTYRelays covers the whole native relay: crha starts one helper for the
-// terminal, its output reaches the terminal's data connection with a fresh replay after a drop,
-// input reaches the process, and the process's exit ends the terminal like a local one. The
-// helper's stderr records are relayed with the pty.create spec, and pty.close ends the helper.
+// terminal, its output continues the byte stream after a drop, input reaches the process, and the
+// process's exit ends the terminal like a local one. The helper's stderr records are relayed with
+// the pty.create spec, and pty.close ends the helper.
 func TestNativePrivilegedPTYRelays(t *testing.T) {
 	oldMin := ptyMinBackoff
 	ptyMinBackoff = 20 * time.Millisecond
 	t.Cleanup(func() { ptyMinBackoff = oldMin })
 
 	dialer := newFakePTYDialer()
+	var offset atomic.Uint64
+	dialer.setOutputOffset(func(string, uint64) uint64 { return offset.Load() })
 	var logs syncBuffer
 	a := nativePTYAgent(t, Options{PTYDial: dialer.dial, Logger: logging.NewPlain(&logs)})
 
@@ -141,16 +144,17 @@ func TestNativePrivilegedPTYRelays(t *testing.T) {
 
 	conn := waitCh(t, dialer.conns, "the terminal data connection")
 	collectUntil(t, conn, "hello")
+	offset.Store(uint64(len("hello")))
 
-	// A dropped data connection is replaced by a fresh replay of the whole ring, not a resumption.
+	// A dropped data connection continues from crhs's offset: nothing is replayed.
 	conn.drop()
-	replayConn := waitCh(t, dialer.conns, "a replacement terminal data connection")
-	if replay := collectPrefix(t, replayConn, len("hello")); !strings.HasPrefix(replay, "hello") {
-		t.Fatalf("replacement data connection starts with %q, want the ring replayed from hello", replay)
+	next := waitCh(t, dialer.conns, "a replacement terminal data connection")
+	next.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("world\n")})
+	out := collectUntil(t, next, "got:world")
+	if strings.Contains(out, "hello") {
+		t.Fatalf("replacement data connection replayed %q", out)
 	}
-	replayConn.push(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("world\n")})
-	collectUntil(t, replayConn, "got:world")
-	waitDataKind(t, replayConn, protocol.DataFrameEnd)
+	waitDataKind(t, next, protocol.DataFrameEnd)
 
 	exit := waitCh(t, w.ptyExits, "pty.exited")
 	if exit.PTYID != "native-1" || exit.ExitCode != 3 || exit.Reason != protocol.PTYExitReasonExited {
@@ -160,9 +164,11 @@ func TestNativePrivilegedPTYRelays(t *testing.T) {
 	if term == nil {
 		t.Fatal("the relayed terminal is not held")
 	}
-	if st := term.Status(); !st.Privileged || !st.Exited || st.ExitCode != 3 ||
-		len(st.Argv) != 3 || st.Argv[0] != "/bin/sh" {
+	if st := term.Status(); !st.Exited || st.ExitCode != 3 {
 		t.Fatalf("relayed terminal status = %+v", st)
+	}
+	if argv := term.Argv(); len(argv) != 3 || argv[0] != "/bin/sh" {
+		t.Fatalf("relayed terminal argv = %q", argv)
 	}
 	if term.Lost() {
 		t.Fatal("a terminal whose process exited is marked lost")
@@ -246,6 +252,8 @@ func TestNativePrivilegedPTYHelperLost(t *testing.T) {
 // closed, the helper exits and is reaped, and the terminal leaves the agent's manager.
 func TestNativePrivilegedPTYClose(t *testing.T) {
 	dialer := newFakePTYDialer()
+	var offset atomic.Uint64
+	dialer.setOutputOffset(func(string, uint64) uint64 { return offset.Load() })
 	var logs syncBuffer
 	a := nativePTYAgent(t, Options{PTYDial: dialer.dial, Logger: logging.NewPlain(&logs)})
 
@@ -287,6 +295,8 @@ func TestNativePrivilegedPTYClose(t *testing.T) {
 // refusal of the terminal is recorded on stderr.
 func TestNativePrivilegedPTYOneTerminalPerHelper(t *testing.T) {
 	dialer := newFakePTYDialer()
+	var offset atomic.Uint64
+	dialer.setOutputOffset(func(string, uint64) uint64 { return offset.Load() })
 	var logs syncBuffer
 	a := nativePTYAgent(t, Options{PTYDial: dialer.dial, Logger: logging.NewPlain(&logs)})
 

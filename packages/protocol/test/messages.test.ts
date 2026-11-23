@@ -36,16 +36,15 @@ import {
 	type PtyClose,
 	type PtyExited,
 	type PtyList,
-	type PtyMeta,
 	type PtyOpen,
 	type PtyResize,
 	type PtyStatus,
 	pingCodec,
 	ptyCloseCodec,
 	ptyConnectionInitCodec,
+	ptyConnectionResponseCodec,
 	ptyExitedCodec,
 	ptyListCodec,
-	ptyMetaCodec,
 	ptyOpenCodec,
 	ptyResizeCodec,
 	ptyStatusCodec,
@@ -188,7 +187,6 @@ const handshakeResponse: HandshakeResponse = {
 	nodeId: "n-1",
 };
 
-const ptyMeta: Uint8Array = Uint8Array.of(0xa1, 0x61, 0x78, 0x01);
 const ptyOpen: PtyOpen = {
 	ptyId: "pty-1",
 	argv: ["/bin/bash", "-l"],
@@ -196,31 +194,19 @@ const ptyOpen: PtyOpen = {
 	cols: 120,
 	privileged: false,
 	scrollbackBytes: 1048576,
-	meta: ptyMeta,
 	attempt: 0,
 	authorizations: [],
 	cosign: null,
 };
 const ptyResize: PtyResize = { ptyId: "pty-1", rows: 50, cols: 200 };
 const ptyClose: PtyClose = { ptyId: "pty-1", reason: "manual" };
-const ptyMetaBody: PtyMeta = { ptyId: "pty-1", meta: ptyMeta };
 const ptyExited: PtyExited = { ptyId: "pty-2", exitCode: -1, reason: "helper_lost" };
-const ptyStatus: PtyStatus = {
-	ptyId: "pty-1",
-	argv: ["/bin/bash", "-l"],
-	rows: 40,
-	cols: 120,
-	privileged: false,
-	scrollbackBytes: 1048576,
-	meta: ptyMeta,
-	startedAtMs: 1_700_000_000_000,
-	exited: false,
-	exitCode: 0,
-};
+const ptyStatus: PtyStatus = { ptyId: "pty-1", exited: false, exitCode: 0 };
 const ptyList: PtyList = {
-	terminals: [ptyStatus, { ...ptyStatus, ptyId: "pty-2", argv: [], privileged: true, exited: true, exitCode: 137 }],
+	terminals: [ptyStatus, { ptyId: "pty-2", exited: true, exitCode: 137 }],
 };
-const ptyConnectionInit = { protocolMajor: PROTOCOL_MAJOR, ptyId: "pty-1" };
+const ptyConnectionInit = { protocolMajor: PROTOCOL_MAJOR, ptyId: "pty-1", inputReceived: 1024 };
+const ptyConnectionResponse = { protocolMajor: PROTOCOL_MAJOR, outputReceived: 2048 };
 
 function asCase<T>(name: string, codec: Codec<T>, value: T): [string, Codec<unknown>, unknown] {
 	return [name, codec as Codec<unknown>, value];
@@ -283,11 +269,11 @@ const cases: [string, Codec<unknown>, unknown][] = [
 	asCase("PTY open", ptyOpenCodec, ptyOpen),
 	asCase("PTY resize", ptyResizeCodec, ptyResize),
 	asCase("PTY close", ptyCloseCodec, ptyClose),
-	asCase("PTY meta", ptyMetaCodec, ptyMetaBody),
 	asCase("PTY exited", ptyExitedCodec, ptyExited),
 	asCase("PTY status", ptyStatusCodec, ptyStatus),
 	asCase("PTY list", ptyListCodec, ptyList),
 	asCase("PTY connection init", ptyConnectionInitCodec, ptyConnectionInit),
+	asCase("PTY connection response", ptyConnectionResponseCodec, ptyConnectionResponse),
 ];
 
 describe("message codecs", () => {
@@ -429,7 +415,7 @@ describe("message codecs", () => {
 			"task.exit.ack",
 			"trust.summary",
 		]);
-		expect(OPTIONAL_NAMES).toEqual(["pty.open", "pty.resize", "pty.close", "pty.meta", "pty.exited", "pty.list"]);
+		expect(OPTIONAL_NAMES).toEqual(["pty.open", "pty.resize", "pty.close", "pty.exited", "pty.list"]);
 		expect(offeredNames()).toEqual([...REQUIRED_NAMES, ...OPTIONAL_NAMES]);
 		expect(REQUIRED_NAMES).not.toContain("trust.query");
 		expect(REQUIRED_NAMES).not.toContain("revocations.set");
@@ -445,7 +431,6 @@ describe("message codecs", () => {
 			"hello",
 			"ping",
 			"pty.close",
-			"pty.meta",
 			"pty.open",
 			"pty.resize",
 			"task.cancel",

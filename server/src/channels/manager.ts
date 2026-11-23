@@ -19,6 +19,7 @@ import type { AgentRuntime, SessionView as AgentSessionView } from "../agent/run
 import { TREE_STATE } from "../agent/session-list.ts";
 import {
 	approvalRequestForExternalCall,
+	approvalRequestForPty,
 	approvalRequestForTask,
 	approvalRequestForTaskGroup,
 } from "../approvals/request.ts";
@@ -52,6 +53,7 @@ import { rootSessionIdOf } from "../sessions/session-chain.ts";
 import type { SettingsStore } from "../settings/settings.ts";
 import { DEFAULT_ATTACHMENT_INLINE_TEXT_BYTES, DEFAULT_ATTACHMENT_INLINE_TOTAL_BYTES } from "../settings/settings.ts";
 import type { Db } from "../storage/db.ts";
+import type { TerminalService } from "../terminals/registry.ts";
 import { getUserSettings, patchUserSettings } from "../users/settings.ts";
 import { errorText, NotFoundError, UserError } from "../util/errors.ts";
 import { newId } from "../util/id.ts";
@@ -132,6 +134,8 @@ export interface ChannelManagerOptions {
 	cluster: Cluster;
 	taskGroups: TaskGroups;
 	audit: Audit;
+	/** The terminal subsystem, for waiting pty approvals in chat (doc/design/pty.md "Rules"). */
+	terminals?: TerminalService;
 	/** Notes a scheduled run's quota denial, so `/quota stop` in its chat ends it failed. */
 	scheduler?: QuotaScheduler;
 	libraryBackend?: LibraryBackend;
@@ -405,18 +409,18 @@ function signatureCardOptions(
 	return sign || awaitingNode || localWindows.length > 0 ? { sign, localWindows, awaitingNode } : null;
 }
 
-function approvalKey(kind: "task" | "task_group" | "external_call", id: string): string {
+function approvalKey(kind: "task" | "task_group" | "external_call" | "pty", id: string): string {
 	return `${kind}:${id}`;
 }
 
 /**
- * What a chat decision may target: an approval of a task, group or external call, or the signature wait
- * of a task or task group (`authorization_task`/`authorization_task_group`, rejected only).
+ * What a chat decision may target: an approval of a task, group, external call or terminal, or the
+ * signature wait of a task or task group (`authorization_task`/`authorization_task_group`, rejected only).
  */
-type WaitingKind = "task" | "task_group" | "external_call" | "authorization_task" | "authorization_task_group";
+type WaitingKind = "task" | "task_group" | "external_call" | "pty" | "authorization_task" | "authorization_task_group";
 
 /** The `channel.approval` audit reads an authorization wait as the task or group it belongs to. */
-function auditKindOf(kind: WaitingKind): "task" | "task_group" | "external_call" {
+function auditKindOf(kind: WaitingKind): "task" | "task_group" | "external_call" | "pty" {
 	if (kind === "authorization_task") return "task";
 	if (kind === "authorization_task_group") return "task_group";
 	return kind;
@@ -2423,6 +2427,9 @@ export class ChannelManager {
 		) {
 			return "external_call";
 		}
+		// A terminal rule approval belongs to the terminal's user, like every other approval to its owner.
+		const pty = this.#options.terminals?.pendingApprovalOf(id);
+		if (pty && pty.terminal.userId === user.userId) return "pty";
 		return undefined;
 	}
 
@@ -2440,7 +2447,7 @@ export class ChannelManager {
 			if ((tracked.target.topicId ?? null) !== (target.topicId ?? null)) continue;
 			if (key.startsWith("quota:")) continue;
 			const [kind, id] = key.split(":");
-			if (!id || (kind !== "task" && kind !== "task_group" && kind !== "external_call")) continue;
+			if (!id || (kind !== "task" && kind !== "task_group" && kind !== "external_call" && kind !== "pty")) continue;
 			if (waiting.some((entry) => entry.id === id)) continue;
 			const actual = await this.#waitingApprovalKind(user, id, options);
 			if (actual !== undefined) waiting.push({ id, kind: actual });
@@ -2474,6 +2481,19 @@ export class ChannelManager {
 			const ok = await this.#options.taskGroups.rejectAuthorization(id, reason ?? "", by);
 			if (!ok) return undefined;
 			return { kind, key: approvalKey("task_group", id) };
+		}
+		if (kind === "pty") {
+			const found = this.#options.terminals?.pendingApprovalOf(id);
+			if (!found) return undefined;
+			try {
+				await this.#options.terminals?.decideApproval(found.terminal, user, {
+					decision: decision === "approved" ? "approve" : "reject",
+					...(reason ? { reason } : {}),
+				});
+			} catch {
+				return undefined;
+			}
+			return { kind, key: approvalKey("pty", id) };
 		}
 		const record = {
 			decision,
@@ -2632,7 +2652,15 @@ export class ChannelManager {
 			const [, kind, id, action] = press.data.split(":");
 			if (!kind || !id || !action) return;
 			const approvalKind =
-				kind === "t" ? "task" : kind === "g" ? "task_group" : kind === "e" ? "external_call" : undefined;
+				kind === "t"
+					? "task"
+					: kind === "g"
+						? "task_group"
+						: kind === "e"
+							? "external_call"
+							: kind === "p"
+								? "pty"
+								: undefined;
 			if (!approvalKind || (action !== "a" && action !== "r")) return;
 			const decision = action === "a" ? "approved" : "rejected";
 			const thread = await channelThread(this.#options.db, row.id, adapter.platform, press.chatId, press.topicId);
@@ -3482,9 +3510,56 @@ export class ChannelManager {
 			.where("state", "=", "awaiting_approval")
 			.execute();
 		for (const call of calls) await this.#syncCallWait(rootId, call, owner, route, locale, m);
+		const ptyWaiting = await this.#syncPtyWaits(rootId, owner, route, locale, m);
 		await this.#syncQuotaWait(rootId, owner, route, locale, m);
 		// A run waiting for the user shows no draft: drop any draft that a progress update created before the wait.
-		if (hasWait(tasks, groups, calls, owner, new Set(waitingGroupIds))) this.#dropDraft(rootId);
+		if (ptyWaiting || hasWait(tasks, groups, calls, owner, new Set(waitingGroupIds))) this.#dropDraft(rootId);
+	}
+
+	/**
+	 * Sends and settles the terminal rule approvals of one root session (doc/design/pty.md "Rules"): a
+	 * memory-only wait, found through the acting session and rendered from the same compact request every
+	 * other approval carries. Returns whether one is waiting.
+	 */
+	async #syncPtyWaits(
+		rootId: string,
+		owner: string,
+		route: Route | undefined,
+		locale: UserSettingsLocale,
+		m: BotMessages,
+	): Promise<boolean> {
+		const terminals = this.#options.terminals;
+		if (!terminals) return false;
+		const waiting = terminals.pendingApprovals();
+		if (waiting.length === 0) return false;
+		const sessions = await this.#options.db
+			.selectFrom("sessions")
+			.select("id")
+			.where((eb) => eb.or([eb("id", "=", rootId), eb("root_session_id", "=", rootId)]))
+			.execute();
+		const ids = new Set(sessions.map((row) => row.id));
+		let any = false;
+		for (const { terminal, approval } of waiting) {
+			if (!ids.has(approval.sessionId) || terminal.userId !== owner) continue;
+			any = true;
+			const key = approvalKey("pty", terminal.id);
+			if (!route || this.#tracked.has(key)) continue;
+			const request = await approvalRequestForPty(this.#options.db, terminal, approval);
+			const card = m.approvalCard(request, {
+				withButtons: route.adapter.capabilities.buttons,
+				withSource: route.notification === true,
+			});
+			const buttons = route.adapter.capabilities.buttons
+				? [
+						[
+							{ text: m.approveButton, data: `ap:p:${terminal.id}:a` },
+							{ text: m.rejectButton, data: `ap:p:${terminal.id}:r` },
+						],
+					]
+				: [];
+			await this.#sendTracked(key, rootId, route, card, buttons, locale, true);
+		}
+		return any;
 	}
 
 	async #syncTaskWait(
@@ -4134,6 +4209,19 @@ export class ChannelManager {
 			}
 			if (row.state === "awaiting_approval") return undefined;
 			return this.#decisionEnding(row.approval, m);
+		}
+		if (kind === "pty") {
+			const terminal = this.#options.terminals?.get(id);
+			if (!terminal) return m.expiredResult;
+			if (terminal.approval) return undefined;
+			const last = terminal.approvalDecision;
+			if (last?.by.type === "user" && last.by.id !== "system") {
+				const username = (await this.#username(last.by.id)) ?? last.by.id;
+				return last.decision === "approved"
+					? m.approvedResult(username)
+					: m.rejectedResult(username, last.reason ?? null);
+			}
+			return m.expiredResult;
 		}
 		const row = await getExternalCall(this.#options.db, id);
 		if (!row) return m.expiredResult;

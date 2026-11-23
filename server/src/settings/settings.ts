@@ -1,4 +1,10 @@
-import type { LibraryLimits, SystemSettings, SystemSettingsLibrary, SystemSettingsRetention } from "@crh/api";
+import type {
+	LibraryLimits,
+	SystemSettings,
+	SystemSettingsLibrary,
+	SystemSettingsPty,
+	SystemSettingsRetention,
+} from "@crh/api";
 import { configureHashGate } from "../auth/hash-gate.ts";
 import type { AuthConfig, RetentionConfig, WebauthnConfig } from "../config.ts";
 import {
@@ -47,6 +53,16 @@ export interface RuntimeSettings {
 	skills: { maxPerUser: number };
 	/** The job limits of a session (doc/design/jobs.md "Completion notices" and "Lifecycle and retention"). */
 	jobs: { maxConsecutiveWakes: number; maxRunning: number };
+	/** The resolved terminal subsystem settings (doc/design/pty.md "Settings and limits"). */
+	pty: {
+		enabled: boolean;
+		maxPerNode: number;
+		maxTotal: number;
+		maxPerSession: number;
+		agentIdleTimeoutMaxMs: number;
+		watchTimeoutMaxMs: number;
+		scrollbackBytes: number;
+	};
 }
 
 /** The keys stored in the `settings` table; each row holds one validated value as JSON. */
@@ -78,6 +94,13 @@ export const SETTING_KEYS = [
 	"skills.max_per_user",
 	"jobs.max_consecutive_wakes",
 	"jobs.max_running",
+	"pty.enabled",
+	"pty.max_per_node",
+	"pty.max_total",
+	"pty.max_per_session",
+	"pty.agent_idle_timeout_max",
+	"pty.watch_timeout_max",
+	"pty.scrollback_bytes",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -105,6 +128,20 @@ export const DEFAULT_SKILLS_PER_USER = 64;
 export const DEFAULT_MAX_CONSECUTIVE_WAKES = 10;
 /** The most unsettled jobs a session (or an API token) may have at once. */
 export const DEFAULT_JOBS_MAX_RUNNING = 32;
+/** The smallest and largest scrollback crha holds for one terminal (doc/design/pty.md "crha"). */
+export const MIN_PTY_SCROLLBACK_BYTES = 64 * 1024;
+export const MAX_PTY_SCROLLBACK_BYTES = 16 * 1024 * 1024;
+
+/** The terminal defaults (doc/design/pty.md "Settings and limits"). */
+export const DEFAULT_SYSTEM_SETTINGS_PTY: SystemSettingsPty = {
+	enabled: true,
+	maxPerNode: 8,
+	maxTotal: 64,
+	maxPerSession: 4,
+	agentIdleTimeoutMax: "1h",
+	watchTimeoutMax: "10m",
+	scrollbackBytes: 1024 * 1024,
+};
 
 /** The defaults from config.ts, in the API form the WebUI shows. */
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
@@ -129,6 +166,7 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
 	directoryCopy: { files: DEFAULT_DIRECTORY_COPY_FILES, bytes: DEFAULT_DIRECTORY_COPY_BYTES },
 	skills: { maxPerUser: DEFAULT_SKILLS_PER_USER },
 	jobs: { maxConsecutiveWakes: DEFAULT_MAX_CONSECUTIVE_WAKES, maxRunning: DEFAULT_JOBS_MAX_RUNNING },
+	pty: { ...DEFAULT_SYSTEM_SETTINGS_PTY },
 };
 
 /** A copy of the defaults, safe for a caller to modify. */
@@ -168,6 +206,13 @@ function defaultsByKey(): Record<SettingKey, unknown> {
 		"skills.max_per_user": DEFAULT_SYSTEM_SETTINGS.skills.maxPerUser,
 		"jobs.max_consecutive_wakes": DEFAULT_SYSTEM_SETTINGS.jobs.maxConsecutiveWakes,
 		"jobs.max_running": DEFAULT_SYSTEM_SETTINGS.jobs.maxRunning,
+		"pty.enabled": DEFAULT_SYSTEM_SETTINGS.pty.enabled,
+		"pty.max_per_node": DEFAULT_SYSTEM_SETTINGS.pty.maxPerNode,
+		"pty.max_total": DEFAULT_SYSTEM_SETTINGS.pty.maxTotal,
+		"pty.max_per_session": DEFAULT_SYSTEM_SETTINGS.pty.maxPerSession,
+		"pty.agent_idle_timeout_max": DEFAULT_SYSTEM_SETTINGS.pty.agentIdleTimeoutMax,
+		"pty.watch_timeout_max": DEFAULT_SYSTEM_SETTINGS.pty.watchTimeoutMax,
+		"pty.scrollback_bytes": DEFAULT_SYSTEM_SETTINGS.pty.scrollbackBytes,
 	};
 }
 
@@ -201,6 +246,13 @@ function flatten(settings: SystemSettings): Record<SettingKey, unknown> {
 		"skills.max_per_user": settings.skills.maxPerUser,
 		"jobs.max_consecutive_wakes": settings.jobs.maxConsecutiveWakes,
 		"jobs.max_running": settings.jobs.maxRunning,
+		"pty.enabled": settings.pty.enabled,
+		"pty.max_per_node": settings.pty.maxPerNode,
+		"pty.max_total": settings.pty.maxTotal,
+		"pty.max_per_session": settings.pty.maxPerSession,
+		"pty.agent_idle_timeout_max": settings.pty.agentIdleTimeoutMax,
+		"pty.watch_timeout_max": settings.pty.watchTimeoutMax,
+		"pty.scrollback_bytes": settings.pty.scrollbackBytes,
 	};
 }
 
@@ -253,6 +305,15 @@ function unflatten(values: Record<SettingKey, unknown>): SystemSettings {
 		jobs: {
 			maxConsecutiveWakes: values["jobs.max_consecutive_wakes"] as number,
 			maxRunning: values["jobs.max_running"] as number,
+		},
+		pty: {
+			enabled: values["pty.enabled"] as boolean,
+			maxPerNode: values["pty.max_per_node"] as number,
+			maxTotal: values["pty.max_total"] as number,
+			maxPerSession: values["pty.max_per_session"] as number,
+			agentIdleTimeoutMax: values["pty.agent_idle_timeout_max"] as string,
+			watchTimeoutMax: values["pty.watch_timeout_max"] as string,
+			scrollbackBytes: values["pty.scrollback_bytes"] as number,
 		},
 	};
 }
@@ -313,6 +374,26 @@ export function parseSettingValue(key: SettingKey, value: unknown): unknown {
 			if (ms <= 0) throw new Error("image_cache.ttl must be greater than zero");
 			return (value as string).trim();
 		}
+		case "pty.enabled":
+			if (typeof value !== "boolean") throw new Error("pty.enabled must be a boolean");
+			return value;
+		case "pty.max_per_node":
+		case "pty.max_total":
+		case "pty.max_per_session":
+			return parseInteger(value, key, 0);
+		case "pty.agent_idle_timeout_max":
+		case "pty.watch_timeout_max": {
+			const ms = parseDurationMs(value, key);
+			if (ms <= 0) throw new Error(`${key} must be greater than zero`);
+			return (value as string).trim();
+		}
+		case "pty.scrollback_bytes": {
+			const bytes = parseInteger(value, key, MIN_PTY_SCROLLBACK_BYTES);
+			if (bytes > MAX_PTY_SCROLLBACK_BYTES) {
+				throw new Error(`${key} must be at most ${MAX_PTY_SCROLLBACK_BYTES} bytes (16 MiB)`);
+			}
+			return bytes;
+		}
 	}
 }
 
@@ -363,6 +444,7 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 				"directoryCopy",
 				"skills",
 				"jobs",
+				"pty",
 			].includes(key)
 		) {
 			fields[key] = `unknown setting ${key}`;
@@ -569,6 +651,18 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 				["maxRunning", "jobs.max_running"],
 			],
 		],
+		[
+			"pty",
+			[
+				["enabled", "pty.enabled"],
+				["maxPerNode", "pty.max_per_node"],
+				["maxTotal", "pty.max_total"],
+				["maxPerSession", "pty.max_per_session"],
+				["agentIdleTimeoutMax", "pty.agent_idle_timeout_max"],
+				["watchTimeoutMax", "pty.watch_timeout_max"],
+				["scrollbackBytes", "pty.scrollback_bytes"],
+			],
+		],
 	] as const;
 	for (const [name, entries] of groups) {
 		if (input[name] === undefined) continue;
@@ -632,6 +726,15 @@ function resolveSettings(wire: SystemSettings): RuntimeSettings {
 		jobs: {
 			maxConsecutiveWakes: parseInteger(wire.jobs.maxConsecutiveWakes, "jobs.maxConsecutiveWakes", 0),
 			maxRunning: parseInteger(wire.jobs.maxRunning, "jobs.maxRunning", 0),
+		},
+		pty: {
+			enabled: wire.pty.enabled,
+			maxPerNode: parseInteger(wire.pty.maxPerNode, "pty.maxPerNode", 0),
+			maxTotal: parseInteger(wire.pty.maxTotal, "pty.maxTotal", 0),
+			maxPerSession: parseInteger(wire.pty.maxPerSession, "pty.maxPerSession", 0),
+			agentIdleTimeoutMaxMs: parseDurationMs(wire.pty.agentIdleTimeoutMax, "pty.agentIdleTimeoutMax"),
+			watchTimeoutMaxMs: parseDurationMs(wire.pty.watchTimeoutMax, "pty.watchTimeoutMax"),
+			scrollbackBytes: parseInteger(wire.pty.scrollbackBytes, "pty.scrollbackBytes", MIN_PTY_SCROLLBACK_BYTES),
 		},
 	};
 }

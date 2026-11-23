@@ -39,6 +39,15 @@ describe("ruleMatches", () => {
 		expect(ruleMatches({ action: "deny" }, op("file.write", "/x"))).toBe(true);
 	});
 
+	it("never matches a target matcher against pty.io, which has no target", () => {
+		expect(ruleMatches({ action: "allow", method: "pty.io" }, op("pty.io", ""))).toBe(true);
+		expect(ruleMatches({ action: "allow", method: "pty.io", exact: "" }, op("pty.io", ""))).toBe(false);
+		expect(ruleMatches({ action: "allow", method: "pty.io", prefix: "" }, op("pty.io", ""))).toBe(false);
+		expect(ruleMatches({ action: "allow", method: "pty.create", exact: "bash -l" }, op("pty.create", "bash -l"))).toBe(
+			true,
+		);
+	});
+
 	it("matches exact targets by equality and prefix targets by startsWith", () => {
 		expect(ruleMatches({ action: "allow", exact: "uptime" }, op("exec", "uptime"))).toBe(true);
 		expect(ruleMatches({ action: "allow", exact: "uptime" }, op("exec", "uptime -p"))).toBe(false);

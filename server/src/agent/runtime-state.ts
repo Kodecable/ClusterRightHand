@@ -116,6 +116,7 @@ export async function refreshStates(host: RuntimeHost, rows: readonly StateRow[]
 		const waits = await taskWaitKinds(
 			host.db,
 			batched.map((row) => row.id),
+			host.options?.terminals?.pendingApprovalSessions() ?? new Set(),
 		);
 		for (const row of batched) {
 			const quotaLevel = quotaLevels.get(row.id);
@@ -239,17 +240,22 @@ async function taskWaitKind(host: RuntimeHost, sessionId: string): Promise<"appr
 		return false;
 	};
 	if (await waiting("awaiting_approval")) return "approval";
+	// A terminal rule approval is a wait like a task's or an external call's (doc/design/pty.md "Rules"),
+	// and it outranks a signature wait exactly as those do.
+	if (host.options?.terminals?.hasPendingApproval(sessionId)) return "approval";
 	if (await waiting("awaiting_authorization")) return "authorization";
 	return undefined;
 }
 
 /**
  * `taskWaitKind` for several sessions at once: one query per table, then the same approval-over-signature
- * priority per session. Only sessions with a wait are in the result.
+ * priority per session. `terminalWaits` is the in-memory set of sessions waiting on a terminal approval.
+ * Only sessions with a wait are in the result.
  */
 async function taskWaitKinds(
 	db: RuntimeHost["db"],
 	sessionIds: readonly string[],
+	terminalWaits: ReadonlySet<string>,
 ): Promise<Map<string, "approval" | "authorization">> {
 	const out = new Map<string, "approval" | "authorization">();
 	if (sessionIds.length === 0) return out;
@@ -290,6 +296,9 @@ async function taskWaitKinds(
 		) {
 			out.set(call.actor_id, "approval");
 		}
+	}
+	for (const sessionId of sessionIds) {
+		if (terminalWaits.has(sessionId)) out.set(sessionId, "approval");
 	}
 	return out;
 }
@@ -372,6 +381,9 @@ export async function endSessionWork(
 	// A live job holds its record's wait: the run that started a background task may end, but the task's approval
 	// or signature is not an orphan, the job still needs it (doc/design/jobs.md "Lifecycle and retention").
 	const held = includeRunning ? undefined : await liveJobResources(host, sessions);
+	// Terminal rule approvals are memory-only waits of these sessions: nothing will answer them once the
+	// run is over, so they are rejected with the same reason as the other waits (doc/design/pty.md "Rules").
+	host.options?.terminals?.rejectApprovals(sessions, reason);
 	// Stopping a session stops its work: its in-flight extension calls get an MCP cancellation (and a call
 	// still waiting for approval is cancelled, since it never reached the server). A run that ends normally
 	// leaves its background calls running, like its tasks (doc/design/jobs.md "Lifecycle").

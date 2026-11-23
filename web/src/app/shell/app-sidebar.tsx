@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useApprovals } from "@/features/approvals/api";
 import { pendingCount } from "@/features/approvals/pending";
+import { usePtyEnabled } from "@/features/terminals/api";
 import { useAuth } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { CRH_VERSION, versionLabel } from "@/lib/version";
@@ -52,11 +53,13 @@ export function AppSidebar() {
 	const { isMobile, state } = useSidebar();
 	const tooltipFor = (label: string) => (!isMobile && state === "collapsed" ? label : undefined);
 	const pending = pendingCount(approvals.data);
+	// The Terminals entry exists only while the subsystem is on; the query is shared with the page.
+	const ptyEnabled = usePtyEnabled().data === true;
 
 	// The longest matching nav path wins, including aliases such as user groups under Users.
 	const currentNavItem = navItemForPath(pathname);
 	const isActive = (item: NavItem) => item === currentNavItem;
-	const visible = (item: NavItem) => !item.adminOnly || user?.kind === "admin";
+	const visible = (item: NavItem) => (!item.adminOnly || user?.kind === "admin") && (!item.ptyOnly || ptyEnabled);
 
 	// Arrow-key navigation across the sidebar links, in addition to native Tab.
 	const onNavKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

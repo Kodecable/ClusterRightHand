@@ -175,5 +175,9 @@ export function summarizeAction(action: TaskAction, spec?: TaskSpec): string {
 			return `${action.extension}/${action.tool}`;
 		case "subagent":
 			return action.task;
+		case "pty.create":
+			return action.argv.map((argument) => shellQuote(argument)).join(" ");
+		case "pty.io":
+			return [action.input ?? "", ...action.keys].filter((part) => part !== "").join(" ");
 	}
 }

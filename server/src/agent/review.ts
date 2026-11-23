@@ -6,6 +6,7 @@ import { reviewAudit } from "../cluster/approval.ts";
 import type { ApprovalDecision, Cluster, TaskView } from "../cluster/cluster.ts";
 import { nodeGroupsForNodes } from "../cluster/node-groups.ts";
 import type { TaskGroups, TaskGroupView } from "../cluster/task-groups.ts";
+import type { Actor } from "../cluster/types.ts";
 import { matchApiRoute } from "../extensions/api-reference.ts";
 import { apiRoutesForReview } from "../extensions/builtin.ts";
 import {
@@ -19,6 +20,7 @@ import {
 } from "../extensions/external-calls.ts";
 import { getRuleSet, type RuleRef } from "../policy/store.ts";
 import type { Db } from "../storage/db.ts";
+import type { RuleApprovalRequest } from "../terminals/approval.ts";
 import { SingleFlight } from "../util/single-flight.ts";
 import { LlmTimeoutError, streamSimpleWithTimeouts } from "./llm-timeout.ts";
 import type { ModelPresets } from "./model-presets.ts";
@@ -564,6 +566,49 @@ export class Reviewer {
 		const call = await this.#deps.toolCall(sessionId, sourceToolTask);
 		if (!call || call.name === "call_tool") return null;
 		return call;
+	}
+
+	/**
+	 * Auto Review for an agent's terminal request (doc/design/pty.md "Rules"): the operation and the
+	 * screen are judged by the same review model that judges tasks. Returns `escalate` when the preset is
+	 * not Auto Review or the request should remain the user's.
+	 */
+	async reviewTerminalRequest(
+		actor: Actor,
+		request: RuleApprovalRequest,
+		screen: string,
+		signal?: AbortSignal,
+	): Promise<"approve" | "reject" | "escalate"> {
+		const model = await this.#wanted(request.chain);
+		if (!model) return "escalate";
+		const sessionId = sessionOfActor(actor.type, actor.id);
+		const operation: Record<string, unknown> = {
+			requested_by: actor.id,
+			method: request.method,
+			privileged: request.privileged,
+			...(request.method === "pty.create" ? { argv: request.argv } : {}),
+			...(request.method === "pty.io" ? { text: request.input, keys: request.keys } : {}),
+			screen: screen.slice(0, 20_000),
+			trusted_context: {
+				nodes: [],
+				flagged: [
+					{
+						method: request.method,
+						target: request.method === "pty.create" ? request.argv.join(" ") : "",
+					},
+				],
+			},
+		};
+		const entries = sessionId ? await this.#deps.history(sessionId) : [];
+		const { outcome, tokens } = await this.#ask(
+			model,
+			reviewInput(entries, operation),
+			reviewInput([], operation),
+			sessionId,
+			signal,
+		);
+		await this.#charge(actor.type, actor.id, tokens);
+		return outcome.decision === "approve" ? "approve" : "escalate";
 	}
 
 	/** Whether Auto Review will judge a request on this chain; the caller marks the row before writing it. */

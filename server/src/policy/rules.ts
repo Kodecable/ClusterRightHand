@@ -31,6 +31,8 @@ const METHODS: readonly Method[] = [
 	"ext.write",
 	"api.read",
 	"api.write",
+	"pty.create",
+	"pty.io",
 ];
 const ACTIONS: readonly Action[] = ["allow", "deny", "require-approval"];
 const MAX_RULES = 200;
@@ -108,6 +110,9 @@ function nodeMatches(rule: Rule, op: Operation): boolean {
 }
 
 function targetMatches(rule: Rule, op: Operation): boolean {
+	// `pty.io` has no target (doc/design/pty.md "Rules"): typed input is keystrokes, not a command
+	// line, so an exact or prefix matcher never applies to it.
+	if (op.method === "pty.io" && (rule.exact !== undefined || rule.prefix !== undefined)) return false;
 	if (rule.exact !== undefined) return op.target === rule.exact;
 	if (rule.prefix !== undefined) return op.target.startsWith(rule.prefix);
 	return true;

@@ -28,8 +28,8 @@ func ptySpec(argv []string) protocol.TaskSpec {
 	return protocol.TaskSpec{Kind: protocol.TaskSpecPtyCreate, PtyCreate: &protocol.PtyCreateSpec{Argv: argv}}
 }
 
-// ptyOpen is a privileged pty.open for argv, sized 24x80, with the metadata and scrollback crhs
-// sends and the privileged side ignores.
+// ptyOpen is a privileged pty.open for argv, sized 24x80, with the scrollback crhs sends and the
+// privileged side ignores.
 func ptyOpen(id string, argv []string) protocol.PTYOpen {
 	return protocol.PTYOpen{
 		PTYID:           id,
@@ -38,7 +38,6 @@ func ptyOpen(id string, argv []string) protocol.PTYOpen {
 		Cols:            80,
 		Privileged:      true,
 		ScrollbackBytes: 1 << 20,
-		Meta:            []byte("meta"),
 		// Attempt 1 matches the one-shot authorization payload's attempt.
 		Attempt: 1,
 	}

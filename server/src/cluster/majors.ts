@@ -13,6 +13,7 @@ import {
 	factsFromJson,
 	NOISE_PROLOGUE_PREFIX,
 	PROTOCOL_MAJOR,
+	PTY_NOISE_PROLOGUE_PREFIX,
 	subprotocolFor,
 	type TaskSpec,
 } from "@crh/protocol";
@@ -26,6 +27,8 @@ export interface ServedMajor {
 	prologue: string;
 	/** The data connection's Noise prologue prefix for this major. */
 	dataPrologue: string;
+	/** A terminal data connection's Noise prologue prefix for this major. */
+	ptyPrologue: string;
 }
 
 const CURRENT: ServedMajor = {
@@ -33,6 +36,7 @@ const CURRENT: ServedMajor = {
 	current: true,
 	prologue: NOISE_PROLOGUE_PREFIX,
 	dataPrologue: DATA_NOISE_PROLOGUE_PREFIX,
+	ptyPrologue: PTY_NOISE_PROLOGUE_PREFIX,
 };
 
 /** The majors this release serves, current first. Each release's documentation states the same list. */

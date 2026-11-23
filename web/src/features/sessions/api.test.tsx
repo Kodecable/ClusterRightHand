@@ -11,6 +11,7 @@ const APPROVALS: ApprovalList = {
 	tasks: [],
 	taskGroups: [],
 	externalCalls: [],
+	ptys: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	quotas: [],
 	requests: [],

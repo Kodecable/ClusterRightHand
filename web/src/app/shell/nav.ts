@@ -18,6 +18,7 @@ import {
 	SettingsIcon,
 	ShieldCheckIcon,
 	SignatureIcon,
+	TerminalIcon,
 	UsersIcon,
 } from "lucide-react";
 
@@ -34,6 +35,7 @@ export type NavPath =
 	| "/approvals"
 	| "/nodes"
 	| "/node-groups"
+	| "/terminals"
 	| "/ssh-credentials"
 	| "/signing-credentials"
 	| "/authorizations"
@@ -50,6 +52,8 @@ export interface NavItem {
 	label: MessageDescriptor;
 	icon: LucideIcon;
 	adminOnly?: boolean;
+	/** Hidden while the terminal subsystem is off (GET /api/ptys/enabled). */
+	ptyOnly?: true;
 	/** Shows the pending approvals count. */
 	badge?: "approvals";
 	/** Further paths this one entry also highlights, e.g. user groups under Users. */
@@ -77,6 +81,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		items: [
 			{ to: "/nodes", label: msg`Nodes`, icon: ServerIcon },
 			{ to: "/node-groups", label: msg`Node groups`, icon: GraphHubIcon },
+			{ to: "/terminals", label: msg`Terminals`, icon: TerminalIcon, ptyOnly: true, activeFor: ["/terminals"] },
 			{ to: "/ssh-credentials", label: msg`SSH credentials`, icon: LockKeyholeIcon, adminOnly: true },
 			{ to: "/signing-credentials", label: msg`Signing credentials`, icon: SignatureIcon },
 		],

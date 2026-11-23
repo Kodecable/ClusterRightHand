@@ -41,8 +41,10 @@ existence and who touched it, at the level of the session, not what was typed or
 | `exit_code`, timestamps | Opened, last activity, ended |
 
 - **Memory only.** The object lives in crha's memory, where the process is, and in crhs's memory as a
-  copy. No table holds it; only its audit events are stored. A crhs restart rebuilds the copy from crha
-  ([Reconnect](#reconnect)); a crha restart ends every terminal on the node.
+  copy. No table holds it; only its audit events are stored. The two copies must agree: a terminal one
+  side holds and the other does not, or whose byte streams no longer line up, is closed, never rebuilt
+  or guessed ([Reconnect](#reconnect)). A crhs restart therefore ends every terminal, and a crha restart
+  every terminal on its node.
 - **The creating session** may close the terminal. **The creating session and the associated
   sessions** may read and write it. A person associates a terminal with one of their sessions from the
   WebUI or the API, and removes the association the same way; an agent cannot associate. A session is
@@ -69,8 +71,11 @@ existence and who touched it, at the level of the session, not what was typed or
 | `exited` | The process ended by itself |
 | `session_deleted` | The creating session was deleted |
 | `crha_restarted` | crha came back without it ([Reconnect](#reconnect)) |
+| `crhs_restarted` | crha listed it after a crhs restart; crhs no longer knows it ([Reconnect](#reconnect)) |
+| `stream_lost` | A byte stream could not be continued without a gap: crha's ring buffer or crhs's input buffer no longer held the bytes the other side was missing ([Reconnect](#reconnect)) |
 | `disabled` | An administrator turned the subsystem off |
-| `node_removed` | The node was removed or revoked |
+| `node_removed` | The node was removed or revoked (re-enrollment revokes its old key) |
+| `user_removed` | The terminal's user was deleted or disabled |
 | `helper_lost` | A privileged terminal lost its privileged mode: the `forward` connection broke, or the `native` helper exited before its `pty.exited` |
 
 Closing sends the process a hangup and follows crosspty's close sequence: SIGHUP to the process group,
@@ -104,8 +109,8 @@ afterwards is not authorized command by command; the authorization covers the te
   The node never sees `pty.io`: what is typed into an authorized terminal is not authorized again.
 - A privileged terminal's authorization is a `spec` command over the TaskSpec kind `pty.create`, whose
   only field is the argv. The terminal id stands in for the task id and the `pty.open` attempt for the
-  task's, so the one-shot ids, used list, local approval window and cosign work unchanged. Size,
-  scrollback and metadata are not in the spec, so resizing never invalidates an authorization.
+  task's, so the one-shot ids, used list, local approval window and cosign work unchanged. Size and
+  scrollback are not in the spec, so resizing never invalidates an authorization.
 - An interactive shell can run anything the privileged identity can, so `pty.create` is treated like `upgrade`
   in guard rules: an entry with `allow` rules refuses it unless an allow rule names it, and crhs warns of
   a deny-only entry that does not deny it (`pty_not_denied`).
@@ -123,7 +128,7 @@ afterwards is not authorized command by command; the authorization covers the te
   `privileged_unavailable`; a native helper that cannot be started refuses it the way a native task's
   helper does, with `privileged_unsupported` and the escalation tool's error.
 - A relayed terminal is the same object as a local one: the same id, argv, size, `privileged` flag,
-  scrollback ring, `meta` and `startedAt`, the same `pty.list` entry, retention and close semantics. Only
+  scrollback ring and `startedAt`, the same `pty.list` entry, retention and close semantics. Only
   its process side differs: output arrives as `pty.output` events into the ring, and input, resize and
   close are sent back as `pty.input`, `pty.resize` and `pty.close` in order. The daemon streams output
   through the connection's bounded outbox; when it is full, that terminal's reader waits and the PTY
@@ -159,63 +164,70 @@ afterwards is not authorized command by command; the authorization covers the te
   `helper_lost` (-1) rather than dropping it (see [Privilege](#privilege)).
 - **Data connection.** Each terminal has one data connection, opened by crha after `pty.open`: the
   transport of [Data connections](protocol.md#data-connections) on its own path and prologue
-  (`/agent/pty`, `crh-pty/1`), with the terminal id in the client payload. Unlike a transfer it is
-  bidirectional: output frames go to crhs, input frames come back. Terminal bytes never travel on the
-  control connection.
-- **Every connection is a replay.** A new data connection starts with the whole current ring buffer,
-  as `[data]` frames chunked at the protocol's chunk size, and only then follows live output. crhs
-  treats each connection as a fresh replay of the screen, so a reconnected terminal never continues
-  mid-stream. A sender that falls more than the ring capacity behind live output would have to skip
-  bytes; crha closes its connection and opens a new one, which replays instead. While no data
-  connection is up, output only fills the ring buffer and the process is never blocked by crhs.
-- **An exited terminal is replayed once per control connection.** A terminal whose process ended but
-  that crhs has not closed still gets a data connection on each new control connection: it replays
-  the ring buffer, ends with `[end]`, and its worker stops until the next control connection.
+  (`/agent/pty`, `crh-pty/1`). Unlike a transfer it is bidirectional: output frames go to crhs, input
+  frames come back. Terminal bytes never travel on the control connection.
+- **Two continuous byte streams.** A terminal's output and its input are each one stream numbered from
+  byte 0. A terminal is stateful, an escape sequence or a UTF-8 character can span any two bytes, so
+  each side must receive the other's stream without a gap or a repeat. Every data connection handshake
+  states where to continue: the client payload carries how many input bytes crha has received, the
+  server payload how many output bytes crhs has received. crha continues its output from there, out of
+  its ring buffer; crhs continues its input from there, out of a buffer of the last 64 KiB of input it
+  sent. When either buffer no longer holds the bytes the other side is missing, the streams cannot
+  line up: crha answers `[abort, stream_lost]` (or crhs does), and crhs closes the terminal with reason
+  `stream_lost`. Nothing is replayed and no screen is rebuilt.
+- While no data connection is up, output only fills the ring buffer; the process is never blocked by
+  crhs. A sender that falls more than the ring capacity behind live output has lost bytes, so the
+  terminal ends with `stream_lost` as well.
+- An exited terminal crhs has not closed keeps its data connection worker: on a reconnect it continues
+  the output from crhs's offset to the end and sends `[end]`.
 - **`pty.close`.** crha drops the terminal at once — a running process gets crosspty's close sequence
   (SIGHUP, then SIGKILL after the grace period) for its whole process group — and answers the
   command; an unknown id is still a success. crhs asked for the close, so no `pty.exited` is emitted
   for a terminal closed this way. An exited terminal is only dropped, its PTY freed.
-- Control messages go on the control connection: `pty.open`, `pty.resize`, `pty.close`, `pty.meta`
-  (commands) and `pty.exited`, `pty.list` (events).
+- Control messages go on the control connection: `pty.open`, `pty.resize`, `pty.close` (commands) and
+  `pty.exited`, `pty.list` (events).
 
 ### Reconnect
 
-When crha connects, after `hello`, it sends `pty.list`: every held terminal, running or exited, with
-its fields, its state and, for an exited process, its exit code. crhs:
+When crha connects, after `hello`, it sends `pty.list`: the id of every terminal it holds, and for an
+exited one its exit code. The two sides then agree or close:
 
-- adopts each listed terminal into its copy, rebuilding its owner, its creating and associated
-  sessions and its idle timeout from the terminal's `meta` blob, which crhs owns and crha returns
-  unchanged; crha opens the data connections again for the running terminals, and each one begins
-  with the ring buffer's replay; for an exited terminal crhs has not closed, crha replays the ring
-  buffer once and ends with `[end]`;
-- rebuilds each terminal's screen state by replaying the ring buffer into a fresh emulator. If output
-  was lost beyond the ring buffer, the screen starts from the oldest kept byte;
-- closes, with reason `crha_restarted`, any terminal it knew on that node that is not listed.
+- A listed terminal crhs holds continues. crha opens its data connection again, and both streams
+  continue from the offsets in the handshake ([crha](#crha)); an exit that happened while crhs was away
+  is taken from the list. A terminal whose streams cannot continue ends with `stream_lost`.
+- A listed terminal crhs does not hold is one crhs forgot by restarting: crhs sends `pty.close` with
+  reason `crhs_restarted` and audits it. crhs never adopts a terminal it did not open in this process.
+- A terminal crhs holds for that node that is not listed is gone from crha: crhs closes it with reason
+  `crha_restarted`.
 
-An exited terminal crhs has not closed yet is listed too, with its exit code, and stays on the node
-until the close arrives or ten minutes pass after the exit. On each new control connection it is
-replayed once, ending with `[end]`. A terminal crhs closed on the node before the reconnect is not
-listed.
-
-crhs does not keep terminals across its own restart other than through this list, so a crhs restart
-loses nothing that crha still holds.
+Only continuity is kept. crhs restarting ends every terminal; crha restarting ends every terminal on
+its node; a dropped connection between two running processes loses nothing.
 
 ## crhs
 
 - The terminal subsystem holds the copies, checks access and limits, records the audit events, and runs
   the idle timers.
 - Each running terminal has a headless terminal emulator (`@xterm/headless`) fed with its output. It gives
-  a joining viewer the current screen at once and gives the agent tools a text snapshot.
+  a joining viewer the current screen at once, gives the agent tools a text snapshot, and is the
+  terminal's single responder: when the program's output asks a terminal query — a cursor position
+  report, device attributes, and so on — the parser answers, and the answer goes back to the program as
+  input on the terminal's input stream, numbered and buffered like any other input. A browser never
+  answers a query: it forwards only user input (keyboard, paste, IME, mouse), using xterm.js's own
+  user-input signal.
 - **Viewers.** The WebUI attaches through `GET /api/ptys/:id/attach` (WebSocket, binary frames for bytes,
   JSON frames for resize and state). Several viewers can attach to one terminal and every one of them
-  can type; input from all of them is written in arrival order. A viewer that cannot keep up with the
-  output past a buffer limit is disconnected with a reason and can attach again.
+  can type; input from all of them is written in arrival order. Every viewer forwards only its user's
+  input: xterm.js's automatic replies to terminal queries are never sent back, so several viewers never
+  answer one query several times. A viewer that cannot keep up with the output past a buffer limit is
+  disconnected with a reason and can attach again.
 - **Size.** A terminal has one size. It changes only when a viewer or an agent resizes it explicitly;
   attaching or resizing a browser window does not. A resize is sent to crha and broadcast to every
   viewer, whose terminal adopts the new rows and columns.
 - **API.** `GET /api/ptys`, `POST /api/ptys` (node, privileged, argv, size), `GET /api/ptys/:id`,
   `POST /api/ptys/:id/resize`, `PUT`/`DELETE /api/ptys/:id/sessions/:sessionId` for associations,
-  `DELETE /api/ptys/:id` to close.
+  `POST /api/ptys/:id/approval` for a waiting rule approval, and `DELETE /api/ptys/:id` to close. The
+  approvals API (`GET /api/approvals`) lists the caller's waiting terminal approvals beside the tasks,
+  external calls and signatures.
 
 ## Access
 
@@ -235,26 +247,38 @@ do not get them: an MCP client has a terminal of its own.
 |---|---|
 | `pty_open(node, argv?, privileged?, size?, idle_timeout)` | Opens a terminal created by this session; `idle_timeout` is required |
 | `pty_list()` | The terminals this session created or is associated with |
-| `pty_read(id, mode?)` | Non-blocking. `screen` (default): the current screen as text with the cursor position. `output`: what was written since this session's last read, escape sequences stripped, capped |
+| `pty_read(id, mode?)` | Non-blocking. `screen` (default): the current screen as text with the cursor position. `output`: what was written since this session's last read, escape sequences stripped, capped. While a full-screen program holds the alternate screen, `output` is unavailable and the current screen is returned in the `screen` shape with a note |
 | `pty_watch(id, timeout, keywords?, bell?)` | Blocks until one of the conditions, then returns the reason and the screen |
 | `pty_write(id, text?, keys?)` | Writes text and named keys (`Enter`, `Tab`, `Escape`, `Up`, `Ctrl-C`, …) |
 | `pty_resize(id, rows, cols)` | Resizes it |
 | `pty_close(id)` | Closes a terminal this session created |
 
+- **Full-screen programs.** While the headless buffer is the alternate screen
+  (`terminal.buffer.active.type === "alternate"`), the program is drawing a picture, not writing a
+  log: that output is not appended to the escape-stripped log, so `pty_read output` and the log
+  matching of `pty_watch` never see it. `pty_read` with mode `output` returns the current screen
+  instead, in the same shape as mode `screen` (text, cursor, size) with a short note that a
+  full-screen program is running and output mode is unavailable. `pty_watch` matches a keyword on
+  the alternate screen when it is on the screen now and was not on the screen when the watch started,
+  or when the alternate screen began during the watch. After the program leaves the alternate
+  screen, `pty_read output` and `pty_watch` resume on the normal screen with only the text written
+  after leaving.
 - **Rules.** `pty_open` is decided under `pty.create`, `pty_write` and `pty_resize` under `pty.io`
   ([Rules](#rules)). `pty_read`, `pty_watch` and `pty_list` need no decision.
 - **`pty_watch`** is a blocking call, not a job. It ends at the first of:
   - `timeout`, required, at most the configured maximum;
   - a keyword appearing in the output written since the watch started, matched as plain text after
     escape sequences are stripped, with a tail kept across chunks so a keyword split between two reads
-    still matches;
+    still matches — or, while the alternate screen is active, a keyword new to that screen (see
+    **Full-screen programs** above);
   - a bell, when `bell` is set: a BEL the terminal parser sees on its own, not the BEL that ends an OSC
     sequence such as a window title;
   - the process exiting or the terminal closing;
   - the session being stopped.
 
-  It returns the reason, the matched keyword if any, and the screen. A watch replayed after a crhs
-  restart returns that the watch was interrupted, or that the terminal is gone.
+  It returns the reason, the matched keyword if any, and the screen. A data connection that drops and
+  reconnects continues the stream, so a watch spans it unchanged. After a crhs restart every terminal is
+  closed, so a replayed watch, read or write reports that the terminal is gone.
 - A tool call on a terminal the session may not use, or one that no longer exists, returns an error
   result naming why.
 
@@ -280,7 +304,30 @@ two methods of their own:
 - **Presets.** Ask and Auto Review leave both methods to their default, `require-approval`; Auto Review
   answers them first with the screen as context. Yolo allows them.
 - "Always allow" on a `pty.create` approval proposes the argv as an `exact` target; on a `pty.io`
-  approval it proposes `allow pty.io` for that node and privileged flag.
+  approval it proposes `allow pty.io` for that node and privileged flag. A candidate is offered only
+  when appending it to the root would end the approval, as for every other approval.
+
+### Approvals
+
+A terminal rule approval is an ordinary approval (doc/design/access-control.md "Approvals"), not a
+terminal-only notice:
+
+- The server builds the same compact `ApprovalRequest` every surface renders, with kind `pty`, the
+  acting session as its source, the node name, the privileged flag and a structured action:
+  `{type:"pty.create", argv}` for an open and `{type:"pty.io", input, keys, screen}` for a write or
+  resize. The screen is clipped and shown with the request.
+- The approvals API lists it (with the other waiting requests), the WebUI's Approvals page and pending
+  badge count it, and the chat channels send the same approval card. The terminal page shows the same
+  request inline through the shared approval panel; the terminal view carries it as `approvalRequest`.
+- While it waits, the acting session is `awaiting` with wait kind `approval`, exactly as for a task or
+  an external call; deciding it makes the session `running` again. Stopping the session or ending its
+  run rejects the pending terminal approvals. A crhs restart has no terminal waits: terminals and
+  their approvals are memory-only.
+- Auto Review answers first when its preset is on; an escalated request waits for the user.
+- The decision is the ordinary body `{decision: "approve"|"reject", reason?, always?}` through
+  `POST /api/ptys/:id/approval`, from the approvals page, the terminal page or chat. Only the
+  terminal's user decides, like every approval's owner. An `always` rule must be an allow rule that
+  would end the approval and is appended to the root of the request's chain.
 
 ## Settings and limits
 
@@ -319,6 +366,7 @@ Session-level events only; no input or output:
 | `pty.opened` | Node, privileged, argv, size, creating session, how it was authorized |
 | `pty.attached`, `pty.detached` | Viewer, client address |
 | `pty.associated`, `pty.unassociated` | Session |
+| `pty.approval` | Rule method, decision and reason |
 | `pty.closed` | Reason, exit code, duration, bytes in and out |
 
 An agent's `pty_write` is a tool call like any other and stays in its session's transcript.
@@ -327,17 +375,18 @@ An agent's `pty_write` is a tool call like any other and stays in its session's 
 
 All within major 1, negotiated by the minor ([Version negotiation](protocol.md#version-negotiation)):
 
-- Commands `pty.open`, `pty.resize`, `pty.close`, `pty.meta`; events `pty.exited`, `pty.list`. crhs
+- Commands `pty.open`, `pty.resize`, `pty.close`; events `pty.exited`, `pty.list`. crhs
   uses them only with a node that offered them in its handshake; any other node answers a terminal request
   with `unsupported_node`.
-- The terminal data connection: path `/agent/pty`, prologue `crh-pty/1`, client payload with
-  `protocol_major` and the terminal id; frames `[data, bytes]` in both directions and `[end]`.
+- The terminal data connection: path `/agent/pty`, prologue `crh-pty/1`, client payload
+  `[protocol_major, pty_id, input_received]`, server payload `[protocol_major, output_received]`; frames
+  `[data, bytes]` in both directions, `[end]` after the last output, and `[abort, code]`.
 - `pty.open` carries the terminal's authorization like `task.start`: `attempt`, `authorizations` and
   `cosign` follow its existing fields; an unprivileged terminal sends 0, an empty list and null.
   `pty.exited` carries a reason, `exited` or `helper_lost`.
 - `crh-priv`: optional names for the privileged mode to run a terminal and relay its bytes. `pty.open`,
   `pty.resize`, `pty.close` and `pty.exited` reuse the bodies above (the privileged side ignores the
-  metadata and scrollback and always reports reason `exited`); only the command `pty.input`
+  scrollback and always reports reason `exited`); only the command `pty.input`
   `[pty_id, data]` and the event `pty.output` `[pty_id, data]` are its own. The `forward` and `native` roles
   both offer them; a helper binary from before them lacks the names, and a privileged `pty.open` then
   answers `privileged_unsupported` while its tasks keep working. `pty.open` has the same 30-second
@@ -345,6 +394,57 @@ All within major 1, negotiated by the minor ([Version negotiation](protocol.md#v
   answers crhs `helper_lost`.
 - Method `pty.create` in authorizations and guard rules, over the TaskSpec kind `pty.create`
   `[argv]`.
+
+## Implementation notes
+
+These are decisions the implementation had to make where this document leaves a detail open; they are
+part of the contract for the WebUI and the API.
+
+- **States.** A terminal is `opening` while its rule approval or signature wait is pending, and only
+  then are an in-memory approval (`pty.create`/`pty.io`) and the planned authorization options
+  attached to its view. `running` and `exited` are the object's states from [Lifecycle](#lifecycle).
+- **Replayed calls.** Within one crhs process a replayed `pty_open` finds the terminal it already opened
+  by its tool call key, kept in memory. After a crhs restart that terminal was closed as
+  `crhs_restarted`, so a replayed `pty_open` that had not finished opens a new one, and a replayed
+  read, watch, write, resize or close reports the terminal gone.
+- **Attach frames.** `GET /api/ptys/:id/attach` is a WebSocket authenticated by the session cookie.
+  The first server frame is a JSON `{type:"snapshot", data, rows, cols}` holding the serialized screen;
+  binary frames are output bytes. JSON state frames are `{type:"state", rows, cols, state, viewers}`,
+`{type:"exited", exitCode, reason}` and `{type:"closed", reason}`. The client sends
+  binary frames as input and may send `{type:"resize", rows, cols}`; the WebUI's **Fit to window** uses
+  the REST resize instead. A viewer past a 4 MiB socket buffer is disconnected with reason `slow`.
+- **Rule approvals and signatures.** A rule approval is the ordinary `ApprovalRequest`, decided through
+  `POST /api/ptys/:id/approval` with the ordinary approval body; the terminal view carries it both as
+  `approval` (with the server-built "always allow" candidates) and as `approvalRequest`. The signature
+  wait is served by `GET /api/ptys/:id/authorization` in the same `phase`/`PendingAuthorization` shape
+  as a task's, signed through the ordinary `POST /api/authorizations`, and declined through
+  `POST /api/ptys/:id/authorization/reject`.
+- **Data connections.** A terminal's data connection is accepted only from the node that holds the
+  terminal (`pty.list`'s node): a connection naming a terminal id from another node is closed as an
+  unknown terminal and never replaces the real connection.
+- **Error codes.** The API and the tools name the refusal: `disabled`, `node_not_found`, `node_offline`,
+  `unsupported_node`, `invalid_size`, `invalid_argv`, `idle_timeout_required`,
+  `idle_timeout_too_large`, `limit_node`, `limit_total`, `limit_session`, `rule_denied`,
+  `approval_rejected`, `approval_pending`, `not_found`, `session_not_found`, `session_not_owned`,
+  `not_waiting`, `not_running`, `not_connected`, `exited`, `invalid_key`, `timeout_too_large`,
+  `authorization_declined`, and the node's own `busy`, `invalid_spec`, `privileged_unsupported` and
+  `privileged_unavailable`.
+- **Output reads and watches.** crhs keeps a bounded (256 KiB) escape-stripped text log beside the
+  emulator. `pty_read output` reads from the session's cursor in it, at most 64 KiB per call; `pty_watch`
+  matches plain text against it, keeping a keyword-length tail across chunks. Output written while the
+  parser is on the alternate screen is not appended to that log, so each session's cursor skips it;
+  `pty_read output` returns the screen with a note instead (and moves that session's cursor to the end
+  of the log), and `pty_watch` matches the alternate screen against the screen it started with. The
+  switch is taken from the headless buffer's `onBufferChange` event, never by parsing escape sequences.
+  A dropped data connection continues both streams, so the log and every watch continue too.
+- **User input in the browser.** The headless emulator answers terminal queries, and a browser must not
+  add its own answer. In @xterm/xterm 6.0.0, `CoreService.triggerDataEvent(data, wasUserInput)` fires
+  `coreService.onUserInput` synchronously immediately before `onData` when — and only when — the data is
+  user input. `onUserInput` is not public, so `web/src/features/terminals/user-input.ts` reaches it
+  through `term._core.coreService.onUserInput`; if the hook is missing at runtime the helper fails closed
+  (forwards nothing and logs a console error). `@xterm/xterm` is pinned at exactly 6.0.0 for this reason,
+  and `user-input.test.ts` guards it: it writes `ESC[6n` and `ESC[c` to a real xterm.js terminal and
+  asserts that no automatic reply is forwarded, while typing and paste still are.
 
 ## Documents that change with this design
 

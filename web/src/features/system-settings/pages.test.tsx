@@ -21,6 +21,15 @@ const SETTINGS: SystemSettings = {
 	directoryCopy: { files: 256, bytes: 268435456 },
 	skills: { maxPerUser: 64 },
 	jobs: { maxConsecutiveWakes: 10, maxRunning: 32 },
+	pty: {
+		enabled: true,
+		maxPerNode: 8,
+		maxTotal: 64,
+		maxPerSession: 4,
+		agentIdleTimeoutMax: "1h",
+		watchTimeoutMax: "10m",
+		scrollbackBytes: 1024 * 1024,
+	},
 };
 
 const DEFAULTS: SystemSettings = {
@@ -39,6 +48,15 @@ const DEFAULTS: SystemSettings = {
 	directoryCopy: { files: 256, bytes: 268435456 },
 	skills: { maxPerUser: 64 },
 	jobs: { maxConsecutiveWakes: 10, maxRunning: 32 },
+	pty: {
+		enabled: true,
+		maxPerNode: 8,
+		maxTotal: 64,
+		maxPerSession: 4,
+		agentIdleTimeoutMax: "1h",
+		watchTimeoutMax: "10m",
+		scrollbackBytes: 1024 * 1024,
+	},
 };
 
 const NEWEST_KEY: SigningKey = {
@@ -170,7 +188,14 @@ describe("SystemSettingsPage", () => {
 		mockApi();
 		await renderPage();
 
-		for (const name of ["General", "Sign-in", "Passkeys", "Data retention", "Authorization signing keys"]) {
+		for (const name of [
+			"General",
+			"Sign-in",
+			"Passkeys",
+			"Data retention",
+			"Terminals",
+			"Authorization signing keys",
+		]) {
 			expect(screen.getByRole("heading", { name })).toBeVisible();
 		}
 		expect(within(section("general-section")).getByLabelText("Public URL")).toHaveValue("");

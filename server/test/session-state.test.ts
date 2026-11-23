@@ -1,3 +1,4 @@
+import { generateKeyPair } from "@crh/noise";
 import type { TaskSpec } from "@crh/protocol";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
@@ -13,10 +14,15 @@ import { createNodeGroup, setNodeGroupsForNode } from "../src/cluster/node-group
 import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
+import { setRules } from "../src/policy/store.ts";
+import { DEFAULT_SYSTEM_SETTINGS, SettingsStore } from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
+import { TerminalService } from "../src/terminals/registry.ts";
+import { type PtyToolContext, ptyWrite } from "../src/terminals/tools.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
+import { type FakeCrha, handshakeInit, PTY_REQUIRED_NAMES, TestAgentServer } from "./helpers/agent.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
 
@@ -51,6 +57,8 @@ let runtime: AgentRuntime;
 let cluster: Cluster;
 let groups: TaskGroups;
 let audit: Audit;
+let terminals: TerminalService;
+let agents: TestAgentServer;
 let owner: SessionUser;
 let nodeId = "";
 
@@ -70,6 +78,15 @@ beforeAll(async () => {
 	const models = new ModelConfig(db, MasterKey.generate());
 	models.addProvider(faux.provider);
 	await models.reload();
+	const settings = SettingsStore.fromSystemSettings(DEFAULT_SYSTEM_SETTINGS);
+	terminals = new TerminalService({
+		db,
+		cluster,
+		settings,
+		sessionState: (sessionId) => sessionStateOf(db, sessionId),
+	});
+	terminals.start();
+	agents = await TestAgentServer.start(db, { keyPair: generateKeyPair(), fingerprint: "state-test" }, cluster);
 	runtime = await AgentRuntime.open({
 		callRunner: new CallRunner(),
 		db,
@@ -78,6 +95,10 @@ beforeAll(async () => {
 		cluster,
 		taskGroups: groups,
 		audit,
+		terminals,
+	});
+	terminals.setApprovalListener((sessionId) => {
+		void runtime.refreshState(sessionId);
 	});
 	const user = await createUser(db, { username: "state-owner", kind: "member", password: "password-123" });
 	owner = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
@@ -129,10 +150,12 @@ beforeAll(async () => {
 
 afterAll(async () => {
 	await runtime.close();
+	await terminals.shutdown();
 	cluster.endWaits();
 	groups.endWaits();
 	await cluster.close();
 	await groups.close();
+	await agents.close();
 	await db.destroy();
 });
 
@@ -459,4 +482,133 @@ it("overlapping waits use quota > approval > authorization, and a read never rev
 	await waitFor("idle after the run", async () =>
 		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
 	);
+});
+
+/**
+ * A pty_write approval is a run wait like a task's (doc/design/pty.md "Rules"): the acting session becomes
+ * `awaiting/approval`, the decision returns it to `running`, and a stop rejects it. The terminal itself is
+ * memory-only, so the runtime learns the wait through the terminal service's approval listener.
+ */
+async function ptyFixture(sessionId: string): Promise<{
+	terminal: NonNullable<ReturnType<TerminalService["get"]>>;
+	ctx: PtyToolContext;
+	close: () => Promise<void>;
+}> {
+	const key = generateKeyPair();
+	await db
+		.updateTable("nodes")
+		.set({ public_key: Buffer.from(key.publicKey).toString("base64") })
+		.where("id", "=", nodeId)
+		.execute();
+	const crha: FakeCrha = await agents.connect(
+		key,
+		handshakeInit({ commands: [...PTY_REQUIRED_NAMES] }),
+		PTY_REQUIRED_NAMES,
+	);
+	await crha.peer.request("hello", { tasks: [], taskKinds: [], privilegedMode: "" });
+	await waitFor("the node link", () => cluster.isConnected(nodeId));
+	const terminal = await terminals.openForAgent({
+		user: owner,
+		sessionId,
+		chain: [{ type: "session", id: sessionId }],
+		node: "web-1",
+		argv: ["/bin/sh"],
+		idleTimeoutMs: 60_000,
+	});
+	const data = await agents.connectPty(key, terminal.id);
+	await waitFor("the data connection", () => terminals.get(terminal.id)?.connection !== null);
+	await setRules(db, { type: "session", id: sessionId }, [{ action: "require-approval", method: "pty.io" }]);
+	return {
+		terminal,
+		ctx: {
+			db,
+			user: owner,
+			actor: { type: "session", id: sessionId, onBehalfOfUserId: owner.userId },
+			chain: [{ type: "session", id: sessionId }],
+			terminals,
+		},
+		close: async () => {
+			data.close();
+			crha.ws.close();
+			await crha.closed;
+		},
+	};
+}
+
+it("a pty_write approval makes the session awaiting/approval, and the decision returns it to running", async () => {
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "pty states" });
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			await gate;
+			return fauxAssistantMessage([fauxText("done")]);
+		},
+	]);
+	const submission = await runtime.submit(session.id, owner, "wait for a terminal decision", "pty-state-1");
+	await waitFor("the run live", async () => ((await sessionStateOf(db, session.id)) === "running" ? true : undefined));
+	const fixture = await ptyFixture(session.id);
+	try {
+		const writing = ptyWrite(fixture.ctx, { id: fixture.terminal.id, text: "rm -rf /", keys: ["Enter"] });
+		await waitFor("awaiting/approval", async () => {
+			const row = await rowOf(session.id);
+			return row.state === "awaiting" && row.waiting_kind === "approval" ? true : undefined;
+		});
+		expect(await runtime.getSession(session.id)).toMatchObject({ state: "awaiting", waitingKind: "approval" });
+		await terminals.decideApproval(fixture.terminal, owner, { decision: "approve" });
+		await waitFor("running after the decision", async () =>
+			(await sessionStateOf(db, session.id)) === "running" ? true : undefined,
+		);
+		await expect(writing).resolves.toMatchObject({ isError: false });
+	} finally {
+		await fixture.close();
+	}
+	release();
+	await waitSubmission(runtime, session.id, submission);
+	await waitFor("idle after the run", async () =>
+		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
+	);
+});
+
+it("stopping the session rejects a waiting pty_write approval and ends the run idle", async () => {
+	const session = await runtime.createSession(owner, { model: model(), rulePreset: "yolo", title: "pty stop" });
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			await gate;
+			return fauxAssistantMessage([fauxText("done")]);
+		},
+	]);
+	const submission = await runtime.submit(session.id, owner, "stop a terminal decision", "pty-stop-1");
+	await waitFor("the run live", async () => ((await sessionStateOf(db, session.id)) === "running" ? true : undefined));
+	const fixture = await ptyFixture(session.id);
+	try {
+		const writing = ptyWrite(fixture.ctx, { id: fixture.terminal.id, text: "reboot" }).then(
+			() => undefined,
+			(error: unknown) => error,
+		);
+		await waitFor("awaiting/approval", async () => {
+			const row = await rowOf(session.id);
+			return row.state === "awaiting" && row.waiting_kind === "approval" ? true : undefined;
+		});
+		// The model turn is blocked on the gate; let it end so abort can join it, while the rejected wait is
+		// observed first (the abort itself rejects the terminal approval).
+		const aborting = runtime.abort(session.id, owner);
+		release();
+		await aborting;
+		expect(await writing).toMatchObject({ code: "approval_rejected" });
+		await waitFor("idle after the stop", async () =>
+			(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
+		);
+		expect(fixture.terminal.approval).toBeNull();
+	} finally {
+		await fixture.close();
+	}
+	release();
+	await waitSubmission(runtime, session.id, submission);
 });

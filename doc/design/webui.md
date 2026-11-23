@@ -341,10 +341,12 @@ nodes come later.
 ### Approvals page
 
 The approvals page is one table of everything waiting for the signed-in user: task approvals, task
-group approvals, tasks waiting for the user's signature, and sessions whose token quota ran out. The
+group approvals, agent terminal approvals, tasks waiting for the user's signature, and sessions whose
+token quota ran out. The
 columns are the type, the operation, the target nodes by name, the source and when, read from the compact
 `ApprovalRequest` the server returns beside every waiting item (a signature wait's phase is
-`awaiting_signature`); the whole row opens its detail. The source column header is **Source**, never a
+`awaiting_signature`; a terminal approval is kind `pty` and its row opens `/terminals/:id`); the whole
+row opens its detail. The source column header is **Source**, never a
 raw `api_token:<uuid>`. A task, task group or
 external call detail shows the same decision card (a task in `awaiting_authorization` shows the
 signature variant) with the shared request details below it, and a quota row opens its session, where
@@ -397,8 +399,10 @@ xterm.js, bundled with the WebUI. Several viewers share a terminal and all of th
 terminal keeps its own size: attaching or resizing the window changes nothing, **Fit to window**
 resizes it to the viewer's window, and every viewer adopts a resize. The page also shows the other
 viewers and the associations, which the terminal's user and administrators edit; an exited terminal
-shows its last screen and exit code ([Terminals](pty.md#webui)). The session page links the session's
-terminals.
+shows its last screen and exit code ([Terminals](pty.md#webui)). While an agent's `pty.create` or
+`pty.io` waits for the user, the terminal page shows the shared approval card, with the request's
+screen beside it; reading a terminal never asks. The session page links the session's terminals. The
+terminal settings are fields of the System settings page ([crhs configuration](../guide/reference/crhs-config.md#system-settings)).
 
 ### Schedules page
 

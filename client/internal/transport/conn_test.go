@@ -488,11 +488,14 @@ func TestDialPTY(t *testing.T) {
 			return
 		}
 		var init protocol.PTYConnectionInit
-		if protocol.Unmarshal(payload, &init) != nil || init.PTYID != "pty-1" {
+		if protocol.Unmarshal(payload, &init) != nil || init.PTYID != "pty-1" || init.InputReceived != 17 {
 			ws.Close(websocket.StatusPolicyViolation, "bad init")
 			return
 		}
-		respPayload, err := protocol.Marshal(protocol.DataConnectionResponse{ProtocolMajor: protocol.ProtocolMajor})
+		respPayload, err := protocol.Marshal(protocol.PTYConnectionResponse{
+			ProtocolMajor:  protocol.ProtocolMajor,
+			OutputReceived: 29,
+		})
 		if err != nil {
 			return
 		}
@@ -519,14 +522,18 @@ func TestDialPTY(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	conn, err := DialPTY(context.Background(), PTYDialOptions{
-		URL:          "ws" + strings.TrimPrefix(srv.URL, "http"),
-		Identity:     clientKey,
-		ServerPublic: serverKey.Public,
-		PTYID:        "pty-1",
+	conn, outputReceived, err := DialPTY(context.Background(), PTYDialOptions{
+		URL:           "ws" + strings.TrimPrefix(srv.URL, "http"),
+		Identity:      clientKey,
+		ServerPublic:  serverKey.Public,
+		PTYID:         "pty-1",
+		InputReceived: 17,
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if outputReceived != 29 {
+		t.Fatalf("outputReceived = %d, want 29", outputReceived)
 	}
 	defer conn.Close("done")
 	in, err := protocol.Marshal(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("keys")})
@@ -582,7 +589,7 @@ func TestDialPTYRejectsDataPrologue(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err = DialPTY(context.Background(), PTYDialOptions{
+	_, _, err = DialPTY(context.Background(), PTYDialOptions{
 		URL:          "ws" + strings.TrimPrefix(srv.URL, "http"),
 		Identity:     clientKey,
 		ServerPublic: serverKey.Public,

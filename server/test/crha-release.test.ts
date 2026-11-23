@@ -70,7 +70,7 @@ describe("the crha release cache", () => {
 		const url = String(input);
 		requests.push(url);
 		const body = served.get(url);
-		return body === undefined ? new Response("missing", { status: 404 }) : new Response(body);
+		return body === undefined ? new Response("missing", { status: 404 }) : new Response(body as unknown as BodyInit);
 	};
 	const assetUrl = (name: string) => `${REPO}/releases/download/v${VERSION}/${name}`;
 	const releases = (overrides: Partial<CrhaReleaseConfig> = {}, version = VERSION) =>

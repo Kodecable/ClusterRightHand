@@ -46,6 +46,14 @@ import type { NodeRow } from "./nodes.ts";
 import { closeSsh, closeSshNode } from "./ssh-runner.ts";
 import { abandonReview as abandonTaskReview } from "./task-approval.ts";
 import * as tasks from "./task-state.ts";
+import {
+	planTerminalAuthorization,
+	type TerminalAuthorizationPlan,
+	type TerminalNodeLink,
+	type TerminalPlanInput,
+	type TerminalSink,
+	terminalNodeLink,
+} from "./terminal-link.ts";
 import type {
 	Actor,
 	ApprovalDecision,
@@ -197,12 +205,42 @@ export class Cluster {
 		links.attach(this.#core, conn, node);
 	}
 
+	/** Installs the terminal subsystem's event sink; called once when the service is created. */
+	setTerminalSink(sink: TerminalSink): void {
+		this.#core.terminals = sink;
+	}
+
+	/** The node's link, when it can take terminal commands now (doc/design/pty.md "crha"). */
+	terminalNodeLink(nodeId: string): TerminalNodeLink | undefined {
+		return terminalNodeLink(this.#core, nodeId);
+	}
+
+	/** The authorization plan of a privileged terminal, over the same planner a privileged task uses. */
+	planTerminalAuthorization(input: TerminalPlanInput): Promise<TerminalAuthorizationPlan> {
+		return planTerminalAuthorization(this.#core, input);
+	}
+
 	/** Called by AgentServer after a data connection's handshake: checks the task and runs the transfer. */
 	attachData(ws: WebSocket, ciphers: TransportCiphers, nodeId: string, init: DataConnectionInit): void {
 		void acceptDataConnection(this.#core, nodeId, ws, ciphers, init).catch((err: unknown) => {
 			console.error("data connection failed:", err);
 			ws.terminate();
 		});
+	}
+
+	/** A held terminal's output offset, for a terminal data connection's handshake response. */
+	ptyConnectionOffset(nodeId: string, ptyId: string): number | undefined {
+		return this.#core.terminals?.ptyConnectionOffset(nodeId, ptyId);
+	}
+
+	/** Called by AgentServer after a terminal data connection's handshake. */
+	attachPtyData(
+		ws: WebSocket,
+		ciphers: TransportCiphers,
+		nodeId: string,
+		init: { ptyId: string; inputReceived: number },
+	): void {
+		this.#core.terminals?.onDataConnection(nodeId, ws, ciphers, init);
 	}
 
 	/** Closes a node's connection, e.g. after approval (crha reconnects as active) or deletion. */
@@ -358,7 +396,16 @@ export class Cluster {
 	 * never dispatch, and nothing else would ever settle them. Returns how many tasks ended.
 	 */
 	endNodeTasks(nodeId: string): Promise<number> {
+		this.#core.terminals?.onNodeRemoved(nodeId);
 		return tasks.endNodeTasks(this.#core, nodeId);
+	}
+
+	/**
+	 * A node's key was revoked by re-enrollment: its terminals close with `node_removed`, like a deleted
+	 * node's (doc/design/pty.md "Lifecycle"). The node record stays and can be approved again.
+	 */
+	nodeRevoked(nodeId: string): void {
+		this.#core.terminals?.nodeRevoked(nodeId);
 	}
 
 	/** Stores Auto Review's verdict on a waiting task. */

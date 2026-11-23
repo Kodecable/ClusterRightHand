@@ -2,20 +2,12 @@ import type { MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import { isAdmin, resolveWebSession, SESSION_COOKIE } from "../auth/sessions.ts";
 import type { Db } from "../storage/db.ts";
+import { normalizedHost } from "../util/host.ts";
 import { type AppEnv, jsonError } from "./context.ts";
 
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+export { normalizedHost } from "../util/host.ts";
 
-/**
- * A host, optionally with a port, in the form an Origin and a Host header compare in: lower-case, and without
- * the default port of `scheme`. The scheme is the Origin's; a Host header has none of its own, so the proxy's
- * `host:443` for an https origin equals `example.com`.
- */
-function normalizedHost(host: string, scheme: string): string {
-	const lower = host.trim().toLowerCase();
-	const defaultPort = scheme === "https" ? ":443" : scheme === "http" ? ":80" : undefined;
-	return defaultPort !== undefined && lower.endsWith(defaultPort) ? lower.slice(0, -defaultPort.length) : lower;
-}
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
  * CSRF defence for cookie-authenticated requests: state-changing requests must be JSON (which a cross-site

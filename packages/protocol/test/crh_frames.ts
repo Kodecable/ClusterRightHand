@@ -14,6 +14,7 @@ import {
 	PROTOCOL_MINOR,
 	type PtyStatus,
 	ptyConnectionInitCodec,
+	ptyConnectionResponseCodec,
 	type TaskResult,
 	type TaskStart,
 	type TaskStatus,
@@ -769,48 +770,24 @@ export function buildFixture(): CrhFramesFixture {
 		},
 	);
 	// Terminals (doc/design/pty.md "Protocol additions"). The names are optional, so crhs sends them
-	// only to a node whose hello offered them. Meta is an opaque blob crhs owns; crha stores it and
-	// returns it in pty.list unchanged.
-	const PTY_META = bytesOf("a1617801");
-	const PTY_RUNNING: PtyStatus = {
-		ptyId: "pty-1",
-		argv: ["/bin/bash", "-l"],
-		rows: 40,
-		cols: 120,
-		privileged: false,
-		scrollbackBytes: 1048576,
-		meta: PTY_META,
-		startedAtMs: 1700000000000,
-		exited: false,
-		exitCode: 0,
-	};
-	const PTY_EXITED: PtyStatus = {
-		ptyId: "pty-2",
-		argv: [],
-		rows: 24,
-		cols: 80,
-		privileged: true,
-		scrollbackBytes: 0,
-		meta: bytesOf(""),
-		startedAtMs: 1700000002000,
-		exited: true,
-		exitCode: 137,
-	};
+	// only to a node whose hello offered them. pty.list carries only what reconciliation needs: which
+	// terminals exist and which have exited.
+	const PTY_RUNNING: PtyStatus = { ptyId: "pty-1", exited: false, exitCode: 0 };
+	const PTY_EXITED: PtyStatus = { ptyId: "pty-2", exited: true, exitCode: 137 };
 	addFrame(
 		"request.pty.open",
-		'request id=30 cmd=pty.open body=[pty_id="pty-1", argv=["/bin/bash", "-l"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h\'a1617801\', attempt=0, authorizations=[], cosign=null]',
+		'request id=30 cmd=pty.open body=[pty_id="pty-1", argv=["/bin/bash", "-l"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, attempt=0, authorizations=[], cosign=null]',
 		{
 			kind: "request",
 			id: 30,
 			cmd: "pty.open",
 			body: {
-				ptyId: PTY_RUNNING.ptyId,
-				argv: PTY_RUNNING.argv,
-				rows: PTY_RUNNING.rows,
-				cols: PTY_RUNNING.cols,
-				privileged: PTY_RUNNING.privileged,
-				scrollbackBytes: PTY_RUNNING.scrollbackBytes,
-				meta: PTY_RUNNING.meta,
+				ptyId: "pty-1",
+				argv: ["/bin/bash", "-l"],
+				rows: 40,
+				cols: 120,
+				privileged: false,
+				scrollbackBytes: 1048576,
 				// An unprivileged terminal carries no authorization (doc/design/pty.md "Privilege").
 				attempt: 0,
 				authorizations: [],
@@ -829,7 +806,7 @@ export function buildFixture(): CrhFramesFixture {
 	// object, the attempt, and a cosign ticket when the node requires crhs's cosignature.
 	addFrame(
 		"request.pty.open.privileged",
-		"request id=34 cmd=pty.open body=[pty_id=\"pty-3\", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, meta=h'', attempt=1, authorizations=[h'00ff'], cosign=h'01']",
+		"request id=34 cmd=pty.open body=[pty_id=\"pty-3\", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, attempt=1, authorizations=[h'00ff'], cosign=h'01']",
 		{
 			kind: "request",
 			id: 34,
@@ -841,7 +818,6 @@ export function buildFixture(): CrhFramesFixture {
 				cols: 80,
 				privileged: true,
 				scrollbackBytes: 0,
-				meta: bytesOf(""),
 				attempt: 1,
 				authorizations: [bytesOf("00ff")],
 				cosign: bytesOf("01"),
@@ -874,19 +850,6 @@ export function buildFixture(): CrhFramesFixture {
 		ok: true,
 		body: {},
 	});
-	addFrame("request.pty.meta", "request id=33 cmd=pty.meta body=[pty_id=\"pty-1\", meta=h'a1617801']", {
-		kind: "request",
-		id: 33,
-		cmd: "pty.meta",
-		body: { ptyId: "pty-1", meta: PTY_META },
-	});
-	addFrame("response.pty.meta", "response id=33 cmd=pty.meta ok=true body=[]", {
-		kind: "response",
-		id: 33,
-		cmd: "pty.meta",
-		ok: true,
-		body: {},
-	});
 	addFrame("event.pty.exited", 'event pty.exited body=[pty_id="pty-2", exit_code=-1, reason="exited"]', {
 		kind: "event",
 		name: "pty.exited",
@@ -894,14 +857,20 @@ export function buildFixture(): CrhFramesFixture {
 	});
 	addFrame(
 		"event.pty.list",
-		'event pty.list body=[[pty_id="pty-1", argv=["/bin/bash", "-l"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h\'a1617801\', started_at_ms=1700000000000, exited=false, exit_code=0], [pty_id="pty-2", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, meta=h\'\', started_at_ms=1700000002000, exited=true, exit_code=137]]',
+		'event pty.list body=[[pty_id="pty-1", exited=false, exit_code=0], [pty_id="pty-2", exited=true, exit_code=137]]',
 		{ kind: "event", name: "pty.list", body: { terminals: [PTY_RUNNING, PTY_EXITED] } },
 	);
-	// Not a frame: the client payload of a terminal data connection's handshake.
+	// Not frames: the payloads of a terminal data connection's handshake. The client names how much
+	// input crha received, the server how much output crhs received (doc/design/pty.md "crha").
 	addPositive(
 		"data.init.pty",
-		`PTYConnectionInit [protocol_major=${PROTOCOL_MAJOR}, pty_id="pty-1"]`,
-		encodeCbor(ptyConnectionInitCodec.encode({ protocolMajor: PROTOCOL_MAJOR, ptyId: "pty-1" })),
+		`PTYConnectionInit [protocol_major=${PROTOCOL_MAJOR}, pty_id="pty-1", input_received=1024]`,
+		encodeCbor(ptyConnectionInitCodec.encode({ protocolMajor: PROTOCOL_MAJOR, ptyId: "pty-1", inputReceived: 1024 })),
+	);
+	addPositive(
+		"data.response.pty",
+		`PTYConnectionResponse [protocol_major=${PROTOCOL_MAJOR}, output_received=2048]`,
+		encodeCbor(ptyConnectionResponseCodec.encode({ protocolMajor: PROTOCOL_MAJOR, outputReceived: 2048 })),
 	);
 
 	// Negative cases.
@@ -1199,13 +1168,13 @@ export function buildFixture(): CrhFramesFixture {
 	// The terminal bodies follow the same tuple and int rules as the rest of the protocol.
 	addNegative(
 		"negative.pty_open_short",
-		"pty.open body has 6 elements instead of 10",
-		encodeCbor([0, 40, "pty.open", ["pty-1", [], 40, 120, false, 1048576]]),
+		"pty.open body has 8 elements instead of 9",
+		encodeCbor([0, 40, "pty.open", ["pty-1", [], 40, 120, false, 1048576, 0, []]]),
 	);
 	addNegative(
 		"negative.pty_status_short",
-		"pty.list terminal has 9 elements instead of 10",
-		encodeCbor([2, "pty.list", [[["pty-1", [], 40, 120, false, 1048576, new Uint8Array(), 1700000000000, false]]]]),
+		"pty.list terminal has 2 elements instead of 3",
+		encodeCbor([2, "pty.list", [[["pty-1", false]]]]),
 	);
 	addNegative(
 		"negative.pty_exit_code_float",

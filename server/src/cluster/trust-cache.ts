@@ -31,5 +31,7 @@ export async function onTrustSummary(core: ClusterCore, link: NodeLink, report: 
 		} catch (err) {
 			console.error(`syncing the waiting authorizations of node ${nodeId} failed:`, err);
 		}
+		// A privileged terminal waiting on the tool's signature is planned again too.
+		core.terminals?.onTrustSummary(nodeId);
 	}
 }

@@ -19,6 +19,7 @@ export * from "./locales.ts";
 export * from "./models.ts";
 export * from "./nodes.ts";
 export * from "./policy.ts";
+export * from "./pty.ts";
 export * from "./quota.ts";
 export * from "./request-source.ts";
 export * from "./schedules.ts";

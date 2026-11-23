@@ -12,13 +12,13 @@
 		},
 		{
 			"id": "handshake.response.active",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=1 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary,pty.open,pty.resize,pty.close,pty.meta,pty.exited,pty.list] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
-			"hex": "870101936568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d617279687074792e6f70656e6a7074792e726573697a65697074792e636c6f7365687074792e6d6574616a7074792e657869746564687074792e6c69737466636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=1 protocol_minor=1 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary,pty.open,pty.resize,pty.close,pty.exited,pty.list] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
+			"hex": "870101926568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d617279687074792e6f70656e6a7074792e726573697a65697074792e636c6f73656a7074792e657869746564687074792e6c69737466636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
 		},
 		{
 			"id": "handshake.response.pending",
-			"description": "HandshakeResponse protocol_major=1 protocol_minor=1 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary,pty.open,pty.resize,pty.close,pty.meta,pty.exited,pty.list] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
-			"hex": "870101936568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d617279687074792e6f70656e6a7074792e726573697a65697074792e636c6f7365687074792e6d6574616a7074792e657869746564687074792e6c69737466636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=1 protocol_minor=1 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary,pty.open,pty.resize,pty.close,pty.exited,pty.list] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
+			"hex": "870101926568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d617279687074792e6f70656e6a7074792e726573697a65697074792e636c6f73656a7074792e657869746564687074792e6c69737466636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
 		},
 		{
 			"id": "request.hello",
@@ -247,8 +247,8 @@
 		},
 		{
 			"id": "request.pty.open",
-			"description": "request id=30 cmd=pty.open body=[pty_id=\"pty-1\", argv=[\"/bin/bash\", \"-l\"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h'a1617801', attempt=0, authorizations=[], cosign=null]",
-			"hex": "8400181e687074792e6f70656e8a657074792d3182692f62696e2f62617368622d6c18281878f41a0010000044a16178010080f6"
+			"description": "request id=30 cmd=pty.open body=[pty_id=\"pty-1\", argv=[\"/bin/bash\", \"-l\"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, attempt=0, authorizations=[], cosign=null]",
+			"hex": "8400181e687074792e6f70656e89657074792d3182692f62696e2f62617368622d6c18281878f41a001000000080f6"
 		},
 		{
 			"id": "response.pty.open",
@@ -257,8 +257,8 @@
 		},
 		{
 			"id": "request.pty.open.privileged",
-			"description": "request id=34 cmd=pty.open body=[pty_id=\"pty-3\", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, meta=h'', attempt=1, authorizations=[h'00ff'], cosign=h'01']",
-			"hex": "84001822687074792e6f70656e8a657074792d338018181850f5004001814200ff4101"
+			"description": "request id=34 cmd=pty.open body=[pty_id=\"pty-3\", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, attempt=1, authorizations=[h'00ff'], cosign=h'01']",
+			"hex": "84001822687074792e6f70656e89657074792d338018181850f50001814200ff4101"
 		},
 		{
 			"id": "request.pty.resize",
@@ -281,29 +281,24 @@
 			"hex": "85011820697074792e636c6f7365f580"
 		},
 		{
-			"id": "request.pty.meta",
-			"description": "request id=33 cmd=pty.meta body=[pty_id=\"pty-1\", meta=h'a1617801']",
-			"hex": "84001821687074792e6d65746182657074792d3144a1617801"
-		},
-		{
-			"id": "response.pty.meta",
-			"description": "response id=33 cmd=pty.meta ok=true body=[]",
-			"hex": "85011821687074792e6d657461f580"
-		},
-		{
 			"id": "event.pty.exited",
 			"description": "event pty.exited body=[pty_id=\"pty-2\", exit_code=-1, reason=\"exited\"]",
 			"hex": "83026a7074792e65786974656483657074792d322066657869746564"
 		},
 		{
 			"id": "event.pty.list",
-			"description": "event pty.list body=[[pty_id=\"pty-1\", argv=[\"/bin/bash\", \"-l\"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h'a1617801', started_at_ms=1700000000000, exited=false, exit_code=0], [pty_id=\"pty-2\", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, meta=h'', started_at_ms=1700000002000, exited=true, exit_code=137]]",
-			"hex": "8302687074792e6c69737481828a657074792d3182692f62696e2f62617368622d6c18281878f41a0010000044a16178011b0000018bcfe56800f4008a657074792d328018181850f500401b0000018bcfe56fd0f51889"
+			"description": "event pty.list body=[[pty_id=\"pty-1\", exited=false, exit_code=0], [pty_id=\"pty-2\", exited=true, exit_code=137]]",
+			"hex": "8302687074792e6c697374818283657074792d31f40083657074792d32f51889"
 		},
 		{
 			"id": "data.init.pty",
-			"description": "PTYConnectionInit [protocol_major=1, pty_id=\"pty-1\"]",
-			"hex": "8201657074792d31"
+			"description": "PTYConnectionInit [protocol_major=1, pty_id=\"pty-1\", input_received=1024]",
+			"hex": "8301657074792d31190400"
+		},
+		{
+			"id": "data.response.pty",
+			"description": "PTYConnectionResponse [protocol_major=1, output_received=2048]",
+			"hex": "8201190800"
 		}
 	],
 	"negative": [
@@ -479,13 +474,13 @@
 		},
 		{
 			"id": "negative.pty_open_short",
-			"description": "pty.open body has 6 elements instead of 10",
-			"hex": "84001828687074792e6f70656e86657074792d318018281878f41a00100000"
+			"description": "pty.open body has 8 elements instead of 9",
+			"hex": "84001828687074792e6f70656e88657074792d318018281878f41a001000000080"
 		},
 		{
 			"id": "negative.pty_status_short",
-			"description": "pty.list terminal has 9 elements instead of 10",
-			"hex": "8302687074792e6c697374818189657074792d318018281878f41a00100000401b0000018bcfe56800f4"
+			"description": "pty.list terminal has 2 elements instead of 3",
+			"hex": "8302687074792e6c697374818182657074792d31f4"
 		},
 		{
 			"id": "negative.pty_exit_code_float",

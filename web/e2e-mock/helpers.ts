@@ -21,6 +21,7 @@ import type {
 	NodeAccessGrant,
 	NodeGroup,
 	NodeTrust,
+	PtyView,
 	PublicNode,
 	RefMap,
 	ScheduleRunView,
@@ -56,6 +57,7 @@ const QUOTA_APPROVALS: ApprovalList = {
 	tasks: [],
 	taskGroups: [],
 	externalCalls: [],
+	ptys: [],
 	authorizations: { tasks: [], taskGroups: [] },
 	requests: [],
 	quotas: [
@@ -94,6 +96,10 @@ export interface FakeState {
 	approvals: ApprovalList;
 	tasks: TaskView[];
 	nodes: PublicNode[];
+	/** The terminals the fake server holds; `GET /api/ptys` filters nothing for an admin. */
+	ptys: PtyView[];
+	/** Whether the terminal subsystem is on: the nav entry disappears while it is false. */
+	ptyEnabled: boolean;
 	models: AvailableModel[];
 	/** The session model preset's model, when the fake server has one. */
 	sessionModel: ModelRef | null;
@@ -375,6 +381,34 @@ export function taskView(overrides: Partial<TaskView> = {}): TaskView {
 	return view;
 }
 
+export function ptyView(overrides: Partial<PtyView> = {}): PtyView {
+	return {
+		id: "pty-1",
+		nodeId: "node-1",
+		nodeName: "worker-01",
+		userId: USER.id,
+		username: USER.username,
+		privileged: false,
+		argv: [],
+		size: { rows: 24, cols: 80 },
+		state: "running",
+		exitCode: null,
+		creatingSessionId: null,
+		sessionIds: [],
+		idleTimeoutMs: null,
+		openedAt: "2026-01-01T00:00:00.000Z",
+		endedAt: null,
+		lastActivityAt: "2026-01-01T00:00:00.000Z",
+		viewers: [],
+		authorization: null,
+		authorizationPhase: null,
+		rejection: null,
+		approval: null,
+		approvalRequest: null,
+		...overrides,
+	};
+}
+
 export function nodeView(overrides: Partial<PublicNode> = {}): PublicNode {
 	return {
 		id: "node-1",
@@ -485,6 +519,8 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 		approvals: QUOTA_APPROVALS,
 		tasks: [],
 		nodes: [],
+		ptys: [],
+		ptyEnabled: false,
 		models: [],
 		sessionModel: null,
 		availableExtensions: [],
@@ -912,6 +948,105 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				},
 			}));
 			return json({ node });
+		}
+
+		// --- terminals (doc/design/pty.md "WebUI") ----------------------------
+		if (path === "/api/ptys/enabled" && method === "GET") return json({ enabled: state.ptyEnabled });
+		if (path === "/api/ptys" && method === "GET") return json({ enabled: state.ptyEnabled, terminals: state.ptys });
+		if (path === "/api/ptys" && method === "POST") {
+			const input = body as {
+				node: string;
+				argv?: string[];
+				privileged?: boolean;
+				size?: { rows: number; cols: number };
+			};
+			const node = state.nodes.find(
+				(candidate) => candidate.id === input.node || candidate.name.toLowerCase() === input.node.toLowerCase(),
+			);
+			const now = new Date().toISOString();
+			const terminal = ptyView({
+				id: `pty-${state.ptys.length + 1}`,
+				nodeId: node?.id ?? input.node,
+				nodeName: node?.name ?? null,
+				userId: state.user.id,
+				username: state.user.username,
+				privileged: input.privileged === true,
+				argv: input.argv ?? [],
+				size: input.size ?? { rows: 24, cols: 80 },
+				state: input.privileged === true ? "opening" : "running",
+				openedAt: now,
+				lastActivityAt: now,
+				authorization: input.privileged === true ? { options: [], lastRejection: null } : null,
+				authorizationPhase: input.privileged === true ? "preparing" : null,
+			});
+			state.ptys.push(terminal);
+			return json({ terminal }, 201);
+		}
+		const ptyResizeMatch = /^\/api\/ptys\/([^/]+)\/resize$/.exec(path);
+		if (ptyResizeMatch && method === "POST") {
+			const id = decodeURIComponent(ptyResizeMatch[1] as string);
+			const terminal = state.ptys.find((candidate) => candidate.id === id);
+			if (!terminal) return json({ error: "no such terminal" }, 404);
+			terminal.size = body as { rows: number; cols: number };
+			return json({ terminal });
+		}
+		const ptySessionMatch = /^\/api\/ptys\/([^/]+)\/sessions\/([^/]+)$/.exec(path);
+		if (ptySessionMatch && method === "PUT") {
+			const id = decodeURIComponent(ptySessionMatch[1] as string);
+			const sessionId = decodeURIComponent(ptySessionMatch[2] as string);
+			const terminal = state.ptys.find((candidate) => candidate.id === id);
+			if (!terminal) return json({ error: "no such terminal" }, 404);
+			if (!terminal.sessionIds.includes(sessionId)) terminal.sessionIds.push(sessionId);
+			return json({ ok: true });
+		}
+		if (ptySessionMatch && method === "DELETE") {
+			const id = decodeURIComponent(ptySessionMatch[1] as string);
+			const sessionId = decodeURIComponent(ptySessionMatch[2] as string);
+			const terminal = state.ptys.find((candidate) => candidate.id === id);
+			if (!terminal) return json({ error: "no such terminal" }, 404);
+			terminal.sessionIds = terminal.sessionIds.filter((candidate) => candidate !== sessionId);
+			return json({ ok: true });
+		}
+		const ptyAuthorizationMatch = /^\/api\/ptys\/([^/]+)\/authorization$/.exec(path);
+		if (ptyAuthorizationMatch && method === "GET") {
+			const id = decodeURIComponent(ptyAuthorizationMatch[1] as string);
+			const terminal = state.ptys.find((candidate) => candidate.id === id);
+			if (!terminal) return json({ error: "no such terminal" }, 404);
+			if (terminal.authorizationPhase === "preparing" || terminal.authorizationPhase === "waiting") {
+				return json({ phase: terminal.authorizationPhase, authorization: terminal.authorization });
+			}
+			return json({ phase: "ended", authorization: null });
+		}
+		const ptyRejectMatch = /^\/api\/ptys\/([^/]+)\/authorization\/reject$/.exec(path);
+		if (ptyRejectMatch && method === "POST") {
+			const id = decodeURIComponent(ptyRejectMatch[1] as string);
+			const terminal = state.ptys.find((candidate) => candidate.id === id);
+			if (!terminal) return json({ error: "no such terminal" }, 404);
+			terminal.authorizationPhase = "ended";
+			terminal.authorization = null;
+			terminal.state = "exited";
+			terminal.exitCode = -1;
+			terminal.endedAt = new Date().toISOString();
+			return json({ ok: true });
+		}
+		const ptyApprovalMatch = /^\/api\/ptys\/([^/]+)\/approval\/([^/]+)$/.exec(path);
+		if (ptyApprovalMatch && method === "POST") {
+			const id = decodeURIComponent(ptyApprovalMatch[1] as string);
+			const terminal = state.ptys.find((candidate) => candidate.id === id);
+			if (!terminal) return json({ error: "no such terminal" }, 404);
+			terminal.approval = null;
+			return json({ ok: true });
+		}
+		const ptyMatch = /^\/api\/ptys\/([^/]+)$/.exec(path);
+		if (ptyMatch && method === "GET") {
+			const id = decodeURIComponent(ptyMatch[1] as string);
+			const terminal = state.ptys.find((candidate) => candidate.id === id);
+			return terminal ? json({ terminal }) : json({ error: "no such terminal" }, 404);
+		}
+		if (ptyMatch && method === "DELETE") {
+			const id = decodeURIComponent(ptyMatch[1] as string);
+			state.ptys = state.ptys.filter((candidate) => candidate.id !== id);
+			return json({ ok: true });
 		}
 
 		// --- API tokens ----------------------------------------------------
@@ -1855,6 +1990,7 @@ export function emptyApprovals(): ApprovalList {
 		tasks: [],
 		taskGroups: [],
 		externalCalls: [],
+		ptys: [],
 		authorizations: { tasks: [], taskGroups: [] },
 		quotas: [],
 		requests: [],
