@@ -147,6 +147,7 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
 | `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `job_wait`, `job_cancel`, `job_list` | Follow, cancel or list the jobs these tools start ([Jobs](jobs.md)) |
+| `pty_open`, `pty_list`, `pty_read`, `pty_watch`, `pty_write`, `pty_resize`, `pty_close` | [Terminals](pty.md#agent-tools) the session created or is associated with; agent sessions only, while the subsystem is on |
 | `todo_write` | A root session's todo list, replaced whole; attached to its compaction summary ([Todo list](todo.md)) |
 | `search_tools`, `call_tool` | Find and call an extension's tools, MCP or built-in ([Extensions](extensions.md)) |
 | `ext__<extension>__<tool>` | A "list directly" extension's tool, called without `call_tool` |

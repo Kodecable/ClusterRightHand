@@ -97,6 +97,7 @@ Every task has one method and one normalized target, which authorizations and gu
 | `file.read` | `file.read`, `file.stat`, `file.list` | The absolute path |
 | `file.write` | `file.write`, `file.edit`, and everything `file.read` allows | The absolute path |
 | `upgrade` | `node.upgrade` | `<version> sha256:<hex>`, the target version and the binary's hash |
+| `pty.create` | Opening a privileged [terminal](pty.md) | The argv rendered canonically, as for `exec` |
 
 - Canonical rendering means a later argument cannot pose as part of an earlier one. A shell-mode task
   renders as `/bin/sh -c <script>`, so a rule like `prefix = "systemctl restart "` never matches a
@@ -131,6 +132,12 @@ Every task has one method and one normalized target, which authorizations and gu
   - A `prefix` matches text, so a prefix `1.2.3` also covers `1.2.30`; end a version prefix with the
     space before the hash (`1.2.3 `) or use `exact`. The node renders the target only from a version
     that looks like one, so the version cannot carry a space and a hash of its own.
+- A privileged terminal is authorized once, when it opens; what is typed into it afterwards is not
+  authorized again, and the node has no method for it. An interactive shell can run anything the
+  privileged identity can, so `pty.create` is treated like `upgrade` in guard rules: an entry with
+  `allow` rules refuses it unless an allow rule names it, and crhs warns of a deny-only entry that does
+  not deny it (`pty_not_denied`), since such an entry written before terminals existed allows it
+  silently ([Terminals](pty.md#privilege)).
 - A Passkey or FIDO key signs in the WebUI, which crhs serves: that path cannot let the signer check
   the spec independently, and a compromised crhs could show one spec and ask for another. `crhu` with
   an SSH key can: it decodes the spec the payload binds, recomputes its hash and shows every field

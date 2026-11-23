@@ -387,6 +387,19 @@ and next attempt. **New channel** creates a Telegram bot with its write-only tok
 it, and **Delete** also removes the channel's linked accounts and threads. The list refreshes while the page is open, like Extensions
 ([Chat channels](channels.md#channels)).
 
+### Terminals page
+
+**Terminals** is its own navigation entry, hidden while the subsystem is off. It lists the terminals
+the user can see, every one for an administrator, with node, user, privileged flag, state, creating
+session, associated sessions, viewers and age; **New terminal** opens one on a chosen node, and a
+privileged one waits on the signature panel like a privileged task. `/terminals/$id` attaches with
+xterm.js, bundled with the WebUI. Several viewers share a terminal and all of them can type. The
+terminal keeps its own size: attaching or resizing the window changes nothing, **Fit to window**
+resizes it to the viewer's window, and every viewer adopts a resize. The page also shows the other
+viewers and the associations, which the terminal's user and administrators edit; an exited terminal
+shows its last screen and exit code ([Terminals](pty.md#webui)). The session page links the session's
+terminals.
+
 ### Schedules page
 
 **Schedules** lists the caller's own schedules with their next run and last result; **Run now** starts a

@@ -89,6 +89,7 @@ approvals and privilege.
 | [Users, ownership and audit](doc/design/access-control.md) | Users, access, rules, approvals, audit         |
 | [Agent runtime](doc/design/agent-runtime.md)               | Sessions, tools, subagents, quotas             |
 | [Jobs](doc/design/jobs.md)                                 | Background work, job tools, completion notices |
+| [Terminals](doc/design/pty.md)                             | Interactive terminals on crha nodes            |
 | [Libraries and file transfer](doc/design/library.md)       | Libraries, file plane, attachments             |
 | [Scheduled tasks](doc/design/scheduling.md)                | Schedules                                      |
 | [Data model](doc/design/data-model.md)                     | Storage and retention                          |

@@ -224,8 +224,8 @@ subagent precisely, and it can only restrict ([Evaluation](#evaluation)).
 ### Rules
 
 A rule has an action (`allow`, `require-approval`, `deny`) and optional matchers: the method (`exec`,
-`file.read`, `file.write`, `ext.read`, `ext.write`, `api.read`, `api.write`), the nodes, whether the
-task is privileged, and an `exact` or `prefix` target, as defined in
+`file.read`, `file.write`, `ext.read`, `ext.write`, `api.read`, `api.write`, `pty.create`, `pty.io`), the
+nodes, whether the task or terminal is privileged, and an `exact` or `prefix` target, as defined in
 [Methods and targets](privilege.md#methods-and-targets). A matcher that is left out matches anything, and a
 rule matches only when all of its matchers do. The schema is in `packages/api/src/policy.ts`.
 
@@ -244,6 +244,9 @@ external call, and external calls are never privileged.
 - `allow file.write` also allows reading the same target, and `allow ext.write` and `allow api.write`
   the matching read. A `deny` or `require-approval` rule matches its own method only: `deny file.write`
   blocks writes, not reads, because "do not modify" should not mean "do not look".
+- `pty.create` covers an agent opening a [terminal](pty.md#rules), with the argv as its target;
+  `pty.io` covers writing to and resizing one and has no target, so `exact` and `prefix` never match it.
+  Reading a terminal needs no decision. Neither method implies the other.
 - Rules have no regular expressions. Rules run on the crhs event loop and may be written by an agent,
   and one pathological expression could stall the whole server. crha's guard rules use RE2 and are not
   affected.
@@ -438,7 +441,9 @@ aborted, recorded with state `cancelled` — `external_call.review`, and `extern
 decision, all with arguments truncated), extension changes (`extension.created`, `extension.updated`,
 `extension.deleted`, without header values), sessions and tool calls (`session.stop` records its
 `source`: `web`, `channel_command` or `channel_draft_stop`, plus the channel account and thread for a
-chat stop), users and sharing, configuration, and the `crhs` CLI. Action names are dotted verbs such as
+chat stop), users and sharing, configuration, [terminals](pty.md#audit) (`pty.opened`, `pty.attached`,
+`pty.detached`, `pty.associated`, `pty.unassociated`, `pty.closed`, never their input or output), and
+the `crhs` CLI. Action names are dotted verbs such as
 `node.approved`, `task.approval` or `external_call.review`. Model calls are not audited; their usage is
 part of [session statistics](agent-runtime.md#session-statistics).
 

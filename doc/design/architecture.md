@@ -182,7 +182,6 @@ These are not implemented, but the design leaves room for them:
 ## Known limitations
 
 - **Linux only.**
-- **No interactive terminal.** Tasks run commands and file operations; there are no PTY tasks.
 - **SSH nodes must be reachable from crhs**, and crha nodes must be able to reach crhs.
 - **No crhs self-upgrade.** crhs upgrades its crha nodes ([crha self-upgrade](distribution.md#crha-self-upgrade)),
   but not itself, and not package-managed nodes or nodes set up by hand

@@ -31,8 +31,8 @@ crash, creation returns the existing task instead of running the command twice.
 The spec and result shapes are in `packages/protocol/src/messages.ts`. File results travel in the task's
 structured result, never in the output stream. `file.push` and `file.pull` move their bytes on a data
 connection ([File plane](library.md#file-plane)), and so does `node.upgrade`'s binary. These nine kinds
-are the whole vocabulary: there are no
-interactive (PTY) tasks ([Known limitations](architecture.md#known-limitations)).
+are the whole vocabulary of tasks: an interactive shell is a [terminal](pty.md), an object of its own,
+and `exec` has no PTY mode.
 
 An `exec` task can have a timeout. File tasks have none and end only through cancellation. A task's
 `attempt` increases only when a privileged task is retried after an authorization refusal.
@@ -228,7 +228,7 @@ disconnects, authorization syncs and sweeps. Three rules keep this correct:
 ### Task purpose
 
 A task or task group may carry a `purpose`; ordinary tasks have none. `browse` marks the listings and
-stats of the WebUI file manager, and an interactive terminal would add `terminal`. Only the endpoints of
+stats of the WebUI file manager. Only the endpoints of
 that feature set it, never the task API, agent tools or MCP, so an agent cannot hide its tasks. The task
 list leaves tasks with a purpose out unless its filter includes them; rules, approvals (which name the
 purpose), audit and retention treat them like any other task. One value per task suffices: general tags,
@@ -380,7 +380,8 @@ is the last task that reached it.
   nushell and csh do not). Restricted shells and `ForceCommand` are not supported.
 - File tasks need the SFTP subsystem.
 - Commands run in a non-interactive session without a PTY, so the environment can differ from an
-  interactive login; put needed variables in the task's `env` or use absolute paths.
+  interactive login; put needed variables in the task's `env` or use absolute paths. SSH nodes have no
+  [terminals](pty.md#scope).
 
 ### SFTP file operations
 
