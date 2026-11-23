@@ -22,11 +22,9 @@ const (
 	// major fails the handshake itself (doc/design/protocol.md "Version negotiation"). The minor
 	// version is additive: new commands and events are negotiated through the handshake's commands
 	// field, new task kinds through hello's task kinds, and methods, match kinds, roles and
-	// capabilities are open names. Major 1 removed the per-task local approval commands and added
-	// the local window state to TrustSummary; major 2 moved crhs's cosignature out of the
-	// authorization into the cosign ticket that task.start carries; major 3 added node.upgrade and
-	// made those trust values open names.
-	ProtocolMajor = 3
+	// capabilities are open names. Major 1 is the protocol of v0.4.0-rc.1, the first release under
+	// the compatibility rules (doc/design/compatibility.md "Protocol").
+	ProtocolMajor = 1
 	ProtocolMinor = 0
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440

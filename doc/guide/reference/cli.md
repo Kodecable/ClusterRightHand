@@ -60,7 +60,7 @@ configuration take `--config` and have no default path.
 | `status` | Show the server URL, the node's key fingerprint and the privilege mode. |
 | `version` | Show the version. |
 | `upgrade status` | Print the last upgrade's outcome, what `upgrade rollback` would do now, and the upgrade log (`/var/lib/crha-upgrade/upgrade.jsonl`). |
-| `upgrade rollback [--force]` | As root: undo the upgrade that produced the running version, or one interrupted after its backup, back to the lower release it came from, and restart crha; for when the new version cannot reach crhs. It refuses when a file changed since the upgrade wrote it, unless `--force`; run it again to step back through an older upgrade while its backup is kept. A package-managed `crha` refuses and points at apt or dnf. |
+| `upgrade rollback [--force]` | As root: undo the upgrade that produced the running version, or one interrupted after its backup, back to the lower release it came from, and restart crha; for when the new version cannot reach crhs. It refuses when a file changed since the upgrade wrote it, unless `--force`; run it again to step back through an older upgrade while its backup is kept. A package-managed `crha` refuses, because deb and rpm packages are not published for now. |
 
 ```sh
 sudo crha enroll
@@ -180,7 +180,7 @@ encrypted key, or a FIDO PIN, is asked on the terminal by `ssh-keygen`.
 
 The signature is checked before anything is printed. The printed line is the base64 Authorization
 that the WebUI accepts (`sign`, `grant`) or the SSHSIG that the registration form accepts
-(`register`). Install `crhu` from its own tar or deb/rpm package ([Install](../install.md#install-crhu)).
+(`register`). Install `crhu` from its tar archive ([Install](../install.md#install-crhu)).
 
 ## crha approve and lock
 

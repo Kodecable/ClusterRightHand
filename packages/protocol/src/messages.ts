@@ -24,15 +24,14 @@ import {
 	union,
 } from "./schema.ts";
 
-export const PROTOCOL_MAJOR = 3;
+export const PROTOCOL_MAJOR = 1;
 /**
  * An incompatible change bumps the major version and the Noise prologue, so a peer with another
  * major is refused at the handshake (doc/design/protocol.md "Version negotiation"). The minor version is
  * additive: new commands and events are negotiated through the handshake's `commands` field, new task
  * kinds through `hello.taskKinds`, and new methods, match types, roles and capabilities are open names.
- * Major 1 removed the per-task local approval commands and added the local window state to TrustSummary;
- * major 2 moved crhs's cosignature out of the authorization into the cosign ticket that `task.start`
- * carries; major 3 added `node.upgrade` and made those trust values open names.
+ * Major 1 is the protocol of v0.4.0-rc.1, the first release under the compatibility rules
+ * (doc/design/compatibility.md "Protocol").
  */
 export const PROTOCOL_MINOR = 0;
 
@@ -50,17 +49,15 @@ export const NOISE_PROLOGUE_PREFIX = `crh/${PROTOCOL_MAJOR}`;
  */
 export const SUBPROTOCOL_PREFIX = "crh.";
 
-/** A request without a `crh.<major>` subprotocol is this major, the last one that lacked it. */
-export const MAJOR_WITHOUT_SUBPROTOCOL = 2;
-
 /** The subprotocol that names `major`. */
 export function subprotocolFor(major: number): string {
 	return `${SUBPROTOCOL_PREFIX}${major}`;
 }
 
 /**
- * The major a `Sec-WebSocket-Protocol` header names: `MAJOR_WITHOUT_SUBPROTOCOL` without a `crh.`
- * entry, the major of the first `crh.<n>` entry otherwise, or `undefined` when that entry is malformed.
+ * The major a `Sec-WebSocket-Protocol` header names: the major of the first `crh.<n>` entry, or
+ * `undefined` when it names none or when that entry is malformed. A request must name its major; crhs
+ * refuses one that does not like a major it does not serve.
  */
 export function majorFromSubprotocols(header: string | undefined): number | undefined {
 	const entries = (header ?? "")
@@ -68,7 +65,7 @@ export function majorFromSubprotocols(header: string | undefined): number | unde
 		.map((entry) => entry.trim())
 		.filter((entry) => entry.startsWith(SUBPROTOCOL_PREFIX));
 	const first = entries[0];
-	if (first === undefined) return MAJOR_WITHOUT_SUBPROTOCOL;
+	if (first === undefined) return undefined;
 	const digits = first.slice(SUBPROTOCOL_PREFIX.length);
 	if (!/^[1-9][0-9]{0,5}$/.test(digits)) return undefined;
 	return Number(digits);

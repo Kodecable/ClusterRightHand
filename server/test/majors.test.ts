@@ -25,7 +25,7 @@ const LOG = "/var/lib/crha-upgrade/upgrade.jsonl";
 const FACTS = JSON.stringify({ hostname: "n", upgradeLogPath: LOG });
 
 describe("served majors", () => {
-	it("serves only the current major before the first stable release", () => {
+	it("serves only the current major at the first compatibility release", () => {
 		expect(SERVED_MAJORS.map((entry) => [entry.major, entry.current])).toEqual([[PROTOCOL_MAJOR, true]]);
 		expect(servedMajor(PROTOCOL_MAJOR)?.current).toBe(true);
 		expect(servedMajor(2)).toBeUndefined();
@@ -33,8 +33,8 @@ describe("served majors", () => {
 	});
 
 	it("reads the major from the subprotocol header", () => {
-		expect(majorFromSubprotocols(undefined)).toBe(2);
-		expect(majorFromSubprotocols("chat, superchat")).toBe(2);
+		expect(majorFromSubprotocols(undefined)).toBeUndefined();
+		expect(majorFromSubprotocols("chat, superchat")).toBeUndefined();
 		expect(majorFromSubprotocols(`crh.${PROTOCOL_MAJOR}`)).toBe(PROTOCOL_MAJOR);
 		expect(majorFromSubprotocols("other, crh.7")).toBe(7);
 		expect(majorFromSubprotocols("crh.x")).toBeUndefined();
@@ -50,7 +50,7 @@ describe("served majors", () => {
 		expect(head).toContain(`\r\nUpgrade: crh.${PROTOCOL_MAJOR}`);
 		expect(head).toContain(`\r\nContent-Length: ${Buffer.byteLength(body ?? "")}`);
 		expect(body).toContain("this crha speaks major 2");
-		expect(refusalResponse(undefined)).toContain("could not read the protocol major");
+		expect(refusalResponse(undefined)).toContain("could not read a protocol major");
 	});
 });
 

@@ -39,104 +39,112 @@ jobs:
         shell: bash
         # Fails unless the tag is v followed by a release version; the build scripts resolve the same.
         run: node scripts/version.ts --github-output
-      - name: install nfpm and rpm
-        shell: bash
-        run: |
-          set -euo pipefail
-          deb="$RUNNER_TEMP/nfpm_2.48.0_amd64.deb"
-          curl -fsSL -o "$deb" \
-            https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_amd64.deb
-          sudo apt-get update
-          sudo apt-get install -y "$deb" rpm
-      - name: write the rpm signing key
-        shell: bash
-        # The secrets reach only this step and the package build, never the dependency install scripts.
-        env:
-          RPM_GPG_KEY: ${{ secrets.RPM_GPG_KEY }}
-          NFPM_RPM_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
-        run: |
-          set -euo pipefail
-          umask 077
-          if [[ -z "${RPM_GPG_KEY:-}" ]]; then
-            echo "::error::RPM_GPG_KEY is empty: set the ASCII-armored rpm signing key in the release environment"
-            exit 1
-          fi
-          if [[ -z "${NFPM_RPM_PASSPHRASE:-}" ]]; then
-            echo "::error::RPM_GPG_PASSPHRASE is empty: nfpm cannot unlock the rpm signing key"
-            exit 1
-          fi
-          key="$RUNNER_TEMP/rpm-key.asc"
-          printf '%s\n' "$RPM_GPG_KEY" > "$key"
-          chmod 600 "$key"
-          echo "CRH_RPM_KEY_FILE=$key" >> "$GITHUB_ENV"
-      - name: check the rpm signing key
-        shell: bash
-        run: |
-          set -euo pipefail
-          export GNUPGHOME="$RUNNER_TEMP/gnupg"
-          mkdir -m 700 -p "$GNUPGHOME"
-          pub="$(gpg --batch --show-keys --with-colons packaging/RPM-GPG-KEY-crh | awk -F: '$1 == "pub" { print; exit }')"
-          if [[ -z "$pub" ]]; then
-            echo "::error::packaging/RPM-GPG-KEY-crh has no public key"
-            exit 1
-          fi
-          expiry="$(cut -d: -f7 <<< "$pub")"
-          if [[ -n "$expiry" ]]; then
-            now="$(date +%s)"
-            if (( expiry <= now )); then
-              echo "::error::the rpm signing key expired on $(date -u -d "@$expiry" '+%Y-%m-%d'); rotate it"
-              exit 1
-            fi
-            days=$(( (expiry - now) / 86400 ))
-            if (( days < 90 )); then
-              echo "::warning::the rpm signing key expires in $days days; extend it with gpg --quick-set-expire"
-            fi
-          fi
-          fingerprint="$(gpg --batch --show-keys --with-colons "$RUNNER_TEMP/rpm-key.asc" |
-            awk -F: '$1 == "fpr" { print $10; exit }')"
-          if [[ "$fingerprint" != "B454E1E9759533CB4E07DA5BEDBB9D378E03F918" ]]; then
-            echo "::error::the private rpm signing key is ${fingerprint:-not a key}"
-            echo "::error::expected B454E1E9759533CB4E07DA5BEDBB9D378E03F918"
-            exit 1
-          fi
+      # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+      # - name: install nfpm and rpm
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
+      #     deb="$RUNNER_TEMP/nfpm_2.48.0_amd64.deb"
+      #     curl -fsSL -o "$deb" \
+      #       https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_amd64.deb
+      #     sudo apt-get update
+      #     sudo apt-get install -y "$deb" rpm
+      # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+      # - name: write the rpm signing key
+      #   shell: bash
+      #   # The secrets reach only this step and the package build, never the dependency install scripts.
+      #   env:
+      #     RPM_GPG_KEY: ${{ secrets.RPM_GPG_KEY }}
+      #     NFPM_RPM_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
+      #   run: |
+      #     set -euo pipefail
+      #     umask 077
+      #     if [[ -z "${RPM_GPG_KEY:-}" ]]; then
+      #       echo "::error::RPM_GPG_KEY is empty: set the ASCII-armored rpm signing key in the release environment"
+      #       exit 1
+      #     fi
+      #     if [[ -z "${NFPM_RPM_PASSPHRASE:-}" ]]; then
+      #       echo "::error::RPM_GPG_PASSPHRASE is empty: nfpm cannot unlock the rpm signing key"
+      #       exit 1
+      #     fi
+      #     key="$RUNNER_TEMP/rpm-key.asc"
+      #     printf '%s\n' "$RPM_GPG_KEY" > "$key"
+      #     chmod 600 "$key"
+      #     echo "CRH_RPM_KEY_FILE=$key" >> "$GITHUB_ENV"
+      # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+      # - name: check the rpm signing key
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
+      #     export GNUPGHOME="$RUNNER_TEMP/gnupg"
+      #     mkdir -m 700 -p "$GNUPGHOME"
+      #     pub="$(gpg --batch --show-keys --with-colons packaging/RPM-GPG-KEY-crh | awk -F: '$1 == "pub" { print; exit }')"
+      #     if [[ -z "$pub" ]]; then
+      #       echo "::error::packaging/RPM-GPG-KEY-crh has no public key"
+      #       exit 1
+      #     fi
+      #     expiry="$(cut -d: -f7 <<< "$pub")"
+      #     if [[ -n "$expiry" ]]; then
+      #       now="$(date +%s)"
+      #       if (( expiry <= now )); then
+      #         echo "::error::the rpm signing key expired on $(date -u -d "@$expiry" '+%Y-%m-%d'); rotate it"
+      #         exit 1
+      #       fi
+      #       days=$(( (expiry - now) / 86400 ))
+      #       if (( days < 90 )); then
+      #         echo "::warning::the rpm signing key expires in $days days; extend it with gpg --quick-set-expire"
+      #       fi
+      #     fi
+      #     fingerprint="$(gpg --batch --show-keys --with-colons "$RUNNER_TEMP/rpm-key.asc" |
+      #       awk -F: '$1 == "fpr" { print $10; exit }')"
+      #     if [[ "$fingerprint" != "B454E1E9759533CB4E07DA5BEDBB9D378E03F918" ]]; then
+      #       echo "::error::the private rpm signing key is ${fingerprint:-not a key}"
+      #       echo "::error::expected B454E1E9759533CB4E07DA5BEDBB9D378E03F918"
+      #       exit 1
+      #     fi
       - name: build the packages
         shell: bash
         # package.ts builds the crhs bundle, the crha node client and the crhu signing utility
         # (archives, deb and rpm) for every requested architecture.
-        env:
-          NFPM_RPM_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
+        # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+        # env:
+        #   NFPM_RPM_PASSPHRASE: ${{ secrets.RPM_GPG_PASSPHRASE }}
         run: pnpm package
       - name: verify the packages
         shell: bash
         run: |
           set -euo pipefail
-          export LC_ALL=C
-          dbpath="$RUNNER_TEMP/rpmdb"
-          mkdir -p "$dbpath"
-          rpm --dbpath "$dbpath" --initdb
-          rpm --dbpath "$dbpath" --import packaging/RPM-GPG-KEY-crh
-          shopt -s nullglob
-          rpms=(dist/release/*.rpm)
-          if (( ${#rpms[@]} == 0 )); then
-            echo "::error::no rpm packages were built"
-            exit 1
-          fi
+          # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+          # export LC_ALL=C
+          # dbpath="$RUNNER_TEMP/rpmdb"
+          # mkdir -p "$dbpath"
+          # rpm --dbpath "$dbpath" --initdb
+          # rpm --dbpath "$dbpath" --import packaging/RPM-GPG-KEY-crh
+          # shopt -s nullglob
+          # rpms=(dist/release/*.rpm)
+          # if (( ${#rpms[@]} == 0 )); then
+          #   echo "::error::no rpm packages were built"
+          #   exit 1
+          # fi
           for package in crha crhu; do
-            for pattern in "${package}"-*-linux-*.tar.gz "${package}"_*.deb "${package}"-*.rpm; do
+            # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+            # for pattern in "${package}"-*-linux-*.tar.gz "${package}"_*.deb "${package}"-*.rpm; do
+            for pattern in "${package}"-*-linux-*.tar.gz; do
               if ! compgen -G "dist/release/$pattern" >/dev/null; then
                 echo "::error::missing ${package} artifact matching $pattern"
                 exit 1
               fi
             done
           done
-          for file in "${rpms[@]}"; do
-            result="$(rpm --dbpath "$dbpath" -K "$file" 2>&1 || true)"
-            echo "$result"
-            if [[ "$result" != *"signatures OK"* ]]; then
-              echo "::error::$file: rpm did not report signatures OK"
-              exit 1
-            fi
-          done
+          # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+          # for file in "${rpms[@]}"; do
+          #   result="$(rpm --dbpath "$dbpath" -K "$file" 2>&1 || true)"
+          #   echo "$result"
+          #   if [[ "$result" != *"signatures OK"* ]]; then
+          #     echo "::error::$file: rpm did not report signatures OK"
+          #     exit 1
+          #   fi
+          # done
       - name: stage the OCI build contexts
         shell: bash
         run: pnpm package:oci --skip-build --arch amd64,arm64
@@ -152,11 +160,11 @@ jobs:
             dist/oci-context-amd64
             dist/oci-context-arm64
           if-no-files-found: error
-      - name: remove the rpm signing key
-        if: always()
-        shell: bash
-        run: rm -f "$RUNNER_TEMP/rpm-key.asc"
-
+      # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+      # - name: remove the rpm signing key
+      #   if: always()
+      #   shell: bash
+      #   run: rm -f "$RUNNER_TEMP/rpm-key.asc"
   # Signs what the packages job built. It checks out nothing and installs nothing from the tree, so the
   # OIDC token, whose certificate names this workflow at the tag, reaches only cosign and the attestation.
   sign:
@@ -178,7 +186,9 @@ jobs:
         run: |
           set -euo pipefail
           sums="$(mktemp -d)"
-          cp dist/release/SHA256SUMS dist/release/*.tar.gz dist/release/*.deb dist/release/*.rpm "$sums"/
+          # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+          # cp dist/release/SHA256SUMS dist/release/*.tar.gz dist/release/*.deb dist/release/*.rpm "$sums"/
+          cp dist/release/SHA256SUMS dist/release/*.tar.gz "$sums"/
           (cd "$sums" && for archive in crha-*-linux-*.tar.gz; do tar -xzf "$archive" "${archive%.tar.gz}/crha"; done && sha256sum -c SHA256SUMS)
       # crhs verifies SHA256SUMS against this bundle with @sigstore/verify, which reads only the protobuf
       # bundle format (doc/design/distribution.md "Fetching the release"): pin a cosign that writes it.
@@ -190,10 +200,11 @@ jobs:
         run: cosign sign-blob --yes --new-bundle-format --bundle "$RUNNER_TEMP/SHA256SUMS.sigstore.json" dist/release/SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
+          # deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
           subject-path: |
             dist/release/*.tar.gz
-            dist/release/*.deb
-            dist/release/*.rpm
+            # dist/release/*.deb
+            # dist/release/*.rpm
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signature

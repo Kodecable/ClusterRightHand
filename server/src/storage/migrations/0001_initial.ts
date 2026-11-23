@@ -13,8 +13,8 @@ function uuidv7(): string {
 }
 
 /**
- * The initial schema, in the shape the application uses (server/src/storage/schema.ts). Later changes append
- * 0002, 0003, … and are never folded into this one.
+ * The initial schema, in the shape the application uses (server/src/storage/schema.ts): the schema of
+ * v0.4.0-rc.1. Later changes append 0002, 0003, … and are never folded into this one.
  *
  * Self-contained per doc/design/data-model.md "Schema migrations": SQLite and PostgreSQL both get the
  * same tables, constraints and indexes, with dialect branches only where the two require different DDL.
@@ -210,7 +210,6 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("accepted_at", "text")
 		.addColumn("finished_at", "text")
 		.addColumn("output_file", "text")
-		.addColumn("late_result", "text")
 		.addColumn("rule_chain", "text")
 		.addColumn("approval", "text")
 		.addColumn("pending_input", "text")
@@ -530,6 +529,14 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.addColumn("disabled_extensions", "text")
 		/** Where the latest user message came from: `web`, a `channel_threads.id`, or null (a schedule). */
 		.addColumn("last_used_from", "text")
+		/** The system prompt assembled at the session's first model request and used for every later one. */
+		.addColumn("system_prompt", "text")
+		/** How many times completion notices woke the session since the last user-authored message. */
+		.addColumn("notice_wakes", "integer", (c) => c.notNull().defaultTo(0))
+		/** A root session's todo list as JSON; null when it never had one or the list was cleared. */
+		.addColumn("todos", "text")
+		/** The todo list frozen when a compaction is planned, so every later request appends the same block. */
+		.addColumn("todos_at_compaction", "text")
 		.execute();
 	await db.schema.createIndex("sessions_owner_idx").on("sessions").columns(["owner_user_id", "created_at"]).execute();
 	await db.schema.createIndex("sessions_parent_idx").on("sessions").column("parent_session_id").execute();
@@ -713,6 +720,18 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.execute();
 	await db.schema.createIndex("library_files_object_key_idx").on("library_files").column("object_key").execute();
 
+	// The skills of each library (doc/design/library.md "Skills"): one row per `skills/<name>/SKILL.md`.
+	await db.schema
+		.createTable("library_skills")
+		.addColumn("library_id", "text", (c) => c.notNull().references("libraries.id").onDelete("cascade"))
+		.addColumn("path", "text", (c) => c.notNull())
+		.addColumn("sha256", "text", (c) => c.notNull())
+		.addColumn("name", "text")
+		.addColumn("description", "text")
+		.addColumn("invalid", "text")
+		.addUniqueConstraint("library_skills_library_path_unique", ["library_id", "path"])
+		.execute();
+
 	// Extensions, their grants and external calls (doc/design/extensions.md). `extensions` holds MCP servers
 	// (`kind = 'mcp'`) and crhs's built-ins (`kind = 'builtin'`) in one name namespace; an MCP server's headers
 	// are in one `secrets` row. `external_calls` is the small object an external tool approval belongs to; a
@@ -802,6 +821,33 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 		.columns(["actor_type", "actor_id"])
 		.execute();
 
+	// Jobs (doc/design/jobs.md "Job model"): one row per tool call that may outlive its invocation. The row
+	// is a projection of the task, external call or child session behind it; the adapters read those records
+	// and never write them. `call_key` is the durable tool call key, so a replayed tool call finds its job.
+	await db.schema
+		.createTable("jobs")
+		.addColumn("id", "text", (c) => c.primaryKey())
+		.addColumn("org_id", "text", (c) => c.notNull().references("orgs.id"))
+		.addColumn("actor_type", "text", (c) => c.notNull())
+		.addColumn("actor_id", "text", (c) => c.notNull())
+		.addColumn("on_behalf_of_user_id", "text", (c) => c.notNull())
+		.addColumn("session_id", "text", (c) => c.references("sessions.id").onDelete("cascade"))
+		.addColumn("call_key", "text", (c) => c.notNull().unique())
+		.addColumn("kind", "text", (c) => c.notNull())
+		.addColumn("resource_type", "text", (c) => c.notNull())
+		.addColumn("resource_id", "text", (c) => c.notNull())
+		.addColumn("action", "text", (c) => c.notNull())
+		.addColumn("state", "text", (c) => c.notNull())
+		.addColumn("outcome", "text")
+		.addColumn("wait", "text")
+		.addColumn("result", "text")
+		.addColumn("notice", "text", (c) => c.notNull().defaultTo("none"))
+		.addColumn("created_at", "text", (c) => c.notNull())
+		.addColumn("settled_at", "text")
+		.execute();
+	await db.schema.createIndex("jobs_session_state_idx").on("jobs").columns(["session_id", "state"]).execute();
+	await db.schema.createIndex("jobs_resource_idx").on("jobs").columns(["resource_type", "resource_id"]).execute();
+
 	// One user's preferences; a missing row means the defaults.
 	await db.schema
 		.createTable("user_settings")
@@ -845,8 +891,10 @@ export async function down(db: Kysely<unknown>): Promise<void> {
 	for (const table of [
 		"user_settings",
 		"external_calls",
+		"jobs",
 		"extension_grants",
 		"extensions",
+		"library_skills",
 		"library_files",
 		"libraries",
 		"image_cache",

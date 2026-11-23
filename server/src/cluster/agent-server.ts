@@ -102,7 +102,8 @@ export class AgentServer {
 		if (path !== AGENT_PATH && path !== AGENT_DATA_PATH) return false;
 		const data = path === AGENT_DATA_PATH;
 		// The major comes before the handshake, so a node crhs does not serve is told why in plain HTTP
-		// instead of failing the Noise handshake (doc/design/protocol.md "The major in the clear").
+		// instead of failing the Noise handshake. A request that names no crh.<major> is refused the same
+		// way (doc/design/protocol.md "The major in the clear").
 		const header = req.headers["sec-websocket-protocol"];
 		const clientMajor = majorFromSubprotocols(Array.isArray(header) ? header.join(",") : header);
 		const served = servedMajor(clientMajor, this.#majors);

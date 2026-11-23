@@ -82,6 +82,7 @@ approvals and privilege.
 | Document                                                   | Covers                                         |
 | ---------------------------------------------------------- | ---------------------------------------------- |
 | [Architecture](doc/design/architecture.md)                 | Components, boundaries, limitations            |
+| [Compatibility](doc/design/compatibility.md)               | What a release keeps for earlier deployments   |
 | [Protocol](doc/design/protocol.md)                         | The crhs–crha protocol and transport security  |
 | [Execution plane](doc/design/execution.md)                 | Tasks, output, connections, SSH                |
 | [Privilege and authorization](doc/design/privilege.md)     | Privilege modes, authorizations, node trust    |

@@ -3,15 +3,15 @@
 	"positive": [
 		{
 			"id": "data.init",
-			"description": "DataConnectionInit [protocol_major=0, task_id=\"t-1\", transfer_id=\"tr-1\"]",
+			"description": "DataConnectionInit [protocol_major=1, task_id=\"t-1\", transfer_id=\"tr-1\"]",
 			"codec": "data-init",
-			"hex": "830363742d316474722d31"
+			"hex": "830163742d316474722d31"
 		},
 		{
 			"id": "data.response",
-			"description": "DataConnectionResponse [protocol_major=0]",
+			"description": "DataConnectionResponse [protocol_major=1]",
 			"codec": "data-response",
-			"hex": "8103"
+			"hex": "8101"
 		},
 		{
 			"id": "data.frame.data",
@@ -91,7 +91,7 @@
 			"id": "data.init.missing",
 			"description": "DataConnectionInit without the transfer id",
 			"codec": "data-init",
-			"hex": "820363742d31"
+			"hex": "820163742d31"
 		},
 		{
 			"id": "task.spec.push.short",

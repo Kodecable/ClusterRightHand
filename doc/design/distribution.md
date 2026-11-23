@@ -20,8 +20,10 @@ of the host build.
 | `crha-<v>-linux-<arch>.tar.gz` (`crha-<v>-linux-<arch>/`) | the static `crha`, `install.sh`, `LICENSE`, `THIRD_PARTY_LICENSES.txt`, `VERSION` | Pushed by crhs ([crha self-upgrade](#crha-self-upgrade)) |
 | `crhu-<v>-linux-<arch>.tar.gz` (`crhu-<v>-linux-<arch>/`) | the static `crhu`, `LICENSE`, `THIRD_PARTY_LICENSES.txt`, `VERSION` | Planned |
 | crhs OCI image | Node, the bundle, the WebUI, the documentation and re2 | No; pull a new image |
-| `crha_<debversion>_<arch>.deb`, `crha-<rpmversion>-1.<rpmarch>.rpm` | `crha` in `/usr/bin` and the licenses in `/usr/share/doc/crha`, built with nfpm and the `pkgmanaged` tag | Never; the package manager updates it |
-| `crhu_<debversion>_<arch>.deb`, `crhu-<rpmversion>-1.<rpmarch>.rpm` | `crhu` in `/usr/bin` and the licenses in `/usr/share/doc/crhu`, built with nfpm and the `pkgmanaged` tag | Never; the package manager updates it |
+
+deb and rpm packages are not built for now: `crha` and `crhu` are distributed as archives, and crha is
+upgraded by the self-upgrade or the archive's installer. The `pkgmanaged` build tag and
+`packaging/nfpm/` remain for when packages return, but no release artifact is built from them.
 
 `arch` is `amd64` or `arm64`. Archives are deterministic-ish: entries sorted by name, the mtime of the
 tree's last commit, owner 0:0, `gzip -n`. The archive without Node is installed by hand: run
@@ -35,35 +37,6 @@ files, and `cpu-features` is optional for `ssh2`, which falls back to JavaScript
 version is injected at build time; an unbundled crhs reports `dev`. The archive with Node carries Node's
 LICENSE appended to `THIRD_PARTY_LICENSES.txt`; the `crha` and `crhu` archives collect the Go modules'
 licenses.
-
-### crha deb and rpm
-
-`pnpm package` builds `crha_<debversion>_<arch>.deb` and `crha-<rpmversion>-1.<rpmarch>.rpm` with nfpm,
-which must be on `PATH`; the `amd64`/`arm64` architectures become `x86_64`/`aarch64` in the rpm name. A
-prerelease `1.2.0-rc.1` is packaged as `1.2.0~rc.1`, because dpkg and rpm sort `~` before the release
-and a `-` after it; build metadata (`+4.gabc1234`) stays, as both allow `+`, and `dev` becomes
-`0.0.0~dev`, since both need a leading digit. The `~` stays in the package metadata but
-becomes `-` in the file names, since GitHub release assets cannot carry it. The packages contain only `/usr/bin/crha` (with the
-`pkgmanaged` build tag) and `/usr/share/doc/crha/{LICENSE,THIRD_PARTY_LICENSES.txt}`; they create no
-user, directory or unit, because `crha enroll` does that. `crha version` then prints `package-managed`,
-and `crha upgrade` refuses in favour of apt or dnf.
-
-The nfpm scripts in `packaging/nfpm/` are shared by deb and rpm. On an upgrade the postinstall script
-restarts `crha-privileged.service` before `crha.service` when systemd is running, so both run the same
-version; on a first install it prints `run: sudo crha enroll`. Removal stops, disables and deletes only
-the `/etc/systemd/system/crha*.service` units that carry `X-CRH-Managed=1`, then reloads systemd;
-`/etc/crha`, `/var/lib/crha` and `/var/lib/crha-privileged` are left alone.
-
-The rpm packages are signed when `CRH_RPM_KEY_FILE` names an ASCII-armored private key; nfpm reads the
-passphrase from `NFPM_RPM_PASSPHRASE`. Without it the rpms stay unsigned; the deb package is never
-signed.
-
-### crhu deb and rpm
-
-`crhu` is packaged the same way as `crha`, with `pkgmanaged`, but the package contains only
-`/usr/bin/crhu` and `/usr/share/doc/crhu/{LICENSE,THIRD_PARTY_LICENSES.txt}`. It has no install
-scripts and no service: `crhu` is a workstation signing tool that uses the local `ssh-keygen` and
-ssh-agent, and its archive likewise has no `install.sh`. It is built from the same Go module as `crha`.
 
 ### Installing crhs with Node
 
@@ -117,9 +90,9 @@ prerelease part. crhs (`server/src/util/release-version.ts`) and crha's installe
 CI (`.github/workflows/ci.yml`) runs the checks, the unit, e2e, bundle and system tests on every push to
 `main` and every pull request. Pushing a `v*` tag runs `.github/workflows/release.yml`, which:
 
-- `packages` builds the archives, deb and rpm for amd64 and arm64 in the `release` environment, signs
-  the rpms and verifies them with `rpm -K`. It restores no cache, and it has no OIDC token: it runs
-  dependency install scripts and build tools, none of which may mint the identity crhs trusts.
+- `packages` builds the archives for amd64 and arm64 in the `release` environment. It restores no
+  cache, and it has no OIDC token: it runs dependency install scripts and build tools, none of which
+  may mint the identity crhs trusts.
 - `sign` downloads what `packages` built, checks `SHA256SUMS` against the assets and the binaries in
   the archives, signs `SHA256SUMS` with cosign and attests the build provenance of the files. It checks
   out nothing and runs nothing from the tree, so the OIDC token reaches only cosign and the attestation.
@@ -135,16 +108,7 @@ prerelease, to the other jobs as its outputs. A prerelease is not tagged `latest
 marked as a prerelease.
 
 Signing is keyless: cosign uses the workflow's OIDC identity for `SHA256SUMS` and the image, and
-`actions/attest-build-provenance` attaches build provenance to the files and the image. The rpm
-packages are signed with the GPG key `B454E1E9759533CB4E07DA5BEDBB9D378E03F918`
-(`packaging/RPM-GPG-KEY-crh`); its private key and passphrase are the `RPM_GPG_KEY` and
-`RPM_GPG_PASSPHRASE` secrets of the `release` environment. The workflow fails when the public key has
-expired and warns when it expires within 90 days; it also fails when the private key's fingerprint is
-not that one. The deb packages are not signed.
-
-Rotate the rpm key yearly: `gpg --quick-set-expire <fingerprint> 1y`, then update
-`packaging/RPM-GPG-KEY-crh` and the `RPM_GPG_KEY` secret. On a compromise, revoke the key, publish the
-revocation in that file, and replace the key, the secret and the fingerprint in the workflow and docs.
+`actions/attest-build-provenance` attaches build provenance to the files and the image.
 
 ## Answering questions
 
@@ -349,8 +313,8 @@ X-CRH-Meta={"v":1,"version":"0.1.0","mode":"forward","config":"/etc/crha/crha.to
 ```
 
 systemd ignores `X-` keys. A later version reads the metadata to migrate the unit and overwrites the file
-without checking for edits; customizations belong in drop-ins. deb and rpm packages remove the units
-carrying the marker when the package is removed.
+without checking for edits; customizations belong in drop-ins. The installer writes the units and the
+self-upgrade rewrites them; removing a node means stopping, disabling and deleting them by hand.
 
 ## crha self-upgrade
 
@@ -371,7 +335,7 @@ reasons are open names, so crhs shows a reason from a newer crha as it is:
 
 | Reason | Meaning |
 |---|---|
-| `package_managed` | Built with `pkgmanaged`; apt or dnf upgrades it. Package-managed nodes are never self-upgraded. |
+| `package_managed` | Built with the `pkgmanaged` build tag for a package manager; released artifacts are archives for now, so such a node is never self-upgraded. |
 | `not_systemd` | The unprivileged mode was not started as a systemd service (its cgroup is not a `.service`). |
 | `unmanaged_unit` | A unit the node runs under does not carry `X-CRH-Managed=1`: `crha.service`, and `crha-privileged.service` in `forward` mode. A node set up by hand gives up self-upgrade rather than having its units rewritten or skipped. |
 | `unit_mismatch` | The managed units do not start the same executable, or not the one that runs. |
@@ -537,7 +501,7 @@ file can be freed. No step uses a shell; `systemd-run`, `systemctl` and
      configuration file no migration changed is not written: it stays byte for byte. Renaming over the
      binary is safe while processes run from it (they keep the old inode); the old file is freed when
      the last one exits. Then `systemctl daemon-reload` and `enable` the units.
-7. **Activate.** Note the time, start `crha-privileged` before `crha`, as the packages do, and follow the
+7. **Activate.** Note the time, start `crha-privileged` before `crha`, as `crha enroll` does, and follow the
    journal (`journalctl -f -o json`) for the readiness line of the new version, matched on
    `_SYSTEMD_UNIT` and logged after that time. The line names the version, which the old binary cannot
    print, so no older line can stand in for it, and a crha that systemd restarts after a crash still
@@ -572,7 +536,9 @@ that version or a newer one.
   a key, and its release notes say what changed. The one requirement is that the result needs no one's
   help: the self-test must pass.
 
-There are no migrations so far. The editor comes from go-toml, a dependency crha already has, whose
+There are no migrations at `v0.4.0-rc.1`, the first release under the compatibility rules
+([Compatibility](compatibility.md#configuration)); a later release appends one that names the first
+version that needs it. The editor comes from go-toml, a dependency crha already has, whose
 `unstable/edit` is not in a release yet: crha depends on the upstream commit that adds it, until a
 release contains it.
 

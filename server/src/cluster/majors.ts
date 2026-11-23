@@ -5,7 +5,8 @@
  * from this list. The current major gets a normal connection; an older one in the window will get an
  * upgrade-only connection, frozen to that major's upgrade path.
  *
- * Before the first stable release crhs serves only the current major: no older codec exists yet.
+ * v0.4.0-rc.1 is the first release under the compatibility rules, and it serves only the current major:
+ * no older codec exists yet (doc/design/compatibility.md "Protocol").
  */
 import {
 	DATA_NOISE_PROLOGUE_PREFIX,
@@ -75,7 +76,10 @@ export function upgradeRequired(nodeName: string): UserError {
 /** The header of a 426 refusal that lists the served majors, for crha to log (comma-separated). */
 export const SERVED_MAJORS_HEADER = "CRH-Served-Majors";
 
-/** The HTTP 426 response crhs sends to a node of a major it does not serve, before any WebSocket upgrade. */
+/**
+ * The HTTP 426 response crhs sends before any WebSocket upgrade to a node of a major it does not serve,
+ * or to a request that names no readable major (including one without the subprotocol).
+ */
 export function refusalResponse(
 	clientMajor: number | undefined,
 	served: readonly ServedMajor[] = SERVED_MAJORS,
@@ -83,7 +87,7 @@ export function refusalResponse(
 	const list = served.map((entry) => entry.major).join(", ");
 	const body =
 		clientMajor === undefined
-			? `crhs could not read the protocol major of this request; it serves protocol majors ${list}.\n`
+			? `crhs could not read a protocol major from this request's Sec-WebSocket-Protocol header; it serves protocol majors ${list}.\n`
 			: `crhs serves protocol majors ${list}; this crha speaks major ${clientMajor}. Upgrade crha by hand, as the release documentation describes.\n`;
 	return [
 		"HTTP/1.1 426 Upgrade Required",

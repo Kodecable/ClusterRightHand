@@ -219,6 +219,9 @@ server {
 
 ## Install crha
 
+`crha` is installed from its release archive with its installer, and upgraded by the self-upgrade or a
+new archive; it is not published as deb or rpm packages for now.
+
 ### Tar
 
 Download `crha-<version>-linux-<arch>.tar.gz`, unpack it and run the installer:
@@ -232,29 +235,14 @@ sudo ./install.sh
 `install.sh` puts `crha` in `/usr/local/bin`. On a new node it runs `crha enroll` on a terminal, or prints
 the command; when `/etc/crha/crha.toml` already exists it only reminds you to restart crha.
 
-### deb and rpm
-
-The rpm packages are signed; import the key once, then install:
-
-```sh
-sudo rpm --import https://raw.githubusercontent.com/Kodecable/ClusterRightHand/main/packaging/RPM-GPG-KEY-crh
-sudo apt install ./crha_<version>_<arch>.deb
-sudo dnf install ./crha-<version>-1.<rpmarch>.rpm
-```
-
-A package-managed crha is updated by the package manager only. On a first install, enroll the node as below.
-
 ## Install crhu
 
-`crhu` is the signing utility for a workstation, not for a node. Install the archive or the package for
-your architecture:
+`crhu` is the signing utility for a workstation, not for a node. Install the archive for your
+architecture:
 
 ```sh
 tar -xzf crhu-<version>-linux-<arch>.tar.gz
 sudo install -m 0755 crhu-<version>-linux-<arch>/crhu /usr/local/bin/crhu
-
-sudo apt install ./crhu_<version>_<arch>.deb
-sudo dnf install ./crhu-<version>-1.<rpmarch>.rpm
 ```
 
 It uses the workstation's `ssh-keygen` and ssh-agent, so no key material is stored by `crhu`:
@@ -351,11 +339,11 @@ enroll again.
 
 `crha enroll` offers `ignore` and `forward`; `native` and `reject` are set by editing `[privileged] mode`
 in `/etc/crha/crha.toml` and restarting `crha` ([choosing a mode](security.md#choosing-a-privilege-mode)).
-`native` also needs this sudoers rule, with the path the crha binary was installed to (`/usr/bin/crha`
-for deb and rpm, `/usr/local/bin/crha` for the tar):
+`native` also needs this sudoers rule, with the path the crha binary was installed to
+(`/usr/local/bin/crha` for the archive):
 
 ```text
-crha ALL=(root) NOPASSWD: /usr/bin/crha privileged stdio
+crha ALL=(root) NOPASSWD: /usr/local/bin/crha privileged stdio
 ```
 
 For `forward`, `crha enroll` writes `/etc/crha/privileged.toml` with the trust entries you pasted. To
@@ -479,7 +467,7 @@ pnpm package
 cd client && CGO_ENABLED=0 go build -o crha ./cmd/crha
 ```
 
-`pnpm package` writes the archives and the deb and rpm packages to `dist/release`. See
+`pnpm package` writes the archives to `dist/release`. See
 [Distribution and setup](../design/distribution.md).
 
 ## Troubleshooting the installation
@@ -494,7 +482,6 @@ cd client && CGO_ENABLED=0 go build -o crha ./cmd/crha
 | `the master key file does not belong to this database` | The key and the database come from different installations. Restore the matching key file. |
 | The WebUI returns 404 | `web_root` points elsewhere; a packaged crhs serves the bundled WebUI without it. |
 | `npm ci` fails on `re2` | Install a C++ toolchain or set `RE2_DOWNLOAD_MIRROR`. |
-| `does not verify: no signature` from `dnf` | The rpm signing key is not imported; import it as in [deb and rpm](#deb-and-rpm). |
 | crha reports a missing `identity.key` | The node is not enrolled, or `state_dir` is wrong. |
 | `protocol_major mismatch`, or crha logs `crhs does not serve protocol major` | crhs and crha come from incompatible versions. Upgrade crhs first; it upgrades nodes of a major it still serves. A node outside that window is upgraded by hand. |
 | PostgreSQL authentication or permission errors | The role must own the database and be allowed to create tables. |

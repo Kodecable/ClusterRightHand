@@ -93,14 +93,14 @@ export function buildTransferFixture(): TransferFixture {
 	add(
 		positive,
 		"data.init",
-		'DataConnectionInit [protocol_major=0, task_id="t-1", transfer_id="tr-1"]',
+		`DataConnectionInit [protocol_major=${PROTOCOL_MAJOR}, task_id="t-1", transfer_id="tr-1"]`,
 		"data-init",
 		encodeCbor(dataConnectionInitCodec.encode({ protocolMajor: PROTOCOL_MAJOR, taskId: "t-1", transferId: "tr-1" })),
 	);
 	add(
 		positive,
 		"data.response",
-		"DataConnectionResponse [protocol_major=0]",
+		`DataConnectionResponse [protocol_major=${PROTOCOL_MAJOR}]`,
 		"data-response",
 		encodeCbor(dataConnectionResponseCodec.encode({ protocolMajor: PROTOCOL_MAJOR })),
 	);

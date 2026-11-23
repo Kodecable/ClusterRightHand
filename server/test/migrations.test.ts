@@ -349,14 +349,7 @@ describeBackends("initial migration", (backend) => {
 		// The migrator introspects every schema, so a parallel test dropping its schema must not run now.
 		await withDdlLockOn(backend, () => migrateToLatest(db, schema ? { schema } : {}));
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
-		expect(rows.rows).toEqual([
-			{ name: "0001_initial" },
-			{ name: "0002_skills_session_prompt" },
-			{ name: "0003_drop_late_result" },
-			{ name: "0004_jobs" },
-			{ name: "0005_job_notice_wakes" },
-			{ name: "0006_todos" },
-		]);
+		expect(rows.rows).toEqual([{ name: "0001_initial" }]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
 });

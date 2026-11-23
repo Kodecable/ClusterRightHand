@@ -71,14 +71,10 @@ the transfer itself uses `too_large` and `input_mismatch` (a size or SHA-256 mis
 
 ## Version negotiation
 
-The version is major 3, minor 0. The Noise prologue is `"crh/3"` followed by the server's challenge,
+The version is major 1, minor 0. The Noise prologue is `"crh/1"` followed by the server's challenge,
 so peers of different majors fail the Noise handshake before a payload is read; the payload's major is
-checked too. Major 1 removed the per-task local approval commands (`local.request`, `local.withdraw`
-and `local.decision`) and added the local approval window to `TrustSummary`. Major 2 moved crhs's
-cosignature out of the authorization into a [cosign ticket](#cosign-ticket) that `task.start` carries.
-Major 3 added the `node.upgrade` task kind and the `upgrade` method, named the major in the clear, and
-made methods and trust values open names, so that what major 3 needed a major for fits in a minor from
-now on. Each is an incompatible change, so crhs and crha were upgraded together.
+checked too. Major 1 is the protocol of `v0.4.0-rc.1`, the first release under the compatibility rules
+([Compatibility](compatibility.md)).
 
 - An incompatible change bumps the major and the prologue. crha and its privileged mode are always
   upgraded together, and crhs is upgraded before its nodes. Across majors crhs keeps only the upgrade
@@ -104,21 +100,20 @@ an equal `crha_version`, because crha and its privileged mode always upgrade tog
 ### The major in the clear
 
 crha names its major in the WebSocket request of the control and data connections, as the subprotocol
-`crh.<major>` (`Sec-WebSocket-Protocol: crh.3`), and crhs echoes it when it accepts. crhs uses it to
+`crh.<major>` (`Sec-WebSocket-Protocol: crh.1`), and crhs echoes it when it accepts. crhs uses it to
 pick the prologue and the codec before the Noise handshake, and refuses a major it does not serve with
 HTTP 426, a `CRH-Served-Majors` header and a body naming the majors it serves, so the node logs a clear
 reason and crhs logs the attempt (its address and major) although it cannot tell which node it was: the
-node's key is encrypted in the handshake. A request without the subprotocol is major 2, the last major
-that lacked it. The header reveals the major to whoever terminates TLS, which costs nothing worth
-hiding.
+node's key is encrypted in the handshake. A request that names no `crh.<major>` subprotocol is refused
+the same way: the major must be in the clear before the handshake. The header reveals the major to
+whoever terminates TLS, which costs nothing worth hiding.
 
 ### Compatibility across majors
 
-Before the first stable release there is no obligation: every major replaces the last. From the first
-stable release on, crhs keeps an upgrade path to the nodes of older majors, and each release's
-documentation states which majors it serves; crhs reports the same list in `crhs version` and the WebUI.
-A node of a major outside the window must be upgraded by hand, or through an intermediate release the
-documentation names.
+From `v0.4.0-rc.1` on, as [Compatibility](compatibility.md) requires, crhs keeps an upgrade path to the
+nodes of older majors, and each release's documentation states which majors it serves; crhs reports the
+same list in `crhs version` and the WebUI. A node of a major outside the window must be upgraded by
+hand, or through an intermediate release the documentation names.
 
 The obligation covers the upgrade path only, frozen for each major as it was released:
 

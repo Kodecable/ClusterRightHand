@@ -134,7 +134,8 @@ if (oci) {
 }
 
 async function packageArchives(arches: Arch[]): Promise<void> {
-	const nfpm = await requireNfpm();
+	// deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+	// const nfpm = await requireNfpm();
 	await rm(stageDir, { recursive: true, force: true });
 	await rm(releaseDir, { recursive: true, force: true });
 	await mkdir(stageDir, { recursive: true });
@@ -144,9 +145,11 @@ async function packageArchives(arches: Arch[]): Promise<void> {
 	for (const arch of arches) {
 		await packageCrhsWithNode(version, arch);
 		await packageCrha(version, commit, arch);
-		await packageCrhaPackages(nfpm, version, commit, arch);
+		// deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+		// await packageCrhaPackages(nfpm, version, commit, arch);
 		await packageCrhu(version, commit, arch);
-		await packageCrhuPackages(nfpm, version, commit, arch);
+		// deb/rpm packages are not published for now (doc/design/compatibility.md); uncomment to build them again.
+		// await packageCrhuPackages(nfpm, version, commit, arch);
 	}
 	await writeSums();
 }
@@ -269,6 +272,7 @@ async function buildClientBinary(
 }
 
 /** crha_<v>_<arch>.deb and crha-<v>-1.<rpmarch>.rpm: the pkgmanaged binary, built with nfpm. */
+// biome-ignore lint/correctness/noUnusedVariables: deb/rpm packages are disabled for now, not removed
 async function packageCrhaPackages(nfpm: string, version: string, sha: string, arch: Arch): Promise<void> {
 	const pkgVersion = packageVersion(version);
 	const dir = join(stageDir, `crha-package-${arch}`);
@@ -305,6 +309,7 @@ async function packageCrhaPackages(nfpm: string, version: string, sha: string, a
 }
 
 /** crhu_<v>_<arch>.deb and crhu-<v>-1.<rpmarch>.rpm: the signing utility, built with nfpm. */
+// biome-ignore lint/correctness/noUnusedVariables: deb/rpm packages are disabled for now, not removed
 async function packageCrhuPackages(nfpm: string, version: string, sha: string, arch: Arch): Promise<void> {
 	const pkgVersion = packageVersion(version);
 	const dir = join(stageDir, `crhu-package-${arch}`);
@@ -403,6 +408,7 @@ function packageVersion(version: string): string {
 }
 
 /** nfpm by absolute path from PATH, or a clear error before the release directory is touched. */
+// biome-ignore lint/correctness/noUnusedVariables: deb/rpm packages are disabled for now, not removed
 async function requireNfpm(): Promise<string> {
 	for (const dir of (process.env.PATH ?? "").split(":")) {
 		const candidate = join(dir || ".", "nfpm");

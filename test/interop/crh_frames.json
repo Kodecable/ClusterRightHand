@@ -2,23 +2,23 @@
 	"positive": [
 		{
 			"id": "handshake.init.no-enroll",
-			"description": "HandshakeInit protocol_major=3 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
-			"hex": "8603008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d6172796a302e312e302d746573741b0000018bcfe56800f6"
+			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=null",
+			"hex": "8601008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d6172796a302e312e302d746573741b0000018bcfe56800f6"
 		},
 		{
 			"id": "handshake.init.enroll",
-			"description": "HandshakeInit protocol_major=3 protocol_minor=0 commands=[hello,ping] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=[token_secret=\"enroll-secret\", hostname=\"node-1\", facts={hostname=\"node-1\", platform=\"linux, amd64, Ubuntu 24.04.4 LTS\", hints=\"Found systemd.\\nPID 1 is systemd.\\nFound apt.\\nFound sudo.\", notes_path=\"/etc/crh/notes\", clock_offset_ms=-1234, shells={sh=\"/bin/sh\", bash=\"/usr/bin/bash\"}}]",
-			"hex": "860300826568656c6c6f6470696e676a302e312e302d746573741b0000018bcfe56800836d656e726f6c6c2d736563726574666e6f64652d31a66568696e74737837466f756e642073797374656d642e0a50494420312069732073797374656d642e0a466f756e64206170742e0a466f756e64207375646f2e667368656c6c73a2627368672f62696e2f736864626173686d2f7573722f62696e2f6261736868686f73746e616d65666e6f64652d3168706c6174666f726d78206c696e75782c20616d6436342c205562756e74752032342e30342e34204c54536a6e6f7465735f706174686e2f6574632f6372682f6e6f7465736f636c6f636b5f6f66667365745f6d733904d1"
+			"description": "HandshakeInit protocol_major=1 protocol_minor=0 commands=[hello,ping] crha_version=\"0.1.0-test\" client_time_ms=1700000000000 enroll=[token_secret=\"enroll-secret\", hostname=\"node-1\", facts={hostname=\"node-1\", platform=\"linux, amd64, Ubuntu 24.04.4 LTS\", hints=\"Found systemd.\\nPID 1 is systemd.\\nFound apt.\\nFound sudo.\", notes_path=\"/etc/crh/notes\", clock_offset_ms=-1234, shells={sh=\"/bin/sh\", bash=\"/usr/bin/bash\"}}]",
+			"hex": "860100826568656c6c6f6470696e676a302e312e302d746573741b0000018bcfe56800836d656e726f6c6c2d736563726574666e6f64652d31a66568696e74737837466f756e642073797374656d642e0a50494420312069732073797374656d642e0a466f756e64206170742e0a466f756e64207375646f2e667368656c6c73a2627368672f62696e2f736864626173686d2f7573722f62696e2f6261736868686f73746e616d65666e6f64652d3168706c6174666f726d78206c696e75782c20616d6436342c205562756e74752032342e30342e34204c54536a6e6f7465735f706174686e2f6574632f6372682f6e6f7465736f636c6f636b5f6f66667365745f6d733904d1"
 		},
 		{
 			"id": "handshake.response.active",
-			"description": "HandshakeResponse protocol_major=3 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
-			"hex": "8703008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"active\" node_id=\"node-1\"",
+			"hex": "8701008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd266616374697665666e6f64652d31"
 		},
 		{
 			"id": "handshake.response.pending",
-			"description": "HandshakeResponse protocol_major=3 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
-			"hex": "8703008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
+			"description": "HandshakeResponse protocol_major=1 protocol_minor=0 commands=[hello,ping,task.start,task.input,task.cancel,task.query,task.output,task.exit,facts,node.status,task.output.ack,task.exit.ack,trust.summary] connection_id=\"conn-1\" server_time_ms=1700000001234 node_state=\"pending\" node_id=\"node-1\"",
+			"hex": "8701008d6568656c6c6f6470696e676a7461736b2e73746172746a7461736b2e696e7075746b7461736b2e63616e63656c6a7461736b2e71756572796b7461736b2e6f7574707574697461736b2e657869746566616374736b6e6f64652e7374617475736f7461736b2e6f75747075742e61636b6d7461736b2e657869742e61636b6d74727573742e73756d6d61727966636f6e6e2d311b0000018bcfe56cd26770656e64696e67666e6f64652d31"
 		},
 		{
 			"id": "request.hello",

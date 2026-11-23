@@ -312,11 +312,12 @@ describe("agent wire protocol", () => {
 		};
 
 		it("refuses a request without the subprotocol with 426, naming the served majors", async () => {
-			// No crh.<n> means major 2, the last major that lacked it (doc/design/protocol.md "The major in the clear").
+			// A request must name its major; without one it is refused like an unserved major
+			// (doc/design/protocol.md "The major in the clear").
 			const answer = await rawAnswer(upgradeRequest("/agent", null));
 			expect(answer.startsWith("HTTP/1.1 426 ")).toBe(true);
 			expect(answer).toContain(`CRH-Served-Majors: ${PROTOCOL_MAJOR}\r\n`);
-			expect(answer).toContain("this crha speaks major 2");
+			expect(answer).toMatch(/could not read a protocol major/);
 			await assertServing("after-426");
 		});
 

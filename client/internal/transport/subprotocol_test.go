@@ -20,7 +20,7 @@ func TestDialNamesTheMajorAndReportsA426(t *testing.T) {
 		got = append(got, r.Header.Get("Sec-WebSocket-Protocol"))
 		w.Header().Set(ServedMajorsHeader, "4,5")
 		w.WriteHeader(http.StatusUpgradeRequired)
-		_, _ = w.Write([]byte("crhs serves protocol majors 4, 5;\nthis crha speaks major 3.\n"))
+		_, _ = fmt.Fprintf(w, "crhs serves protocol majors 4, 5;\nthis crha speaks major %d.\n", protocol.ProtocolMajor)
 	}))
 	defer server.Close()
 	url := "ws" + strings.TrimPrefix(server.URL, "http")
@@ -38,7 +38,8 @@ func TestDialNamesTheMajorAndReportsA426(t *testing.T) {
 			t.Fatalf("error = %v, want a HandshakeError", err)
 		}
 		for _, want := range []string{
-			fmt.Sprintf("does not serve protocol major %d", protocol.ProtocolMajor), "it serves 4,5", "this crha speaks major 3.",
+			fmt.Sprintf("does not serve protocol major %d", protocol.ProtocolMajor), "it serves 4,5",
+			fmt.Sprintf("this crha speaks major %d.", protocol.ProtocolMajor),
 		} {
 			if !strings.Contains(err.Error(), want) {
 				t.Fatalf("error %q does not contain %q", err, want)

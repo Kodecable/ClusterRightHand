@@ -341,8 +341,8 @@ describe("message codecs", () => {
 		expect(() => taskExitCodec.decode(["t-1", ["code", 0], false, false, 0, 0, ""])).toThrow(SchemaError);
 	});
 
-	it("uses protocol 3.0 and requires every name", () => {
-		expect(PROTOCOL_MAJOR).toBe(3);
+	it("uses protocol 1.0 and requires every name", () => {
+		expect(PROTOCOL_MAJOR).toBe(1);
 		expect(PROTOCOL_MINOR).toBe(0);
 		expect(REQUIRED_NAMES).toEqual([
 			"hello",

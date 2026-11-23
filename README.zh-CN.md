@@ -69,6 +69,7 @@ crhs 和每个节点都需要 glibc Linux（amd64 或 arm64），crhs 前面还�
 | 文档                                                       | 内容                                 |
 | ---------------------------------------------------------- | ------------------------------------ |
 | [Architecture](doc/design/architecture.md)                 | 组件、边界、限制                     |
+| [Compatibility](doc/design/compatibility.md)               | 发布版本之间的兼容承诺               |
 | [Protocol](doc/design/protocol.md)                         | crhs 与 crha 的协议和传输安全        |
 | [Execution plane](doc/design/execution.md)                 | 任务、输出、连接、SSH                |
 | [Privilege and authorization](doc/design/privilege.md)     | 特权模式、授权、节点信任             |

@@ -81,7 +81,7 @@ not come up within two minutes ([crha self-upgrade](../design/distribution.md#cr
 that rollback fails too, or the installer was killed halfway, the node accepts no further upgrade until
 `sudo crha upgrade rollback` has undone it; `crha upgrade status` says so.
 
-- Only nodes set up with `crha enroll`, running under systemd, not installed from a deb or rpm, and
+- Only nodes set up with `crha enroll`, running under systemd, not managed by a package manager, and
   with a privileged side that runs as root can be upgraded this way. An `ignore` node qualifies when
   crha itself runs as root: enroll runs it as the crha user, so add a drop-in with
   `sudo systemctl edit crha` (`[Service]`, `User=root`, `Group=root`); upgrades rewrite the unit but
@@ -98,15 +98,7 @@ that rollback fails too, or the installer was killed halfway, the node accepts n
   `sudo crha upgrade rollback` goes back to the version before it; it refuses when a file changed since
   the upgrade, unless `--force`.
 
-**crha, deb and rpm.** Install the new package; the package restarts `crha-privileged` and then `crha`.
-The rpm signing key must already be imported ([deb and rpm](install.md#deb-and-rpm)):
-
-```sh
-sudo apt install ./crha_<version>_<arch>.deb
-sudo dnf install ./crha-<version>-1.<rpmarch>.rpm
-```
-
-**crha, tar.** Run the new archive's `install.sh`, then restart the privileged mode before the agent:
+**crha, from the archive.** Run the new archive's `install.sh`, then restart the privileged mode before the agent:
 
 ```sh
 sudo systemctl restart crha-privileged

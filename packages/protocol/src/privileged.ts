@@ -33,7 +33,7 @@ export const AUTH_PAYLOAD_VERSION = 1;
 export const COSIGN_NAMESPACE = "crh-cosign-v1";
 export const COSIGN_PAYLOAD_VERSION = 1;
 
-export const PRIV_MAJOR = 2;
+export const PRIV_MAJOR = 1;
 /**
  * Incompatible changes bump the major version, so a peer with another major is refused; the minor
  * stays additive and never refuses a handshake.

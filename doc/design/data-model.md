@@ -57,9 +57,10 @@ from the start means a second one needs no schema change ([User model](access-co
 
 Migrations are numbered TypeScript files, listed explicitly rather than discovered, so a source checkout
 and a bundled build run the same set. crhs runs pending migrations at startup, before serving. The chain
-starts at `0001_initial`, the schema of the first release (v0.1.0-rc.1), which creates every table and
-seeds the organization and the built-in extensions. Every later change is a new migration appended after
-it; a released migration is never edited or folded into another.
+starts at `0001_initial`, the schema of `v0.4.0-rc.1`, which creates every table and seeds the
+organization and the built-in extensions. Migrations are append-only from `0001_initial`
+([Compatibility](compatibility.md#database)): every later change is a new migration appended after it,
+and a released migration is never edited, renamed, reordered or folded into another.
 
 - Each migration runs on both dialects and is self-contained: helpers it needs are copied into it, so a
   later change in the application cannot change what an old migration does.
