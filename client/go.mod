@@ -3,6 +3,7 @@ module github.com/Kodecable/ClusterRightHand/client
 go 1.27.3
 
 require (
+	github.com/Kodecable/crosspty v1.2.0
 	github.com/coder/websocket v1.8.15
 	github.com/flynn/noise v1.1.0
 	github.com/fxamacker/cbor/v2 v2.10.0
@@ -16,6 +17,7 @@ require (
 )
 
 require (
+	github.com/creack/pty v1.1.24 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 )

@@ -121,17 +121,23 @@ func TestLoopbackHTTP(t *testing.T) {
 }
 
 func TestAgentURL(t *testing.T) {
-	tests := []struct{ server, want string }{
-		{"https://x", "wss://x/agent"},
-		{"https://x/", "wss://x/agent"},
-		{"https://x/crh", "wss://x/crh/agent"},
-		{"https://x:8443/crh/", "wss://x:8443/crh/agent"},
-		{"http://127.0.0.1:8080", "ws://127.0.0.1:8080/agent"},
+	tests := []struct{ server, want, wantPTY string }{
+		{"https://x", "wss://x/agent", "wss://x/agent/pty"},
+		{"https://x/", "wss://x/agent", "wss://x/agent/pty"},
+		{"https://x/crh", "wss://x/crh/agent", "wss://x/crh/agent/pty"},
+		{"https://x:8443/crh/", "wss://x:8443/crh/agent", "wss://x:8443/crh/agent/pty"},
+		{"http://127.0.0.1:8080", "ws://127.0.0.1:8080/agent", "ws://127.0.0.1:8080/agent/pty"},
 	}
 	for _, tc := range tests {
 		c := &Config{Server: tc.server}
 		if got := c.AgentURL(); got != tc.want {
 			t.Errorf("%s: got %s want %s", tc.server, got, tc.want)
+		}
+		if got := c.PTYURL(); got != tc.wantPTY {
+			t.Errorf("%s: PTYURL got %s want %s", tc.server, got, tc.wantPTY)
+		}
+		if got := c.DataURL(); got != tc.want+"/data" {
+			t.Errorf("%s: DataURL got %s want %s/data", tc.server, got, tc.want)
 		}
 	}
 }

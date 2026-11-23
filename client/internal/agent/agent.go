@@ -111,7 +111,10 @@ type Options struct {
 	// DataDial opens a data connection to crhs for one file.push or file.pull transfer
 	// (doc/design/protocol.md "Data connections"). nil refuses transfer tasks.
 	DataDial func(ctx context.Context, taskID, transferID string) (DataConn, error)
-	Facts    func() protocol.Facts
+	// PTYDial opens a terminal's data connection (doc/design/pty.md "crha"). nil leaves terminals
+	// without a data connection; only tests and programmatic callers do that.
+	PTYDial func(ctx context.Context, ptyID string) (DataConn, error)
+	Facts   func() protocol.Facts
 	// SelfUpgradeStatic are the reasons this process can never be upgraded by crhs; the forward
 	// daemon's state is added each time facts are sent (doc/design/distribution.md "Who can self-upgrade").
 	SelfUpgradeStatic []string
@@ -141,7 +144,7 @@ type Options struct {
 	// offset larger than it is logged as a warning. 0 disables the warning.
 	ClockWarn time.Duration
 	// Env is the task environment resolved when `crha run` started (execenv.Resolve). nil resolves it
-	// per task, which only tests and programmatic callers do.
+	// per task, which only tests and programmatic callers do. Terminals use the same environment.
 	Env *execenv.Environment
 }
 
@@ -182,6 +185,8 @@ type Agent struct {
 	// crhs was told.
 	relay *relayRouter
 	trust trustReporter
+	// pty holds the terminals and the data connections that carry their bytes (pty.go).
+	pty ptyState
 }
 
 func New(opts Options) *Agent {
@@ -204,12 +209,15 @@ func New(opts Options) *Agent {
 		a.trust.report = protocol.TrustReport{Kind: protocol.TrustReportNotForward}
 	}
 	a.trust.have = true
+	a.initPTY(opts)
 	return a
 }
 
 // Run connects and reconnects until ctx is cancelled or crhs rejects this node. Running tasks survive
 // disconnects.
 func (a *Agent) Run(ctx context.Context) error {
+	// Terminals do not outlive the node: every process group is closed on the way out.
+	defer a.shutdownPTY()
 	if a.opts.PrivilegedMode == config.ModeForward {
 		a.startForward(ctx)
 	}
@@ -291,6 +299,12 @@ func (a *Agent) session(ctx context.Context, conn *transport.Conn) error {
 	a.markHelloDone()
 	// The trust report follows the hello response, once per connection (doc/design/protocol.md "Trust summary").
 	a.announceTrust()
+	// Then the terminals: pty.list, and a data connection for every held one
+	// (doc/design/pty.md "Reconnect").
+	if err := a.beginPTY(ctx, conn, peer); err != nil {
+		return rejectionError(err, ns)
+	}
+	defer a.endPTY(peer)
 	defer func() {
 		a.mu.Lock()
 		if a.conn == conn {
@@ -374,6 +388,12 @@ func (a *Agent) newPeer(ctx context.Context, conn *transport.Conn, ns *nodeStatu
 	peer.HandleRequest(protocol.CmdTaskQuery, a.handleTaskQuery)
 	peer.HandleEvent(protocol.EventOutputAck, a.handleOutputAck)
 	peer.HandleEvent(protocol.EventTaskExitAck, a.handleTaskExitAck)
+	// Terminals. The names are optional: an unnegotiated request is answered
+	// unsupported_command before its handler runs.
+	peer.HandleRequest(protocol.CmdPTYOpen, a.handlePTYOpen)
+	peer.HandleRequest(protocol.CmdPTYResize, a.handlePTYResize)
+	peer.HandleRequest(protocol.CmdPTYClose, a.handlePTYClose)
+	peer.HandleRequest(protocol.CmdPTYMeta, a.handlePTYMeta)
 	return peer
 }
 

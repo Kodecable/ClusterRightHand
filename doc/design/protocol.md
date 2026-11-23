@@ -417,8 +417,11 @@ an active node whose control connection is up and which runs that terminal, one 
 transfer it is bidirectional and has no end-to-end hash: `[data, bytes]` frames carry output from crha
 and input from crhs, and `[end]` closes it. It lives as long as the terminal; when it drops, crha keeps
 the output in the terminal's ring buffer and opens it again
-([crha](pty.md#crha)). The commands, events and this path are negotiated together as the minor's
-terminal names.
+([crha](pty.md#crha)). **Every new connection begins with the terminal's whole current ring buffer**
+as `[data]` frames, then live output; crhs treats each connection as a fresh replay of the screen
+rather than a continuation. An `[end]` from crhs closes only the connection, not the terminal, and
+crha's `[end]` after the last output means the process exited. The commands, events and this path are
+negotiated together as the minor's terminal names.
 
 A transfer endpoint in a task spec is a union. Today it has one variant, `[crhs, transfer_id]`: the node
 opens a data connection to crhs. Other endpoints, such as a presigned URL, will come with new negotiated

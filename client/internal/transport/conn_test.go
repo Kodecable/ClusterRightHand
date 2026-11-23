@@ -147,11 +147,12 @@ func TestDialAndPing(t *testing.T) {
 			t.Fatalf("negotiated set misses %q", name)
 		}
 	}
-	// crhs offers the terminal names, but crha implements none of them yet: offering them would
-	// promise behaviour it lacks, so they stay out of the intersection (doc/design/pty.md "Protocol
-	// additions").
-	if c.Negotiated.Has(protocol.CmdPTYOpen) || c.Negotiated.Has(protocol.EventPTYList) {
-		t.Fatal("negotiated set includes a terminal name crha does not implement")
+	// crhs and crha both offer the terminal names, so they are in the intersection and usable on
+	// this connection (doc/design/pty.md "Protocol additions").
+	for _, name := range []string{protocol.CmdPTYOpen, protocol.EventPTYList} {
+		if !c.Negotiated.Has(name) {
+			t.Fatalf("negotiated set misses the terminal name %q", name)
+		}
 	}
 	for seq := protocol.Uint(1); seq <= 3; seq++ {
 		frame, err := protocol.EncodeRequest(protocol.Uint(seq), protocol.CmdPing, protocol.Ping{Seq: seq})
@@ -452,5 +453,146 @@ func TestDialSendsUserAgent(t *testing.T) {
 	}
 	if !strings.HasPrefix(version.UserAgent(), "ClusterRightHand/") || !strings.HasSuffix(version.UserAgent(), " (crha)") {
 		t.Fatalf("unexpected User-Agent %q", version.UserAgent())
+	}
+}
+
+// TestDialPTY covers the terminal data connection's own prologue and handshake payloads
+// (doc/design/pty.md "crha").
+func TestDialPTY(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.CloseNow()
+		ctx := r.Context()
+		challenge := make([]byte, noise.ChallengeLen)
+		_, _ = rand.Read(challenge)
+		_ = ws.Write(ctx, websocket.MessageBinary, challenge)
+		res, _ := noise.NewPTYResponder(serverKey, challenge)
+		_, m1, err := ws.Read(ctx)
+		if err != nil {
+			return
+		}
+		payload, clientPub, err := res.ReadInit(m1)
+		if err != nil || string(clientPub) != string(clientKey.Public) {
+			ws.Close(websocket.StatusPolicyViolation, "unknown node")
+			return
+		}
+		var init protocol.PTYConnectionInit
+		if protocol.Unmarshal(payload, &init) != nil || init.PTYID != "pty-1" {
+			ws.Close(websocket.StatusPolicyViolation, "bad init")
+			return
+		}
+		respPayload, err := protocol.Marshal(protocol.DataConnectionResponse{ProtocolMajor: protocol.ProtocolMajor})
+		if err != nil {
+			return
+		}
+		m2, session, err := res.WriteResponse(respPayload)
+		if err != nil {
+			return
+		}
+		_ = ws.Write(ctx, websocket.MessageBinary, m2)
+		_, ct, err := ws.Read(ctx)
+		if err != nil {
+			return
+		}
+		frame, err := session.Decrypt(ct)
+		if err != nil {
+			return
+		}
+		var got protocol.DataFrame
+		if protocol.Unmarshal(frame, &got) != nil || got.Kind != protocol.DataFrameData || string(got.Bytes) != "keys" {
+			return
+		}
+		echo, _ := protocol.Marshal(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("ok")})
+		ct, _ = session.Encrypt(echo)
+		_ = ws.Write(ctx, websocket.MessageBinary, ct)
+	}))
+	defer srv.Close()
+
+	conn, err := DialPTY(context.Background(), PTYDialOptions{
+		URL:          "ws" + strings.TrimPrefix(srv.URL, "http"),
+		Identity:     clientKey,
+		ServerPublic: serverKey.Public,
+		PTYID:        "pty-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close("done")
+	in, err := protocol.Marshal(protocol.DataFrame{Kind: protocol.DataFrameData, Bytes: []byte("keys")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Send(context.Background(), in); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := conn.Recv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frame protocol.DataFrame
+	if err := protocol.Unmarshal(raw, &frame); err != nil {
+		t.Fatal(err)
+	}
+	if frame.Kind != protocol.DataFrameData || string(frame.Bytes) != "ok" {
+		t.Fatalf("frame = %+v", frame)
+	}
+}
+
+// TestDialPTYRejectsDataPrologue proves the terminal prologue keeps the two data handshakes
+// apart: a server speaking the transfer prologue fails this handshake.
+func TestDialPTYRejectsDataPrologue(t *testing.T) {
+	serverKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientKey, err := noise.GenerateKeypair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer ws.CloseNow()
+		ctx := r.Context()
+		challenge := make([]byte, noise.ChallengeLen)
+		_, _ = rand.Read(challenge)
+		_ = ws.Write(ctx, websocket.MessageBinary, challenge)
+		res, _ := noise.NewDataResponder(serverKey, challenge)
+		_, m1, err := ws.Read(ctx)
+		if err != nil {
+			return
+		}
+		if _, _, err := res.ReadInit(m1); err != nil {
+			ws.Close(websocket.StatusPolicyViolation, "wrong prologue")
+			return
+		}
+	}))
+	defer srv.Close()
+
+	_, err = DialPTY(context.Background(), PTYDialOptions{
+		URL:          "ws" + strings.TrimPrefix(srv.URL, "http"),
+		Identity:     clientKey,
+		ServerPublic: serverKey.Public,
+		PTYID:        "pty-1",
+	})
+	if err == nil {
+		t.Fatal("DialPTY succeeded against a server using the data prologue")
+	}
+	var he *HandshakeError
+	if !errors.As(err, &he) {
+		t.Fatalf("err = %v, want a HandshakeError", err)
 	}
 }

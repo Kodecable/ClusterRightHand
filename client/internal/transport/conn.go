@@ -229,6 +229,17 @@ type DataDialOptions struct {
 	TransferID         string
 }
 
+// PTYDialOptions configures a terminal's data connection (doc/design/pty.md "crha"). It is the
+// transfer transport with the terminal prologue and the terminal id in the client payload.
+type PTYDialOptions struct {
+	// URL of the terminal data endpoint, the agent endpoint's path plus "/pty".
+	URL                string
+	InsecureSkipVerify bool
+	Identity           noise.Keypair
+	ServerPublic       []byte
+	PTYID              string
+}
+
 // DialData opens the data connection of one file.push or file.pull transfer.
 func DialData(ctx context.Context, opts DataDialOptions) (*Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
@@ -244,6 +255,28 @@ func DialData(ctx context.Context, opts DataDialOptions) (*Conn, error) {
 	}
 	ws.SetReadLimit(noise.MaxMessageLen)
 	c, err := dataHandshake(ctx, ws, opts)
+	if err != nil {
+		ws.Close(websocket.StatusPolicyViolation, "handshake failed")
+		return nil, err
+	}
+	return c, nil
+}
+
+// DialPTY opens the data connection of one terminal.
+func DialPTY(ctx context.Context, opts PTYDialOptions) (*Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, handshakeTimeout)
+	defer cancel()
+
+	client := http.DefaultClient
+	if opts.InsecureSkipVerify {
+		client = tlsclient.Insecure()
+	}
+	ws, err := dialWebSocket(ctx, opts.URL, client)
+	if err != nil {
+		return nil, err
+	}
+	ws.SetReadLimit(noise.MaxMessageLen)
+	c, err := ptyHandshake(ctx, ws, opts)
 	if err != nil {
 		ws.Close(websocket.StatusPolicyViolation, "handshake failed")
 		return nil, err
@@ -267,6 +300,61 @@ func dataHandshake(ctx context.Context, ws wsConn, opts DataDialOptions) (*Conn,
 		ProtocolMajor: protocol.ProtocolMajor,
 		TaskID:        opts.TaskID,
 		TransferID:    opts.TransferID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	m1, err := ini.WriteInit(payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := ws.Write(ctx, websocket.MessageBinary, m1); err != nil {
+		return nil, fmt.Errorf("send handshake: %w", err)
+	}
+	m2, err := readBinary(ctx, ws)
+	if err != nil {
+		var ce websocket.CloseError
+		if errors.As(err, &ce) {
+			return nil, &HandshakeError{fmt.Errorf("rejected by server: %s", ce.Reason)}
+		}
+		return nil, fmt.Errorf("read handshake response: %w", err)
+	}
+	respPayload, session, err := ini.ReadResponse(m2)
+	if err != nil {
+		return nil, &HandshakeError{err}
+	}
+	major, err := protocol.PeekMajor(respPayload)
+	if err != nil {
+		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
+	}
+	if major != protocol.ProtocolMajor {
+		return nil, &HandshakeError{fmt.Errorf("protocol_major mismatch: server %d, client %d", major, protocol.ProtocolMajor)}
+	}
+	var resp protocol.DataConnectionResponse
+	if err := protocol.Unmarshal(respPayload, &resp); err != nil {
+		return nil, &HandshakeError{fmt.Errorf("decode response: %w", err)}
+	}
+	return &Conn{ws: ws, session: session}, nil
+}
+
+// ptyHandshake is dataHandshake with the terminal prologue and payload. crhs keeps the two
+// handshakes apart by the prologue, so a data connection is refused as a terminal one and the
+// reverse (doc/design/pty.md "crha").
+func ptyHandshake(ctx context.Context, ws wsConn, opts PTYDialOptions) (*Conn, error) {
+	challenge, err := readBinary(ctx, ws)
+	if err != nil {
+		return nil, fmt.Errorf("read challenge: %w", err)
+	}
+	if len(challenge) != noise.ChallengeLen {
+		return nil, &HandshakeError{fmt.Errorf("challenge of %d bytes", len(challenge))}
+	}
+	ini, err := noise.NewPTYInitiator(opts.Identity, opts.ServerPublic, challenge)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := protocol.Marshal(protocol.PTYConnectionInit{
+		ProtocolMajor: protocol.ProtocolMajor,
+		PTYID:         opts.PTYID,
 	})
 	if err != nil {
 		return nil, err

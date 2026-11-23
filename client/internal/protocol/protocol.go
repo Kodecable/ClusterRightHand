@@ -243,10 +243,10 @@ func OptionalNames() []string {
 }
 
 // ImplementedOptionalNames returns the optional names crha implements and therefore offers in the
-// handshake. It is empty until a later step adds terminals: crha speaks none of the pty names yet,
-// so offering them would promise behaviour it does not have.
+// handshake. crha speaks the six terminal names; a node that did not implement terminals must not
+// list them, so this list is exactly what the non-privileged mode can serve.
 func ImplementedOptionalNames() []string {
-	return nil
+	return OptionalNames()
 }
 
 // OfferedNames returns the handshake's commands field: every required name plus every optional name

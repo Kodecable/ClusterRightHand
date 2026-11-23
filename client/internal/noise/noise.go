@@ -57,9 +57,20 @@ func DataPrologue(challenge []byte) []byte {
 	return append([]byte(protocol.DataNoiseProloguePrefix), challenge...)
 }
 
+// PTYPrologue is a terminal data connection's prologue: its own prefix again, so a terminal
+// handshake can never be taken for a transfer's, or the reverse (doc/design/pty.md "crha").
+func PTYPrologue(challenge []byte) []byte {
+	return append([]byte(protocol.PTYNoiseProloguePrefix), challenge...)
+}
+
 // NewDataInitiator runs the client side of a data connection's IK handshake.
 func NewDataInitiator(static Keypair, serverPublic, challenge []byte) (*Initiator, error) {
 	return newInitiatorPrologue(static, serverPublic, DataPrologue(challenge), nil)
+}
+
+// NewPTYInitiator runs the client side of a terminal data connection's IK handshake.
+func NewPTYInitiator(static Keypair, serverPublic, challenge []byte) (*Initiator, error) {
+	return newInitiatorPrologue(static, serverPublic, PTYPrologue(challenge), nil)
 }
 
 // Session holds the transport ciphers after a completed handshake.
@@ -151,6 +162,12 @@ func NewResponder(static Keypair, challenge []byte) (*Responder, error) {
 // NewDataResponder runs the server side of a data connection's IK handshake.
 func NewDataResponder(static Keypair, challenge []byte) (*Responder, error) {
 	return newResponderPrologue(static, DataPrologue(challenge), nil)
+}
+
+// NewPTYResponder runs the server side of a terminal data connection's IK handshake. crhs
+// implements the server in TypeScript; this one exists for the transport tests.
+func NewPTYResponder(static Keypair, challenge []byte) (*Responder, error) {
+	return newResponderPrologue(static, PTYPrologue(challenge), nil)
 }
 
 func newResponder(static Keypair, challenge []byte, ephemeral *Keypair) (*Responder, error) {

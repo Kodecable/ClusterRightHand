@@ -315,6 +315,10 @@ func (c *Config) ServerKeyPath() string { return filepath.Join(c.StateDir, "serv
 // "/data" (doc/design/protocol.md "Data connections").
 func (c *Config) DataURL() string { return c.AgentURL() + "/data" }
 
+// PTYURL returns the websocket URL of a terminal's data endpoint: the agent endpoint's path plus
+// "/pty" (doc/design/protocol.md "Data connections").
+func (c *Config) PTYURL() string { return c.AgentURL() + "/pty" }
+
 // AgentURL returns the websocket URL of the server's agent endpoint.
 func (c *Config) AgentURL() string {
 	u, err := url.Parse(c.Server)

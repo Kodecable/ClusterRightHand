@@ -82,15 +82,19 @@ func TestOptionalNames(t *testing.T) {
 }
 
 func TestOfferedNames(t *testing.T) {
-	// crha speaks none of the terminal names yet, so offering them would promise behaviour it lacks.
-	if got := ImplementedOptionalNames(); got != nil {
-		t.Fatalf("ImplementedOptionalNames() = %v, want nil until terminals land", got)
+	// crha implements every terminal name, and offering one promises the behaviour behind it.
+	if got, want := ImplementedOptionalNames(), OptionalNames(); !slices.Equal(got, want) {
+		t.Fatalf("ImplementedOptionalNames() = %v, want %v", got, want)
 	}
-	if got := OfferedNames(); !slices.Equal(got, RequiredNames()) {
-		t.Fatalf("OfferedNames() = %v, want RequiredNames()", got)
+	want := append(RequiredNames(), OptionalNames()...)
+	slices.Sort(want)
+	if got := OfferedNames(); !slices.Equal(got, want) {
+		t.Fatalf("OfferedNames() = %v, want %v", got, want)
 	}
-	if got := OfferedSet().Has(CmdPTYOpen); got {
-		t.Fatal("crha offers pty.open before implementing terminals")
+	for _, name := range []string{CmdPTYOpen, CmdPTYResize, CmdPTYClose, CmdPTYMeta, EventPTYExited, EventPTYList} {
+		if !OfferedSet().Has(name) {
+			t.Fatalf("crha does not offer %q", name)
+		}
 	}
 }
 

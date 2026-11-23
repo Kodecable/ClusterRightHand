@@ -65,9 +65,12 @@ func indexOf(frames []string, want string) int {
 // fakeConfig scripts one fake crhs connection.
 type fakeConfig struct {
 	nodeState protocol.NodeState
-	setup     func(*protocol.Peer)
-	run       func(context.Context, *protocol.Peer)
-	log       *frameLog
+	// commands is what the fake crhs offers in the handshake; nil means the required names only,
+	// as a crhs of the base protocol does. Terminal tests set OfferedNames.
+	commands []string
+	setup    func(*protocol.Peer)
+	run      func(context.Context, *protocol.Peer)
+	log      *frameLog
 	// sent, when non-nil, sees every frame crhs sends to the agent, in wire order.
 	sent func(*protocol.Frame)
 }
@@ -110,10 +113,14 @@ func startFake(t *testing.T, serverKey noise.Keypair, cfg fakeConfig) *httptest.
 		if err := protocol.Unmarshal(payload, &init); err != nil {
 			return
 		}
+		commands := cfg.commands
+		if commands == nil {
+			commands = protocol.RequiredNames()
+		}
 		resp := &protocol.HandshakeResponse{
 			ProtocolMajor: protocol.ProtocolMajor,
 			ProtocolMinor: protocol.ProtocolMinor,
-			Commands:      protocol.RequiredNames(),
+			Commands:      commands,
 			ConnectionID:  "conn-1",
 			ServerTimeMS:  protocol.Int(time.Now().UnixMilli()),
 			NodeState:     cfg.nodeState,
@@ -142,7 +149,7 @@ func startFake(t *testing.T, serverKey noise.Keypair, cfg fakeConfig) *httptest.
 				return err
 			}
 			return ws.Write(ctx, websocket.MessageBinary, ct)
-		}, protocol.RequiredSet().Intersect(protocol.NewSet(init.Commands...)))
+		}, protocol.NewSet(commands...).Intersect(protocol.NewSet(init.Commands...)))
 		registerCore(peer)
 		cfg.setup(peer)
 		if cfg.run != nil {

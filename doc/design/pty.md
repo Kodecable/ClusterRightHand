@@ -114,29 +114,54 @@ afterwards is not authorized command by command; the authorization covers the te
 ## crha
 
 - crha keeps a map of active terminals in memory: the object's fields, the crosspty handle, and a ring
-  buffer of the latest raw output (the size crhs sends in `pty.open`).
+  buffer of the latest raw output (the size crhs sends in `pty.open`). The ring holds at least 64 KiB
+  and at most 16 MiB, whatever crhs asks for.
+- A terminal stays in the map after its process exits: with its last output and its exit code, until
+  crhs sends `pty.close` or, if crhs never does, ten minutes after the exit.
+- At most 64 terminals are held at once, running or exited and not yet closed. The 64 is a backstop
+  against a crhs that loses track, not the configured limit (crhs enforces that): a `pty.open` beyond
+  it is refused with `busy`.
 - The process starts through crosspty's `New` and `Start`, so the reader is in place before the shell
-  prints anything. `KillMode` covers the process group.
+  prints anything. `KillMode` covers the process group, so a child of the shell dies with it.
 - **Data connection.** Each terminal has one data connection, opened by crha after `pty.open`: the
   transport of [Data connections](protocol.md#data-connections) on its own path and prologue
   (`/agent/pty`, `crh-pty/1`), with the terminal id in the client payload. Unlike a transfer it is
   bidirectional: output frames go to crhs, input frames come back. Terminal bytes never travel on the
   control connection.
-- Output is read from the PTY continuously into the ring buffer. While the data connection is down,
-  output only fills the ring buffer; the process is never blocked by crhs.
+- **Every connection is a replay.** A new data connection starts with the whole current ring buffer,
+  as `[data]` frames chunked at the protocol's chunk size, and only then follows live output. crhs
+  treats each connection as a fresh replay of the screen, so a reconnected terminal never continues
+  mid-stream. A sender that falls more than the ring capacity behind live output would have to skip
+  bytes; crha closes its connection and opens a new one, which replays instead. While no data
+  connection is up, output only fills the ring buffer and the process is never blocked by crhs.
+- **An exited terminal is replayed once per control connection.** A terminal whose process ended but
+  that crhs has not closed still gets a data connection on each new control connection: it replays
+  the ring buffer, ends with `[end]`, and its worker stops until the next control connection.
+- **`pty.close`.** crha drops the terminal at once — a running process gets crosspty's close sequence
+  (SIGHUP, then SIGKILL after the grace period) for its whole process group — and answers the
+  command; an unknown id is still a success. crhs asked for the close, so no `pty.exited` is emitted
+  for a terminal closed this way. An exited terminal is only dropped, its PTY freed.
 - Control messages go on the control connection: `pty.open`, `pty.resize`, `pty.close`, `pty.meta`
   (commands) and `pty.exited`, `pty.list` (events).
 
 ### Reconnect
 
-When crha connects, after `hello`, it sends `pty.list`: every active terminal with its fields. crhs:
+When crha connects, after `hello`, it sends `pty.list`: every held terminal, running or exited, with
+its fields, its state and, for an exited process, its exit code. crhs:
 
 - adopts each listed terminal into its copy, rebuilding its owner, its creating and associated
   sessions and its idle timeout from the terminal's `meta` blob, which crhs owns and crha returns
-  unchanged; crha opens the data connections again;
+  unchanged; crha opens the data connections again for the running terminals, and each one begins
+  with the ring buffer's replay; for an exited terminal crhs has not closed, crha replays the ring
+  buffer once and ends with `[end]`;
 - rebuilds each terminal's screen state by replaying the ring buffer into a fresh emulator. If output
   was lost beyond the ring buffer, the screen starts from the oldest kept byte;
 - closes, with reason `crha_restarted`, any terminal it knew on that node that is not listed.
+
+An exited terminal crhs has not closed yet is listed too, with its exit code, and stays on the node
+until the close arrives or ten minutes pass after the exit. On each new control connection it is
+replayed once, ending with `[end]`. A terminal crhs closed on the node before the reconnect is not
+listed.
 
 crhs does not keep terminals across its own restart other than through this list, so a crhs restart
 loses nothing that crha still holds.

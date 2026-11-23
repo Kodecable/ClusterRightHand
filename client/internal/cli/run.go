@@ -106,6 +106,9 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 		DataDial: func(ctx context.Context, taskID, transferID string) (agent.DataConn, error) {
 			return transport.DialData(ctx, dataDialOptions(cfg.Load(), key, serverKey, taskID, transferID))
 		},
+		PTYDial: func(ctx context.Context, ptyID string) (agent.DataConn, error) {
+			return transport.DialPTY(ctx, ptyDialOptions(cfg.Load(), key, serverKey, ptyID))
+		},
 		Facts: func() protocol.Facts { return nodeFacts(cfg.Load(), env) },
 		// How crha is installed and started does not change while it runs (doc/design/distribution.md
 		// "Who can self-upgrade"); the privileged mode is a restart-only setting.
@@ -183,6 +186,18 @@ func dataDialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte,
 		ServerPublic:       serverKey,
 		TaskID:             taskID,
 		TransferID:         transferID,
+	}
+}
+
+// ptyDialOptions is the data connection of one terminal: the same transport on the terminal path
+// and prologue (doc/design/pty.md "crha").
+func ptyDialOptions(cfg *config.Config, key identity.Keypair, serverKey []byte, ptyID string) transport.PTYDialOptions {
+	return transport.PTYDialOptions{
+		URL:                cfg.PTYURL(),
+		InsecureSkipVerify: cfg.TLSVerify == config.TLSVerifyNone,
+		Identity:           key,
+		ServerPublic:       serverKey,
+		PTYID:              ptyID,
 	}
 }
 
