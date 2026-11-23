@@ -372,13 +372,22 @@ assembled in this order:
 5. **The extension list**: each extension the session can use, with its description and tool count.
 6. **The skills**: the owner's [skills](library.md#skills), each with its name and description, sorted by
    name; or, past the limit, one line saying there are too many to list. Nothing when there are none.
+7. **The user's instructions**: `AGENTS.md` at the root of the owner's personal library, after the skills,
+   quoted in a `<user_instructions>` block with a line saying they are standing instructions that rank below
+   the tool guide and the user's messages in the session
+   ([AGENTS.md](library.md#agentsmd)). At most 32 KiB: a larger file is not truncated, and the section is one
+   line naming the file, its size and how to read it with `read_file`. No personal library, no file and
+   empty content leave the section out silently; content that is not valid UTF-8 or holds a NUL byte, and a
+   read error, also leave it out but log one warning and do not fail the session's request.
 
 Nothing rewrites a session's prompt afterwards, as in a coding agent: the provider's prompt cache keeps
 the prefix, and the model's instructions do not shift under a running conversation. A later change takes
 effect the way it does anyway: settings and extension grants through the tool definitions and the tools'
-own checks, rules and access through the decisions on each call, a new or changed skill or Session preset
-in sessions started afterwards. A fork and a subagent are sessions of their own and assemble their own
-prompt. The current time is never in it; it travels with the user messages.
+own checks, rules and access through the decisions on each call, a new or changed skill, a changed
+`AGENTS.md` or Session preset in sessions started afterwards. A fork and a subagent are sessions of their
+own and assemble their own prompt. Compaction does not touch the system prompt either: its summary is a
+user message, so the instructions and skills stay in effect after it. The current time is never in it; it
+travels with the user messages.
 
 ### Message time
 

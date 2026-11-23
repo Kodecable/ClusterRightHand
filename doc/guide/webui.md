@@ -181,6 +181,10 @@ user group's library there.
   deleted.
 - A user group whose library still has files cannot be deleted; the error names the file count and
   links to the library, where the files can be deleted first.
+- `AGENTS.md` at the root of your own library holds standing instructions for your sessions: crhs adds the
+  file to a session's system prompt when the session starts, up to 32 KiB. A larger file is not included;
+  the model is told its size and reads it with `read_file`. Group libraries and deeper paths are not read,
+  and a change applies to sessions started afterwards.
 
 Use the path in your browser's address bar to link a location: `/library/user:alice?path=docs` opens
 Alice's library in `docs`.

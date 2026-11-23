@@ -448,6 +448,22 @@ with the ordinary file tools; there is no skill tool.
   into `skills/` changes later sessions, as a node note does. Library writes are audited
   ([Prompt injection](agent-runtime.md#prompt-injection)).
 
+## AGENTS.md
+
+`AGENTS.md` at the root of a user's personal library holds standing instructions for that user's
+sessions; group libraries and deeper paths are not read.
+
+- **Where and when.** The file is read once, when the session's system prompt is assembled at its first
+  request, and becomes section 7 after the skills
+  ([Session system prompt](agent-runtime.md#session-system-prompt)). A change applies to sessions started
+  afterwards, as a skill change does.
+- **Limit.** At most 32 KiB. A larger file is not truncated: the prompt names its size and tells the model
+  to read it with `read_file` before acting. A missing or empty file leaves it out silently; invalid UTF-8,
+  a NUL byte and a read error also leave it out, log a warning and do not fail the request.
+- Like a skill, `AGENTS.md` is the owner's own instruction, stored where the agent can write: an agent that
+  writes it changes later sessions. Library writes are audited
+  ([Prompt injection](agent-runtime.md#prompt-injection)).
+
 ## WebUI and API
 
 - A **Library** page (`/library/$library?path=…`) uses the shared file manager to list, upload, download,

@@ -27,6 +27,7 @@ import { extensionNamesForUser, parseDisabledExtensionNames } from "../extension
 import { outcomeOf } from "../jobs/jobs.ts";
 import { withJobLimit } from "../jobs/limits.ts";
 import { jobNoticesBlock } from "../jobs/notices.ts";
+import { agentsMdForUser, agentsMdPromptSection } from "../library/agents-md.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import { findLibraryFile } from "../library/files.ts";
 import { REJECTED_IMAGE_TEXT } from "../library/image-cache.ts";
@@ -697,16 +698,30 @@ async function deliveryCountFor(runtime: AgentRuntime | undefined, conversationI
 	return count;
 }
 
-/** The owner's skills for the system prompt (doc/design/library.md "Skills"). */
-async function sessionSkills(options: AgentRuntimeOptions, ownerUserId: string): Promise<string> {
+/** The owner's username, which names their personal library; undefined when the owner is gone. */
+async function sessionUsername(options: AgentRuntimeOptions, ownerUserId: string): Promise<string | undefined> {
 	const owner = await options.db
 		.selectFrom("users")
 		.select("username")
 		.where("id", "=", ownerUserId)
 		.executeTakeFirst();
-	if (!owner) return "";
+	return owner?.username;
+}
+
+/** The owner's skills for the system prompt (doc/design/library.md "Skills"). */
+async function sessionSkills(options: AgentRuntimeOptions, ownerUserId: string): Promise<string> {
+	const username = await sessionUsername(options, ownerUserId);
+	if (username === undefined) return "";
 	const limit = options.settings?.current().skills.maxPerUser ?? DEFAULT_SKILLS_PER_USER;
-	return skillsPromptSection(await skillCatalog(options.db, ownerUserId, limit), `user:${owner.username}`);
+	return skillsPromptSection(await skillCatalog(options.db, ownerUserId, limit), `user:${username}`);
+}
+
+/** The owner's standing instructions for the system prompt (doc/design/library.md "AGENTS.md"). */
+async function sessionAgentsMd(options: AgentRuntimeOptions, ownerUserId: string): Promise<string> {
+	const username = await sessionUsername(options, ownerUserId);
+	if (username === undefined) return "";
+	const input = await agentsMdForUser(options.db, ownerUserId, options.cluster.libraryBackend);
+	return agentsMdPromptSection(input, `user:${username}`);
 }
 
 /** The session's extensions for the tool guide (doc/design/extensions.md "Tools for the model"). */
@@ -1191,7 +1206,15 @@ export function clusterExtension(
 						parseDisabledExtensionNames(session.disabled_extensions),
 					);
 					const skills = await sessionSkills(options, session.owner_user_id);
-					const assembled = [prompt, user, session.parent_session_id === null ? "" : SUBAGENT_NOTE, guide, skills]
+					const instructions = await sessionAgentsMd(options, session.owner_user_id);
+					const assembled = [
+						prompt,
+						user,
+						session.parent_session_id === null ? "" : SUBAGENT_NOTE,
+						guide,
+						skills,
+						instructions,
+					]
 						.filter((part) => part !== "")
 						.join("\n\n");
 					await options.db
