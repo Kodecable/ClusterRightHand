@@ -97,7 +97,7 @@ Every task has one method and one normalized target, which authorizations and gu
 | `file.read` | `file.read`, `file.stat`, `file.list` | The absolute path |
 | `file.write` | `file.write`, `file.edit`, and everything `file.read` allows | The absolute path |
 | `upgrade` | `node.upgrade` | `<version> sha256:<hex>`, the target version and the binary's hash |
-| `pty.create` | Opening a privileged [terminal](pty.md) | The argv rendered canonically, as for `exec` |
+| `pty.create` | Opening a privileged [terminal](pty.md) | The argv rendered canonically, as for `exec`; the login shell (empty argv) renders as the empty string |
 
 - Canonical rendering means a later argument cannot pose as part of an earlier one. A shell-mode task
   renders as `/bin/sh -c <script>`, so a rule like `prefix = "systemctl restart "` never matches a
@@ -138,6 +138,11 @@ Every task has one method and one normalized target, which authorizations and gu
   `allow` rules refuses it unless an allow rule names it, and crhs warns of a deny-only entry that does
   not deny it (`pty_not_denied`), since such an entry written before terminals existed allows it
   silently ([Terminals](pty.md#privilege)).
+- A privileged terminal's authorization uses the TaskSpec kind `pty.create`, whose only field is the
+  argv, so the same local approval window, one-shot task ids, attempt, used list and cosign machinery
+  applies unchanged: the terminal id stands in for the task id, and the `pty.open` attempt for the
+  task's. Size, scrollback and metadata are not in the spec, so resizing never invalidates an
+  authorization.
 - A Passkey or FIDO key signs in the WebUI, which crhs serves: that path cannot let the signer check
   the spec independently, and a compromised crhs could show one spec and ask for another. `crhu` with
   an SSH key can: it decodes the spec the payload binds, recomputes its hash and shows every field

@@ -166,6 +166,9 @@ const KIND_METHOD: Record<string, Method> = {
 	"file.pull": "file.read",
 	// Replacing crha's binary is root on the node: a method of its own (doc/design/privilege.md "Methods and targets").
 	"node.upgrade": "upgrade",
+	// A privileged terminal is authorized once at open: the spec of kind pty.create is its argv
+	// (doc/design/pty.md "Privilege").
+	"pty.create": "pty.create",
 };
 
 /** The target of an upgrade: `<version> sha256:<hex>`, as crha renders it. */
@@ -182,6 +185,7 @@ export function operationOf(spec: TaskSpec): { method: Method; target: string } 
 		return { method, target: argv.map(shellQuote).join(" ") };
 	}
 	if (spec.kind === "node.upgrade") return { method, target: upgradeTarget(spec.version, spec.sha256) };
+	if (spec.kind === "pty.create") return { method, target: spec.argv.map(shellQuote).join(" ") };
 	// Normalized, so that "/etc/nginx/../shadow" is matched as "/etc/shadow". Symbolic links are not
 	// resolved here; for privileged tasks crha refuses them (doc/design/privilege.md).
 	return { method, target: posix.normalize(spec.path) };

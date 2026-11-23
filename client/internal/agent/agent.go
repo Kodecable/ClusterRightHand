@@ -438,9 +438,10 @@ func (a *Agent) hello() protocol.Hello {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	h := protocol.Hello{
-		// Every kind the task spec union decodes; node.upgrade, beyond the base set, reaches the node only
-		// because it is listed (doc/design/protocol.md "Version negotiation").
-		TaskKinds:      protocol.TaskSpecKinds(),
+		// Every kind this node runs: node.upgrade, beyond the base set, reaches the node only because it
+		// is listed, and pty.create is never a task so it is not listed (doc/design/protocol.md
+		// "Version negotiation").
+		TaskKinds:      protocol.HelloTaskKinds(),
 		PrivilegedMode: a.opts.PrivilegedMode,
 	}
 	for _, t := range a.tasks {

@@ -29,6 +29,14 @@ const WARNINGS: TrustWarning[] = [
 		trustName: "old-key",
 		message: "unknown trust entry",
 	},
+	{
+		kind: "pty_not_denied",
+		severity: "warning",
+		uuid: null,
+		nodeGroupName: null,
+		trustName: "crhs",
+		message: "pty.create is not denied",
+	},
 ];
 
 describe("TrustWarningList", () => {
@@ -36,7 +44,7 @@ describe("TrustWarningList", () => {
 		renderWithI18n(<TrustWarningList warnings={WARNINGS} />);
 		expect(screen.getByRole("region", { name: "Trust warnings" })).toBeInTheDocument();
 		const items = screen.getAllByRole("listitem");
-		expect(items).toHaveLength(3);
+		expect(items).toHaveLength(4);
 		expect(items[0]).toHaveAttribute("data-severity", "danger");
 		expect(screen.getByRole("alert")).toHaveTextContent(
 			"Reusable authorizations addressed to that group still work here.",
@@ -44,6 +52,7 @@ describe("TrustWarningList", () => {
 		expect(items[2]).toHaveAttribute("data-severity", "warning");
 		expect(screen.getByText("group-2")).toBeInTheDocument();
 		expect(screen.getByText("old-key")).toBeInTheDocument();
+		expect(screen.getByText(/crhs alone can open a privileged terminal/)).toBeInTheDocument();
 	});
 
 	test("translates the warnings in zh-CN", () => {

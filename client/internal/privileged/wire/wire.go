@@ -98,7 +98,8 @@ func coreNames() []string {
 }
 
 // NamesFor returns the command and event names a role implements, sorted, including the
-// privilege names that role needs. The handshake advertises this list.
+// privilege names that role needs. The handshake advertises this list. The optional terminal names
+// (pty.*) are not in it yet: there is no runtime for them (doc/design/pty.md "Protocol additions").
 func NamesFor(role Role) []string {
 	switch role {
 	case RoleForward:

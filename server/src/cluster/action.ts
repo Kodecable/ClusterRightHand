@@ -53,6 +53,10 @@ export function taskActionOfSpec(spec: TaskSpec): TaskAction {
 			return { type: "file", operation: "list", path: spec.path };
 		case "node.upgrade":
 			return { type: "upgrade", version: spec.version, arch: spec.arch };
+		case "pty.create":
+			// A terminal's spec is never a task: no task view or approval is built from it
+			// (doc/design/pty.md "Privilege").
+			throw new Error("pty.create is not a task");
 	}
 }
 

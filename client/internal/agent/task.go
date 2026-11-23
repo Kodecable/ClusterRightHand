@@ -451,6 +451,14 @@ func checkTaskKind(spec protocol.TaskSpec) *protocol.RemoteError {
 		if spec.NodeUpgrade == nil {
 			return invalid
 		}
+	case protocol.TaskSpecPtyCreate:
+		// pty.create is decoded for authorizations only: a terminal opens with pty.open, never as a
+		// task (doc/design/pty.md "Privilege"). unsupported_kind is what task.start answers for a kind
+		// this node does not run.
+		return &protocol.RemoteError{
+			Code:    protocol.CodeUnsupportedKind,
+			Message: "pty.create is not a task: a terminal opens with pty.open",
+		}
 	default:
 		// Cannot happen after decoding; keep the guard for a future kind this build does not know.
 		return &protocol.RemoteError{Code: protocol.CodeUnsupportedKind, Message: fmt.Sprintf("unsupported task kind %q", spec.Kind)}

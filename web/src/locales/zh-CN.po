@@ -5656,6 +5656,10 @@ msgid "This credential is used by a node and cannot be deleted."
 msgstr "此凭据正被节点使用，无法删除。"
 
 #: src/features/nodes/trust-warnings.tsx
+msgid "This crhs entry denies some operations but not pty.create, so crhs alone can open a privileged terminal, which runs anything the privileged identity can. Add a deny rule for method \"pty.create\" in privileged.toml so a privileged terminal needs a user's signature: {value}"
+msgstr "这个 crhs 条目拒绝了部分操作，却没有拒绝 pty.create，因此 crhs 单独就能打开特权终端，而特权终端能执行特权身份可执行的任何操作。请在 privileged.toml 中为 method \"pty.create\" 添加一条 deny 规则，使特权终端需要用户签名：{value}"
+
+#: src/features/nodes/trust-warnings.tsx
 msgid "This crhs entry denies some operations but not upgrade, so crhs alone can replace the binary that enforces them. Add a deny rule for method \"upgrade\" in privileged.toml so an upgrade needs a user's signature: {value}"
 msgstr "这个 crhs 条目拒绝了部分操作，却没有拒绝 upgrade，因此 crhs 单独就能替换执行这些规则的二进制。请在 privileged.toml 中为 method \"upgrade\" 添加一条 deny 规则，使升级需要用户签名：{value}"
 

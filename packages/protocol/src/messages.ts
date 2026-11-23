@@ -352,11 +352,22 @@ const taskSpecBranches = {
 		["sha256", sha256],
 		["endpoint", transferEndpointCodec],
 	]),
+	/**
+	 * Opens a privileged [terminal](pty.md): the argv to run, empty for the privileged identity's
+	 * login shell. It is never a task (see `BASE_TASK_KINDS`); the spec exists so a terminal's
+	 * authorization reuses the `spec` command limit, with the terminal id standing in for the task
+	 * id (doc/design/pty.md "Privilege").
+	 */
+	"pty.create": tuple([["argv", list(text)]]),
 } as const;
 
 export const taskSpecCodec = union(taskSpecBranches);
 
-/** Every task kind this version decodes, in the union's order; Go's protocol.TaskSpecKinds is the same list. */
+/**
+ * Every task kind this version decodes, in the union's order; Go's protocol.TaskSpecKinds is the same
+ * list. A kind is not necessarily a task: `pty.create` is decoded for authorizations only and is
+ * never sent in `task.start`, so it is not in `BASE_TASK_KINDS` or a node's `hello.taskKinds`.
+ */
 export const TASK_SPEC_KINDS: readonly string[] = Object.freeze(Object.keys(taskSpecBranches));
 export type TaskSpec = Infer<typeof taskSpecCodec>;
 
@@ -553,7 +564,9 @@ export type Empty = Infer<typeof emptyCodec>;
  * The body of `pty.open`: the terminal id crhs chose, its argv (empty means the identity's login
  * shell), its initial size, its privileged flag, the size of crha's scrollback ring buffer and the
  * opaque `meta` blob crhs owns. crha stores `meta` and returns it unchanged in `pty.list`; it never
- * interprets it (doc/design/pty.md "Reconnect").
+ * interprets it (doc/design/pty.md "Reconnect"). A privileged terminal also carries its
+ * authorization as `task.start` does: `attempt`, the authorizations (CBOR authorization objects) and
+ * crhs's cosign ticket, or null. An unprivileged one carries 0, an empty list and null.
  */
 export const ptyOpenCodec = tuple([
 	["ptyId", text],
@@ -563,6 +576,9 @@ export const ptyOpenCodec = tuple([
 	["privileged", bool],
 	["scrollbackBytes", uint],
 	["meta", bytes],
+	["attempt", uint],
+	["authorizations", list(bytes)],
+	["cosign", nullable(bytes)],
 ]);
 export type PtyOpen = Infer<typeof ptyOpenCodec>;
 
@@ -589,12 +605,20 @@ export const ptyMetaCodec = tuple([
 export type PtyMeta = Infer<typeof ptyMetaCodec>;
 
 /**
- * The body of the `pty.exited` event: the terminal id and the process's exit code. The code is a
- * signed integer, so a killed process can report -1 (doc/design/pty.md "Lifecycle").
+ * The reasons a `pty.exited` event can name: the process ended by itself, or a privileged terminal
+ * lost its privileged mode (doc/design/pty.md "Lifecycle").
+ */
+export const PTY_EXIT_REASONS = ["exited", "helper_lost"] as const;
+
+/**
+ * The body of the `pty.exited` event: the terminal id, the process's exit code and the reason it
+ * ended. The code is a signed integer, so a killed process can report -1 (doc/design/pty.md
+ * "Lifecycle").
  */
 export const ptyExitedCodec = tuple([
 	["ptyId", text],
 	["exitCode", int],
+	["reason", text],
 ]);
 export type PtyExited = Infer<typeof ptyExitedCodec>;
 

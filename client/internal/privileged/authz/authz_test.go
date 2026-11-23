@@ -38,6 +38,7 @@ type jsonSpec struct {
 	Cwd       string            `json:"cwd"`
 	Stdin     *jsonInputRef     `json:"stdin"`
 	Path      string            `json:"path"`
+	Argv      *[]string         `json:"argv"`
 	StartLine uint64            `json:"startLine"`
 	LineCount uint64            `json:"lineCount"`
 	Limit     uint64            `json:"limit"`
@@ -243,6 +244,13 @@ func taskSpecFromJSON(t *testing.T, spec jsonSpec) *protocol.TaskSpec {
 	case "file.list":
 		return &protocol.TaskSpec{Kind: protocol.TaskSpecFileList, FileList: &protocol.FileListSpec{
 			Path: spec.Path, Limit: protocol.Uint(spec.Limit),
+		}}
+	case "pty.create":
+		if spec.Argv == nil {
+			t.Fatalf("pty.create spec has no argv")
+		}
+		return &protocol.TaskSpec{Kind: protocol.TaskSpecPtyCreate, PtyCreate: &protocol.PtyCreateSpec{
+			Argv: *spec.Argv,
 		}}
 	default:
 		t.Fatalf("unknown task spec kind %q", spec.Kind)

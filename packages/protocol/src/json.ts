@@ -71,7 +71,9 @@ export type JsonTaskSpec =
 			size: number;
 			sha256: string;
 			endpoint: JsonTransferEndpoint;
-	  };
+	  }
+	/** Not a task: the spec of a privileged terminal's authorization (doc/design/pty.md "Privilege"). */
+	| { kind: "pty.create"; argv: string[] };
 
 /** The JSON form of one `file.list` entry (doc/design/protocol.md "Task results"). */
 export interface JsonFileListEntry {
@@ -305,6 +307,8 @@ export function taskSpecToJson(value: TaskSpec): JsonTaskSpec {
 			return { kind: "file.stat", path: text(value.path, "path") };
 		case "file.list":
 			return { kind: "file.list", path: text(value.path, "path"), limit: uint(value.limit, "limit") };
+		case "pty.create":
+			return { kind: "pty.create", argv: value.argv.map((arg) => text(arg, "argv")) };
 	}
 }
 
@@ -418,6 +422,11 @@ export function taskSpecFromJson(value: unknown): TaskSpec {
 		case "file.list": {
 			const object = record(value, "file.list", ["kind", "path", "limit"]);
 			return { kind: "file.list", path: text(object.path, "path"), limit: uint(object.limit, "limit") };
+		}
+		case "pty.create": {
+			const object = record(value, "pty.create", ["kind", "argv"]);
+			if (!Array.isArray(object.argv)) bad("argv", "not an array");
+			return { kind: "pty.create", argv: object.argv.map((arg, index) => text(arg, `argv[${index}]`)) };
 		}
 		default:
 			bad("task spec", `unknown kind: ${kind}`);

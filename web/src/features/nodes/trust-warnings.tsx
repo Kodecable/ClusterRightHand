@@ -91,6 +91,16 @@ function TrustWarningText({ warning }: { warning: TrustWarning }) {
 					</Trans>
 				</span>
 			);
+		case "pty_not_denied":
+			return (
+				<span>
+					<Trans>
+						This crhs entry denies some operations but not pty.create, so crhs alone can open a privileged terminal,
+						which runs anything the privileged identity can. Add a deny rule for method "pty.create" in privileged.toml
+						so a privileged terminal needs a user's signature: {value}
+					</Trans>
+				</span>
+			);
 	}
 }
 

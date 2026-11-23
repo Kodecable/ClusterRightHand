@@ -893,6 +893,42 @@ func TestSignUpgradeSpec(t *testing.T) {
 	}
 }
 
+// TestSignPtyCreateSpec covers signing a privileged terminal's authorization: like an exec spec, the
+// confirmation shows the argv, the method and the target, and an empty argv is shown as the login
+// shell (doc/design/pty.md "Privilege").
+func TestSignPtyCreateSpec(t *testing.T) {
+	keyPath, _ := generateSSHKey(t)
+	useSSHKeygen(t, "ssh-keygen")
+	spec := &protocol.TaskSpec{Kind: protocol.TaskSpecPtyCreate, PtyCreate: &protocol.PtyCreateSpec{
+		Argv: []string{"/bin/bash", "-l"},
+	}}
+	payload := webuiPayload(t, protocol.SpecCommand(mustSpecHash(t, spec)))
+	_, stderr, err := runCLI(t, "sign", "--payload", payload, "--spec", encodeSpec(t, spec), "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("sign: %v\nstderr: %s", err, stderr)
+	}
+	for _, want := range []string{
+		`"kind": "pty.create"`, `"method": "pty.create"`, `"target": "/bin/bash -l"`, `"-l"`,
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("the confirmation has no %q:\n%s", want, stderr)
+		}
+	}
+
+	// An empty argv is the privileged identity's login shell; its target is the empty string.
+	login := &protocol.TaskSpec{Kind: protocol.TaskSpecPtyCreate, PtyCreate: &protocol.PtyCreateSpec{Argv: []string{}}}
+	loginPayload := webuiPayload(t, protocol.SpecCommand(mustSpecHash(t, login)))
+	_, stderr, err = runCLI(t, "sign", "--payload", loginPayload, "--spec", encodeSpec(t, login), "--key", keyPath, "--yes")
+	if err != nil {
+		t.Fatalf("sign the login shell: %v\nstderr: %s", err, stderr)
+	}
+	for _, want := range []string{`"login_shell": true`, `"target": ""`} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("the confirmation has no %q:\n%s", want, stderr)
+		}
+	}
+}
+
 // TestSignPrefixWarning covers the trailing-slash warning of a file prefix: a prefix that does not
 // end in "/" also matches sibling paths, and the signed prefix is unchanged.
 func TestSignPrefixWarning(t *testing.T) {

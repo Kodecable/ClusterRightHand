@@ -17,7 +17,7 @@ import {
 	decide,
 } from "../src/privilege/authz.ts";
 
-type Method = "exec" | "file.read" | "file.write";
+type Method = "exec" | "file.read" | "file.write" | "pty.create";
 
 interface GuardRuleJson {
 	method: Method;

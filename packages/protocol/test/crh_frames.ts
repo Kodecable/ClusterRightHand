@@ -798,7 +798,7 @@ export function buildFixture(): CrhFramesFixture {
 	};
 	addFrame(
 		"request.pty.open",
-		'request id=30 cmd=pty.open body=[pty_id="pty-1", argv=["/bin/bash", "-l"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h\'a1617801\']',
+		'request id=30 cmd=pty.open body=[pty_id="pty-1", argv=["/bin/bash", "-l"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h\'a1617801\', attempt=0, authorizations=[], cosign=null]',
 		{
 			kind: "request",
 			id: 30,
@@ -811,6 +811,10 @@ export function buildFixture(): CrhFramesFixture {
 				privileged: PTY_RUNNING.privileged,
 				scrollbackBytes: PTY_RUNNING.scrollbackBytes,
 				meta: PTY_RUNNING.meta,
+				// An unprivileged terminal carries no authorization (doc/design/pty.md "Privilege").
+				attempt: 0,
+				authorizations: [],
+				cosign: null,
 			},
 		},
 	);
@@ -821,6 +825,29 @@ export function buildFixture(): CrhFramesFixture {
 		ok: true,
 		body: {},
 	});
+	// A privileged terminal carries its authorization as task.start does: one CBOR authorization
+	// object, the attempt, and a cosign ticket when the node requires crhs's cosignature.
+	addFrame(
+		"request.pty.open.privileged",
+		"request id=34 cmd=pty.open body=[pty_id=\"pty-3\", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, meta=h'', attempt=1, authorizations=[h'00ff'], cosign=h'01']",
+		{
+			kind: "request",
+			id: 34,
+			cmd: "pty.open",
+			body: {
+				ptyId: "pty-3",
+				argv: [],
+				rows: 24,
+				cols: 80,
+				privileged: true,
+				scrollbackBytes: 0,
+				meta: bytesOf(""),
+				attempt: 1,
+				authorizations: [bytesOf("00ff")],
+				cosign: bytesOf("01"),
+			},
+		},
+	);
 	addFrame("request.pty.resize", 'request id=31 cmd=pty.resize body=[pty_id="pty-1", rows=50, cols=200]', {
 		kind: "request",
 		id: 31,
@@ -860,10 +887,10 @@ export function buildFixture(): CrhFramesFixture {
 		ok: true,
 		body: {},
 	});
-	addFrame("event.pty.exited", 'event pty.exited body=[pty_id="pty-2", exit_code=-1]', {
+	addFrame("event.pty.exited", 'event pty.exited body=[pty_id="pty-2", exit_code=-1, reason="exited"]', {
 		kind: "event",
 		name: "pty.exited",
-		body: { ptyId: "pty-2", exitCode: -1 },
+		body: { ptyId: "pty-2", exitCode: -1, reason: "exited" },
 	});
 	addFrame(
 		"event.pty.list",
@@ -1172,7 +1199,7 @@ export function buildFixture(): CrhFramesFixture {
 	// The terminal bodies follow the same tuple and int rules as the rest of the protocol.
 	addNegative(
 		"negative.pty_open_short",
-		"pty.open body has 6 elements instead of 7",
+		"pty.open body has 6 elements instead of 10",
 		encodeCbor([0, 40, "pty.open", ["pty-1", [], 40, 120, false, 1048576]]),
 	);
 	addNegative(
@@ -1183,7 +1210,7 @@ export function buildFixture(): CrhFramesFixture {
 	addNegative(
 		"negative.pty_exit_code_float",
 		"pty.exited exit_code is the float 1.5 where int is required",
-		bytesOf("83026a7074792e65786974656482657074792d31f93e00"),
+		bytesOf("83026a7074792e65786974656483657074792d32f93e0066657869746564"),
 	);
 	addNegative(
 		"negative.request_cmd_too_long",

@@ -180,13 +180,36 @@ describe("node trust warnings", () => {
 	it("warns of a deny-only crhs entry that does not deny upgrade", () => {
 		const denyRule = (method: string) => ({ method, match: "prefix", pattern: "/etc/" }) as TrustEntry["deny"][number];
 		const denyOnly = { ...CRHS, deny: [denyRule("file.write")] };
+		// The same entry also warns of pty.create, which comes second.
 		expect(warnings({ trust: [denyOnly] })).toMatchObject([
 			{ kind: "upgrade_not_denied", severity: "warning", trustName: "crhs" },
+			{ kind: "pty_not_denied", severity: "warning", trustName: "crhs" },
 		]);
-		// Denying upgrade, an allow list, or no rules at all: nothing to warn of.
-		expect(warnings({ trust: [{ ...denyOnly, deny: [denyRule("file.write"), denyRule("upgrade")] }] })).toEqual([]);
+		// Denying both methods, an allow list, or no rules at all: nothing to warn of.
+		expect(
+			warnings({
+				trust: [{ ...denyOnly, deny: [denyRule("file.write"), denyRule("upgrade"), denyRule("pty.create")] }],
+			}),
+		).toEqual([]);
 		expect(warnings({ trust: [{ ...denyOnly, allow: [denyRule("exec")] }] })).toEqual([]);
 		expect(warnings({ trust: [CRHS] })).toEqual([]);
+	});
+
+	it("warns of a deny-only crhs entry that does not deny pty.create", () => {
+		const denyRule = (method: string) => ({ method, match: "prefix", pattern: "/etc/" }) as TrustEntry["deny"][number];
+		const denyOnly = { ...CRHS, deny: [denyRule("file.write")] };
+		const ptyOnly = warnings({ trust: [{ ...denyOnly, deny: [denyRule("file.write"), denyRule("upgrade")] }] });
+		expect(ptyOnly).toMatchObject([{ kind: "pty_not_denied", severity: "warning", trustName: "crhs" }]);
+		expect(ptyOnly[0]?.message).toContain('add a deny rule for method "pty.create"');
+		// Denying pty.create, an allow list, no rules, a non-executing entry, or not a crhs entry: no warning.
+		expect(
+			warnings({
+				trust: [{ ...denyOnly, deny: [denyRule("file.write"), denyRule("upgrade"), denyRule("pty.create")] }],
+			}),
+		).toEqual([]);
+		expect(warnings({ trust: [{ ...denyOnly, allow: [denyRule("exec")] }] })).toEqual([]);
+		expect(warnings({ trust: [{ ...denyOnly, kinds: ["cosign"] }] })).toEqual([]);
+		expect(warnings({ trust: [{ ...ALICE, deny: [denyRule("file.write")] }] })).toEqual([]);
 	});
 
 	it("knows every one of crhs's signing keys, not only the newest", () => {

@@ -31,6 +31,7 @@ import {
 	outputModeCodec,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
+	PTY_EXIT_REASONS,
 	PTY_NOISE_PROLOGUE_PREFIX,
 	type PtyClose,
 	type PtyExited,
@@ -113,6 +114,7 @@ const specWrite: TaskSpec = {
 const specEdit: TaskSpec = { kind: "file.edit", path: "/tmp/x", edits: [edit] };
 const specStat: TaskSpec = { kind: "file.stat", path: "/tmp/x" };
 const specList: TaskSpec = { kind: "file.list", path: "/tmp", limit: 0 };
+const specPtyCreate: TaskSpec = { kind: "pty.create", argv: ["/bin/bash", "-l"] };
 const outputFull: OutputMode = { kind: "full", spillBytes: 1024, spillLines: 10 };
 const outputText: OutputMode = { kind: "text" };
 const outputStatus: OutputMode = { kind: "status" };
@@ -195,11 +197,14 @@ const ptyOpen: PtyOpen = {
 	privileged: false,
 	scrollbackBytes: 1048576,
 	meta: ptyMeta,
+	attempt: 0,
+	authorizations: [],
+	cosign: null,
 };
 const ptyResize: PtyResize = { ptyId: "pty-1", rows: 50, cols: 200 };
 const ptyClose: PtyClose = { ptyId: "pty-1", reason: "manual" };
 const ptyMetaBody: PtyMeta = { ptyId: "pty-1", meta: ptyMeta };
-const ptyExited: PtyExited = { ptyId: "pty-2", exitCode: -1 };
+const ptyExited: PtyExited = { ptyId: "pty-2", exitCode: -1, reason: "helper_lost" };
 const ptyStatus: PtyStatus = {
 	ptyId: "pty-1",
 	argv: ["/bin/bash", "-l"],
@@ -242,6 +247,8 @@ const cases: [string, Codec<unknown>, unknown][] = [
 	asCase("TaskSpec file.edit", taskSpecCodec, specEdit),
 	asCase("TaskSpec file.stat", taskSpecCodec, specStat),
 	asCase("TaskSpec file.list", taskSpecCodec, specList),
+	asCase("TaskSpec pty.create", taskSpecCodec, specPtyCreate),
+	asCase("TaskSpec pty.create login shell", taskSpecCodec, { kind: "pty.create", argv: [] }),
 	asCase("OutputMode full", outputModeCodec, outputFull),
 	asCase("OutputMode text", outputModeCodec, outputText),
 	asCase("OutputMode status", outputModeCodec, outputStatus),
@@ -428,6 +435,9 @@ describe("message codecs", () => {
 		expect(REQUIRED_NAMES).not.toContain("revocations.set");
 		expect(REQUIRED_NAMES).not.toContain("pty.open");
 		expect(PTY_NOISE_PROLOGUE_PREFIX).toBe("crh-pty/1");
+		// A terminal's process ends by itself or, privileged, loses its privileged mode
+		// (doc/design/pty.md "Lifecycle").
+		expect([...PTY_EXIT_REASONS]).toEqual(["exited", "helper_lost"]);
 	});
 
 	it("registers every command and event", () => {

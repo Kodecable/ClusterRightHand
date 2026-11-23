@@ -72,6 +72,34 @@ func readPrivVectors(t *testing.T) []privVector {
 	return vectors
 }
 
+// decodeRequest decodes a crh-priv request frame and checks its name. DecodeFrame does not consult
+// the crhs <-> crha registry, so it also accepts the crh-priv-only terminal names.
+func decodeRequest(t *testing.T, body []byte, name string) *protocol.Frame {
+	t.Helper()
+	frame, err := protocol.DecodeFrame(body)
+	if err != nil {
+		t.Fatalf("decode frame: %v", err)
+	}
+	if frame.Kind != protocol.FrameRequest || frame.Name != name {
+		t.Fatalf("frame = kind %d name %q, want request %q", frame.Kind, frame.Name, name)
+	}
+	return frame
+}
+
+// decodeEvent decodes a crh-priv event frame and checks its name. It does not consult the crhs
+// <-> crha registry either.
+func decodeEvent(t *testing.T, body []byte, name string) *protocol.Frame {
+	t.Helper()
+	frame, err := protocol.DecodeFrame(body)
+	if err != nil {
+		t.Fatalf("decode frame: %v", err)
+	}
+	if frame.Kind != protocol.FrameEvent || frame.Name != name {
+		t.Fatalf("frame = kind %d name %q, want event %q", frame.Kind, frame.Name, name)
+	}
+	return frame
+}
+
 // TestVectors decodes every crh-priv fixture entry and re-encodes it to the same bytes.
 func TestVectors(t *testing.T) {
 	vectors := readPrivVectors(t)
@@ -151,6 +179,84 @@ func TestVectors(t *testing.T) {
 				if encoded, err = protocol.EncodeRequest(frame.ID, frame.Name, ts); err != nil {
 					t.Fatalf("encode: %v", err)
 				}
+			case "priv.pty.open":
+				frame := decodeRequest(t, body, CmdPTYOpen)
+				var req PrivPTYOpen
+				if err := protocol.Unmarshal(frame.Body, &req); err != nil {
+					t.Fatalf("decode pty.open: %v", err)
+				}
+				if req.PTYID != "pty-priv-1" || req.Rows != 40 || req.Cols != 120 || req.Attempt != 1 {
+					t.Fatalf("pty.open = %+v", req)
+				}
+				if !reflect.DeepEqual(req.Argv, []string{"/bin/bash", "-l"}) {
+					t.Fatalf("pty.open argv = %q", req.Argv)
+				}
+				if len(req.Authorizations) != 1 || req.Cosign != nil {
+					t.Fatalf("pty.open authorization = %d blobs, cosign %v", len(req.Authorizations), req.Cosign)
+				}
+				if encoded, err = protocol.EncodeRequest(frame.ID, frame.Name, req); err != nil {
+					t.Fatalf("encode pty.open: %v", err)
+				}
+			case "priv.pty.input":
+				frame := decodeRequest(t, body, CmdPTYInput)
+				var req PrivPTYInput
+				if err := protocol.Unmarshal(frame.Body, &req); err != nil {
+					t.Fatalf("decode pty.input: %v", err)
+				}
+				if req.PTYID != "pty-priv-1" || string(req.Data) != "ls\n" {
+					t.Fatalf("pty.input = %+v", req)
+				}
+				if encoded, err = protocol.EncodeRequest(frame.ID, frame.Name, req); err != nil {
+					t.Fatalf("encode pty.input: %v", err)
+				}
+			case "priv.pty.resize":
+				frame := decodeRequest(t, body, CmdPTYResize)
+				var req PrivPTYResize
+				if err := protocol.Unmarshal(frame.Body, &req); err != nil {
+					t.Fatalf("decode pty.resize: %v", err)
+				}
+				if req.PTYID != "pty-priv-1" || req.Rows != 50 || req.Cols != 200 {
+					t.Fatalf("pty.resize = %+v", req)
+				}
+				if encoded, err = protocol.EncodeRequest(frame.ID, frame.Name, req); err != nil {
+					t.Fatalf("encode pty.resize: %v", err)
+				}
+			case "priv.pty.close":
+				frame := decodeRequest(t, body, CmdPTYClose)
+				var req PrivPTYClose
+				if err := protocol.Unmarshal(frame.Body, &req); err != nil {
+					t.Fatalf("decode pty.close: %v", err)
+				}
+				if req.PTYID != "pty-priv-1" {
+					t.Fatalf("pty.close = %+v", req)
+				}
+				if encoded, err = protocol.EncodeRequest(frame.ID, frame.Name, req); err != nil {
+					t.Fatalf("encode pty.close: %v", err)
+				}
+			case "priv.pty.output":
+				frame := decodeEvent(t, body, EventPTYOutput)
+				var event PrivPTYOutput
+				if err := protocol.Unmarshal(frame.Body, &event); err != nil {
+					t.Fatalf("decode pty.output: %v", err)
+				}
+				if event.PTYID != "pty-priv-1" || string(event.Data) != "hi" {
+					t.Fatalf("pty.output = %+v", event)
+				}
+				if encoded, err = protocol.EncodeEvent(frame.Name, event); err != nil {
+					t.Fatalf("encode pty.output: %v", err)
+				}
+			case "priv.pty.exited":
+				frame := decodeEvent(t, body, EventPTYExited)
+				var event PrivPTYExited
+				if err := protocol.Unmarshal(frame.Body, &event); err != nil {
+					t.Fatalf("decode pty.exited: %v", err)
+				}
+				if event.PTYID != "pty-priv-1" || event.ExitCode != -1 {
+					t.Fatalf("pty.exited = %+v", event)
+				}
+				if encoded, err = protocol.EncodeEvent(frame.Name, event); err != nil {
+					t.Fatalf("encode pty.exited: %v", err)
+				}
 			default:
 				t.Fatalf("no expectation for %s", entry.id)
 			}
@@ -166,7 +272,11 @@ func TestVectors(t *testing.T) {
 			}
 		})
 	}
-	for _, id := range []string{"priv.hello", "priv.welcome", "priv.task.start"} {
+	for _, id := range []string{
+		"priv.hello", "priv.welcome", "priv.task.start",
+		"priv.pty.open", "priv.pty.input", "priv.pty.resize", "priv.pty.close",
+		"priv.pty.output", "priv.pty.exited",
+	} {
 		if !seen[id] {
 			t.Errorf("%s is missing from the fixture", id)
 		}

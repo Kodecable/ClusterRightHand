@@ -63,18 +63,19 @@ export function newerTrustValues(entry: TrustEntry): string[] {
 }
 
 /**
- * A crhs entry that executes with only deny rules, none of them for `upgrade`: everything not denied is
- * allowed, an upgrade too, and an upgrade replaces the binary that enforces the denies
+ * A crhs entry that executes with only deny rules, none of them for `method`: everything not denied is
+ * allowed, that method too. `upgrade` replaces the binary that enforces the denies, and `pty.create`
+ * opens a shell that runs anything the privileged identity can, so both are treated the same way
  * (doc/design/privilege.md "Methods and targets"). A deny-only entry from before the method existed
  * allows it silently.
  */
-function allowsUpgradeDespiteDenies(entry: TrustEntry): boolean {
+function allowsMethodDespiteDenies(entry: TrustEntry, method: string): boolean {
 	return (
 		entry.role === "crhs" &&
 		entry.kinds.includes("execute") &&
 		entry.allow.length === 0 &&
 		entry.deny.length > 0 &&
-		!entry.deny.some((rule) => rule.method === "upgrade")
+		!entry.deny.some((rule) => rule.method === method)
 	);
 }
 
@@ -157,7 +158,7 @@ export function trustWarningsForNode(input: NodeTrustWarningInput): TrustWarning
 				message: `trust entry "${entry.name}" uses ${newer.join(", ")}, which this crhs does not know; it plans around them conservatively, and the node decides`,
 			});
 		}
-		if (allowsUpgradeDespiteDenies(entry)) {
+		if (allowsMethodDespiteDenies(entry, "upgrade")) {
 			warnings.push({
 				kind: "upgrade_not_denied",
 				severity: "warning",
@@ -165,6 +166,16 @@ export function trustWarningsForNode(input: NodeTrustWarningInput): TrustWarning
 				nodeGroupName: null,
 				trustName: entry.name,
 				message: `trust entry "${entry.name}" denies some operations but not upgrade, so crhs alone can replace the binary that enforces those rules; add a deny rule for method "upgrade" so an upgrade needs a user's signature`,
+			});
+		}
+		if (allowsMethodDespiteDenies(entry, "pty.create")) {
+			warnings.push({
+				kind: "pty_not_denied",
+				severity: "warning",
+				uuid: null,
+				nodeGroupName: null,
+				trustName: entry.name,
+				message: `trust entry "${entry.name}" denies some operations but not pty.create, so crhs alone can open a privileged terminal, which runs anything the privileged identity can; add a deny rule for method "pty.create" so a privileged terminal needs a user's signature`,
 			});
 		}
 		if (trustEntryKnown(entry, input.context)) continue;

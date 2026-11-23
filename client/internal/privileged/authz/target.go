@@ -19,8 +19,9 @@ import (
 // guard rules match (doc/design/privilege.md "Methods and targets").
 //
 // exec tasks render their argv with POSIX single quoting and one space between arguments;
-// shell tasks render ["/bin/sh", "-c", script]. File tasks use their absolute path and
-// map file.stat / file.list to file.read, file.edit to file.write.
+// shell tasks render ["/bin/sh", "-c", script]. A privileged terminal's pty.create spec renders its
+// argv the same way, and an empty argv (the login shell) renders as the empty string. File tasks use
+// their absolute path and map file.stat / file.list to file.read, file.edit to file.write.
 func Target(spec *protocol.TaskSpec) (method, target string, err error) {
 	if spec == nil {
 		return "", "", errors.New("authz: nil task spec")
@@ -42,11 +43,16 @@ func Target(spec *protocol.TaskSpec) (method, target string, err error) {
 		default:
 			return "", "", fmt.Errorf("authz: unknown command kind %q", string(spec.Exec.Command.Kind))
 		}
-		quoted := make([]string, len(argv))
-		for i, arg := range argv {
-			quoted[i] = quoteArg(arg)
+		return string(protocol.MethodExec), renderArgv(argv), nil
+
+	case protocol.TaskSpecPtyCreate:
+		// A privileged terminal is authorized once at open; its target is the argv, exactly as an
+		// exec task renders it, and the empty argv (the login shell) renders as the empty string
+		// (doc/design/privilege.md "Methods and targets").
+		if spec.PtyCreate == nil {
+			return "", "", errors.New("authz: pty.create task spec has no body")
 		}
-		return string(protocol.MethodExec), strings.Join(quoted, " "), nil
+		return string(protocol.MethodPtyCreate), renderArgv(spec.PtyCreate.Argv), nil
 
 	case protocol.TaskSpecFileRead:
 		if spec.FileRead == nil {
@@ -97,6 +103,15 @@ func Target(spec *protocol.TaskSpec) (method, target string, err error) {
 	default:
 		return "", "", fmt.Errorf("authz: unknown task spec kind %q", string(spec.Kind))
 	}
+}
+
+// renderArgv quotes every element with POSIX single quoting and joins them with one space.
+func renderArgv(argv []string) string {
+	quoted := make([]string, len(argv))
+	for i, arg := range argv {
+		quoted[i] = quoteArg(arg)
+	}
+	return strings.Join(quoted, " ")
 }
 
 // UpgradeTarget renders the target of an upgrade: `<version> sha256:<hex>`.

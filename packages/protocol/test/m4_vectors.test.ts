@@ -17,7 +17,15 @@ import {
 	cosignTicketCodec,
 	decodeAuthorizationPayload,
 	decodeCosignPayload,
+	PRIV_PTY_COMMANDS,
+	PRIV_PTY_EVENTS,
 	privHelloCodec,
+	privPtyCloseCodec,
+	privPtyExitedCodec,
+	privPtyInputCodec,
+	privPtyOpenCodec,
+	privPtyOutputCodec,
+	privPtyResizeCodec,
 	privWelcomeCodec,
 	trustReportCodec,
 	trustSummaryCodec,
@@ -48,6 +56,11 @@ function roundTrip<T>(codec: Codec<T>, hex: string): T {
 	const value = codec.decode(decodeCbor(bytesOf(hex)));
 	expect(hexOf(encodeCbor(codec.encode(value)))).toBe(hex);
 	return value;
+}
+
+/** The crh-priv wire name of a fixture id: `priv.pty.open` is `pty.open`. */
+function commandName(id: string): string {
+	return id.replace(/^priv\./, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -343,12 +356,41 @@ describe("test/interop/m4_vectors.json", () => {
 			expect(length).toBe(bytes.length - 4);
 			return bytes.subarray(4);
 		};
-		const [hello, welcome, start] = vectors.priv;
-		roundTrip(privHelloCodec, hexOf(unframe(hello?.hex ?? "")));
-		roundTrip(privWelcomeCodec, hexOf(unframe(welcome?.hex ?? "")));
-		const frame = decodeFrame(unframe(start?.hex ?? ""));
+		const byId = new Map(vectors.priv.map((vector) => [vector.id, vector]));
+		const body = (id: string): Uint8Array => unframe(byId.get(id)?.hex ?? "");
+		roundTrip(privHelloCodec, hexOf(body("priv.hello")));
+		roundTrip(privWelcomeCodec, hexOf(body("priv.welcome")));
+		const frame = decodeFrame(body("priv.task.start"));
 		expect(frame.kind).toBe("request");
-		expect(hexOf(encodeFrame(frame))).toBe(hexOf(unframe(start?.hex ?? "")));
+		expect(hexOf(encodeFrame(frame))).toBe(hexOf(body("priv.task.start")));
+		expect([...PRIV_PTY_COMMANDS]).toEqual(["pty.open", "pty.input", "pty.resize", "pty.close"]);
+		expect([...PRIV_PTY_EVENTS]).toEqual(["pty.output", "pty.exited"]);
+		// The optional terminal names are not in the crhs <-> crha registry: their bodies are the
+		// crh-priv codecs, framed here directly (doc/design/pty.md "Protocol additions").
+		const requests: [string, Codec<unknown>][] = [
+			["priv.pty.open", privPtyOpenCodec as Codec<unknown>],
+			["priv.pty.input", privPtyInputCodec as Codec<unknown>],
+			["priv.pty.resize", privPtyResizeCodec as Codec<unknown>],
+			["priv.pty.close", privPtyCloseCodec as Codec<unknown>],
+		];
+		for (const [id, codec] of requests) {
+			const [kind, requestId, cmd, requestBody] = decodeCbor(body(id)) as [number, number, string, unknown];
+			expect(kind, id).toBe(0);
+			expect(commandName(id), id).toBe(cmd);
+			const value = codec.decode(requestBody);
+			expect(hexOf(encodeCbor([kind, requestId, cmd, codec.encode(value)]))).toBe(hexOf(body(id)));
+		}
+		const events: [string, Codec<unknown>][] = [
+			["priv.pty.output", privPtyOutputCodec as Codec<unknown>],
+			["priv.pty.exited", privPtyExitedCodec as Codec<unknown>],
+		];
+		for (const [id, codec] of events) {
+			const [kind, name, eventBody] = decodeCbor(body(id)) as [number, string, unknown];
+			expect(kind, id).toBe(2);
+			expect(name, id).toBe(commandName(id));
+			const value = codec.decode(eventBody);
+			expect(hexOf(encodeCbor([kind, name, codec.encode(value)]))).toBe(hexOf(body(id)));
+		}
 	});
 
 	it.each(vectors.sshsig.map((v) => [v.id, v] as const))(

@@ -166,8 +166,9 @@ export function privilegedTarget(spec: TaskSpec): { method: Method; target: stri
 		throw new PrivilegedTargetError("exec task has an empty argv");
 	}
 	const operation = operationOf(spec);
-	// An upgrade's target is a version and a hash, not a path (doc/design/privilege.md "Methods and targets").
-	if (operation.method !== "exec" && operation.method !== "upgrade") {
+	// An exec or pty.create target is an argv, and an upgrade's is a version and a hash, not a path
+	// (doc/design/privilege.md "Methods and targets").
+	if (operation.method !== "exec" && operation.method !== "upgrade" && operation.method !== "pty.create") {
 		const path = "path" in spec ? spec.path : "";
 		checkPrivilegedPath(path);
 	}

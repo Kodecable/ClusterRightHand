@@ -45,3 +45,20 @@ func names[T ~string](known []T) []string {
 	}
 	return out
 }
+
+// TestHelloTaskKindsOmitsPtyCreate guards the difference between every kind the task spec union
+// decodes and the kinds hello advertises: pty.create is decoded for a privileged terminal's
+// authorization but is never a task (doc/design/pty.md "Privilege").
+func TestHelloTaskKindsOmitsPtyCreate(t *testing.T) {
+	decoded := TaskSpecKinds()
+	hello := HelloTaskKinds()
+	if !slices.Contains(decoded, string(TaskSpecPtyCreate)) {
+		t.Fatalf("the task spec union does not decode %q", TaskSpecPtyCreate)
+	}
+	if slices.Contains(hello, string(TaskSpecPtyCreate)) {
+		t.Fatalf("hello advertises %q", TaskSpecPtyCreate)
+	}
+	if len(hello) != len(decoded)-1 {
+		t.Fatalf("hello lists %q, the union decodes %q", hello, decoded)
+	}
+}

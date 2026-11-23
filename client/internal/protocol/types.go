@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -467,7 +468,9 @@ type TaskExitAck struct {
 // PTYOpen is the pty.open request body: the terminal id crhs chose, its argv (empty means the
 // identity's login shell), its initial size, its privileged flag, the size of the scrollback ring
 // buffer and the opaque Meta blob crhs owns. crha stores Meta and returns it in pty.list unchanged;
-// it never interprets it (doc/design/pty.md "Reconnect").
+// it never interprets it (doc/design/pty.md "Reconnect"). A privileged terminal also carries its
+// authorization exactly as task.start does: Attempt, the Authorizations (CBOR authorization objects)
+// and crhs's Cosign ticket, or nil. An unprivileged one carries 0, an empty list and nil.
 type PTYOpen struct {
 	_               struct{} `cbor:",toarray"`
 	PTYID           string
@@ -477,6 +480,9 @@ type PTYOpen struct {
 	Privileged      bool
 	ScrollbackBytes Uint
 	Meta            []byte
+	Attempt         Uint
+	Authorizations  [][]byte
+	Cosign          *[]byte
 }
 
 // PTYResize is the pty.resize request body.
@@ -501,11 +507,20 @@ type PTYMeta struct {
 	Meta  []byte
 }
 
-// PTYExited is the pty.exited event body: the exit code is signed, so a killed process can report -1.
+// The reasons a pty.exited event can name: the process ended by itself, or a privileged terminal
+// lost its privileged mode (doc/design/pty.md "Lifecycle").
+const (
+	PTYExitReasonExited     = "exited"
+	PTYExitReasonHelperLost = "helper_lost"
+)
+
+// PTYExited is the pty.exited event body: the exit code is signed, so a killed process can report -1,
+// and Reason is one of PTYExitReasonExited and PTYExitReasonHelperLost.
 type PTYExited struct {
 	_        struct{} `cbor:",toarray"`
 	PTYID    string
 	ExitCode Int
+	Reason   string
 }
 
 // PTYStatus is one terminal of the pty.list event: what crha holds in memory for it. StartedAtMS is
@@ -720,6 +735,14 @@ type NodeUpgradeSpec struct {
 	Endpoint TransferEndpoint
 }
 
+// PtyCreateSpec is the TaskSpec body for the "pty.create" kind: the argv a privileged terminal runs,
+// empty for the privileged identity's login shell. Size, scrollback and metadata are not part of the
+// spec, so resizing never invalidates an authorization (doc/design/pty.md "Privilege").
+type PtyCreateSpec struct {
+	_    struct{} `cbor:",toarray"`
+	Argv []string
+}
+
 // FilePullSpec is the TaskSpec body for the "file.pull" kind: a whole regular file is sent to crhs
 // on a data connection. MaxBytes is the most the destination accepts.
 type FilePullSpec struct {
@@ -859,6 +882,10 @@ type TaskSpec struct {
 	FileList  *FileListSpec
 
 	NodeUpgrade *NodeUpgradeSpec
+
+	// PtyCreate is the spec of a privileged terminal's authorization; it is never a task
+	// (doc/design/pty.md "Privilege").
+	PtyCreate *PtyCreateSpec
 }
 
 // Command is the union of argv and shell command forms.
@@ -946,6 +973,9 @@ const (
 	TaskSpecFileList  TaskSpecKind = "file.list"
 	// TaskSpecNodeUpgrade installs a new crha binary (doc/design/distribution.md "crha self-upgrade").
 	TaskSpecNodeUpgrade TaskSpecKind = "node.upgrade"
+	// TaskSpecPtyCreate is the spec of a privileged terminal's authorization: its argv only. It is
+	// never a task (doc/design/pty.md "Privilege").
+	TaskSpecPtyCreate TaskSpecKind = "pty.create"
 )
 
 // CommandKind is a Command union tag.
@@ -997,11 +1027,22 @@ var taskSpecUnion = newUnion("task spec",
 	unionPtr[TaskSpec]("file.stat", func(s *TaskSpec) **FileStatSpec { return &s.FileStat }),
 	unionPtr[TaskSpec]("file.list", func(s *TaskSpec) **FileListSpec { return &s.FileList }),
 	unionPtr[TaskSpec]("node.upgrade", func(s *TaskSpec) **NodeUpgradeSpec { return &s.NodeUpgrade }),
+	unionPtr[TaskSpec]("pty.create", func(s *TaskSpec) **PtyCreateSpec { return &s.PtyCreate }),
 )
 
-// TaskSpecKinds lists every task kind this version decodes and runs, for hello's TaskKinds: crhs sends a
-// node only the kinds it lists (doc/design/protocol.md "Version negotiation").
+// TaskSpecKinds lists every task kind this version decodes, in the union's order. It is the list
+// test/interop/known_names.json compares with TASK_SPEC_KINDS in packages/protocol, not the list a
+// node advertises: pty.create is decoded for authorizations but never runs as a task, so hello omits
+// it (see HelloTaskKinds).
 func TaskSpecKinds() []string { return taskSpecUnion.tags() }
+
+// HelloTaskKinds lists the kinds crha accepts in task.start, for hello's taskKinds: every decoded kind
+// but pty.create, which is never a task (doc/design/pty.md "Privilege"). crhs sends a node only the
+// kinds it lists (doc/design/protocol.md "Version negotiation").
+func HelloTaskKinds() []string {
+	kinds := TaskSpecKinds()
+	return slices.DeleteFunc(kinds, func(kind string) bool { return kind == string(TaskSpecPtyCreate) })
+}
 
 // MarshalCBOR encodes a TaskSpec as [tag, body].
 func (s TaskSpec) MarshalCBOR() ([]byte, error) { return taskSpecUnion.marshal(s, string(s.Kind)) }

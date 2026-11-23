@@ -47,6 +47,7 @@ export const TrustWarningKindSchema = z.enum([
 	"trust_unknown",
 	"trust_newer_values",
 	"upgrade_not_denied",
+	"pty_not_denied",
 ]);
 
 export const TrustWarningSeveritySchema = z.enum(["danger", "warning", "info"]);
@@ -60,7 +61,7 @@ export const TrustWarningSchema = z
 		trustName: z
 			.string()
 			.nullable()
-			.describe("The trust entry name, for the `trust_*` kinds and `upgrade_not_denied`."),
+			.describe("The trust entry name, for the `trust_*` kinds, `upgrade_not_denied` and `pty_not_denied`."),
 		message: z.string(),
 	})
 	.meta({ id: "TrustWarning" });

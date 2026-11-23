@@ -416,6 +416,7 @@ var fixtureExpectedIDs = []string{
 	"event.trust.summary",
 	"event.trust.summary.future_values",
 	"request.pty.open",
+	"request.pty.open.privileged",
 	"response.pty.open",
 	"request.pty.resize",
 	"response.pty.resize",
@@ -884,10 +885,31 @@ func expectedFixtureValue(id string) (any, bool) {
 				Privileged:      false,
 				ScrollbackBytes: 1048576,
 				Meta:            fixturePTYMeta(),
+				// An unprivileged terminal carries no authorization (doc/design/pty.md "Privilege").
+				Attempt:        0,
+				Authorizations: [][]byte{},
+				Cosign:         nil,
 			},
 		}, true
 	case "response.pty.open":
 		return fixtureFrame{Kind: FrameResponse, ID: 30, Name: CmdPTYOpen, OK: true, Body: Empty{}}, true
+	case "request.pty.open.privileged":
+		cosign := []byte{0x01}
+		return fixtureFrame{
+			Kind: FrameRequest, ID: 34, Name: CmdPTYOpen,
+			Body: PTYOpen{
+				PTYID:           "pty-3",
+				Argv:            []string{},
+				Rows:            24,
+				Cols:            80,
+				Privileged:      true,
+				ScrollbackBytes: 0,
+				Meta:            []byte{},
+				Attempt:         1,
+				Authorizations:  [][]byte{{0x00, 0xff}},
+				Cosign:          &cosign,
+			},
+		}, true
 	case "request.pty.resize":
 		return fixtureFrame{
 			Kind: FrameRequest, ID: 31, Name: CmdPTYResize,
@@ -912,7 +934,7 @@ func expectedFixtureValue(id string) (any, bool) {
 	case "event.pty.exited":
 		return fixtureFrame{
 			Kind: FrameEvent, Name: EventPTYExited,
-			Body: PTYExited{PTYID: "pty-2", ExitCode: -1},
+			Body: PTYExited{PTYID: "pty-2", ExitCode: -1, Reason: PTYExitReasonExited},
 		}, true
 	case "event.pty.list":
 		return fixtureFrame{

@@ -247,13 +247,18 @@
 		},
 		{
 			"id": "request.pty.open",
-			"description": "request id=30 cmd=pty.open body=[pty_id=\"pty-1\", argv=[\"/bin/bash\", \"-l\"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h'a1617801']",
-			"hex": "8400181e687074792e6f70656e87657074792d3182692f62696e2f62617368622d6c18281878f41a0010000044a1617801"
+			"description": "request id=30 cmd=pty.open body=[pty_id=\"pty-1\", argv=[\"/bin/bash\", \"-l\"], rows=40, cols=120, privileged=false, scrollback_bytes=1048576, meta=h'a1617801', attempt=0, authorizations=[], cosign=null]",
+			"hex": "8400181e687074792e6f70656e8a657074792d3182692f62696e2f62617368622d6c18281878f41a0010000044a16178010080f6"
 		},
 		{
 			"id": "response.pty.open",
 			"description": "response id=30 cmd=pty.open ok=true body=[]",
 			"hex": "8501181e687074792e6f70656ef580"
+		},
+		{
+			"id": "request.pty.open.privileged",
+			"description": "request id=34 cmd=pty.open body=[pty_id=\"pty-3\", argv=[], rows=24, cols=80, privileged=true, scrollback_bytes=0, meta=h'', attempt=1, authorizations=[h'00ff'], cosign=h'01']",
+			"hex": "84001822687074792e6f70656e8a657074792d338018181850f5004001814200ff4101"
 		},
 		{
 			"id": "request.pty.resize",
@@ -287,8 +292,8 @@
 		},
 		{
 			"id": "event.pty.exited",
-			"description": "event pty.exited body=[pty_id=\"pty-2\", exit_code=-1]",
-			"hex": "83026a7074792e65786974656482657074792d3220"
+			"description": "event pty.exited body=[pty_id=\"pty-2\", exit_code=-1, reason=\"exited\"]",
+			"hex": "83026a7074792e65786974656483657074792d322066657869746564"
 		},
 		{
 			"id": "event.pty.list",
@@ -474,7 +479,7 @@
 		},
 		{
 			"id": "negative.pty_open_short",
-			"description": "pty.open body has 6 elements instead of 7",
+			"description": "pty.open body has 6 elements instead of 10",
 			"hex": "84001828687074792e6f70656e86657074792d318018281878f41a00100000"
 		},
 		{
@@ -485,7 +490,7 @@
 		{
 			"id": "negative.pty_exit_code_float",
 			"description": "pty.exited exit_code is the float 1.5 where int is required",
-			"hex": "83026a7074792e65786974656482657074792d31f93e00"
+			"hex": "83026a7074792e65786974656483657074792d32f93e0066657869746564"
 		},
 		{
 			"id": "negative.request_cmd_too_long",

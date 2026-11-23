@@ -15,7 +15,7 @@ import { type JsonTaskSpec, taskSpecToJson } from "../src/json.ts";
 import { type TaskSpec, taskSpecCodec } from "../src/messages.ts";
 import { hex, sha256Of } from "./m4_vectors.ts";
 
-type Method = "exec" | "file.read" | "file.write";
+type Method = "exec" | "file.read" | "file.write" | "pty.create";
 
 interface Rule {
 	method: Method;
@@ -130,6 +130,12 @@ const WRITE_NGINX: TaskSpec = {
 const READ_NGINX: TaskSpec = { kind: "file.read", path: "/etc/nginx/nginx.conf", startLine: 1, lineCount: 100 };
 const READ_SHADOW: TaskSpec = { kind: "file.read", path: "/etc/shadow", startLine: 1, lineCount: 100 };
 const WRITE_CRHA: TaskSpec = { ...WRITE_NGINX, path: "/etc/crha/privileged.toml" } as TaskSpec;
+// A privileged terminal's spec: its argv only (doc/design/pty.md "Privilege"). An empty argv is the
+// privileged identity's login shell, whose target is the empty string.
+const PTY_BASH: TaskSpec = { kind: "pty.create", argv: ["/bin/bash", "-l"] };
+const PTY_SH: TaskSpec = { kind: "pty.create", argv: ["/bin/sh"] };
+const PTY_LOGIN: TaskSpec = { kind: "pty.create", argv: [] };
+const PTY_QUOTED: TaskSpec = { kind: "pty.create", argv: ["echo", "it's", "", "a b", "--x=1,2"] };
 const STAT_RELATIVE: TaskSpec = { kind: "file.stat", path: "etc/hosts" };
 const STAT_DOTDOT: TaskSpec = { kind: "file.stat", path: "/etc/nginx/../shadow" };
 const LIST_NGINX: TaskSpec = { kind: "file.list", path: "/etc/nginx", limit: 0 };
@@ -164,6 +170,15 @@ const CRHS = entry("crhs", "crhs", {
 		{ method: "file.read", match: "regex", pattern: "/etc/(shadow|gshadow|sudoers.*)" },
 		{ method: "file.write", match: "prefix", pattern: "/etc/crha/" },
 	],
+});
+// A crhs entry that allows the terminal: `pty.create` is a method of its own, so the exec prefix
+// rules of CRHS would not allow it (doc/design/privilege.md "Methods and targets").
+const CRHS_PTY = entry("crhs", "crhs", {
+	kinds: ["execute", "cosign"],
+	require_spec: true,
+	require_task: true,
+	max_ttl_ms: 300_000,
+	allow: [{ method: "pty.create", match: "prefix", pattern: "/bin/bash" }],
 });
 const USER = entry("alice", "user", { max_ttl_ms: 86_400_000, env_allow: ["DEBIAN_FRONTEND"] });
 const LOCAL = entry("local-admins", "local", { kinds: [], uids: [0, 1000] });
@@ -574,6 +589,66 @@ function cases(): Case[] {
 			...reject("authorization_rejected", 7),
 		}),
 
+		// --- terminals (doc/design/pty.md "Privilege") -----------------------------------------
+		base("pty.create.spec", "a spec authorization for a privileged terminal's argv", {
+			trust: [CRHS_PTY, USER, LOCAL],
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(PTY_BASH) },
+			authorization: signedBy(crhsPayload({ command: { spec_sha256: specHash(PTY_BASH) } }), "crhs"),
+		}),
+		base("pty.create.prefix", "a reusable prefix authorization: pty.create and /bin/bash", {
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(PTY_BASH) },
+			authorization: signedBy(
+				{
+					nodes: [NODE],
+					command: { method: "pty.create", prefix: "/bin/bash" },
+					issued_at_ms: NOW,
+					deadline_ms: NOW + 3_600_000,
+					task_ids: null,
+					attempt: null,
+				},
+				"alice",
+			),
+		}),
+		base("pty.create.prefix-mismatch", "the prefix does not cover another argv", {
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(PTY_SH) },
+			authorization: signedBy(
+				{
+					nodes: [NODE],
+					command: { method: "pty.create", prefix: "/bin/bash" },
+					issued_at_ms: NOW,
+					deadline_ms: NOW + 3_600_000,
+					task_ids: null,
+					attempt: null,
+				},
+				"alice",
+			),
+			...reject("authorization_rejected", 6),
+		}),
+		base("pty.create.allow-exec-refuses", "an entry with allow rules for exec only refuses pty.create", {
+			trust: [{ ...USER, allow: [{ method: "exec", match: "any", pattern: "" }] }, LOCAL],
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(PTY_BASH) },
+			authorization: signedBy(userOneShot({ command: { spec_sha256: specHash(PTY_BASH) } }), "alice"),
+			...reject("authorization_rejected", 7),
+		}),
+		base("pty.create.deny-only-allows", "a deny-only entry that does not deny pty.create allows it", {
+			trust: [{ ...USER, deny: [{ method: "exec", match: "any", pattern: "" }] }, LOCAL],
+			task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(PTY_BASH) },
+			authorization: signedBy(userOneShot({ command: { spec_sha256: specHash(PTY_BASH) } }), "alice"),
+		}),
+		base(
+			"pty.create.crhs-deny-only-allows",
+			"a deny-only crhs entry that does not deny pty.create lets crhs open a privileged terminal alone",
+			{
+				trust: [
+					{ ...CRHS, allow: [], deny: [{ method: "file.write", match: "prefix", pattern: "/etc/crha/" }] },
+					USER,
+					LOCAL,
+				],
+				task: { task_id: TASK, attempt: 1, spec: taskSpecToJson(PTY_BASH) },
+				authorization: signedBy(crhsPayload({ command: { spec_sha256: specHash(PTY_BASH) } }), "crhs"),
+			},
+		),
+
 		// --- cosign ----------------------------------------------------------------------------
 		base("cosign.missing", "user entry requires cosign; no cosign ticket", {
 			trust: COSIGN_TRUST,
@@ -805,6 +880,10 @@ function targets(): AuthzCases["targets"] {
 		[LIST_NGINX, "file.read", "/etc/nginx"],
 		[WRITE_NGINX, "file.write", "/etc/nginx/nginx.conf"],
 		[{ kind: "file.edit", path: "/etc/hosts", edits: [] }, "file.write", "/etc/hosts"],
+		[PTY_BASH, "pty.create", "/bin/bash -l"],
+		[PTY_SH, "pty.create", "/bin/sh"],
+		[PTY_QUOTED, "pty.create", "echo 'it'\\''s' '' 'a b' --x=1,2"],
+		[PTY_LOGIN, "pty.create", ""],
 	];
 	return list.map(([spec, method, target]) => ({ spec: taskSpecToJson(spec), method, target }));
 }

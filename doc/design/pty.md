@@ -99,9 +99,13 @@ owner's signature, or the node's local approval window ([Privilege](privilege.md
 afterwards is not authorized command by command; the authorization covers the terminal.
 
 - `pty.create` is a method of its own, in authorizations and guard rules as in crhs rules
-  ([Rules](#rules)). Its target is the argv rendered canonically, as for `exec`
-  ([Methods and targets](privilege.md#methods-and-targets)). The node never sees `pty.io`: what is typed
-  into an authorized terminal is not authorized again.
+  ([Rules](#rules)). Its target is the argv rendered canonically, as for `exec`, and the login shell
+  (empty argv) renders as the empty string ([Methods and targets](privilege.md#methods-and-targets)).
+  The node never sees `pty.io`: what is typed into an authorized terminal is not authorized again.
+- A privileged terminal's authorization is a `spec` command over the TaskSpec kind `pty.create`, whose
+  only field is the argv. The terminal id stands in for the task id and the `pty.open` attempt for the
+  task's, so the one-shot ids, used list, local approval window and cosign work unchanged. Size,
+  scrollback and metadata are not in the spec, so resizing never invalidates an authorization.
 - An interactive shell can run anything the privileged identity can, so `pty.create` is treated like `upgrade`
   in guard rules: an entry with `allow` rules refuses it unless an allow rule names it, and crhs warns of
   a deny-only entry that does not deny it (`pty_not_denied`).
@@ -298,9 +302,15 @@ All within major 1, negotiated by the minor ([Version negotiation](protocol.md#v
   with `unsupported_node`.
 - The terminal data connection: path `/agent/pty`, prologue `crh-pty/1`, client payload with
   `protocol_major` and the terminal id; frames `[data, bytes]` in both directions and `[end]`.
+- `pty.open` carries the terminal's authorization like `task.start`: `attempt`, `authorizations` and
+  `cosign` follow its existing fields; an unprivileged terminal sends 0, an empty list and null.
+  `pty.exited` carries a reason, `exited` or `helper_lost`.
 - `crh-priv`: optional names for the privileged mode to run a terminal and relay its bytes: commands
-  `pty.open`, `pty.input`, `pty.resize`, `pty.close`, events `pty.output`, `pty.exited`.
-- Method `pty.create` in authorizations and guard rules.
+  `pty.open` `[pty_id, argv, rows, cols, attempt, authorizations, cosign]`, `pty.input`
+  `[pty_id, data]`, `pty.resize` `[pty_id, rows, cols]`, `pty.close` `[pty_id]`, and events
+  `pty.output` `[pty_id, data]`, `pty.exited` `[pty_id, exit_code]`.
+- Method `pty.create` in authorizations and guard rules, over the TaskSpec kind `pty.create`
+  `[argv]`.
 
 ## Documents that change with this design
 

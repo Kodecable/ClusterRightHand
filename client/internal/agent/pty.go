@@ -82,6 +82,9 @@ func (a *Agent) handlePTYOpen(_ context.Context, body cbor.RawMessage) (any, err
 	if err := protocol.UnmarshalBody(body, &req); err != nil {
 		return nil, err
 	}
+	// The authorization fields (Attempt, Authorizations, Cosign) of a privileged pty.open are not
+	// used yet: the manager refuses privileged terminals until the privileged runtime exists
+	// (doc/design/pty.md "Privilege").
 	t, err := a.pty.mgr.Open(pty.OpenRequest{
 		ID:              req.PTYID,
 		Argv:            req.Argv,
@@ -206,7 +209,14 @@ func (a *Agent) onPTYExit(t *pty.Terminal) {
 	if closing || ctrl == nil || !ctrl.negotiated.Has(protocol.EventPTYExited) {
 		return
 	}
-	if err := ctrl.peer.Emit(protocol.EventPTYExited, protocol.PTYExited{PTYID: t.ID(), ExitCode: protocol.Int(code)}); err != nil {
+	exited := protocol.PTYExited{
+		PTYID:    t.ID(),
+		ExitCode: protocol.Int(code),
+		// The process ended by itself; a privileged terminal that loses its privileged mode reports
+		// helper_lost instead (doc/design/pty.md "Lifecycle").
+		Reason: protocol.PTYExitReasonExited,
+	}
+	if err := ctrl.peer.Emit(protocol.EventPTYExited, exited); err != nil {
 		a.log.Warn("emit pty.exited", "id", t.ID(), "err", err)
 	}
 }

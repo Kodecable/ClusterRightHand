@@ -105,6 +105,38 @@
 			},
 			"method": "file.write",
 			"target": "/etc/hosts"
+		},
+		{
+			"spec": {
+				"kind": "pty.create",
+				"argv": ["/bin/bash", "-l"]
+			},
+			"method": "pty.create",
+			"target": "/bin/bash -l"
+		},
+		{
+			"spec": {
+				"kind": "pty.create",
+				"argv": ["/bin/sh"]
+			},
+			"method": "pty.create",
+			"target": "/bin/sh"
+		},
+		{
+			"spec": {
+				"kind": "pty.create",
+				"argv": ["echo", "it's", "", "a b", "--x=1,2"]
+			},
+			"method": "pty.create",
+			"target": "echo 'it'\\''s' '' 'a b' --x=1,2"
+		},
+		{
+			"spec": {
+				"kind": "pty.create",
+				"argv": []
+			},
+			"method": "pty.create",
+			"target": ""
 		}
 	],
 	"cases": [
@@ -6494,6 +6526,586 @@
 			"expect": {
 				"result": "authorization_rejected",
 				"step": 7
+			}
+		},
+		{
+			"id": "pty.create.spec",
+			"description": "a spec authorization for a privileged terminal's argv",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "pty.create",
+							"match": "prefix",
+							"pattern": "/bin/bash"
+						}
+					],
+					"deny": [],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "pty.create",
+					"argv": ["/bin/bash", "-l"]
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "881a496189f16b77103defce80124b933e12c91ba1b0ddaa730a812224608d1d"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": null,
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "pty.create.prefix",
+			"description": "a reusable prefix authorization: pty.create and /bin/bash",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "pty.create",
+					"argv": ["/bin/bash", "-l"]
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "pty.create",
+						"prefix": "/bin/bash"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": null,
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "pty.create.prefix-mismatch",
+			"description": "the prefix does not cover another argv",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "prefix",
+							"pattern": "systemctl restart "
+						},
+						{
+							"method": "exec",
+							"match": "regex",
+							"pattern": "apt-get (update|upgrade -y)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/nginx/"
+						},
+						{
+							"method": "file.read",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [
+						{
+							"method": "file.read",
+							"match": "regex",
+							"pattern": "/etc/(shadow|gshadow|sudoers.*)"
+						},
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "pty.create",
+					"argv": ["/bin/sh"]
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"method": "pty.create",
+						"prefix": "/bin/bash"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": null,
+					"attempt": null
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": null,
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 6
+			}
+		},
+		{
+			"id": "pty.create.allow-exec-refuses",
+			"description": "an entry with allow rules for exec only refuses pty.create",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [
+						{
+							"method": "exec",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "pty.create",
+					"argv": ["/bin/bash", "-l"]
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "881a496189f16b77103defce80124b933e12c91ba1b0ddaa730a812224608d1d"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": null,
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "authorization_rejected",
+				"step": 7
+			}
+		},
+		{
+			"id": "pty.create.deny-only-allows",
+			"description": "a deny-only entry that does not deny pty.create allows it",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [
+						{
+							"method": "exec",
+							"match": "any",
+							"pattern": ""
+						}
+					],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "pty.create",
+					"argv": ["/bin/bash", "-l"]
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "881a496189f16b77103defce80124b933e12c91ba1b0ddaa730a812224608d1d"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793019600000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "alice",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": null,
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
+			}
+		},
+		{
+			"id": "pty.create.crhs-deny-only-allows",
+			"description": "a deny-only crhs entry that does not deny pty.create lets crhs open a privileged terminal alone",
+			"now_ms": 1793016000000,
+			"clock_skew_ms": 60000,
+			"node": {
+				"id": "0192f000-0000-7000-8000-000000000001",
+				"aliases": ["0192f000-0000-7000-8000-0000000000a1"]
+			},
+			"trust": [
+				{
+					"name": "crhs",
+					"role": "crhs",
+					"kinds": ["execute", "cosign"],
+					"require_spec": true,
+					"require_task": true,
+					"require_uv": false,
+					"max_ttl_ms": 300000,
+					"allow": [],
+					"deny": [
+						{
+							"method": "file.write",
+							"match": "prefix",
+							"pattern": "/etc/crha/"
+						}
+					],
+					"env_allow": [],
+					"uids": []
+				},
+				{
+					"name": "alice",
+					"role": "user",
+					"kinds": ["execute"],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": 86400000,
+					"allow": [],
+					"deny": [],
+					"env_allow": ["DEBIAN_FRONTEND"],
+					"uids": []
+				},
+				{
+					"name": "local-admins",
+					"role": "local",
+					"kinds": [],
+					"require_spec": false,
+					"require_task": false,
+					"require_uv": false,
+					"max_ttl_ms": null,
+					"allow": [],
+					"deny": [],
+					"env_allow": [],
+					"uids": [0, 1000]
+				}
+			],
+			"task": {
+				"task_id": "0192f000-0000-7000-8000-000000000001",
+				"attempt": 1,
+				"spec": {
+					"kind": "pty.create",
+					"argv": ["/bin/bash", "-l"]
+				}
+			},
+			"authorization": {
+				"payload": {
+					"nodes": ["0192f000-0000-7000-8000-000000000001"],
+					"command": {
+						"spec_sha256": "881a496189f16b77103defce80124b933e12c91ba1b0ddaa730a812224608d1d"
+					},
+					"issued_at_ms": 1793016000000,
+					"deadline_ms": 1793016300000,
+					"task_ids": ["0192f000-0000-7000-8000-000000000001"],
+					"attempt": 1
+				},
+				"signatures": [
+					{
+						"entry": "crhs",
+						"valid": true,
+						"uv": false
+					}
+				]
+			},
+			"cosign": null,
+			"window": null,
+			"executed_task_ids": [],
+			"used_pairs": [],
+			"expect": {
+				"result": "accepted",
+				"step": null
 			}
 		},
 		{

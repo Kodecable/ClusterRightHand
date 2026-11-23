@@ -145,7 +145,7 @@ interop fixtures and an end-to-end test against a released crha binary of each s
 | `task.input` | crhs → crha | One input chunk at a byte offset, after acceptance and in order. |
 | `task.cancel` | crhs → crha | Asks the node to stop a task. A cancel that arrives first is remembered, and the later start is refused. |
 | `task.query` | crhs → crha | The node's view of a task, used after a reconnect. |
-| `pty.open` | crhs → crha | Starts a [terminal](pty.md) with its id, argv, size, privileged flag, scrollback size and opaque crhs metadata. Negotiated. |
+| `pty.open` | crhs → crha | Starts a [terminal](pty.md) with its id, argv, size, privileged flag, scrollback size and opaque crhs metadata, and, for a privileged one, its attempt, authorizations and cosign ticket as `task.start` carries them. Negotiated. |
 | `pty.resize` | crhs → crha | Changes a terminal's size. Negotiated. |
 | `pty.close` | crhs → crha | Closes a terminal with a reason. Negotiated. |
 | `pty.meta` | crhs → crha | Replaces the terminal's opaque crhs metadata. Negotiated. |
@@ -201,7 +201,7 @@ timeouts and its output mode; the fields are in `messages.ts`. Acceptance is the
 | `task.output.ack` | crhs → crha | Releases output the node no longer has to resend. |
 | `task.exit.ack` | crhs → crha | Releases the task's retained output and state. |
 | `pty.list` | crha → crhs | Every active terminal with its fields, sent after `hello` ([Reconnect](pty.md#reconnect)). Negotiated. |
-| `pty.exited` | crha → crhs | A terminal's process ended, with its exit code. Negotiated. |
+| `pty.exited` | crha → crhs | A terminal's process ended, with its exit code and the reason (`exited` or `helper_lost`). Negotiated. |
 
 An event has no response; an unnegotiated or undecodable event closes the connection.
 
@@ -294,7 +294,9 @@ crhs's cosignature is a separate [cosign ticket](#cosign-ticket).
   target). `spec_sha256 = SHA-256(CBOR(TaskSpec))` covers the method and target, environment, working
   directory, input hash and content, and mode and owner, so a `spec` approval covers what runs; the
   method follows from the spec, so the command does not repeat it. A `file.push`/`file.pull` endpoint's
-  transfer id is crhs-side routing and is left out, so a group's members hash alike.
+  transfer id is crhs-side routing and is left out, so a group's members hash alike. A privileged
+  terminal's `spec` is `SHA-256(CBOR(TaskSpec pty.create))`, whose only field is the argv
+  ([Terminals](pty.md#privilege)).
 - **Reusable or one-shot.** `task_ids` and `attempt` are both `null` (reusable until the deadline) or
   both set (one-shot). A one-shot authorization has unique task ids and `attempt ≥ 1`, may list only
   node UUIDs, and binds position by position: the task id must be listed, the node id at that
@@ -339,10 +341,15 @@ profile, frames and strict decoding, but not the CRH protocol.
   tasks fail with `privileged_unavailable`.
 - Each role requires its names (`task.*` and `trust.query`/`trust.summary` for `forward`, `task.*`
   for `native`, `window.status`/`window.open`/`window.close` for `local`); the rest are optional and
-  negotiated by intersection. The terminal names (`pty.open`, `pty.input`, `pty.resize`, `pty.close`
-  and the events `pty.output`, `pty.exited`) are optional: a privileged terminal runs in the privileged
-  mode, which relays its bytes to the unprivileged mode, and in `native` the helper started for it
-  lives as long as the terminal ([Privilege](pty.md#privilege)).
+  negotiated by intersection. The terminal names are optional too: a privileged terminal runs in the
+  privileged mode, which relays its bytes to the unprivileged mode, and in `native` the helper started
+  for it lives as long as the terminal ([Privilege](pty.md#privilege)). Their bodies are not the
+  crhs <-> crha ones: the commands `pty.open` `[pty_id, argv, rows, cols, attempt, authorizations,
+  cosign]`, `pty.input` `[pty_id, data]`, `pty.resize` `[pty_id, rows, cols]` and `pty.close`
+  `[pty_id]`, and the events `pty.output` `[pty_id, data]` and `pty.exited` `[pty_id, exit_code]`.
+  `pty.open` carries no metadata or scrollback, which stay in the unprivileged mode, and
+  `pty.exited` carries no reason, because the unprivileged mode decides whether the terminal ended or
+  lost its privileged mode.
 - The role must match the peer: `forward` for the unprivileged uid, `local` for a local approver,
   `native` only on stdio.
 - The task bodies are shared with CRH; `native` skips authorization and there are no acks, because

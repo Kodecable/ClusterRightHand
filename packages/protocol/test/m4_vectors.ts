@@ -32,6 +32,12 @@ import {
 	PRIV_MAJOR,
 	PRIV_MINOR,
 	privHelloCodec,
+	privPtyCloseCodec,
+	privPtyExitedCodec,
+	privPtyInputCodec,
+	privPtyOpenCodec,
+	privPtyOutputCodec,
+	privPtyResizeCodec,
 	privWelcomeCodec,
 	type Signature,
 	type TrustSummary,
@@ -998,6 +1004,30 @@ function privVectors(authorization: HexVector): HexVector[] {
 			output: { kind: "full", spillBytes: 51_200, spillLines: 2_000 },
 		},
 	});
+	// The optional terminal names (doc/design/pty.md "Protocol additions"): a privileged terminal's
+	// bodies on crh-priv. They carry no meta or scrollback, which stay in the unprivileged mode.
+	const ptyId = "pty-priv-1";
+	// The crh-priv terminal names are not in the crhs <-> crha registry, so their frames are built
+	// directly: [kind, id, name, body] for a request and [kind, name, body] for an event.
+	const ptyOpen = encodeCbor([
+		0,
+		2,
+		"pty.open",
+		privPtyOpenCodec.encode({
+			ptyId,
+			argv: ["/bin/bash", "-l"],
+			rows: 40,
+			cols: 120,
+			attempt: 1,
+			authorizations: [Uint8Array.from(Buffer.from(authorization.hex, "hex"))],
+			cosign: null,
+		}),
+	]);
+	const ptyInput = encodeCbor([0, 3, "pty.input", privPtyInputCodec.encode({ ptyId, data: utf8("ls\n") })]);
+	const ptyResize = encodeCbor([0, 4, "pty.resize", privPtyResizeCodec.encode({ ptyId, rows: 50, cols: 200 })]);
+	const ptyClose = encodeCbor([0, 5, "pty.close", privPtyCloseCodec.encode({ ptyId })]);
+	const ptyOutput = encodeCbor([2, "pty.output", privPtyOutputCodec.encode({ ptyId, data: utf8("hi") })]);
+	const ptyExited = encodeCbor([2, "pty.exited", privPtyExitedCodec.encode({ ptyId, exitCode: -1 })]);
 	return [
 		{ id: "priv.hello", description: "PrivHello, length-prefixed", hex: hex(lengthPrefixed(hello)) },
 		{ id: "priv.welcome", description: "PrivWelcome, length-prefixed", hex: hex(lengthPrefixed(welcome)) },
@@ -1005,6 +1035,36 @@ function privVectors(authorization: HexVector): HexVector[] {
 			id: "priv.task.start",
 			description: "task.start request frame carrying one authorization, length-prefixed",
 			hex: hex(lengthPrefixed(start)),
+		},
+		{
+			id: "priv.pty.open",
+			description: "crh-priv pty.open request frame carrying one authorization, length-prefixed",
+			hex: hex(lengthPrefixed(ptyOpen)),
+		},
+		{
+			id: "priv.pty.input",
+			description: "crh-priv pty.input request frame, length-prefixed",
+			hex: hex(lengthPrefixed(ptyInput)),
+		},
+		{
+			id: "priv.pty.resize",
+			description: "crh-priv pty.resize request frame, length-prefixed",
+			hex: hex(lengthPrefixed(ptyResize)),
+		},
+		{
+			id: "priv.pty.close",
+			description: "crh-priv pty.close request frame, length-prefixed",
+			hex: hex(lengthPrefixed(ptyClose)),
+		},
+		{
+			id: "priv.pty.output",
+			description: "crh-priv pty.output event frame, length-prefixed",
+			hex: hex(lengthPrefixed(ptyOutput)),
+		},
+		{
+			id: "priv.pty.exited",
+			description: "crh-priv pty.exited event frame, length-prefixed",
+			hex: hex(lengthPrefixed(ptyExited)),
 		},
 	];
 }

@@ -71,9 +71,14 @@ type specView struct {
 	Target     string `json:"target"`
 	SpecSHA256 string `json:"spec_sha256"`
 
-	// exec
-	Argv  []string          `json:"argv,omitempty"`
-	Shell string            `json:"shell,omitempty"`
+	// exec, pty.create
+	Argv  []string `json:"argv,omitempty"`
+	Shell string   `json:"shell,omitempty"`
+
+	// pty.create: true when the argv is empty, so the terminal runs the privileged identity's login
+	// shell. It is shown instead of an empty argv.
+	LoginShell bool `json:"login_shell,omitempty"`
+
 	Env   map[string]string `json:"env,omitempty"`
 	Cwd   string            `json:"cwd,omitempty"`
 	Stdin *inputRefView     `json:"stdin,omitempty"`
@@ -187,6 +192,17 @@ func specViewFor(spec *protocol.TaskSpec) (*specView, error) {
 		view.Path = spec.FileEdit.Path
 		for _, edit := range spec.FileEdit.Edits {
 			view.Edits = append(view.Edits, editView{OldText: edit.OldText, NewText: edit.NewText})
+		}
+	case protocol.TaskSpecPtyCreate:
+		if spec.PtyCreate == nil {
+			return nil, errors.New("pty.create spec has no body")
+		}
+		// An empty argv is the privileged identity's login shell, shown as such instead of an empty
+		// argv (doc/design/pty.md "Privilege").
+		if len(spec.PtyCreate.Argv) == 0 {
+			view.LoginShell = true
+		} else {
+			view.Argv = append([]string{}, spec.PtyCreate.Argv...)
 		}
 	case protocol.TaskSpecNodeUpgrade:
 		if spec.NodeUpgrade == nil {

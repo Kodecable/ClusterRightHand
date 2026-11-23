@@ -40,10 +40,12 @@ const (
 	MethodFileRead  Method = "file.read"
 	MethodFileWrite Method = "file.write"
 	MethodUpgrade   Method = "upgrade"
+	// MethodPtyCreate authorizes opening a privileged terminal (doc/design/pty.md "Privilege").
+	MethodPtyCreate Method = "pty.create"
 )
 
 // methods is the method open name.
-var methods = newOpenName("method", MethodExec, MethodFileRead, MethodFileWrite, MethodUpgrade)
+var methods = newOpenName("method", MethodExec, MethodFileRead, MethodFileWrite, MethodUpgrade, MethodPtyCreate)
 
 // Known reports whether this version understands the method.
 func (m Method) Known() bool { return methods.isKnown(m) }
