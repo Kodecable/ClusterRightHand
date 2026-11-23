@@ -24,6 +24,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
@@ -80,6 +81,10 @@ type privEnv struct {
 	stateDir string
 	logPath  string
 	keys     *privKeys
+	// env is the task environment the daemon runs with. Its home is the temporary test directory,
+	// because the real privileged home (root's) is not writable by the test user; terminals chdir
+	// into it.
+	env *execenv.Environment
 	// daemonVersion overrides the version the daemon reports in PrivWelcome; empty means this
 	// build's version, like a daemon started from the same binary as the non-privileged mode.
 	daemonVersion string
@@ -102,6 +107,13 @@ func newPrivEnv(t *testing.T, keys *privKeys, build func(*privEnv) string) *priv
 		stateDir: filepath.Join(dir, "state"),
 		logPath:  filepath.Join(dir, "privileged.jsonl"),
 		keys:     keys,
+		env: &execenv.Environment{
+			Shell:   "/bin/sh",
+			Path:    execenv.PrivilegedPath,
+			Home:    dir,
+			User:    "tester",
+			Logname: "tester",
+		},
 	}
 	t.Cleanup(env.stop)
 	env.writeConfig(build)
@@ -130,7 +142,7 @@ func (e *privEnv) start() {
 	if reportVersion == "" {
 		reportVersion = version.Version
 	}
-	server, err := daemon.New(cfg, daemon.Options{ConfigPath: e.config, Version: reportVersion, Log: log})
+	server, err := daemon.New(cfg, daemon.Options{ConfigPath: e.config, Version: reportVersion, Log: log, Env: e.env})
 	if err != nil {
 		log.Close()
 		e.t.Fatalf("daemon.New: %v", err)
@@ -298,6 +310,8 @@ type crhsWatch struct {
 	outputs   chan protocol.TaskOutput
 	exits     chan protocol.TaskExit
 	summaries chan protocol.TrustReport
+	ptyExits  chan protocol.PTYExited
+	ptyList   chan protocol.PTYList
 }
 
 func newCRHSWatch() *crhsWatch {
@@ -306,6 +320,8 @@ func newCRHSWatch() *crhsWatch {
 		outputs:   make(chan protocol.TaskOutput, 512),
 		exits:     make(chan protocol.TaskExit, 16),
 		summaries: make(chan protocol.TrustReport, 16),
+		ptyExits:  make(chan protocol.PTYExited, 16),
+		ptyList:   make(chan protocol.PTYList, 16),
 	}
 }
 
@@ -335,11 +351,37 @@ func (w *crhsWatch) setup(p *protocol.Peer) {
 		w.summaries <- report
 		return nil
 	})
+	p.HandleEvent(protocol.EventPTYExited, func(body cbor.RawMessage) error {
+		var exit protocol.PTYExited
+		if err := protocol.Unmarshal(body, &exit); err != nil {
+			return err
+		}
+		w.ptyExits <- exit
+		return nil
+	})
+	// pty.list follows the hello response whenever both sides offer the terminal names; a fake
+	// crhs that offers them must consume it or the connection ends.
+	p.HandleEvent(protocol.EventPTYList, func(body cbor.RawMessage) error {
+		var list protocol.PTYList
+		if err := protocol.Unmarshal(body, &list); err != nil {
+			return err
+		}
+		w.ptyList <- list
+		return nil
+	})
 }
 
 // serveForward runs one fake crhs session whose script starts after the facts event. script may be
-// nil when the test only observes events.
+// nil when the test only observes events. commands overrides what the fake crhs offers in its
+// handshake; nil offers only the required names.
 func serveForward(t *testing.T, a *Agent, w *crhsWatch, script func(context.Context, *protocol.Peer) error) {
+	t.Helper()
+	serveForwardWith(t, a, w, nil, script)
+}
+
+// serveForwardWith is serveForward with an explicit handshake name list, used by the terminal
+// tests so the fake crhs offers the optional pty events.
+func serveForwardWith(t *testing.T, a *Agent, w *crhsWatch, commands []string, script func(context.Context, *protocol.Peer) error) {
 	t.Helper()
 	serverKey, err := noise.GenerateKeypair()
 	if err != nil {
@@ -347,7 +389,8 @@ func serveForward(t *testing.T, a *Agent, w *crhsWatch, script func(context.Cont
 	}
 	factsReady := make(chan struct{})
 	srv := startFake(t, serverKey, fakeConfig{
-		log: w.frames,
+		log:      w.frames,
+		commands: commands,
 		setup: func(p *protocol.Peer) {
 			p.HandleEvent(protocol.EventFacts, func(body cbor.RawMessage) error {
 				var facts protocol.Facts

@@ -13,12 +13,14 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/fxamacker/cbor/v2"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
@@ -77,6 +79,8 @@ type testEnv struct {
 	cfg    *config.Config
 	log    *audit.Logger
 	server *Server
+	// env overrides the task environment the daemon resolves (tests only). Terminals run with it.
+	env *execenv.Environment
 	// writeTimeout overrides Options.WriteTimeout for the next start (tests only).
 	writeTimeout time.Duration
 
@@ -88,6 +92,14 @@ type testEnv struct {
 // starts the daemon and stops it at the end of the test.
 func newTestEnv(t *testing.T, keys *testKeys, build func(envPaths) string) *testEnv {
 	t.Helper()
+	return newTestEnvWithEnv(t, keys, build, nil)
+}
+
+// newTestEnvWithEnv is newTestEnv with a fixed task environment; terminal tests pass one whose
+// home is a temporary directory, because the daemon's real privileged home is not writable by the
+// test user.
+func newTestEnvWithEnv(t *testing.T, keys *testKeys, build func(envPaths) string, env *execenv.Environment) *testEnv {
+	t.Helper()
 	dir, err := os.MkdirTemp("", "crh-daemon-")
 	if err != nil {
 		t.Fatal(err)
@@ -95,6 +107,7 @@ func newTestEnv(t *testing.T, keys *testKeys, build func(envPaths) string) *test
 	e := &testEnv{
 		t:    t,
 		keys: keys,
+		env:  env,
 		paths: envPaths{
 			Dir:      dir,
 			Config:   filepath.Join(dir, "privileged.toml"),
@@ -136,6 +149,7 @@ func (e *testEnv) start() {
 		ConfigPath:   e.paths.Config,
 		Version:      "test",
 		Log:          log,
+		Env:          e.env,
 		WriteTimeout: e.writeTimeout,
 	})
 	if err != nil {
@@ -411,7 +425,10 @@ type forwardClient struct {
 	outputs   chan protocol.TaskOutput
 	exits     chan protocol.TaskExit
 	summaries chan protocol.TrustReport
+	ptyOutput chan wire.PrivPTYOutput
+	ptyExits  chan protocol.PTYExited
 	done      chan struct{}
+	runErr    error
 }
 
 // dialForwardNoRead completes a forward handshake and then stops reading, so the daemon's
@@ -452,6 +469,8 @@ func dialForward(t *testing.T, socket string) *forwardClient {
 		outputs:   make(chan protocol.TaskOutput, 512),
 		exits:     make(chan protocol.TaskExit, 64),
 		summaries: make(chan protocol.TrustReport, 16),
+		ptyOutput: make(chan wire.PrivPTYOutput, 512),
+		ptyExits:  make(chan protocol.PTYExited, 64),
 		done:      make(chan struct{}),
 	}
 	c.peer = c.stream.Peer()
@@ -479,8 +498,24 @@ func dialForward(t *testing.T, socket string) *forwardClient {
 		c.summaries <- report
 		return nil
 	})
+	c.peer.HandleEvent(wire.EventPTYOutput, func(body cbor.RawMessage) error {
+		var out wire.PrivPTYOutput
+		if err := protocol.Unmarshal(body, &out); err != nil {
+			return err
+		}
+		c.ptyOutput <- out
+		return nil
+	})
+	c.peer.HandleEvent(wire.EventPTYExited, func(body cbor.RawMessage) error {
+		var exit protocol.PTYExited
+		if err := protocol.Unmarshal(body, &exit); err != nil {
+			return err
+		}
+		c.ptyExits <- exit
+		return nil
+	})
 	go func() {
-		_ = c.stream.Run()
+		c.runErr = c.stream.Run()
 		close(c.done)
 	}()
 	t.Cleanup(c.close)
@@ -496,6 +531,74 @@ func (c *forwardClient) close() {
 func (c *forwardClient) start(ctx context.Context, ts protocol.TaskStart) error {
 	var empty protocol.Empty
 	return c.peer.Request(ctx, protocol.CmdTaskStart, ts, &empty)
+}
+
+// openPTY sends one crh-priv pty.open and returns its response error.
+func (c *forwardClient) openPTY(ctx context.Context, req protocol.PTYOpen) error {
+	var empty protocol.Empty
+	return c.peer.Request(ctx, wire.CmdPTYOpen, req, &empty)
+}
+
+// ptyInput sends terminal input.
+func (c *forwardClient) ptyInput(ctx context.Context, id, data string) error {
+	var empty protocol.Empty
+	return c.peer.Request(ctx, wire.CmdPTYInput, wire.PrivPTYInput{PTYID: id, Data: []byte(data)}, &empty)
+}
+
+// ptyResize resizes a terminal.
+func (c *forwardClient) ptyResize(ctx context.Context, id string, rows, cols uint64) error {
+	var empty protocol.Empty
+	return c.peer.Request(ctx, wire.CmdPTYResize, protocol.PTYResize{PTYID: id, Rows: protocol.Uint(rows), Cols: protocol.Uint(cols)}, &empty)
+}
+
+// ptyClose closes a terminal.
+func (c *forwardClient) ptyClose(ctx context.Context, id string) error {
+	var empty protocol.Empty
+	return c.peer.Request(ctx, wire.CmdPTYClose, protocol.PTYClose{PTYID: id}, &empty)
+}
+
+// ptyOutput waits until the terminal's output received so far contains want.
+func (c *forwardClient) waitPTYOutput(want string, timeout time.Duration) string {
+	c.t.Helper()
+	var buf bytes.Buffer
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		select {
+		case out := <-c.ptyOutput:
+			buf.Write(out.Data)
+			if strings.Contains(buf.String(), want) {
+				return buf.String()
+			}
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	c.t.Fatalf("terminal never printed %q; got %q", want, buf.String())
+	return ""
+}
+
+// drainPTYOutput returns the terminal output received so far without waiting.
+func (c *forwardClient) drainPTYOutput() string {
+	var buf bytes.Buffer
+	for {
+		select {
+		case out := <-c.ptyOutput:
+			buf.Write(out.Data)
+		default:
+			return buf.String()
+		}
+	}
+}
+
+// waitPTYExit waits for the terminal's pty.exited event.
+func (c *forwardClient) waitPTYExit(timeout time.Duration) protocol.PTYExited {
+	c.t.Helper()
+	select {
+	case exit := <-c.ptyExits:
+		return exit
+	case <-time.After(timeout):
+		c.t.Fatal("timed out waiting for pty.exited")
+		return protocol.PTYExited{}
+	}
 }
 
 func (c *forwardClient) waitExit(timeout time.Duration) protocol.TaskExit {

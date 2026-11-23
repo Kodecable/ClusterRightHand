@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 	"github.com/Kodecable/ClusterRightHand/client/internal/pty"
 	"github.com/Kodecable/ClusterRightHand/client/internal/transport"
@@ -56,6 +58,10 @@ type ptyState struct {
 	mu      sync.Mutex
 	ctrl    *ptyControl
 	workers map[string]*ptyWorker
+	// relayed holds the terminals whose process runs in the privileged mode, keyed by terminal id,
+	// from before pty.open is sent until the manager drops the terminal: over the shared forward
+	// connection, or over the native helper started for that terminal.
+	relayed map[string]*relayPTY
 	// wake is a broadcast: wakePTYLocked closes it and installs a fresh channel, so every worker
 	// waiting on the old one wakes, not just one of them.
 	wake    chan struct{}
@@ -70,27 +76,29 @@ func (a *Agent) initPTY(opts Options) {
 		Env:    opts.Env,
 		Logger: opts.Logger,
 		OnExit: a.onPTYExit,
+		OnDrop: a.onPTYDrop,
 	})
 	s.workers = map[string]*ptyWorker{}
+	s.relayed = map[string]*relayPTY{}
 	s.wake = make(chan struct{})
 }
 
 // handlePTYOpen starts a terminal and, once the empty response is on the wire, its data
-// connection loop (doc/design/pty.md "crha").
-func (a *Agent) handlePTYOpen(_ context.Context, body cbor.RawMessage) (any, error) {
+// connection loop (doc/design/pty.md "crha"). An ordinary terminal runs here; a privileged one
+// runs in the privileged mode and is relayed (doc/design/pty.md "Privilege").
+func (a *Agent) handlePTYOpen(ctx context.Context, body cbor.RawMessage) (any, error) {
 	var req protocol.PTYOpen
 	if err := protocol.UnmarshalBody(body, &req); err != nil {
 		return nil, err
 	}
-	// The authorization fields (Attempt, Authorizations, Cosign) of a privileged pty.open are not
-	// used yet: the manager refuses privileged terminals until the privileged runtime exists
-	// (doc/design/pty.md "Privilege").
+	if req.Privileged {
+		return a.openPrivilegedPTY(ctx, req)
+	}
 	t, err := a.pty.mgr.Open(pty.OpenRequest{
 		ID:              req.PTYID,
 		Argv:            req.Argv,
 		Rows:            uint64(req.Rows),
 		Cols:            uint64(req.Cols),
-		Privileged:      req.Privileged,
 		ScrollbackBytes: uint64(req.ScrollbackBytes),
 		Meta:            req.Meta,
 	})
@@ -98,6 +106,155 @@ func (a *Agent) handlePTYOpen(_ context.Context, body cbor.RawMessage) (any, err
 		return nil, err
 	}
 	return protocol.Deferred{Body: protocol.Empty{}, After: func() { a.startPTYWorker(t, false) }}, nil
+}
+
+// openPrivilegedPTY relays a privileged pty.open over the node's privileged channel and registers
+// the accepted terminal as a relayed one: the same object as a local terminal, with its output
+// coming from pty.output events and its input, size and close going back over the same channel
+// (doc/design/pty.md "Privilege"). Forward mode uses the shared daemon connection; native mode
+// starts one helper for this terminal. The pty.open has the 30-second timeout of a forwarded
+// task.start; a timeout asks the privileged side to close the terminal and answers crhs helper_lost.
+func (a *Agent) openPrivilegedPTY(ctx context.Context, req protocol.PTYOpen) (any, error) {
+	// Validate the size like an unprivileged open, before anything is launched or forwarded.
+	if err := pty.ValidateOpen(req.PTYID, uint64(req.Rows), uint64(req.Cols)); err != nil {
+		return nil, err
+	}
+	var ch privChannel
+	switch a.mode() {
+	case config.ModeForward:
+		fc, ferr := a.forwardConnection()
+		if fc == nil {
+			return nil, forwardUnavailable(ferr)
+		}
+		if !fc.negotiated.Has(wire.CmdPTYOpen) {
+			return nil, &protocol.RemoteError{
+				Code:    protocol.CodePrivilegedUnsupported,
+				Message: "the privileged mode does not implement pty.open",
+			}
+		}
+		ch = forwardPTYChannel{a: a, fc: fc}
+	case config.ModeNative:
+		// Check the id before launching a helper the rest of the request might refuse.
+		if a.pty.mgr.Get(req.PTYID) != nil {
+			return nil, alreadyAcceptedTerminal(req.PTYID)
+		}
+		n, err := a.launchNativePTY()
+		if err != nil {
+			return nil, err
+		}
+		ch = n
+	default:
+		return nil, a.privilegedTerminalUnsupported()
+	}
+	return a.startRelayedPTY(ctx, ch, req)
+}
+
+// startRelayedPTY sends pty.open over ch and registers the terminal the privileged side accepts.
+func (a *Agent) startRelayedPTY(ctx context.Context, ch privChannel, req protocol.PTYOpen) (any, error) {
+	if a.pty.mgr.Get(req.PTYID) != nil {
+		ch.Close()
+		return nil, alreadyAcceptedTerminal(req.PTYID)
+	}
+	relay := newRelayPTY(a, ch, req.PTYID)
+	if !a.registerRelayPTY(relay) {
+		ch.Close()
+		return nil, alreadyAcceptedTerminal(req.PTYID)
+	}
+	rctx, cancel := context.WithTimeout(ctx, a.forwardTimeout())
+	defer cancel()
+	// pty.open travels as crhs sent it: the terminal metadata and scrollback are the unprivileged
+	// mode's, and the privileged side ignores them (doc/design/pty.md "Protocol additions").
+	err := ch.Request(rctx, wire.CmdPTYOpen, req, nil)
+	if err != nil {
+		a.unregisterRelayPTY(req.PTYID)
+		relay.drop()
+		var remote *protocol.RemoteError
+		if errors.As(err, &remote) {
+			ch.Close()
+			// Report a changed trust summary before the refusal, as for a forwarded task.
+			if authorizationCode(remote.Code) {
+				a.refreshTrust(ctx)
+			}
+			return nil, remote
+		}
+		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+			// The privileged side may have accepted and started the terminal without its answer
+			// reaching us: ask it to close the terminal and answer helper_lost, like a timed-out
+			// task.start (doc/design/protocol.md "crh-priv").
+			a.log.Warn("the privileged side did not answer pty.open", "terminal", req.PTYID, "err", err)
+			go a.closePrivPTY(ch, req.PTYID)
+			return nil, &protocol.RemoteError{
+				Code:    protocol.CodeHelperLost,
+				Message: "the privileged side did not answer pty.open; the terminal was cancelled",
+			}
+		}
+		// A terminal cannot survive the loss of its channel: a broken forward connection closes
+		// every terminal it carries, and a helper that failed is reaped. Nothing is left to retry.
+		ch.Close()
+		return nil, a.channelUnavailable(err)
+	}
+	t, err := a.pty.mgr.OpenRelay(pty.OpenRequest{
+		ID:              req.PTYID,
+		Argv:            req.Argv,
+		Rows:            uint64(req.Rows),
+		Cols:            uint64(req.Cols),
+		Privileged:      true,
+		ScrollbackBytes: uint64(req.ScrollbackBytes),
+		Meta:            req.Meta,
+	}, relay)
+	if err != nil {
+		a.unregisterRelayPTY(req.PTYID)
+		go a.closePrivPTY(ch, req.PTYID)
+		relay.drop()
+		return nil, err
+	}
+	// Output that arrived before the answer is handed to the terminal here.
+	relay.attach(t)
+	return protocol.Deferred{Body: protocol.Empty{}, After: func() { a.startPTYWorker(t, false) }}, nil
+}
+
+// alreadyAcceptedTerminal refuses a second pty.open for a held terminal id.
+func alreadyAcceptedTerminal(id string) *protocol.RemoteError {
+	return &protocol.RemoteError{
+		Code:    protocol.CodeAlreadyAccepted,
+		Message: "terminal " + id + " was already accepted",
+	}
+}
+
+// privilegedTerminalUnsupported refuses a privileged pty.open in a mode that has no privileged
+// channel: reject and ignore, and an unset mode, which behaves like reject
+// (doc/design/pty.md "Privilege").
+func (a *Agent) privilegedTerminalUnsupported() *protocol.RemoteError {
+	return &protocol.RemoteError{
+		Code:    protocol.CodePrivilegedUnsupported,
+		Message: "privileged terminals are not supported by this crha",
+	}
+}
+
+// channelUnavailable describes a privileged channel that was lost while its terminal was being
+// accepted. Forward mode keeps the daemon-unreachable error; a native helper that broke is its own
+// failure.
+func (a *Agent) channelUnavailable(err error) *protocol.RemoteError {
+	if a.mode() == config.ModeNative {
+		message := "the native helper failed"
+		if err != nil {
+			message += ": " + err.Error()
+		}
+		return &protocol.RemoteError{Code: protocol.CodePrivilegedUnavailable, Message: protocol.ErrorMessage(message)}
+	}
+	return forwardUnavailable(err)
+}
+
+// closePrivPTY asks the privileged side to close a terminal whose pty.open answer this side will
+// not accept, then releases the channel. It is best effort: a broken forward connection already
+// ended every terminal on the daemon, and a dead helper has nothing left to close.
+func (a *Agent) closePrivPTY(ch privChannel, id string) {
+	ctx, cancel := context.WithTimeout(context.Background(), a.forwardTimeout())
+	defer cancel()
+	if err := ch.Request(ctx, wire.CmdPTYClose, protocol.PTYClose{PTYID: id, Reason: relayCloseReason}, nil); err != nil {
+		a.log.Debug("close a relayed terminal", "terminal", id, "err", err)
+	}
+	ch.Close()
 }
 
 // handlePTYResize applies an explicit size change. Attaching or detaching a viewer never resizes
@@ -209,12 +366,16 @@ func (a *Agent) onPTYExit(t *pty.Terminal) {
 	if closing || ctrl == nil || !ctrl.negotiated.Has(protocol.EventPTYExited) {
 		return
 	}
+	reason := protocol.PTYExitReasonExited
+	if t.Lost() {
+		// A relayed terminal whose privileged mode disappeared reports helper_lost with code -1
+		// (doc/design/pty.md "Lifecycle").
+		reason = protocol.PTYExitReasonHelperLost
+	}
 	exited := protocol.PTYExited{
 		PTYID:    t.ID(),
 		ExitCode: protocol.Int(code),
-		// The process ended by itself; a privileged terminal that loses its privileged mode reports
-		// helper_lost instead (doc/design/pty.md "Lifecycle").
-		Reason: protocol.PTYExitReasonExited,
+		Reason:   reason,
 	}
 	if err := ctrl.peer.Emit(protocol.EventPTYExited, exited); err != nil {
 		a.log.Warn("emit pty.exited", "id", t.ID(), "err", err)

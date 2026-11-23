@@ -14,7 +14,14 @@ import { join } from "node:path";
 import { encode as encodeCbor } from "../src/cbor.ts";
 import { encodeFrame } from "../src/frame.ts";
 import { taskSpecToJson } from "../src/json.ts";
-import { type TaskSpec, taskSpecCodec } from "../src/messages.ts";
+import {
+	ptyCloseCodec,
+	ptyExitedCodec,
+	ptyOpenCodec,
+	ptyResizeCodec,
+	type TaskSpec,
+	taskSpecCodec,
+} from "../src/messages.ts";
 import {
 	AUTH_NAMESPACE,
 	type Authorization,
@@ -32,12 +39,8 @@ import {
 	PRIV_MAJOR,
 	PRIV_MINOR,
 	privHelloCodec,
-	privPtyCloseCodec,
-	privPtyExitedCodec,
 	privPtyInputCodec,
-	privPtyOpenCodec,
 	privPtyOutputCodec,
-	privPtyResizeCodec,
 	privWelcomeCodec,
 	type Signature,
 	type TrustSummary,
@@ -1005,29 +1008,33 @@ function privVectors(authorization: HexVector): HexVector[] {
 		},
 	});
 	// The optional terminal names (doc/design/pty.md "Protocol additions"): a privileged terminal's
-	// bodies on crh-priv. They carry no meta or scrollback, which stay in the unprivileged mode.
+	// bodies on crh-priv. Only pty.input and pty.output are crh-priv's own; the other four reuse
+	// the CRH bodies, whose metadata and scrollback the privileged side ignores.
 	const ptyId = "pty-priv-1";
-	// The crh-priv terminal names are not in the crhs <-> crha registry, so their frames are built
-	// directly: [kind, id, name, body] for a request and [kind, name, body] for an event.
+	// Their frames are built directly: [kind, id, name, body] for a request and [kind, name, body]
+	// for an event.
 	const ptyOpen = encodeCbor([
 		0,
 		2,
 		"pty.open",
-		privPtyOpenCodec.encode({
+		ptyOpenCodec.encode({
 			ptyId,
 			argv: ["/bin/bash", "-l"],
 			rows: 40,
 			cols: 120,
+			privileged: true,
+			scrollbackBytes: 1 << 20,
+			meta: Uint8Array.from([0xa1, 0x61, 0x78, 0x01]),
 			attempt: 1,
 			authorizations: [Uint8Array.from(Buffer.from(authorization.hex, "hex"))],
 			cosign: null,
 		}),
 	]);
 	const ptyInput = encodeCbor([0, 3, "pty.input", privPtyInputCodec.encode({ ptyId, data: utf8("ls\n") })]);
-	const ptyResize = encodeCbor([0, 4, "pty.resize", privPtyResizeCodec.encode({ ptyId, rows: 50, cols: 200 })]);
-	const ptyClose = encodeCbor([0, 5, "pty.close", privPtyCloseCodec.encode({ ptyId })]);
+	const ptyResize = encodeCbor([0, 4, "pty.resize", ptyResizeCodec.encode({ ptyId, rows: 50, cols: 200 })]);
+	const ptyClose = encodeCbor([0, 5, "pty.close", ptyCloseCodec.encode({ ptyId, reason: "manual" })]);
 	const ptyOutput = encodeCbor([2, "pty.output", privPtyOutputCodec.encode({ ptyId, data: utf8("hi") })]);
-	const ptyExited = encodeCbor([2, "pty.exited", privPtyExitedCodec.encode({ ptyId, exitCode: -1 })]);
+	const ptyExited = encodeCbor([2, "pty.exited", ptyExitedCodec.encode({ ptyId, exitCode: -1, reason: "exited" })]);
 	return [
 		{ id: "priv.hello", description: "PrivHello, length-prefixed", hex: hex(lengthPrefixed(hello)) },
 		{ id: "priv.welcome", description: "PrivWelcome, length-prefixed", hex: hex(lengthPrefixed(welcome)) },

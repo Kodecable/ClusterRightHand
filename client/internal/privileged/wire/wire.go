@@ -98,14 +98,33 @@ func coreNames() []string {
 }
 
 // NamesFor returns the command and event names a role implements, sorted, including the
-// privilege names that role needs. The handshake advertises this list. The optional terminal names
-// (pty.*) are not in it yet: there is no runtime for them (doc/design/pty.md "Protocol additions").
+// privilege names that role needs. The handshake advertises this list. The terminal names (pty.*)
+// are optional and offered by forward and native alike: in forward mode the privileged daemon
+// runs the terminal, in native mode the helper of exactly that terminal does
+// (doc/design/pty.md "Privilege").
 func NamesFor(role Role) []string {
 	switch role {
 	case RoleForward:
 		names := append(coreNames(),
 			CmdTrustQuery,
 			protocol.EventTrustSummary,
+			CmdPTYOpen,
+			CmdPTYInput,
+			CmdPTYResize,
+			CmdPTYClose,
+			EventPTYOutput,
+			EventPTYExited,
+		)
+		slices.Sort(names)
+		return names
+	case RoleNative:
+		names := append(coreNames(),
+			CmdPTYOpen,
+			CmdPTYInput,
+			CmdPTYResize,
+			CmdPTYClose,
+			EventPTYOutput,
+			EventPTYExited,
 		)
 		slices.Sort(names)
 		return names
@@ -124,7 +143,8 @@ func NamesFor(role Role) []string {
 
 // requiredNamesFor returns the names a handshake with role must negotiate. They are part of
 // crh-priv's required set; the forward role accepts the core subset and the local role requires
-// its whole set.
+// its whole set. The native role requires only the core: its terminal names are optional, so a
+// helper built before privileged terminals still serves tasks.
 func requiredNamesFor(role Role) []string {
 	switch role {
 	case RoleForward:
@@ -133,6 +153,8 @@ func requiredNamesFor(role Role) []string {
 			protocol.EventTaskOutput, protocol.EventTaskExit,
 			CmdTrustQuery, protocol.EventTrustSummary, EventTransferData,
 		}
+	case RoleNative:
+		return coreNames()
 	default:
 		return NamesFor(role)
 	}
@@ -167,6 +189,9 @@ func RegisterSchemas(peer *protocol.Peer, role Role) {
 		register(CmdTrustQuery,
 			func() any { return new(protocol.Empty) },
 			func() any { return new(protocol.TrustSummary) })
+		registerTerminalSchemas(peer)
+	case RoleNative:
+		registerTerminalSchemas(peer)
 	case RoleLocal:
 		register(CmdWindowStatus,
 			func() any { return new(protocol.Empty) },
@@ -178,6 +203,17 @@ func RegisterSchemas(peer *protocol.Peer, role Role) {
 			func() any { return new(protocol.Empty) },
 			func() any { return new(protocol.WindowState) })
 	}
+}
+
+// registerTerminalSchemas registers the one crh-priv-specific terminal body on peer: pty.input is
+// not part of the crhs <-> crha registry, because terminal bytes travel on the data connection and
+// never on the control connection (doc/design/pty.md "Privilege"). pty.open, pty.resize, pty.close
+// and pty.exited reuse the CRH names and bodies, which the package registry already validates;
+// pty.output has no CRH event of its own and needs no schema.
+func registerTerminalSchemas(peer *protocol.Peer) {
+	peer.RegisterCommand(CmdPTYInput,
+		func() any { return new(PrivPTYInput) },
+		func() any { return new(protocol.Empty) })
 }
 
 // WriteFrame writes one frame preceded by its 4-byte big-endian length.

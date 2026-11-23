@@ -27,6 +27,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/state"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/taskrun"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/termhost"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
 
@@ -60,6 +61,13 @@ type Options struct {
 	WriteTimeout time.Duration
 }
 
+// termOwner is a terminal the daemon accepted on a connection. started records whether its process
+// started; an accepted terminal that never started is only recorded when its connection ends.
+type termOwner struct {
+	conn    *conn
+	started bool
+}
+
 // Server is one privileged-mode daemon.
 type Server struct {
 	opts Options
@@ -71,6 +79,10 @@ type Server struct {
 	writeTimeout time.Duration
 
 	store *state.Store
+	// terms runs the terminals the daemon accepted: a local crosspty process per terminal, relayed
+	// to the unprivileged mode as crh-priv pty.output/pty.exited events (doc/design/pty.md
+	// "Privilege"). The native helper uses the same host for its one terminal.
+	terms *termhost.Host
 
 	listener   net.Listener
 	socketPath string
@@ -79,6 +91,10 @@ type Server struct {
 	conns    map[*conn]struct{}
 	forwards map[*conn]struct{}
 	tasks    map[*taskrun.Task]struct{}
+	// termConns maps a terminal id to the forward connection that accepted it, filled at
+	// acceptance before the pty.open response. A terminal lives only as long as that connection
+	// (doc/design/pty.md "Privilege").
+	termConns map[string]*termOwner
 	// idle is closed while no accepted task is running. registerTask opens a new channel for the
 	// next busy period; unregisterTask closes it when the last task finished.
 	idle chan struct{}
@@ -134,10 +150,17 @@ func New(cfg *config.Config, opts Options) (*Server, error) {
 		conns:        make(map[*conn]struct{}),
 		forwards:     make(map[*conn]struct{}),
 		tasks:        make(map[*taskrun.Task]struct{}),
+		termConns:    make(map[string]*termOwner),
 		idle:         make(chan struct{}),
 	}
 	close(s.idle)
 	s.cfg.Store(cfg)
+	s.terms = termhost.New(termhost.Options{
+		Env:      opts.Env,
+		Logger:   logger,
+		Recorder: termRecorder{s: s},
+		OnDrop:   s.terminalDropped,
+	})
 	return s, nil
 }
 
@@ -288,6 +311,9 @@ func (s *Server) shutdown() {
 	if !s.waitTasks(shutdownTaskWait) {
 		s.log.Warn("tasks did not stop during shutdown", "tasks", len(tasks))
 	}
+	// Every connection's terminals were closed with it; this frees the exited ones the
+	// unprivileged mode never closed, and any process started after its connection was torn down.
+	s.terms.Shutdown()
 	_ = s.store.Close()
 	s.windowMu.Lock()
 	s.stopWindowTimerLocked()

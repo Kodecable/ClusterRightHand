@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { decode as decodeCbor, encode as encodeCbor } from "../src/cbor.ts";
 import { decodeFrame, encodeFrame } from "../src/frame.ts";
 import { taskSpecFromJson } from "../src/json.ts";
-import { taskSpecCodec } from "../src/messages.ts";
+import { ptyCloseCodec, ptyExitedCodec, ptyOpenCodec, ptyResizeCodec, taskSpecCodec } from "../src/messages.ts";
 import {
 	AUTH_NAMESPACE,
 	authorizationCodec,
@@ -20,12 +20,8 @@ import {
 	PRIV_PTY_COMMANDS,
 	PRIV_PTY_EVENTS,
 	privHelloCodec,
-	privPtyCloseCodec,
-	privPtyExitedCodec,
 	privPtyInputCodec,
-	privPtyOpenCodec,
 	privPtyOutputCodec,
-	privPtyResizeCodec,
 	privWelcomeCodec,
 	trustReportCodec,
 	trustSummaryCodec,
@@ -365,13 +361,13 @@ describe("test/interop/m4_vectors.json", () => {
 		expect(hexOf(encodeFrame(frame))).toBe(hexOf(body("priv.task.start")));
 		expect([...PRIV_PTY_COMMANDS]).toEqual(["pty.open", "pty.input", "pty.resize", "pty.close"]);
 		expect([...PRIV_PTY_EVENTS]).toEqual(["pty.output", "pty.exited"]);
-		// The optional terminal names are not in the crhs <-> crha registry: their bodies are the
-		// crh-priv codecs, framed here directly (doc/design/pty.md "Protocol additions").
+		// Only pty.input and pty.output are crh-priv's own bodies; the other terminal names reuse
+		// the CRH codecs (doc/design/pty.md "Protocol additions").
 		const requests: [string, Codec<unknown>][] = [
-			["priv.pty.open", privPtyOpenCodec as Codec<unknown>],
+			["priv.pty.open", ptyOpenCodec as Codec<unknown>],
 			["priv.pty.input", privPtyInputCodec as Codec<unknown>],
-			["priv.pty.resize", privPtyResizeCodec as Codec<unknown>],
-			["priv.pty.close", privPtyCloseCodec as Codec<unknown>],
+			["priv.pty.resize", ptyResizeCodec as Codec<unknown>],
+			["priv.pty.close", ptyCloseCodec as Codec<unknown>],
 		];
 		for (const [id, codec] of requests) {
 			const [kind, requestId, cmd, requestBody] = decodeCbor(body(id)) as [number, number, string, unknown];
@@ -382,7 +378,7 @@ describe("test/interop/m4_vectors.json", () => {
 		}
 		const events: [string, Codec<unknown>][] = [
 			["priv.pty.output", privPtyOutputCodec as Codec<unknown>],
-			["priv.pty.exited", privPtyExitedCodec as Codec<unknown>],
+			["priv.pty.exited", ptyExitedCodec as Codec<unknown>],
 		];
 		for (const [id, codec] of events) {
 			const [kind, name, eventBody] = decodeCbor(body(id)) as [number, string, unknown];

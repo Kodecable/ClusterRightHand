@@ -1,6 +1,6 @@
 // Package audit writes the privileged mode's local log, one JSON object per line
 // (doc/design/privilege.md "The privileged mode"). Every line is appended to the log file, the
-// durable copy, with its time and, for an accepted task, the full spec. A record can also be
+// durable copy, with its time and, for an accepted task or terminal, the full spec. A record can also be
 // mirrored through crha's logger as one human-readable line: the event and its fields, but never
 // the time (the line has its own) and never the full spec (the file keeps it).
 package audit
@@ -43,14 +43,22 @@ type Record struct {
 	AuthorizationID string `json:"authorization_id,omitempty"`
 	// SpecSHA256 is the hex hash of the accepted task spec.
 	SpecSHA256 string `json:"spec_sha256,omitempty"`
-	// Spec is the full task specification of an accepted task, as protocol.TaskSpec.
+	// Spec is the full task specification of an accepted task or terminal, as protocol.TaskSpec.
 	Spec *protocol.TaskSpec `json:"spec,omitempty"`
+	// PTYID is the terminal a terminal event is about. A privileged terminal's local-log records
+	// use it where a task's records carry TaskID: the terminal id stands in for the task id in the
+	// authorization and the used list (doc/design/pty.md "Privilege").
+	PTYID string `json:"pty_id,omitempty"`
 
 	// Code, Step and Message describe a refusal: the task.start error code, the
 	// verification step of doc/design/privilege.md "Validation flow" and its message.
 	Code    string `json:"code,omitempty"`
 	Step    int    `json:"step,omitempty"`
 	Message string `json:"message,omitempty"`
+
+	// ExitCode is the code a terminal's process ended with (terminal.exited, and terminal.closed
+	// when it ended before the close).
+	ExitCode *int `json:"exit_code,omitempty"`
 
 	// Outcome fields of a finished task.
 	Outcome    string `json:"outcome,omitempty"`
@@ -172,6 +180,9 @@ func mirrorAttrs(rec Record) []slog.Attr {
 	if rec.TaskID != "" {
 		attrs = append(attrs, slog.String("task_id", rec.TaskID))
 	}
+	if rec.PTYID != "" {
+		attrs = append(attrs, slog.String("pty_id", rec.PTYID))
+	}
 	if rec.Attempt != 0 {
 		attrs = append(attrs, slog.Uint64("attempt", uint64(rec.Attempt)))
 	}
@@ -192,6 +203,9 @@ func mirrorAttrs(rec Record) []slog.Attr {
 	}
 	if rec.Message != "" {
 		attrs = append(attrs, slog.String("message", rec.Message))
+	}
+	if rec.ExitCode != nil {
+		attrs = append(attrs, slog.Int("exit_code", *rec.ExitCode))
 	}
 	if rec.Outcome != "" {
 		attrs = append(attrs, slog.String("outcome", rec.Outcome))

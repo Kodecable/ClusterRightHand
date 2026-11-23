@@ -341,15 +341,17 @@ profile, frames and strict decoding, but not the CRH protocol.
   tasks fail with `privileged_unavailable`.
 - Each role requires its names (`task.*` and `trust.query`/`trust.summary` for `forward`, `task.*`
   for `native`, `window.status`/`window.open`/`window.close` for `local`); the rest are optional and
-  negotiated by intersection. The terminal names are optional too: a privileged terminal runs in the
-  privileged mode, which relays its bytes to the unprivileged mode, and in `native` the helper started
-  for it lives as long as the terminal ([Privilege](pty.md#privilege)). Their bodies are not the
-  crhs <-> crha ones: the commands `pty.open` `[pty_id, argv, rows, cols, attempt, authorizations,
-  cosign]`, `pty.input` `[pty_id, data]`, `pty.resize` `[pty_id, rows, cols]` and `pty.close`
-  `[pty_id]`, and the events `pty.output` `[pty_id, data]` and `pty.exited` `[pty_id, exit_code]`.
-  `pty.open` carries no metadata or scrollback, which stay in the unprivileged mode, and
-  `pty.exited` carries no reason, because the unprivileged mode decides whether the terminal ended or
-  lost its privileged mode.
+  negotiated by intersection. The terminal names are optional too, and both `forward` and `native`
+  offer them: a privileged terminal runs in the privileged mode, which relays its bytes to the
+  unprivileged mode — the daemon on the forward connection, or the helper started for that terminal
+  ([Privilege](pty.md#privilege)). The unprivileged mode uses a privileged terminal only on a
+  connection that negotiated the names; a helper binary from before them lacks them, so a privileged
+  `pty.open` there is refused with `privileged_unsupported` while its tasks keep working. `pty.open`,
+  `pty.resize`, `pty.close` and `pty.exited` reuse the crhs <-> crha bodies exactly: the privileged
+  side ignores `pty.open`'s metadata and scrollback, and always reports `pty.exited` with reason
+  `exited`, because the unprivileged mode decides whether a terminal ended or lost its privileged
+  mode. Only `pty.input` `[pty_id, data]` and the event `pty.output` `[pty_id, data]` are `crh-priv`'s
+  own, since between crhs and crha the bytes travel on the terminal's data connection.
 - The role must match the peer: `forward` for the unprivileged uid, `local` for a local approver,
   `native` only on stdio.
 - The task bodies are shared with CRH; `native` skips authorization and there are no acks, because
@@ -362,12 +364,18 @@ profile, frames and strict decoding, but not the CRH protocol.
 A forwarded `task.start` has a 30-second timeout. A timed-out start is treated as accepted because it
 may still run: the unprivileged mode asks the privileged mode to cancel it and ends the task as
 `helper_lost`, which crhs does not retry. Before forwarding an authorization error it refreshes the
-trust summary, so crhs's cache is current.
+trust summary, so crhs's cache is current. A forwarded `pty.open` has the same timeout; a timed-out
+one asks the privileged side to close the terminal and answers crhs `helper_lost`.
 
 When a `forward` connection breaks, accepted tasks run to completion and their results go to the
 local log, but their output is no longer relayed; the unprivileged mode ends them with `helper_lost`,
-and after a restart of that mode crhs marks them `unknown`. A native helper runs one task per process;
-if it exits after accepting but before `task.exit`, the task ends `helper_lost` and is not retried.
+and after a restart of that mode crhs marks them `unknown`. Every terminal accepted on that connection
+is ended with it: the daemon closes the process groups and records each close, and the unprivileged
+mode reports `pty.exited` with code -1 and reason `helper_lost`. A native helper runs one task per
+process; if it exits after accepting but before `task.exit`, the task ends `helper_lost` and is not
+retried. The helper of a native privileged terminal is the same process for the terminal's whole
+life: it refuses a second `pty.open` and a `task.start` while it hosts a terminal, and its exit or
+broken stdio before `pty.exited` ends the terminal `helper_lost` with code -1.
 
 ## Restricted connections
 

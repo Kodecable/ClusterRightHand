@@ -200,6 +200,8 @@ func (a *Agent) dialForward(ctx context.Context) (*forwardConn, error) {
 	fc.peer.HandleEvent(wire.EventTransferData, transfer)
 	fc.peer.HandleEvent(protocol.EventTaskExit, exit)
 	fc.peer.HandleEvent(protocol.EventTrustSummary, a.handleForwardSummary)
+	fc.peer.HandleEvent(wire.EventPTYOutput, a.handlePrivPTYOutput)
+	fc.peer.HandleEvent(wire.EventPTYExited, a.handlePrivPTYExited)
 	return fc, nil
 }
 

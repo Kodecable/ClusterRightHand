@@ -71,7 +71,7 @@ existence and who touched it, at the level of the session, not what was typed or
 | `crha_restarted` | crha came back without it ([Reconnect](#reconnect)) |
 | `disabled` | An administrator turned the subsystem off |
 | `node_removed` | The node was removed or revoked |
-| `helper_lost` | A privileged terminal lost its privileged mode: the `forward` connection broke or the `native` helper exited |
+| `helper_lost` | A privileged terminal lost its privileged mode: the `forward` connection broke, or the `native` helper exited before its `pty.exited` |
 
 Closing sends the process a hangup and follows crosspty's close sequence: SIGHUP to the process group,
 then SIGKILL after the grace period, so child processes of the shell do not outlive it.
@@ -109,9 +109,35 @@ afterwards is not authorized command by command; the authorization covers the te
 - An interactive shell can run anything the privileged identity can, so `pty.create` is treated like `upgrade`
   in guard rules: an entry with `allow` rules refuses it unless an allow rule names it, and crhs warns of
   a deny-only entry that does not deny it (`pty_not_denied`).
-- In `forward` mode the privileged daemon runs the process and relays its bytes over `crh-priv` to the
-  unprivileged mode, which carries them on the data connection. In `native` mode the helper started for
-  the terminal stays alive as long as the terminal.
+- A privileged terminal works in both privileged modes, through whichever privileged channel the node
+  has. In `forward` mode the privileged daemon runs the process and relays its bytes over `crh-priv` to
+  the unprivileged mode, which carries them on the data connection. In `native` mode the unprivileged
+  mode starts one privileged helper for the terminal, with the same escalation tool, argv and relayed
+  stderr as a native task ([Native mode](privilege.md#native-mode)); that helper hosts the terminal
+  and lives exactly as long as it does. Native mode does not authorize the terminal, exactly as it
+  does not authorize a native task, and the helper's relayed stderr lines are the only record of it.
+- The unprivileged mode uses a privileged channel only when the connection negotiated the `crh-priv`
+  terminal names. A daemon or helper binary without them, and a mode that has no privileged channel
+  (`reject`, `ignore`, and an unset mode), refuse a privileged `pty.open` with
+  `privileged_unsupported`. A forward connection that is down refuses it with
+  `privileged_unavailable`; a native helper that cannot be started refuses it the way a native task's
+  helper does, with `privileged_unsupported` and the escalation tool's error.
+- A relayed terminal is the same object as a local one: the same id, argv, size, `privileged` flag,
+  scrollback ring, `meta` and `startedAt`, the same `pty.list` entry, retention and close semantics. Only
+  its process side differs: output arrives as `pty.output` events into the ring, and input, resize and
+  close are sent back as `pty.input`, `pty.resize` and `pty.close` in order. The daemon streams output
+  through the connection's bounded outbox; when it is full, that terminal's reader waits and the PTY
+  applies backpressure to the process, while the connection's other traffic never waits (the existing
+  queueing drops or bounds its own events and never blocks on a terminal). The privileged side's
+  `pty.exited` ends a relayed terminal exactly like a local process exit, and crhs sees reason `exited`.
+  `pty.close` closes the terminal's process group and, in native mode, ends the helper: crha reaps it,
+  killing it after a bounded wait if it does not leave.
+- When the `forward` connection breaks, every relayed terminal ends as `helper_lost` with exit code -1:
+  its output ends, the data connection sends `[end]` after the remaining ring, and the entry stays as
+  exited under the usual retention. A native helper that exits, or whose stdio breaks, before its
+  `pty.exited` ends its terminal the same way. The daemon closes every terminal it accepted on that
+  connection, process groups included, and writes one audit record per terminal; a native terminal's
+  close is recorded by the helper's relayed stderr line.
 - A person opening a privileged terminal from the WebUI waits on the same signature panel as a privileged
   task.
 
@@ -126,7 +152,11 @@ afterwards is not authorized command by command; the authorization covers the te
   against a crhs that loses track, not the configured limit (crhs enforces that): a `pty.open` beyond
   it is refused with `busy`.
 - The process starts through crosspty's `New` and `Start`, so the reader is in place before the shell
-  prints anything. `KillMode` covers the process group, so a child of the shell dies with it.
+  prints anything. `KillMode` covers the process group, so a child of the shell dies with it. A relayed
+  terminal has no local process: its backend is the node's privileged channel — the shared daemon
+  connection in `forward` mode, the helper of that terminal in `native` mode — its output comes from the
+  privileged side and its input, size and close go back over it. Losing that channel ends it as
+  `helper_lost` (-1) rather than dropping it (see [Privilege](#privilege)).
 - **Data connection.** Each terminal has one data connection, opened by crha after `pty.open`: the
   transport of [Data connections](protocol.md#data-connections) on its own path and prologue
   (`/agent/pty`, `crh-pty/1`), with the terminal id in the client payload. Unlike a transfer it is
@@ -305,10 +335,14 @@ All within major 1, negotiated by the minor ([Version negotiation](protocol.md#v
 - `pty.open` carries the terminal's authorization like `task.start`: `attempt`, `authorizations` and
   `cosign` follow its existing fields; an unprivileged terminal sends 0, an empty list and null.
   `pty.exited` carries a reason, `exited` or `helper_lost`.
-- `crh-priv`: optional names for the privileged mode to run a terminal and relay its bytes: commands
-  `pty.open` `[pty_id, argv, rows, cols, attempt, authorizations, cosign]`, `pty.input`
-  `[pty_id, data]`, `pty.resize` `[pty_id, rows, cols]`, `pty.close` `[pty_id]`, and events
-  `pty.output` `[pty_id, data]`, `pty.exited` `[pty_id, exit_code]`.
+- `crh-priv`: optional names for the privileged mode to run a terminal and relay its bytes. `pty.open`,
+  `pty.resize`, `pty.close` and `pty.exited` reuse the bodies above (the privileged side ignores the
+  metadata and scrollback and always reports reason `exited`); only the command `pty.input`
+  `[pty_id, data]` and the event `pty.output` `[pty_id, data]` are its own. The `forward` and `native` roles
+  both offer them; a helper binary from before them lacks the names, and a privileged `pty.open` then
+  answers `privileged_unsupported` while its tasks keep working. `pty.open` has the same 30-second
+  timeout as a forwarded `task.start`: on a timeout crha asks the privileged side to `pty.close` and
+  answers crhs `helper_lost`.
 - Method `pty.create` in authorizations and guard rules, over the TaskSpec kind `pty.create`
   `[argv]`.
 

@@ -1,7 +1,9 @@
-// Package pty runs the terminals of a crha node in non-privileged mode: it keeps one crosspty
-// process per terminal, reads its output into a bounded ring buffer, and holds the terminal's
-// crhs-owned metadata until crhs closes it. The data connection that carries the bytes to crhs
-// and back lives in the agent, which owns the transport (doc/design/pty.md "crha").
+// Package pty runs the terminals of a crha node: it reads a terminal's output into a bounded ring
+// buffer, and holds the terminal's crhs-owned metadata until crhs closes it. A terminal's process
+// side is a Backend: a crosspty process owned by this crha process, or a relay to the privileged
+// mode's daemon when the terminal is privileged (doc/design/pty.md "Privilege"). The data
+// connection that carries the bytes to crhs and back lives in the agent, which owns the transport
+// (doc/design/pty.md "crha").
 package pty
 
 import (
@@ -50,6 +52,24 @@ type Options struct {
 	// OnExit is called once when a terminal's process has exited and its last output has been
 	// read, unless crhs closed the terminal first. The agent uses it to emit pty.exited.
 	OnExit func(*Terminal)
+	// OnOutput, when non-nil, receives every chunk of output after it was written to the ring.
+	// The callback runs on the terminal's reader, so a blocking callback stops that terminal's
+	// PTY (the process applies backpressure) without touching other terminals. The slice is only
+	// valid during the call; a callback that keeps it must copy it. The privileged daemon uses it
+	// to stream pty.output events to the unprivileged mode.
+	OnOutput func(t *Terminal, data []byte)
+	// OnDrop is called after a terminal was removed from the manager: crhs closed it, it was
+	// dropped for a lost connection, its retention expired or the node shut down. It must not call
+	// back into the manager.
+	OnDrop func(*Terminal)
+	// Privileged selects the privileged task environment when Env is nil: the fixed PATH and the
+	// privileged identity's home (doc/design/execution.md "The exec environment"). The privileged
+	// daemon sets it; the unprivileged agent leaves it false.
+	Privileged bool
+	// AllowPrivileged lets Open start a local terminal marked privileged, as the process's own
+	// user. Only the privileged daemon sets it: the unprivileged mode refuses a privileged
+	// terminal it may not relay (doc/design/pty.md "Privilege").
+	AllowPrivileged bool
 }
 
 // Manager owns every terminal of one crha process. It is safe for concurrent use.
@@ -84,18 +104,28 @@ type OpenRequest struct {
 	Meta            []byte
 }
 
+// ValidateOpen checks the parts of a pty.open that are not the process: a non-empty id and a size
+// in range. The agent validates a privileged open before it forwards it, so an invalid request
+// never reaches the privileged mode; Open checks them again.
+func ValidateOpen(id string, rows, cols uint64) error {
+	if id == "" {
+		return remote(protocol.CodeInvalidSpec, "terminal id must not be empty")
+	}
+	if !validSize(rows, cols) {
+		return invalidSizeError()
+	}
+	return nil
+}
+
 // Open starts a terminal. An empty Argv runs the identity's login shell (its discovered sh with
 // "-l"), with the environment and home directory ordinary exec tasks of that identity get. The
 // returned errors are *protocol.RemoteError values with the codes pty.open answers with.
 func (m *Manager) Open(req OpenRequest) (*Terminal, error) {
-	if req.Privileged {
+	if req.Privileged && !m.opts.AllowPrivileged {
 		return nil, remote(protocol.CodePrivilegedUnsupported, "privileged terminals are not supported by this crha")
 	}
-	if req.ID == "" {
-		return nil, remote(protocol.CodeInvalidSpec, "terminal id must not be empty")
-	}
-	if !validSize(req.Rows, req.Cols) {
-		return nil, invalidSizeError()
+	if err := ValidateOpen(req.ID, req.Rows, req.Cols); err != nil {
+		return nil, err
 	}
 	env, err := m.environment()
 	if err != nil {
@@ -113,11 +143,8 @@ func (m *Manager) Open(req OpenRequest) (*Terminal, error) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.terminals[req.ID]; ok {
-		return nil, remote(protocol.CodeAlreadyAccepted, "terminal "+req.ID+" was already accepted")
-	}
-	if limit := m.maxTerminals(); len(m.terminals) >= limit {
-		return nil, remote(protocol.CodeBusy, "this node already holds "+strconv.Itoa(limit)+" terminals")
+	if err := m.room(req.ID); err != nil {
+		return nil, err
 	}
 
 	proc, err := crosspty.New(crosspty.CommandConfig{
@@ -140,20 +167,7 @@ func (m *Manager) Open(req OpenRequest) (*Terminal, error) {
 	if err != nil {
 		return nil, remote(protocol.CodeSpawnFailed, "start the terminal: "+err.Error())
 	}
-	t := &Terminal{
-		id:              req.ID,
-		argv:            argv,
-		rows:            uint16(req.Rows),
-		cols:            uint16(req.Cols),
-		privileged:      false,
-		scrollbackBytes: req.ScrollbackBytes,
-		meta:            append([]byte(nil), req.Meta...),
-		startedAt:       time.Now(),
-		proc:            proc,
-		ring:            NewRing(clampScrollback(req.ScrollbackBytes)),
-		ended:           make(chan struct{}),
-		gone:            make(chan struct{}),
-	}
+	t := newTerminal(req, argv, localBackend{proc: proc}, proc, m.opts.OnOutput)
 	// The reader is attached before Start, so the shell's first prompt cannot be lost.
 	go t.readLoop()
 	if err := proc.Start(); err != nil {
@@ -162,10 +176,68 @@ func (m *Manager) Open(req OpenRequest) (*Terminal, error) {
 		return nil, remote(protocol.CodeSpawnFailed, "start the terminal: "+err.Error())
 	}
 	go t.waitLoop()
-	m.terminals[t.id] = t
-	m.log.Info("terminal opened", "id", t.id, "argv", t.argv)
-	go m.watchExit(t)
+	m.hold(t, false)
 	return t, nil
+}
+
+// OpenRelay registers a terminal whose process runs in the privileged mode. backend forwards input,
+// resize and close to the privileged side; its output arrives through Feed and its exit through End,
+// which runs the same exit path as a local process. Everything else is the local terminal's: ring
+// buffer, retention, size limits, pty.list entry and close semantics (doc/design/pty.md "Privilege").
+func (m *Manager) OpenRelay(req OpenRequest, backend Backend) (*Terminal, error) {
+	if backend == nil {
+		return nil, remote(protocol.CodeInternalError, "relayed terminal has no backend")
+	}
+	if err := ValidateOpen(req.ID, req.Rows, req.Cols); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.room(req.ID); err != nil {
+		return nil, err
+	}
+	t := newTerminal(req, req.Argv, backend, nil, m.opts.OnOutput)
+	m.hold(t, true)
+	return t, nil
+}
+
+// room reports why a new terminal may not be held. m.mu must be held.
+func (m *Manager) room(id string) error {
+	if _, ok := m.terminals[id]; ok {
+		return remote(protocol.CodeAlreadyAccepted, "terminal "+id+" was already accepted")
+	}
+	if limit := m.maxTerminals(); len(m.terminals) >= limit {
+		return remote(protocol.CodeBusy, "this node already holds "+strconv.Itoa(limit)+" terminals")
+	}
+	return nil
+}
+
+// hold inserts a terminal as held, logs it and starts its exit watcher. m.mu must be held.
+func (m *Manager) hold(t *Terminal, relayed bool) {
+	m.terminals[t.id] = t
+	m.log.Info("terminal opened", "id", t.id, "argv", t.argv, "relayed", relayed)
+	go m.watchExit(t)
+}
+
+// newTerminal builds the terminal object of req. proc is the local crosspty process, nil for a
+// relayed terminal.
+func newTerminal(req OpenRequest, argv []string, backend Backend, proc crosspty.Pty, onOutput func(*Terminal, []byte)) *Terminal {
+	return &Terminal{
+		id:              req.ID,
+		argv:            append([]string{}, argv...),
+		rows:            uint16(req.Rows),
+		cols:            uint16(req.Cols),
+		privileged:      req.Privileged,
+		scrollbackBytes: req.ScrollbackBytes,
+		meta:            append([]byte(nil), req.Meta...),
+		startedAt:       time.Now(),
+		backend:         backend,
+		proc:            proc,
+		onOutput:        onOutput,
+		ring:            NewRing(clampScrollback(req.ScrollbackBytes)),
+		ended:           make(chan struct{}),
+		gone:            make(chan struct{}),
+	}
 }
 
 // Get returns the terminal with id, or nil when this node does not hold it.
@@ -178,12 +250,7 @@ func (m *Manager) Get(id string) *Terminal {
 // List returns every held terminal, running and exited, in a stable order (started, then id) for
 // pty.list.
 func (m *Manager) List() []protocol.PTYStatus {
-	m.mu.Lock()
-	terms := make([]*Terminal, 0, len(m.terminals))
-	for _, t := range m.terminals {
-		terms = append(terms, t)
-	}
-	m.mu.Unlock()
+	terms := m.snapshot()
 	out := make([]protocol.PTYStatus, 0, len(terms))
 	for _, t := range terms {
 		out = append(out, t.Status())
@@ -199,13 +266,16 @@ func (m *Manager) List() []protocol.PTYStatus {
 
 // Held returns every held terminal, running or exited but not yet closed, for (re)starting their
 // data connections after a new control connection (doc/design/pty.md "Reconnect").
-func (m *Manager) Held() []*Terminal {
+func (m *Manager) Held() []*Terminal { return m.snapshot() }
+
+// snapshot returns every held terminal.
+func (m *Manager) snapshot() []*Terminal {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	terms := make([]*Terminal, 0, len(m.terminals))
 	for _, t := range m.terminals {
 		terms = append(terms, t)
 	}
-	m.mu.Unlock()
 	return terms
 }
 
@@ -253,6 +323,9 @@ func (m *Manager) Drop(id string) *Terminal {
 	}
 	t.markRemoved()
 	t.closeGone()
+	if m.opts.OnDrop != nil {
+		m.opts.OnDrop(t)
+	}
 	return t
 }
 
@@ -322,7 +395,7 @@ func (m *Manager) environment() (*execenv.Environment, error) {
 		return m.opts.Env, nil
 	}
 	m.envOnce.Do(func() {
-		m.env, m.envErr = execenv.Resolve(execenv.Options{})
+		m.env, m.envErr = execenv.Resolve(execenv.Options{Privileged: m.opts.Privileged})
 	})
 	if m.envErr != nil {
 		return nil, m.envErr
@@ -378,14 +451,21 @@ type Terminal struct {
 	scrollbackBytes uint64
 	meta            []byte
 	startedAt       time.Time
-	proc            crosspty.Pty
-	ring            *Ring
-	exited          bool
-	exitCode        int
-	drained         bool
-	ended           chan struct{}
-	endOnce         sync.Once
-	removed         bool
+	backend         Backend
+	// proc is the locally started crosspty process, nil for a relayed terminal: a relayed one gets
+	// its output and exit from Feed and End instead of Read and Wait.
+	proc     crosspty.Pty
+	onOutput func(*Terminal, []byte)
+	ring     *Ring
+	exited   bool
+	exitCode int
+	// exitLost reports that the terminal lost its privileged mode rather than its process
+	// ending; it is the helper_lost reason of the crhs-facing pty.exited.
+	exitLost bool
+	drained  bool
+	ended    chan struct{}
+	endOnce  sync.Once
+	removed  bool
 
 	// reportMu serializes the exit report against removal, so no pty.exited is emitted for a
 	// terminal crhs closed (doc/design/pty.md "crha").
@@ -417,6 +497,15 @@ func (t *Terminal) Exit() (exited bool, code int) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.exited, t.exitCode
+}
+
+// Lost reports whether the terminal lost its privileged mode instead of its process ending. It is
+// meaningful once Exit reports exited; the crhs-facing pty.exited then says helper_lost with the
+// exit code -1 (doc/design/pty.md "Lifecycle").
+func (t *Terminal) Lost() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.exitLost
 }
 
 // OutputDone is closed once the process has exited and the last output has been read. A data
@@ -470,7 +559,7 @@ func (t *Terminal) Resize(rows, cols uint16) error {
 	if t.isRemoved() {
 		return errGone
 	}
-	if err := t.proc.Resize(crosspty.TermSize{Rows: rows, Cols: cols}); err != nil {
+	if err := t.backend.Resize(rows, cols); err != nil {
 		return err
 	}
 	t.mu.Lock()
@@ -486,16 +575,17 @@ func (t *Terminal) Write(p []byte) error {
 	if t.isRemoved() {
 		return errGone
 	}
-	_, err := t.proc.Write(p)
+	_, err := t.backend.Write(p)
 	return err
 }
 
-// Close follows crosspty's graceful sequence for the process group: hang up, then SIGKILL after
-// the grace period. It is idempotent.
+// Close ends the terminal's process group: a local one follows crosspty's graceful sequence (hang
+// up, then SIGKILL after the grace period); a relayed one asks the privileged mode to close it.
+// It is idempotent.
 func (t *Terminal) Close() error {
 	t.ioMu.Lock()
 	defer t.ioMu.Unlock()
-	return t.proc.Close()
+	return t.backend.Close()
 }
 
 // isRemoved reports whether the manager dropped the terminal. removed is guarded by reportMu,
@@ -531,7 +621,7 @@ func (t *Terminal) closeGone() {
 	t.goneOnce.Do(func() { close(t.gone) })
 }
 
-// readLoop reads the PTY continuously into the ring. It never blocks on crhs: only the ring's
+// readLoop reads a local PTY continuously into the ring. It never blocks on crhs: only the ring's
 // capacity bounds what is kept.
 func (t *Terminal) readLoop() {
 	buf := make([]byte, readBufferBytes)
@@ -539,6 +629,9 @@ func (t *Terminal) readLoop() {
 		n, err := t.proc.Read(buf)
 		if n > 0 {
 			t.ring.Write(buf[:n])
+			if t.onOutput != nil {
+				t.onOutput(t, buf[:n])
+			}
 		}
 		if err != nil {
 			break
@@ -550,12 +643,42 @@ func (t *Terminal) readLoop() {
 	t.mu.Unlock()
 }
 
-// waitLoop records the exit code as soon as the direct process exits. The reader may still be
+// waitLoop records a local process's exit code as soon as it exits. The reader may still be
 // draining output after it.
 func (t *Terminal) waitLoop() {
 	code := t.proc.Wait()
 	t.mu.Lock()
 	t.exited, t.exitCode = true, code
+	t.maybeEndLocked()
+	t.mu.Unlock()
+}
+
+// Feed appends output that arrived from the privileged side to the ring, waking the terminal's data
+// connection. Output after the exit is dropped: the data connection has already sent its last
+// frame.
+func (t *Terminal) Feed(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	t.mu.Lock()
+	exited := t.exited
+	t.mu.Unlock()
+	if exited {
+		return
+	}
+	t.ring.Write(data)
+}
+
+// End records the exit of a relayed terminal and ends its output, running the same path a local
+// process exit runs: OnExit, then retention, then the pty.exited event. lost reports that the
+// privileged side disappeared rather than the process ending, which makes the reason helper_lost.
+func (t *Terminal) End(code int, lost bool) {
+	t.mu.Lock()
+	if t.exited {
+		t.mu.Unlock()
+		return
+	}
+	t.exited, t.exitCode, t.exitLost, t.drained = true, code, lost, true
 	t.maybeEndLocked()
 	t.mu.Unlock()
 }

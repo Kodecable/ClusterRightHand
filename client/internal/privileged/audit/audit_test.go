@@ -197,3 +197,92 @@ func TestOpenErrors(t *testing.T) {
 		t.Fatal("zero Logger accepted a record")
 	}
 }
+
+// TestTerminalEvents covers the privileged terminal's local-log records: the terminal id in pty_id,
+// the exit code, and the refusal mirrored at Warn like a task refusal.
+func TestTerminalEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "privileged.jsonl")
+	var mirror bytes.Buffer
+	l, err := Open(path, Options{Logger: logging.NewPlain(&mirror)})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	code := 7
+	records := []Record{
+		{
+			Event: "terminal.opened", PTYID: "pty-1", Attempt: 1, Entry: "crhs",
+			AuthorizationID: "ab", SpecSHA256: "cd",
+			Spec: &protocol.TaskSpec{Kind: protocol.TaskSpecPtyCreate, PtyCreate: &protocol.PtyCreateSpec{
+				Argv: []string{"/bin/sh", "-l"},
+			}},
+		},
+		{Event: "terminal.exited", PTYID: "pty-1", ExitCode: &code},
+		{Event: "terminal.closed", PTYID: "pty-1", ExitCode: &code, Detail: "closed by the unprivileged mode"},
+		{Event: "terminal.refused", PTYID: "pty-2", Code: "authorization_rejected", Step: 7, Message: "no"},
+	}
+	for _, rec := range records {
+		if err := l.Log(rec); err != nil {
+			t.Fatalf("Log(%s): %v", rec.Event, err)
+		}
+	}
+	if err := l.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != len(records) {
+		t.Fatalf("%d lines, want %d:\n%s", len(lines), len(records), data)
+	}
+	var opened, exited, closed, refused map[string]any
+	for i, line := range lines {
+		var got map[string]any
+		if err := json.Unmarshal([]byte(line), &got); err != nil {
+			t.Fatalf("line %d: %v", i+1, err)
+		}
+		if got["pty_id"] != records[i].PTYID {
+			t.Fatalf("line %d pty_id = %v, want %q", i+1, got["pty_id"], records[i].PTYID)
+		}
+		switch got["event"] {
+		case "terminal.opened":
+			opened = got
+		case "terminal.exited":
+			exited = got
+		case "terminal.closed":
+			closed = got
+		case "terminal.refused":
+			refused = got
+		}
+	}
+	if opened["spec"] == nil || opened["authorization_id"] != "ab" {
+		t.Fatalf("terminal.opened = %v", opened)
+	}
+	if exited["exit_code"] != float64(7) {
+		t.Fatalf("terminal.exited exit_code = %v, want 7", exited["exit_code"])
+	}
+	if closed["exit_code"] != float64(7) || closed["detail"] == nil {
+		t.Fatalf("terminal.closed = %v", closed)
+	}
+	if refused["code"] != "authorization_rejected" || refused["step"] != float64(7) {
+		t.Fatalf("terminal.refused = %v", refused)
+	}
+
+	mirrorLines := strings.Split(strings.TrimSuffix(mirror.String(), "\n"), "\n")
+	if len(mirrorLines) != len(records) {
+		t.Fatalf("%d mirrored lines, want %d:\n%s", len(mirrorLines), len(records), mirror.String())
+	}
+	for _, want := range []string{`pty_id=pty-1`, "exit_code=7"} {
+		if !strings.Contains(mirrorLines[1], want) {
+			t.Errorf("mirrored terminal.exited = %q, want it to contain %q", mirrorLines[1], want)
+		}
+	}
+	if !strings.Contains(mirrorLines[3], " WARN  ") {
+		t.Errorf("mirrored terminal.refused = %q, want Warn", mirrorLines[3])
+	}
+	if strings.Contains(mirrorLines[0], " spec=") {
+		t.Errorf("mirrored terminal.opened carries the full spec: %q", mirrorLines[0])
+	}
+}

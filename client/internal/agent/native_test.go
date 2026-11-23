@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Kodecable/ClusterRightHand/client/internal/config"
+	"github.com/Kodecable/ClusterRightHand/client/internal/execenv"
 	"github.com/Kodecable/ClusterRightHand/client/internal/executor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/noise"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/helper"
@@ -25,10 +27,16 @@ import (
 // TestMain lets the test binary act as `crha privileged stdio`. The native tests start the helper
 // the way production does, only without an escalation tool: the helper is this very binary, re-run
 // with the helper's arguments, so no sudo or doas is needed (doc/design/privilege.md "Native mode"). The
-// fake-helper mode is a stand-in helper for the lost task.start response tests.
+// fake-helper mode is a stand-in helper for the lost task.start response tests and for a helper of
+// the older binary that has no terminal names.
 // nativeSpoolEnv passes the test's spool directory to the helper subprocess. Only this test file
 // reads it: production takes the spool location from StdioOptions, never from the environment.
-const nativeSpoolEnv = "CRH_TEST_NATIVE_SPOOL"
+// nativeHomeEnv points the helper's privileged environment at a writable home: the test user cannot
+// enter root's home, and a terminal starts in the identity's home directory.
+const (
+	nativeSpoolEnv = "CRH_TEST_NATIVE_SPOOL"
+	nativeHomeEnv  = execenv.EnvHome
+)
 
 func TestMain(m *testing.M) {
 	// The helper stages task stdin below a privileged state directory. The test process is not
@@ -45,9 +53,23 @@ func TestMain(m *testing.M) {
 			os.Setenv(nativeSpoolEnv, spool)
 		}
 	}
+	home := os.Getenv(nativeHomeEnv)
+	ownedHome := false
+	if home == "" {
+		dir, err := os.MkdirTemp("", "crh-test-home-")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "native test home:", err)
+		} else {
+			home, ownedHome = dir, true
+			os.Setenv(nativeHomeEnv, home)
+		}
+	}
 	cleanup := func() {
 		if owned {
 			_ = os.RemoveAll(spool)
+		}
+		if ownedHome {
+			_ = os.RemoveAll(home)
 		}
 	}
 	if len(os.Args) >= 3 && os.Args[1] == "privileged" && os.Args[2] == "stdio" {
@@ -76,8 +98,12 @@ func TestMain(m *testing.M) {
 
 // runFakeHelper is the helper side of the lost task.start response tests. It speaks the crh-priv
 // handshake and accepts one task.start, but answers it only after the agent's native timeout:
-// "delayed" then reports the task's output and exit, "silent" exits without answering at all.
+// "delayed" then reports the task's output and exit, "silent" exits without answering at all. The
+// "old-term" mode is a helper from before privileged terminals: it answers with the task names only.
 func runFakeHelper(mode string) error {
+	if mode == "old-term" {
+		return runOldTermHelper()
+	}
 	_, negotiated, err := wire.ServerHandshake(os.Stdin, os.Stdout, wire.ServerOptions{
 		Role:        wire.RoleNative,
 		CRHAVersion: version.Version,
@@ -111,6 +137,34 @@ func runFakeHelper(mode string) error {
 		return protocol.Empty{}, nil
 	})
 	return stream.Run()
+}
+
+// runOldTermHelper answers the crh-priv handshake as a helper built before privileged terminals did:
+// its welcome offers the task names only. It then reads until the parent closes the stream, like a
+// helper whose terminal features the parent will not use.
+func runOldTermHelper() error {
+	frame, err := wire.ReadFrame(os.Stdin)
+	if err != nil {
+		return err
+	}
+	var hello wire.PrivHello
+	if err := protocol.Unmarshal(frame, &hello); err != nil {
+		return err
+	}
+	body, err := protocol.Marshal(wire.PrivWelcome{
+		PrivMajor:   wire.PrivMajor,
+		PrivMinor:   wire.PrivMinor,
+		Commands:    wire.Names(),
+		CRHAVersion: version.Version,
+	})
+	if err != nil {
+		return err
+	}
+	if err := wire.WriteFrame(os.Stdout, body); err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, os.Stdin)
+	return nil
 }
 
 // nativeWatch records what a fake crhs received from the agent.

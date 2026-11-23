@@ -16,6 +16,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/authz"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/state"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/taskrun"
+	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/termhost"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/wire"
 	"github.com/Kodecable/ClusterRightHand/client/internal/protocol"
 )
@@ -64,7 +65,8 @@ type conn struct {
 	// done is closed by close so a queued writer stops even before the socket is torn down.
 	done chan struct{}
 	// outbox holds trust.summary events for this connection. Their order is kept, and a slow
-	// peer only delays its own goroutine, never pushTrustSummary or reload.
+	// peer only delays its own goroutine, never pushTrustSummary or reload. Terminal output is
+	// queued here too, but a producer waits for room instead of dropping the bytes.
 	outbox chan outbound
 
 	closeOnce sync.Once
@@ -160,6 +162,12 @@ func (s *Server) serveConn(nc net.Conn) {
 		}
 	}
 	c.close()
+	// A terminal has no meaning without the unprivileged mode that carries its bytes, so its
+	// process is ended with the connection (doc/design/pty.md "Privilege"). This also records the
+	// terminals whose pty.open response could not be sent, which never started.
+	if c.role == wire.RoleForward {
+		c.closeTerminals("the forward connection ended")
+	}
 	// A task whose task.start success response could not be sent is still accepted: run it,
 	// with its output dropped and its outcome in the local log (doc/design/protocol.md "crh-priv").
 	// Task.Start runs at most once, so a Deferred.After that already ran is a no-op.
@@ -269,6 +277,25 @@ func (c *conn) enqueue(name string, body any) {
 	}
 }
 
+// enqueueBlocking queues one event for c, waiting while the queue is full. It is for a producer
+// that can afford to wait, and only for one whose wait does not hold up other traffic: a terminal's
+// own reader, so a slow peer applies backpressure to that PTY (the process stops once its output
+// buffer is full) without growing the queue or blocking another terminal, a task or a response.
+// The wait ends when the connection closes, whose writer gives up on a peer that stops reading.
+func (c *conn) enqueueBlocking(name string, body any) {
+	c.mu.Lock()
+	outbox := c.outbox
+	closed := c.closed
+	c.mu.Unlock()
+	if closed || outbox == nil {
+		return
+	}
+	select {
+	case outbox <- outbound{name: name, body: body}:
+	case <-c.doneSignal():
+	}
+}
+
 // drainOutbox writes queued events in order. Only a forward connection has one; a failed write
 // usually means the writer closed the socket on its deadline, so the connection is torn down.
 func (c *conn) drainOutbox() {
@@ -325,6 +352,11 @@ func (c *conn) registerHandlers() {
 	switch c.role {
 	case wire.RoleForward:
 		p.HandleRequest(protocol.CmdTaskStart, c.handleTaskStart)
+		c.s.terms.Register(p, termhost.Channel{
+			Authorize:   c.authorizeTerminal,
+			BeforeStart: c.mayStartTerminal,
+			Emit:        c.emitTerminal,
+		})
 		session.HandleRequests()
 		p.HandleRequest(wire.CmdTrustQuery, c.handleTrustQuery)
 	case wire.RoleLocal:
@@ -385,56 +417,98 @@ func (c *conn) handleTaskStart(_ context.Context, raw cbor.RawMessage) (any, err
 		}
 	}()
 
-	now := c.s.now()
 	// An accepted task always carries an authorization (authz.Decide refuses a task without one).
-	record := state.Record{
-		TaskID:          ts.TaskID,
-		Attempt:         uint64(ts.Attempt),
-		AuthorizationID: hex.EncodeToString(decided.authorizationID[:]),
-		IssuedAtMS:      int64(decided.payload.IssuedAtMS),
-		SpecSHA256:      hex.EncodeToString(decided.specHash[:]),
-		AcceptedAtMS:    now.UnixMilli(),
+	refused, remote := c.s.accept(acceptance{
+		id:      ts.TaskID,
+		attempt: ts.Attempt,
+		spec:    &ts.Spec,
+		decided: decided,
+		event:   "task.accepted",
+	})
+	if refused != nil {
+		c.s.logRefusal(&ts, refused)
+		return nil, refused.remote()
 	}
-	if decided.payload.DeadlineMS != nil {
-		record.DeadlineMS = int64(*decided.payload.DeadlineMS)
-	}
-	if err := c.s.store.AddUsed(record); err != nil {
-		if errors.Is(err, state.ErrAlreadyRecorded) {
-			refused := stepRefusal(authz.ResultAlreadyAccepted, authz.StepOneShot,
-				fmt.Sprintf("task %s already ran on this node", ts.TaskID))
-			c.s.logRefusal(&ts, refused)
-			return nil, refused.remote()
-		}
-		c.s.log.Error("persist used record", "task", ts.TaskID, "err", err)
-		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "persist used record: " + err.Error()}
-	}
-
-	entry := decided.decision.Entry
-	acceptedRecord := audit.Record{
-		Event:           "task.accepted",
-		TaskID:          ts.TaskID,
-		Attempt:         ts.Attempt,
-		Entry:           entry,
-		AuthorizationID: record.AuthorizationID,
-		SpecSHA256:      record.SpecSHA256,
-		Spec:            &ts.Spec,
-	}
-	if decided.window != nil {
-		uid := decided.window.openedBy
-		acceptedRecord.UID = &uid
-		acceptedRecord.Detail = fmt.Sprintf("via local window opened by uid %d", uid)
-	}
-	if err := c.s.opts.Log.Log(acceptedRecord); err != nil {
-		// The acceptance is already persisted, so the task id is burned either way. Do not
-		// execute a privileged task whose acceptance could not be audited.
-		c.s.log.Error("write the local log; refusing to execute", "task", ts.TaskID, "err", err)
-		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "local log: " + err.Error()}
+	if remote != nil {
+		return nil, remote
 	}
 
 	session.Add(task)
 	accepted = true
 	c.s.registerTask(task)
 	return protocol.Deferred{Body: protocol.Empty{}, After: func() { session.Launch(task) }}, nil
+}
+
+// acceptance is one accepted task or terminal: the id, its attempt, the spec it was authorized
+// with, the verified decision, and the audit event that names it (task.accepted or
+// terminal.opened). A terminal's id stands in for the task id in the used list and the local window.
+type acceptance struct {
+	id      string
+	attempt protocol.Uint
+	spec    *protocol.TaskSpec
+	decided *decidedTask
+	event   string
+	// terminal selects the terminal columns and messages of the acceptance: pty_id instead of
+	// task_id, and the terminal wording of the duplicate refusal.
+	terminal bool
+}
+
+// accept persists the one-shot used record of an accepted task or terminal and writes its acceptance
+// record, with the local window's opening uid when it was accepted through one. A nil refusal and a
+// nil remote error mean accepted; the caller records the duplicate-use refusal in its own shape
+// (task.refused or terminal.refused). AddUsed runs after decide and produces the exact codes and
+// messages of the task path.
+func (s *Server) accept(a acceptance) (*refusal, *protocol.RemoteError) {
+	now := s.now()
+	record := state.Record{
+		TaskID:          a.id,
+		Attempt:         uint64(a.attempt),
+		AuthorizationID: hex.EncodeToString(a.decided.authorizationID[:]),
+		IssuedAtMS:      int64(a.decided.payload.IssuedAtMS),
+		SpecSHA256:      hex.EncodeToString(a.decided.specHash[:]),
+		AcceptedAtMS:    now.UnixMilli(),
+	}
+	if a.decided.payload.DeadlineMS != nil {
+		record.DeadlineMS = int64(*a.decided.payload.DeadlineMS)
+	}
+	if err := s.store.AddUsed(record); err != nil {
+		if errors.Is(err, state.ErrAlreadyRecorded) {
+			if a.terminal {
+				return stepRefusal(authz.ResultAlreadyAccepted, authz.StepOneShot,
+					fmt.Sprintf("terminal %s was already accepted on this node", a.id)), nil
+			}
+			return stepRefusal(authz.ResultAlreadyAccepted, authz.StepOneShot,
+				fmt.Sprintf("task %s already ran on this node", a.id)), nil
+		}
+		s.log.Error("persist used record", "id", a.id, "err", err)
+		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "persist used record: " + err.Error()}
+	}
+
+	acceptedRecord := audit.Record{
+		Event:           a.event,
+		Attempt:         a.attempt,
+		Entry:           a.decided.decision.Entry,
+		AuthorizationID: record.AuthorizationID,
+		SpecSHA256:      record.SpecSHA256,
+		Spec:            a.spec,
+	}
+	if a.terminal {
+		acceptedRecord.PTYID = a.id
+	} else {
+		acceptedRecord.TaskID = a.id
+	}
+	if a.decided.window != nil {
+		uid := a.decided.window.openedBy
+		acceptedRecord.UID = &uid
+		acceptedRecord.Detail = fmt.Sprintf("via local window opened by uid %d", uid)
+	}
+	if err := s.opts.Log.Log(acceptedRecord); err != nil {
+		// The acceptance is already persisted, so the id is burned either way. Do not run a
+		// privileged process whose acceptance could not be audited.
+		s.log.Error("write the local log; refusing to start", "id", a.id, "err", err)
+		return nil, &protocol.RemoteError{Code: protocol.CodeInternalError, Message: "local log: " + err.Error()}
+	}
+	return nil, nil
 }
 
 // executionStart prepares the task.start the executor receives. The cwd of a task that was

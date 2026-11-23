@@ -159,7 +159,11 @@ func Decide(in Input) Decision {
 	if err != nil {
 		return failure(ResultRejected, StepTaskCheck, "task: %v", err)
 	}
-	if method != string(protocol.MethodExec) && method != string(protocol.MethodUpgrade) {
+	// Only path-based methods have a privileged path to validate. exec, upgrade and pty.create
+	// render targets that are an argv (or a version and hash), not a filesystem path
+	// (doc/design/privilege.md "Methods and targets").
+	if method != string(protocol.MethodExec) && method != string(protocol.MethodUpgrade) &&
+		method != string(protocol.MethodPtyCreate) {
 		if err := CheckPath(target); err != nil {
 			return failure(ResultRejected, StepTaskCheck, "%v", err)
 		}

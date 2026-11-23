@@ -439,9 +439,9 @@ func (w *nativeStderr) Write(p []byte) (int, error) {
 }
 
 // nativeLevel mirrors a helper record at Warn when the parent could not deliver the task's exit
-// (the helper's failure event) and at Info otherwise.
+// (the helper's failure event) or a privileged terminal was refused, and at Info otherwise.
 func nativeLevel(rec helper.LogRecord) slog.Level {
-	if rec.Event == "task.exit.undelivered" {
+	if rec.Event == "task.exit.undelivered" || rec.Event == "terminal.refused" {
 		return slog.LevelWarn
 	}
 	return slog.LevelInfo
@@ -452,7 +452,13 @@ func nativeLevel(rec helper.LogRecord) slog.Level {
 // and no audit file, so this relayed line is the only record of what ran privileged
 // (doc/design/privilege.md "Native mode").
 func nativeAttrs(rec helper.LogRecord) []any {
-	attrs := []any{"task_id", rec.TaskID}
+	attrs := make([]any, 0, 9)
+	if rec.TaskID != "" {
+		attrs = append(attrs, "task_id", rec.TaskID)
+	}
+	if rec.PTYID != "" {
+		attrs = append(attrs, "pty_id", rec.PTYID)
+	}
 	if rec.Attempt != 0 {
 		attrs = append(attrs, "attempt", uint64(rec.Attempt))
 	}
@@ -473,6 +479,12 @@ func nativeAttrs(rec helper.LogRecord) []any {
 	}
 	if rec.DurationMS != 0 {
 		attrs = append(attrs, "duration_ms", rec.DurationMS)
+	}
+	if rec.ExitCode != nil {
+		attrs = append(attrs, "exit_code", *rec.ExitCode)
+	}
+	if rec.Code != "" {
+		attrs = append(attrs, "code", rec.Code)
 	}
 	if rec.Detail != "" {
 		attrs = append(attrs, "detail", rec.Detail)

@@ -315,27 +315,17 @@ export type WindowOpen = Infer<typeof windowOpenCodec>;
 /**
  * The optional crh-priv terminal names (doc/design/pty.md "Protocol additions"): a privileged
  * terminal runs in the privileged mode, which relays its bytes to the unprivileged mode. Like every
- * optional crh-priv name they are negotiated by intersection, and they are not advertised yet
- * because there is no runtime.
+ * optional crh-priv name they are negotiated by intersection; the forward and native roles both
+ * offer them (a helper built before privileged terminals lacks them).
+ *
+ * Only `pty.input` and `pty.output` have bodies of their own: terminal bytes travel on the crhs <->
+ * crha data connection, so the privileged side never sees them. `pty.open`, `pty.resize`,
+ * `pty.close` and `pty.exited` reuse the CRH bodies in messages.ts exactly; the privileged side
+ * ignores `pty.open`'s metadata and scrollback, and always reports `pty.exited` with reason
+ * `exited`, because the unprivileged mode maps a lost privileged mode itself.
  */
 export const PRIV_PTY_COMMANDS = ["pty.open", "pty.input", "pty.resize", "pty.close"] as const;
 export const PRIV_PTY_EVENTS = ["pty.output", "pty.exited"] as const;
-
-/**
- * The crh-priv `pty.open` body: the terminal id, the argv (empty for the privileged identity's login
- * shell), its size and its authorization, carried exactly as `task.start` does. Size and metadata
- * are not here: the terminal's size follows from `pty.resize` and its metadata stays crhs's.
- */
-export const privPtyOpenCodec = tuple([
-	["ptyId", text],
-	["argv", list(text)],
-	["rows", uint],
-	["cols", uint],
-	["attempt", uint],
-	["authorizations", list(bytes)],
-	["cosign", nullable(bytes)],
-]);
-export type PrivPtyOpen = Infer<typeof privPtyOpenCodec>;
 
 /** The crh-priv `pty.input` body: bytes the person or agent typed. */
 export const privPtyInputCodec = tuple([
@@ -344,34 +334,12 @@ export const privPtyInputCodec = tuple([
 ]);
 export type PrivPtyInput = Infer<typeof privPtyInputCodec>;
 
-/** The crh-priv `pty.resize` body: the terminal id and its new size. */
-export const privPtyResizeCodec = tuple([
-	["ptyId", text],
-	["rows", uint],
-	["cols", uint],
-]);
-export type PrivPtyResize = Infer<typeof privPtyResizeCodec>;
-
-/** The crh-priv `pty.close` body: the terminal id to close. */
-export const privPtyCloseCodec = tuple([["ptyId", text]]);
-export type PrivPtyClose = Infer<typeof privPtyCloseCodec>;
-
 /** The crh-priv `pty.output` event body: the terminal id and the bytes the process wrote. */
 export const privPtyOutputCodec = tuple([
 	["ptyId", text],
 	["data", bytes],
 ]);
 export type PrivPtyOutput = Infer<typeof privPtyOutputCodec>;
-
-/**
- * The crh-priv `pty.exited` event body: the terminal id and the process's exit code. There is no
- * reason here; the unprivileged mode decides whether the terminal ended or lost its privileged mode.
- */
-export const privPtyExitedCodec = tuple([
-	["ptyId", text],
-	["exitCode", int],
-]);
-export type PrivPtyExited = Infer<typeof privPtyExitedCodec>;
 
 /** crh-priv frames on a stream: a 4-byte big-endian length, then the frame. */
 export function lengthPrefixed(frame: Uint8Array): Uint8Array {

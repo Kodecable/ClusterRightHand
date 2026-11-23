@@ -69,14 +69,38 @@ never gets its data connection: the task ends with the transfer error, and the a
 watcher and forwarder before reporting it, so the cancel reaches the helper and the process is reaped
 rather than running on with no one to talk to.
 
+A privileged [terminal](pty.md#privilege) uses the same helper: native mode starts one helper for the
+terminal, and that helper hosts it for its whole life, so a terminal never outlives the process that
+runs it. The terminal is not authorized again, exactly as a native task is not: whoever may start the
+helper non-interactively already has the identity, and the terminal's authorization is crhs's. The
+helper records the terminal's open, exit and close as the same JSON lines on stderr — the `pty.create`
+spec with its argv for the open, the exit code for the exit — and the non-privileged parent relays
+them; native mode has no privileged daemon and no audit file, so those relayed lines are the only
+record of the terminal. The helper refuses a second `pty.open` and a `task.start` while it hosts a
+terminal.
+
 ## The privileged mode
 
 The privileged mode listens on a local Unix socket and tells peers apart by their uid
 (`SO_PEERCRED`): the unprivileged mode's uid submits tasks, and uids in a `local` trust entry open and
-close the local approval window. It keeps a used list and a local log of every privileged task. The
-log file is the durable copy; each record is also mirrored to the process's log as one human-readable
+close the local approval window. It keeps a used list and a local log of every privileged task and
+terminal. The log file is the durable copy; each record is also mirrored to the process's log as one human-readable
 line, without the time and without the full task specification, so journald gets a readable record
 beside the file's JSON.
+
+The local log records a privileged [terminal](pty.md#privilege)'s life beside the tasks':
+
+| Event | Detail |
+|---|---|
+| `terminal.opened` | The `pty.create` spec, the accepting entry, the authorization id, the spec hash and, through a local window, the opening uid — the fields of `task.accepted` |
+| `terminal.refused` | The refusal code, the verification step and its message, as `task.refused` |
+| `terminal.exited` | The process's exit code |
+| `terminal.closed` | Why it closed, and the exit code when the process had already ended |
+
+A terminal's records carry its id as `pty_id` where a task's carry `task_id`. These are the
+`forward` mode's records, written by the privileged daemon; `native` has no daemon and no audit file,
+so its terminal records are the helper's relayed stderr lines instead
+([Native mode](#native-mode)).
 
 Editing the trust configuration is itself a privileged task: a `file.write` to `privileged.toml`
 followed by a reload. It needs an authorization from an existing trust entry or a local edit, so crhs
@@ -383,6 +407,17 @@ different signer, such as the owner, may pass.
 A privileged task runs under the privileged mode's identity with a fixed, minimal environment.
 Its input is written to a private file and verified against the approved hash before the process
 starts, so the process cannot read input that has not been checked.
+
+In `forward` mode a privileged `pty.open` goes through the same nine steps as a `task.start`; in
+`native` it skips authorization exactly as a native task does ([Native mode](#native-mode)). The
+daemon builds a synthetic task whose id is the terminal id, whose attempt is the `pty.open` attempt
+and whose spec is the `pty.create` kind carrying only the argv. `decide`, the used record and the acceptance record
+are the task's, so the one-shot ids, the used list, the local window, cosignatures and the guard
+rules work unchanged; size, scrollback and metadata stay out of the spec, so resizing or a viewer
+attaching never invalidates an authorization. The size is checked after the decision and before the
+used record, so an invalid one cannot burn a one-shot authorization. The process then starts as the
+privileged identity with the fixed minimal environment tasks get, plus `TERM=xterm-256color` when it
+carries none, in the identity's home directory.
 
 ### Clock
 

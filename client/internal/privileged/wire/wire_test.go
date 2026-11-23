@@ -181,12 +181,15 @@ func TestVectors(t *testing.T) {
 				}
 			case "priv.pty.open":
 				frame := decodeRequest(t, body, CmdPTYOpen)
-				var req PrivPTYOpen
+				var req protocol.PTYOpen
 				if err := protocol.Unmarshal(frame.Body, &req); err != nil {
 					t.Fatalf("decode pty.open: %v", err)
 				}
 				if req.PTYID != "pty-priv-1" || req.Rows != 40 || req.Cols != 120 || req.Attempt != 1 {
 					t.Fatalf("pty.open = %+v", req)
+				}
+				if !req.Privileged || req.ScrollbackBytes != 1<<20 || len(req.Meta) == 0 {
+					t.Fatalf("pty.open metadata = privileged %v scrollback %d meta %x", req.Privileged, req.ScrollbackBytes, req.Meta)
 				}
 				if !reflect.DeepEqual(req.Argv, []string{"/bin/bash", "-l"}) {
 					t.Fatalf("pty.open argv = %q", req.Argv)
@@ -211,7 +214,7 @@ func TestVectors(t *testing.T) {
 				}
 			case "priv.pty.resize":
 				frame := decodeRequest(t, body, CmdPTYResize)
-				var req PrivPTYResize
+				var req protocol.PTYResize
 				if err := protocol.Unmarshal(frame.Body, &req); err != nil {
 					t.Fatalf("decode pty.resize: %v", err)
 				}
@@ -223,11 +226,11 @@ func TestVectors(t *testing.T) {
 				}
 			case "priv.pty.close":
 				frame := decodeRequest(t, body, CmdPTYClose)
-				var req PrivPTYClose
+				var req protocol.PTYClose
 				if err := protocol.Unmarshal(frame.Body, &req); err != nil {
 					t.Fatalf("decode pty.close: %v", err)
 				}
-				if req.PTYID != "pty-priv-1" {
+				if req.PTYID != "pty-priv-1" || req.Reason != "manual" {
 					t.Fatalf("pty.close = %+v", req)
 				}
 				if encoded, err = protocol.EncodeRequest(frame.ID, frame.Name, req); err != nil {
@@ -247,11 +250,11 @@ func TestVectors(t *testing.T) {
 				}
 			case "priv.pty.exited":
 				frame := decodeEvent(t, body, EventPTYExited)
-				var event PrivPTYExited
+				var event protocol.PTYExited
 				if err := protocol.Unmarshal(frame.Body, &event); err != nil {
 					t.Fatalf("decode pty.exited: %v", err)
 				}
-				if event.PTYID != "pty-priv-1" || event.ExitCode != -1 {
+				if event.PTYID != "pty-priv-1" || event.ExitCode != -1 || event.Reason != protocol.PTYExitReasonExited {
 					t.Fatalf("pty.exited = %+v", event)
 				}
 				if encoded, err = protocol.EncodeEvent(frame.Name, event); err != nil {
@@ -473,7 +476,7 @@ func TestHandshake(t *testing.T) {
 	if welcome.PrivMajor != PrivMajor || welcome.PrivMinor != PrivMinor || welcome.CRHAVersion != "0.4.0-test" {
 		t.Fatalf("welcome = %+v", welcome)
 	}
-	if want := []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start", "transfer.data"}; !reflect.DeepEqual(negotiated.Names(), want) {
+	if want := NamesFor(RoleNative); !reflect.DeepEqual(negotiated.Names(), want) {
 		t.Fatalf("negotiated %v, want %v", negotiated.Names(), want)
 	}
 	res := <-results
@@ -485,6 +488,46 @@ func TestHandshake(t *testing.T) {
 	}
 	if !reflect.DeepEqual(res.set.Names(), negotiated.Names()) {
 		t.Fatalf("server negotiated %v, client %v", res.set.Names(), negotiated.Names())
+	}
+}
+
+// TestClientHandshakeOldNativeHelper covers the optional terminal names: a helper from before
+// privileged terminals advertises the task set only, and the handshake still succeeds so its tasks
+// keep working. The terminal names are then simply absent from the negotiated set.
+func TestClientHandshakeOldNativeHelper(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+	go func() {
+		frame, err := ReadFrame(server)
+		if err != nil {
+			return
+		}
+		var hello PrivHello
+		if err := protocol.Unmarshal(frame, &hello); err != nil {
+			return
+		}
+		welcome := PrivWelcome{
+			PrivMajor:   PrivMajor,
+			PrivMinor:   PrivMinor,
+			Commands:    Names(),
+			CRHAVersion: "0.4.0-test",
+		}
+		body, err := protocol.Marshal(welcome)
+		if err != nil {
+			return
+		}
+		_ = WriteFrame(server, body)
+	}()
+	_, negotiated, err := ClientHandshake(client, client, ClientOptions{Role: RoleNative, CRHAVersion: "0.4.0-test"})
+	if err != nil {
+		t.Fatalf("ClientHandshake: %v", err)
+	}
+	if !reflect.DeepEqual(negotiated.Names(), Names()) {
+		t.Fatalf("negotiated %v, want the task names only", negotiated.Names())
+	}
+	if negotiated.Has(CmdPTYOpen) {
+		t.Fatal("an old helper negotiated pty.open")
 	}
 }
 
@@ -615,21 +658,25 @@ func TestHandshakeDifferentMinorAccepted(t *testing.T) {
 	})
 }
 
-// TestRoleNames covers the per-role command sets: native keeps the task set, forward adds
-// trust.query and trust.summary, and local adds its window commands.
+// TestRoleNames covers the per-role command sets: native keeps the task set and adds the optional
+// terminal names, forward adds trust.query, trust.summary and the same terminal names, and local
+// adds its window commands.
 func TestRoleNames(t *testing.T) {
 	core := []string{"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start", "transfer.data"}
 	if got := Names(); !reflect.DeepEqual(got, core) {
 		t.Fatalf("Names() = %v, want %v", got, core)
 	}
-	if got := NamesFor(RoleNative); !reflect.DeepEqual(got, core) {
-		t.Fatalf("native names = %v", got)
-	}
 	cases := []struct {
 		role Role
 		want []string
 	}{
+		{RoleNative, []string{
+			"pty.close", "pty.exited", "pty.input", "pty.open", "pty.output", "pty.resize",
+			"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
+			"transfer.data",
+		}},
 		{RoleForward, []string{
+			"pty.close", "pty.exited", "pty.input", "pty.open", "pty.output", "pty.resize",
 			"task.cancel", "task.exit", "task.input", "task.output", "task.query", "task.start",
 			"transfer.data", "trust.query", "trust.summary",
 		}},
