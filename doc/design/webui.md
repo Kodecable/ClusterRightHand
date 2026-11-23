@@ -72,8 +72,9 @@ CDN is contacted. An expired challenge is solved and retried once.
 The shell is a collapsible navigation sidebar, a top bar with the page title, and the routed page.
 Below the medium breakpoint the sidebar becomes a drawer. A detail page may title the shell and the
 browser tab with the object's own name, for example a task's summary. The sidebar header shows the CRH
-mark; it is black, so the dark theme sets it on a white tile. The favicon set and the web manifest are
-served from the WebUI root (`web/public/`); their sources are the logo delivery package.
+mark, a self-contained blue square with white glyphs that needs no tile on the dark theme, and the
+version of the tree under the product name. The favicon set and the web manifest are served from the
+WebUI root (`web/public/`); their sources are the logo delivery package.
 
 Colors, radii and spacing come from semantic design tokens. Depth is expressed only through tokens,
 in the same direction in light and dark themes. The theme is applied by an inline script before the

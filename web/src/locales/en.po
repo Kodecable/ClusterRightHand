@@ -3771,10 +3771,6 @@ msgstr "open until <0/> (opened by uid {0} at <1/>)"
 msgid "Operation"
 msgstr "Operation"
 
-#: src/app/shell/app-sidebar.tsx
-msgid "Ops console"
-msgstr "Ops console"
-
 #: src/features/settings/provider-dialog.tsx
 #: src/features/signing-credentials/pages.tsx
 msgid "Optional"

@@ -18,12 +18,16 @@ const BANNER =
 	"import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" +
 	"const __filename=import.meta.filename;const __dirname=import.meta.dirname;";
 
-function run(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+function run(
+	command: string,
+	args: string[],
+	env: NodeJS.ProcessEnv = {},
+): Promise<{ stdout: string; stderr: string }> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command, args, {
 			cwd: root,
 			stdio: ["ignore", "pipe", "pipe"],
-			env: { ...process.env, npm_config_manage_package_manager_versions: "false" },
+			env: { ...process.env, npm_config_manage_package_manager_versions: "false", ...env },
 		});
 		let stdout = "";
 		let stderr = "";
@@ -127,7 +131,7 @@ const version = await resolveVersion();
 
 if (!skipWeb) {
 	console.log("building the WebUI");
-	await run("pnpm", ["--filter", "@crh/web", "build"]);
+	await run("pnpm", ["--filter", "@crh/web", "build"], { CRH_VERSION: version });
 }
 
 await rm(outDir, { recursive: true, force: true });

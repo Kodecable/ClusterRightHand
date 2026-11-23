@@ -3771,10 +3771,6 @@ msgstr "开放至 <0/>（由 uid {0} 于 <1/> 开启）"
 msgid "Operation"
 msgstr "操作"
 
-#: src/app/shell/app-sidebar.tsx
-msgid "Ops console"
-msgstr "运维控制台"
-
 #: src/features/settings/provider-dialog.tsx
 #: src/features/signing-credentials/pages.tsx
 msgid "Optional"

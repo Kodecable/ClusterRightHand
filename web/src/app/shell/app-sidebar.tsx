@@ -21,17 +21,18 @@ import { useApprovals } from "@/features/approvals/api";
 import { pendingCount } from "@/features/approvals/pending";
 import { useAuth } from "@/lib/session";
 import { cn } from "@/lib/utils";
+import { CRH_VERSION, versionLabel } from "@/lib/version";
 import { NAV_GROUPS, type NavItem, navItemForPath } from "./nav";
 import { UserMenu } from "./user-menu";
 
 /**
- * The CRH mark. It is black, so on a dark sidebar it sits on a light tile instead of melting into the
- * background (the logo's usage notes).
+ * The CRH mark: a self-contained blue square with white glyphs, so it needs no tile of its own on the
+ * dark sidebar.
  */
 function Logo() {
 	return (
-		<div className="flex size-8 shrink-0 items-center justify-center rounded-lg dark:bg-white">
-			<img src={logoUrl} alt="" className="h-7 w-auto dark:h-6" draggable={false} />
+		<div className="flex size-8 shrink-0 items-center justify-center">
+			<img src={logoUrl} alt="" className="size-8" draggable={false} />
 		</div>
 	);
 }
@@ -88,7 +89,13 @@ export function AppSidebar() {
 							<Logo />
 							<div className="grid flex-1 text-left leading-tight">
 								<span className="truncate text-sm font-semibold">ClusterRightHand</span>
-								<span className="truncate text-xs text-muted-foreground">{t`Ops console`}</span>
+								<span
+									className="truncate text-xs text-muted-foreground"
+									title={CRH_VERSION}
+									data-testid="brand-version"
+								>
+									{versionLabel(CRH_VERSION)}
+								</span>
 							</div>
 						</SidebarMenuButton>
 					</SidebarMenuItem>
