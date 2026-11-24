@@ -68,3 +68,41 @@ jobs:
           cache-dependency-path: client/go.sum
       - run: pnpm install --frozen-lockfile
       - run: CRH_TEST_PODMAN=1 pnpm test:system
+
+  artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: client/go.mod
+          cache-dependency-path: client/go.sum
+      - run: pnpm install --frozen-lockfile
+      - name: resolve the version
+        shell: bash
+        # Once, before the build: the artifact names and the checks must agree on it.
+        run: echo "VERSION=$(node scripts/version.ts)" >> "$GITHUB_ENV"
+      - run: pnpm package --arch amd64
+      - name: smoke-test the crhs release tarball
+        shell: bash
+        # The final tarball, not dist/crhs: it must start outside the workspace with its own Node.
+        run: |
+          set -euo pipefail
+          node scripts/smoke-release.ts --tarball "dist/release/crhs-${VERSION}-linux-amd64.tar.gz" --version "$VERSION"
+      - run: pnpm package:oci --skip-build --arch amd64
+      - name: build the smoke image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -f packaging/oci/Containerfile --build-arg CRH_VERSION="$VERSION" -t crhs-smoke:ci dist/oci-context-amd64
+      - name: smoke-test the image
+        shell: bash
+        # The final image, not the build context: this starts it, initializes a volume and shuts it down.
+        run: |
+          set -euo pipefail
+          node scripts/smoke-release.ts --image crhs-smoke:ci --version "$VERSION"

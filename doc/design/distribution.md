@@ -103,6 +103,11 @@ CI (`.github/workflows/ci.yml`) runs the checks, the unit, e2e, bundle and syste
 - `release` opens a draft GitHub release with the artifacts and the signature; the maintainer reviews
   and publishes it.
 
+Before anything is published, `scripts/smoke-release.ts` starts the final artifacts outside the tree
+without `NODE_PATH`: the amd64 tarball in `packages`, and each image in `image` before its push. It
+checks `--version`, runs `init` from an answers file, starts `serve`, checks the WebUI, `/api/me` and
+`/robots.txt`, and requires a clean SIGTERM shutdown. CI runs the same script in its `artifacts` job.
+
 The `packages` job resolves the version once ([Versions](#versions)) and hands it, with whether it is a
 prerelease, to the other jobs as its outputs. A prerelease is not tagged `latest`, and the draft is
 marked as a prerelease.

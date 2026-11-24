@@ -11,6 +11,7 @@
 | WebUI end-to-end | `web/e2e` | A real crhs serving the built WebUI, a real crha node, a fake model | Yes |
 | WebUI mock | `web/e2e-mock` | The built WebUI against a mocked API | No |
 | Bundled build | `server/test/bundle` | `dist/crhs` copied outside the repository, on SQLite (and PostgreSQL when configured) | Yes |
+| Release artifacts | `scripts/smoke-release.ts` | The crhs release tarball and the OCI image: `--version`, `init`, a start that serves the WebUI, SIGTERM | Yes |
 | Go | `client/**/*_test.go` | Go units | Yes |
 | Performance | `server/test/perf`, `web/e2e-mock/perf` | The fake model on real storage; the WebUI under CPU throttling | No |
 
@@ -18,6 +19,12 @@ Details: [Server tests](server.md), [WebUI tests](web.md), [Privileged system te
 [Interop fixtures](interop.md). The scripts for each suite are in the root and package `package.json`
 files; CI is `.github/workflows/ci.yml`. Build the bundle with `pnpm build:crhs`; its smoke test is
 `pnpm --filter @crh/server test:bundle`.
+
+`scripts/smoke-release.ts` smokes the final artifacts: it unpacks the crhs tarball (or starts the OCI
+image) outside the workspace without `NODE_PATH`, checks `--version`, runs `init` from an answers file,
+starts `serve` and checks the WebUI, `/api/me` and `/robots.txt` before a SIGTERM that must exit 0. CI
+runs it in the `artifacts` job; the release workflow runs it on the amd64 tarball and on each image
+before the image push.
 
 ## What to run when
 
