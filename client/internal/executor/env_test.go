@@ -222,3 +222,32 @@ func TestExecPrivilegedEnv(t *testing.T) {
 		t.Fatalf("locale = %q/%q", got["LANG"], got["LC_ALL"])
 	}
 }
+
+// TestTaskEnvIgnoresTerminalDefaults checks that the terminal-only resolution on the environment
+// (the identity's login shell and the system locale) does not change what an exec task gets
+// (doc/design/execution.md "The exec environment", doc/design/pty.md "The terminal environment").
+func TestTaskEnvIgnoresTerminalDefaults(t *testing.T) {
+	environment := testEnvironment()
+	environment.LoginShell = "/bin/zsh"
+	environment.TerminalLocale = []string{"LANG=de_DE.UTF-8", "LANGUAGE=de", "LC_TIME=fr_FR.UTF-8"}
+	env, err := taskEnv(environment, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := envMap(t, env)
+	if len(got) != 7 {
+		t.Fatalf("exec environment = %v, want exactly PATH, HOME, USER, LOGNAME, SHELL, LANG, LC_ALL", env)
+	}
+	for k, want := range map[string]string{
+		"SHELL": "/bin/sh", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+	} {
+		if got[k] != want {
+			t.Errorf("%s = %q, want %q", k, got[k], want)
+		}
+	}
+	for _, k := range []string{"COLORTERM", "LANGUAGE", "LC_TIME"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("exec environment gained terminal-only %s: %v", k, env)
+		}
+	}
+}

@@ -43,6 +43,11 @@ A crha node does not pass its own environment to tasks. A task starts with a sma
 (identity variables for the account it runs as, a UTF-8 locale and `PATH`) plus the task's own `env`.
 This keeps a task's behavior independent of how the crha service happened to be started.
 
+A terminal is not an exec task and does not use this environment unchanged: it runs the identity's
+login shell, keeps that shell as `SHELL` even for an explicit `argv`, and starts with the system
+locale without `LC_ALL`, so the login shell's profile can set it ([Terminals](pty.md#environment)).
+The environment below describes exec tasks only.
+
 - In the unprivileged mode, a task's `env` may override everything, including `PATH`. In the privileged
   mode `PATH` is fixed, and in `forward` mode a trust entry with an `env_allow` list accepts only the
   variables it lists, so variables like `LD_PRELOAD` cannot bypass its command rules; an entry without

@@ -158,37 +158,39 @@ func TestPrivilegedPTYAcceptedRelaysAndLogs(t *testing.T) {
 }
 
 // TestPrivilegedPTYEnvironment covers how the process starts: the privileged identity's home, the
-// fixed privileged environment and TERM=xterm-256color when the environment carries none.
+// fixed privileged environment, the identity's login shell as SHELL, the system locale without
+// LC_ALL, COLORTERM and TERM=xterm-256color when the environment carries none.
 func TestPrivilegedPTYEnvironment(t *testing.T) {
 	keys := newTestKeys(t)
+	termEnv := testTerminalEnv(t)
+	// The privileged identity's login shell and locale, as execenv.Resolve supplies them. The
+	// shell only has to be the value in SHELL, not the process's argv.
+	termEnv.LoginShell = "/bin/bash"
+	termEnv.TerminalLocale = []string{"LANG=de_DE.UTF-8", "LC_TIME=fr_FR.UTF-8"}
 	env := newTestEnvWithEnv(t, keys, func(p envPaths) string {
 		return baseConfig(p, os.Getuid()) +
 			sshTrust("crhs", "crhs", keys.crhsLine, `["execute", "cosign"]`, "")
-	}, testTerminalEnv(t))
+	}, termEnv)
 	client := dialForward(t, env.paths.Socket)
 	ctx := requestContext(t)
 
-	req := authorizedPTY(t, keys, ptyOpen("term-env", []string{"/bin/sh", "-c", `printf '%s|%s|%s' "$PWD" "$PATH" "$TERM"`}))
+	req := authorizedPTY(t, keys, ptyOpen("term-env", []string{"/bin/sh", "-c",
+		`printf '%s|%s|%s|%s|%s|%s|%s|%s' "$PWD" "$PATH" "$TERM" "$SHELL" "$COLORTERM" "$LANG" "$LC_TIME" "${LC_ALL-unset}"`}))
 	if err := client.openPTY(ctx, req); err != nil {
 		t.Fatalf("pty.open: %v", err)
 	}
 	out := client.waitPTYOutput("|", 10*time.Second)
 	deadline := time.Now().Add(10 * time.Second)
-	for !strings.Contains(out, "xterm-256color") && time.Now().Before(deadline) {
+	for !strings.Contains(out, "unset") && time.Now().Before(deadline) {
 		select {
 		case chunk := <-client.ptyOutput:
 			out += string(chunk.Data)
 		case <-time.After(10 * time.Millisecond):
 		}
 	}
-	if !strings.Contains(out, env.envHome()) {
-		t.Fatalf("terminal cwd output %q does not contain the privileged home %q", out, env.envHome())
-	}
-	if !strings.Contains(out, execenv.PrivilegedPath) {
-		t.Fatalf("terminal PATH output %q does not contain the privileged PATH", out)
-	}
-	if !strings.Contains(out, "xterm-256color") {
-		t.Fatalf("TERM output %q, want the xterm-256color fallback", out)
+	want := env.envHome() + "|" + execenv.PrivilegedPath + "|xterm-256color|/bin/bash|truecolor|de_DE.UTF-8|fr_FR.UTF-8|unset"
+	if !strings.Contains(out, want) {
+		t.Fatalf("terminal environment output %q does not contain %q", out, want)
 	}
 }
 

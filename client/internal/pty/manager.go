@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,8 +41,9 @@ const (
 // Options configure a Manager. The zero value resolves the node's environment on first use and
 // uses the defaults above.
 type Options struct {
-	// Env is the task environment resolved when `crha run` started (execenv.Resolve). nil resolves
-	// it on first use, which only tests and programmatic callers do.
+	// Env is the task environment resolved when `crha run` started (execenv.Resolve), including the
+	// terminal-only login shell and locale. nil resolves it on first use, which only tests and
+	// programmatic callers do.
 	Env *execenv.Environment
 	// Logger receives the terminal lifecycle lines. nil uses slog.Default().
 	Logger *slog.Logger
@@ -116,9 +118,11 @@ func ValidateOpen(id string, rows, cols uint64) error {
 	return nil
 }
 
-// Open starts a terminal. An empty Argv runs the identity's login shell (its discovered sh with
-// "-l"), with the environment and home directory ordinary exec tasks of that identity get. The
-// returned errors are *protocol.RemoteError values with the codes pty.open answers with.
+// Open starts a terminal. An empty Argv runs the identity's login shell with "-l": the account's
+// passwd shell when it is a valid login shell, otherwise bash, otherwise sh
+// (doc/design/pty.md "The terminal environment"). It starts in the environment and home directory
+// ordinary exec tasks of that identity get. The returned errors are *protocol.RemoteError values
+// with the codes pty.open answers with.
 func (m *Manager) Open(req OpenRequest) (*Terminal, error) {
 	if req.Privileged && !m.opts.AllowPrivileged {
 		return nil, remote(protocol.CodePrivilegedUnsupported, "privileged terminals are not supported by this crha")
@@ -132,8 +136,8 @@ func (m *Manager) Open(req OpenRequest) (*Terminal, error) {
 	}
 	argv := append([]string(nil), req.Argv...)
 	if len(argv) == 0 {
-		// The identity's login shell: the discovered sh with -l, in the identity's home directory.
-		argv = []string{env.Shell, "-l"}
+		// The identity's login shell, in the identity's home directory.
+		argv = []string{terminalShell(env), "-l"}
 	}
 	dir := env.Home
 	if dir == "" {
@@ -670,18 +674,51 @@ func (t *Terminal) maybeEndLocked() {
 	t.endOnce.Do(func() { close(t.ended) })
 }
 
-// terminalEnv is the environment a terminal starts with: what an exec task of this identity gets,
-// before crosspty adds TERM (doc/design/execution.md "The exec environment").
-func terminalEnv(env *execenv.Environment) []string {
-	return []string{
-		"HOME=" + env.Home,
-		"LANG=" + execenv.Locale,
-		"LC_ALL=" + execenv.Locale,
-		"LOGNAME=" + env.Logname,
-		"PATH=" + env.Path,
-		"SHELL=" + env.Shell,
-		"USER=" + env.User,
+// terminalShell returns the shell a terminal runs by default and reports as SHELL: the identity's
+// login shell (execenv.Resolve), else Bash, else Shell. A manually built execenv.Environment without
+// a LoginShell therefore keeps the pre-rule fallback of its discovered bash and sh.
+func terminalShell(env *execenv.Environment) string {
+	switch {
+	case env.LoginShell != "":
+		return env.LoginShell
+	case env.Bash != "":
+		return env.Bash
+	default:
+		return env.Shell
 	}
+}
+
+// terminalEnv is the environment a terminal starts with: the identity variables of an exec task,
+// the identity's login shell as SHELL even for explicit argv, the system locale without LC_ALL, and
+// COLORTERM (doc/design/pty.md "The terminal environment"). crosspty adds TERM=xterm-256color when
+// the environment does not carry it; LINES and COLUMNS are never set.
+func terminalEnv(env *execenv.Environment) []string {
+	locale := make([]string, 0, len(env.TerminalLocale)+1)
+	hasLang := false
+	for _, line := range env.TerminalLocale {
+		if line == "" || strings.HasPrefix(line, "LC_ALL=") {
+			continue
+		}
+		locale = append(locale, line)
+		if strings.HasPrefix(line, "LANG=") {
+			hasLang = true
+		}
+	}
+	if !hasLang {
+		// A manually built environment has no resolved locale file; keep the documented fallback.
+		locale = append([]string{"LANG=" + execenv.Locale}, locale...)
+	}
+	out := make([]string, 0, 6+len(locale))
+	out = append(out, "HOME="+env.Home)
+	out = append(out, locale...)
+	out = append(out,
+		"LOGNAME="+env.Logname,
+		"PATH="+env.Path,
+		"SHELL="+terminalShell(env),
+		"USER="+env.User,
+		"COLORTERM=truecolor",
+	)
+	return out
 }
 
 func validSize(rows, cols uint64) bool {

@@ -32,7 +32,7 @@ existence and who touched it, at the level of the session, not what was typed or
 | `node_id` | The crha node |
 | `user_id` | The user it belongs to: the person who opened it, or the owner of the session whose agent opened it |
 | `privileged` | Whether it runs in the privileged mode |
-| `argv` | The command; default the identity's login shell with `-l` |
+| `argv` | The command; default the identity's login shell with `-l` ([Environment](#environment)) |
 | `size` | Rows and columns; changed only by an explicit resize |
 | `title` | The title the program set through OSC 0/2, sanitized; untrusted text, empty until set |
 | `created_by_session_id` | The session whose agent opened it; null when a person opened it |
@@ -57,6 +57,44 @@ existence and who touched it, at the level of the session, not what was typed or
   whitespace folded and at most 256 characters. It is untrusted text set by whatever runs in the
   terminal, so it is rendered as plain text and never replaces the node in the browser tab, the top
   bar or the meta line. A title change is not an audit event.
+
+## Environment
+
+A terminal starts as the same identity as an exec task of the node: `HOME`, `USER`, `LOGNAME` and
+`PATH` come from the exec environment ([Execution plane](execution.md#the-exec-environment)), so a
+privileged terminal uses the privileged identity's home and the fixed privileged `PATH`. Three things
+differ, because a terminal is an interactive login session rather than a bounded task:
+
+- **Login shell.** With an empty `argv`, crha runs the identity's login shell with `-l`:
+  1. the shell in the account's `/etc/passwd` entry, but only when it is also listed in
+     `/etc/shells` and is an executable regular file;
+  2. otherwise the node's discovered `bash`;
+  3. otherwise the node's discovered `sh`.
+
+  crha parses `/etc/passwd` itself instead of asking `os/user`: the pure-Go `os/user` of a cgo-less
+  crha returns the account's other fields but not its shell. An account from LDAP or SSSD, which is
+  not in `/etc/passwd`, falls through to `bash`; `CRHA_TASK_SHELL` is the exec tasks' `sh` and takes
+  no part. A privileged terminal uses the privileged identity's entry (root), so a root
+  account whose login shell is bash gets bash rather than the node's sh. `SHELL` is this chosen shell
+  in every terminal, including one opened with an explicit `argv`, so a program that starts a new
+  shell with `$SHELL` gets the user's login shell.
+
+- **Locale.** A terminal does not get `LC_ALL`. It starts with `LANG`, `LANGUAGE` and the `LC_*`
+  variables (except `LC_ALL`) of the system default locale, in the manner of `pam_env`: crha reads
+  `/etc/locale.conf` and then `/etc/default/locale`, and uses the first file that yields a `LANG`;
+  when neither does, `LANG=C.UTF-8`. A login shell's profile can then set the locale as usual. A
+  simple `KEY=VALUE` or `KEY="VALUE"` line is understood; comments, unknown keys and `LC_ALL` are
+  ignored.
+
+- **Terminal variables.** crha adds `COLORTERM=truecolor` and leaves `TERM` to crosspty's
+  `xterm-256color` fallback. `LINES` and `COLUMNS` are never set: the PTY has its own size and the
+  program sizes itself.
+
+Exec tasks keep the smaller task environment: they run `shell` commands on the node's discovered
+`sh`, report that `sh` as `SHELL`, and start with `LANG=LC_ALL=C.UTF-8`
+([The exec environment](execution.md#the-exec-environment)). The forward daemon and the native helper
+run their terminals through the same terminal manager as the unprivileged mode, so a privileged
+terminal follows the same shell and environment rule.
 
 ## Lifecycle
 

@@ -2,6 +2,7 @@ package execenv
 
 import (
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"reflect"
@@ -416,5 +417,219 @@ func TestResolvedEnvironmentIsComplete(t *testing.T) {
 	}
 	if !reflect.DeepEqual([]string{env.User}, []string{env.Logname}) {
 		t.Fatalf("user/logname disagree: %q/%q", env.User, env.Logname)
+	}
+}
+
+// passwdFile writes a passwd database with lines, or an empty one when there are none.
+func passwdFile(t *testing.T, lines ...string) string {
+	t.Helper()
+	p := filepath.Join(t.TempDir(), "passwd")
+	content := strings.Join(lines, "\n")
+	if content != "" {
+		content += "\n"
+	}
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// passwdLine is one passwd entry for alice with home and shell.
+func passwdLine(home, shell string) string {
+	return "alice:x:1000:1000::" + home + ":" + shell
+}
+
+// TestLoginShellSelection is the default shell rule of a terminal: the passwd shell when it is a
+// valid login shell, otherwise bash, otherwise the discovered sh (doc/design/pty.md "The terminal
+// environment").
+func TestLoginShellSelection(t *testing.T) {
+	dir := t.TempDir()
+	zsh := fakeShell(t, dir, "zsh", "exit 0")
+	bash := fakeShell(t, dir, "bash", "exit 0")
+	sh := fakeShell(t, dir, "sh", "exit 0")
+	notExecutable := filepath.Join(dir, "zsh-not-executable")
+	if err := os.WriteFile(notExecutable, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name        string
+		passwdShell string
+		shells      []string
+		override    string
+		want        string
+	}{
+		{"passwd shell chosen", zsh, []string{zsh, bash, sh}, "", zsh},
+		{"passwd shell not in shells file", zsh, []string{bash, sh}, "", bash},
+		{"passwd shell not executable", notExecutable, []string{notExecutable, bash, sh}, "", bash},
+		{"passwd shell path missing", filepath.Join(dir, "missing-shell"), []string{bash, sh}, "", bash},
+		{"account not in passwd", "", []string{bash, sh}, "", bash},
+		{"no bash falls back to sh", "", []string{sh}, "", sh},
+		// CRHA_TASK_SHELL is the exec tasks' sh, not a login shell: it never replaces bash here.
+		{"task shell override is not a login shell", "", []string{zsh, bash, sh}, zsh, bash},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var passwd string
+			if tc.passwdShell != "" {
+				passwd = passwdFile(t, passwdLine("/home/alice", tc.passwdShell))
+			} else {
+				passwd = passwdFile(t, "bob:x:1001:1001::/home/bob:"+sh)
+			}
+			values := map[string]string{}
+			if tc.override != "" {
+				values[EnvShell] = tc.override
+			}
+			env := resolved(t, Options{
+				ShellsFile:  shellsFile(t, tc.shells...),
+				PasswdFile:  passwd,
+				LookPath:    failingLookPath,
+				CurrentUser: currentUserStub,
+				Getenv:      getenvOf(values),
+			})
+			if env.LoginShell != tc.want {
+				t.Fatalf("login shell = %q, want %q (exec shell %q, bash %q)", env.LoginShell, tc.want, env.Shell, env.Bash)
+			}
+		})
+	}
+}
+
+// TestLoginShellPrivilegedRootWithBash covers the privileged identity: root's passwd shell is bash,
+// so a privileged terminal's default shell and SHELL are bash, not the shell exec tasks use.
+func TestLoginShellPrivilegedRootWithBash(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil || !filepath.IsAbs(bash) {
+		t.Skip("the host has no absolute bash")
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil || !filepath.IsAbs(sh) {
+		t.Skip("the host has no absolute sh")
+	}
+	env := resolved(t, Options{
+		Privileged: true,
+		ShellsFile: shellsFile(t, bash, sh),
+		PasswdFile: passwdFile(t, "root:x:0:0:root:/root:"+bash),
+		LookupUser: func(uid string) (*user.User, error) {
+			if uid != "0" {
+				t.Fatalf("LookupUser(%q), want uid 0", uid)
+			}
+			return &user.User{Username: "root", HomeDir: "/root", Uid: "0", Gid: "0"}, nil
+		},
+		CurrentUser: func() (*user.User, error) {
+			t.Fatal("the privileged mode must not use user.Current")
+			return nil, nil
+		},
+		Getenv: getenvOf(map[string]string{}),
+	})
+	if env.LoginShell != bash {
+		t.Fatalf("login shell = %q, want root's passwd shell %q", env.LoginShell, bash)
+	}
+}
+
+// localeInput is one of the two system default locale files in a test.
+type localeInput struct {
+	content string
+	exists  bool
+}
+
+// at writes the file into a fresh temporary directory and returns its path; a file that does not
+// exist is a path in that directory that was never created.
+func (in localeInput) at(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "locale")
+	if !in.exists {
+		return path
+	}
+	if err := os.WriteFile(path, []byte(in.content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestResolveLocale covers the locale a terminal starts with, in pam_env's order: LANG and the
+// LC_*/LANGUAGE lines of the first file that yields LANG, never LC_ALL.
+func TestResolveLocale(t *testing.T) {
+	tests := []struct {
+		name string
+		conf localeInput
+		file localeInput
+		want []string
+	}{
+		{
+			"locale.conf supplies LANG",
+			localeInput{content: "LANG=en_US.UTF-8\nLC_TIME=de_DE.UTF-8\nLC_ALL=POSIX\nXKBLAYOUT=us\n# comment\n\n", exists: true},
+			localeInput{content: "LANG=fr_FR.UTF-8\n", exists: true},
+			[]string{"LANG=en_US.UTF-8", "LC_TIME=de_DE.UTF-8"},
+		},
+		{
+			"quotes, comments and unknown keys",
+			localeInput{content: "# a comment\nLANG=\"en_GB.UTF-8\"\nLANGUAGE=\"en_GB:en\"\nLC_CTYPE='C.UTF-8'\nNOT_A_LOCALE=x\n", exists: true},
+			localeInput{},
+			[]string{"LANG=en_GB.UTF-8", "LANGUAGE=en_GB:en", "LC_CTYPE=C.UTF-8"},
+		},
+		{
+			"default/locale when locale.conf is missing",
+			localeInput{},
+			localeInput{content: "LANG=fr_FR.UTF-8\nLC_ALL=POSIX\n", exists: true},
+			[]string{"LANG=fr_FR.UTF-8"},
+		},
+		{
+			"locale.conf without LANG falls through to default/locale",
+			localeInput{content: "LC_TIME=de_DE.UTF-8\n", exists: true},
+			localeInput{content: "LANG=fr_FR.UTF-8\n", exists: true},
+			[]string{"LANG=fr_FR.UTF-8"},
+		},
+		{
+			"empty LANG falls through",
+			localeInput{content: "LANG=\n", exists: true},
+			localeInput{content: "LANG=C\n", exists: true},
+			[]string{"LANG=C"},
+		},
+		{
+			"neither file supplies LANG",
+			localeInput{},
+			localeInput{},
+			[]string{"LANG=C.UTF-8"},
+		},
+		{
+			"LC_ALL is ignored",
+			localeInput{content: "LANG=C.UTF-8\nLC_ALL=POSIX\n", exists: true},
+			localeInput{},
+			[]string{"LANG=C.UTF-8"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResolveLocale(LocaleOptions{LocaleConf: tc.conf.at(t), LocaleFile: tc.file.at(t)})
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("locale = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestResolveTerminalDefaultsFromOptions checks that Resolve wires the injected locale and passwd
+// files into the terminal-only fields.
+func TestResolveTerminalDefaultsFromOptions(t *testing.T) {
+	dir := t.TempDir()
+	sh := fakeShell(t, dir, "sh", "exit 0")
+	conf := filepath.Join(dir, "locale.conf")
+	if err := os.WriteFile(conf, []byte("LANG=de_DE.UTF-8\nLC_TIME=fr_FR.UTF-8\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := resolved(t, Options{
+		ShellsFile:  shellsFile(t, sh),
+		PasswdFile:  filepath.Join(dir, "missing-passwd"),
+		LocaleConf:  conf,
+		LocaleFile:  filepath.Join(dir, "missing-locale"),
+		LookPath:    failingLookPath,
+		CurrentUser: currentUserStub,
+		Getenv:      getenvOf(map[string]string{}),
+	})
+	if !reflect.DeepEqual(env.TerminalLocale, []string{"LANG=de_DE.UTF-8", "LC_TIME=fr_FR.UTF-8"}) {
+		t.Fatalf("terminal locale = %q", env.TerminalLocale)
+	}
+	if env.LoginShell != sh {
+		t.Fatalf("login shell = %q, want the discovered sh %q", env.LoginShell, sh)
 	}
 }
