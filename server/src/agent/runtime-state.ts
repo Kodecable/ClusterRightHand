@@ -117,6 +117,7 @@ export async function refreshStates(host: RuntimeHost, rows: readonly StateRow[]
 			host.db,
 			batched.map((row) => row.id),
 			host.options?.terminals?.pendingApprovalSessions() ?? new Set(),
+			host.options?.terminals?.pendingAuthorizationSessions() ?? new Set(),
 		);
 		for (const row of batched) {
 			const quotaLevel = quotaLevels.get(row.id);
@@ -243,19 +244,22 @@ async function taskWaitKind(host: RuntimeHost, sessionId: string): Promise<"appr
 	// A terminal rule approval is a wait like a task's or an external call's (doc/design/pty.md "Rules"),
 	// and it outranks a signature wait exactly as those do.
 	if (host.options?.terminals?.hasPendingApproval(sessionId)) return "approval";
+	// A privileged terminal opened by this session waits for its signature after its rule approval.
+	if (host.options?.terminals?.hasPendingAuthorization(sessionId)) return "authorization";
 	if (await waiting("awaiting_authorization")) return "authorization";
 	return undefined;
 }
 
 /**
  * `taskWaitKind` for several sessions at once: one query per table, then the same approval-over-signature
- * priority per session. `terminalWaits` is the in-memory set of sessions waiting on a terminal approval.
- * Only sessions with a wait are in the result.
+ * priority per session. `terminalWaits` and `terminalAuthorizations` are the in-memory sets of sessions
+ * waiting on a terminal approval and a terminal signature wait. Only sessions with a wait are in the result.
  */
 async function taskWaitKinds(
 	db: RuntimeHost["db"],
 	sessionIds: readonly string[],
 	terminalWaits: ReadonlySet<string>,
+	terminalAuthorizations: ReadonlySet<string>,
 ): Promise<Map<string, "approval" | "authorization">> {
 	const out = new Map<string, "approval" | "authorization">();
 	if (sessionIds.length === 0) return out;
@@ -299,6 +303,9 @@ async function taskWaitKinds(
 	}
 	for (const sessionId of sessionIds) {
 		if (terminalWaits.has(sessionId)) out.set(sessionId, "approval");
+		else if (terminalAuthorizations.has(sessionId) && out.get(sessionId) !== "approval") {
+			out.set(sessionId, "authorization");
+		}
 	}
 	return out;
 }

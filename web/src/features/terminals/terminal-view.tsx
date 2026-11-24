@@ -6,12 +6,13 @@ import { type Ref, useEffect, useImperativeHandle, useMemo, useRef, useState } f
 import { ExtraKeysBar } from "./extra-keys";
 import {
 	BASE_FONT_SIZE,
-	FIT_MARGIN,
-	type FitArea,
+	type CellMetrics,
+	fitCellFont,
 	fitGrid,
-	MAX_FONT_SIZE,
-	MIN_FONT_SIZE,
+	TERMINAL_FONT_FAMILY,
+	TERMINAL_LINE_HEIGHT,
 	type TerminalDimensions,
+	viewportHeightBudget,
 } from "./fit";
 import { forwardUserInput, StickyModifiers } from "./user-input";
 
@@ -55,19 +56,60 @@ function attachUrl(id: string): string {
 	return `${scheme}://${window.location.host}/api/ptys/${encodeURIComponent(id)}/attach`;
 }
 
+/** One cell of the grid, from the `.xterm-screen` box the renderer sized for `cols × rows`. */
+export function measureCell(term: Terminal): CellMetrics | undefined {
+	const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+	if (screen === null || screen === undefined) return undefined;
+	const rect = screen.getBoundingClientRect();
+	if (rect.width <= 0 || rect.height <= 0 || term.cols <= 0 || term.rows <= 0) return undefined;
+	return { width: rect.width / term.cols, height: rect.height / term.rows };
+}
+
+/**
+ * One cell at exactly `fontSize`. A different size is set only for the synchronous read and restored
+ * before this function returns: the browser never paints the intermediate font, and the renderer's
+ * device-pixel-rounded cell metrics are measured where they matter instead of scaled from another
+ * size.
+ */
+export function measureCellAt(term: Terminal, fontSize: number): CellMetrics | undefined {
+	const previous = term.options.fontSize ?? BASE_FONT_SIZE;
+	if (Math.abs(previous - fontSize) < 0.05) return measureCell(term);
+	term.options.fontSize = fontSize;
+	const cell = measureCell(term);
+	term.options.fontSize = previous;
+	return cell;
+}
+
+/**
+ * The top of `element`'s layout box as if its scrolling ancestors were at the start: a client rect is
+ * relative to the viewport, so the scroll offsets above the box are added back. The height budget
+ * reads the terminal box this way, so scrolling the page cannot change it.
+ */
+export function unscrolledTop(element: HTMLElement): number {
+	let offset = 0;
+	for (let ancestor = element.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
+		offset += ancestor.scrollTop;
+	}
+	return element.getBoundingClientRect().top + offset;
+}
+
 /**
  * The xterm.js side of one terminal (doc/design/webui.md "Terminals page"): a WebSocket attachment
  * whose binary frames are terminal bytes in both directions and whose text frames are the snapshot,
  * the state changes and the end of the process.
  *
- * The terminal keeps its own rows and columns. The viewer scales its font so the whole grid fits
- * the available area, width and height, on every window or terminal resize; when one dimension has
- * room left over, the grid is centered horizontally and stays at the top. At the minimum font the
- * terminal area scrolls instead of cropping. "Fit to window" proposes the grid that area would hold
- * at the default font, and only that explicit resize changes the terminal's size. Opening the page,
- * returning to it and re-attaching focus the terminal, so keys go to the shell immediately. Only
- * the wheel is forwarded from the mouse, because several people share the terminal (see
- * `user-input.ts`).
+ * The terminal keeps its own rows and columns. The viewer scales its font so the full grid fits: the
+ * available width picks the font, and the height budget (the layout viewport minus everything above
+ * the box in the unscrolled layout, the extra-keys bar and the viewer box's own padding and border)
+ * only caps it, so a soft keyboard cannot make the text jump and the last rows stay visible without
+ * scrolling. xterm sizes its element to the grid at that font, so the box is exactly the grid plus its
+ * padding and border; the page scrolls when that does not fit.
+ * When one dimension has room left over the grid is centered horizontally and stays at the top; at the
+ * minimum font the area scrolls instead of cropping. "Fit to window" proposes the grid the area would
+ * hold at the default font, measured at exactly that font and keeping the default 80:24 shape, and
+ * only that explicit resize changes the terminal's size. Opening the page, returning to it and
+ * re-attaching focus the terminal, so keys go to the shell immediately. Only the wheel is forwarded
+ * from the mouse, because several people share the terminal (see `user-input.ts`).
  */
 export function TerminalView({
 	terminal,
@@ -79,6 +121,7 @@ export function TerminalView({
 }: TerminalViewProps & { ref?: Ref<TerminalViewHandle> }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
+	const extraKeysRef = useRef<HTMLDivElement>(null);
 	const terminalRef = useRef<Terminal | undefined>(undefined);
 	const fitFontRef = useRef<(() => void) | undefined>(undefined);
 	const fitToWindowRef = useRef<(() => TerminalDimensions | undefined) | undefined>(undefined);
@@ -108,9 +151,9 @@ export function TerminalView({
 		if (container === null || scroll === null) return;
 		const term = new Terminal({
 			cursorBlink: true,
-			fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+			fontFamily: TERMINAL_FONT_FAMILY,
 			fontSize: BASE_FONT_SIZE,
-			lineHeight: 1.2,
+			lineHeight: TERMINAL_LINE_HEIGHT,
 			scrollback: 5_000,
 			theme: {
 				background: "#0b0e14",
@@ -123,63 +166,89 @@ export function TerminalView({
 		term.resize(setupSize.current.cols, setupSize.current.rows);
 		terminalRef.current = term;
 
-		/** The scroll area's inner size, without its padding. */
-		const contentArea = (): FitArea | undefined => {
+		/** The scroll area's inner width, without its padding; the width always decides the font. */
+		const contentWidth = (): number | undefined => {
 			const style = getComputedStyle(scroll);
 			const width = scroll.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
-			const height = scroll.clientHeight - Number.parseFloat(style.paddingTop) - Number.parseFloat(style.paddingBottom);
-			if (width <= 0 || height <= 0) return undefined;
-			return { width, height };
+			return width > 0 ? width : undefined;
 		};
 
 		/**
-		 * Scales the font so the full `rows × cols` grid fits the scroll area. Changing the font does
-		 * not change the grid; below the minimum the area scrolls instead. A second pass settles the
-		 * cell metrics after the option change.
+		 * The height a full grid may use. The layout viewport (`window.innerHeight`) is the one that does
+		 * not shrink with a soft keyboard or a sliding URL bar. The box's top is read as if its scrolling
+		 * ancestors were at the start, so everything the page puts above it (top bar, back link, heading,
+		 * actions, meta line) comes out of the budget and scrolling the page does not change it. The
+		 * extra-keys bar and the scroll area's vertical padding and border come out too.
+		 */
+		const heightBudget = (): number | undefined => {
+			const extraKeys = extraKeysRef.current?.getBoundingClientRect().height ?? 0;
+			const style = getComputedStyle(scroll);
+			const length = (value: string): number => {
+				const parsed = Number.parseFloat(value);
+				return Number.isFinite(parsed) ? parsed : 0;
+			};
+			// The scroll area draws its padding and border around the grid, so the box is that much taller.
+			const boxChrome =
+				length(style.paddingTop) +
+				length(style.paddingBottom) +
+				length(style.borderTopWidth) +
+				length(style.borderBottomWidth);
+			return viewportHeightBudget(window.innerHeight, unscrolledTop(scroll), extraKeys, boxChrome);
+		};
+
+		/**
+		 * Sizes the font so the full `rows × cols` grid fits: the width picks it and the height budget
+		 * only caps it. xterm sizes its element to the grid, so the observers below watch the width alone;
+		 * the fit measures again after applying the font and corrects device-pixel rounding once.
 		 */
 		const fitFont = () => {
-			if (term.element === undefined) return;
-			const screen = term.element.querySelector<HTMLElement>(".xterm-screen");
-			if (screen === null) return;
-			const rect = screen.getBoundingClientRect();
-			if (rect.width <= 0 || rect.height <= 0) return;
-			const area = contentArea();
-			if (area === undefined) return;
-			const cellWidth = rect.width / term.cols;
-			const cellHeight = rect.height / term.rows;
-			if (cellWidth <= 0 || cellHeight <= 0) return;
+			const width = contentWidth();
+			const budget = heightBudget();
+			if (width === undefined || budget === undefined) return;
 			const current = term.options.fontSize ?? BASE_FONT_SIZE;
-			const scale = Math.min(area.width / (cellWidth * term.cols), area.height / (cellHeight * term.rows)) * FIT_MARGIN;
-			const next = Math.min(MAX_FONT_SIZE, Math.max(MIN_FONT_SIZE, Math.round(current * scale * 20) / 20));
-			if (Math.abs(next - current) < 0.05) return;
-			term.options.fontSize = next;
+			fitCellFont(width, budget, term.cols, term.rows, current, {
+				measure: () => measureCell(term),
+				applyFont: (fontSize) => {
+					term.options.fontSize = fontSize;
+				},
+			});
 		};
 		fitFontRef.current = fitFont;
 
 		/**
-		 * Measures one cell at the current font and proposes the grid the area would hold at the
-		 * default font. It never applies the grid: the page sends it through the explicit resize route
-		 * and every viewer adopts the server's answer.
+		 * Measures one cell at exactly the default font and proposes the grid the width and the height
+		 * budget, which already leaves out the box's padding and border, would hold there in the default
+		 * 80:24 shape. It never applies the grid: the page sends it through the explicit resize route and
+		 * every viewer adopts the server's answer.
 		 */
 		const fitToWindow = (): TerminalDimensions | undefined => {
-			if (term.element === undefined) return undefined;
-			const screen = term.element.querySelector<HTMLElement>(".xterm-screen");
-			if (screen === null) return undefined;
-			const rect = screen.getBoundingClientRect();
-			if (rect.width <= 0 || rect.height <= 0) return undefined;
-			const area = contentArea();
-			if (area === undefined) return undefined;
-			return fitGrid(
-				area,
-				{ width: rect.width / term.cols, height: rect.height / term.rows },
-				term.options.fontSize ?? BASE_FONT_SIZE,
-			);
+			const area = contentWidth();
+			const budget = heightBudget();
+			if (area === undefined || budget === undefined) return undefined;
+			const cell = measureCellAt(term, BASE_FONT_SIZE);
+			if (cell === undefined) return undefined;
+			return fitGrid({ width: area, height: budget }, cell);
 		};
 		fitToWindowRef.current = fitToWindow;
 
-		const resizeObserver = new ResizeObserver(() => fitFont());
+		// Only a width or a layout-viewport height change refits: the area's height now follows the
+		// font, and a visual-viewport change must not touch the text. A rotation changes both.
+		let lastWidth = -1;
+		let lastViewportHeight = window.innerHeight;
+		const resizeObserver = new ResizeObserver(() => {
+			const width = scroll.clientWidth;
+			if (Math.abs(width - lastWidth) < 1) return;
+			lastWidth = width;
+			fitFont();
+		});
 		resizeObserver.observe(scroll);
-		window.addEventListener("resize", fitFont);
+		const onWindowResize = () => {
+			if (window.innerHeight === lastViewportHeight && Math.abs(scroll.clientWidth - lastWidth) < 1) return;
+			lastViewportHeight = window.innerHeight;
+			lastWidth = scroll.clientWidth;
+			fitFont();
+		};
+		window.addEventListener("resize", onWindowResize);
 
 		const focus = () => term.focus();
 		window.addEventListener("focus", focus);
@@ -310,7 +379,7 @@ export function TerminalView({
 			clearRetry();
 			cancelAnimationFrame(firstFrame);
 			resizeObserver.disconnect();
-			window.removeEventListener("resize", fitFont);
+			window.removeEventListener("resize", onWindowResize);
 			window.removeEventListener("focus", focus);
 			document.removeEventListener("visibilitychange", onVisibility);
 			input.dispose();
@@ -348,7 +417,7 @@ export function TerminalView({
 			<div
 				ref={scrollRef}
 				data-testid="terminal-screen"
-				className="h-[55vh] max-h-[40rem] min-h-56 w-full max-w-full min-w-0 overflow-auto rounded-lg border bg-[#0b0e14] p-2"
+				className="w-full max-w-full min-w-0 overflow-auto rounded-lg border bg-[#0b0e14] p-2"
 			>
 				{/* The outer box is never narrower than the area, so the inner one centers instead of
 				    shifting a too-wide grid past the left, unreachable edge of the scroll area. */}
@@ -356,10 +425,16 @@ export function TerminalView({
 					<div ref={containerRef} className="mx-auto w-max" />
 				</div>
 			</div>
-			<ExtraKeysBar terminalRef={terminalRef} sticky={sticky} />
-			<p data-testid="terminal-mouse-hint" className="text-xs text-muted-foreground">
-				<Trans>Hold Shift while selecting text when a program uses the mouse.</Trans>
-			</p>
+			<ExtraKeysBar
+				terminalRef={terminalRef}
+				sticky={sticky}
+				barRef={extraKeysRef}
+				hint={
+					<p data-testid="terminal-mouse-hint" className="min-w-0 text-xs text-muted-foreground">
+						<Trans>Hold Shift while selecting text when a program uses the mouse.</Trans>
+					</p>
+				}
+			/>
 		</div>
 	);
 }

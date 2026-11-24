@@ -84,6 +84,11 @@ export interface TerminalServiceOptions {
 	 * it (doc/design/agent-runtime.md "Session state"): the runtime supplies `refreshState`.
 	 */
 	onApprovalChanged?: (sessionId: string) => void;
+	/**
+	 * Told after an agent-created privileged terminal starts or ends its signature wait, for the same
+	 * run-state refresh.
+	 */
+	onAuthorizationChanged?: (sessionId: string) => void;
 }
 
 /** What a person asked for when opening a terminal from the WebUI or the API. */
@@ -159,6 +164,7 @@ export class TerminalService implements TerminalSink {
 	readonly #idleSweepMs: number;
 	readonly #sessionState: (sessionId: string) => Promise<"idle" | "running" | "awaiting" | undefined>;
 	#onApprovalChanged: (sessionId: string) => void;
+	#onAuthorizationChanged: (sessionId: string) => void;
 	readonly #terminals = new Map<string, Terminal>();
 	readonly #retention = new Map<string, NodeJS.Timeout>();
 	readonly #nodeNames = new Map<string, string>();
@@ -176,6 +182,7 @@ export class TerminalService implements TerminalSink {
 		this.#idleSweepMs = options.idleSweepMs ?? IDLE_SWEEP_MS;
 		this.#sessionState = options.sessionState ?? (async () => "idle");
 		this.#onApprovalChanged = options.onApprovalChanged ?? (() => {});
+		this.#onAuthorizationChanged = options.onAuthorizationChanged ?? (() => {});
 	}
 
 	/**
@@ -185,6 +192,14 @@ export class TerminalService implements TerminalSink {
 	 */
 	setApprovalListener(listener: ((sessionId: string) => void) | undefined): void {
 		this.#onApprovalChanged = listener ?? (() => {});
+	}
+
+	/**
+	 * Follows an agent-created privileged terminal's signature wait, so the acting session becomes
+	 * `awaiting/authorization` and returns to `running` when the terminal opens, fails or is closed.
+	 */
+	setAuthorizationListener(listener: ((sessionId: string) => void) | undefined): void {
+		this.#onAuthorizationChanged = listener ?? (() => {});
 	}
 
 	/** Installs the sink and starts the idle sweep. */
@@ -279,7 +294,6 @@ export class TerminalService implements TerminalSink {
 						argv: [...approval.argv],
 						input: approval.input,
 						keys: [...approval.keys],
-						screen: approval.screen,
 						createdAt: approval.createdAt,
 						...(approval.attempt === undefined ? {} : { attempt: approval.attempt }),
 						alwaysAllow: approval.alwaysAllow.map((candidate) => ({
@@ -628,6 +642,11 @@ export class TerminalService implements TerminalSink {
 
 	// ---- privileged authorization ----
 
+	/** Tells the runtime that an agent-created terminal's signature wait may have started or ended. */
+	#notifyAuthorization(terminal: Terminal): void {
+		if (terminal.createdBySessionId !== null) this.#onAuthorizationChanged(terminal.createdBySessionId);
+	}
+
 	async #planAndOpen(terminal: Terminal): Promise<void> {
 		if (terminal.closing || terminal.state !== "opening") return;
 		const auth = terminal.authorization;
@@ -651,6 +670,7 @@ export class TerminalService implements TerminalSink {
 		if (plan.kind === "options") {
 			auth.options = plan.options;
 			auth.updatedAt = new Date().toISOString();
+			this.#notifyAuthorization(terminal);
 			return;
 		}
 		auth.options = [];
@@ -703,6 +723,7 @@ export class TerminalService implements TerminalSink {
 		this.#auditOpen(terminal, plan);
 		terminal.openWaiter?.resolve();
 		terminal.openWaiter = null;
+		this.#notifyAuthorization(terminal);
 	}
 
 	/** crha refused the authorization: the attempt is raised and the terminal waits for a new plan. */
@@ -747,6 +768,7 @@ export class TerminalService implements TerminalSink {
 		terminal.screen = null;
 		for (const viewer of terminal.viewers.values()) closeViewer(viewer, "closed");
 		terminal.viewers.clear();
+		this.#notifyAuthorization(terminal);
 	}
 
 	/** Ends an opening terminal that the rules rejected; the failure is reported by the caller. */
@@ -757,6 +779,7 @@ export class TerminalService implements TerminalSink {
 		terminal.openWaiter = null;
 		terminal.screen?.dispose();
 		terminal.screen = null;
+		this.#notifyAuthorization(terminal);
 	}
 
 	async #waitForRunning(terminal: Terminal): Promise<void> {
@@ -1165,6 +1188,7 @@ export class TerminalService implements TerminalSink {
 			terminal.openWaiter = null;
 		}
 		this.#finishApproval(terminal, { decision: "rejected", reason: `the terminal closed (${reason})` });
+		this.#notifyAuthorization(terminal);
 		terminal.connection?.close();
 		terminal.connection = null;
 		terminal.screen?.dispose();
@@ -1309,12 +1333,63 @@ export class TerminalService implements TerminalSink {
 		return waiting;
 	}
 
+	/**
+	 * The agent-created privileged terminals waiting for their owner's signature (doc/design/pty.md
+	 * "Approvals"). A rule approval still holds the open, and a person-opened terminal has no session to
+	 * dock into: neither is a signature wait yet.
+	 */
+	pendingAuthorizations(): Terminal[] {
+		const waiting: Terminal[] = [];
+		for (const terminal of this.#terminals.values()) {
+			if (
+				terminal.authorization !== null &&
+				terminal.state === "opening" &&
+				terminal.approval === null &&
+				terminal.createdBySessionId !== null
+			) {
+				waiting.push(terminal);
+			}
+		}
+		return waiting;
+	}
+
 	/** Whether a session's tool call waits for a terminal rule approval. */
 	hasPendingApproval(sessionId: string): boolean {
 		for (const terminal of this.#terminals.values()) {
 			if (terminal.approval?.sessionId === sessionId) return true;
 		}
 		return false;
+	}
+
+	/** Whether a session's tool call waits for its agent-created privileged terminal's signature. */
+	hasPendingAuthorization(sessionId: string): boolean {
+		for (const terminal of this.#terminals.values()) {
+			if (
+				terminal.createdBySessionId === sessionId &&
+				terminal.authorization !== null &&
+				terminal.state === "opening" &&
+				terminal.approval === null
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** The sessions with a terminal signature wait waiting, for a batched session-state recompute. */
+	pendingAuthorizationSessions(): Set<string> {
+		const sessions = new Set<string>();
+		for (const terminal of this.#terminals.values()) {
+			if (
+				terminal.createdBySessionId !== null &&
+				terminal.authorization !== null &&
+				terminal.state === "opening" &&
+				terminal.approval === null
+			) {
+				sessions.add(terminal.createdBySessionId);
+			}
+		}
+		return sessions;
 	}
 
 	/** The sessions with a terminal rule approval waiting, for a batched session-state recompute. */

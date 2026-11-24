@@ -187,8 +187,9 @@ export async function approvalRequestForTaskGroup(db: Db, group: TaskGroupView):
 /**
  * A terminal rule approval as the one compact request every surface renders (doc/design/pty.md "Rules"):
  * the acting session is the source, the node is named, and the action is the argv a `pty_open` would run
- * or the input, keys and screen a `pty_write` would send. The terminal keeps the same approval in its
- * view, so the terminal page and the approvals page show one model.
+ * or the input and keys a `pty_write` would send. The screen stays on the server as Auto Review's
+ * context and never reaches a client. The terminal keeps the same approval in its view, so the terminal
+ * page and the approvals page show one model.
  */
 export async function approvalRequestForPty(
 	db: Db,
@@ -210,7 +211,6 @@ export async function approvalRequestForPty(
 						type: "pty.io",
 						input: approval.input,
 						keys: [...approval.keys],
-						screen: approval.screen,
 					},
 		...nodeList,
 		privileged: approval.privileged,
@@ -218,6 +218,29 @@ export async function approvalRequestForPty(
 			option: candidate.option,
 			rule: { ...candidate.rule, ...(candidate.rule.nodes ? { nodes: [...candidate.rule.nodes] } : {}) },
 		})),
+	};
+}
+
+/**
+ * The compact request of an agent-created privileged terminal's signature wait: the same kind `pty`,
+ * with phase `awaiting_signature` and the open's argv, so the shared signature panel renders it beside a
+ * task's wait (doc/design/pty.md "Approvals"). It has no always-allow candidates: a signature is not a
+ * rule decision.
+ */
+export async function approvalRequestForPtyAuthorization(db: Db, terminal: Terminal): Promise<ApprovalRequest> {
+	const names = await nodeNames(db, [terminal.nodeId]);
+	const nodeList = cappedNodes(names);
+	const sessionId = terminal.createdBySessionId as string;
+	const source = await requestSourceFor(db, "session", sessionId, terminal.userId);
+	return {
+		kind: "pty",
+		id: terminal.id,
+		phase: "awaiting_signature",
+		source,
+		action: { type: "pty.create", argv: [...terminal.argv] },
+		...nodeList,
+		privileged: terminal.privileged,
+		alwaysAllow: [],
 	};
 }
 

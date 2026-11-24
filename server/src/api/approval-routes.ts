@@ -13,6 +13,7 @@ import { alwaysRuleLifts, groupNodesNeedingApproval } from "../approvals/always-
 import {
 	approvalRequestForExternalCall,
 	approvalRequestForPty,
+	approvalRequestForPtyAuthorization,
 	approvalRequestForTask,
 	approvalRequestForTaskGroup,
 } from "../approvals/request.ts";
@@ -32,6 +33,7 @@ import {
 import { parseRulesForWrite } from "../policy/refs.ts";
 import type { Operation, Rule } from "../policy/rules.ts";
 import { appendRule, type RuleRef } from "../policy/store.ts";
+import { rootSessionIdOf } from "../sessions/session-chain.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 import type { TerminalService } from "../terminals/registry.ts";
@@ -154,9 +156,33 @@ export function approvalRoutes(
 								nodeName: terminal.nodeName,
 								userId: terminal.userId,
 								username: terminal.username,
+								rootSessionId: (await rootSessionIdOf(db, approval.sessionId)) ?? approval.sessionId,
 								createdAt: approval.createdAt,
 								request: await approvalRequestForPty(db, terminal, approval),
 							})),
+					);
+		// An agent-created privileged terminal waits for its owner's signature like a task: one item in the
+		// same list, with the shared signature panel and the terminal's own reject route.
+		const ptyAuthorizations =
+			terminals === undefined
+				? []
+				: await Promise.all(
+						terminals
+							.pendingAuthorizations()
+							.filter((terminal) => terminal.userId === user.userId)
+							.map(async (terminal) => {
+								const sessionId = terminal.createdBySessionId as string;
+								return {
+									terminalId: terminal.id,
+									nodeId: terminal.nodeId,
+									nodeName: terminal.nodeName,
+									userId: terminal.userId,
+									username: terminal.username,
+									rootSessionId: (await rootSessionIdOf(db, sessionId)) ?? sessionId,
+									createdAt: new Date(terminal.openedAt).toISOString(),
+									request: await approvalRequestForPtyAuthorization(db, terminal),
+								};
+							}),
 					);
 		// One compact request per waiting item, beside the kind-specific views (the WebUI and chat render it).
 		const requests = [
@@ -166,6 +192,7 @@ export function approvalRoutes(
 			)),
 			...(await Promise.all(externalCalls.map((call) => approvalRequestForExternalCall(db, call)))),
 			...ptys.map((item) => item.request),
+			...ptyAuthorizations.map((item) => item.request),
 		];
 		return c.json(
 			{
@@ -173,7 +200,7 @@ export function approvalRoutes(
 				taskGroups: approvalTaskGroups,
 				externalCalls,
 				ptys,
-				authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups },
+				authorizations: { tasks: signatureTasks, taskGroups: signatureTaskGroups, ptys: ptyAuthorizations },
 				quotas,
 				requests,
 			},

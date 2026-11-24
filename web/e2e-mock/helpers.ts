@@ -58,7 +58,7 @@ const QUOTA_APPROVALS: ApprovalList = {
 	taskGroups: [],
 	externalCalls: [],
 	ptys: [],
-	authorizations: { tasks: [], taskGroups: [] },
+	authorizations: { tasks: [], taskGroups: [], ptys: [] },
 	requests: [],
 	quotas: [
 		{
@@ -1039,14 +1039,28 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			terminal.state = "exited";
 			terminal.exitCode = -1;
 			terminal.endedAt = new Date().toISOString();
+			state.approvals = {
+				...state.approvals,
+				authorizations: {
+					...state.approvals.authorizations,
+					ptys: state.approvals.authorizations.ptys.filter((item) => item.terminalId !== id),
+				},
+				requests: state.approvals.requests.filter((request) => !(request.kind === "pty" && request.id === id)),
+			};
 			return json({ ok: true });
 		}
-		const ptyApprovalMatch = /^\/api\/ptys\/([^/]+)\/approval\/([^/]+)$/.exec(path);
+		const ptyApprovalMatch = /^\/api\/ptys\/([^/]+)\/approval$/.exec(path);
 		if (ptyApprovalMatch && method === "POST") {
 			const id = decodeURIComponent(ptyApprovalMatch[1] as string);
 			const terminal = state.ptys.find((candidate) => candidate.id === id);
 			if (!terminal) return json({ error: "no such terminal" }, 404);
 			terminal.approval = null;
+			terminal.approvalRequest = null;
+			state.approvals = {
+				...state.approvals,
+				ptys: state.approvals.ptys.filter((item) => item.terminalId !== id),
+				requests: state.approvals.requests.filter((request) => !(request.kind === "pty" && request.id === id)),
+			};
 			return json({ ok: true });
 		}
 		const ptyMatch = /^\/api\/ptys\/([^/]+)$/.exec(path);
@@ -1756,6 +1770,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 				authorizations: {
 					tasks: state.approvals.authorizations.tasks.filter((task) => task.id !== id),
 					taskGroups: state.approvals.authorizations.taskGroups.filter((group) => group.id !== id),
+					ptys: state.approvals.authorizations.ptys,
 				},
 			};
 			return json({ ok: true });
@@ -2008,7 +2023,7 @@ export function emptyApprovals(): ApprovalList {
 		taskGroups: [],
 		externalCalls: [],
 		ptys: [],
-		authorizations: { tasks: [], taskGroups: [] },
+		authorizations: { tasks: [], taskGroups: [], ptys: [] },
 		quotas: [],
 		requests: [],
 	};

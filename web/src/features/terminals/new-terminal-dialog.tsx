@@ -89,18 +89,13 @@ export function NewTerminalDialog({ onClose }: { onClose: () => void }) {
 				if (!open) onClose();
 			}}
 			title={<Trans>New terminal</Trans>}
-			description={<Trans>Open an interactive shell on a crha node. Several people can watch and type in it.</Trans>}
 			submitLabel={<Trans>Open terminal</Trans>}
 			busy={create.isPending}
 			error={error}
 			onSubmit={() => void submit()}
 			testId="new-terminal-dialog"
 		>
-			<FieldShell
-				id="new-terminal-node"
-				label={<Trans>Node</Trans>}
-				description={<Trans>Only active crha nodes have terminals; SSH nodes cannot open one.</Trans>}
-			>
+			<FieldShell id="new-terminal-node" label={<Trans>Node</Trans>}>
 				<EntityPicker
 					kind="terminalNode"
 					id="new-terminal-node"
@@ -136,14 +131,9 @@ export function NewTerminalDialog({ onClose }: { onClose: () => void }) {
 					disabled={create.isPending}
 					onCheckedChange={(checked) => setPrivileged(Boolean(checked))}
 				/>
-				<div className="grid gap-1">
-					<Label htmlFor="new-terminal-privileged">
-						<Trans>Run in the privileged mode</Trans>
-					</Label>
-					<p className="text-xs text-muted-foreground">
-						<Trans>A privileged terminal waits for your signature before it opens.</Trans>
-					</p>
-				</div>
+				<Label htmlFor="new-terminal-privileged">
+					<Trans>Run in the privileged mode</Trans>
+				</Label>
 			</div>
 			<div className="flex flex-wrap items-start gap-3">
 				<FieldShell id="new-terminal-rows" label={<Trans>Rows</Trans>} error={fieldErrors.size} className="w-28">

@@ -1,7 +1,7 @@
 import { Trans } from "@lingui/react/macro";
 import type { Terminal } from "@xterm/xterm";
 import { KeyboardIcon } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { type ReactNode, type Ref, useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { readStorage, writeStorage } from "@/lib/storage";
 import { cn } from "@/lib/utils";
@@ -74,14 +74,21 @@ function StickyButton({
  * The extra-keys bar under a terminal (doc/design/webui.md "Terminals page"): Esc, Tab, sticky
  * Ctrl and Alt, the arrows, Home, End, PgUp, PgDn and the punctuation a shell needs. It scrolls
  * horizontally when it does not fit. Touch devices show it by default; the button toggles it and
- * remembers the choice per viewer, also when storage is unavailable.
+ * remembers the choice per viewer, also when storage is unavailable. The viewer measures the bar
+ * through `barRef`, because the bar's height comes out of the terminal's height budget; the ref is
+ * null while the bar is hidden. `hint` sits on the toggle's row, left of it, and wraps with it on a
+ * narrow screen.
  */
 export function ExtraKeysBar({
 	terminalRef,
 	sticky,
+	barRef,
+	hint,
 }: {
 	terminalRef: { readonly current: Terminal | undefined };
 	sticky: StickyModifiers;
+	barRef?: Ref<HTMLDivElement>;
+	hint?: ReactNode;
 }) {
 	const [visible, setVisible] = useState<boolean>(() => storedVisibility() ?? coarsePointer());
 	const snapshot = useSyncExternalStore(
@@ -132,11 +139,16 @@ export function ExtraKeysBar({
 
 	return (
 		<div className="grid min-w-0 gap-1" data-testid="terminal-extra-keys">
-			<div className="flex justify-end">
+			<div
+				className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1"
+				data-testid="terminal-extra-keys-header"
+			>
+				{hint}
 				<Button
 					type="button"
 					variant="ghost"
 					size="sm"
+					className="ml-auto"
 					aria-pressed={visible}
 					data-testid="terminal-extra-keys-toggle"
 					onClick={toggle}
@@ -147,6 +159,7 @@ export function ExtraKeysBar({
 			</div>
 			{visible && (
 				<div
+					ref={barRef}
 					data-testid="terminal-extra-keys-bar"
 					className="flex min-w-0 max-w-full flex-nowrap items-center gap-1 overflow-x-auto overscroll-x-contain pb-1"
 				>

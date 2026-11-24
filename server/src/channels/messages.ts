@@ -209,7 +209,6 @@ const EN_CARD: CardText = {
 	job: (kind, id, action) => `Job: ${kind} ${id}${action === undefined ? "" : ` · ${action}`}`,
 	privilegedSuffix: " · privileged",
 	riskLevel: (risk) => ({ low: "Low risk", medium: "Medium risk", high: "High risk" })[risk],
-	screen: (text) => `Terminal screen:\n${text}`,
 	rejectWithButtons: (id) => `Reject with a reason: /reject ${id} reason`,
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [reason]`,
@@ -257,7 +256,6 @@ const ZH_CARD: CardText = {
 	job: (kind, id, action) => `后台任务：${kind} ${id}${action === undefined ? "" : ` · ${action}`}`,
 	privilegedSuffix: " · 特权",
 	riskLevel: (risk) => ({ low: "低风险", medium: "中风险", high: "高风险" })[risk],
-	screen: (text) => `终端屏幕：\n${text}`,
 	rejectWithButtons: (id) => `拒绝并说明原因：/reject ${id} 原因`,
 	approveHint: (id) => `/approve ${id}`,
 	rejectHint: (id) => `/reject ${id} [原因]`,
@@ -404,7 +402,6 @@ function approvalCardFor(
 	};
 	if (meta !== undefined) card.meta = meta;
 	if (job !== undefined) card.job = job;
-	if (request.action.type === "pty.io" && request.action.screen !== "") card.screen = request.action.screen;
 	if (request.review !== undefined) {
 		card.risk = request.review.risk;
 		card.reason = oneLine(request.review.reason);

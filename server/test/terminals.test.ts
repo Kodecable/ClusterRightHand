@@ -798,6 +798,7 @@ describe("terminals", () => {
 				ptys: {
 					terminalId: string;
 					nodeName: string | null;
+					rootSessionId: string;
 					request: {
 						kind: string;
 						phase: string;
@@ -812,6 +813,7 @@ describe("terminals", () => {
 			expect(listed.ptys[0]).toMatchObject({
 				terminalId: terminal.id,
 				nodeName: "node-1",
+				rootSessionId: session.id,
 				request: {
 					kind: "pty",
 					phase: "awaiting_user",
@@ -850,6 +852,116 @@ describe("terminals", () => {
 			// The wait is gone from the list once decided.
 			const after = (await (await call(app, "/api/approvals", { cookie })).json()) as { ptys: unknown[] };
 			expect(after.ptys).toEqual([]);
+		});
+
+		it("lists an agent's privileged terminal signature wait and rejects it through the terminal route", async () => {
+			const { node, crha } = await connect();
+			const ownerKey = createSshKey();
+			const identity = {
+				unprivileged: { uid: 998, gid: 998, user: "crha" },
+				privileged: { uid: 0, gid: 0, user: "root" },
+			};
+			const entry: TrustEntry = {
+				name: "alice",
+				source: "local",
+				role: "user",
+				key: { kind: "sshsig", publicKey: ownerKey.line, fingerprint: ownerKey.fingerprint },
+				kinds: ["execute"],
+				requireSpec: false,
+				requireTask: false,
+				requireUv: false,
+				maxTtlMs: 24 * 60 * 60 * 1000,
+				allow: [],
+				deny: [],
+				envAllow: [],
+			};
+			crha.trust({
+				kind: "ok",
+				summary: {
+					nodeId: node.id,
+					aliases: [],
+					clockSkewMs: 0,
+					identities: identity,
+					trust: [entry],
+					localWindow: { kind: "closed" },
+				},
+			});
+			await waitFor("trust stored", async () => {
+				const row = await db.selectFrom("nodes").select("trust_report").where("id", "=", node.id).executeTakeFirst();
+				return row?.trust_report !== null && row?.trust_report !== undefined;
+			});
+			const cookie = await login(app, "owner", "password-123");
+			expect((await registerSshCredential(app, cookie, ownerKey, "alice")).status).toBe(201);
+
+			const session = await createSessionRow(db, owner.id, "pty-signature");
+			await createRootRuleSet(db, await defaultOrgId(db), { type: "session", id: session.id }, "yolo");
+			const opening = terminals
+				.openForAgent({
+					user: userOf(owner) as never,
+					sessionId: session.id,
+					chain: [{ type: "session" as const, id: session.id }],
+					node: node.id,
+					argv: ["/bin/sh"],
+					privileged: true,
+					idleTimeoutMs: 60_000,
+				})
+				.then(
+					(terminal) => ({ terminal }),
+					(error: unknown) => ({ error }),
+				);
+			const view = await waitFor("terminal signature wait", async () => {
+				const views = await terminals.views(userOf(owner) as never);
+				return views.find((entry) => entry.creatingSessionId === session.id && entry.authorizationPhase === "waiting");
+			});
+			expect(terminals.hasPendingAuthorization(session.id)).toBe(true);
+			expect(terminals.pendingAuthorizationSessions()).toContain(session.id);
+
+			const listed = (await (await call(app, "/api/approvals", { cookie })).json()) as {
+				authorizations: {
+					ptys: {
+						terminalId: string;
+						nodeName: string | null;
+						rootSessionId: string;
+						request: {
+							kind: string;
+							phase: string;
+							action: Record<string, unknown>;
+							nodes?: string[];
+							alwaysAllow: unknown[];
+						};
+					}[];
+				};
+				requests: { kind: string; id: string; phase: string }[];
+			};
+			expect(listed.authorizations.ptys).toHaveLength(1);
+			expect(listed.authorizations.ptys[0]).toMatchObject({
+				terminalId: view.id,
+				nodeName: "node-1",
+				rootSessionId: session.id,
+				request: {
+					kind: "pty",
+					phase: "awaiting_signature",
+					action: { type: "pty.create", argv: ["/bin/sh"] },
+					nodes: ["node-1"],
+					alwaysAllow: [],
+				},
+			});
+			expect(listed.requests).toContainEqual(
+				expect.objectContaining({ kind: "pty", id: view.id, phase: "awaiting_signature" }),
+			);
+
+			const rejected = await call(app, `/api/ptys/${view.id}/authorization/reject`, {
+				cookie,
+				body: { reason: "not now" },
+			});
+			expect(rejected.status).toBe(200);
+			const outcome = (await opening) as { error?: { code?: string } };
+			expect(outcome.error?.code).toBe("authorization_declined");
+			expect(terminals.hasPendingAuthorization(session.id)).toBe(false);
+			const after = (await (await call(app, "/api/approvals", { cookie })).json()) as {
+				authorizations: { ptys: unknown[] };
+			};
+			expect(after.authorizations.ptys).toEqual([]);
 		});
 
 		it("attaches a browser WebSocket with the snapshot first and binary output afterwards", async () => {

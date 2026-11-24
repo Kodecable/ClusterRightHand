@@ -1,4 +1,4 @@
-import type { ApprovalBody, ApprovalRequest, PtyState, PtyView, PtyViewer } from "@crh/api";
+import type { ApprovalBody, ApprovalRequest, PtySize, PtyState, PtyView, PtyViewer } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
@@ -7,10 +7,11 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/data-table";
 import { ApprovalPanel } from "@/components/decision/approval-panel";
 import { SignaturePanel, type SubmitSignature } from "@/components/decision/signature-panel";
-import { ConfirmDialog } from "@/components/dialogs";
+import { ConfirmDialog, FormDialog } from "@/components/dialogs";
 import { EmptyHint, EmptyState } from "@/components/empty-state";
 import { EntityPicker } from "@/components/entity-picker";
 import { ErrorState, ErrorText } from "@/components/error-state";
+import { FieldShell } from "@/components/form";
 import { InternalLink } from "@/components/internal-link";
 import { Page } from "@/components/page";
 import { PageHeader } from "@/components/page-header";
@@ -21,11 +22,13 @@ import { Panel, SectionHeader } from "@/components/section";
 import { PageSkeleton } from "@/components/skeletons";
 import { StatusText } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { UserLink } from "@/components/user-link";
 import { useSubmitAuthorization } from "@/features/authorizations/api";
-import { isNotFound } from "@/lib/api/client";
+import { errorMessage, isNotFound } from "@/lib/api/client";
 import { usePageTitle } from "@/lib/page-title";
 import { useAuth } from "@/lib/session";
+import { linkClass } from "@/lib/utils";
 import {
 	terminalKeys,
 	useAssociateSession,
@@ -38,11 +41,12 @@ import {
 	useTerminals,
 	useUnassociateSession,
 } from "./api";
+import { MAX_DIMENSION, type TerminalDimensions } from "./fit";
 import { NewTerminalDialog } from "./new-terminal-dialog";
-import { terminalCommand, terminalStateLabel, terminalStateTone } from "./terminal-format";
+import { terminalCommand, terminalHeading, terminalStateLabel, terminalStateTone } from "./terminal-format";
 import { type TerminalLiveState, TerminalView, type TerminalViewHandle } from "./terminal-view";
 
-/** One terminal list row: node, program title, user, privileged flag, state, creating session, associations, viewers, age. */
+/** One terminal list row: node, program title (with the privileged mark), user, state, creating session, associations, age. */
 export function TerminalsPage() {
 	const { t, i18n } = useLingui();
 	const terminals = useTerminals();
@@ -61,30 +65,23 @@ export function TerminalsPage() {
 				id: "title",
 				header: t`Title`,
 				minSize: 140,
-				cell: ({ row }) =>
-					row.original.title === "" ? (
-						<span className="text-muted-foreground">–</span>
-					) : (
-						<span className="block truncate" data-testid="terminal-title-cell">
-							{row.original.title}
-						</span>
-					),
+				cell: ({ row }) => (
+					<span className="flex min-w-0 items-center gap-1.5" data-testid="terminal-title-cell">
+						{row.original.title === "" ? (
+							<span className="min-w-0 truncate text-muted-foreground">–</span>
+						) : (
+							<span className="min-w-0 truncate">{row.original.title}</span>
+						)}
+						{row.original.privileged && <PrivilegedMark />}
+					</span>
+				),
 				meta: { title: (terminal: PtyView) => (terminal.title === "" ? undefined : terminal.title) },
 			},
 			{
 				id: "user",
 				header: t`User`,
 				minSize: 120,
-				cell: ({ row }) => (
-					<UserLink id={row.original.userId} name={row.original.username} className="block truncate" />
-				),
-			},
-			{
-				id: "privileged",
-				header: t`Privileged`,
-				size: 100,
-				cell: ({ row }) =>
-					row.original.privileged ? <PrivilegedMark /> : <span className="text-muted-foreground">–</span>,
+				cell: ({ row }) => <UserLink id={row.original.userId} name={row.original.username} />,
 			},
 			{
 				id: "state",
@@ -120,20 +117,6 @@ export function TerminalsPage() {
 				header: t`Associated sessions`,
 				minSize: 150,
 				cell: ({ row }) => <SessionIdList ids={row.original.sessionIds} />,
-			},
-			{
-				id: "viewers",
-				header: t`Viewers`,
-				size: 90,
-				cell: ({ row }) => {
-					const names = row.original.viewers.map((viewer) => viewer.username ?? viewer.userId);
-					if (names.length === 0) return <span className="text-muted-foreground">–</span>;
-					return (
-						<span className="truncate" title={names.join(", ")}>
-							{names.length}
-						</span>
-					);
-				},
 			},
 			{
 				id: "age",
@@ -381,6 +364,7 @@ export function TerminalPage() {
 	const close = useCloseTerminal();
 	const resize = useResizeTerminal();
 	const [confirmingClose, setConfirmingClose] = useState(false);
+	const [resizing, setResizing] = useState(false);
 	const [live, setLive] = useState<Partial<TerminalLiveState> | undefined>();
 	const [exit, setExit] = useState<{ code: number; reason: "exited" | "helper_lost" } | undefined>();
 	const [closedReason, setClosedReason] = useState<string | undefined>();
@@ -390,35 +374,37 @@ export function TerminalPage() {
 
 	const nodeLabel = view === undefined ? "" : (view.nodeName ?? view.nodeId);
 	const title = live?.title ?? view?.title ?? "";
-	// The program's title is untrusted, so the trusted node stays in the tab title and the heading.
-	usePageTitle(view === undefined ? undefined : title === "" ? nodeLabel : `${title} · ${nodeLabel}`);
+	const loginShell = t`Login shell`;
+	const terminalLabel = t`Terminal`;
+	// The heading is the program's title, its command line, or "Terminal"; the node stays in the tab,
+	// the top bar and the meta line (doc/design/pty.md "WebUI").
+	const heading = view === undefined ? "" : terminalHeading(title, view.argv, terminalLabel);
+	usePageTitle(view === undefined ? undefined : `${heading} · ${nodeLabel}`);
 
 	const refresh = useCallback(() => {
 		void terminal.refetch();
 		void authorization.refetch();
 	}, [terminal.refetch, authorization.refetch]);
 
+	// Both the Fit button and the resize dialog take the server's answer as the live size, so the
+	// meta line follows an explicit resize before the next poll does.
+	const applyResized = (updated: PtyView) => {
+		setLive((previous) => ({
+			...previous,
+			rows: updated.size.rows,
+			cols: updated.size.cols,
+			state: updated.state,
+		}));
+		refresh();
+	};
+
 	const fitToWindow = () => {
 		if (view === undefined) return;
 		const dimensions = viewer.current?.fitToWindow();
 		if (dimensions === undefined) return;
-		resize.mutate(
-			{ id: view.id, size: dimensions },
-			{
-				onSuccess: (updated) => {
-					setLive((previous) => ({
-						...previous,
-						rows: updated.size.rows,
-						cols: updated.size.cols,
-						state: updated.state,
-					}));
-					refresh();
-				},
-			},
-		);
+		resize.mutate({ id: view.id, size: dimensions }, { onSuccess: applyResized });
 	};
 
-	const loginShell = t`login shell`;
 	const signatureRequest: ApprovalRequest | undefined =
 		view !== undefined && signing
 			? {
@@ -432,7 +418,6 @@ export function TerminalPage() {
 					alwaysAllow: [],
 				}
 			: undefined;
-	const approval = view?.approval ?? null;
 	// The server builds the same compact request every approval surface renders (doc/design/access-control.md "Approvals").
 	const approvalRequest = view?.approvalRequest ?? undefined;
 
@@ -467,6 +452,11 @@ export function TerminalPage() {
 	}
 	if (view === undefined) return null;
 
+	const currentSize: PtySize = size ?? view.size;
+	// Both explicit resizes need a running terminal: the server rejects one otherwise, and the meta
+	// line shows plain text until there is something to resize.
+	const running = (liveState ?? view.state) === "running";
+
 	return (
 		<Page width="detail" data-testid="terminal-page">
 			<div>
@@ -481,29 +471,21 @@ export function TerminalPage() {
 			<PageHeader
 				title={
 					<span className="flex min-w-0 flex-wrap items-center gap-2">
-						<span className="min-w-0 break-words">{view.nodeName ?? view.nodeId}</span>
+						{/* The title is untrusted: plain text, truncated, with the full text on hover. */}
+						<span data-testid="terminal-heading" className="min-w-0 truncate" title={heading}>
+							{heading}
+						</span>
 						{view.privileged && <PrivilegedMark />}
 					</span>
 				}
-				titleText={view.nodeName ?? view.nodeId}
-				description={
-					title === "" ? undefined : (
-						<span
-							data-testid="terminal-title"
-							className="block max-w-full truncate text-xs text-muted-foreground"
-							title={title}
-						>
-							{title}
-						</span>
-					)
-				}
+				titleText={heading}
 				actions={
 					<>
 						<Button
 							type="button"
 							size="sm"
 							variant="outline"
-							disabled={(liveState ?? view.state) !== "running" || resize.isPending}
+							disabled={!running || resize.isPending}
 							onClick={fitToWindow}
 							data-testid="terminal-fit"
 						>
@@ -539,10 +521,26 @@ export function TerminalPage() {
 					</InternalLink>
 				</span>
 				<span aria-hidden="true">·</span>
-				<span data-testid="terminal-size">
-					<Trans>
-						Size: {size?.cols ?? view.size.cols} × {size?.rows ?? view.size.rows}
-					</Trans>
+				<span data-testid="terminal-size" className="inline-flex min-w-0 items-baseline">
+					{running ? (
+						<Trans>
+							Size:{" "}
+							<button
+								type="button"
+								className={linkClass}
+								aria-label={t`Resize terminal`}
+								aria-haspopup="dialog"
+								data-testid="terminal-size-button"
+								onClick={() => setResizing(true)}
+							>
+								{currentSize.cols} × {currentSize.rows}
+							</button>
+						</Trans>
+					) : (
+						<Trans>
+							Size: {currentSize.cols} × {currentSize.rows}
+						</Trans>
+					)}
 				</span>
 				<span aria-hidden="true">·</span>
 				<span className="inline-flex min-w-0 items-center gap-1">
@@ -603,13 +601,6 @@ export function TerminalPage() {
 					onDecide={(body: ApprovalBody) => {
 						decide.mutate({ id: view.id, body }, { onSuccess: () => refresh() });
 					}}
-					details={
-						approval?.method === "pty.io" ? (
-							<pre className="max-h-40 overflow-auto rounded bg-muted p-2 font-mono text-xs whitespace-pre-wrap break-words">
-								{approval.screen}
-							</pre>
-						) : undefined
-					}
 				/>
 			)}
 			{view.state !== "opening" && (
@@ -641,6 +632,15 @@ export function TerminalPage() {
 					<ViewerList viewers={viewers} />
 				</Panel>
 			</div>
+			{resizing && (
+				<ResizeTerminalDialog
+					terminal={view}
+					size={currentSize}
+					windowSize={() => viewer.current?.fitToWindow()}
+					onClose={() => setResizing(false)}
+					onResized={applyResized}
+				/>
+			)}
 			<ConfirmCloseDialog
 				open={confirmingClose}
 				terminal={view}
@@ -656,6 +656,121 @@ export function TerminalPage() {
 				}}
 			/>
 		</Page>
+	);
+}
+
+/** A resize field: a whole number crha accepts, or undefined when the text is not one. */
+function parseDimension(value: string): number | undefined {
+	const number = Number(value.trim());
+	return Number.isInteger(number) && number >= 1 && number <= MAX_DIMENSION ? number : undefined;
+}
+
+/**
+ * The explicit resize behind the size in the meta line: columns and rows, prefilled with the live
+ * size, or filled from the viewer's own window through the same measurement as Fit to window. The
+ * page sends the answer through the resize route and adopts the server's reply; a refusal stays in
+ * the dialog beside its fields.
+ */
+export function ResizeTerminalDialog({
+	terminal,
+	size,
+	windowSize,
+	onClose,
+	onResized,
+}: {
+	terminal: PtyView;
+	size: PtySize;
+	windowSize: () => TerminalDimensions | undefined;
+	onClose: () => void;
+	onResized: (terminal: PtyView) => void;
+}) {
+	const { t } = useLingui();
+	const resize = useResizeTerminal();
+	const [cols, setCols] = useState(String(size.cols));
+	const [rows, setRows] = useState(String(size.rows));
+	const [error, setError] = useState<string>();
+
+	const submit = async () => {
+		setError(undefined);
+		const nextCols = parseDimension(cols);
+		const nextRows = parseDimension(rows);
+		if (nextCols === undefined || nextRows === undefined) {
+			setError(t`Enter whole numbers from 1 to ${MAX_DIMENSION}.`);
+			return;
+		}
+		try {
+			const updated = await resize.mutateAsync({
+				id: terminal.id,
+				size: { cols: nextCols, rows: nextRows },
+			});
+			onResized(updated);
+			onClose();
+		} catch (caught) {
+			setError(errorMessage(caught));
+		}
+	};
+
+	const fillFromWindow = () => {
+		const next = windowSize();
+		if (next === undefined) return;
+		setCols(String(next.cols));
+		setRows(String(next.rows));
+	};
+
+	return (
+		<FormDialog
+			open
+			onOpenChange={(open) => {
+				if (!open) onClose();
+			}}
+			title={<Trans>Resize terminal</Trans>}
+			description={<Trans>Set the columns and rows every viewer adopts.</Trans>}
+			submitLabel={<Trans>Apply</Trans>}
+			busy={resize.isPending}
+			error={error}
+			onSubmit={() => void submit()}
+			testId="terminal-resize-dialog"
+		>
+			<div className="flex flex-wrap items-start gap-3">
+				<FieldShell id="terminal-resize-cols" label={<Trans>Columns</Trans>} className="w-28">
+					<Input
+						id="terminal-resize-cols"
+						type="number"
+						min={1}
+						max={MAX_DIMENSION}
+						inputMode="numeric"
+						value={cols}
+						disabled={resize.isPending}
+						onChange={(event) => setCols(event.target.value)}
+					/>
+				</FieldShell>
+				<FieldShell id="terminal-resize-rows" label={<Trans>Rows</Trans>} className="w-28">
+					<Input
+						id="terminal-resize-rows"
+						type="number"
+						min={1}
+						max={MAX_DIMENSION}
+						inputMode="numeric"
+						value={rows}
+						disabled={resize.isPending}
+						onChange={(event) => setRows(event.target.value)}
+					/>
+				</FieldShell>
+			</div>
+			<div>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					disabled={resize.isPending}
+					onClick={fillFromWindow}
+					data-testid="terminal-use-window-size"
+				>
+					<MaximizeIcon />
+					<Trans>Use window size</Trans>
+				</Button>
+			</div>
+		</FormDialog>
 	);
 }
 

@@ -36,7 +36,6 @@ export const TaskActionSchema = z
 			type: z.literal("pty.io"),
 			input: z.string().nullable().describe("The text the agent would type, clipped."),
 			keys: z.array(z.string()).describe("The named keys the agent would send, such as Enter or Ctrl-C."),
-			screen: z.string().describe("The terminal's screen when the request was made, clipped."),
 		}),
 	])
 	.meta({ id: "TaskAction", description: "What a task or a waiting approval does, ready for display." });

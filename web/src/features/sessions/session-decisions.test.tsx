@@ -3,6 +3,7 @@ import type {
 	ApprovalRequest,
 	ExternalCallView,
 	PendingAuthorization,
+	PtyApprovalItem,
 	TaskGroupView,
 	TaskView,
 } from "@crh/api";
@@ -85,6 +86,35 @@ const quota = (sessionId: string, since: string) => ({
 	budgetUsedTokens: 1,
 });
 
+/** One terminal rule approval or signature wait as the approvals list returns it. */
+const ptyItem = (
+	terminalId: string,
+	createdAt: string,
+	phase: "awaiting_user" | "awaiting_signature",
+	rootSessionId = "root",
+): PtyApprovalItem => ({
+	terminalId,
+	nodeId: "node-1",
+	nodeName: "worker-01",
+	userId: "u1",
+	username: "ops",
+	rootSessionId,
+	createdAt,
+	request: {
+		kind: "pty",
+		id: terminalId,
+		phase,
+		source: { type: "session", sessionId: rootSessionId, title: "Terminal work" },
+		action:
+			phase === "awaiting_signature"
+				? { type: "pty.create", argv: ["/bin/sh"] }
+				: { type: "pty.io", input: "rm -rf /", keys: ["Enter"] },
+		nodes: ["worker-01"],
+		privileged: false,
+		alwaysAllow: [],
+	},
+});
+
 const taskRequest = (id: string, review?: ApprovalRequest["review"]): ApprovalRequest => ({
 	kind: "task",
 	id,
@@ -130,6 +160,7 @@ const data = (): ApprovalList => ({
 	authorizations: {
 		tasks: [task("sign-older", "2026-01-01T00:00:00.000Z"), task("sign-later", "2026-01-02T00:00:00.000Z")],
 		taskGroups: [group("sign-group", "2026-01-04T00:00:00.000Z")],
+		ptys: [],
 	},
 	quotas: [quota("other", "2026-01-01T00:00:00.000Z"), quota("root", "2026-01-02T00:00:00.000Z")],
 	ptys: [],
@@ -177,6 +208,34 @@ describe("sessionDecisions", () => {
 			false,
 		);
 		expect(decisions.some((decision) => decision.kind === "quota" && decision.wait.sessionId === "other")).toBe(false);
+	});
+
+	test("adds a terminal rule approval and a terminal signature wait in the tree", () => {
+		const approval = ptyItem("pty-approval", "2026-01-01T00:00:00.000Z", "awaiting_user");
+		const signature = ptyItem("pty-signature", "2026-01-02T00:00:00.000Z", "awaiting_signature");
+		const elsewhere = ptyItem("pty-elsewhere", "2026-01-01T00:00:00.000Z", "awaiting_user", "another-root");
+		const list: ApprovalList = {
+			tasks: [],
+			taskGroups: [],
+			externalCalls: [],
+			ptys: [approval, elsewhere],
+			authorizations: { tasks: [], taskGroups: [], ptys: [signature] },
+			quotas: [],
+			requests: [approval.request, elsewhere.request, signature.request],
+		};
+
+		const decisions = sessionDecisions(list, "root");
+		expect(decisions.map((decision) => decision.kind)).toEqual(["approval_pty", "signature_pty"]);
+		expect(decisions[0]).toMatchObject({
+			kind: "approval_pty",
+			item: { terminalId: "pty-approval" },
+			request: { kind: "pty", id: "pty-approval" },
+		});
+		expect(decisions[1]).toMatchObject({
+			kind: "signature_pty",
+			item: { terminalId: "pty-signature" },
+			request: { kind: "pty", id: "pty-signature", phase: "awaiting_signature" },
+		});
 	});
 
 	test("an unloaded approvals list has no decisions", () => {
@@ -361,6 +420,40 @@ describe("SessionDecisionDock", () => {
 		fireEvent.click(screen.getByRole("button", { name: "resolve first" }));
 		await waitFor(() => expect(within(dock).getByTestId("decision-detail")).toHaveTextContent("echo second"));
 		expect(within(dock).queryByText("1 of 2")).not.toBeInTheDocument();
+	});
+
+	test("a terminal signature wait renders the shared signature panel and links to its terminal", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (input: RequestInfo | URL) => {
+				const path = new URL(String(input), "http://localhost").pathname;
+				const body =
+					path === "/api/ptys/pty-signature/authorization"
+						? { phase: "preparing", authorization: null }
+						: path === "/api/ptys/pty-signature/authorization/reject"
+							? { ok: true }
+							: {};
+				return new Response(JSON.stringify(body), {
+					status: 200,
+					headers: { "content-type": "application/json" },
+				});
+			}),
+		);
+		const item = ptyItem("pty-signature", "2026-01-01T00:00:00.000Z", "awaiting_signature");
+		await renderWithRouter(
+			<SessionDecisionDock decisions={[{ kind: "signature_pty", item, request: item.request }]} />,
+		);
+		const dock = await screen.findByTestId("session-decisions");
+		expect(dock).toHaveAttribute("data-decision", "signature_pty");
+		expect(within(dock).getByText("Your signature is needed")).toBeVisible();
+		expect(await within(dock).findByText("Preparing the payload to sign…")).toBeVisible();
+		expect(within(dock).getByRole("link", { name: "Terminal details" })).toHaveAttribute(
+			"href",
+			"/terminals/pty-signature",
+		);
+		expect(
+			vi.mocked(fetch).mock.calls.some(([input]) => String(input).endsWith("/api/ptys/pty-signature/authorization")),
+		).toBe(true);
 	});
 
 	test("the next signature wait starts clean after the first is signed", async () => {

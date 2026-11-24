@@ -150,9 +150,11 @@ function externalCallRow(call: ExternalCallView, request: ApprovalRequest | unde
 
 function ptyRow(item: PtyApprovalItem, i18n: I18n): DecisionRow {
 	const operation = actionText(i18n, item.request.action);
+	// A privileged terminal waiting for the owner's signature is the signature variant of the same row.
+	const type: DecisionType = item.request.phase === "awaiting_signature" ? "signature" : "approval";
 	return {
-		key: `approval:pty:${item.terminalId}`,
-		type: "approval",
+		key: `${type}:pty:${item.terminalId}`,
+		type,
 		operation,
 		requestNodes: item.request.nodes ?? [],
 		moreNodes: item.request.moreNodes,
@@ -183,8 +185,8 @@ function SourceCell({ row }: { row: DecisionRow }) {
 
 /**
  * The Approvals page (doc/design/webui.md "Approvals page"): one table of everything waiting for this
- * user — task approvals, task-group approvals, tasks waiting for the user's
- * signature and roots whose token quota is used up. Rows read the server's compact approval request when
+ * user — task, task-group and terminal approvals, tasks, task groups and privileged terminals waiting
+ * for the user's signature, and roots whose token quota is used up. Rows read the server's compact approval request when
  * one is present; a row opens the matching detail page, where the decision itself is made. The sidebar
  * badge counts the same rows (`pending.ts`).
  */
@@ -212,6 +214,7 @@ export function ApprovalsPage() {
 			...data.authorizations.taskGroups.map((taskGroup) =>
 				taskGroupRow("signature", taskGroup, requests.get(requestKey("task_group", taskGroup.id)), i18n),
 			),
+			...(data.authorizations.ptys ?? []).map((item) => ptyRow(item, i18n)),
 			...data.quotas.map((wait) => quotaRow(wait, i18n)),
 		];
 	}, [data, i18n]);

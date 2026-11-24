@@ -16,8 +16,14 @@ export const ApprovalListSchema = z
 		externalCalls: z.array(ExternalCallViewSchema).describe("External MCP calls waiting for this user's approval."),
 		ptys: z.array(PtyApprovalItemSchema).describe("Agent terminal requests waiting for this user's approval."),
 		authorizations: z
-			.object({ tasks: z.array(TaskViewSchema), taskGroups: z.array(TaskGroupViewSchema) })
-			.describe("Tasks and task groups waiting for the caller's signature."),
+			.object({
+				tasks: z.array(TaskViewSchema),
+				taskGroups: z.array(TaskGroupViewSchema),
+				ptys: z
+					.array(PtyApprovalItemSchema)
+					.describe("Agent-created privileged terminals waiting for the caller's signature."),
+			})
+			.describe("Tasks, task groups and terminals waiting for the caller's signature."),
 		quotas: z.array(QuotaApprovalSchema),
 		requests: z
 			.array(ApprovalRequestSchema)

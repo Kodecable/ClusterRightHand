@@ -34,6 +34,17 @@ export function terminalStateTone(state: PtyState | string): StatusTone {
 }
 
 /**
+ * The terminal page's heading (doc/design/pty.md "WebUI"): the title the program set, else the command
+ * line as the argv joined with spaces, else the generic terminal label ("Terminal"). The title is
+ * untrusted text and is rendered as plain text; the node stays in the browser tab and the meta line.
+ */
+export function terminalHeading(title: string, argv: readonly string[], fallback: string): string {
+	const programTitle = title.trim();
+	if (programTitle !== "") return programTitle;
+	return argv.length === 0 ? fallback : argv.join(" ");
+}
+
+/**
  * The command of a terminal as one shell line: the argv shell-quoted, or `loginShell` for the empty argv
  * that runs the identity's login shell. The same rendering the server's `pty.create` target uses.
  */

@@ -306,6 +306,15 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 			);
 		});
 	});
+	// A privileged terminal's signature wait is the acting session's wait too (doc/design/pty.md "Approvals").
+	terminals.setAuthorizationListener((sessionId) => {
+		void runtime.refreshState(sessionId).catch((err: unknown) => {
+			console.error(
+				`agent runtime: refreshing the state of session ${sessionId} after a terminal authorization failed:`,
+				err,
+			);
+		});
+	});
 	// Signature waits that outlived their deadline while crhs was down end before requests are served.
 	await cluster.sweepAuthorizationWaits();
 	// A token that expired while crhs was down must not leave its waiting work behind either.

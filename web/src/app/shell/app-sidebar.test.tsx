@@ -48,7 +48,7 @@ async function renderSidebar(pendingApprovals: number, user: User = ADMIN, ptyEn
 					tasks: Array.from({ length: pendingApprovals }, () => ({})),
 					taskGroups: [],
 					externalCalls: [],
-					authorizations: { tasks: [], taskGroups: [] },
+					authorizations: { tasks: [], taskGroups: [], ptys: [] },
 					quotas: [],
 				});
 			}
@@ -90,6 +90,19 @@ describe("AppSidebar terminal entry", () => {
 	test("shows Terminals only while the subsystem is on", async () => {
 		await renderSidebar(0, ADMIN, true);
 		expect(await screen.findByTestId("nav-terminals")).toHaveTextContent("Terminals");
+	});
+
+	test("places Terminals directly below Library", async () => {
+		await renderSidebar(0, ADMIN, true);
+		await screen.findByTestId("nav-library");
+		await screen.findByTestId("nav-terminals");
+		const links = screen
+			.getAllByRole("link")
+			.filter((link) => link.hasAttribute("data-nav-link"))
+			.map((link) => link.getAttribute("data-testid"));
+		const library = links.indexOf("nav-library");
+		expect(library).toBeGreaterThanOrEqual(0);
+		expect(links[library + 1]).toBe("nav-terminals");
 	});
 
 	test("hides Terminals while the subsystem is off", async () => {

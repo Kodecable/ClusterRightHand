@@ -1,4 +1,4 @@
-import type { ApprovalList, SessionListItem, SessionView, TaskView } from "@crh/api";
+import type { ApprovalList, PtyView, SessionListItem, SessionView, TaskView } from "@crh/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	createMemoryHistory,
@@ -12,6 +12,7 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { approvalKeys } from "@/features/approvals/api";
+import { terminalKeys } from "@/features/terminals/api";
 import { LocaleProvider } from "@/lib/i18n";
 import { activateLocale } from "@/test/render";
 import { sessionKeys } from "./api";
@@ -40,7 +41,7 @@ const APPROVALS: ApprovalList = {
 	taskGroups: [],
 	externalCalls: [],
 	ptys: [],
-	authorizations: { tasks: [], taskGroups: [] },
+	authorizations: { tasks: [], taskGroups: [], ptys: [] },
 	quotas: [],
 	requests: [],
 };
@@ -92,7 +93,7 @@ function waitingApprovals(tasks: TaskView[], quotas: ApprovalList["quotas"] = []
 		taskGroups: [],
 		externalCalls: [],
 		ptys: [],
-		authorizations: { tasks: [], taskGroups: [] },
+		authorizations: { tasks: [], taskGroups: [], ptys: [] },
 		quotas,
 		requests: approvalRequests(tasks),
 	};
@@ -139,6 +140,36 @@ function sessionView(overrides: Partial<SessionView> = {}): SessionView {
 			cacheReadTokens: 0,
 		},
 		forkedFrom: null,
+		...overrides,
+	};
+}
+
+/** One terminal the session created, as the terminal list returns it. */
+function ptyView(overrides: Partial<PtyView> = {}): PtyView {
+	return {
+		id: "pty-1",
+		nodeId: "node-1",
+		nodeName: "worker-01",
+		userId: "u1",
+		username: "ops",
+		privileged: false,
+		argv: [],
+		size: { rows: 24, cols: 80 },
+		title: "",
+		state: "running",
+		exitCode: null,
+		creatingSessionId: "s1",
+		sessionIds: [],
+		idleTimeoutMs: null,
+		openedAt: "2026-01-01T00:00:00.000Z",
+		endedAt: null,
+		lastActivityAt: "2026-01-01T00:00:00.000Z",
+		viewers: [],
+		authorization: null,
+		authorizationPhase: null,
+		rejection: null,
+		approval: null,
+		approvalRequest: null,
 		...overrides,
 	};
 }
@@ -208,6 +239,7 @@ async function renderSessionPage({
 	entry,
 	olderPage,
 	approvals,
+	terminals,
 }: {
 	session: SessionView;
 	treeRow?: SessionListItem;
@@ -219,9 +251,12 @@ async function renderSessionPage({
 	olderPage?: (before: string) => SessionEntriesPage;
 	/** The approvals list the test answers, read on every poll/refetch so a decision can settle it. */
 	approvals?: () => ApprovalList;
+	/** The terminals the terminal list answers, seeded before the page renders. */
+	terminals?: PtyView[];
 }) {
 	const requests: URL[] = [];
 	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+	if (terminals !== undefined) client.setQueryData(terminalKeys.list(), { enabled: true, terminals });
 	if (treeRow !== undefined) {
 		client.setQueryData(sessionKeys.listPage("mine", ""), {
 			pages: [{ items: [treeRow], nextCursor: null }],
@@ -245,6 +280,7 @@ async function renderSessionPage({
 			if (path === `/api/sessions/${session.id}`) return json({ session, shares: [] });
 			if (path === "/api/models") return json({ models: [] });
 			if (path === "/api/approvals") return json(approvals?.() ?? APPROVALS);
+			if (path === "/api/ptys") return json({ enabled: true, terminals: terminals ?? [] });
 			if (path === "/api/nodes") return json({ nodes: [] });
 			if (path === "/api/node-groups") return json({ groups: [] });
 			if (path === "/api/api-tokens") return json({ tokens: [] });
@@ -321,6 +357,12 @@ describe("SessionPage layout", () => {
 		expect(header).not.toHaveTextContent("Idle");
 		expect(header.querySelector("[data-testid='abort-session']")).toBeNull();
 		expect(header.querySelector("[data-testid='session-title']")).not.toBeNull();
+	});
+
+	test("no terminal strip sits under the session header", async () => {
+		await renderSessionPage({ session: sessionView(), terminals: [ptyView()] });
+		await screen.findByTestId("session-page");
+		expect(screen.queryByTestId("session-terminals")).not.toBeInTheDocument();
 	});
 
 	test("the owner's open session marks its tree read and clears the row optimistically", async () => {

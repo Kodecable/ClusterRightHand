@@ -1,6 +1,15 @@
-import type { AvailableModel, JobView, TodoItem } from "@crh/api";
+import type { AvailableModel, JobView, PtyApprovalItem, TodoItem } from "@crh/api";
 import { expect, type Page, test } from "@playwright/test";
-import { login, mockApi, openSession, sessionListItem, sessionView, snapshotEvent, userEntry } from "./helpers";
+import {
+	emptyApprovals,
+	login,
+	mockApi,
+	openSession,
+	sessionListItem,
+	sessionView,
+	snapshotEvent,
+	userEntry,
+} from "./helpers";
 
 const MODELS: AvailableModel[] = [
 	{
@@ -55,6 +64,53 @@ test("the composer shows the model, the rule preset and the budget in the footer
 	await expect(page.getByTestId("session-header").getByTestId("session-title")).toBeVisible();
 	await expect(page.getByTestId("session-extensions")).toHaveCount(0);
 	await expect(page.getByTestId("session-header").getByTestId("composer-budget")).toHaveCount(0);
+});
+
+test("a terminal approval in the session tree shows in the dock and decides through the terminal route", async ({
+	page,
+}) => {
+	const item = sessionListItem({ id: "s1", title: "Terminal session" });
+	const ptyApproval: PtyApprovalItem = {
+		terminalId: "pty-1",
+		nodeId: "node-1",
+		nodeName: "worker-01",
+		userId: "user-1",
+		username: "ops",
+		rootSessionId: "s1",
+		createdAt: "2026-01-01T00:00:00.000Z",
+		request: {
+			kind: "pty",
+			id: "pty-1",
+			phase: "awaiting_user",
+			source: { type: "session", sessionId: "s1", title: "Terminal session" },
+			action: { type: "pty.io", input: "rm -rf /", keys: ["Enter"] },
+			nodes: ["worker-01"],
+			privileged: false,
+			alwaysAllow: [
+				{ option: "request", rule: { action: "allow", method: "pty.io", nodes: ["node-1"], privileged: false } },
+			],
+		},
+	};
+	const api = await mockApi(page, {
+		state: {
+			sessions: [item],
+			details: { s1: sessionView(item, { state: "awaiting", waitingKind: "approval" }) },
+			events: { s1: snapshotEvent([userEntry("u1", "open a terminal")], null) },
+			approvals: { ...emptyApprovals(), ptys: [ptyApproval], requests: [ptyApproval.request] },
+		},
+	});
+	await login(page);
+	await openSession(page, api, "s1");
+
+	const dock = page.getByTestId("session-decisions");
+	await expect(dock).toBeVisible();
+	await expect(dock).toHaveAttribute("data-decision", "approval_pty");
+	await expect(dock.getByTestId("decision-detail")).toContainText("rm -rf /");
+	await dock.getByRole("button", { name: "Approve", exact: true }).click();
+	await expect.poll(() => api.state.requests.some((request) => request.url === "/api/ptys/pty-1/approval")).toBe(true);
+	const approval = api.state.requests.find((request) => request.url === "/api/ptys/pty-1/approval");
+	expect(approval?.method).toBe("POST");
+	expect(approval?.body).toEqual({ decision: "approve" });
 });
 
 test("the owner turns a session extension off from the header", async ({ page }) => {

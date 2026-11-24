@@ -147,7 +147,7 @@ agent sessions and to the MCP SDK, so the two surfaces cannot drift.
 | `read_file`, `write_file`, `edit_file`, `list_dir`, `stat` | File operations |
 | `copy_file`, `view_image` | Whole-file copies between nodes and libraries (or an offer to the people in the session, `destination.user_interface`), and image input through a `beforeRequest` hook and a cache ([Agent tools](library.md#agent-tools)) |
 | `job_wait`, `job_cancel`, `job_list` | Follow, cancel or list the jobs these tools start ([Jobs](jobs.md)) |
-| `pty_open`, `pty_list`, `pty_read`, `pty_watch`, `pty_write`, `pty_resize`, `pty_close` | [Terminals](pty.md#agent-tools) the session created or is associated with; agent sessions only, while the subsystem is on. `pty_open` and `pty_write`/`pty_resize` follow the session's rules under `pty.create` and `pty.io`; a waiting rule approval is shown on the terminal page, and Auto Review sees the screen |
+| `pty_open`, `pty_list`, `pty_read`, `pty_watch`, `pty_write`, `pty_resize`, `pty_close` | [Terminals](pty.md#agent-tools) the session created or is associated with; agent sessions only, while the subsystem is on. `pty_open` and `pty_write`/`pty_resize` follow the session's rules under `pty.create` and `pty.io`; a waiting rule approval is shown on the terminal page and in its session's decision dock, a privileged open's signature wait in the same dock, and Auto Review sees the screen |
 | `todo_write` | A root session's todo list, replaced whole; attached to its compaction summary ([Todo list](todo.md)) |
 | `search_tools`, `call_tool` | Find and call an extension's tools, MCP or built-in ([Extensions](extensions.md)) |
 | `ext__<extension>__<tool>` | A "list directly" extension's tool, called without `call_tool` |
@@ -472,7 +472,8 @@ Every session has a stored run state, so lists can filter and sort in SQL withou
 
 - When several waits exist, quota outranks approval, which outranks signature.
 - Approval and signature waits follow the state of the tasks the session started, an external call's
-  own row, and a terminal rule approval waiting in memory with its terminal ([Terminals](pty.md#approvals)).
+  own row, a terminal rule approval waiting in memory with its terminal and a privileged terminal's
+  signature wait ([Terminals](pty.md#approvals)).
 - State recomputation is serialized and coalesced per session, so two quick changes cannot land out of
   order.
 - At startup, after durable resumes runs and before crhs accepts requests, every stored state is

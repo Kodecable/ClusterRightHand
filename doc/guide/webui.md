@@ -345,26 +345,39 @@ access ends without running.
 
 ## Terminals
 
-**Terminals** is in the Work group of the sidebar and lists the terminals you may see: your own, or
-every terminal for an administrator. The list shows the node, the program's title, user, privileged
-flag, state, creating session, associated sessions, viewers and age. A program can set the terminal
-title; it is untrusted text and never replaces the node name. **New terminal** picks an active crha
-node (SSH nodes have no terminals) along with an optional command, the privileged mode and a size;
-leave the command empty for the node identity's login shell. A privileged terminal first waits for its
-signature: the terminal page shows the same signing options as a privileged task.
+**Terminals** is in the Work group of the sidebar, directly below **Library**, and lists the
+terminals you may see: your own, or every terminal for an administrator. The list shows the node, the
+program's title, user, state, creating session, associated sessions and age; a privileged terminal
+carries a **Privileged** mark beside its title. It has no Viewers column. A program can set the
+terminal title; it is untrusted text and never replaces the node name. **New terminal** picks an
+active crha node (SSH nodes have no terminals) along with an optional command, the privileged mode
+and a size; leave the command empty for the node identity's login shell. A privileged terminal first
+waits for its signature: the terminal page shows the same signing options as a privileged task.
 
 `/terminals/<id>` attaches with xterm.js. The terminal has one size: attaching or resizing the browser
-window changes nothing. The viewer scales its font so the whole rows × columns grid fits the page; if
-the text would be smaller than a sensible minimum, the terminal area scrolls instead of cropping and
-the page itself never scrolls sideways. **Fit to window** resizes the terminal to the viewer's area at
-the default font size, for every viewer, instead of only changing one browser's font. The page
-heading is the node name, with the program's title under it and one meta line for the state, node,
-size, creating user and exit code. Several viewers can attach and all of them can type; the viewer
-list shows each user once with a count when they have several attachments. The associations use the
-same searchable picker as the rest of the WebUI and offer only the terminal user's sessions. Opening
-the page focuses the terminal. A short hint reminds you that selecting text needs Shift while a
-program uses the mouse; mouse clicks and movement are never sent to the shared shell, but the wheel
-still scrolls and reaches programs that use it.
+window changes nothing. The viewer picks its font from the available width and only caps it by the
+layout viewport height (the browser window, not the space a soft keyboard leaves) minus everything
+the page shows above the terminal box and around it, so a phone's soft keyboard does not make the
+text jump, a height-only change moves only a grid taller than the window, and the last rows stay
+visible without scrolling. The terminal box is exactly as tall as the grid; when that is taller than
+the window allows, scroll the page, and if the text would be smaller than a sensible minimum the
+terminal area scrolls sideways instead of cropping. The page itself never scrolls sideways. **Fit to
+window** resizes the terminal to the viewer's area at the default font size, keeping the terminal's
+default 80:24 shape (the width fills first; if the height cannot hold those rows, the height decides
+and the narrower grid stays centred), for every viewer, instead of only changing one browser's font.
+The size in the meta line is a link that opens the same resize as a dialog: columns
+and rows, **Use window size**, then **Cancel** or **Apply**; an exited terminal shows the size as
+plain text. The page heading is the program's
+title; without one it is the command line, the argv joined with spaces, or the localized "Terminal"
+for an empty argv. The browser tab and top bar read `<heading> · <node>`, and one meta line carries
+the state, node, size, creating user and exit code. The title is untrusted text: it is shown plain,
+truncated, with its full text on hover. Several viewers can attach and all of them can type; the
+viewer list shows each user once with a count when they have several attachments. The associations use
+the same searchable picker as the rest of the WebUI and offer only the terminal user's sessions.
+Opening the page focuses the terminal. A short hint reminds you that selecting text needs Shift while
+a program uses the mouse; it sits on the **Extra keys** toggle's row, left of the toggle, and wraps
+with it on a narrow screen. Mouse clicks and movement are never sent to the shared shell, but the
+wheel still scrolls and reaches programs that use it.
 
 The extra-keys bar below the terminal provides Esc, Tab, Ctrl, Alt, the arrows, Home, End, PgUp, PgDn
 and `| ~ / -`, and scrolls sideways when it does not fit. It appears by default on a touch device; the
@@ -373,15 +386,18 @@ tap applies them to the next key, a double tap locks them until you tap again. T
 keyboard while Ctrl is active becomes the matching control character, and Alt prefixes it with ESC.
 
 An exited terminal keeps its last screen for five minutes or until the last viewer detaches, then
-disappears. A session page lists the session's terminals.
+disappears.
 
 A background job started in a terminal ends with the shell: crha closes the process group with a
 hangup and then a kill, so `nohup`-style children that leave the group may survive only as long as the
 shell did. Keep long work in `exec` tasks, which outlive your browser and keep their output.
 
 Terminal rule approvals (`pty.create` for opening one, `pty.io` for typing and resizing) appear on the
-terminal page while they wait, with **Approve**, **Always allow** and **Reject** like other approvals.
-Reading a terminal needs no approval.
+terminal page while they wait, with **Approve**, **Always allow** and **Reject** like other approvals;
+they also appear in the session's docked decision panel, which decides them through the terminal's own
+route. A privileged terminal opened by an agent waits for your signature there too. A person-opened
+privileged terminal waits for its signature on the terminal page. No approval shows the terminal's
+screen: that stays on the server for Auto Review. Reading a terminal needs no approval.
 
 ## Settings
 

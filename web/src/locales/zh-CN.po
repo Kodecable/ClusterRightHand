@@ -375,10 +375,6 @@ msgstr "节点组名称不能以“_”开头：以“_”开头的名称保留�
 msgid "A path is required."
 msgstr "需要填写路径。"
 
-#: src/features/terminals/new-terminal-dialog.tsx
-msgid "A privileged terminal waits for your signature before it opens."
-msgstr "特权终端在打开前会等待你的签名。"
-
 #: src/features/schedules/scheduleForm.ts
 msgid "A prompt is required."
 msgstr "需要填写提示词。"
@@ -788,6 +784,10 @@ msgstr "API 令牌 {0}"
 #: src/features/tokens/pages.tsx
 msgid "API tokens"
 msgstr "API 令牌"
+
+#: src/features/terminals/pages.tsx
+msgid "Apply"
+msgstr "应用"
 
 #: src/components/task-facts.tsx
 #: src/features/approvals/pages.tsx
@@ -1389,6 +1389,7 @@ msgid "Collapse the subagent's jobs"
 msgstr "收起子代理的后台任务"
 
 #: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
 msgid "Columns"
 msgstr "列数"
 
@@ -2279,6 +2280,7 @@ msgid "Enter at least 1 token, or leave it empty for unlimited."
 msgstr "至少输入 1 个 token，或留空表示不限。"
 
 #: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
 msgid "Enter whole numbers from 1 to {MAX_DIMENSION}."
 msgstr "请输入 1 到 {MAX_DIMENSION} 之间的整数。"
 
@@ -3057,9 +3059,12 @@ msgstr "{0} 上的本地窗口"
 msgid "Log out"
 msgstr "退出登录"
 
-#: src/features/terminals/pages.tsx
 #: src/lib/action-text.ts
 msgid "login shell"
+msgstr "登录 shell"
+
+#: src/features/terminals/pages.tsx
+msgid "Login shell"
 msgstr "登录 shell"
 
 #: src/features/system-settings/terminals-section.tsx
@@ -3878,10 +3883,6 @@ msgstr "新用户的单个文件"
 msgid "Online"
 msgstr "在线"
 
-#: src/features/terminals/new-terminal-dialog.tsx
-msgid "Only active crha nodes have terminals; SSH nodes cannot open one."
-msgstr "只有活动的 crha 节点才有终端；SSH 节点无法打开终端。"
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "只有管理员可以管理 SSH 凭据。"
@@ -3928,10 +3929,6 @@ msgstr "打开与名为 {0} 的机器人的私聊。"
 #: src/features/terminals/pages.tsx
 msgid "Open a terminal on a crha node to run an interactive shell."
 msgstr "在 crha 节点上打开终端以运行交互式 shell。"
-
-#: src/features/terminals/new-terminal-dialog.tsx
-msgid "Open an interactive shell on a crha node. Several people can watch and type in it."
-msgstr "在 crha 节点上打开一个交互式 shell。多人可以同时观看并在其中输入。"
 
 #: src/components/task-facts.tsx
 msgid "Open approval page"
@@ -4226,7 +4223,6 @@ msgstr "预览 {name}"
 
 #: src/components/privileged-mark.tsx
 #: src/components/task-form-fields.tsx
-#: src/features/terminals/pages.tsx
 msgid "Privileged"
 msgstr "特权"
 
@@ -4671,6 +4667,10 @@ msgstr "重置密码"
 msgid "Reset the password of {0}"
 msgstr "重置 {0} 的密码"
 
+#: src/features/terminals/pages.tsx
+msgid "Resize terminal"
+msgstr "调整终端尺寸"
+
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Responses"
@@ -4738,6 +4738,7 @@ msgid "Route"
 msgstr "路由"
 
 #: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
 msgid "Rows"
 msgstr "行数"
 
@@ -5120,6 +5121,10 @@ msgstr "已设置"
 msgid "Set password"
 msgstr "设置密码"
 
+#: src/features/terminals/pages.tsx
+msgid "Set the columns and rows every viewer adopts."
+msgstr "设置所有查看者都会采用的列数和行数。"
+
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Set the RP ID and at least one allowed origin together, or leave both empty."
 msgstr "RP ID 和至少一个允许的源必须一起设置，或都留空。"
@@ -5266,11 +5271,17 @@ msgstr "签名凭据"
 msgid "Size"
 msgstr "大小"
 
-#. placeholder {0}: size?.cols ?? view.size.cols
-#. placeholder {1}: size?.rows ?? view.size.rows
+#. placeholder {0}: currentSize.cols
+#. placeholder {1}: currentSize.rows
 #: src/features/terminals/pages.tsx
 msgid "Size: {0} × {1}"
 msgstr "尺寸：{0} × {1}"
+
+#. placeholder {0}: currentSize.cols
+#. placeholder {1}: currentSize.rows
+#: src/features/terminals/pages.tsx
+msgid "Size: <0>{0} × {1}</0>"
+msgstr "尺寸：<0>{0} × {1}</0>"
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "Skipped"
@@ -5589,6 +5600,10 @@ msgstr "技术信息"
 msgid "Terminal"
 msgstr "终端"
 
+#: src/features/sessions/session-decisions.tsx
+msgid "Terminal details"
+msgstr "终端详情"
+
 #: src/lib/action-text.ts
 msgid "Terminal input"
 msgstr "终端输入"
@@ -5596,7 +5611,6 @@ msgstr "终端输入"
 #: src/app/shell/nav.ts
 #: src/features/system-settings/terminals-section.tsx
 #: src/features/terminals/pages.tsx
-#: src/features/terminals/session-terminals.tsx
 msgid "Terminals"
 msgstr "终端"
 
@@ -6347,6 +6361,10 @@ msgstr "使用第一个可用的模型"
 #: src/features/settings/model-presets.tsx
 msgid "Use the session's model"
 msgstr "使用会话的模型"
+
+#: src/features/terminals/pages.tsx
+msgid "Use window size"
+msgstr "使用窗口尺寸"
 
 #. placeholder {0}: formatNumber(status.remaining, i18n.locale)
 #: src/lib/quota.ts

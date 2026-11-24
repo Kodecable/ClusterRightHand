@@ -341,12 +341,12 @@ nodes come later.
 ### Approvals page
 
 The approvals page is one table of everything waiting for the signed-in user: task approvals, task
-group approvals, agent terminal approvals, tasks waiting for the user's signature, and sessions whose
-token quota ran out. The
+group approvals, agent terminal approvals, tasks and task groups waiting for the user's signature,
+agent-created privileged terminals waiting for a signature, and sessions whose token quota ran out. The
 columns are the type, the operation, the target nodes by name, the source and when, read from the compact
 `ApprovalRequest` the server returns beside every waiting item (a signature wait's phase is
-`awaiting_signature`; a terminal approval is kind `pty` and its row opens `/terminals/:id`); the whole
-row opens its detail. The source column header is **Source**, never a
+`awaiting_signature`; a terminal approval or signature wait is kind `pty` and its row opens
+`/terminals/:id`); the whole row opens its detail. The source column header is **Source**, never a
 raw `api_token:<uuid>`. A task, task group or
 external call detail shows the same decision card (a task in `awaiting_authorization` shows the
 signature variant) with the shared request details below it, and a quota row opens its session, where
@@ -391,34 +391,58 @@ it, and **Delete** also removes the channel's linked accounts and threads. The l
 
 ### Terminals page
 
-**Terminals** is in the Work group of the navigation, hidden while the subsystem is off. It lists the
-terminals the user can see, every one for an administrator, with node, the program's title, user,
-privileged flag, state, creating session, associated sessions, viewers and age. The title is
-untrusted text the program set; it is a column of its own and never replaces the node name. **New
+**Terminals** is in the Work group of the navigation, directly below Library, hidden while the
+subsystem is off. It lists the terminals the user can see, every one for an administrator, with node,
+the program's title, user, state, creating session, associated sessions and age. The title is
+untrusted text the program set; it is a column of its own and never replaces the node name, and a
+privileged terminal carries the shared Privileged mark beside its title instead of a column of its
+own. The list has no Viewers column: viewers belong to the terminal's page. **New
 terminal** picks an active crha node through the shared `EntityPicker`, which asks the node list for
 client-transport nodes only, plus an optional command, the privileged mode and a size; a privileged
 one waits on the signature panel like a privileged task. `/terminals/$id` attaches with xterm.js,
-bundled with the WebUI. The heading is the node name, the program's title is a secondary line under
-it, and one small grey meta line carries the state, node, size, creating user and the exit code once
-the process exited; there is no separate facts card and no exit banner. Several viewers share a
-terminal and all of them can type. The terminal keeps its own size: attaching or resizing the window
-changes nothing, and the viewer scales its font so the full rows × columns grid fits width and
-height, recomputed on window and terminal resize; below a sensible minimum font the terminal area
-scrolls instead of cropping, and the page never scrolls horizontally. **Fit to window** is the
-explicit resize: it computes the grid that fills the viewer's terminal area at the default font size
-and sends it through `POST /api/ptys/:id/resize`, so every viewer adopts the new size and each one's
-font scaling fits it. Opening or returning to the page focuses the terminal. The other viewers are
-listed once per user, with a count for several attachments and no client address or attach time (the
-audit keeps both); the associations are edited with the server-searched session `EntityPicker`,
-restricted to the terminal user's own sessions. An **extra-keys bar** below the terminal sends Esc,
-Tab, sticky Ctrl and Alt, the arrows, Home, End, PgUp, PgDn and `| ~ / -` through xterm.js's textarea,
-so xterm generates the sequence for the current modes; it scrolls horizontally when needed, is shown
-by default on touch devices and can be toggled on desktop with the choice remembered. A viewer
-forwards no data from mouse clicks, buttons or movement, only from the wheel, and a hint says that
-selecting text needs Shift while a program uses the mouse ([Terminals](pty.md#webui)). While an
+bundled with the WebUI. The heading is the program's title; without one it is the command line (the
+argv joined with spaces, or the localized "Terminal" for an empty argv), and the browser tab and
+top bar show `<heading> · <node>`. One small grey meta line carries the state, node, size, creating
+user and the exit code once the process exited; there is no separate facts card, title line or exit
+banner. The title is untrusted text: plain, truncated, with its full text on hover. Several viewers
+share a terminal and all of them can type. The terminal keeps its own size: attaching or resizing the
+window changes nothing. The viewer scales its font so the full rows × columns grid fits: the
+available width picks the font, and the height of the *layout* viewport (`window.innerHeight`, not the
+visual viewport that a soft keyboard shrinks) minus the terminal box's top in the unscrolled layout —
+everything above the box, the app top bar, the back link, the heading, the actions and the meta line
+included — the extra-keys bar when shown and the viewer box's own vertical padding and border only
+caps it, so a soft keyboard cannot make the text jump, a height-only change only matters for a grid
+taller than the window, and the last rows stay visible without scrolling. Scrolling the page does not
+change that budget. The terminal box is exactly as tall as the grid at that font plus its padding and
+border; the page scrolls when that is taller than the budget, and below the minimum font the terminal
+area scrolls horizontally instead of cropping, and the page itself never scrolls sideways.
+The font is recomputed when the available width or the layout viewport height changes, on mount, on a
+state or snapshot frame and after an explicit resize; a change of the visual viewport, of the box's
+own height or of the page's scroll position never refits it, and a measured second pass corrects
+device-pixel rounding once. **Fit to window** is the explicit resize: it measures one cell at the
+default font size (13) exactly, asks how many columns the available width holds at the terminal's
+default 80:24 shape and how many rows the same width needs, with the same height budget (which
+already leaves out the box's padding and border) as the limit, and sends that grid through
+`POST /api/ptys/:id/resize`, so every viewer adopts the new size and each one's font scaling fits it.
+The width fills first; when the height cannot hold the rows the width asks for, the height decides
+and the narrower grid stays centred rather than stretching tall. The size in the meta line is a link-styled button that opens the same explicit
+resize as a dialog: columns and rows, **Use window size** to fill them with the Fit to window
+proposal, then **Cancel** or **Apply**, and a refusal stays in the dialog.
+A terminal that is not running shows the size as plain text, because there is nothing to resize.
+Opening or returning to the page focuses the terminal. The other viewers are listed once per user,
+with a count for several attachments and no client address or attach time (the audit keeps both);
+the associations are edited with the server-searched session `EntityPicker`, restricted to the
+terminal user's own sessions. An **extra-keys bar** below the terminal sends Esc, Tab, sticky Ctrl
+and Alt, the arrows, Home, End, PgUp, PgDn and `| ~ / -` through xterm.js's textarea, so xterm
+generates the sequence for the current modes; it scrolls horizontally when needed, is shown
+by default on touch devices and can be toggled on desktop with the choice remembered. The Shift hint
+sits on the **Extra keys** toggle's row, left of the toggle, and wraps with it on a narrow screen. A
+viewer forwards no data from mouse clicks, buttons or movement, only from the wheel, and the hint says
+that selecting text needs Shift while a program uses the mouse ([Terminals](pty.md#webui)). While an
 agent's `pty.create` or `pty.io` waits for the user, the terminal page shows the shared approval card,
-with the request's screen beside it; reading a terminal never asks. The session page links the
-session's terminals. The terminal settings are fields of the System settings page
+with the operation's argv or input and keys, the node and the privileged flag; the same request and a
+privileged terminal's signature wait appear in its session's decision dock. Reading a terminal never
+asks. The terminal settings are fields of the System settings page
 ([crhs configuration](../guide/reference/crhs-config.md#system-settings)).
 
 ### Schedules page
@@ -545,12 +569,15 @@ Nothing is shown while a run is merely active.
 
 The root session page shows the approvals, signatures and quota waits of the whole session tree in a
 decision panel docked where the composer sits, so a user can answer them without opening each subagent.
-The panel is not collapsible: it shows the first pending decision only (quota, then rule approvals,
-task-group approvals and signature waits, oldest first), its own scroll and at most half of the session
+The panel is not collapsible: it shows the first pending decision only (quota, then rule approvals —
+tasks, external calls, task groups, terminals — then signature waits for tasks, task groups and
+agent-created privileged terminals, oldest first), its own scroll and at most half of the session
 pane, and a small count while more wait. Its card is the inline variant: it names the nodes and the
-action but not the source, and keeps the rule chain evaluation off the dock. The composer returns as
-soon as nothing waits for this viewer; a session that waits only for someone else keeps the normal
-composer and the waiting reason.
+action but not the source, and keeps the rule chain evaluation off the dock. A terminal decision uses
+the same shared panel and the terminal's own routes (`POST /api/ptys/:id/approval` for a rule
+approval, `POST /api/ptys/:id/authorization/reject` and the shared signature submission for a
+signature wait). The composer returns as soon as nothing waits for this viewer; a session that waits
+only for someone else keeps the normal composer and the waiting reason.
 
 ### Composer
 

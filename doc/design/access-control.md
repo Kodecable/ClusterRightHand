@@ -341,7 +341,8 @@ once it is settled.
 - A waiting approval also reaches the owner in chat ([Approvals in chat](channels.md#approvals)): a
   rule approval that needs no signature has Approve and Reject there, decided through the same checks
   and audited with the channel. That includes an agent's terminal approval, whose card names the
-  command or the typed input, keys and screen. "Always allow" changes rules, so it stays in the WebUI;
+  command or the typed input and keys; the screen stays on the server for Auto Review. "Always allow"
+  changes rules, so it stays in the WebUI;
   an approval that needs a signature gets a **Signature needed** card whose hint links to its page.
 - Stopping a session, or ending its run, rejects the approvals still waiting for it, terminal
   approvals included; nothing is left waiting for a run that is over. A terminal approval is

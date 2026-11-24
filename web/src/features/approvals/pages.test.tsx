@@ -71,7 +71,7 @@ const emptyApprovals = (): ApprovalList => ({
 	taskGroups: [],
 	externalCalls: [],
 	ptys: [],
-	authorizations: { tasks: [], taskGroups: [] },
+	authorizations: { tasks: [], taskGroups: [], ptys: [] },
 	quotas: [],
 	requests: [],
 });
@@ -170,6 +170,7 @@ const approvals = (): ApprovalList => {
 		authorizations: {
 			tasks: [signatureView],
 			taskGroups: [],
+			ptys: [],
 		},
 		requests: [
 			taskRequest(taskView, { source: { type: "session", sessionId: "s1", title: "Clean up" } }),
@@ -372,13 +373,14 @@ const ptyItem = (): PtyApprovalItem => ({
 	nodeName: "worker-01",
 	userId: "u1",
 	username: "ada",
+	rootSessionId: "s1",
 	createdAt: "2026-01-01T00:00:00.000Z",
 	request: {
 		kind: "pty",
 		id: "term-1",
 		phase: "awaiting_user",
 		source: { type: "session", sessionId: "s1", title: "Terminal work" },
-		action: { type: "pty.io", input: "rm -rf /", keys: ["Enter"], screen: "$ rm -rf /\n[yes/no]" },
+		action: { type: "pty.io", input: "rm -rf /", keys: ["Enter"] },
 		nodes: ["worker-01"],
 		privileged: false,
 		alwaysAllow: [
@@ -400,6 +402,28 @@ describe("ApprovalsPage terminal requests", () => {
 		expect(table).toHaveTextContent("Terminal work");
 	});
 
+	test("renders a terminal signature wait as a signature row", async () => {
+		const item: PtyApprovalItem = {
+			...ptyItem(),
+			request: {
+				...ptyItem().request,
+				phase: "awaiting_signature",
+				action: { type: "pty.create", argv: ["/bin/sh"] },
+			},
+		};
+		mockApi({
+			approvals: {
+				...emptyApprovals(),
+				authorizations: { tasks: [], taskGroups: [], ptys: [item] },
+				requests: [item.request],
+			},
+		});
+		await renderPage(<ApprovalsPage />);
+		const table = await screen.findByRole("table", { name: "Waiting for you" });
+		expect(within(table).getByText("Signature")).toBeInTheDocument();
+		expect(within(table).getByRole("link", { name: "/bin/sh" })).toHaveAttribute("href", "/terminals/term-1");
+	});
+
 	test("counts a waiting terminal approval in the sidebar badge", () => {
 		const item = ptyItem();
 		expect(
@@ -408,7 +432,7 @@ describe("ApprovalsPage terminal requests", () => {
 				taskGroups: [],
 				externalCalls: [],
 				ptys: [item.request],
-				authorizations: { tasks: [], taskGroups: [] },
+				authorizations: { tasks: [], taskGroups: [], ptys: [] },
 				quotas: [],
 			}),
 		).toBe(1);

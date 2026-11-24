@@ -55,8 +55,8 @@ existence and who touched it, at the level of the session, not what was typed or
 - **Title.** The program owns the terminal title (OSC 0/2). crhs subscribes to the headless emulator's
   `onTitleChange`, not to the bytes, and stores a sanitized copy: control characters removed,
   whitespace folded and at most 256 characters. It is untrusted text set by whatever runs in the
-  terminal, so it appears only as a secondary label and never replaces the node name or any other
-  trusted label. A title change is not an audit event.
+  terminal, so it is rendered as plain text and never replaces the node in the browser tab, the top
+  bar or the meta line. A title change is not an audit event.
 
 ## Lifecycle
 
@@ -318,7 +318,7 @@ two methods of their own:
   agent type into its ordinary terminals while a root shell still asks.
 - `pty.io` has no target. Rules have no regular expressions, and a prefix of typed text is no boundary:
   input is keystrokes, not a command line, and what it does depends on the program reading it. The
-  approval and Auto Review show the input and the current screen instead.
+  approval shows the input and the keys instead; Auto Review sees the current screen as context.
 - Allowing one method implies nothing about the other: `allow pty.create` does not allow typing, and an
   agent typing into a terminal a person associated with its session needs `pty.io` only.
 - **Presets.** Ask and Auto Review leave both methods to their default, `require-approval`; Auto Review
@@ -334,20 +334,29 @@ terminal-only notice:
 
 - The server builds the same compact `ApprovalRequest` every surface renders, with kind `pty`, the
   acting session as its source, the node name, the privileged flag and a structured action:
-  `{type:"pty.create", argv}` for an open and `{type:"pty.io", input, keys, screen}` for a write or
-  resize. The screen is clipped and shown with the request.
-- The approvals API lists it (with the other waiting requests), the WebUI's Approvals page and pending
-  badge count it, and the chat channels send the same approval card. The terminal page shows the same
-  request inline through the shared approval panel; the terminal view carries it as `approvalRequest`.
+  `{type:"pty.create", argv}` for an open and `{type:"pty.io", input, keys}` for a write or resize. The
+  screen is not part of the request: it stays on the server as Auto Review's context, and no WebUI or
+  chat card renders it.
+- The approvals API lists it (with the other waiting requests and its `rootSessionId`), the WebUI's
+  Approvals page and pending badge count it, and the chat channels send the same approval card. The
+  terminal page shows the same request inline through the shared approval panel; the terminal view
+  carries it as `approvalRequest`. The session page's decision dock shows it like a task's approval,
+  and decides it through the terminal route.
+- An agent-created privileged terminal that waits for its owner's signature is listed the same way:
+  the same `PtyApprovalItem` with a request whose phase is `awaiting_signature` and a `pty.create`
+  action, under `authorizations.ptys`. The session dock renders it with the shared signature panel and
+  the terminal's own reject route; a person-opened terminal has no session, so its wait stays on its
+  terminal page.
 - While it waits, the acting session is `awaiting` with wait kind `approval`, exactly as for a task or
-  an external call; deciding it makes the session `running` again. Stopping the session or ending its
-  run rejects the pending terminal approvals. A crhs restart has no terminal waits: terminals and
-  their approvals are memory-only.
+  an external call; deciding it makes the session `running` again. A privileged terminal's signature
+  wait makes the session `awaiting` with wait kind `authorization` until it opens, fails or is closed.
+  Stopping the session or ending its run rejects the pending terminal approvals. A crhs restart has no
+  terminal waits: terminals and their approvals are memory-only.
 - Auto Review answers first when its preset is on; an escalated request waits for the user.
 - The decision is the ordinary body `{decision: "approve"|"reject", reason?, always?}` through
-  `POST /api/ptys/:id/approval`, from the approvals page, the terminal page or chat. Only the
-  terminal's user decides, like every approval's owner. An `always` rule must be an allow rule that
-  would end the approval and is appended to the root of the request's chain.
+  `POST /api/ptys/:id/approval`, from the approvals page, the terminal page, the session dock or chat.
+  Only the terminal's user decides, like every approval's owner. An `always` rule must be an allow rule
+  that would end the approval and is appended to the root of the request's chain.
 
 ## Settings and limits
 
@@ -369,14 +378,18 @@ from the next request.
 
 ## WebUI
 
-- **Terminals** is in the **Work** group of the navigation, hidden while `pty.enabled` is off. The
-  page lists the terminals the user can see (all of them for an administrator): node, the program's
-  title, user, privileged, state, creating session, associated sessions, viewers, age. **New
-  terminal** picks an active crha node with the shared `EntityPicker` (SSH nodes have no terminals),
-  a command, the privileged mode and a size.
-- `/terminals/:id` attaches with xterm.js, bundled with the WebUI. The heading is the node name; the
-  program's title is a secondary line under it, and one small grey meta line carries the state, node,
-  size, creating user and, when exited, the exit code. The terminal keeps its own rows and columns;
+- **Terminals** is in the **Work** group of the navigation, directly below **Library**, hidden while
+  `pty.enabled` is off. The page lists the terminals the user can see (all of them for an
+  administrator): node, the program's title, user, state, creating session, associated sessions and
+  age. A privileged terminal carries the shared **Privileged** mark beside its title; there is no
+  privileged or viewers column. **New terminal** picks an active crha node with the shared
+  `EntityPicker` (SSH nodes have no terminals), a command, the privileged mode and a size.
+- `/terminals/:id` attaches with xterm.js, bundled with the WebUI. The heading is the program's title;
+  without one it is the command line, the argv joined with spaces, or the localized "Terminal" for
+  an empty argv. The browser tab and the top bar show `<heading> · <node>`. One small grey meta line
+  carries the state, node, size, creating user and, when exited, the exit code. The title is untrusted
+  text: it is rendered plain, truncated with its full text on hover, and never replaces the node in
+  the tab or the meta line. The terminal keeps its own rows and columns;
   the viewer scales its font so the whole grid fits both width and height, recomputed on window and
   terminal resize, and scrolls inside the terminal area below a sensible minimum font size. **Fit to
   window** resizes the terminal to the viewer's area at the default font size, so every viewer adopts
@@ -384,7 +397,8 @@ from the next request.
   terminal. The page shows the other viewers (one entry per user, with a count for several
   attachments) and the associations, which use the server-searched session `EntityPicker` restricted
   to the terminal user's own sessions. A short hint says that selecting text needs Shift while a
-  program uses the mouse.
+  program uses the mouse; it sits on the **Extra keys** toggle's row and wraps with the toggle on a
+  narrow screen.
 - An **extra-keys bar** below the terminal sends Esc, Tab, Ctrl, Alt, the arrows, Home, End, PgUp,
   PgDn and `| ~ / -` by dispatching keyboard events to xterm.js's textarea, so xterm generates the
   sequence for the terminal's current modes. It scrolls horizontally when it does not fit. Touch
@@ -396,7 +410,6 @@ from the next request.
   share the terminal; wheel events are forwarded (local scrollback, xterm's alternate-scroll arrows
   and the program's mouse wheel reports). The browser decides by event source, never by parsing
   escape sequences.
-- The session page lists the session's terminals and links to them.
 
 ## Audit
 

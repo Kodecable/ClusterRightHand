@@ -331,8 +331,8 @@ describe("channels", () => {
 			const card = await fake.waitForSent(
 				(call) => plainText(call).includes("Approval needed") && plainText(call).includes("Type rm -rf / · keys Enter"),
 			);
-			expect(plainText(card)).toContain("Terminal screen:");
-			expect(plainText(card)).toContain("$ rm -rf /");
+			expect(plainText(card)).not.toContain("Terminal screen:");
+			expect(plainText(card)).not.toContain("$ rm -rf /");
 			fake.text(userId, `/approve ${terminal.id}`);
 			const result = await fake.waitForSent((call) => plainText(call).includes("Approved"));
 			expect(plainText(result)).toContain("by alice");

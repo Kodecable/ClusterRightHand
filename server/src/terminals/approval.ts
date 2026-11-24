@@ -47,7 +47,6 @@ export function approvalView(request: RuleApprovalRequest, alwaysAllow: Approval
 		argv: [...request.argv],
 		input: request.input === null ? null : clip(request.input, 2000),
 		keys: [...request.keys],
-		screen: clip(request.screen, 4000),
 		createdAt: new Date().toISOString(),
 		...(request.attempt === undefined ? {} : { attempt: request.attempt }),
 		alwaysAllow,

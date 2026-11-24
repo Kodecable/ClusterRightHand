@@ -42,7 +42,8 @@ export const PtyViewerSchema = z
 
 /**
  * A rule approval waiting for the user (doc/design/pty.md "Rules"): an agent's open, write or resize
- * that the session's rules judged `require-approval`. It lives in memory with the terminal.
+ * that the session's rules judged `require-approval`. It lives in memory with the terminal. The
+ * terminal's screen is Auto Review's context on the server and is deliberately not part of this view.
  */
 export const PtyApprovalSchema = z
 	.object({
@@ -52,7 +53,6 @@ export const PtyApprovalSchema = z
 		argv: z.array(z.string()).describe("For pty.create: the command the terminal would run."),
 		input: z.string().nullable().describe("For pty.io: the text the agent would type, clipped."),
 		keys: z.array(z.string()).describe("For pty.io: the named keys the agent would send."),
-		screen: z.string().describe("The terminal's screen when the request was made, clipped."),
 		createdAt: z.string(),
 		attempt: z.number().optional().describe("For pty.create: the pty.open attempt the request belongs to."),
 		alwaysAllow: z.array(ApprovalAlwaysAllowSchema).describe("The server-built always-allow candidates."),
@@ -73,7 +73,7 @@ export const PtyViewSchema = z
 		title: z
 			.string()
 			.describe(
-				"The title the program set through OSC 0/2, sanitized (control characters removed, whitespace folded, at most 256 characters). Untrusted text: it never replaces the node name.",
+				"The title the program set through OSC 0/2, sanitized (control characters removed, whitespace folded, at most 256 characters). Untrusted text: it is the page heading but never replaces the node in the tab or meta line.",
 			),
 		state: PtyStateSchema,
 		exitCode: z.number().nullable().describe("The exit code once exited; null while it runs."),
@@ -101,7 +101,9 @@ export const PtyViewSchema = z
 
 /**
  * One terminal approval as the approvals API lists it: the terminal it belongs to and the same compact
- * request every other waiting item carries (doc/design/access-control.md "Approvals").
+ * request every other waiting item carries (doc/design/access-control.md "Approvals"). `rootSessionId`
+ * is the tree the acting session belongs to, which the session dock filters by; a privileged terminal's
+ * signature wait uses the same item with a request whose phase is `awaiting_signature`.
  */
 export const PtyApprovalItemSchema = z
 	.object({
@@ -110,6 +112,7 @@ export const PtyApprovalItemSchema = z
 		nodeName: z.string().nullable(),
 		userId: z.string(),
 		username: z.string().nullable(),
+		rootSessionId: z.string().describe("The root session of the acting session's tree."),
 		createdAt: z.string(),
 		request: ApprovalRequestSchema,
 	})

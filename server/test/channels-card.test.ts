@@ -75,26 +75,27 @@ describe("chat cards", () => {
 		expect(telegram(card)).not.toContain("**Approval needed** · privileged\\\nNodes:\\");
 	});
 
-	it("renders a terminal approval with its input, keys and screen excerpt in both languages", () => {
+	it("renders a terminal approval with its input and keys, and never the screen", () => {
 		const pty = request({
 			kind: "pty",
 			id: "pty-1",
 			privileged: false,
 			review: undefined,
 			nodes: ["app-1"],
-			action: { type: "pty.io", input: "rm -rf /", keys: ["Enter"], screen: "$ rm -rf /\n[yes/no]" },
+			action: { type: "pty.io", input: "rm -rf /", keys: ["Enter"] },
 		});
 		const en = messagesFor("en").approvalCard(pty, { withButtons: false, withSource: false });
 		expect(en.detail).toBe("Type rm -rf / · keys Enter");
-		expect(en.screen).toBe("$ rm -rf /\n[yes/no]");
+		expect(en).not.toHaveProperty("screen");
 		expect(telegram(en)).toContain("`Type rm -rf / · keys Enter`");
-		expect(telegram(en)).toContain("Terminal screen:");
+		expect(telegram(en)).not.toContain("Terminal screen:");
+		expect(telegram(en)).not.toContain("[yes/no]");
 		expect(plain(en)).toContain("/reject pty-1 [reason]");
 		const zh = messagesFor("zh-CN").approvalCard(pty, { withButtons: false, withSource: false });
 		expect(zh.title).toBe("需要你的审批");
 		expect(zh.detail).toBe("输入 rm -rf / · 按键 Enter");
-		expect(zh.screen).toBe("$ rm -rf /\n[yes/no]");
-		expect(plain(zh, "zh-CN")).toContain("终端屏幕：");
+		expect(plain(zh, "zh-CN")).not.toContain("终端屏幕：");
+		expect(plain(zh, "zh-CN")).not.toContain("[yes/no]");
 		// pty.create renders its argv the way the rule target does.
 		const create = request({ kind: "pty", action: { type: "pty.create", argv: ["/bin/sh", "-c", "id"] } });
 		expect(messagesFor("en").approvalCard(create, { withButtons: false, withSource: false }).detail).toBe(

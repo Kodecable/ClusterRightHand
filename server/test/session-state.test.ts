@@ -1,5 +1,5 @@
 import { generateKeyPair } from "@crh/noise";
-import type { TaskSpec } from "@crh/protocol";
+import type { TaskSpec, TrustEntry } from "@crh/protocol";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai/providers/faux";
 import { MemoryStorage } from "@earendil-works/pi-durable";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
@@ -15,14 +15,16 @@ import { TaskGroups, type TaskGroupView } from "../src/cluster/task-groups.ts";
 import { CallRunner } from "../src/extensions/call-runner.ts";
 import { MasterKey } from "../src/keys/master-key.ts";
 import { setRules } from "../src/policy/store.ts";
+import { addSshSigningCredential } from "../src/privilege/signing-credentials.ts";
 import { DEFAULT_SYSTEM_SETTINGS, SettingsStore } from "../src/settings/settings.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { TerminalService } from "../src/terminals/registry.ts";
-import { type PtyToolContext, ptyWrite } from "../src/terminals/tools.ts";
+import { type PtyToolContext, ptyOpen, ptyWrite } from "../src/terminals/tools.ts";
 import { createUser } from "../src/users/service.ts";
 import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, PTY_REQUIRED_NAMES, TestAgentServer } from "./helpers/agent.ts";
+import { createSshKey } from "./helpers/authenticator.ts";
 import { openTestDb } from "./helpers/db.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
 
@@ -37,6 +39,11 @@ const faux = fauxProvider();
 const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Routes a terminal signature wait's start and end to the run-state recompute, as main.ts wires it. */
+function refreshOnAuthorization(sessionId: string): void {
+	void runtime.refreshState(sessionId);
+}
 
 async function waitFor<T>(
 	what: string,
@@ -100,6 +107,8 @@ beforeAll(async () => {
 	terminals.setApprovalListener((sessionId) => {
 		void runtime.refreshState(sessionId);
 	});
+	// A privileged terminal's signature wait is the acting session's wait too (doc/design/pty.md "Approvals").
+	terminals.setAuthorizationListener(refreshOnAuthorization);
 	const user = await createUser(db, { username: "state-owner", kind: "member", password: "password-123" });
 	owner = { sessionId: "test", userId: user.id, username: user.username, kind: "member" };
 	nodeId = newId();
@@ -611,4 +620,194 @@ it("stopping the session rejects a waiting pty_write approval and ends the run i
 	}
 	release();
 	await waitSubmission(runtime, session.id, submission);
+});
+
+/**
+ * A privileged terminal's signature wait (doc/design/pty.md "Approvals"): the node trusts only the
+ * owner's SSH key, so crhs cannot sign and opening waits for the owner. The credential is registered
+ * through the service rather than the WebUI route, since this fixture has no HTTP app, but the plan is
+ * the same one a real node's trust summary drives.
+ */
+async function signatureFixture(
+	actor: { type: "session" | "subagent"; id: string },
+	chain: { type: "session"; id: string }[],
+): Promise<{ ctx: PtyToolContext; close: () => Promise<void> }> {
+	const ownerKey = createSshKey();
+	const key = generateKeyPair();
+	await db
+		.updateTable("nodes")
+		.set({ public_key: Buffer.from(key.publicKey).toString("base64"), privileged_mode: "forward" })
+		.where("id", "=", nodeId)
+		.execute();
+	await addSshSigningCredential(db, owner.userId, { publicKey: ownerKey.line, name: "alice" });
+	const crha: FakeCrha = await agents.connect(
+		key,
+		handshakeInit({ commands: [...PTY_REQUIRED_NAMES] }),
+		PTY_REQUIRED_NAMES,
+	);
+	await crha.peer.request("hello", { tasks: [], taskKinds: [], privilegedMode: "forward" });
+	await waitFor("the node link", () => cluster.isConnected(nodeId));
+	const entry: TrustEntry = {
+		name: "alice",
+		source: "local",
+		role: "user",
+		key: { kind: "sshsig", publicKey: ownerKey.line, fingerprint: ownerKey.fingerprint },
+		kinds: ["execute"],
+		requireSpec: false,
+		requireTask: false,
+		requireUv: false,
+		maxTtlMs: 24 * 60 * 60 * 1000,
+		allow: [],
+		deny: [],
+		envAllow: [],
+	};
+	crha.trust({
+		kind: "ok",
+		summary: {
+			nodeId,
+			aliases: [],
+			clockSkewMs: 0,
+			identities: {
+				unprivileged: { uid: 998, gid: 998, user: "crha" },
+				privileged: { uid: 0, gid: 0, user: "root" },
+			},
+			trust: [entry],
+			localWindow: { kind: "closed" },
+		},
+	});
+	await waitFor("trust stored", async () => {
+		const row = await db.selectFrom("nodes").select("trust_report").where("id", "=", nodeId).executeTakeFirst();
+		return row?.trust_report !== null && row?.trust_report !== undefined;
+	});
+	return {
+		ctx: {
+			db,
+			user: owner,
+			actor: { ...actor, onBehalfOfUserId: owner.userId },
+			chain,
+			terminals,
+		},
+		close: async () => {
+			crha.ws.close();
+			await crha.closed;
+		},
+	};
+}
+
+it("a privileged pty_open's signature wait makes the session awaiting/authorization, and a rejection ends it", async () => {
+	const session = await runtime.createSession(owner, {
+		model: model(),
+		rulePreset: "yolo",
+		title: "pty signature states",
+	});
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			await gate;
+			return fauxAssistantMessage([fauxText("opened and done")]);
+		},
+	]);
+	const submission = await runtime.submit(session.id, owner, "open a privileged terminal", "pty-signature-state-1");
+	await waitFor("the run live", async () => ((await sessionStateOf(db, session.id)) === "running" ? true : undefined));
+	const fixture = await signatureFixture({ type: "session", id: session.id }, [{ type: "session", id: session.id }]);
+	try {
+		const opening = ptyOpen(fixture.ctx, {
+			node: nodeId,
+			argv: ["/bin/sh"],
+			privileged: true,
+			idle_timeout: 60,
+		}).then(
+			(terminal) => ({ terminal }),
+			(error: unknown) => ({ error }),
+		);
+		await waitFor("the terminal signature wait", () => terminals.hasPendingAuthorization(session.id));
+		await waitFor("awaiting/authorization", async () => {
+			const row = await rowOf(session.id);
+			return row.state === "awaiting" && row.waiting_kind === "authorization" ? true : undefined;
+		});
+		expect(await runtime.getSession(session.id)).toMatchObject({ state: "awaiting", waitingKind: "authorization" });
+		// The owner declines: the wait ends and the still-running submission returns the session to running.
+		const waiting = terminals.pendingAuthorizations().find((terminal) => terminal.createdBySessionId === session.id);
+		expect(waiting).toBeDefined();
+		terminals.rejectAuthorization(waiting as NonNullable<typeof waiting>, "not now");
+		expect(await opening).toMatchObject({ error: { code: "authorization_declined" } });
+		await waitFor("running after the rejection", async () =>
+			(await sessionStateOf(db, session.id)) === "running" ? true : undefined,
+		);
+		expect(await runtime.getSession(session.id)).toMatchObject({ state: "running", waitingKind: null });
+	} finally {
+		await fixture.close();
+	}
+	release();
+	await waitSubmission(runtime, session.id, submission);
+	await waitFor("idle after the run", async () =>
+		(await sessionStateOf(db, session.id)) === "idle" ? true : undefined,
+	);
+});
+
+it("the subagent list reports a child's terminal signature wait through the batched recompute", async () => {
+	const parent = await runtime.createSession(owner, {
+		model: model(),
+		rulePreset: "yolo",
+		title: "batched signature states",
+	});
+	const child = await runtime.createSubagent(parent.id, {
+		callKey: "state-signature-child",
+		task: "open a privileged terminal",
+		rules: { default: "inherit", rules: [] },
+		quota: null,
+	});
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	faux.setResponses([
+		async () => {
+			await gate;
+			return fauxAssistantMessage([fauxText("opened and done")]);
+		},
+	]);
+	await runtime.startSubagent(child.id, "open one", "state-signature-child-1");
+	await waitFor("the child running", async () =>
+		(await sessionStateOf(db, child.id)) === "running" ? true : undefined,
+	);
+	const fixture = await signatureFixture({ type: "subagent", id: child.id }, [
+		{ type: "session", id: parent.id },
+		{ type: "session", id: child.id },
+	]);
+	// A read path must see the wait even before a notification refreshed the row: without the signature
+	// listener the child's stored state stays stale at running until `subagentSessions` recomputes it.
+	terminals.setAuthorizationListener(undefined);
+	try {
+		const opening = ptyOpen(fixture.ctx, {
+			node: nodeId,
+			argv: ["/bin/sh"],
+			privileged: true,
+			idle_timeout: 60,
+		}).then(
+			(terminal) => ({ terminal }),
+			(error: unknown) => ({ error }),
+		);
+		await waitFor("the terminal signature wait", () => terminals.hasPendingAuthorization(child.id));
+		expect((await rowOf(child.id)).state).toBe("running");
+		const awaiting = (await runtime.subagentSessions(parent.id)).find((entry) => entry.id === child.id);
+		expect(awaiting).toMatchObject({ state: "awaiting" });
+		expect(await rowOf(child.id)).toMatchObject({ state: "awaiting", waiting_kind: "authorization" });
+		const waiting = terminals.pendingAuthorizations().find((terminal) => terminal.createdBySessionId === child.id);
+		expect(waiting).toBeDefined();
+		terminals.rejectAuthorization(waiting as NonNullable<typeof waiting>, "not now");
+		expect(await opening).toMatchObject({ error: { code: "authorization_declined" } });
+		const running = (await runtime.subagentSessions(parent.id)).find((entry) => entry.id === child.id);
+		expect(running).toMatchObject({ state: "running" });
+		expect(await rowOf(child.id)).toMatchObject({ state: "running", waiting_kind: null });
+	} finally {
+		terminals.setAuthorizationListener(refreshOnAuthorization);
+		await fixture.close();
+	}
+	release();
+	await runtime.waitSubagent(child.id);
+	await waitFor("the child idle", async () => ((await sessionStateOf(db, child.id)) === "idle" ? true : undefined));
 });

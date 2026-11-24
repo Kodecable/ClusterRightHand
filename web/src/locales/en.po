@@ -375,10 +375,6 @@ msgstr "A node group name must not start with \"_\": names starting with \"_\" a
 msgid "A path is required."
 msgstr "A path is required."
 
-#: src/features/terminals/new-terminal-dialog.tsx
-msgid "A privileged terminal waits for your signature before it opens."
-msgstr "A privileged terminal waits for your signature before it opens."
-
 #: src/features/schedules/scheduleForm.ts
 msgid "A prompt is required."
 msgstr "A prompt is required."
@@ -788,6 +784,10 @@ msgstr "API token {0}"
 #: src/features/tokens/pages.tsx
 msgid "API tokens"
 msgstr "API tokens"
+
+#: src/features/terminals/pages.tsx
+msgid "Apply"
+msgstr "Apply"
 
 #: src/components/task-facts.tsx
 #: src/features/approvals/pages.tsx
@@ -1389,6 +1389,7 @@ msgid "Collapse the subagent's jobs"
 msgstr "Collapse the subagent's jobs"
 
 #: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
 msgid "Columns"
 msgstr "Columns"
 
@@ -2279,6 +2280,7 @@ msgid "Enter at least 1 token, or leave it empty for unlimited."
 msgstr "Enter at least 1 token, or leave it empty for unlimited."
 
 #: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
 msgid "Enter whole numbers from 1 to {MAX_DIMENSION}."
 msgstr "Enter whole numbers from 1 to {MAX_DIMENSION}."
 
@@ -3057,10 +3059,13 @@ msgstr "Local window on {0}"
 msgid "Log out"
 msgstr "Log out"
 
-#: src/features/terminals/pages.tsx
 #: src/lib/action-text.ts
 msgid "login shell"
 msgstr "login shell"
+
+#: src/features/terminals/pages.tsx
+msgid "Login shell"
+msgstr "Login shell"
 
 #: src/features/system-settings/terminals-section.tsx
 msgid "Longest agent idle timeout"
@@ -3878,10 +3883,6 @@ msgstr "One file for new users"
 msgid "Online"
 msgstr "Online"
 
-#: src/features/terminals/new-terminal-dialog.tsx
-msgid "Only active crha nodes have terminals; SSH nodes cannot open one."
-msgstr "Only active crha nodes have terminals; SSH nodes cannot open one."
-
 #: src/features/ssh-credentials/pages.tsx
 msgid "Only administrators can manage SSH credentials."
 msgstr "Only administrators can manage SSH credentials."
@@ -3928,10 +3929,6 @@ msgstr "Open a private chat with the bot named {0}."
 #: src/features/terminals/pages.tsx
 msgid "Open a terminal on a crha node to run an interactive shell."
 msgstr "Open a terminal on a crha node to run an interactive shell."
-
-#: src/features/terminals/new-terminal-dialog.tsx
-msgid "Open an interactive shell on a crha node. Several people can watch and type in it."
-msgstr "Open an interactive shell on a crha node. Several people can watch and type in it."
 
 #: src/components/task-facts.tsx
 msgid "Open approval page"
@@ -4226,7 +4223,6 @@ msgstr "Preview {name}"
 
 #: src/components/privileged-mark.tsx
 #: src/components/task-form-fields.tsx
-#: src/features/terminals/pages.tsx
 msgid "Privileged"
 msgstr "Privileged"
 
@@ -4671,6 +4667,10 @@ msgstr "Reset password"
 msgid "Reset the password of {0}"
 msgstr "Reset the password of {0}"
 
+#: src/features/terminals/pages.tsx
+msgid "Resize terminal"
+msgstr "Resize terminal"
+
 #: src/features/settings/model-dialog.tsx
 #: src/features/settings/provider-dialog.tsx
 msgid "Responses"
@@ -4738,6 +4738,7 @@ msgid "Route"
 msgstr "Route"
 
 #: src/features/terminals/new-terminal-dialog.tsx
+#: src/features/terminals/pages.tsx
 msgid "Rows"
 msgstr "Rows"
 
@@ -5120,6 +5121,10 @@ msgstr "Set"
 msgid "Set password"
 msgstr "Set password"
 
+#: src/features/terminals/pages.tsx
+msgid "Set the columns and rows every viewer adopts."
+msgstr "Set the columns and rows every viewer adopts."
+
 #: src/features/system-settings/passkeys-section.tsx
 msgid "Set the RP ID and at least one allowed origin together, or leave both empty."
 msgstr "Set the RP ID and at least one allowed origin together, or leave both empty."
@@ -5266,11 +5271,17 @@ msgstr "Signing credentials"
 msgid "Size"
 msgstr "Size"
 
-#. placeholder {0}: size?.cols ?? view.size.cols
-#. placeholder {1}: size?.rows ?? view.size.rows
+#. placeholder {0}: currentSize.cols
+#. placeholder {1}: currentSize.rows
 #: src/features/terminals/pages.tsx
 msgid "Size: {0} × {1}"
 msgstr "Size: {0} × {1}"
+
+#. placeholder {0}: currentSize.cols
+#. placeholder {1}: currentSize.rows
+#: src/features/terminals/pages.tsx
+msgid "Size: <0>{0} × {1}</0>"
+msgstr "Size: <0>{0} × {1}</0>"
 
 #: src/features/nodes/upgrade-crha-dialog.tsx
 msgid "Skipped"
@@ -5589,6 +5600,10 @@ msgstr "Technical details"
 msgid "Terminal"
 msgstr "Terminal"
 
+#: src/features/sessions/session-decisions.tsx
+msgid "Terminal details"
+msgstr "Terminal details"
+
 #: src/lib/action-text.ts
 msgid "Terminal input"
 msgstr "Terminal input"
@@ -5596,7 +5611,6 @@ msgstr "Terminal input"
 #: src/app/shell/nav.ts
 #: src/features/system-settings/terminals-section.tsx
 #: src/features/terminals/pages.tsx
-#: src/features/terminals/session-terminals.tsx
 msgid "Terminals"
 msgstr "Terminals"
 
@@ -6347,6 +6361,10 @@ msgstr "Use the first available model"
 #: src/features/settings/model-presets.tsx
 msgid "Use the session's model"
 msgstr "Use the session's model"
+
+#: src/features/terminals/pages.tsx
+msgid "Use window size"
+msgstr "Use window size"
 
 #. placeholder {0}: formatNumber(status.remaining, i18n.locale)
 #: src/lib/quota.ts

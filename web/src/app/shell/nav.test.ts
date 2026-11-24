@@ -19,10 +19,12 @@ describe("navItemForPath", () => {
 		expect(navItemForPath("/terminals/pty-1")?.to).toBe("/terminals");
 	});
 
-	test("puts Terminals in the Work group, still hidden while the subsystem is off", () => {
+	test("puts Terminals directly below Library in the Work group, still hidden while the subsystem is off", () => {
 		const work = NAV_GROUPS.find((group) => group.label.message === "Work");
 		const cluster = NAV_GROUPS.find((group) => group.label.message === "Cluster");
-		expect(work?.items.map((item) => item.to)).toContain("/terminals");
+		const paths = work?.items.map((item) => item.to) ?? [];
+		expect(paths).toContain("/terminals");
+		expect(paths.indexOf("/terminals")).toBe(paths.indexOf("/library") + 1);
 		expect(cluster?.items.map((item) => item.to)).not.toContain("/terminals");
 		expect(NAV_ITEMS.find((item) => item.to === "/terminals")?.ptyOnly).toBe(true);
 	});

@@ -2,7 +2,13 @@ import type { PublicNode } from "@crh/api";
 import { i18n } from "@lingui/core";
 import { beforeAll, describe, expect, test } from "vitest";
 import { activateLocale } from "@/lib/i18n";
-import { selectableTerminalNodes, terminalCommand, terminalStateLabel, terminalStateTone } from "./terminal-format";
+import {
+	selectableTerminalNodes,
+	terminalCommand,
+	terminalHeading,
+	terminalStateLabel,
+	terminalStateTone,
+} from "./terminal-format";
 
 beforeAll(async () => {
 	await activateLocale("en");
@@ -46,6 +52,24 @@ describe("terminalStateLabel", () => {
 		expect(terminalStateTone("opening")).toBe("warn");
 		expect(terminalStateTone("running")).toBe("info");
 		expect(terminalStateTone("exited")).toBe("muted");
+	});
+});
+
+describe("terminalHeading", () => {
+	test("prefers the program's title", () => {
+		expect(terminalHeading("build log", [], "Terminal")).toBe("build log");
+	});
+
+	test("treats a whitespace-only title as no title", () => {
+		expect(terminalHeading("   ", ["top"], "Terminal")).toBe("top");
+	});
+
+	test("falls back to the argv joined with spaces", () => {
+		expect(terminalHeading("", ["bash", "-lc", "echo 'hi'"], "Terminal")).toBe("bash -lc echo 'hi'");
+	});
+
+	test("falls back to the generic terminal label for an empty argv", () => {
+		expect(terminalHeading("", [], "Terminal")).toBe("Terminal");
 	});
 });
 

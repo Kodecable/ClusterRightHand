@@ -3,6 +3,7 @@ import type {
 	ApprovalList,
 	ApprovalRequest,
 	ExternalCallView,
+	PtyApprovalItem,
 	QuotaApproval,
 	SessionView,
 	TaskGroupView,
@@ -14,7 +15,8 @@ import { useMemo } from "react";
 import { ApprovalPanel } from "@/components/decision/approval-panel";
 import { InternalLink } from "@/components/internal-link";
 import { useApprovals, useDecideApproval, useDecideExternalCall } from "@/features/approvals/api";
-import { SignatureWait } from "@/features/authorizations/signature-wait";
+import { PtySignatureWait, SignatureWait } from "@/features/authorizations/signature-wait";
+import { useDecideTerminalApproval } from "@/features/terminals/api";
 import { sessionKeys, useDecideQuota } from "./api";
 import { Composer } from "./composer";
 import { QuotaPanel } from "./quota-panel";
@@ -24,8 +26,10 @@ export type SessionDecision =
 	| { kind: "approval_task"; task: TaskView; request?: ApprovalRequest }
 	| { kind: "approval_external_call"; call: ExternalCallView; request?: ApprovalRequest }
 	| { kind: "approval_task_group"; taskGroup: TaskGroupView; request?: ApprovalRequest }
+	| { kind: "approval_pty"; item: PtyApprovalItem; request?: ApprovalRequest }
 	| { kind: "signature_task"; task: TaskView; request?: ApprovalRequest }
-	| { kind: "signature_task_group"; taskGroup: TaskGroupView; request?: ApprovalRequest };
+	| { kind: "signature_task_group"; taskGroup: TaskGroupView; request?: ApprovalRequest }
+	| { kind: "signature_pty"; item: PtyApprovalItem; request?: ApprovalRequest };
 
 function oldest<T extends { createdAt: string }>(items: T[]): T[] {
 	return [...items].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
@@ -33,16 +37,17 @@ function oldest<T extends { createdAt: string }>(items: T[]): T[] {
 
 /**
  * The pending decisions of one session tree, in the order the dock offers them
- * (doc/design/webui.md "Session header"): the used-up quota, rule approvals,
- * task-group approvals, then signature waits, oldest first in each group. The
- * approvals list already holds only what this viewer may answer.
+ * (doc/design/webui.md "Session header"): the used-up quota, rule approvals
+ * (tasks, external calls, task groups, terminals), then signature waits (tasks,
+ * task groups, terminals), oldest first in each group. The approvals list
+ * already holds only what this viewer may answer.
  */
 export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: string): SessionDecision[] {
 	if (data === undefined) return [];
 	const inTree = (id: string | null | undefined) => id === rootSessionId;
 	// The badge query returns one compact request beside every waiting view; the dock renders only that model.
 	const requests = new Map(data.requests.map((request) => [`${request.kind}:${request.id}`, request] as const));
-	const requestFor = (kind: "task" | "task_group" | "external_call", id: string) => requests.get(`${kind}:${id}`);
+	const requestFor = (kind: ApprovalRequest["kind"], id: string) => requests.get(`${kind}:${id}`);
 	const quotas = [...data.quotas]
 		.filter((wait) => wait.sessionId === rootSessionId)
 		.sort((left, right) => left.since.localeCompare(right.since))
@@ -69,6 +74,9 @@ export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: 
 				request: requestFor("task_group", taskGroup.id),
 			}),
 		),
+		...oldest(data.ptys.filter((item) => inTree(item.rootSessionId))).map(
+			(item): SessionDecision => ({ kind: "approval_pty", item, request: requestFor("pty", item.terminalId) }),
+		),
 		...oldest(data.authorizations.tasks.filter((task) => inTree(task.rootSessionId))).map(
 			(task): SessionDecision => ({
 				kind: "signature_task",
@@ -82,6 +90,9 @@ export function sessionDecisions(data: ApprovalList | undefined, rootSessionId: 
 				taskGroup,
 				request: requestFor("task_group", taskGroup.id),
 			}),
+		),
+		...oldest((data.authorizations.ptys ?? []).filter((item) => inTree(item.rootSessionId))).map(
+			(item): SessionDecision => ({ kind: "signature_pty", item, request: requestFor("pty", item.terminalId) }),
 		),
 	];
 }
@@ -98,10 +109,13 @@ function decisionId(decision: SessionDecision): string {
 		case "approval_task_group":
 		case "signature_task_group":
 			return decision.taskGroup.id;
+		case "approval_pty":
+		case "signature_pty":
+			return decision.item.terminalId;
 	}
 }
 
-/** A link to the task or task group a decision is about. */
+/** A link to the task, task group or terminal a decision is about. */
 function TaskDetails({ decision }: { decision: SessionDecision }) {
 	const { t } = useLingui();
 	switch (decision.kind) {
@@ -121,6 +135,17 @@ function TaskDetails({ decision }: { decision: SessionDecision }) {
 					className="text-xs whitespace-nowrap"
 				>
 					{t`Task details`}
+				</InternalLink>
+			);
+		case "approval_pty":
+		case "signature_pty":
+			return (
+				<InternalLink
+					to="/terminals/$id"
+					params={{ id: decision.item.terminalId }}
+					className="text-xs whitespace-nowrap"
+				>
+					{t`Terminal details`}
 				</InternalLink>
 			);
 		case "quota":
@@ -259,6 +284,56 @@ function ExternalCallDock({
 	);
 }
 
+function PtyApprovalDock({
+	item,
+	request,
+	count,
+}: {
+	item: PtyApprovalItem;
+	request: ApprovalRequest | undefined;
+	count?: React.ReactNode;
+}) {
+	const refresh = useSessionRefresh(item.rootSessionId);
+	const decide = useDecideTerminalApproval();
+	if (request === undefined) return null;
+	return (
+		<ApprovalPanel
+			request={request}
+			variant="inline"
+			count={count}
+			details={<TaskDetails decision={{ kind: "approval_pty", item }} />}
+			busy={decide.isPending}
+			error={decide.error}
+			onDecide={(body: ApprovalBody) => {
+				decide.mutate({ id: item.terminalId, body }, { onSuccess: () => refresh() });
+			}}
+		/>
+	);
+}
+
+function PtySignatureDock({
+	item,
+	request,
+	count,
+}: {
+	item: PtyApprovalItem;
+	request: ApprovalRequest | undefined;
+	count?: React.ReactNode;
+}) {
+	const refresh = useSessionRefresh(item.rootSessionId);
+	if (request === undefined) return null;
+	return (
+		<PtySignatureWait
+			terminalId={item.terminalId}
+			request={request}
+			variant="inline"
+			count={count}
+			details={<TaskDetails decision={{ kind: "signature_pty", item }} />}
+			onChanged={refresh}
+		/>
+	);
+}
+
 function QuotaDock({ wait, count }: { wait: QuotaApproval; count?: React.ReactNode }) {
 	const decide = useDecideQuota(wait.sessionId);
 	return (
@@ -282,10 +357,14 @@ function DockDecision({ decision, count }: { decision: SessionDecision; count?: 
 			return <ExternalCallDock call={decision.call} request={decision.request} count={count} />;
 		case "approval_task_group":
 			return <ApprovalDock taskGroup={decision.taskGroup} request={decision.request} count={count} />;
+		case "approval_pty":
+			return <PtyApprovalDock item={decision.item} request={decision.request} count={count} />;
 		case "signature_task":
 			return <SignatureDock task={decision.task} request={decision.request} count={count} />;
 		case "signature_task_group":
 			return <SignatureDock taskGroup={decision.taskGroup} request={decision.request} count={count} />;
+		case "signature_pty":
+			return <PtySignatureDock item={decision.item} request={decision.request} count={count} />;
 	}
 }
 

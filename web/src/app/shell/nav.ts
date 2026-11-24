@@ -71,10 +71,10 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 		items: [
 			{ to: "/sessions", label: msg`Sessions`, icon: MessageSquareIcon },
 			{ to: "/library", label: msg`Library`, icon: LibraryIcon },
+			{ to: "/terminals", label: msg`Terminals`, icon: TerminalIcon, ptyOnly: true, activeFor: ["/terminals"] },
 			{ to: "/schedules", label: msg`Schedules`, icon: CalendarClockIcon },
 			{ to: "/tasks", label: msg`Tasks`, icon: ListChecksIcon, activeFor: ["/task-groups"] },
 			{ to: "/approvals", label: msg`Approvals`, icon: ShieldCheckIcon, badge: "approvals" },
-			{ to: "/terminals", label: msg`Terminals`, icon: TerminalIcon, ptyOnly: true, activeFor: ["/terminals"] },
 		],
 	},
 	{

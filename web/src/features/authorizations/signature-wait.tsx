@@ -1,7 +1,10 @@
 import type { ApprovalRequest } from "@crh/api";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { DecisionVariant } from "@/components/decision/content";
 import { SignaturePanel } from "@/components/decision/signature-panel";
+import { invalidatePendingDecisions } from "@/features/approvals/api";
+import { useRejectTerminalAuthorization, useTerminalAuthorization } from "@/features/terminals/api";
 import { usePendingAuthorization, useRejectAuthorization, useSubmitAuthorization } from "./api";
 
 /**
@@ -57,6 +60,62 @@ export function SignatureWait({
 						},
 					},
 				);
+			}}
+			busy={submit.isPending}
+			rejectBusy={reject.isPending}
+			error={submit.error}
+			rejectError={reject.error}
+		/>
+	);
+}
+
+/**
+ * Wires an agent-created privileged terminal to the same signature panel: its own authorization poll,
+ * the shared `POST /api/authorizations` submission and the terminal's reject route. Submit invalidates
+ * the approvals list already; reject does it here so the dock does not wait for its next poll.
+ */
+export function PtySignatureWait({
+	terminalId,
+	request,
+	variant = "inline",
+	onChanged,
+	details,
+	count,
+}: {
+	terminalId: string;
+	request: ApprovalRequest;
+	variant?: DecisionVariant;
+	/** Extra refresh after a successful signature or a rejection, or when the server reports the wait ended. */
+	onChanged?: () => void;
+	details?: ReactNode;
+	count?: ReactNode;
+}) {
+	const authorization = useTerminalAuthorization(terminalId, true);
+	const submit = useSubmitAuthorization();
+	const reject = useRejectTerminalAuthorization(terminalId);
+	const queryClient = useQueryClient();
+	const refresh = () => {
+		void authorization.refetch();
+		onChanged?.();
+	};
+	return (
+		<SignaturePanel
+			request={request}
+			variant={variant}
+			phase={authorization.data?.phase}
+			pending={authorization.data?.authorization ?? undefined}
+			pendingError={authorization.isError ? authorization.error : undefined}
+			details={details}
+			count={count}
+			onSubmit={(input) => submit.mutateAsync(input)}
+			onChanged={refresh}
+			onReject={(reason) => {
+				reject.mutate(reason, {
+					onSuccess: () => {
+						invalidatePendingDecisions(queryClient);
+						refresh();
+					},
+				});
 			}}
 			busy={submit.isPending}
 			rejectBusy={reject.isPending}
