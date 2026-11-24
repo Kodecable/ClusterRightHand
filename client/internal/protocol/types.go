@@ -104,7 +104,7 @@ type TaskExit struct {
 	Result      *TaskResult
 }
 
-// Facts is the facts event body. It is the protocol's one map-structured body: hostname is required,
+// Facts is the facts event body. It is one of the protocol's map bodies: hostname is required,
 // every other key is optional and its Go field is nil when the node did not report it
 // (doc/design/protocol.md "Events"). A peer may send text keys this implementation does not know; they are
 // ignored, while a non-text key fails the whole Facts.
@@ -534,6 +534,355 @@ type PTYStatus struct {
 type PTYList struct {
 	_         struct{} `cbor:",toarray"`
 	Terminals []PTYStatus
+}
+
+// The limits of one metrics sample (doc/design/metrics.md "Limits"): crha truncates before sending,
+// and the decoder rejects a body beyond them.
+const (
+	MaxMetricsCores      = 1024
+	MaxMetricsDisks      = 64
+	MaxMetricsInterfaces = 256
+)
+
+// MetricsSnapshot is the metrics.collect response body (doc/design/metrics.md "crha nodes"). It is
+// the protocol's second text-keyed map: every field is optional, and a field crha could not read is
+// absent rather than zero. Unknown text keys are ignored, like Facts, so a field added later does
+// not break an older crhs.
+type MetricsSnapshot struct {
+	BootID     *string
+	UptimeSec  *Uint
+	CPU        *MetricsCPU
+	Loads      *MetricsLoads
+	Memory     *MetricsMemory
+	Swap       *MetricsSwap
+	Disks      []MetricsDisk
+	Interfaces []MetricsInterface
+}
+
+// isProfileValue marks MetricsSnapshot as a map body: its schema decode drops unknown keys, so the
+// strict decode compares the generic value instead of re-encoding the struct (doc/design/protocol.md
+// "Events", cbor.go profileValue).
+func (*MetricsSnapshot) isProfileValue() {}
+
+// MarshalCBOR encodes a MetricsSnapshot as the optional-field map. An absent pointer or a nil list
+// is omitted; a present empty list is encoded as an empty array.
+func (m MetricsSnapshot) MarshalCBOR() ([]byte, error) {
+	entries := profileMap{}
+	if m.BootID != nil {
+		entries = append(entries, profileMapEntry{key: "boot_id", value: *m.BootID})
+	}
+	if m.UptimeSec != nil {
+		entries = append(entries, profileMapEntry{key: "uptime_sec", value: *m.UptimeSec})
+	}
+	if m.CPU != nil {
+		entries = append(entries, profileMapEntry{key: "cpu", value: *m.CPU})
+	}
+	if m.Loads != nil {
+		entries = append(entries, profileMapEntry{key: "loads", value: *m.Loads})
+	}
+	if m.Memory != nil {
+		entries = append(entries, profileMapEntry{key: "memory", value: *m.Memory})
+	}
+	if m.Swap != nil {
+		entries = append(entries, profileMapEntry{key: "swap", value: *m.Swap})
+	}
+	if m.Disks != nil {
+		if len(m.Disks) > MaxMetricsDisks {
+			return nil, fmt.Errorf("protocol: %d metrics disks exceeds %d", len(m.Disks), MaxMetricsDisks)
+		}
+		entries = append(entries, profileMapEntry{key: "disks", value: m.Disks})
+	}
+	if m.Interfaces != nil {
+		if len(m.Interfaces) > MaxMetricsInterfaces {
+			return nil, fmt.Errorf("protocol: %d metrics interfaces exceeds %d", len(m.Interfaces), MaxMetricsInterfaces)
+		}
+		entries = append(entries, profileMapEntry{key: "interfaces", value: m.Interfaces})
+	}
+	return entries.MarshalCBOR()
+}
+
+// UnmarshalCBOR decodes the optional-field map strictly: a non-text key, a null or mistyped known
+// value, or a list beyond a limit fails the whole body, while unknown text keys are ignored.
+func (m *MetricsSnapshot) UnmarshalCBOR(data []byte) error {
+	// A null would decode into a nil map without an error; the body must be a map.
+	if len(data) == 0 || data[0]>>5 != 5 {
+		return errors.New("protocol: metrics is not a map")
+	}
+	var entries map[string]cbor.RawMessage
+	if err := decMode.Unmarshal(data, &entries); err != nil {
+		return err
+	}
+	var out MetricsSnapshot
+	for key, raw := range entries {
+		switch key {
+		case "boot_id":
+			if err := rejectNull(raw, key); err != nil {
+				return err
+			}
+			var v string
+			if err := decMode.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			out.BootID = &v
+		case "uptime_sec":
+			if err := rejectNull(raw, key); err != nil {
+				return err
+			}
+			var v Uint
+			if err := decMode.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			out.UptimeSec = &v
+		case "cpu":
+			if err := rejectNull(raw, key); err != nil {
+				return err
+			}
+			var v MetricsCPU
+			if err := decMode.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			out.CPU = &v
+		case "loads":
+			if err := rejectNull(raw, key); err != nil {
+				return err
+			}
+			var v MetricsLoads
+			if err := decMode.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			out.Loads = &v
+		case "memory":
+			if err := rejectNull(raw, key); err != nil {
+				return err
+			}
+			var v MetricsMemory
+			if err := decMode.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			out.Memory = &v
+		case "swap":
+			if err := rejectNull(raw, key); err != nil {
+				return err
+			}
+			var v MetricsSwap
+			if err := decMode.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			out.Swap = &v
+		case "disks":
+			if err := rejectNull(raw, key); err != nil {
+				return err
+			}
+			var v []MetricsDisk
+			if err := decMode.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			if v == nil {
+				v = []MetricsDisk{}
+			}
+			if len(v) > MaxMetricsDisks {
+				return fmt.Errorf("protocol: %d metrics disks exceeds %d", len(v), MaxMetricsDisks)
+			}
+			out.Disks = v
+		case "interfaces":
+			if err := rejectNull(raw, key); err != nil {
+				return err
+			}
+			var v []MetricsInterface
+			if err := decMode.Unmarshal(raw, &v); err != nil {
+				return err
+			}
+			if v == nil {
+				v = []MetricsInterface{}
+			}
+			if len(v) > MaxMetricsInterfaces {
+				return fmt.Errorf("protocol: %d metrics interfaces exceeds %d", len(v), MaxMetricsInterfaces)
+			}
+			out.Interfaces = v
+		}
+	}
+	*m = out
+	return nil
+}
+
+// rejectNull refuses a null value of a known optional key: absent and null are different, and the
+// TypeScript codec rejects null too.
+func rejectNull(raw cbor.RawMessage, key string) error {
+	if len(raw) == 1 && raw[0] == 0xf6 {
+		return fmt.Errorf("protocol: metrics %s is null", key)
+	}
+	return nil
+}
+
+// MetricsCPU is the cpu field: the cpu line's counters and every online core's. Offline cores are
+// absent.
+type MetricsCPU struct {
+	Total MetricsCPUTotal
+	Cores []MetricsCore
+}
+
+// metricsCPUWire is the [total, cores] array MetricsCPU encodes.
+type metricsCPUWire struct {
+	_     struct{} `cbor:",toarray"`
+	Total MetricsCPUTotal
+	Cores []MetricsCore
+}
+
+// MarshalCBOR encodes the cpu field as [total, cores], refusing more than MaxMetricsCores.
+func (c MetricsCPU) MarshalCBOR() ([]byte, error) {
+	if len(c.Cores) > MaxMetricsCores {
+		return nil, fmt.Errorf("protocol: %d cpu cores exceeds %d", len(c.Cores), MaxMetricsCores)
+	}
+	return encMode.Marshal(metricsCPUWire{Total: c.Total, Cores: c.Cores})
+}
+
+// UnmarshalCBOR decodes [total, cores] and refuses more than MaxMetricsCores.
+func (c *MetricsCPU) UnmarshalCBOR(data []byte) error {
+	var wire metricsCPUWire
+	if err := decMode.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if len(wire.Cores) > MaxMetricsCores {
+		return fmt.Errorf("protocol: %d cpu cores exceeds %d", len(wire.Cores), MaxMetricsCores)
+	}
+	if wire.Cores == nil {
+		wire.Cores = []MetricsCore{}
+	}
+	*c = MetricsCPU{Total: wire.Total, Cores: wire.Cores}
+	return nil
+}
+
+// MetricsCPUTotal is the busy and total jiffy counters of one cpu line.
+type MetricsCPUTotal struct {
+	_     struct{} `cbor:",toarray"`
+	Busy  Uint64
+	Total Uint64
+}
+
+// MetricsCore is one online core's cpu<n> line: its index and the same two counters.
+type MetricsCore struct {
+	_     struct{} `cbor:",toarray"`
+	Index Uint
+	Busy  Uint64
+	Total Uint64
+}
+
+// MetricsLoads is the three load averages in thousandths (1.23 is 1230); the CBOR profile has no
+// floats and /proc/loadavg prints two decimals, so the integer is exact.
+type MetricsLoads struct {
+	_   struct{} `cbor:",toarray"`
+	L1  Uint
+	L5  Uint
+	L15 Uint
+}
+
+// MetricsMemory is /proc/meminfo's MemTotal, MemAvailable, Cached and MemFree in bytes.
+type MetricsMemory struct {
+	_              struct{} `cbor:",toarray"`
+	TotalBytes     Uint64
+	AvailableBytes Uint64
+	CachedBytes    Uint64
+	FreeBytes      Uint64
+}
+
+// MetricsSwap is /proc/meminfo's SwapTotal and SwapFree in bytes.
+type MetricsSwap struct {
+	_          struct{} `cbor:",toarray"`
+	TotalBytes Uint64
+	FreeBytes  Uint64
+}
+
+// MetricsDisk is one configured filesystem. Error is nil for a successful statfs and holds the
+// reason otherwise; the wire encodes ["ok", [name, path, total_bytes, used_bytes]] or
+// ["error", [name, path, error]] (doc/design/metrics.md "crha nodes").
+type MetricsDisk struct {
+	Name       string
+	Path       string
+	TotalBytes Uint64
+	UsedBytes  Uint64
+	Error      *string
+}
+
+// metricsDiskOK is the success body of a MetricsDisk.
+type metricsDiskOK struct {
+	_          struct{} `cbor:",toarray"`
+	Name       string
+	Path       string
+	TotalBytes Uint64
+	UsedBytes  Uint64
+}
+
+// metricsDiskError is the error body of a MetricsDisk.
+type metricsDiskError struct {
+	_     struct{} `cbor:",toarray"`
+	Name  string
+	Path  string
+	Error string
+}
+
+// metricsDiskUnion is the MetricsDisk union: a successful statfs or the reason it failed.
+var metricsDiskUnion = newUnion("metrics disk",
+	unionBranch[MetricsDisk]{
+		tag: "ok",
+		body: func(d MetricsDisk) (any, bool) {
+			if d.Error != nil {
+				return nil, false
+			}
+			return metricsDiskOK{
+				Name: d.Name, Path: d.Path, TotalBytes: d.TotalBytes, UsedBytes: d.UsedBytes,
+			}, true
+		},
+		decode: func(d *MetricsDisk, body cbor.RawMessage) error {
+			var ok metricsDiskOK
+			if err := decMode.Unmarshal(body, &ok); err != nil {
+				return err
+			}
+			*d = MetricsDisk{Name: ok.Name, Path: ok.Path, TotalBytes: ok.TotalBytes, UsedBytes: ok.UsedBytes}
+			return nil
+		},
+	},
+	unionBranch[MetricsDisk]{
+		tag: "error",
+		body: func(d MetricsDisk) (any, bool) {
+			if d.Error == nil {
+				return nil, false
+			}
+			return metricsDiskError{Name: d.Name, Path: d.Path, Error: *d.Error}, true
+		},
+		decode: func(d *MetricsDisk, body cbor.RawMessage) error {
+			var failure metricsDiskError
+			if err := decMode.Unmarshal(body, &failure); err != nil {
+				return err
+			}
+			message := failure.Error
+			*d = MetricsDisk{Name: failure.Name, Path: failure.Path, Error: &message}
+			return nil
+		},
+	},
+)
+
+// MarshalCBOR encodes a MetricsDisk as [tag, body].
+func (d MetricsDisk) MarshalCBOR() ([]byte, error) {
+	if d.Error != nil {
+		return metricsDiskUnion.marshal(d, "error")
+	}
+	return metricsDiskUnion.marshal(d, "ok")
+}
+
+// UnmarshalCBOR decodes [tag, body] into the matching MetricsDisk branch.
+func (d *MetricsDisk) UnmarshalCBOR(data []byte) error {
+	_, err := metricsDiskUnion.unmarshal(data, d)
+	return err
+}
+
+// MetricsInterface is one selected interface's /proc/net/dev counters.
+type MetricsInterface struct {
+	_         struct{} `cbor:",toarray"`
+	Name      string
+	RXBytes   Uint64
+	TXBytes   Uint64
+	RXPackets Uint64
+	TXPackets Uint64
 }
 
 // DataConnectionInit is the client payload of a data connection's Noise IK handshake: the protocol

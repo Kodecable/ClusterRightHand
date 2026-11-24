@@ -67,8 +67,8 @@ func TestFramesFixture(t *testing.T) {
 				t.Fatalf("decoded value mismatch:\n got %#v\nwant %#v", got, want)
 			}
 			if isFactsBody(got) {
-				// Facts is the protocol's one map: the schema value drops keys this implementation does
-				// not know, so the byte-for-byte comparison is the profile's, on the generic value
+				// Facts is one of the protocol's maps: the schema value drops keys this implementation
+				// does not know, so the byte-for-byte comparison is the profile's, on the generic value
 				// (doc/design/protocol.md "Events").
 				if err := checkProfileReencode(raw); err != nil {
 					t.Fatalf("profile re-encode: %v", err)
@@ -186,6 +186,9 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 		case CmdPTYClose:
 			var v PTYClose
 			return v, Unmarshal(frame.Body, &v)
+		case CmdMetricsCollect:
+			var v Empty
+			return v, Unmarshal(frame.Body, &v)
 		}
 	case FrameResponse:
 		switch frame.Name {
@@ -200,6 +203,9 @@ func decodeFixtureBody(frame *Frame) (any, error) {
 			return v, Unmarshal(frame.Body, &v)
 		case CmdTaskQuery:
 			var v TaskStatus
+			return v, Unmarshal(frame.Body, &v)
+		case CmdMetricsCollect:
+			var v MetricsSnapshot
 			return v, Unmarshal(frame.Body, &v)
 		}
 	case FrameEvent:
@@ -294,8 +300,8 @@ func encodeFixtureValue(value any) ([]byte, error) {
 // The hand-written expectations below are transcribed from doc/design/protocol.md and the
 // description of each fixture entry, independently of the TypeScript generator.
 
-// fixtureCommands is the crha handshake command list of the fixture, in its wire order: the required
-// names, because this version of crha implements no optional one.
+// fixtureCommands is the command list of the fixture's required-only handshake, in its wire order: a
+// node of an older minor offers only these.
 func fixtureCommands() []string {
 	return []string{
 		CmdHello, CmdPing, CmdTaskStart, CmdTaskInput, CmdTaskCancel, CmdTaskQuery,
@@ -305,10 +311,43 @@ func fixtureCommands() []string {
 }
 
 // fixtureOfferedCommands is the crhs handshake command list of the fixture, in the generator's wire
-// order: the required names and then the optional terminal names. crhs offers them, while a node
-// offers an optional name only when it implements it.
+// order: the required names and then the optional terminal and metrics names. crhs offers them, while
+// a node offers an optional name only when it implements it.
 func fixtureOfferedCommands() []string {
-	return append(fixtureCommands(), CmdPTYOpen, CmdPTYResize, CmdPTYClose, EventPTYExited, EventPTYList)
+	return append(fixtureCommands(),
+		CmdPTYOpen, CmdPTYResize, CmdPTYClose, EventPTYExited, EventPTYList, CmdMetricsCollect)
+}
+
+// fixtureMetricsSnapshot is the full metrics.collect response of the fixture (doc/design/metrics.md
+// "crha nodes"). The counters above 2^53 prove the 64-bit encoding.
+func fixtureMetricsSnapshot() MetricsSnapshot {
+	return MetricsSnapshot{
+		BootID:    ptr("6f1e2d3c-4b5a-4978-8a9b-0c1d2e3f4a5b"),
+		UptimeSec: ptr(Uint(123456)),
+		CPU: &MetricsCPU{
+			Total: MetricsCPUTotal{Busy: 123456789, Total: 234567890},
+			Cores: []MetricsCore{
+				{Index: 0, Busy: 111, Total: 222},
+				{Index: 2, Busy: 9007199254740993, Total: 9007199254740995},
+			},
+		},
+		Loads: &MetricsLoads{L1: 1230, L5: 2450, L15: 3780},
+		Memory: &MetricsMemory{
+			TotalBytes: 16777216000, AvailableBytes: 8388608000,
+			CachedBytes: 4294967296, FreeBytes: 2147483648,
+		},
+		Swap: &MetricsSwap{TotalBytes: 2147483648, FreeBytes: 1073741824},
+		Disks: []MetricsDisk{
+			{Name: "root", Path: "/", TotalBytes: 107374182400, UsedBytes: 53687091200},
+			{Name: "data", Path: "/data", Error: ptr("statfs timed out")},
+		},
+		Interfaces: []MetricsInterface{
+			{
+				Name: "eth0", RXBytes: 9007199254740993, TXBytes: 1234567890123,
+				RXPackets: 987654321, TXPackets: 123456789,
+			},
+		},
+	}
 }
 
 // fixturePTYRunning is the running terminal of the pty.list fixture.
@@ -409,6 +448,9 @@ var fixtureExpectedIDs = []string{
 	"event.pty.list",
 	"data.init.pty",
 	"data.response.pty",
+	"request.metrics.collect",
+	"response.metrics.collect",
+	"response.metrics.collect.partial",
 }
 
 func expectedFixtureValue(id string) (any, bool) {
@@ -918,6 +960,24 @@ func expectedFixtureValue(id string) (any, bool) {
 		return PTYConnectionInit{ProtocolMajor: ProtocolMajor, PTYID: "pty-1", InputReceived: 1024}, true
 	case "data.response.pty":
 		return PTYConnectionResponse{ProtocolMajor: ProtocolMajor, OutputReceived: 2048}, true
+	case "request.metrics.collect":
+		return fixtureFrame{
+			Kind: FrameRequest, ID: 35, Name: CmdMetricsCollect, Body: Empty{},
+		}, true
+	case "response.metrics.collect":
+		return fixtureFrame{
+			Kind: FrameResponse, ID: 35, Name: CmdMetricsCollect, OK: true,
+			Body: fixtureMetricsSnapshot(),
+		}, true
+	case "response.metrics.collect.partial":
+		return fixtureFrame{
+			Kind: FrameResponse, ID: 36, Name: CmdMetricsCollect, OK: true,
+			Body: MetricsSnapshot{
+				BootID:     ptr("6f1e2d3c-4b5a-4978-8a9b-0c1d2e3f4a5b"),
+				Disks:      []MetricsDisk{},
+				Interfaces: []MetricsInterface{},
+			},
+		}, true
 
 	case "event.trust.summary":
 		return fixtureFrame{

@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,6 +22,8 @@ func TestKnownNamesAgreeWithCrhs(t *testing.T) {
 		Roles        []string `json:"roles"`
 		Capabilities []string `json:"capabilities"`
 		TaskKinds    []string `json:"task_kinds"`
+		Commands     []string `json:"commands"`
+		Events       []string `json:"events"`
 	}
 	if err := json.Unmarshal(data, &want); err != nil {
 		t.Fatal(err)
@@ -31,6 +34,8 @@ func TestKnownNamesAgreeWithCrhs(t *testing.T) {
 		"roles":        {names(trustRoles.known), want.Roles},
 		"capabilities": {names(trustKinds.known), want.Capabilities},
 		"task_kinds":   {TaskSpecKinds(), want.TaskKinds},
+		"commands":     {slices.Sorted(maps.Keys(commandSchemas)), want.Commands},
+		"events":       {slices.Sorted(maps.Keys(eventSchemas)), want.Events},
 	} {
 		if !slices.Equal(c.got, c.want) {
 			t.Errorf("%s: crha knows %q, the fixture lists %q", name, c.got, c.want)

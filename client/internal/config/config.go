@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -54,6 +55,7 @@ type Config struct {
 	Notes     string
 	Privilege Privileged
 	Output    Output
+	Metrics   Metrics
 	// ClockWarn is the threshold above which the clock offset measured in a crhs handshake
 	// is logged as a warning. 0 disables the warning.
 	ClockWarn time.Duration
@@ -73,6 +75,22 @@ type Output struct {
 	MaxTotal int64
 }
 
+// Metrics configures the filesystems and interfaces crha reports to metrics.collect
+// (doc/design/metrics.md "crha nodes").
+type Metrics struct {
+	// Disks are the configured filesystems. It is never nil: absent means the root filesystem, and
+	// an explicit empty list means no filesystem.
+	Disks []MetricsDisk
+	// Interfaces are the selected interface names. Empty selects the default set.
+	Interfaces []string
+}
+
+// MetricsDisk is one configured filesystem: Name is the series identity and Path the mount point.
+type MetricsDisk struct {
+	Name string
+	Path string
+}
+
 type rawConfig struct {
 	Server     string `toml:"server"`
 	TLSVerify  string `toml:"tls_verify"`
@@ -89,6 +107,19 @@ type rawConfig struct {
 		MaxAge   string `toml:"max_age"`
 		MaxTotal string `toml:"max_total"`
 	} `toml:"output"`
+	Metrics rawMetrics `toml:"metrics"`
+}
+
+// rawMetrics is the [metrics] section. Disks is a pointer so an absent key (default root
+// filesystem) differs from an explicit empty list (no filesystem).
+type rawMetrics struct {
+	Disks      *[]rawMetricsDisk `toml:"disks"`
+	Interfaces []string          `toml:"interfaces"`
+}
+
+type rawMetricsDisk struct {
+	Name string `toml:"name"`
+	Path string `toml:"path"`
 }
 
 // Load reads and parses the configuration file at path.
@@ -166,7 +197,65 @@ func build(raw *rawConfig) (*Config, error) {
 	if err := c.parseOutput(&raw.Output.MaxAge, &raw.Output.MaxTotal); err != nil {
 		return nil, err
 	}
+	if err := c.parseMetrics(&raw.Metrics); err != nil {
+		return nil, err
+	}
 	return c, nil
+}
+
+// Metrics limits (doc/design/metrics.md "Limits").
+const (
+	MaxMetricsDisks      = 64
+	MaxMetricsInterfaces = 256
+)
+
+// metricsDiskName matches a filesystem's configured name: 1-64 characters of [A-Za-z0-9_-]. The name
+// is a series identity, so it has no dot and no space.
+var metricsDiskName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// parseMetrics validates and defaults the [metrics] section. Absent disks mean the root filesystem;
+// an explicit empty list means none. Interfaces that are absent or empty select the default set.
+func (c *Config) parseMetrics(raw *rawMetrics) error {
+	if raw.Disks == nil {
+		c.Metrics.Disks = []MetricsDisk{{Name: "root", Path: "/"}}
+	} else {
+		if len(*raw.Disks) > MaxMetricsDisks {
+			return fmt.Errorf("config: metrics.disks: %d entries, at most %d allowed", len(*raw.Disks), MaxMetricsDisks)
+		}
+		c.Metrics.Disks = make([]MetricsDisk, 0, len(*raw.Disks))
+		seen := make(map[string]bool, len(*raw.Disks))
+		for i, disk := range *raw.Disks {
+			if !metricsDiskName.MatchString(disk.Name) {
+				return fmt.Errorf(
+					"config: metrics.disks[%d].name: %q is not 1-64 characters of [A-Za-z0-9_-]", i, disk.Name)
+			}
+			if seen[disk.Name] {
+				return fmt.Errorf("config: metrics.disks[%d].name: duplicate name %q", i, disk.Name)
+			}
+			seen[disk.Name] = true
+			if !filepath.IsAbs(disk.Path) {
+				return fmt.Errorf("config: metrics.disks[%d].path: path %q must be absolute", i, disk.Path)
+			}
+			c.Metrics.Disks = append(c.Metrics.Disks, MetricsDisk{Name: disk.Name, Path: disk.Path})
+		}
+	}
+	if len(raw.Interfaces) > MaxMetricsInterfaces {
+		return fmt.Errorf(
+			"config: metrics.interfaces: %d entries, at most %d allowed", len(raw.Interfaces), MaxMetricsInterfaces)
+	}
+	c.Metrics.Interfaces = nil
+	seen := make(map[string]bool, len(raw.Interfaces))
+	for i, name := range raw.Interfaces {
+		if name == "" {
+			return fmt.Errorf("config: metrics.interfaces[%d]: name must not be empty", i)
+		}
+		if seen[name] {
+			return fmt.Errorf("config: metrics.interfaces[%d]: duplicate interface %q", i, name)
+		}
+		seen[name] = true
+		c.Metrics.Interfaces = append(c.Metrics.Interfaces, name)
+	}
+	return nil
 }
 
 func orDefault(v, def string) string {

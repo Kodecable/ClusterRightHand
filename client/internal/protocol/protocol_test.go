@@ -40,8 +40,8 @@ func TestRequiredNames(t *testing.T) {
 	if Major := ProtocolMajor; Major != 1 {
 		t.Fatalf("ProtocolMajor = %d, want 1", Major)
 	}
-	if Minor := ProtocolMinor; Minor != 1 {
-		t.Fatalf("ProtocolMinor = %d, want 1", Minor)
+	if Minor := ProtocolMinor; Minor != 2 {
+		t.Fatalf("ProtocolMinor = %d, want 2", Minor)
 	}
 	if PTYNoiseProloguePrefix != "crh-pty/1" {
 		t.Fatalf("PTYNoiseProloguePrefix = %q, want crh-pty/1", PTYNoiseProloguePrefix)
@@ -50,6 +50,7 @@ func TestRequiredNames(t *testing.T) {
 
 func TestOptionalNames(t *testing.T) {
 	want := []string{
+		"metrics.collect",
 		"pty.close",
 		"pty.exited",
 		"pty.list",
@@ -68,7 +69,7 @@ func TestOptionalNames(t *testing.T) {
 		}
 	}
 	// Every optional name has a schema, so a known body is validated even when it was not negotiated.
-	for _, name := range []string{CmdPTYOpen, CmdPTYResize, CmdPTYClose} {
+	for _, name := range []string{CmdPTYOpen, CmdPTYResize, CmdPTYClose, CmdMetricsCollect} {
 		if _, ok := commandSchemas[name]; !ok {
 			t.Fatalf("no command schema for optional command %q", name)
 		}
@@ -90,7 +91,9 @@ func TestOfferedNames(t *testing.T) {
 	if got := OfferedNames(); !slices.Equal(got, want) {
 		t.Fatalf("OfferedNames() = %v, want %v", got, want)
 	}
-	for _, name := range []string{CmdPTYOpen, CmdPTYResize, CmdPTYClose, EventPTYExited, EventPTYList} {
+	for _, name := range []string{
+		CmdPTYOpen, CmdPTYResize, CmdPTYClose, EventPTYExited, EventPTYList, CmdMetricsCollect,
+	} {
 		if !OfferedSet().Has(name) {
 			t.Fatalf("crha does not offer %q", name)
 		}

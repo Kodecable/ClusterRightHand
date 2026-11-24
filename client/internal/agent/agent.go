@@ -147,6 +147,9 @@ type Options struct {
 	// Env is the task environment resolved when `crha run` started (execenv.Resolve). nil resolves it
 	// per task, which only tests and programmatic callers do. Terminals use the same environment.
 	Env *execenv.Environment
+	// Metrics reads the metrics.collect response (doc/design/metrics.md "crha nodes"). nil answers
+	// with an empty snapshot, which only tests and programmatic callers do.
+	Metrics func() protocol.MetricsSnapshot
 }
 
 type Agent struct {
@@ -394,7 +397,24 @@ func (a *Agent) newPeer(ctx context.Context, conn *transport.Conn, ns *nodeStatu
 	peer.HandleRequest(protocol.CmdPTYOpen, a.handlePTYOpen)
 	peer.HandleRequest(protocol.CmdPTYResize, a.handlePTYResize)
 	peer.HandleRequest(protocol.CmdPTYClose, a.handlePTYClose)
+	// Host metrics. It is optional too, and a restricted connection never registers it: crhs samples
+	// a pending node from its connection state only (doc/design/metrics.md "crha nodes").
+	peer.HandleRequest(protocol.CmdMetricsCollect, a.handleMetricsCollect)
 	return peer
+}
+
+// handleMetricsCollect answers metrics.collect with the node's raw values. A source that failed is
+// absent from the snapshot; only a malformed request body is an error, and the command carries no
+// fields (doc/design/metrics.md "crha nodes").
+func (a *Agent) handleMetricsCollect(_ context.Context, body cbor.RawMessage) (any, error) {
+	var request protocol.Empty
+	if err := protocol.UnmarshalBody(body, &request); err != nil {
+		return nil, err
+	}
+	if a.opts.Metrics == nil {
+		return protocol.MetricsSnapshot{}, nil
+	}
+	return a.opts.Metrics(), nil
 }
 
 func (a *Agent) receive(ctx context.Context, conn *transport.Conn, peer *protocol.Peer) error {

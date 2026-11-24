@@ -68,9 +68,13 @@ type fakeConfig struct {
 	// commands is what the fake crhs offers in the handshake; nil means the required names only,
 	// as a crhs of the base protocol does. Terminal tests set OfferedNames.
 	commands []string
-	setup    func(*protocol.Peer)
-	run      func(context.Context, *protocol.Peer)
-	log      *frameLog
+	// peerNames are names the fake peer may send even though the handshake did not negotiate them.
+	// Only a test that checks crha's unsupported_command answer needs this: a real crhs never sends
+	// an unnegotiated name.
+	peerNames []string
+	setup     func(*protocol.Peer)
+	run       func(context.Context, *protocol.Peer)
+	log       *frameLog
 	// sent, when non-nil, sees every frame crhs sends to the agent, in wire order.
 	sent func(*protocol.Frame)
 }
@@ -138,6 +142,10 @@ func startFake(t *testing.T, serverKey noise.Keypair, cfg fakeConfig) *httptest.
 			return
 		}
 
+		negotiated := protocol.NewSet(commands...).Intersect(protocol.NewSet(init.Commands...))
+		for _, name := range cfg.peerNames {
+			negotiated.Add(name)
+		}
 		peer := protocol.NewPeer(func(frame []byte) error {
 			if cfg.sent != nil {
 				if f, err := protocol.DecodeFrame(frame); err == nil {
@@ -149,7 +157,7 @@ func startFake(t *testing.T, serverKey noise.Keypair, cfg fakeConfig) *httptest.
 				return err
 			}
 			return ws.Write(ctx, websocket.MessageBinary, ct)
-		}, protocol.NewSet(commands...).Intersect(protocol.NewSet(init.Commands...)))
+		}, negotiated)
 		registerCore(peer)
 		cfg.setup(peer)
 		if cfg.run != nil {

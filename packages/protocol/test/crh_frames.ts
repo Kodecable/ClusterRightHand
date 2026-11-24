@@ -10,6 +10,10 @@ import {
 	type HandshakeResponse,
 	handshakeInitCodec,
 	handshakeResponseCodec,
+	MAX_METRICS_CORES,
+	MAX_METRICS_DISKS,
+	MAX_METRICS_INTERFACES,
+	type MetricsSnapshot,
 	PROTOCOL_MAJOR,
 	PROTOCOL_MINOR,
 	type PtyStatus,
@@ -77,7 +81,7 @@ function factsEvent(body: ReadonlyMap<unknown, unknown>): Uint8Array {
 	return encodeCbor([2, "facts", body]);
 }
 
-/** The commands field of a crha handshake: the required names, since crha implements no optional one yet. */
+/** The commands field of a handshake that offers the required names only, as an older node does. */
 const COMMANDS_TEXT = `commands=[${REQUIRED_NAMES.join(",")}]`;
 /** The commands field of a crhs handshake: crhs offers the required names and the optional terminal names. */
 const OFFERED_COMMANDS_TEXT = `commands=[${offeredNames().join(",")}]`;
@@ -660,7 +664,7 @@ export function buildFixture(): CrhFramesFixture {
 		exitFrame("t-edit-result", EDIT_RESULT),
 	);
 	addFrame("event.facts", `event facts body=${FACTS_TEXT}`, { kind: "event", name: "facts", body: FACTS });
-	// Facts is the protocol's one map (doc/design/protocol.md "Events"): unknown keys are ignored, absent
+	// Facts is one of the protocol's maps (doc/design/protocol.md "Events"): unknown keys are ignored, absent
 	// optionals are accepted, and shells is itself a map with an optional bash.
 	addPositive(
 		"event.facts.self_upgrade",
@@ -871,6 +875,65 @@ export function buildFixture(): CrhFramesFixture {
 		"data.response.pty",
 		`PTYConnectionResponse [protocol_major=${PROTOCOL_MAJOR}, output_received=2048]`,
 		encodeCbor(ptyConnectionResponseCodec.encode({ protocolMajor: PROTOCOL_MAJOR, outputReceived: 2048 })),
+	);
+
+	// Host metrics (doc/design/metrics.md "crha nodes"). The response is the protocol's second
+	// text-keyed map: every field is optional, so a source the node could not read is absent. Counters
+	// are 64-bit uints, and the load averages are thousandths because the profile has no floats.
+	const METRICS: MetricsSnapshot = {
+		bootId: "6f1e2d3c-4b5a-4978-8a9b-0c1d2e3f4a5b",
+		uptimeSec: 123456,
+		cpu: {
+			total: { busy: 123456789n, total: 234567890n },
+			cores: [
+				{ index: 0, busy: 111n, total: 222n },
+				{ index: 2, busy: 9007199254740993n, total: 9007199254740995n },
+			],
+		},
+		loads: { l1: 1230, l5: 2450, l15: 3780 },
+		memory: {
+			totalBytes: 16777216000n,
+			availableBytes: 8388608000n,
+			cachedBytes: 4294967296n,
+			freeBytes: 2147483648n,
+		},
+		swap: { totalBytes: 2147483648n, freeBytes: 1073741824n },
+		disks: [
+			{ kind: "ok", name: "root", path: "/", totalBytes: 107374182400n, usedBytes: 53687091200n },
+			{ kind: "error", name: "data", path: "/data", error: "statfs timed out" },
+		],
+		interfaces: [
+			{
+				name: "eth0",
+				rxBytes: 9007199254740993n,
+				txBytes: 1234567890123n,
+				rxPackets: 987654321n,
+				txPackets: 123456789n,
+			},
+		],
+	};
+	addFrame("request.metrics.collect", "request id=35 cmd=metrics.collect body=[]", {
+		kind: "request",
+		id: 35,
+		cmd: "metrics.collect",
+		body: {},
+	});
+	addFrame(
+		"response.metrics.collect",
+		'response id=35 cmd=metrics.collect ok=true body={boot_id="6f1e2d3c-4b5a-4978-8a9b-0c1d2e3f4a5b", uptime_sec=123456, cpu=[[123456789, 234567890], [[0, 111, 222], [2, 9007199254740993, 9007199254740995]]], loads=[1230, 2450, 3780], memory=[16777216000, 8388608000, 4294967296, 2147483648], swap=[2147483648, 1073741824], disks=[["ok", ["root", "/", 107374182400, 53687091200]], ["error", ["data", "/data", "statfs timed out"]]], interfaces=[["eth0", 9007199254740993, 1234567890123, 987654321, 123456789]]}',
+		{ kind: "response", id: 35, cmd: "metrics.collect", ok: true, body: METRICS },
+	);
+	// Only a boot id, and two lists that are present but empty: absent is not the same as empty.
+	addFrame(
+		"response.metrics.collect.partial",
+		'response id=36 cmd=metrics.collect ok=true body={boot_id="6f1e2d3c-4b5a-4978-8a9b-0c1d2e3f4a5b", disks=[], interfaces=[]}',
+		{
+			kind: "response",
+			id: 36,
+			cmd: "metrics.collect",
+			ok: true,
+			body: { bootId: "6f1e2d3c-4b5a-4978-8a9b-0c1d2e3f4a5b", disks: [], interfaces: [] },
+		},
 	);
 
 	// Negative cases.
@@ -1185,6 +1248,51 @@ export function buildFixture(): CrhFramesFixture {
 		"negative.request_cmd_too_long",
 		"request cmd is 65 ASCII bytes, over the 64-byte limit",
 		encodeCbor([0, 26, "a".repeat(65), []]),
+	);
+	// The metrics limits (doc/design/metrics.md "Limits"): crha truncates, and a decoder rejects more.
+	addNegative(
+		"negative.metrics_core_limit",
+		"metrics.collect cpu lists 1025 cores, over the 1024 limit",
+		encodeCbor([
+			1,
+			37,
+			"metrics.collect",
+			true,
+			new Map<string, unknown>([
+				["cpu", [[1n, 2n], Array.from({ length: MAX_METRICS_CORES + 1 }, (_, i) => [i, 1n, 2n])]],
+			]),
+		]),
+	);
+	addNegative(
+		"negative.metrics_disk_limit",
+		"metrics.collect lists 65 filesystems, over the 64 limit",
+		encodeCbor([
+			1,
+			38,
+			"metrics.collect",
+			true,
+			new Map<string, unknown>([
+				["disks", Array.from({ length: MAX_METRICS_DISKS + 1 }, (_, i) => ["ok", [`d${i}`, `/d${i}`, 1n, 2n]])],
+			]),
+		]),
+	);
+	addNegative(
+		"negative.metrics_interface_limit",
+		"metrics.collect lists 257 interfaces, over the 256 limit",
+		encodeCbor([
+			1,
+			39,
+			"metrics.collect",
+			true,
+			new Map<string, unknown>([
+				["interfaces", Array.from({ length: MAX_METRICS_INTERFACES + 1 }, (_, i) => [`eth${i}`, 1n, 2n, 3n, 4n])],
+			]),
+		]),
+	);
+	addNegative(
+		"negative.metrics_core_short",
+		"metrics.collect core has 2 elements instead of 3",
+		encodeCbor([1, 40, "metrics.collect", true, new Map<string, unknown>([["cpu", [[1n, 2n], [[0, 1n]]]]])]),
 	);
 
 	return { positive, negative };

@@ -47,6 +47,29 @@ export const uint: Codec<number> = make(
 	(value) => (isUint(value) ? value : fail("uint", `not a safe unsigned integer: ${String(value)}`)),
 );
 
+const MAX_UINT64 = (1n << 64n) - 1n;
+
+/**
+ * 0 ≤ n ≤ 2^64−1, carried as a `bigint`. It exists for raw 64-bit counters (jiffies, bytes and
+ * packets) that can pass 2^53−1 and would lose precision as a JavaScript number. A safe integer is
+ * accepted and normalized on both sides, because cborg decodes a small uint as a number. The CBOR
+ * profile allows the full native uint64 range; `uint` is the narrower protocol integer
+ * (doc/design/protocol.md "Encoding rules").
+ */
+export const uint64: Codec<bigint> = make(
+	"uint64",
+	(value) => {
+		if (typeof value === "number" && isUint(value)) return BigInt(value);
+		if (typeof value === "bigint" && value >= 0n && value <= MAX_UINT64) return value;
+		return fail("uint64", `not an unsigned 64-bit integer: ${String(value)}`);
+	},
+	(value) => {
+		if (typeof value === "number" && isUint(value)) return BigInt(value);
+		if (typeof value === "bigint" && value >= 0n && value <= MAX_UINT64) return value;
+		return fail("uint64", `not an unsigned 64-bit integer: ${String(value)}`);
+	},
+);
+
 /** |n| ≤ 2^53−1. Bigints are rejected even when they fit. */
 export const int: Codec<number> = make(
 	"int",
@@ -231,7 +254,7 @@ export interface MapField<T> {
 }
 
 /**
- * A CBOR map with a fixed set of text keys: the protocol's one map structure (Facts). Encoding
+ * A CBOR map with a fixed set of text keys: used by Facts and the metrics snapshot. Encoding
  * writes only fields whose value is not `undefined`, so an absent optional value is omitted rather
  * than encoded as null. Decoding ignores text keys this codec does not know, and rejects a non-text
  * key, a missing required key or a known key whose value has the wrong type.

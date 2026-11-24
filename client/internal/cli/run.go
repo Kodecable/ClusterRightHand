@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/Kodecable/ClusterRightHand/client/internal/identity"
 	"github.com/Kodecable/ClusterRightHand/client/internal/janitor"
 	"github.com/Kodecable/ClusterRightHand/client/internal/logging"
+	"github.com/Kodecable/ClusterRightHand/client/internal/metrics"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/audit"
 	privconfig "github.com/Kodecable/ClusterRightHand/client/internal/privileged/config"
 	"github.com/Kodecable/ClusterRightHand/client/internal/privileged/daemon"
@@ -99,6 +101,11 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 		return err
 	}
 
+	collector := metrics.New(metrics.Options{
+		Root:       "/",
+		Disks:      metricsDisks(first.Metrics.Disks),
+		Interfaces: first.Metrics.Interfaces,
+	})
 	a := agent.New(agent.Options{
 		Dial: func(ctx context.Context) (*transport.Conn, error) {
 			return transport.Dial(ctx, dialOptions(cfg.Load(), key, serverKey, &protocol.HandshakeInit{CRHAVersion: version.Version}))
@@ -120,6 +127,7 @@ func runWithDebug(ctx context.Context, configPath string, startDebug func(contex
 		NativePrefix:      nativeEscalation(first.Privilege.Native),
 		ClockWarn:         first.ClockWarn,
 		Env:               env,
+		Metrics:           collector.Collect,
 		Logger:            log,
 	})
 	outputDir, err := filepath.Abs(first.Output.Dir)
@@ -166,8 +174,9 @@ func reloadOnHangup(ctx context.Context, log *slog.Logger, path string, cfg *ato
 		}
 		prev := cfg.Swap(next)
 		if next.StateDir != prev.StateDir || next.Output != prev.Output || next.Privilege != prev.Privilege ||
-			next.ClockWarn != prev.ClockWarn {
-			log.Warn("state_dir, clock_warn, [output] and [privileged] changes take effect after a restart")
+			next.ClockWarn != prev.ClockWarn || !slices.Equal(next.Metrics.Disks, prev.Metrics.Disks) ||
+			!slices.Equal(next.Metrics.Interfaces, prev.Metrics.Interfaces) {
+			log.Warn("state_dir, clock_warn, [output], [metrics] and [privileged] changes take effect after a restart")
 		}
 		log.Info("configuration reloaded")
 		if next.Server != prev.Server || next.TLSVerify != prev.TLSVerify {
@@ -232,6 +241,15 @@ func nodeFacts(cfg *config.Config, env *execenv.Environment) protocol.Facts {
 		f.Shells.Bash = &bash
 	}
 	return facts.Clean(f)
+}
+
+// metricsDisks converts the configured filesystems to the metrics collector's form.
+func metricsDisks(disks []config.MetricsDisk) []metrics.Disk {
+	out := make([]metrics.Disk, len(disks))
+	for i, disk := range disks {
+		out[i] = metrics.Disk{Name: disk.Name, Path: disk.Path}
+	}
+	return out
 }
 
 // nativeEscalation returns the argv prefix that runs the native helper as the target identity. The

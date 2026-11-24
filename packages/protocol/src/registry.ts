@@ -8,6 +8,7 @@ import {
 	emptyCodec,
 	factsCodec,
 	helloCodec,
+	metricsSnapshotCodec,
 	nodeStatusCodec,
 	outputAckCodec,
 	pingCodec,
@@ -45,6 +46,7 @@ export const COMMANDS = {
 	"pty.open": { request: ptyOpenCodec, response: emptyCodec },
 	"pty.resize": { request: ptyResizeCodec, response: emptyCodec },
 	"pty.close": { request: ptyCloseCodec, response: emptyCodec },
+	"metrics.collect": { request: emptyCodec, response: metricsSnapshotCodec },
 } as const satisfies Record<string, CommandDefinition>;
 
 /** Every event. */
@@ -86,8 +88,8 @@ export const REQUIRED_NAMES: readonly string[] = Object.freeze([
 /**
  * The names an implementation may offer in addition to the required ones. They are negotiated by
  * intersection: a sender uses one only when both sides offered it. The terminal names are optional
- * from minor 1 on, because an older node does not implement them (doc/design/protocol.md
- * "Version negotiation").
+ * from minor 1 on, and `metrics.collect` from minor 2, because an older node does not implement them
+ * (doc/design/protocol.md "Version negotiation").
  */
 export const OPTIONAL_NAMES: readonly string[] = Object.freeze([
 	"pty.open",
@@ -95,6 +97,7 @@ export const OPTIONAL_NAMES: readonly string[] = Object.freeze([
 	"pty.close",
 	"pty.exited",
 	"pty.list",
+	"metrics.collect",
 ]);
 
 /** The names this implementation offers in a handshake: every required name, then every optional one. */

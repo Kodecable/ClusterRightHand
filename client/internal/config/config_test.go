@@ -28,6 +28,7 @@ func TestParseDefaults(t *testing.T) {
 		Notes:     filepath.Join(stateDir, "NOTES.md"),
 		Privilege: Privileged{Mode: "reject", Socket: "", Native: "sudo"},
 		Output:    Output{Dir: filepath.Join(stateDir, "output"), MaxAge: 168 * time.Hour, MaxTotal: 1 << 30},
+		Metrics:   Metrics{Disks: []MetricsDisk{{Name: "root", Path: "/"}}},
 		ClockWarn: 60 * time.Second,
 	}
 	if !reflect.DeepEqual(c, want) {
@@ -89,6 +90,95 @@ func TestParseErrors(t *testing.T) {
 		{"unknown top", min + "bogus = 1\n", "bogus"},
 		{"unknown nested", min + "[output]\nnope = 1\n", "output.nope"},
 		{"syntax", "server = \n", "parse"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.in))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want error containing %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseMetrics(t *testing.T) {
+	// Absent means the root filesystem, and the section is optional.
+	c, err := Parse([]byte(minimalConfig(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.Metrics, Metrics{Disks: []MetricsDisk{{Name: "root", Path: "/"}}}) {
+		t.Fatalf("default metrics = %+v", c.Metrics)
+	}
+
+	// An explicit empty list collects no filesystem; it is not the same as an absent key.
+	c, err = Parse([]byte(minimalConfig(t) + "[metrics]\ndisks = []\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Metrics.Disks == nil || len(c.Metrics.Disks) != 0 {
+		t.Fatalf("empty disks = %#v", c.Metrics.Disks)
+	}
+
+	c, err = Parse([]byte(minimalConfig(t) + `
+[metrics]
+disks = [
+  { name = "root", path = "/" },
+  { name = "data-1", path = "/srv/data" },
+]
+interfaces = ["eth0", "eth1"]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := Metrics{
+		Disks:      []MetricsDisk{{Name: "root", Path: "/"}, {Name: "data-1", Path: "/srv/data"}},
+		Interfaces: []string{"eth0", "eth1"},
+	}
+	if !reflect.DeepEqual(c.Metrics, want) {
+		t.Fatalf("metrics = %+v, want %+v", c.Metrics, want)
+	}
+
+	// A table form is equivalent.
+	c, err = Parse([]byte(minimalConfig(t) + `
+[[metrics.disks]]
+name = "data"
+path = "/data"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(c.Metrics.Disks, []MetricsDisk{{Name: "data", Path: "/data"}}) {
+		t.Fatalf("table disks = %+v", c.Metrics.Disks)
+	}
+}
+
+func TestParseMetricsErrors(t *testing.T) {
+	min := minimalConfig(t)
+	tooManyDisks := strings.Builder{}
+	tooManyDisks.WriteString(min + "[metrics]\ndisks = [\n")
+	for i := 0; i <= MaxMetricsDisks; i++ {
+		fmt.Fprintf(&tooManyDisks, `{ name = "d%d", path = "/d%d" },`+"\n", i, i)
+	}
+	tooManyDisks.WriteString("]\n")
+	tooManyInterfaces := strings.Builder{}
+	tooManyInterfaces.WriteString(min + "[metrics]\ninterfaces = [\n")
+	for i := 0; i <= MaxMetricsInterfaces; i++ {
+		fmt.Fprintf(&tooManyInterfaces, `"eth%d",`+"\n", i)
+	}
+	tooManyInterfaces.WriteString("]\n")
+	longName := strings.Repeat("a", 65)
+	tests := []struct{ name, in, want string }{
+		{"empty disk name", min + "[metrics]\ndisks = [{ name = \"\", path = \"/\" }]\n", "metrics.disks[0].name"},
+		{"long disk name", min + "[metrics]\ndisks = [{ name = \"" + longName + "\", path = \"/\" }]\n", "metrics.disks[0].name"},
+		{"bad disk name", min + "[metrics]\ndisks = [{ name = \"a.b\", path = \"/\" }]\n", "metrics.disks[0].name"},
+		{"duplicate disk name", min + "[metrics]\ndisks = [{ name = \"a\", path = \"/\" }, { name = \"a\", path = \"/x\" }]\n", "duplicate"},
+		{"relative disk path", min + "[metrics]\ndisks = [{ name = \"a\", path = \"data\" }]\n", "must be absolute"},
+		{"too many disks", tooManyDisks.String(), "at most 64"},
+		{"empty interface", min + "[metrics]\ninterfaces = [\"\"]\n", "must not be empty"},
+		{"duplicate interface", min + "[metrics]\ninterfaces = [\"eth0\", \"eth0\"]\n", "duplicate interface"},
+		{"too many interfaces", tooManyInterfaces.String(), "at most 256"},
+		{"unknown metrics key", min + "[metrics]\nnope = 1\n", "metrics.nope"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

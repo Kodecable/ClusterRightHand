@@ -147,9 +147,9 @@ func TestDialAndPing(t *testing.T) {
 			t.Fatalf("negotiated set misses %q", name)
 		}
 	}
-	// crhs and crha both offer the terminal names, so they are in the intersection and usable on
-	// this connection (doc/design/pty.md "Protocol additions").
-	for _, name := range []string{protocol.CmdPTYOpen, protocol.EventPTYList} {
+	// crhs and crha both offer the terminal names and metrics.collect, so they are in the
+	// intersection and usable on this connection (doc/design/protocol.md "Version negotiation").
+	for _, name := range []string{protocol.CmdPTYOpen, protocol.EventPTYList, protocol.CmdMetricsCollect} {
 		if !c.Negotiated.Has(name) {
 			t.Fatalf("negotiated set misses the terminal name %q", name)
 		}
@@ -255,6 +255,11 @@ func TestDialServerOffersRequiredNamesOnly(t *testing.T) {
 	defer c.Close("done")
 	if got := len(c.Negotiated); got != len(protocol.RequiredNames()) {
 		t.Fatalf("negotiated set has %d names, want %d", got, len(protocol.RequiredNames()))
+	}
+	// A minor-1 server does not offer metrics.collect, so a minor-2 crha never sends it there
+	// (doc/design/metrics.md "crha nodes").
+	if c.Negotiated.Has(protocol.CmdMetricsCollect) {
+		t.Fatal("negotiated metrics.collect with a required-only server")
 	}
 }
 

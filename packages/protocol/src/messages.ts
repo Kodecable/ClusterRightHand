@@ -1,7 +1,7 @@
 /**
  * Wire types from doc/design/protocol.md. All field names are camelCase; the encoded
- * form is a fixed-length array in the order declared here, except Facts, the
- * protocol's one text-keyed map.
+ * form is a fixed-length array in the order declared here, except Facts and the metrics
+ * snapshot, the protocol's text-keyed maps.
  */
 import {
 	bool,
@@ -21,6 +21,7 @@ import {
 	textMap,
 	tuple,
 	uint,
+	uint64,
 	union,
 } from "./schema.ts";
 
@@ -32,9 +33,10 @@ export const PROTOCOL_MAJOR = 1;
  * kinds through `hello.taskKinds`, and new methods, match types, roles and capabilities are open names.
  * Major 1 is the protocol of v0.4.0-rc.1, the first release under the compatibility rules
  * (doc/design/compatibility.md "Protocol"). Minor 1 adds the terminal names as optional names
- * (doc/design/pty.md "Protocol additions").
+ * (doc/design/pty.md "Protocol additions"), and minor 2 adds `metrics.collect`
+ * (doc/design/metrics.md "crha nodes").
  */
-export const PROTOCOL_MINOR = 1;
+export const PROTOCOL_MINOR = 2;
 
 /**
  * The Noise prologue's version prefix, `"crh/"` followed by the major version
@@ -120,7 +122,7 @@ export const shellsCodec: Codec<Shells> = {
 };
 
 /**
- * Facts is the protocol's one map body (doc/design/protocol.md "Events"). hostname is required; every other
+ * Facts is one of the protocol's map bodies (doc/design/protocol.md "Events"). hostname is required; every other
  * field is optional and absent when the node did not report it — absent means unknown, not empty.
  * Text keys a peer does not know are ignored; a non-text key is a decode error.
  */
@@ -632,6 +634,151 @@ export type PtyStatus = Infer<typeof ptyStatusCodec>;
  */
 export const ptyListCodec = tuple([["terminals", list(ptyStatusCodec)]]);
 export type PtyList = Infer<typeof ptyListCodec>;
+
+// ---------------------------------------------------------------------------
+// Host metrics (doc/design/metrics.md "crha nodes")
+// ---------------------------------------------------------------------------
+
+/**
+ * The limits of one metrics sample (doc/design/metrics.md "Limits"): crha truncates before sending,
+ * and the decoder rejects a body beyond them.
+ */
+export const MAX_METRICS_CORES = 1024;
+export const MAX_METRICS_DISKS = 64;
+export const MAX_METRICS_INTERFACES = 256;
+
+/** A list with an element limit: crha drops the rest, and a peer that sends more is rejected. */
+function boundedList<T>(inner: Codec<T>, max: number, what: string): Codec<T[]> {
+	const items = list(inner);
+	const check = (values: T[]): T[] => {
+		if (values.length > max) throw new SchemaError(`${what}: ${values.length} values, at most ${max} allowed`);
+		return values;
+	};
+	return {
+		name: items.name,
+		encode(value) {
+			if (Array.isArray(value)) check(value as T[]);
+			return items.encode(value);
+		},
+		decode(value) {
+			return check(items.decode(value));
+		},
+	};
+}
+
+/**
+ * The `cpu` line of /proc/stat: `busy` and `total` jiffies. The total is the sum of user, nice,
+ * system, idle, iowait, irq, softirq and steal; guest and guest_nice are already counted in user
+ * and nice. Busy is total minus idle and iowait (doc/design/metrics.md "crha nodes").
+ */
+export const metricsCPUTotalCodec = tuple([
+	["busy", uint64],
+	["total", uint64],
+]);
+export type MetricsCPUTotal = Infer<typeof metricsCPUTotalCodec>;
+
+/** One online core's `cpu<n>` line: its index, and the same two jiffy counters. */
+export const metricsCoreCodec = tuple([
+	["index", uint],
+	["busy", uint64],
+	["total", uint64],
+]);
+export type MetricsCore = Infer<typeof metricsCoreCodec>;
+
+/** The `cpu` field: the `cpu` line and every core present in /proc/stat; offline cores are absent. */
+export const metricsCPUCodec = tuple([
+	["total", metricsCPUTotalCodec],
+	["cores", boundedList(metricsCoreCodec, MAX_METRICS_CORES, "metrics.cpu.cores")],
+]);
+export type MetricsCPU = Infer<typeof metricsCPUCodec>;
+
+/**
+ * The three load averages in thousandths (1.23 is 1230). The CBOR profile has no floats, and
+ * /proc/loadavg prints two decimals, so the integer is exact (doc/design/metrics.md "crha nodes").
+ */
+export const metricsLoadsCodec = tuple([
+	["l1", uint],
+	["l5", uint],
+	["l15", uint],
+]);
+export type MetricsLoads = Infer<typeof metricsLoadsCodec>;
+
+/** /proc/meminfo's byte values: MemTotal, MemAvailable, Cached and MemFree. */
+export const metricsMemoryCodec = tuple([
+	["totalBytes", uint64],
+	["availableBytes", uint64],
+	["cachedBytes", uint64],
+	["freeBytes", uint64],
+]);
+export type MetricsMemory = Infer<typeof metricsMemoryCodec>;
+
+/** /proc/meminfo's SwapTotal and SwapFree in bytes. */
+export const metricsSwapCodec = tuple([
+	["totalBytes", uint64],
+	["freeBytes", uint64],
+]);
+export type MetricsSwap = Infer<typeof metricsSwapCodec>;
+
+/**
+ * One configured filesystem: `["ok", [name, path, total_bytes, used_bytes]]`, or
+ * `["error", [name, path, error]]` when statfs failed or timed out
+ * (doc/design/metrics.md "crha nodes").
+ */
+export const metricsDiskCodec = union({
+	ok: tuple([
+		["name", text],
+		["path", text],
+		["totalBytes", uint64],
+		["usedBytes", uint64],
+	]),
+	error: tuple([
+		["name", text],
+		["path", text],
+		["error", text],
+	]),
+});
+export type MetricsDisk = Infer<typeof metricsDiskCodec>;
+
+/** One selected interface's /proc/net/dev counters. */
+export const metricsInterfaceCodec = tuple([
+	["name", text],
+	["rxBytes", uint64],
+	["txBytes", uint64],
+	["rxPackets", uint64],
+	["txPackets", uint64],
+]);
+export type MetricsInterface = Infer<typeof metricsInterfaceCodec>;
+
+/**
+ * The body of `metrics.collect`: a text-keyed map with snake_case keys, every one optional, so a
+ * source crha could not read is absent rather than zero (doc/design/metrics.md "crha nodes").
+ * Unknown text keys are ignored like Facts, so a field added later does not break an older crhs.
+ */
+export interface MetricsSnapshot {
+	bootId?: string;
+	uptimeSec?: number;
+	cpu?: MetricsCPU;
+	loads?: MetricsLoads;
+	memory?: MetricsMemory;
+	swap?: MetricsSwap;
+	disks?: MetricsDisk[];
+	interfaces?: MetricsInterface[];
+}
+
+export const metricsSnapshotCodec = keyedMap<MetricsSnapshot>("metrics", [
+	{ wire: "boot_id", field: "bootId", codec: text },
+	{ wire: "uptime_sec", field: "uptimeSec", codec: uint },
+	{ wire: "cpu", field: "cpu", codec: metricsCPUCodec },
+	{ wire: "loads", field: "loads", codec: metricsLoadsCodec },
+	{ wire: "memory", field: "memory", codec: metricsMemoryCodec },
+	{ wire: "swap", field: "swap", codec: metricsSwapCodec },
+	{ wire: "disks", field: "disks", codec: boundedList(metricsDiskCodec, MAX_METRICS_DISKS, "metrics.disks") },
+	{
+		wire: "interfaces",
+		field: "interfaces",
+		codec: boundedList(metricsInterfaceCodec, MAX_METRICS_INTERFACES, "metrics.interfaces"),
+	},
+]);
 
 // ---------------------------------------------------------------------------
 // Event bodies

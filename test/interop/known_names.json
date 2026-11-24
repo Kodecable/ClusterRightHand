@@ -1,5 +1,5 @@
 {
-	"description": "The names this version knows for each open name and union, which crhs (TypeScript) and crha (Go) must agree on. Both test suites compare their own lists with this file.",
+	"description": "The names this version knows for each open name, union, command and event, which crhs (TypeScript) and crha (Go) must agree on. Both test suites compare their own lists with this file.",
 	"methods": ["exec", "file.read", "file.write", "upgrade", "pty.create"],
 	"matches": ["any", "prefix", "regex"],
 	"roles": ["crhs", "user", "local"],
@@ -15,5 +15,28 @@
 		"file.list",
 		"node.upgrade",
 		"pty.create"
+	],
+	"commands": [
+		"hello",
+		"metrics.collect",
+		"ping",
+		"pty.close",
+		"pty.open",
+		"pty.resize",
+		"task.cancel",
+		"task.input",
+		"task.query",
+		"task.start"
+	],
+	"events": [
+		"facts",
+		"node.status",
+		"pty.exited",
+		"pty.list",
+		"task.exit",
+		"task.exit.ack",
+		"task.output",
+		"task.output.ack",
+		"trust.summary"
 	]
 }

@@ -239,17 +239,18 @@ describe("agent wire protocol", () => {
 		});
 
 		it("adds only the optional names the peer also offered", () => {
-			// A node that implements no terminal offers the required names only, so crhs never sends it a
-			// pty command or event (doc/design/protocol.md "Version negotiation").
+			// A node that implements no optional command offers the required names only, so crhs never
+			// sends it a pty command or metrics.collect (doc/design/protocol.md "Version negotiation").
 			expect(negotiateCommands(REQUIRED_NAMES).negotiated).toEqual([...REQUIRED_NAMES]);
 			expect(negotiateCommands(REQUIRED_NAMES).negotiated).not.toContain("pty.open");
+			expect(negotiateCommands(REQUIRED_NAMES).negotiated).not.toContain("metrics.collect");
 			expect(negotiateCommands(offeredNames())).toEqual({
 				missing: undefined,
 				negotiated: [...REQUIRED_NAMES, ...OPTIONAL_NAMES],
 			});
-			const partial = negotiateCommands([...REQUIRED_NAMES, "pty.open", "pty.list"]);
+			const partial = negotiateCommands([...REQUIRED_NAMES, "pty.open", "pty.list", "metrics.collect"]);
 			expect(partial.missing).toBeUndefined();
-			expect(partial.negotiated).toEqual([...REQUIRED_NAMES, "pty.open", "pty.list"]);
+			expect(partial.negotiated).toEqual([...REQUIRED_NAMES, "pty.open", "pty.list", "metrics.collect"]);
 			const missingRequired = negotiateCommands([
 				...OPTIONAL_NAMES,
 				...REQUIRED_NAMES.filter((name) => name !== "ping"),

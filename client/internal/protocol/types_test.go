@@ -500,7 +500,7 @@ func TestUnionEncodingRejectsIncomplete(t *testing.T) {
 	}
 }
 
-// TestFactsMapKeys pins the wire form of Facts: the protocol's one text-keyed map, in canonical
+// TestFactsMapKeys pins the wire form of Facts: one of the protocol's text-keyed maps, in canonical
 // key order, with an absent optional value omitted rather than encoded as null (doc/design/protocol.md).
 func TestFactsMapKeys(t *testing.T) {
 	f := sampleFacts()

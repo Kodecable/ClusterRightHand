@@ -24,9 +24,10 @@ const (
 	// field, new task kinds through hello's task kinds, and methods, match kinds, roles and
 	// capabilities are open names. Major 1 is the protocol of v0.4.0-rc.1, the first release under
 	// the compatibility rules (doc/design/compatibility.md "Protocol"). Minor 1 adds the terminal
-	// names as optional names (doc/design/pty.md "Protocol additions").
+	// names as optional names (doc/design/pty.md "Protocol additions"), and minor 2 adds
+	// metrics.collect (doc/design/metrics.md "crha nodes").
 	ProtocolMajor = 1
-	ProtocolMinor = 1
+	ProtocolMinor = 2
 	// MaxFrameBytes bounds one encoded frame so that it fits a Noise transport message.
 	MaxFrameBytes = 61440
 	// MaxSafeInteger is the largest integer allowed by the protocol schema: 2^53-1.
@@ -72,6 +73,9 @@ const (
 	CmdPTYOpen   = "pty.open"
 	CmdPTYResize = "pty.resize"
 	CmdPTYClose  = "pty.close"
+	// CmdMetricsCollect is optional from minor 2: crhs offers it, and a node offers it once it
+	// implements host metrics (doc/design/metrics.md "crha nodes").
+	CmdMetricsCollect = "metrics.collect"
 )
 
 // Event names.
@@ -123,6 +127,7 @@ var (
 		CmdPTYOpen,
 		CmdPTYResize,
 		CmdPTYClose,
+		CmdMetricsCollect,
 	}
 	optionalEventNames = []string{
 		EventPTYExited,
@@ -176,6 +181,10 @@ var commandSchemas = map[string]commandSchema{
 	CmdPTYClose: {
 		request:  func() any { return new(PTYClose) },
 		response: func() any { return new(Empty) },
+	},
+	CmdMetricsCollect: {
+		request:  func() any { return new(Empty) },
+		response: func() any { return new(MetricsSnapshot) },
 	},
 }
 
@@ -237,8 +246,8 @@ func OptionalNames() []string {
 }
 
 // ImplementedOptionalNames returns the optional names crha implements and therefore offers in the
-// handshake. crha speaks the six terminal names; a node that did not implement terminals must not
-// list them, so this list is exactly what the non-privileged mode can serve.
+// handshake. crha speaks the terminal names and metrics.collect; a node that did not implement them
+// must not list them, so this list is exactly what the non-privileged mode can serve.
 func ImplementedOptionalNames() []string {
 	return OptionalNames()
 }

@@ -21,6 +21,11 @@ import {
 	helloCodec,
 	type InputRef,
 	inputRefCodec,
+	MAX_METRICS_CORES,
+	MAX_METRICS_DISKS,
+	MAX_METRICS_INTERFACES,
+	type MetricsSnapshot,
+	metricsSnapshotCodec,
 	type NodeStatus,
 	nodeStatusCodec,
 	type Outcome,
@@ -208,6 +213,40 @@ const ptyList: PtyList = {
 const ptyConnectionInit = { protocolMajor: PROTOCOL_MAJOR, ptyId: "pty-1", inputReceived: 1024 };
 const ptyConnectionResponse = { protocolMajor: PROTOCOL_MAJOR, outputReceived: 2048 };
 
+const metricsSnapshot: MetricsSnapshot = {
+	bootId: "6f1e2d3c-4b5a-4978-8a9b-0c1d2e3f4a5b",
+	uptimeSec: 123456,
+	cpu: {
+		total: { busy: 123456789n, total: 234567890n },
+		cores: [
+			{ index: 0, busy: 111n, total: 222n },
+			// A jiffy counter above 2^53 needs the 64-bit form (doc/design/protocol.md "Encoding rules").
+			{ index: 2, busy: 9007199254740993n, total: 9007199254740995n },
+		],
+	},
+	loads: { l1: 1230, l5: 2450, l15: 3780 },
+	memory: {
+		totalBytes: 16777216000n,
+		availableBytes: 8388608000n,
+		cachedBytes: 4294967296n,
+		freeBytes: 2147483648n,
+	},
+	swap: { totalBytes: 2147483648n, freeBytes: 1073741824n },
+	disks: [
+		{ kind: "ok", name: "root", path: "/", totalBytes: 107374182400n, usedBytes: 53687091200n },
+		{ kind: "error", name: "data", path: "/data", error: "statfs timed out" },
+	],
+	interfaces: [
+		{
+			name: "eth0",
+			rxBytes: 9007199254740993n,
+			txBytes: 1234567890123n,
+			rxPackets: 987654321n,
+			txPackets: 123456789n,
+		},
+	],
+};
+
 function asCase<T>(name: string, codec: Codec<T>, value: T): [string, Codec<unknown>, unknown] {
 	return [name, codec as Codec<unknown>, value];
 }
@@ -274,6 +313,9 @@ const cases: [string, Codec<unknown>, unknown][] = [
 	asCase("PTY list", ptyListCodec, ptyList),
 	asCase("PTY connection init", ptyConnectionInitCodec, ptyConnectionInit),
 	asCase("PTY connection response", ptyConnectionResponseCodec, ptyConnectionResponse),
+	asCase("Metrics snapshot", metricsSnapshotCodec, metricsSnapshot),
+	asCase("Metrics snapshot with only the boot id", metricsSnapshotCodec, { bootId: "boot-1" }),
+	asCase("Metrics snapshot with empty lists", metricsSnapshotCodec, { disks: [], interfaces: [] }),
 ];
 
 describe("message codecs", () => {
@@ -384,6 +426,90 @@ describe("message codecs", () => {
 		expect(() => factsCodec.decode(shellsWithIntegerKey)).toThrow(SchemaError);
 	});
 
+	it("encodes the metrics snapshot as a snake_case map and omits absent sources", () => {
+		const wire = decodeCbor(encodeCbor(metricsSnapshotCodec.encode(metricsSnapshot))) as Map<string, unknown>;
+		expect([...wire.keys()].sort()).toEqual([
+			"boot_id",
+			"cpu",
+			"disks",
+			"interfaces",
+			"loads",
+			"memory",
+			"swap",
+			"uptime_sec",
+		]);
+		// The CPU field is the total pair followed by the core triples.
+		// A safe uint decodes as a number; only a counter above 2^53-1 stays a bigint.
+		expect(wire.get("cpu")).toEqual([
+			[123456789, 234567890],
+			[
+				[0, 111, 222],
+				[2, 9007199254740993n, 9007199254740995n],
+			],
+		]);
+		expect(metricsSnapshotCodec.decode(wire)).toEqual(metricsSnapshot);
+		const minimal = metricsSnapshotCodec.encode({});
+		expect([...(decodeCbor(encodeCbor(minimal)) as Map<string, unknown>).keys()]).toEqual([]);
+		expect(metricsSnapshotCodec.decode(new Map())).toEqual({});
+	});
+
+	it("normalizes small metrics counters to bigint", () => {
+		// cborg decodes a small uint as a number; the codec gives every counter the same bigint type.
+		const wire = new Map<string, unknown>([
+			["uptime_sec", 5],
+			["swap", [1, 2]],
+		]);
+		expect(metricsSnapshotCodec.decode(wire)).toEqual({
+			uptimeSec: 5,
+			swap: { totalBytes: 1n, freeBytes: 2n },
+		});
+	});
+
+	it("ignores unknown metrics keys and rejects null or mistyped ones", () => {
+		const accepted = new Map<string, unknown>(metricsSnapshotCodec.encode(metricsSnapshot) as Map<string, unknown>);
+		accepted.set("future_metric", 1);
+		expect(metricsSnapshotCodec.decode(accepted)).toEqual(metricsSnapshot);
+		expect(() => metricsSnapshotCodec.decode(new Map([["boot_id", null]]))).toThrow(SchemaError);
+		expect(() => metricsSnapshotCodec.decode(new Map([["uptime_sec", -1]]))).toThrow(SchemaError);
+		expect(() => metricsSnapshotCodec.decode(new Map([["loads", [1, 2]]]))).toThrow(SchemaError);
+		expect(() => metricsSnapshotCodec.decode(new Map([["swap", [1n, 2n ** 64n]]]))).toThrow(SchemaError);
+		const nonTextKey = new Map<unknown, unknown>([
+			["boot_id", "boot-1"],
+			[1, "x"],
+		]);
+		expect(() => metricsSnapshotCodec.decode(nonTextKey)).toThrow(SchemaError);
+	});
+
+	it("truncates before sending and rejects more than the metrics limits", () => {
+		const core = { index: 0, busy: 1n, total: 2n };
+		const total = { busy: 1n, total: 2n };
+		expect(MAX_METRICS_CORES).toBe(1024);
+		expect(MAX_METRICS_DISKS).toBe(64);
+		expect(MAX_METRICS_INTERFACES).toBe(256);
+		expect(() =>
+			metricsSnapshotCodec.encode({ cpu: { total, cores: Array(MAX_METRICS_CORES + 1).fill(core) } }),
+		).toThrow(SchemaError);
+		expect(() =>
+			metricsSnapshotCodec.encode({ disks: Array(MAX_METRICS_DISKS + 1).fill(metricsSnapshot.disks?.[0]) }),
+		).toThrow(SchemaError);
+		expect(() =>
+			metricsSnapshotCodec.encode({
+				interfaces: Array(MAX_METRICS_INTERFACES + 1).fill(metricsSnapshot.interfaces?.[0]),
+			}),
+		).toThrow(SchemaError);
+		expect(() =>
+			metricsSnapshotCodec.decode(new Map([["disks", Array(MAX_METRICS_DISKS + 1).fill(["ok", ["d", "/d", 1n, 2n]])]])),
+		).toThrow(SchemaError);
+		expect(() =>
+			metricsSnapshotCodec.decode(
+				new Map([["interfaces", Array(MAX_METRICS_INTERFACES + 1).fill(["eth0", 1n, 2n, 3n, 4n])]]),
+			),
+		).toThrow(SchemaError);
+		expect(() =>
+			metricsSnapshotCodec.decode(new Map([["cpu", [[1n, 2n], Array(MAX_METRICS_CORES + 1).fill([0, 1n, 2n])]]])),
+		).toThrow(SchemaError);
+	});
+
 	it("tags a task result with the task kind and rejects anything else", () => {
 		// The result is typed per kind: an unknown tag, the wrong arity or a mistyped field fails.
 		expect(() => taskResultCodec.decode(["exec", []])).toThrow(SchemaError);
@@ -397,9 +523,9 @@ describe("message codecs", () => {
 		expect(() => taskExitCodec.decode(["t-1", ["code", 0], false, false, 0, 0, ""])).toThrow(SchemaError);
 	});
 
-	it("uses protocol 1.1, requires the base names and offers the terminal names", () => {
+	it("uses protocol 1.2, requires the base names and offers the optional ones", () => {
 		expect(PROTOCOL_MAJOR).toBe(1);
-		expect(PROTOCOL_MINOR).toBe(1);
+		expect(PROTOCOL_MINOR).toBe(2);
 		expect(REQUIRED_NAMES).toEqual([
 			"hello",
 			"ping",
@@ -415,7 +541,14 @@ describe("message codecs", () => {
 			"task.exit.ack",
 			"trust.summary",
 		]);
-		expect(OPTIONAL_NAMES).toEqual(["pty.open", "pty.resize", "pty.close", "pty.exited", "pty.list"]);
+		expect(OPTIONAL_NAMES).toEqual([
+			"pty.open",
+			"pty.resize",
+			"pty.close",
+			"pty.exited",
+			"pty.list",
+			"metrics.collect",
+		]);
 		expect(offeredNames()).toEqual([...REQUIRED_NAMES, ...OPTIONAL_NAMES]);
 		expect(REQUIRED_NAMES).not.toContain("trust.query");
 		expect(REQUIRED_NAMES).not.toContain("revocations.set");
@@ -429,6 +562,7 @@ describe("message codecs", () => {
 	it("registers every command and event", () => {
 		expect(Object.keys(COMMANDS).sort()).toEqual([
 			"hello",
+			"metrics.collect",
 			"ping",
 			"pty.close",
 			"pty.open",

@@ -287,9 +287,10 @@ func UnmarshalBody(data []byte, v any) error {
 }
 
 // profileValue marks the body types whose strict decode compares the generic CBOR value rather than
-// the schema-decoded struct: the two map structures, Facts and its Shells. Both may carry keys or
-// null values the schema decode drops, so re-encoding the struct would differ from the input. Every
-// other structure keeps the tuple rule and its schema comparison.
+// the schema-decoded struct: the map bodies Facts, its Shells and MetricsSnapshot. They may carry
+// keys the schema decode drops (Facts ignores unknown facts, the metrics snapshot unknown fields, and
+// Shells keeps a null bash outside the struct), so re-encoding the struct would differ from the
+// input. Every other structure keeps the tuple rule and its schema comparison.
 type profileValue interface{ isProfileValue() }
 
 func (*Facts) isProfileValue()  {}
@@ -717,6 +718,25 @@ func (u *Uint) UnmarshalCBOR(data []byte) error {
 		return fmt.Errorf("protocol: uint %d exceeds 2^53-1", n)
 	}
 	*u = Uint(n)
+	return nil
+}
+
+// Uint64 is a protocol uint64: a raw 64-bit unsigned counter. It exists for the values of
+// doc/design/metrics.md that can pass 2^53-1 (network byte and packet counters), which Uint refuses
+// and which would lose precision as a JavaScript number. The CBOR profile allows the full native
+// uint64 range; like Uint, it still requires the shortest encoding.
+type Uint64 uint64
+
+func (u Uint64) MarshalCBOR() ([]byte, error) {
+	return encMode.Marshal(uint64(u))
+}
+
+func (u *Uint64) UnmarshalCBOR(data []byte) error {
+	var n uint64
+	if err := decMode.Unmarshal(data, &n); err != nil {
+		return err
+	}
+	*u = Uint64(n)
 	return nil
 }
 

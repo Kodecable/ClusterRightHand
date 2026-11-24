@@ -32,6 +32,10 @@ native = "sudo"
 # dir = "/var/lib/crha/output"          # default: <state_dir>/output
 max_age = "168h"
 max_total = "1GiB"
+
+[metrics]
+# disks = [{ name = "root", path = "/" }]  # default: the root filesystem
+# interfaces = []                          # default: every interface except lo, tunnels and host-local virtual/bridge ones
 ```
 
 ## Path defaults
@@ -86,6 +90,19 @@ crha keeps each task's complete output in a file, readable only by the crha user
 | `max_total` | size | `"1GiB"` | Delete the oldest output files beyond this total. Sizes are bytes or use `KiB`, `MiB`, `GiB`. |
 
 Cleanup runs hourly and never removes output that crhs has not yet received.
+
+## [metrics]
+
+The filesystems and interfaces crha reports to crhs's `metrics.collect`
+([metrics](../../design/metrics.md#crha-nodes)). Both keys are optional.
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `disks` | list of `{ name, path }` | the root filesystem | Filesystems to report. `name` is the series identity: 1–64 characters of `[A-Za-z0-9_-]`, unique, at most 64. `path` must be absolute. An explicit empty list reports no filesystem. |
+| `interfaces` | list of names | every interface except loopback, tunnels and host-local virtual/bridge ones | Interface names to report: non-empty, unique, at most 256. The default leaves out `lo`/`lo<n>`, `tun*`, `tap*`, `wg*`, `utun*`, `docker*`, `veth*`, `br-*`, `virbr*`, `lxc*`, `cni*`, `flannel*`, `cali*`, `vxlan*` and `kube-*`, because a bridge's traffic is also counted on its veth or physical side. |
+
+A filesystem whose `statfs` fails or blocks for two seconds is still reported, with its error, so one
+hung mount does not lose the rest of the sample.
 
 ## Environment overrides
 
