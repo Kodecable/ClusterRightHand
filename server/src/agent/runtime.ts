@@ -317,6 +317,9 @@ export class AgentRuntime {
 		);
 		// The cluster owns the durable approval rows; refresh the actor's cached state and request lists.
 		const approvalChanged = (actorId: string) => {
+			// An approval that settles during shutdown (endWaits, the terminal service) must not read the
+			// closing Harness: the next process reconciles every state at startup (reconcileSessionStates).
+			if (runtime.#closing) return;
 			runtime.#host.inboxes.clear();
 			void runtime.refreshState(actorId).catch((err: unknown) => {
 				console.error("agent runtime: refreshing a subagent after an approval change failed:", err);
@@ -513,6 +516,10 @@ export class AgentRuntime {
 
 	async close(): Promise<void> {
 		this.#closing = true;
+		// A state refresh already in flight may still read the Harness (`inputSettled`), so it must finish before
+		// the Harness closes; none races the close. A refresh requested from here on skips the Harness
+		// (`refreshState`), and the next process reconciles every state at startup (`reconcileSessionStates`).
+		await this.#host.refreshes.drain();
 		this.#host.generationTimings.clearAll();
 		await this.#harness.close(this.#host.context);
 		this.#sessionList.close();

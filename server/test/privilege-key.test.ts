@@ -128,6 +128,8 @@ describeBackends("authorization signing key", (backend) => {
 		expect(verifySshsig(signing.authorizedKey, Buffer.from("other"), blob).valid).toBe(false);
 	});
 
+	// Opening a second schema queues on the shared PostgreSQL DDL lock with every parallel test file, so this
+	// case can outlast the 5s default; give it a generous limit rather than a flaky timeout.
 	it("is part of crhs keys export and restores from it", async () => {
 		const signing = await loadAuthorizationSigningKey(db, key);
 		const data = await buildKeyExport(db, key);
@@ -159,8 +161,9 @@ describeBackends("authorization signing key", (backend) => {
 		} finally {
 			await restored.destroy();
 		}
-	});
+	}, 30_000);
 
+	// The same second schema, likewise queued on the shared DDL lock.
 	it("exports every signing key and restores all of them", async () => {
 		const store = await loadAuthorizationSigningKeys(db, key);
 		const older = store.newest;
@@ -193,7 +196,7 @@ describeBackends("authorization signing key", (backend) => {
 		} finally {
 			await restored.destroy();
 		}
-	});
+	}, 30_000);
 
 	it("fails closed when the stored ciphertext is damaged", async () => {
 		await loadAuthorizationSigningKey(db, key);

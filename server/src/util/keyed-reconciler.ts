@@ -48,4 +48,14 @@ export class KeyedReconciler<T = unknown> {
 	isRunning(key: string): boolean {
 		return this.#runs.has(key);
 	}
+
+	/**
+	 * Resolves once no pass is in flight for any key, an extra pass a request asked for included. A caller may
+	 * add another pass while this waits, so it keeps waiting until none is left; a failed pass counts as done.
+	 */
+	async drain(): Promise<void> {
+		while (this.#runs.size > 0) {
+			await Promise.allSettled([...this.#runs.values()].map((entry) => entry.done));
+		}
+	}
 }

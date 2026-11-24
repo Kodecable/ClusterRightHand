@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RuntimeHost } from "../src/agent/runtime-core.ts";
-import { reconcileSessionStates } from "../src/agent/runtime-state.ts";
+import { reconcileSessionStates, refreshState, refreshStates } from "../src/agent/runtime-state.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { createUser } from "../src/users/service.ts";
@@ -80,5 +80,33 @@ describe("reconcileSessionStates", () => {
 			"agent runtime: recording a resumed run's end failed:",
 			expect.objectContaining({ message: "durable write failed" }),
 		);
+	});
+});
+
+describe("refreshState while closing", () => {
+	it("returns the stored state without reading the Harness", async () => {
+		const sessionId = await seedRunningSession();
+		const harness = vi.fn();
+		const closingHost = { db, context: {}, harness, closing: () => true } as unknown as RuntimeHost;
+		await expect(refreshState(closingHost, sessionId)).resolves.toBe("running");
+		expect(harness).not.toHaveBeenCalled();
+	});
+
+	it("batches the stored states without reading the Harness either", async () => {
+		const sessionId = await seedRunningSession();
+		const harness = vi.fn();
+		const closingHost = { db, context: {}, harness, closing: () => true } as unknown as RuntimeHost;
+		const states = await refreshStates(closingHost, [
+			{
+				id: sessionId,
+				state: "running",
+				waiting_kind: null,
+				waiting_level_id: null,
+				waiting_handler_id: null,
+				last_submission_id: "7",
+			},
+		]);
+		expect(states.get(sessionId)).toBe("running");
+		expect(harness).not.toHaveBeenCalled();
 	});
 });

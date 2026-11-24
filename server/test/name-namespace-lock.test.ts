@@ -46,6 +46,8 @@ describeBackends("the node name namespace", (backend) => {
 		expect(queries[0]).toMatch(/^select "id" from "orgs" where "id" = \$1 for update$/i);
 	});
 
+	// Opening a schema queues on the shared PostgreSQL DDL lock with every parallel test file, so this case
+	// can outlast the 5s default; give it a generous limit rather than a flaky timeout.
 	it("lets only one of a concurrent rename and group creation take the name", async () => {
 		const db = await openTestDb(backend);
 		try {
@@ -107,5 +109,5 @@ describeBackends("the node name namespace", (backend) => {
 		} finally {
 			await db.destroy();
 		}
-	});
+	}, 30_000);
 });

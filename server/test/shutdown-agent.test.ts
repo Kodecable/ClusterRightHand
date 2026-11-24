@@ -8,7 +8,7 @@ import type { EntryRecord, Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelConfig } from "../src/agent/models.ts";
-import { AgentRuntime } from "../src/agent/runtime.ts";
+import { AgentRuntime, type AgentRuntimeOptions } from "../src/agent/runtime.ts";
 import { Audit } from "../src/audit/audit.ts";
 import type { SessionUser } from "../src/auth/sessions.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -24,6 +24,7 @@ import { newId } from "../src/util/id.ts";
 import { type FakeCrha, handshakeInit, TestAgentServer, waitFor } from "./helpers/agent.ts";
 import { type App, call, login, makeApp } from "./helpers/api.ts";
 import { openTestDb } from "./helpers/db.ts";
+import { type DbProbe, probeDb, tableOf } from "./helpers/db-probe.ts";
 import { waitSubmission } from "./helpers/runtime.ts";
 
 /**
@@ -34,6 +35,7 @@ import { waitSubmission } from "./helpers/runtime.ts";
 describe("agent runtime shutdown", () => {
 	let dir: string;
 	let db: Db;
+	let probe: DbProbe;
 	let audit: Audit;
 	let cluster: Cluster;
 	let groups: TaskGroups;
@@ -41,6 +43,7 @@ describe("agent runtime shutdown", () => {
 	let fake: FakeCrha;
 	let models: ModelConfig;
 	let runtime: AgentRuntime;
+	let runtimeOptions: AgentRuntimeOptions;
 	let owner: SessionUser;
 	let sessionId: string;
 	let nodeId: string;
@@ -49,16 +52,18 @@ describe("agent runtime shutdown", () => {
 	const model = () => ({ provider: faux.provider.id, modelId: faux.getModel().id });
 	const openStorage = () => openNodeSqliteStorage(join(dir, "durable.sqlite"), { prefix: "pi_" });
 
-	const openRuntime = () =>
-		AgentRuntime.open({
+	const openRuntime = () => {
+		runtimeOptions = {
 			callRunner: new CallRunner(),
-			db,
+			db: probe.db,
 			storage: openStorage,
 			models,
 			cluster,
 			taskGroups: groups,
 			audit,
-		});
+		};
+		return AgentRuntime.open(runtimeOptions);
+	};
 
 	/** Reads the durable store directly: entries and task records, as a restart would find them. */
 	const inspectDurable = async (): Promise<{ entries: EntryRecord[]; tasks: { kind: string; status: string }[] }> => {
@@ -91,6 +96,7 @@ describe("agent runtime shutdown", () => {
 	beforeEach(async () => {
 		dir = await mkdtemp(join(tmpdir(), "crh-shutdown-agent-"));
 		db = await openTestDb("sqlite");
+		probe = probeDb(db);
 		audit = new Audit(db);
 		cluster = new Cluster(db, { audit, reconnectGraceMs: 600_000 });
 		groups = new TaskGroups(db, cluster, { audit });
@@ -278,5 +284,58 @@ describe("agent runtime shutdown", () => {
 		expect(created.status).toBe(503);
 		// A clean error: no closed-Harness exception reached Hono's default handler.
 		expect(consoleErrors).toEqual([]);
+	}, 10_000);
+
+	it("does not read the Harness when an approval change refreshes a state after close", async () => {
+		// A live row makes a recompute read the Harness (`inputSettled`); after close it must not.
+		await db
+			.updateTable("sessions")
+			.set({ state: "running", last_submission_id: "1" })
+			.where("id", "=", sessionId)
+			.execute();
+		await runtime.close();
+
+		runtimeOptions.approvalChanged?.(sessionId);
+		await expect(runtime.refreshState(sessionId)).resolves.toBe("running");
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(consoleErrors).toEqual([]);
+	}, 10_000);
+
+	it("lets a refresh in flight finish before the Harness closes", async () => {
+		await db
+			.updateTable("sessions")
+			.set({ state: "running", last_submission_id: "1" })
+			.where("id", "=", sessionId)
+			.execute();
+		// Hold the recompute at its first read, so close() begins while it is in flight; released, it still
+		// reads the Harness, which therefore has to stay open until it ends.
+		let reached!: () => void;
+		const reachedP = new Promise<void>((resolve) => {
+			reached = resolve;
+		});
+		let release!: () => void;
+		const releaseP = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		probe.onNext(
+			(node) => tableOf(node) === "sessions",
+			async () => {
+				reached();
+				await releaseP;
+			},
+		);
+		const refreshing = runtime.refreshState(sessionId);
+		await reachedP;
+		let closed = false;
+		const closing = runtime.close().then(() => {
+			closed = true;
+		});
+		// Close stays pending while the refresh is held; without the wait it would settle first.
+		await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, 500))]);
+		expect(closed).toBe(false);
+		release();
+		await expect(refreshing).resolves.toBe("idle");
+		await closing;
+		expect(closed).toBe(true);
 	}, 10_000);
 });

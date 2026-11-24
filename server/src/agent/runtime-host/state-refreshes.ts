@@ -20,4 +20,9 @@ export class StateRefreshes {
 	isRunning(sessionId: string): boolean {
 		return this.#reconciler.isRunning(sessionId);
 	}
+
+	/** Waits until no recompute is in flight; close() calls this before it closes the Harness. */
+	async drain(): Promise<void> {
+		await this.#reconciler.drain();
+	}
 }

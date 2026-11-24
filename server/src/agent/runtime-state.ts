@@ -42,9 +42,20 @@ type DesiredState = { state: SessionState; wait: SessionWait | null };
  * `StateRefreshes.run` serializes and coalesces refreshes of the same session: a request while one is running
  * marks it dirty and shares its promise, and the running one recomputes once more after it finishes, so the
  * last write is always computed from data read after the latest request.
+ *
+ * A refresh requested after `close()` began recomputes nothing: the Harness is closing (or closed), and the
+ * next process corrects every stored state at startup (`reconcileSessionStates`). The stored state is returned
+ * unchanged, without touching the Harness.
  */
 export function refreshState(host: RuntimeHost, sessionId: string): Promise<SessionState> {
+	if (host.closing()) return storedState(host, sessionId);
 	return host.refreshes.run(sessionId, () => refreshStateOnce(host, sessionId));
+}
+
+/** The state a session row stores now, with no recompute; a missing row is idle as `refreshStateOnce` says. */
+async function storedState(host: RuntimeHost, sessionId: string): Promise<SessionState> {
+	const row = await host.db.selectFrom("sessions").select("state").where("id", "=", sessionId).executeTakeFirst();
+	return row?.state ?? "idle";
 }
 
 /** One recomputation of the session's state from the data read now; `refreshState` runs it in order. */
@@ -92,6 +103,12 @@ export async function refreshStates(host: RuntimeHost, rows: readonly StateRow[]
 		else live.push(row);
 	}
 	if (live.length === 0) return states;
+	// No recompute may read the Harness once close() began; the stored states are corrected by the next
+	// process's startup reconciliation (reconcileSessionStates).
+	if (host.closing()) {
+		for (const row of live) states.set(row.id, row.state);
+		return states;
+	}
 
 	// A recompute already running for a row must be shared, not duplicated: refreshState coalesces it and reads
 	// the latest data itself.

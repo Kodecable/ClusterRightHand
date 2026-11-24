@@ -12,6 +12,8 @@ describeBackends("storage", (backend) => {
 		await db.destroy();
 	});
 
+	// The migrator queues on the shared PostgreSQL DDL lock with every parallel test file, so this case can
+	// outlast the 5s default; give it a generous limit rather than a flaky timeout.
 	it("migrates idempotently and round-trips a user", async () => {
 		// The migrator introspects every schema, so a parallel test dropping its schema must not run now.
 		await withDdlLockOn(backend, () => migrateToLatest(db));
@@ -39,7 +41,7 @@ describeBackends("storage", (backend) => {
 				.values({ ...user, id: "u2" })
 				.execute(),
 		).rejects.toThrow();
-	});
+	}, 30_000);
 
 	async function seedOrgAndUsers(): Promise<void> {
 		const now = new Date().toISOString();
