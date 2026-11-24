@@ -12,6 +12,16 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 // import resolves from the bundle's own node_modules and the WebUI comes from the bundled default.
 
 const bundleDir = fileURLToPath(new URL("../../../dist/crhs", import.meta.url));
+
+/**
+ * The environment crhs runs with: this process's, without NODE_PATH. pnpm's vitest launcher sets
+ * it to the workspace's hoisted node_modules, which would resolve a package the bundle failed to
+ * include and hide the failure the image then has.
+ */
+function crhsEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+	const { NODE_PATH: _nodePath, ...env } = process.env;
+	return { ...env, ...extra };
+}
 const pgUrl = process.env.CRH_TEST_PG_URL;
 
 interface Result {
@@ -24,7 +34,7 @@ function runCrhs(dir: string, args: string[], input = "", env: NodeJS.ProcessEnv
 	return new Promise((resolve, reject) => {
 		const child = spawn(process.execPath, [join(dir, "crhs.mjs"), ...args], {
 			cwd: dir,
-			env: { ...process.env, ...env },
+			env: crhsEnv(env),
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		let stdout = "";
@@ -44,6 +54,7 @@ function runCrhs(dir: string, args: string[], input = "", env: NodeJS.ProcessEnv
 function startCrhs(dir: string, args: string[]): { child: ChildProcess; started: Promise<void> } {
 	const child = spawn(process.execPath, [join(dir, "crhs.mjs"), ...args], {
 		cwd: dir,
+		env: crhsEnv(),
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	const { stdout, stderr } = child;

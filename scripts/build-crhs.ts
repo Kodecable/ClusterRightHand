@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Builds dist/crhs: the bundled crhs, the WebUI and re2, plus the licenses and version of the tree.
 // Plain Node TypeScript; the only dependency is esbuild's JS API (pnpm build:crhs).
-import { spawn } from "node:child_process";
-import { copyFile, cp, mkdir, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { copyFile, cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { build, type Plugin } from "esbuild";
 import { copyDocFiles } from "../server/src/extensions/docs-source.ts";
 import { resolveVersion } from "./version.ts";
@@ -185,4 +187,30 @@ await writeFile(
 await writeFile(join(outDir, "THIRD_PARTY_LICENSES.txt"), await thirdPartyLicenses(inputs, re2));
 await writeFile(join(outDir, "VERSION"), `${version}\n`);
 
+await smokeTest();
+
 console.log(`built dist/crhs (${version})`);
+
+/**
+ * Starts a copy of the bundle outside the tree and checks it prints its version. Inside the tree a
+ * module the bundle failed to include still resolves through the workspace's node_modules; outside
+ * it, as in the image and the release tarballs, it does not (a runtime require esbuild left alone).
+ */
+async function smokeTest(): Promise<void> {
+	const dir = await mkdtemp(join(tmpdir(), "crhs-smoke-"));
+	try {
+		await cp(outDir, dir, { recursive: true });
+		const { stdout } = await promisify(execFile)(process.execPath, ["crhs.mjs", "--version"], {
+			cwd: dir,
+			// A launcher's NODE_PATH (pnpm's .bin shims set one) would resolve the workspace's packages.
+			env: { ...process.env, NODE_PATH: "" },
+			timeout: 60_000,
+		});
+		if (stdout.trim() !== version)
+			throw new Error(`the bundle printed ${JSON.stringify(stdout.trim())}, not ${version}`);
+	} catch (error) {
+		throw new Error(`dist/crhs does not start outside the tree: ${(error as Error).message}`);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+}

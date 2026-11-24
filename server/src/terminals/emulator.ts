@@ -9,15 +9,17 @@
  * its output is not logged: the alternate screen is the program's current picture, not output to
  * read back (doc/design/pty.md "Agent tools").
  */
-import { createRequire } from "node:module";
-import type { SerializeAddon as SerializeAddonType } from "@xterm/addon-serialize";
-import type { Terminal as TerminalType } from "@xterm/headless";
 
-// Both packages are CommonJS: Node's ESM loader cannot see their named exports, so they are loaded
-// through a require and typed from their declaration files.
-const require = createRequire(import.meta.url);
-const { SerializeAddon } = require("@xterm/addon-serialize") as { SerializeAddon: new () => SerializeAddonType };
-const { Terminal } = require("@xterm/headless") as { Terminal: typeof TerminalType };
+import type { SerializeAddon as SerializeAddonType } from "@xterm/addon-serialize";
+import serializeAddon from "@xterm/addon-serialize";
+import type { Terminal as TerminalType } from "@xterm/headless";
+import headless from "@xterm/headless";
+
+// Both packages are CommonJS without an exports map: Node's ESM loader cannot see their named
+// exports, so they are default-imported (module.exports). A plain import also lets the crhs bundle
+// include them; a createRequire call would stay a runtime lookup the image cannot satisfy.
+const { SerializeAddon } = serializeAddon;
+const { Terminal } = headless;
 
 /** The escape-stripped text kept for reads and watches, in characters. */
 export const TEXT_LOG_CHARS = 256 * 1024;
