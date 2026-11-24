@@ -16,7 +16,7 @@ import {
 	type PtyOpen,
 	type TrustEntry,
 } from "@crh/protocol";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { Audit } from "../src/audit/audit.ts";
 import { Cluster } from "../src/cluster/cluster.ts";
@@ -630,6 +630,240 @@ describe("terminals", () => {
 		expect(terminals.get(terminal.id)).toBeDefined();
 	});
 
+	/**
+	 * The idle-sweep tests drive the interval themselves (setInterval is faked, wall-clock time is
+	 * faked with it) and hold each session-state read on its own promise, so nothing depends on how
+	 * long a real timer or a database read takes.
+	 */
+	const sweepTerminal = async (
+		node: NodeRow,
+		idleTimeoutMs: number,
+		sessionState: () => Promise<SessionRunState>,
+	): Promise<{ service: TerminalService; terminal: Awaited<ReturnType<TerminalService["openForAgent"]>> }> => {
+		const session = await createSessionRow(db, owner.id, "sweep");
+		const service = new TerminalService({
+			db,
+			cluster,
+			settings,
+			audit,
+			exitedRetentionMs: EXITED_MS,
+			idleSweepMs: 10,
+			sessionState,
+		});
+		const terminal = await service.openForAgent({
+			user: userOf(owner) as never,
+			sessionId: session.id,
+			chain: [{ type: "user", id: owner.id }],
+			node: node.id,
+			idleTimeoutMs,
+		});
+		return { service, terminal };
+	};
+
+	/** Runs `body` with fake sweep timers, then settles every held read and shuts the service down. */
+	const withSweepTimers = async (
+		service: TerminalService,
+		reads: Deferred<SessionRunState>[],
+		body: () => Promise<void>,
+	): Promise<void> => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+		service.start();
+		try {
+			await body();
+		} finally {
+			for (const read of reads) read.resolve("idle");
+			await vi.advanceTimersByTimeAsync(0);
+			await service.shutdown();
+			vi.useRealTimers();
+		}
+	};
+
+	/** Yields to real I/O (setImmediate is not faked) until `done`, without a wall-clock sleep. */
+	const waitForIo = async (done: () => boolean): Promise<void> => {
+		for (let i = 0; i < 500 && !done(); i += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+	};
+
+	it("does not overlap idle sweeps while a session-state read is held", async () => {
+		const { node, crha } = await connect();
+		const reads: Deferred<SessionRunState>[] = [];
+		const { service, terminal } = await sweepTerminal(node, 5, () => {
+			const read = deferred<SessionRunState>();
+			reads.push(read);
+			return read.promise;
+		});
+		await withSweepTimers(service, reads, async () => {
+			await vi.advanceTimersByTimeAsync(10);
+			expect(reads).toHaveLength(1);
+			// More intervals pass while the first sweep still awaits: every tick is skipped.
+			await vi.advanceTimersByTimeAsync(40);
+			expect(reads).toHaveLength(1);
+			expect(service.get(terminal.id)).toBe(terminal);
+
+			reads[0]?.resolve("idle");
+			await vi.advanceTimersByTimeAsync(0);
+			expect(terminal.idleSince).not.toBeNull();
+
+			// The next tick starts one fresh sweep, which sees the timeout elapsed and closes once.
+			await vi.advanceTimersByTimeAsync(10);
+			expect(reads).toHaveLength(2);
+			reads[1]?.resolve("idle");
+			await vi.advanceTimersByTimeAsync(0);
+			expect(service.get(terminal.id)).toBeUndefined();
+			await waitForIo(() => crha.ptyCloses.length > 0);
+			expect(crha.ptyCloses.filter((close) => close.ptyId === terminal.id)).toEqual([
+				{ ptyId: terminal.id, reason: "idle" },
+			]);
+		});
+	});
+
+	it("logs a rejected idle sweep, stays alive, and closes on a later sweep", async () => {
+		const { node, crha } = await connect();
+		const failure = new Error("session state read failed");
+		const reads: Deferred<SessionRunState>[] = [];
+		let calls = 0;
+		const { service, terminal } = await sweepTerminal(node, 5, () => {
+			calls += 1;
+			if (calls === 1) return Promise.reject(failure);
+			const read = deferred<SessionRunState>();
+			reads.push(read);
+			return read.promise;
+		});
+		const errors: unknown[][] = [];
+		const errorSpy = vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+			errors.push(args);
+		});
+		const rejections: unknown[] = [];
+		const onRejection = (reason: unknown) => rejections.push(reason);
+		process.on("unhandledRejection", onRejection);
+		try {
+			await withSweepTimers(service, reads, async () => {
+				await vi.advanceTimersByTimeAsync(10);
+				expect(calls).toBe(1);
+				await new Promise<void>((resolve) => setImmediate(resolve));
+				expect(rejections).toEqual([]);
+				expect(errors).toEqual([["idle sweep failed:", failure]]);
+
+				// The rejection neither stops the interval nor leaves the in-flight flag set.
+				await vi.advanceTimersByTimeAsync(10);
+				expect(calls).toBe(2);
+				reads[0]?.resolve("idle");
+				await vi.advanceTimersByTimeAsync(0);
+				await vi.advanceTimersByTimeAsync(10);
+				expect(calls).toBe(3);
+				reads[1]?.resolve("idle");
+				await vi.advanceTimersByTimeAsync(0);
+				expect(service.get(terminal.id)).toBeUndefined();
+				await waitForIo(() => crha.ptyCloses.length > 0);
+				expect(crha.ptyCloses.filter((close) => close.ptyId === terminal.id)).toEqual([
+					{ ptyId: terminal.id, reason: "idle" },
+				]);
+			});
+		} finally {
+			process.off("unhandledRejection", onRejection);
+			errorSpy.mockRestore();
+		}
+	});
+
+	it("keeps an agent terminal open when a viewer attaches during the session read", async () => {
+		const { node } = await connect();
+		const reads: Deferred<SessionRunState>[] = [];
+		const { service, terminal } = await sweepTerminal(node, 20, () => {
+			const read = deferred<SessionRunState>();
+			reads.push(read);
+			return read.promise;
+		});
+		await withSweepTimers(service, reads, async () => {
+			await vi.advanceTimersByTimeAsync(10);
+			expect(reads).toHaveLength(1);
+			await service.attachViewer(
+				terminal,
+				userOf(owner) as never,
+				new FakeViewerSocket() as unknown as WebSocket,
+				null,
+			);
+			reads[0]?.resolve("idle");
+			await vi.advanceTimersByTimeAsync(0);
+			// The viewer arrived while the sweep awaited: the timer must not have started.
+			expect(terminal.idleSince).toBeNull();
+			expect(service.get(terminal.id)).toBe(terminal);
+			await vi.advanceTimersByTimeAsync(200);
+			expect(service.get(terminal.id)).toBe(terminal);
+			expect(terminal.idleSince).toBeNull();
+		});
+	});
+
+	it("reads the clock after the session read so a held sweep does not age the timer", async () => {
+		const { node } = await connect();
+		const reads: Deferred<SessionRunState>[] = [];
+		const { service, terminal } = await sweepTerminal(node, 20, () => {
+			const read = deferred<SessionRunState>();
+			reads.push(read);
+			return read.promise;
+		});
+		await withSweepTimers(service, reads, async () => {
+			await vi.advanceTimersByTimeAsync(10);
+			expect(reads).toHaveLength(1);
+			// The read is held for 90 ms; the sweep's clock must not be the one from before it.
+			await vi.advanceTimersByTimeAsync(90);
+			reads[0]?.resolve("idle");
+			await vi.advanceTimersByTimeAsync(0);
+			const idleSince = terminal.idleSince;
+			expect(idleSince).not.toBeNull();
+
+			await vi.advanceTimersByTimeAsync(10);
+			expect(reads).toHaveLength(2);
+			reads[1]?.resolve("idle");
+			await vi.advanceTimersByTimeAsync(0);
+			// 10 ms of the 20 ms timeout: still idle, not closed with the stale start.
+			expect(terminal.idleSince).toBe(idleSince);
+			expect(service.get(terminal.id)).toBe(terminal);
+
+			// The timer runs out on the next sweep.
+			await vi.advanceTimersByTimeAsync(10);
+			expect(reads).toHaveLength(3);
+			reads[2]?.resolve("idle");
+			await vi.advanceTimersByTimeAsync(0);
+			expect(service.get(terminal.id)).toBeUndefined();
+		});
+	});
+
+	it("stops the interval and waits for an in-flight sweep at shutdown", async () => {
+		const { node } = await connect();
+		const reads: Deferred<SessionRunState>[] = [];
+		let calls = 0;
+		const { service, terminal } = await sweepTerminal(node, 60_000, () => {
+			calls += 1;
+			const read = deferred<SessionRunState>();
+			reads.push(read);
+			return read.promise;
+		});
+		let shutdown: Promise<void> | undefined;
+		let stopped = false;
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+		service.start();
+		try {
+			await vi.advanceTimersByTimeAsync(10);
+			expect(calls).toBe(1);
+			shutdown = service.shutdown().then(() => {
+				stopped = true;
+			});
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			expect(stopped).toBe(false);
+			reads[0]?.resolve("idle");
+			await shutdown;
+			expect(stopped).toBe(true);
+			expect(service.get(terminal.id)).toBeUndefined();
+			// The interval is gone: no later tick reads a session state.
+			await vi.advanceTimersByTimeAsync(100);
+			expect(calls).toBe(1);
+		} finally {
+			for (const read of reads) read.resolve("idle");
+			await shutdown?.catch(() => {});
+			await service.shutdown();
+			vi.useRealTimers();
+		}
+	});
+
 	describe("API", () => {
 		let app: App;
 		let server: Server;
@@ -1170,6 +1404,25 @@ describe("terminals", () => {
 		});
 	});
 });
+
+/** A session state as the idle rule sees it: absent when the session was deleted. */
+type SessionRunState = "idle" | "running" | "awaiting" | undefined;
+
+interface Deferred<T> {
+	promise: Promise<T>;
+	resolve(value: T): void;
+	reject(err: unknown): void;
+}
+
+function deferred<T>(): Deferred<T> {
+	let resolve!: (value: T) => void;
+	let reject!: (err: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	return { promise, resolve, reject };
+}
 
 /** A session row with the minimum columns a terminal's idle check and association read. */
 async function createSessionRow(

@@ -170,6 +170,8 @@ export class TerminalService implements TerminalSink {
 	readonly #nodeNames = new Map<string, string>();
 	readonly #usernames = new Map<string, string | null>();
 	readonly #pending = new Set<Promise<void>>();
+	/** The idle sweep currently running; the interval skips a tick while it is set. */
+	#sweepInFlight: Promise<void> | undefined;
 	#sweep: NodeJS.Timeout | undefined;
 	#closed = false;
 
@@ -206,7 +208,7 @@ export class TerminalService implements TerminalSink {
 	start(): void {
 		this.#cluster.setTerminalSink(this);
 		if (this.#sweep === undefined) {
-			this.#sweep = setInterval(() => void this.#sweepIdle(), this.#idleSweepMs);
+			this.#sweep = setInterval(() => this.#tickIdle(), this.#idleSweepMs);
 			this.#sweep.unref();
 		}
 	}
@@ -222,7 +224,10 @@ export class TerminalService implements TerminalSink {
 		for (const terminal of [...this.#terminals.values()]) {
 			this.#closeTerminal(terminal, "manual", { send: false, audit: false });
 		}
-		await Promise.allSettled([...this.#pending]);
+		// A sweep may already be past its last await; it sees the closed registry and does nothing, but
+		// wait for it so it cannot touch the database after it is destroyed.
+		const sweep = this.#sweepInFlight;
+		await Promise.allSettled(sweep === undefined ? [...this.#pending] : [...this.#pending, sweep]);
 	}
 
 	/** Whether the subsystem is on; turning it off closed every terminal already. */
@@ -1719,18 +1724,44 @@ export class TerminalService implements TerminalSink {
 
 	// ---- idle ----
 
+	/**
+	 * One interval tick: skip it while the previous sweep still runs, so two sweeps never interleave on
+	 * the same terminals; a failed sweep is logged and the next tick starts a fresh one.
+	 */
+	#tickIdle(): void {
+		if (this.#closed || this.#sweepInFlight !== undefined) return;
+		const running = this.#sweepIdle().catch((err: unknown) => console.error("idle sweep failed:", err));
+		this.#sweepInFlight = running;
+		void running.finally(() => {
+			if (this.#sweepInFlight === running) this.#sweepInFlight = undefined;
+		});
+	}
+
 	async #sweepIdle(): Promise<void> {
 		if (this.#closed) return;
-		const now = Date.now();
 		for (const terminal of [...this.#terminals.values()]) {
 			if (terminal.state !== "running") continue;
 			const timeout = terminal.idleTimeoutMs;
 			if (timeout === null) continue;
-			const idle = terminal.viewers.size === 0 && terminal.watches.size === 0 && (await this.#sessionsIdle(terminal));
-			if (!idle) {
+			// The viewer and watch checks are repeated after the session reads below: either can appear
+			// while this sweep waits, and a terminal someone attached to must not become idle.
+			if (terminal.viewers.size > 0 || terminal.watches.size > 0) {
 				terminal.idleSince = null;
 				continue;
 			}
+			const idle = await this.#sessionsIdle(terminal);
+			if (this.#closed) return;
+			// The session reads yielded, so re-check the terminal itself: it may have been closed or have
+			// exited, or a viewer or watch may have arrived. `now` is read here, after the await, so a
+			// slow read never makes the timer look older than it is.
+			if (this.#terminals.get(terminal.id) !== terminal || terminal.state !== "running" || terminal.closing) {
+				continue;
+			}
+			if (!idle || terminal.viewers.size > 0 || terminal.watches.size > 0) {
+				terminal.idleSince = null;
+				continue;
+			}
+			const now = Date.now();
 			if (terminal.idleSince === null) {
 				terminal.idleSince = now;
 				continue;
