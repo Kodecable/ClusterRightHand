@@ -352,6 +352,8 @@ root execution.
   change does.
 - A failure before the command starts is a connection failure (`connect_failed` or
   `host_key_mismatch`); a disconnect after it starts makes the task `unknown`.
+- [Metrics](metrics.md#ssh-nodes) sampling runs a fixed read-only script on the same pooled connection,
+  outside the task model, and so keeps the connection open.
 
 ### Jump hosts
 

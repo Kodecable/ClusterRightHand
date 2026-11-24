@@ -77,6 +77,7 @@ crhs 和每个节点都需要 glibc Linux（amd64 或 arm64），crhs 前面还�
 | [Agent runtime](doc/design/agent-runtime.md)               | 会话、工具、子 Agent、配额           |
 | [Jobs](doc/design/jobs.md)                                 | 后台工作、job 工具、完成通知         |
 | [Terminals](doc/design/pty.md)                             | crha 节点上的交互式终端              |
+| [Metrics](doc/design/metrics.md)                           | 主机指标、存储和图表                 |
 | [Scheduled tasks](doc/design/scheduling.md)                | 计划任务                             |
 | [Data model](doc/design/data-model.md)                     | 存储和数据保留                       |
 | [WebUI](doc/design/webui.md)                               | 前端设计                             |

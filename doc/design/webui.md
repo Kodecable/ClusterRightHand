@@ -320,6 +320,11 @@ the API directly, since their reader is already signed in.
 The node list folds enrollment and reachability into one status: pending approval, connected or
 offline for a crha node, and active for an SSH node, which has no standing connection.
 
+The node list also shows each node's CPU and memory from its latest [metrics](metrics.md#reading)
+sample. A **Metrics** tab on the node page charts CPU, load, memory, filesystems, network and
+availability over 1 hour, 24 hours, 7 days, 30 days or 365 days; a series that stopped is drawn up to
+its last value, with its last-seen time.
+
 The node page's overview has what is used day to day, the platform line included, with trust warnings
 at the top: each has its own border and icon, so the list has no heading. A **Technical details** tab
 shows the facts, fully, and the last trust report the node sent ([Privilege](privilege.md#trust-cache))

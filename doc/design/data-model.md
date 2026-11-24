@@ -136,7 +136,8 @@ from the live connection.
   before any secret is read.
 
 Node groups, their members, access grants, SSH credentials and enrollment tokens (stored as hashes)
-complete the node tables.
+complete the node tables. A node's metrics are in `metric_series` and `metric_buckets`, deleted with the
+node ([Metrics](metrics.md#storage)).
 
 ## Tasks
 
@@ -284,6 +285,8 @@ startup and then hourly, in small batches, and each table is swept independently
   running call is never deleted ([External calls](extensions.md#external-calls)).
 - Used or expired `channel_link_codes` rows are always deleted by the sweep: they can no longer link an
   account.
+- Metric buckets have their own per-level retention settings, and the sweep deletes them with the series
+  left without buckets ([Metrics](metrics.md#storage)).
 - The newest 16384 audit sequence numbers are always kept. This prevents a large forward clock jump from
   wiping the log, and keeps SQLite from reusing sequence numbers.
 - Retention cannot be shorter than one day, because a tool call that reruns after a crash finds its task

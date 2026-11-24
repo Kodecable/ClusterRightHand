@@ -163,10 +163,9 @@ traffic is unaffected.
 
 These are not implemented, but the design leaves room for them:
 
-- **Monitoring and alerting.** New protocol commands can carry metrics without changing existing
-  ones, crha's fact collection can grow into periodic collectors, and metrics would go to separate
-  storage rather than the main tables. Cluster events go through one internal event bus that alerts,
-  webhooks or "start a session on alert" could subscribe to.
+- **Monitoring and alerting.** Host [metrics](metrics.md) are collected and stored; deciding whether a
+  node is healthy and acting on it is not. Cluster events go through one internal event bus that
+  alerts, webhooks or "start a session on alert" could subscribe to.
 - **Server-initiated connections** to crha nodes, with the handshake rules mirrored
   ([Handshake and replay protection](protocol.md#handshake-and-replay-protection)).
 - **Audit export** to a system outside crhs for tamper evidence

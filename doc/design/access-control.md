@@ -131,6 +131,8 @@ protecting anything. A grant on a node group follows the group's current members
 
 - A node the user cannot access is invisible: it is missing from lists, and a request by id returns
   404, not 403.
+- A node's [metrics](metrics.md) follow node access: whoever sees the node sees its metrics, and
+  reading them is not a task, so no rule or approval applies.
 - Task visibility depends only on the user's relation to the task, not on node access. Users see the
   tasks done on their behalf even after losing access to the node, and node access never reveals
   another user's tasks.

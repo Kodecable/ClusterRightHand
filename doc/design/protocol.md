@@ -71,11 +71,12 @@ the transfer itself uses `too_large` and `input_mismatch` (a size or SHA-256 mis
 
 ## Version negotiation
 
-The version is major 1, minor 1. The Noise prologue is `"crh/1"` followed by the server's challenge,
+The version is major 1, minor 2. The Noise prologue is `"crh/1"` followed by the server's challenge,
 so peers of different majors fail the Noise handshake before a payload is read; the payload's major is
 checked too. Major 1 is the protocol of `v0.4.0-rc.1`, the first release under the compatibility rules
 ([Compatibility](compatibility.md)). Minor 1 adds the [terminal](pty.md) names as optional names: crhs
-offers them, while a node offers them only once it implements terminals.
+offers them, while a node offers them only once it implements terminals. Minor 2 adds
+`metrics.collect` ([Metrics](metrics.md#crha-nodes)) as an optional name in the same way.
 
 - An incompatible change bumps the major and the prologue. crha and its privileged mode are always
   upgraded together, and crhs is upgraded before its nodes. Across majors crhs keeps only the upgrade
@@ -148,6 +149,7 @@ interop fixtures and an end-to-end test against a released crha binary of each s
 | `pty.open` | crhs → crha | Starts a [terminal](pty.md) with its id, argv, size, privileged flag and scrollback size, and, for a privileged one, its attempt, authorizations and cosign ticket as `task.start` carries them. Negotiated. |
 | `pty.resize` | crhs → crha | Changes a terminal's size. Negotiated. |
 | `pty.close` | crhs → crha | Closes a terminal with a reason. Negotiated. |
+| `metrics.collect` | crhs → crha | Reads the node's [metrics](metrics.md#crha-nodes) sources and answers with their raw values. Negotiated. |
 
 `file.push` and `file.pull` tasks move their bytes on a separate
 [data connection](#data-connections), never in these commands, and so do terminals.
@@ -209,6 +211,7 @@ output is incomplete; it is false when nothing was lost. A `task.exit` whose `ou
 received bytes means lost output, so crhs closes the connection and the node resends after
 reconnecting.
 
+`Facts` and the [metrics](metrics.md#crha-nodes) response are the protocol's two text-keyed maps.
 `Facts` describes the node: `hostname` is required, the other keys are optional, and an absent key
 means unknown rather than empty. Unknown text keys are ignored, so a fact can be added without a
 minor bump; removing one or changing its type needs a major. Facts are not signed or hashed, and node
