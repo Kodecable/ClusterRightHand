@@ -92,6 +92,8 @@ const TABLES = [
 	"libraries",
 	"library_files",
 	"library_skills",
+	"metric_buckets",
+	"metric_series",
 	"model_presets",
 	"model_providers",
 	"node_access_grants",
@@ -132,6 +134,7 @@ const INDEXES = [
 	"sessions_state_live_idx",
 	"image_cache_last_used_idx",
 	"library_files_object_key_idx",
+	"metric_buckets_level_bucket_start_idx",
 	"extension_grants_grantee_idx",
 	"external_calls_actor_idx",
 	"external_calls_state_idx",
@@ -349,7 +352,7 @@ describeBackends("initial migration", (backend) => {
 		// The migrator introspects every schema, so a parallel test dropping its schema must not run now.
 		await withDdlLockOn(backend, () => migrateToLatest(db, schema ? { schema } : {}));
 		const rows = await sql<{ name: string }>`select name from kysely_migration order by name`.execute(db);
-		expect(rows.rows).toEqual([{ name: "0001_initial" }]);
+		expect(rows.rows).toEqual([{ name: "0001_initial" }, { name: "0002_metrics" }]);
 		expect(await tableNames(backend, db)).toEqual(TABLES);
 	});
 });

@@ -83,6 +83,29 @@ export const SystemSettingsPtySchema = z
 	})
 	.meta({ id: "SystemSettingsPty" });
 
+/**
+ * The per-level retention of host metric buckets (doc/design/metrics.md "Storage"): level 1 is 1 minute,
+ * 2 is 5 minutes, 3 is 1 hour and 4 is 1 day. Each level must be at least ten buckets long and at least as
+ * long as the level before it.
+ */
+export const SystemSettingsMetricsRetentionSchema = z
+	.object({
+		l1: z.string().describe('How long 1-minute buckets are kept, e.g. "24h"; at least "10m".'),
+		l2: z.string().describe('How long 5-minute buckets are kept, e.g. "7d"; at least "50m" and at least l1.'),
+		l3: z.string().describe('How long 1-hour buckets are kept, e.g. "30d"; at least "10h" and at least l2.'),
+		l4: z.string().describe('How long 1-day buckets are kept, e.g. "365d"; at least "10d" and at least l3.'),
+	})
+	.meta({ id: "SystemSettingsMetricsRetention" });
+
+/** Host metrics collection (doc/design/metrics.md "Settings" and "Limits"). */
+export const SystemSettingsMetricsSchema = z
+	.object({
+		enabled: z.boolean().describe("Whether crhs samples the host metrics of its nodes."),
+		interval: z.number().describe("Seconds between samples: 15, 20, 30 or 60."),
+		retention: SystemSettingsMetricsRetentionSchema,
+	})
+	.meta({ id: "SystemSettingsMetrics" });
+
 /** The settings administrators edit in System settings. */
 export const SystemSettingsSchema = z
 	.object({
@@ -105,6 +128,7 @@ export const SystemSettingsSchema = z
 		skills: SystemSettingsSkillsSchema,
 		jobs: SystemSettingsJobsSchema,
 		pty: SystemSettingsPtySchema,
+		metrics: SystemSettingsMetricsSchema,
 	})
 	.meta({ id: "SystemSettings" });
 
@@ -154,6 +178,13 @@ export const SystemSettingsPatchSchema = z.object({
 	skills: SystemSettingsSkillsSchema.partial().optional(),
 	jobs: SystemSettingsJobsSchema.partial().optional(),
 	pty: SystemSettingsPtySchema.partial().optional(),
+	metrics: z
+		.object({
+			enabled: z.boolean().optional(),
+			interval: z.number().optional(),
+			retention: SystemSettingsMetricsRetentionSchema.partial().optional(),
+		})
+		.optional(),
 });
 
 /** `PATCH /api/settings` success: the settings as they now are. */

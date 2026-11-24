@@ -1,6 +1,7 @@
 import type { DialectAdapter, Kysely } from "kysely";
 import { type Migration, type MigrationProvider, type MigrationResult, Migrator } from "kysely/migration";
 import * as m0001 from "./migrations/0001_initial.ts";
+import * as m0002 from "./migrations/0002_metrics.ts";
 
 /**
  * Migrations are listed explicitly so they work the same from source and from a bundle, and append-only
@@ -8,6 +9,7 @@ import * as m0001 from "./migrations/0001_initial.ts";
  */
 const migrations: Record<string, Migration> = {
 	"0001_initial": m0001,
+	"0002_metrics": m0002,
 };
 
 /** Options shared by the migration entry points. */

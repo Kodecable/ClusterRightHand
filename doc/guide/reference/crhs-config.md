@@ -141,6 +141,12 @@ The low-frequency settings below are **not** in `crhs.toml`. Administrators edit
 | `pty.agent_idle_timeout_max` | duration | `"1h"` | Largest idle timeout an agent's `pty_open` may ask for. |
 | `pty.watch_timeout_max` | duration | `"10m"` | Longest `pty_watch` an agent may ask for. |
 | `pty.scrollback_bytes` | integer, 64 KiB..16 MiB | `1048576` | crha's ring buffer per terminal, in bytes (1 MiB). |
+| `metrics.enabled` | boolean | `true` | Whether crhs samples host metrics from its nodes. Turning it off stops the samples; stored metrics stay until retention removes them. |
+| `metrics.interval` | `15`, `20`, `30` or `60` | `60` | Seconds between samples. A changed interval applies from the next tick. |
+| `metrics.retention.l1` | duration, at least 10 minutes | `"24h"` | How long 1-minute buckets are kept. |
+| `metrics.retention.l2` | duration, at least 50 minutes | `"7d"` | How long 5-minute buckets are kept. |
+| `metrics.retention.l3` | duration, at least 10 hours | `"30d"` | How long 1-hour buckets are kept. |
+| `metrics.retention.l4` | duration, at least 10 days | `"365d"` | How long 1-day buckets are kept. |
 
 The library defaults are copied when a user or user group is created; changing them does not touch an
 existing library. Administrators change an existing library's limits on its user or user group page.
@@ -171,6 +177,10 @@ token is limited the same way over MCP.
 The terminal limits count a terminal from its open until it is closed, including the five minutes an
 exited terminal stays visible. crha clamps `pty.scrollback_bytes` to its own 64 KiB..16 MiB range; the
 setting itself is validated in that range, so what crhs asks for is what crha keeps.
+
+Each metric level's retention must be at least ten buckets of that level, and each level at least as long
+as the one before it, so a read always has a coarser level to fall back to. Shortening a retention takes
+effect at the next hourly sweep; a bucket is deleted only once it ended before its level's window.
 
 Cleanup and the client address use the values read at the time they run. Logins can always use every
 hashing slot, while password changes and user creation are held back, so signed-in users cannot block

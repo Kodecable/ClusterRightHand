@@ -32,6 +32,11 @@ function settings(overrides: Partial<SystemSettings["pty"]> = {}): SystemSetting
 			scrollbackBytes: 1024 * 1024,
 			...overrides,
 		},
+		metrics: {
+			enabled: true,
+			interval: 60,
+			retention: { l1: "24h", l2: "7d", l3: "30d", l4: "365d" },
+		},
 	};
 }
 

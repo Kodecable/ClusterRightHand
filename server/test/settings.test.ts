@@ -93,6 +93,16 @@ describe("system settings storage", () => {
 				watchTimeoutMaxMs: 10 * 60 * 1000,
 				scrollbackBytes: 1024 * 1024,
 			},
+			metrics: {
+				enabled: true,
+				intervalMs: 60 * 1000,
+				retention: {
+					l1Ms: 24 * 60 * 60 * 1000,
+					l2Ms: 7 * 24 * 60 * 60 * 1000,
+					l3Ms: 30 * 24 * 60 * 60 * 1000,
+					l4Ms: 365 * 24 * 60 * 60 * 1000,
+				},
+			},
 		});
 	});
 });

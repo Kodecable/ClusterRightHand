@@ -2,6 +2,8 @@ import { sql } from "kysely";
 import { GROUP_TERMINAL, TERMINAL } from "../cluster/types.ts";
 import type { RetentionConfig } from "../config.ts";
 import { EXTERNAL_CALL_TERMINAL } from "../extensions/external-calls.ts";
+import type { MetricsRetentionConfig } from "../metrics/levels.ts";
+import type { MetricsStore } from "../metrics/store.ts";
 import type { Db } from "../storage/db.ts";
 
 /** Rows selected and deleted per batch, so one statement never holds the database queue for long. */
@@ -42,6 +44,8 @@ export interface RetentionCounts {
 	channelLinkCodes: number;
 	piTasks: number;
 	jobs: number;
+	metricBuckets: number;
+	metricSeries: number;
 }
 
 export interface RetentionOptions {
@@ -49,6 +53,11 @@ export interface RetentionOptions {
 	batchSize?: number;
 	/** Stops the sweep between batches, so shutdown does not wait out a long first run. */
 	signal?: AbortSignal;
+	/**
+	 * Metric bucket retention (doc/design/metrics.md "Storage"). The store runs the sweep, so the series it
+	 * deletes leave its id cache; absent, metric tables are left alone.
+	 */
+	metrics?: { retention: MetricsRetentionConfig; store: MetricsStore };
 }
 
 export interface RetentionSweep {
@@ -76,6 +85,8 @@ export async function runRetention(
 		channelLinkCodes: 0,
 		piTasks: 0,
 		jobs: 0,
+		metricBuckets: 0,
+		metricSeries: 0,
 	};
 	const batchSize = options.batchSize ?? RETENTION_BATCH_SIZE;
 	const signal = options.signal;
@@ -110,6 +121,20 @@ export async function runRetention(
 			const cutoff = now.getTime() - retention.piTasksMs;
 			counts.piTasks = await deleteTable("pi_tasks", () => deleteOldPiTasks(db, cutoff, batchSize, signal));
 		}
+		// Metric buckets have their own per-level retention and their own interval (doc/design/metrics.md
+		// "Storage"): the store deletes buckets and the series left without one in batches.
+		if (options.metrics) {
+			try {
+				const swept = await options.metrics.store.sweep(options.metrics.retention, now.getTime(), {
+					batchSize,
+					...(signal ? { signal } : {}),
+				});
+				counts.metricBuckets = swept.buckets;
+				counts.metricSeries = swept.series;
+			} catch (err) {
+				console.error("retention: deleting metric buckets failed:", err);
+			}
+		}
 	} catch (err) {
 		console.error("retention sweep failed:", err);
 	}
@@ -122,13 +147,16 @@ export async function runRetention(
 		counts.externalCalls +
 		counts.channelLinkCodes +
 		counts.piTasks +
-		counts.jobs;
+		counts.jobs +
+		counts.metricBuckets +
+		counts.metricSeries;
 	if (total > 0) {
 		console.log(
 			`retention: deleted ${counts.tasks} task(s), ${counts.taskGroups} task group(s), ` +
 				`${counts.authorizations} authorization(s), ${counts.auditEvents} audit event(s), ` +
 				`${counts.externalCalls} external call(s), ${counts.channelLinkCodes} channel link code(s), ` +
-				`${counts.piTasks} durable task(s), ${counts.jobs} job(s)`,
+				`${counts.piTasks} durable task(s), ${counts.jobs} job(s), ` +
+				`${counts.metricBuckets} metric bucket(s), ${counts.metricSeries} metric series`,
 		);
 	}
 	return counts;
@@ -143,8 +171,16 @@ export async function runRetention(
 export function startRetentionSweep(
 	db: Db,
 	retention: RetentionConfig | (() => RetentionConfig),
-	/** `run` exists for tests, which replace it so the scheduler runs without a database. */
-	options: { startupDelayMs?: number; intervalMs?: number; run?: typeof runRetention } = {},
+	/**
+	 * `run` exists for tests, which replace it so the scheduler runs without a database. `metrics` is read at
+	 * each run, so a changed retention of the metric levels applies without a restart.
+	 */
+	options: {
+		startupDelayMs?: number;
+		intervalMs?: number;
+		run?: typeof runRetention;
+		metrics?: () => { retention: MetricsRetentionConfig; store: MetricsStore };
+	} = {},
 ): RetentionSweep {
 	const abort = new AbortController();
 	const run = options.run ?? runRetention;
@@ -153,7 +189,8 @@ export function startRetentionSweep(
 	const tick = (): void => {
 		// Skip a tick while the previous run is still going, or when stop() already aborted (a queued tick).
 		if (running !== null || abort.signal.aborted) return;
-		running = run(db, current(), new Date(), { signal: abort.signal })
+		const metrics = options.metrics?.();
+		running = run(db, current(), new Date(), { signal: abort.signal, ...(metrics ? { metrics } : {}) })
 			.then(() => {})
 			.catch((err: unknown) => console.error("retention sweep failed:", err))
 			.finally(() => {

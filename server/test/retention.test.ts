@@ -720,6 +720,8 @@ describeBackends("retention sweep", (backend) => {
 			channelLinkCodes: 0,
 			piTasks: 0,
 			jobs: 0,
+			metricBuckets: 0,
+			metricSeries: 0,
 		});
 		expect(await taskIds()).toEqual(["old-exited"]);
 		expect(await groupIds()).toEqual([]);
@@ -787,6 +789,8 @@ describeBackends("retention sweep", (backend) => {
 			channelLinkCodes: 0,
 			piTasks: 0,
 			jobs: 0,
+			metricBuckets: 0,
+			metricSeries: 0,
 		});
 	});
 
@@ -802,6 +806,8 @@ describeBackends("retention sweep", (backend) => {
 			channelLinkCodes: 0,
 			piTasks: 0,
 			jobs: 0,
+			metricBuckets: 0,
+			metricSeries: 0,
 		});
 		expect(console.log).not.toHaveBeenCalled();
 	});
@@ -919,6 +925,8 @@ describe("retention sweep scheduler", () => {
 		channelLinkCodes: 0,
 		piTasks: 0,
 		jobs: 0,
+		metricBuckets: 0,
+		metricSeries: 0,
 	};
 	const STARTUP_DELAY_MS = 5_000;
 	const INTERVAL_MS = 60_000;

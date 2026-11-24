@@ -13,6 +13,8 @@ import type {
 	SystemSettingsDirectoryCopySchema,
 	SystemSettingsImageCacheSchema,
 	SystemSettingsJobsSchema,
+	SystemSettingsMetricsRetentionSchema,
+	SystemSettingsMetricsSchema,
 	SystemSettingsPatchSchema,
 	SystemSettingsPtySchema,
 	SystemSettingsResponseSchema,
@@ -48,6 +50,12 @@ export type SystemSettingsJobs = z.infer<typeof SystemSettingsJobsSchema>;
 
 /** The terminal subsystem's settings (doc/design/pty.md "Settings and limits"). */
 export type SystemSettingsPty = z.infer<typeof SystemSettingsPtySchema>;
+
+/** The per-level retention of host metric buckets (doc/design/metrics.md "Storage"). */
+export type SystemSettingsMetricsRetention = z.infer<typeof SystemSettingsMetricsRetentionSchema>;
+
+/** Host metrics collection (doc/design/metrics.md "Settings"). */
+export type SystemSettingsMetrics = z.infer<typeof SystemSettingsMetricsSchema>;
 
 /** The settings administrators edit in System settings. */
 export type SystemSettings = z.infer<typeof SystemSettingsSchema>;

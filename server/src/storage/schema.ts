@@ -363,6 +363,37 @@ export interface NodesTable {
 	trust_updated_at: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
+/**
+ * One metric series of a node (doc/design/metrics.md "Storage"): `cpu.total`, `net.rx_bytes` and the like.
+ * `first_seen_at` and `last_seen_at` are ISO 8601 UTC strings; `last_seen_at` is written at most once per
+ * level-2 (5 minute) bucket per series.
+ */
+export interface MetricSeriesTable {
+	id: string;
+	node_id: string;
+	name: string;
+	kind: "gauge" | "delta";
+	first_seen_at: string;
+	last_seen_at: string;
+}
+
+/**
+ * One aggregated bucket of a series (doc/design/metrics.md "Storage"). `bucket_start` is a UTC epoch
+ * millisecond instant aligned to the level's width and is `bigint` on PostgreSQL; the pg int8 parser reads
+ * it as a number. For a delta series `sum` is the total and `min`/`max` the smallest and largest delta.
+ */
+export interface MetricBucketsTable {
+	series_id: string;
+	/** 1 = 1 minute, 2 = 5 minutes, 3 = 1 hour, 4 = 1 day. */
+	level: number;
+	bucket_start: number;
+	count: number;
+	sum: number;
+	min: number;
+	max: number;
+	last: number;
+}
+
 export interface NodeGroupsTable {
 	id: string;
 	org_id: string;
@@ -874,6 +905,8 @@ export interface Database {
 	settings: SettingsTable;
 	secrets: SecretsTable;
 	nodes: NodesTable;
+	metric_series: MetricSeriesTable;
+	metric_buckets: MetricBucketsTable;
 	node_groups: NodeGroupsTable;
 	node_group_members: NodeGroupMembersTable;
 	node_access_grants: NodeAccessGrantsTable;

@@ -2,6 +2,7 @@ import type {
 	LibraryLimits,
 	SystemSettings,
 	SystemSettingsLibrary,
+	SystemSettingsMetrics,
 	SystemSettingsPty,
 	SystemSettingsRetention,
 } from "@crh/api";
@@ -26,6 +27,7 @@ import {
 	validateAuth,
 	validateWebauthn,
 } from "../config.ts";
+import { METRIC_LEVEL_BUCKET_MS, type MetricLevel } from "../metrics/levels.ts";
 import type { Db } from "../storage/db.ts";
 import { defaultOrgId } from "../storage/org.ts";
 
@@ -62,6 +64,12 @@ export interface RuntimeSettings {
 		agentIdleTimeoutMaxMs: number;
 		watchTimeoutMaxMs: number;
 		scrollbackBytes: number;
+	};
+	/** Host metrics collection and per-level bucket retention (doc/design/metrics.md "Settings"). */
+	metrics: {
+		enabled: boolean;
+		intervalMs: number;
+		retention: { l1Ms: number; l2Ms: number; l3Ms: number; l4Ms: number };
 	};
 }
 
@@ -101,6 +109,12 @@ export const SETTING_KEYS = [
 	"pty.agent_idle_timeout_max",
 	"pty.watch_timeout_max",
 	"pty.scrollback_bytes",
+	"metrics.enabled",
+	"metrics.interval",
+	"metrics.retention.l1",
+	"metrics.retention.l2",
+	"metrics.retention.l3",
+	"metrics.retention.l4",
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];
@@ -143,6 +157,16 @@ export const DEFAULT_SYSTEM_SETTINGS_PTY: SystemSettingsPty = {
 	scrollbackBytes: 1024 * 1024,
 };
 
+/** The sample intervals metrics may use, in seconds (doc/design/metrics.md "Settings"). */
+export const METRICS_INTERVALS = [15, 20, 30, 60] as const;
+
+/** The metrics defaults: collection on, once a minute, and the retention of doc/design/metrics.md "Storage". */
+export const DEFAULT_SYSTEM_SETTINGS_METRICS: SystemSettingsMetrics = {
+	enabled: true,
+	interval: 60,
+	retention: { l1: "24h", l2: "7d", l3: "30d", l4: "365d" },
+};
+
 /** The defaults from config.ts, in the API form the WebUI shows. */
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
 	publicUrl: null,
@@ -167,6 +191,7 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
 	skills: { maxPerUser: DEFAULT_SKILLS_PER_USER },
 	jobs: { maxConsecutiveWakes: DEFAULT_MAX_CONSECUTIVE_WAKES, maxRunning: DEFAULT_JOBS_MAX_RUNNING },
 	pty: { ...DEFAULT_SYSTEM_SETTINGS_PTY },
+	metrics: { ...DEFAULT_SYSTEM_SETTINGS_METRICS, retention: { ...DEFAULT_SYSTEM_SETTINGS_METRICS.retention } },
 };
 
 /** A copy of the defaults, safe for a caller to modify. */
@@ -213,6 +238,12 @@ function defaultsByKey(): Record<SettingKey, unknown> {
 		"pty.agent_idle_timeout_max": DEFAULT_SYSTEM_SETTINGS.pty.agentIdleTimeoutMax,
 		"pty.watch_timeout_max": DEFAULT_SYSTEM_SETTINGS.pty.watchTimeoutMax,
 		"pty.scrollback_bytes": DEFAULT_SYSTEM_SETTINGS.pty.scrollbackBytes,
+		"metrics.enabled": DEFAULT_SYSTEM_SETTINGS.metrics.enabled,
+		"metrics.interval": DEFAULT_SYSTEM_SETTINGS.metrics.interval,
+		"metrics.retention.l1": DEFAULT_SYSTEM_SETTINGS.metrics.retention.l1,
+		"metrics.retention.l2": DEFAULT_SYSTEM_SETTINGS.metrics.retention.l2,
+		"metrics.retention.l3": DEFAULT_SYSTEM_SETTINGS.metrics.retention.l3,
+		"metrics.retention.l4": DEFAULT_SYSTEM_SETTINGS.metrics.retention.l4,
 	};
 }
 
@@ -253,6 +284,12 @@ function flatten(settings: SystemSettings): Record<SettingKey, unknown> {
 		"pty.agent_idle_timeout_max": settings.pty.agentIdleTimeoutMax,
 		"pty.watch_timeout_max": settings.pty.watchTimeoutMax,
 		"pty.scrollback_bytes": settings.pty.scrollbackBytes,
+		"metrics.enabled": settings.metrics.enabled,
+		"metrics.interval": settings.metrics.interval,
+		"metrics.retention.l1": settings.metrics.retention.l1,
+		"metrics.retention.l2": settings.metrics.retention.l2,
+		"metrics.retention.l3": settings.metrics.retention.l3,
+		"metrics.retention.l4": settings.metrics.retention.l4,
 	};
 }
 
@@ -314,6 +351,16 @@ function unflatten(values: Record<SettingKey, unknown>): SystemSettings {
 			agentIdleTimeoutMax: values["pty.agent_idle_timeout_max"] as string,
 			watchTimeoutMax: values["pty.watch_timeout_max"] as string,
 			scrollbackBytes: values["pty.scrollback_bytes"] as number,
+		},
+		metrics: {
+			enabled: values["metrics.enabled"] as boolean,
+			interval: values["metrics.interval"] as number,
+			retention: {
+				l1: values["metrics.retention.l1"] as string,
+				l2: values["metrics.retention.l2"] as string,
+				l3: values["metrics.retention.l3"] as string,
+				l4: values["metrics.retention.l4"] as string,
+			},
 		},
 	};
 }
@@ -394,7 +441,80 @@ export function parseSettingValue(key: SettingKey, value: unknown): unknown {
 			}
 			return bytes;
 		}
+		case "metrics.enabled":
+			if (typeof value !== "boolean") throw new Error("metrics.enabled must be a boolean");
+			return value;
+		case "metrics.interval":
+			return parseMetricsInterval(value);
+		case "metrics.retention.l1":
+			return parseMetricRetentionSetting(value, 1);
+		case "metrics.retention.l2":
+			return parseMetricRetentionSetting(value, 2);
+		case "metrics.retention.l3":
+			return parseMetricRetentionSetting(value, 3);
+		case "metrics.retention.l4":
+			return parseMetricRetentionSetting(value, 4);
 	}
+}
+
+/** A metrics sample interval: one of the values that divide a minute (doc/design/metrics.md "Settings"). */
+function parseMetricsInterval(value: unknown): number {
+	if (typeof value !== "number" || !(METRICS_INTERVALS as readonly number[]).includes(value)) {
+		throw new Error(`metrics.interval must be one of ${METRICS_INTERVALS.join(", ")} seconds`);
+	}
+	return value;
+}
+
+/**
+ * A metric level's retention: a duration of at least ten buckets of that level, so every read has data to
+ * choose from (doc/design/metrics.md "Settings").
+ */
+function parseMetricRetentionMs(value: unknown, level: MetricLevel): number {
+	const name = `metrics.retention.l${level}`;
+	const ms = parseDurationMs(value, name);
+	const minimum = 10 * METRIC_LEVEL_BUCKET_MS[level];
+	if (ms < minimum) throw new Error(`${name} must be at least 10 buckets (${durationText(minimum)})`);
+	return ms;
+}
+
+/** The stored form of a metric retention, validated. */
+function parseMetricRetentionSetting(value: unknown, level: MetricLevel): string {
+	parseMetricRetentionMs(value, level);
+	return (value as string).trim();
+}
+
+/** A short crhs.toml duration for an error message. */
+function durationText(ms: number): string {
+	for (const [unitMs, suffix] of [
+		[24 * 60 * 60 * 1000, "d"],
+		[60 * 60 * 1000, "h"],
+		[60 * 1000, "m"],
+		[1000, "s"],
+	] as const) {
+		if (ms % unitMs === 0) return `${ms / unitMs}${suffix}`;
+	}
+	return `${ms}ms`;
+}
+
+/**
+ * The ordering rule of doc/design/metrics.md "Settings": each level's retention is at least as long as the
+ * level before it, so a read never chooses a coarser level whose window is shorter. Reports every offending
+ * level by its API field path.
+ */
+function metricsRetentionProblems(retention: SystemSettingsMetrics["retention"]): Record<string, string> {
+	const problems: Record<string, string> = {};
+	const levels = ["l1", "l2", "l3", "l4"] as const;
+	for (let index = 1; index < levels.length; index++) {
+		const previous = levels[index - 1] as (typeof levels)[number];
+		const current = levels[index] as (typeof levels)[number];
+		const previousMs = parseDurationMs(retention[previous], `metrics.retention.${previous}`);
+		const currentMs = parseDurationMs(retention[current], `metrics.retention.${current}`);
+		if (currentMs < previousMs) {
+			problems[`metrics.retention.${current}`] =
+				`metrics.retention.${current} must be at least metrics.retention.${previous}`;
+		}
+	}
+	return problems;
 }
 
 /** A library limit: an integer from 0 (nothing allowed) to the largest 32-bit signed integer. */
@@ -445,6 +565,7 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 				"skills",
 				"jobs",
 				"pty",
+				"metrics",
 			].includes(key)
 		) {
 			fields[key] = `unknown setting ${key}`;
@@ -635,6 +756,47 @@ export function parseSettingsPatch(body: unknown): SettingValues {
 		}
 	}
 
+	if (input.metrics !== undefined) {
+		const group = plainObject(input.metrics);
+		if (!group) fields.metrics = "metrics must be an object";
+		else {
+			for (const key of Object.keys(group)) {
+				if (!["enabled", "interval", "retention"].includes(key)) {
+					fields[`metrics.${key}`] = `unknown setting ${key}`;
+				}
+			}
+			if (group.enabled !== undefined) {
+				check("metrics.enabled", () => {
+					values["metrics.enabled"] = parseSettingValue("metrics.enabled", group.enabled);
+				});
+			}
+			if (group.interval !== undefined) {
+				check("metrics.interval", () => {
+					values["metrics.interval"] = parseSettingValue("metrics.interval", group.interval);
+				});
+			}
+			if (group.retention !== undefined) {
+				const retention = plainObject(group.retention);
+				if (!retention) fields["metrics.retention"] = "metrics.retention must be an object";
+				else {
+					for (const key of Object.keys(retention)) {
+						if (!["l1", "l2", "l3", "l4"].includes(key)) {
+							fields[`metrics.retention.${key}`] = `unknown setting ${key}`;
+						}
+					}
+					for (const level of [1, 2, 3, 4] as const) {
+						const field = `metrics.retention.l${level}` as const;
+						const value = retention[`l${level}`];
+						if (value === undefined) continue;
+						check(field, () => {
+							values[field] = parseSettingValue(field, value);
+						});
+					}
+				}
+			}
+		}
+	}
+
 	const groups = [
 		[
 			"directoryCopy",
@@ -736,7 +898,23 @@ function resolveSettings(wire: SystemSettings): RuntimeSettings {
 			watchTimeoutMaxMs: parseDurationMs(wire.pty.watchTimeoutMax, "pty.watchTimeoutMax"),
 			scrollbackBytes: parseInteger(wire.pty.scrollbackBytes, "pty.scrollbackBytes", MIN_PTY_SCROLLBACK_BYTES),
 		},
+		metrics: resolveMetrics(wire.metrics),
 	};
+}
+
+function resolveMetrics(wire: SystemSettingsMetrics): RuntimeSettings["metrics"] {
+	if (typeof wire.enabled !== "boolean") throw new Error("metrics.enabled must be a boolean");
+	const interval = parseMetricsInterval(wire.interval);
+	const retention = {
+		l1Ms: parseMetricRetentionMs(wire.retention.l1, 1),
+		l2Ms: parseMetricRetentionMs(wire.retention.l2, 2),
+		l3Ms: parseMetricRetentionMs(wire.retention.l3, 3),
+		l4Ms: parseMetricRetentionMs(wire.retention.l4, 4),
+	};
+	const problems = metricsRetentionProblems(wire.retention);
+	const first = Object.values(problems)[0];
+	if (first !== undefined) throw new Error(first);
+	return { enabled: wire.enabled, intervalMs: interval * 1000, retention };
 }
 
 function validateLibraryLimits(limits: LibraryLimits, name: string): LibraryLimits {
@@ -851,6 +1029,9 @@ export class SettingsStore {
 		const after: Record<SettingKey, unknown> = { ...before };
 		for (const [key, value] of Object.entries(values) as [SettingKey, unknown][]) after[key] = value;
 		const nextWire = unflatten(after);
+		// The levels must stay ordered as a whole: a patch may set only one of them.
+		const metricsProblems = metricsRetentionProblems(nextWire.metrics.retention);
+		if (Object.keys(metricsProblems).length > 0) throw new SettingsValidationError(metricsProblems);
 		// Re-resolve before writing: the combination (webauthn rpId/origins) must be valid as a whole.
 		const nextCurrent = resolveSettings(nextWire);
 		const changes: SettingsChange[] = [];

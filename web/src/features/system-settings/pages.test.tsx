@@ -30,6 +30,11 @@ const SETTINGS: SystemSettings = {
 		watchTimeoutMax: "10m",
 		scrollbackBytes: 1024 * 1024,
 	},
+	metrics: {
+		enabled: true,
+		interval: 60,
+		retention: { l1: "24h", l2: "7d", l3: "30d", l4: "365d" },
+	},
 };
 
 const DEFAULTS: SystemSettings = {
@@ -56,6 +61,11 @@ const DEFAULTS: SystemSettings = {
 		agentIdleTimeoutMax: "1h",
 		watchTimeoutMax: "10m",
 		scrollbackBytes: 1024 * 1024,
+	},
+	metrics: {
+		enabled: true,
+		interval: 60,
+		retention: { l1: "24h", l2: "7d", l3: "30d", l4: "365d" },
 	},
 };
 

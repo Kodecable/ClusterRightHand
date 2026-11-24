@@ -35,6 +35,7 @@ import { createLibraryBackend } from "./library/backend.ts";
 import { ImageCache, startImageCacheSweep } from "./library/image-cache.ts";
 import { startLibrarySweep } from "./library/sweep.ts";
 import { cleanupStaging } from "./library/transfer-location.ts";
+import { MetricsStore } from "./metrics/store.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
 import { startRetentionSweep } from "./retention/retention.ts";
 import { Scheduler } from "./scheduler/scheduler.ts";
@@ -224,6 +225,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// The image cache is a local, disposable directory (doc/design/library.md "Image cache"); its limits are
 	// read at each use, so a System settings change applies without a restart.
 	const imageCache = new ImageCache(db, join(dataDir, "image-cache"), () => settings.current().imageCache);
+	// Host metrics (doc/design/metrics.md "Storage"): samples are buffered and written every five seconds,
+	// and once more at shutdown. No collector records yet; its consumers will take this store.
+	const metrics = new MetricsStore(db, { retention: () => settings.current().metrics.retention });
 	// One connection per MCP server for all sessions (doc/design/extensions.md "MCP connections").
 	const mcp = new McpConnections({ db, masterKey });
 	// Each MCP extension's cached tools and description load now and its daily refresh is scheduled; nothing
@@ -400,8 +404,11 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		5 * 60 * 1000,
 	);
 	// Retention deletes rows past their configured age: once shortly after startup, then hourly. The
-	// getter reads System settings at each run, so a changed window applies without a restart.
-	const retention = startRetentionSweep(db, () => settings.current().retention);
+	// getters read System settings at each run, so a changed window applies without a restart. The metric
+	// buckets have their own per-level windows; the store keeps its cached series ids in step.
+	const retention = startRetentionSweep(db, () => settings.current().retention, {
+		metrics: () => ({ retention: settings.current().metrics.retention, store: metrics }),
+	});
 	// Orphaned library objects: once at startup, then hourly (doc/design/library.md "Metadata and objects").
 	const librarySweep = startLibrarySweep(db, libraryBackend);
 	// The image cache: least-recently-used and expired entries, once at startup and then hourly.
@@ -450,6 +457,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		// A record-change projection started just before shutdown is awaited before the database goes.
 		await jobs.drain();
 		await audit.flush();
+		// The metrics timer is stopped and its last buffered samples are written while the database is open.
+		await metrics.close();
 		// 6. The database goes last.
 		await db.destroy();
 	};
