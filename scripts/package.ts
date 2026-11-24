@@ -503,13 +503,29 @@ async function goLicenses(): Promise<string> {
 	const blocks: string[] = [];
 	for (const module of parseJsonObjects(text)) {
 		if (module.Main || !module.Dir) continue;
-		const files = (await readdir(module.Dir)).filter((file) => /^(licen[cs]e|copying|notice)/i.test(file)).sort();
-		for (const file of files) {
+		for (const file of await licenseFiles(module.Dir)) {
 			const body = (await readFile(join(module.Dir, file), "utf8")).trimEnd();
 			blocks.push(`${module.Path}@${module.Version ?? "local"}\n\n${body}`);
 		}
 	}
 	return `${blocks.sort().join("\n\n")}\n`;
+}
+
+/**
+ * A module's license files, relative to its directory: the top-level LICENSE/COPYING/NOTICE files,
+ * plus the files in a top-level directory of that name (crosspty keeps the licenses of the code it
+ * derives from in licenses/).
+ */
+async function licenseFiles(dir: string): Promise<string[]> {
+	const files: string[] = [];
+	for (const entry of await readdir(dir, { withFileTypes: true })) {
+		if (!/^(licen[cs]e|copying|notice)/i.test(entry.name)) continue;
+		if (entry.isFile()) files.push(entry.name);
+		else if (entry.isDirectory())
+			for (const inner of await readdir(join(dir, entry.name), { withFileTypes: true }))
+				if (inner.isFile()) files.push(join(entry.name, inner.name));
+	}
+	return files.sort();
 }
 
 /** The image's build context for one arch. */
