@@ -35,6 +35,7 @@ import { createLibraryBackend } from "./library/backend.ts";
 import { ImageCache, startImageCacheSweep } from "./library/image-cache.ts";
 import { startLibrarySweep } from "./library/sweep.ts";
 import { cleanupStaging } from "./library/transfer-location.ts";
+import { MetricsCollector } from "./metrics/collector.ts";
 import { MetricsStore } from "./metrics/store.ts";
 import { loadAuthorizationSigningKeys } from "./privilege/key.ts";
 import { startRetentionSweep } from "./retention/retention.ts";
@@ -226,7 +227,8 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// read at each use, so a System settings change applies without a restart.
 	const imageCache = new ImageCache(db, join(dataDir, "image-cache"), () => settings.current().imageCache);
 	// Host metrics (doc/design/metrics.md "Storage"): samples are buffered and written every five seconds,
-	// and once more at shutdown. No collector records yet; its consumers will take this store.
+	// and once more at shutdown. The collector records into it; shutdown stops the collector before this
+	// store is flushed and closed.
 	const metrics = new MetricsStore(db, { retention: () => settings.current().metrics.retention });
 	// One connection per MCP server for all sessions (doc/design/extensions.md "MCP connections").
 	const mcp = new McpConnections({ db, masterKey });
@@ -261,6 +263,15 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 	// (doc/design/execution.md "Reconnect"): a client node gets the reconnect grace, an SSH node does not. Tasks
 	// still between their claim and their dispatch end here too, after the task groups that own them.
 	await cluster.recover();
+	// Host metrics (doc/design/metrics.md "Collection"): one timer starts each node's sample in its slot.
+	// It starts after recovery and the cluster core, and shuts down before the node links close.
+	const metricsCollector = new MetricsCollector({
+		db,
+		store: metrics,
+		settings,
+		host: cluster.metricsHost(),
+	});
+	await metricsCollector.start();
 	const models = new ModelConfig(db, masterKey);
 	await models.reload();
 	// A function, so that a Harness a storage error closed is reopened on fresh storage.
@@ -451,6 +462,9 @@ async function runServer(config: Config, db: Db, masterKey: MasterKey, settings:
 		// hangup), then the node links and SSH sessions, and wait for the work the closes started.
 		await ptyAttach.close();
 		await terminals.shutdown();
+		// The collector first: it awaits its in-flight samples and closes the SSH channels it opened, then
+		// the links close and the store is flushed after them.
+		await metricsCollector.stop();
 		await cluster.close();
 		await taskGroups.close();
 		await agents.close();

@@ -168,8 +168,9 @@ value:
   online cores only, so a core going offline can make it fall; that sample has no `cpu.total`.
 - Network deltas are summed over the selected interfaces after each interface's own delta, so an
   interface appearing does not count its whole history as one minute's traffic, and one disappearing
-  does not make the total fall. The rates are the summed deltas divided by the time between the two
-  samples.
+  does not make the total fall. Each interface's rate is its delta divided by the time since its own
+  previous counters on crhs's monotonic clock, so a sample that missed it does not double its rate; the
+  node's rates are the sum.
 
 The previous values live in memory. The baseline sample ([Collection](#collection)) restores them after
 a crhs restart or a node reboot, before the node's next slot; only an SSH node whose baseline fails loses

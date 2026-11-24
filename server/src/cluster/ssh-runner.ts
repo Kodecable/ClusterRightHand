@@ -92,6 +92,14 @@ function sshSession(core: ClusterCore, node: NodeRow): Promise<SshConnection> {
 }
 
 /**
+ * The node's pooled SSH connection, dialling it when there is none. The metrics collector samples over the
+ * same connection tasks use (doc/design/metrics.md "SSH nodes"), so a node that runs tasks is not dialled twice.
+ */
+export function pooledSshSession(core: ClusterCore, node: NodeRow): Promise<SshConnection> {
+	return sshSession(core, node);
+}
+
+/**
  * Dials the node's current route. `adopted()` is true when the dial gave up its own connection and resolved to
  * the one another dial pooled; its caller must then neither register nor close that connection.
  */

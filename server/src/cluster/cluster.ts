@@ -18,6 +18,7 @@ import type { WebSocket } from "ws";
 import type { SessionUser } from "../auth/sessions.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import type { TransferContext, TransferLocationJson } from "../library/transfer-location.ts";
+import type { MetricsHost } from "../metrics/collector.ts";
 import type { Evaluation } from "../policy/rules.ts";
 import type { RuleRef } from "../policy/store.ts";
 import type { SubmittedAuthorization } from "../privilege/submission.ts";
@@ -42,8 +43,8 @@ import {
 	stagingLocation,
 } from "./file-plane.ts";
 import * as links from "./links.ts";
-import type { NodeRow } from "./nodes.ts";
-import { closeSsh, closeSshNode } from "./ssh-runner.ts";
+import { getNode, type NodeRow } from "./nodes.ts";
+import { closeSsh, closeSshNode, pooledSshSession } from "./ssh-runner.ts";
 import { abandonReview as abandonTaskReview } from "./task-approval.ts";
 import * as tasks from "./task-state.ts";
 import {
@@ -208,6 +209,42 @@ export class Cluster {
 	/** Installs the terminal subsystem's event sink; called once when the service is created. */
 	setTerminalSink(sink: TerminalSink): void {
 		this.#core.terminals = sink;
+	}
+
+	/**
+	 * The host metrics collector's view of the cluster (doc/design/metrics.md "Collection"): the link
+	 * state and its reconnect grace, the pooled SSH connection, and the link event sink. The collector
+	 * lives in metrics/ and only sees this interface, so the rest of the cluster's state stays private.
+	 */
+	metricsHost(): MetricsHost {
+		const core = this.#core;
+		return {
+			graceMs: core.graceMs,
+			link: (nodeId) => {
+				const link = core.links.get(nodeId);
+				if (link === undefined || link.conn.closed || !link.ready) return undefined;
+				return { peer: link.conn.peer, upgradeOnly: link.conn.upgradeOnly };
+			},
+			connected: (nodeId) => {
+				const link = core.links.get(nodeId);
+				return link !== undefined && !link.conn.closed;
+			},
+			waitLink: (nodeId, timeoutMs) => core.waitLink(nodeId, timeoutMs),
+			sshSession: async (nodeId) => {
+				const node = await getNode(core.db, nodeId);
+				if (node === undefined) throw new Error("the node no longer exists");
+				return (await pooledSshSession(core, node)).session;
+			},
+			dropSshSession: (nodeId) => {
+				const connection = core.sshConnections.get(nodeId);
+				core.sshSessions.delete(nodeId);
+				core.sshConnections.delete(nodeId);
+				connection?.session.close();
+			},
+			setSink: (sink) => {
+				core.metrics = sink;
+			},
+		};
 	}
 
 	/** The node's link, when it can take terminal commands now (doc/design/pty.md "crha"). */
@@ -397,6 +434,7 @@ export class Cluster {
 	 */
 	endNodeTasks(nodeId: string): Promise<number> {
 		this.#core.terminals?.onNodeRemoved(nodeId);
+		this.#core.metrics?.onNodeRemoved(nodeId);
 		return tasks.endNodeTasks(this.#core, nodeId);
 	}
 

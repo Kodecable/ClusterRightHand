@@ -11,6 +11,7 @@ import type { Selectable } from "kysely";
 import type { Audit, AuditInput } from "../audit/audit.ts";
 import type { LibraryBackend } from "../library/backend.ts";
 import type { TransferContext } from "../library/transfer-location.ts";
+import type { MetricsSink } from "../metrics/collector.ts";
 import type { RuleRef } from "../policy/store.ts";
 import { AuthorizationSigningKeyStore } from "../privilege/key.ts";
 import type { Db } from "../storage/db.ts";
@@ -138,6 +139,8 @@ export class ClusterCore {
 	readonly transferScheduler: TransferScheduler;
 	/** The terminal subsystem's event sink, installed once at startup (doc/design/pty.md). */
 	terminals: TerminalSink | undefined;
+	/** The host metrics collector's event sink, installed once at startup (doc/design/metrics.md "Collection"). */
+	metrics: MetricsSink | undefined;
 	/** The live data connection of each transfer task. */
 	readonly dataTransfers = new Map<string, DataTransfer>();
 	/** The transfer id of every live transfer task on this process: a transfer id opens one data connection. */

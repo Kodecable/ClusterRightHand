@@ -214,6 +214,7 @@ function detach(core: ClusterCore, link: NodeLink): void {
 	if (core.links.get(nodeId) !== link) return; // already replaced
 	core.links.delete(nodeId);
 	core.terminals?.onLinkLost(nodeId);
+	core.metrics?.onLinkLost(nodeId);
 	core.notifyLink(nodeId);
 	if (!link.active) return;
 	auditConnection(core, link, "node.disconnected");
@@ -373,6 +374,9 @@ async function onHello(core: ClusterCore, link: NodeLink, hello: Hello): Promise
 	}
 	return afterResponse({ acks }, () => {
 		link.ready = true;
+		// The metrics collector takes its baseline now, before the first due sample (doc/design/metrics.md
+		// "Collection"). Pending links never get here: they stay restricted.
+		core.metrics?.onLinkUp(nodeId);
 		core.notifyLink(nodeId);
 		for (const { id } of open) {
 			if (reported.has(id)) continue;
