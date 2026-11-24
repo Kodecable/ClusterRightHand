@@ -6,6 +6,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import { sql } from "kysely";
+import { z } from "zod";
 import { ModelCatalogue, type ModelConfig } from "../agent/models.ts";
 import type { AgentRuntime } from "../agent/runtime.ts";
 import { Audit } from "../audit/audit.ts";
@@ -102,6 +103,26 @@ const healthRoute = defineRoute({
 	responses: { 200: { description: "The database answered", ...json(HealthResponseSchema) } },
 });
 
+/**
+ * Every crawler is refused: crhs is an operations console, not a public site. Served whether or not a
+ * WebUI build is configured (doc/design/webui.md).
+ */
+const robotsRoute = defineRoute({
+	method: "get",
+	path: "/robots.txt",
+	tags: ["WebUI"],
+	summary: "Search engines must not index or follow the console",
+	agent: "allow",
+	responses: {
+		200: {
+			description: "A robots.txt that disallows every crawler",
+			content: { "text/plain": { schema: z.string() } },
+		},
+	},
+});
+
+const ROBOTS_TXT = "User-agent: *\nDisallow: /\n";
+
 export interface AppOptions extends AuthRoutesOptions {
 	/** Embedded in enrollment tokens so crha can pin crhs's identity key. */
 	serverFingerprint?: string;
@@ -187,7 +208,15 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 	// One error handler for every route (see errors.ts), so each route group keeps only its own routes.
 	app.onError(apiErrorHandler());
 
-	// First, so that a request arriving during shutdown is refused before it can authenticate or query the
+	// Nothing this process serves is for a search engine: every response, including errors, static files
+	// and the WebUI shell, says so (doc/design/webui.md). Registered before the drain
+	// middleware, so a refusal during shutdown carries it too.
+	app.use("*", async (c, next) => {
+		c.header("X-Robots-Tag", "noindex, nofollow");
+		await next();
+	});
+
+	// Before everything else but the header above, so that a request arriving during shutdown is refused before it can authenticate or query the
 	// database; requests already being handled are counted until they settle.
 	app.use("*", drain.middleware());
 
@@ -206,6 +235,9 @@ export function createApp(db: Db, options: AppOptions = {}): OpenAPIHono<AppEnv>
 		await sql`select 1`.execute(db);
 		return c.json({ status: "ok" as const }, 200);
 	});
+
+	// Public and before the WebUI's static handler and SPA fallback, so this is never index.html.
+	app.openapi(robotsRoute, (c) => c.text(ROBOTS_TXT, 200, { "Content-Type": "text/plain; charset=utf-8" }));
 
 	// Public: crha fetches this during enrollment and checks it against the token's fingerprint.
 	app.get("/agent/identity", (c) => {

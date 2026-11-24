@@ -790,7 +790,7 @@ const zhCN: BotMessages = {
 				? `计划任务“${escapeMarkdown(name)}”已于 ${time} 运行失败。`
 				: `计划任务“${escapeMarkdown(name)}”被下一次运行停止（${time}）。`,
 	reportError: (problem) => `错误：\n${codeBlock(problem)}`,
-	jobNotice: (notice) => `后台任务已完成：${actionLine(notice, "zh-CN")}${notice.woke ? " · 已唤醒智能体" : ""}`,
+	jobNotice: (notice) => `后台任务已完成：${actionLine(notice, "zh-CN")}${notice.woke ? " · 已唤醒 Agent" : ""}`,
 	sessionBody: (title, text) => `会话“${escapeMarkdown(title)}”：\n\n${text}`,
 	statusUntrackedSession: (status, title) => `${status}\n\n这是会话“${escapeMarkdown(title)}”。`,
 	working: "处理中…",

@@ -405,11 +405,11 @@ msgstr "会话标题最多 {SESSION_TITLE_MAX_CHARS} 个字符。"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "A subagent request woke the agent"
-msgstr "子代理请求唤醒了代理"
+msgstr "子 Agent 请求唤醒了 Agent"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "A subagent's quota ran out"
-msgstr "子代理的配额已用完"
+msgstr "子 Agent 的配额已用完"
 
 #: src/features/channels/channel-dialog.tsx
 msgid "A Telegram bot. Private chats only; a topic is its own session."
@@ -587,7 +587,7 @@ msgstr "Agent 会话通过 search_tools 和 call_tool 使用扩展工具，同�
 
 #: src/features/system-settings/retention-section.tsx
 msgid "Agent tool records"
-msgstr "智能体工具记录"
+msgstr "Agent 工具记录"
 
 #: src/features/nodes/node-trust.tsx
 msgid "Aliases"
@@ -704,7 +704,7 @@ msgstr "节点访问权限由管理员授予。"
 
 #: src/features/system-settings/attachments-section.tsx
 msgid "An agent can copy a directory into a library, for example to install a skill; a larger directory must be packed into one archive first. A session's system prompt lists the skills under skills/ in the owner's library; past the limit it lists none and the model browses them itself."
-msgstr "智能体可以把目录复制到资料库，例如安装 skill；更大的目录须先打包成一个归档文件。会话的系统提示会列出所有者资料库 skills/ 下的 skill；超过上限时一个也不列，由模型自行浏览。"
+msgstr "Agent 可以把目录复制到资料库，例如安装 skill；更大的目录须先打包成一个归档文件。会话的系统提示会列出所有者资料库 skills/ 下的 skill；超过上限时一个也不列，由模型自行浏览。"
 
 #: src/features/sessions/extensions-dialog.tsx
 msgid "An extension that is off is hidden from the model. The change applies to the next turn."
@@ -852,11 +852,11 @@ msgstr "argv"
 
 #: src/features/sessions/composer.tsx
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line, /compact summarizes older context."
-msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行，/compact 压缩较早的上下文。"
+msgstr "让 Agent 做点什么。Enter 发送，Shift+Enter 换行，/compact 压缩较早的上下文。"
 
 #: src/features/sessions/new-session-page.tsx
 msgid "Ask the agent to do something. Enter sends, Shift+Enter adds a line."
-msgstr "让 agent 做点什么。Enter 发送，Shift+Enter 换行。"
+msgstr "让 Agent 做点什么。Enter 发送，Shift+Enter 换行。"
 
 #: src/features/tokens/rule-preset-help.tsx
 msgid "Ask: ordinary reads run, everything else (including every privileged task) waits for your approval."
@@ -1386,7 +1386,7 @@ msgstr "集群"
 
 #: src/features/sessions/background-bar.tsx
 msgid "Collapse the subagent's jobs"
-msgstr "收起子代理的后台任务"
+msgstr "收起子 Agent 的后台任务"
 
 #: src/features/terminals/new-terminal-dialog.tsx
 #: src/features/terminals/pages.tsx
@@ -2378,7 +2378,7 @@ msgstr "已退出"
 
 #: src/features/sessions/background-bar.tsx
 msgid "Expand the subagent's jobs"
-msgstr "展开子代理的后台任务"
+msgstr "展开子 Agent 的后台任务"
 
 #: src/features/tokens/rules-dialog.tsx
 msgid "Expected an object like {\"rules\": [...]}."
@@ -3069,7 +3069,7 @@ msgstr "登录 shell"
 
 #: src/features/system-settings/terminals-section.tsx
 msgid "Longest agent idle timeout"
-msgstr "代理最长空闲超时"
+msgstr "Agent 最长空闲超时"
 
 #: src/features/system-settings/terminals-section.tsx
 msgid "Longest watch timeout"
@@ -5478,16 +5478,16 @@ msgstr "已存储的请求头：{0}"
 
 #: src/features/jobs/job.tsx
 msgid "Subagent"
-msgstr "子代理"
+msgstr "子 Agent"
 
 #: src/features/sessions/tool-dialog.tsx
 msgid "Subagent session"
-msgstr "子会话"
+msgstr "子 Agent 会话"
 
 #. placeholder {0}: displaySessionTitle(row.hit.sessionTitle, i18n)
 #: src/features/sessions/session-search-dialog.tsx
 msgid "Subagent: {0}"
-msgstr "子会话：{0}"
+msgstr "子 Agent：{0}"
 
 #: src/components/decision/signature-panel.tsx
 #: src/features/authorizations/issue-dialog.tsx
@@ -5642,11 +5642,11 @@ msgstr "这个数字太大了。"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "the agent was woken"
-msgstr "代理已被唤醒"
+msgstr "Agent 已被唤醒"
 
 #: src/features/sessions/transcript-row.tsx
 msgid "The agent was woken"
-msgstr "代理已被唤醒"
+msgstr "Agent 已被唤醒"
 
 #: src/features/schedules/scheduleForm.ts
 msgid "The Ask rule preset can often pause the schedule while it waits for your confirmation."
@@ -5714,7 +5714,7 @@ msgstr "Passkey 注册所用的主机名，例如 crh.example.com。留空则从
 
 #: src/features/system-settings/terminals-section.tsx
 msgid "The interactive terminal subsystem. Turning it off closes every terminal and hides the Terminals page and the agent tools."
-msgstr "交互式终端子系统。关闭它会关闭所有终端，并隐藏“终端”页面和代理工具。"
+msgstr "交互式终端子系统。关闭它会关闭所有终端，并隐藏“终端”页面和 Agent 工具。"
 
 #: src/lib/task-form.ts
 msgid "The limit must be a non-negative whole number."
@@ -5735,12 +5735,12 @@ msgstr "机器人在该平台上的用户 id；频道页面会列出网关上报
 #. placeholder {0}: defaults.pty.watchTimeoutMax
 #: src/features/system-settings/terminals-section.tsx
 msgid "The longest an agent's terminal watch may block. Default: {0}."
-msgstr "代理的终端监视最长可以阻塞的时间。默认：{0}。"
+msgstr "Agent 的终端监视最长可以阻塞的时间。默认：{0}。"
 
 #. placeholder {0}: defaults.pty.agentIdleTimeoutMax
 #: src/features/system-settings/terminals-section.tsx
 msgid "The longest idle timeout an agent may ask for when it opens a terminal. Default: {0}."
-msgstr "代理打开终端时可以请求的最长空闲超时。默认：{0}。"
+msgstr "Agent 打开终端时可以请求的最长空闲超时。默认：{0}。"
 
 #: src/features/settings/model-presets.tsx
 msgid "The model list could not be loaded."

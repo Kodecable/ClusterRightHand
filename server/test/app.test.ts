@@ -37,6 +37,44 @@ describe("web root", () => {
 		}
 	});
 
+	it("serves robots.txt to an unauthenticated caller, with or without a WebUI build", async () => {
+		const { mkdtemp, writeFile } = await import("node:fs/promises");
+		const { join } = await import("node:path");
+		const { tmpdir } = await import("node:os");
+		const root = await mkdtemp(join(tmpdir(), "crh-web-"));
+		await writeFile(join(root, "index.html"), "<html>shell</html>");
+		const db = openDb({ driver: "sqlite", path: ":memory:" });
+		try {
+			for (const webRoot of [undefined, root]) {
+				const app = createApp(db, webRoot === undefined ? {} : { webRoot });
+				const res = await app.request("/robots.txt");
+				expect(res.status).toBe(200);
+				expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+				expect(await res.text()).toBe("User-agent: *\nDisallow: /\n");
+			}
+		} finally {
+			await db.destroy();
+		}
+	});
+
+	it("tells search engines not to index API and WebUI responses", async () => {
+		const { mkdtemp, writeFile } = await import("node:fs/promises");
+		const { join } = await import("node:path");
+		const { tmpdir } = await import("node:os");
+		const root = await mkdtemp(join(tmpdir(), "crh-web-"));
+		await writeFile(join(root, "index.html"), "<html>shell</html>");
+		const db = openDb({ driver: "sqlite", path: ":memory:" });
+		try {
+			const app = createApp(db, { webRoot: root });
+			for (const path of ["/api/health", "/api/unknown", "/", "/nodes/x", "/robots.txt"]) {
+				const res = await app.request(path);
+				expect(res.headers.get("x-robots-tag"), path).toBe("noindex, nofollow");
+			}
+		} finally {
+			await db.destroy();
+		}
+	});
+
 	it("sends the WebUI's security headers on the document, not on API responses", async () => {
 		const { mkdtemp, writeFile } = await import("node:fs/promises");
 		const { join } = await import("node:path");

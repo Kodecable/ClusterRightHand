@@ -2,20 +2,20 @@
 
 [English](README.md) | **简体中文**
 
-ClusterRightHand（CRH）是一个自托管的多节点 agent 平台，带有严格 agent 规则，特权信任授权和审计功能。
+ClusterRightHand（CRH）是一个自托管的多节点 Agent 平台，带有严格 Agent 规则，特权信任授权和审计功能。
 
-![桌面上的 agent 会话，以及在手机上用 Passkey 为 db-1 的特权命令签名](doc/images/hero.zh-CN.png)
+![桌面上的 Agent 会话，以及在手机上用 Passkey 为 db-1 的特权命令签名](doc/images/hero.zh-CN.png)
 
 ## 特性
 
-- **跨节点的 agent 会话。** 在单个节点、节点组或全部节点上执行命令和文件操作，支持子 agent、按会话的 token
+- **跨节点的 Agent 会话。** 在单个节点、节点组或全部节点上执行命令和文件操作，支持子 Agent、按会话的 token
   配额和计划任务。
 - **特权由节点决定。** 特权任务可以配置为要求节点信任授权：由用户的 SSH 密钥或 Passkey
   签名并有中心服务器联署，或在节点上本地批准。节点可以配置为不允许 crhs 单独提权，即使中心被攻破，也拿不到节点的 root。
 - **两种接入方式。** 安装小巧的 `crha` 客户端，由它主动连接 crhs；或者直接走 SSH，节点上什么都不用装，必要时可经过跳板机。
 - **能操作 CRH 自身。** 会话可以查阅当前版本的文档，并以会话所有者的身份调用 crhs 的 API，同样受规则和审批约束：让它新建节点组、检查最近的任务或设置计划任务，它会自己找到做法。它还能使用你作为扩展接入的 MCP 服务器提供的工具。
 - **同时是 MCP 服务器。** 直接接入现有工作流，Claude Code、Codex 等 MCP 客户端可以接入 MCP 使用同一套工具，受同样的规则和审批约束。
-- **部署简单。** 一个 Node.js 进程提供 WebUI、MCP、agent 和调度器，数据存 SQLite 或 PostgreSQL。WebUI 支持中文和英文。
+- **部署简单。** 一个 Node.js 进程提供 WebUI、MCP、Agent 和调度器，数据存 SQLite 或 PostgreSQL。WebUI 支持中文和英文。
 
 | 签名                                                                         | 节点信任                                                                              |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
@@ -26,7 +26,7 @@ ClusterRightHand（CRH）是一个自托管的多节点 agent 平台，带有严
 ```text
  WebUI · MCP 客户端
         │
-      crhs ── agent 会话、调度器、规则、审批、签名、审计
+      crhs ── Agent 会话、调度器、规则、审批、签名、审计
         │
    ┌────┴─────────────┐
  crha（WSS，主动连接）  SSH
@@ -56,7 +56,7 @@ crhs 和每个节点都需要 glibc Linux（amd64 或 arm64），crhs 前面还�
 | [Concepts](doc/guide/concepts.md)                                    | 节点、任务、会话、规则、审批、特权 |
 | [Install](doc/guide/install.md)                                      | 安装 crhs、节点和模型              |
 | [Using the WebUI](doc/guide/webui.md)                                | 控制台导览                         |
-| [MCP server](doc/guide/mcp.md)                                       | 接入外部编程 agent                 |
+| [MCP server](doc/guide/mcp.md)                                       | 接入外部编程 Agent                 |
 | [Security](doc/guide/security.md)                                    | 信任、特权模式、加固               |
 | [Operations](doc/guide/operations.md)                                | 升级、备份、日志、故障排查         |
 | [crhs configuration](doc/guide/reference/crhs-config.md)             | `crhs.toml` 和系统设置             |
@@ -74,7 +74,7 @@ crhs 和每个节点都需要 glibc Linux（amd64 或 arm64），crhs 前面还�
 | [Execution plane](doc/design/execution.md)                 | 任务、输出、连接、SSH                |
 | [Privilege and authorization](doc/design/privilege.md)     | 特权模式、授权、节点信任             |
 | [Users, ownership and audit](doc/design/access-control.md) | 用户、访问、规则、审批、审计         |
-| [Agent runtime](doc/design/agent-runtime.md)               | 会话、工具、子 agent、配额           |
+| [Agent runtime](doc/design/agent-runtime.md)               | 会话、工具、子 Agent、配额           |
 | [Jobs](doc/design/jobs.md)                                 | 后台工作、job 工具、完成通知         |
 | [Terminals](doc/design/pty.md)                             | crha 节点上的交互式终端              |
 | [Scheduled tasks](doc/design/scheduling.md)                | 计划任务                             |

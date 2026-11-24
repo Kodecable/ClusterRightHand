@@ -1,10 +1,16 @@
 # WebUI
 
 The WebUI is a single-page React application in `web/`. crhs serves the built assets and answers
-every path outside `/api`, `/agent` and `/mcp` with `index.html`
+every path outside `/api`, `/agent` and `/mcp` with `index.html`, except `/robots.txt`
 ([Architecture](architecture.md#components)). The shell is served with a Content-Security-Policy that
 allows only same-origin resources (plus inline styles, the theme bootstrap by its hash, and the captcha's
 worker and WebAssembly) and refuses framing.
+
+Nothing the console serves is for a search engine. `GET /robots.txt` answers `User-agent: *` and
+`Disallow: /` whether or not a WebUI build is configured; it is registered before the SPA fallback, so a
+crawler never receives the shell for it. `web/index.html` carries
+`<meta name="robots" content="noindex, nofollow">`, and every HTTP response (API, WebUI and errors)
+carries `X-Robots-Tag: noindex, nofollow`.
 
 Three requirements shape the design:
 
@@ -795,10 +801,10 @@ through `packages/api`, which is the authoritative definition of every endpoint.
 
 ### API conventions
 
-All endpoints are same-origin and require a signed-in user, except the login flow and the health
-check. Request bodies are size-limited, and the login body is limited before it is parsed, so an
-oversized login never reaches authentication or rate limiting. Task inputs have a larger limit to
-allow file uploads.
+All endpoints are same-origin and require a signed-in user, except the login flow, the health
+check and the public `/robots.txt` route. Request bodies are size-limited, and the login body is
+limited before it is parsed, so an oversized login never reaches authentication or rate limiting.
+Task inputs have a larger limit to allow file uploads.
 
 ### Route definitions
 
