@@ -23,7 +23,7 @@ import { z } from "zod";
 import type { SessionUser } from "../auth/sessions.ts";
 import { pendingAuthorizationOptions } from "../cluster/pending.ts";
 import type { Db } from "../storage/db.ts";
-import type { TerminalService } from "../terminals/registry.ts";
+import { awaitingSignature, type TerminalService } from "../terminals/registry.ts";
 import { type Terminal, TerminalError } from "../terminals/types.ts";
 import type { AppEnv } from "./context.ts";
 import { apiRouter, defineRoute, json } from "./openapi.ts";
@@ -282,29 +282,31 @@ export function terminalRoutes(options: TerminalRoutesOptions) {
 		} catch (err) {
 			return ptyError(c, err);
 		}
-		if (terminal.authorization === null) return c.json({ phase: "ended" as const, authorization: null }, 200);
+		const auth = terminal.authorization;
+		if (auth === null || !awaitingSignature(terminal)) {
+			// The wait ends when the plan is sent to the node, so the phase cannot disagree with the view
+			// while `pty.open` is in flight (doc/design/pty.md "Privilege").
+			return c.json({ phase: "ended" as const, authorization: null }, 200);
+		}
 		const record = {
-			options: terminal.authorization.options,
-			crhsRejected: terminal.authorization.crhsRejected,
-			rejectedBefore: terminal.authorization.rejectedBefore,
-			dispatchedPath: terminal.authorization.path,
+			options: auth.options,
+			crhsRejected: auth.crhsRejected,
+			rejectedBefore: auth.rejectedBefore,
+			dispatchedPath: auth.path,
 			payloadId: null,
-			attempt: terminal.authorization.attempt,
+			attempt: auth.attempt,
 			trustDigest: null,
-			lastRejection: terminal.authorization.lastRejection,
-			updatedAt: terminal.authorization.updatedAt,
+			lastRejection: auth.lastRejection,
+			updatedAt: auth.updatedAt,
 		};
 		const planned = await pendingAuthorizationOptions(options.db, terminal.userId, terminal.nodeId, record as never);
 		if (planned.length === 0) {
-			return c.json(
-				{ phase: terminal.state === "opening" ? ("preparing" as const) : ("ended" as const), authorization: null },
-				200,
-			);
+			return c.json({ phase: "preparing" as const, authorization: null }, 200);
 		}
 		return c.json(
 			{
 				phase: "waiting" as const,
-				authorization: { options: planned, lastRejection: terminal.authorization.lastRejection },
+				authorization: { options: planned, lastRejection: auth.lastRejection },
 			},
 			200,
 		);

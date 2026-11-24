@@ -66,6 +66,17 @@ export const INPUT_BUFFER_BYTES = 64 * 1024;
 /** The sweep that starts and checks idle timers. */
 export const IDLE_SWEEP_MS = 1_000;
 
+/**
+ * Whether a terminal is waiting for its owner's signature right now (doc/design/pty.md "Privilege").
+ * The wait is exactly `opening` with an authorization and no `path`: `path` is set when a signature or
+ * crhs's own authorization is taken and `pty.open` is sent, and reset only when crha refuses it and the
+ * open is replanned. So from the moment the plan is sent there is nothing left to sign or reject, even
+ * before crha answers.
+ */
+export function awaitingSignature(terminal: Terminal): boolean {
+	return terminal.state === "opening" && terminal.authorization !== null && terminal.authorization.path === null;
+}
+
 export interface TerminalServiceOptions {
 	db: Db;
 	cluster: Cluster;
@@ -268,7 +279,7 @@ export class TerminalService implements TerminalSink {
 		const [nodeName, username] = await Promise.all([this.#nodeName(terminal.nodeId), this.#username(terminal.userId)]);
 		let authorization: PtyView["authorization"] = null;
 		let authorizationPhase: PtyView["authorizationPhase"] = null;
-		if (terminal.authorization !== null) {
+		if (awaitingSignature(terminal) && terminal.authorization !== null) {
 			const record: TaskAuthorizationRecord = {
 				options: terminal.authorization.options,
 				crhsRejected: terminal.authorization.crhsRejected,
@@ -285,8 +296,11 @@ export class TerminalService implements TerminalSink {
 				authorization = { options, lastRejection: terminal.authorization.lastRejection };
 				authorizationPhase = "waiting";
 			} else {
-				authorizationPhase = terminal.state === "opening" ? "preparing" : "ended";
+				authorizationPhase = "preparing";
 			}
+		} else if (terminal.authorization !== null) {
+			// A planned path means `pty.open` was sent: the wait ended, whatever answers the node.
+			authorizationPhase = "ended";
 		}
 		const approval = terminal.approval;
 		const approvalView =
@@ -681,6 +695,9 @@ export class TerminalService implements TerminalSink {
 		auth.options = [];
 		auth.path = plan.via;
 		auth.updatedAt = new Date().toISOString();
+		// The signature wait ends when the plan is sent, not when crha answers: the runtime must stop
+		// reporting `awaiting/authorization` while `pty.open` is in flight.
+		this.#notifyAuthorization(terminal);
 		await this.#sendOpenOrFail(terminal, plan);
 	}
 
@@ -1346,12 +1363,7 @@ export class TerminalService implements TerminalSink {
 	pendingAuthorizations(): Terminal[] {
 		const waiting: Terminal[] = [];
 		for (const terminal of this.#terminals.values()) {
-			if (
-				terminal.authorization !== null &&
-				terminal.state === "opening" &&
-				terminal.approval === null &&
-				terminal.createdBySessionId !== null
-			) {
+			if (awaitingSignature(terminal) && terminal.approval === null && terminal.createdBySessionId !== null) {
 				waiting.push(terminal);
 			}
 		}
@@ -1369,12 +1381,7 @@ export class TerminalService implements TerminalSink {
 	/** Whether a session's tool call waits for its agent-created privileged terminal's signature. */
 	hasPendingAuthorization(sessionId: string): boolean {
 		for (const terminal of this.#terminals.values()) {
-			if (
-				terminal.createdBySessionId === sessionId &&
-				terminal.authorization !== null &&
-				terminal.state === "opening" &&
-				terminal.approval === null
-			) {
+			if (terminal.createdBySessionId === sessionId && awaitingSignature(terminal) && terminal.approval === null) {
 				return true;
 			}
 		}
@@ -1385,12 +1392,7 @@ export class TerminalService implements TerminalSink {
 	pendingAuthorizationSessions(): Set<string> {
 		const sessions = new Set<string>();
 		for (const terminal of this.#terminals.values()) {
-			if (
-				terminal.createdBySessionId !== null &&
-				terminal.authorization !== null &&
-				terminal.state === "opening" &&
-				terminal.approval === null
-			) {
+			if (terminal.createdBySessionId !== null && awaitingSignature(terminal) && terminal.approval === null) {
 				sessions.add(terminal.createdBySessionId);
 			}
 		}
@@ -1415,7 +1417,7 @@ export class TerminalService implements TerminalSink {
 
 	/** The owner declined to sign an opening privileged terminal: it never opens. */
 	rejectAuthorization(terminal: Terminal, reason: string | undefined): void {
-		if (terminal.state !== "opening" || terminal.authorization === null) {
+		if (!awaitingSignature(terminal)) {
 			throw new TerminalError("not_waiting", "the terminal is not waiting for an authorization");
 		}
 		const message = reason?.trim() ? reason.trim().slice(0, 1000) : "the owner declined to sign";

@@ -116,6 +116,19 @@ describe("TerminalPage", () => {
 		expect(screen.queryByTestId("terminal-screen")).not.toBeInTheDocument();
 	});
 
+	test("an ended signature wait unmounts the panel and leaves the opening state", async () => {
+		route.params = { id: "term-1" };
+		mockApi({
+			terminal: terminal({ privileged: true, state: "opening", authorizationPhase: "ended" }),
+		});
+		renderTerminalPage(<TerminalPage />);
+
+		expect(await screen.findByText("Waiting for the terminal to open…")).toBeVisible();
+		expect(screen.queryByText("Your signature is needed")).not.toBeInTheDocument();
+		expect(screen.queryByText("Preparing the payload to sign…")).not.toBeInTheDocument();
+		expect(screen.queryByRole("tab", { name: "Reject" })).not.toBeInTheDocument();
+	});
+
 	test("shows the server-built approval request inline without the terminal screen", async () => {
 		route.params = { id: "term-1" };
 		mockApi({

@@ -511,7 +511,9 @@ part of the contract for the WebUI and the API.
   `approval` (with the server-built "always allow" candidates) and as `approvalRequest`. The signature
   wait is served by `GET /api/ptys/:id/authorization` in the same `phase`/`PendingAuthorization` shape
   as a task's, signed through the ordinary `POST /api/authorizations`, and declined through
-  `POST /api/ptys/:id/authorization/reject`.
+  `POST /api/ptys/:id/authorization/reject`. The wait ends when the signature or crhs authorization is
+  taken and `pty.open` is sent: from then on the phase is `ended` and the reject route answers 409, even
+  while the node's answer is outstanding.
 - **Data connections.** A terminal's data connection is accepted only from the node that holds the
   terminal (`pty.list`'s node): a connection naming a terminal id from another node is closed as an
   unknown terminal and never replaces the real connection.

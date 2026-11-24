@@ -14,6 +14,7 @@ import {
 	authorizationCodec,
 	encode as encodeCbor,
 	type PtyOpen,
+	RemoteError,
 	type TrustEntry,
 } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -899,6 +900,98 @@ describe("terminals", () => {
 			if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 		});
 
+		/**
+		 * Makes the node trust only the owner's fresh SSH signing key and registers that key as the owner's
+		 * WebUI signing credential, so a privileged open waits for the owner's signature.
+		 */
+		const trustOwnerKey = async (node: NodeRow, crha: FakeCrha) => {
+			const ownerKey = createSshKey();
+			const entry: TrustEntry = {
+				name: "alice",
+				source: "local",
+				role: "user",
+				key: { kind: "sshsig", publicKey: ownerKey.line, fingerprint: ownerKey.fingerprint },
+				kinds: ["execute"],
+				requireSpec: false,
+				requireTask: false,
+				requireUv: false,
+				maxTtlMs: 24 * 60 * 60 * 1000,
+				allow: [],
+				deny: [],
+				envAllow: [],
+			};
+			crha.trust({
+				kind: "ok",
+				summary: {
+					nodeId: node.id,
+					aliases: [],
+					clockSkewMs: 0,
+					identities: {
+						unprivileged: { uid: 998, gid: 998, user: "crha" },
+						privileged: { uid: 0, gid: 0, user: "root" },
+					},
+					trust: [entry],
+					localWindow: { kind: "closed" },
+				},
+			});
+			await waitFor("trust stored", async () => {
+				const row = await db.selectFrom("nodes").select("trust_report").where("id", "=", node.id).executeTakeFirst();
+				return row?.trust_report !== null && row?.trust_report !== undefined;
+			});
+			const cookie = await login(app, "owner", "password-123");
+			expect((await registerSshCredential(app, cookie, ownerKey, "alice")).status).toBe(201);
+			return { ownerKey, cookie };
+		};
+
+		/** Signs a waiting privileged terminal through the ordinary authorization endpoint. */
+		const signTerminal = async (id: string, cookie: string, ownerKey: ReturnType<typeof createSshKey>) => {
+			const pending = await waitFor("sign options", async () => {
+				const response = await call(app, `/api/ptys/${id}/authorization`, { cookie });
+				if (response.status !== 200) return undefined;
+				const body = (await response.json()) as {
+					phase: string;
+					authorization: { options: { kind: string; payload?: { payload: string } }[] } | null;
+				};
+				const sign = body.authorization?.options.find((option) => option.kind === "sign");
+				return body.phase === "waiting" && sign?.payload ? sign.payload.payload : undefined;
+			});
+			const payloadBytes = Uint8Array.from(Buffer.from(pending, "base64"));
+			const wire: Authorization = {
+				payload: payloadBytes,
+				signatures: [{ kind: "sshsig", blob: signSshsig(ownerKey.privateKey, ownerKey.blob, payloadBytes) }],
+			};
+			const submitted = await call(app, "/api/authorizations", {
+				cookie,
+				body: { authorization: Buffer.from(encodeCbor(authorizationCodec.encode(wire))).toString("base64") },
+			});
+			expect(submitted.status).toBe(200);
+		};
+
+		/** An agent-created privileged terminal opened by the owner's session, with the Yolo rule root. */
+		const openAgentTerminal = async (node: NodeRow, title: string) => {
+			const session = await createSessionRow(db, owner.id, title);
+			await createRootRuleSet(db, await defaultOrgId(db), { type: "session", id: session.id }, "yolo");
+			const opening = terminals
+				.openForAgent({
+					user: userOf(owner) as never,
+					sessionId: session.id,
+					chain: [{ type: "session" as const, id: session.id }],
+					node: node.id,
+					argv: ["/bin/sh"],
+					privileged: true,
+					idleTimeoutMs: 60_000,
+				})
+				.then(
+					(terminal) => ({ terminal }),
+					(error: unknown) => ({ error }),
+				);
+			const waiting = await waitFor("terminal signature wait", async () => {
+				const views = await terminals.views(userOf(owner) as never);
+				return views.find((entry) => entry.creatingSessionId === session.id && entry.authorizationPhase === "waiting");
+			});
+			return { session, opening, waiting };
+		};
+
 		it("lists and shows a terminal to its user and administrators, never to another member", async () => {
 			const { node } = await connect();
 			const terminal = await openPerson(node);
@@ -1364,6 +1457,79 @@ describe("terminals", () => {
 			const open = crha.ptyOpens[0] as unknown as PtyOpen;
 			expect(open.privileged).toBe(true);
 			expect(open.authorizations).toHaveLength(1);
+		});
+
+		it("ends the signature wait when pty.open is sent, before crha answers", async () => {
+			const { node, crha } = await connect();
+			const { ownerKey, cookie } = await trustOwnerKey(node, crha);
+			const notified: string[] = [];
+			terminals.setAuthorizationListener((sessionId) => notified.push(sessionId));
+			const { session, opening, waiting } = await openAgentTerminal(node, "pty-signature-window");
+			expect(terminals.pendingAuthorizations().map((terminal) => terminal.id)).toContain(waiting.id);
+
+			// crha holds the pty.open answer: the signature is taken and the open is in flight.
+			const answer = deferred<void>();
+			crha.answerPtyOpen = () => answer.promise;
+			const notifiedBefore = notified.length;
+			await signTerminal(waiting.id, cookie, ownerKey);
+			await waitFor("pty.open in flight", () => crha.ptyOpens.length === 1);
+			try {
+				// The signature wait ended when the path was set, so the runtime was told before the answer.
+				expect(notified.length).toBeGreaterThan(notifiedBefore);
+				expect(notified.at(-1)).toBe(session.id);
+
+				// The wait is over: the panel has nothing to sign or reject any more.
+				const response = await call(app, `/api/ptys/${waiting.id}/authorization`, { cookie });
+				expect(response.status).toBe(200);
+				expect(await response.json()).toEqual({ phase: "ended", authorization: null });
+				const view = (await terminals.views(userOf(owner) as never)).find((entry) => entry.id === waiting.id);
+				expect(view?.authorizationPhase).toBe("ended");
+				expect(view?.authorization).toBeNull();
+				expect(terminals.pendingAuthorizations().map((terminal) => terminal.id)).not.toContain(waiting.id);
+				expect(terminals.hasPendingAuthorization(session.id)).toBe(false);
+				expect(terminals.pendingAuthorizationSessions()).not.toContain(session.id);
+				// A task answers 409 here; rejecting must not drop a terminal whose pty.open is in flight.
+				const rejected = await call(app, `/api/ptys/${waiting.id}/authorization/reject`, {
+					cookie,
+					body: { reason: "too late" },
+				});
+				expect(rejected.status).toBe(409);
+				expect(terminals.get(waiting.id)?.state).toBe("opening");
+			} finally {
+				// The held pty.open is still the one that opens it.
+				answer.resolve();
+			}
+			await waitFor("opened after the signature", () => terminals.get(waiting.id)?.state === "running");
+			expect(await opening).toMatchObject({ terminal: { id: waiting.id } });
+		});
+
+		it("returns to the signature wait when crha refuses pty.open", async () => {
+			const { node, crha } = await connect();
+			const { ownerKey, cookie } = await trustOwnerKey(node, crha);
+			const { session, opening, waiting } = await openAgentTerminal(node, "pty-signature-retry");
+			crha.answerPtyOpen = () => {
+				throw new RemoteError("authorization_rejected", "step 7: deny rule matched");
+			};
+			await signTerminal(waiting.id, cookie, ownerKey);
+			await waitFor("the refusal handled", () => {
+				const auth = terminals.get(waiting.id)?.authorization;
+				return auth?.lastRejection?.code === "authorization_rejected";
+			});
+			// #retryAuthorization reset the path and replanned: the terminal waits for a signature again
+			// instead of reporting the wait as ended.
+			const view = await waitFor("signature wait replanned", async () => {
+				const views = await terminals.views(userOf(owner) as never);
+				const entry = views.find((candidate) => candidate.id === waiting.id);
+				return entry?.authorizationPhase === "waiting" || entry?.authorizationPhase === "preparing" ? entry : undefined;
+			});
+			expect(["preparing", "waiting"]).toContain(view.authorizationPhase);
+			expect(terminals.hasPendingAuthorization(session.id)).toBe(true);
+			expect(terminals.pendingAuthorizations().map((terminal) => terminal.id)).toContain(waiting.id);
+			const response = await call(app, `/api/ptys/${waiting.id}/authorization`, { cookie });
+			expect(response.status).toBe(200);
+			expect(((await response.json()) as { phase: string }).phase).not.toBe("ended");
+			expect(terminals.get(waiting.id)?.state).toBe("opening");
+			void opening;
 		});
 
 		it("closes a disabled user's terminals with reason user_removed", async () => {
