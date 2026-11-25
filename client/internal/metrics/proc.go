@@ -92,8 +92,8 @@ func parseCPU(data []byte) (*protocol.MetricsCPU, error) {
 		if err != nil {
 			return nil, fmt.Errorf("metrics: /proc/stat cpu line %q has no core index", label)
 		}
-		if len(cores) >= protocol.MaxMetricsCores {
-			continue // crha truncates before sending (doc/design/metrics.md "Limits")
+		if !protocol.ValidMetricsCoreIndex(protocol.Uint(index)) || len(cores) >= protocol.MaxMetricsCores {
+			continue // crha drops before sending (doc/design/metrics.md "Limits")
 		}
 		counters, err := parseCPULine(fields[1:])
 		if err != nil {
@@ -282,6 +282,9 @@ func (c *Collector) interfacesValue() ([]protocol.MetricsInterface, error) {
 			byName[entry.name] = entry
 		}
 		for _, name := range c.interfaces {
+			if !protocol.ValidMetricsInterfaceName(name) {
+				continue // a configured name outside the protocol's form is not reported
+			}
 			entry, ok := byName[name]
 			if !ok {
 				continue // a configured interface the kernel no longer has
@@ -294,7 +297,7 @@ func (c *Collector) interfacesValue() ([]protocol.MetricsInterface, error) {
 		return out, nil
 	}
 	for _, entry := range all {
-		if excludedInterface(entry.name) {
+		if excludedInterface(entry.name) || !protocol.ValidMetricsInterfaceName(entry.name) {
 			continue
 		}
 		out = append(out, entry.value())

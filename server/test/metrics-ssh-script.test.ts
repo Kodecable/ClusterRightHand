@@ -135,6 +135,22 @@ crh-metrics:end
 		expect(snapshot.interfaces).toEqual([{ name: "eth0", rxBytes: 10n, rxPackets: 2n, txBytes: 20n, txPackets: 3n }]);
 	});
 
+	it("reports a default-route interface whose name only the byte form allows", () => {
+		// `+`, `#` and non-ASCII are real Linux names that the old `[A-Za-z0-9_.:@-]` form dropped.
+		for (const name of ["wg+0", "eth0#1", "网卡0"]) {
+			const output = `crh-metrics:route
+Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT
+lo\t00000000\t00000000\t0001\t0\t0\t0\t00000000\t0\t0\t0
+${name}\t00000000\t0100A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0
+crh-metrics:netdev
+  ${name}: 10 2 0 0 0 0 0 0 20 3 0 0 0 0 0 0
+crh-metrics:end
+`;
+			const snapshot = parseSshMetricsScript(output);
+			expect(snapshot.interfaces, name).toEqual([{ name, rxBytes: 10n, rxPackets: 2n, txBytes: 20n, txPackets: 3n }]);
+		}
+	});
+
 	it("treats missing and malformed sections as absent fields", () => {
 		const output = `crh-metrics:stat
 cpu this is not a counter
@@ -167,5 +183,23 @@ crh-metrics:end
 		expect(sshMetricsScriptComplete(GNU_OUTPUT)).toBe(true);
 		expect(sshMetricsScriptComplete(GNU_OUTPUT.replace("crh-metrics:end\n", ""))).toBe(false);
 		expect(sshMetricsScriptComplete("")).toBe(false);
+	});
+
+	it("drops a default-route interface name or core index outside the protocol's form", () => {
+		for (const name of ["weird/name", "a".repeat(16), "a\u0007b", ".."]) {
+			const snapshot = parseSshMetricsScript(`crh-metrics:stat
+cpu  1 2 3 4
+cpu0 1 2 3 4
+cpu1024 1 2 3 4
+crh-metrics:route
+${name}\t00000000\t0100A8C0\t0003\t0\t0\t0\t00000000\t0\t0\t0
+crh-metrics:netdev
+  ${name}: 1 2 0 0 0 0 0 0 3 4 0 0 0 0 0 0
+crh-metrics:end
+`);
+			// The invalid interface is not reported, and the core above the protocol's limit is skipped.
+			expect(snapshot.interfaces, name).toBeUndefined();
+			expect(snapshot.cpu?.cores).toEqual([{ index: 0, busy: 6n, total: 10n }]);
+		}
 	});
 });

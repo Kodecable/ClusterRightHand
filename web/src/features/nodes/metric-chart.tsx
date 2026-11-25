@@ -5,7 +5,7 @@ import type { EChartsCoreOption, EChartsType } from "echarts/core";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import { useEffect, useRef } from "react";
-import { formatBytes, formatDateTimeSeconds, formatNumber } from "@/lib/format";
+import { escapeHtml, formatBytes, formatDateTimeSeconds, formatNumber } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
 
 // ECharts is imported on demand (doc/design/webui.md "Node pages"): only the chart type, the components the
@@ -240,10 +240,13 @@ export function MetricChart({
 					const value = Array.isArray(entry.value) ? entry.value[1] : entry.value;
 					const numeric =
 						typeof value === "number" ? value : value === undefined || value === null ? null : Number(value);
-					const name = entry.seriesName ?? "";
-					return `<div style="display:flex;align-items:center;gap:6px;line-height:1.6">${entry.marker ?? ""}<span>${name}</span><span style="margin-left:auto;padding-left:12px;font-variant-numeric:tabular-nums">${format(Number.isFinite(numeric) ? numeric : null)}</span></div>`;
+					// ECharts writes the formatter's result with innerHTML, and a series name can come from a
+					// node's filesystem (doc/design/metrics.md "Limits"), so every text is escaped.
+					const name = escapeHtml(entry.seriesName ?? "");
+					const label = escapeHtml(format(Number.isFinite(numeric) ? numeric : null));
+					return `<div style="display:flex;align-items:center;gap:6px;line-height:1.6">${entry.marker ?? ""}<span>${name}</span><span style="margin-left:auto;padding-left:12px;font-variant-numeric:tabular-nums">${label}</span></div>`;
 				});
-			return `<div style="font-weight:500;margin-bottom:2px">${header}</div>${lines.join("")}`;
+			return `<div style="font-weight:500;margin-bottom:2px">${escapeHtml(header)}</div>${lines.join("")}`;
 		};
 
 		const lineSeries = series.map((entry, index) => ({

@@ -1,0 +1,19 @@
+{
+	"comment": "The metrics interface-name form (doc/design/metrics.md \"Limits\"): crhs's packages/protocol/src/messages.ts isValidMetricsInterfaceName and crha's client/internal/protocol/types.go ValidMetricsInterfaceName must agree on every case. A name is 1-15 bytes of UTF-8, not \".\" or \"..\", and contains no '/', ':', Unicode white space or control character. The hex entries are names whose bytes are not valid UTF-8: Go rejects them directly, and crhs's CBOR profile rejects a text item that carries them, so a name on the wire is always valid UTF-8.",
+	"valid": ["eth0", "veth1a2b3c4", "wg+0", "网卡0", "br-1a2b", "wlan0.100", "eth0#1", "a~b"],
+	"invalid": [
+		"",
+		".",
+		"..",
+		"aaaaaaaaaaaaaaaa",
+		"éééééééé",
+		"a/b",
+		"a:b",
+		"a b",
+		"a\tb",
+		"a\u0007b",
+		"a\u007fb",
+		"a\u00a0b"
+	],
+	"invalid_utf8_hex": ["ff", "61ff", "e9"]
+}

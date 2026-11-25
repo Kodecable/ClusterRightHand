@@ -1,3 +1,4 @@
+import { MAX_METRICS_CORES, MAX_METRICS_DISKS } from "@crh/protocol";
 import { type SqlBool, sql, type Transaction } from "kysely";
 import type { Db } from "../storage/db.ts";
 import type { Database } from "../storage/schema.ts";
@@ -11,6 +12,7 @@ import {
 	type MetricsRetentionConfig,
 	metricBucketStart,
 } from "./levels.ts";
+import { fitMetricsReadLevel } from "./read.ts";
 import {
 	type MetricsRetentionSweepOptions,
 	type MetricsRetentionSweepResult,
@@ -79,6 +81,7 @@ interface BufferedSample {
 interface SeriesCacheEntry {
 	id: string;
 	nodeId: string;
+	name: string;
 	kind: MetricKind;
 	/** Epoch milliseconds of the stored `last_seen_at`. */
 	lastSeenMs: number;
@@ -148,6 +151,17 @@ interface SeriesRow {
 export const METRICS_FLUSH_INTERVAL_MS = 5 * 1000;
 
 /**
+ * The most distinct series one node may have (doc/design/metrics.md "Limits"): every core, both values of
+ * every filesystem, and the 18 fixed names the computation produces (`up`, `uptime`, `cpu.total`, the three
+ * loads, the four memory values, swap, the four network deltas and the two rates). Past it, values of new
+ * names are dropped while the node's existing series keep recording.
+ */
+export const MAX_METRICS_SERIES_PER_NODE = MAX_METRICS_CORES + MAX_METRICS_DISKS * 2 + 18;
+
+/** How often a node's over-cap drop is logged: once per hour, not once per sample. */
+const SERIES_CAP_LOG_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
  * The most values buffered between flushes (doc/design/metrics.md "Storage"): a database that stays unavailable
  * for a while must not grow the buffer without bound, so the oldest samples are dropped past it.
  */
@@ -188,6 +202,10 @@ export class MetricsStore {
 	#chain: Promise<void> = Promise.resolve();
 	/** Series id by `nodeId\0name`, resolved lazily and dropped when retention removes the series. */
 	#seriesCache = new Map<string, SeriesCacheEntry>();
+	/** Every series name a node has, for the per-node cap; loaded from the database on first use. */
+	#seriesNames = new Map<string, Set<string>>();
+	/** When each node's over-cap drop was last logged, so a busy node cannot flood the log. */
+	#seriesCapLoggedAt = new Map<string, number>();
 	#timer: ReturnType<typeof setInterval> | undefined;
 	#closed = false;
 	#closePromise: Promise<void> | undefined;
@@ -422,15 +440,18 @@ export class MetricsStore {
 
 	/**
 	 * The level {@link read} chooses for a range when the caller names none; exposed so a response can say
-	 * which level it used.
+	 * which level it used. `seriesCount` lets it pick a coarser level when the finest useful one would return
+	 * more than {@link MAX_METRICS_READ_POINTS}, and `nowMs` lets the caller pass the same clock reading it
+	 * used for `from`/`to`.
 	 */
-	chooseLevel(fromMs: number, toMs: number): MetricLevel {
-		return chooseMetricsLevel({
+	chooseLevel(fromMs: number, toMs: number, seriesCount = 1, nowMs: number = this.#now()): MetricLevel {
+		const chosen = chooseMetricsLevel({
 			fromMs,
 			toMs,
-			nowMs: this.#now(),
+			nowMs,
 			retention: this.#retention(),
 		});
+		return fitMetricsReadLevel(chosen, seriesCount, fromMs, toMs);
 	}
 
 	/**
@@ -438,14 +459,21 @@ export class MetricsStore {
 	 * (doc/design/metrics.md "Storage"), dropping those series from the id cache. The hourly retention run
 	 * calls this with its batch size and abort signal.
 	 */
-	async sweep(
+	sweep(
 		retention: MetricsRetentionConfig = this.#retention(),
 		nowMs: number = this.#now(),
 		options: MetricsRetentionSweepOptions = {},
 	): Promise<MetricsSweepResult> {
-		const result: MetricsRetentionSweepResult = await sweepMetricRetention(this.#db, retention, nowMs, options);
-		this.forgetSeries(result.seriesIds);
-		return { buckets: result.buckets, series: result.seriesIds.length };
+		// Serialized with the flush chain: a sweep that ran during a flush could delete a series whose new
+		// buckets the flush is about to write (doc/design/metrics.md "Storage").
+		return this.#exclusive(async () => {
+			const result: MetricsRetentionSweepResult = await sweepMetricRetention(this.#db, retention, nowMs, options);
+			this.forgetSeries(result.seriesIds);
+			// The cap cache must not grow with series that retention removed; an unflushed name is re-added on
+			// the next flush, when the set is loaded from what the database still has.
+			this.#seriesNames.clear();
+			return { buckets: result.buckets, series: result.seriesIds.length };
+		});
 	}
 
 	/** Drops series ids from the cache, e.g. after retention or a node deletion removed their rows. */
@@ -453,7 +481,9 @@ export class MetricsStore {
 		if (seriesIds.length === 0) return;
 		const removed = new Set(seriesIds);
 		for (const [key, entry] of this.#seriesCache) {
-			if (removed.has(entry.id)) this.#seriesCache.delete(key);
+			if (!removed.has(entry.id)) continue;
+			this.#seriesCache.delete(key);
+			this.#seriesNames.get(entry.nodeId)?.delete(entry.name);
 		}
 	}
 
@@ -462,6 +492,10 @@ export class MetricsStore {
 		if (nodeIds.size === 0) return;
 		for (const [key, entry] of this.#seriesCache) {
 			if (nodeIds.has(entry.nodeId)) this.#seriesCache.delete(key);
+		}
+		for (const nodeId of nodeIds) {
+			this.#seriesNames.delete(nodeId);
+			this.#seriesCapLoggedAt.delete(nodeId);
 		}
 	}
 
@@ -506,8 +540,9 @@ export class MetricsStore {
 		this.#pendingStart = 0;
 		this.#pendingValues = 0;
 		try {
-			const aggregates = aggregateSamples(samples);
-			const traffic = trafficDeltas(samples);
+			const capped = await this.#applySeriesCap(samples);
+			const aggregates = aggregateSamples(capped);
+			const traffic = trafficDeltas(capped);
 			if (aggregates.length === 0 && traffic.size === 0) return;
 			const nodeIds = [...new Set([...aggregates.map((aggregate) => aggregate.nodeId), ...traffic.keys()])];
 			await this.#db.transaction().execute(async (trx) => {
@@ -547,6 +582,61 @@ export class MetricsStore {
 			this.#requeueAfterFailure(samples, err);
 			throw err;
 		}
+	}
+
+	/**
+	 * Drops values whose series would push a node past {@link MAX_METRICS_SERIES_PER_NODE}
+	 * (doc/design/metrics.md "Limits"). A name the node already has always records; only a name first seen
+	 * after the cap is full is dropped, and the drop is logged once per node per hour.
+	 */
+	async #applySeriesCap(samples: readonly BufferedSample[]): Promise<BufferedSample[]> {
+		const namesByNode = new Map<string, Set<string>>();
+		for (const sample of samples) {
+			if (namesByNode.has(sample.nodeId)) continue;
+			namesByNode.set(sample.nodeId, await this.#seriesNamesFor(sample.nodeId));
+		}
+		const droppedByNode = new Map<string, string[]>();
+		const capped: BufferedSample[] = [];
+		for (const sample of samples) {
+			const names = namesByNode.get(sample.nodeId) as Set<string>;
+			const kept: MetricValue[] = [];
+			for (const value of sample.values) {
+				if (names.has(value.name)) {
+					kept.push(value);
+					continue;
+				}
+				if (names.size < MAX_METRICS_SERIES_PER_NODE) {
+					names.add(value.name);
+					kept.push(value);
+					continue;
+				}
+				const dropped = droppedByNode.get(sample.nodeId) ?? [];
+				dropped.push(value.name);
+				droppedByNode.set(sample.nodeId, dropped);
+			}
+			if (kept.length > 0) capped.push({ ...sample, values: kept });
+		}
+		for (const [nodeId, dropped] of droppedByNode) {
+			const now = this.#now();
+			const previous = this.#seriesCapLoggedAt.get(nodeId) ?? Number.NEGATIVE_INFINITY;
+			if (now - previous < SERIES_CAP_LOG_INTERVAL_MS) continue;
+			this.#seriesCapLoggedAt.set(nodeId, now);
+			const first = [...new Set(dropped)].slice(0, 3).join(", ");
+			console.error(
+				`metrics: node ${nodeId}: dropped ${dropped.length} value${dropped.length === 1 ? "" : "s"} of new series over the ${MAX_METRICS_SERIES_PER_NODE}-series limit (${first})`,
+			);
+		}
+		return capped;
+	}
+
+	/** The names of every series a node has, read once and kept current as this store creates series. */
+	async #seriesNamesFor(nodeId: string): Promise<Set<string>> {
+		const cached = this.#seriesNames.get(nodeId);
+		if (cached !== undefined) return cached;
+		const rows = await this.#db.selectFrom("metric_series").select("name").where("node_id", "=", nodeId).execute();
+		const names = new Set(rows.map((row) => row.name));
+		this.#seriesNames.set(nodeId, names);
+		return names;
 	}
 
 	/**
@@ -620,6 +710,10 @@ export class MetricsStore {
 		for (const nodeId of nodeIds) {
 			let period = stored.has(nodeId) ? trafficOfRow(stored.get(nodeId) as TrafficRow) : undefined;
 			for (const value of traffic.get(nodeId) ?? []) {
+				// A value recorded before the current period started arrived too late to belong to it: a reset
+				// (or a period roll) happened between its sample and this flush, and counting it would carry
+				// the old period's traffic into the new one (doc/design/metrics.md "Traffic totals").
+				if (period !== undefined && value.slotStartMs < period.periodStartMs) continue;
 				// A missing row starts at the value's slot; an existing one rolls from its current bounds.
 				const current =
 					period === undefined ? newTrafficPeriod(value.slotStartMs) : rollTrafficPeriod(period, value.slotStartMs);
@@ -697,6 +791,7 @@ export class MetricsStore {
 			const entry: SeriesCacheEntry = {
 				id: row.id,
 				nodeId: aggregate.nodeId,
+				name: aggregate.name,
 				kind: row.kind,
 				lastSeenMs: Date.parse(row.last_seen_at),
 			};
@@ -724,6 +819,7 @@ export class MetricsStore {
 				const entry: SeriesCacheEntry = {
 					id,
 					nodeId: aggregate.nodeId,
+					name: aggregate.name,
 					kind: aggregate.kind,
 					lastSeenMs: aggregate.lastSlotMs,
 				};

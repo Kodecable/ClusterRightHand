@@ -13,6 +13,7 @@ import type {
 	SshTargetInput,
 	TaskView,
 } from "@crh/api";
+import { NODE_METRICS_RANGES, type NodeMetricsRange } from "@crh/api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { type FileEntry, type FileSource, previewMediaTypeOf } from "@/components/file-manager";
@@ -32,16 +33,10 @@ export const nodeKeys = {
 	crhsKey: () => ["nodes", "crhs-key"] as const,
 };
 
-/** The ranges the node page offers (doc/design/webui.md "Node pages"), in milliseconds. */
-export type MetricsRange = "1h" | "24h" | "7d" | "30d" | "365d";
+/** The ranges the node page offers (doc/design/webui.md "Node pages"), shared with the `node_metrics` tool. */
+export type MetricsRange = NodeMetricsRange;
 
-export const METRICS_RANGE_MS: Record<MetricsRange, number> = {
-	"1h": 60 * 60 * 1000,
-	"24h": 24 * 60 * 60 * 1000,
-	"7d": 7 * 24 * 60 * 60 * 1000,
-	"30d": 30 * 24 * 60 * 60 * 1000,
-	"365d": 365 * 24 * 60 * 60 * 1000,
-};
+export const METRICS_RANGE_MS: Record<MetricsRange, number> = NODE_METRICS_RANGES;
 
 /**
  * The series the Metrics tab asks for; `disk.*` is expanded on the server to each of the node's
@@ -51,13 +46,13 @@ export const METRICS_SERIES = [
 	"up",
 	"uptime",
 	"cpu.total",
-	"cpu.core.*",
 	"load.1",
 	"load.5",
 	"load.15",
 	"mem.total_bytes",
 	"mem.available_bytes",
 	"mem.cached_bytes",
+	"mem.free_bytes",
 	"swap.total_bytes",
 	"swap.free_bytes",
 	"disk.*",

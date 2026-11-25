@@ -7,6 +7,8 @@
  * returns nothing, so a missing value stays absent rather than becoming zero.
  */
 import {
+	isValidMetricsCoreIndex,
+	isValidMetricsInterfaceName,
 	MAX_METRICS_CORES,
 	type MetricsCore,
 	type MetricsCPU,
@@ -165,7 +167,8 @@ function parseStat(text: string): MetricsCPU | undefined {
 		// crha ignores it (doc/design/metrics.md "Limits").
 		if (cores.length >= MAX_METRICS_CORES) continue;
 		const index = Number(label.slice(3));
-		if (!Number.isSafeInteger(index)) return undefined;
+		// A core outside the protocol's indexes is ignored like crha ignores it (doc/design/metrics.md "Limits").
+		if (!isValidMetricsCoreIndex(index)) continue;
 		const counters = parseCPULine(fields.slice(1));
 		if (counters === undefined) return undefined;
 		cores.push({ index, busy: counters.busy, total: counters.total });
@@ -286,6 +289,8 @@ function defaultRouteInterface(text: string): string | undefined {
 		if ((fields[1] as string).toLowerCase() !== "00000000") continue;
 		const name = fields[0] as string;
 		if (/^lo\d*$/.test(name)) continue;
+		// An interface name outside the protocol's form is not reported (doc/design/metrics.md "Limits").
+		if (!isValidMetricsInterfaceName(name)) continue;
 		return name;
 	}
 	return undefined;
@@ -293,6 +298,7 @@ function defaultRouteInterface(text: string): string | undefined {
 
 /** One interface's line from /proc/net/dev: rx bytes and packets, then tx bytes and packets. */
 function parseNetDevInterface(text: string, name: string): MetricsInterface | undefined {
+	if (!isValidMetricsInterfaceName(name)) return undefined;
 	for (const rawLine of text.split("\n")) {
 		const line = rawLine.trim();
 		if (line === "" || line.includes("|")) continue;

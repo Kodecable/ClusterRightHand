@@ -129,6 +129,18 @@ describe("MetricChart", () => {
 		expect(html).toContain("CPU");
 	});
 
+	test("escapes a series name in the tooltip HTML instead of injecting it", () => {
+		const at = Date.UTC(2026, 5, 1, 10, 0);
+		const name = "<img src=x onerror=alert(1)>";
+		renderWithI18n(<MetricChart times={[at]} series={[{ label: name, values: [12.34] }]} unit="percent" label="CPU" />);
+		const html = tooltipOption(charts.at(-1) as FakeChart).formatter([
+			{ axisValue: at, seriesId: "line-0", seriesName: name, value: [at, 12.34], marker: "<span></span>" },
+		]);
+		// The name arrives from a node's filesystem; ECharts writes the formatter's result with innerHTML.
+		expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+		expect(html).not.toContain("<img src=x");
+	});
+
 	test("draws a min/max band as a stacked pair behind the line and honours yMax", () => {
 		const times = [1, 2];
 		renderWithI18n(

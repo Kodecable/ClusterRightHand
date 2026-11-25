@@ -174,7 +174,10 @@ value:
 
 The previous values live in memory. The baseline sample ([Collection](#collection)) restores them after
 a crhs restart or a node reboot, before the node's next slot; only an SSH node whose baseline fails loses
-that one slot's deltas and rates.
+that one slot's deltas and rates. A core or interface that is absent from 10 consecutive samples is
+forgotten, so a resized VM or a removed link cannot grow the maps without bound; when it returns it is a
+new counter and only records its starting value, like any other new counter. A sample that omits the
+whole `cpu` or `interfaces` field does not count as an absence, because the source was unknown.
 
 ### Series changes
 
@@ -221,7 +224,8 @@ read and grows with the core count.
 
 The hourly retention sweep ([Retention](data-model.md#retention)) deletes, in batches, the buckets that
 ended longer ago than their level's retention, and the series that have no buckets left. A bucket is
-always whole: the sweep never trims one.
+always whole: the sweep never trims one. The sweep runs through the same serialized chain as a flush, so
+it cannot delete a series whose new buckets a concurrent flush is about to write.
 
 ### Size
 
@@ -263,9 +267,11 @@ This is the whole rule; months, leap years and local time never enter the server
 
 The metrics flush adds each buffered sample's deltas to the row inside the same transaction as its bucket
 upserts, with one multi-row statement per batch, and the row is created at the first value's slot when the
-node has none. A sweep of nodes deleted since they were recorded skips their traffic too. A read rolls an
-expired period lazily, so a node that sent nothing for weeks still shows the period that contains now.
-Only the moment of accumulation changes totals; nothing else writes them.
+node has none. A delta whose slot starts before the current period's start is skipped: it was recorded
+before a reset (or a roll) that happened while it was still buffered, and it must not carry the old
+period's traffic into the new one. A sweep of nodes deleted since they were recorded skips their traffic
+too. A read rolls an expired period lazily, so a node that sent nothing for weeks still shows the period
+that contains now. Only the moment of accumulation changes totals; nothing else writes them.
 
 The API reads and changes a period:
 
@@ -285,13 +291,18 @@ the WebUI is the only place that turns them into the browser's local time and na
 
 - **API.** `GET /api/nodes/:id/metrics?series=…&from=…&to=…` returns the buckets of the coarsest level
   whose retention covers `from` and whose bucket gives at least 200 points in the range, or a level the
-  caller names. The response also carries the node's traffic period and, when the collector still knows
-  it, the report order of its filesystems. Users see the metrics of the nodes they have node access to;
-  administrators see every node's.
+  caller names. A range that lands exactly on a level's retention (24 hours, 7 days, 30 days, 365 days)
+  keeps that level: one bucket of the candidate level is allowed as tolerance, because the caller
+  computes `from` a few seconds before crhs reads the request. The expanded series multiplied by the
+  buckets of the chosen level may not exceed 200,000 points; the automatic choice moves to a coarser
+  level when the finer one would exceed it, and an explicit `level` that exceeds it answers 400. The
+  response also carries the node's traffic period and, when the collector still knows it, the report
+  order of its filesystems. Users see the metrics of the nodes they have node access to; administrators
+  see every node's.
 - **Latest sample.** crhs keeps each node's latest sample in memory, and the node list and node detail
   return its CPU and memory figures, used and total memory, uptime, first filesystem and live network
   rates from there, without reading buckets. The first filesystem is the first one the collector remembers
-  reporting that has both values, else `root`, else the alphabetically first complete one; each new field
+  reporting that has both values, else `root`, else the first complete name in code-unit order; each new field
   is absent when the sample lacks the value, because a missing value is not zero. After a restart a node
   has none until its first sample.
 - **List traffic.** The node list also carries each listed node's current traffic period. All the node
@@ -305,10 +316,13 @@ the WebUI is the only place that turns them into the browser's local time and na
   card carries **Reset now** and **Set next reset** for administrators. Below the cards the tab charts
   CPU (with its bucket minimum and maximum), load, memory, swap, every filesystem and the network rates
   for 1 hour, 24 hours, 7 days, 30 days or 365 days; the window slides with a 30 s refresh while the tab
-  is visible and a card title opens the loaded data in a zoomable dialog. Availability is a daily strip
+  is visible and a card title opens the loaded data in a zoomable dialog. The WebUI asks for exactly the
+  series its charts draw, including `mem.free_bytes` for the memory card's Free line. Availability is a daily strip
   over 30, 90 or 365 days from the level-4 `up` buckets. The node list shows a small CPU and memory
   figure from the latest sample, and marks a node whose sampling is failing (while it is online) or whose
-  crha release is older than crhs's own.
+  crha release is older than crhs's own. The warning's reason can name the node's SSH route (a
+  `user@host:port` or a jump host), so only administrators get the full reason; other viewers get a
+  generic "metrics collection failed" with the same since instant.
 - **Agent tool.** `node_metrics(node, series, range)` returns, per series, the minimum, average, maximum
   and last value over the range and at most 60 points. It reads stored data, so like `node_info` it
   needs node access and no rule decision.
@@ -329,7 +343,26 @@ applies from the next tick. Shortening a retention takes effect at the next swee
 ## Limits
 
 At most 1024 cores, 64 filesystems and 256 interfaces per sample. crha drops the rest before answering,
-and crhs refuses an answer beyond them as malformed. These also bound a node's series.
+and crhs refuses an answer beyond them as malformed. The core and filesystem limits also bound a node's
+series.
+
+Within those counts, an entry that is well-formed but whose name or index is outside the protocol's form
+is dropped at decode, keeping the rest of the sample: a filesystem name is 1–64 characters of
+`[A-Za-z0-9_-]`, an interface name is 1–15 bytes of UTF-8 that is not `.` or `..` and contains no `/`,
+`:`, white space or control character (Linux's `IFNAMSIZ` minus the terminator, counted in bytes: names
+such as `wg+0`, `br-1a2b`, `wlan0.100` and `网卡0` pass), and a core index is below 1024. An interface
+name is never a series name — crhs only sums every interface's counters into the `net.*` series — so its
+form only keeps the name safe in a log line. A structurally malformed entry still fails the whole body
+like every other mistyped field. crha applies the same forms when it collects, so an invalid name never
+reaches the wire; the SSH parser and the computation drop one as defence in depth. The same checks are
+in the TypeScript and Go codecs ([Protocol](protocol.md#the-metrics-map)).
+
+A node has at most 1170 distinct series: 1024 cores, 2 values for each of 64 filesystems, and the 18
+fixed names of `up`, `uptime`, `cpu.total`, the three loads, the four memory values, the two swap values,
+the four network deltas and the two rates. A value whose series would be the 1171st for that node is
+dropped and the drop is logged once for that node per hour; a series the node already has keeps
+recording. This bounds a node whose crha reports a changing set of names (a filesystem recreated under a
+new name every sample) even after the names pass the form check.
 
 ## Documents that change with this design
 

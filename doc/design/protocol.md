@@ -217,6 +217,17 @@ means unknown rather than empty. Unknown text keys are ignored, so a fact can be
 minor bump; removing one or changing its type needs a major. Facts are not signed or hashed, and node
 groups are crhs data that the node does not report.
 
+### The metrics map
+
+The metrics response's lists still reject a count past their limit, and a structurally malformed entry
+still fails the body, but an entry with a well-formed body and an out-of-form disk name, interface name
+or core index is dropped individually, so one bad filesystem does not lose the sample
+([Limits](metrics.md#limits)). An interface name is 1–15 UTF-8 bytes, not `.` or `..`, and contains no
+`/`, `:`, white space or control character; it is never a series name, because crhs sums every
+interface's counters into `net.*`. The TypeScript codec and crha's Go codec apply the same forms, and
+the shared cases in `test/interop/metrics_interface_names.json` fail either side when they disagree;
+crha filters at collection as well.
+
 The system itself is described in two facts written for people and models, never for code: nothing in
 crhs or the WebUI may parse them or branch on them.
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+	escapeHtml,
 	formatDateTimeNumeric,
 	formatDateTimeSeconds,
 	formatDuration,
@@ -91,5 +92,12 @@ describe("formatDateTimeNumeric", () => {
 
 	test("an invalid date reads as a dash", () => {
 		expect(formatDateTimeNumeric("not a date")).toBe("–");
+	});
+});
+
+describe("escapeHtml", () => {
+	test("escapes every character that can start markup", () => {
+		expect(escapeHtml('<img src=x onerror="alert(1)">')).toBe("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+		expect(escapeHtml("a & b 'c'")).toBe("a &amp; b &#39;c&#39;");
 	});
 });

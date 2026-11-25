@@ -2,8 +2,13 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -208,5 +213,129 @@ func TestUint64(t *testing.T) {
 	if err := Unmarshal(mustHex(t, "4820ffffffffffffffff"), &metricsUint); err == nil {
 		// 0x48 is a byte string, not an unsigned integer.
 		t.Fatal("Uint64 accepted a byte string")
+	}
+}
+
+// TestMetricsInterfaceNamesAgreeWithCrhs reads the interface-name cases crhs tests too: the two
+// implementations must accept and reject the same names (doc/design/metrics.md "Limits"). The hex
+// cases are names whose bytes are not valid UTF-8; crhs's CBOR profile rejects a text item carrying
+// them, and this package rejects them directly.
+func TestMetricsInterfaceNamesAgreeWithCrhs(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "test", "interop", "metrics_interface_names.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases struct {
+		Valid          []string `json:"valid"`
+		Invalid        []string `json:"invalid"`
+		InvalidUTF8Hex []string `json:"invalid_utf8_hex"`
+	}
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range cases.Valid {
+		if !ValidMetricsInterfaceName(name) {
+			t.Fatalf("rejected interface name %q", name)
+		}
+	}
+	for _, name := range cases.Invalid {
+		if ValidMetricsInterfaceName(name) {
+			t.Fatalf("accepted interface name %q", name)
+		}
+	}
+	for _, encoded := range cases.InvalidUTF8Hex {
+		name, err := hex.DecodeString(encoded)
+		if err != nil {
+			t.Fatalf("hex %q: %v", encoded, err)
+		}
+		if ValidMetricsInterfaceName(string(name)) {
+			t.Fatalf("accepted interface name with bytes %x", name)
+		}
+	}
+}
+
+func TestMetricsEntryValidation(t *testing.T) {
+	// Valid names stay: the forms /proc/net/dev and crha.toml produce, including the bytes Linux's
+	// dev_valid_name allows but the old [A-Za-z0-9_.:@-] form dropped.
+	for _, name := range []string{"eth0", "veth1a2b3c4", "wg+0", "网卡0", "br-1a2b", "wlan0.100"} {
+		if !ValidMetricsInterfaceName(name) {
+			t.Fatalf("rejected interface name %q", name)
+		}
+	}
+	if !ValidMetricsInterfaceName(strings.Repeat("a", 15)) {
+		t.Fatal("rejected a 15-byte interface name")
+	}
+	for _, name := range []string{
+		"", ".", "..", strings.Repeat("a", 16), "a/b", "a:b", "a b", "a\tb", "a\ab", "a\x7fb",
+	} {
+		if ValidMetricsInterfaceName(name) {
+			t.Fatalf("accepted interface name %q", name)
+		}
+	}
+	if ValidMetricsInterfaceName("éééééééé") {
+		t.Fatal("accepted an interface name of 16 UTF-8 bytes")
+	}
+	if ValidMetricsInterfaceName("\xff") {
+		t.Fatal("accepted an interface name that is not valid UTF-8")
+	}
+	if !ValidMetricsDiskName("root") || !ValidMetricsDiskName("data-1") || !ValidMetricsDiskName("data_1") {
+		t.Fatal("rejected a valid filesystem name")
+	}
+	for _, name := range []string{"", "data.1", "has space", strings.Repeat("a", 65)} {
+		if ValidMetricsDiskName(name) {
+			t.Fatalf("accepted filesystem name %q", name)
+		}
+	}
+
+	// Decoding drops only the offending entries, keeping the rest of the sample.
+	raw, err := encMode.Marshal(map[string]any{
+		"disks": []any{
+			[]any{"ok", []any{"bad name", "/", Uint64(1), Uint64(2)}},
+			[]any{"ok", []any{"data", "/data", Uint64(3), Uint64(4)}},
+		},
+		"interfaces": []any{
+			[]any{"bad name", Uint64(1), Uint64(2), Uint64(3), Uint64(4)},
+			[]any{strings.Repeat("a", 16), Uint64(1), Uint64(2), Uint64(3), Uint64(4)},
+			[]any{"a\x7fb", Uint64(1), Uint64(2), Uint64(3), Uint64(4)},
+			[]any{"eth0", Uint64(5), Uint64(6), Uint64(7), Uint64(8)},
+			[]any{"网卡0", Uint64(9), Uint64(10), Uint64(11), Uint64(12)},
+		},
+		"cpu": []any{[]any{Uint64(1), Uint64(2)}, []any{
+			[]any{Uint(0), Uint64(1), Uint64(2)},
+			[]any{Uint(MaxMetricsCores), Uint64(3), Uint64(4)},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot MetricsSnapshot
+	if err := Unmarshal(raw, &snapshot); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(snapshot.Disks) != 1 || snapshot.Disks[0].Name != "data" {
+		t.Fatalf("disks = %#v, want only data", snapshot.Disks)
+	}
+	if len(snapshot.Interfaces) != 2 || snapshot.Interfaces[0].Name != "eth0" || snapshot.Interfaces[1].Name != "网卡0" {
+		t.Fatalf("interfaces = %#v, want eth0 and 网卡0", snapshot.Interfaces)
+	}
+	if snapshot.CPU == nil || len(snapshot.CPU.Cores) != 1 || snapshot.CPU.Cores[0].Index != 0 {
+		t.Fatalf("cpu = %#v, want only core 0", snapshot.CPU)
+	}
+
+	// The encoder refuses the same values instead of putting them on the wire.
+	if _, err := Marshal(MetricsSnapshot{Disks: []MetricsDisk{{Name: "bad name", Path: "/"}}}); err == nil {
+		t.Fatal("encoded a filesystem name outside the protocol's form")
+	}
+	if _, err := Marshal(MetricsSnapshot{Interfaces: []MetricsInterface{{Name: "a" + strings.Repeat("b", 15)}}}); err == nil {
+		t.Fatal("encoded an interface name outside the protocol's form")
+	}
+	if _, err := Marshal(MetricsSnapshot{Interfaces: []MetricsInterface{{Name: "a\tb"}}}); err == nil {
+		t.Fatal("encoded an interface name containing white space")
+	}
+	if _, err := Marshal(MetricsSnapshot{Interfaces: []MetricsInterface{{Name: "wg+0"}}}); err != nil {
+		t.Fatalf("Marshal a valid interface name: %v", err)
+	}
+	if _, err := Marshal(MetricsCPU{Cores: []MetricsCore{{Index: Uint(MaxMetricsCores)}}}); err == nil {
+		t.Fatal("encoded a core index at the limit")
 	}
 }

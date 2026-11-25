@@ -44,7 +44,7 @@ import {
 } from "./file-plane.ts";
 import * as links from "./links.ts";
 import { getNode, type NodeRow } from "./nodes.ts";
-import { closeSsh, closeSshNode, pooledSshSession } from "./ssh-runner.ts";
+import { closeSsh, closeSshNode, dropPooledSshSession, pooledSshSession } from "./ssh-runner.ts";
 import { abandonReview as abandonTaskReview } from "./task-approval.ts";
 import * as tasks from "./task-state.ts";
 import {
@@ -235,11 +235,8 @@ export class Cluster {
 				if (node === undefined) throw new Error("the node no longer exists");
 				return (await pooledSshSession(core, node)).session;
 			},
-			dropSshSession: (nodeId) => {
-				const connection = core.sshConnections.get(nodeId);
-				core.sshSessions.delete(nodeId);
-				core.sshConnections.delete(nodeId);
-				connection?.session.close();
+			dropSshSession: (nodeId, session) => {
+				dropPooledSshSession(core, nodeId, session);
 			},
 			setSink: (sink) => {
 				core.metrics = sink;

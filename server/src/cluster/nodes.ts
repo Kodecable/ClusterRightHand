@@ -1,4 +1,4 @@
-import type { PublicNode } from "@crh/api";
+import { NODE_USER_REMARK_MAX_CODE_POINTS, nodeUserRemarkProblem, type PublicNode } from "@crh/api";
 import { factsFromJson, type JsonFacts } from "@crh/protocol";
 import type { Selectable } from "kysely";
 import { isAdmin, type SessionUser } from "../auth/sessions.ts";
@@ -189,8 +189,7 @@ export async function renameNode(db: Db, nodeId: string, rawName: string): Promi
 	});
 }
 
-/** The user remark's limit in Unicode code points, not UTF-16 code units, so an emoji counts once. */
-export const NODE_USER_REMARK_MAX_CODE_POINTS = 50;
+export { NODE_USER_REMARK_MAX_CODE_POINTS };
 
 /**
  * The stored form of a user remark (doc/design/data-model.md "Nodes"): trimmed, empty means no remark,
@@ -200,10 +199,8 @@ export function normalizeNodeUserRemark(raw: string | null): string | null {
 	if (raw === null) return null;
 	const userRemark = raw.trim();
 	if (userRemark === "") return null;
-	if (/\p{Cc}/u.test(userRemark)) throw new UserError("user remark: must be a single line without control characters");
-	if ([...userRemark].length > NODE_USER_REMARK_MAX_CODE_POINTS) {
-		throw new UserError(`user remark: at most ${NODE_USER_REMARK_MAX_CODE_POINTS} characters are allowed`);
-	}
+	const problem = nodeUserRemarkProblem(userRemark);
+	if (problem !== undefined) throw new UserError(`user remark: ${problem}`);
 	return userRemark;
 }
 

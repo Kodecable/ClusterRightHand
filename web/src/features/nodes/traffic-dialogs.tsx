@@ -1,3 +1,4 @@
+import { TRAFFIC_PERIOD_MS } from "@crh/api";
 import { Trans, useLingui } from "@lingui/react/macro";
 import { useState } from "react";
 import { ConfirmDialog, FormDialog } from "@/components/dialogs";
@@ -6,9 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { localDateTimeToIso, localDateTimeValue, zoneLabel } from "@/lib/timezone";
 import { useResetNodeTraffic, useSetNodeTrafficNextReset } from "./api";
-
-/** A traffic period is always 30 days (doc/design/metrics.md "Traffic totals"); the browser only displays it. */
-export const TRAFFIC_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * "Reset now" (doc/design/webui.md "Node pages"): the totals go to zero and a new 30-day period starts
@@ -55,9 +53,12 @@ export function TrafficNextResetDialog({
 	const [value, setValue] = useState(() =>
 		localDateTimeValue(nextResetAt === null ? now + TRAFFIC_PERIOD_MS : new Date(nextResetAt)),
 	);
-	const zone = zoneLabel(i18n.locale);
 	const iso = localDateTimeToIso(value);
 	const nextMs = iso === undefined ? Number.NaN : Date.parse(iso);
+	// The control has no zone of its own, and the label must name the zone the chosen time is read in:
+	// across a daylight-saving change that is not the zone of today (doc/design/metrics.md "Traffic totals").
+	const chosen = iso === undefined ? new Date(now) : new Date(iso);
+	const zone = zoneLabel(i18n.locale, Number.isNaN(chosen.getTime()) ? new Date(now) : chosen);
 	// The same bounds the server enforces: in the future and at most 30 days from now.
 	const invalid = !(nextMs > now && nextMs <= now + TRAFFIC_PERIOD_MS);
 	return (

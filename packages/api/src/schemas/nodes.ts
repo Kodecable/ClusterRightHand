@@ -4,6 +4,7 @@
  * wire types, so a type and its schema cannot drift.
  */
 import { z } from "zod";
+import { nodeUserRemarkProblem, TRAFFIC_PERIOD_MS } from "../metrics.ts";
 
 export const NodeGroupRefSchema = z
 	.object({
@@ -458,10 +459,19 @@ export const NodeTrafficNextResetBodySchema = z
 			.string()
 			.min(1)
 			.describe(
-				"ISO 8601 instant when the current period ends, with Z or an offset; in the future and at most 30 days from now.",
+				`ISO 8601 instant when the current period ends, with Z or an offset; in the future and at most ${TRAFFIC_PERIOD_MS / 86_400_000} days from now.`,
 			),
 	})
 	.strict()
+	// An instant without a zone would make the server's own timezone decide the period, which the design keeps
+	// out of crhs (doc/design/metrics.md "Traffic totals"). The route still checks the bounds against now.
+	.refine(
+		(value) => /(?:Z|[+-]\d{2}:\d{2})$/.test(value.nextResetAt) && Number.isFinite(Date.parse(value.nextResetAt)),
+		{
+			message: "must be an ISO 8601 instant with Z or an offset",
+			path: ["nextResetAt"],
+		},
+	)
 	.meta({ id: "NodeTrafficNextResetBody" });
 
 /** `POST /api/nodes/{id}/traffic/reset` and `PUT /api/nodes/{id}/traffic/next-reset`: the current period. */
@@ -555,6 +565,15 @@ export const NodeUserRemarkBodySchema = z
 			.describe("The user remark, one line of at most 50 Unicode code points; null or an empty string clears it."),
 	})
 	.strict()
+	// The same rule the WebUI guard and the server's normalizer use: no control characters, line separators or
+	// bidi controls, and at most 50 code points after trimming (doc/design/data-model.md "Nodes").
+	.superRefine((value, ctx) => {
+		if (value.userRemark === null) return;
+		const trimmed = value.userRemark.trim();
+		if (trimmed === "") return;
+		const problem = nodeUserRemarkProblem(trimmed);
+		if (problem !== undefined) ctx.addIssue({ code: "custom", message: problem, path: ["userRemark"] });
+	})
 	.meta({ id: "NodeUserRemarkBody" });
 
 /**

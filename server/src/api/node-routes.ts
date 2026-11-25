@@ -1,5 +1,5 @@
 import { Readable } from "node:stream";
-import type { NodeMetrics } from "@crh/api";
+import { firstFilesystem, type NodeMetrics } from "@crh/api";
 import {
 	BinaryBodySchema,
 	EmojiBodySchema,
@@ -65,7 +65,9 @@ import {
 	invalidMetricsSeriesEntry,
 	MAX_EXPANDED_METRICS_SERIES,
 	MAX_METRICS_RANGE_MS,
+	MAX_METRICS_READ_POINTS,
 	MAX_METRICS_SERIES,
+	metricsReadPoints,
 	parseMetricsInstant,
 	parseMetricsSeriesList,
 } from "../metrics/read.ts";
@@ -107,8 +109,7 @@ const metricsRoute = defineRoute({
 	path: "/nodes/{id}/metrics",
 	tags: TAGS,
 	summary: "A node's stored host metrics: bucket averages for gauges, totals and counts for deltas",
-	description:
-		'Reads one storage level (doc/design/metrics.md "Reading"). `series` names series or `prefix.*` patterns; `from` and `to` are ISO 8601 or epoch milliseconds and the range is at most 400 days. Without `level`, the coarsest level that covers the range and gives at least 200 points is used. The response also carries the node traffic period (always 30 days) and, when known, the filesystem report order.',
+	description: `Reads one storage level (doc/design/metrics.md "Reading"). \`series\` names series or \`prefix.*\` patterns; \`from\` and \`to\` are ISO 8601 or epoch milliseconds and the range is at most 400 days. Without \`level\`, the coarsest level that covers the range and gives at least 200 points is used, moved coarser when the expanded series would return more than ${MAX_METRICS_READ_POINTS} points; an explicit \`level\` that exceeds that cap is refused. The response also carries the node traffic period (always 30 days) and, when known, the filesystem report order.`,
 	agent: "allow",
 	request: { params: IdParamSchema, query: NodeMetricsQuerySchema },
 	responses: { 200: { description: "The series and their buckets", ...json(NodeMetricsResponseSchema) } },
@@ -311,7 +312,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 	 * metrics sample and the current traffic period the node list shows without reading buckets
 	 * (doc/design/metrics.md "Reading").
 	 */
-	const live = (n: PublicNode, traffic?: NodeTraffic): PublicNode => {
+	const live = (n: PublicNode, traffic: NodeTraffic | undefined, admin: boolean): PublicNode => {
 		const latest = options.metricsCollector?.latest(n.id);
 		const connected = n.connected === null ? null : (options.cluster?.isConnected(n.id) ?? false);
 		// A sample failure is shown only while the node is online: an offline node already says so in its
@@ -324,7 +325,12 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			connected,
 			clockWarning: nodeClockWarning(n.facts, clockWarnMs()),
 			updateAvailable: crhaUpdateAvailable(n.transport, n.clientVersion, CRH_VERSION),
-			metricsWarning: failure === undefined ? null : { reason: failure.reason, since: failure.since },
+			// A failure's reason can name the SSH route (user@host:port of a jump), which a non-admin may not
+			// see; they get a generic text and the since instant, administrators the full reason.
+			metricsWarning:
+				failure === undefined
+					? null
+					: { reason: admin ? failure.reason : "metrics collection failed", since: failure.since },
 			...(latest
 				? { metrics: latestMetricsView(latest, metricsIntervalMs(), options.metricsCollector?.diskOrder?.(n.id)) }
 				: {}),
@@ -413,7 +419,7 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 		const traffic = store ? await store.trafficForNodes(page.items.map((node) => node.id)) : undefined;
 		return c.json(
 			{
-				nodes: page.items.map((node) => live(node, traffic?.get(node.id))),
+				nodes: page.items.map((node) => live(node, traffic?.get(node.id), isAdmin(c.get("user")))),
 				...(params.limit === undefined ? {} : { more: page.more }),
 			},
 			200,
@@ -430,8 +436,9 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			(await trustWarningsForRows(db, [row], new Map([[id, nodeGroups]]), { crhsFingerprints })).get(id) ?? [];
 		const store = options.metricsStore ?? options.metrics;
 		const traffic = store ? (await store.trafficForNodes([id])).get(id) : undefined;
-		const node = live(toPublicNode(row, level, nodeGroups, trustWarnings), traffic);
-		if (!isAdmin(c.get("user"))) return c.json({ node }, 200);
+		const admin = isAdmin(c.get("user"));
+		const node = live(toPublicNode(row, level, nodeGroups, trustWarnings), traffic, admin);
+		if (!admin) return c.json({ node }, 200);
 		return c.json({ node, ssh: (await sshNodeDetails(db, row)) ?? null }, 200);
 	});
 
@@ -469,7 +476,18 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 				`series: the patterns name ${names.length} series, at most ${MAX_EXPANDED_METRICS_SERIES} are allowed`,
 			);
 		}
-		const level = params.level === undefined ? store.chooseLevel(fromMs, toMs) : (Number(params.level) as MetricLevel);
+		const level =
+			params.level === undefined
+				? store.chooseLevel(fromMs, toMs, names.length)
+				: (Number(params.level) as MetricLevel);
+		const points = metricsReadPoints(names.length, fromMs, toMs, level);
+		if (points > MAX_METRICS_READ_POINTS) {
+			throw new UserError(
+				params.level === undefined
+					? `series: the request needs ${points} points at level ${level}, at most ${MAX_METRICS_READ_POINTS} are allowed; choose a shorter range or fewer series`
+					: `level: ${names.length} series over this range need ${points} points at level ${level}, at most ${MAX_METRICS_READ_POINTS} are allowed; choose a coarser level or fewer series`,
+			);
+		}
 		const readings = await store.read(id, names, fromMs, toMs, level);
 		// The report order is only in the collector's memory; the bucket rows keep no order
 		// (doc/design/metrics.md "Storage"). A period that already ended is rolled before it is served.
@@ -874,7 +892,16 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { old_name: before?.name, new_name: node.name },
 		});
-		return c.json({ node: live(toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) }, 200);
+		return c.json(
+			{
+				node: live(
+					toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? []),
+					undefined,
+					isAdmin(c.get("user")),
+				),
+			},
+			200,
+		);
 	});
 
 	/** One line of context an administrator writes on a node's card; hidden nodes answer 404 first. */
@@ -890,7 +917,16 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { previous: before?.user_remark ?? null, userRemark: node.user_remark },
 		});
-		return c.json({ node: live(toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) }, 200);
+		return c.json(
+			{
+				node: live(
+					toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? []),
+					undefined,
+					isAdmin(c.get("user")),
+				),
+			},
+			200,
+		);
 	});
 
 	/** The emoji shown left of the node's name; hidden nodes answer 404 and members 403 first. */
@@ -906,7 +942,16 @@ export function nodeRoutes(db: Db, options: AppOptions = {}) {
 			target: { type: "node", id },
 			detail: { previous: before?.emoji ?? null, emoji: node.emoji },
 		});
-		return c.json({ node: live(toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? [])) }, 200);
+		return c.json(
+			{
+				node: live(
+					toPublicNode(node, level, (await nodeGroupsForNodes(db, [id])).get(id) ?? []),
+					undefined,
+					isAdmin(c.get("user")),
+				),
+			},
+			200,
+		);
 	});
 
 	/** Replaces a node's node groups; administrators only, for crha and SSH nodes alike. */
@@ -1075,28 +1120,6 @@ function sampleDisk(disks: ReadonlyMap<string, { used?: number; total?: number }
 }
 
 /**
- * The first filesystem of a sample (doc/design/metrics.md "Reading"): the first name the collector
- * remembers reporting that has both values, else `root`, else the alphabetically first complete one. A
- * filesystem with only one of the two values cannot say how full it is, so it is skipped.
- */
-function firstSampleDisk(
-	disks: ReadonlyMap<string, { used?: number; total?: number }>,
-	diskOrder: readonly string[] | undefined,
-): NodeMetrics["disk"] {
-	for (const name of diskOrder ?? []) {
-		const disk = sampleDisk(disks, name);
-		if (disk !== undefined) return disk;
-	}
-	const root = sampleDisk(disks, "root");
-	if (root !== undefined) return root;
-	for (const name of [...disks.keys()].sort()) {
-		const disk = sampleDisk(disks, name);
-		if (disk !== undefined) return disk;
-	}
-	return undefined;
-}
-
-/**
  * The node list's figures from a collector sample (doc/design/metrics.md "Reading"): the time, whether the
  * sample succeeded, CPU, memory, the first filesystem, uptime and the live network rates. A field the
  * sample lacks is absent, because a missing value is not zero (doc/design/metrics.md "Metrics").
@@ -1121,7 +1144,17 @@ function latestMetricsView(latest: LatestMetrics, intervalMs: number, diskOrder?
 	const memUsedBytes =
 		total !== undefined && available !== undefined && total > 0 ? Math.max(0, total - available) : undefined;
 	const uptimeSec = value("uptime");
-	const disk = firstSampleDisk(disks, diskOrder);
+	// Only a filesystem with both values can say how full it is; the shared helper keeps this choice and the
+	// WebUI's summary card identical (doc/design/metrics.md "Reading").
+	const complete = new Set(
+		[...disks]
+			.filter(
+				([, filesystem]) => filesystem.used !== undefined && filesystem.total !== undefined && filesystem.total > 0,
+			)
+			.map(([name]) => name),
+	);
+	const first = firstFilesystem(complete, diskOrder);
+	const disk = first === undefined ? undefined : sampleDisk(disks, first);
 	const rxBytesPerSec = value("net.rx_bytes_per_sec");
 	const txBytesPerSec = value("net.tx_bytes_per_sec");
 	return {

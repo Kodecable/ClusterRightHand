@@ -647,8 +647,63 @@ export const MAX_METRICS_CORES = 1024;
 export const MAX_METRICS_DISKS = 64;
 export const MAX_METRICS_INTERFACES = 256;
 
-/** A list with an element limit: crha drops the rest, and a peer that sends more is rejected. */
-function boundedList<T>(inner: Codec<T>, max: number, what: string): Codec<T[]> {
+/**
+ * A filesystem's configured name, which is also its series identity: 1-64 characters of
+ * `[A-Za-z0-9_-]`. The same rule crha applies to `[metrics].disks[].name` (doc/design/metrics.md
+ * "Limits"), checked again here because a node's answer is untrusted input.
+ */
+export const METRICS_DISK_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Whether a filesystem name is the protocol's form. */
+export function isValidMetricsDiskName(name: string): boolean {
+	return METRICS_DISK_NAME_PATTERN.test(name);
+}
+
+/** The byte limit of an interface name: Linux's `IFNAMSIZ` minus the terminator. */
+const METRICS_INTERFACE_NAME_MAX_BYTES = 15;
+
+/** The characters an interface name may not contain: '/', ':', Unicode white space and control (Cc). */
+const METRICS_INTERFACE_NAME_FORBIDDEN = /[/:\p{White_Space}\p{Cc}]/u;
+
+const UTF8_ENCODER = new TextEncoder();
+
+/**
+ * An interface name from /proc/net/dev (doc/design/metrics.md "Limits"): 1-15 bytes of UTF-8 (Linux's
+ * `IFNAMSIZ` minus the terminator is a byte limit, not a character limit), not "." or "..", and
+ * containing no '/', ':', Unicode white space or control character. That keeps real names such as
+ * `eth0`, `wg+0`, `br-1a2b`, `wlan0.100` and `网卡0`. An interface name is never a series name: crhs
+ * sums every interface's counters into the `net.*` series (server/src/metrics/compute.ts
+ * computeNetwork), so the rule only has to keep a name fit for a log line.
+ */
+export function isValidMetricsInterfaceName(name: string): boolean {
+	// A JavaScript string can hold a lone surrogate, which UTF-8 cannot encode. Go rejects the same name
+	// as invalid UTF-8, and the encoder would otherwise substitute U+FFFD and count its three bytes, so
+	// the two rules agree only by rejecting it here.
+	if (!name.isWellFormed()) return false;
+	const bytes = UTF8_ENCODER.encode(name).length;
+	if (bytes < 1 || bytes > METRICS_INTERFACE_NAME_MAX_BYTES) return false;
+	if (name === "." || name === "..") return false;
+	return !METRICS_INTERFACE_NAME_FORBIDDEN.test(name);
+}
+
+/** Whether a core index is one the protocol keeps; `/proc/stat` cores are numbered from 0. */
+export function isValidMetricsCoreIndex(index: number): boolean {
+	return Number.isSafeInteger(index) && index >= 0 && index < MAX_METRICS_CORES;
+}
+
+/**
+ * A list that drops individual entries failing a semantic check, so one bad filesystem or interface
+ * name does not lose the whole sample (doc/design/metrics.md "Limits"). The element limit still rejects
+ * the whole body like every other list, and a structurally malformed entry is still a decode error:
+ * only a well-formed entry whose name (or core index) is outside the protocol's form is dropped.
+ */
+function filteredList<T>(
+	inner: Codec<T>,
+	max: number,
+	what: string,
+	valid: (value: T) => boolean,
+	reason: (value: T) => string,
+): Codec<T[]> {
 	const items = list(inner);
 	const check = (values: T[]): T[] => {
 		if (values.length > max) throw new SchemaError(`${what}: ${values.length} values, at most ${max} allowed`);
@@ -658,10 +713,16 @@ function boundedList<T>(inner: Codec<T>, max: number, what: string): Codec<T[]> 
 		name: items.name,
 		encode(value) {
 			if (Array.isArray(value)) check(value as T[]);
-			return items.encode(value);
+			const encoded = items.encode(value);
+			for (const item of value as T[]) {
+				if (!valid(item)) throw new SchemaError(`${what}: ${reason(item)}`);
+			}
+			return encoded;
 		},
 		decode(value) {
-			return check(items.decode(value));
+			// The list's own structure and each entry's structure are checked first; only then is a
+			// well-formed entry with an out-of-form name/index dropped.
+			return check(items.decode(value)).filter(valid);
 		},
 	};
 }
@@ -688,7 +749,16 @@ export type MetricsCore = Infer<typeof metricsCoreCodec>;
 /** The `cpu` field: the `cpu` line and every core present in /proc/stat; offline cores are absent. */
 export const metricsCPUCodec = tuple([
 	["total", metricsCPUTotalCodec],
-	["cores", boundedList(metricsCoreCodec, MAX_METRICS_CORES, "metrics.cpu.cores")],
+	[
+		"cores",
+		filteredList(
+			metricsCoreCodec,
+			MAX_METRICS_CORES,
+			"metrics.cpu.cores",
+			(core) => isValidMetricsCoreIndex(core.index),
+			(core) => `core index ${core.index} is not below ${MAX_METRICS_CORES}`,
+		),
+	],
 ]);
 export type MetricsCPU = Infer<typeof metricsCPUCodec>;
 
@@ -772,11 +842,28 @@ export const metricsSnapshotCodec = keyedMap<MetricsSnapshot>("metrics", [
 	{ wire: "loads", field: "loads", codec: metricsLoadsCodec },
 	{ wire: "memory", field: "memory", codec: metricsMemoryCodec },
 	{ wire: "swap", field: "swap", codec: metricsSwapCodec },
-	{ wire: "disks", field: "disks", codec: boundedList(metricsDiskCodec, MAX_METRICS_DISKS, "metrics.disks") },
+	{
+		wire: "disks",
+		field: "disks",
+		codec: filteredList(
+			metricsDiskCodec,
+			MAX_METRICS_DISKS,
+			"metrics.disks",
+			(disk) => isValidMetricsDiskName(disk.name),
+			(disk) => `filesystem name ${JSON.stringify(disk.name)} is not 1-64 characters of [A-Za-z0-9_-]`,
+		),
+	},
 	{
 		wire: "interfaces",
 		field: "interfaces",
-		codec: boundedList(metricsInterfaceCodec, MAX_METRICS_INTERFACES, "metrics.interfaces"),
+		codec: filteredList(
+			metricsInterfaceCodec,
+			MAX_METRICS_INTERFACES,
+			"metrics.interfaces",
+			(iface) => isValidMetricsInterfaceName(iface.name),
+			(iface) =>
+				`interface name ${JSON.stringify(iface.name)} is not 1-15 UTF-8 bytes without '/', ':', white space or a control character`,
+		),
 	},
 ]);
 

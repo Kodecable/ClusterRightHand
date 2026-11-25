@@ -1,5 +1,8 @@
 import { useLingui } from "@lingui/react/macro";
 import {
+	defaultEmojiDataResolver,
+	type EmojiData,
+	type EmojiDataResolver,
 	type EmojiPickerListCategoryHeaderProps,
 	type EmojiPickerListEmojiProps,
 	type EmojiPickerListRowProps,
@@ -8,6 +11,31 @@ import {
 import { Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+/**
+ * Exactly one RGI emoji, the same check crhs applies to a stored emoji (`server/src/util/emoji.ts`). The
+ * `v` flag needs a modern browser, which the WebUI already requires (doc/design/webui.md "Frontend
+ * architecture").
+ */
+const RGI_EMOJI = /^\p{RGI_Emoji}$/v;
+
+/** Whether crhs would accept `emoji` as a node or node group emoji. */
+export function isRgiEmoji(emoji: string): boolean {
+	return RGI_EMOJI.test(emoji);
+}
+
+/**
+ * Drops the emoji crhs would reject. Emojibase 18 ships Emoji 18 entries, while the running JavaScript
+ * engine's `RGI_Emoji` (and therefore crhs's validator) may stop at an earlier version; offering one would
+ * make the save fail. Filtering the resolved data keeps the picker and the server on the same set.
+ */
+export function supportedEmojiData(data: EmojiData): EmojiData {
+	return { ...data, emojis: data.emojis.filter((entry) => isRgiEmoji(entry.emoji)) };
+}
+
+/** The frimousse data resolver, filtered to the emoji crhs accepts. */
+export const resolveRgiEmojiData: EmojiDataResolver = async (locale, options) =>
+	supportedEmojiData(await defaultEmojiDataResolver(locale, options));
 
 /** A sticky category header of the emoji list. */
 function CategoryHeader({ category, ...props }: EmojiPickerListCategoryHeaderProps) {
@@ -61,6 +89,7 @@ export default function EmojiPicker({
 			<EmojiPickerPrimitive.Root
 				locale={locale}
 				emojibaseUrl={`${import.meta.env.BASE_URL}emojibase`}
+				resolveEmojiData={resolveRgiEmojiData}
 				columns={8}
 				onEmojiSelect={(selected) => onSelect(selected.emoji)}
 				className="flex min-h-0 flex-col gap-2"

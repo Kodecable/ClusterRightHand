@@ -1,3 +1,7 @@
+import { isValidTrafficNextReset, TRAFFIC_PERIOD_MS } from "@crh/api";
+
+export { isValidTrafficNextReset, TRAFFIC_PERIOD_MS };
+
 /**
  * The traffic totals of one node (doc/design/metrics.md "Traffic totals"): the bytes received and
  * transmitted since the current period started, accumulated across reboots from the `net.rx_bytes` and
@@ -8,9 +12,6 @@
  * period that contains the instant, and the server never deals in months or local time. The WebUI owns
  * every timezone conversion when it displays these instants.
  */
-
-/** One period is exactly 30 days, whatever the calendar says. */
-export const TRAFFIC_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** A node's traffic in its current period, as epoch milliseconds and bytes. */
 export interface TrafficPeriod {
@@ -43,14 +44,4 @@ export function rollTrafficPeriod(period: TrafficPeriod, atMs: number): TrafficP
 		rxBytes: 0,
 		txBytes: 0,
 	};
-}
-
-/**
- * Whether `nextResetAtMs` may replace the current period's end: in the future and at most one period
- * away. A shorter period is allowed (the operator chooses it); a longer one would break the fixed 30-day
- * cycle the design promises.
- */
-export function isValidTrafficNextReset(nextResetAtMs: number, nowMs: number): boolean {
-	if (!Number.isFinite(nextResetAtMs)) return false;
-	return nextResetAtMs > nowMs && nextResetAtMs <= nowMs + TRAFFIC_PERIOD_MS;
 }

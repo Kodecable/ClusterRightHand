@@ -72,10 +72,17 @@ export interface ChooseMetricsLevelOptions {
  * the coarsest level whose retention covers `fromMs` and whose bucket gives at least
  * {@link METRIC_MIN_READ_POINTS} points, else the finest level whose retention covers `fromMs`, else the
  * coarsest level. Pure, so the choice is tested without a database.
+ *
+ * A caller computes `from` from its own clock a few milliseconds before crhs sees the request, so a range
+ * exactly at a level's retention (24h, 7d, 30d, 365d) would otherwise fall to the next level. One bucket
+ * of the candidate level is allowed as skew: the level's oldest bucket is still readable, and a range at
+ * the boundary keeps its intended level. A longer overshoot still moves to the coarser level whose
+ * retention covers the range.
  */
 export function chooseMetricsLevel(options: ChooseMetricsLevelOptions): MetricLevel {
 	const { fromMs, toMs, nowMs, retention } = options;
-	const covered = (level: MetricLevel): boolean => retentionMsForLevel(retention, level) >= nowMs - fromMs;
+	const covered = (level: MetricLevel): boolean =>
+		retentionMsForLevel(retention, level) + METRIC_LEVEL_BUCKET_MS[level] >= nowMs - fromMs;
 	const points = (level: MetricLevel): number => (toMs - fromMs) / METRIC_LEVEL_BUCKET_MS[level];
 	for (const level of [...METRIC_LEVELS].reverse()) {
 		if (covered(level) && points(level) >= METRIC_MIN_READ_POINTS) return level;

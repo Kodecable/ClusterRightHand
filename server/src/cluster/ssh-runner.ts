@@ -100,6 +100,21 @@ export function pooledSshSession(core: ClusterCore, node: NodeRow): Promise<SshC
 }
 
 /**
+ * Drops and closes the node's pooled connection only when it is still `session`. The caller has a
+ * session that failed, but between obtaining it and reporting the failure a task may have pooled a newer
+ * connection; closing whatever is pooled would kill that healthy connection instead
+ * (doc/design/metrics.md "SSH nodes"). Returns whether the pooled session was dropped.
+ */
+export function dropPooledSshSession(core: ClusterCore, nodeId: string, session: SshSession): boolean {
+	const connection = core.sshConnections.get(nodeId);
+	if (connection?.session !== session) return false;
+	core.sshConnections.delete(nodeId);
+	core.sshSessions.delete(nodeId);
+	connection.session.close();
+	return true;
+}
+
+/**
  * Dials the node's current route. `adopted()` is true when the dial gave up its own connection and resolved to
  * the one another dial pooled; its caller must then neither register nor close that connection.
  */

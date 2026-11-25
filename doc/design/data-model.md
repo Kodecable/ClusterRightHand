@@ -129,7 +129,8 @@ from the live connection.
 - The cached trust report and its digest bind an authorization plan to the trust state it was made
   against ([Trust cache](privilege.md#trust-cache)).
 - `user_remark` is one line an administrator writes on the node's card: at most 50 Unicode code points,
-  trimmed, without control characters, and null when empty rather than an empty string. It is crhs-side
+  trimmed, without control characters, line/paragraph separators or bidi controls (U+061C, U+200E,
+  U+200F, U+202A–U+202E, U+2066–U+2069), and null when empty rather than an empty string. It is crhs-side
   content, not a fact the node reports ([Node pages](webui.md#node-pages)). The name keeps it distinct
   from a node's *notes*, the Markdown file on the node that `node_info` reads
   ([Node notes](agent-runtime.md#node-notes)).

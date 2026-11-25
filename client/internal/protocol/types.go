@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/fxamacker/cbor/v2"
 )
@@ -544,6 +546,41 @@ const (
 	MaxMetricsInterfaces = 256
 )
 
+// The forms of a metrics disk name and an interface name (doc/design/metrics.md "Limits"). A filesystem
+// name is a series identity, so it has no dot and no space; an interface name is at most IFNAMSIZ-1
+// bytes and is never a series name, since crhs sums every interface's counters into the net.* series.
+const maxMetricsInterfaceNameBytes = 15
+
+var metricsDiskNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// ValidMetricsDiskName reports whether name is 1-64 characters of [A-Za-z0-9_-].
+func ValidMetricsDiskName(name string) bool { return metricsDiskNamePattern.MatchString(name) }
+
+// ValidMetricsInterfaceName reports whether name is the protocol's interface-name form
+// (doc/design/metrics.md "Limits"): 1-maxMetricsInterfaceNameBytes bytes of valid UTF-8, not "." or
+// "..", and containing no '/', ':', Unicode white space or control character. That keeps real names
+// such as "eth0", "wg+0", "br-1a2b", "wlan0.100" and "网卡0".
+func ValidMetricsInterfaceName(name string) bool {
+	if len(name) < 1 || len(name) > maxMetricsInterfaceNameBytes {
+		return false
+	}
+	if name == "." || name == ".." {
+		return false
+	}
+	if !utf8.ValidString(name) {
+		return false
+	}
+	for _, r := range name {
+		if r == '/' || r == ':' || unicode.IsSpace(r) || unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidMetricsCoreIndex reports whether a core index is below MaxMetricsCores.
+func ValidMetricsCoreIndex(index Uint) bool { return index < Uint(MaxMetricsCores) }
+
 // MetricsSnapshot is the metrics.collect response body (doc/design/metrics.md "crha nodes"). It is
 // the protocol's second text-keyed map: every field is optional, and a field crha could not read is
 // absent rather than zero. Unknown text keys are ignored, like Facts, so a field added later does
@@ -590,11 +627,23 @@ func (m MetricsSnapshot) MarshalCBOR() ([]byte, error) {
 		if len(m.Disks) > MaxMetricsDisks {
 			return nil, fmt.Errorf("protocol: %d metrics disks exceeds %d", len(m.Disks), MaxMetricsDisks)
 		}
+		for _, disk := range m.Disks {
+			if !ValidMetricsDiskName(disk.Name) {
+				return nil, fmt.Errorf("protocol: metrics filesystem name %q is not 1-64 characters of [A-Za-z0-9_-]", disk.Name)
+			}
+		}
 		entries = append(entries, profileMapEntry{key: "disks", value: m.Disks})
 	}
 	if m.Interfaces != nil {
 		if len(m.Interfaces) > MaxMetricsInterfaces {
 			return nil, fmt.Errorf("protocol: %d metrics interfaces exceeds %d", len(m.Interfaces), MaxMetricsInterfaces)
+		}
+		for _, iface := range m.Interfaces {
+			if !ValidMetricsInterfaceName(iface.Name) {
+				return nil, fmt.Errorf(
+					"protocol: metrics interface name %q is not 1-15 UTF-8 bytes without '/', ':', "+
+						"white space or a control character", iface.Name)
+			}
 		}
 		entries = append(entries, profileMapEntry{key: "interfaces", value: m.Interfaces})
 	}
@@ -683,6 +732,9 @@ func (m *MetricsSnapshot) UnmarshalCBOR(data []byte) error {
 			if len(v) > MaxMetricsDisks {
 				return fmt.Errorf("protocol: %d metrics disks exceeds %d", len(v), MaxMetricsDisks)
 			}
+			// Drop only the offending entry: one bad name must not lose the sample (doc/design/metrics.md
+			// "Limits"). A structurally malformed entry still fails the decode above.
+			v = slices.DeleteFunc(v, func(d MetricsDisk) bool { return !ValidMetricsDiskName(d.Name) })
 			out.Disks = v
 		case "interfaces":
 			if err := rejectNull(raw, key); err != nil {
@@ -698,6 +750,7 @@ func (m *MetricsSnapshot) UnmarshalCBOR(data []byte) error {
 			if len(v) > MaxMetricsInterfaces {
 				return fmt.Errorf("protocol: %d metrics interfaces exceeds %d", len(v), MaxMetricsInterfaces)
 			}
+			v = slices.DeleteFunc(v, func(i MetricsInterface) bool { return !ValidMetricsInterfaceName(i.Name) })
 			out.Interfaces = v
 		}
 	}
@@ -733,6 +786,11 @@ func (c MetricsCPU) MarshalCBOR() ([]byte, error) {
 	if len(c.Cores) > MaxMetricsCores {
 		return nil, fmt.Errorf("protocol: %d cpu cores exceeds %d", len(c.Cores), MaxMetricsCores)
 	}
+	for _, core := range c.Cores {
+		if !ValidMetricsCoreIndex(core.Index) {
+			return nil, fmt.Errorf("protocol: metrics core index %d is not below %d", core.Index, MaxMetricsCores)
+		}
+	}
 	return encMode.Marshal(metricsCPUWire{Total: c.Total, Cores: c.Cores})
 }
 
@@ -748,6 +806,8 @@ func (c *MetricsCPU) UnmarshalCBOR(data []byte) error {
 	if wire.Cores == nil {
 		wire.Cores = []MetricsCore{}
 	}
+	// A core index outside the protocol's indexes is dropped, like the TypeScript codec does.
+	wire.Cores = slices.DeleteFunc(wire.Cores, func(core MetricsCore) bool { return !ValidMetricsCoreIndex(core.Index) })
 	*c = MetricsCPU{Total: wire.Total, Cores: wire.Cores}
 	return nil
 }

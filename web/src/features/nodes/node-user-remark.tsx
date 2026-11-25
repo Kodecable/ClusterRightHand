@@ -1,12 +1,11 @@
-import type { PublicNode } from "@crh/api";
+import { NODE_USER_REMARK_MAX_CODE_POINTS, nodeUserRemarkProblem, type PublicNode } from "@crh/api";
 import { useLingui } from "@lingui/react/macro";
 import { type KeyboardEvent, useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useSetNodeUserRemark } from "./api";
 
-/** The user remark's limit in Unicode code points, matching the server (doc/design/webui.md "Node pages"). */
-export const NODE_USER_REMARK_MAX_CODE_POINTS = 50;
+export { NODE_USER_REMARK_MAX_CODE_POINTS };
 
 /** How long a failed save keeps its message inline before the editor just stays open. */
 const ERROR_TIMEOUT_MS = 4_000;
@@ -88,8 +87,9 @@ export function NodeUserRemark({ node, admin }: { node: PublicNode; admin: boole
 						data-testid="node-user-remark-input"
 						onChange={(event) => {
 							const value = event.target.value;
-							// Count Unicode code points, not UTF-16 units, so an emoji is one character.
-							if ([...value].length > NODE_USER_REMARK_MAX_CODE_POINTS) return;
+							// The server's rule: at most 50 code points (an emoji is one), no control characters
+							// and no bidi controls that reorder the surrounding text (doc/design/data-model.md "Nodes").
+							if (nodeUserRemarkProblem(value) !== undefined) return;
 							setDraft(value);
 							setError(null);
 						}}

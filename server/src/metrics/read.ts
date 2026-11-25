@@ -1,3 +1,5 @@
+import { METRIC_LEVEL_BUCKET_MS, METRIC_LEVELS, type MetricLevel } from "./levels.ts";
+
 /**
  * Shared reading rules for host metrics (doc/design/metrics.md "Reading"): input parsing, `prefix.*`
  * expansion and downsampling. The API route and the `node_metrics` tool both use them, so the two surfaces
@@ -12,6 +14,40 @@ export const MAX_EXPANDED_METRICS_SERIES = 512;
 
 /** The longest range one read may ask for: 400 days, a little past level 4's default retention. */
 export const MAX_METRICS_RANGE_MS = 400 * 24 * 60 * 60 * 1000;
+
+/**
+ * The most points one read may return, across every series and bucket (doc/design/metrics.md "Reading"):
+ * 200,000 values is a few megabytes of JSON, and a read that would exceed it must use a coarser level.
+ */
+export const MAX_METRICS_READ_POINTS = 200_000;
+
+/**
+ * The number of points a read of `seriesCount` series would return at `level`: one point per bucket the
+ * range touches. Rounded up, because a partially covered first bucket is still a point.
+ */
+export function metricsReadPoints(seriesCount: number, fromMs: number, toMs: number, level: MetricLevel): number {
+	if (seriesCount <= 0 || !(toMs > fromMs)) return 0;
+	return seriesCount * Math.ceil((toMs - fromMs) / METRIC_LEVEL_BUCKET_MS[level]);
+}
+
+/**
+ * The coarsest level at or below `level` whose read fits {@link MAX_METRICS_READ_POINTS}, or level 4 when
+ * none does. The automatic level choice uses it so a broad range with many series does not return an
+ * unbounded response; an explicit level that does not fit is refused by the API instead.
+ */
+export function fitMetricsReadLevel(
+	level: MetricLevel,
+	seriesCount: number,
+	fromMs: number,
+	toMs: number,
+): MetricLevel {
+	for (const candidate of METRIC_LEVELS) {
+		if (candidate >= level && metricsReadPoints(seriesCount, fromMs, toMs, candidate) <= MAX_METRICS_READ_POINTS) {
+			return candidate;
+		}
+	}
+	return 4;
+}
 
 /** The most points the `node_metrics` tool describes per series; the API returns the stored buckets. */
 export const MAX_METRICS_TOOL_POINTS = 60;

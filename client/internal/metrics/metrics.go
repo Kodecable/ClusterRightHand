@@ -79,7 +79,14 @@ func New(opts Options) *Collector {
 	if timeout <= 0 {
 		timeout = DefaultStatfsTimeout
 	}
-	disks := opts.Disks
+	// The configuration validates disk names, but a name outside the protocol's form must never reach the
+	// wire; skip it here too (doc/design/metrics.md "Limits").
+	disks := make([]Disk, 0, len(opts.Disks))
+	for _, disk := range opts.Disks {
+		if protocol.ValidMetricsDiskName(disk.Name) {
+			disks = append(disks, disk)
+		}
+	}
 	if len(disks) > protocol.MaxMetricsDisks {
 		disks = disks[:protocol.MaxMetricsDisks]
 	}

@@ -629,6 +629,21 @@ describe("Node card user remark", () => {
 		expect(calls.find((call) => call.url === "/api/nodes/node-1/user-remark")?.body).toEqual({ userRemark: fifty });
 	});
 
+	test("the input refuses bidi controls and line separators too", async () => {
+		const { calls } = await renderPage(ADMIN, [node()]);
+		const card = await screen.findByTestId("node-card");
+		const input = await openUserRemarkEditor(card, "Click to edit remark");
+		fireEvent.change(input, { target: { value: "safe" } });
+		expect(input.value).toBe("safe");
+		for (const bad of ["safe\u202Eevil", "a\u2028b", "a\u2067b", "a\u200Fb", "a\u061Cb"]) {
+			fireEvent.change(input, { target: { value: bad } });
+			expect(input.value, JSON.stringify(bad)).toBe("safe");
+		}
+		fireEvent.keyDown(input, { key: "Enter" });
+		await waitFor(() => expect(calls.some((call) => call.url === "/api/nodes/node-1/user-remark")).toBe(true));
+		expect(calls.find((call) => call.url === "/api/nodes/node-1/user-remark")?.body).toEqual({ userRemark: "safe" });
+	});
+
 	test("a member reads the user remark and gets nothing when it is empty", async () => {
 		await renderPage(MEMBER, [node({ access: "granted", userRemark: "rack 4, lab" })]);
 		const card = await screen.findByTestId("node-card");

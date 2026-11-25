@@ -270,6 +270,7 @@ func TestInterfaceSelection(t *testing.T) {
 		devLine("tun0", 1, 1, 1, 1),
 		devLine("tap0", 1, 1, 1, 1),
 		devLine("wg0", 1, 1, 1, 1),
+		devLine("wg+0", 1, 1, 1, 1),
 		devLine("utun0", 1, 1, 1, 1),
 		devLine("docker0", 1, 1, 1, 1),
 		devLine("veth123", 1, 1, 1, 1),
@@ -283,6 +284,9 @@ func TestInterfaceSelection(t *testing.T) {
 		devLine("kube-ipvs0", 1, 1, 1, 1),
 		devLine("eth0", 101, 2, 303, 4),
 		devLine("eth1", 505, 6, 707, 8),
+		// Names Linux allows that the old [A-Za-z0-9_.:@-] form dropped.
+		devLine("eth0#1", 909, 10, 111, 12),
+		devLine("网卡0", 131, 14, 151, 16),
 	}
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{"proc/net/dev": netDevHeader + strings.Join(lines, "\n") + "\n"})
@@ -290,16 +294,20 @@ func TestInterfaceSelection(t *testing.T) {
 	want := []protocol.MetricsInterface{
 		{Name: "eth0", RXBytes: 101, TXBytes: 303, RXPackets: 2, TXPackets: 4},
 		{Name: "eth1", RXBytes: 505, TXBytes: 707, RXPackets: 6, TXPackets: 8},
+		{Name: "eth0#1", RXBytes: 909, TXBytes: 111, RXPackets: 10, TXPackets: 12},
+		{Name: "网卡0", RXBytes: 131, TXBytes: 151, RXPackets: 14, TXPackets: 16},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("default selection = %#v, want %#v", got, want)
 	}
 
-	// A configured list overrides the default: it may name lo, and a missing name is skipped.
-	got = New(Options{Root: root, Interfaces: []string{"lo", "eth1", "gone"}}).Collect().Interfaces
+	// A configured list overrides the default: it may name lo and a tunnel that the default leaves out,
+	// and a missing name is skipped.
+	got = New(Options{Root: root, Interfaces: []string{"lo", "eth1", "gone", "wg+0"}}).Collect().Interfaces
 	want = []protocol.MetricsInterface{
 		{Name: "lo", RXBytes: 1, TXBytes: 1, RXPackets: 1, TXPackets: 1},
 		{Name: "eth1", RXBytes: 505, TXBytes: 707, RXPackets: 6, TXPackets: 8},
+		{Name: "wg+0", RXBytes: 1, TXBytes: 1, RXPackets: 1, TXPackets: 1},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("configured selection = %#v, want %#v", got, want)
@@ -604,5 +612,44 @@ func TestStatsFromStatfs(t *testing.T) {
 	}
 	if _, err := statsFromStatfs(unix.Statfs_t{Blocks: 1, Bsize: 0}); err == nil {
 		t.Fatal("accepted a zero block size")
+	}
+}
+
+func TestCollectSkipsNamesOutsideTheProtocolForm(t *testing.T) {
+	root := t.TempDir()
+	writeFiles(t, root, map[string]string{
+		"proc/sys/kernel/random/boot_id": "boot-1\n",
+		"proc/uptime":                    "1.0 1.0\n",
+		"proc/loadavg":                   "0.0 0.0 0.0 1/1 1\n",
+		"proc/stat": `cpu  1 2 3 4 5 6 7 8
+cpu0 1 2 3 4 5 6 7 8
+cpu1024 1 2 3 4 5 6 7 8
+`,
+		"proc/net/dev": netDevHeader +
+			devLine("bad name", 1, 2, 3, 4) + "\n" +
+			devLine("a/b", 1, 2, 3, 4) + "\n" +
+			devLine(strings.Repeat("a", 16), 1, 2, 3, 4) + "\n" +
+			devLine("a\x7fb", 1, 2, 3, 4) + "\n" +
+			devLine("eth0#1", 5, 6, 7, 8) + "\n" +
+			devLine("eth0", 9, 10, 11, 12) + "\n",
+	})
+	collector := New(Options{
+		Root: root,
+		Disks: []Disk{
+			{Name: "bad name", Path: "/bad"},
+			{Name: "root", Path: "/"},
+		},
+		Interfaces: []string{"bad name", "a/b", strings.Repeat("a", 16), "a\x7fb", "eth0#1", "eth0"},
+		Statfs:     func(string) (Stats, error) { return Stats{TotalBytes: 1, UsedBytes: 1}, nil },
+	})
+	snapshot := collector.Collect()
+	if len(snapshot.Disks) != 1 || snapshot.Disks[0].Name != "root" {
+		t.Fatalf("disks = %#v, want only root", snapshot.Disks)
+	}
+	if len(snapshot.Interfaces) != 2 || snapshot.Interfaces[0].Name != "eth0#1" || snapshot.Interfaces[1].Name != "eth0" {
+		t.Fatalf("interfaces = %#v, want only eth0#1 and eth0", snapshot.Interfaces)
+	}
+	if snapshot.CPU == nil || len(snapshot.CPU.Cores) != 1 || snapshot.CPU.Cores[0].Index != 0 {
+		t.Fatalf("cpu = %#v, want only core 0", snapshot.CPU)
 	}
 }

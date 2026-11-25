@@ -8,6 +8,24 @@
 
 export type DateInput = string | number | Date | null | undefined;
 
+/** The five characters that can start markup in text placed into an HTML string. */
+const HTML_ESCAPES: Record<string, string> = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	'"': "&quot;",
+	"'": "&#39;",
+};
+
+/**
+ * Escapes text for interpolation into an HTML string. ECharts renders a tooltip formatter's return value
+ * as HTML, so any text that can come from a node (a filesystem or interface name) must go through this
+ * before it is placed in a formatter.
+ */
+export function escapeHtml(text: string): string {
+	return text.replace(/[&<>"']/g, (character) => HTML_ESCAPES[character] ?? character);
+}
+
 /**
  * `Intl` constructors are expensive (they build the locale data for the
  * formatter), and a rendered list calls the helpers once per row and per

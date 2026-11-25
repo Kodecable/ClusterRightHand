@@ -353,7 +353,9 @@ rendered `aria-hidden`, so the accessible name stays the entity's name, and noth
 null. On the node page and the node group page an administrator opens the picker by clicking the glyph,
 or by the small smiley-plus button (its tooltip and accessible name are "Set emoji") while the emoji is
 empty. The picker is a lazy chunk holding frimousse: it loads only when a picker is first opened, so
-frimousse never joins the main bundle. It has a search field, a "Remove emoji" action while one is set, works in dark
+frimousse never joins the main bundle. It filters its resolved Emojibase data through the same RGI check
+crhs stores with, so an emoji the running engine cannot name (an Emoji 18 glyph on an older engine) is
+never offered and cannot make the save fail. It has a search field, a "Remove emoji" action while one is set, works in dark
 mode through the same tokens as the other popovers and is keyboard-navigable (the search field takes
 focus, arrows and Enter move and select, Escape closes). Selecting saves through
 `PUT /api/nodes/{id}/emoji` or `PUT /api/node-groups/{id}/emoji`; a member sees the emoji only. The emoji
@@ -372,7 +374,7 @@ label/value list and above the access grants: uptime, CPU usage, memory usage, t
 disk usage and the live network rates. The three usage cards use the node list's thresholds, and a
 figure without data shows "–" while the card stays. The first filesystem is the one the latest sample
 reported first: crhs keeps that report order in memory only, so after a restart the WebUI falls back to
-`root`, then the alphabetically first filesystem; the disk card names it only in its tooltip, never as
+`root`, then the first complete name in code-unit order; the disk card names it only in its tooltip, never as
 visible text. The live traffic card shows the newest received and transmitted rate, each after its
 arrow, and keeps the per-second unit in its accessible label instead of the plain byte count.
 

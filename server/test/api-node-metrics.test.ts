@@ -71,6 +71,7 @@ describeBackends("node metrics API", (backend) => {
 	let rootFallbackNodeId: string;
 	let alphaDiskNodeId: string;
 	let bareNodeId: string;
+	let manySeriesNodeId: string;
 	let staleSlot: number;
 
 	const series = async (who: string, id: string, query: Record<string, string>) => {
@@ -98,6 +99,7 @@ describeBackends("node metrics API", (backend) => {
 		rootFallbackNodeId = await addNode(db, "metrics-root-fallback");
 		alphaDiskNodeId = await addNode(db, "metrics-alpha-disk");
 		bareNodeId = await addNode(db, "metrics-bare");
+		manySeriesNodeId = await addNode(db, "metrics-many-series");
 		await db
 			.insertInto("node_access_grants")
 			.values({
@@ -224,6 +226,15 @@ describeBackends("node metrics API", (backend) => {
 			{ name: "disk.data.used_bytes", kind: "gauge", value: 1600 },
 			{ name: "net.rx_bytes", kind: "delta", value: 300 },
 		]);
+		// 512 stored series (256 filesystems × 2 values) at 30 days: level 3 would need 368,640 points.
+		store.record(
+			manySeriesNodeId,
+			SLOT,
+			Array.from({ length: 256 }, (_, index) => [
+				{ name: `disk.d${index}.total_bytes`, kind: "gauge" as const, value: 1000 + index },
+				{ name: `disk.d${index}.used_bytes`, kind: "gauge" as const, value: index },
+			]).flat(),
+		);
 		await store.flush();
 	});
 
@@ -312,6 +323,30 @@ describeBackends("node metrics API", (backend) => {
 			"disk.root.total_bytes",
 			"disk.root.used_bytes",
 		]);
+	});
+
+	it("caps the total points and moves an automatic read to a coarser level", async () => {
+		// 512 expanded series over 30 days do not fit level 3 (368,640 points), so the automatic choice
+		// uses level 4 (15,360).
+		const auto = await series(rootCookie, manySeriesNodeId, {
+			series: "disk.*",
+			from: String(NOW - 30 * DAY),
+			to: String(NOW),
+		});
+		expect(auto.status).toBe(200);
+		expect(((await auto.json()) as { level: number }).level).toBe(4);
+
+		// An explicit level that would exceed the cap is refused with a clear 400.
+		const explicit = await series(rootCookie, nodeId, {
+			series: "up",
+			from: String(NOW - 400 * DAY),
+			to: String(NOW),
+			level: "1",
+		});
+		expect(explicit.status).toBe(400);
+		const body = (await explicit.json()) as { error: string };
+		expect(body.error).toMatch(/at most 200000/);
+		expect(body.error).toMatch(/coarser level/);
 	});
 
 	it("returns a gauge's average and a delta's total", async () => {

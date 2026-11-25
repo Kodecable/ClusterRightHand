@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { authStore } from "@/lib/session";
 import { localDateTimeValue } from "@/lib/timezone";
 import { renderWithI18n, testQueryClient } from "@/test/render";
-import { nodeKeys } from "./api";
+import { METRICS_SERIES, nodeKeys } from "./api";
 import { NodeMetrics, NodeMetricsSummary, NodeOverviewMetrics } from "./node-metrics";
 
 interface FakeChart {
@@ -91,6 +91,21 @@ function response(series: MetricSeriesReading[], bucketMs = MINUTE): NodeMetrics
 	return { level: 1, bucketMs, series, traffic: null };
 }
 
+/** The server's `series`/`prefix.*` expansion: a mock must not return a series the WebUI never asked for. */
+function requestedSeries(url: URL, series: MetricSeriesReading[]): MetricSeriesReading[] {
+	const requested = url.searchParams.get("series");
+	if (requested === null) return series;
+	const entries = requested
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry !== "");
+	return series.filter((reading) =>
+		entries.some((entry) =>
+			entry.endsWith(".*") ? reading.name.startsWith(entry.slice(0, -1)) : reading.name === entry,
+		),
+	);
+}
+
 function mockMetrics(handler: (url: URL) => NodeMetricsResponse, options: { user?: User } = {}): void {
 	vi.stubGlobal(
 		"fetch",
@@ -107,7 +122,8 @@ function mockMetrics(handler: (url: URL) => NodeMetricsResponse, options: { user
 				return json({ traffic: null });
 			}
 			calls.push(url);
-			return json(handler(url));
+			const body = handler(url);
+			return json({ ...body, series: requestedSeries(url, body.series) });
 		}),
 	);
 }
@@ -146,7 +162,8 @@ describe("NodeMetrics", () => {
 		expect(mainCalls()).toHaveLength(1);
 		const first = mainCalls()[0] as URL;
 		expect(first.pathname).toBe("/api/nodes/node-1/metrics");
-		expect(first.searchParams.get("series")).toContain("cpu.core.*");
+		expect(first.searchParams.get("series")).toContain("mem.free_bytes");
+		expect(first.searchParams.get("series")).not.toContain("cpu.core.*");
 		expect(first.searchParams.get("series")).toContain("uptime");
 		expect(first.searchParams.get("series")).toContain("disk.*");
 		expect(Number(first.searchParams.get("to")) - Number(first.searchParams.get("from"))).toBeGreaterThanOrEqual(
@@ -163,6 +180,12 @@ describe("NodeMetrics", () => {
 		expect(Number(second.searchParams.get("to")) - Number(second.searchParams.get("from"))).toBeGreaterThanOrEqual(
 			23 * 60 * 60 * 1000,
 		);
+	});
+
+	test("asks for every series a chart draws, including the memory Free line", () => {
+		expect(METRICS_SERIES).toContain("mem.free_bytes");
+		expect(METRICS_SERIES).toContain("mem.cached_bytes");
+		expect(METRICS_SERIES).not.toContain("cpu.core.*");
 	});
 
 	test("renders exactly the five summary labels from the newest sample", async () => {

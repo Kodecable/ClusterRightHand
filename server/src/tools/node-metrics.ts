@@ -4,49 +4,31 @@
  * of every series and at most 60 points. It reads buckets, so like `node_info` it needs node access and no
  * rule decision.
  */
+import { NODE_METRICS_RANGE_NAMES, NODE_METRICS_RANGES, type NodeMetricsRange } from "@crh/api";
 import { listNodesForUser } from "../cluster/nodes.ts";
 import { METRIC_LEVEL_BUCKET_MS } from "../metrics/levels.ts";
 import {
 	expandMetricsSeriesNames,
 	invalidMetricsSeriesEntry,
 	MAX_EXPANDED_METRICS_SERIES,
+	MAX_METRICS_READ_POINTS,
 	MAX_METRICS_SERIES,
 	MAX_METRICS_TOOL_POINTS,
 	type MetricPoint,
 	mergeMetricPoints,
+	metricsReadPoints,
 } from "../metrics/read.ts";
 import { UserError } from "../util/errors.ts";
+import { formatBytes } from "../util/format.ts";
 import { nameKey } from "../util/names.ts";
 import type { ToolContext } from "./catalog.ts";
 import { errorResult, jsonResult, type ToolResult } from "./render.ts";
 
-/** The ranges `node_metrics` accepts, in milliseconds. */
-export const NODE_METRICS_RANGE_NAMES = ["1h", "24h", "7d", "30d", "365d"] as const;
-
-export type NodeMetricsRange = (typeof NODE_METRICS_RANGE_NAMES)[number];
-
-export const NODE_METRICS_RANGES: Record<NodeMetricsRange, number> = {
-	"1h": 60 * 60 * 1000,
-	"24h": 24 * 60 * 60 * 1000,
-	"7d": 7 * 24 * 60 * 60 * 1000,
-	"30d": 30 * 24 * 60 * 60 * 1000,
-	"365d": 365 * 24 * 60 * 60 * 1000,
-};
+/** The ranges `node_metrics` accepts, shared with the WebUI so the two tables cannot drift. */
+export { NODE_METRICS_RANGE_NAMES, NODE_METRICS_RANGES, type NodeMetricsRange };
 
 /** How a series' values are shown; the unit travels with the formatted numbers. */
 type MetricUnit = "percent" | "bytes" | "bytes_per_sec" | "load" | "seconds" | "packets" | "number";
-
-/** The smallest binary unit above 1 KiB, the same shape the rest of crhs shows bytes in. */
-function formatBytes(bytes: number): string {
-	const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-	let amount = Number.isFinite(bytes) ? Math.max(0, bytes) : 0;
-	let unit = 0;
-	while (amount >= 1024 && unit < units.length - 1) {
-		amount /= 1024;
-		unit += 1;
-	}
-	return `${Number(amount.toFixed(unit === 0 ? 0 : 1))} ${units[unit]}`;
-}
 
 /** The series' unit (doc/design/metrics.md "Metrics"). */
 function metricUnit(name: string): MetricUnit {
@@ -180,7 +162,17 @@ export async function nodeMetricsResult(
 	}
 	const nowMs = Date.now();
 	const fromMs = nowMs - NODE_METRICS_RANGES[args.range];
-	const level = store.chooseLevel(fromMs, nowMs);
+	// The same clock reading for the range and the level choice: a level must not fall to the next one only
+	// because Date.now() moved between the two calls. The automatic choice also fits the read point cap.
+	const level = store.chooseLevel(fromMs, nowMs, names.length, nowMs);
+	const points = metricsReadPoints(names.length, fromMs, nowMs, level);
+	if (points > MAX_METRICS_READ_POINTS) {
+		return errorResult(
+			"json",
+			"invalid_argument",
+			`series: the request needs ${points} points at level ${level}, at most ${MAX_METRICS_READ_POINTS} are allowed; choose a shorter range or fewer series`,
+		);
+	}
 	const readings = await store.read(node.id, names, fromMs, nowMs, level);
 	const bucketMs = METRIC_LEVEL_BUCKET_MS[level];
 	// The traffic total is cumulative, so it is not a series in the range: it is reported once for the

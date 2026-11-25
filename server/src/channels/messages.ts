@@ -90,17 +90,7 @@ export function codeBlock(text: string): string {
 	return `${fence}\n${value}\n${fence}`;
 }
 
-/** A byte count the way the WebUI shows it: the largest binary unit, such as "32 MiB". */
-export function formatBytes(bytes: number): string {
-	const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-	let amount = Number.isFinite(bytes) ? Math.max(0, bytes) : 0;
-	let unit = 0;
-	while (amount >= 1024 && unit < units.length - 1) {
-		amount /= 1024;
-		unit += 1;
-	}
-	return `${Number(amount.toFixed(unit === 0 ? 0 : 1))} ${units[unit]}`;
-}
+export { formatBytes } from "../util/format.ts";
 
 export interface BotCommandMenuEntry {
 	command: string;

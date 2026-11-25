@@ -2,7 +2,7 @@ import type { TaskSpec } from "@crh/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Cluster } from "../src/cluster/cluster.ts";
 import type { NodeRow } from "../src/cluster/nodes.ts";
-import type { SshRoute } from "../src/cluster/ssh/connection.ts";
+import type { SshRoute, SshSession } from "../src/cluster/ssh/connection.ts";
 import { SHELL_PROBE_COMMAND, SSH_PRIVILEGED_NOTICE } from "../src/cluster/ssh/exec.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
@@ -208,6 +208,32 @@ describe("SSH tasks", () => {
 		if (!task) throw new Error(`task ${id} disappeared`);
 		return task;
 	};
+
+	it("drops a stale pooled session without closing the newer one", async () => {
+		const node = await addSshNode("ssh-drop-stale");
+		const first = new FakeSession();
+		let current = first;
+		fake.connect = async () => current;
+		const host = cluster.metricsHost();
+		const stale = (await host.sshSession(node.id)) as unknown as FakeSession & SshSession;
+
+		// The connection is replaced (a route change, a failed sample); a task pools a newer one.
+		cluster.closeSshNode(node.id);
+		const second = new FakeSession();
+		current = second;
+		const newer = (await host.sshSession(node.id)) as unknown as FakeSession & SshSession;
+
+		// The collector reports its old session failed after the newer one is already pooled: dropping the
+		// stale identity must not close the healthy connection (doc/design/metrics.md "SSH nodes").
+		host.dropSshSession(node.id, stale);
+		expect(second.closed).toBe(false);
+
+		host.dropSshSession(node.id, newer);
+		expect(second.closed).toBe(true);
+		// The next sample dials again.
+		current = new FakeSession();
+		expect(await host.sshSession(node.id)).toBe(current as unknown as SshSession);
+	});
 
 	it("cancels a task whose connection never completes without running it", async () => {
 		const node = await addSshNode("ssh-cancel");

@@ -1,4 +1,10 @@
-import type { MetricBucketPoint, MetricSeriesReading, NodeMetricsResponse, NodeTraffic } from "@crh/api";
+import {
+	firstFilesystem,
+	type MetricBucketPoint,
+	type MetricSeriesReading,
+	type NodeMetricsResponse,
+	type NodeTraffic,
+} from "@crh/api";
 import type { I18n, MessageDescriptor } from "@lingui/core";
 import { msg } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
@@ -148,18 +154,6 @@ function latestValue(byName: ReadonlyMap<string, MetricSeriesReading>, name: str
 }
 
 /**
- * The filesystem the summary card describes (doc/design/webui.md "Node pages"): the first one crha
- * reported, which crhs only knows from the collector's in-memory order; `root` when that order is gone,
- * and otherwise the alphabetically first name. The choice is among the node's stored series, so a
- * filesystem the latest sample no longer reports cannot be picked.
- */
-function firstFilesystemName(data: NodeMetricsResponse, names: ReadonlySet<string>): string | undefined {
-	for (const name of data.diskOrder ?? []) if (names.has(name)) return name;
-	if (names.has("root")) return "root";
-	return [...names].sort((left, right) => left.localeCompare(right))[0];
-}
-
-/**
  * The five summary cards above the charts (doc/design/webui.md "Node pages"), from the newest sample:
  * uptime, CPU and memory usage, the first filesystem's usage and the live network rates. A figure the node
  * has no data for shows "–", because a missing value is not zero (doc/design/metrics.md "Metrics"). The
@@ -207,7 +201,14 @@ function buildSummary(data: NodeMetricsResponse, i18n: I18n): SummaryItem[] {
 		entry[parsed.kind === "total_bytes" ? "total" : "used"] = value;
 		filesystems.set(parsed.name, entry);
 	}
-	const filesystemName = firstFilesystemName(data, new Set(filesystems.keys()));
+	// The same rule and order as the node list's first filesystem: report order, then `root`, then code-unit
+	// order among the filesystems that have both values (doc/design/metrics.md "Reading").
+	const complete = new Set(
+		[...filesystems]
+			.filter(([, entry]) => entry.used !== undefined && entry.total !== undefined && entry.total > 0)
+			.map(([name]) => name),
+	);
+	const filesystemName = firstFilesystem(complete, data.diskOrder);
 	const filesystem = filesystemName === undefined ? undefined : filesystems.get(filesystemName);
 	const filesystemUsage =
 		filesystem?.used !== undefined && filesystem.total !== undefined && filesystem.total > 0

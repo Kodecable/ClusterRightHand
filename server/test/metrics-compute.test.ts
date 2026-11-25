@@ -1,6 +1,6 @@
-import type { MetricsSnapshot } from "@crh/protocol";
+import { MAX_METRICS_CORES, type MetricsSnapshot } from "@crh/protocol";
 import { describe, expect, it } from "vitest";
-import { MetricsComputer } from "../src/metrics/compute.ts";
+import { METRICS_COUNTER_PRUNE_AFTER_SAMPLES, MetricsComputer } from "../src/metrics/compute.ts";
 import type { MetricValue } from "../src/metrics/store.ts";
 
 /**
@@ -413,6 +413,102 @@ describe("metrics computation", () => {
 		expect(metricValue(result.values, "disk.d63.total_bytes")).toBeDefined();
 		expect(metricValue(result.values, "disk.d64.total_bytes")).toBeUndefined();
 		expectValue(result.values, "net.rx_bytes", 256, "delta");
+	});
+
+	it("drops a core and an interface that stay absent for the prune limit", () => {
+		expect(METRICS_COUNTER_PRUNE_AFTER_SAMPLES).toBe(10);
+		const absent = sample({ bootId: "boot-a", cpu: cpu(100n, 200n, []), interfaces: [] });
+		const returning = sample({
+			...BASE,
+			cpu: cpu(150n, 400n, [[0, 75n, 200n]]),
+			interfaces: [interfaceCounters("eth0", 11_000n, 22_000n, 110n, 220n)],
+		});
+
+		// One sample short of the limit: the previous counters are still there, so a delta is computed.
+		const kept = new MetricsComputer();
+		kept.sample("node", BASE, 1_000);
+		for (let index = 1; index < 10; index++) {
+			kept.sample("node", absent, 1_000 + index * 1_000);
+		}
+		const stillThere = kept.sample("node", returning, 20_000);
+		expectValue(stillThere.values, "cpu.core.0", 0.25);
+		expectValue(stillThere.values, "net.rx_bytes", 1_000, "delta");
+
+		// At the limit the state is gone: the same sample only records the counters' starting values.
+		const pruned = new MetricsComputer();
+		pruned.sample("node", BASE, 1_000);
+		for (let index = 0; index < 10; index++) {
+			pruned.sample("node", absent, 1_000 + index * 1_000);
+		}
+		const fresh = pruned.sample("node", returning, 20_000);
+		expect(metricValue(fresh.values, "cpu.core.0")).toBeUndefined();
+		expect(metricValue(fresh.values, "net.rx_bytes")).toBeUndefined();
+	});
+
+	it("sums interfaces whose Linux names the old character form dropped", () => {
+		const computer = new MetricsComputer();
+		// Names Linux allows that the old `[A-Za-z0-9_.:@-]` form dropped: `+`, `#`, `~` and non-ASCII.
+		const names = ["wg+0", "网卡0", "eth0#1", "a~b"];
+		computer.sample(
+			"node",
+			sample({ ...BASE, interfaces: names.map((name) => interfaceCounters(name, 0n, 0n, 0n, 0n)) }),
+			1_000,
+		);
+		const result = computer.sample(
+			"node",
+			sample({ ...BASE, interfaces: names.map((name) => interfaceCounters(name, 100n, 200n, 1n, 2n)) }),
+			2_000,
+		);
+		// Every interface is summed into the same net.* series; no interface name is a series name.
+		expectValue(result.values, "net.rx_bytes", 400, "delta");
+		expectValue(result.values, "net.tx_bytes", 800, "delta");
+		expectValue(result.values, "net.rx_packets", 4, "delta");
+		expectValue(result.values, "net.tx_packets", 8, "delta");
+		expectValue(result.values, "net.rx_bytes_per_sec", 400);
+		expectValue(result.values, "net.tx_bytes_per_sec", 800);
+	});
+
+	it("drops a raw sample's out-of-form disk, interface and core names", () => {
+		const computer = new MetricsComputer();
+		computer.sample(
+			"node",
+			sample({
+				...BASE,
+				cpu: cpu(100n, 200n, [[MAX_METRICS_CORES, 1n, 2n]]),
+				disks: [{ kind: "ok", name: "bad name", path: "/", totalBytes: 1n, usedBytes: 1n }],
+				interfaces: [
+					interfaceCounters("bad name", 1n, 1n, 1n, 1n),
+					interfaceCounters("a/b", 1n, 1n, 1n, 1n),
+					interfaceCounters("a".repeat(16), 1n, 1n, 1n, 1n),
+					interfaceCounters("a\u0007b", 1n, 1n, 1n, 1n),
+					interfaceCounters("eth0", 10_000n, 0n, 0n, 0n),
+				],
+			}),
+			1_000,
+		);
+		const result = computer.sample(
+			"node",
+			sample({
+				...BASE,
+				cpu: cpu(150n, 400n, [
+					[MAX_METRICS_CORES, 100n, 200n],
+					[0, 75n, 200n],
+				]),
+				disks: [{ kind: "ok", name: "bad name", path: "/", totalBytes: 2n, usedBytes: 2n }],
+				interfaces: [
+					interfaceCounters("bad name", 1_000_000n, 1_000_000n, 1n, 1n),
+					interfaceCounters("a/b", 1_000_000n, 1_000_000n, 1n, 1n),
+					interfaceCounters("a".repeat(16), 1_000_000n, 1_000_000n, 1n, 1n),
+					interfaceCounters("a\u0007b", 1_000_000n, 1_000_000n, 1n, 1n),
+					interfaceCounters("eth0", 11_000n, 0n, 0n, 0n),
+				],
+			}),
+			3_000,
+		);
+		// The invalid disk never becomes a series, and the invalid interface's counters are not a delta.
+		expect(result.values.some((value) => value.name.includes("bad name"))).toBe(false);
+		expect(metricValue(result.values, `cpu.core.${MAX_METRICS_CORES}`)).toBeUndefined();
+		expectValue(result.values, "net.rx_bytes", 1_000, "delta");
 	});
 
 	it("forgets a node when asked", () => {

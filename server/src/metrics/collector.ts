@@ -75,8 +75,8 @@ export interface MetricsHost {
 	waitLink(nodeId: string, timeoutMs: number): Promise<void>;
 	/** The node's pooled SSH connection, dialling it when needed. */
 	sshSession(nodeId: string): Promise<SshSession>;
-	/** Drops a dead pooled SSH connection, so the next `sshSession` dials again. */
-	dropSshSession(nodeId: string): void;
+	/** Drops a dead pooled SSH connection, but only if it is still `session`, so a newer one is not closed. */
+	dropSshSession(nodeId: string, session: SshSession): void;
 	/** Installs (or removes) the link event sink. */
 	setSink(sink: MetricsSink | undefined): void;
 }
@@ -955,7 +955,7 @@ export class MetricsCollector {
 			if (session.closed) {
 				if (replaced) throw new Error("the SSH connection is still closed");
 				replaced = true;
-				this.#host.dropSshSession(nodeId);
+				this.#host.dropSshSession(nodeId, session);
 				session = undefined;
 				continue;
 			}
@@ -971,7 +971,7 @@ export class MetricsCollector {
 				if (session.closed || err instanceof SshError || isConnectionLostText(err)) {
 					if (replaced) throw err;
 					replaced = true;
-					this.#host.dropSshSession(nodeId);
+					this.#host.dropSshSession(nodeId, session);
 					session = undefined;
 					continue;
 				}
@@ -1084,7 +1084,13 @@ export class MetricsCollector {
 	}
 }
 
-/** Whether an SSH error is a dead transport rather than a refused channel. */
+/**
+ * Whether an SSH error is a dead transport rather than a refused channel. `SshSession.exec` already
+ * rejects a session it knows is closed with a typed `SshError`, and a close flips `session.closed`, so
+ * this is a last resort for a transport that died without its close event reaching `onClose` yet. It is
+ * safe now that the pool drops a session only by identity: even a false positive cannot close a newer
+ * connection.
+ */
 function isConnectionLostText(err: unknown): boolean {
 	return err instanceof Error && /not connected|connection (?:lost|closed)/i.test(err.message);
 }

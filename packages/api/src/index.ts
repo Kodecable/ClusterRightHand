@@ -16,6 +16,7 @@ export * from "./jobs.ts";
 export * from "./libraries.ts";
 export * from "./lists.ts";
 export * from "./locales.ts";
+export * from "./metrics.ts";
 export * from "./models.ts";
 export * from "./nodes.ts";
 export * from "./policy.ts";

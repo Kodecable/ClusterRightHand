@@ -444,6 +444,26 @@ export function nodeView(overrides: Partial<PublicNode> = {}): PublicNode {
 }
 
 /**
+ * Applies the API's `series`/`prefix.*` expansion to a mocked metrics response, so a spec can only see a
+ * series the WebUI actually requested (a missing entry in `METRICS_SERIES` then fails the spec).
+ */
+export function filterMetricsSeries(metrics: NodeMetricsResponse, requested: string | null): NodeMetricsResponse {
+	if (requested === null) return metrics;
+	const entries = requested
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry !== "");
+	return {
+		...metrics,
+		series: metrics.series.filter((reading) =>
+			entries.some((entry) =>
+				entry.endsWith(".*") ? reading.name.startsWith(entry.slice(0, -1)) : reading.name === entry,
+			),
+		),
+	};
+}
+
+/**
  * A node's stored host metrics for the Metrics tab: enough series for every chart, plus level-4 `up` buckets
  * for the availability strip. The same response answers the range read and the explicit `level=4` read.
  */
@@ -948,7 +968,7 @@ export async function mockApi(page: Page, options: MockOptions = {}): Promise<Ap
 			const id = decodeURIComponent(nodeMetricsMatch[1] as string);
 			const metrics = state.nodeMetrics[id];
 			if (!metrics) return json({ error: "no such node" }, 404);
-			return json(metrics);
+			return json(filterMetricsSeries(metrics, url.searchParams.get("series")));
 		}
 		// The traffic mutations change the stored period; the next metrics read shows it.
 		const trafficResetMatch = /^\/api\/nodes\/([^/]+)\/traffic\/reset$/.exec(path);

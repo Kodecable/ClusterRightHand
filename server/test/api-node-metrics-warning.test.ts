@@ -55,6 +55,7 @@ describe("metrics warning on the node API", () => {
 	let disabledApp: App;
 	let cookie: string;
 	let disabledCookie: string;
+	let memberCookie: string;
 	let crhaId: string;
 	let sshId: string;
 	const connected = new Set<string>();
@@ -99,13 +100,29 @@ describe("metrics warning on the node API", () => {
 
 	beforeAll(async () => {
 		db = await openTestDb("sqlite");
-		await createUser(db, { username: "metrics-root", kind: "admin", password: "password-123" });
+		const root = await createUser(db, { username: "metrics-root", kind: "admin", password: "password-123" });
+		const member = await createUser(db, { username: "metrics-member", kind: "member", password: "password-123" });
 		crhaId = await addNode(db, "metrics-crha", "client");
 		sshId = await addNode(db, "metrics-ssh", "ssh");
+		// The member sees the crha node through a grant; without one the node is hidden from the list.
+		await db
+			.insertInto("node_access_grants")
+			.values({
+				id: newId(),
+				org_id: await defaultOrgId(db),
+				grantee_type: "user",
+				grantee_id: member.id,
+				target_type: "node",
+				target_id: crhaId,
+				created_by_user_id: root.id,
+				created_at: new Date().toISOString(),
+			})
+			.execute();
 		enabledApp = makeApp(true);
 		disabledApp = makeApp(false);
 		cookie = await login(enabledApp, "metrics-root", "password-123");
 		disabledCookie = await login(disabledApp, "metrics-root", "password-123");
+		memberCookie = await login(enabledApp, "metrics-member", "password-123");
 	});
 
 	beforeEach(() => {
@@ -144,6 +161,22 @@ describe("metrics warning on the node API", () => {
 		expect(await fromBothRoutes(disabledApp, disabledCookie, crhaId)).toEqual({
 			list: null,
 			detail: null,
+		});
+	});
+
+	it("keeps a raw SSH failure reason for administrators but not for other viewers", async () => {
+		connected.add(crhaId);
+		const detailed = {
+			reason: "crh@192.0.2.10:22 via jump@203.0.113.5:2222: connection refused",
+			since: "2026-01-01T00:00:00.000Z",
+		};
+		failures.set(crhaId, detailed);
+		expect(await fromBothRoutes(enabledApp, cookie, crhaId)).toEqual({ list: detailed, detail: detailed });
+		const member = await fromBothRoutes(enabledApp, memberCookie, crhaId);
+		// The member keeps the failure and its since instant, but not the route the reason names.
+		expect(member).toEqual({
+			list: { reason: "metrics collection failed", since: detailed.since },
+			detail: { reason: "metrics collection failed", since: detailed.since },
 		});
 	});
 

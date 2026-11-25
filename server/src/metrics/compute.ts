@@ -10,13 +10,26 @@
  * the monotonic time of its answer; a network rate divides an interface's delta by the time since that
  * interface's own counters were stored, so a sample missing the interface keeps both until it returns.
  */
-import { MAX_METRICS_CORES, MAX_METRICS_DISKS, MAX_METRICS_INTERFACES, type MetricsSnapshot } from "@crh/protocol";
+import {
+	isValidMetricsCoreIndex,
+	isValidMetricsDiskName,
+	isValidMetricsInterfaceName,
+	MAX_METRICS_CORES,
+	MAX_METRICS_DISKS,
+	MAX_METRICS_INTERFACES,
+	type MetricsSnapshot,
+} from "@crh/protocol";
 import type { MetricValue } from "./store.ts";
+
+/** How many consecutive samples a core or interface may be absent before its counters are forgotten. */
+export const METRICS_COUNTER_PRUNE_AFTER_SAMPLES = 10;
 
 /** One CPU line's jiffies; `busy` is total minus idle and iowait. */
 interface CPUCounter {
 	busy: bigint;
 	total: bigint;
+	/** Consecutive samples that did not report this core; it is dropped at the limit. */
+	missingSamples?: number;
 }
 
 /** One interface's counters, as /proc/net/dev reports them, and when they were stored. */
@@ -27,6 +40,8 @@ interface InterfaceCounter {
 	txPackets: bigint;
 	/** The monotonic answer time of the sample that stored these counters, for this interface's rate. */
 	atMs: number;
+	/** Consecutive samples that did not report this interface; it is dropped at the limit. */
+	missingSamples: number;
 }
 
 /** What one node's previous sample left behind between calls. */
@@ -101,7 +116,9 @@ export class MetricsComputer {
 			// The limits of one sample (doc/design/metrics.md "Limits"); a decoded body is already bounded,
 			// but the computation enforces them too so no caller can grow a node's series past them.
 			for (const disk of raw.disks.slice(0, MAX_METRICS_DISKS)) {
-				if (disk.kind !== "ok") continue;
+				// A name outside the protocol's form is dropped here too, so a caller that did not go through
+				// the decoded message cannot turn it into a series (doc/design/metrics.md "Limits").
+				if (disk.kind !== "ok" || !isValidMetricsDiskName(disk.name)) continue;
 				const total = Number(disk.totalBytes);
 				const used = Number(disk.usedBytes);
 				pushGauge(`disk.${disk.name}.total_bytes`, total);
@@ -134,7 +151,10 @@ function computeCPU(state: NodeCounters, raw: MetricsSnapshot, values: MetricVal
 	}
 	state.cpu = { busy: cpu.total.busy, total: cpu.total.total };
 
+	const present = new Set<number>();
 	for (const core of cpu.cores.slice(0, MAX_METRICS_CORES)) {
+		if (!isValidMetricsCoreIndex(core.index)) continue;
+		present.add(core.index);
 		const old = state.cores.get(core.index);
 		if (old !== undefined && core.total >= old.total && core.busy >= old.busy) {
 			const deltaTotal = core.total - old.total;
@@ -146,7 +166,14 @@ function computeCPU(state: NodeCounters, raw: MetricsSnapshot, values: MetricVal
 				}
 			}
 		}
-		state.cores.set(core.index, { busy: core.busy, total: core.total });
+		state.cores.set(core.index, { busy: core.busy, total: core.total, missingSamples: 0 });
+	}
+	// A core that stays offline would otherwise keep its counters in memory forever, and a node whose core
+	// count changes could grow the map sample after sample (doc/design/metrics.md "Computation").
+	for (const [index, counter] of state.cores) {
+		if (present.has(index)) continue;
+		counter.missingSamples = (counter.missingSamples ?? 0) + 1;
+		if (counter.missingSamples >= METRICS_COUNTER_PRUNE_AFTER_SAMPLES) state.cores.delete(index);
 	}
 }
 
@@ -171,7 +198,10 @@ function computeNetwork(
 	let rxRate = 0;
 	let txRate = 0;
 	let rates = false;
+	const present = new Set<string>();
 	for (const iface of interfaces.slice(0, MAX_METRICS_INTERFACES)) {
+		if (!isValidMetricsInterfaceName(iface.name)) continue;
+		present.add(iface.name);
 		const old = state.interfaces.get(iface.name);
 		if (
 			old !== undefined &&
@@ -203,7 +233,13 @@ function computeNetwork(
 			rxPackets: iface.rxPackets,
 			txPackets: iface.txPackets,
 			atMs: answerMonotonicMs,
+			missingSamples: 0,
 		});
+	}
+	for (const [name, counter] of state.interfaces) {
+		if (present.has(name)) continue;
+		counter.missingSamples += 1;
+		if (counter.missingSamples >= METRICS_COUNTER_PRUNE_AFTER_SAMPLES) state.interfaces.delete(name);
 	}
 	if (!deltas) return;
 	if (rates) {

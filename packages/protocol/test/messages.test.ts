@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { decode as decodeCbor, encode as encodeCbor } from "../src/cbor.ts";
+import { CborError, decode as decodeCbor, encode as encodeCbor } from "../src/cbor.ts";
 import {
 	type Command,
 	commandCodec,
@@ -21,6 +22,7 @@ import {
 	helloCodec,
 	type InputRef,
 	inputRefCodec,
+	isValidMetricsInterfaceName,
 	MAX_METRICS_CORES,
 	MAX_METRICS_DISKS,
 	MAX_METRICS_INTERFACES,
@@ -85,6 +87,13 @@ import {
 import { type Codec, SchemaError } from "../src/schema.ts";
 
 const digest = (fill: number): Uint8Array => new Uint8Array(32).fill(fill);
+
+// The interface-name form shared with crha (doc/design/metrics.md "Limits"). The hex entries are names
+// whose bytes are not valid UTF-8: JavaScript strings cannot hold those, so the decoder side of the
+// profile is where the TypeScript rule can reject them.
+const interfaceNameCases = JSON.parse(
+	readFileSync(new URL("../../../test/interop/metrics_interface_names.json", import.meta.url), "utf8"),
+) as { valid: string[]; invalid: string[]; invalid_utf8_hex: string[] };
 
 const facts: Facts = {
 	hostname: "node-1",
@@ -507,6 +516,133 @@ describe("message codecs", () => {
 		).toThrow(SchemaError);
 		expect(() =>
 			metricsSnapshotCodec.decode(new Map([["cpu", [[1n, 2n], Array(MAX_METRICS_CORES + 1).fill([0, 1n, 2n])]]])),
+		).toThrow(SchemaError);
+	});
+
+	it("agrees with crha on the shared interface-name cases", () => {
+		for (const name of interfaceNameCases.valid) {
+			expect(isValidMetricsInterfaceName(name), name).toBe(true);
+		}
+		for (const name of interfaceNameCases.invalid) {
+			expect(isValidMetricsInterfaceName(name), JSON.stringify(name)).toBe(false);
+		}
+		// A lone surrogate is the JavaScript form of text no UTF-8 encoder can write, and Go rejects the
+		// same name as invalid UTF-8.
+		expect(isValidMetricsInterfaceName("\ud800")).toBe(false);
+		// The limit is 15 bytes, not 15 characters: `网卡0` is 9 bytes, `éééééééé` is 16.
+		expect(isValidMetricsInterfaceName("a".repeat(15))).toBe(true);
+		expect(isValidMetricsInterfaceName("a".repeat(16))).toBe(false);
+	});
+
+	it("rejects an interface name whose wire bytes are not valid UTF-8", () => {
+		// The metrics map's interface names are text, so the profile rejects a name carrying invalid
+		// UTF-8 before the codec's per-entry drop applies; crha's decoder does the same.
+		for (const hex of interfaceNameCases.invalid_utf8_hex) {
+			const name = Uint8Array.from(Buffer.from(hex, "hex"));
+			// {"interfaces": [[<name>, 1, 2, 3, 4]]}; the text header is 0x60 | length for these short names.
+			const body = Uint8Array.from([
+				0xa1,
+				0x6a,
+				...Buffer.from("interfaces"),
+				0x81,
+				0x85,
+				0x60 | name.length,
+				...name,
+				1,
+				2,
+				3,
+				4,
+			]);
+			expect(() => decodeCbor(body), hex).toThrow(CborError);
+		}
+	});
+
+	it("drops a metrics entry whose name or core index is outside the protocol's form", () => {
+		const wire = new Map<string, unknown>([
+			[
+				"disks",
+				[
+					["ok", ["bad name", "/", 1n, 2n]],
+					["ok", ["data", "/data", 3n, 4n]],
+					["ok", ["dot.name", "/dot", 5n, 6n]],
+				],
+			],
+			[
+				"interfaces",
+				[
+					["bad name", 1n, 2n, 3n, 4n],
+					["a".repeat(16), 1n, 2n, 3n, 4n],
+					[".", 1n, 2n, 3n, 4n],
+					["..", 1n, 2n, 3n, 4n],
+					["a/b", 1n, 2n, 3n, 4n],
+					["a:b", 1n, 2n, 3n, 4n],
+					["a\tb", 1n, 2n, 3n, 4n],
+					["a\u0007b", 1n, 2n, 3n, 4n],
+					["eth0", 5n, 6n, 7n, 8n],
+					["veth@if3", 9n, 10n, 11n, 12n],
+					["wlan0.100", 13n, 14n, 15n, 16n],
+					["wg+0", 17n, 18n, 19n, 20n],
+					["网卡0", 21n, 22n, 23n, 24n],
+					["veth1a2b3c4", 25n, 26n, 27n, 28n],
+					["br-1a2b", 29n, 30n, 31n, 32n],
+				],
+			],
+			[
+				"cpu",
+				[
+					[1n, 2n],
+					[
+						[0, 1n, 2n],
+						[MAX_METRICS_CORES, 3n, 4n],
+					],
+				],
+			],
+		]);
+		const decoded = metricsSnapshotCodec.decode(wire) as MetricsSnapshot;
+		// The rest of the sample survives: only the offending entries are dropped.
+		expect(decoded.disks).toEqual([{ kind: "ok", name: "data", path: "/data", totalBytes: 3n, usedBytes: 4n }]);
+		expect(decoded.interfaces?.map((iface) => iface.name)).toEqual([
+			"eth0",
+			"veth@if3",
+			"wlan0.100",
+			"wg+0",
+			"网卡0",
+			"veth1a2b3c4",
+			"br-1a2b",
+		]);
+		expect(decoded.cpu?.cores).toEqual([{ index: 0, busy: 1n, total: 2n }]);
+
+		// A structurally malformed entry is still a decode error, not a silently dropped one.
+		expect(() => metricsSnapshotCodec.decode(new Map([["disks", [["ok", ["data", "/data", 1n]]]]]))).toThrow(
+			SchemaError,
+		);
+	});
+
+	it("refuses to encode a metrics entry whose name or core index is outside the protocol's form", () => {
+		const total = { busy: 1n, total: 2n };
+		expect(() =>
+			metricsSnapshotCodec.encode({
+				disks: [{ kind: "ok", name: "bad name", path: "/", totalBytes: 1n, usedBytes: 2n }],
+			}),
+		).toThrow(SchemaError);
+		expect(() =>
+			metricsSnapshotCodec.encode({
+				interfaces: [{ name: "a".repeat(16), rxBytes: 1n, txBytes: 2n, rxPackets: 3n, txPackets: 4n }],
+			}),
+		).toThrow(SchemaError);
+		expect(() =>
+			metricsSnapshotCodec.encode({
+				interfaces: [{ name: "a\tb", rxBytes: 1n, txBytes: 2n, rxPackets: 3n, txPackets: 4n }],
+			}),
+		).toThrow(SchemaError);
+		// A lone surrogate cannot be written as UTF-8, so it is refused like any other out-of-form name.
+		expect(() =>
+			metricsSnapshotCodec.encode({
+				interfaces: [{ name: "\ud800", rxBytes: 1n, txBytes: 2n, rxPackets: 3n, txPackets: 4n }],
+			}),
+		).toThrow(SchemaError);
+		expect(() =>
+			metricsSnapshotCodec.encode({ cpu: { total, cores: [{ index: MAX_METRICS_CORES, busy: 1n, total: 2n }] } }),
 		).toThrow(SchemaError);
 	});
 

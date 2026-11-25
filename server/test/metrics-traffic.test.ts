@@ -194,6 +194,26 @@ describeBackends("traffic totals", (backend) => {
 		expect(before).toMatchObject({ periodStartMs: SLOT + 3 * TRAFFIC_PERIOD_MS, rxBytes: 0 });
 	});
 
+	it("does not count a sample recorded before a reset that is flushed after it", async () => {
+		const nodeId = await addNode(db, "traffic-stale-delta");
+		store.record(nodeId, SLOT, trafficValues(1000, 250));
+		await store.flush();
+
+		// A reset starts a new period; a sample whose slot belongs to the old period is still buffered.
+		const resetAt = SLOT + 10 * MINUTE;
+		await store.resetTraffic(nodeId, resetAt);
+		store.record(nodeId, SLOT + 5 * MINUTE, trafficValues(777, 888));
+		// A sample in the new period counts normally.
+		store.record(nodeId, resetAt + MINUTE, trafficValues(10, 20));
+		await store.flush();
+
+		expect(await store.traffic(nodeId)).toMatchObject({
+			periodStartMs: resetAt,
+			rxBytes: 10,
+			txBytes: 20,
+		});
+	});
+
 	it("skips a node deleted before its buffered sample is flushed", async () => {
 		const nodeId = await addNode(db, "traffic-deleted");
 		store.record(nodeId, SLOT, trafficValues(100, 200));

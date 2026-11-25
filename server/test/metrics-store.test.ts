@@ -6,7 +6,7 @@ import {
 	METRIC_LEVEL_BUCKET_MS,
 	type MetricsRetentionConfig,
 } from "../src/metrics/levels.ts";
-import { METRICS_MAX_PENDING_VALUES, MetricsStore } from "../src/metrics/store.ts";
+import { MAX_METRICS_SERIES_PER_NODE, METRICS_MAX_PENDING_VALUES, MetricsStore } from "../src/metrics/store.ts";
 import type { Db } from "../src/storage/db.ts";
 import { defaultOrgId } from "../src/storage/org.ts";
 import { newId } from "../src/util/id.ts";
@@ -544,6 +544,89 @@ describeBackends("metrics store", (backend) => {
 			expect(bucket.last).toBe(value);
 		}
 	});
+
+	it("caps a node's distinct series and keeps recording the ones it already has", async () => {
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		const capNodeId = await addNode(db, "cap-node");
+		const values = Array.from({ length: MAX_METRICS_SERIES_PER_NODE + 2 }, (_, index) => ({
+			name: `cap.${index}`,
+			kind: "gauge" as const,
+			value: index,
+		}));
+		store.record(capNodeId, SLOT, values);
+		await store.flush();
+
+		const names = await store.seriesNames(capNodeId);
+		expect(names).toHaveLength(MAX_METRICS_SERIES_PER_NODE);
+		expect(names[0]).toBe("cap.0");
+		expect(names).toContain(`cap.${MAX_METRICS_SERIES_PER_NODE - 1}`);
+		expect(names).not.toContain(`cap.${MAX_METRICS_SERIES_PER_NODE}`);
+		// The over-cap values are logged once, with the limit, not once per value.
+		expect(log).toHaveBeenCalledTimes(1);
+		expect(String(log.mock.calls[0]?.[0])).toContain(`over the ${MAX_METRICS_SERIES_PER_NODE}-series limit`);
+
+		// With the cap full, an existing series still records and another new name is dropped.
+		store.record(capNodeId, SLOT + MINUTE, [
+			{ name: "cap.0", kind: "gauge", value: 999 },
+			{ name: "cap.over", kind: "gauge", value: 1 },
+		]);
+		await store.flush();
+		expect((await store.seriesNames(capNodeId)).length).toBe(MAX_METRICS_SERIES_PER_NODE);
+		expect(await store.seriesNames(capNodeId)).not.toContain("cap.over");
+		const readings = await store.read(capNodeId, ["cap.0"], SLOT - MINUTE, SLOT + 2 * MINUTE, 1);
+		expect(readings[0]?.buckets.at(-1)?.last).toBe(999);
+		// Within the same hour the drop is not logged again.
+		expect(log).toHaveBeenCalledTimes(1);
+	});
+
+	it("runs a retention sweep queued during a flush after that flush", async () => {
+		const sweepNodeId = await addNode(db, "sweep-during-flush");
+		let releaseFlush!: () => void;
+		const flushGate = new Promise<void>((resolve) => {
+			releaseFlush = resolve;
+		});
+		let enteredFlush!: () => void;
+		const flushStarted = new Promise<void>((resolve) => {
+			enteredFlush = resolve;
+		});
+		let hold = true;
+		let sweepStarted = false;
+		let queriesAfterSweep = 0;
+		const plugin: KyselyPlugin = {
+			transformQuery(args) {
+				if (sweepStarted) queriesAfterSweep += 1;
+				return args.node;
+			},
+			async transformResult(args) {
+				if (hold) {
+					hold = false;
+					enteredFlush();
+					await flushGate;
+				}
+				return args.result;
+			},
+		};
+		const gated = new MetricsStore(db.withPlugin(plugin), { timer: false });
+		gated.record(sweepNodeId, SLOT, [{ name: "up", kind: "gauge", value: 1 }]);
+		const flushing = gated.flush();
+		await flushStarted;
+		sweepStarted = true;
+		const sweeping = gated.sweep(DEFAULT_METRICS_RETENTION_MS, SLOT + 2 * DAY).then(
+			(result) => result,
+			(err: unknown) => err,
+		);
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 50));
+			// Serialized: the sweep has not issued a statement while the flush is still open. Without the
+			// ordering it would race the flush and could delete the series the flush is creating.
+			expect(queriesAfterSweep).toBe(0);
+		} finally {
+			releaseFlush();
+			await flushing;
+			await sweeping;
+			await gated.close();
+		}
+	});
 });
 
 describe("metrics level chooser", () => {
@@ -559,10 +642,24 @@ describe("metrics level chooser", () => {
 
 	it("uses the coarsest level that covers from and still gives 200 points", () => {
 		expect(choose(NOW - HOUR, NOW)).toBe(1); // 60 one-minute points; no coarser level reaches 200
-		expect(choose(NOW - 24 * HOUR, NOW)).toBe(2); // 288 five-minute points, level 3 gives 24
+		expect(choose(NOW - 24 * HOUR, NOW)).toBe(2); // 288 five-minute points; level 3 gives 24
 		expect(choose(NOW - 7 * DAY, NOW)).toBe(2); // 2016 points; level 1 no longer covers from
 		expect(choose(NOW - 30 * DAY, NOW)).toBe(3); // 720 hour points, level 4 gives 30
 		expect(choose(NOW - 365 * DAY, NOW)).toBe(4); // 365 day points
+	});
+
+	it("keeps a boundary range's level despite a few seconds of request skew", () => {
+		// A caller computes from/to in the browser a few milliseconds before crhs evaluates the level; the
+		// range itself is exactly 24h, 7d, 30d or 365d.
+		for (const skew of [50, 5_000]) {
+			expect(choose(NOW - HOUR - skew, NOW - skew)).toBe(1);
+			expect(choose(NOW - 24 * HOUR - skew, NOW - skew)).toBe(2);
+			// Without the tolerance these two fell to levels 3 and 4, because level 2/3 retention is exceeded
+			// by the request's few seconds of skew.
+			expect(choose(NOW - 7 * DAY - skew, NOW - skew)).toBe(2);
+			expect(choose(NOW - 30 * DAY - skew, NOW - skew)).toBe(3);
+			expect(choose(NOW - 365 * DAY - skew, NOW - skew)).toBe(4);
+		}
 	});
 
 	it("falls back to the finest level whose retention covers from", () => {
